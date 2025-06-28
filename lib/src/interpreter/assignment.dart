@@ -221,11 +221,15 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         }
 
         // No metamethod or key exists - do regular assignment
-        final identifier = (await target.index.accept(this)).toValue();
-        tableValue[identifier.isNil
-                ? (target.index as Identifier).name
-                : identifier] =
-            wrappedValue;
+        dynamic identifier;
+
+        try {
+          identifier = (await target.index.accept(this));
+        } catch (_) {
+          identifier = (target.index as Identifier).name;
+        }
+
+        tableValue[identifier] = wrappedValue;
 
         Logger.debug(
           '_handleTableAccessAssignment: Assigned ${wrappedValue.raw} to ${(target.index as Identifier).name}',
