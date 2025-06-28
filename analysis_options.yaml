@@ -13,6 +13,8 @@
 
 include: package:lints/recommended.yaml
 analyzer:
+  exclude:
+    - lib/src/grammar_parser.dart
   errors:
     library_annotations: ignore
     collection_methods_unrelated_type: ignore
@@ -31,4 +33,4 @@ analyzer:
 # https://dart.dev/go/core-lints
 
 # For additional information about configuring this file, see
-# https://dart.dev/guides/language/analysis-options
+# https://dart.dev/guides/language/analy  sis-options

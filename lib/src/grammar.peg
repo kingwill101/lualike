@@ -307,7 +307,6 @@ LocalNameListWithAttribs =>
   {
     List<Identifier> ids = [];
     List<String> attribs = [];
-    final startPos = state.position;
   }
   first = ID
   {
@@ -336,9 +335,6 @@ LocalNameListWithAttribs =>
 
 `String?`
 AttributeOpt =>
-  {
-    final startPos = state.position;
-  }
   '<' S
   { final attrStart = state.position; }
   attr = <[a-zA-Z_][a-zA-Z0-9_]*> S
@@ -579,7 +575,6 @@ ParameterList =>
   {
     List<Identifier> params = [];
     bool hasVararg = false;
-    final startPos = state.position;
   }
   (
     varargMatch = Vararg
@@ -697,10 +692,8 @@ FunctionBody =>
   '(' S
   paramResult = ParameterList?
   {
-    if (paramResult != null) {
       params = paramResult.$1;
       hasVararg = paramResult.$2;
-    }
   }
   ')' S
   body = Statements
@@ -963,7 +956,7 @@ DirectStringCall =>
         ----
         '\'' str = SingleChars? '\''
         {
-            final strContent = str ?? '';
+            final strContent = str;
             expr = FunctionCall(name, [StringLiteral(strContent)]);
         }
     )
@@ -1228,9 +1221,6 @@ DirectStringFunctionCall =>
     (
       S '(' S
       callArgs = ExpressionList?
-      {
-        callArgs ??= [];
-      }
       ')' S
       {
         expr = FunctionCall(expr, callArgs);
@@ -1289,12 +1279,11 @@ FunctionCall =>
 `List<AstNode>`
 Args =>
   {
-    final startPos = state.position;
     List<AstNode> result = [];
   }
   (
     '(' S exprs = ExpressionList? TrailingComma ')' S
-    { result = exprs ?? []; }
+    { result = exprs; }
     ----
     table = TableConstructor
     { result = [table]; }
@@ -1319,7 +1308,6 @@ TrailingComma =>
 ExpressionList =>
   {
     List<AstNode> entries = [];
-    final startPos = state.position;
   }
   (
     first = Expression
@@ -1577,7 +1565,6 @@ TableConstructor =>
 TableEntries =>
   {
     List<TableEntry> entries = [];
-    final startPos = state.position;
   }
   (
     first = TableEntry

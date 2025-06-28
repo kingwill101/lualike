@@ -200,7 +200,6 @@ class GrammarParser {
   /// `List<AstNode>`
   /// Args =>
   ///   {
-  ///     final startPos = state.position;
   ///     List<AstNode> result = [];
   ///   }
   ///   (
@@ -210,7 +209,7 @@ class GrammarParser {
   ///     TrailingComma
   ///     ')'
   ///     S
-  ///     { result = exprs ?? []; }
+  ///     { result = exprs; }
   ///     ----
   ///     table = TableConstructor
   ///     { result = [table]; }
@@ -226,7 +225,6 @@ class GrammarParser {
   (List<AstNode>,)? parseArgs(State state) {
     final $1 = state.position;
     (List<AstNode>,)? $0;
-    final startPos = state.position;
     List<AstNode> result = [];
     var $2 = true;
     final $4 = state.position;
@@ -243,7 +241,7 @@ class GrammarParser {
       if (state.peek() == 41) {
         state.consume(')', $7);
         parseS(state);
-        result = exprs ?? [];
+        result = exprs;
         $3 = true;
       } else {
         state.expected(')');
@@ -415,9 +413,6 @@ class GrammarParser {
   ///```text
   /// `String?`
   /// AttributeOpt =>
-  ///   {
-  ///     final startPos = state.position;
-  ///   }
   ///   '<'
   ///   S
   ///   { final attrStart = state.position; }
@@ -439,17 +434,15 @@ class GrammarParser {
   (String?,)? parseAttributeOpt(State state) {
     final $1 = state.position;
     (String?,)? $0;
-    final startPos = state.position;
-    final $2 = state.position;
     if (state.peek() == 60) {
-      state.consume('<', $2);
+      state.consume('<', $1);
       parseS(state);
       final attrStart = state.position;
-      final $3 = state.position;
-      var $4 = false;
-      final $5 = state.peek();
-      if ($5 >= 95 ? $5 <= 95 || $5 >= 97 && $5 <= 122 : $5 >= 65 && $5 <= 90) {
-        state.position += state.charSize($5);
+      final $2 = state.position;
+      var $3 = false;
+      final $4 = state.peek();
+      if ($4 >= 95 ? $4 <= 95 || $4 >= 97 && $4 <= 122 : $4 >= 65 && $4 <= 90) {
+        state.position += state.charSize($4);
         for (
           var c = state.peek();
           c >= 65
@@ -459,27 +452,27 @@ class GrammarParser {
           state.position += state.charSize(c);
           c = state.peek();
         }
-        $4 = true;
+        $3 = true;
       } else {
         state.fail();
       }
-      if ($4) {
-        final $6 = state.substring($3, state.position);
-        String attr = $6;
+      if ($3) {
+        final $5 = state.substring($2, state.position);
+        String attr = $5;
         parseS(state);
-        final $8 = state.failure;
+        final $7 = state.failure;
         state.failure = state.position;
-        var $7 = false;
+        var $6 = false;
         if (_checkAttr(attr, attrStart, state.position, state)) {
           parseS(state);
-          $7 = true;
+          $6 = true;
         }
-        if ($7) {
-          state.failure < $8 ? state.failure = $8 : null;
+        if ($6) {
+          state.failure < $7 ? state.failure = $7 : null;
           parseS(state);
-          final $9 = state.position;
+          final $8 = state.position;
           if (state.peek() == 62) {
-            state.consume('>', $9);
+            state.consume('>', $8);
             parseS(state);
             final String? $$;
             $$ = attr;
@@ -495,7 +488,7 @@ class GrammarParser {
             state.failure,
             2,
           );
-          state.failure < $8 ? state.failure = $8 : null;
+          state.failure < $7 ? state.failure = $7 : null;
         }
       }
     } else {
@@ -1141,7 +1134,7 @@ class GrammarParser {
   ///     str = SingleChars?
   ///     '\''
   ///     {
-  ///       final strContent = str ?? '';
+  ///       final strContent = str;
   ///       expr = FunctionCall(name, [StringLiteral(strContent)]);
   ///     }
   ///   )
@@ -1211,7 +1204,7 @@ class GrammarParser {
           final $13 = state.position;
           if (state.peek() == 39) {
             state.consume('\'', $13);
-            final strContent = str ?? '';
+            final strContent = str;
             expr = FunctionCall(name, [StringLiteral(strContent)]);
             $9 = true;
           } else {
@@ -1336,9 +1329,6 @@ class GrammarParser {
   ///     '('
   ///     S
   ///     callArgs = ExpressionList?
-  ///     {
-  ///       callArgs ??= [];
-  ///     }
   ///     ')'
   ///     S
   ///     {
@@ -1455,7 +1445,6 @@ class GrammarParser {
           final $26 = parseExpressionList(state);
           $27 = $26;
           List<AstNode>? callArgs = $27;
-          callArgs ??= [];
           final $28 = state.position;
           if (state.peek() == 41) {
             state.consume(')', $28);
@@ -1801,7 +1790,6 @@ class GrammarParser {
   /// ExpressionList =>
   ///   {
   ///     List<AstNode> entries = [];
-  ///     final startPos = state.position;
   ///   }
   ///   (
   ///     first = Expression
@@ -1828,7 +1816,6 @@ class GrammarParser {
   ///```
   List<AstNode> parseExpressionList(State state) {
     List<AstNode> entries = [];
-    final startPos = state.position;
     var $0 = false;
     final $1 = parseExpression(state);
     if ($1 != null) {
@@ -2252,10 +2239,8 @@ class GrammarParser {
   ///   S
   ///   paramResult = ParameterList?
   ///   {
-  ///     if (paramResult != null) {
-  ///       params = paramResult.$1;
-  ///       hasVararg = paramResult.$2;
-  ///     }
+  ///     params = paramResult.$1;
+  ///     hasVararg = paramResult.$2;
   ///   }
   ///   ')'
   ///   S
@@ -3392,7 +3377,6 @@ class GrammarParser {
   ///   {
   ///     List<Identifier> ids = [];
   ///     List<String> attribs = [];
-  ///     final startPos = state.position;
   ///   }
   ///   first = ID
   ///   {
@@ -3427,7 +3411,6 @@ class GrammarParser {
     ((List<Identifier>, List<String>),)? $0;
     List<Identifier> ids = [];
     List<String> attribs = [];
-    final startPos = state.position;
     final $2 = parseID(state);
     if ($2 != null) {
       Identifier first = $2.$1;
@@ -4269,7 +4252,6 @@ class GrammarParser {
   ///   {
   ///     List<Identifier> params = [];
   ///     bool hasVararg = false;
-  ///     final startPos = state.position;
   ///   }
   ///   (
   ///     varargMatch = Vararg
@@ -4310,7 +4292,6 @@ class GrammarParser {
   (List<Identifier>, bool) parseParameterList(State state) {
     List<Identifier> params = [];
     bool hasVararg = false;
-    final startPos = state.position;
     var $0 = true;
     var $1 = false;
     final $2 = parseVararg(state);
@@ -5715,7 +5696,6 @@ class GrammarParser {
   /// TableEntries =>
   ///   {
   ///     List<TableEntry> entries = [];
-  ///     final startPos = state.position;
   ///   }
   ///   (
   ///     first = TableEntry
@@ -5747,7 +5727,6 @@ class GrammarParser {
     final $1 = state.position;
     (List<TableEntry>,)? $0;
     List<TableEntry> entries = [];
-    final startPos = state.position;
     var $2 = false;
     final $3 = parseTableEntry(state);
     if ($3 != null) {
