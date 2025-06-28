@@ -1,0 +1,22 @@
+concurrency: 4
+timeout: 30s
+reporter: expanded
+
+paths:
+  - 'test'
+tags:
+  # Tags for different test categories
+  bytecode: {
+    skip:  "Bytecode can be officially tested after we complete enough work on the interpreter."
+  }
+  pm: {
+    skip: "PM tests are not yet supported."
+  }
+  stdlib: {}
+  interop: {}
+  interpreter: {}
+  core: { add_tags: [interpreter] }
+  statements: { add_tags: [interpreter] }
+  expressions: { add_tags: [interpreter] }
+  functions: { add_tags: [interpreter] }
+  misc: { add_tags: [interpreter] }

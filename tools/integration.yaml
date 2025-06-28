@@ -1,0 +1,45 @@
+# LuaLike Integration Test Configuration
+
+# Test suite configuration
+test_suite:
+  path: .lua-tests
+  download_url: https://www.lua.org/tests/lua-5.4.7-tests.tar.gz
+
+# Execution settings
+execution:
+  mode: ast  # 'ast' or 'bytecode'
+  use_internal_tests: false
+  parallel: false
+  jobs: 4
+
+# Logging configuration
+logging:
+  base_dir: test-logs
+  keep_only_latest: true
+  verbose: false
+
+# Test selection
+filter:
+  pattern: null  # Regex pattern to match test names
+  categories: []  # List of categories to run, e.g. ['core', 'strings']
+
+# Tests to skip
+skip_tests:
+  # Tests that require C API functionality
+  - api.lua
+
+  # Tests that require specific Lua features not yet implemented
+  - coroutine.lua
+  - gc.lua
+  - nextvar.lua
+
+  # Tests that are known to fail due to implementation differences
+  - pm.lua
+  # - utf8.lua
+
+  # Tests that are too complex or resource-intensive
+  - big.lua
+  - sort.lua
+  - utf8.lua
+
+  # Add more tests as needed

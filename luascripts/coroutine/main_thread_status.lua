@@ -1,0 +1,11 @@
+   local main, ismain = coroutine.running()
+   mainthread_status = coroutine.status(main)
+   can_resume_main = pcall(coroutine.resume, main)
+   is_main_yieldable = coroutine.isyieldable(main)
+   can_yield = pcall(coroutine.yield)
+
+   print("can resume main:", can_resume_main)
+   print("main thread status:", mainthread_status)
+   print("can yield:", can_yield)
+   print("is main yieldable:", is_main_yieldable)
+   print("is main main:", ismain)
