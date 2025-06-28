@@ -692,6 +692,7 @@ FunctionBody =>
     final startPos = state.position;
     List<Identifier> params = [];
     bool hasVararg = false;
+    bool implicitSelf = false;
   }
   '(' S
   paramResult = ParameterList?
@@ -705,7 +706,7 @@ FunctionBody =>
   body = Statements
   'end' S
   $ = {
-    final node = FunctionBody(params, body, hasVararg);
+    final node = FunctionBody(params, body, hasVararg, implicitSelf: implicitSelf);
     $$ = _setNodeSpan(node, startPos, state.position, state);
   }
 
@@ -1039,7 +1040,7 @@ FunctionCallWithTableAccess =>
             S
             args = Args
             {
-                baseExpr = MethodCall(baseExpr!, methodName, args);
+                baseExpr = MethodCall(baseExpr!, methodName, args, implicitSelf: true);
             }
         )
     }
@@ -1273,7 +1274,12 @@ FunctionCall =>
     ----
     ':' S methodName = ID S args = Args
     {
-      call = MethodCall(prefix!, methodName, args);
+      call = MethodCall(prefix!, methodName, args, implicitSelf: true);
+    }
+    ----
+    '.' S methodName = ID S args = Args
+    {
+      call = MethodCall(prefix!, methodName, args, implicitSelf: true);
     }
   )
   $ = {

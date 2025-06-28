@@ -252,10 +252,9 @@ class IfStatement extends AstNode {
   String toSource() {
     final thenSrc = thenBlock.map((s) => s.toSource()).join("\n");
     final elseIfSrc = elseIfs.map((e) => e.toSource()).join("\n");
-    final elseSrc =
-        elseBlock.isNotEmpty
-            ? "else\n${elseBlock.map((s) => s.toSource()).join("\n")}"
-            : "";
+    final elseSrc = elseBlock.isNotEmpty
+        ? "else\n${elseBlock.map((s) => s.toSource()).join("\n")}"
+        : "";
     return "if ${cond.toSource()} then\n$thenSrc\n$elseIfSrc\n$elseSrc\nend";
   }
 }
@@ -355,7 +354,7 @@ class RepeatUntilLoop extends AstNode {
 class FunctionDef extends AstNode {
   final FunctionName name;
   final FunctionBody body;
-  final bool implicitSelf;
+  bool implicitSelf;
 
   FunctionDef(this.name, this.body, {this.implicitSelf = false});
 
@@ -401,11 +400,17 @@ class LocalFunctionDef extends AstNode {
 }
 
 class FunctionBody extends AstNode {
-  final List<Identifier>? parameters;
+  List<Identifier>? parameters;
   final bool isVararg;
   final List<AstNode> body;
+  bool implicitSelf;
 
-  FunctionBody(this.parameters, this.body, this.isVararg);
+  FunctionBody(
+    this.parameters,
+    this.body,
+    this.isVararg, {
+    this.implicitSelf = false,
+  });
 
   @override
   Future<T> accept<T>(AstVisitor<T> visitor) => visitor.visitFunctionBody(this);
@@ -570,8 +575,14 @@ class MethodCall extends Call {
   final AstNode prefix;
   final AstNode methodName;
   final List<AstNode> args;
+  final bool implicitSelf;
 
-  MethodCall(this.prefix, this.methodName, this.args);
+  MethodCall(
+    this.prefix,
+    this.methodName,
+    this.args, {
+    this.implicitSelf = false,
+  });
 
   @override
   Future<T> accept<T>(AstVisitor<T> visitor) => visitor.visitMethodCall(this);

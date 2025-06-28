@@ -2246,6 +2246,7 @@ class GrammarParser {
   ///     final startPos = state.position;
   ///     List<Identifier> params = [];
   ///     bool hasVararg = false;
+  ///     bool implicitSelf = false;
   ///   }
   ///   '('
   ///   S
@@ -2262,7 +2263,7 @@ class GrammarParser {
   ///   'end'
   ///   S
   ///   $ = {
-  ///     final node = FunctionBody(params, body, hasVararg);
+  ///     final node = FunctionBody(params, body, hasVararg, implicitSelf: implicitSelf);
   ///     $$ = _setNodeSpan(node, startPos, state.position, state);
   ///   }
   ///```
@@ -2272,6 +2273,7 @@ class GrammarParser {
     final startPos = state.position;
     List<Identifier> params = [];
     bool hasVararg = false;
+    bool implicitSelf = false;
     final $2 = state.position;
     if (state.peek() == 40) {
       state.consume('(', $2);
@@ -2295,7 +2297,12 @@ class GrammarParser {
           state.consume('end', $7);
           parseS(state);
           final FunctionBody $$;
-          final node = FunctionBody(params, body, hasVararg);
+          final node = FunctionBody(
+            params,
+            body,
+            hasVararg,
+            implicitSelf: implicitSelf,
+          );
           $$ = _setNodeSpan(node, startPos, state.position, state);
           FunctionBody $ = $$;
           $0 = ($,);
@@ -2349,7 +2356,16 @@ class GrammarParser {
   ///     S
   ///     args = Args
   ///     {
-  ///       call = MethodCall(prefix!, methodName, args);
+  ///       call = MethodCall(prefix!, methodName, args, implicitSelf: true);
+  ///     }
+  ///     ----
+  ///     '.'
+  ///     S
+  ///     methodName = ID
+  ///     S
+  ///     args = Args
+  ///     {
+  ///       call = MethodCall(prefix!, methodName, args, implicitSelf: true);
   ///     }
   ///   )
   ///   $ = {
@@ -2404,7 +2420,7 @@ class GrammarParser {
             final $13 = parseArgs(state);
             if ($13 != null) {
               List<AstNode> args = $13.$1;
-              call = MethodCall(prefix!, methodName, args);
+              call = MethodCall(prefix!, methodName, args, implicitSelf: true);
               $10 = true;
             }
           }
@@ -2413,7 +2429,34 @@ class GrammarParser {
         }
         if (!$10) {
           state.position = $11;
-          $7 = false;
+          final $15 = state.position;
+          var $14 = false;
+          if (state.peek() == 46) {
+            state.consume('.', $15);
+            parseS(state);
+            final $16 = parseID(state);
+            if ($16 != null) {
+              Identifier methodName = $16.$1;
+              parseS(state);
+              final $17 = parseArgs(state);
+              if ($17 != null) {
+                List<AstNode> args = $17.$1;
+                call = MethodCall(
+                  prefix!,
+                  methodName,
+                  args,
+                  implicitSelf: true,
+                );
+                $14 = true;
+              }
+            }
+          } else {
+            state.expected('.');
+          }
+          if (!$14) {
+            state.position = $15;
+            $7 = false;
+          }
         }
       }
       if ($7) {
@@ -2494,7 +2537,7 @@ class GrammarParser {
   ///       S
   ///       args = Args
   ///       {
-  ///         baseExpr = MethodCall(baseExpr!, methodName, args);
+  ///         baseExpr = MethodCall(baseExpr!, methodName, args, implicitSelf: true);
   ///       }
   ///     )
   ///   )
@@ -2648,7 +2691,12 @@ class GrammarParser {
                     final $32 = parseArgs(state);
                     if ($32 != null) {
                       List<AstNode> args = $32.$1;
-                      baseExpr = MethodCall(baseExpr!, methodName, args);
+                      baseExpr = MethodCall(
+                        baseExpr!,
+                        methodName,
+                        args,
+                        implicitSelf: true,
+                      );
                       $29 = true;
                     }
                   }

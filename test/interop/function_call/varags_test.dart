@@ -495,7 +495,7 @@ void main() {
         ''');
 
         var result = bridge.getGlobal('result');
-        expect((result as Value).raw, equals(8)); // (1 + 2 + 3) + 3 = 8
+        expect((result as Value).raw, equals(9));
       });
 
       test('function assignment with different parameter patterns', () async {
