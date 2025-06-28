@@ -33,7 +33,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     this is Interpreter ? (this as Interpreter).recordTrace(node) : null;
 
     // If this is a method definition (e.g., M.double)
-    if (node.name.rest.isNotEmpty) {
+    if (node.name.rest.isNotEmpty || node.implicitSelf) {
       // Get the table
       final tableName = node.name.first.name;
       final table = globals.get(tableName);
@@ -41,8 +41,15 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         throw Exception("Cannot define function on non-table value");
       }
 
+      String methodName = '';
+
+      if (node.name.rest.isNotEmpty) {
+        methodName = node.name.rest.last.name;
+      } else {
+        //implicit self
+        methodName = (node.name).method!.name;
+      }
       // Get method name (last part of the name)
-      final methodName = node.name.rest.last.name;
 
       // Create a special environment for the function that includes the table
       // This ensures that references to the table inside the function
@@ -52,6 +59,11 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         interpreter: this as Interpreter,
       );
       methodEnv.define(tableName, table);
+
+      //define self
+      if (node.implicitSelf) {
+        methodEnv.define('self', table);
+      }
 
       // Store the current environment
       final prevEnv = globals;
@@ -335,7 +347,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitMethodCall(MethodCall node) async {
     Logger.debug(
-      'Visiting MethodCall: ${node.prefix}.${node.methodName}',
+      'Visiting MethodCall: \x1b[36m${node.prefix}.${node.methodName}\x1b[0m',
       category: 'Interpreter',
     );
 
@@ -451,6 +463,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     dynamic func,
     List<Object?> args, [
     String? callerFunctionName,
+    bool callImplicitSelf = false,
   ]) async {
     Logger.debug(
       '>>> _callFunction called with function: ${func.hashCode}, args: $args',
