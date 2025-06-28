@@ -123,8 +123,7 @@ void main() {
   });
 
   group('Method Chaining Syntax', () {
-    // SKIP: Our implementation doesn't support method chaining
-    test('method chaining on table (workaround)', () async {
+    test('method chaining on table', () async {
       final bridge = LuaLikeBridge();
 
       // Create a table with methods that return the table for chaining
@@ -140,10 +139,7 @@ void main() {
           t.value = t.value * 2
           return t
         end
-      ''');
 
-      // Call methods separately instead of chaining
-      await bridge.runCode('''
         t.increment(5)
         t.double()
         local result = t.value
@@ -197,6 +193,200 @@ void main() {
 
       var result = bridge.getGlobal('result');
       expect((result as Value).raw, equals("test: param"));
+    });
+  });
+
+  group('Implicit Self Method Call', () {
+    test('colon method definition and call', () async {
+      final bridge = LuaLikeBridge();
+      await bridge.runCode('''
+        local obj = {x = 42}
+        function obj:foo(...)
+          return self.x, select('#', ...), ...
+        end
+        local sx, n, a, b = obj:foo(10, 20)
+
+      ''');
+      var sx = bridge.getGlobal('sx');
+      var n = bridge.getGlobal('n');
+      var a = bridge.getGlobal('a');
+      var b = bridge.getGlobal('b');
+      expect((sx as Value).raw, equals(42)); // self.x
+      expect((n as Value).raw, equals(2));
+      expect((a as Value).raw, equals(10));
+      expect((b as Value).raw, equals(20));
+    });
+
+    test('self field assignment and access', () async {
+      final bridge = LuaLikeBridge();
+      await bridge.runCode('''
+        local obj = {count = 0}
+        function obj:inc()
+          self.count = self.count + 1
+          return self.count
+        end
+        local a = obj:inc()
+        local b = obj:inc()
+        local c = obj.count
+      ''');
+      var a = bridge.getGlobal('a');
+      var b = bridge.getGlobal('b');
+      var c = bridge.getGlobal('c');
+      expect((a as Value).raw, equals(1));
+      expect((b as Value).raw, equals(2));
+      expect((c as Value).raw, equals(2));
+    });
+
+    test('method chaining with self', () async {
+      final bridge = LuaLikeBridge();
+      Logger.setEnabled(true);
+      await bridge.runCode('''
+        local obj = {val = 1}
+
+        function obj:inc(n)
+          self.val = self.val + n
+          return self
+        end
+
+        function obj:get()
+          return self.val
+        end
+
+        local result = obj:inc(2):inc(3):get()
+      ''');
+      var result = bridge.getGlobal('result');
+      expect((result as Value).raw, equals(6));
+    });
+
+    test('dot method definition and call', () async {
+      final bridge = LuaLikeBridge();
+      await bridge.runCode('''
+        local obj = {x = 99}
+        function obj.foo(...)
+          return obj.x, select('#', ...), ...
+        end
+        local ox, n, a, b = obj.foo(10, 20)
+      ''');
+      var ox = bridge.getGlobal('ox');
+      var n = bridge.getGlobal('n');
+      var a = bridge.getGlobal('a');
+      var b = bridge.getGlobal('b');
+      expect((ox as Value).raw, equals(99));
+      expect((n as Value).raw, equals(2));
+      expect((a as Value).raw, equals(10));
+      expect((b as Value).raw, equals(20));
+    });
+
+    test(
+      'calling colon method with dot syntax (should error like Lua)',
+      () async {
+        final bridge = LuaLikeBridge();
+        await expectLater(
+          bridge.runCode('''
+            local obj = {x = 5}
+            function obj:bar(x, ...)
+              return self and self.x or -1, x, select('#', ...), ...
+            end
+            local sx, x, n, a = obj.bar(99, 100)
+          '''),
+          throwsA(isA<LuaError>()),
+        );
+      },
+    );
+
+    test(
+      'calling dot method with colon syntax (should get self as first arg)',
+      () async {
+        final bridge = LuaLikeBridge();
+        await bridge.runCode('''
+        local obj = {y = 7}
+        function obj.baz(x, ...)
+          return x and x.y or -1, select('#', ...), ...
+        end
+        local ay, n, b, c = obj:baz(1, 2, 3)
+      ''');
+        var ay = bridge.getGlobal('ay');
+        var n = bridge.getGlobal('n');
+        var b = bridge.getGlobal('b');
+        var c = bridge.getGlobal('c');
+        expect(
+          (ay as Value).raw,
+          equals(7),
+        ); // self is passed as x, so x.y == 7
+        expect((n as Value).raw, equals(3));
+        expect((b as Value).raw, equals(1));
+        expect((c as Value).raw, equals(2));
+      },
+    );
+
+    test('colon method returns self only', () async {
+      final bridge = LuaLikeBridge();
+      await bridge.runCode('''
+        local obj = {id = 123}
+        function obj:whoami()
+          return self
+        end
+        local result = obj:whoami()
+      ''');
+      var result = bridge.getGlobal('result');
+      expect(result, isNotNull);
+      expect((result as Value).raw is Map, isTrue);
+      expect((((result as Value).raw)['id'] as Value).raw, equals(123));
+    });
+
+    test('colon method returns self and argument', () async {
+      final bridge = LuaLikeBridge();
+      await bridge.runCode('''
+        local obj = {name = 'A'}
+        function obj:echo(x)
+          return self, x
+        end
+        local s, x = obj:echo(42)
+      ''');
+      var s = bridge.getGlobal('s');
+      var x = bridge.getGlobal('x');
+      expect((s as Value).raw is Map, isTrue);
+      expect((fromLuaValue(((s as Value).raw)['name'])), equals('A'));
+      expect(fromLuaValue(x), equals(42));
+    });
+
+    test('colon method returns just argument', () async {
+      final bridge = LuaLikeBridge();
+      await bridge.runCode('''
+local obj = {y = 42}
+function obj:val( x)
+  return self.y + x
+end
+local result = obj:val(99)
+      ''');
+      var result = bridge.getGlobal('result');
+      expect((result as Value).raw, equals(141));
+    });
+
+    test('colon method returns constant', () async {
+      final bridge = LuaLikeBridge();
+      await bridge.runCode('''
+        local obj = {}
+        function obj:const()
+          return 7
+        end
+        local result = obj:const()
+      ''');
+      var result = bridge.getGlobal('result');
+      expect((result as Value).raw, equals(7));
+    });
+
+    test('colon method returns self.x', () async {
+      final bridge = LuaLikeBridge();
+      await bridge.runCode('''
+        local obj = {x = 55}
+        function obj:readx()
+          return self.x
+        end
+        local result = obj:readx()
+      ''');
+      var result = bridge.getGlobal('result');
+      expect((result as Value).raw, equals(55));
     });
   });
 }
