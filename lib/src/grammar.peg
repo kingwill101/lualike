@@ -574,31 +574,46 @@ YieldStatement =>
     $$ = _setNodeSpan(node, startPos, state.position, state);
   }
 
-`List<Identifier>?`
+`(List<Identifier>, bool)`
 ParameterList =>
   {
     List<Identifier> params = [];
+    bool hasVararg = false;
     final startPos = state.position;
   }
   (
-    (
-      first = ID
+    varargMatch = Vararg
+    {
+      hasVararg = true;
+    }
+    ----
+    first = ID
+    {
+      params.add(first);
+    }
+    @while (*) {
+      ',' S
+      next = ID
       {
-        params.add(first);
+        params.add(next);
       }
-      @while (*) {
-        ',' S
-        next = ID
-        {
-          params.add(next);
-        }
+    }
+    (
+      ',' S
+      varargMatch = Vararg
+      {
+        hasVararg = true;
       }
-    )
+      ----
+      varargMatch = Vararg
+      {
+        hasVararg = true;
+      }
+    )?
   )?
   $ = {
-    $$ = params;
+    $$ = (params, hasVararg);
   }
-
 
 
 `FunctionDef`
@@ -672,15 +687,15 @@ Vararg =>
 FunctionBody =>
   {
     final startPos = state.position;
-    List<Identifier>? params;
+    List<Identifier> params = [];
     bool hasVararg = false;
   }
   '(' S
-  params = ParameterList?
-  varargMatch = Vararg?
+  paramResult = ParameterList?
   {
-    if (varargMatch != null) {
-      hasVararg = true;
+    if (paramResult != null) {
+      params = paramResult.$1;
+      hasVararg = paramResult.$2;
     }
   }
   ')' S

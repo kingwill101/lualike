@@ -12,7 +12,17 @@ import 'package:lualike/lualike.dart';
 
 void main() {
   // main2();
-  function();
+  vararg();
+}
+
+void vararg() {
+  final source = '''
+  function sum(name, ...)
+  end
+  ''';
+
+  final res = parse(source);
+  print(res);
 }
 
 void main2() {
