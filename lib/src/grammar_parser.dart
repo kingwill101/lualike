@@ -2689,14 +2689,18 @@ class GrammarParser {
   /// FunctionDef =>
   ///   {
   ///     final startPos = state.position;
+  ///     bool implicitSelf = false;
   ///   }
   ///   'function'
   ///   !IdChar
   ///   S
   ///   fname = FunctionName
+  ///   {
+  ///     implicitSelf = fname.method != null;
+  ///   }
   ///   funcBody = FunctionBody
   ///   $ = {
-  ///     final node = FunctionDef(fname, funcBody);
+  ///     final node = FunctionDef(fname, funcBody, implicitSelf: implicitSelf);
   ///     $$ = _setNodeSpan(node, startPos, state.position, state);
   ///   }
   ///```
@@ -2704,6 +2708,7 @@ class GrammarParser {
     final $1 = state.position;
     (FunctionDef,)? $0;
     final startPos = state.position;
+    bool implicitSelf = false;
     final $2 = state.position;
     if (state.peek() == 102 && state.startsWith('function', state.position)) {
       state.consume('function', $2);
@@ -2722,11 +2727,16 @@ class GrammarParser {
         final $7 = parseFunctionName(state);
         if ($7 != null) {
           FunctionName fname = $7.$1;
+          implicitSelf = fname.method != null;
           final $8 = parseFunctionBody(state);
           if ($8 != null) {
             FunctionBody funcBody = $8.$1;
             final FunctionDef $$;
-            final node = FunctionDef(fname, funcBody);
+            final node = FunctionDef(
+              fname,
+              funcBody,
+              implicitSelf: implicitSelf,
+            );
             $$ = _setNodeSpan(node, startPos, state.position, state);
             FunctionDef $ = $$;
             $0 = ($,);
