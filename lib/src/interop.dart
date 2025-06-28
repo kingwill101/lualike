@@ -3,8 +3,6 @@ import 'dart:io';
 
 import 'package:lualike/src/testing/testing.dart';
 import 'package:path/path.dart' as path;
-import 'package:lualike/lualike.dart';
-import 'package:lualike/src/utils/platform_utils.dart';
 
 /// Wrapper for Dart functions to make them callable from LuaLike.
 ///

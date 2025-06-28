@@ -1,6 +1,5 @@
 @Tags(['core'])
 import 'package:lualike/lualike.dart';
-import 'package:lualike/src/exceptions.dart';
 import 'package:test/test.dart';
 
 void main() {

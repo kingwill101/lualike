@@ -44,8 +44,9 @@ class StringLib {
 class _StringByte implements BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
-    if (args.isEmpty)
+    if (args.isEmpty) {
       throw LuaError.typeError("string.byte requires a string argument");
+    }
     final str = (args[0] as Value).raw.toString();
     var start = args.length > 1 ? (args[1] as Value).raw as int : 1;
     var end = args.length > 2 ? (args[2] as Value).raw as int : start;
@@ -429,8 +430,9 @@ String _formatOctal(_FormatContext ctx) {
 class _StringFormat implements BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
-    if (args.isEmpty)
+    if (args.isEmpty) {
       throw LuaError.typeError("string.format requires a format string");
+    }
     final format = (args[0] as Value).raw.toString();
     var values = args.skip(1).map((arg) => (arg as Value).raw).toList();
 
@@ -653,8 +655,9 @@ class _StringGsub implements BuiltinFunction {
 class _StringLen implements BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
-    if (args.isEmpty)
+    if (args.isEmpty) {
       throw LuaError.typeError("string.len requires a string argument");
+    }
     final str = (args[0] as Value).raw.toString();
 
     // In Lua, string.len returns the number of bytes in the string
@@ -833,8 +836,9 @@ class _StringSub implements BuiltinFunction {
 class _StringPack implements BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
-    if (args.isEmpty)
+    if (args.isEmpty) {
       throw LuaError.typeError("string.pack requires format string");
+    }
     final format = (args[0] as Value).raw.toString();
     final values = args.sublist(1);
 
@@ -925,8 +929,9 @@ class _StringPack implements BuiltinFunction {
 class _StringPackSize implements BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
-    if (args.isEmpty)
+    if (args.isEmpty) {
       throw LuaError.typeError("string.packsize requires format string");
+    }
     final format = (args[0] as Value).raw.toString();
 
     Logger.debug('string.packsize: format=$format', category: 'String');
@@ -982,8 +987,9 @@ class _StringUnpack implements BuiltinFunction {
     for (var c in format.split('')) {
       switch (c) {
         case 'b': // signed byte
-          if (offset >= bytes.length)
+          if (offset >= bytes.length) {
             throw LuaError.typeError("unpack: out of bounds");
+          }
           var value = bytes[offset];
           // Handle sign extension for signed byte
           if (value & 0x80 != 0) {

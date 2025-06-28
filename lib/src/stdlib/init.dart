@@ -3,7 +3,6 @@ import 'package:lualike/src/interpreter/interpreter.dart' show Interpreter;
 import '../environment.dart';
 import '../io/lua_file.dart';
 import '../value.dart' show Value;
-import 'lib_coroutine.dart';
 import 'lib_base.dart';
 import 'lib_string.dart';
 import 'lib_table.dart';
@@ -47,7 +46,6 @@ void initializeStandardLibrary({
   defineDebugLibrary(env: env, astVm: astVm, bytecodeVm: bytecodeVm);
 
   MetaTable.initialize(astVm!);
-  initializeCoroutineLibrary(astVm);
   defineStringLibrary(env: env, astVm: astVm, bytecodeVm: bytecodeVm);
   defineTableLibrary(env: env, astVm: astVm, bytecodeVm: bytecodeVm);
   defineMathLibrary(env: env, astVm: astVm, bytecodeVm: bytecodeVm);

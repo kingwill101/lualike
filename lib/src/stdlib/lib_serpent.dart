@@ -373,7 +373,6 @@ class SerpentLoadFile implements BuiltinFunction {
 
     // Use io library to load from file
     try {
-      final io = IOLib();
       final openFunc = IOLib.functions["open"] as IOOpen;
       final file = await openFunc.call([Value(filename), Value("r")]);
 

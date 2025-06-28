@@ -28,14 +28,14 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       );
       var value = await expr.accept(this);
       Logger.debug(
-        'visitAssignment: Evaluated value: \\${value} (type: \\${value.runtimeType})',
+        'visitAssignment: Evaluated value: \\$value (type: \\${value.runtimeType})',
         category: 'Assignment',
       );
 
       if (value is Value && value.raw is Future) {
         value = Value(await value.raw);
         Logger.debug(
-          'visitAssignment: Awaited future value: \\${value}',
+          'visitAssignment: Awaited future value: \\$value',
           category: 'Assignment',
         );
       }
@@ -43,7 +43,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       // Special handling for grouped expressions with function calls
       if (expr is GroupedExpression) {
         Logger.debug(
-          'Assignment: handling GroupedExpression result: \\${value}',
+          'Assignment: handling GroupedExpression result: \\$value',
           category: 'Interpreter',
         );
 
@@ -68,7 +68,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         if (expr is TableConstructor && value.isEmpty) {
           final tableValue = await expr.accept(this);
           Logger.debug(
-            'visitAssignment: TableConstructor with empty list, using tableValue: \\${tableValue}',
+            'visitAssignment: TableConstructor with empty list, using tableValue: \\$tableValue',
             category: 'Assignment',
           );
           expressions.add(tableValue);

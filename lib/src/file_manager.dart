@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'package:lualike/lualike.dart';
-import 'package:lualike/src/utils/platform_utils.dart';
 import 'package:path/path.dart' as path;
 
 /// Manages source file loading and virtual file system for the VM.

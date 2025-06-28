@@ -7,7 +7,6 @@ import 'package:lualike/src/gc/generational_gc.dart' show GenerationalGCManager;
 import 'package:lualike/src/logger.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_stack_trace.dart';
-import 'package:lualike/src/return_exception.dart';
 import 'package:lualike/src/stack.dart';
 import 'package:lualike/src/stdlib/init.dart' show initializeStandardLibrary;
 import 'package:lualike/src/value.dart';
@@ -159,9 +158,7 @@ class Interpreter extends AstVisitor<Object?>
   );
   int _traceIndex = 0;
 
-  bool _isYieldable = true;
-  bool get isYieldable => _isYieldable;
-  set isYieldable(bool value) => _isYieldable = value;
+  bool isYieldable = true;
 
   /// Gets root objects for garbage collection.
   ///
@@ -370,7 +367,7 @@ class Interpreter extends AstVisitor<Object?>
 
       // Try to get the script path from the environment
       final scriptPathValue = globals.get('_SCRIPT_PATH');
-      String? scriptPath = null;
+      String? scriptPath;
       if (scriptPathValue is Value && scriptPathValue.raw != null) {
         scriptPath = scriptPathValue.raw.toString();
       } else {
@@ -477,7 +474,7 @@ class Interpreter extends AstVisitor<Object?>
       currentScriptPath = scriptPath;
     }
 
-    Object? result;
+    // Object? result;
     // Preprocess program to build a mapping from label names to statement indices.
     final labelMap = <String, int>{};
     for (var i = 0; i < program.length; i++) {

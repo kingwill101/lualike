@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
-import 'package:lualike/src/utils/platform_utils.dart';
 import 'package:path/path.dart' as path;
 
 import '../value_class.dart';

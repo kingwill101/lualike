@@ -159,7 +159,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
       // Bind regular parameters
       for (var i = 0; i < regularParamCount; i++) {
-        final paramName = (node.parameters![i] as Identifier).name;
+        final paramName = (node.parameters![i]).name;
         if (i < args.length) {
           execEnv.define(
             paramName,
@@ -800,7 +800,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       );
       final resumeArgs = await ye.resumeFuture;
       Logger.debug(
-        '>>> YieldException: resumeFuture completed with: \\${resumeArgs}',
+        '>>> YieldException: resumeFuture completed with: \\$resumeArgs',
         category: 'Coroutine',
       );
 

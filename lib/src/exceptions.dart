@@ -3,11 +3,12 @@
 /// For error handling and reporting Lua runtime errors, use the [LuaError] class instead.
 /// These exceptions are not meant to be caught by user code, but are used internally
 /// for implementing Lua's control flow mechanisms like coroutines, goto, and break.
+library;
 
 import 'dart:async';
 
+import 'package:lualike/src/coroutine.dart' show Coroutine;
 import 'package:lualike/src/value.dart';
-import 'package:lualike/src/coroutine.dart';
 
 /// Base class for exceptions used by the interpreter for control flow.
 class ControlFlowException implements Exception {}
@@ -43,10 +44,12 @@ class GotoException extends ControlFlowException {
 
 /// Exception thrown for 'coroutine.yield' calls.
 class YieldException extends ControlFlowException {
-  final List<Value> values; // Use non-generic List<Value>
-  final Future<List<Object?>>
-  resumeFuture; // Future that completes with resume args
-  final Coroutine? coroutine; // The coroutine that yielded
+  // Use non-generic List<Value>
+  final List<Value> values;
+  // Future that completes with resume args
+  final Future<List<Object?>> resumeFuture;
+  // The coroutine that yielded
+  final Coroutine? coroutine;
 
   YieldException(this.values, this.resumeFuture, [this.coroutine]);
 

@@ -42,6 +42,7 @@ class Generation {
 /// all objects."
 class GenerationalGCManager {
   /// Reference to the interpreter for accessing global state.
+  // ignore: unused_field
   final Interpreter _interpreter;
 
   /// Singleton instance of the garbage collector.
