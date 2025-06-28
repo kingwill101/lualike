@@ -80,7 +80,10 @@ class MetaTable {
                 category: 'Metatables',
               );
 
-              // Now we call the actual method with the string as first argument
+              if (callArgs.isNotEmpty && callArgs.first == str) {
+                return method.call(callArgs);
+              }
+
               return method.call([str, ...callArgs]);
             });
           }
@@ -354,17 +357,16 @@ class MetaTable {
           'Raw map entries before filtering: ${map.entries.length}',
           category: 'Metatables',
         );
-        final filteredEntries =
-            map.entries.where((entry) {
-              final value = entry.value;
-              final keep =
-                  !(value == null || (value is Value && value.raw == null));
-              Logger.debug(
-                'Filter entry: key=${entry.key}, value=${entry.value}, keep=$keep',
-                category: 'Metatables',
-              );
-              return keep;
-            }).toList();
+        final filteredEntries = map.entries.where((entry) {
+          final value = entry.value;
+          final keep =
+              !(value == null || (value is Value && value.raw == null));
+          Logger.debug(
+            'Filter entry: key=${entry.key}, value=${entry.value}, keep=$keep',
+            category: 'Metatables',
+          );
+          return keep;
+        }).toList();
 
         Logger.debug(
           'Table pairs iterator created with ${filteredEntries.length} entries',
@@ -545,10 +547,9 @@ class MetaTable {
           (const (Map)) => table.unwrap().length,
           (const (List)) => table.unwrap().length,
           (const (List<Object?>)) => table.unwrap().length,
-          _ =>
-            throw Exception(
-              "attempt to get length of unknown value ${table.unwrap().runtimeType}",
-            ),
+          _ => throw LuaError(
+            "attempt to get length of unknown value ${table.unwrap().runtimeType}",
+          ),
         };
       },
       '__gc': (List<Object?> args) {
