@@ -620,15 +620,18 @@ ParameterList =>
 FunctionDef =>
   {
     final startPos = state.position;
+    bool implicitSelf = false;
   }
   'function' !IdChar S
   fname = FunctionName
+  {
+    implicitSelf = fname.method != null;
+  }
   funcBody = FunctionBody
   $ = {
-    final node = FunctionDef(fname, funcBody);
+    final node = FunctionDef(fname, funcBody, implicitSelf: implicitSelf);
     $$ = _setNodeSpan(node, startPos, state.position, state);
   }
-
 
 `LocalFunctionDef`
 LocalFunctionDef =>
@@ -1658,3 +1661,4 @@ S =>
     c =  '--' [^\n]* [\n]?
     { comment.add(c); }
   )*
+
