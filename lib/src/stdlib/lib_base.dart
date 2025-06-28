@@ -6,7 +6,6 @@ import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/coroutine.dart' show Coroutine;
 import 'package:path/path.dart' as path;
 
-
 /// Built-in function to retrieve the metatable of a value.
 class GetMetatableFunction implements BuiltinFunction {
   @override
@@ -116,10 +115,9 @@ class AssertFunction implements BuiltinFunction {
     );
 
     if (!isTrue) {
-      final message =
-          args.length > 1
-              ? (args[1] as Value).raw.toString()
-              : "assertion failed!";
+      final message = args.length > 1
+          ? (args[1] as Value).raw.toString()
+          : "assertion failed!";
       Logger.debug(
         'AssertFunction: Assertion failed with message: $message',
         category: 'Base',
@@ -491,8 +489,9 @@ class LoadFunction implements BuiltinFunction {
           "load() first argument must be string, function or binary",
         );
       }
-      chunkname =
-          args.length > 1 ? (args[1] as Value).raw as String : "=(load)";
+      chunkname = args.length > 1
+          ? (args[1] as Value).raw as String
+          : "=(load)";
     } else {
       throw Exception("load() first argument must be a string");
     }
@@ -590,11 +589,10 @@ class LoadfileFunction implements BuiltinFunction {
     final mode = args.length > 1 ? (args[1] as Value).raw.toString() : 'bt';
 
     try {
-      final source =
-          filename == null
-              ? stdin.readLineSync() ??
-                  "" // Read from stdin if no filename
-              : File(filename).readAsStringSync();
+      final source = filename == null
+          ? stdin.readLineSync() ??
+                "" // Read from stdin if no filename
+          : File(filename).readAsStringSync();
 
       final ast = parse(source);
       return Value((List<Object?> callArgs) {
@@ -620,11 +618,10 @@ class NextFunction implements BuiltinFunction {
     final map = table.raw as Map;
 
     // Filter out nil values from the map
-    final filteredEntries =
-        map.entries.where((entry) {
-          final value = entry.value;
-          return !(value == null || (value is Value && value.raw == null));
-        }).toList();
+    final filteredEntries = map.entries.where((entry) {
+      final value = entry.value;
+      return !(value == null || (value is Value && value.raw == null));
+    }).toList();
 
     final key = args.length > 1 ? (args[1] as Value).raw : null;
     if (key == null) {
@@ -797,8 +794,9 @@ class XPCallFunction implements BuiltinFunction {
           try {
             final errorHandler = msgh.raw as Function;
             // Unwrap double-wrapped Values before passing to error handler
-            final errorValue =
-                e is Value ? (e.raw is Value ? e.raw : e) : Value(e.toString());
+            final errorValue = e is Value
+                ? (e.raw is Value ? e.raw : e)
+                : Value(e.toString());
             final handlerResult = errorHandler([errorValue]);
 
             if (handlerResult is Future) {
@@ -839,8 +837,9 @@ class XPCallFunction implements BuiltinFunction {
       try {
         final errorHandler = msgh.raw as Function;
         // Unwrap double-wrapped Values before passing to error handler
-        final errorValue =
-            e is Value ? (e.raw is Value ? e.raw : e) : Value(e.toString());
+        final errorValue = e is Value
+            ? (e.raw is Value ? e.raw : e)
+            : Value(e.toString());
         final handlerResult = errorHandler([errorValue]);
 
         if (handlerResult is Future) {
@@ -876,8 +875,9 @@ class CollectGarbageFunction implements BuiltinFunction {
 
   @override
   Object? call(List<Object?> args) {
-    final option =
-        args.isNotEmpty ? (args[0] as Value).raw.toString() : "collect";
+    final option = args.isNotEmpty
+        ? (args[0] as Value).raw.toString()
+        : "collect";
     Logger.debug('CollectGarbageFunction: option: $option', category: 'Base');
 
     switch (option) {
@@ -1088,8 +1088,9 @@ class PairsFunction implements BuiltinFunction {
         // Get the first entry
         final entry = filteredTable.entries.first;
         final nextKey = Value(entry.key);
-        final nextValue =
-            entry.value is Value ? entry.value : Value(entry.value);
+        final nextValue = entry.value is Value
+            ? entry.value
+            : Value(entry.value);
 
         Logger.debug(
           'PairsFunction.iterator: First entry - key: ${nextKey.raw}, value: $nextValue',
@@ -1118,8 +1119,9 @@ class PairsFunction implements BuiltinFunction {
       // If we found the next entry, return it
       if (nextEntry != null) {
         final nextKey = Value(nextEntry.key);
-        final nextValue =
-            nextEntry.value is Value ? nextEntry.value : Value(nextEntry.value);
+        final nextValue = nextEntry.value is Value
+            ? nextEntry.value
+            : Value(nextEntry.value);
 
         Logger.debug(
           'PairsFunction.iterator: Next entry - key: ${nextKey.raw}, value: $nextValue',

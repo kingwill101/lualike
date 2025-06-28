@@ -162,10 +162,9 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       '..' => leftVal.concat(rightVal.raw.toString()),
       'and' => leftVal.and(rightVal),
       'or' => leftVal.or(rightVal),
-      _ =>
-        throw LuaError.typeError(
-          'Operation (${node.op}) not supported for these types [$leftVal, $rightVal]',
-        ),
+      _ => throw LuaError.typeError(
+        'Operation (${node.op}) not supported for these types [$leftVal, $rightVal]',
+      ),
     };
 
     Logger.debug('BinaryExpression result: $result', category: 'Interpreter');
@@ -205,8 +204,9 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       operandResult = operandResult[0];
     }
 
-    final operandWrapped =
-        operandResult is Value ? operandResult : Value(operandResult);
+    final operandWrapped = operandResult is Value
+        ? operandResult
+        : Value(operandResult);
 
     // Check for metamethods first
     final opMap = {

@@ -132,8 +132,9 @@ class Compiler implements AstVisitor<void> {
     }
 
     // Create new registers for all variables in current scope
-    final registers =
-        node.names.map((id) => getOrCreateRegister(id.name)).toList();
+    final registers = node.names
+        .map((id) => getOrCreateRegister(id.name))
+        .toList();
 
     // Store values in registers
     for (var i = 0; i < registers.length; i++) {
@@ -517,7 +518,7 @@ class Compiler implements AstVisitor<void> {
     for (final param in node.body.parameters!) {
       final reg = getOrCreateRegister(param.name);
       instructions.add(Instruction(OpCode.STORE_LOCAL, [reg]));
-        }
+    }
 
     // Compile function body
     for (final stmt in node.body.body) {

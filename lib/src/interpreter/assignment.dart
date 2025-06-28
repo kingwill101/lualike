@@ -128,8 +128,9 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         "[visitAssignment] Assigning $targetValue to $target",
         category: 'Interpreter',
       );
-      final wrappedValue =
-          targetValue is Value ? targetValue : Value(targetValue);
+      final wrappedValue = targetValue is Value
+          ? targetValue
+          : Value(targetValue);
 
       if (target is TableAccessExpr) {
         await _handleTableAccessAssignment(target, wrappedValue);
@@ -378,12 +379,11 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     if (node.names.length == 1) {
       final name = node.names.first.name;
       final attribute = node.attributes.firstOrNull;
-      final Value rawValue =
-          values.isNotEmpty
-              ? (values.first is Value
-                  ? values.first as Value
-                  : Value(values.first))
-              : Value(null); // Default to nil if no values provided
+      final Value rawValue = values.isNotEmpty
+          ? (values.first is Value
+                ? values.first as Value
+                : Value(values.first))
+          : Value(null); // Default to nil if no values provided
 
       // Apply attributes
       Value valueWithAttributes;
@@ -417,8 +417,9 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       // Assign values to the respective names, defaulting to nil if fewer expressions than names.
       for (var i = 0; i < node.names.length; i++) {
         final name = node.names[i].name;
-        final attribute =
-            node.attributes.length > i ? node.attributes[i] : null;
+        final attribute = node.attributes.length > i
+            ? node.attributes[i]
+            : null;
         final rawValue = i < values.length ? values[i] : Value(null);
 
         // Apply attributes
@@ -507,8 +508,9 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       // In Lua, when a function call is wrapped in parentheses, only the first return value is used
       if (result is Value && result.isMulti) {
         var multiValues = result.raw as List;
-        valueToAssign =
-            multiValues.isNotEmpty ? multiValues.first : Value(null);
+        valueToAssign = multiValues.isNotEmpty
+            ? multiValues.first
+            : Value(null);
       } else if (result is List && result.isNotEmpty) {
         valueToAssign = result[0];
       } else {
@@ -519,8 +521,9 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     }
 
     // Wrap the value if needed
-    final wrappedValue =
-        valueToAssign is Value ? valueToAssign : Value(valueToAssign);
+    final wrappedValue = valueToAssign is Value
+        ? valueToAssign
+        : Value(valueToAssign);
 
     if (targetValue is Value && targetValue.raw is Map) {
       final map = targetValue.raw as Map;

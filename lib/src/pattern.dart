@@ -492,22 +492,20 @@ class LuaPattern {
         .replaceAll('\\?', '?');
 
     // Handle character class quantifiers
-    pattern =
-        RegExp(r'\[([^\]]+)\]\\([*+?])').stringMatch(pattern) != null
-            ? pattern.replaceAllMapped(
-              RegExp(r'\[([^\]]+)\]\\([*+?])'),
-              (match) => '[${match[1]}]${match[2]}',
-            )
-            : pattern;
+    pattern = RegExp(r'\[([^\]]+)\]\\([*+?])').stringMatch(pattern) != null
+        ? pattern.replaceAllMapped(
+            RegExp(r'\[([^\]]+)\]\\([*+?])'),
+            (match) => '[${match[1]}]${match[2]}',
+          )
+        : pattern;
 
     // Handle capture group quantifiers
-    pattern =
-        RegExp(r'\(([^)]+)\)\\([*+?])').stringMatch(pattern) != null
-            ? pattern.replaceAllMapped(
-              RegExp(r'\(([^)]+)\)\\([*+?])'),
-              (match) => '(${match[1]})${match[2]}',
-            )
-            : pattern;
+    pattern = RegExp(r'\(([^)]+)\)\\([*+?])').stringMatch(pattern) != null
+        ? pattern.replaceAllMapped(
+            RegExp(r'\(([^)]+)\)\\([*+?])'),
+            (match) => '(${match[1]})${match[2]}',
+          )
+        : pattern;
 
     return pattern;
   }

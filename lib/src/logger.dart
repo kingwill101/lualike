@@ -55,8 +55,9 @@ class Logger {
   }) {
     final timestamp = DateTime.now().toString().split('.').first;
     final errorDetails = error != null ? ' - $error' : '';
-    final prefix =
-        category != null ? '[$timestamp][$category]' : '[$timestamp]';
+    final prefix = category != null
+        ? '[$timestamp][$category]'
+        : '[$timestamp]';
 
     // If the error is a LuaError, use its formatted message
     if (error is LuaError) {
@@ -123,21 +124,20 @@ class Logger {
     StackTrace? trace,
     LuaStackTrace? luaStackTrace,
   }) {
-    final luaError =
-        node != null
-            ? LuaError.fromNode(
-              node,
-              message,
-              cause: cause,
-              stackTrace: trace,
-              luaStackTrace: luaStackTrace,
-            )
-            : LuaError(
-              message,
-              cause: cause,
-              stackTrace: trace,
-              luaStackTrace: luaStackTrace,
-            );
+    final luaError = node != null
+        ? LuaError.fromNode(
+            node,
+            message,
+            cause: cause,
+            stackTrace: trace,
+            luaStackTrace: luaStackTrace,
+          )
+        : LuaError(
+            message,
+            cause: cause,
+            stackTrace: trace,
+            luaStackTrace: luaStackTrace,
+          );
 
     error(
       message,

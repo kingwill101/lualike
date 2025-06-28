@@ -90,7 +90,7 @@ class LuaFile {
         "set" => SeekWhence.set,
         "cur" => SeekWhence.cur,
         "end" => SeekWhence.end,
-        _ => throw ArgumentError("invalid option '$whence'"),
+        _ => throw LuaError("invalid option '$whence'"),
       };
 
       Logger.debug("Seek whence mapped to: $whenceEnum", category: 'LuaFile');
@@ -121,7 +121,7 @@ class LuaFile {
         "no" => BufferMode.none,
         "full" => BufferMode.full,
         "line" => BufferMode.line,
-        _ => throw ArgumentError("invalid option '$mode'"),
+        _ => throw LuaError("invalid option '$mode'"),
       };
 
       Logger.debug("Buffer mode mapped to: $bufferMode", category: 'LuaFile');

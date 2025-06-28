@@ -594,8 +594,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           final nextVal = result.length > 1 ? result[1] : Value(null);
 
           // Convert key to string for MapEntry
-          final keyStr =
-              nextKey is Value ? nextKey.raw.toString() : nextKey.toString();
+          final keyStr = nextKey is Value
+              ? nextKey.raw.toString()
+              : nextKey.toString();
 
           // Make sure value is a Value
           final valueVal = nextVal is Value ? nextVal : Value(nextVal);
@@ -798,13 +799,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         final result = update(value is Value ? value : Value(value));
         return result is Value ? result : Value(result);
       },
-      ifAbsent:
-          ifAbsent != null
-              ? () {
-                final result = ifAbsent();
-                return result is Value ? result : Value(result);
-              }
-              : null,
+      ifAbsent: ifAbsent != null
+          ? () {
+              final result = ifAbsent();
+              return result is Value ? result : Value(result);
+            }
+          : null,
     );
   }
 

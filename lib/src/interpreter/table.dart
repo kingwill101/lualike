@@ -172,12 +172,14 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
         var value = await field.expr.accept(this);
         if (value is Value && value.isMulti) {
           for (final item in value.raw as List<Object?>) {
-            tableMap[nextSequentialIndex++] =
-                item is Value ? item : Value(item);
+            tableMap[nextSequentialIndex++] = item is Value
+                ? item
+                : Value(item);
           }
         } else {
-          tableMap[nextSequentialIndex++] =
-              value is Value ? value : Value(value);
+          tableMap[nextSequentialIndex++] = value is Value
+              ? value
+              : Value(value);
         }
       } else if (field is KeyedTableEntry) {
         dynamic key;
@@ -192,8 +194,9 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
         if (value is Value && value.isMulti) {
           value = Value((value.raw as List).first);
         }
-        tableMap[key is Value ? key.raw : key] =
-            value is Value ? value : Value(value);
+        tableMap[key is Value ? key.raw : key] = value is Value
+            ? value
+            : Value(value);
         // If a keyed entry uses a numerical key, we must update the nextSequentialIndex
         // if it's greater than or equal to the current nextSequentialIndex.
         if (key is Value && key.raw is int && key.raw >= nextSequentialIndex) {

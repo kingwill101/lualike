@@ -39,8 +39,9 @@ class _TableInsert implements BuiltinFunction {
     }
 
     final map = table.raw as Map;
-    final pos =
-        args.length == 3 ? (args[1] as Value).raw as int : map.length + 1;
+    final pos = args.length == 3
+        ? (args[1] as Value).raw as int
+        : map.length + 1;
     final value = args[args.length == 3 ? 2 : 1];
 
     // Shift existing elements

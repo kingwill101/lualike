@@ -19,10 +19,10 @@ class CallFrame {
   LuaStackFrame toLuaStackFrame() {
     return callNode != null
         ? LuaStackFrame.fromNode(
-          callNode!,
-          functionName,
-          scriptPath: scriptPath,
-        )
+            callNode!,
+            functionName,
+            scriptPath: scriptPath,
+          )
         : LuaStackFrame(functionName, scriptPath: scriptPath);
   }
 }

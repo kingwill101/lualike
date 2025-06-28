@@ -16,7 +16,7 @@ void main() {
       var source =
           "if true then 1"; // Incomplete if-statement missing else/end.
       try {
-        final   a = parse(source);
+        final a = parse(source);
         fail("Expected FormatException due to incomplete if statement.");
       } on FormatException catch (e) {
         var message = e.message;

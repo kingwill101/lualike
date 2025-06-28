@@ -143,7 +143,7 @@ abstract class BaseIODevice implements IODevice {
     Logger.debug("Validating read format: $format", category: "IO");
     if (!RegExp(r'^(n|a|l|L|\d+)$').hasMatch(format)) {
       Logger.debug("Invalid format: $format", category: "IO");
-      throw ArgumentError("invalid format: $format");
+      throw LuaError("invalid format: $format");
     }
     Logger.debug("Format $format is valid", category: "IO");
   }
@@ -445,7 +445,7 @@ class StdinDevice extends BaseIODevice {
         }
         return ReadResult(number);
       } else {
-        throw ArgumentError("Unsupported format for stdin: $format");
+        throw LuaError("Unsupported format for stdin: $format");
       }
     } catch (e) {
       return ReadResult(null, e.toString());

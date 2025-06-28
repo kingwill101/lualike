@@ -126,11 +126,15 @@ class TestRunner {
             logBuffer.writeln(sourceCode);
             logBuffer.writeln('\n--- Execution ---');
 
-            final _ = await executeCode(sourceCode, mode, onInterpreterSetup: (interpreter) {
-              if (useInternalTests) {
-                _injectInternalTestFunctions(interpreter.globals);
-              }
-            });
+            final _ = await executeCode(
+              sourceCode,
+              mode,
+              onInterpreterSetup: (interpreter) {
+                if (useInternalTests) {
+                  _injectInternalTestFunctions(interpreter.globals);
+                }
+              },
+            );
 
             final testEndTime = DateTime.now();
             final testDuration = testEndTime.difference(testStartTime);
@@ -330,11 +334,15 @@ class TestRunner {
         logBuffer.writeln(sourceCode);
         logBuffer.writeln('\n--- Execution ---');
 
-        final _ = await executeCode(sourceCode, mode, onInterpreterSetup: (interpreter) {
-          if (useInternalTests) {
-            _injectInternalTestFunctions(interpreter.globals);
-          }
-        });
+        final _ = await executeCode(
+          sourceCode,
+          mode,
+          onInterpreterSetup: (interpreter) {
+            if (useInternalTests) {
+              _injectInternalTestFunctions(interpreter.globals);
+            }
+          },
+        );
 
         final testEndTime = DateTime.now();
         final testDuration = testEndTime.difference(testStartTime);
@@ -513,8 +521,9 @@ class TestRunner {
     final chunkLength = (list.length / chunkCount).ceil();
 
     for (var i = 0; i < list.length; i += chunkLength) {
-      final end =
-          (i + chunkLength < list.length) ? i + chunkLength : list.length;
+      final end = (i + chunkLength < list.length)
+          ? i + chunkLength
+          : list.length;
       chunks.add(list.sublist(i, end));
     }
 

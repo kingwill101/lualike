@@ -24,11 +24,10 @@ class DartFunction implements BuiltinFunction {
     } catch (_) {
       try {
         // If that fails, try calling with spread arguments
-        final unwrappedArgs =
-            args.map((arg) {
-              if (arg is Value) return arg.raw;
-              return arg;
-            }).toList();
+        final unwrappedArgs = args.map((arg) {
+          if (arg is Value) return arg.raw;
+          return arg;
+        }).toList();
 
         final result = Function.apply(dartFunction, unwrappedArgs);
         return result is Value ? result : Value(result);
@@ -85,10 +84,9 @@ extension VMInterop on Interpreter {
             );
           } else {
             // Try to use Platform.script in development mode
-            final dartScriptDir =
-                Platform.script.toFilePath() != ''
-                    ? path.dirname(Platform.script.toFilePath())
-                    : Directory.current.path;
+            final dartScriptDir = Platform.script.toFilePath() != ''
+                ? path.dirname(Platform.script.toFilePath())
+                : Directory.current.path;
             absolutePath = path.normalize(path.join(dartScriptDir, scriptPath));
             Logger.debug(
               "Resolved relative script path '$scriptPath' to absolute path '$absolutePath' using Dart script path",
@@ -143,7 +141,7 @@ extension VMInterop on Interpreter {
         if (arg is String) return StringLiteral(arg);
         if (arg is bool) return BooleanLiteral(arg);
         if (arg == null) return NilValue();
-        throw ArgumentError('Unsupported argument type: ${arg.runtimeType}');
+        throw LuaError('Unsupported argument type: ${arg.runtimeType}');
       }).toList(),
     );
 
@@ -270,11 +268,10 @@ Future<Object?> _callDartFunction(
   List<Object?> args,
 ) async {
   try {
-    final unwrappedArgs =
-        args.map((arg) {
-          if (arg is Value) return arg.raw;
-          return arg;
-        }).toList();
+    final unwrappedArgs = args.map((arg) {
+      if (arg is Value) return arg.raw;
+      return arg;
+    }).toList();
 
     final result = Function.apply(dartFunction, unwrappedArgs);
     return result is Value ? result : Value(result);

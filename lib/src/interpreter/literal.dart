@@ -104,8 +104,9 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
         }
 
         final valueResult = await entry.value.accept(this);
-        final rawValue =
-            valueResult is Value ? valueResult : Value(valueResult);
+        final rawValue = valueResult is Value
+            ? valueResult
+            : Value(valueResult);
 
         table[Value(rawKey)] = rawValue;
       } else if (entry is TableEntryLiteral) {
@@ -140,8 +141,9 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
           } else if (result is List && result.isNotEmpty) {
             table[Value(arrayIndex++)] = result[0];
           } else {
-            table[Value(arrayIndex++)] =
-                result is Value ? result : Value(result);
+            table[Value(arrayIndex++)] = result is Value
+                ? result
+                : Value(result);
           }
         } else if ((entry.expr is FunctionCall || entry.expr is MethodCall) &&
             i == node.entries.length - 1) {
@@ -161,8 +163,9 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
             }
           } else {
             // Single return value
-            table[Value(arrayIndex++)] =
-                result is Value ? result : Value(result);
+            table[Value(arrayIndex++)] = result is Value
+                ? result
+                : Value(result);
           }
         } else if (entry.expr is FunctionCall || entry.expr is MethodCall) {
           // Handle function call in the middle: {1, f(), 3}
@@ -180,8 +183,9 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
             table[Value(arrayIndex++)] = result[0];
           } else {
             // Single value or empty result
-            table[Value(arrayIndex++)] =
-                result is Value ? result : Value(result);
+            table[Value(arrayIndex++)] = result is Value
+                ? result
+                : Value(result);
           }
         } else {
           // Regular expression
