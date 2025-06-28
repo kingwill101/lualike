@@ -967,32 +967,4 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
 
     return null;
   }
-
-  /// Executes a return statement.
-  ///
-  /// Evaluates the return value and throws a ReturnException
-  /// to unwind the call stack.
-  ///
-  /// [node] - The return statement node
-  /// Returns null (though this is never reached due to the exception).
-  @override
-  Future<Object?> visitReturnStatement(ReturnStatement node) async {
-    (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
-    Logger.debug('Visiting ReturnStatement', category: 'Interpreter');
-    // Evaluate the return expression(s).
-    final values = [];
-
-    for (final arg in node.expr) {
-      values.add(await arg.accept(this));
-    }
-
-    // If only one value is returned, use that value directly.
-    final result = (values.length == 1) ? values.first : Value.multi(values);
-    Logger.debug(
-      'Return statement with value $result',
-      category: 'Interpreter',
-    );
-    // Throw an exception to unwind the function call.
-    throw ReturnException(result);
-  }
 }
