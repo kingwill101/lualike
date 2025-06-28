@@ -417,8 +417,7 @@ class FunctionBody extends AstNode {
 
   @override
   String toSource() {
-    final paramsSrc =
-        parameters?.map((p) => p.toSource() ?? "").join(", ") ?? "";
+    final paramsSrc = parameters?.map((p) => p.toSource()).join(", ") ?? "";
     final bodySrc = body.map((s) => s.toSource()).join("\n");
     return "function ($paramsSrc)\n$bodySrc\nend";
   }

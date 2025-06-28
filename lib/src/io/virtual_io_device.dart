@@ -10,12 +10,12 @@ import 'io_device.dart';
 class VirtualIODevice extends BaseIODevice {
   final StringBuffer _buffer = StringBuffer();
   int _position = 0;
-  final bool _isReadOnly;
-  final bool _isWriteOnly;
+  final bool isReadOnly;
+  final bool isWriteOnly;
 
   VirtualIODevice([String? initialContent])
-    : _isReadOnly = initialContent == null || initialContent.startsWith('r'),
-      _isWriteOnly = initialContent == null || initialContent.startsWith('w'),
+    : isReadOnly = initialContent == null || initialContent.startsWith('r'),
+      isWriteOnly = initialContent == null || initialContent.startsWith('w'),
       super(initialContent ?? 'r+') {
     if (initialContent != null) {
       Logger.debug('Initializing virtual device with content: $initialContent');

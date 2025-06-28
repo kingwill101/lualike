@@ -157,7 +157,9 @@ class _StringFind implements BuiltinFunction {
         if (group != null) {
           results.add(Value(group));
         }
+      }
 
+      if (match.groupCount > 0) {
         return Value.multi(results);
       }
 

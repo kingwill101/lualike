@@ -53,10 +53,10 @@ class Coroutine extends GCObject {
   Future<void>? _executionTask;
 
   /// Error that caused the coroutine to die, if any
-  Object? _error;
+  Object? error;
 
   /// Whether the coroutine is being finalized
-  final bool _beingFinalized = false;
+  final bool beingFinalized = false;
 
   /// Constructor
   Coroutine(this.functionValue, this.functionBody, this.closureEnvironment)
@@ -197,7 +197,7 @@ class Coroutine extends GCObject {
         category: 'Coroutine',
       );
       // Unexpected error
-      _error = e;
+      error = e;
       status = CoroutineStatus.dead;
       return Value.multi([Value(false), Value(e.toString())]);
     } finally {
@@ -323,12 +323,7 @@ class Coroutine extends GCObject {
     for (var i = 0; i < regularParamCount; i++) {
       final paramName = (functionBody.parameters![i]).name;
       if (i < processedArgs.length) {
-        _executionEnvironment.define(
-          paramName,
-          processedArgs[i] is Value
-              ? processedArgs[i]
-              : Value(processedArgs[i]),
-        );
+        _executionEnvironment.define(paramName, processedArgs[i]);
       } else {
         _executionEnvironment.define(paramName, Value(null));
       }
@@ -405,7 +400,7 @@ class Coroutine extends GCObject {
         );
       }
     } catch (e) {
-      _error = e;
+      error = e;
       Logger.error('Error in _executeCoroutine: $e', category: 'Coroutine');
       // Set status to dead on unhandled exceptions
       status = CoroutineStatus.dead;
@@ -497,7 +492,7 @@ class Coroutine extends GCObject {
 
   /// Records an error that occurred in the coroutine
   void recordError(Object error, StackTrace trace) {
-    _error = error;
+    this.error = error;
   }
 
   @override
