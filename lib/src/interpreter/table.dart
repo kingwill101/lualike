@@ -68,12 +68,11 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
 
     if (tableVal.raw is! Map) {
       if (tableVal.raw == null) {
-        throw UnsupportedError(
-          'Cannot access field of non-table value: ${node.toSource()}',
-        );
+        throw LuaError.typeError('attempt to index a nil value');
       }
-      throw UnsupportedError(
-        'Cannot access field of non-table value: $tableVal',
+      // If the value is not a table, throw a type error with details
+      throw LuaError.typeError(
+        'attempt to index a ${tableVal.raw.runtimeType} value',
       );
     }
 
@@ -182,7 +181,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
         }
       } else if (field is KeyedTableEntry) {
         dynamic key;
-        try{
+        try {
           key = await field.key.accept(this);
         } catch (e) {
           key = (field.key as Identifier).name;
