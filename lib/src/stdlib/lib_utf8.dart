@@ -23,7 +23,7 @@ class UTF8Lib {
       return Value(str.raw.toString().characters.length);
     },
     "__index": (List<Object?> args) {
-      final table = args[0] as Value;
+      final _ = args[0] as Value;
       final key = args[1] as Value;
       return functions[key.raw] ?? Value(null);
     },

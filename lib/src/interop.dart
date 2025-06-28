@@ -262,51 +262,6 @@ Future<List<Value>> runCode(
   }
 }
 
-/// Calls a Dart function with the given arguments.
-Future<Object?> _callDartFunction(
-  Function dartFunction,
-  List<Object?> args,
-) async {
-  try {
-    final unwrappedArgs = args.map((arg) {
-      if (arg is Value) return arg.raw;
-      return arg;
-    }).toList();
-
-    final result = Function.apply(dartFunction, unwrappedArgs);
-    return result is Value ? result : Value(result);
-  } catch (e) {
-    throw LuaError.typeError("Failed to call Dart function: $e");
-  }
-}
-
-/// Converts a Dart value to a Lua value.
-Value _convertToLuaValue(dynamic value) {
-  if (value == null) {
-    return Value(null);
-  } else if (value is Value) {
-    return value;
-  } else if (value is num || value is String || value is bool) {
-    return Value(value);
-  } else if (value is List) {
-    final table = <dynamic, dynamic>{};
-    for (var i = 0; i < value.length; i++) {
-      table[i + 1] = _convertToLuaValue(value[i]);
-    }
-    return Value(table);
-  } else if (value is Map) {
-    final table = <dynamic, dynamic>{};
-    value.forEach((key, val) {
-      table[_convertToLuaValue(key)] = _convertToLuaValue(val);
-    });
-    return Value(table);
-  } else if (value is Function) {
-    return Value(value);
-  } else {
-    throw LuaError.typeError('Unsupported argument type: ${value.runtimeType}');
-  }
-}
-
 /// Loads a Lua script from a file.
 Future<Value> loadFile(String path) async {
   try {

@@ -189,56 +189,6 @@ Future<void> runRepl(ExecutionMode mode) async {
     console.writeLine(message);
   }
 
-  setupPrint(Interpreter vm) {
-    vm.globals.define(
-      'print',
-      Value((List<Object?> args) async {
-        final outputs = <String>[];
-        for (final arg in args) {
-          if (arg == null) {
-            outputs.add("nil");
-            continue;
-          }
-
-          final value = arg as Value;
-
-          // Check for __tostring metamethod first
-          final tostring = await value.getMetamethod("__tostring");
-          if (tostring != null && tostring is Function) {
-            final result = tostring([value]);
-            outputs.add((result as Value).raw.toString());
-            continue;
-          }
-
-          // Handle basic types
-          if (value.raw == null) {
-            outputs.add("nil");
-          } else if (value.raw is bool) {
-            outputs.add(value.raw.toString());
-          } else if (value.raw is num) {
-            outputs.add(
-              value.raw is int
-                  ? value.raw.toString()
-                  : (value.raw as double).toString(),
-            );
-          } else if (value.raw is String) {
-            outputs.add(value.raw.toString());
-          } else if (value.raw is Map) {
-            outputs.add("table: ${value.raw.hashCode}");
-          } else if (value.raw is Function || value is BuiltinFunction) {
-            outputs.add("function: ${value.hashCode}");
-          } else {
-            outputs.add(value.raw.toString());
-          }
-        }
-
-        // Use our custom print function instead of stdout.writeln
-        customPrint(outputs.join("\t"));
-        return Value(null);
-      }),
-    );
-  }
-
   // Print welcome message
   customPrint(
     'LuaLike REPL (${mode == ExecutionMode.astInterpreter ? 'AST' : 'Bytecode'} mode)',

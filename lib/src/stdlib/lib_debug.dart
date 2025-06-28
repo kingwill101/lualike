@@ -194,7 +194,8 @@ class _Traceback implements BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     final message = args.isNotEmpty ? (args[0] as Value).raw.toString() : "";
-    final level = args.length > 1 ? (args[1] as Value).raw as int : 1;
+    //level
+    final _ = args.length > 1 ? (args[1] as Value).raw as int : 1;
 
     final trace = StringBuffer();
     if (message.isNotEmpty) {

@@ -586,7 +586,8 @@ class LoadfileFunction implements BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     final filename = args.isNotEmpty ? (args[0] as Value).raw.toString() : null;
-    final mode = args.length > 1 ? (args[1] as Value).raw.toString() : 'bt';
+    //mode
+    final _ = args.length > 1 ? (args[1] as Value).raw.toString() : 'bt';
 
     try {
       final source = filename == null
@@ -663,7 +664,7 @@ class PCAllFunction implements BuiltinFunction {
     interpreter.isYieldable = false;
 
     try {
-      var callResult;
+      Object? callResult;
       if (func.raw is BuiltinFunction) {
         callResult = (func.raw as BuiltinFunction).call(callArgs);
       } else {
@@ -1492,7 +1493,7 @@ void defineBaseLibrary({
   // Create a proxy map that will forward all operations to the environment
   final proxyHandler = <String, Function>{
     '__index': (List<Object?> args) {
-      final table = args[0] as Value;
+      final _ = args[0] as Value;
       final key = args[1] as Value;
       final keyStr = key.raw.toString();
 
@@ -1501,7 +1502,7 @@ void defineBaseLibrary({
       return value ?? Value(null);
     },
     '__newindex': (List<Object?> args) {
-      final table = args[0] as Value;
+      final _ = args[0] as Value;
       final key = args[1] as Value;
       final value = args[2] as Value;
       final keyStr = key.raw.toString();

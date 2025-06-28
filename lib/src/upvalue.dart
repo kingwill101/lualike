@@ -1,4 +1,5 @@
 import 'package:lualike/src/environment.dart';
+import 'package:lualike/src/testing/testing.dart';
 
 /// Represents a reference to a variable in an outer scope (an "upvalue").
 ///
@@ -40,7 +41,7 @@ class Upvalue {
     } else {
       // In standard Lua, assigning to a closed upvalue shouldn't happen
       // because the variable itself is gone. We might refine this error.
-      throw StateError(
+      throw LuaError(
         'Cannot set value of a closed upvalue: ${name ?? 'unknown'}',
       );
     }
