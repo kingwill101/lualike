@@ -2244,16 +2244,16 @@ class GrammarParser {
   /// FunctionBody =>
   ///   {
   ///     final startPos = state.position;
-  ///     List<Identifier>? params;
+  ///     List<Identifier> params = [];
   ///     bool hasVararg = false;
   ///   }
   ///   '('
   ///   S
-  ///   params = ParameterList?
-  ///   varargMatch = Vararg?
+  ///   paramResult = ParameterList?
   ///   {
-  ///     if (varargMatch != null) {
-  ///       hasVararg = true;
+  ///     if (paramResult != null) {
+  ///       params = paramResult.$1;
+  ///       hasVararg = paramResult.$2;
   ///     }
   ///   }
   ///   ')'
@@ -2270,34 +2270,29 @@ class GrammarParser {
     final $1 = state.position;
     (FunctionBody,)? $0;
     final startPos = state.position;
-    List<Identifier>? params;
+    List<Identifier> params = [];
     bool hasVararg = false;
     final $2 = state.position;
     if (state.peek() == 40) {
       state.consume('(', $2);
       parseS(state);
-      List<Identifier>? $4;
+      (List<Identifier>, bool)? $4;
       final $3 = parseParameterList(state);
       $4 = $3;
-      List<Identifier>? params = $4;
-      VarArg? $6;
-      final $5 = parseVararg(state);
-      if ($5 != null) {
-        $6 = $5.$1;
+      (List<Identifier>, bool)? paramResult = $4;
+      if (paramResult != null) {
+        params = paramResult.$1;
+        hasVararg = paramResult.$2;
       }
-      VarArg? varargMatch = $6;
-      if (varargMatch != null) {
-        hasVararg = true;
-      }
-      final $7 = state.position;
+      final $5 = state.position;
       if (state.peek() == 41) {
-        state.consume(')', $7);
+        state.consume(')', $5);
         parseS(state);
-        final $8 = parseStatements(state);
-        List<AstNode> body = $8;
-        final $9 = state.position;
+        final $6 = parseStatements(state);
+        List<AstNode> body = $6;
+        final $7 = state.position;
         if (state.peek() == 101 && state.startsWith('end', state.position)) {
-          state.consume('end', $9);
+          state.consume('end', $7);
           parseS(state);
           final FunctionBody $$;
           final node = FunctionBody(params, body, hasVararg);
@@ -4213,65 +4208,126 @@ class GrammarParser {
   /// **ParameterList**
   ///
   ///```text
-  /// `List<Identifier>?`
+  /// `(List<Identifier>, bool)`
   /// ParameterList =>
   ///   {
   ///     List<Identifier> params = [];
+  ///     bool hasVararg = false;
   ///     final startPos = state.position;
   ///   }
   ///   (
-  ///     (
-  ///       first = ID
+  ///     varargMatch = Vararg
+  ///     {
+  ///       hasVararg = true;
+  ///     }
+  ///     ----
+  ///     first = ID
+  ///     {
+  ///       params.add(first);
+  ///     }
+  ///     @while (*) (
+  ///       ','
+  ///       S
+  ///       next = ID
   ///       {
-  ///         params.add(first);
+  ///         params.add(next);
   ///       }
-  ///       @while (*) (
-  ///         ','
-  ///         S
-  ///         next = ID
-  ///         {
-  ///           params.add(next);
-  ///         }
-  ///       )
   ///     )
+  ///     (
+  ///       ','
+  ///       S
+  ///       varargMatch = Vararg
+  ///       {
+  ///         hasVararg = true;
+  ///       }
+  ///       ----
+  ///       varargMatch = Vararg
+  ///       {
+  ///         hasVararg = true;
+  ///       }
+  ///     )?
   ///   )?
   ///   $ = {
-  ///     $$ = params;
+  ///     $$ = (params, hasVararg);
   ///   }
   ///```
-  List<Identifier>? parseParameterList(State state) {
+  (List<Identifier>, bool) parseParameterList(State state) {
     List<Identifier> params = [];
+    bool hasVararg = false;
     final startPos = state.position;
-    var $0 = false;
-    final $1 = parseID(state);
-    if ($1 != null) {
-      Identifier first = $1.$1;
-      params.add(first);
-      while (true) {
-        final $3 = state.position;
-        var $2 = false;
+    var $0 = true;
+    var $1 = false;
+    final $2 = parseVararg(state);
+    if ($2 != null) {
+      VarArg varargMatch = $2.$1;
+      hasVararg = true;
+      $1 = true;
+    }
+    if (!$1) {
+      var $3 = false;
+      final $4 = parseID(state);
+      if ($4 != null) {
+        Identifier first = $4.$1;
+        params.add(first);
+        while (true) {
+          final $6 = state.position;
+          var $5 = false;
+          if (state.peek() == 44) {
+            state.consume(',', $6);
+            parseS(state);
+            final $7 = parseID(state);
+            if ($7 != null) {
+              Identifier next = $7.$1;
+              params.add(next);
+              $5 = true;
+            }
+          } else {
+            state.expected(',');
+          }
+          if (!$5) {
+            state.position = $6;
+            break;
+          }
+        }
+        var $8 = true;
+        final $10 = state.position;
+        var $9 = false;
         if (state.peek() == 44) {
-          state.consume(',', $3);
+          state.consume(',', $10);
           parseS(state);
-          final $4 = parseID(state);
-          if ($4 != null) {
-            Identifier next = $4.$1;
-            params.add(next);
-            $2 = true;
+          final $11 = parseVararg(state);
+          if ($11 != null) {
+            VarArg varargMatch = $11.$1;
+            hasVararg = true;
+            $9 = true;
           }
         } else {
           state.expected(',');
         }
-        if (!$2) {
-          state.position = $3;
-          break;
+        if (!$9) {
+          state.position = $10;
+          var $12 = false;
+          final $13 = parseVararg(state);
+          if ($13 != null) {
+            VarArg varargMatch = $13.$1;
+            hasVararg = true;
+            $12 = true;
+          }
+          if (!$12) {
+            $8 = false;
+          }
         }
+        state.unused = $8;
+        $3 = true;
       }
-      $0 = true;
+      if (!$3) {
+        $0 = false;
+      }
     }
-    final List<Identifier>? $$;
-    $$ = params;
-    List<Identifier>? $ = $$;
+    state.unused = $0;
+    final (List<Identifier>, bool) $$;
+    $$ = (params, hasVararg);
+    (List<Identifier>, bool) $ = $$;
     return $;
   }
 
