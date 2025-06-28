@@ -207,6 +207,7 @@ void main() {
           pairs[i] = {k=k, v=v}
           i = i + 1
         end
+        
       ''');
 
       // Check words array
@@ -218,8 +219,8 @@ void main() {
 
       // Check key-value pairs
       final pairs = (bridge.getGlobal('pairs') as Value).raw as Map;
-      final pair1 = pairs[1] as Map;
-      final pair2 = pairs[2] as Map;
+      final pair1 = pairs[1] ;
+      final pair2 = pairs[2];
       expect((pair1['k'] as Value).raw, equals("key1"));
       expect((pair1['v'] as Value).raw, equals("value1"));
       expect((pair2['k'] as Value).raw, equals("key2"));
