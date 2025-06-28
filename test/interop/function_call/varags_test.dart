@@ -48,6 +48,169 @@ void main() {
       expect((result2 as Value).raw, equals("Hello, Alice and Bob, Charlie"));
     });
 
+    // New comprehensive parameter list tests
+    group('Parameter List Variations', () {
+      test('empty parameter list', () async {
+        final bridge = LuaLikeBridge();
+
+        await bridge.runCode('''
+          function noParams()
+            return "no parameters"
+          end
+
+          local result = noParams()
+        ''');
+
+        var result = bridge.getGlobal('result');
+        expect((result as Value).raw, equals("no parameters"));
+      });
+
+      test('vararg only parameter list', () async {
+        final bridge = LuaLikeBridge();
+
+        await bridge.runCode('''
+          function varargsOnly(...)
+            local args = {...}
+            return #args
+          end
+
+          local result1 = varargsOnly()
+          local result2 = varargsOnly(1, 2, 3)
+        ''');
+
+        var result1 = bridge.getGlobal('result1');
+        var result2 = bridge.getGlobal('result2');
+
+        expect((result1 as Value).raw, equals(0));
+        expect((result2 as Value).raw, equals(3));
+      });
+
+      test('named parameters with comma before vararg', () async {
+        final bridge = LuaLikeBridge();
+
+        await bridge.runCode('''
+          function withComma(a, b, ...)
+            local extras = {...}
+            return a + b + #extras
+          end
+
+          local result1 = withComma(10, 20)
+          local result2 = withComma(10, 20, 1, 2, 3)
+        ''');
+
+        var result1 = bridge.getGlobal('result1');
+        var result2 = bridge.getGlobal('result2');
+
+        expect((result1 as Value).raw, equals(30)); // 10 + 20 + 0
+        expect((result2 as Value).raw, equals(33)); // 10 + 20 + 3
+      });
+
+      test('named parameters without comma before vararg', () async {
+        final bridge = LuaLikeBridge();
+
+        await bridge.runCode('''
+          function withoutComma(a, b ...)
+            local extras = {...}
+            return a * b + #extras
+          end
+
+          local result1 = withoutComma(5, 4)
+          local result2 = withoutComma(5, 4, "x", "y")
+        ''');
+
+        var result1 = bridge.getGlobal('result1');
+        var result2 = bridge.getGlobal('result2');
+
+        expect((result1 as Value).raw, equals(20)); // 5 * 4 + 0
+        expect((result2 as Value).raw, equals(22)); // 5 * 4 + 2
+      });
+
+      test('single named parameter with vararg', () async {
+        final bridge = LuaLikeBridge();
+
+        await bridge.runCode('''
+          function singleNamed(first, ...)
+            local extras = {...}
+            return first .. " " .. #extras
+          end
+
+          local result1 = singleNamed("hello")
+          local result2 = singleNamed("hello", "world", "!")
+        ''');
+
+        var result1 = bridge.getGlobal('result1');
+        var result2 = bridge.getGlobal('result2');
+
+        expect((result1 as Value).raw, equals("hello 0"));
+        expect((result2 as Value).raw, equals("hello 2"));
+      });
+
+      test('multiple named parameters with vararg', () async {
+        final bridge = LuaLikeBridge();
+
+        await bridge.runCode('''
+          function multipleNamed(a, b, c, ...)
+            local extras = {...}
+            local sum = a + b + c
+            for _, v in ipairs(extras) do
+              sum = sum + v
+            end
+            return sum
+          end
+
+          local result1 = multipleNamed(1, 2, 3)
+          local result2 = multipleNamed(1, 2, 3, 10, 20)
+        ''');
+
+        var result1 = bridge.getGlobal('result1');
+        var result2 = bridge.getGlobal('result2');
+
+        expect((result1 as Value).raw, equals(6)); // 1 + 2 + 3
+        expect((result2 as Value).raw, equals(36)); // 1 + 2 + 3 + 10 + 20
+      });
+    });
+
+    group('Local Function Parameter Variations', () {
+      test('local function with vararg only', () async {
+        final bridge = LuaLikeBridge();
+
+        await bridge.runCode('''
+          local function localVararg(...)
+            return select("#", ...)
+          end
+
+          local result = localVararg("a", "b", "c")
+        ''');
+
+        var result = bridge.getGlobal('result');
+        expect((result as Value).raw, equals(3));
+      });
+
+      test('local function with named params and vararg', () async {
+        final bridge = LuaLikeBridge();
+
+        await bridge.runCode('''
+          local function localMixed(prefix, ...)
+            local args = {...}
+            local result = prefix
+            for _, v in ipairs(args) do
+              result = result .. "-" .. v
+            end
+            return result
+          end
+
+          local result1 = localMixed("start")
+          local result2 = localMixed("start", "middle", "end")
+        ''');
+
+        var result1 = bridge.getGlobal('result1');
+        var result2 = bridge.getGlobal('result2');
+
+        expect((result1 as Value).raw, equals("start"));
+        expect((result2 as Value).raw, equals("start-middle-end"));
+      });
+    });
+
     test('passing varargs to another function', () async {
       final bridge = LuaLikeBridge();
 
@@ -277,6 +440,197 @@ void main() {
         expect(first.raw, equals("a"));
         expect(second.raw, equals("b"));
         expect(third.raw, equals("c"));
+      });
+    });
+
+    // Additional edge cases for parameter parsing
+    group('Parameter Parsing Edge Cases', () {
+      test('function with only whitespace before vararg', () async {
+        final bridge = LuaLikeBridge();
+
+        await bridge.runCode('''
+          function spacedVararg( ... )
+            return select("#", ...)
+          end
+
+          local result = spacedVararg(1, 2, 3)
+        ''');
+
+        var result = bridge.getGlobal('result');
+        expect((result as Value).raw, equals(3));
+      });
+
+      test('function with whitespace around comma and vararg', () async {
+        final bridge = LuaLikeBridge();
+
+        await bridge.runCode('''
+          function spacedCommaVararg(a , ... )
+            return a + select("#", ...)
+          end
+
+          local result = spacedCommaVararg(10, "x", "y")
+        ''');
+
+        var result = bridge.getGlobal('result');
+        expect((result as Value).raw, equals(12)); // 10 + 2
+      });
+
+      test('nested function calls with different parameter patterns', () async {
+        final bridge = LuaLikeBridge();
+
+        await bridge.runCode('''
+          function outer(...)
+            local function inner(a, b, ...)
+              return a + b + select("#", ...)
+            end
+            
+            local function justVararg(...)
+              return select("#", ...)
+            end
+            
+            return inner(1, 2, ...) + justVararg(...)
+          end
+
+          local result = outer("x", "y", "z")
+        ''');
+
+        var result = bridge.getGlobal('result');
+        expect((result as Value).raw, equals(8)); // (1 + 2 + 3) + 3 = 8
+      });
+
+      test('function assignment with different parameter patterns', () async {
+        final bridge = LuaLikeBridge();
+
+        await bridge.runCode('''
+          local f1 = function(...) return select("#", ...) end
+          local f2 = function(a, ...) return a + select("#", ...) end
+          local f3 = function(a, b, c, ...) return a + b + c + select("#", ...) end
+
+          local result1 = f1(1, 2, 3)
+          local result2 = f2(10, 4, 5)
+          local result3 = f3(1, 2, 3, 4, 5, 6)
+        ''');
+
+        var result1 = bridge.getGlobal('result1');
+        var result2 = bridge.getGlobal('result2');
+        var result3 = bridge.getGlobal('result3');
+
+        expect((result1 as Value).raw, equals(3));
+        expect((result2 as Value).raw, equals(12)); // 10 + 2
+        expect((result3 as Value).raw, equals(9));  // 1 + 2 + 3 + 3
+      });
+
+      test('method definition with varargs', () async {
+        final bridge = LuaLikeBridge();
+
+        await bridge.runCode('''
+          local obj = {}
+          
+          function obj:method1(...)
+            return select("#", ...)
+          end
+          
+          function obj:method2(a, ...)
+            return a .. select("#", ...)
+          end
+
+          local result1 = obj:method1("x", "y")
+          local result2 = obj:method2("hello", "world", "!")
+        ''');
+
+        var result1 = bridge.getGlobal('result1');
+        var result2 = bridge.getGlobal('result2');
+
+        expect((result1 as Value).raw, equals(2));
+        expect((result2 as Value).raw, equals("hello2"));
+      });
+
+      test('complex nested vararg scenarios', () async {
+        final bridge = LuaLikeBridge();
+
+        await bridge.runCode('''
+          function level1(...)
+            local function level2(prefix, ...)
+              local function level3(...)
+                return {...}
+              end
+              return prefix, level3(...)
+            end
+            return level2("nested", ...)
+          end
+
+          local prefix, nested = level1("a", "b", "c")
+          local count = #nested
+          local first = nested[1]
+        ''');
+
+        var prefix = bridge.getGlobal('prefix');
+        var count = bridge.getGlobal('count');
+        var first = bridge.getGlobal('first');
+
+        expect((prefix as Value).raw, equals("nested"));
+        expect((count as Value).raw, equals(3));
+        expect((first as Value).raw, equals("a"));
+      });
+    });
+
+    // Test error cases and boundary conditions
+    group('Vararg Boundary Conditions', () {
+      test('vararg with nil values', () async {
+        final bridge = LuaLikeBridge();
+
+        await bridge.runCode('''
+          function handleNils(...)
+            local args = {...}
+            local count = 0
+            for i = 1, select("#", ...) do
+              count = count + 1
+              if args[i] == nil then
+                args[i] = "nil_placeholder"
+              end
+            end
+            return count, args
+          end
+
+          local count, args = handleNils("a", nil, "b", nil)
+          local first = args[1]
+          local second = args[2] 
+          local third = args[3]
+          local fourth = args[4]
+        ''');
+
+        var count = bridge.getGlobal('count');
+        var first = bridge.getGlobal('first');
+        var second = bridge.getGlobal('second');
+        var third = bridge.getGlobal('third');
+        var fourth = bridge.getGlobal('fourth');
+
+        expect((count as Value).raw, equals(4));
+        expect((first as Value).raw, equals("a"));
+        expect((second as Value).raw, equals("nil_placeholder"));
+        expect((third as Value).raw, equals("b"));
+        expect((fourth as Value).raw, equals("nil_placeholder"));
+      });
+
+      test('large number of varargs', () async {
+        final bridge = LuaLikeBridge();
+
+        await bridge.runCode('''
+          function manyArgs(...)
+            return select("#", ...)
+          end
+
+          -- Create a table with many values
+          local args = {}
+          for i = 1, 100 do
+            args[i] = i
+          end
+
+          local result = manyArgs(table.unpack(args))
+        ''');
+
+        var result = bridge.getGlobal('result');
+        expect((result as Value).raw, equals(100));
       });
     });
   });
