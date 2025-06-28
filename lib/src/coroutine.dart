@@ -104,23 +104,14 @@ class Coroutine extends GCObject {
         interpreter.setCurrentCoroutine(this);
 
         // When resuming from a yield, restore the saved execution environment
-        if (_executionEnvironment != null) {
-          interpreter.setCurrentEnv(
-            _executionEnvironment,
-          ); // Restore the saved environment
-          Logger.debug(
-            'Coroutine.resume: Restored saved execution environment: ${interpreter.getCurrentEnv()?.hashCode}',
-            category: 'Coroutine',
-          );
-        } else {
-          // For initial execution, use the coroutine's initial environment
-          interpreter.setCurrentEnv(closureEnvironment);
-          Logger.debug(
-            'Coroutine.resume: Set initial environment: ${closureEnvironment.hashCode}',
-            category: 'Coroutine',
-          );
-        }
-      }
+        interpreter.setCurrentEnv(
+          _executionEnvironment,
+        ); // Restore the saved environment
+        Logger.debug(
+          'Coroutine.resume: Restored saved execution environment: ${interpreter.getCurrentEnv().hashCode}',
+          category: 'Coroutine',
+        );
+            }
 
       if (status == CoroutineStatus.suspended && _executionTask == null) {
         // Initial execution
@@ -261,7 +252,7 @@ class Coroutine extends GCObject {
     if (interpreter != null) {
       _executionEnvironment = interpreter.getCurrentEnv();
       Logger.debug(
-        'Coroutine.yield_: Saved current execution environment: ${_executionEnvironment?.hashCode}',
+        'Coroutine.yield_: Saved current execution environment: ${_executionEnvironment.hashCode}',
         category: 'Coroutine',
       );
     }
@@ -331,7 +322,7 @@ class Coroutine extends GCObject {
     int regularParamCount = functionBody.parameters?.length ?? 0;
 
     for (var i = 0; i < regularParamCount; i++) {
-      final paramName = (functionBody.parameters![i] as Identifier).name;
+      final paramName = (functionBody.parameters![i]).name;
       if (i < processedArgs.length) {
         _executionEnvironment.define(
           paramName,
@@ -388,7 +379,7 @@ class Coroutine extends GCObject {
           category: 'Coroutine',
         );
       }
-    } on YieldException catch (e) {
+    } on YieldException {
       Logger.debug(
         '_executeCoroutine: Caught YieldException',
         category: 'Coroutine',

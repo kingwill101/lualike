@@ -1,6 +1,5 @@
 @Tags(['stdlib'])
 import 'package:lualike/lualike.dart';
-import 'package:lualike/src/interop.dart' show LuaLikeBridge;
 import 'package:test/test.dart';
 
 void main() {

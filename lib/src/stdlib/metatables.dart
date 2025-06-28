@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+// import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/stdlib/lib_string.dart' show StringLib;
 
@@ -513,7 +514,7 @@ class MetaTable {
           'Thread __gc metamethod called for coroutine:${thread.hashCode}',
           category: 'Metatables',
         );
-        
+
         // Close the coroutine when it's collected
         coroutine.markAsDead();
         return Value(null);
@@ -573,9 +574,13 @@ class MetaTable {
     Logger.debug('Getting type metatable for: $type', category: 'Metatables');
     return _typeMetatables[type];
   }
+
   /// Register a default metatable for a type
   void registerDefaultMetatable(String type, ValueClass metatable) {
-    Logger.debug('Registering default metatable for type: $type', category: 'Metatables');
+    Logger.debug(
+      'Registering default metatable for type: $type',
+      category: 'Metatables',
+    );
     _typeMetatables[type] = metatable;
   }
 

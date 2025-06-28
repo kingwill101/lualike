@@ -1,5 +1,4 @@
 import 'package:source_span/source_span.dart';
-import 'package:lualike/src/environment.dart';
 
 /// Base class for all ASFuture`<T>` nodes.
 abstract class AstNode {
@@ -368,7 +367,7 @@ class FunctionBody extends AstNode {
   @override
   String toSource() {
     final paramsSrc =
-        parameters?.map((p) => p?.toSource() ?? "").join(", ") ?? "";
+        parameters?.map((p) => p.toSource() ?? "").join(", ") ?? "";
     final bodySrc = body.map((s) => s.toSource()).join("\n");
     return "function ($paramsSrc)\n$bodySrc\nend";
   }

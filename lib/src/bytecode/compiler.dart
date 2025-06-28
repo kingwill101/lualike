@@ -515,11 +515,9 @@ class Compiler implements AstVisitor<void> {
 
     // Compile parameters
     for (final param in node.body.parameters!) {
-      if (param is Identifier) {
-        final reg = getOrCreateRegister(param.name);
-        instructions.add(Instruction(OpCode.STORE_LOCAL, [reg]));
-      }
-    }
+      final reg = getOrCreateRegister(param.name);
+      instructions.add(Instruction(OpCode.STORE_LOCAL, [reg]));
+        }
 
     // Compile function body
     for (final stmt in node.body.body) {

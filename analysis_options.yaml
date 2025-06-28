@@ -15,6 +15,7 @@ include: package:lints/recommended.yaml
 analyzer:
   errors:
     library_annotations: ignore
+    collection_methods_unrelated_type: ignore
 
 # Uncomment the following section to specify additional rules.
 

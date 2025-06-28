@@ -9,7 +9,6 @@ export 'src/exceptions.dart';
 export 'src/extensions/extensions.dart';
 export 'src/interpreter/interpreter.dart';
 export 'src/ast.dart';
-export 'src/coroutine.dart';
 export 'src/builtin_function.dart';
 export 'src/value.dart';
 export 'src/return_exception.dart';

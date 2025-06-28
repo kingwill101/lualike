@@ -3,9 +3,9 @@ import 'dart:io';
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
+import 'package:lualike/src/coroutine.dart' show Coroutine;
 import 'package:path/path.dart' as path;
 
-import 'lib_io.dart' show IOLib;
 
 /// Built-in function to retrieve the metatable of a value.
 class GetMetatableFunction implements BuiltinFunction {

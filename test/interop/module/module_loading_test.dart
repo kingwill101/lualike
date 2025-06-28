@@ -1,5 +1,3 @@
-@Tags(['interop'])
-import 'package:lualike/src/interop.dart' show LuaLikeBridge;
 import 'package:test/test.dart';
 import 'package:lualike/lualike.dart';
 

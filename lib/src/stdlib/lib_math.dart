@@ -193,8 +193,9 @@ class _MathMin extends _MathFunction {
 class _MathModf extends _MathFunction {
   @override
   Object? call(List<Object?> args) {
-    if (args.isEmpty)
+    if (args.isEmpty) {
       throw LuaError.typeError("math.modf requires a number argument");
+    }
 
     final num = _getNumber(args[0] as Value, "math.modf");
     final intPart = num.truncate();
@@ -207,8 +208,9 @@ class _MathModf extends _MathFunction {
 class _MathRad extends _MathFunction {
   @override
   Object? call(List<Object?> args) {
-    if (args.isEmpty)
+    if (args.isEmpty) {
       throw LuaError.typeError("math.rad requires a number argument");
+    }
     final num = _getNumber(args[0] as Value, "math.rad");
     return Value(num * math.pi / 180);
   }
@@ -246,8 +248,9 @@ class _MathRandom extends _MathFunction {
 class _MathRandomseed extends _MathFunction {
   @override
   Object? call(List<Object?> args) {
-    if (args.isEmpty)
+    if (args.isEmpty) {
       throw LuaError.typeError("math.randomseed requires a number argument");
+    }
 
     final seed = _getNumber(args[0] as Value, "math.randomseed").toInt();
     math.Random(
@@ -261,8 +264,9 @@ class _MathRandomseed extends _MathFunction {
 class _MathSin extends _MathFunction {
   @override
   Object? call(List<Object?> args) {
-    if (args.isEmpty)
+    if (args.isEmpty) {
       throw LuaError.typeError("math.sin requires a number argument");
+    }
     final num = _getNumber(args[0] as Value, "math.sin");
     return Value(math.sin(num));
   }
@@ -271,8 +275,9 @@ class _MathSin extends _MathFunction {
 class _MathSqrt extends _MathFunction {
   @override
   Object? call(List<Object?> args) {
-    if (args.isEmpty)
+    if (args.isEmpty) {
       throw LuaError.typeError("math.sqrt requires a number argument");
+    }
     final num = _getNumber(args[0] as Value, "math.sqrt");
     return Value(math.sqrt(num));
   }
@@ -281,8 +286,9 @@ class _MathSqrt extends _MathFunction {
 class _MathTan extends _MathFunction {
   @override
   Object? call(List<Object?> args) {
-    if (args.isEmpty)
+    if (args.isEmpty) {
       throw LuaError.typeError("math.tan requires a number argument");
+    }
     final num = _getNumber(args[0] as Value, "math.tan");
     return Value(math.tan(num));
   }
@@ -291,8 +297,9 @@ class _MathTan extends _MathFunction {
 class _MathType extends _MathFunction {
   @override
   Object? call(List<Object?> args) {
-    if (args.isEmpty)
+    if (args.isEmpty) {
       throw LuaError.typeError("math.type requires one argument");
+    }
 
     final value = args[0] as Value;
     if (value.raw is int) {

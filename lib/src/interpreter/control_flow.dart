@@ -121,7 +121,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       blockEnv.closeVariables();
       // Re-throw BreakException to be caught by the enclosing loop
       rethrow;
-    } on GotoException catch (s) {
+    } on GotoException {
       // Close variables before re-throwing
       blockEnv.closeVariables();
       // Re-throw GotoException to be handled by the enclosing scope

@@ -177,7 +177,7 @@ class LuaStackTrace {
           if (consecutiveSimilarFrames > 2) {
             deduplicatedFrames.add(
               LuaStackFrame(
-                "... repeated ${consecutiveSimilarFrames} more times",
+                "... repeated $consecutiveSimilarFrames more times",
               ),
             );
           } else {
@@ -197,7 +197,7 @@ class LuaStackTrace {
     if (consecutiveSimilarFrames > 0) {
       if (consecutiveSimilarFrames > 2) {
         deduplicatedFrames.add(
-          LuaStackFrame("... repeated ${consecutiveSimilarFrames} more times"),
+          LuaStackFrame("... repeated $consecutiveSimilarFrames more times"),
         );
       } else {
         for (int i = 0; i < consecutiveSimilarFrames; i++) {

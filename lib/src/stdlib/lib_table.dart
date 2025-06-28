@@ -174,22 +174,6 @@ class _TableSort implements BuiltinFunction {
     final map = table.raw as Map;
     final comp = args.length > 1 ? args[1] : null;
 
-    // Early check if comparison function is coroutine.yield
-    if (comp is Value && comp.raw is Function) {
-      final func = comp.raw as Function;
-      try {
-        // Try one comparison to see if it yields
-        final result = await func([Value(1), Value(2)]);
-        // If we get here, no yield occurred
-      } catch (e) {
-        if (e is YieldException) {
-          // If yield was attempted, abort the sort
-          throw LuaError.typeError("attempt to yield from a C function");
-        }
-        rethrow;
-      }
-    }
-
     // Get the array part of the table (numeric indices)
     final keys = map.keys.where((k) => k is int && k >= 1).toList()..sort();
     if (keys.isEmpty) return Value(null);

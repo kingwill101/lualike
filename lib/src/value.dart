@@ -38,7 +38,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// Whether this value has been initialized (used for const variables)
   bool _isInitialized = false;
 
-  /// Interpreter instance (for functions/coroutines)
+  /// Interpreter instance (for functions)
   Interpreter? interpreter;
 
   /// Whether this value is marked for garbage collection
@@ -216,82 +216,41 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// Returns the result of the function call.
   /// Throws an [UnsupportedError] if the value is not callable.
   Future<Object?> invoke(List<Object?> args) async {
-    // Save current interpreter state
-    final Interpreter? currentInterpreter = interpreter;
-    Environment? previousEnv;
-    Coroutine? previousCoroutine;
-
-    if (currentInterpreter != null) {
-      previousEnv = currentInterpreter.getCurrentEnv();
-      previousCoroutine = currentInterpreter.getCurrentCoroutine();
-    }
-
-    try {
-      if (raw is AsyncFunction) {
-        // Call the asynchronous Dart function directly
-        return await (raw as AsyncFunction)(args);
-      } else if (raw is Function) {
-        // Call synchronous Dart function
-        return (raw as Function)(args);
-      } else if (raw is FunctionDef) {
-        // Call LuaLike function defined in AST
-        final FunctionDef funcDef = raw as FunctionDef;
-        final FunctionBody funcBody = funcDef.body;
-
-        // Set interpreter environment to the function's closure environment for execution
-        if (currentInterpreter != null) {
-          // currentInterpreter.setCurrentEnv(funcBody.environment!); // Removed as environment is handled by closure
-        }
-
-        // Evaluate the function body
-        final result = await funcBody.accept(currentInterpreter!);
-
-        // Restore interpreter environment
-        if (currentInterpreter != null && previousEnv != null) {
-          // currentInterpreter.setCurrentEnv(previousEnv); // Removed as environment is handled by closure
-        }
-        return result;
-      } else if (raw is FunctionBody) {
-        // Call LuaLike function body directly (closure)
-        final FunctionBody funcBody = raw as FunctionBody;
-
-        // Set interpreter environment to the function's closure environment for execution
-        if (currentInterpreter != null) {
-          // currentInterpreter.setCurrentEnv(funcBody.environment!); // Removed as environment is handled by closure
-        }
-
-        // Evaluate the function body
-        final result = await funcBody.accept(currentInterpreter!);
-
-        // Restore interpreter environment
-        if (currentInterpreter != null && previousEnv != null) {
-          // currentInterpreter.setCurrentEnv(previousEnv); // Removed as environment is handled by closure
-        }
-        return result;
-      } else if (raw is BuiltinFunction) {
-        // Call BuiltinFunction
-        return (raw as BuiltinFunction).call(args);
-      } else if (hasMetamethod('__call')) {
-        // Call __call metamethod
-        final callMeta = getMetamethod('__call');
-        if (callMeta is Value) {
-          return await callMeta.invoke([this, ...args]);
-        } else if (callMeta is Function) {
-          return await callMeta([this, ...args]);
-        }
-      }
-    } finally {
-      // Always restore original environment and coroutine if changed
-      if (currentInterpreter != null) {
-        if (previousEnv != null) {
-          // currentInterpreter.setCurrentEnv(previousEnv); // Removed as environment is handled by closure
-        }
-        if (previousCoroutine != null) {
-          // currentInterpreter.setCurrentCoroutine(previousCoroutine); // Removed as coroutine is handled by closure
-        }
+    if (raw is AsyncFunction) {
+      // Call the asynchronous Dart function directly
+      return await (raw as AsyncFunction)(args);
+    } else if (raw is Function) {
+      // Call synchronous Dart function
+      return (raw as Function)(args);
+    } else if (raw is FunctionDef) {
+      // Call LuaLike function defined in AST
+      final FunctionDef funcDef = raw as FunctionDef;
+      final FunctionBody funcBody = funcDef.body;
+      // Evaluate the function body
+      final result = await funcBody.accept(
+        Environment.current?.interpreter as AstVisitor<Object?>,
+      );
+      return result;
+    } else if (raw is FunctionBody) {
+      // Call LuaLike function body directly (closure)
+      final FunctionBody funcBody = raw as FunctionBody;
+      // Evaluate the function body
+      final result = await funcBody.accept(
+        Environment.current?.interpreter as AstVisitor<Object?>,
+      );
+      return result;
+    } else if (raw is BuiltinFunction) {
+      // Call BuiltinFunction
+      return (raw as BuiltinFunction).call(args);
+    } else if (hasMetamethod('__call')) {
+      // Call __call metamethod
+      final callMeta = getMetamethod('__call');
+      if (callMeta is Value) {
+        return await callMeta.invoke([this, ...args]);
+      } else if (callMeta is Function) {
+        return await callMeta([this, ...args]);
       }
     }
-
     throw UnsupportedError(
       'Attempt to call a non-function value: ${raw.runtimeType}',
     );
