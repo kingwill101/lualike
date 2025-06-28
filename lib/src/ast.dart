@@ -14,32 +14,54 @@ abstract class AstNode {
   SourceSpan? getSpan() => span;
 
   Future<T> accept<T>(AstVisitor<T> visitor);
+
   String toSource();
 }
 
 /// Visitor interface for ASFuture`<T>` nodes.
 abstract class AstVisitor<T> {
   Future<T> visitAssignment(Assignment node);
+
   Future<T> visitLocalDeclaration(LocalDeclaration node);
+
   Future<T> visitIfStatement(IfStatement node);
+
   Future<T> visitWhileStatement(WhileStatement node);
+
   Future<T> visitForLoop(ForLoop node);
+
   Future<T> visitRepeatUntilLoop(RepeatUntilLoop node);
+
   Future<T> visitFunctionDef(FunctionDef node);
+
   Future<T> visitReturnStatement(ReturnStatement node);
+
   Future<T> visitExpressionStatement(ExpressionStatement node);
+
   Future<T> visitBinaryExpression(BinaryExpression node);
+
   Future<T> visitTableAccess(TableAccessExpr node);
+
   Future<T> visitUnaryExpression(UnaryExpression node);
+
   Future<T> visitFunctionCall(FunctionCall node);
+
   Future<T> visitTableConstructor(TableConstructor node);
+
   Future<T> visitKeyedTableEntry(KeyedTableEntry node);
+
   Future<T> visitTableEntryLiteral(TableEntryLiteral node);
+
   Future<T> visitNilValue(NilValue node);
+
   Future<T> visitNumberLiteral(NumberLiteral node);
+
   Future<T> visitStringLiteral(StringLiteral node);
+
   Future<T> visitBooleanLiteral(BooleanLiteral node);
+
   Future<T> visitIdentifier(Identifier node);
+
   Future<T> visitForInLoop(ForInLoop forInLoop);
 
   Future<T> visitBreak(Break br);
@@ -118,9 +140,12 @@ class VarArg extends AstNode {
 
 class Label extends AstNode {
   final Identifier label;
+
   Label(this.label);
+
   @override
   Future<T> accept<T>(AstVisitor<T> visitor) => visitor.visitLabel(this);
+
   @override
   String toSource() {
     return "$label:";
@@ -129,6 +154,7 @@ class Label extends AstNode {
 
 class Break extends AstNode {
   Break();
+
   @override
   Future<T> accept<T>(AstVisitor<T> visitor) => visitor.visitBreak(this);
 
@@ -140,9 +166,12 @@ class Break extends AstNode {
 
 class Goto extends AstNode {
   final Identifier label;
+
   Goto(this.label);
+
   @override
   Future<T> accept<T>(AstVisitor<T> visitor) => visitor.visitGoto(this);
+
   @override
   String toSource() {
     return "goto $label";
@@ -152,6 +181,7 @@ class Goto extends AstNode {
 /// Represents the top-level program.
 class Program extends AstNode {
   final List<AstNode> statements;
+
   Program(this.statements);
 
   @override
@@ -165,6 +195,7 @@ class Program extends AstNode {
 class Assignment extends AstNode {
   final List<AstNode> targets; // Changed from single target to list
   final List<AstNode> exprs;
+
   Assignment(this.targets, this.exprs);
 
   @override
@@ -211,6 +242,7 @@ class IfStatement extends AstNode {
   final List<AstNode> thenBlock;
   final List<ElseIfClause> elseIfs;
   final List<AstNode> elseBlock;
+
   IfStatement(this.cond, this.elseIfs, this.thenBlock, this.elseBlock);
 
   @override
@@ -231,6 +263,7 @@ class IfStatement extends AstNode {
 class ElseIfClause extends AstNode {
   final AstNode cond;
   final List<AstNode> thenBlock;
+
   ElseIfClause(this.cond, this.thenBlock);
 
   @override
@@ -247,6 +280,7 @@ class ElseIfClause extends AstNode {
 class WhileStatement extends AstNode {
   final AstNode cond;
   final List<AstNode> body;
+
   WhileStatement(this.cond, this.body);
 
   @override
@@ -267,6 +301,7 @@ class ForLoop extends AstNode {
   final AstNode endExpr;
   final AstNode stepExpr;
   final List<AstNode> body;
+
   ForLoop(this.varName, this.start, this.endExpr, this.stepExpr, this.body);
 
   @override
@@ -284,9 +319,12 @@ class ForInLoop extends AstNode {
   final List<Identifier> names;
   final List<AstNode> iterators;
   final List<AstNode> body;
+
   ForInLoop(this.names, this.iterators, this.body);
+
   @override
   Future<T> accept<T>(AstVisitor<T> visitor) => visitor.visitForInLoop(this);
+
   @override
   String toSource() {
     final bodySrc = body.map((s) => s.toSource()).join("\n");
@@ -299,6 +337,7 @@ class ForInLoop extends AstNode {
 class RepeatUntilLoop extends AstNode {
   final List<AstNode> body;
   final AstNode cond;
+
   RepeatUntilLoop(this.body, this.cond);
 
   @override
@@ -316,7 +355,9 @@ class RepeatUntilLoop extends AstNode {
 class FunctionDef extends AstNode {
   final FunctionName name;
   final FunctionBody body;
-  FunctionDef(this.name, this.body);
+  final bool implicitSelf;
+
+  FunctionDef(this.name, this.body, {this.implicitSelf = false});
 
   @override
   Future<T> accept<T>(AstVisitor<T> visitor) => visitor.visitFunctionDef(this);
@@ -332,8 +373,10 @@ class FunctionName extends AstNode {
   final Identifier? method;
 
   FunctionName(this.first, this.rest, this.method);
+
   @override
   Future<T> accept<T>(AstVisitor<T> visitor) => visitor.visitFunctionName(this);
+
   @override
   String toSource() {
     final restSrc = rest.map((r) => r.toSource()).join(", ");
@@ -345,10 +388,13 @@ class FunctionName extends AstNode {
 class LocalFunctionDef extends AstNode {
   final Identifier name;
   final FunctionBody funcBody;
+
   LocalFunctionDef(this.name, this.funcBody);
+
   @override
   Future<T> accept<T>(AstVisitor<T> visitor) =>
       visitor.visitLocalFunctionDef(this);
+
   @override
   String toSource() =>
       "local function ${name.toSource()} ${funcBody.toSource()}";
@@ -375,10 +421,13 @@ class FunctionBody extends AstNode {
 
 class FunctionLiteral extends AstNode {
   final FunctionBody funcBody;
+
   FunctionLiteral(this.funcBody);
+
   @override
   Future<T> accept<T>(AstVisitor<T> visitor) =>
       visitor.visitFunctionLiteral(this);
+
   @override
   String toSource() => "function ${funcBody.toSource()}";
 }
@@ -386,6 +435,7 @@ class FunctionLiteral extends AstNode {
 /// return expr
 class ReturnStatement extends AstNode {
   final List<AstNode> expr;
+
   ReturnStatement(this.expr);
 
   @override
@@ -399,6 +449,7 @@ class ReturnStatement extends AstNode {
 /// yield expr
 class YieldStatement extends AstNode {
   final List<AstNode> expr;
+
   YieldStatement(this.expr);
 
   @override
@@ -412,6 +463,7 @@ class YieldStatement extends AstNode {
 /// Expression used as a statement.
 class ExpressionStatement extends AstNode {
   final AstNode expr;
+
   ExpressionStatement(this.expr);
 
   @override
@@ -461,6 +513,7 @@ class BinaryExpression extends AstNode {
   final AstNode left;
   final String op;
   final AstNode right;
+
   BinaryExpression(this.left, this.op, this.right);
 
   @override
@@ -477,6 +530,7 @@ class BinaryExpression extends AstNode {
 class UnaryExpression extends AstNode {
   final String op;
   final AstNode expr;
+
   UnaryExpression(this.op, this.expr);
 
   @override
@@ -498,6 +552,7 @@ abstract class Call extends AstNode {}
 class FunctionCall extends Call {
   final AstNode name;
   final List<AstNode> args;
+
   FunctionCall(this.name, this.args);
 
   @override
@@ -515,6 +570,7 @@ class MethodCall extends Call {
   final AstNode prefix;
   final AstNode methodName;
   final List<AstNode> args;
+
   MethodCall(this.prefix, this.methodName, this.args);
 
   @override
@@ -530,6 +586,7 @@ class MethodCall extends Call {
 /// Table constructor: { entries }.
 class TableConstructor extends AstNode {
   final List<TableEntry> entries;
+
   TableConstructor(this.entries);
 
   @override
@@ -551,6 +608,7 @@ abstract class TableEntry extends AstNode {}
 class KeyedTableEntry extends TableEntry {
   final AstNode key; // Can be Identifier or StringLiteral
   final AstNode value;
+
   KeyedTableEntry(this.key, this.value);
 
   @override
@@ -569,6 +627,7 @@ class KeyedTableEntry extends TableEntry {
 /// Table entry given as a lone expression.
 class TableEntryLiteral extends TableEntry {
   final AstNode expr;
+
   TableEntryLiteral(this.expr);
 
   @override
@@ -596,6 +655,7 @@ class NilValue extends AstNode {
 /// Numeric literal.
 class NumberLiteral extends AstNode {
   final num value;
+
   NumberLiteral(this.value);
 
   @override
@@ -609,6 +669,7 @@ class NumberLiteral extends AstNode {
 /// String literal.
 class StringLiteral extends AstNode {
   final String value;
+
   StringLiteral(this.value);
 
   @override
@@ -622,6 +683,7 @@ class StringLiteral extends AstNode {
 /// Boolean literal.
 class BooleanLiteral extends AstNode {
   final bool value;
+
   BooleanLiteral(this.value);
 
   @override
@@ -635,6 +697,7 @@ class BooleanLiteral extends AstNode {
 /// Identifier.
 class Identifier extends AstNode {
   final String name;
+
   Identifier(this.name);
 
   @override
