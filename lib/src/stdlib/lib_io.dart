@@ -232,8 +232,7 @@ class IORead implements BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debug('Executing IO read');
-    final formats =
-    args.isEmpty
+    final formats = args.isEmpty
         ? ["l"]
         : args.map((e) => (e as Value).raw.toString()).toList();
     Logger.debug('Reading with formats: $formats');
@@ -257,6 +256,7 @@ class IORead implements BuiltinFunction {
     return Value.multi(results);
   }
 }
+
 class IOTmpfile implements BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {

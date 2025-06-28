@@ -331,7 +331,7 @@ void main() {
       var result = bridge.getGlobal('result');
       expect(result, isNotNull);
       expect((result as Value).raw is Map, isTrue);
-      expect((((result as Value).raw)['id'] as Value).raw, equals(123));
+      expect((((result).raw)['id'] as Value).raw, equals(123));
     });
 
     test('colon method returns self and argument', () async {
@@ -346,7 +346,7 @@ void main() {
       var s = bridge.getGlobal('s');
       var x = bridge.getGlobal('x');
       expect((s as Value).raw is Map, isTrue);
-      expect((fromLuaValue(((s as Value).raw)['name'])), equals('A'));
+      expect((fromLuaValue(((s).raw)['name'])), equals('A'));
       expect(fromLuaValue(x), equals(42));
     });
 

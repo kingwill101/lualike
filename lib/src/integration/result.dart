@@ -95,8 +95,9 @@ class ProgressBar {
 
         final elapsed = stopwatch.elapsed;
         // Avoid division by zero
-        final estimatedTotal =
-            percent > 0 ? elapsed.inMilliseconds / percent : 0;
+        final estimatedTotal = percent > 0
+            ? elapsed.inMilliseconds / percent
+            : 0;
         final remaining =
             Duration(milliseconds: estimatedTotal.toInt()) - elapsed;
 

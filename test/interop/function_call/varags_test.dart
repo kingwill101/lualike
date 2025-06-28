@@ -517,7 +517,7 @@ void main() {
 
         expect((result1 as Value).raw, equals(3));
         expect((result2 as Value).raw, equals(12)); // 10 + 2
-        expect((result3 as Value).raw, equals(9));  // 1 + 2 + 3 + 3
+        expect((result3 as Value).raw, equals(9)); // 1 + 2 + 3 + 3
       });
 
       test('method definition with varargs', () async {

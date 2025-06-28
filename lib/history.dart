@@ -30,8 +30,9 @@ class ReplHistory {
 
   String? getNext() {
     if (_history.isEmpty) return null;
-    _currentIndex =
-        (_currentIndex < _history.length) ? _currentIndex + 1 : _history.length;
+    _currentIndex = (_currentIndex < _history.length)
+        ? _currentIndex + 1
+        : _history.length;
     return _currentIndex < _history.length ? _history[_currentIndex] : "";
   }
 
@@ -52,10 +53,9 @@ class ReplHistory {
     try {
       final file = File(_historyFilePath);
       // Limit history to last 1000 commands
-      final historyToSave =
-          _history.length > 1000
-              ? _history.sublist(_history.length - 1000)
-              : _history;
+      final historyToSave = _history.length > 1000
+          ? _history.sublist(_history.length - 1000)
+          : _history;
       file.writeAsStringSync(historyToSave.join('\n'));
       print('Saved ${historyToSave.length} commands to history file');
     } catch (e) {

@@ -171,11 +171,10 @@ void main() {
       final chunk = await compiler.compile(ast);
 
       // Verify that different registers are used for the two 'x' variables
-      final stores =
-          chunk.instructions
-              .where((i) => i.op == OpCode.STORE_LOCAL)
-              .map((i) => i.operands[0])
-              .toList();
+      final stores = chunk.instructions
+          .where((i) => i.op == OpCode.STORE_LOCAL)
+          .map((i) => i.operands[0])
+          .toList();
 
       expect(stores[0], equals(0));
       expect(stores[1], equals(1));

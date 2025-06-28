@@ -274,19 +274,17 @@ Future<void> _loadConfigFile(String configPath) async {
       }
       if (filter.containsKey('categories') &&
           filter['categories'] is YamlList) {
-        categories =
-            (filter['categories'] as YamlList)
-                .map((item) => item.toString())
-                .toList();
+        categories = (filter['categories'] as YamlList)
+            .map((item) => item.toString())
+            .toList();
       }
     }
 
     // Load skip tests
     if (yaml.containsKey('skip_tests') && yaml['skip_tests'] is YamlList) {
-      skipList =
-          (yaml['skip_tests'] as YamlList)
-              .map((item) => item.toString())
-              .toList();
+      skipList = (yaml['skip_tests'] as YamlList)
+          .map((item) => item.toString())
+          .toList();
       print('Loaded ${skipList.length} tests to skip from config file');
     }
 

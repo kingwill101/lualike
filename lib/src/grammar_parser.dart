@@ -2282,10 +2282,8 @@ class GrammarParser {
       final $3 = parseParameterList(state);
       $4 = $3;
       (List<Identifier>, bool)? paramResult = $4;
-      if (paramResult != null) {
-        params = paramResult.$1;
-        hasVararg = paramResult.$2;
-      }
+      params = paramResult.$1;
+      hasVararg = paramResult.$2;
       final $5 = state.position;
       if (state.peek() == 41) {
         state.consume(')', $5);

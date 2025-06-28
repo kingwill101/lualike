@@ -238,8 +238,9 @@ class BytecodeVM {
           }
 
           // Push requested number of varargs (or all if count is -1)
-          final args =
-              count < 0 ? frame.varargs! : frame.varargs!.take(count).toList();
+          final args = count < 0
+              ? frame.varargs!
+              : frame.varargs!.take(count).toList();
           stack.addAll(args);
 
         case OpCode.SETUPVARARGS:

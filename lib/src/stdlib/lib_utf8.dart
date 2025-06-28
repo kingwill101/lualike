@@ -150,13 +150,12 @@ class _UTF8Len implements BuiltinFunction {
 
     try {
       final chars = str.characters;
-      final substring =
-          chars
-              .getRange(
-                i > 0 ? i - 1 : chars.length + i,
-                j > 0 ? j : chars.length + j + 1,
-              )
-              .toString();
+      final substring = chars
+          .getRange(
+            i > 0 ? i - 1 : chars.length + i,
+            j > 0 ? j : chars.length + j + 1,
+          )
+          .toString();
 
       if (!lax) {
         for (final char in substring.characters) {
@@ -182,10 +181,9 @@ class _UTF8Offset implements BuiltinFunction {
 
     final str = (args[0] as Value).raw.toString();
     final n = (args[1] as Value).raw as int;
-    var i =
-        args.length > 2
-            ? (args[2] as Value).raw as int
-            : (n >= 0 ? 1 : str.length + 1);
+    var i = args.length > 2
+        ? (args[2] as Value).raw as int
+        : (n >= 0 ? 1 : str.length + 1);
 
     // For Lua compatibility, we need to work with byte positions
     //FIXME:    final bytes = utf8.encode(str);

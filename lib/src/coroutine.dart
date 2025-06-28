@@ -111,7 +111,7 @@ class Coroutine extends GCObject {
           'Coroutine.resume: Restored saved execution environment: ${interpreter.getCurrentEnv().hashCode}',
           category: 'Coroutine',
         );
-            }
+      }
 
       if (status == CoroutineStatus.suspended && _executionTask == null) {
         // Initial execution
@@ -312,10 +312,9 @@ class Coroutine extends GCObject {
     // No null check for functionBody needed here, as it's now non-nullable
 
     // Process arguments for the function call
-    final processedArgs =
-        initialArgs.map((arg) {
-          return arg is Value ? arg : Value(arg);
-        }).toList();
+    final processedArgs = initialArgs.map((arg) {
+      return arg is Value ? arg : Value(arg);
+    }).toList();
 
     // Bind regular parameters
     final hasVarargs = functionBody.isVararg;
@@ -337,10 +336,9 @@ class Coroutine extends GCObject {
 
     // Handle varargs if present
     if (hasVarargs) {
-      List<Object?> varargs =
-          processedArgs.length > regularParamCount
-              ? processedArgs.sublist(regularParamCount)
-              : [];
+      List<Object?> varargs = processedArgs.length > regularParamCount
+          ? processedArgs.sublist(regularParamCount)
+          : [];
       _executionEnvironment.define("...", Value.multi(varargs));
     }
 

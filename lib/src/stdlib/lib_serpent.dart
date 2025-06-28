@@ -139,13 +139,12 @@ class SerpentDump implements BuiltinFunction {
 
       context.level++;
       final indent = context.getIndent();
-      final prevIndent =
-          context.options.indent
-              ? context.getIndent().substring(
-                0,
-                context.getIndent().length - context.options.indent_str.length,
-              )
-              : "";
+      final prevIndent = context.options.indent
+          ? context.getIndent().substring(
+              0,
+              context.getIndent().length - context.options.indent_str.length,
+            )
+          : "";
 
       // Serialize the table
       final parts = <String>[];
@@ -247,44 +246,36 @@ class SerpentDump implements BuiltinFunction {
     if (opts is! Map) return SerpentOptions();
 
     return SerpentOptions(
-      indent:
-          opts['indent'] is Value
-              ? (opts['indent'] as Value).raw as bool
-              : true,
-      maxDepth:
-          opts['maxDepth'] is Value
-              ? (opts['maxDepth'] as Value).raw as int?
-              : null,
-      handleCycles:
-          opts['handleCycles'] is Value
-              ? (opts['handleCycles'] as Value).raw as bool
-              : true,
-      compact:
-          opts['compact'] is Value
-              ? (opts['compact'] as Value).raw as bool
-              : false,
-      sortKeys:
-          opts['sortKeys'] is Value
-              ? (opts['sortKeys'] as Value).raw as bool
-              : false,
-      indent_str:
-          opts['indent_str'] is Value
-              ? (opts['indent_str'] as Value).raw as String
-              : "  ",
-      comment:
-          opts['comment'] is Value
-              ? (opts['comment'] as Value).raw as String
-              : "",
+      indent: opts['indent'] is Value
+          ? (opts['indent'] as Value).raw as bool
+          : true,
+      maxDepth: opts['maxDepth'] is Value
+          ? (opts['maxDepth'] as Value).raw as int?
+          : null,
+      handleCycles: opts['handleCycles'] is Value
+          ? (opts['handleCycles'] as Value).raw as bool
+          : true,
+      compact: opts['compact'] is Value
+          ? (opts['compact'] as Value).raw as bool
+          : false,
+      sortKeys: opts['sortKeys'] is Value
+          ? (opts['sortKeys'] as Value).raw as bool
+          : false,
+      indent_str: opts['indent_str'] is Value
+          ? (opts['indent_str'] as Value).raw as String
+          : "  ",
+      comment: opts['comment'] is Value
+          ? (opts['comment'] as Value).raw as String
+          : "",
       exclude:
           opts['exclude'] is Value && (opts['exclude'] as Value).raw is List
-              ? ((opts['exclude'] as Value).raw as List)
-                  .map((e) => e.toString())
-                  .toList()
-              : const [],
-      special:
-          opts['special'] is Value
-              ? (opts['special'] as Value).raw as bool
-              : true,
+          ? ((opts['exclude'] as Value).raw as List)
+                .map((e) => e.toString())
+                .toList()
+          : const [],
+      special: opts['special'] is Value
+          ? (opts['special'] as Value).raw as bool
+          : true,
     );
   }
 }

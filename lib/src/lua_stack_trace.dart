@@ -228,8 +228,9 @@ class LuaStackTrace {
     }
 
     // Limit the number of frames to display (max 10)
-    final framesToShow =
-        finalFrames.length > 10 ? finalFrames.sublist(0, 10) : finalFrames;
+    final framesToShow = finalFrames.length > 10
+        ? finalFrames.sublist(0, 10)
+        : finalFrames;
 
     for (var i = 0; i < framesToShow.length; i++) {
       buffer.writeln();

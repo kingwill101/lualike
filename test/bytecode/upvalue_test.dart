@@ -61,8 +61,9 @@ void main() {
       final chunk = await compiler.compile(ast);
 
       // Find all CLOSURE instructions
-      final closures =
-          chunk.instructions.where((i) => i.op == OpCode.CLOSURE).toList();
+      final closures = chunk.instructions
+          .where((i) => i.op == OpCode.CLOSURE)
+          .toList();
 
       // Should have two closures
       expect(closures.length, equals(2));

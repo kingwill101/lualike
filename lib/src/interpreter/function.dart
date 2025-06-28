@@ -521,7 +521,6 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     dynamic func,
     List<Object?> args, [
     String? callerFunctionName,
-    bool callImplicitSelf = false,
   ]) async {
     Logger.debug(
       '>>> _callFunction called with function: [36m${func.hashCode}[0m, args: $args',

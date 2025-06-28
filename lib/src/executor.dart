@@ -1,6 +1,7 @@
 import 'package:lualike/src/bytecode/bytecode.dart' show BytecodeChunk;
 import 'package:lualike/src/bytecode/compiler.dart' show Compiler;
 import 'package:lualike/src/bytecode/vm.dart' show BytecodeVM;
+import 'package:lualike/src/lua_error.dart';
 
 import 'ast.dart';
 import 'exceptions.dart';
@@ -61,7 +62,7 @@ Future<Object?> executeCode(
     final vm = BytecodeVM();
     return vm.execute(bytecodeChunk);
   } else {
-    throw ArgumentError('Invalid ExecutionMode: $mode');
+    throw LuaError('Invalid ExecutionMode: $mode');
   }
 }
 

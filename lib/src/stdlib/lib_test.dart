@@ -245,8 +245,9 @@ class TestLib {
       return Value("");
     }
 
-    final number =
-        args[0] is double || args[0] is int ? (args[0] as dynamic) : 0;
+    final number = args[0] is double || args[0] is int
+        ? (args[0] as dynamic)
+        : 0;
     return Value(number.toString());
   }
 

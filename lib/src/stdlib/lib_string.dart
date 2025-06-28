@@ -175,8 +175,8 @@ String _applyPadding(String text, _FormatContext ctx) {
     } else if (ctx.zeroPad) {
       final signChar =
           (text.startsWith('+') || text.startsWith('-') || text.startsWith(' '))
-              ? text[0]
-              : '';
+          ? text[0]
+          : '';
       final numPart = signChar.isNotEmpty ? text.substring(1) : text;
       return signChar + numPart.padLeft(ctx.paddingSize - signChar.length, '0');
     } else {
@@ -363,10 +363,9 @@ String _formatHex(_FormatContext ctx, bool uppercase) {
 
   if (ctx.precision.isNotEmpty) {
     final precValue = ctx.precisionValue;
-    final prefix =
-        result.startsWith('0x') || result.startsWith('0X')
-            ? result.substring(0, 2)
-            : '';
+    final prefix = result.startsWith('0x') || result.startsWith('0X')
+        ? result.substring(0, 2)
+        : '';
     final numPart = prefix.isNotEmpty ? result.substring(2) : result;
     result = prefix + numPart.padLeft(precValue, '0');
   }
