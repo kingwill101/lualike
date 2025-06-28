@@ -1,0 +1,7 @@
+local main = coroutine.running()
+close_main_ok, close_main_err = pcall(coroutine.close, main)
+print("close_main_ok:", close_main_ok)
+print("close_main_err:", close_main_err)
+print("main:", main)
+print("type(main):", type(main))
+print("coroutine.status(main):", coroutine.status(main))

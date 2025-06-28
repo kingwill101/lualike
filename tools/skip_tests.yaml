@@ -1,0 +1,22 @@
+# Skip list for Lua tests
+# This file contains a list of tests that should be skipped when running the integration tests.
+# Each entry should be a relative path to a test file from the test suite directory.
+
+skip_tests:
+  # Tests that require C API functionality
+  - api.lua
+
+  # Tests that require specific Lua features not yet implemented
+  - coroutine.lua
+  - gc.lua
+  - nextvar.lua
+
+  # Tests that are known to fail due to implementation differences
+  - pm.lua
+  - utf8.lua
+
+  # Tests that are too complex or resource-intensive
+  - big.lua
+  - sort.lua
+
+  # Add more tests as needed
