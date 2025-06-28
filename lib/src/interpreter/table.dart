@@ -181,7 +181,13 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
               value is Value ? value : Value(value);
         }
       } else if (field is KeyedTableEntry) {
-        final key = await field.key.accept(this);
+        dynamic key;
+        try{
+          key = await field.key.accept(this);
+        } catch (e) {
+          key = (field.key as Identifier).name;
+        }
+
         var value = await field.value.accept(this);
 
         if (value is Value && value.isMulti) {
