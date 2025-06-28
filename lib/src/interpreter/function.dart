@@ -45,9 +45,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
       if (node.name.rest.isNotEmpty) {
         methodName = node.name.rest.last.name;
-      } else {
+      }
+
+      if (node.implicitSelf) {
         //implicit self
         methodName = (node.name).method!.name;
+        node.body.implicitSelf = true;
       }
       // Get method name (last part of the name)
 
@@ -63,6 +66,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       //define self
       if (node.implicitSelf) {
         methodEnv.define('self', table);
+        node.body.parameters = [Identifier("self"), ...?node.body.parameters];
       }
 
       // Store the current environment
@@ -160,6 +164,15 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         isClosure: true,
       );
 
+      // if (node.implicitSelf) {
+      //   // If this is a method, define 'self' in the execution environment
+      //   execEnv.define('self', args.isNotEmpty ? args[0] : Value(null));
+      //   Logger.debug(
+      //     'Defined implicit self in execEnv: ${execEnv.get("self")}',
+      //     category: 'Interpreter',
+      //   );
+      // }
+
       Logger.debug(
         "visitFunctionBody: Created execEnv (${execEnv.hashCode}) with parent ${closureEnv.hashCode}",
         category: 'Interpreter',
@@ -184,10 +197,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
       // Handle varargs if present
       if (hasVarargs) {
-        List<Object?> varargs =
-            args.length > regularParamCount
-                ? args.sublist(regularParamCount)
-                : [];
+        List<Object?> varargs = args.length > regularParamCount
+            ? args.sublist(regularParamCount)
+            : [];
         execEnv.define("...", Value.multi(varargs));
       }
 
@@ -347,23 +359,42 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitMethodCall(MethodCall node) async {
     Logger.debug(
-      'Visiting MethodCall: \x1b[36m${node.prefix}.${node.methodName}\x1b[0m',
+      'Visiting MethodCall: \x1b[36m[36m${node.prefix}.${node.methodName}\x1b[0m',
       category: 'Interpreter',
     );
 
     // Get object
     var obj = await node.prefix.accept(this);
+    Logger.debug(
+      '[MethodCall] Receiver (prefix) value: $obj',
+      category: 'Interpreter',
+    );
 
     // Evaluate arguments
     List<dynamic> args = await Future.wait(
       node.args.map((a) async => await a.accept(this)).toList(),
     );
+    Logger.debug(
+      '[MethodCall] Arguments before implicitSelf: $args',
+      category: 'Interpreter',
+    );
+
+    if (node.implicitSelf) {
+      args = [obj, ...args];
+      Logger.debug(
+        '[MethodCall] Arguments after implicitSelf: $args',
+        category: 'Interpreter',
+      );
+    }
 
     // Get method name
-    final methodName =
-        node.methodName is Identifier
-            ? (node.methodName as Identifier).name
-            : node.methodName.toString();
+    final methodName = node.methodName is Identifier
+        ? (node.methodName as Identifier).name
+        : node.methodName.toString();
+    Logger.debug(
+      '[MethodCall] Method name: $methodName',
+      category: 'Interpreter',
+    );
 
     final result = (obj as Value).getMetamethod('__index');
 
@@ -371,6 +402,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       final aFunc = result([obj, Value(methodName)]);
 
       if (aFunc is Value && aFunc.raw is Function) {
+        Logger.debug(
+          '[MethodCall] Calling metamethod __index function for method: $methodName',
+          category: 'Interpreter',
+        );
         return aFunc.raw(args);
       }
     }
@@ -385,15 +420,33 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
     // Make sure func is a Value
     func = func is Value ? func : Value(func);
+    Logger.debug(
+      '[MethodCall] Function to call: $func',
+      category: 'Interpreter',
+    );
 
     // Call the function
     if (func.raw is Function) {
+      Logger.debug(
+        '[MethodCall] Calling function with args: ${[obj, ...args]}',
+        category: 'Interpreter',
+      );
       final result = await func.raw([obj, ...args]);
+      Logger.debug('[MethodCall] Result: $result', category: 'Interpreter');
       return result is Future ? await result : result;
     } else if (func.raw is BuiltinFunction) {
+      Logger.debug(
+        '[MethodCall] Calling builtin function with args: ${[obj, ...args]}',
+        category: 'Interpreter',
+      );
       final result = (func.raw as BuiltinFunction).call([obj, ...args]);
+      Logger.debug('[MethodCall] Result: $result', category: 'Interpreter');
       return result is Future ? await result : result;
     } else {
+      Logger.debug(
+        '[MethodCall] Method $methodName is not callable',
+        category: 'Interpreter',
+      );
       throw Exception("Method '$methodName' is not callable");
     }
   }
@@ -451,6 +504,11 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
     // If there's only one value, return it directly
     if (values.length == 1) {
+      // If the single value is a multi-value, expand it (for print and assignment)
+      if (values[0] is Value && (values[0] as Value).isMulti) {
+        final multi = (values[0] as Value).raw as List<Object?>;
+        throw ReturnException(Value.multi(multi));
+      }
       throw ReturnException(values[0]);
     }
 
@@ -466,9 +524,15 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     bool callImplicitSelf = false,
   ]) async {
     Logger.debug(
-      '>>> _callFunction called with function: ${func.hashCode}, args: $args',
+      '>>> _callFunction called with function: [36m${func.hashCode}[0m, args: $args',
       category: 'Interpreter',
     );
+    if (args.isNotEmpty) {
+      Logger.debug(
+        '>>> _callFunction first arg (potential self): ${args[0]}',
+        category: 'Interpreter',
+      );
+    }
 
     // Log the current coroutine
     final currentCoroutine = getCurrentCoroutine();
@@ -527,7 +591,6 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             rethrow;
           }
         } else if (func.raw is FunctionDef) {
-          // Call the LuaLike function definition
           Logger.debug(
             '>>> Calling LuaLike function definition',
             category: 'Interpreter',
