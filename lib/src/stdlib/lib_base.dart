@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/coroutine.dart' show Coroutine;
+import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:path/path.dart' as path;
 
 /// Built-in function to retrieve the metatable of a value.
@@ -344,11 +345,10 @@ class PrintFunction implements BuiltinFunction {
     // Use IOLib's defaultOutput instead of direct stdout access
     final outputStr = "${outputs.join("\t")}\n";
 
-    // For debugging: print the raw output string
-    print("PrintFunction raw output: '$outputStr'");
+    IOLib.defaultOutput.write(outputStr);
 
     // Use our LuaFile abstraction for writing
-    Logger.outputSink?.call(outputStr);
+    // Logger.outputSink?.call(outputStr);
 
     return Value(null);
   }
