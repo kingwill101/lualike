@@ -1,6 +1,7 @@
 %{
 import 'package:source_span/source_span.dart';
 import 'ast.dart';
+import 'number.dart';
 
 bool _checkAttr(String attr, int start, int end, State state) {
   if (attr == "const" || attr == "close") return true;
@@ -1449,15 +1450,16 @@ Number =>
     final startPos = state.position;
   }
   n = <
-    ('0x' [0-9A-Fa-f]+ ('.' [0-9A-Fa-f]+)? ([pP][+-]?[0-9]+)?)
+    ('0' [xX] (([0-9A-Fa-f]+ ('.' [0-9A-Fa-f]*)?) / ('.' [0-9A-Fa-f]+)) ([pP][+-]?[0-9]+)?)
     ----
-    [0-9]+ ('.' [0-9]+)? ([eE][+-]?[0-9]+)?
+    (([0-9]+ ('.' [0-9]*)?) / ('.' [0-9]+)) ([eE][+-]?[0-9]+)?
   >
   S
   $ = {
-    final node = NumberLiteral(num.parse(n));
+    final node = NumberLiteral(LuaNumberParser.parse(n));
     $$ = _setNodeSpan(node, startPos, state.position, state);
   }
+
 `StringLiteral`
 String =>
   {

@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
+import 'package:lualike/src/number.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/upvalue.dart';
 
@@ -298,17 +299,36 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   @override
   bool operator ==(Object other) {
-    if (identical(this, other)) return true;
-    if (other is! Value) {
-      if (raw.runtimeType == other.runtimeType) {
-        return raw == other;
+    final otherRaw = other is Value ? other.raw : other;
+
+    // Handle NaN comparison first, even for identical objects
+    if (raw is num && otherRaw is num) {
+      if (raw.isNaN || otherRaw.isNaN) {
+        return false;
       }
-      return false;
+      return raw == otherRaw;
     }
 
-    if (raw is Map && other.raw is Map) {
+    // Only check identity after NaN handling
+    if (identical(this, other)) return true;
+    if (raw is BigInt && otherRaw is BigInt) return raw == otherRaw;
+    if (raw is BigInt && otherRaw is num) {
+      if (otherRaw is int) return raw == BigInt.from(otherRaw);
+      // For double, it can only be equal if the double has no fractional part.
+      return otherRaw.isFinite &&
+          raw.toDouble() == otherRaw &&
+          raw == BigInt.from(otherRaw);
+    }
+    if (raw is num && otherRaw is BigInt) {
+      if (raw is int) return BigInt.from(raw) == otherRaw;
+      return (raw as double).isFinite &&
+          raw == otherRaw.toDouble() &&
+          BigInt.from(raw) == otherRaw;
+    }
+
+    if (raw is Map && otherRaw is Map) {
       final map1 = raw as Map;
-      final map2 = other.raw as Map;
+      final map2 = otherRaw;
       if (map1.length != map2.length) return false;
       if (map1.isEmpty && map2.isEmpty) return true; // Handle empty maps
       return map1.entries.every((e) {
@@ -318,7 +338,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         return v1 == v2;
       });
     }
-    return raw == other.raw;
+    return raw == otherRaw;
   }
 
   @override
@@ -334,7 +354,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
     if (raw == null) return "Value:<nil>";
     if (raw is bool) return "Value:<$raw>";
-    if (raw is num) return "Value:<$raw>";
+    if (raw is num || raw is BigInt) return "Value:<$raw>";
     if (raw is String) return "Value:<$raw>";
     if (raw is List) return "Value:<list:${raw.hashCode}>";
     if (raw is Map) return "Value:<table:${raw.hashCode}>";
@@ -808,160 +828,181 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     );
   }
 
-  /// Overload the addition operator
-  Value operator +(dynamic other) {
-    // Wrap the other value if needed
-    final wrappedOther = other is Value ? other : Value.wrap(other);
+  Value _arith(String op, Value other) {
+    var r1 = raw;
+    var r2 = other.raw;
 
-    // Only perform direct operation on raw values
-    if (raw is num && wrappedOther.raw is num) {
-      return Value(raw + wrappedOther.raw);
+    // Try to convert strings to numbers (Lua automatic conversion)
+    if (r1 is String) {
+      try {
+        r1 = LuaNumberParser.parse(r1);
+      } catch (e) {
+        throw LuaError.typeError(
+          "attempt to perform arithmetic on a string value",
+        );
+      }
     }
 
-    throw UnsupportedError(
-      "Addition not supported for these types ${raw.runtimeType} and ${wrappedOther.raw.runtimeType}",
-    );
+    if (r2 is String) {
+      try {
+        r2 = LuaNumberParser.parse(r2);
+      } catch (e) {
+        throw LuaError.typeError(
+          "attempt to perform arithmetic on a string value",
+        );
+      }
+    }
+
+    if (!((r1 is num || r1 is BigInt) && (r2 is num || r2 is BigInt))) {
+      throw LuaError.typeError(
+        "attempt to perform arithmetic on non-number values",
+      );
+    }
+
+    if (op == '/' || op == '^') {
+      final f1 = (r1 is BigInt)
+          ? r1.toDouble()
+          : (r1 is int ? r1.toDouble() : r1 as double);
+      final f2 = (r2 is BigInt)
+          ? r2.toDouble()
+          : (r2 is int ? r2.toDouble() : r2 as double);
+      return Value(op == '/' ? f1 / f2 : math.pow(f1, f2));
+    }
+
+    if (r1 is BigInt || r2 is BigInt) {
+      final b1 = r1 is BigInt ? r1 : BigInt.from(r1 as num);
+      final b2 = r2 is BigInt ? r2 : BigInt.from(r2 as num);
+      final result = switch (op) {
+        '+' => b1 + b2,
+        '-' => b1 - b2,
+        '*' => b1 * b2,
+        '~/' => b1 ~/ b2,
+        '//' => () {
+          final result = b1.toDouble() / b2.toDouble();
+          if (result.isInfinite || result.isNaN) return result;
+          // BigInt operations should return floats since they're converted to double
+          return result.floorToDouble();
+        }(), // Floor division for BigInt
+        '%' => b1 % b2,
+        '&' => b1 & b2,
+        '|' => b1 | b2,
+        'bxor' => b1 ^ b2,
+        '<<' => b1 << b2.toInt(),
+        '>>' => b1 >> b2.toInt(),
+        _ => throw LuaError.typeError(
+          'operation "$op" not supported for BigInt',
+        ),
+      };
+      return Value(result);
+    }
+
+    final n1 = r1 as num;
+    final n2 = r2 as num;
+    final result = switch (op) {
+      '+' => n1 + n2,
+      '-' => n1 - n2,
+      '*' => n1 * n2,
+      '~/' => n1 ~/ n2,
+      '//' => () {
+        // If both operands are integers, use integer arithmetic for precision
+        if (n1 is int && n2 is int) {
+          if (n2 == 0)
+            return n1 > 0 ? double.infinity : double.negativeInfinity;
+          // Use integer division for exact results
+          final quotient = n1 ~/ n2;
+          final remainder = n1 % n2;
+          // Adjust for floor division (towards negative infinity)
+          if (remainder != 0 && (n1 < 0) != (n2 < 0)) {
+            return quotient - 1;
+          }
+          return quotient;
+        } else {
+          // Float case - use floating-point division
+          final result = n1 / n2;
+          if (result.isInfinite || result.isNaN) return result;
+          return result.floorToDouble();
+        }
+      }(), // Floor division towards negative infinity
+      '%' => n1 % n2,
+      '&' => n1.toInt() & n2.toInt(),
+      '|' => n1.toInt() | n2.toInt(),
+      'bxor' => n1.toInt() ^ n2.toInt(),
+      '<<' => n1.toInt() << n2.toInt(),
+      '>>' => n1.toInt() >> n2.toInt(),
+      _ => throw LuaError.typeError('operation "$op" not supported for num'),
+    };
+    return Value(result);
   }
+
+  /// Overload the addition operator
+  Value operator +(dynamic other) => _arith('+', Value.wrap(other));
 
   // Overload the subtraction operator
-  Value operator -(dynamic other) {
-    // Wrap the other value if needed
-    final wrappedOther = other is Value ? other : Value.wrap(other);
-
-    // Only perform direct operation on raw values
-    if (raw is num && wrappedOther.raw is num) {
-      return Value(raw - wrappedOther.raw);
-    }
-
-    throw UnsupportedError(
-      "Subtraction not supported for these types ${raw.runtimeType} and ${wrappedOther.raw.runtimeType}",
-    );
-  }
+  Value operator -(dynamic other) => _arith('-', Value.wrap(other));
 
   // Overload the multiplication operator
-  Value operator *(dynamic other) {
-    // Wrap the other value if needed
-    final wrappedOther = other is Value ? other : Value.wrap(other);
-
-    // Only perform direct operation on raw values
-    if (raw is num && wrappedOther.raw is num) {
-      return Value(raw * wrappedOther.raw);
-    }
-
-    throw UnsupportedError(
-      "Multiplication not supported for these types ${raw.runtimeType} and ${wrappedOther.raw.runtimeType}",
-    );
-  }
+  Value operator *(dynamic other) => _arith('*', Value.wrap(other));
 
   // Overload the division operator
-  Value operator /(dynamic other) {
-    // Wrap the other value if needed
-    final wrappedOther = other is Value ? other : Value.wrap(other);
-
-    // Only perform direct operation on raw values
-    if (raw is num && wrappedOther.raw is num) {
-      return Value(raw / wrappedOther.raw);
-    }
-
-    throw UnsupportedError(
-      "Division not supported for these types ${raw.runtimeType} and ${wrappedOther.raw.runtimeType}",
-    );
-  }
+  Value operator /(dynamic other) => _arith('/', Value.wrap(other));
 
   // Overload the bitwise NOT operator
   Value operator ~() {
-    // Only perform direct operation on raw values
-    if (raw is int) {
-      return Value(~raw);
+    var r = raw;
+
+    // Try to convert strings to numbers (Lua automatic conversion)
+    if (r is String) {
+      try {
+        r = LuaNumberParser.parse(r);
+      } catch (e) {
+        throw LuaError.typeError(
+          "attempt to perform arithmetic on a string value",
+        );
+      }
     }
 
-    throw UnsupportedError(
+    if (r is int) return Value(~r);
+    if (r is BigInt) return Value(~r);
+    if (r is double)
+      return Value(~r.toInt()); // Convert double to int for bitwise operations
+
+    throw LuaError.typeError(
       'Bitwise NOT not supported for these types ${raw.runtimeType}',
     );
   }
 
   // Overload the left shift operator
-  Value operator <<(dynamic other) {
-    // Wrap the other value if needed
-    final wrappedOther = other is Value ? other : Value.wrap(other);
-
-    // Only perform direct operation on raw values
-    if (raw is int && wrappedOther.raw is int) {
-      return Value(raw << wrappedOther.raw);
-    }
-
-    throw UnsupportedError(
-      'Left shift not supported for these types ${raw.runtimeType} and ${wrappedOther.raw.runtimeType}',
-    );
-  }
+  Value operator <<(dynamic other) => _arith('<<', Value.wrap(other));
 
   // Overload the right shift operator
-  Value operator >>(dynamic other) {
-    // Wrap the other value if needed
-    final wrappedOther = other is Value ? other : Value.wrap(other);
-
-    // Only perform direct operation on raw values
-    if (raw is int && wrappedOther.raw is int) {
-      return Value(raw >> wrappedOther.raw);
-    }
-
-    throw UnsupportedError(
-      'Right shift not supported for these types ${raw.runtimeType} and ${wrappedOther.raw.runtimeType}',
-    );
-  }
+  Value operator >>(dynamic other) => _arith('>>', Value.wrap(other));
 
   // Overload the modulo operator
-  Value operator %(dynamic other) {
-    // Wrap the other value if needed
-    final wrappedOther = other is Value ? other : Value.wrap(other);
-
-    // Only perform direct operation on raw values
-    if (raw is num && wrappedOther.raw is num) {
-      return Value(raw % wrappedOther.raw);
-    }
-
-    throw UnsupportedError(
-      'Modulo not supported for these types ${raw.runtimeType} and ${wrappedOther.raw.runtimeType}',
-    );
-  }
+  Value operator %(dynamic other) => _arith('%', Value.wrap(other));
 
   // Overload the floor division operator
-  Value operator ~/(dynamic other) {
-    // Wrap the other value if needed
-    final wrappedOther = other is Value ? other : Value.wrap(other);
-
-    // Only perform direct operation on raw values
-    if (raw is num && wrappedOther.raw is num) {
-      return Value((raw / wrappedOther.raw).floor());
-    }
-
-    throw UnsupportedError(
-      'Floor division not supported for these types ${raw.runtimeType} and ${wrappedOther.raw.runtimeType}',
-    );
-  }
+  Value operator ~/(dynamic other) => _arith('//', Value.wrap(other));
 
   // Overload the exponentiation operator
-  Value exp(dynamic other) {
-    // Wrap the other value if needed
-    final wrappedOther = other is Value ? other : Value.wrap(other);
-
-    // Only perform direct operation on raw values
-    if (raw is num && wrappedOther.raw is num) {
-      // Using Dart's math.pow; ensure to import 'dart:math' if not already
-      return Value(math.pow(raw, wrappedOther.raw));
-    }
-
-    throw UnsupportedError(
-      'Exponentiation not supported for these types ${raw.runtimeType} and ${wrappedOther.raw.runtimeType}',
-    );
-  }
+  Value exp(dynamic other) => _arith('^', Value.wrap(other));
 
   // Overload the negation operator
   Value operator -() {
-    // Only perform direct operation on raw values
-    if (raw is num) {
-      return Value(-raw);
+    var r = raw;
+
+    // Try to convert strings to numbers (Lua automatic conversion)
+    if (r is String) {
+      try {
+        r = LuaNumberParser.parse(r);
+      } catch (e) {
+        throw LuaError.typeError(
+          "attempt to perform arithmetic on a string value",
+        );
+      }
     }
+
+    if (r is BigInt) return Value(-r);
+    if (r is num) return Value(-r);
 
     throw UnsupportedError(
       'Negation not supported for type ${raw.runtimeType}',
@@ -1005,54 +1046,89 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   // Overload the equality operator
   bool equals(Object other) {
     // Only perform direct comparison
-    return super == other;
+    return this == other;
   }
 
   operator >(Object other) {
-    if (raw is num && other is Value && other.raw is num) {
-      return Value(raw > other.raw);
+    final otherRaw = other is Value ? other.raw : other;
+
+    if (raw is num && otherRaw is num) return raw > otherRaw;
+    if (raw is BigInt && otherRaw is BigInt) return raw > otherRaw;
+    if (raw is BigInt && otherRaw is num) {
+      if (otherRaw is int) return raw > BigInt.from(otherRaw);
+      return raw.toDouble() > otherRaw;
     }
-    if (raw is String && other is Value && other.raw is String) {
-      return Value(raw.compareTo(other.raw) > 0);
+    if (raw is num && otherRaw is BigInt) {
+      if (raw is int) return BigInt.from(raw) > otherRaw;
+      return raw > otherRaw.toDouble();
     }
+
+    if (raw is String && otherRaw is String) {
+      return raw.compareTo(otherRaw) > 0;
+    }
+
     throw UnsupportedError(
-      'Greater than not supported for these types ${raw.runtimeType} and ${other is Value ? other.raw.runtimeType : other.runtimeType}',
+      'Greater than not supported for these types ${raw.runtimeType} and ${other.runtimeType}',
     );
   }
 
   operator <(Object other) {
-    if (raw is num && other is Value && other.raw is num) {
-      return Value(raw < other.raw);
+    final otherRaw = other is Value ? other.raw : other;
+    if (raw is num && otherRaw is num) return raw < otherRaw;
+    if (raw is BigInt && otherRaw is BigInt) return raw < otherRaw;
+    if (raw is BigInt && otherRaw is num) {
+      if (otherRaw is int) return raw < BigInt.from(otherRaw);
+      return raw.toDouble() < otherRaw;
     }
-    if (raw is String && other is Value && other.raw is String) {
-      return Value(raw.compareTo(other.raw) < 0);
+    if (raw is num && otherRaw is BigInt) {
+      if (raw is int) return BigInt.from(raw) < otherRaw;
+      return raw < otherRaw.toDouble();
+    }
+    if (raw is String && otherRaw is String) {
+      return raw.compareTo(otherRaw) < 0;
     }
     throw UnsupportedError(
-      'Less than not supported for these types ${raw.runtimeType} and ${other is Value ? other.raw.runtimeType : other.runtimeType}',
+      'Less than not supported for these types ${raw.runtimeType} and ${other.runtimeType}',
     );
   }
 
   operator >=(Object other) {
-    if (raw is num && other is Value && other.raw is num) {
-      return Value(raw >= other.raw);
+    final otherRaw = other is Value ? other.raw : other;
+    if (raw is num && otherRaw is num) return raw >= otherRaw;
+    if (raw is BigInt && otherRaw is BigInt) return raw >= otherRaw;
+    if (raw is BigInt && otherRaw is num) {
+      if (otherRaw is int) return raw >= BigInt.from(otherRaw);
+      return raw.toDouble() >= otherRaw;
     }
-    if (raw is String && other is Value && other.raw is String) {
-      return Value(raw.compareTo(other.raw) >= 0);
+    if (raw is num && otherRaw is BigInt) {
+      if (raw is int) return BigInt.from(raw) >= otherRaw;
+      return raw >= otherRaw.toDouble();
+    }
+    if (raw is String && otherRaw is String) {
+      return raw.compareTo(otherRaw) >= 0;
     }
     throw UnsupportedError(
-      'Greater than or equal not supported for these types ${raw.runtimeType} and ${other is Value ? other.raw.runtimeType : other.runtimeType}',
+      'Greater than or equal not supported for these types ${raw.runtimeType} and ${other.runtimeType}',
     );
   }
 
   operator <=(Object other) {
-    if (raw is num && other is Value && other.raw is num) {
-      return Value(raw <= other.raw);
+    final otherRaw = other is Value ? other.raw : other;
+    if (raw is num && otherRaw is num) return raw <= otherRaw;
+    if (raw is BigInt && otherRaw is BigInt) return raw <= otherRaw;
+    if (raw is BigInt && otherRaw is num) {
+      if (otherRaw is int) return raw <= BigInt.from(otherRaw);
+      return raw.toDouble() <= otherRaw;
     }
-    if (raw is String && other is Value && other.raw is String) {
-      return Value(raw.compareTo(other.raw) <= 0);
+    if (raw is num && otherRaw is BigInt) {
+      if (raw is int) return BigInt.from(raw) <= otherRaw;
+      return raw <= otherRaw.toDouble();
+    }
+    if (raw is String && otherRaw is String) {
+      return raw.compareTo(otherRaw) <= 0;
     }
     throw UnsupportedError(
-      'Less than or equal not supported for these types ${raw.runtimeType} and ${other is Value ? other.raw.runtimeType : other.runtimeType}',
+      'Less than or equal not supported for these types ${raw.runtimeType} and ${other.runtimeType}',
     );
   }
 
@@ -1086,49 +1162,13 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   }
 
   // Overload the bitwise XOR operator
-  Value operator ^(dynamic other) {
-    // Wrap the other value if needed
-    final wrappedOther = other is Value ? other : Value.wrap(other);
-
-    // Only perform direct operation on raw values
-    if (raw is int && wrappedOther.raw is int) {
-      return Value(raw ^ wrappedOther.raw);
-    }
-
-    throw UnsupportedError(
-      "Bitwise XOR not supported for these types ${raw.runtimeType} and ${wrappedOther.raw.runtimeType}",
-    );
-  }
+  Value operator ^(dynamic other) => _arith('bxor', Value.wrap(other));
 
   // Overload the bitwise OR operator
-  Value operator |(dynamic other) {
-    // Wrap the other value if needed
-    final wrappedOther = other is Value ? other : Value.wrap(other);
-
-    // Only perform direct operation on raw values
-    if (raw is int && wrappedOther.raw is int) {
-      return Value(raw | wrappedOther.raw);
-    }
-
-    throw UnsupportedError(
-      "Bitwise OR not supported for these types ${raw.runtimeType} and ${wrappedOther.raw.runtimeType}",
-    );
-  }
+  Value operator |(dynamic other) => _arith('|', Value.wrap(other));
 
   // Overload the bitwise AND operator
-  Value operator &(dynamic other) {
-    // Wrap the other value if needed
-    final wrappedOther = other is Value ? other : Value.wrap(other);
-
-    // Only perform direct operation on raw values
-    if (raw is int && wrappedOther.raw is int) {
-      return Value(raw & wrappedOther.raw);
-    }
-
-    throw UnsupportedError(
-      "Bitwise AND not supported for these types ${raw.runtimeType} and ${wrappedOther.raw.runtimeType}",
-    );
-  }
+  Value operator &(dynamic other) => _arith('&', Value.wrap(other));
 
   // Logical OR method (Lua-style)
   Value or(dynamic other) {
