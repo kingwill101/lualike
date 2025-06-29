@@ -13,6 +13,10 @@ import 'lib_debug.dart';
 import 'lib_utf8.dart';
 import 'lib_package.dart';
 import 'metatables.dart';
+import 'lib_dart_string.dart';
+import 'lib_convert.dart';
+import 'lib_crypto.dart';
+// import 'lib_convert.dart';
 
 // Define a function signature for the library definition callback
 typedef LibraryDefinitionCallback =
@@ -52,6 +56,10 @@ void initializeStandardLibrary({
   defineIOLibrary(env: env, astVm: astVm, bytecodeVm: bytecodeVm);
   defineOSLibrary(env: env, astVm: astVm, bytecodeVm: bytecodeVm);
   defineUTF8Library(env: env, astVm: astVm, bytecodeVm: bytecodeVm);
+  defineDartStringLibrary(env: env, astVm: astVm, bytecodeVm: bytecodeVm);
+  defineConvertLibrary(env: env, astVm: astVm, bytecodeVm: bytecodeVm);
+  defineCryptoLibrary(env: env, astVm: astVm, bytecodeVm: bytecodeVm);
+  // defineConvertLibrary(env: env, astVm: astVm, bytecodeVm: bytecodeVm);
   // Define other standard libraries
   final packageTable = env.get("package");
   final preloadTable = packageTable?["preload"];
