@@ -3,10 +3,6 @@ import 'package:test/test.dart';
 import 'package:lualike/lualike.dart';
 
 void main() {
-  setUpAll(() {
-    Logger.setEnabled(true);
-  });
-
   group('ForInLoop', () {
     test('iterates over a list and sums values', () async {
       // Environment: local variable "sum" is updated in loop.

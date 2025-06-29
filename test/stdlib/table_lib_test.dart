@@ -231,7 +231,7 @@ void main() {
         ''');
       } on ReturnException catch (e) {
         var results = (e.value as Value).unwrap();
-        print(
+        Logger.debug(
           "Results: ${(results[0] as Value).raw}, ${(results[1] as Value).raw}, ${(results[2] as Value).raw}, ${(results[3] as Value).raw}, ${(results[4] as Value).raw}",
         );
         expect((results[0] as Value).raw, equals(5));

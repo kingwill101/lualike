@@ -1,10 +1,6 @@
 import 'package:lualike/testing.dart';
 
 void main() {
-  setUpAll(() {
-    Logger.setEnabled(true);
-  });
-
   group('Value Basics', () {
     test('basic value wrapping', () {
       expect(Value(42).raw, equals(42));

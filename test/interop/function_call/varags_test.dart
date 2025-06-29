@@ -2,8 +2,6 @@
 import 'package:lualike/testing.dart';
 
 void main() {
-  Logger.setEnabled(true);
-
   group('Vararg Functionality Tests', () {
     test('simple vararg function', () async {
       final bridge = LuaLikeBridge();

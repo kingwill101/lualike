@@ -39,7 +39,6 @@ void main() {
     });
 
     test('collectgarbage', () async {
-      Logger.setEnabled(true);
       final bridge = LuaLikeBridge();
       await bridge.runCode('''
         -- Basic functionality tests
@@ -57,7 +56,6 @@ void main() {
     });
 
     test('collectgarbage - comprehensive', () async {
-      Logger.setEnabled(true);
       final bridge = LuaLikeBridge();
 
       // Test all collectgarbage options
@@ -371,7 +369,6 @@ void main() {
 
     test('pairs', () async {
       // Enable logging for debugging
-      Logger.setEnabled(true);
 
       final bridge = LuaLikeBridge();
       await bridge.runCode('''

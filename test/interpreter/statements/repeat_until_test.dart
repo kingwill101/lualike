@@ -3,7 +3,6 @@ import 'package:test/test.dart';
 import 'package:lualike/lualike.dart';
 
 void main() {
-  Logger.setEnabled(true);
   group('RepeatUntilLoop', () {
     test(
       'repeat-until loop executes at least once and stops when condition is true',

@@ -2,8 +2,6 @@
 import 'package:lualike/testing.dart';
 
 void main() {
-  Logger.setEnabled(true);
-
   group('Local Attributes', () {
     test('valid attribute', () async {
       final bridge = LuaLikeBridge();

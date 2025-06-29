@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'package:lualike/lualike.dart' show Logger;
 import 'package:test/test.dart';
 import 'package:lualike/src/io/io_device.dart';
 import 'package:lualike/src/io/lua_file.dart';
@@ -14,7 +13,6 @@ void main() {
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync();
       tempPath = tempDir.path;
-      Logger.setEnabled(true);
     });
 
     tearDown(() {

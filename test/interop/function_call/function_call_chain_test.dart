@@ -2,7 +2,6 @@
 import 'package:lualike/testing.dart';
 
 void main() {
-  Logger.setEnabled(true);
   group('Function Call Chaining', () {
     test('basic function call chaining (a()())', () async {
       final bridge = LuaLikeBridge();

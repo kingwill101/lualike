@@ -4,9 +4,6 @@ import 'package:test/test.dart';
 
 void main() {
   late Interpreter vm;
-  setUpAll(() {
-    Logger.setEnabled(true);
-  });
 
   setUp(() {
     vm = Interpreter();
@@ -192,7 +189,6 @@ void main() {
 
   group('Standard library', () {
     test('math functions', () async {
-      Logger.setEnabled(true);
       try {
         await vm.evaluate('''
           return math.abs(-42), math.sin(math.pi/2), math.max(1,2,3)
@@ -281,13 +277,9 @@ void main() {
     test('nested closure scoping', () async {
       await vm.evaluate('''
     local function counter()
-      print("---- INSIDE COUNTER")
       local count = 0
       return function()
-        print("---- INSIDE COUNTER CLOSURE")
-        print("-----count before increment: " .. count)
         count = count + 1
-        print("-----count after increment: " .. count)
         return count
       end
     end

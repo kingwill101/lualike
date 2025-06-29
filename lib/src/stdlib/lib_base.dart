@@ -759,18 +759,22 @@ class XPCallFunction implements BuiltinFunction {
   @override
   Object? call(List<Object?> args) async {
     if (args.length < 2) {
-      throw Exception("xpcall requires at least two arguments");
+      throw LuaError("xpcall requires at least two arguments");
     }
     final func = args[0] as Value;
     final msgh = args[1] as Value;
     final callArgs = args.sublist(2);
 
     if (func.raw is! Function) {
-      throw Exception("xpcall requires a function as its first argument");
+      throw LuaError.typeError(
+        "xpcall requires a function as its first argument",
+      );
     }
 
     if (msgh.raw is! Function) {
-      throw Exception("xpcall requires a function as its second argument");
+      throw LuaError.typeError(
+        "xpcall requires a function as its second argument",
+      );
     }
 
     try {

@@ -239,7 +239,7 @@ void main() {
 
     test('method chaining with self', () async {
       final bridge = LuaLikeBridge();
-      Logger.setEnabled(true);
+
       await bridge.runCode('''
         local obj = {val = 1}
 

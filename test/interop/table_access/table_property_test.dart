@@ -3,7 +3,6 @@ import 'package:test/test.dart';
 import 'package:lualike/lualike.dart';
 
 void main() {
-  Logger.setEnabled(true);
   group('Table Property Access', () {
     test('dot notation for property access', () async {
       final bridge = LuaLikeBridge();
@@ -103,7 +102,6 @@ void main() {
 
     // SKIP: Issue with table access using computed keys
     test('property access with computed keys', () async {
-      Logger.setEnabled(true);
       final bridge = LuaLikeBridge();
 
       // Create a table with properties

@@ -4,9 +4,6 @@ import 'package:lualike/lualike.dart';
 import 'dart:math' as math;
 
 void main() {
-  setUpAll(() {
-    Logger.setEnabled(true);
-  });
   group('Math Library', () {
     late LuaLikeBridge bridge;
 
