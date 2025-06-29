@@ -10,6 +10,8 @@ environment:
 dependencies:
   characters: ^1.4.0
   source_span: ^1.10.1
+  crypto: ^3.0.3
+  pointycastle: ^3.9.1
   # path: ^1.8.0
 
   path: any
