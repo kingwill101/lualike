@@ -3,7 +3,7 @@ import 'package:lualike/src/testing/testing.dart';
 void main() {
   group('crypto', () {
     test('md5 calculates correct hash', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode(r'''
         hash = crypto.md5("hello lualike")
       ''');
@@ -12,7 +12,7 @@ void main() {
     });
 
     test('sha1 calculates correct hash', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode(r'''
         hash = crypto.sha1("hello lualike")
       ''');
@@ -21,7 +21,7 @@ void main() {
     });
 
     test('sha256 calculates correct hash', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode(r'''
         hash = crypto.sha256("hello lualike")
       ''');
@@ -33,7 +33,7 @@ void main() {
     });
 
     test('sha512 calculates correct hash', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode(r'''
         hash = crypto.sha512("hello lualike")
       ''');
@@ -45,7 +45,7 @@ void main() {
     });
 
     test('hash function works with bytes from dart.string.bytes', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode(r'''
         local bytes = dart.string.bytes.toBytes("hello lualike")
         hash = crypto.sha256(bytes)
@@ -58,7 +58,7 @@ void main() {
     });
 
     test('hmac calculates correct hash', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode(r'''
         hmac_hash = crypto.hmac("SHA-256", "my-secret-key", "hello lualike")
       ''');
@@ -70,7 +70,7 @@ void main() {
     });
 
     test('aesEncrypt and aesDecrypt roundtrip', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode(r'''
         local key = crypto.randomBytes(16)
         local iv = crypto.randomBytes(16)

@@ -5,10 +5,10 @@ import 'dart:math' as math;
 
 void main() {
   group('Math Library', () {
-    late LuaLikeBridge bridge;
+    late LuaLike bridge;
 
     setUp(() {
-      bridge = LuaLikeBridge();
+      bridge = LuaLike();
     });
 
     test('basic arithmetic functions', () async {

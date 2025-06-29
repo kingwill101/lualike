@@ -4,7 +4,7 @@ import 'package:lualike/lualike.dart';
 void main() {
   group('Table Library', () {
     test('table.insert', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       try {
         await bridge.runCode('''
@@ -22,7 +22,7 @@ void main() {
     });
 
     test('table.insert at end', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       try {
         await bridge.runCode('''
@@ -40,7 +40,7 @@ void main() {
     });
 
     test('table.remove', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       try {
         await bridge.runCode('''
@@ -57,7 +57,7 @@ void main() {
     });
 
     test('table.remove last element', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       try {
         await bridge.runCode('''
@@ -75,7 +75,7 @@ void main() {
     });
 
     test('table.concat', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       try {
         await bridge.runCode('''
@@ -90,7 +90,7 @@ void main() {
     });
 
     test('table.concat with range', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       try {
         await bridge.runCode('''
@@ -107,7 +107,7 @@ void main() {
     });
 
     test('table.concat edge cases', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       try {
         await bridge.runCode('''
@@ -124,7 +124,7 @@ void main() {
     });
 
     test('table.move', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       try {
         await bridge.runCode('''
@@ -146,7 +146,7 @@ void main() {
     });
 
     test('table.move within same table', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       try {
         await bridge.runCode('''
@@ -165,7 +165,7 @@ void main() {
     });
 
     test('table.pack', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       try {
         await bridge.runCode('''
@@ -182,7 +182,7 @@ void main() {
     });
 
     test('table.pack with nil values', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       try {
         await bridge.runCode('''
@@ -200,7 +200,7 @@ void main() {
     });
 
     test('table.sort', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       try {
         await bridge.runCode('''
@@ -219,7 +219,7 @@ void main() {
     });
 
     test('table.sort with custom comparator', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       try {
         await bridge.runCode('''
@@ -243,7 +243,7 @@ void main() {
     });
 
     test('table.unpack', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       try {
         await bridge.runCode('''
@@ -260,7 +260,7 @@ void main() {
     });
 
     test('table.unpack default range', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       try {
         await bridge.runCode('''

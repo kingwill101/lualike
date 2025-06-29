@@ -154,16 +154,16 @@ extension VMInterop on Interpreter {
 ///
 /// Provides a high-level interface for interacting with LuaLike code from Dart,
 /// including function registration, code execution, and value exchange.
-class LuaLikeBridge {
+class LuaLike {
   /// The underlying LuaLike interpreter instance.
   final Interpreter vm;
 
   /// Creates a new bridge with a fresh interpreter instance.
   /// If an instance already exists, returns that instance.
-  factory LuaLikeBridge() => LuaLikeBridge._internal();
+  factory LuaLike() => LuaLike._internal();
 
   /// Internal constructor
-  LuaLikeBridge._internal() : vm = Interpreter() {
+  LuaLike._internal() : vm = Interpreter() {
     Logger.setEnabled(loggingEnabled);
   }
 
@@ -193,6 +193,11 @@ class LuaLikeBridge {
   /// Set a value in LuaLike global environment
   void setGlobal(String name, Object? value) {
     vm.globals.define(name, value is Value ? value : Value(value));
+  }
+
+  /// Call a LuaLike function from Dart
+  Future<Object?> call(String functionName, List<Object?> args) {
+    return vm.callFunction(Value(functionName), args);
   }
 
   throwError([String? message]) {

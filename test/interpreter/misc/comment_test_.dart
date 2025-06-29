@@ -4,7 +4,7 @@ import 'package:test/test.dart';
 void main() {
   // group('Comments', () {
   //   test('single line comments are ignored', () {
-  //     final bridge = LuaLikeBridge();
+  //     final bridge = LuaLike();
 
   //     final result = bridge.runCode('''
   //       local x = 1 -- This is a comment
@@ -17,7 +17,7 @@ void main() {
   //   });
 
   //   test('multi line comments are ignored', () {
-  //     final bridge = LuaLikeBridge();
+  //     final bridge = LuaLike();
 
   //     final result = bridge.runCode('''
   //       local x = 1

@@ -5,7 +5,7 @@ import 'package:lualike/lualike.dart';
 void main() {
   group('Table Indexing Operations', () {
     test('direct table indexing assignment', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Create a table with numeric indices (without using for loop)
       await bridge.runCode('''
@@ -32,7 +32,7 @@ void main() {
     });
 
     test('for loop table indexing', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       await bridge.runCode('''
           words = {}
@@ -52,7 +52,7 @@ void main() {
     });
 
     test('deeply nested table indexing', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Create a nested table structure (without using for loop)
       await bridge.runCode('''
@@ -83,7 +83,7 @@ void main() {
     });
 
     test('deeply nested table with for loop (expected to fail)', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       await bridge.runCode('''
           words = {}

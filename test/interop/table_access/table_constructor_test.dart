@@ -6,7 +6,7 @@ import 'package:test/test.dart';
 void main() {
   group('Table Constructor Tests', () {
     test('table constructor with string keys', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       await bridge.runCode('''
         local files = {
@@ -48,7 +48,7 @@ void main() {
     });
 
     test('mixed table constructor with string and identifier keys', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       await bridge.runCode('''
         local mixed = {
@@ -68,7 +68,7 @@ void main() {
     });
 
     test('nested table constructors with string keys', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       await bridge.runCode('''
         local nested = {
@@ -97,7 +97,7 @@ void main() {
 
   group('Table constructor with function calls', () {
     test('varargs at the start', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       await bridge.runCode('''
 local function func()

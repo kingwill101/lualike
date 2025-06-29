@@ -8,7 +8,7 @@ void main() {
       List<dynamic> args,
       dynamic expected,
     ) async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       for (var i = 0; i < args.length; i++) {
         bridge.setGlobal('arg$i', Value(args[i]));
       }

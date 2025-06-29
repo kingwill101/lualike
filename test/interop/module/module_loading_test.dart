@@ -4,7 +4,7 @@ import 'package:lualike/lualike.dart';
 void main() {
   group('Module Loading and Interop', () {
     test('basic module loading with require', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Register a virtual module for testing
       bridge.vm.fileManager.registerVirtualFile('simple_module.lua', '''
@@ -40,7 +40,7 @@ void main() {
 
     // SKIP: Issue with package.loaded access
     test('module caching behavior (simplified)', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Register a virtual module that tracks instances
       bridge.vm.fileManager.registerVirtualFile('counter_module.lua', '''
@@ -75,7 +75,7 @@ void main() {
     });
 
     test('tracegc module functionality', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Register a virtual module for testing
       bridge.vm.fileManager.registerVirtualFile('tracegc.lua', '''
@@ -117,7 +117,7 @@ void main() {
 
     // SKIP: Our implementation doesn't support method chaining
     test('module with method chaining (workaround)', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Register a virtual module with chainable methods
       bridge.vm.fileManager.registerVirtualFile('chainable.lua', '''

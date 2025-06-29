@@ -5,7 +5,7 @@ import 'package:lualike/lualike.dart';
 void main() {
   group('Garbage Collection', () {
     test('object lifecycle', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       await bridge.runCode('''
         -- Create and abandon objects
@@ -42,7 +42,7 @@ void main() {
     });
 
     test('finalizers', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       await bridge.runCode('''
         local finalized = {}
@@ -65,7 +65,7 @@ void main() {
     });
 
     test('oveerroide gc', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       await bridge.runCode('''
 local t = {}
