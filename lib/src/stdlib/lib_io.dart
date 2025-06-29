@@ -70,6 +70,18 @@ class IOLib {
     "type": IOType(),
     "write": IOWrite(),
   };
+
+  static Future<void> reset() async {
+    if (_defaultInput?.device is! StdinDevice) {
+      await _defaultInput?.close();
+    }
+    _defaultInput = null;
+
+    if (_defaultOutput?.device is! StdoutDevice) {
+      await _defaultOutput?.close();
+    }
+    _defaultOutput = null;
+  }
 }
 
 class IOClose implements BuiltinFunction {
@@ -113,23 +125,31 @@ class IOInput implements BuiltinFunction {
       return Value(IOLib.defaultInput, metatable: IOLib.fileClass.metamethods);
     }
 
+    LuaFile? newFile;
+    Value? result;
+
     if (args[0] is Value && (args[0] as Value).raw is LuaFile) {
       Logger.debug('Setting default input to provided file', category: 'IO');
-      IOLib._defaultInput = (args[0] as Value).raw as LuaFile;
-      return args[0];
+      newFile = (args[0] as Value).raw as LuaFile;
+      result = args[0] as Value;
+    } else {
+      final filename = (args[0] as Value).raw.toString();
+      Logger.debug('Opening file for input: $filename', category: 'IO');
+      try {
+        final device = await FileIODevice.open(filename, "r");
+        newFile = LuaFile(device);
+        result = Value(newFile, metatable: IOLib.fileClass.metamethods);
+      } catch (e) {
+        Logger.debug('Error opening file: $e', category: 'IO');
+        return Value.multi([null, e.toString()]);
+      }
     }
 
-    final filename = (args[0] as Value).raw.toString();
-    Logger.debug('Opening file for input: $filename', category: 'IO');
-    try {
-      final device = await FileIODevice.open(filename, "r");
-      final file = LuaFile(device);
-      IOLib._defaultInput = file;
-      return Value(file, metatable: IOLib.fileClass.metamethods);
-    } catch (e) {
-      Logger.debug('Error opening file: $e', category: 'IO');
-      return Value.multi([null, e.toString()]);
+    if (IOLib._defaultInput?.device is! StdinDevice) {
+      await IOLib._defaultInput?.close();
     }
+    IOLib._defaultInput = newFile;
+    return result;
   }
 }
 
@@ -200,23 +220,31 @@ class IOOutput implements BuiltinFunction {
       return Value(IOLib.defaultOutput, metatable: IOLib.fileClass.metamethods);
     }
 
+    LuaFile? newFile;
+    Value? result;
+
     if (args[0] is Value && (args[0] as Value).raw is LuaFile) {
       Logger.debug('Setting default output to provided file', category: 'IO');
-      IOLib._defaultOutput = (args[0] as Value).raw as LuaFile;
-      return args[0];
+      newFile = (args[0] as Value).raw as LuaFile;
+      result = args[0] as Value;
+    } else {
+      final filename = (args[0] as Value).raw.toString();
+      Logger.debug('Opening file for output: $filename', category: 'IO');
+      try {
+        final device = await FileIODevice.open(filename, "w");
+        newFile = LuaFile(device);
+        result = Value(newFile, metatable: IOLib.fileClass.metamethods);
+      } catch (e) {
+        Logger.debug('Error opening file: $e', category: 'IO');
+        return Value.multi([null, e.toString()]);
+      }
     }
 
-    final filename = (args[0] as Value).raw.toString();
-    Logger.debug('Opening file for output: $filename', category: 'IO');
-    try {
-      final device = await FileIODevice.open(filename, "w");
-      final file = LuaFile(device);
-      IOLib._defaultOutput = file;
-      return Value(file, metatable: IOLib.fileClass.metamethods);
-    } catch (e) {
-      Logger.debug('Error opening file: $e', category: 'IO');
-      return Value.multi([null, e.toString()]);
+    if (IOLib._defaultOutput?.device is! StdoutDevice) {
+      await IOLib._defaultOutput?.close();
     }
+    IOLib._defaultOutput = newFile;
+    return result;
   }
 }
 
