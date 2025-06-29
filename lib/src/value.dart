@@ -2,7 +2,6 @@ import 'dart:math' as math;
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
-import 'package:lualike/src/number.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/upvalue.dart';
 
@@ -906,8 +905,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       '//' => () {
         // If both operands are integers, use integer arithmetic for precision
         if (n1 is int && n2 is int) {
-          if (n2 == 0)
+          if (n2 == 0) {
             return n1 > 0 ? double.infinity : double.negativeInfinity;
+          }
           // Use integer division for exact results
           final quotient = n1 ~/ n2;
           final remainder = n1 % n2;
@@ -963,8 +963,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
     if (r is int) return Value(~r);
     if (r is BigInt) return Value(~r);
-    if (r is double)
+    if (r is double) {
       return Value(~r.toInt()); // Convert double to int for bitwise operations
+    }
 
     throw LuaError.typeError(
       'Bitwise NOT not supported for these types ${raw.runtimeType}',

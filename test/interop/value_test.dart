@@ -240,13 +240,13 @@ void main() {
     });
 
     test('Infinity equality', () {
-      final p_inf1 = Value(double.infinity);
-      final p_inf2 = Value(double.infinity);
-      final n_inf1 = Value(double.negativeInfinity);
-      final n_inf2 = Value(double.negativeInfinity);
-      expect(p_inf1 == p_inf2, isTrue);
-      expect(n_inf1 == n_inf2, isTrue);
-      expect(p_inf1 == n_inf1, isFalse);
+      final pInf1 = Value(double.infinity);
+      final pInf2 = Value(double.infinity);
+      final nInf1 = Value(double.negativeInfinity);
+      final nInf2 = Value(double.negativeInfinity);
+      expect(pInf1 == pInf2, isTrue);
+      expect(nInf1 == nInf2, isTrue);
+      expect(pInf1 == nInf1, isFalse);
     });
   });
 
