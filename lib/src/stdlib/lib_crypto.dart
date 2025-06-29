@@ -15,7 +15,7 @@ import 'package:lualike/src/value.dart';
 Uint8List _toBytes(Value value) {
   final raw = value.raw;
   if (raw is String) {
-    return utf8.encode(raw) as Uint8List;
+    return utf8.encode(raw);
   }
   if (raw is Uint8List) {
     return raw;

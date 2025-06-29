@@ -1,4 +1,3 @@
-import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/testing/testing.dart';
 
 /// Represents a reference to a variable in an outer scope (an "upvalue").
