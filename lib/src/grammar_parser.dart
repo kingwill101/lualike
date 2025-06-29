@@ -1,5 +1,6 @@
 import 'package:source_span/source_span.dart';
 import 'ast.dart';
+import 'number.dart';
 
 bool _checkAttr(String attr, int start, int end, State state) {
   if (attr == "const" || attr == "close") return true;
@@ -3918,12 +3919,22 @@ class GrammarParser {
   ///   }
   ///   n = <
   ///     (
-  ///       '0x'
-  ///       [0-9A-Fa-f]+
+  ///       '0'
+  ///       [xX]
   ///       (
-  ///         '.'
-  ///         [0-9A-Fa-f]+
-  ///       )?
+  ///         (
+  ///           [0-9A-Fa-f]+
+  ///           (
+  ///             '.'
+  ///             [0-9A-Fa-f]*
+  ///           )?
+  ///         )
+  ///         ----
+  ///         (
+  ///           '.'
+  ///           [0-9A-Fa-f]+
+  ///         )
+  ///       )
   ///       (
   ///         [pP]
   ///         [+\-]?
@@ -3931,11 +3942,20 @@ class GrammarParser {
   ///       )?
   ///     )
   ///     ----
-  ///     [0-9]+
   ///     (
-  ///       '.'
-  ///       [0-9]+
-  ///     )?
+  ///       (
+  ///         [0-9]+
+  ///         (
+  ///           '.'
+  ///           [0-9]*
+  ///         )?
+  ///       )
+  ///       ----
+  ///       (
+  ///         '.'
+  ///         [0-9]+
+  ///       )
+  ///     )
   ///     (
   ///       [eE]
   ///       [+\-]?
@@ -3944,7 +3964,7 @@ class GrammarParser {
   ///   >
   ///   S
   ///   $ = {
-  ///     final node = NumberLiteral(num.parse(n));
+  ///     final node = NumberLiteral(LuaNumberParser.parse(n));
   ///     $$ = _setNodeSpan(node, startPos, state.position, state);
   ///   }
   ///```
@@ -3955,143 +3975,191 @@ class GrammarParser {
     final $2 = state.position;
     var $3 = true;
     var $4 = false;
-    if (state.peek() == 48 && state.startsWith('0x', state.position)) {
-      state.consume('0x', $2);
-      final $5 = state.position;
-      for (
-        var c = state.peek();
-        c >= 65 ? c <= 70 || c >= 97 && c <= 102 : c >= 48 && c <= 57;
-      ) {
-        state.position += state.charSize(c);
-        c = state.peek();
-      }
-      if ($5 != state.position) {
-        final $7 = state.position;
-        var $6 = false;
-        if (state.peek() == 46) {
-          state.consume('.', $7);
-          final $8 = state.position;
-          for (
-            var c = state.peek();
-            c >= 65 ? c <= 70 || c >= 97 && c <= 102 : c >= 48 && c <= 57;
-          ) {
-            state.position += state.charSize(c);
-            c = state.peek();
-          }
-          if ($8 != state.position) {
-            $6 = true;
-          } else {
-            state.fail();
-          }
-        } else {
-          state.expected('.');
+    if (state.peek() == 48) {
+      state.consume('0', $2);
+      final $5 = state.peek();
+      if ($5 == 88 || $5 == 120) {
+        state.position += state.charSize($5);
+        var $6 = true;
+        var $7 = false;
+        final $8 = state.position;
+        for (
+          var c = state.peek();
+          c >= 65 ? c <= 70 || c >= 97 && c <= 102 : c >= 48 && c <= 57;
+        ) {
+          state.position += state.charSize(c);
+          c = state.peek();
         }
-        if (!$6) {
-          state.position = $7;
-        }
-        final $10 = state.position;
-        var $9 = false;
-        final $11 = state.peek();
-        if ($11 == 80 || $11 == 112) {
-          state.position += state.charSize($11);
-          final $12 = state.peek();
-          if ($12 == 43 || $12 == 45) {
-            state.position += state.charSize($12);
-          } else {
-            state.fail();
-          }
-          final $13 = state.position;
-          for (var c = state.peek(); c >= 48 && c <= 57;) {
-            state.position += state.charSize(c);
-            c = state.peek();
-          }
-          if ($13 != state.position) {
+        if ($8 != state.position) {
+          var $9 = false;
+          final $10 = state.position;
+          if (state.peek() == 46) {
+            state.consume('.', $10);
+            for (
+              var c = state.peek();
+              c >= 65 ? c <= 70 || c >= 97 && c <= 102 : c >= 48 && c <= 57;
+            ) {
+              state.position += state.charSize(c);
+              c = state.peek();
+            }
             $9 = true;
           } else {
-            state.fail();
+            state.expected('.');
           }
+          $7 = true;
         } else {
           state.fail();
         }
-        if (!$9) {
-          state.position = $10;
+        if (!$7) {
+          final $12 = state.position;
+          var $11 = false;
+          if (state.peek() == 46) {
+            state.consume('.', $12);
+            final $13 = state.position;
+            for (
+              var c = state.peek();
+              c >= 65 ? c <= 70 || c >= 97 && c <= 102 : c >= 48 && c <= 57;
+            ) {
+              state.position += state.charSize(c);
+              c = state.peek();
+            }
+            if ($13 != state.position) {
+              $11 = true;
+            } else {
+              state.fail();
+            }
+          } else {
+            state.expected('.');
+          }
+          if (!$11) {
+            state.position = $12;
+            $6 = false;
+          }
         }
-        $4 = true;
+        if ($6) {
+          final $15 = state.position;
+          var $14 = false;
+          final $16 = state.peek();
+          if ($16 == 80 || $16 == 112) {
+            state.position += state.charSize($16);
+            final $17 = state.peek();
+            if ($17 == 43 || $17 == 45) {
+              state.position += state.charSize($17);
+            } else {
+              state.fail();
+            }
+            final $18 = state.position;
+            for (var c = state.peek(); c >= 48 && c <= 57;) {
+              state.position += state.charSize(c);
+              c = state.peek();
+            }
+            if ($18 != state.position) {
+              $14 = true;
+            } else {
+              state.fail();
+            }
+          } else {
+            state.fail();
+          }
+          if (!$14) {
+            state.position = $15;
+          }
+          $4 = true;
+        }
       } else {
         state.fail();
       }
     } else {
-      state.expected('0x');
+      state.expected('0');
     }
     if (!$4) {
       state.position = $2;
-      var $14 = false;
+      var $19 = false;
+      var $20 = true;
+      var $21 = false;
       for (var c = state.peek(); c >= 48 && c <= 57;) {
         state.position += state.charSize(c);
         c = state.peek();
       }
       if ($2 != state.position) {
-        final $16 = state.position;
-        var $15 = false;
+        var $22 = false;
+        final $23 = state.position;
         if (state.peek() == 46) {
-          state.consume('.', $16);
-          final $17 = state.position;
+          state.consume('.', $23);
           for (var c = state.peek(); c >= 48 && c <= 57;) {
             state.position += state.charSize(c);
             c = state.peek();
           }
-          if ($17 != state.position) {
-            $15 = true;
+          $22 = true;
+        } else {
+          state.expected('.');
+        }
+        $21 = true;
+      } else {
+        state.fail();
+      }
+      if (!$21) {
+        var $24 = false;
+        if (state.peek() == 46) {
+          state.consume('.', $2);
+          final $25 = state.position;
+          for (var c = state.peek(); c >= 48 && c <= 57;) {
+            state.position += state.charSize(c);
+            c = state.peek();
+          }
+          if ($25 != state.position) {
+            $24 = true;
           } else {
             state.fail();
           }
         } else {
           state.expected('.');
         }
-        if (!$15) {
-          state.position = $16;
+        if (!$24) {
+          state.position = $2;
+          $20 = false;
         }
-        final $19 = state.position;
-        var $18 = false;
-        final $20 = state.peek();
-        if ($20 == 69 || $20 == 101) {
-          state.position += state.charSize($20);
-          final $21 = state.peek();
-          if ($21 == 43 || $21 == 45) {
-            state.position += state.charSize($21);
+      }
+      if ($20) {
+        final $27 = state.position;
+        var $26 = false;
+        final $28 = state.peek();
+        if ($28 == 69 || $28 == 101) {
+          state.position += state.charSize($28);
+          final $29 = state.peek();
+          if ($29 == 43 || $29 == 45) {
+            state.position += state.charSize($29);
           } else {
             state.fail();
           }
-          final $22 = state.position;
+          final $30 = state.position;
           for (var c = state.peek(); c >= 48 && c <= 57;) {
             state.position += state.charSize(c);
             c = state.peek();
           }
-          if ($22 != state.position) {
-            $18 = true;
+          if ($30 != state.position) {
+            $26 = true;
           } else {
             state.fail();
           }
         } else {
           state.fail();
         }
-        if (!$18) {
-          state.position = $19;
+        if (!$26) {
+          state.position = $27;
         }
-        $14 = true;
-      } else {
-        state.fail();
+        $19 = true;
       }
-      if (!$14) {
+      if (!$19) {
         $3 = false;
       }
     }
     if ($3) {
-      final $23 = state.substring($2, state.position);
-      String n = $23;
+      final $31 = state.substring($2, state.position);
+      String n = $31;
       parseS(state);
       final NumberLiteral $$;
-      final node = NumberLiteral(num.parse(n));
+      final node = NumberLiteral(LuaNumberParser.parse(n));
       $$ = _setNodeSpan(node, startPos, state.position, state);
       NumberLiteral $ = $$;
       $0 = ($,);

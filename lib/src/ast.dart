@@ -664,9 +664,9 @@ class NilValue extends AstNode {
 
 /// Numeric literal.
 class NumberLiteral extends AstNode {
-  final num value;
+  final dynamic value;
 
-  NumberLiteral(this.value);
+  NumberLiteral(this.value) : assert(value is num || value is BigInt);
 
   @override
   Future<T> accept<T>(AstVisitor<T> visitor) =>
