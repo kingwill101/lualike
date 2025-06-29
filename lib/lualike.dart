@@ -14,6 +14,7 @@ export 'src/value.dart';
 export 'src/return_exception.dart';
 export 'src/interop.dart';
 export 'src/logger.dart';
+export 'src/number.dart';
 export 'src/config.dart';
 export 'src/bytecode/bytecode.dart';
 export 'src/utils/platform_utils.dart';

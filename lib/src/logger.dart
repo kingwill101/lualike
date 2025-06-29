@@ -21,7 +21,13 @@ class Logger {
   /// @param message The message to log.
   /// @param category Optional category for the log message.
   /// @param node Optional AST node for position information.
-  static void debug(String message, {String? category, AstNode? node}) {
+  static void debug(
+    String message, {
+    String? category,
+    String? source,
+    AstNode? node,
+    LuaStackTrace? luaStackTrace,
+  }) {
     if (!enabled) return;
     String positionInfo = '';
     if (node != null && node.span != null) {
@@ -30,7 +36,8 @@ class Logger {
           ' [${span.sourceUrl?.path}:${span.start.line}:${span.start.column}-${span.end.line}:${span.end.column}]';
     }
 
-    final logMessage = '[DEBUG]$positionInfo [$category] $message';
+    final logMessage =
+        '[DEBUG]$positionInfo [$category${source?.isNotEmpty ?? false ? '.$source]' : ''}] $message';
     if (outputSink != null) {
       outputSink!(logMessage);
     } else {

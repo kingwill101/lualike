@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/coroutine.dart' show Coroutine;
+import 'package:lualike/src/number.dart';
 import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:path/path.dart' as path;
 
@@ -96,34 +97,45 @@ class RawSetFunction implements BuiltinFunction {
 }
 
 class AssertFunction implements BuiltinFunction {
+  final Interpreter? vm;
+
+  AssertFunction([this.vm]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) throw Exception("assert requires at least one argument");
-    final condition = args[0] as Value;
+    final condition = args[0];
 
-    bool isTrue = false;
-    if (condition.raw == null || condition.raw == false) {
-      isTrue = false;
-    } else if (condition.raw is bool) {
-      isTrue = condition.raw;
+    bool isTrue;
+    if (condition is Value) {
+      if (condition.raw is bool) {
+        isTrue = condition.raw as bool;
+      } else {
+        isTrue = condition.raw != null;
+      }
+    } else if (condition is bool) {
+      isTrue = condition;
     } else {
-      isTrue = true; // All other values are considered true in Lua
+      isTrue = condition != null;
     }
 
     Logger.debug(
-      'AssertFunction: Assertion condition: ${condition.raw}, evaluated to: $isTrue',
+      'AssertFunction: Assertion condition: $condition, evaluated to: $isTrue',
       category: 'Base',
     );
 
     if (!isTrue) {
       final message = args.length > 1
           ? (args[1] as Value).raw.toString()
-          : "assertion failed!";
+          : "assertion failed! condition: ${condition.raw}";
       Logger.debug(
         'AssertFunction: Assertion failed with message: $message',
         category: 'Base',
       );
-      throw Exception(message);
+      if (vm?.callStack.current?.callNode != null) {
+        throw LuaError.fromNode(vm!.callStack.current!.callNode!, message);
+      }
+      throw LuaError(message);
     }
 
     Logger.debug(
@@ -377,22 +389,22 @@ class TypeFunction implements BuiltinFunction {
 class ToNumberFunction implements BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
-    if (args.isEmpty) throw Exception("tonumber requires an argument");
-    final value = args[0] as Value;
-    final base = args.length > 1 ? (args[1] as Value).raw as int : 10;
+    if (args.isEmpty) {
+      throw Exception("tonumber requires an argument");
+    }
 
-    if (value.raw is num) return value;
+    final value = args[0] as Value;
 
     if (value.raw is String) {
       try {
-        if (base == 10) {
-          return Value(num.parse(value.raw.toString()));
-        } else {
-          return Value(int.parse(value.raw.toString(), radix: base));
-        }
-      } catch (_) {
+        return Value(LuaNumberParser.parse(value.raw as String));
+      } on FormatException {
         return Value(null);
       }
+    } else if (value.raw is num) {
+      return value;
+    } else if (value.raw is BigInt) {
+      return Value((value.raw as BigInt).toInt());
     }
 
     return Value(null);
@@ -1449,7 +1461,7 @@ void defineBaseLibrary({
   // Create a map of all functions and variables
   final baseLib = {
     // Core functions
-    "assert": AssertFunction(),
+    "assert": AssertFunction(vm),
     "error": ErrorFunction(vm),
     "ipairs": IPairsFunction(),
     "pairs": PairsFunction(),
