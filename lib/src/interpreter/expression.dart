@@ -70,7 +70,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     final rightVal = rightResult is Value ? rightResult : Value(rightResult);
 
     Logger.debug(
-      'BinaryExpression operands: $leftVal ${node.op} $rightVal',
+      'BinaryExpression operands before metamethod check: $leftVal (${leftVal.raw.runtimeType}) ${node.op} $rightVal (${rightVal.raw.runtimeType})',
       category: 'Interpreter',
     );
 
