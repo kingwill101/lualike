@@ -141,3 +141,44 @@ This only works for strings that look like numbers. The following would cause an
 -- This will cause an error
 -- local bad_result = "hello" + 5
 ```
+
+## Creating Values in Dart
+
+When working with `lualike` from Dart, you'll often need to create values that can be passed into the Lua environment. The `ValueClass` provides a convenient way to create values with their default metatables attached.
+
+### Basic Types
+
+You can create values for basic types like tables, strings, and numbers:
+
+```dart
+// Create a new table with default metatables
+final myTable = ValueClass.table({'key': 'value'});
+
+// Create a new string with default metatables
+final myString = ValueClass.string("hello");
+
+// Create a new number with default metatables
+final myNumber = ValueClass.number(123);
+```
+
+These static methods ensure that the created values behave as expected within the `lualike` environment, with all standard metamethods available.
+
+### Custom Classes
+
+You can also create your own "classes" with custom metamethods. This is useful for creating complex objects in Dart that can be manipulated from `lualike`.
+
+```dart
+// Create a Point class with metamethods
+final pointClass = ValueClass.create({
+  "__add": (a, b) => Value({
+    "x": (a.raw["x"] as num) + (b.raw["x"] as num),
+    "y": (a.raw["y"] as num) + (b.raw["y"] as num),
+  }),
+  "__tostring": (p) => "Point(${p.raw['x']}, ${p.raw['y']})",
+});
+
+// Use the class to create a new point
+final p1 = pointClass.call([]); // Creates a new table with the metamethods
+p1.raw['x'] = 10;
+p1.raw['y'] = 20;
+```
