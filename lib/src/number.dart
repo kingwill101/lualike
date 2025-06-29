@@ -14,6 +14,8 @@
 /// Usage:
 ///   final value = LuaNumberParser.parse('0x7.4'); // 7.25 (double)
 ///
+library;
+
 import 'dart:math' as math;
 
 /// Prevent instantiation – this is a pure utility class.

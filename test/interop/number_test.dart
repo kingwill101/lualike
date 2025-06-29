@@ -1,5 +1,4 @@
 import 'package:lualike/lualike.dart';
-import 'package:lualike/src/value.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -12,7 +11,7 @@ void main() {
       bool isNaN = false,
     }) async {
       await lualike.runCode('result = $lua');
-      final result = await lualike.getGlobal('result');
+      final result = lualike.getGlobal('result');
       var value = result is Value ? result.unwrap() : result;
       if (value is List && value.isNotEmpty) value = value.first;
       if (isNaN) {

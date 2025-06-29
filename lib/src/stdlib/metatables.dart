@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 // import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/stdlib/lib_string.dart' show StringLib;
