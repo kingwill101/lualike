@@ -3,9 +3,6 @@ import 'package:test/test.dart';
 import 'package:lualike/lualike.dart';
 
 void main() {
-  setUpAll(() {
-    Logger.setEnabled(true);
-  });
   group('Advanced Interop Features', () {
     test('nested table assignment with direct indexing', () async {
       final bridge = LuaLikeBridge();
@@ -297,7 +294,6 @@ void main() {
     });
 
     test('combined require and table property syntax', () async {
-      Logger.setEnabled(true);
       final bridge = LuaLikeBridge();
 
       // Register a virtual module with table property functionality

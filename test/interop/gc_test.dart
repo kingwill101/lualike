@@ -6,7 +6,6 @@ void main() {
   group('Garbage Collection', () {
     test('object lifecycle', () async {
       final bridge = LuaLikeBridge();
-      Logger.setEnabled(true);
 
       await bridge.runCode('''
         -- Create and abandon objects
@@ -44,7 +43,6 @@ void main() {
 
     test('finalizers', () async {
       final bridge = LuaLikeBridge();
-      Logger.setEnabled(true);
 
       await bridge.runCode('''
         local finalized = {}
@@ -68,7 +66,6 @@ void main() {
 
     test('oveerroide gc', () async {
       final bridge = LuaLikeBridge();
-      Logger.setEnabled(true);
 
       await bridge.runCode('''
 local t = {}

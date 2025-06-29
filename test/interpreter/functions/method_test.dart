@@ -14,7 +14,6 @@ class MultiplyFunction implements BuiltinFunction {
 }
 
 void main() {
-  Logger.setEnabled(true);
   group('Method Calls', () {
     test('Invokes method on table using dot syntax', () async {
       // Create a table (Map) with a method 'mul'

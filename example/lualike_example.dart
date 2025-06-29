@@ -12,7 +12,20 @@ import 'package:lualike/lualike.dart';
 
 void main() {
   // main2();
-  vararg();
+  implicitSelf();
+}
+
+void implicitSelf() {
+  final source = '''
+        local obj = {}
+        function obj:val(x)
+          return x
+        end
+        local result = obj:val(99)
+  ''';
+
+  final res = parse(source);
+  print(res);
 }
 
 void vararg() {

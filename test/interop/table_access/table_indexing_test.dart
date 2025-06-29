@@ -3,7 +3,6 @@ import 'package:test/test.dart';
 import 'package:lualike/lualike.dart';
 
 void main() {
-  Logger.setEnabled(true);
   group('Table Indexing Operations', () {
     test('direct table indexing assignment', () async {
       final bridge = LuaLikeBridge();

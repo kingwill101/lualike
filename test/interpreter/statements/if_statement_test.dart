@@ -3,7 +3,6 @@ import 'package:test/test.dart';
 import 'package:lualike/lualike.dart';
 
 void main() {
-  Logger.setEnabled(true);
   group('IfStatement', () {
     test('executes thenBlock when condition is true', () async {
       // if true then y = 100 else y = 5

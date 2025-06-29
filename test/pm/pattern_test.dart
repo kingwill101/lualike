@@ -1,13 +1,8 @@
 @Tags(['pm'])
-import 'package:lualike/src/logger.dart';
 import 'package:lualike/src/pattern.dart';
 import 'package:test/test.dart';
 
 void main() {
-  setUpAll(() {
-    Logger.setEnabled(true);
-  });
-
   group('LuaPattern', () {
     group('Basic pattern functionality', () {
       test('Empty patterns', () {

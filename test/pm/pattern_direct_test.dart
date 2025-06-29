@@ -1,36 +1,36 @@
-import 'package:lualike/src/logger.dart';
+@Tags(['pm'])
 import 'package:lualike/src/pattern.dart';
+import 'package:lualike/testing.dart';
 
 void main() {
-  // Enable debug logging
-  Logger.setEnabled(true);
-
   // Test function to check pattern conversion and matching
   void testPattern(String luaPattern, String testString, {bool plain = false}) {
-    print('Testing pattern: "$luaPattern" on string: "$testString"');
+    test('Testing pattern: "$luaPattern" on string: "$testString"', () {
+      try {
+        // Convert Lua pattern to RegExp
+        final regex = LuaPattern.toRegExp(luaPattern, plain: plain);
+        Logger.debug('Converted to RegExp: ${regex.pattern}');
 
-    try {
-      // Convert Lua pattern to RegExp
-      final regex = LuaPattern.toRegExp(luaPattern, plain: plain);
-      print('Converted to RegExp: ${regex.pattern}');
+        // Test matching
+        final match = regex.firstMatch(testString);
+        if (match != null) {
+          Logger.debug(
+            'Match found: "${testString.substring(match.start, match.end)}"',
+          );
 
-      // Test matching
-      final match = regex.firstMatch(testString);
-      if (match != null) {
-        print('Match found: "${testString.substring(match.start, match.end)}"');
-
-        // Print capture groups if any
-        for (var i = 1; i < match.groupCount + 1; i++) {
-          print('  Group $i: "${match.group(i)}"');
+          // Logger.debug capture groups if any
+          for (var i = 1; i < match.groupCount + 1; i++) {
+            Logger.debug('  Group $i: "${match.group(i)}"');
+          }
+        } else {
+          Logger.debug('No match found');
         }
-      } else {
-        print('No match found');
+      } catch (e) {
+        Logger.debug('Error: $e');
       }
-    } catch (e) {
-      print('Error: $e');
-    }
+    });
 
-    print('---');
+    Logger.debug('---');
   }
 
   // Test basic patterns
@@ -68,5 +68,5 @@ void main() {
   // Test complex patterns
   testPattern('%f[%S](.-%f[%s].-%f[%S])', ' word in the middle ');
 
-  print('All tests completed');
+  Logger.debug('All tests completed');
 }

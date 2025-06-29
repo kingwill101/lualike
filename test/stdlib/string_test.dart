@@ -3,9 +3,6 @@ import 'package:lualike/lualike.dart';
 import 'package:test/test.dart';
 
 void main() {
-  setUpAll(() {
-    Logger.setEnabled(true);
-  });
   group('String Library', () {
     // Basic string operations
     test('string.len', () async {
@@ -347,7 +344,6 @@ void main() {
 
     // Pattern matching special items
     test('pattern matching special items', () async {
-      Logger.setEnabled(true);
       final bridge = LuaLikeBridge();
       await bridge.runCode(r'''
         local tests = {}

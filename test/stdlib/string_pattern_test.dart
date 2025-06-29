@@ -8,7 +8,6 @@ void main() {
 
     setUp(() {
       bridge = LuaLikeBridge();
-      Logger.setEnabled(true);
     });
 
     group('basic patterns', () {

@@ -3,9 +3,6 @@ import 'package:test/test.dart';
 import 'package:lualike/lualike.dart';
 
 void main() {
-  setUpAll(() {
-    Logger.setEnabled(true);
-  });
   group('Local Functions and Anonymous Functions', () {
     test('LocalFunctionDef is callable', () async {
       // local function foo() return 42 end
