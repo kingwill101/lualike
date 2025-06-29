@@ -132,15 +132,15 @@ void main() {
     late Directory tempDir;
     late String tempPath;
 
-    setUp(() {
+    setUp(() async {
       tempDir = Directory.systemTemp.createTempSync();
       tempPath = tempDir.path;
       // Reset default streams
-      IOLib.defaultInput; // Force creation of new stdin
-      IOLib.defaultOutput; // Force creation of new stdout
+      await IOLib.reset();
     });
 
-    tearDown(() {
+    tearDown(() async {
+      await IOLib.reset();
       tempDir.deleteSync(recursive: true);
     });
 
