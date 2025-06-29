@@ -974,14 +974,30 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     final wrappedOther = other is Value ? other : Value.wrap(other);
 
     // Only perform direct operation on raw values
-    if (raw is String && wrappedOther.raw is String) {
+    if (raw is String ) {
+      if(wrappedOther.raw is String){
+        return Value(raw + wrappedOther.raw);
+      }else if(wrappedOther is num){
+        return Value(raw + wrappedOther.toString());
+      }
+
       return Value(raw + wrappedOther.raw);
     }
-    if (raw == null || other == null) {
-      throw UnsupportedError('Attempt to concatenate a nil value');
+
+    if(raw is num){
+      if(wrappedOther.raw is String){
+        return Value(raw.toString() + wrappedOther.raw);
+      }else if(wrappedOther is num){
+        return Value(raw.toString() + wrappedOther.toString());
+      }
+      return Value(raw.toString() + wrappedOther.raw.toString());
     }
 
-    throw UnsupportedError(
+    if (raw == null || other == null) {
+      throw LuaError.typeError('Attempt to concatenate a nil value');
+    }
+
+    throw LuaError.typeError(
       'Concatenation not supported for these types ${raw.runtimeType} and ${wrappedOther.raw.runtimeType}',
     );
   }
