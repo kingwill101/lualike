@@ -338,7 +338,7 @@ void main() {
       expect(tests['s1'], equals(Value(" ")));
       expect(tests['w1'], equals(Value("hello123")));
       //TODO pattern matching doesn handle punctuations properly
-       expect(tests['p1'], equals(Value(",")));
+      expect(tests['p1'], equals(Value(",")));
       expect(tests['l1'], equals(Value("abc")));
       expect(tests['u1'], equals(Value("DEF")));
       expect(tests['A1'], equals(Value("123")));

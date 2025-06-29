@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
-import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/lualike.dart';
+import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/pattern.dart';
 
 import '../value_class.dart';
@@ -79,12 +79,8 @@ class _StringByte implements BuiltinFunction {
 class _StringChar implements BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
-    if (args.isEmpty) {
-      throw LuaError.typeError("string.char requires at least one argument");
-    }
-
     final buffer = StringBuffer();
-    for (var arg in args) {
+    for (var arg in args.where((arg) => arg is Value && arg.raw is int)) {
       final code = (arg as Value).raw as int;
       buffer.writeCharCode(code);
     }
@@ -126,11 +122,6 @@ class _StringFind implements BuiltinFunction {
     // Handle negative indices
     if (start < 0) start = 0;
     if (start >= str.length) return Value(null);
-
-    // Special case for the test: "hello world" with pattern "o" at position 5
-    if (str == "hello world" && pattern == "o" && start == 4) {
-      return [Value(8), Value(8)]; // The test expects position 8
-    }
 
     if (plain) {
       final index = str.indexOf(pattern, start);
