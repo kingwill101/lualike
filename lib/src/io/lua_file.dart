@@ -8,6 +8,8 @@ import 'io_device.dart';
 class LuaFile {
   final IODevice _device;
 
+  IODevice get device => _device;
+
   bool get isClosed => _device.isClosed;
 
   String get mode => _device.mode;
