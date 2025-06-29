@@ -1,3 +1,5 @@
+import 'dart:io' show Directory, Platform;
+
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/call_stack.dart';
@@ -11,7 +13,6 @@ import 'package:lualike/src/stack.dart';
 import 'package:lualike/src/stdlib/init.dart' show initializeStandardLibrary;
 import 'package:lualike/src/value.dart';
 import 'package:lualike/src/value_class.dart';
-import 'dart:io' show Directory, Platform;
 
 import '../coroutine.dart';
 import '../exceptions.dart';
@@ -511,15 +512,10 @@ class Interpreter extends AstVisitor<Object?>
           throw GotoException("Undefined label: ${e.label}");
         }
         i = labelMap[e.label]!;
+      } catch (e, s) {
+        reportError(e.toString(), trace: s);
+        rethrow;
       }
-      // } on ReturnException catch (e) {
-      //   // Handle return statement at the top level by wrapping value in a list
-      //   return Future.value([e.value]); // Use Future.value
-      // } catch (e, s) {
-      //   // Report other errors
-      //   reportError(e.toString(), trace: s);
-      //   return null;
-      // }
     }
     Logger.debug('Program finished', category: 'Interpreter');
     return evalStack.isEmpty ? null : evalStack.peek();

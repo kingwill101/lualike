@@ -4,6 +4,9 @@ import 'dart:io';
 import 'package:dart_console/dart_console.dart';
 import 'package:lualike/history.dart';
 import 'package:lualike/lualike.dart';
+import 'package:lualike/src/io/lua_file.dart';
+import 'package:lualike/src/io/virtual_io_device.dart';
+import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:lualike/testing.dart';
 import 'package:path/path.dart' as path;
 
@@ -130,6 +133,7 @@ Future<void> runCode(
   String code,
   ExecutionMode mode, {
   String? scriptPath,
+  bool printResult = false,
 }) async {
   // Use the global bridge instance
   final bridge = globalBridge;
@@ -148,7 +152,7 @@ Future<void> runCode(
   final result = await bridge.runCode(code, scriptPath: scriptPath);
 
   // Handle the result based on mode
-  if (mode == ExecutionMode.astInterpreter && result != null) {
+  if (printResult) {
     print(result);
   }
 }
@@ -177,15 +181,15 @@ Future<void> runRepl(ExecutionMode mode) async {
   // Create a console for terminal control with scrolling support
   final console = Console.scrolling(recordBlanks: false);
 
-  // Create a StringBuffer to capture output instead of writing directly to stdout
-  final outputBuffer = StringBuffer();
+  // Set up virtual devices for REPL I/O
+  final stdinDevice = VirtualIODevice();
+  final stdoutDevice = VirtualIODevice();
+  IOLib.defaultInput = LuaFile(stdinDevice);
+  IOLib.defaultOutput = LuaFile(stdoutDevice);
 
   // Custom print function that writes to our buffer instead of stdout
   void customPrint(String message) {
-    // Add the message to our buffer
-    outputBuffer.writeln(message);
-
-    // Print the buffer content to console without flushing
+    stdoutDevice.write('$message\n');
     console.writeLine(message);
   }
 
@@ -202,7 +206,7 @@ Future<void> runRepl(ExecutionMode mode) async {
   while (running) {
     try {
       // Clear the output buffer before each command
-      outputBuffer.clear();
+      multilineBuffer = null;
 
       // Determine prompt based on whether we're in multiline mode
       String prompt = multilineBuffer != null ? '>> ' : '> ';
@@ -226,6 +230,9 @@ Future<void> runRepl(ExecutionMode mode) async {
         running = false;
         continue;
       }
+
+      // Write input to the virtual stdin device
+      stdinDevice.write('$line\n');
 
       // Add to history if not empty
       if (line.isNotEmpty) {
