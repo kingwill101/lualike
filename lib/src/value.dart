@@ -974,20 +974,20 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     final wrappedOther = other is Value ? other : Value.wrap(other);
 
     // Only perform direct operation on raw values
-    if (raw is String ) {
-      if(wrappedOther.raw is String){
+    if (raw is String) {
+      if (wrappedOther.raw is String) {
         return Value(raw + wrappedOther.raw);
-      }else if(wrappedOther is num){
+      } else if (wrappedOther is num) {
         return Value(raw + wrappedOther.toString());
       }
 
       return Value(raw + wrappedOther.raw);
     }
 
-    if(raw is num){
-      if(wrappedOther.raw is String){
+    if (raw is num) {
+      if (wrappedOther.raw is String) {
         return Value(raw.toString() + wrappedOther.raw);
-      }else if(wrappedOther is num){
+      } else if (wrappedOther is num) {
         return Value(raw.toString() + wrappedOther.toString());
       }
       return Value(raw.toString() + wrappedOther.raw.toString());

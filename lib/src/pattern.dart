@@ -77,16 +77,16 @@ class LuaPattern {
     // Validate the pattern
     _validatePattern(pattern);
 
-    // Special case for the test pattern
-    if (pattern == '%f[%S](.-%f[%s].-%f[%S])') {
-      Logger.debug(
-        'Using special case for frontier pattern test',
-        category: 'LuaPattern',
-      );
-      // This pattern is looking for a word at a word boundary, followed by a space
-      // In Lua: match a word that starts after whitespace and ends with whitespace
-      return '(?<=\\s|^)(\\S+)(?=\\s)';
-    }
+    // // Special case for the test pattern
+    // if (pattern == '%f[%S](.-%f[%s].-%f[%S])') {
+    //   Logger.debug(
+    //     'Using special case for frontier pattern test',
+    //     category: 'LuaPattern',
+    //   );
+    //   // This pattern is looking for a word at a word boundary, followed by a space
+    //   // In Lua: match a word that starts after whitespace and ends with whitespace
+    //   return '(?<=\\s|^)(\\S+)(?=\\s)';
+    // }
 
     // Process balanced pattern sequences first
     pattern = _processBalancedPatterns(pattern);
@@ -98,9 +98,9 @@ class LuaPattern {
     pattern = _processCharacterClasses(pattern);
 
     // Special case for common patterns - handle Lua's non-greedy operator
-    if (pattern.contains('.-')) {
-      pattern = pattern.replaceAll('.-', '.*?');
-    }
+    // if (pattern.contains('.-')) {
+    //   pattern = pattern.replaceAll('.-', '.*?');
+    // }
 
     // Process the regular pattern
     pattern = _processRegularPattern(pattern);
@@ -211,30 +211,6 @@ class LuaPattern {
           'Frontier match: %f[${match[1]}] -> set: [$set]',
           category: 'LuaPattern',
         );
-
-        // Special case for the test pattern
-        if (pattern.contains('%f[%S](.-%f[%s].-%f[%S])')) {
-          // For this specific pattern, we need a more direct approach
-          if (match[0] == '%f[%S]' && pattern.startsWith('%f[%S](.-')) {
-            Logger.debug(
-              'Using special case for first frontier',
-              category: 'LuaPattern',
-            );
-            return '(?<=\\s|^)(?=\\S)';
-          } else if (match[0] == '%f[%s]' && pattern.contains('.-%f[%s]')) {
-            Logger.debug(
-              'Using special case for second frontier',
-              category: 'LuaPattern',
-            );
-            return '(?=\\s)';
-          } else if (match[0] == '%f[%S]' && pattern.contains('.-%f[%S])')) {
-            Logger.debug(
-              'Using special case for third frontier',
-              category: 'LuaPattern',
-            );
-            return '(?=\\S)';
-          }
-        }
 
         // General case
         final result = '(?<![$set])(?=[$set])';

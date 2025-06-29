@@ -185,7 +185,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
         //TODO figure our all the possible key types and handle them
         //a bit tricky
         dynamic key;
-        if( field.key is Identifier) {
+        if (field.key is Identifier) {
           // Use the identifier's name directly as the key literal
           key = (field.key as Identifier).name;
           Logger.debug(
@@ -195,10 +195,9 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
         } else if (field.key is Value) {
           // If the key is already a Value, use its raw value
           key = (field.key as Value).raw;
-        }else{
+        } else {
           key = await field.key.accept(this);
         }
-
 
         var value = await field.value.accept(this);
 
