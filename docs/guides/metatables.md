@@ -1,279 +1,183 @@
-# Metatables and Metamethods in LuaLike
+# Metatables and Metamethods in Lualike
 
-This guide explains how to work with metatables and metamethods in the LuaLike library, which are essential for implementing Lua's object-oriented features and operator overloading.
+This guide explains how to use metatables in `lualike` to change the behavior of tables, allowing for powerful features like operator overloading and object-oriented programming.
 
 ## Overview
 
-Metatables in Lua provide a mechanism to change the behavior of tables and other values. Each metatable is a regular table that defines how operations on the associated value should behave. Metamethods are the functions stored in a metatable that define this behavior.
+In `lualike`, every table can have a **metatable**. A metatable is a regular table that contains special functions called **metamethods**. When you perform an operation on a table (like adding it to another value, calling it like a function, or accessing a field), `lualike` checks if the table has a metatable with a corresponding metamethod. If it does, that metamethod is called to perform the action.
 
-## Metatable Basics
+The `getmetatable` and `setmetatable` functions are used to inspect and change the metatable of a table.
 
-In LuaLike, metatables are represented as `Map<String, dynamic>` objects. You can attach a metatable to a value when creating it:
+```lua
+local my_table = {}
+local my_metatable = {}
+setmetatable(my_table, my_metatable)
 
-```dart
-// Create a metatable
-final metatable = <String, dynamic>{
-  "__add": (List<Object?> args) {
-    final a = args[0] as Value;
-    final b = args[1] as Value;
-    return Value((a.raw as num) + (b.raw as num));
-  },
-};
-
-// Create a value with a metatable
-final value = Value(42, metatable);
+assert(getmetatable(my_table) == my_metatable)
 ```
 
 ## Common Metamethods
 
-Here are the most common metamethods and their purposes:
+Here are some of the most common metamethods and the operations they control:
 
-### Arithmetic Metamethods
+*   `__add`: Addition (`+`)
+*   `__sub`: Subtraction (`-`)
+*   `__mul`: Multiplication (`*`)
+*   `__div`: Division (`/`)
+*   `__tostring`: The `tostring()` function
+*   `__index`: Accessing a table field that doesn't exist (`table[key]`)
+*   `__newindex`: Writing to a table field that doesn't exist (`table[key] = value`)
+*   `__call`: Calling a table like a function (`table()`)
 
-- `__add`: Addition (`+`)
-- `__sub`: Subtraction (`-`)
-- `__mul`: Multiplication (`*`)
-- `__div`: Division (`/`)
-- `__mod`: Modulo (`%`)
-- `__pow`: Exponentiation (`^`)
-- `__unm`: Unary minus (`-`)
-- `__idiv`: Integer division (`//`)
+## Examples
 
-### Relational Metamethods
+### `__tostring`
 
-- `__eq`: Equality (`==`)
-- `__lt`: Less than (`<`)
-- `__le`: Less than or equal (`<=`)
+The `__tostring` metamethod is called whenever `tostring()` is used on the table.
 
-### Table Access Metamethods
+```lua
+local my_table = setmetatable({}, {
+  __tostring = function(t)
+    return "This is my custom table representation!"
+  end
+})
 
-- `__index`: Accessing absent fields
-- `__newindex`: Assigning to absent fields
-- `__len`: Length operator (`#`)
-
-### Function Call Metamethod
-
-- `__call`: Function call (`()`)
-
-### String Representation Metamethod
-
-- `__tostring`: String conversion (`tostring()`)
-
-### Concatenation Metamethod
-
-- `__concat`: Concatenation (`..`)
-
-## Implementing Metamethods
-
-Each metamethod is a function that takes a list of arguments and returns a value. The first argument is always the value with the metatable, and the remaining arguments depend on the specific metamethod.
-
-Here's an example of implementing the `__add` metamethod:
-
-```dart
-final metatable = <String, dynamic>{
-  "__add": (List<Object?> args) {
-    final a = args[0] as Value;
-    final b = args[1] as Value;
-
-    if (a.raw is num && b.raw is num) {
-      return Value((a.raw as num) + (b.raw as num));
-    }
-
-    throw Exception("attempt to perform arithmetic on non-number values");
-  },
-};
+print(my_table)
+-- Prints: This is my custom table representation!
 ```
 
-## The __index Metamethod
+### `__add`: Operator Overloading
 
-The `__index` metamethod is particularly important as it defines what happens when a key is not found in a table. It can be either a function or a table:
+Metamethods allow you to define behavior for arithmetic operators.
 
-```dart
-// __index as a function
-final metatable = <String, dynamic>{
-  "__index": (List<Object?> args) {
-    final table = args[0] as Value;
-    final key = args[1] as Value;
+```lua
+local vector_metatable = {
+  __add = function(v1, v2)
+    return { x = v1.x + v2.x, y = v1.y + v2.y }
+  end
+}
 
-    // Custom lookup logic
-    if (key.raw == "special") {
-      return Value("special value");
-    }
+local vec1 = { x = 1, y = 2 }
+setmetatable(vec1, vector_metatable)
 
-    return Value(null); // Key not found
-  },
-};
+local vec2 = { x = 10, y = 20 }
+setmetatable(vec2, vector_metatable)
 
-// __index as a table
-final indexTable = <dynamic, dynamic>{
-  "method1": Value((List<Object?> args) {
-    return Value("method1 called");
-  }),
-  "property1": Value("property1 value"),
-};
-
-final metatable = <String, dynamic>{
-  "__index": Value(indexTable),
-};
+local vec3 = vec1 + vec2
+-- vec3 is now { x = 11, y = 22 }
 ```
 
-## The __newindex Metamethod
+### `__index`: Table Lookups
 
-The `__newindex` metamethod defines what happens when a key is not found in a table during assignment. It can be either a function or a table:
+The `__index` metamethod is one of the most powerful. It is triggered when you try to access a key that does **not** exist in a table. The `__index` metamethod can be either a function or another table.
 
-```dart
-// __newindex as a function
-final metatable = <String, dynamic>{
-  "__newindex": (List<Object?> args) {
-    final table = args[0] as Value;
-    final key = args[1] as Value;
-    final value = args[2] as Value;
+**Using a function for `__index`:**
 
-    // Custom assignment logic
-    print("Assigning ${value.raw} to ${key.raw}");
+```lua
+local my_table = setmetatable({}, {
+  __index = function(t, key)
+    print("The key '" .. tostring(key) .. "' was not found in the table.")
+    return "default value"
+  end
+})
 
-    // Store in a different location
-    (table.raw as Map)["_${key.raw}"] = value;
-  },
-};
+local val = my_table.some_key
+-- Prints: The key 'some_key' was not found in the table.
+-- val is now "default value"
+```
+
+**Using a table for `__index`:**
+
+If `__index` is a table, `lualike` will look for the missing key in that table instead. This is the foundation of object-oriented programming.
+
+```lua
+local defaults = {
+  name = "Unknown",
+  age = 0
+}
+
+local person = setmetatable({}, { __index = defaults })
+
+print(person.name) -- Prints: Unknown
+print(person.age)  -- Prints: 0
 ```
 
 ## Creating Classes with Metatables
 
-You can use metatables to implement class-like behavior in Lua. Here's an example of creating a simple Point class:
+By combining `__index` and functions, you can create "classes" and "objects".
 
-```dart
-// Create the class metatable
-final pointClassMetatable = <String, dynamic>{
-  "__call": (List<Object?> args) {
-    final cls = args[0] as Value;
-    final x = args.length > 1 ? (args[1] as Value).raw as num : 0;
-    final y = args.length > 2 ? (args[2] as Value).raw as num : 0;
+```lua
+-- Our "class" table, which will hold methods
+local Car = {}
+Car.speed = 0
 
-    // Create a new instance
-    final instance = <dynamic, dynamic>{
-      "x": Value(x),
-      "y": Value(y),
-    };
+function Car:accelerate(amount)
+  self.speed = self.speed + amount
+end
 
-    // Set the instance metatable
-    return Value(instance, pointInstanceMetatable);
-  },
-};
+function Car:get_speed()
+  return self.speed
+end
 
-// Create the instance metatable
-final pointInstanceMetatable = <String, dynamic>{
-  "__index": (List<Object?> args) {
-    final instance = args[0] as Value;
-    final key = args[1] as Value;
+-- A "constructor" function to create new car objects
+function Car:new()
+  local new_car = { speed = 0 }
+  setmetatable(new_car, { __index = self })
+  return new_car
+end
 
-    // Method lookup
-    if (key.raw == "distance") {
-      return Value((List<Object?> methodArgs) {
-        final self = methodArgs[0] as Value;
-        final x = (self.raw as Map)["x"] as Value;
-        final y = (self.raw as Map)["y"] as Value;
+-- Create two car objects
+local my_car = Car:new()
+local your_car = Car:new()
 
-        return Value(sqrt(pow((x.raw as num), 2) + pow((y.raw as num), 2)));
-      });
-    }
+my_car:accelerate(50)
 
-    return Value(null);
-  },
-  "__tostring": (List<Object?> args) {
-    final instance = args[0] as Value;
-    final x = (instance.raw as Map)["x"] as Value;
-    final y = (instance.raw as Map)["y"] as Value;
-
-    return Value("Point(${x.raw}, ${y.raw})");
-  },
-};
-
-// Create the Point class
-final Point = Value(<dynamic, dynamic>{}, pointClassMetatable);
-
-// Usage:
-// local p = Point(3, 4)
-// print(p:distance()) -- 5
-// print(p) -- Point(3, 4)
+print(my_car:get_speed())   -- Prints: 50
+print(your_car:get_speed()) -- Prints: 0
 ```
 
-## Using ValueClass for Metatables
+## `__newindex`: Writing to a Table
 
-The `ValueClass` utility makes it easier to create values with metatables:
+The `__newindex` metamethod is triggered when you try to assign a value to a key that does **not** exist in a table.
 
-```dart
-// Create a Point class with ValueClass
-final pointClass = ValueClass.create({
-  "__call": (List<Object?> args) {
-    final cls = args[0] as Value;
-    final x = args.length > 1 ? (args[1] as Value).raw as num : 0;
-    final y = args.length > 2 ? (args[2] as Value).raw as num : 0;
+```lua
+local my_table = setmetatable({}, {
+  __newindex = function(t, key, value)
+    print("Writing to a non-existent key!")
+    -- To actually set the value, you must use rawset
+    rawset(t, key, value)
+  end
+})
 
-    // Create a new instance
-    final instance = <dynamic, dynamic>{
-      "x": Value(x),
-      "y": Value(y),
-    };
+my_table.new_key = 123
+-- Prints: Writing to a non-existent key!
 
-    // Set the instance metatable
-    return Value(instance, pointInstanceMetatable);
-  },
-});
-
-// Create the instance metatable
-final pointInstanceMetatable = <String, dynamic>{
-  // ... same as before
-};
+print(my_table.new_key) -- Prints: 123
 ```
 
-## Default Metatables
+> **Note:** Inside a `__newindex` function, you must use `rawset(table, key, value)` to modify the table. A normal assignment (`table[key] = value`) would trigger the `__newindex` metamethod again, causing an infinite loop.
 
-LuaLike provides default metatables for common types through the `DefaultMetatables` class:
+## Edge Case: Method Calls on Primitive Types
 
-```dart
-final defaultMetatables = DefaultMetatables();
+A subtle but important edge case arises when implementing object-oriented-style method calls on primitive types that have default metatables, such as `string`.
 
-// Get the default metatable for a type
-final tableMetatable = defaultMetatables.getTypeMetatable('table');
-final stringMetatable = defaultMetatables.getTypeMetatable('string');
-final numberMetatable = defaultMetatables.getTypeMetatable('number');
-final functionMetatable = defaultMetatables.getTypeMetatable('function');
-final userdataMetatable = defaultMetatables.getTypeMetatable('userdata');
-```
+Consider a `lualike` call like `s:len()`, where `s` is a string. This involves two core mechanisms:
 
-You can use these default metatables as a starting point for your own metatables:
+1.  **Interpreter**: When the interpreter encounters a method call with colon syntax (`:`), it automatically adds the receiver (`s` in this case) as the first argument to the function call. This is the standard behavior for providing `self` to a method.
 
-```dart
-// Create a custom string metatable based on the default one
-final customStringMetatable = <String, dynamic>{
-  ...defaultMetatables.getTypeMetatable('string')?.metamethods ?? {},
-  "__add": (List<Object?> args) {
-    final a = args[0] as Value;
-    final b = args[1] as Value;
-    return Value("${a.raw}${b.raw}");
-  },
-};
-```
+2.  **String Metatable**: The default `__index` metamethod for strings is designed to allow calls like `string.len(s)`. To make the OO-style `s:len()` work, its `__index` looks up `len` in the standard `string` library and returns a *new function*. This new function is a closure that, when executed, prepends the original string `s` to the argument list and calls the real `string.len` function.
 
-## Best Practices
+### The "Double Argument" Problem
 
-1. **Use ValueClass**: Use the `ValueClass` utility to create values with metatables.
-2. **Follow Lua semantics**: Ensure your metamethods behave like their Lua counterparts.
-3. **Handle errors**: Throw appropriate exceptions when metamethods fail.
-4. **Document your metatables**: Add comments explaining what each metamethod does.
-5. **Test your metatables**: Create tests that verify your metamethods work correctly.
-6. **Use default metatables**: Use the default metatables as a starting point for your own metatables.
-7. **Be consistent**: Use the same metatable for all instances of a class.
+When these two mechanisms combine, a problem occurs: `self` is passed twice.
 
-## Common Pitfalls
+1. The interpreter sees `s:len()` and prepares to call the function it gets from `__index` with `s` as the first argument.
+2. The `__index` metamethod for `s` returns the wrapped function.
+3. The interpreter calls the wrapped function with `[s]`.
+4. The wrapped function then prepends `s` *again* to the argument list, resulting in a call to the real `string.len` with `[s, s]`.
 
-1. **Forgetting to check types**: Always check the types of arguments in metamethods.
-2. **Circular references**: Be careful with `__index` and `__newindex` to avoid infinite recursion.
-3. **Missing metamethods**: Ensure you implement all necessary metamethods for your custom types.
-4. **Inconsistent behavior**: Ensure your metamethods behave consistently with Lua's semantics.
-5. **Performance issues**: Complex metamethods can impact performance, especially in tight loops.
+This typically results in an error, as most functions are not expecting the duplicated `self` argument.
 
-## Conclusion
+### The Solution
 
-Metatables and metamethods are powerful features in Lua that allow you to customize the behavior of values. By understanding how to implement them in LuaLike, you can create rich, object-oriented code that behaves like native Lua code. The `ValueClass` utility and default metatables make it easier to work with metatables in a consistent way.
+This is handled internally by `lualike`. The function returned by the metatable's `__index` is smart enough to check if the `self` argument is already present before adding it. This ensures that the `self` argument is only ever passed once, making both `string.len(s)` and `s:len()` work correctly without conflict.
