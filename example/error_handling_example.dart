@@ -2,8 +2,8 @@ import 'package:lualike/lualike.dart';
 
 /// This example demonstrates error handling in LuaLike using pcall and xpcall.
 void main() async {
-  // Create a LuaLikeBridge instance
-  final bridge = LuaLikeBridge();
+  // Create a LuaLike instance
+  final bridge = LuaLike();
 
   // Enable logging to see what's happening
   Logger.setEnabled(true);

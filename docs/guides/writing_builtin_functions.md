@@ -93,7 +93,7 @@ To make your function available to scripts, you must define it in the `lualike` 
 
 ```dart
 // Assumes 'lualike' is an instance of your interpreter bridge
-final lualike = LuaLikeBridge();
+final lualike = LuaLike();
 
 // Register a global function named 'my_native_add'
 lualike.env.define("my_native_add", Value(MyNativeAdd()));
@@ -133,7 +133,7 @@ class NativeAdd implements BuiltinFunction {
 
 // How to register and use it
 void main() async {
-  final lualike = LuaLikeBridge();
+  final lualike = LuaLike();
   lualike.env.define("native_add", Value(NativeAdd()));
 
   await lualike.runCode('''
