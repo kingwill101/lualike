@@ -12,7 +12,7 @@ bool isReplMode = false;
 bool errorReported = false;
 
 // Create a single instance of the bridge to be used throughout the application
-final LuaLikeBridge globalBridge = LuaLikeBridge();
+final LuaLike globalBridge = LuaLike();
 
 // Custom print function that doesn't flush stdout
 void safePrint(String message) {
