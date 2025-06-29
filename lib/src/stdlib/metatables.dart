@@ -100,181 +100,38 @@ class MetaTable {
 
     // Number metatable
     _typeMetatables['number'] = ValueClass.create({
-      '__add': (List<Object?> args) {
-        dynamic a;
-        dynamic b;
-        if (args[0] is Value) {
-          a = (args[0] as Value).raw;
-        } else {
-          a = args[0];
-        }
-        if (args[1] is Value) {
-          b = (args[1] as Value).raw;
-        } else {
-          b = args[1];
-        }
-        if (a is num && b is num) {
-          return Value(a + b);
-        } else {
-          throw UnsupportedError(
-            'attempt to perform arithmetic on non-number values $a :${a.runtimeType} and $b: ${b.runtimeType}',
-          );
-        }
-      },
-      '__sub': (List<Object?> args) {
-        final a = args[0] as Value;
-        final b = args[1] as Value;
-        Logger.debug(
-          'Number __sub metamethod called: ${a.raw} - ${b.raw}',
-          category: 'Metatables',
-        );
-        if (a.raw is num && b.raw is num) {
-          return Value((a.raw as num) - (b.raw as num));
-        }
-        throw Exception("attempt to perform arithmetic on non-number value");
-      },
-      '__mul': (List<Object?> args) {
-        final a = args[0] as Value;
-        final b = args[1] as Value;
-        Logger.debug(
-          'Number __mul metamethod called: ${a.raw} * ${b.raw}',
-          category: 'Metatables',
-        );
-        if (a.raw is num && b.raw is num) {
-          return Value((a.raw as num) * (b.raw as num));
-        }
-        throw Exception("attempt to perform arithmetic on non-number value");
-      },
-      '__div': (List<Object?> args) {
-        final a = args[0] as Value;
-        final b = args[1] as Value;
-        Logger.debug(
-          'Number __div metamethod called: ${a.raw} / ${b.raw}',
-          category: 'Metatables',
-        );
-        if (a.raw is num && b.raw is num) {
-          return Value((a.raw as num) / (b.raw as num));
-        }
-        throw Exception("attempt to perform arithmetic on non-number value");
-      },
-      '__idiv': (List<Object?> args) {
-        final a = args[0] as Value;
-        final b = args[1] as Value;
-        Logger.debug(
-          'Number __idiv metamethod called: ${a.raw} // ${b.raw}',
-          category: 'Metatables',
-        );
-        if (a.raw is num && b.raw is num) {
-          return Value(((a.raw as num) / (b.raw as num)).floor());
-        }
-        throw Exception("attempt to perform arithmetic on non-number value");
-      },
-      '__mod': (List<Object?> args) {
-        final a = args[0] as Value;
-        final b = args[1] as Value;
-        Logger.debug(
-          'Number __mod metamethod called: ${a.raw} % ${b.raw}',
-          category: 'Metatables',
-        );
-        if (a.raw is num && b.raw is num) {
-          return Value((a.raw as num) % (b.raw as num));
-        }
-        throw Exception("attempt to perform arithmetic on non-number value");
-      },
-      '__pow': (List<Object?> args) {
-        final a = args[0] as Value;
-        final b = args[1] as Value;
-        Logger.debug(
-          'Number __pow metamethod called: ${a.raw} ^ ${b.raw}',
-          category: 'Metatables',
-        );
-        if (a.raw is num && b.raw is num) {
-          return Value(math.pow((a.raw as num), (b.raw as num)));
-        }
-        throw Exception("attempt to perform arithmetic on non-number value");
-      },
-      '__unm': (List<Object?> args) {
-        final a = args[0] as Value;
-        Logger.debug(
-          'Number __unm metamethod called: -${a.raw}',
-          category: 'Metatables',
-        );
-        if (a.raw is num) {
-          return Value(-(a.raw as num));
-        }
-        throw Exception("attempt to perform arithmetic on non-number value");
-      },
-      '__bnot': (List<Object?> args) {
-        final a = args[0] as Value;
-        Logger.debug(
-          'Number __bnot metamethod called: ~${a.raw}',
-          category: 'Metatables',
-        );
-        if (a.raw is int) {
-          return Value(~(a.raw as int));
-        }
-        throw Exception("attempt to perform bitwise NOT on non-integer value");
-      },
-      '__band': (List<Object?> args) {
-        final a = args[0] as Value;
-        final b = args[1] as Value;
-        Logger.debug(
-          'Number __band metamethod called: ${a.raw} & ${b.raw}',
-          category: 'Metatables',
-        );
-        if (a.raw is int && b.raw is int) {
-          return Value((a.raw as int) & (b.raw as int));
-        }
-        throw Exception("attempt to perform bitwise AND on non-integer value");
-      },
-      '__bor': (List<Object?> args) {
-        final a = args[0] as Value;
-        final b = args[1] as Value;
-        Logger.debug(
-          'Number __bor metamethod called: ${a.raw} | ${b.raw}',
-          category: 'Metatables',
-        );
-        if (a.raw is int && b.raw is int) {
-          return Value((a.raw as int) | (b.raw as int));
-        }
-        throw Exception("attempt to perform bitwise OR on non-integer value");
-      },
-      '__bxor': (List<Object?> args) {
-        final a = args[0] as Value;
-        final b = args[1] as Value;
-        Logger.debug(
-          'Number __bxor metamethod called: ${a.raw} ^ ${b.raw}',
-          category: 'Metatables',
-        );
-        if (a.raw is int && b.raw is int) {
-          return Value((a.raw as int) ^ (b.raw as int));
-        }
-        throw Exception("attempt to perform bitwise XOR on non-integer value");
-      },
-      '__shl': (List<Object?> args) {
-        final a = args[0] as Value;
-        final b = args[1] as Value;
-        Logger.debug(
-          'Number __shl metamethod called: ${a.raw} << ${b.raw}',
-          category: 'Metatables',
-        );
-        if (a.raw is int && b.raw is int) {
-          return Value((a.raw as int) << (b.raw as int));
-        }
-        throw Exception("attempt to perform left shift on non-integer value");
-      },
-      '__shr': (List<Object?> args) {
-        final a = args[0] as Value;
-        final b = args[1] as Value;
-        Logger.debug(
-          'Number __shr metamethod called: ${a.raw} >> ${b.raw}',
-          category: 'Metatables',
-        );
-        if (a.raw is int && b.raw is int) {
-          return Value((a.raw as int) >> (b.raw as int));
-        }
-        throw Exception("attempt to perform right shift on non-integer value");
-      },
+      '__add': (List<Object?> args) =>
+          Value.wrap(args[0]) + Value.wrap(args[1]),
+      '__sub': (List<Object?> args) =>
+          Value.wrap(args[0]) - Value.wrap(args[1]),
+      '__mul': (List<Object?> args) =>
+          Value.wrap(args[0]) * Value.wrap(args[1]),
+      '__div': (List<Object?> args) =>
+          Value.wrap(args[0]) / Value.wrap(args[1]),
+      '__idiv': (List<Object?> args) =>
+          Value.wrap(args[0]) ~/ Value.wrap(args[1]),
+      '__mod': (List<Object?> args) =>
+          Value.wrap(args[0]) % Value.wrap(args[1]),
+      '__pow': (List<Object?> args) =>
+          Value.wrap(args[0]).exp(Value.wrap(args[1])),
+      '__unm': (List<Object?> args) => -Value.wrap(args[0]),
+      '__bnot': (List<Object?> args) => ~Value.wrap(args[0]),
+      '__band': (List<Object?> args) =>
+          Value.wrap(args[0]) & Value.wrap(args[1]),
+      '__bor': (List<Object?> args) =>
+          Value.wrap(args[0]) | Value.wrap(args[1]),
+      '__bxor': (List<Object?> args) =>
+          Value.wrap(args[0]) ^ Value.wrap(args[1]),
+      '__shl': (List<Object?> args) =>
+          Value.wrap(args[0]) << Value.wrap(args[1]),
+      '__shr': (List<Object?> args) =>
+          Value.wrap(args[0]) >> Value.wrap(args[1]),
+      '__eq': (List<Object?> args) =>
+          Value(Value.wrap(args[0]) == Value.wrap(args[1])),
+      '__lt': (List<Object?> args) =>
+          Value(Value.wrap(args[0]) < Value.wrap(args[1])),
+      '__le': (List<Object?> args) =>
+          Value(Value.wrap(args[0]) <= Value.wrap(args[1])),
     });
     Logger.debug('Number metatable initialized', category: 'Metatables');
 

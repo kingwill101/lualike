@@ -4,7 +4,7 @@ import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 import 'package:pointycastle/export.dart' as pc;
-import 'package:convert/convert.dart';
+import 'package:convert/convert.dart' show hex;
 import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/interpreter/interpreter.dart';

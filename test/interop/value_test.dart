@@ -140,9 +140,9 @@ void main() {
       expect(values, equals([1, 2, 3]));
 
       // Test forEach
-      num sum = 0;
+      dynamic sum = 0;
       table.forEach((key, value) {
-        sum = ((value + sum) as Value).raw as num;
+        sum = ((value + sum) as Value).raw;
       });
       expect(sum, equals(6));
     });
@@ -210,6 +210,43 @@ void main() {
     test('bitwise NOT operator', () {
       final v = Value(10);
       expect((~v).raw, equals(~10));
+    });
+  });
+
+  group('Number Edge Cases', () {
+    test('NaN equality', () {
+      final nan1 = Value(double.nan);
+      final nan2 = Value(double.nan);
+      expect(nan1 == nan2, isFalse, reason: 'NaN should not be equal to NaN');
+    });
+
+    test('NaN inequality', () {
+      final nan1 = Value(double.nan);
+      final nan2 = Value(double.nan);
+      expect(nan1 != nan2, isTrue, reason: 'NaN should be not-equal to NaN');
+    });
+
+    test('NaN comparisons', () {
+      final nan = Value(double.nan);
+      final v = Value(1.0);
+      expect(nan > v, isFalse, reason: 'NaN > x should be false');
+      expect(nan < v, isFalse, reason: 'NaN < x should be false');
+      expect(nan >= v, isFalse, reason: 'NaN >= x should be false');
+      expect(nan <= v, isFalse, reason: 'NaN <= x should be false');
+      expect(v > nan, isFalse, reason: 'x > NaN should be false');
+      expect(v < nan, isFalse, reason: 'x < NaN should be false');
+      expect(v >= nan, isFalse, reason: 'x >= NaN should be false');
+      expect(v <= nan, isFalse, reason: 'x <= NaN should be false');
+    });
+
+    test('Infinity equality', () {
+      final p_inf1 = Value(double.infinity);
+      final p_inf2 = Value(double.infinity);
+      final n_inf1 = Value(double.negativeInfinity);
+      final n_inf2 = Value(double.negativeInfinity);
+      expect(p_inf1 == p_inf2, isTrue);
+      expect(n_inf1 == n_inf2, isTrue);
+      expect(p_inf1 == n_inf1, isFalse);
     });
   });
 
@@ -305,21 +342,148 @@ void main() {
 
   test('comparison operators', () {
     // Number comparisons
-    expect((Value(10) > Value(5)).raw, isTrue);
-    expect((Value(5) < Value(10)).raw, isTrue);
-    expect((Value(10) >= Value(10)).raw, isTrue);
-    expect((Value(10) <= Value(10)).raw, isTrue);
+    expect((Value(10) > Value(5)), isTrue);
+    expect((Value(5) < Value(10)), isTrue);
+    expect((Value(10) >= Value(10)), isTrue);
+    expect((Value(10) <= Value(10)), isTrue);
 
     // String comparisons
-    expect((Value("b") > Value("a")).raw, isTrue);
-    expect((Value("a") < Value("b")).raw, isTrue);
-    expect((Value("b") >= Value("b")).raw, isTrue);
-    expect((Value("b") <= Value("b")).raw, isTrue);
+    expect((Value("b") > Value("a")), isTrue);
+    expect((Value("a") < Value("b")), isTrue);
+    expect((Value("b") >= Value("b")), isTrue);
+    expect((Value("b") <= Value("b")), isTrue);
 
     // Different types should throw
     expect(() => Value(42) > Value("test"), throwsUnsupportedError);
     expect(() => Value("test") < Value(42), throwsUnsupportedError);
     expect(() => Value({}) >= Value(42), throwsUnsupportedError);
     expect(() => Value(42) <= Value({}), throwsUnsupportedError);
+  });
+
+  group('Number Operator Tests (migrated)', () {
+    final vInt = Value(10);
+    final vDouble = Value(10.5);
+    final vBigInt = Value(BigInt.from(9223372036854775807));
+    final vNan = Value(double.nan);
+    final vInfinity = Value(double.infinity);
+
+    group('Arithmetic Operators', () {
+      test('Addition (+)', () {
+        expect((vInt + Value(5)).raw, 15);
+        expect((vDouble + Value(5.5)).raw, 16.0);
+        expect(
+          (vBigInt + Value(BigInt.one)).raw,
+          BigInt.parse('9223372036854775808'),
+        );
+      });
+      test('Subtraction (-)', () {
+        expect((vInt - Value(5)).raw, 5);
+        expect((vDouble - Value(5.5)).raw, 5.0);
+        expect(
+          (vBigInt - Value(BigInt.one)).raw,
+          BigInt.from(9223372036854775806),
+        );
+      });
+      test('Multiplication (*)', () {
+        expect((vInt * Value(5)).raw, 50);
+        expect((vDouble * Value(2)).raw, 21.0);
+      });
+      test('Division (/)', () {
+        expect((vInt / Value(2)).raw, 5.0);
+        expect((vDouble / Value(2)).raw, 5.25);
+      });
+      test('Floor Division (~/)', () {
+        expect((vInt ~/ Value(3)).raw, 3);
+        expect((Value(10.8) ~/ Value(3)).raw, 3.0);
+      });
+      test('Modulo (%)', () {
+        expect((vInt % Value(3)).raw, 1);
+        expect((vDouble % Value(3)).raw, 1.5);
+      });
+      test('Exponentiation (^)', () {
+        expect((Value(2).exp(Value(3))).raw, 8.0);
+        expect((Value(4.0).exp(Value(0.5))).raw, 2.0);
+      });
+      test('Negation (-)', () {
+        expect((-vInt).raw, -10);
+        expect((-vDouble).raw, -10.5);
+      });
+    });
+
+    group('Bitwise Operators', () {
+      final vBitInt = Value(0xF0);
+      final vBitBig = Value(BigInt.parse('11110000', radix: 2));
+      test('Bitwise AND (&)', () {
+        expect((vBitInt & Value(0x0F)).raw, 0);
+        expect(
+          (vBitBig & Value(BigInt.parse('00001111', radix: 2))).raw,
+          BigInt.zero,
+        );
+      });
+      test('Bitwise OR (|)', () {
+        expect((vBitInt | Value(0x0F)).raw, 0xFF);
+        expect(
+          (vBitBig | Value(BigInt.parse('00001111', radix: 2))).raw,
+          BigInt.parse('11111111', radix: 2),
+        );
+      });
+      test('Bitwise XOR (^)', () {
+        expect((vBitInt ^ Value(0xFF)).raw, 0x0F);
+        expect(
+          (vBitBig ^ Value(BigInt.parse('11111111', radix: 2))).raw,
+          BigInt.parse('00001111', radix: 2),
+        );
+      });
+      test('Bitwise NOT (~)', () {
+        expect((~vBitInt).raw, ~0xF0);
+        expect((~vBitBig).raw, ~BigInt.parse('11110000', radix: 2));
+      });
+      test('Left Shift (<<)', () {
+        expect((vBitInt << Value(4)).raw, 0xF00);
+        expect(
+          (vBitBig << Value(4)).raw,
+          BigInt.parse('111100000000', radix: 2),
+        );
+      });
+      test('Right Shift (>>)', () {
+        expect((vBitInt >> Value(4)).raw, 0x0F);
+        expect((vBitBig >> Value(4)).raw, BigInt.parse('1111', radix: 2));
+      });
+    });
+
+    group('Comparison Operators', () {
+      test('Equality (==)', () {
+        expect(vInt == Value(10), isTrue);
+        expect(vDouble == Value(10.5), isTrue);
+        expect(vInt == vDouble, isFalse);
+        expect(vNan == vNan, isFalse); // NaN should never equal itself
+        expect(vInfinity == Value(double.infinity), isTrue);
+        expect(vInfinity == Value(double.negativeInfinity), isFalse);
+      });
+      test('Inequality (!=)', () {
+        expect(vInt != Value(11), isTrue);
+        expect(vNan != vNan, isTrue); // NaN should always be != to itself
+      });
+      test('Less Than (<)', () {
+        expect(vInt < Value(11), isTrue);
+        expect(vInt < Value(10), isFalse);
+        expect(vNan < vInt, isFalse);
+      });
+      test('Greater Than (>)', () {
+        expect(vInt > Value(9), isTrue);
+        expect(vInt > Value(10), isFalse);
+        expect(vNan > vInt, isFalse);
+      });
+      test('Less Than or Equal (<=)', () {
+        expect(vInt <= Value(10), isTrue);
+        expect(vInt <= Value(9), isFalse);
+        expect(vNan <= vInt, isFalse);
+      });
+      test('Greater Than or Equal (>=)', () {
+        expect(vInt >= Value(10), isTrue);
+        expect(vInt >= Value(11), isFalse);
+        expect(vNan >= vInt, isFalse);
+      });
+    });
   });
 }

@@ -31,10 +31,18 @@ class IOLib {
     return _defaultInput!;
   }
 
+  static set defaultInput(LuaFile? file) {
+    _defaultInput = file;
+  }
+
   static LuaFile get defaultOutput {
     Logger.debug('Getting default output');
     _defaultOutput ??= LuaFile(stdoutDevice);
     return _defaultOutput!;
+  }
+
+  static set defaultOutput(LuaFile? file) {
+    _defaultOutput = file;
   }
 
   static final ValueClass fileClass = ValueClass.create({
