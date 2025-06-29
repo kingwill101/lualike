@@ -5,7 +5,7 @@ void main() {
   group('Base Library', () {
     // Basic functions
     test('assert', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         local a = assert(true, "This should not be shown")
         local b = assert(1, "This should not be shown")
@@ -39,7 +39,7 @@ void main() {
     });
 
     test('collectgarbage', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         -- Basic functionality tests
         local isRunning = collectgarbage("isrunning")
@@ -56,7 +56,7 @@ void main() {
     });
 
     test('collectgarbage - comprehensive', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Test all collectgarbage options
       await bridge.runCode('''
@@ -98,7 +98,7 @@ void main() {
     });
 
     test('error', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Test error cases separately
       bool errorThrown = false;
@@ -121,7 +121,7 @@ void main() {
     });
 
     test('_G global variable', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         -- Test that _G is the global environment
         _G.newVar = "global variable"
@@ -144,7 +144,7 @@ void main() {
     });
 
     test('getmetatable and setmetatable', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         local t = {}
         local mt = {__index = {value = 10}}
@@ -175,7 +175,7 @@ void main() {
     });
 
     test('print', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         -- Basic print functionality
         print("Hello", "World")
@@ -186,7 +186,7 @@ void main() {
     });
 
     test('type', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         local types = {
           nil_type = type(nil),
@@ -208,7 +208,7 @@ void main() {
     });
 
     test('_VERSION', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         local version = _VERSION
         local isString = type(version) == "string"
@@ -222,7 +222,7 @@ void main() {
     });
 
     test('warn', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         -- Basic warning
         warn("This is a warning")
@@ -235,7 +235,7 @@ void main() {
     });
 
     test('tostring', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         -- Test basic conversion
         local s1 = tostring(123)
@@ -247,7 +247,7 @@ void main() {
     });
 
     test('tonumber', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         -- Test basic conversion
         local n1 = tonumber("123")
@@ -275,7 +275,7 @@ void main() {
     });
 
     test('select', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         -- Test select with index
         local a, b, c = select(2, "a", "b", "c", "d")
@@ -290,7 +290,7 @@ void main() {
     });
 
     test('rawequal', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         -- Test rawequal
         local t1 = {}
@@ -307,7 +307,7 @@ void main() {
     });
 
     test('rawget and rawset', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         -- Test rawget and rawset
         local t = {}
@@ -323,7 +323,7 @@ void main() {
     });
 
     test('rawlen', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         -- Test rawlen
         local str = "hello"
@@ -337,7 +337,7 @@ void main() {
     });
 
     test('next', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         -- Test next function
         local t = {a = 1, b = 2, c = 3}
@@ -370,7 +370,7 @@ void main() {
     test('pairs', () async {
       // Enable logging for debugging
 
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         -- Test pairs function with a regular table
         local t = {a = 1, b = 2, c = 3}
@@ -431,7 +431,7 @@ void main() {
     });
 
     test('ipairs', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         -- Test ipairs function with a regular array
         local t = {"a", "b", "c", "d"}
@@ -471,7 +471,7 @@ void main() {
     });
 
     test('pcall', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Test successful call
       await bridge.runCode('''
@@ -499,7 +499,7 @@ void main() {
     });
 
     test('xpcall', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Test successful call
       await bridge.runCode('''

@@ -4,7 +4,7 @@ import 'package:lualike/testing.dart';
 void main() {
   group('Vararg Functionality Tests', () {
     test('simple vararg function', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       await bridge.runCode('''
         function sum(...)
@@ -23,7 +23,7 @@ void main() {
     });
 
     test('vararg with named parameters', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       await bridge.runCode('''
         function greet(name, ...)
@@ -49,7 +49,7 @@ void main() {
     // New comprehensive parameter list tests
     group('Parameter List Variations', () {
       test('empty parameter list', () async {
-        final bridge = LuaLikeBridge();
+        final bridge = LuaLike();
 
         await bridge.runCode('''
           function noParams()
@@ -64,7 +64,7 @@ void main() {
       });
 
       test('vararg only parameter list', () async {
-        final bridge = LuaLikeBridge();
+        final bridge = LuaLike();
 
         await bridge.runCode('''
           function varargsOnly(...)
@@ -84,7 +84,7 @@ void main() {
       });
 
       test('named parameters with comma before vararg', () async {
-        final bridge = LuaLikeBridge();
+        final bridge = LuaLike();
 
         await bridge.runCode('''
           function withComma(a, b, ...)
@@ -104,7 +104,7 @@ void main() {
       });
 
       test('named parameters without comma before vararg', () async {
-        final bridge = LuaLikeBridge();
+        final bridge = LuaLike();
 
         await bridge.runCode('''
           function withoutComma(a, b ...)
@@ -124,7 +124,7 @@ void main() {
       });
 
       test('single named parameter with vararg', () async {
-        final bridge = LuaLikeBridge();
+        final bridge = LuaLike();
 
         await bridge.runCode('''
           function singleNamed(first, ...)
@@ -144,7 +144,7 @@ void main() {
       });
 
       test('multiple named parameters with vararg', () async {
-        final bridge = LuaLikeBridge();
+        final bridge = LuaLike();
 
         await bridge.runCode('''
           function multipleNamed(a, b, c, ...)
@@ -170,7 +170,7 @@ void main() {
 
     group('Local Function Parameter Variations', () {
       test('local function with vararg only', () async {
-        final bridge = LuaLikeBridge();
+        final bridge = LuaLike();
 
         await bridge.runCode('''
           local function localVararg(...)
@@ -185,7 +185,7 @@ void main() {
       });
 
       test('local function with named params and vararg', () async {
-        final bridge = LuaLikeBridge();
+        final bridge = LuaLike();
 
         await bridge.runCode('''
           local function localMixed(prefix, ...)
@@ -210,7 +210,7 @@ void main() {
     });
 
     test('passing varargs to another function', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       await bridge.runCode('''
         function format(template, ...)
@@ -231,7 +231,7 @@ void main() {
     });
 
     test('vararg in local function', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       await bridge.runCode('''
         local function process(...)
@@ -259,7 +259,7 @@ void main() {
     });
 
     test('empty varargs handling', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       await bridge.runCode('''
         function countArgs(...)
@@ -281,7 +281,7 @@ void main() {
     // Tests for varargs in table constructors
     group('Table Constructor with Varargs', () {
       test('expanding varargs in table constructor', () async {
-        final bridge = LuaLikeBridge();
+        final bridge = LuaLike();
 
         await bridge.runCode('''
           function getValues(...)
@@ -307,7 +307,7 @@ void main() {
       });
 
       test('mixed values and varargs in table constructor', () async {
-        final bridge = LuaLikeBridge();
+        final bridge = LuaLike();
 
         await bridge.runCode('''
           function getTable(...)
@@ -342,7 +342,7 @@ void main() {
       });
 
       test('function returns in table constructor', () async {
-        final bridge = LuaLikeBridge();
+        final bridge = LuaLike();
 
         await bridge.runCode('''
           function getMultiple()
@@ -384,7 +384,7 @@ void main() {
       });
 
       test('empty varargs in table constructor', () async {
-        final bridge = LuaLikeBridge();
+        final bridge = LuaLike();
 
         await bridge.runCode('''
           function makeTable(...)
@@ -409,7 +409,7 @@ void main() {
       });
 
       test('nested table with varargs', () async {
-        final bridge = LuaLikeBridge();
+        final bridge = LuaLike();
 
         await bridge.runCode('''
           function getNestedTable(...)
@@ -444,7 +444,7 @@ void main() {
     // Additional edge cases for parameter parsing
     group('Parameter Parsing Edge Cases', () {
       test('function with only whitespace before vararg', () async {
-        final bridge = LuaLikeBridge();
+        final bridge = LuaLike();
 
         await bridge.runCode('''
           function spacedVararg( ... )
@@ -459,7 +459,7 @@ void main() {
       });
 
       test('function with whitespace around comma and vararg', () async {
-        final bridge = LuaLikeBridge();
+        final bridge = LuaLike();
 
         await bridge.runCode('''
           function spacedCommaVararg(a , ... )
@@ -474,7 +474,7 @@ void main() {
       });
 
       test('nested function calls with different parameter patterns', () async {
-        final bridge = LuaLikeBridge();
+        final bridge = LuaLike();
 
         await bridge.runCode('''
           function outer(...)
@@ -497,7 +497,7 @@ void main() {
       });
 
       test('function assignment with different parameter patterns', () async {
-        final bridge = LuaLikeBridge();
+        final bridge = LuaLike();
 
         await bridge.runCode('''
           local f1 = function(...) return select("#", ...) end
@@ -519,7 +519,7 @@ void main() {
       });
 
       test('method definition with varargs', () async {
-        final bridge = LuaLikeBridge();
+        final bridge = LuaLike();
 
         await bridge.runCode('''
           local obj = {}
@@ -544,7 +544,7 @@ void main() {
       });
 
       test('complex nested vararg scenarios', () async {
-        final bridge = LuaLikeBridge();
+        final bridge = LuaLike();
 
         await bridge.runCode('''
           function level1(...)
@@ -575,7 +575,7 @@ void main() {
     // Test error cases and boundary conditions
     group('Vararg Boundary Conditions', () {
       test('vararg with nil values', () async {
-        final bridge = LuaLikeBridge();
+        final bridge = LuaLike();
 
         await bridge.runCode('''
           function handleNils(...)
@@ -611,7 +611,7 @@ void main() {
       });
 
       test('large number of varargs', () async {
-        final bridge = LuaLikeBridge();
+        final bridge = LuaLike();
 
         await bridge.runCode('''
           function manyArgs(...)

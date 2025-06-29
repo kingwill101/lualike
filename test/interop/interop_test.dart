@@ -22,7 +22,7 @@ void main() {
     });
 
     test('can call LuaLike function from Dart', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Define a LuaLike function
       await bridge.runCode('''
@@ -37,7 +37,7 @@ void main() {
     });
 
     test('can share data between Dart and LuaLike', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Set value from Dart
       bridge.setGlobal('x', 100);
@@ -50,7 +50,7 @@ void main() {
     });
 
     test('can handle complex data types', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Register a Dart function that returns a Value-wrapped Map
       bridge.expose('createPerson', (List<Object?> args) {
@@ -72,7 +72,7 @@ void main() {
   });
 
   test('supports __newindex metamethod', () async {
-    final bridge = LuaLikeBridge();
+    final bridge = LuaLike();
 
     // Create a table with __newindex metamethod
     await bridge.runCode('''

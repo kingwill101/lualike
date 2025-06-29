@@ -3,10 +3,10 @@ import 'package:lualike/testing.dart';
 
 void main() {
   group('Function Return Arithmetic', () {
-    late LuaLikeBridge bridge;
+    late LuaLike bridge;
 
     setUp(() {
-      bridge = LuaLikeBridge();
+      bridge = LuaLike();
     });
 
     test(

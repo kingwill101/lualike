@@ -1,14 +1,14 @@
 import 'package:lualike/testing.dart';
 
-/// A fluent API for testing LuaLikeBridge execution results.
+/// A fluent API for testing LuaLike execution results.
 class BridgeAssert {
-  final LuaLikeBridge _bridge;
+  final LuaLike _bridge;
 
   /// Creates a new BridgeAssert for the given bridge.
   const BridgeAssert(this._bridge);
 
   /// Factory method to create a BridgeAssert instance.
-  static BridgeAssert from(LuaLikeBridge bridge) => BridgeAssert(bridge);
+  static BridgeAssert from(LuaLike bridge) => BridgeAssert(bridge);
 
   /// Asserts that a global variable exists and has the expected value.
   BridgeAssert global(String name, Object? expected) {
@@ -117,8 +117,8 @@ class BridgeAssert {
   }
 }
 
-/// Extension method on LuaLikeBridge to easily create a BridgeAssert.
-extension BridgeAssertExtension on LuaLikeBridge {
+/// Extension method on LuaLike to easily create a BridgeAssert.
+extension BridgeAssertExtension on LuaLike {
   BridgeAssert get asserts => BridgeAssert(this);
 }
 

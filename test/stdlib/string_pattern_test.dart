@@ -4,10 +4,10 @@ import 'package:test/test.dart';
 
 void main() {
   group('String Pattern Matching', () {
-    late LuaLikeBridge bridge;
+    late LuaLike bridge;
 
     setUp(() {
-      bridge = LuaLikeBridge();
+      bridge = LuaLike();
     });
 
     group('basic patterns', () {

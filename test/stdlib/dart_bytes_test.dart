@@ -5,7 +5,7 @@ void main() {
   test(
     'dart.string.bytes.toBytes and dart.string.bytes.fromBytes roundtrip',
     () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
       bytes_result = dart.string.bytes.toBytes("hello")
       str_result = dart.string.bytes.fromBytes(bytes_result)
@@ -22,7 +22,7 @@ void main() {
   );
 
   test('dart.string.bytes.fromBytes throws error on invalid input', () {
-    final bridge = LuaLikeBridge();
+    final bridge = LuaLike();
     expectLater(
       bridge.runCode('''
         dart.string.bytes.fromBytes("not a Uint8List")
@@ -32,7 +32,7 @@ void main() {
   });
 
   test('dart.string.bytes.toBytes with empty string', () async {
-    final bridge = LuaLikeBridge();
+    final bridge = LuaLike();
     await bridge.runCode('''
       bytes_result = dart.string.bytes.toBytes("")
     ''');
@@ -42,7 +42,7 @@ void main() {
   });
 
   test('dart.string.bytes.toBytes with unicode characters', () async {
-    final bridge = LuaLikeBridge();
+    final bridge = LuaLike();
     await bridge.runCode('''
       local bytes = dart.string.bytes.toBytes("你好")
       str_result = dart.string.bytes.fromBytes(bytes)
@@ -52,7 +52,7 @@ void main() {
   });
 
   test('dart.string.bytes.toBytes throws error with no arguments', () {
-    final bridge = LuaLikeBridge();
+    final bridge = LuaLike();
     expectLater(
       bridge.runCode('dart.string.bytes.toBytes()'),
       throwsA(isA<LuaError>()),
@@ -60,7 +60,7 @@ void main() {
   });
 
   test('dart.string.bytes.fromBytes throws error with no arguments', () {
-    final bridge = LuaLikeBridge();
+    final bridge = LuaLike();
     expectLater(
       bridge.runCode('dart.string.bytes.fromBytes()'),
       throwsA(isA<LuaError>()),
@@ -68,7 +68,7 @@ void main() {
   });
 
   test('dart.string.bytes.fromBytes with a table of integers', () async {
-    final bridge = LuaLikeBridge();
+    final bridge = LuaLike();
     await bridge.runCode('''
       local bytes = {104, 101, 108, 108, 111}
       str_result = dart.string.bytes.fromBytes(bytes)

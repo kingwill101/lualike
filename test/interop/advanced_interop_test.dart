@@ -5,7 +5,7 @@ import 'package:lualike/lualike.dart';
 void main() {
   group('Advanced Interop Features', () {
     test('nested table assignment with direct indexing', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Create a table with numeric indices
       await bridge.runCode('''
@@ -30,7 +30,7 @@ void main() {
     });
 
     test('nested table assignment with direct indexing (workaround)', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Create a table with numeric indices (without using for loop)
       await bridge.runCode('''
@@ -57,7 +57,7 @@ void main() {
     });
 
     test('deeply nested table assignment with indexing', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Create a nested table structure
       await bridge.runCode('''
@@ -89,7 +89,7 @@ void main() {
     });
 
     test('deeply nested table assignment with indexing (workaround)', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Create a nested table structure (without using for loop)
       await bridge.runCode('''
@@ -120,7 +120,7 @@ void main() {
     });
 
     test('require module functionality', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Register a virtual module for testing
       bridge.vm.fileManager.registerVirtualFile('tracegc.lua', '''
@@ -150,7 +150,7 @@ void main() {
     });
 
     test('require module functionality (workaround)', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Register a virtual module for testing
       bridge.vm.fileManager.registerVirtualFile('tracegc.lua', '''
@@ -178,7 +178,7 @@ void main() {
     });
 
     test('table property syntax', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Register a custom table library extension
       await bridge.runCode('''
@@ -196,7 +196,7 @@ void main() {
     });
 
     test('table property syntax with alternative call style', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Register a custom table library extension
       await bridge.runCode('''
@@ -218,7 +218,7 @@ void main() {
     test(
       'table property syntax with alternative call style (workaround)',
       () async {
-        final bridge = LuaLikeBridge();
+        final bridge = LuaLike();
 
         // Register a custom table library extension
         await bridge.runCode('''
@@ -237,7 +237,7 @@ void main() {
     );
 
     test('require with alternative call style', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Register a virtual module for testing
       bridge.vm.fileManager.registerVirtualFile('tracegc.lua', '''
@@ -266,7 +266,7 @@ void main() {
     });
 
     test('require with alternative call style (workaround)', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Register a virtual module for testing
       bridge.vm.fileManager.registerVirtualFile('tracegc.lua', '''
@@ -294,7 +294,7 @@ void main() {
     });
 
     test('combined require and table property syntax', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Register a virtual module with table property functionality
       bridge.vm.fileManager.registerVirtualFile('tracegc.lua', '''
@@ -330,7 +330,7 @@ void main() {
     });
 
     test('combined require and table property syntax (workaround)', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Register a virtual module with table property functionality
       bridge.vm.fileManager.registerVirtualFile('tracegc.lua', '''
@@ -367,7 +367,7 @@ void main() {
     });
 
     test('combined alternative call styles', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Register a virtual module with table property functionality
       bridge.vm.fileManager.registerVirtualFile('tracegc.lua', '''
@@ -407,7 +407,7 @@ void main() {
     });
 
     test('combined alternative call styles (workaround)', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Register a virtual module with table property functionality
       bridge.vm.fileManager.registerVirtualFile('tracegc.lua', '''

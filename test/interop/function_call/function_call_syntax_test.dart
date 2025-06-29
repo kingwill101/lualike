@@ -4,7 +4,7 @@ import 'package:lualike/testing.dart';
 void main() {
   group('Function Call Syntax Variations', () {
     test('standard function call with parentheses', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Register a function
       await bridge.runCode('''
@@ -20,7 +20,7 @@ void main() {
     });
 
     test('function call without parentheses for string literal', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Register a function
       await bridge.runCode('''
@@ -36,7 +36,7 @@ void main() {
     });
 
     test('table method call with parentheses', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Create a table with a method
       await bridge.runCode('''
@@ -53,7 +53,7 @@ void main() {
     });
 
     test('table method call without parentheses', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Create a table with a method
       await bridge.runCode('''
@@ -70,7 +70,7 @@ void main() {
     });
 
     test('standard library function call without parentheses', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Test string.upper without parentheses
       await bridge.runCode('''
@@ -82,7 +82,7 @@ void main() {
     });
 
     test('require function call with parentheses', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Register a virtual module for testing
       bridge.vm.fileManager.registerVirtualFile('test_module.lua', '''
@@ -102,7 +102,7 @@ void main() {
     });
 
     test('require function call without parentheses', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Register a virtual module for testing
       bridge.vm.fileManager.registerVirtualFile('test_module.lua', '''
@@ -124,7 +124,7 @@ void main() {
 
   group('Method Chaining Syntax', () {
     test('method chaining on table', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Create a table with methods that return the table for chaining
       await bridge.runCode('''
@@ -150,7 +150,7 @@ void main() {
     });
 
     test('method chaining on require results (expected to fail)', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Register a virtual module for testing
       bridge.vm.fileManager.registerVirtualFile('test_module.lua', '''
@@ -176,7 +176,7 @@ void main() {
     });
 
     test('combined alternative syntax (workaround)', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Register a virtual module for testing
       bridge.vm.fileManager.registerVirtualFile('test_module.lua', '''
@@ -198,7 +198,7 @@ void main() {
 
   group('Implicit Self Method Call', () {
     test('colon method definition and call', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         local obj = {x = 42}
         function obj:foo(...)
@@ -218,7 +218,7 @@ void main() {
     });
 
     test('self field assignment and access', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         local obj = {count = 0}
         function obj:inc()
@@ -238,7 +238,7 @@ void main() {
     });
 
     test('method chaining with self', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       await bridge.runCode('''
         local obj = {val = 1}
@@ -259,7 +259,7 @@ void main() {
     });
 
     test('dot method definition and call', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         local obj = {x = 99}
         function obj.foo(...)
@@ -280,7 +280,7 @@ void main() {
     test(
       'calling colon method with dot syntax (should error like Lua)',
       () async {
-        final bridge = LuaLikeBridge();
+        final bridge = LuaLike();
         await expectLater(
           bridge.runCode('''
             local obj = {x = 5}
@@ -297,7 +297,7 @@ void main() {
     test(
       'calling dot method with colon syntax (should get self as first arg)',
       () async {
-        final bridge = LuaLikeBridge();
+        final bridge = LuaLike();
         await bridge.runCode('''
         local obj = {y = 7}
         function obj.baz(x, ...)
@@ -320,7 +320,7 @@ void main() {
     );
 
     test('colon method returns self only', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         local obj = {id = 123}
         function obj:whoami()
@@ -335,7 +335,7 @@ void main() {
     });
 
     test('colon method returns self and argument', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         local obj = {name = 'A'}
         function obj:echo(x)
@@ -351,7 +351,7 @@ void main() {
     });
 
     test('colon method returns just argument', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
 local obj = {y = 42}
 function obj:val( x)
@@ -364,7 +364,7 @@ local result = obj:val(99)
     });
 
     test('colon method returns constant', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         local obj = {}
         function obj:const()
@@ -377,7 +377,7 @@ local result = obj:val(99)
     });
 
     test('colon method returns self.x', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         local obj = {x = 55}
         function obj:readx()

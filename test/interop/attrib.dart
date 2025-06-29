@@ -4,7 +4,7 @@ import 'package:lualike/testing.dart';
 void main() {
   group('Local Attributes', () {
     test('valid attribute', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       await bridge.runCode('''
        local s <const> = 1;
@@ -13,7 +13,7 @@ void main() {
     });
 
     test('multiple valid attributes', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       await bridge.runCode('''
         local s <const>, t <const> = 1, 2;
@@ -23,7 +23,7 @@ void main() {
     });
 
     test('invalid attribute', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // expect(() async {
       await bridge.runCode('''

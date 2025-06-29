@@ -4,10 +4,10 @@ import 'package:lualike/lualike.dart';
 
 void main() {
   group('UTF8 Library', () {
-    late LuaLikeBridge bridge;
+    late LuaLike bridge;
 
     setUp(() {
-      bridge = LuaLikeBridge();
+      bridge = LuaLike();
       // Make sure string library is initialized and working
       bridge.runCode('''
         -- Test basic string functions to ensure the library is working

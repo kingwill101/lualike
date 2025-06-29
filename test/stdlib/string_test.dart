@@ -6,7 +6,7 @@ void main() {
   group('String Library', () {
     // Basic string operations
     test('string.len', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         local a = string.len("hello")
         local b = string.len("")
@@ -19,7 +19,7 @@ void main() {
     });
 
     test('string.byte', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         local a = string.byte("ABCDE", 1)
         local b = string.byte("ABCDE", 2, 4)
@@ -43,7 +43,7 @@ void main() {
     });
 
     test('string.char', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         local a = string.char(65, 66, 67, 68, 69)
         local b = string.char()
@@ -54,7 +54,7 @@ void main() {
     });
 
     test('string.sub', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         local s = "abcdefghijklm"
         local a = string.sub(s, 3, 5)    -- "cde"
@@ -74,7 +74,7 @@ void main() {
     });
 
     test('string.upper and string.lower', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         local a = string.upper("Hello, World!")
         local b = string.lower("Hello, World!")
@@ -85,7 +85,7 @@ void main() {
     });
 
     test('string.reverse', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         local a = string.reverse("hello")
         local b = string.reverse("")
@@ -96,7 +96,7 @@ void main() {
     });
 
     test('string.rep', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         local a = string.rep("abc", 3)
         local b = string.rep("abc", 3, "-")
@@ -110,7 +110,7 @@ void main() {
 
     // Pattern matching
     test('string.find basic', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         local s = "hello world"
         local i, j = string.find(s, "world")
@@ -132,7 +132,7 @@ void main() {
     }, skip: "pattern matching issue");
 
     test('string.find with captures', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         local s = "hello world from lua"
         local i, j, first = string.find(s, "(%w+)%s+(%w+)")
@@ -146,7 +146,7 @@ void main() {
     });
 
     test('string.match', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         local s = "hello world from lua"
         local word = string.match(s, "%w+")
@@ -161,7 +161,7 @@ void main() {
     }, skip: 'Issue with pattern matching');
 
     test('string.gsub', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         local s = "hello world from lua"
         local r1, n1 = string.gsub(s, "l", "L")
@@ -187,7 +187,7 @@ void main() {
     });
 
     test('string.gmatch', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         local s = "hello world from lua"
         local words = {}
@@ -228,7 +228,7 @@ void main() {
 
     // Binary string operations
     test('string.pack/unpack roundtrip', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       await bridge.runCode('''
         local s = string.pack("bhi", 100, 30000, -50000)
@@ -250,7 +250,7 @@ void main() {
     });
 
     test('string.packsize', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       await bridge.runCode('''
         local size = string.packsize("bhi")
@@ -261,7 +261,7 @@ void main() {
     });
 
     test('string.dump basic functionality', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       await bridge.runCode('''
         local f = function(x) return x * 2 end
@@ -275,7 +275,7 @@ void main() {
 
     // Object-oriented style tests
     test('string methods in OO style', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         local s = "Hello World"
         local len = s:len()
@@ -295,7 +295,7 @@ void main() {
 
     // Pattern matching character classes
     test('pattern matching character classes', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         local tests = {}
 
@@ -344,7 +344,7 @@ void main() {
 
     // Pattern matching special items
     test('pattern matching special items', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode(r'''
         local tests = {}
 
@@ -386,7 +386,7 @@ void main() {
     }, skip: 'Issue with pattern matching');
 
     test('string.format comprehensive', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Basic format specifiers
       await bridge.runCode('''

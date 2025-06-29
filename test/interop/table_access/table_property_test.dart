@@ -5,7 +5,7 @@ import 'package:lualike/lualike.dart';
 void main() {
   group('Table Property Access', () {
     test('dot notation for property access', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Create a table with properties
       await bridge.runCode('''
@@ -33,7 +33,7 @@ void main() {
 
     // SKIP: Our parser doesn't support function calls on table elements accessed with bracket notation
     test('bracket notation for property access', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Create a table with properties
       await bridge.runCode('''
@@ -65,7 +65,7 @@ void main() {
 
     // SKIP: Our parser doesn't support bracket notation after dot notation
     test('mixed notation for property access', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Create a table with properties using mixed notation
       await bridge.runCode('''
@@ -102,7 +102,7 @@ void main() {
 
     // SKIP: Issue with table access using computed keys
     test('property access with computed keys', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Create a table with properties
       await bridge.runCode('''
@@ -123,7 +123,7 @@ void main() {
     });
 
     test('table.property function call syntax', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Register a custom table library extension
       await bridge.runCode('''

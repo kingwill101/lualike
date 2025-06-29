@@ -4,7 +4,7 @@ import 'package:lualike/testing.dart';
 void main() {
   group('Function Call Chaining', () {
     test('basic function call chaining (a()())', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Define a function that returns another function
       await bridge.runCode('''
@@ -22,7 +22,7 @@ void main() {
     });
 
     test('multiple chained function calls (a()()())', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Define functions that return other functions
       await bridge.runCode('''
@@ -42,7 +42,7 @@ void main() {
     });
 
     test('function chaining with arguments', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Define more complex nested functions
       await bridge.runCode('''
@@ -60,7 +60,7 @@ void main() {
     });
 
     test('function chaining in assignment', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Test function chaining in assignment
       await bridge.runCode('''
@@ -84,7 +84,7 @@ void main() {
     });
 
     test('complex function call chain with table access', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
 
       // Define functions that return tables with functions
       await bridge.runCode('''

@@ -3,7 +3,7 @@ import 'package:lualike/src/testing/testing.dart';
 void main() {
   group('convert', () {
     test('jsonEncode and jsonDecode roundtrip', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode(r'''
         json_encoded = convert.jsonEncode({
           name = "lualike",
@@ -26,7 +26,7 @@ void main() {
     });
 
     test('base64Encode and base64Decode roundtrip', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         local bytes = dart.string.bytes.toBytes("hello lualike")
         base64_encoded = convert.base64Encode(bytes)
@@ -38,7 +38,7 @@ void main() {
     });
 
     test('base64UrlEncode works', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode('''
         local bytes = dart.string.bytes.toBytes("??lualike??")
         base64url_encoded = convert.base64UrlEncode(bytes)
@@ -48,7 +48,7 @@ void main() {
     });
 
     test('asciiEncode and asciiDecode roundtrip', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode(r'''
         ascii_encoded = convert.asciiEncode("hello lualike")
         ascii_decoded = convert.asciiDecode(ascii_encoded)
@@ -58,7 +58,7 @@ void main() {
     });
 
     test('latin1Encode and latin1Decode roundtrip', () async {
-      final bridge = LuaLikeBridge();
+      final bridge = LuaLike();
       await bridge.runCode(r'''
         latin1_encoded = convert.latin1Encode("blåbærgrød")
         latin1_decoded = convert.latin1Decode(latin1_encoded)
