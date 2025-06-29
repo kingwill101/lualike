@@ -182,12 +182,23 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
               : Value(value);
         }
       } else if (field is KeyedTableEntry) {
+        //TODO figure our all the possible key types and handle them
+        //a bit tricky
         dynamic key;
-        try {
-          key = await field.key.accept(this);
-        } catch (e) {
+        if( field.key is Identifier) {
+          // Use the identifier's name directly as the key literal
           key = (field.key as Identifier).name;
+          Logger.debug(
+            'Using Identifier literal for key: $key',
+            category: 'Interpreter',
+          );
+        } else if (field.key is Value) {
+          // If the key is already a Value, use its raw value
+          key = (field.key as Value).raw;
+        }else{
+          key = await field.key.accept(this);
         }
+
 
         var value = await field.value.accept(this);
 
