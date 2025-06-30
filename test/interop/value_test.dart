@@ -142,7 +142,7 @@ void main() {
       // Test forEach
       dynamic sum = 0;
       table.forEach((key, value) {
-        sum = ((value + sum) as Value).raw;
+        sum = (value + sum).raw;
       });
       expect(sum, equals(6));
     });
@@ -523,6 +523,26 @@ void main() {
       final left = Value(maxint);
       final right = Value(9223372036854775808.0);
       expect(left <= right, isTrue);
+    });
+    test('maxint < 2^intbits', () {
+      final left = Value(maxint);
+      final twoPow64 = Value((BigInt.one << 64).toDouble());
+      expect(left < twoPow64, isTrue);
+    });
+    test('minint > -2^intbits', () {
+      final left = Value(minint);
+      final negTwoPow64 = Value(-((BigInt.one << 64).toDouble()));
+      expect(left > negTwoPow64, isTrue);
+    });
+    test('maxint <= 2^intbits', () {
+      final left = Value(maxint);
+      final twoPow64 = Value((BigInt.one << 64).toDouble());
+      expect(left <= twoPow64, isTrue);
+    });
+    test('minint >= -2^intbits', () {
+      final left = Value(minint);
+      final negTwoPow64 = Value(-((BigInt.one << 64).toDouble()));
+      expect(left >= negTwoPow64, isTrue);
     });
   });
 }
