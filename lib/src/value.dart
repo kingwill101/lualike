@@ -976,18 +976,22 @@ extension OperatorExtension on Value {
       );
     }
 
-    bool _isZero(dynamic v) {
+    bool isZero(dynamic v) {
       if (v is int) return v == 0;
       if (v is BigInt) return v == BigInt.zero;
       if (v is double) return v == 0.0;
       return false;
     }
 
-    BigInt _toInt(dynamic v) {
+    BigInt toInt(dynamic v) {
       if (v is BigInt) return v;
       if (v is int) return BigInt.from(v);
       if (v is double) {
-        if (!v.isFinite || v.floorToDouble() != v) {
+        if (!v.isFinite) {
+          // Match Lua's error message for math.huge
+          throw LuaError("number (field 'huge') has no integer representation");
+        }
+        if (v.floorToDouble() != v) {
           throw LuaError('number has no integer representation');
         }
         final bi = BigInt.parse(v.toStringAsFixed(0));
@@ -1000,7 +1004,7 @@ extension OperatorExtension on Value {
     }
 
     if ((op == '//' || op == '%') &&
-        _isZero(r2) &&
+        isZero(r2) &&
         r1 is! double &&
         r2 is! double) {
       throw LuaError('divide by zero');
@@ -1043,15 +1047,22 @@ extension OperatorExtension on Value {
       print(
         'ARITH: bitwise shift, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
       );
-      final b1 = _toInt(r1);
-      final b2 = _toInt(r2);
-      final intBits = 64;
+      final b1 = toInt(r1);
+      var shift = toInt(r2).toInt();
+      var opToUse = op;
+
+      // Handle negative shift amounts by reversing the operation
+      if (shift < 0) {
+        shift = -shift;
+        opToUse = op == '<<' ? '>>' : '<<';
+      }
+
+      const intBits = 64;
       final mask = BigInt.parse('FFFFFFFFFFFFFFFF', radix: 16);
       BigInt result;
-      if (op == '<<') {
-        result = (b1 << b2.toInt()) & mask;
+      if (opToUse == '<<') {
+        result = (b1 << shift) & mask;
       } else {
-        final shift = b2.toInt();
         if (shift >= intBits) {
           result = b1.isNegative ? BigInt.from(-1) : BigInt.zero;
         } else {
@@ -1111,8 +1122,8 @@ extension OperatorExtension on Value {
           result = d1 % d2;
           break;
         case '&':
-          final bi1 = _toInt(d1);
-          final bi2 = _toInt(d2);
+          final bi1 = toInt(d1);
+          final bi2 = toInt(d2);
           var biRes = bi1 & bi2;
           if (biRes >= minInt64 && biRes <= maxInt64) {
             result = biRes.toInt();
@@ -1121,8 +1132,8 @@ extension OperatorExtension on Value {
           }
           break;
         case '|':
-          final bi1 = _toInt(d1);
-          final bi2 = _toInt(d2);
+          final bi1 = toInt(d1);
+          final bi2 = toInt(d2);
           var biRes = bi1 | bi2;
           if (biRes >= minInt64 && biRes <= maxInt64) {
             result = biRes.toInt();
@@ -1131,8 +1142,8 @@ extension OperatorExtension on Value {
           }
           break;
         case 'bxor':
-          final bi1 = _toInt(d1);
-          final bi2 = _toInt(d2);
+          final bi1 = toInt(d1);
+          final bi2 = toInt(d2);
           var biRes = bi1 ^ bi2;
           if (biRes >= minInt64 && biRes <= maxInt64) {
             result = biRes.toInt();
@@ -1154,8 +1165,8 @@ extension OperatorExtension on Value {
       print(
         'ARITH: at least one operand is BigInt, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
       );
-      final b1 = _toInt(r1);
-      final b2 = _toInt(r2);
+      final b1 = toInt(r1);
+      final b2 = toInt(r2);
       dynamic result;
       switch (op) {
         case '+':
@@ -1234,8 +1245,8 @@ extension OperatorExtension on Value {
           result = r1 % r2;
           break;
         case '&':
-          final bi1 = _toInt(r1);
-          final bi2 = _toInt(r2);
+          final bi1 = toInt(r1);
+          final bi2 = toInt(r2);
           var biRes = bi1 & bi2;
           if (r1 is int &&
               r2 is int &&
@@ -1247,8 +1258,8 @@ extension OperatorExtension on Value {
           }
           break;
         case '|':
-          final bi1 = _toInt(r1);
-          final bi2 = _toInt(r2);
+          final bi1 = toInt(r1);
+          final bi2 = toInt(r2);
           var biRes = bi1 | bi2;
           if (r1 is int &&
               r2 is int &&
@@ -1260,8 +1271,8 @@ extension OperatorExtension on Value {
           }
           break;
         case 'bxor':
-          final bi1 = _toInt(r1);
-          final bi2 = _toInt(r2);
+          final bi1 = toInt(r1);
+          final bi2 = toInt(r2);
           var biRes = bi1 ^ bi2;
           if (r1 is int &&
               r2 is int &&
