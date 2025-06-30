@@ -373,7 +373,7 @@ class TypeFunction implements BuiltinFunction {
 
     if (value.raw == null) return Value("nil");
     if (value.raw is bool) return Value("boolean");
-    if (value.raw is num) return Value("number");
+    if (value.raw is num || value.raw is BigInt) return Value("number");
     if (value.raw is String) return Value("string");
     if (value.raw is Coroutine) return Value("thread");
     if (value.raw is Map) return Value("table");
