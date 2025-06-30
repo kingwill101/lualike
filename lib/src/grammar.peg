@@ -878,7 +878,7 @@ MultiplicativeExpression =>
   {
     final startPos = state.position;
   }
-  result = ExponentiationExpression
+  result = UnaryExpression
   @while (*) {
     S
     { String op = "";}
@@ -896,7 +896,7 @@ MultiplicativeExpression =>
        }
     )
     S
-    right = ExponentiationExpression
+    right = UnaryExpression
     {
       result = BinaryExpression(result, op, right);
     }
@@ -910,8 +910,8 @@ ExponentiationExpression =>
   {
     final startPos = state.position;
   }
-  left = UnaryExpression
-  (
+  left = SimpleExpression
+  @while (*) {
     S
     '^'
     S
@@ -919,7 +919,7 @@ ExponentiationExpression =>
     {
       left = BinaryExpression(left, "^", right);
     }
-  )*
+  }
   $ = {
     $$ = _setNodeSpan(left, startPos, state.position, state);
   }
@@ -939,7 +939,7 @@ UnaryExpression =>
     }
   )
   ----
-  SimpleExpression
+  ExponentiationExpression
 
 `AstNode`
 DirectStringCall =>
