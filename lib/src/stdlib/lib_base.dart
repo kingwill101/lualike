@@ -700,21 +700,21 @@ class PCAllFunction implements BuiltinFunction {
       if (callResult is Future) {
         try {
           final awaitedResult = await callResult;
-          return [
-            Value(true),
-            awaitedResult is Value ? awaitedResult : Value(awaitedResult),
-          ];
+          return Value.multi([
+            true,
+            awaitedResult is Value ? awaitedResult.raw : awaitedResult,
+          ]);
         } catch (e) {
-          return [Value(false), Value(e.toString())];
+          return Value.multi([false, e.toString()]);
         }
       } else {
-        return [
-          Value(true),
-          callResult is Value ? callResult : Value(callResult),
-        ];
+        return Value.multi([
+          true,
+          callResult is Value ? callResult.raw : callResult,
+        ]);
       }
     } catch (e) {
-      return [Value(false), Value(e.toString())];
+      return Value.multi([false, e.toString()]);
     } finally {
       // Restore previous yieldable state
       interpreter.isYieldable = previousYieldable;
