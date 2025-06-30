@@ -393,10 +393,24 @@ class ToNumberFunction implements BuiltinFunction {
     }
 
     final value = args[0] as Value;
+    Value? base;
+    if (args.length > 1) {
+      base = args[1] as Value;
+    }
 
     if (value.raw is String) {
+      final str = (value.raw as String).trim();
+      if (base != null && base.raw is int) {
+        final radix = base.raw as int;
+        try {
+          final intVal = int.parse(str, radix: radix);
+          return Value(intVal);
+        } on FormatException {
+          return Value(null);
+        }
+      }
       try {
-        return Value(LuaNumberParser.parse(value.raw as String));
+        return Value(LuaNumberParser.parse(str));
       } on FormatException {
         return Value(null);
       }
