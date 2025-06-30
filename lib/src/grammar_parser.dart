@@ -1695,7 +1695,7 @@ class GrammarParser {
   ///   {
   ///     final startPos = state.position;
   ///   }
-  ///   left = UnaryExpression
+  ///   left = SimpleExpression
   ///   @while (*) (
   ///     S
   ///     '^'
@@ -1713,7 +1713,7 @@ class GrammarParser {
     final $1 = state.position;
     (AstNode,)? $0;
     final startPos = state.position;
-    final $2 = parseUnaryExpression(state);
+    final $2 = parseSimpleExpression(state);
     if ($2 != null) {
       AstNode left = $2.$1;
       while (true) {
@@ -3703,7 +3703,7 @@ class GrammarParser {
   ///   {
   ///     final startPos = state.position;
   ///   }
-  ///   result = ExponentiationExpression
+  ///   result = UnaryExpression
   ///   @while (*) (
   ///     S
   ///     { String op = "";}
@@ -3719,7 +3719,7 @@ class GrammarParser {
   ///       }
   ///     )
   ///     S
-  ///     right = ExponentiationExpression
+  ///     right = UnaryExpression
   ///     {
   ///       result = BinaryExpression(result, op, right);
   ///     }
@@ -3732,7 +3732,7 @@ class GrammarParser {
     final $1 = state.position;
     (AstNode,)? $0;
     final startPos = state.position;
-    final $2 = parseExponentiationExpression(state);
+    final $2 = parseUnaryExpression(state);
     if ($2 != null) {
       AstNode result = $2.$1;
       while (true) {
@@ -3769,7 +3769,7 @@ class GrammarParser {
         }
         if ($5) {
           parseS(state);
-          final $11 = parseExponentiationExpression(state);
+          final $11 = parseUnaryExpression(state);
           if ($11 != null) {
             AstNode right = $11.$1;
             result = BinaryExpression(result, op, right);
@@ -6483,7 +6483,7 @@ class GrammarParser {
   ///     }
   ///   )
   ///   ----
-  ///   SimpleExpression
+  ///   ExponentiationExpression
   ///```
   (AstNode,)? parseUnaryExpression(State state) {
     final $2 = state.position;
@@ -6508,7 +6508,7 @@ class GrammarParser {
       $0 = $1;
     } else {
       state.position = $2;
-      final $5 = parseSimpleExpression(state);
+      final $5 = parseExponentiationExpression(state);
       if ($5 != null) {
         $0 = $5;
       }
