@@ -486,4 +486,43 @@ void main() {
       });
     });
   });
+
+  group('Large Integer and Float Edge Cases', () {
+    final minint = -9223372036854775808;
+    final maxint = 9223372036854775807;
+    test('minint * -1.0 == 9223372036854775808.0', () {
+      final result = Value(minint) * Value(-1.0);
+      expect(result.raw, equals(9223372036854775808.0));
+    });
+    test('maxint < minint * -1.0', () {
+      final left = Value(maxint);
+      final right = Value(minint) * Value(-1.0);
+      expect(left < right, isTrue);
+    });
+    test('maxint <= minint * -1.0', () {
+      final left = Value(maxint);
+      final right = Value(minint) * Value(-1.0);
+      expect(left <= right, isTrue);
+    });
+    test('minint * -1.0 > maxint', () {
+      final left = Value(minint) * Value(-1.0);
+      final right = Value(maxint);
+      expect(left > right, isTrue);
+    });
+    test('minint * -1.0 >= maxint', () {
+      final left = Value(minint) * Value(-1.0);
+      final right = Value(maxint);
+      expect(left >= right, isTrue);
+    });
+    test('maxint < 9223372036854775808.0', () {
+      final left = Value(maxint);
+      final right = Value(9223372036854775808.0);
+      expect(left < right, isTrue);
+    });
+    test('maxint <= 9223372036854775808.0', () {
+      final left = Value(maxint);
+      final right = Value(9223372036854775808.0);
+      expect(left <= right, isTrue);
+    });
+  });
 }

@@ -48,6 +48,49 @@ void main() {
         -9223372036854775808, // Integer overflow wraps around in Lua
       ),
     );
+    test(
+      'minint * -1.0',
+      () async =>
+          await check('-9223372036854775808 * -1.0', 9223372036854775808.0),
+    );
+    test(
+      'maxint < minint * -1.0',
+      () async => await check(
+        '9223372036854775807 < -9223372036854775808 * -1.0',
+        true,
+      ),
+    );
+    test(
+      'maxint <= minint * -1.0',
+      () async => await check(
+        '9223372036854775807 <= -9223372036854775808 * -1.0',
+        true,
+      ),
+    );
+    test(
+      'minint * -1.0 > maxint',
+      () async => await check(
+        '-9223372036854775808 * -1.0 > 9223372036854775807',
+        true,
+      ),
+    );
+    test(
+      'minint * -1.0 >= maxint',
+      () async => await check(
+        '-9223372036854775808 * -1.0 >= 9223372036854775807',
+        true,
+      ),
+    );
+    test(
+      'maxint < 9223372036854775808.0',
+      () async =>
+          await check('9223372036854775807 < 9223372036854775808.0', true),
+    );
+    test(
+      'maxint <= 9223372036854775808.0',
+      () async =>
+          await check('9223372036854775807 <= 9223372036854775808.0', true),
+    );
     test('Comparison ==', () async => await check('5 == 5', true));
     test('Comparison ~= (not equal)', () async => await check('5 ~= 6', true));
     test('Comparison <', () async => await check('3 < 4', true));

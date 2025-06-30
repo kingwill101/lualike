@@ -375,8 +375,15 @@ class _MathType extends _MathFunction {
 }
 
 class MathLib {
-  static const int maxInteger = 9223372036854775807;
-  static const int minInteger = -9223372036854775808;
+  // Use 64-bit signed integer limits for maxInteger and minInteger
+  static const int _sizeInBits = 64;
+  static final int maxInteger = (1 << (_sizeInBits - 1)) - 1;
+  static final int minInteger = -(1 << (_sizeInBits - 1));
+  static void logIntegerLimits() {
+    print(
+      'MathLib: Dart platform maxInteger=\x1b[32m$maxInteger\x1b[0m, minInteger=\x1b[31m$minInteger\x1b[0m',
+    );
+  }
 
   static final Map<String, dynamic> functions = {
     "abs": _MathAbs(),

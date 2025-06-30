@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
+import 'package:lualike/src/stdlib/lib_math.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/upvalue.dart';
 
@@ -134,7 +135,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         }
       } catch (e) {
         // Log the error but continue closing other variables
-        Logger.debug('Error in __close metamethod: $e', category: 'Value');
+        print('Error in __close metamethod: $e');
         // Re-throw the error after closing
         rethrow;
       }
@@ -297,51 +298,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   }
 
   @override
-  bool operator ==(Object other) {
-    final otherRaw = other is Value ? other.raw : other;
-
-    // Handle NaN comparison first, even for identical objects
-    if (raw is num && otherRaw is num) {
-      if (raw.isNaN || otherRaw.isNaN) {
-        return false;
-      }
-      return raw == otherRaw;
-    }
-
-    // Only check identity after NaN handling
-    if (identical(this, other)) return true;
-    if (raw is BigInt && otherRaw is BigInt) return raw == otherRaw;
-    if (raw is BigInt && otherRaw is num) {
-      if (otherRaw is int) return raw == BigInt.from(otherRaw);
-      // For double, it can only be equal if the double has no fractional part.
-      return otherRaw.isFinite &&
-          raw.toDouble() == otherRaw &&
-          raw == BigInt.from(otherRaw);
-    }
-    if (raw is num && otherRaw is BigInt) {
-      if (raw is int) return BigInt.from(raw) == otherRaw;
-      return (raw as double).isFinite &&
-          raw == otherRaw.toDouble() &&
-          BigInt.from(raw) == otherRaw;
-    }
-
-    if (raw is Map && otherRaw is Map) {
-      final map1 = raw as Map;
-      final map2 = otherRaw;
-      if (map1.length != map2.length) return false;
-      if (map1.isEmpty && map2.isEmpty) return true; // Handle empty maps
-      return map1.entries.every((e) {
-        if (!map2.containsKey(e.key)) return false;
-        final v1 = e.value is Value ? e.value : Value(e.value);
-        final v2 = map2[e.key] is Value ? map2[e.key] : Value(map2[e.key]);
-        return v1 == v2;
-      });
-    }
-    return raw == otherRaw;
-  }
+  int get hashCode => raw.hashCode;
 
   @override
-  int get hashCode => raw.hashCode;
+  bool operator ==(Object other) => equals(other);
 
   @override
   String toString() {
@@ -408,10 +368,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   @override
   void operator []=(Object key, dynamic value) {
-    Logger.debug(
-      'Attempting to set key $key with value $value',
-      category: 'Value',
-    );
+    print('Attempting to set key $key with value $value');
 
     final newindexMeta = getMetamethod('__newindex');
     if (newindexMeta != null) {
@@ -581,7 +538,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
     final pairsMeta = getMetamethod('__pairs');
     if (pairsMeta != null) {
-      Logger.debug('Using __pairs metamethod for entries', category: 'Value');
+      print('Using __pairs metamethod for entries');
 
       final entries = <MapEntry<String, dynamic>>[];
       final iter = callMetamethod('__pairs', [this]);
@@ -827,15 +784,172 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     );
   }
 
+  // Overload the call operator
+  /// Calls this value if it's callable (continued)
+  Future<Object?> call(List<Object?> args) async {
+    if (raw is Function) {
+      // Direct function call
+      return raw(args);
+    } else if (hasMetamethod('__call')) {
+      // Use __call metamethod
+      final callMethod = getMetamethod('__call');
+      final callArgs = [this, ...args];
+
+      if (callMethod is Function) {
+        return await callMethod(callArgs);
+      } else if (callMethod is Value && callMethod.raw is Function) {
+        return await callMethod.raw(callArgs);
+      }
+    } else if (raw is FunctionDef ||
+        raw is FunctionLiteral ||
+        raw is FunctionBody) {
+      // Get interpreter to evaluate the function
+      final interpreter = Environment.current?.interpreter;
+      if (interpreter != null) {
+        return await interpreter.callFunction(this, args);
+      }
+    }
+
+    throw Exception("attempt to call a non-function value");
+  }
+
+  @override
+  List<Object?> getReferences() {
+    final refs = <Object?>[];
+    if (raw is Map) {
+      refs.addAll((raw as Map).values);
+      refs.addAll((raw as Map).keys);
+    } else if (raw is Value) {
+      refs.add(raw);
+    }
+    if (metatable != null) {
+      refs.add(metatable);
+    }
+    return refs;
+  }
+
+  @override
+  void free() {
+    final finalizer = getMetamethod('__gc');
+    if (finalizer != null) {
+      try {
+        callMetamethod('__gc', [this]);
+      } catch (e) {
+        print('Error in finalizer: $e');
+      }
+    }
+  }
+
+  @override
+  bool get marked => _marked;
+
+  @override
+  set marked(bool value) => _marked = value;
+}
+
+extension OperatorExtension on Value {
+  // Overload the bitwise XOR operator
+  Value operator ^(dynamic other) => _arith('bxor', Value.wrap(other));
+
+  // Overload the bitwise OR operator
+  Value operator |(dynamic other) => _arith('|', Value.wrap(other));
+
+  // Overload the bitwise AND operator
+  Value operator &(dynamic other) => _arith('&', Value.wrap(other));
+
+  // Logical OR method (Lua-style)
+  Value or(dynamic other) {
+    // In Lua, 'or' returns the first value if it's truthy, otherwise the second value
+    if (raw != null && raw != false) {
+      return this;
+    }
+    final wrappedOther = other is Value ? other : Value.wrap(other);
+    return wrappedOther;
+  }
+
+  // Logical AND method (Lua-style)
+  Value and(dynamic other) {
+    // In Lua, 'and' returns the first value if it's falsy, otherwise the second value
+    if (raw == null || raw == false) {
+      return this;
+    }
+    final wrappedOther = other is Value ? other : Value.wrap(other);
+    return wrappedOther;
+  }
+
+  // Add a helper for Lua's ~= (not equal) semantics
+  bool notEquals(Object other) {
+    final otherRaw = other is Value ? other.raw : other;
+    // Lua: NaN ~= anything is always true
+    if ((raw is num && (raw as num).isNaN) ||
+        (otherRaw is num && (otherRaw).isNaN)) {
+      print('COMPARE ~=: NaN detected, returning true');
+      return true;
+    }
+    // Lua: int ~= float if float does not exactly represent int
+    if ((raw is int || raw is BigInt) && otherRaw is double) {
+      if (!otherRaw.isFinite) {
+        print('COMPARE ~=: int ~= non-finite double, returning true');
+        return true;
+      }
+      final intVal = raw is BigInt ? raw as BigInt : BigInt.from(raw);
+      final doubleVal = otherRaw;
+      final intFromDouble = doubleVal.toInt();
+      final doubleFromInt = intVal.toDouble();
+      final isExact =
+          (doubleVal == doubleFromInt) &&
+          (intVal == BigInt.from(intFromDouble));
+      print(
+        'COMPARE ~=: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt, intFromDouble=$intFromDouble, isExact=$isExact',
+      );
+      return !isExact;
+    }
+    if (raw is double && (otherRaw is int || otherRaw is BigInt)) {
+      if (!(raw as double).isFinite) {
+        print(
+          'COMPARE ~=: double ~= int, but double is not finite, returning true',
+        );
+        return true;
+      }
+      final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
+      final doubleVal = raw as double;
+      final intFromDouble = doubleVal.toInt();
+      final doubleFromInt = intVal.toDouble();
+      final isExact =
+          (doubleVal == doubleFromInt) &&
+          (intVal == BigInt.from(intFromDouble));
+      print(
+        'COMPARE ~=: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt, intFromDouble=$intFromDouble, isExact=$isExact',
+      );
+      return !isExact;
+    }
+    if ((raw is BigInt && otherRaw is double) ||
+        (raw is double && otherRaw is BigInt)) {
+      // This case is now handled above
+      // ...
+    }
+    return !(this == other);
+  }
+
   Value _arith(String op, Value other) {
     var r1 = raw;
     var r2 = other.raw;
 
+    final minInt64 = BigInt.from(MathLib.minInteger);
+    final maxInt64 = BigInt.from(MathLib.maxInteger);
+    print('ARITH: Lua 64-bit minInt64=$minInt64, maxInt64=$maxInt64');
+    print(
+      'ARITH: START op=$op, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
+    );
+
     // Try to convert strings to numbers (Lua automatic conversion)
     if (r1 is String) {
+      print('ARITH: r1 is String, parsing...');
       try {
         r1 = LuaNumberParser.parse(r1);
+        print('ARITH: r1 parsed to $r1 (${r1.runtimeType})');
       } catch (e) {
+        print('ARITH: r1 parse error: $e');
         throw LuaError.typeError(
           "attempt to perform arithmetic on a string value",
         );
@@ -843,95 +957,262 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
 
     if (r2 is String) {
+      print('ARITH: r2 is String, parsing...');
       try {
         r2 = LuaNumberParser.parse(r2);
+        print('ARITH: r2 parsed to $r2 (${r2.runtimeType})');
       } catch (e) {
+        print('ARITH: r2 parse error: $e');
         throw LuaError.typeError(
           "attempt to perform arithmetic on a string value",
         );
       }
     }
 
+    print(
+      'ARITH: after string parse, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
+    );
+
     if (!((r1 is num || r1 is BigInt) && (r2 is num || r2 is BigInt))) {
+      print('ARITH: type error, non-number values');
       throw LuaError.typeError(
         "attempt to perform arithmetic on non-number values",
       );
     }
 
-    if (op == '/' || op == '^') {
+    // After parsing and before operation, check for double promotion
+    final isDoubleOp = r1 is double || r2 is double;
+    print('ARITH: double promotion needed? $isDoubleOp');
+
+    if (op == '^') {
+      print(
+        'ARITH: exponentiation, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
+      );
       final f1 = (r1 is BigInt)
           ? r1.toDouble()
           : (r1 is int ? r1.toDouble() : r1 as double);
       final f2 = (r2 is BigInt)
           ? r2.toDouble()
           : (r2 is int ? r2.toDouble() : r2 as double);
-      return Value(op == '/' ? f1 / f2 : math.pow(f1, f2));
+      final result = math.pow(f1, f2);
+      print('ARITH: exponentiation result: $result (${result.runtimeType})');
+      return Value(result);
     }
-
-    if (r1 is BigInt || r2 is BigInt) {
-      final b1 = r1 is BigInt ? r1 : BigInt.from(r1 as num);
-      final b2 = r2 is BigInt ? r2 : BigInt.from(r2 as num);
-      final result = switch (op) {
-        '+' => b1 + b2,
-        '-' => b1 - b2,
-        '*' => b1 * b2,
-        '~/' => b1 ~/ b2,
-        '//' => () {
-          final result = b1.toDouble() / b2.toDouble();
-          if (result.isInfinite || result.isNaN) return result;
-          // BigInt operations should return floats since they're converted to double
-          return result.floorToDouble();
-        }(), // Floor division for BigInt
-        '%' => b1 % b2,
-        '&' => b1 & b2,
-        '|' => b1 | b2,
-        'bxor' => b1 ^ b2,
-        '<<' => b1 << b2.toInt(),
-        '>>' => b1 >> b2.toInt(),
-        _ => throw LuaError.typeError(
-          'operation "$op" not supported for BigInt',
-        ),
-      };
+    if (op == '/') {
+      print(
+        'ARITH: division, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
+      );
+      final f1 = (r1 is BigInt)
+          ? r1.toDouble()
+          : (r1 is int ? r1.toDouble() : r1 as double);
+      final f2 = (r2 is BigInt)
+          ? r2.toDouble()
+          : (r2 is int ? r2.toDouble() : r2 as double);
+      final result = f1 / f2;
+      print('ARITH: division result: $result (${result.runtimeType})');
       return Value(result);
     }
 
-    final n1 = r1 as num;
-    final n2 = r2 as num;
-    final result = switch (op) {
-      '+' => n1 + n2,
-      '-' => n1 - n2,
-      '*' => n1 * n2,
-      '~/' => n1 ~/ n2,
-      '//' => () {
-        // If both operands are integers, use integer arithmetic for precision
-        if (n1 is int && n2 is int) {
-          if (n2 == 0) {
-            return n1 > 0 ? double.infinity : double.negativeInfinity;
-          }
-          // Use integer division for exact results
-          final quotient = n1 ~/ n2;
-          final remainder = n1 % n2;
-          // Adjust for floor division (towards negative infinity)
-          if (remainder != 0 && (n1 < 0) != (n2 < 0)) {
-            return quotient - 1;
-          }
-          return quotient;
+    if (op == '<<' || op == '>>') {
+      print(
+        'ARITH: bitwise shift, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
+      );
+      final b1 = r1 is BigInt ? r1 : BigInt.from(r1 as num);
+      final b2 = r2 is BigInt ? r2 : BigInt.from(r2 as num);
+      final intBits = 64;
+      final mask = BigInt.parse('FFFFFFFFFFFFFFFF', radix: 16);
+      BigInt result;
+      if (op == '<<') {
+        result = (b1 << b2.toInt()) & mask;
+      } else {
+        final shift = b2.toInt();
+        if (shift >= intBits) {
+          result = b1.isNegative ? BigInt.from(-1) : BigInt.zero;
         } else {
-          // Float case - use floating-point division
-          final result = n1 / n2;
-          if (result.isInfinite || result.isNaN) return result;
-          return result.floorToDouble();
+          result = (b1 >> shift) & mask;
         }
-      }(), // Floor division towards negative infinity
-      '%' => n1 % n2,
-      '&' => n1.toInt() & n2.toInt(),
-      '|' => n1.toInt() | n2.toInt(),
-      'bxor' => n1.toInt() ^ n2.toInt(),
-      '<<' => n1.toInt() << n2.toInt(),
-      '>>' => n1.toInt() >> n2.toInt(),
-      _ => throw LuaError.typeError('operation "$op" not supported for num'),
-    };
-    return Value(result);
+      }
+      print(
+        'ARITH: bitwise shift intermediate result: $result (${result.runtimeType})',
+      );
+      if (result > maxInt64) {
+        result -= BigInt.from(2).pow(64);
+        print(
+          'ARITH: bitwise shift wrapped to signed: $result (${result.runtimeType})',
+        );
+      }
+      if (result >= minInt64 && result <= maxInt64) {
+        print(
+          'ARITH: bitwise shift result fits in int64, returning int: ${result.toInt()}',
+        );
+        return Value(result.toInt());
+      }
+      print(
+        'ARITH: bitwise shift result does not fit in int64, returning BigInt: $result',
+      );
+      return Value(result);
+    }
+
+    if (isDoubleOp) {
+      // Promote both to double for arithmetic
+      final d1 = (r1 is BigInt) ? r1.toDouble() : (r1 as num).toDouble();
+      final d2 = (r2 is BigInt) ? r2.toDouble() : (r2 as num).toDouble();
+      dynamic result;
+      switch (op) {
+        case '+':
+          result = d1 + d2;
+          break;
+        case '-':
+          result = d1 - d2;
+          break;
+        case '*':
+          result = d1 * d2;
+          break;
+        case '~/':
+          result = d1 ~/ d2;
+          break;
+        case '//':
+          final div = d1 / d2;
+          result = (div.isInfinite || div.isNaN) ? div : div.floorToDouble();
+          break;
+        case '%':
+          result = d1 % d2;
+          break;
+        case '&':
+          result = d1.toInt() & d2.toInt();
+          break;
+        case '|':
+          result = d1.toInt() | d2.toInt();
+          break;
+        case 'bxor':
+          result = d1.toInt() ^ d2.toInt();
+          break;
+        default:
+          print('ARITH: unsupported op for double promotion: $op');
+          throw LuaError.typeError(
+            'operation "$op" not supported for double promotion',
+          );
+      }
+      print('ARITH: double promotion result: $result (${result.runtimeType})');
+      return Value(result);
+    }
+
+    if (r1 is BigInt || r2 is BigInt) {
+      print(
+        'ARITH: at least one operand is BigInt, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
+      );
+      final b1 = r1 is BigInt ? r1 : BigInt.from(r1 as num);
+      final b2 = r2 is BigInt ? r2 : BigInt.from(r2 as num);
+      dynamic result;
+      switch (op) {
+        case '+':
+          result = b1 + b2;
+          break;
+        case '-':
+          result = b1 - b2;
+          break;
+        case '*':
+          result = b1 * b2;
+          break;
+        case '~/':
+          result = b1 ~/ b2;
+          break;
+        case '//':
+          final div = b1.toDouble() / b2.toDouble();
+          result = (div.isInfinite || div.isNaN) ? div : div.floorToDouble();
+          break;
+        case '%':
+          result = b1 % b2;
+          break;
+        case '&':
+          result = b1 & b2;
+          break;
+        case '|':
+          result = b1 | b2;
+          break;
+        case 'bxor':
+          result = b1 ^ b2;
+          break;
+        default:
+          print('ARITH: unsupported op for BigInt: $op');
+          throw LuaError.typeError('operation "$op" not supported for BigInt');
+      }
+      print('ARITH: BigInt result: $result (${result.runtimeType})');
+      if (result is BigInt) {
+        if (result >= minInt64 && result <= maxInt64) {
+          print(
+            'ARITH: BigInt result fits in int64, converting to int with .toInt()',
+          );
+          return Value(result.toInt());
+        } else {
+          print(
+            'ARITH: BigInt result does not fit in int64, keeping as BigInt',
+          );
+          return Value(result);
+        }
+      }
+      print('ARITH: BigInt result is not BigInt, returning as is');
+      return Value(result);
+    }
+
+    if (r1 is num && r2 is num) {
+      print(
+        'ARITH: both operands are num, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
+      );
+      dynamic result;
+      switch (op) {
+        case '+':
+          result = r1 + r2;
+          break;
+        case '-':
+          result = r1 - r2;
+          break;
+        case '*':
+          result = r1 * r2;
+          break;
+        case '~/':
+          result = r1 ~/ r2;
+          break;
+        case '//':
+          if (r1 is int && r2 is int) {
+            if (r2 == 0) {
+              result = r1 > 0 ? double.infinity : double.negativeInfinity;
+            } else {
+              final quotient = r1 ~/ r2;
+              final remainder = r1 % r2;
+              if (remainder != 0 && (r1 < 0) != (r2 < 0)) {
+                result = quotient - 1;
+              } else {
+                result = quotient;
+              }
+            }
+          } else {
+            final div = r1 / r2;
+            result = (div.isInfinite || div.isNaN) ? div : div.floorToDouble();
+          }
+          break;
+        case '%':
+          result = r1 % r2;
+          break;
+        case '&':
+          result = r1.toInt() & r2.toInt();
+          break;
+        case '|':
+          result = r1.toInt() | r2.toInt();
+          break;
+        case 'bxor':
+          result = r1.toInt() ^ r2.toInt();
+          break;
+        default:
+          print('ARITH: unsupported op for num: $op');
+          throw LuaError.typeError('operation "$op" not supported for num');
+      }
+      print('ARITH: num result: $result (${result.runtimeType})');
+      return Value(result);
+    }
+
+    print('ARITH: type error, operation not supported for these types');
+    throw LuaError.typeError('operation "$op" not supported for these types');
   }
 
   /// Overload the addition operator
@@ -1044,15 +1325,43 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     );
   }
 
-  // Overload the equality operator
-  bool equals(Object other) {
-    // Only perform direct comparison
-    return this == other;
-  }
-
   operator >(Object other) {
     final otherRaw = other is Value ? other.raw : other;
-
+    // Lua: NaN > anything is always false
+    if ((raw is num && (raw as num).isNaN) ||
+        (otherRaw is num && (otherRaw).isNaN)) {
+      print('COMPARE >: NaN detected, returning false');
+      return false;
+    }
+    // Always use mathematical ordering for int/BigInt vs double
+    if ((raw is int || raw is BigInt) && otherRaw is double) {
+      if (!otherRaw.isFinite) {
+        print('COMPARE >: int > non-finite double, returning false');
+        return false;
+      }
+      final intVal = raw is BigInt ? raw as BigInt : BigInt.from(raw);
+      final doubleVal = otherRaw;
+      final doubleFromInt = intVal.toDouble();
+      print(
+        'COMPARE >: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt',
+      );
+      return doubleFromInt > doubleVal;
+    }
+    if (raw is double && (otherRaw is int || otherRaw is BigInt)) {
+      if (!(raw as double).isFinite) {
+        print(
+          'COMPARE >: double > int, but double is not finite, returning false',
+        );
+        return false;
+      }
+      final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
+      final doubleVal = raw as double;
+      final doubleFromInt = intVal.toDouble();
+      print(
+        'COMPARE >: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt',
+      );
+      return doubleVal > doubleFromInt;
+    }
     if (raw is num && otherRaw is num) return raw > otherRaw;
     if (raw is BigInt && otherRaw is BigInt) return raw > otherRaw;
     if (raw is BigInt && otherRaw is num) {
@@ -1063,11 +1372,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       if (raw is int) return BigInt.from(raw) > otherRaw;
       return raw > otherRaw.toDouble();
     }
-
     if (raw is String && otherRaw is String) {
       return raw.compareTo(otherRaw) > 0;
     }
-
     throw UnsupportedError(
       'Greater than not supported for these types ${raw.runtimeType} and ${other.runtimeType}',
     );
@@ -1075,6 +1382,40 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   operator <(Object other) {
     final otherRaw = other is Value ? other.raw : other;
+    // Lua: NaN < anything is always false
+    if ((raw is num && (raw as num).isNaN) ||
+        (otherRaw is num && (otherRaw).isNaN)) {
+      print('COMPARE <: NaN detected, returning false');
+      return false;
+    }
+    if ((raw is int || raw is BigInt) && otherRaw is double) {
+      if (!otherRaw.isFinite) {
+        print('COMPARE <: int < non-finite double, returning false');
+        return false;
+      }
+      final intVal = raw is BigInt ? raw as BigInt : BigInt.from(raw);
+      final doubleVal = otherRaw;
+      final doubleFromInt = intVal.toDouble();
+      print(
+        'COMPARE <: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt',
+      );
+      return doubleFromInt < doubleVal;
+    }
+    if (raw is double && (otherRaw is int || otherRaw is BigInt)) {
+      if (!(raw as double).isFinite) {
+        print(
+          'COMPARE <: double < int, but double is not finite, returning false',
+        );
+        return false;
+      }
+      final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
+      final doubleVal = raw as double;
+      final doubleFromInt = intVal.toDouble();
+      print(
+        'COMPARE <: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt',
+      );
+      return doubleVal < doubleFromInt;
+    }
     if (raw is num && otherRaw is num) return raw < otherRaw;
     if (raw is BigInt && otherRaw is BigInt) return raw < otherRaw;
     if (raw is BigInt && otherRaw is num) {
@@ -1095,6 +1436,40 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   operator >=(Object other) {
     final otherRaw = other is Value ? other.raw : other;
+    // Lua: NaN >= anything is always false
+    if ((raw is num && (raw as num).isNaN) ||
+        (otherRaw is num && (otherRaw).isNaN)) {
+      print('COMPARE >=: NaN detected, returning false');
+      return false;
+    }
+    if ((raw is int || raw is BigInt) && otherRaw is double) {
+      if (!otherRaw.isFinite) {
+        print('COMPARE >=: int >= non-finite double, returning false');
+        return false;
+      }
+      final intVal = raw is BigInt ? raw as BigInt : BigInt.from(raw);
+      final doubleVal = otherRaw;
+      final doubleFromInt = intVal.toDouble();
+      print(
+        'COMPARE >=: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt',
+      );
+      return doubleFromInt >= doubleVal;
+    }
+    if (raw is double && (otherRaw is int || otherRaw is BigInt)) {
+      if (!(raw as double).isFinite) {
+        print(
+          'COMPARE >=: double >= int, but double is not finite, returning false',
+        );
+        return false;
+      }
+      final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
+      final doubleVal = raw as double;
+      final doubleFromInt = intVal.toDouble();
+      print(
+        'COMPARE >=: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt',
+      );
+      return doubleVal >= doubleFromInt;
+    }
     if (raw is num && otherRaw is num) return raw >= otherRaw;
     if (raw is BigInt && otherRaw is BigInt) return raw >= otherRaw;
     if (raw is BigInt && otherRaw is num) {
@@ -1115,6 +1490,40 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   operator <=(Object other) {
     final otherRaw = other is Value ? other.raw : other;
+    // Lua: NaN <= anything is always false
+    if ((raw is num && (raw as num).isNaN) ||
+        (otherRaw is num && (otherRaw).isNaN)) {
+      print('COMPARE <=: NaN detected, returning false');
+      return false;
+    }
+    if ((raw is int || raw is BigInt) && otherRaw is double) {
+      if (!otherRaw.isFinite) {
+        print('COMPARE <=: int <= non-finite double, returning false');
+        return false;
+      }
+      final intVal = raw is BigInt ? raw as BigInt : BigInt.from(raw);
+      final doubleVal = otherRaw;
+      final doubleFromInt = intVal.toDouble();
+      print(
+        'COMPARE <=: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt',
+      );
+      return doubleFromInt <= doubleVal;
+    }
+    if (raw is double && (otherRaw is int || otherRaw is BigInt)) {
+      if (!(raw as double).isFinite) {
+        print(
+          'COMPARE <=: double <= int, but double is not finite, returning false',
+        );
+        return false;
+      }
+      final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
+      final doubleVal = raw as double;
+      final doubleFromInt = intVal.toDouble();
+      print(
+        'COMPARE <=: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt',
+      );
+      return doubleVal <= doubleFromInt;
+    }
     if (raw is num && otherRaw is num) return raw <= otherRaw;
     if (raw is BigInt && otherRaw is BigInt) return raw <= otherRaw;
     if (raw is BigInt && otherRaw is num) {
@@ -1133,94 +1542,88 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     );
   }
 
-  // Overload the call operator
-  /// Calls this value if it's callable (continued)
-  Future<Object?> call(List<Object?> args) async {
-    if (raw is Function) {
-      // Direct function call
-      return raw(args);
-    } else if (hasMetamethod('__call')) {
-      // Use __call metamethod
-      final callMethod = getMetamethod('__call');
-      final callArgs = [this, ...args];
-
-      if (callMethod is Function) {
-        return await callMethod(callArgs);
-      } else if (callMethod is Value && callMethod.raw is Function) {
-        return await callMethod.raw(callArgs);
+  bool equals(Object other) {
+    final otherRaw = other is Value ? other.raw : other;
+    // Lua: NaN == anything is always false
+    if ((raw is num && (raw as num).isNaN) ||
+        (otherRaw is num && (otherRaw as num).isNaN)) {
+      print('COMPARE ==: NaN detected, returning false');
+      return false;
+    }
+    // Lua: int == float only if float is finite and exactly represents int
+    if ((raw is int || raw is BigInt) && otherRaw is double) {
+      if (!otherRaw.isFinite) {
+        print('COMPARE ==: int == non-finite double, returning false');
+        return false;
       }
-    } else if (raw is FunctionDef ||
-        raw is FunctionLiteral ||
-        raw is FunctionBody) {
-      // Get interpreter to evaluate the function
-      final interpreter = Environment.current?.interpreter;
-      if (interpreter != null) {
-        return await interpreter.callFunction(this, args);
+      final intVal = raw is BigInt ? raw as BigInt : BigInt.from(raw);
+      final doubleVal = otherRaw;
+      final intFromDouble = doubleVal.toInt();
+      final doubleFromInt = intVal.toDouble();
+      final isExact =
+          (doubleVal == doubleFromInt) &&
+          (intVal == BigInt.from(intFromDouble));
+      print(
+        'COMPARE ==: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt, intFromDouble=$intFromDouble, isExact=$isExact',
+      );
+      return isExact;
+    }
+    if (raw is double && (otherRaw is int || otherRaw is BigInt)) {
+      if (!(raw as double).isFinite) {
+        print(
+          'COMPARE ==: double == int, but double is not finite, returning false',
+        );
+        return false;
       }
+      final intVal = otherRaw is BigInt
+          ? otherRaw as BigInt
+          : BigInt.from(otherRaw);
+      final doubleVal = raw as double;
+      final intFromDouble = doubleVal.toInt();
+      final doubleFromInt = intVal.toDouble();
+      final isExact =
+          (doubleVal == doubleFromInt) &&
+          (intVal == BigInt.from(intFromDouble));
+      print(
+        'COMPARE ==: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt, intFromDouble=$intFromDouble, isExact=$isExact',
+      );
+      return isExact;
+    }
+    if ((raw is BigInt && otherRaw is double) ||
+        (raw is double && otherRaw is BigInt)) {
+      final d1 = raw is BigInt ? raw.toDouble() : raw;
+      final d2 = otherRaw is BigInt ? otherRaw.toDouble() : otherRaw;
+      print('COMPARE ==: promoting BigInt to double: $d1 == $d2');
+      return d1 == d2;
     }
 
-    throw Exception("attempt to call a non-function value");
+    if (identical(this, other)) return true;
+    if (raw is BigInt && otherRaw is BigInt) return raw == otherRaw;
+    if (raw is BigInt && otherRaw is num) {
+      if (otherRaw is int) return raw == BigInt.from(otherRaw);
+      return otherRaw.isFinite &&
+          raw.toDouble() == otherRaw &&
+          raw == BigInt.from(otherRaw);
+    }
+    if (raw is num && otherRaw is BigInt) {
+      if (raw is int) return BigInt.from(raw) == otherRaw;
+      return (raw as double).isFinite &&
+          raw == otherRaw.toDouble() &&
+          BigInt.from(raw) == otherRaw;
+    }
+
+    if (raw is Map && otherRaw is Map) {
+      final map1 = raw as Map;
+      final map2 = otherRaw;
+      if (map1.length != map2.length) return false;
+      if (map1.isEmpty && map2.isEmpty) return true;
+      return map1.entries.every((e) {
+        if (!map2.containsKey(e.key)) return false;
+        final v1 = e.value is Value ? e.value : Value(e.value);
+        final v2 = map2[e.key] is Value ? map2[e.key] : Value(map2[e.key]);
+        return v1 == v2;
+      });
+    }
+    return raw == otherRaw;
   }
-
-  // Overload the bitwise XOR operator
-  Value operator ^(dynamic other) => _arith('bxor', Value.wrap(other));
-
-  // Overload the bitwise OR operator
-  Value operator |(dynamic other) => _arith('|', Value.wrap(other));
-
-  // Overload the bitwise AND operator
-  Value operator &(dynamic other) => _arith('&', Value.wrap(other));
-
-  // Logical OR method (Lua-style)
-  Value or(dynamic other) {
-    // In Lua, 'or' returns the first value if it's truthy, otherwise the second value
-    if (raw != null && raw != false) {
-      return this;
-    }
-    final wrappedOther = other is Value ? other : Value.wrap(other);
-    return wrappedOther;
-  }
-
-  // Logical AND method (Lua-style)
-  Value and(dynamic other) {
-    // In Lua, 'and' returns the first value if it's falsy, otherwise the second value
-    if (raw == null || raw == false) {
-      return this;
-    }
-    final wrappedOther = other is Value ? other : Value.wrap(other);
-    return wrappedOther;
-  }
-
-  @override
-  List<Object?> getReferences() {
-    final refs = <Object?>[];
-    if (raw is Map) {
-      refs.addAll((raw as Map).values);
-      refs.addAll((raw as Map).keys);
-    } else if (raw is Value) {
-      refs.add(raw);
-    }
-    if (metatable != null) {
-      refs.add(metatable);
-    }
-    return refs;
-  }
-
-  @override
-  void free() {
-    final finalizer = getMetamethod('__gc');
-    if (finalizer != null) {
-      try {
-        callMetamethod('__gc', [this]);
-      } catch (e) {
-        Logger.debug('Error in finalizer: $e', category: 'Value');
-      }
-    }
-  }
-
-  @override
-  bool get marked => _marked;
-
-  @override
-  set marked(bool value) => _marked = value;
 }
