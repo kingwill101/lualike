@@ -582,7 +582,7 @@ class _StringGmatch implements BuiltinFunction {
 
 class _StringGsub implements BuiltinFunction {
   @override
-  Object? call(List<Object?> args) {
+  Future<Object?> call(List<Object?> args) async {
     if (args.length < 3) {
       throw LuaError.typeError(
         "string.gsub requires string, pattern, and replacement",
@@ -597,44 +597,124 @@ class _StringGsub implements BuiltinFunction {
       var count = 0;
       final regexp = LuaPattern.toRegExp(pattern);
 
-      String result = str;
+      String result;
       if (repl.raw is Function) {
-        // Function replacement
-        result = str.replaceAllMapped(regexp, (match) {
-          if (n != -1 && count >= n) return match.group(0)!;
-          count++;
+        final replFunc = repl.raw as Function;
+        final buffer = StringBuffer();
+        var lastEnd = 0;
+        final matches = regexp.allMatches(str);
 
-          final args = <Value>[];
-          for (int i = 0; i <= match.groupCount; i++) {
-            args.add(Value(match.group(i)));
+        for (final match in matches) {
+          if (n != -1 && count >= n) {
+            break;
+          }
+          buffer.write(str.substring(lastEnd, match.start));
+
+          final captures = <Value>[];
+          if (match.groupCount == 0) {
+            captures.add(Value(match.group(0)));
+          } else {
+            for (var i = 1; i <= match.groupCount; i++) {
+              captures.add(Value(match.group(i)));
+            }
           }
 
-          final replacement = (repl.raw as Function)(args);
-          return replacement.toString();
-        });
+          var replacement = replFunc(captures);
+          if (replacement is Future) {
+            replacement = await replacement;
+          }
+
+          if (replacement == null ||
+              (replacement is Value &&
+                  (replacement.isNil || replacement.raw == false))) {
+            buffer.write(match.group(0));
+          } else {
+            buffer.write(replacement is Value ? replacement.raw : replacement);
+            count++;
+          }
+          lastEnd = match.end;
+        }
+
+        if (lastEnd < str.length) {
+          buffer.write(str.substring(lastEnd));
+        }
+        result = buffer.toString();
+      } else if (repl.raw is Map) {
+        final replTable = repl.raw as Map;
+        final buffer = StringBuffer();
+        var lastEnd = 0;
+
+        for (final match in regexp.allMatches(str)) {
+          if (n != -1 && count >= n) {
+            break;
+          }
+          buffer.write(str.substring(lastEnd, match.start));
+
+          final key = Value(match.group(0)!);
+          var replacement = replTable[key];
+
+          if (replacement is Value) {
+            replacement = replacement.raw;
+          }
+
+          if (replacement != null && replacement != false) {
+            buffer.write(replacement.toString());
+            count++;
+          } else {
+            buffer.write(match.group(0)!);
+          }
+          lastEnd = match.end;
+        }
+
+        if (lastEnd < str.length) {
+          buffer.write(str.substring(lastEnd));
+        }
+        result = buffer.toString();
       } else if (repl.raw is String) {
-        // String replacement with possible capture references
         final replStr = repl.raw.toString();
-
         result = str.replaceAllMapped(regexp, (match) {
           if (n != -1 && count >= n) return match.group(0)!;
-          count++;
 
-          // Handle %n capture references
           String replacement = replStr;
-          for (int i = 0; i <= match.groupCount; i++) {
-            replacement = replacement.replaceAll('%$i', match.group(i) ?? '');
+          bool replaced = false;
+
+          if (repl.raw is String) {
+            for (int i = 0; i <= match.groupCount; i++) {
+              final newReplacement = replacement.replaceAll(
+                '%$i',
+                match.group(i) ?? '',
+              );
+              if (newReplacement != replacement) {
+                replaced = true;
+                replacement = newReplacement;
+              }
+            }
           }
 
-          return replacement;
+          if (replaced) {
+            count++;
+            return replacement;
+          }
+
+          // if no captures were replaced, and it's a string, we still count it
+          if (repl.raw is String) {
+            count++;
+            return replacement;
+          }
+
+          return match.group(0)!;
         });
+
+        // if the replacement is not a string, we need to count manually
+        if (repl.raw is! String) {
+          result = str.replaceAllMapped(regexp, (match) {
+            if (n != -1 && count >= n) return match.group(0)!;
+            count++;
+            return repl.raw.toString();
+          });
+        }
       } else {
-        // Simple replacement
-        result = str.replaceAllMapped(regexp, (match) {
-          if (n != -1 && count >= n) return match.group(0)!;
-          count++;
-          return repl.raw.toString();
-        });
+        throw LuaError.typeError("Invalid replacement type");
       }
 
       return [Value(result), Value(count)];
