@@ -544,5 +544,14 @@ void main() {
       final negTwoPow64 = Value(-((BigInt.one << 64).toDouble()));
       expect(left >= negTwoPow64, isTrue);
     });
+
+    test('integer floor division by zero throws', () {
+      expect(() => Value(2) ~/ Value(0), throwsA(isA<LuaError>()));
+    });
+
+    test('float floor division by zero is infinity', () {
+      final result = Value(1.0) ~/ Value(0);
+      expect(result.raw, equals(double.infinity));
+    });
   });
 }

@@ -976,6 +976,36 @@ extension OperatorExtension on Value {
       );
     }
 
+    bool _isZero(dynamic v) {
+      if (v is int) return v == 0;
+      if (v is BigInt) return v == BigInt.zero;
+      if (v is double) return v == 0.0;
+      return false;
+    }
+
+    BigInt _toInt(dynamic v) {
+      if (v is BigInt) return v;
+      if (v is int) return BigInt.from(v);
+      if (v is double) {
+        if (!v.isFinite || v.floorToDouble() != v) {
+          throw LuaError('number has no integer representation');
+        }
+        final bi = BigInt.parse(v.toStringAsFixed(0));
+        if (bi < minInt64 || bi > maxInt64) {
+          throw LuaError('number has no integer representation');
+        }
+        return bi;
+      }
+      throw LuaError.typeError('number has no integer representation');
+    }
+
+    if ((op == '//' || op == '%') &&
+        _isZero(r2) &&
+        r1 is! double &&
+        r2 is! double) {
+      throw LuaError('divide by zero');
+    }
+
     // After parsing and before operation, check for double promotion
     final isDoubleOp = r1 is double || r2 is double;
     print('ARITH: double promotion needed? $isDoubleOp');
@@ -1013,8 +1043,8 @@ extension OperatorExtension on Value {
       print(
         'ARITH: bitwise shift, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
       );
-      final b1 = r1 is BigInt ? r1 : BigInt.from(r1 as num);
-      final b2 = r2 is BigInt ? r2 : BigInt.from(r2 as num);
+      final b1 = _toInt(r1);
+      final b2 = _toInt(r2);
       final intBits = 64;
       final mask = BigInt.parse('FFFFFFFFFFFFFFFF', radix: 16);
       BigInt result;
@@ -1081,13 +1111,34 @@ extension OperatorExtension on Value {
           result = d1 % d2;
           break;
         case '&':
-          result = d1.toInt() & d2.toInt();
+          final bi1 = _toInt(d1);
+          final bi2 = _toInt(d2);
+          var biRes = bi1 & bi2;
+          if (biRes >= minInt64 && biRes <= maxInt64) {
+            result = biRes.toInt();
+          } else {
+            result = biRes;
+          }
           break;
         case '|':
-          result = d1.toInt() | d2.toInt();
+          final bi1 = _toInt(d1);
+          final bi2 = _toInt(d2);
+          var biRes = bi1 | bi2;
+          if (biRes >= minInt64 && biRes <= maxInt64) {
+            result = biRes.toInt();
+          } else {
+            result = biRes;
+          }
           break;
         case 'bxor':
-          result = d1.toInt() ^ d2.toInt();
+          final bi1 = _toInt(d1);
+          final bi2 = _toInt(d2);
+          var biRes = bi1 ^ bi2;
+          if (biRes >= minInt64 && biRes <= maxInt64) {
+            result = biRes.toInt();
+          } else {
+            result = biRes;
+          }
           break;
         default:
           print('ARITH: unsupported op for double promotion: $op');
@@ -1103,8 +1154,8 @@ extension OperatorExtension on Value {
       print(
         'ARITH: at least one operand is BigInt, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
       );
-      final b1 = r1 is BigInt ? r1 : BigInt.from(r1 as num);
-      final b2 = r2 is BigInt ? r2 : BigInt.from(r2 as num);
+      final b1 = _toInt(r1);
+      final b2 = _toInt(r2);
       dynamic result;
       switch (op) {
         case '+':
@@ -1167,16 +1218,12 @@ extension OperatorExtension on Value {
           break;
         case '//':
           if (r1 is int && r2 is int) {
-            if (r2 == 0) {
-              result = r1 > 0 ? double.infinity : double.negativeInfinity;
+            final quotient = r1 ~/ r2;
+            final remainder = r1 % r2;
+            if (remainder != 0 && (r1 < 0) != (r2 < 0)) {
+              result = quotient - 1;
             } else {
-              final quotient = r1 ~/ r2;
-              final remainder = r1 % r2;
-              if (remainder != 0 && (r1 < 0) != (r2 < 0)) {
-                result = quotient - 1;
-              } else {
-                result = quotient;
-              }
+              result = quotient;
             }
           } else {
             final div = r1 / r2;
@@ -1187,13 +1234,43 @@ extension OperatorExtension on Value {
           result = r1 % r2;
           break;
         case '&':
-          result = r1.toInt() & r2.toInt();
+          final bi1 = _toInt(r1);
+          final bi2 = _toInt(r2);
+          var biRes = bi1 & bi2;
+          if (r1 is int &&
+              r2 is int &&
+              biRes >= minInt64 &&
+              biRes <= maxInt64) {
+            result = biRes.toInt();
+          } else {
+            result = biRes;
+          }
           break;
         case '|':
-          result = r1.toInt() | r2.toInt();
+          final bi1 = _toInt(r1);
+          final bi2 = _toInt(r2);
+          var biRes = bi1 | bi2;
+          if (r1 is int &&
+              r2 is int &&
+              biRes >= minInt64 &&
+              biRes <= maxInt64) {
+            result = biRes.toInt();
+          } else {
+            result = biRes;
+          }
           break;
         case 'bxor':
-          result = r1.toInt() ^ r2.toInt();
+          final bi1 = _toInt(r1);
+          final bi2 = _toInt(r2);
+          var biRes = bi1 ^ bi2;
+          if (r1 is int &&
+              r2 is int &&
+              biRes >= minInt64 &&
+              biRes <= maxInt64) {
+            result = biRes.toInt();
+          } else {
+            result = biRes;
+          }
           break;
         default:
           print('ARITH: unsupported op for num: $op');
@@ -1237,7 +1314,10 @@ extension OperatorExtension on Value {
     if (r is int) return Value(~r);
     if (r is BigInt) return Value(~r);
     if (r is double) {
-      return Value(~r.toInt()); // Convert double to int for bitwise operations
+      if (!r.isFinite || r.floorToDouble() != r) {
+        throw LuaError('number has no integer representation');
+      }
+      return Value(~r.toInt());
     }
 
     throw LuaError.typeError(
