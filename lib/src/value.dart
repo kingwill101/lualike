@@ -999,7 +999,10 @@ extension OperatorExtension on Value {
       throw LuaError.typeError('number has no integer representation');
     }
 
-    if ((op == '//' || op == '%') && _isZero(r2) && r1 is! double && r2 is! double) {
+    if ((op == '//' || op == '%') &&
+        _isZero(r2) &&
+        r1 is! double &&
+        r2 is! double) {
       throw LuaError('divide by zero');
     }
 
@@ -1234,7 +1237,10 @@ extension OperatorExtension on Value {
           final bi1 = _toInt(r1);
           final bi2 = _toInt(r2);
           var biRes = bi1 & bi2;
-          if (r1 is int && r2 is int && biRes >= minInt64 && biRes <= maxInt64) {
+          if (r1 is int &&
+              r2 is int &&
+              biRes >= minInt64 &&
+              biRes <= maxInt64) {
             result = biRes.toInt();
           } else {
             result = biRes;
@@ -1244,7 +1250,10 @@ extension OperatorExtension on Value {
           final bi1 = _toInt(r1);
           final bi2 = _toInt(r2);
           var biRes = bi1 | bi2;
-          if (r1 is int && r2 is int && biRes >= minInt64 && biRes <= maxInt64) {
+          if (r1 is int &&
+              r2 is int &&
+              biRes >= minInt64 &&
+              biRes <= maxInt64) {
             result = biRes.toInt();
           } else {
             result = biRes;
@@ -1254,7 +1263,10 @@ extension OperatorExtension on Value {
           final bi1 = _toInt(r1);
           final bi2 = _toInt(r2);
           var biRes = bi1 ^ bi2;
-          if (r1 is int && r2 is int && biRes >= minInt64 && biRes <= maxInt64) {
+          if (r1 is int &&
+              r2 is int &&
+              biRes >= minInt64 &&
+              biRes <= maxInt64) {
             result = biRes.toInt();
           } else {
             result = biRes;
