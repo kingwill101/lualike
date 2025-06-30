@@ -7,8 +7,10 @@ Lualike is a lua interpreter written in Dart. It is designed to be a drop-in rep
    After making changes, confirm that all existing functionality works as expected. Do not assume that passing a subset of tests is sufficient.
 
 3. **Address test failures individually**  
-   If any test fails, address each failure one at a time. Investigate the root cause, and use `print` statements for logging and debugging as needed.  
-   **Note:** Do not use the `--debug` flag when calling the interpreter.
+   If any test fails, address each failure one at a time.
+   Add useful debug output to make it easier to understand what's happening.
+   Logger class has a Logger.setEnabled(false); which works with --debug flag when using the interpreter (dart run bin/main.dart) Note it can be very noisy.
+   Compare results with the reference lua interpreter when uncertain. our interpreter supports the same cli arguments as the reference lua interpreter.
 
 4. **Prefer targeted test cases**  
    When fixing bugs or investigating issues, write dedicated test cases that isolate the failing expression or behavior.  
