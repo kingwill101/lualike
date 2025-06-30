@@ -445,6 +445,7 @@ class MetaTable {
       null => 'nil',
       String() => 'string',
       num() => 'number',
+      BigInt() => 'number',
       bool() => 'boolean',
       Function() => 'function',
       BuiltinFunction() => 'function',
