@@ -142,7 +142,7 @@ void main() {
       // Test forEach
       dynamic sum = 0;
       table.forEach((key, value) {
-        sum = ((value + sum) as Value).raw;
+        sum = (value + sum).raw;
       });
       expect(sum, equals(6));
     });
