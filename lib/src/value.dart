@@ -421,10 +421,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       entries.where((a) => a.value == value).isNotEmpty;
 
   @override
-  void forEach(void Function(String key, Value value) action) {
+  void forEach(void Function(String key, dynamic value) action) {
     if (raw is! Map) throw UnsupportedError('Not a table');
     for (final entry in entries) {
-      action(entry.key, entry.value as Value);
+      action(entry.key, entry.value);
     }
   }
 
@@ -894,26 +894,30 @@ extension OperatorExtension on Value {
       }
       final intVal = raw is BigInt ? raw as BigInt : BigInt.from(raw);
       final doubleVal = otherRaw;
-      final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
+      final intFromDouble = doubleVal.toInt();
       final doubleFromInt = intVal.toDouble();
-      final isExact = (doubleVal == doubleFromInt) && (intVal == intFromDouble);
+      final isExact =
+          (doubleVal == doubleFromInt) &&
+          (intVal == BigInt.from(intFromDouble));
       print(
         'COMPARE ~=: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt, intFromDouble=$intFromDouble, isExact=$isExact',
       );
       return !isExact;
     }
     if (raw is double && (otherRaw is int || otherRaw is BigInt)) {
-      if (!(raw).isFinite) {
+      if (!(raw as double).isFinite) {
         print(
           'COMPARE ~=: double ~= int, but double is not finite, returning true',
         );
         return true;
       }
       final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
-      final doubleVal = raw;
-      final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
+      final doubleVal = raw as double;
+      final intFromDouble = doubleVal.toInt();
       final doubleFromInt = intVal.toDouble();
-      final isExact = (doubleVal == doubleFromInt) && (intVal == intFromDouble);
+      final isExact =
+          (doubleVal == doubleFromInt) &&
+          (intVal == BigInt.from(intFromDouble));
       print(
         'COMPARE ~=: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt, intFromDouble=$intFromDouble, isExact=$isExact',
       );
@@ -1037,12 +1041,6 @@ extension OperatorExtension on Value {
           'ARITH: bitwise shift wrapped to signed: $result (${result.runtimeType})',
         );
       }
-      if (r1 is BigInt || r2 is BigInt) {
-        print(
-          'ARITH: bitwise shift operands included BigInt, returning BigInt result',
-        );
-        return Value(result);
-      }
       if (result >= minInt64 && result <= maxInt64) {
         print(
           'ARITH: bitwise shift result fits in int64, returning int: ${result.toInt()}',
@@ -1141,7 +1139,17 @@ extension OperatorExtension on Value {
       }
       print('ARITH: BigInt result: $result (${result.runtimeType})');
       if (result is BigInt) {
-        return Value(result);
+        if (result >= minInt64 && result <= maxInt64) {
+          print(
+            'ARITH: BigInt result fits in int64, converting to int with .toInt()',
+          );
+          return Value(result.toInt());
+        } else {
+          print(
+            'ARITH: BigInt result does not fit in int64, keeping as BigInt',
+          );
+          return Value(result);
+        }
       }
       print('ARITH: BigInt result is not BigInt, returning as is');
       return Value(result);
@@ -1337,29 +1345,21 @@ extension OperatorExtension on Value {
       print(
         'COMPARE >: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt',
       );
-      if (doubleFromInt == doubleVal) {
-        final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
-        return intVal > intFromDouble;
-      }
       return doubleFromInt > doubleVal;
     }
     if (raw is double && (otherRaw is int || otherRaw is BigInt)) {
-      if (!raw.isFinite) {
+      if (!(raw as double).isFinite) {
         print(
           'COMPARE >: double > int, but double is not finite, returning false',
         );
         return false;
       }
       final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
-      final doubleVal = raw;
+      final doubleVal = raw as double;
       final doubleFromInt = intVal.toDouble();
       print(
         'COMPARE >: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt',
       );
-      if (doubleFromInt == doubleVal) {
-        final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
-        return intFromDouble > intVal;
-      }
       return doubleVal > doubleFromInt;
     }
     if (raw is num && otherRaw is num) return raw > otherRaw;
@@ -1399,29 +1399,21 @@ extension OperatorExtension on Value {
       print(
         'COMPARE <: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt',
       );
-      if (doubleFromInt == doubleVal) {
-        final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
-        return intVal < intFromDouble;
-      }
       return doubleFromInt < doubleVal;
     }
     if (raw is double && (otherRaw is int || otherRaw is BigInt)) {
-      if (!raw.isFinite) {
+      if (!(raw as double).isFinite) {
         print(
           'COMPARE <: double < int, but double is not finite, returning false',
         );
         return false;
       }
       final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
-      final doubleVal = raw;
+      final doubleVal = raw as double;
       final doubleFromInt = intVal.toDouble();
       print(
         'COMPARE <: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt',
       );
-      if (doubleFromInt == doubleVal) {
-        final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
-        return intFromDouble < intVal;
-      }
       return doubleVal < doubleFromInt;
     }
     if (raw is num && otherRaw is num) return raw < otherRaw;
@@ -1461,29 +1453,21 @@ extension OperatorExtension on Value {
       print(
         'COMPARE >=: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt',
       );
-      if (doubleFromInt == doubleVal) {
-        final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
-        return intVal >= intFromDouble;
-      }
       return doubleFromInt >= doubleVal;
     }
     if (raw is double && (otherRaw is int || otherRaw is BigInt)) {
-      if (!raw.isFinite) {
+      if (!(raw as double).isFinite) {
         print(
           'COMPARE >=: double >= int, but double is not finite, returning false',
         );
         return false;
       }
       final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
-      final doubleVal = raw;
+      final doubleVal = raw as double;
       final doubleFromInt = intVal.toDouble();
       print(
         'COMPARE >=: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt',
       );
-      if (doubleFromInt == doubleVal) {
-        final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
-        return intFromDouble >= intVal;
-      }
       return doubleVal >= doubleFromInt;
     }
     if (raw is num && otherRaw is num) return raw >= otherRaw;
@@ -1523,29 +1507,21 @@ extension OperatorExtension on Value {
       print(
         'COMPARE <=: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt',
       );
-      if (doubleFromInt == doubleVal) {
-        final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
-        return intVal <= intFromDouble;
-      }
       return doubleFromInt <= doubleVal;
     }
     if (raw is double && (otherRaw is int || otherRaw is BigInt)) {
-      if (!raw.isFinite) {
+      if (!(raw as double).isFinite) {
         print(
           'COMPARE <=: double <= int, but double is not finite, returning false',
         );
         return false;
       }
       final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
-      final doubleVal = raw;
+      final doubleVal = raw as double;
       final doubleFromInt = intVal.toDouble();
       print(
         'COMPARE <=: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt',
       );
-      if (doubleFromInt == doubleVal) {
-        final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
-        return intFromDouble <= intVal;
-      }
       return doubleVal <= doubleFromInt;
     }
     if (raw is num && otherRaw is num) return raw <= otherRaw;
@@ -1569,8 +1545,8 @@ extension OperatorExtension on Value {
   bool equals(Object other) {
     final otherRaw = other is Value ? other.raw : other;
     // Lua: NaN == anything is always false
-    if ((raw is num && raw.isNaN) ||
-        (otherRaw is num && otherRaw.isNaN)) {
+    if ((raw is num && (raw as num).isNaN) ||
+        (otherRaw is num && (otherRaw).isNaN)) {
       print('COMPARE ==: NaN detected, returning false');
       return false;
     }
@@ -1582,28 +1558,30 @@ extension OperatorExtension on Value {
       }
       final intVal = raw is BigInt ? raw as BigInt : BigInt.from(raw);
       final doubleVal = otherRaw;
-      final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
+      final intFromDouble = doubleVal.toInt();
       final doubleFromInt = intVal.toDouble();
-      final isExact = (doubleVal == doubleFromInt) && (intVal == intFromDouble);
+      final isExact =
+          (doubleVal == doubleFromInt) &&
+          (intVal == BigInt.from(intFromDouble));
       print(
         'COMPARE ==: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt, intFromDouble=$intFromDouble, isExact=$isExact',
       );
       return isExact;
     }
     if (raw is double && (otherRaw is int || otherRaw is BigInt)) {
-      if (!raw.isFinite) {
+      if (!(raw as double).isFinite) {
         print(
           'COMPARE ==: double == int, but double is not finite, returning false',
         );
         return false;
       }
-      final intVal = otherRaw is BigInt
-          ? otherRaw
-          : BigInt.from(otherRaw);
-      final doubleVal = raw;
-      final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
+      final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
+      final doubleVal = raw as double;
+      final intFromDouble = doubleVal.toInt();
       final doubleFromInt = intVal.toDouble();
-      final isExact = (doubleVal == doubleFromInt) && (intVal == intFromDouble);
+      final isExact =
+          (doubleVal == doubleFromInt) &&
+          (intVal == BigInt.from(intFromDouble));
       print(
         'COMPARE ==: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt, intFromDouble=$intFromDouble, isExact=$isExact',
       );
@@ -1627,7 +1605,7 @@ extension OperatorExtension on Value {
     }
     if (raw is num && otherRaw is BigInt) {
       if (raw is int) return BigInt.from(raw) == otherRaw;
-      return raw.isFinite &&
+      return (raw as double).isFinite &&
           raw == otherRaw.toDouble() &&
           BigInt.from(raw) == otherRaw;
     }
