@@ -131,6 +131,10 @@ class LuaPattern {
       throw FormatException('Unclosed parentheses in pattern');
     }
 
+    if (pattern.endsWith('%')) {
+      throw FormatException('Trailing % in pattern');
+    }
+
     // Check for invalid magic characters
     final invalidMagicMatch = RegExp(
       r'%[^acdglpsuwxzADGLPSUWXZ0-9bfnt\W]',
@@ -375,8 +379,8 @@ class LuaPattern {
         } else if (nextChar == '0') {
           // Special handling for null byte
           result.write('\\0');
-        } else if (_specialChars.hasMatch(nextChar)) {
-          // Special regex character that needs escaping
+        } else if (_specialChars.hasMatch(nextChar) && nextChar != '.') {
+          // Special regex character that needs escaping (dot is literal inside sets)
           result.write('\\$nextChar');
         } else {
           // Any other character after %, keep it as is
@@ -403,6 +407,7 @@ class LuaPattern {
   static bool _hasUnclosedBrackets(String pattern) {
     int count = 0;
     bool inPercent = false;
+    bool justOpened = false;
 
     for (int i = 0; i < pattern.length; i++) {
       if (inPercent) {
@@ -414,12 +419,19 @@ class LuaPattern {
         inPercent = true;
       } else if (pattern[i] == '[') {
         count++;
+        justOpened = true;
       } else if (pattern[i] == ']') {
+        if (justOpened) {
+          // first character inside set, treat as literal
+          justOpened = false;
+          continue;
+        }
         count--;
         if (count < 0) {
           // More closing than opening brackets
           return true;
         }
+        justOpened = false;
       }
     }
     return count != 0;
