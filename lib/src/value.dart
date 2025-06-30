@@ -1569,8 +1569,7 @@ extension OperatorExtension on Value {
   bool equals(Object other) {
     final otherRaw = other is Value ? other.raw : other;
     // Lua: NaN == anything is always false
-    if ((raw is num && raw.isNaN) ||
-        (otherRaw is num && otherRaw.isNaN)) {
+    if ((raw is num && raw.isNaN) || (otherRaw is num && otherRaw.isNaN)) {
       print('COMPARE ==: NaN detected, returning false');
       return false;
     }
@@ -1597,9 +1596,7 @@ extension OperatorExtension on Value {
         );
         return false;
       }
-      final intVal = otherRaw is BigInt
-          ? otherRaw
-          : BigInt.from(otherRaw);
+      final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
       final doubleVal = raw;
       final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
       final doubleFromInt = intVal.toDouble();
