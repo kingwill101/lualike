@@ -1447,7 +1447,12 @@ extension OperatorExtension on Value {
         'COMPARE >: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt',
       );
       if (doubleFromInt == doubleVal) {
-        final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
+        BigInt intFromDouble;
+        try {
+          intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
+        } on FormatException {
+          return false;
+        }
         return intVal > intFromDouble;
       }
       return doubleFromInt > doubleVal;
@@ -1466,7 +1471,12 @@ extension OperatorExtension on Value {
         'COMPARE >: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt',
       );
       if (doubleFromInt == doubleVal) {
-        final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
+        BigInt intFromDouble;
+        try {
+          intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
+        } on FormatException {
+          return false;
+        }
         return intFromDouble > intVal;
       }
       return doubleVal > doubleFromInt;

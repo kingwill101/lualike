@@ -10,6 +10,21 @@ abstract class _MathFunction implements BuiltinFunction {
     }
     return value.raw;
   }
+
+  BigInt _bigIntFromDouble(double value) {
+    final str = value.toStringAsExponential(0);
+    final expMatch = RegExp(r'^([+-]?\\d+)e([+-]?\\d+)\$').firstMatch(str);
+    if (expMatch != null) {
+      final base = BigInt.parse(expMatch.group(1)!);
+      final exp = int.parse(expMatch.group(2)!);
+      if (exp >= 0) {
+        return base * (BigInt.from(10).pow(exp));
+      } else {
+        return BigInt.zero;
+      }
+    }
+    return BigInt.parse(str);
+  }
 }
 
 class _MathAbs extends _MathFunction {
@@ -92,11 +107,14 @@ class _MathCeil extends _MathFunction {
       if (!n.isFinite) return Value(n);
       final doubleRes = n.ceilToDouble();
       if (doubleRes.isFinite) {
-        final big = BigInt.parse(doubleRes.toStringAsFixed(0));
-        if (big.toDouble() == doubleRes &&
-            big <= BigInt.from(MathLib.maxInteger) &&
-            big >= BigInt.from(MathLib.minInteger)) {
-          return Value(big.toInt());
+        if (doubleRes >= MathLib.minInteger &&
+            doubleRes <= MathLib.maxInteger) {
+          final intRes = doubleRes.toInt();
+          if (intRes.toDouble() == doubleRes) {
+            return Value(intRes);
+          }
+        } else {
+          return Value(_bigIntFromDouble(doubleRes));
         }
       }
       return Value(doubleRes);
@@ -165,11 +183,14 @@ class _MathFloor extends _MathFunction {
       if (!n.isFinite) return Value(n);
       final doubleRes = n.floorToDouble();
       if (doubleRes.isFinite) {
-        final big = BigInt.parse(doubleRes.toStringAsFixed(0));
-        if (big.toDouble() == doubleRes &&
-            big <= BigInt.from(MathLib.maxInteger) &&
-            big >= BigInt.from(MathLib.minInteger)) {
-          return Value(big.toInt());
+        if (doubleRes >= MathLib.minInteger &&
+            doubleRes <= MathLib.maxInteger) {
+          final intRes = doubleRes.toInt();
+          if (intRes.toDouble() == doubleRes) {
+            return Value(intRes);
+          }
+        } else {
+          return Value(_bigIntFromDouble(doubleRes));
         }
       }
       return Value(doubleRes);
