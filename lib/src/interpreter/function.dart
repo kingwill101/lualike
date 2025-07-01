@@ -122,7 +122,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     final closure = await node.funcBody.accept(this);
 
     // Define in current scope
-    globals.define(node.name.name, closure);
+    globals.declare(node.name.name, closure);
     Logger.debug(
       'Defined local function ${node.name.name}',
       category: 'Interpreter',
@@ -351,10 +351,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         error: e,
         node: node,
       );
+      rethrow;
     } finally {
       // Pop function from call stack
       callStack.pop();
     }
+    return null;
   }
 
   /// Evaluates a method call.

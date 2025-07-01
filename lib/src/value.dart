@@ -368,8 +368,6 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   @override
   void operator []=(Object key, dynamic value) {
-    print('Attempting to set key $key with value $value');
-
     final newindexMeta = getMetamethod('__newindex');
     if (newindexMeta != null) {
       callMetamethod('__newindex', [

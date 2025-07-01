@@ -683,32 +683,39 @@ class StringLiteral extends AstNode {
   StringLiteral(String raw) : value = StringLiteral.unescapeLuaString(raw);
 
   static String unescapeLuaString(String s) {
-    return s.replaceAllMapped(RegExp(r'\\([abfnrtv"' + "'" + r'\\])'), (m) {
-      switch (m[1]) {
-        case 'a':
-          return '\x07';
-        case 'b':
-          return '\b';
-        case 'f':
-          return '\f';
-        case 'n':
-          return '\n';
-        case 'r':
-          return '\r';
-        case 't':
-          return '\t';
-        case 'v':
-          return '\v';
-        case '"':
-          return '"';
-        case "'":
-          return "'";
-        case '\\':
-          return '\\';
-        default:
-          return m[0]!;
-      }
-    });
+    return s.replaceAllMapped(
+      RegExp(
+        r'\\([abfnrtv"'
+        "'"
+        r'\\])',
+      ),
+      (m) {
+        switch (m[1]) {
+          case 'a':
+            return '\x07';
+          case 'b':
+            return '\b';
+          case 'f':
+            return '\f';
+          case 'n':
+            return '\n';
+          case 'r':
+            return '\r';
+          case 't':
+            return '\t';
+          case 'v':
+            return '\v';
+          case '"':
+            return '"';
+          case "'":
+            return "'";
+          case '\\':
+            return '\\';
+          default:
+            return m[0]!;
+        }
+      },
+    );
   }
 
   @override
