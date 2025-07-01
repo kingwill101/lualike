@@ -6,10 +6,24 @@ import 'package:lualike/lualike.dart';
 abstract class _MathFunction implements BuiltinFunction {
   dynamic _getNumber(Value value, String funcName) {
     if (value.raw is! num && value.raw is! BigInt) {
-      throw LuaError.typeError("$funcName requires a number argument");
+      throw LuaError.typeError("number expected");
     }
     return value.raw;
   }
+
+  BigInt _doubleToBigInt(double value) {
+    final str = value.toStringAsFixed(0);
+    if (str.contains('e') || str.contains('E')) {
+      // Use LuaNumberParser for scientific notation
+      final parsed = LuaNumberParser.parse(str);
+      if (parsed is double) {
+        throw FormatException('Cannot convert to BigInt');
+      }
+      return parsed is BigInt ? parsed : BigInt.from(parsed);
+    }
+    return BigInt.parse(str);
+  }
+
 }
 
 class _MathAbs extends _MathFunction {
@@ -78,7 +92,7 @@ class _MathCeil extends _MathFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
-      throw LuaError.typeError("math.ceil requires a number argument");
+      throw LuaError.typeError("number expected");
     }
     final number = _getNumber(args[0] as Value, "math.ceil");
     if (number is BigInt) {
@@ -92,11 +106,20 @@ class _MathCeil extends _MathFunction {
       if (!n.isFinite) return Value(n);
       final doubleRes = n.ceilToDouble();
       if (doubleRes.isFinite) {
-        final big = BigInt.parse(doubleRes.toStringAsFixed(0));
-        if (big.toDouble() == doubleRes &&
-            big <= BigInt.from(MathLib.maxInteger) &&
-            big >= BigInt.from(MathLib.minInteger)) {
-          return Value(big.toInt());
+        try {
+          // Try to convert to BigInt to avoid floating point precision issues
+          final bigIntRes = _doubleToBigInt(doubleRes);
+          // Check if it fits in int64 range
+          if (bigIntRes >= BigInt.from(MathLib.minInteger) &&
+              bigIntRes <= BigInt.from(MathLib.maxInteger)) {
+            final intRes = bigIntRes.toInt();
+            // Verify the conversion is exact
+            if (intRes.toDouble() == doubleRes) {
+              return Value(intRes);
+            }
+          }
+        } catch (_) {
+          // If BigInt conversion fails, fall through to return double
         }
       }
       return Value(doubleRes);
@@ -151,7 +174,7 @@ class _MathFloor extends _MathFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
-      throw LuaError.typeError("math.floor requires a number argument");
+      throw LuaError.typeError("number expected");
     }
     final number = _getNumber(args[0] as Value, "math.floor");
     if (number is BigInt) {
@@ -165,11 +188,20 @@ class _MathFloor extends _MathFunction {
       if (!n.isFinite) return Value(n);
       final doubleRes = n.floorToDouble();
       if (doubleRes.isFinite) {
-        final big = BigInt.parse(doubleRes.toStringAsFixed(0));
-        if (big.toDouble() == doubleRes &&
-            big <= BigInt.from(MathLib.maxInteger) &&
-            big >= BigInt.from(MathLib.minInteger)) {
-          return Value(big.toInt());
+        try {
+          // Try to convert to BigInt to avoid floating point precision issues
+          final bigIntRes = _doubleToBigInt(doubleRes);
+          // Check if it fits in int64 range
+          if (bigIntRes >= BigInt.from(MathLib.minInteger) &&
+              bigIntRes <= BigInt.from(MathLib.maxInteger)) {
+            final intRes = bigIntRes.toInt();
+            // Verify the conversion is exact
+            if (intRes.toDouble() == doubleRes) {
+              return Value(intRes);
+            }
+          }
+        } catch (_) {
+          // If BigInt conversion fails, fall through to return double
         }
       }
       return Value(doubleRes);
