@@ -235,6 +235,31 @@ class Environment extends GCObject {
     }
   }
 
+  /// Declares a new variable in the current environment, always creating a
+  /// fresh binding even if a variable with the same [name] already exists.
+  ///
+  /// This is used for Lua's `local` declarations which shadow any previous
+  /// variable of the same name in the scope. Existing bindings remain valid for
+  /// any closures that captured them.
+  void declare(String name, dynamic value) {
+    Logger.debug(
+      "Declaring new '$name' = $value (type: ${value.runtimeType}) in env ($hashCode)",
+      category: 'Env',
+    );
+
+    // Create a fresh Box that shadows any previous binding
+    values[name] = Box(value);
+
+    // Track to-be-closed variables
+    if (value is Value && value.isToBeClose) {
+      toBeClosedVars.add(name);
+      Logger.debug(
+        "Added '$name' to to-be-closed variables list",
+        category: 'Env',
+      );
+    }
+  }
+
   /// Defines multiple variables in the current environment.
   ///
   /// Takes a map of variable names to values and defines each in this environment.
