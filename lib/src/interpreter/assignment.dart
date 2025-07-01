@@ -223,11 +223,18 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
         // No metamethod or key exists - do regular assignment
         dynamic identifier;
-
-        try {
-          identifier = (await target.index.accept(this));
-        } catch (_) {
-          identifier = (target.index as Identifier).name;
+        if (target.index is Identifier) {
+          final identName = (target.index as Identifier).name;
+          try {
+            identifier = await target.index.accept(this);
+            if (identifier is Value && identifier.raw == null) {
+              identifier = identName;
+            }
+          } catch (_) {
+            identifier = identName;
+          }
+        } else {
+          identifier = await target.index.accept(this);
         }
 
         tableValue[identifier] = wrappedValue;

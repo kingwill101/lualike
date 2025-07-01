@@ -265,7 +265,11 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     Logger.debug('Visiting Identifier: ${node.name}', category: 'Interpreter');
     final value = globals.get(node.name);
     if (value == null) {
-      throw LuaError("attempt to index global '${node.name}' (a nil value)");
+      Logger.debug(
+        'Identifier ${node.name} not found, returning nil',
+        category: 'Interpreter',
+      );
+      return Value(null);
     }
     Logger.debug(
       'Identifier ${node.name} resolved to: $value (type: ${value.runtimeType})',
