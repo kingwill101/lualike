@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
+import 'package:lualike/src/number.dart';
 import 'package:lualike/src/stdlib/lib_math.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/upvalue.dart';
@@ -1447,7 +1448,12 @@ extension OperatorExtension on Value {
         'COMPARE >: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt',
       );
       if (doubleFromInt == doubleVal) {
-        final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
+        BigInt intFromDouble;
+        try {
+          intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
+        } on FormatException {
+          return false;
+        }
         return intVal > intFromDouble;
       }
       return doubleFromInt > doubleVal;
@@ -1466,7 +1472,12 @@ extension OperatorExtension on Value {
         'COMPARE >: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt',
       );
       if (doubleFromInt == doubleVal) {
-        final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
+        BigInt intFromDouble;
+        try {
+          intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
+        } on FormatException {
+          return false;
+        }
         return intFromDouble > intVal;
       }
       return doubleVal > doubleFromInt;
@@ -1690,7 +1701,23 @@ extension OperatorExtension on Value {
       }
       final intVal = raw is BigInt ? raw as BigInt : BigInt.from(raw);
       final doubleVal = otherRaw;
-      final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
+      BigInt intFromDouble;
+      try {
+        // Handle very large numbers that toStringAsFixed might return in scientific notation
+        final stringVal = doubleVal.toStringAsFixed(0);
+        if (stringVal.contains('e') || stringVal.contains('E')) {
+          // Use LuaNumberParser for scientific notation
+          final parsed = LuaNumberParser.parse(stringVal);
+          if (parsed is double) {
+            return false; // If it's not an exact integer, they're not equal
+          }
+          intFromDouble = parsed is BigInt ? parsed : BigInt.from(parsed);
+        } else {
+          intFromDouble = BigInt.parse(stringVal);
+        }
+      } catch (e) {
+        return false; // If we can't parse it as an integer, they're not equal
+      }
       final doubleFromInt = intVal.toDouble();
       final isExact = (doubleVal == doubleFromInt) && (intVal == intFromDouble);
       print(
@@ -1707,7 +1734,23 @@ extension OperatorExtension on Value {
       }
       final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
       final doubleVal = raw;
-      final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
+      BigInt intFromDouble;
+      try {
+        // Handle very large numbers that toStringAsFixed might return in scientific notation
+        final stringVal = doubleVal.toStringAsFixed(0);
+        if (stringVal.contains('e') || stringVal.contains('E')) {
+          // Use LuaNumberParser for scientific notation
+          final parsed = LuaNumberParser.parse(stringVal);
+          if (parsed is double) {
+            return false; // If it's not an exact integer, they're not equal
+          }
+          intFromDouble = parsed is BigInt ? parsed : BigInt.from(parsed);
+        } else {
+          intFromDouble = BigInt.parse(stringVal);
+        }
+      } catch (e) {
+        return false; // If we can't parse it as an integer, they're not equal
+      }
       final doubleFromInt = intVal.toDouble();
       final isExact = (doubleVal == doubleFromInt) && (intVal == intFromDouble);
       print(
