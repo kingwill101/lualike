@@ -5,6 +5,7 @@ import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/coroutine.dart' show Coroutine;
 import 'package:lualike/src/stdlib/lib_io.dart';
+import 'package:lualike/src/exceptions.dart' show ReturnException;
 import 'package:path/path.dart' as path;
 
 /// Built-in function to retrieve the metatable of a value.
@@ -399,7 +400,11 @@ class ToNumberFunction implements BuiltinFunction {
     }
 
     if (value.raw is String) {
-      final str = (value.raw as String).trim();
+      var str = (value.raw as String).trim();
+      // Our parser currently does not interpret escape sequences in
+      // string literals, so handle common ones here for tonumber with base.
+      str = str.replaceAll('\\t', '\t');
+      str = str.replaceAll('\\n', '\n');
       if (base != null && base.raw is int) {
         final radix = base.raw as int;
         try {
@@ -523,10 +528,14 @@ class LoadFunction implements BuiltinFunction {
 
     try {
       final ast = parse(source);
-      return Value((List<Object?> callArgs) {
+      return Value((List<Object?> callArgs) async {
         try {
-          final result = vm.run(ast.statements);
+          final result = await vm.run(ast.statements);
           return result;
+        } on ReturnException catch (e) {
+          // return statements inside the loaded chunk should just
+          // provide values to the caller, not unwind the interpreter
+          return e.value;
         } catch (e) {
           throw Exception("Error executing loaded chunk '$chunkname': $e");
         }

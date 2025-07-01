@@ -1119,7 +1119,8 @@ extension OperatorExtension on Value {
           result = (div.isInfinite || div.isNaN) ? div : div.floorToDouble();
           break;
         case '%':
-          result = d1 % d2;
+          final div = (d1 / d2).floor();
+          result = d1 - div * d2;
           break;
         case '&':
           final bi1 = toInt(d1);
@@ -1186,7 +1187,14 @@ extension OperatorExtension on Value {
           result = (div.isInfinite || div.isNaN) ? div : div.floorToDouble();
           break;
         case '%':
-          result = b1 % b2;
+          var div = b1 ~/ b2;
+          final differentSigns =
+              (b1.isNegative && !b2.isNegative) ||
+              (!b1.isNegative && b2.isNegative);
+          if (differentSigns && b1 % b2 != BigInt.zero) {
+            div -= BigInt.one;
+          }
+          result = b1 - div * b2;
           break;
         case '&':
           result = b1 & b2;
@@ -1242,7 +1250,16 @@ extension OperatorExtension on Value {
           }
           break;
         case '%':
-          result = r1 % r2;
+          if (r1 is int && r2 is int) {
+            var div = r1 ~/ r2;
+            if ((r1 < 0) != (r2 < 0) && r1 % r2 != 0) {
+              div -= 1;
+            }
+            result = r1 - div * r2;
+          } else {
+            final div = (r1 / r2).floor();
+            result = r1 - div * r2;
+          }
           break;
         case '&':
           final bi1 = toInt(r1);

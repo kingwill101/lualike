@@ -60,29 +60,33 @@ class LuaNumberParser {
       final numPart = pIndex == -1 ? body : body.substring(0, pIndex);
       final expPart = pIndex == -1 ? '0' : body.substring(pIndex + 1);
 
-      // split integer / fractional
+      // remove decimal point for easier handling
       final dot = numPart.indexOf('.');
-      final intStr = dot == -1 ? numPart : numPart.substring(0, dot);
-      final fracStr = dot == -1 ? '' : numPart.substring(dot + 1);
-
-      double value = 0;
-
-      // integer portion
-      if (intStr.isNotEmpty) {
-        value += int.parse(intStr, radix: 16).toDouble();
+      if (dot != -1 && numPart.indexOf('.', dot + 1) != -1) {
+        throw FormatException('Invalid hexadecimal float');
       }
 
-      // fractional portion
-      if (fracStr.isNotEmpty) {
-        var denom = 16.0;
-        for (final c in fracStr.split('')) {
-          value += int.parse(c, radix: 16) / denom;
-          denom *= 16;
+      final digits = numPart.replaceAll('.', '');
+      final fracDigits = dot == -1 ? 0 : numPart.length - dot - 1;
+
+      BigInt mantissa = BigInt.parse(digits, radix: 16);
+      var exponent = int.parse(expPart) - 4 * fracDigits;
+
+      // Adjust magnitude using shifts before converting to double
+      double value;
+      if (exponent >= 0) {
+        mantissa = mantissa << exponent;
+        value = mantissa.toDouble();
+      } else {
+        final shift = -exponent;
+        final intPart = mantissa >> shift;
+        final fracMask = (BigInt.one << shift) - BigInt.one;
+        final fracPart = mantissa & fracMask;
+        value = intPart.toDouble();
+        if (fracPart != BigInt.zero) {
+          value += fracPart.toDouble() / math.pow(2.0, shift);
         }
       }
-
-      // exponent is power of TWO
-      value *= math.pow(2, int.parse(expPart));
 
       return neg ? -value : value;
     }
