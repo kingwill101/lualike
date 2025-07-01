@@ -356,7 +356,6 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       // Pop function from call stack
       callStack.pop();
     }
-    return null;
   }
 
   /// Evaluates a method call.

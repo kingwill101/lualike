@@ -1,5 +1,4 @@
-import 'package:test/test.dart';
-import 'package:lualike/lualike.dart';
+import 'package:lualike/testing.dart';
 
 void main() {
   group('Table Library', () {

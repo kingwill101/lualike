@@ -1,7 +1,5 @@
 @Tags(['interop'])
-import 'package:lualike/lualike.dart';
-import 'package:lualike/src/testing/bridge_assert.dart';
-import 'package:test/test.dart';
+import 'package:lualike/testing.dart';
 
 void main() {
   group('Table Constructor Tests', () {

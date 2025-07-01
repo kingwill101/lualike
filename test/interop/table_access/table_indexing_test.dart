@@ -1,6 +1,4 @@
-@Tags(['interop'])
-import 'package:test/test.dart';
-import 'package:lualike/lualike.dart';
+import 'package:lualike/testing.dart';
 
 void main() {
   group('Table Indexing Operations', () {
@@ -26,9 +24,9 @@ void main() {
       var wordsMap = words.raw as Map<dynamic, dynamic>;
 
       // Check that the assignment worked
-      expect(wordsMap[3], equals(11.toValue()));
-      expect(wordsMap[1], equals("word1".toValue()));
-      expect(wordsMap[2], equals("word2".toValue()));
+      expect(wordsMap[3], equals(Value(11)));
+      expect(wordsMap[1], equals(Value("word1")));
+      expect(wordsMap[2], equals(Value("word2")));
     });
 
     test('for loop table indexing', () async {
@@ -44,11 +42,11 @@ void main() {
       //check words properties
       var words = bridge.getGlobal('words') as Value;
       var wordsMap = words.raw as Map<dynamic, dynamic>;
-      expect(wordsMap[1], equals("word1".toValue()));
-      expect(wordsMap[2], equals("word2".toValue()));
-      expect(wordsMap[3], equals("word3".toValue()));
-      expect(wordsMap[4], equals("word4".toValue()));
-      expect(wordsMap[5], equals("word5".toValue()));
+      expect(wordsMap[1], equals(Value("word1")));
+      expect(wordsMap[2], equals(Value("word2")));
+      expect(wordsMap[3], equals(Value("word3")));
+      expect(wordsMap[4], equals(Value("word4")));
+      expect(wordsMap[5], equals(Value("word5")));
     });
 
     test('deeply nested table indexing', () async {
@@ -77,9 +75,9 @@ void main() {
       var valueMap = value.raw as Map<dynamic, dynamic>;
 
       // Check that the deep assignment worked
-      expect(valueMap[3], equals(11.toValue()));
-      expect(valueMap[1], equals("deep1".toValue()));
-      expect(valueMap[2], equals("deep2".toValue()));
+      expect(valueMap[3], equals(Value(11)));
+      expect(valueMap[1], equals(Value("deep1")));
+      expect(valueMap[2], equals(Value("deep2")));
     });
 
     test('deeply nested table with for loop (expected to fail)', () async {
@@ -99,11 +97,11 @@ void main() {
       var something = (words.raw as Map)['something'] as Value;
       var value = (something.raw as Map)['value'] as Value;
       var valueMap = value.raw as Map<dynamic, dynamic>;
-      expect(valueMap[1], equals("deep1".toValue()));
-      expect(valueMap[2], equals("deep2".toValue()));
-      expect(valueMap[3], equals("deep3".toValue()));
-      expect(valueMap[4], equals("deep4".toValue()));
-      expect(valueMap[5], equals("deep5".toValue()));
+      expect(valueMap[1], equals(Value("deep1")));
+      expect(valueMap[2], equals(Value("deep2")));
+      expect(valueMap[3], equals(Value("deep3")));
+      expect(valueMap[4], equals(Value("deep4")));
+      expect(valueMap[5], equals(Value("deep5")));
       //test deep assignment
     });
   });

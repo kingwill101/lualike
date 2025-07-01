@@ -1,6 +1,4 @@
-@Tags(['functions'])
-import 'package:test/test.dart';
-import 'package:lualike/lualike.dart';
+import 'package:lualike/testing.dart';
 
 /// A simple built-in function that adds two numbers.
 class AddBuiltinFunction implements BuiltinFunction {

@@ -1,6 +1,5 @@
 @Tags(['pm'])
-import 'package:lualike/lualike.dart';
-import 'package:test/test.dart';
+import 'package:lualike/testing.dart';
 
 void main() {
   group('String Pattern Matching', () {

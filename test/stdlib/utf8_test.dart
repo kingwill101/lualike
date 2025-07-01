@@ -1,6 +1,4 @@
-@Tags(['stdlib'])
-import 'package:test/test.dart';
-import 'package:lualike/lualike.dart';
+import 'package:lualike/testing.dart';
 
 void main() {
   group('UTF8 Library', () {
