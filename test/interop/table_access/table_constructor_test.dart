@@ -28,7 +28,7 @@ void main() {
 
       expect(
         (filesMap['names.lua'] as Value).raw,
-        equals(r'do return {...} end\n'),
+        equals('do return {...} end\n'.replaceAll('\\n', '\n')),
       );
       expect((filesMap['err.lua'] as Value).raw, equals('B = 15; a = a + 1;'));
       expect((filesMap['synerr.lua'] as Value).raw, equals('B ='));
