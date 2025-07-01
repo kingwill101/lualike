@@ -404,6 +404,7 @@ class ToNumberFunction implements BuiltinFunction {
       // Our parser currently does not interpret escape sequences in
       // string literals, so handle common ones here for tonumber with base.
       str = str.replaceAll('\\t', '\t');
+      str = str.replaceAll('\\n', '\n');
       if (base != null && base.raw is int) {
         final radix = base.raw as int;
         try {
