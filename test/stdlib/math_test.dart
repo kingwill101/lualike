@@ -104,6 +104,16 @@ void main() {
       expect((r3).raw, lessThanOrEqualTo(30));
     });
 
+    test('xoshiro deterministic integer', () async {
+      await bridge.runCode('''
+        math.randomseed(1007)
+        result = math.random(0)
+      ''');
+
+      final result = bridge.getGlobal('result') as Value;
+      expect(result.raw, equals(8822622750169614806));
+    });
+
     test('angle conversion', () async {
       await bridge.runCode('''
         local deg = math.deg(math.pi)
