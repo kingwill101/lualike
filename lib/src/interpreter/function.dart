@@ -344,6 +344,13 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         category: 'Interpreter',
       );
       return result;
+    } on LuaError catch (e, s) {
+      (this as Interpreter).reportError(
+        e.message,
+        trace: s,
+        error: e,
+        node: node,
+      );
     } finally {
       // Pop function from call stack
       callStack.pop();
@@ -854,7 +861,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         '>>> Could not call value as function: $func (${func.runtimeType})',
         category: 'Interpreter',
       );
-      throw Exception("attempt to call a non-function value");
+      throw LuaError.typeError(
+        "attempt to call a non-function value ($functionName)",
+      );
     } on YieldException catch (ye) {
       // Handle coroutine yield
       Logger.debug(
