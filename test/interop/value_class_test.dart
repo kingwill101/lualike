@@ -1,6 +1,4 @@
-@Tags(['interop'])
-import 'package:test/test.dart';
-import 'package:lualike/lualike.dart';
+import 'package:lualike/testing.dart';
 import 'package:lualike/src/value_class.dart';
 
 void main() {

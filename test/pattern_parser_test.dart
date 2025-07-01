@@ -1,5 +1,5 @@
 import 'package:lualike/src/pattern_parser.dart';
-import 'package:test/test.dart';
+import 'package:lualike/testing.dart';
 
 void main() {
   final parser = LuaPatternParser();

@@ -1,6 +1,5 @@
 import 'package:lualike/src/value_class.dart';
-import 'package:test/test.dart';
-import 'package:lualike/lualike.dart';
+import 'package:lualike/testing.dart';
 
 /// A simple built-in function that multiplies two numbers.
 class MultiplyFunction implements BuiltinFunction {

@@ -1,7 +1,5 @@
 @Tags(['core'])
-import 'package:lualike/lualike.dart';
-import 'package:test/test.dart';
-import 'package:lualike/src/call_stack.dart';
+import 'package:lualike/testing.dart';
 
 void main() {
   group('CallStack', () {

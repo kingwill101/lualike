@@ -1,7 +1,6 @@
 @Tags(['bytecode'])
-import 'package:lualike/lualike.dart';
+import 'package:lualike/testing.dart';
 import 'package:lualike/bytecode.dart';
-import 'package:test/test.dart';
 
 void main() {
   group('Upvalue handling', () {

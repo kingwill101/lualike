@@ -1,6 +1,6 @@
 @Tags(['bytecode'])
 import 'package:test/test.dart';
-import 'package:lualike/lualike.dart' as lualike;
+import 'package:lualike/testing.dart' as lualike;
 import 'package:lualike/bytecode.dart';
 
 void main() {

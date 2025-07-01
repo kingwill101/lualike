@@ -1,5 +1,5 @@
 import 'dart:typed_data';
-import 'package:lualike/src/testing/testing.dart';
+import 'package:lualike/testing.dart';
 
 void main() {
   test(
