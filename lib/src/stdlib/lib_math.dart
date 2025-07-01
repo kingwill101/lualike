@@ -90,12 +90,14 @@ class _MathCeil extends _MathFunction {
     final num n = number as num;
     if (n is double) {
       if (!n.isFinite) return Value(n);
-      final intRes = n.ceil();
       final doubleRes = n.ceilToDouble();
-      if (doubleRes == intRes.toDouble() &&
-          intRes <= MathLib.maxInteger &&
-          intRes >= MathLib.minInteger) {
-        return Value(intRes);
+      if (doubleRes.isFinite) {
+        final big = BigInt.parse(doubleRes.toStringAsFixed(0));
+        if (big.toDouble() == doubleRes &&
+            big <= BigInt.from(MathLib.maxInteger) &&
+            big >= BigInt.from(MathLib.minInteger)) {
+          return Value(big.toInt());
+        }
       }
       return Value(doubleRes);
     }
@@ -161,12 +163,14 @@ class _MathFloor extends _MathFunction {
     final num n = number as num;
     if (n is double) {
       if (!n.isFinite) return Value(n);
-      final intRes = n.floor();
       final doubleRes = n.floorToDouble();
-      if (doubleRes == intRes.toDouble() &&
-          intRes <= MathLib.maxInteger &&
-          intRes >= MathLib.minInteger) {
-        return Value(intRes);
+      if (doubleRes.isFinite) {
+        final big = BigInt.parse(doubleRes.toStringAsFixed(0));
+        if (big.toDouble() == doubleRes &&
+            big <= BigInt.from(MathLib.maxInteger) &&
+            big >= BigInt.from(MathLib.minInteger)) {
+          return Value(big.toInt());
+        }
       }
       return Value(doubleRes);
     }
@@ -443,6 +447,34 @@ class _MathType extends _MathFunction {
   }
 }
 
+class _MathUlt extends _MathFunction {
+  @override
+  Object? call(List<Object?> args) {
+    if (args.length < 2) {
+      throw LuaError.typeError('math.ult requires two integer arguments');
+    }
+
+    dynamic m = args[0] is Value ? (args[0] as Value).raw : args[0];
+    dynamic n = args[1] is Value ? (args[1] as Value).raw : args[1];
+
+    if (m is! int && m is! BigInt) {
+      throw LuaError.typeError('math.ult first argument must be an integer');
+    }
+    if (n is! int && n is! BigInt) {
+      throw LuaError.typeError('math.ult second argument must be an integer');
+    }
+
+    BigInt mb = m is BigInt ? m : BigInt.from(m as int);
+    BigInt nb = n is BigInt ? n : BigInt.from(n as int);
+
+    final BigInt mod = BigInt.one << MathLib._sizeInBits;
+    if (mb.isNegative) mb += mod;
+    if (nb.isNegative) nb += mod;
+
+    return Value(mb < nb);
+  }
+}
+
 class MathLib {
   // Use 64-bit signed integer limits for maxInteger and minInteger
   static const int _sizeInBits = 64;
@@ -477,6 +509,7 @@ class MathLib {
     "sqrt": _MathSqrt(),
     "tan": _MathTan(),
     "tointeger": _MathTointeger(),
+    "ult": _MathUlt(),
     "type": _MathType(),
     "huge": Value(double.infinity),
     "maxinteger": Value(maxInteger),
