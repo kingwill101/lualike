@@ -1119,8 +1119,11 @@ extension OperatorExtension on Value {
           result = (div.isInfinite || div.isNaN) ? div : div.floorToDouble();
           break;
         case '%':
-          final div = (d1 / d2).floor();
-          result = d1 - div * d2;
+          var rem = d1.remainder(d2);
+          if (rem != 0 && ((d1 < 0 && d2 > 0) || (d1 > 0 && d2 < 0))) {
+            rem += d2;
+          }
+          result = rem;
           break;
         case '&':
           final bi1 = toInt(d1);

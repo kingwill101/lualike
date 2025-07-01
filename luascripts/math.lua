@@ -636,7 +636,7 @@ if not _port then
 end
 
 
--- testing unsigned comparisons
+-- testing unsigned comparisonsf
 assert(math.ult(3, 4))
 assert(not math.ult(4, 4))
 assert(math.ult(-2, -1))
