@@ -9,13 +9,17 @@ Lualike is a lua interpreter written in Dart. It is designed to be a drop-in rep
 3. **Address test failures individually**  
    If any test fails, address each failure one at a time.
    Add useful debug output to make it easier to understand what's happening.
-   Logger class has a Logger.setEnabled(false); which works with --debug flag when using the interpreter (dart run bin/main.dart) Note it can be very noisy.
-   Compare results with the reference lua interpreter when uncertain. our interpreter supports the same cli arguments as the reference lua interpreter.
+   Logger class has a Logger.setEnabled(false);  
+     - which works with --debug flag when using the interpreter (dart run bin/main.dart) Note it can be very noisy.
+     - you can  use the LOGGING_ENABED  environment to the vm example: "dart --define=LOGGING_ENABLED=true run test test/stdlib/base_test.dart" will show the debug output.
+    
+      Compare results with the reference lua interpreter when uncertain. our interpreter supports the same cli arguments as the reference lua interpreter.
 
 4. **Prefer targeted test cases**  
    When fixing bugs or investigating issues, write dedicated test cases that isolate the failing expression or behavior.  
    - Avoid repeatedly running the full test suite/complete lua script just to reproduce a single error.
    - Construct minimal test cases that include all necessary functions, variables, and context to trigger the issue.
+   - When testing lua scripts,  write test cases for hard bugs so we do not regress on them in the future.
 
 5. **General best practices**
    - Keep code changes minimal and focused.
