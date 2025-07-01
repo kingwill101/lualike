@@ -5899,7 +5899,7 @@ class GrammarParser {
   ///     S
   ///     value = Expression
   ///     {
-  ///       node = KeyedTableEntry(key, value);
+  ///       node = IndexedTableEntry(key, value);
   ///     }
   ///     ----
   ///     key = ID
@@ -5946,7 +5946,7 @@ class GrammarParser {
             final $8 = parseExpression(state);
             if ($8 != null) {
               AstNode value = $8.$1;
-              node = KeyedTableEntry(key, value);
+              node = IndexedTableEntry(key, value);
               $3 = true;
             }
           } else {
