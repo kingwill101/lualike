@@ -53,5 +53,69 @@ void main() {
         ),
       );
     });
+
+    test('goto can jump backward within the same block', () async {
+      var prog = <AstNode>[
+        LocalDeclaration([Identifier('x')], [], [NumberLiteral(0)]),
+        Label(Identifier('loop')),
+        Assignment(
+          [Identifier('x')],
+          [BinaryExpression(Identifier('x'), '+', NumberLiteral(1))],
+        ),
+        IfStatement(
+          BinaryExpression(Identifier('x'), '<', NumberLiteral(3)),
+          [],
+          [Goto(Identifier('loop'))],
+          [],
+        ),
+      ];
+
+      var vm = Interpreter();
+      await vm.run(prog);
+
+      expect(vm.globals.get('x'), equals(Value(3)));
+    });
+
+    test('labels with same name are scoped per block', () async {
+      var prog = <AstNode>[
+        LocalDeclaration(
+          [Identifier('x'), Identifier('y')],
+          [],
+          [NumberLiteral(0), NumberLiteral(5)],
+        ),
+        DoBlock([
+          Label(Identifier('repeat')),
+          Assignment(
+            [Identifier('x')],
+            [BinaryExpression(Identifier('x'), '+', NumberLiteral(1))],
+          ),
+          IfStatement(
+            BinaryExpression(Identifier('x'), '<', NumberLiteral(3)),
+            [],
+            [Goto(Identifier('repeat'))],
+            [],
+          ),
+        ]),
+        DoBlock([
+          Label(Identifier('repeat')),
+          Assignment(
+            [Identifier('y')],
+            [BinaryExpression(Identifier('y'), '-', NumberLiteral(1))],
+          ),
+          IfStatement(
+            BinaryExpression(Identifier('y'), '>', NumberLiteral(0)),
+            [],
+            [Goto(Identifier('repeat'))],
+            [],
+          ),
+        ]),
+      ];
+
+      var vm = Interpreter();
+      await vm.run(prog);
+
+      expect(vm.globals.get('x'), equals(Value(3)));
+      expect(vm.globals.get('y'), equals(Value(0)));
+    });
   });
 }
