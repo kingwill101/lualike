@@ -253,15 +253,15 @@ void main() {
       final pInf = Value(double.infinity);
       final nInf = Value(double.negativeInfinity);
       final zero = Value(0);
-      
+
       // Positive infinity comparisons
       expect(pInf > zero, isTrue, reason: '+inf > 0 should be true');
       expect(zero < pInf, isTrue, reason: '0 < +inf should be true');
       //TODO verify these comparisons they are currently failing
       expect(pInf >= zero, isTrue, reason: '+inf >= 0 should be true');
       expect(zero <= pInf, isTrue, reason: '0 <= +inf should be true');
-      
-      // Negative infinity comparisons  
+
+      // Negative infinity comparisons
       expect(nInf < zero, isTrue, reason: '-inf < 0 should be true');
       expect(zero > nInf, isTrue, reason: '0 > -inf should be true');
       //TODO verify these comparisons they are currently failing
@@ -272,60 +272,93 @@ void main() {
     test('Zero variants equality and hash code', () {
       final negativeZero = Value(-0.0);
       final positiveZero = Value(0.0);
-      
+
       // They should be equal in Lua semantics
-      expect(negativeZero == positiveZero, isTrue, 
-        reason: '-0.0 should equal 0.0 in Lua');
-      
+      expect(
+        negativeZero == positiveZero,
+        isTrue,
+        reason: '-0.0 should equal 0.0 in Lua',
+      );
+
       // They should have the same hash code for table key consistency
-      expect(negativeZero.hashCode, equals(positiveZero.hashCode),
-        reason: '-0.0 and 0.0 should have same hash code for table keys');
+      expect(
+        negativeZero.hashCode,
+        equals(positiveZero.hashCode),
+        reason: '-0.0 and 0.0 should have same hash code for table keys',
+      );
     });
 
     test('Zero variants as table keys - direct assignment', () {
       final table = Value({});
       final negativeZero = Value(-0.0);
       final positiveZero = Value(0.0);
-      
+
       // Assign using negative zero
       table[negativeZero] = Value(42);
-      
+
       // Should be accessible via both keys
-      expect(table[negativeZero].raw, equals(42),
-        reason: 'Should access via negative zero key');
-      expect(table[positiveZero].raw, equals(42),
-        reason: 'Should access via positive zero key (same as negative zero)');
-      
+      expect(
+        table[negativeZero].raw,
+        equals(42),
+        reason: 'Should access via negative zero key',
+      );
+      expect(
+        table[positiveZero].raw,
+        equals(42),
+        reason: 'Should access via positive zero key (same as negative zero)',
+      );
+
       // Assign using positive zero should overwrite
       table[positiveZero] = Value(100);
-      
-      expect(table[negativeZero].raw, equals(100),
-        reason: 'Assignment via positive zero should overwrite negative zero key');
-      expect(table[positiveZero].raw, equals(100),
-        reason: 'Should access via positive zero key');
+
+      expect(
+        table[negativeZero].raw,
+        equals(100),
+        reason:
+            'Assignment via positive zero should overwrite negative zero key',
+      );
+      expect(
+        table[positiveZero].raw,
+        equals(100),
+        reason: 'Should access via positive zero key',
+      );
     });
 
     test('Zero variants as table keys - constructor syntax', () {
       final negativeZero = -0.0;
       final positiveZero = 0.0;
-      
+
       // Create table with negative zero key in constructor
       final tableWithNegZero = Value({negativeZero: Value(42)});
-      
+
       // Should be accessible via both zero variants
-      expect(tableWithNegZero[Value(negativeZero)].raw, equals(42),
-        reason: 'Should access via negative zero key');
-      expect(tableWithNegZero[Value(positiveZero)].raw, equals(42),
-        reason: 'Should access via positive zero key (constructor with negative zero)');
-      
-      // Create table with positive zero key in constructor  
+      expect(
+        tableWithNegZero[Value(negativeZero)].raw,
+        equals(42),
+        reason: 'Should access via negative zero key',
+      );
+      expect(
+        tableWithNegZero[Value(positiveZero)].raw,
+        equals(42),
+        reason:
+            'Should access via positive zero key (constructor with negative zero)',
+      );
+
+      // Create table with positive zero key in constructor
       final tableWithPosZero = Value({positiveZero: Value(100)});
-      
+
       // Should be accessible via both zero variants
-      expect(tableWithPosZero[Value(negativeZero)].raw, equals(100),
-        reason: 'Should access via negative zero key (constructor with positive zero)');
-      expect(tableWithPosZero[Value(positiveZero)].raw, equals(100),
-        reason: 'Should access via positive zero key');
+      expect(
+        tableWithPosZero[Value(negativeZero)].raw,
+        equals(100),
+        reason:
+            'Should access via negative zero key (constructor with positive zero)',
+      );
+      expect(
+        tableWithPosZero[Value(positiveZero)].raw,
+        equals(100),
+        reason: 'Should access via positive zero key',
+      );
     });
   });
 

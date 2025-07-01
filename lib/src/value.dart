@@ -2,7 +2,6 @@ import 'dart:math' as math;
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
-import 'package:lualike/src/number.dart';
 import 'package:lualike/src/stdlib/lib_math.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/upvalue.dart';
