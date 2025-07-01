@@ -391,7 +391,7 @@ class _MathRad extends _MathFunction {
 }
 
 class _MathRandom extends _MathFunction {
-  final math.Random _random = math.Random();
+  math.Random _random = math.Random();
 
   @override
   Object? call(List<Object?> args) {
@@ -402,6 +402,12 @@ class _MathRandom extends _MathFunction {
       // One argument: return a random integer between 1 and n
       final n = _getNumber(args[0] as Value, "random", 1);
       final intN = n is BigInt ? n.toInt() : (n as num).toInt();
+      if (intN == 0) {
+        final high = _random.nextInt(0x100000000);
+        final low = _random.nextInt(0x100000000);
+        final result = (BigInt.from(high) << 32) | BigInt.from(low);
+        return Value(result);
+      }
       if (intN < 1) {
         throw LuaError.typeError("math.random: range is empty");
       }
@@ -424,6 +430,9 @@ class _MathRandom extends _MathFunction {
 }
 
 class _MathRandomseed extends _MathFunction {
+  final _MathRandom _randomFunc;
+  _MathRandomseed(this._randomFunc);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -432,9 +441,7 @@ class _MathRandomseed extends _MathFunction {
 
     final number = _getNumber(args[0] as Value, "randomseed", 1);
     final seed = number is BigInt ? number.toInt() : (number as num).toInt();
-    math.Random(
-      seed,
-    ); // Create a new Random with the seed (affects future calls)
+    _randomFunc._random = math.Random(seed);
 
     return Value(null);
   }
@@ -578,6 +585,7 @@ class MathLib {
     );
   }
 
+  static final _MathRandom _randomFunc = _MathRandom();
   static final Map<String, dynamic> functions = {
     "abs": _MathAbs(),
     "acos": _MathAcos(),
@@ -595,8 +603,8 @@ class MathLib {
     "modf": _MathModf(),
     "pi": Value(math.pi),
     "rad": _MathRad(),
-    "random": _MathRandom(),
-    "randomseed": _MathRandomseed(),
+    "random": _randomFunc,
+    "randomseed": _MathRandomseed(_randomFunc),
     "sin": _MathSin(),
     "sqrt": _MathSqrt(),
     "tan": _MathTan(),
