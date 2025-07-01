@@ -151,11 +151,12 @@ print(math.random(50, 100))
 ```
 
 **Implementation Details:**
-Generates pseudo-random numbers.
-- Called without arguments, it returns a float between 0.0 and 1.0.
+Generates pseudo-random numbers using the **xoshiro256\*\*** algorithm.
+- Called without arguments, it returns a float between `0.0` and `1.0`.
 - Called with one integer argument `m`, it returns an integer in the range `[1, m]`.
 - Called with two integer arguments `m` and `n`, it returns an integer in the range `[m, n]`.
-The implementation uses Dart's `Random` class.
+The call `math.random(0)` returns a 64-bit integer with all bits random.
+This implementation relies on the `xrandom` package for the underlying generator.
 
 ### `math.randomseed`
 
@@ -165,7 +166,7 @@ math.randomseed(os.time())
 ```
 
 **Implementation Details:**
-Sets the seed for the pseudo-random number generator. This allows for reproducible sequences of random numbers. The implementation re-initializes Dart's `Random` object with the given seed.
+Sets the seed for the pseudo-random number generator. Two integers can be supplied to form a 128-bit seed. When called without arguments, the generator is seeded with platform time. The function returns the two seed components used.
 
 ### `math.sqrt`
 
