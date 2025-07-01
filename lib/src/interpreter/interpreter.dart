@@ -475,52 +475,58 @@ class Interpreter extends AstVisitor<Object?>
       currentScriptPath = scriptPath;
     }
 
-    // Object? result;
-    // Preprocess program to build a mapping from label names to statement indices.
-    final labelMap = <String, int>{};
-    for (var i = 0; i < program.length; i++) {
-      var node = program[i];
-      if (node is Label) {
-        labelMap[node.label.name] = i;
-      }
-    }
-    Logger.debug('Label map: $labelMap', category: 'Interpreter');
-
     // Clear evaluation stack at start.
     while (!evalStack.isEmpty) {
       evalStack.pop();
       Logger.debug('evalStack.pop()', category: 'Interpreter');
     }
 
-    int i = 0;
-    while (i < program.length) {
-      final node = program[i];
+    try {
+      await _executeStatements(program);
+    } on GotoException catch (e) {
+      // Report undefined label with helpful message
+      throw GotoException('Undefined label: ${e.label}');
+    }
+
+    Logger.debug('Program finished', category: 'Interpreter');
+    return evalStack.isEmpty ? null : evalStack.peek();
+  }
+
+  Future<Object?> _executeStatements(List<AstNode> statements) async {
+    final labelMap = <String, int>{};
+    for (var i = 0; i < statements.length; i++) {
+      final node = statements[i];
+      if (node is Label) {
+        labelMap[node.label.name] = i;
+      }
+    }
+    Logger.debug('Label map: $labelMap', category: 'Interpreter');
+
+    Object? result;
+    var index = 0;
+    while (index < statements.length) {
+      final node = statements[index];
       Logger.debug(
-        'Visiting node ${node.runtimeType} at index $i',
+        'Visiting node ${node.runtimeType} at index $index',
         category: 'Interpreter',
       );
       recordTrace(node);
       try {
-        await node.accept(this);
-        i++;
+        result = await node.accept(this);
+        index++;
       } on GotoException catch (e) {
         Logger.debug(
           'GotoException caught: ${e.label}',
           category: 'Interpreter',
         );
         if (!labelMap.containsKey(e.label)) {
-          throw GotoException("Undefined label: ${e.label}");
+          // Propagate to outer scope for resolution
+          throw GotoException(e.label);
         }
-        i = labelMap[e.label]!;
-      } catch (e, s) {
-        if (e is ReturnException) rethrow;
-        if (e is LuaError) rethrow;
-        reportError(e.toString(), trace: s);
-        rethrow;
+        index = labelMap[e.label]!;
       }
     }
-    Logger.debug('Program finished', category: 'Interpreter');
-    return evalStack.isEmpty ? null : evalStack.peek();
+    return result;
   }
 
   /// Evaluates a program.

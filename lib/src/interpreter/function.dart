@@ -219,8 +219,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         );
 
         // Execute the function body in the new environment
-        for (final stmt in node.body) {
-          result = await stmt.accept(this);
+        if (this is Interpreter) {
+          result = await (this as Interpreter)._executeStatements(node.body);
+        } else {
+          for (final stmt in node.body) {
+            result = await stmt.accept(this);
+          }
         }
       } on ReturnException catch (e) {
         result = e.value;

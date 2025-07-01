@@ -52,12 +52,12 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
 
       if (condValue) {
         Logger.debug('Executing then block', category: 'Interpreter');
-        for (final stmt in node.thenBlock) {
-          // Record trace for each statement in the block
-          if (this is Interpreter) {
-            (this as Interpreter).recordTrace(stmt);
+        if (this is Interpreter) {
+          await (this as Interpreter)._executeStatements(node.thenBlock);
+        } else {
+          for (final stmt in node.thenBlock) {
+            await stmt.accept(this);
           }
-          await stmt.accept(this);
         }
       } else if (node.elseIfs.isNotEmpty) {
         // Handle elseif clauses
@@ -83,12 +83,12 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
 
           if (elseIfCondValue) {
             Logger.debug('Executing elseif block', category: 'Interpreter');
-            for (final stmt in elseIf.thenBlock) {
-              // Record trace for each statement in the elseif block
-              if (this is Interpreter) {
-                (this as Interpreter).recordTrace(stmt);
+            if (this is Interpreter) {
+              await (this as Interpreter)._executeStatements(elseIf.thenBlock);
+            } else {
+              for (final stmt in elseIf.thenBlock) {
+                await stmt.accept(this);
               }
-              await stmt.accept(this);
             }
             elseIfMatched = true;
             break;
@@ -98,22 +98,22 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         // If no elseif matched, execute the else block
         if (!elseIfMatched && node.elseBlock.isNotEmpty) {
           Logger.debug('Executing else block', category: 'Interpreter');
-          for (final stmt in node.elseBlock) {
-            // Record trace for each statement in the else block
-            if (this is Interpreter) {
-              (this as Interpreter).recordTrace(stmt);
+          if (this is Interpreter) {
+            await (this as Interpreter)._executeStatements(node.elseBlock);
+          } else {
+            for (final stmt in node.elseBlock) {
+              await stmt.accept(this);
             }
-            await stmt.accept(this);
           }
         }
       } else if (node.elseBlock.isNotEmpty) {
         Logger.debug('Executing else block', category: 'Interpreter');
-        for (final stmt in node.elseBlock) {
-          // Record trace for each statement in the else block
-          if (this is Interpreter) {
-            (this as Interpreter).recordTrace(stmt);
+        if (this is Interpreter) {
+          await (this as Interpreter)._executeStatements(node.elseBlock);
+        } else {
+          for (final stmt in node.elseBlock) {
+            await stmt.accept(this);
           }
-          await stmt.accept(this);
         }
       }
     } on BreakException {
@@ -208,12 +208,12 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         setCurrentEnv(loopEnv);
 
         Logger.debug('Executing while loop body', category: 'Interpreter');
-        for (final stmt in node.body) {
-          // Record trace for each statement in the loop body
-          if (this is Interpreter) {
-            (this as Interpreter).recordTrace(stmt);
+        if (this is Interpreter) {
+          await (this as Interpreter)._executeStatements(node.body);
+        } else {
+          for (final stmt in node.body) {
+            await stmt.accept(this);
           }
-          await stmt.accept(this);
         }
       } on BreakException {
         // Close variables before breaking
@@ -318,12 +318,12 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           loopEnv.define(node.varName.name, Value(i));
 
           // Execute the loop body
-          for (final stmt in node.body) {
-            // Record trace for each statement in the loop body
-            (this is Interpreter)
-                ? (this as Interpreter).recordTrace(stmt)
-                : null;
-            await stmt.accept(this);
+          if (this is Interpreter) {
+            await (this as Interpreter)._executeStatements(node.body);
+          } else {
+            for (final stmt in node.body) {
+              await stmt.accept(this);
+            }
           }
         } on BreakException {
           // Close variables before breaking
@@ -405,11 +405,12 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           'Executing repeat-until loop body',
           category: 'Interpreter',
         );
-        for (final stmt in node.body) {
-          (this is Interpreter)
-              ? (this as Interpreter).recordTrace(stmt)
-              : null;
-          await stmt.accept(this);
+        if (this is Interpreter) {
+          await (this as Interpreter)._executeStatements(node.body);
+        } else {
+          for (final stmt in node.body) {
+            await stmt.accept(this);
+          }
         }
 
         final condition = await node.cond.accept(this);
@@ -537,11 +538,12 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
             }
 
             // Execute loop body
-            for (final stmt in node.body) {
-              (this is Interpreter)
-                  ? (this as Interpreter).recordTrace(stmt)
-                  : null;
-              await stmt.accept(this);
+            if (this is Interpreter) {
+              await (this as Interpreter)._executeStatements(node.body);
+            } else {
+              for (final stmt in node.body) {
+                await stmt.accept(this);
+              }
             }
           } on BreakException {
             // Close variables before breaking
@@ -736,11 +738,12 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           }
 
           // Execute loop body
-          for (final stmt in node.body) {
-            (this is Interpreter)
-                ? (this as Interpreter).recordTrace(stmt)
-                : null;
-            await stmt.accept(this);
+          if (this is Interpreter) {
+            await (this as Interpreter)._executeStatements(node.body);
+          } else {
+            for (final stmt in node.body) {
+              await stmt.accept(this);
+            }
           }
         } on BreakException {
           // Close variables before breaking
@@ -850,8 +853,12 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       setCurrentEnv(blockEnv);
 
       Logger.debug('Executing do block statements', category: 'Interpreter');
-      for (final stmt in node.body) {
-        result = await stmt.accept(this);
+      if (this is Interpreter) {
+        result = await (this as Interpreter)._executeStatements(node.body);
+      } else {
+        for (final stmt in node.body) {
+          result = await stmt.accept(this);
+        }
       }
     } on BreakException {
       // Close variables before re-throwing
@@ -931,8 +938,14 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           'Executing elseif block statements',
           category: 'Interpreter',
         );
-        for (final stmt in node.thenBlock) {
-          result = await stmt.accept(this);
+        if (this is Interpreter) {
+          result = await (this as Interpreter)._executeStatements(
+            node.thenBlock,
+          );
+        } else {
+          for (final stmt in node.thenBlock) {
+            result = await stmt.accept(this);
+          }
         }
       } on BreakException {
         // Close variables before re-throwing
