@@ -99,6 +99,10 @@ Future<void> runFile(String filePath, ExecutionMode mode) async {
 
     // Set the script path in the global bridge before running the code
     globalBridge.setGlobal('_SCRIPT_PATH', absolutePath);
+    // Default '_soft' flag used by Lua tests to conditionally
+    // execute heavier checks. When undefined our interpreter would
+    // throw an error for an unknown global, so define it explicitly.
+    globalBridge.setGlobal('_soft', false);
 
     // Run the code and let the interpreter handle any errors
     await runCode(sourceCode, mode, scriptPath: absolutePath);
