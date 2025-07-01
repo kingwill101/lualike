@@ -69,7 +69,12 @@ class LuaNumberParser {
 
       // integer portion
       if (intStr.isNotEmpty) {
-        value += int.parse(intStr, radix: 16).toDouble();
+        try {
+          value += int.parse(intStr, radix: 16).toDouble();
+        } on FormatException {
+          // very large integers may overflow the native int parser
+          value += BigInt.parse(intStr, radix: 16).toDouble();
+        }
       }
 
       // fractional portion

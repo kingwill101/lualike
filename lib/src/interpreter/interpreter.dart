@@ -513,6 +513,7 @@ class Interpreter extends AstVisitor<Object?>
         }
         i = labelMap[e.label]!;
       } catch (e, s) {
+        if (e is ReturnException) rethrow;
         reportError(e.toString(), trace: s);
         rethrow;
       }
