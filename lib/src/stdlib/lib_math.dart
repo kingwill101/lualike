@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/lualike.dart';
+import 'package:xrandom/xrandom.dart';
 
 // Base class for math functions to handle common number validation
 abstract class _MathFunction implements BuiltinFunction {
@@ -391,29 +392,23 @@ class _MathRad extends _MathFunction {
 }
 
 class _MathRandom extends _MathFunction {
-  math.Random _random = math.Random();
+  Xoshiro256ss _random = Xoshiro256ss.seeded();
 
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
-      // No arguments: return a random float between 0 and 1
       return Value(_random.nextDouble());
     } else if (args.length == 1) {
-      // One argument: return a random integer between 1 and n
       final n = _getNumber(args[0] as Value, "random", 1);
       final intN = n is BigInt ? n.toInt() : (n as num).toInt();
       if (intN == 0) {
-        final high = _random.nextInt(0x100000000);
-        final low = _random.nextInt(0x100000000);
-        final result = (BigInt.from(high) << 32) | BigInt.from(low);
-        return Value(result);
+        return Value(_random.nextRaw64());
       }
       if (intN < 1) {
         throw LuaError.typeError("math.random: range is empty");
       }
-      return Value(_random.nextInt(intN) + 1);
+      return Value(1 + _random.nextInt(intN));
     } else if (args.length == 2) {
-      // Two arguments: return a random integer between m and n
       final m = _getNumber(args[0] as Value, "random", 1);
       final n = _getNumber(args[1] as Value, "random", 2);
       final intM = m is BigInt ? m.toInt() : (m as num).toInt();
@@ -435,15 +430,29 @@ class _MathRandomseed extends _MathFunction {
 
   @override
   Object? call(List<Object?> args) {
+    int n1;
+    int n2;
     if (args.isEmpty) {
-      throw LuaError.typeError("math.randomseed requires a number argument");
+      n1 = DateTime.now().microsecondsSinceEpoch;
+      n2 = Xoshiro256ss.seeded().nextRaw64();
+    } else {
+      final number1 = _getNumber(args[0] as Value, "randomseed", 1);
+      n1 = number1 is BigInt ? number1.toInt() : (number1 as num).toInt();
+      if (args.length >= 2) {
+        final number2 = _getNumber(args[1] as Value, "randomseed", 2);
+        n2 = number2 is BigInt ? number2.toInt() : (number2 as num).toInt();
+      } else {
+        n2 = 0;
+      }
     }
 
-    final number = _getNumber(args[0] as Value, "randomseed", 1);
-    final seed = number is BigInt ? number.toInt() : (number as num).toInt();
-    _randomFunc._random = math.Random(seed);
+    final rng = Xoshiro256ss(n1, 0xff, n2, 0);
+    for (var i = 0; i < 16; i++) {
+      rng.nextRaw64();
+    }
+    _randomFunc._random = rng;
 
-    return Value(null);
+    return Value.multi([Value(n1), Value(n2)]);
   }
 }
 
