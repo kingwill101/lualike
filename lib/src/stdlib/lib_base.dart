@@ -1317,18 +1317,14 @@ class RequireFunction implements BuiltinFunction {
           // Create a new environment for the module
           final moduleEnv = Environment(parent: vm.globals, interpreter: vm);
 
-          // Execute the module code in the new environment
-          final interpreter = Interpreter(
-            environment: moduleEnv,
-            fileManager: vm.fileManager,
-          );
+          // We'll execute the module code using the current interpreter to
+          // ensure package.loaded is shared.
 
-          // Set the current script path to the module path
+          // Resolve the absolute path for the module
           String absoluteModulePath;
           if (path.isAbsolute(modulePath)) {
             absoluteModulePath = modulePath;
           } else {
-            // Use the FileManager to resolve the absolute path instead of duplicating logic
             absoluteModulePath = vm.fileManager.resolveAbsoluteModulePath(
               modulePath,
             );
@@ -1337,8 +1333,11 @@ class RequireFunction implements BuiltinFunction {
           // Get the directory part of the script path
           final moduleDir = path.dirname(absoluteModulePath);
 
-          // Set the current script path in the interpreter
-          interpreter.currentScriptPath = absoluteModulePath;
+          // Temporarily switch to the module environment
+          final prevEnv = vm.getCurrentEnv();
+          final prevPath = vm.currentScriptPath;
+          vm.setCurrentEnv(moduleEnv);
+          vm.currentScriptPath = absoluteModulePath;
 
           // Store the script path in the module environment
           moduleEnv.define('_SCRIPT_PATH', Value(absoluteModulePath));
@@ -1354,13 +1353,17 @@ class RequireFunction implements BuiltinFunction {
 
           Object? result;
           try {
-            // Run the module code
-            await interpreter.run(ast.statements);
+            // Run the module code within the current interpreter
+            await vm.run(ast.statements);
             // If no explicit return, the result is nil
             result = Value(null);
           } on ReturnException catch (e) {
             // Handle explicit return from module
             result = e.value;
+          } finally {
+            // Restore previous environment and script path
+            vm.setCurrentEnv(prevEnv);
+            vm.currentScriptPath = prevPath;
           }
 
           // If the module didn't return anything, return an empty table
