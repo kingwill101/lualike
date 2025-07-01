@@ -4,9 +4,21 @@ import 'package:lualike/lualike.dart';
 
 // Base class for math functions to handle common number validation
 abstract class _MathFunction implements BuiltinFunction {
-  dynamic _getNumber(Value value, String funcName) {
+  String _typeName(dynamic value) {
+    if (value == null) return 'nil';
+    if (value is bool) return 'boolean';
+    if (value is num) return 'number';
+    if (value is String) return 'string';
+    if (value is List) return 'table';
+    if (value is Function) return 'function';
+    return value.runtimeType.toString();
+  }
+
+  dynamic _getNumber(Value value, String funcName, int argNum) {
     if (value.raw is! num && value.raw is! BigInt) {
-      throw LuaError.typeError("number expected");
+      throw LuaError.typeError(
+        "bad argument #$argNum to '$funcName' (number expected, got ${_typeName(value.raw)})",
+      );
     }
     return value.raw;
   }
@@ -23,16 +35,17 @@ abstract class _MathFunction implements BuiltinFunction {
     }
     return BigInt.parse(str);
   }
-
 }
 
 class _MathAbs extends _MathFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
-      throw LuaError.typeError("math.abs requires a number argument");
+      throw LuaError.typeError(
+        "bad argument #1 to 'abs' (number expected, got no value)",
+      );
     }
-    final number = _getNumber(args[0] as Value, "math.abs");
+    final number = _getNumber(args[0] as Value, "abs", 1);
     if (number is BigInt) {
       return Value(number.abs());
     }
@@ -44,9 +57,11 @@ class _MathAcos extends _MathFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
-      throw LuaError.typeError("math.acos requires a number argument");
+      throw LuaError.typeError(
+        "bad argument #1 to 'acos' (number expected, got no value)",
+      );
     }
-    final number = _getNumber(args[0] as Value, "math.acos");
+    final number = _getNumber(args[0] as Value, "acos", 1);
     final double val = number is BigInt
         ? number.toDouble()
         : (number as num).toDouble();
@@ -58,9 +73,11 @@ class _MathAsin extends _MathFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
-      throw LuaError.typeError("math.asin requires a number argument");
+      throw LuaError.typeError(
+        "bad argument #1 to 'asin' (number expected, got no value)",
+      );
     }
-    final number = _getNumber(args[0] as Value, "math.asin");
+    final number = _getNumber(args[0] as Value, "asin", 1);
     final double val = number is BigInt
         ? number.toDouble()
         : (number as num).toDouble();
@@ -72,14 +89,16 @@ class _MathAtan extends _MathFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
-      throw LuaError.typeError("math.atan requires at least one argument");
+      throw LuaError.typeError(
+        "bad argument #1 to 'atan' (number expected, got no value)",
+      );
     }
 
-    final y = _getNumber(args[0] as Value, "math.atan");
+    final y = _getNumber(args[0] as Value, "atan", 1);
     final double yDouble = y is BigInt ? y.toDouble() : (y as num).toDouble();
 
     if (args.length > 1) {
-      final x = _getNumber(args[1] as Value, "math.atan");
+      final x = _getNumber(args[1] as Value, "atan", 2);
       final double xDouble = x is BigInt ? x.toDouble() : (x as num).toDouble();
       return Value(math.atan2(yDouble, xDouble));
     }
@@ -92,9 +111,11 @@ class _MathCeil extends _MathFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
-      throw LuaError.typeError("number expected");
+      throw LuaError.typeError(
+        "bad argument #1 to 'ceil' (number expected, got no value)",
+      );
     }
-    final number = _getNumber(args[0] as Value, "math.ceil");
+    final number = _getNumber(args[0] as Value, "ceil", 1);
     if (number is BigInt) {
       return Value(number);
     }
@@ -132,9 +153,11 @@ class _MathCos extends _MathFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
-      throw LuaError.typeError("math.cos requires a number argument");
+      throw LuaError.typeError(
+        "bad argument #1 to 'cos' (number expected, got no value)",
+      );
     }
-    final number = _getNumber(args[0] as Value, "math.cos");
+    final number = _getNumber(args[0] as Value, "cos", 1);
     final double val = number is BigInt
         ? number.toDouble()
         : (number as num).toDouble();
@@ -146,9 +169,11 @@ class _MathDeg extends _MathFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
-      throw LuaError.typeError("math.deg requires a number argument");
+      throw LuaError.typeError(
+        "bad argument #1 to 'deg' (number expected, got no value)",
+      );
     }
-    final number = _getNumber(args[0] as Value, "math.deg");
+    final number = _getNumber(args[0] as Value, "deg", 1);
     final double val = number is BigInt
         ? number.toDouble()
         : (number as num).toDouble();
@@ -160,9 +185,11 @@ class _MathExp extends _MathFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
-      throw LuaError.typeError("math.exp requires a number argument");
+      throw LuaError.typeError(
+        "bad argument #1 to 'exp' (number expected, got no value)",
+      );
     }
-    final number = _getNumber(args[0] as Value, "math.exp");
+    final number = _getNumber(args[0] as Value, "exp", 1);
     final double val = number is BigInt
         ? number.toDouble()
         : (number as num).toDouble();
@@ -174,9 +201,11 @@ class _MathFloor extends _MathFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
-      throw LuaError.typeError("number expected");
+      throw LuaError.typeError(
+        "bad argument #1 to 'floor' (number expected, got no value)",
+      );
     }
-    final number = _getNumber(args[0] as Value, "math.floor");
+    final number = _getNumber(args[0] as Value, "floor", 1);
     if (number is BigInt) {
       return Value(number);
     }
@@ -213,20 +242,49 @@ class _MathFloor extends _MathFunction {
 class _MathFmod extends _MathFunction {
   @override
   Object? call(List<Object?> args) {
+    if (args.isEmpty) {
+      throw LuaError.typeError(
+        "bad argument #1 to 'fmod' (number expected, got no value)",
+      );
+    }
     if (args.length < 2) {
-      throw LuaError.typeError("math.fmod requires two number arguments");
+      throw LuaError.typeError(
+        "bad argument #2 to 'fmod' (number expected, got no value)",
+      );
     }
 
-    final x = _getNumber(args[0] as Value, "math.fmod");
-    final y = _getNumber(args[1] as Value, "math.fmod");
+    final x = _getNumber(args[0] as Value, "fmod", 1);
+    final y = _getNumber(args[1] as Value, "fmod", 2);
+
+    // Check for division by zero
+    if ((y is num && y == 0) || (y is BigInt && y == BigInt.zero)) {
+      throw LuaError.typeError("bad argument #2 to 'math.fmod' (zero)");
+    }
 
     if (x is BigInt || y is BigInt) {
       final bigX = x is BigInt ? x : BigInt.from(x as num);
       final bigY = y is BigInt ? y : BigInt.from(y as num);
-      return Value(bigX % bigY);
+      final result = bigX - (bigX ~/ bigY) * bigY;
+      return Value(result);
     }
 
-    return Value((x as num) % (y as num));
+    // For integers, use integer arithmetic to avoid precision loss
+    if (x is int && y is int) {
+      // Use integer division to avoid floating point precision issues
+      final quotient = x ~/ y; // truncated division
+      final result = x - quotient * y;
+      return Value(result);
+    }
+
+    // For floating point cases, use standard fmod behavior
+    // Lua's fmod follows: fmod(x, y) = x - trunc(x/y) * y
+    final dx = (x as num).toDouble();
+    final dy = (y as num).toDouble();
+    final quotient = dx / dy;
+    final truncatedQuotient = quotient.truncateToDouble();
+    final result = dx - truncatedQuotient * dy;
+
+    return Value(result);
   }
 }
 
@@ -234,14 +292,16 @@ class _MathLog extends _MathFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
-      throw LuaError.typeError("math.log requires at least one argument");
+      throw LuaError.typeError(
+        "bad argument #1 to 'log' (number expected, got no value)",
+      );
     }
 
-    final x = _getNumber(args[0] as Value, "math.log");
+    final x = _getNumber(args[0] as Value, "log", 1);
     final double xDouble = x is BigInt ? x.toDouble() : (x as num).toDouble();
 
     if (args.length > 1) {
-      final base = _getNumber(args[1] as Value, "math.log");
+      final base = _getNumber(args[1] as Value, "log", 2);
       final double baseDouble = base is BigInt
           ? base.toDouble()
           : (base as num).toDouble();
@@ -256,13 +316,13 @@ class _MathMax extends _MathFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
-      throw LuaError.typeError("math.max requires at least one argument");
+      throw LuaError.typeError("bad argument #1 to 'max' (value expected)");
     }
 
-    dynamic max = _getNumber(args[0] as Value, "math.max");
+    dynamic max = _getNumber(args[0] as Value, "max", 1);
 
     for (int i = 1; i < args.length; i++) {
-      final num = _getNumber(args[i] as Value, "math.max");
+      final num = _getNumber(args[i] as Value, "max", i + 1);
       if (num > max) {
         max = num;
       }
@@ -276,13 +336,13 @@ class _MathMin extends _MathFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
-      throw LuaError.typeError("math.min requires at least one argument");
+      throw LuaError.typeError("bad argument #1 to 'min' (value expected)");
     }
 
-    dynamic min = _getNumber(args[0] as Value, "math.min");
+    dynamic min = _getNumber(args[0] as Value, "min", 1);
 
     for (int i = 1; i < args.length; i++) {
-      final num = _getNumber(args[i] as Value, "math.min");
+      final num = _getNumber(args[i] as Value, "min", i + 1);
       if (num < min) {
         min = num;
       }
@@ -299,7 +359,7 @@ class _MathModf extends _MathFunction {
       throw LuaError.typeError("math.modf requires a number argument");
     }
 
-    final number = _getNumber(args[0] as Value, "math.modf");
+    final number = _getNumber(args[0] as Value, "modf", 1);
     if (number is int || number is BigInt) {
       return Value.multi([Value(number), Value(0.0)]);
     }
@@ -322,7 +382,7 @@ class _MathRad extends _MathFunction {
     if (args.isEmpty) {
       throw LuaError.typeError("math.rad requires a number argument");
     }
-    final number = _getNumber(args[0] as Value, "math.rad");
+    final number = _getNumber(args[0] as Value, "rad", 1);
     final double val = number is BigInt
         ? number.toDouble()
         : (number as num).toDouble();
@@ -340,7 +400,7 @@ class _MathRandom extends _MathFunction {
       return Value(_random.nextDouble());
     } else if (args.length == 1) {
       // One argument: return a random integer between 1 and n
-      final n = _getNumber(args[0] as Value, "math.random");
+      final n = _getNumber(args[0] as Value, "random", 1);
       final intN = n is BigInt ? n.toInt() : (n as num).toInt();
       if (intN < 1) {
         throw LuaError.typeError("math.random: range is empty");
@@ -348,8 +408,8 @@ class _MathRandom extends _MathFunction {
       return Value(_random.nextInt(intN) + 1);
     } else if (args.length == 2) {
       // Two arguments: return a random integer between m and n
-      final m = _getNumber(args[0] as Value, "math.random");
-      final n = _getNumber(args[1] as Value, "math.random");
+      final m = _getNumber(args[0] as Value, "random", 1);
+      final n = _getNumber(args[1] as Value, "random", 2);
       final intM = m is BigInt ? m.toInt() : (m as num).toInt();
       final intN = n is BigInt ? n.toInt() : (n as num).toInt();
 
@@ -370,7 +430,7 @@ class _MathRandomseed extends _MathFunction {
       throw LuaError.typeError("math.randomseed requires a number argument");
     }
 
-    final number = _getNumber(args[0] as Value, "math.randomseed");
+    final number = _getNumber(args[0] as Value, "randomseed", 1);
     final seed = number is BigInt ? number.toInt() : (number as num).toInt();
     math.Random(
       seed,
@@ -386,7 +446,7 @@ class _MathSin extends _MathFunction {
     if (args.isEmpty) {
       throw LuaError.typeError("math.sin requires a number argument");
     }
-    final number = _getNumber(args[0] as Value, "math.sin");
+    final number = _getNumber(args[0] as Value, "sin", 1);
     final double val = number is BigInt
         ? number.toDouble()
         : (number as num).toDouble();
@@ -400,7 +460,7 @@ class _MathSqrt extends _MathFunction {
     if (args.isEmpty) {
       throw LuaError.typeError("math.sqrt requires a number argument");
     }
-    final number = _getNumber(args[0] as Value, "math.sqrt");
+    final number = _getNumber(args[0] as Value, "sqrt", 1);
     final double val = number is BigInt
         ? number.toDouble()
         : (number as num).toDouble();
@@ -414,7 +474,7 @@ class _MathTan extends _MathFunction {
     if (args.isEmpty) {
       throw LuaError.typeError("math.tan requires a number argument");
     }
-    final number = _getNumber(args[0] as Value, "math.tan");
+    final number = _getNumber(args[0] as Value, "tan", 1);
     final double val = number is BigInt
         ? number.toDouble()
         : (number as num).toDouble();
