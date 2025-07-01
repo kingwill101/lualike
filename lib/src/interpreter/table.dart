@@ -44,8 +44,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       }
 
       // If the lookup result is nil, use the name as a direct key
-      if (indexResult == null ||
-          (indexResult is Value && indexResult.raw == null)) {
+      if ((indexResult is Value && indexResult.raw == null)) {
         indexResult = identName;
         Logger.debug(
           'Using "$identName" as direct table key (nil value or not found)',
@@ -163,6 +162,14 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     final indexVal = index is Value ? index : Value(index);
     final valueVal = value is Value ? value : Value(value);
 
+    final rawKey = indexVal.raw;
+    if (rawKey == null) {
+      throw LuaError.typeError('table index is nil');
+    }
+    if (rawKey is num && rawKey.isNaN) {
+      throw LuaError.typeError('table index is NaN');
+    }
+
     if (targetVal.raw is! Map) {
       throw UnsupportedError(
         'Cannot assign to index of non-table value: $targetVal',
@@ -239,14 +246,14 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
         if (key is Value) {
           key = key.raw;
         }
-        
+
         var value = await field.value.accept(this);
         if (value is Value && value.isMulti) {
           value = Value((value.raw as List).first);
         }
-        
+
         tableMap[key] = value is Value ? value : Value(value);
-        
+
         // If an indexed entry uses a numerical key, update nextSequentialIndex
         if (key is int && key >= nextSequentialIndex) {
           nextSequentialIndex = key + 1;

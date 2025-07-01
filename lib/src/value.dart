@@ -2,7 +2,6 @@ import 'dart:math' as math;
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
-import 'package:lualike/src/number.dart';
 import 'package:lualike/src/stdlib/lib_math.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/upvalue.dart';
@@ -369,6 +368,14 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   @override
   void operator []=(Object key, dynamic value) {
+    final rawKey = key is Value ? key.raw : key;
+    if (rawKey == null) {
+      throw LuaError.typeError('table index is nil');
+    }
+    if (rawKey is num && rawKey.isNaN) {
+      throw LuaError.typeError('table index is NaN');
+    }
+
     final newindexMeta = getMetamethod('__newindex');
     if (newindexMeta != null) {
       callMetamethod('__newindex', [
@@ -380,7 +387,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
     // If no newindex metamethod is set and raw is a Map, perform direct assignment
     if (raw is Map) {
-      (raw as Map)[key] = value is Value ? value : Value(value);
+      (raw as Map)[rawKey] = value is Value ? value : Value(value);
       return;
     }
     throw UnsupportedError('Not a table');
@@ -1584,8 +1591,11 @@ extension OperatorExtension on Value {
     }
     if ((raw is int || raw is BigInt) && otherRaw is double) {
       if (!otherRaw.isFinite) {
-        print('COMPARE >=: int >= non-finite double, returning false');
-        return false;
+        if (otherRaw.isInfinite) {
+          // int >= +inf is false, int >= -inf is true
+          return otherRaw.isNegative;
+        }
+        return false; // NaN
       }
       final intVal = raw is BigInt ? raw as BigInt : BigInt.from(raw);
       final doubleVal = otherRaw;
@@ -1601,10 +1611,11 @@ extension OperatorExtension on Value {
     }
     if (raw is double && (otherRaw is int || otherRaw is BigInt)) {
       if (!raw.isFinite) {
-        print(
-          'COMPARE >=: double >= int, but double is not finite, returning false',
-        );
-        return false;
+        if (raw.isInfinite) {
+          // +inf >= int is true, -inf >= int is false
+          return !raw.isNegative;
+        }
+        return false; // NaN
       }
       final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
       final doubleVal = raw;
@@ -1646,7 +1657,10 @@ extension OperatorExtension on Value {
     }
     if ((raw is int || raw is BigInt) && otherRaw is double) {
       if (!otherRaw.isFinite) {
-        print('COMPARE <=: int <= non-finite double, returning false');
+        if (otherRaw.isInfinite) {
+          // int <= +inf is true, int <= -inf is false
+          return !otherRaw.isNegative;
+        }
         return false;
       }
       final intVal = raw is BigInt ? raw as BigInt : BigInt.from(raw);
@@ -1663,9 +1677,10 @@ extension OperatorExtension on Value {
     }
     if (raw is double && (otherRaw is int || otherRaw is BigInt)) {
       if (!raw.isFinite) {
-        print(
-          'COMPARE <=: double <= int, but double is not finite, returning false',
-        );
+        if (raw.isInfinite) {
+          // +inf <= int is false, -inf <= int is true
+          return raw.isNegative;
+        }
         return false;
       }
       final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
