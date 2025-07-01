@@ -50,6 +50,8 @@ abstract class AstVisitor<T> {
 
   Future<T> visitKeyedTableEntry(KeyedTableEntry node);
 
+  Future<T> visitIndexedTableEntry(IndexedTableEntry node);
+
   Future<T> visitTableEntryLiteral(TableEntryLiteral node);
 
   Future<T> visitNilValue(NilValue node);
@@ -613,10 +615,9 @@ class TableConstructor extends AstNode {
 /// Abstract base class for table entries.
 abstract class TableEntry extends AstNode {}
 
-// Keyed table entry: key = value.
-/// Keyed table entry: key = value or ["key"] = value.
+// Keyed table entry: key = value (field assignment)
 class KeyedTableEntry extends TableEntry {
-  final AstNode key; // Can be Identifier or StringLiteral
+  final AstNode key; // Identifier for field name
   final AstNode value;
 
   KeyedTableEntry(this.key, this.value);
@@ -627,10 +628,24 @@ class KeyedTableEntry extends TableEntry {
 
   @override
   String toSource() {
-    if (key is StringLiteral) {
-      return '[${key.toSource()}] = ${value.toSource()}';
-    }
     return "${key.toSource()} = ${value.toSource()}";
+  }
+}
+
+// Indexed table entry: [key] = value (index assignment)
+class IndexedTableEntry extends TableEntry {
+  final AstNode key; // Expression to be evaluated as key
+  final AstNode value;
+
+  IndexedTableEntry(this.key, this.value);
+
+  @override
+  Future<T> accept<T>(AstVisitor<T> visitor) =>
+      visitor.visitIndexedTableEntry(this);
+
+  @override
+  String toSource() {
+    return '[${key.toSource()}] = ${value.toSource()}';
   }
 }
 

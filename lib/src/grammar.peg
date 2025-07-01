@@ -1601,7 +1601,7 @@ TableEntry =>
   (
     '[' S key = Expression S ']' S '=' S value = Expression
      {
-      node = KeyedTableEntry(key, value);
+      node = IndexedTableEntry(key, value);
     }
     ----
     key = ID S '=' S value = Expression

@@ -110,6 +110,26 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     return [key, value];
   }
 
+  /// Evaluates an indexed table entry.
+  ///
+  /// Represents a key-value pair using index syntax [key] = value.
+  ///
+  /// [node] - The indexed table entry node
+  /// Returns the key-value pair.
+  @override
+  Future<Object?> visitIndexedTableEntry(IndexedTableEntry node) async {
+    (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
+
+    Logger.debug('Visiting IndexedTableEntry', category: 'Interpreter');
+    // For indexed entries, always evaluate the key expression
+    Object? key = await node.key.accept(this);
+    if (key is Value) {
+      key = key.raw;
+    }
+    final value = await node.value.accept(this);
+    return [key, value];
+  }
+
   /// Evaluates a table entry literal.
   ///
   /// Represents a value in a table constructor without an explicit key.
@@ -211,6 +231,25 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
         // if it's greater than or equal to the current nextSequentialIndex.
         if (key is Value && key.raw is int && key.raw >= nextSequentialIndex) {
           nextSequentialIndex = (key.raw as int) + 1;
+        }
+      } else if (field is IndexedTableEntry) {
+        // Handle indexed table entries [key] = value
+        // Always evaluate the key expression for indexed entries
+        dynamic key = await field.key.accept(this);
+        if (key is Value) {
+          key = key.raw;
+        }
+        
+        var value = await field.value.accept(this);
+        if (value is Value && value.isMulti) {
+          value = Value((value.raw as List).first);
+        }
+        
+        tableMap[key] = value is Value ? value : Value(value);
+        
+        // If an indexed entry uses a numerical key, update nextSequentialIndex
+        if (key is int && key >= nextSequentialIndex) {
+          nextSequentialIndex = key + 1;
         }
       }
     }
