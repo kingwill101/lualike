@@ -1,5 +1,5 @@
 _port = false
-
+_soft = false
 print("testing numbers and math lib")
 
 local minint <const> = math.mininteger
