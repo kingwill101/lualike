@@ -1438,7 +1438,11 @@ extension OperatorExtension on Value {
     // Always use mathematical ordering for int/BigInt vs double
     if ((raw is int || raw is BigInt) && otherRaw is double) {
       if (!otherRaw.isFinite) {
-        print('COMPARE >: int > non-finite double, returning false');
+        if (otherRaw.isInfinite) {
+          // int/BigInt vs infinity: int > +inf is false, int > -inf is true
+          return otherRaw.isNegative;
+        }
+        // For NaN, return false (already handled above)
         return false;
       }
       final intVal = raw is BigInt ? raw as BigInt : BigInt.from(raw);
@@ -1460,9 +1464,11 @@ extension OperatorExtension on Value {
     }
     if (raw is double && (otherRaw is int || otherRaw is BigInt)) {
       if (!raw.isFinite) {
-        print(
-          'COMPARE >: double > int, but double is not finite, returning false',
-        );
+        if (raw.isInfinite) {
+          // infinity vs int/BigInt: +inf > int is true, -inf > int is false
+          return !raw.isNegative;
+        }
+        // For NaN, return false (already handled above)
         return false;
       }
       final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
@@ -1510,7 +1516,11 @@ extension OperatorExtension on Value {
     }
     if ((raw is int || raw is BigInt) && otherRaw is double) {
       if (!otherRaw.isFinite) {
-        print('COMPARE <: int < non-finite double, returning false');
+        if (otherRaw.isInfinite) {
+          // int/BigInt vs infinity: int < +inf is true, int < -inf is false
+          return !otherRaw.isNegative;
+        }
+        // For NaN, return false (already handled above)
         return false;
       }
       final intVal = raw is BigInt ? raw as BigInt : BigInt.from(raw);
@@ -1527,9 +1537,11 @@ extension OperatorExtension on Value {
     }
     if (raw is double && (otherRaw is int || otherRaw is BigInt)) {
       if (!raw.isFinite) {
-        print(
-          'COMPARE <: double < int, but double is not finite, returning false',
-        );
+        if (raw.isInfinite) {
+          // infinity vs int/BigInt: +inf < int is false, -inf < int is true
+          return raw.isNegative;
+        }
+        // For NaN, return false (already handled above)
         return false;
       }
       final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
