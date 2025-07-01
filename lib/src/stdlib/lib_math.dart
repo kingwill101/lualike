@@ -84,7 +84,22 @@ class _MathCeil extends _MathFunction {
     if (number is BigInt) {
       return Value(number);
     }
-    return Value((number as num).ceil());
+    if (number is int) {
+      return Value(number);
+    }
+    final num n = number as num;
+    if (n is double) {
+      if (!n.isFinite) return Value(n);
+      final intRes = n.ceil();
+      final doubleRes = n.ceilToDouble();
+      if (doubleRes == intRes.toDouble() &&
+          intRes <= MathLib.maxInteger &&
+          intRes >= MathLib.minInteger) {
+        return Value(intRes);
+      }
+      return Value(doubleRes);
+    }
+    return Value(n);
   }
 }
 
@@ -140,7 +155,22 @@ class _MathFloor extends _MathFunction {
     if (number is BigInt) {
       return Value(number);
     }
-    return Value((number as num).floor());
+    if (number is int) {
+      return Value(number);
+    }
+    final num n = number as num;
+    if (n is double) {
+      if (!n.isFinite) return Value(n);
+      final intRes = n.floor();
+      final doubleRes = n.floorToDouble();
+      if (doubleRes == intRes.toDouble() &&
+          intRes <= MathLib.maxInteger &&
+          intRes >= MathLib.minInteger) {
+        return Value(intRes);
+      }
+      return Value(doubleRes);
+    }
+    return Value(n);
   }
 }
 
@@ -356,6 +386,45 @@ class _MathTan extends _MathFunction {
   }
 }
 
+class _MathTointeger extends _MathFunction {
+  @override
+  Object? call(List<Object?> args) {
+    if (args.isEmpty) {
+      throw LuaError.typeError('math.tointeger requires one argument');
+    }
+
+    dynamic value = args[0] is Value ? (args[0] as Value).raw : args[0];
+
+    if (value is String) {
+      try {
+        value = LuaNumberParser.parse(value);
+      } catch (_) {
+        return Value(null);
+      }
+    }
+
+    if (value is int) {
+      return Value(value);
+    } else if (value is BigInt) {
+      if (value <= BigInt.from(MathLib.maxInteger) &&
+          value >= BigInt.from(MathLib.minInteger)) {
+        return Value(value.toInt());
+      }
+      return Value(null);
+    } else if (value is double) {
+      if (!value.isFinite) return Value(null);
+      final int intVal = value.toInt();
+      if (intVal.toDouble() == value &&
+          intVal <= MathLib.maxInteger &&
+          intVal >= MathLib.minInteger) {
+        return Value(intVal);
+      }
+      return Value(null);
+    }
+    return Value(null);
+  }
+}
+
 class _MathType extends _MathFunction {
   @override
   Object? call(List<Object?> args) {
@@ -407,6 +476,7 @@ class MathLib {
     "sin": _MathSin(),
     "sqrt": _MathSqrt(),
     "tan": _MathTan(),
+    "tointeger": _MathTointeger(),
     "type": _MathType(),
     "huge": Value(double.infinity),
     "maxinteger": Value(maxInteger),
