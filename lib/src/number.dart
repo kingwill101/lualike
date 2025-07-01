@@ -49,7 +49,11 @@ class LuaNumberParser {
 
       // ---------- hex integer ----------
       if (!hasDot && pIndex == -1) {
-        return _finaliseInt(BigInt.parse(body, radix: 16), neg);
+        final big = BigInt.parse(body, radix: 16);
+        var signed = neg ? -big : big;
+        // Lua wraps overflowing hexadecimal integers to 64 bits
+        signed = signed.toUnsigned(64).toSigned(64);
+        return signed.toInt();
       }
 
       // ---------- hex floating-point ----------
@@ -86,7 +90,10 @@ class LuaNumberParser {
     // ============ BINARY INTEGER BRANCH ============
     if (s.startsWith('0b')) {
       final big = BigInt.parse(s.substring(2), radix: 2);
-      return _finaliseInt(big, neg);
+      var signed = neg ? -big : big;
+      // Binary literals behave like hexadecimal ones regarding overflow
+      signed = signed.toUnsigned(64).toSigned(64);
+      return signed.toInt();
     }
 
     // ============ DECIMAL / SCIENTIFIC BRANCH ============
@@ -98,19 +105,16 @@ class LuaNumberParser {
 
     // decimal integer
     if (!hasDot && !hasE) {
-      return _finaliseInt(BigInt.parse(s), neg);
+      final big = BigInt.parse(s);
+      final signed = neg ? -big : big;
+      if (signed < _min64 || signed > _max64) {
+        return double.parse(signed.toString());
+      }
+      return signed.toInt();
     }
 
     // decimal float / scientific
     final parsed = num.parse(s); // num.parse already handles signless string
     return neg ? -parsed : parsed;
-  }
-
-  /// Decide whether [big] fits in 64-bit; return `int` or `BigInt` accordingly,
-  /// also applies sign.
-  static dynamic _finaliseInt(BigInt big, bool neg) {
-    final signed = neg ? -big : big;
-    if (signed < _min64 || signed > _max64) return signed;
-    return signed.toInt();
   }
 }
