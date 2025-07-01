@@ -344,20 +344,18 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       } else {
         value = await expr.accept(this);
         // Wrap non-Value results
-        if (value != null && value is! Value) {
-          value = Value(value);
-        }
-
         if (value is List) {
           values.addAll(value);
-        } else if (value is Value) {
-          if (value.isMulti) {
-            values.addAll(value.raw);
-          } else {
-            values.add(value);
-          }
         } else {
-          values.add(value);
+          if (value is! Value) {
+            value = Value(value);
+          }
+          final val = value;
+          if (val.isMulti) {
+            values.addAll(val.raw);
+          } else {
+            values.add(val);
+          }
         }
       }
     }
@@ -412,7 +410,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         valueWithAttributes = rawValue;
       }
 
-      globals.define(name, valueWithAttributes);
+      globals.declare(name, valueWithAttributes);
     } else {
       // Assign values to the respective names, defaulting to nil if fewer expressions than names.
       for (var i = 0; i < node.names.length; i++) {
@@ -470,7 +468,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           'Local declare $name = $valueWithAttributes (attribute: $attribute)',
           category: 'Interpreter',
         );
-        globals.define(name, valueWithAttributes);
+        globals.declare(name, valueWithAttributes);
       }
     }
 
