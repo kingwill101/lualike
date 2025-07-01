@@ -321,6 +321,26 @@ void main() {
       expect((bridge.getGlobal('rawGetResult') as Value).raw, equals("value"));
     });
 
+    test('rawset rejects invalid keys', () async {
+      final bridge = LuaLike();
+      await bridge.runCode('''
+        local t = {}
+        okNaN, errNaN = pcall(rawset, t, 0/0, 1)
+        okNil, errNil = pcall(rawset, t, nil, 1)
+      ''');
+
+      expect((bridge.getGlobal('okNaN') as Value).raw, equals(false));
+      expect(
+        (bridge.getGlobal('errNaN') as Value).raw.toString(),
+        contains('table index is NaN'),
+      );
+      expect((bridge.getGlobal('okNil') as Value).raw, equals(false));
+      expect(
+        (bridge.getGlobal('errNil') as Value).raw.toString(),
+        contains('table index is nil'),
+      );
+    });
+
     test('rawlen', () async {
       final bridge = LuaLike();
       await bridge.runCode('''

@@ -5,6 +5,7 @@ import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/coroutine.dart' show Coroutine;
 import 'package:lualike/src/stdlib/lib_io.dart';
+import 'package:lualike/src/lua_error.dart';
 import 'package:path/path.dart' as path;
 
 /// Built-in function to retrieve the metatable of a value.
@@ -88,6 +89,12 @@ class RawSetFunction implements BuiltinFunction {
     }
 
     final key = args[1] is Value ? (args[1] as Value).raw : args[1];
+    if (key == null) {
+      throw LuaError.typeError('table index is nil');
+    }
+    if (key is num && key.isNaN) {
+      throw LuaError.typeError('table index is NaN');
+    }
     final value = args[2] is Value ? args[2] : Value(args[2]);
 
     (table.raw as Map)[key] = value;
