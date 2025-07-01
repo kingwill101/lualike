@@ -24,7 +24,7 @@ void main() {
       expect(LuaNumberParser.parse('0XFB'), equals(251));
       expect(
         LuaNumberParser.parse('0x8000000000000000'),
-        allOf(isA<BigInt>(), equals(BigInt.parse('9223372036854775808'))),
+        equals(-9223372036854775808),
       );
     });
 
@@ -36,8 +36,8 @@ void main() {
 
     test('big decimal promotion', () {
       final value = LuaNumberParser.parse('12345678901234567890');
-      expect(value, isA<BigInt>());
-      expect(value, equals(BigInt.parse('12345678901234567890')));
+      expect(value, isA<double>());
+      expect(value, equals(double.parse('12345678901234567890')));
     });
 
     test('math.lua special formats', () {
