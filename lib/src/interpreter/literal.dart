@@ -13,7 +13,7 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitNilValue(NilValue node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
-    Logger.debug('Visiting NilValue', category: 'Interpreter');
+    Logger.debug('Visiting NilValue', category: 'Literal');
     return Value(null);
   }
 
@@ -26,10 +26,7 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitBooleanLiteral(BooleanLiteral node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
-    Logger.debug(
-      'Visiting BooleanLiteral: ${node.value}',
-      category: 'Interpreter',
-    );
+    Logger.debug('Visiting BooleanLiteral: ${node.value}', category: 'Literal');
     return Value(node.value);
   }
 
@@ -42,10 +39,7 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitNumberLiteral(NumberLiteral node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
-    Logger.debug(
-      'Visiting NumberLiteral: ${node.value}',
-      category: 'Interpreter',
-    );
+    Logger.debug('Visiting NumberLiteral: ${node.value}', category: 'Literal');
     return Value(node.value);
   }
 
@@ -58,10 +52,7 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitStringLiteral(StringLiteral node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
-    Logger.debug(
-      'Visiting StringLiteral: ${node.value}',
-      category: 'Interpreter',
-    );
+    Logger.debug('Visiting StringLiteral: ${node.value}', category: 'Literal');
     return Value(node.value);
   }
 
@@ -74,11 +65,11 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitTableConstructor(TableConstructor node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
-    Logger.debug('Visiting TableConstructor', category: 'Interpreter');
+    Logger.debug('Visiting TableConstructor', category: 'Literal');
     if (node.entries.isEmpty) {
       Logger.debug(
         'TableConstructor: No entries, returning empty table',
-        category: 'Interpreter',
+        category: 'Literal',
       );
       return ValueClass.table();
     }
@@ -90,7 +81,7 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
       final entry = node.entries[i];
       Logger.debug(
         'TableConstructor: Processing entry ${i + 1}/${node.entries.length}: ${entry.runtimeType}',
-        category: 'Interpreter',
+        category: 'Literal',
       );
 
       if (entry is KeyedTableEntry) {
@@ -124,7 +115,7 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
           // Handle grouped expressions in table constructors
           Logger.debug(
             'TableConstructor: Processing GroupedExpression entry',
-            category: 'Interpreter',
+            category: 'Literal',
           );
 
           final innerExpr = (entry.expr as GroupedExpression).expr;
@@ -225,7 +216,7 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
 
     Logger.debug(
       'TableConstructor: Finished constructing table with ${table.raw.length} entries',
-      category: 'Interpreter',
+      category: 'Literal',
     );
     return table;
   }

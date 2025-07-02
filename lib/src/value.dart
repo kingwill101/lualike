@@ -135,7 +135,11 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         }
       } catch (e) {
         // Log the error but continue closing other variables
-        print('Error in __close metamethod: $e');
+        Logger.error(
+          'Error in __close metamethod',
+          category: 'Value',
+          error: e,
+        );
         // Re-throw the error after closing
         rethrow;
       }
@@ -544,7 +548,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
     final pairsMeta = getMetamethod('__pairs');
     if (pairsMeta != null) {
-      print('Using __pairs metamethod for entries');
+      Logger.debug('Using __pairs metamethod for entries', category: 'Value');
 
       final entries = <MapEntry<String, dynamic>>[];
       final iter = callMetamethod('__pairs', [this]);
@@ -841,7 +845,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       try {
         callMetamethod('__gc', [this]);
       } catch (e) {
-        print('Error in finalizer: $e');
+        Logger.error('Error in finalizer', category: 'Value', error: e);
       }
     }
   }
@@ -889,46 +893,50 @@ extension OperatorExtension on Value {
     // Lua: NaN ~= anything is always true
     if ((raw is num && (raw as num).isNaN) ||
         (otherRaw is num && (otherRaw).isNaN)) {
-      print('COMPARE ~=: NaN detected, returning true');
+      Logger.debug(
+        'COMPARE ~=: NaN detected, returning true',
+        category: 'Value',
+      );
       return true;
     }
     // Lua: int ~= float if float does not exactly represent int
     if ((raw is int || raw is BigInt) && otherRaw is double) {
       if (!otherRaw.isFinite) {
-        print('COMPARE ~=: int ~= non-finite double, returning true');
+        Logger.debug(
+          'COMPARE ~=: int ~= non-finite double, returning true',
+          category: 'Value',
+        );
         return true;
       }
       final intVal = raw is BigInt ? raw as BigInt : BigInt.from(raw);
       final doubleVal = otherRaw;
-      final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
       final doubleFromInt = intVal.toDouble();
+      final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
       final isExact = (doubleVal == doubleFromInt) && (intVal == intFromDouble);
-      print(
+      Logger.debug(
         'COMPARE ~=: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt, intFromDouble=$intFromDouble, isExact=$isExact',
+        category: 'Value',
       );
       return !isExact;
     }
     if (raw is double && (otherRaw is int || otherRaw is BigInt)) {
       if (!(raw).isFinite) {
-        print(
+        Logger.debug(
           'COMPARE ~=: double ~= int, but double is not finite, returning true',
+          category: 'Value',
         );
         return true;
       }
       final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
       final doubleVal = raw;
-      final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
       final doubleFromInt = intVal.toDouble();
+      final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
       final isExact = (doubleVal == doubleFromInt) && (intVal == intFromDouble);
-      print(
+      Logger.debug(
         'COMPARE ~=: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt, intFromDouble=$intFromDouble, isExact=$isExact',
+        category: 'Value',
       );
       return !isExact;
-    }
-    if ((raw is BigInt && otherRaw is double) ||
-        (raw is double && otherRaw is BigInt)) {
-      // This case is now handled above
-      // ...
     }
     return !(this == other);
   }
@@ -939,19 +947,30 @@ extension OperatorExtension on Value {
 
     final minInt64 = BigInt.from(MathLib.minInteger);
     final maxInt64 = BigInt.from(MathLib.maxInteger);
-    print('ARITH: Lua 64-bit minInt64=$minInt64, maxInt64=$maxInt64');
-    print(
+    Logger.debug(
+      'ARITH: Lua 64-bit minInt64=$minInt64, maxInt64=$maxInt64',
+      category: 'Value',
+    );
+    Logger.debug(
       'ARITH: START op=$op, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
+      category: 'Value',
     );
 
     // Try to convert strings to numbers (Lua automatic conversion)
     if (r1 is String) {
-      print('ARITH: r1 is String, parsing...');
+      Logger.debug('ARITH: r1 is String, parsing...', category: 'Value');
       try {
         r1 = LuaNumberParser.parse(r1);
-        print('ARITH: r1 parsed to $r1 (${r1.runtimeType})');
+        Logger.debug(
+          'ARITH: r1 parsed to $r1 (${r1.runtimeType})',
+          category: 'Value',
+        );
       } catch (e) {
-        print('ARITH: r1 parse error: $e');
+        Logger.warning(
+          'ARITH: r1 parse error: $e',
+          category: 'Value',
+          error: e,
+        );
         throw LuaError.typeError(
           "attempt to perform arithmetic on a string value",
         );
@@ -959,24 +978,32 @@ extension OperatorExtension on Value {
     }
 
     if (r2 is String) {
-      print('ARITH: r2 is String, parsing...');
+      Logger.debug('ARITH: r2 is String, parsing...', category: 'Value');
       try {
         r2 = LuaNumberParser.parse(r2);
-        print('ARITH: r2 parsed to $r2 (${r2.runtimeType})');
+        Logger.debug(
+          'ARITH: r2 parsed to $r2 (${r2.runtimeType})',
+          category: 'Value',
+        );
       } catch (e) {
-        print('ARITH: r2 parse error: $e');
+        Logger.warning(
+          'ARITH: r2 parse error: $e',
+          category: 'Value',
+          error: e,
+        );
         throw LuaError.typeError(
           "attempt to perform arithmetic on a string value",
         );
       }
     }
 
-    print(
+    Logger.debug(
       'ARITH: after string parse, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
+      category: 'Value',
     );
 
     if (!((r1 is num || r1 is BigInt) && (r2 is num || r2 is BigInt))) {
-      print('ARITH: type error, non-number values');
+      Logger.warning('ARITH: type error, non-number values', category: 'Value');
       throw LuaError.typeError(
         "attempt to perform arithmetic on non-number values",
       );
@@ -1018,11 +1045,15 @@ extension OperatorExtension on Value {
 
     // After parsing and before operation, check for double promotion
     final isDoubleOp = r1 is double || r2 is double;
-    print('ARITH: double promotion needed? $isDoubleOp');
+    Logger.debug(
+      'ARITH: double promotion needed? $isDoubleOp',
+      category: 'Value',
+    );
 
     if (op == '^') {
-      print(
+      Logger.debug(
         'ARITH: exponentiation, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
+        category: 'Value',
       );
       final f1 = (r1 is BigInt)
           ? r1.toDouble()
@@ -1031,12 +1062,16 @@ extension OperatorExtension on Value {
           ? r2.toDouble()
           : (r2 is int ? r2.toDouble() : r2 as double);
       final result = math.pow(f1, f2);
-      print('ARITH: exponentiation result: $result (${result.runtimeType})');
+      Logger.debug(
+        'ARITH: exponentiation result: $result (${result.runtimeType})',
+        category: 'Value',
+      );
       return Value(result);
     }
     if (op == '/') {
-      print(
+      Logger.debug(
         'ARITH: division, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
+        category: 'Value',
       );
       final f1 = (r1 is BigInt)
           ? r1.toDouble()
@@ -1045,13 +1080,17 @@ extension OperatorExtension on Value {
           ? r2.toDouble()
           : (r2 is int ? r2.toDouble() : r2 as double);
       final result = f1 / f2;
-      print('ARITH: division result: $result (${result.runtimeType})');
+      Logger.debug(
+        'ARITH: division result: $result (${result.runtimeType})',
+        category: 'Value',
+      );
       return Value(result);
     }
 
     if (op == '<<' || op == '>>') {
-      print(
+      Logger.debug(
         'ARITH: bitwise shift, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
+        category: 'Value',
       );
       final b1 = toInt(r1);
       var shift = toInt(r2).toInt();
@@ -1075,29 +1114,34 @@ extension OperatorExtension on Value {
           result = (b1 >> shift) & mask;
         }
       }
-      print(
+      Logger.debug(
         'ARITH: bitwise shift intermediate result: $result (${result.runtimeType})',
+        category: 'Value',
       );
       if (result > maxInt64) {
         result -= BigInt.from(2).pow(64);
-        print(
+        Logger.debug(
           'ARITH: bitwise shift wrapped to signed: $result (${result.runtimeType})',
+          category: 'Value',
         );
       }
       if (r1 is BigInt || r2 is BigInt) {
-        print(
+        Logger.debug(
           'ARITH: bitwise shift operands included BigInt, returning BigInt result',
+          category: 'Value',
         );
         return Value(result);
       }
       if (result >= minInt64 && result <= maxInt64) {
-        print(
+        Logger.debug(
           'ARITH: bitwise shift result fits in int64, returning int: ${result.toInt()}',
+          category: 'Value',
         );
         return Value(result.toInt());
       }
-      print(
+      Logger.debug(
         'ARITH: bitwise shift result does not fit in int64, returning BigInt: $result',
+        category: 'Value',
       );
       return Value(result);
     }
@@ -1162,18 +1206,25 @@ extension OperatorExtension on Value {
           }
           break;
         default:
-          print('ARITH: unsupported op for double promotion: $op');
+          Logger.warning(
+            'ARITH: unsupported op for double promotion: $op',
+            category: 'Value',
+          );
           throw LuaError.typeError(
             'operation "$op" not supported for double promotion',
           );
       }
-      print('ARITH: double promotion result: $result (${result.runtimeType})');
+      Logger.debug(
+        'ARITH: double promotion result: $result (${result.runtimeType})',
+        category: 'Value',
+      );
       return Value(result);
     }
 
     if (r1 is BigInt || r2 is BigInt) {
-      print(
+      Logger.debug(
         'ARITH: at least one operand is BigInt, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
+        category: 'Value',
       );
       final b1 = toInt(r1);
       final b2 = toInt(r2);
@@ -1215,20 +1266,30 @@ extension OperatorExtension on Value {
           result = b1 ^ b2;
           break;
         default:
-          print('ARITH: unsupported op for BigInt: $op');
+          Logger.warning(
+            'ARITH: unsupported op for BigInt: $op',
+            category: 'Value',
+          );
           throw LuaError.typeError('operation "$op" not supported for BigInt');
       }
-      print('ARITH: BigInt result: $result (${result.runtimeType})');
+      Logger.debug(
+        'ARITH: BigInt result: $result (${result.runtimeType})',
+        category: 'Value',
+      );
       if (result is BigInt) {
         return Value(result);
       }
-      print('ARITH: BigInt result is not BigInt, returning as is');
+      Logger.debug(
+        'ARITH: BigInt result is not BigInt, returning as is',
+        category: 'Value',
+      );
       return Value(result);
     }
 
     if (r1 is num && r2 is num) {
-      print(
+      Logger.debug(
         'ARITH: both operands are num, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
+        category: 'Value',
       );
       dynamic result;
       switch (op) {
@@ -1310,14 +1371,23 @@ extension OperatorExtension on Value {
           }
           break;
         default:
-          print('ARITH: unsupported op for num: $op');
+          Logger.warning(
+            'ARITH: unsupported op for num: $op',
+            category: 'Value',
+          );
           throw LuaError.typeError('operation "$op" not supported for num');
       }
-      print('ARITH: num result: $result (${result.runtimeType})');
+      Logger.debug(
+        'ARITH: num result: $result (${result.runtimeType})',
+        category: 'Value',
+      );
       return Value(result);
     }
 
-    print('ARITH: type error, operation not supported for these types');
+    Logger.warning(
+      'ARITH: type error, operation not supported for these types',
+      category: 'Value',
+    );
     throw LuaError.typeError('operation "$op" not supported for these types');
   }
 
@@ -1439,7 +1509,10 @@ extension OperatorExtension on Value {
     // Lua: NaN > anything is always false
     if ((raw is num && (raw as num).isNaN) ||
         (otherRaw is num && (otherRaw).isNaN)) {
-      print('COMPARE >: NaN detected, returning false');
+      Logger.debug(
+        'COMPARE >: NaN detected, returning false',
+        category: 'Value',
+      );
       return false;
     }
     // Always use mathematical ordering for int/BigInt vs double
@@ -1455,8 +1528,9 @@ extension OperatorExtension on Value {
       final intVal = raw is BigInt ? raw as BigInt : BigInt.from(raw);
       final doubleVal = otherRaw;
       final doubleFromInt = intVal.toDouble();
-      print(
+      Logger.debug(
         'COMPARE >: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt',
+        category: 'Value',
       );
       if (doubleFromInt == doubleVal) {
         BigInt intFromDouble;
@@ -1481,8 +1555,9 @@ extension OperatorExtension on Value {
       final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
       final doubleVal = raw;
       final doubleFromInt = intVal.toDouble();
-      print(
+      Logger.debug(
         'COMPARE >: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt',
+        category: 'Value',
       );
       if (doubleFromInt == doubleVal) {
         BigInt intFromDouble;
@@ -1518,7 +1593,10 @@ extension OperatorExtension on Value {
     // Lua: NaN < anything is always false
     if ((raw is num && (raw as num).isNaN) ||
         (otherRaw is num && (otherRaw).isNaN)) {
-      print('COMPARE <: NaN detected, returning false');
+      Logger.debug(
+        'COMPARE <: NaN detected, returning false',
+        category: 'Value',
+      );
       return false;
     }
     if ((raw is int || raw is BigInt) && otherRaw is double) {
@@ -1533,8 +1611,9 @@ extension OperatorExtension on Value {
       final intVal = raw is BigInt ? raw as BigInt : BigInt.from(raw);
       final doubleVal = otherRaw;
       final doubleFromInt = intVal.toDouble();
-      print(
+      Logger.debug(
         'COMPARE <: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt',
+        category: 'Value',
       );
       if (doubleFromInt == doubleVal) {
         final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
@@ -1554,8 +1633,9 @@ extension OperatorExtension on Value {
       final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
       final doubleVal = raw;
       final doubleFromInt = intVal.toDouble();
-      print(
+      Logger.debug(
         'COMPARE <: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt',
+        category: 'Value',
       );
       if (doubleFromInt == doubleVal) {
         final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
@@ -1586,7 +1666,10 @@ extension OperatorExtension on Value {
     // Lua: NaN >= anything is always false
     if ((raw is num && (raw as num).isNaN) ||
         (otherRaw is num && (otherRaw).isNaN)) {
-      print('COMPARE >=: NaN detected, returning false');
+      Logger.debug(
+        'COMPARE >=: NaN detected, returning false',
+        category: 'Value',
+      );
       return false;
     }
     if ((raw is int || raw is BigInt) && otherRaw is double) {
@@ -1600,8 +1683,9 @@ extension OperatorExtension on Value {
       final intVal = raw is BigInt ? raw as BigInt : BigInt.from(raw);
       final doubleVal = otherRaw;
       final doubleFromInt = intVal.toDouble();
-      print(
+      Logger.debug(
         'COMPARE >=: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt',
+        category: 'Value',
       );
       if (doubleFromInt == doubleVal) {
         final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
@@ -1620,8 +1704,9 @@ extension OperatorExtension on Value {
       final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
       final doubleVal = raw;
       final doubleFromInt = intVal.toDouble();
-      print(
+      Logger.debug(
         'COMPARE >=: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt',
+        category: 'Value',
       );
       if (doubleFromInt == doubleVal) {
         final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
@@ -1652,7 +1737,10 @@ extension OperatorExtension on Value {
     // Lua: NaN <= anything is always false
     if ((raw is num && (raw as num).isNaN) ||
         (otherRaw is num && (otherRaw).isNaN)) {
-      print('COMPARE <=: NaN detected, returning false');
+      Logger.debug(
+        'COMPARE <=: NaN detected, returning false',
+        category: 'Value',
+      );
       return false;
     }
     if ((raw is int || raw is BigInt) && otherRaw is double) {
@@ -1666,8 +1754,9 @@ extension OperatorExtension on Value {
       final intVal = raw is BigInt ? raw as BigInt : BigInt.from(raw);
       final doubleVal = otherRaw;
       final doubleFromInt = intVal.toDouble();
-      print(
+      Logger.debug(
         'COMPARE <=: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt',
+        category: 'Value',
       );
       if (doubleFromInt == doubleVal) {
         final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
@@ -1686,8 +1775,9 @@ extension OperatorExtension on Value {
       final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
       final doubleVal = raw;
       final doubleFromInt = intVal.toDouble();
-      print(
+      Logger.debug(
         'COMPARE <=: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt',
+        category: 'Value',
       );
       if (doubleFromInt == doubleVal) {
         final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
@@ -1717,13 +1807,19 @@ extension OperatorExtension on Value {
     final otherRaw = other is Value ? other.raw : other;
     // Lua: NaN == anything is always false
     if ((raw is num && raw.isNaN) || (otherRaw is num && otherRaw.isNaN)) {
-      print('COMPARE ==: NaN detected, returning false');
+      Logger.debug(
+        'COMPARE ==: NaN detected, returning false',
+        category: 'Value',
+      );
       return false;
     }
     // Lua: int == float only if float is finite and exactly represents int
     if ((raw is int || raw is BigInt) && otherRaw is double) {
       if (!otherRaw.isFinite) {
-        print('COMPARE ==: int == non-finite double, returning false');
+        Logger.debug(
+          'COMPARE ==: int == non-finite double, returning false',
+          category: 'Value',
+        );
         return false;
       }
       final intVal = raw is BigInt ? raw as BigInt : BigInt.from(raw);
@@ -1747,15 +1843,17 @@ extension OperatorExtension on Value {
       }
       final doubleFromInt = intVal.toDouble();
       final isExact = (doubleVal == doubleFromInt) && (intVal == intFromDouble);
-      print(
+      Logger.debug(
         'COMPARE ==: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt, intFromDouble=$intFromDouble, isExact=$isExact',
+        category: 'Value',
       );
       return isExact;
     }
     if (raw is double && (otherRaw is int || otherRaw is BigInt)) {
       if (!raw.isFinite) {
-        print(
+        Logger.debug(
           'COMPARE ==: double == int, but double is not finite, returning false',
+          category: 'Value',
         );
         return false;
       }
@@ -1780,8 +1878,9 @@ extension OperatorExtension on Value {
       }
       final doubleFromInt = intVal.toDouble();
       final isExact = (doubleVal == doubleFromInt) && (intVal == intFromDouble);
-      print(
+      Logger.debug(
         'COMPARE ==: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt, intFromDouble=$intFromDouble, isExact=$isExact',
+        category: 'Value',
       );
       return isExact;
     }
@@ -1789,7 +1888,10 @@ extension OperatorExtension on Value {
         (raw is double && otherRaw is BigInt)) {
       final d1 = raw is BigInt ? raw.toDouble() : raw;
       final d2 = otherRaw is BigInt ? otherRaw.toDouble() : otherRaw;
-      print('COMPARE ==: promoting BigInt to double: $d1 == $d2');
+      Logger.debug(
+        'COMPARE ==: promoting BigInt to double: $d1 == $d2',
+        category: 'Value',
+      );
       return d1 == d2;
     }
 

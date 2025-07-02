@@ -80,7 +80,7 @@ class Interpreter extends AstVisitor<Object?>
   /// Gets the currently running coroutine
   @override
   Coroutine? getCurrentCoroutine() {
-    Logger.debug(
+    Logger.info(
       '>>> Interpreter.getCurrentCoroutine() called, current: ${_currentCoroutine?.hashCode}',
       category: 'Interpreter',
     );
@@ -95,12 +95,12 @@ class Interpreter extends AstVisitor<Object?>
     final oldStatus = oldCoroutine?.status;
     final newStatus = coroutine?.status;
 
-    Logger.debug(
+    Logger.info(
       '>>> Interpreter.setCurrentCoroutine() called, changing from: ${oldCoroutine?.hashCode} (PRE-READ status: $oldStatus) to: ${coroutine?.hashCode} (PRE-READ status: $newStatus)',
       category: 'Interpreter',
     );
     _currentCoroutine = coroutine;
-    Logger.debug(
+    Logger.info(
       '>>> Interpreter.setCurrentCoroutine() finished. Old: ${oldCoroutine?.hashCode} (POST status: ${oldCoroutine?.status}). New: ${_currentCoroutine?.hashCode} (POST status: ${_currentCoroutine?.status})',
       category: 'Interpreter',
     );
@@ -109,7 +109,7 @@ class Interpreter extends AstVisitor<Object?>
   /// Gets the main thread coroutine
   @override
   Coroutine getMainThread() {
-    Logger.debug(
+    Logger.info(
       '>>> Interpreter.getMainThread() called, main thread: ${_mainThread.hashCode}',
       category: 'Interpreter',
     );
@@ -123,7 +123,7 @@ class Interpreter extends AstVisitor<Object?>
         mainThreadFunctionBody, // functionBody
         _currentEnv, // closureEnvironment
       );
-      Logger.debug(
+      Logger.info(
         'Interpreter: Main thread coroutine created: ${_mainThread.hashCode}',
         category: 'Interpreter',
       );
@@ -136,7 +136,7 @@ class Interpreter extends AstVisitor<Object?>
   /// Register a coroutine with the interpreter
   @override
   void registerCoroutine(Coroutine coroutine) {
-    Logger.debug(
+    Logger.info(
       '>>> Interpreter.registerCoroutine() called, registering: ${coroutine.hashCode}',
       category: 'Interpreter',
     );
@@ -146,7 +146,7 @@ class Interpreter extends AstVisitor<Object?>
   /// Initialize the coroutine system
   void initializeCoroutines() {
     _currentCoroutine = getMainThread();
-    Logger.debug('Initialized coroutine system', category: 'Coroutine');
+    Logger.info('Initialized coroutine system', category: 'Coroutine');
   }
 
   // Fixed size for call frames for better performance and prevent overflow
@@ -187,7 +187,7 @@ class Interpreter extends AstVisitor<Object?>
   /// during function calls.
   @override
   void setCurrentEnv(Environment env) {
-    Logger.debug(
+    Logger.info(
       '>>> Interpreter.setCurrentEnv() called, changing from: ${_currentEnv.hashCode} to: ${env.hashCode}',
       category: 'Interpreter',
     );
@@ -202,7 +202,7 @@ class Interpreter extends AstVisitor<Object?>
   Interpreter({FileManager? fileManager, Environment? environment})
     : fileManager = fileManager ?? FileManager(),
       _currentEnv = environment ?? Environment() {
-    Logger.debug('Interpreter created', category: 'Interpreter');
+    Logger.info('Interpreter created', category: 'Interpreter');
 
     // Set the interpreter reference in the file manager
     this.fileManager.setInterpreter(this);
@@ -284,25 +284,21 @@ class Interpreter extends AstVisitor<Object?>
     // Only handle specific control flow exceptions
     // Do not try to handle other types of exceptions
     if (exception is GotoException) {
-      Logger.debug(
+      Logger.info(
         'GotoException caught: ${exception.label}',
         category: 'Interpreter',
         node: node,
       );
       return true;
     } else if (exception is ReturnException) {
-      Logger.debug(
+      Logger.info(
         'ReturnException caught with value: ${exception.value}',
         category: 'Interpreter',
         node: node,
       );
       return true;
     } else if (exception is BreakException) {
-      Logger.debug(
-        'BreakException caught',
-        category: 'Interpreter',
-        node: node,
-      );
+      Logger.info('BreakException caught', category: 'Interpreter', node: node);
       return true;
     }
     // For all other exceptions, return false to let them be handled normally
@@ -443,9 +439,9 @@ class Interpreter extends AstVisitor<Object?>
       // Only log the error details for debugging if debug mode is enabled
       // This avoids duplicate error messages
       if (Logger.enabled) {
-        Logger.debug("Error details: $message", category: 'Error', node: node);
+        Logger.info("Error details: $message", category: 'Error', node: node);
         if (trace != null) {
-          Logger.debug("Stack trace: $trace", category: 'Error');
+          Logger.info("Stack trace: $trace", category: 'Error');
         }
       }
     } finally {
@@ -465,7 +461,10 @@ class Interpreter extends AstVisitor<Object?>
   /// [program] - List of AST nodes representing the program to execute
   /// Returns the result of the last executed statement, or null.
   Future<Object?> run(List<AstNode> program) async {
-    Logger.debug('Running program', category: 'Interpreter');
+    Logger.info(
+      'Running program with ${program.length} statements',
+      category: 'Interpreter',
+    );
 
     // Set the script path in the call stack if available
     final scriptPathValue = globals.get('_SCRIPT_PATH');
@@ -478,7 +477,7 @@ class Interpreter extends AstVisitor<Object?>
     // Clear evaluation stack at start.
     while (!evalStack.isEmpty) {
       evalStack.pop();
-      Logger.debug('evalStack.pop()', category: 'Interpreter');
+      Logger.info('evalStack.pop()', category: 'Interpreter');
     }
 
     try {
@@ -488,7 +487,7 @@ class Interpreter extends AstVisitor<Object?>
       throw GotoException('Undefined label: ${e.label}');
     }
 
-    Logger.debug('Program finished', category: 'Interpreter');
+    Logger.info('Program finished', category: 'Interpreter');
     return evalStack.isEmpty ? null : evalStack.peek();
   }
 
@@ -500,7 +499,7 @@ class Interpreter extends AstVisitor<Object?>
         labelMap[node.label.name] = i;
       }
     }
-    Logger.debug('Label map: $labelMap', category: 'Interpreter');
+    Logger.info('Label map: $labelMap', category: 'Interpreter');
 
     Object? result;
     var index = 0;
@@ -515,10 +514,7 @@ class Interpreter extends AstVisitor<Object?>
         result = await node.accept(this);
         index++;
       } on GotoException catch (e) {
-        Logger.debug(
-          'GotoException caught: ${e.label}',
-          category: 'Interpreter',
-        );
+        Logger.warning('Undefined label: ${e.label}', category: 'Interpreter');
         if (!labelMap.containsKey(e.label)) {
           // Propagate to outer scope for resolution
           throw GotoException(e.label);
@@ -553,7 +549,7 @@ class Interpreter extends AstVisitor<Object?>
 
   /// Add this method to the Interpreter class
   Environment getCurrentEnv() {
-    Logger.debug(
+    Logger.info(
       '>>> Interpreter.getCurrentEnv() called, current: ${_currentEnv.hashCode}',
       category: 'Interpreter',
     );

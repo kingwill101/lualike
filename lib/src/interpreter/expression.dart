@@ -13,14 +13,14 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
   /// Returns the literal value.
   @override
   Future<Object?> visitExpressionStatement(ExpressionStatement node) async {
-    Logger.debug('Visiting ExpressionStatement', category: 'Interpreter');
+    Logger.debug('Visiting ExpressionStatement', category: 'Expression');
     final result = await node.expr.accept(this);
     evalStack.push(
       result,
     ); // Correctly push the evaluated result onto the evalStack
     Logger.debug(
       'Pushed result $result onto evalStack',
-      category: 'Interpreter',
+      category: 'Expression',
     );
     return result;
   }
@@ -37,7 +37,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
   Future<Object?> visitBinaryExpression(BinaryExpression node) async {
     Logger.debug(
       'Visiting BinaryExpression: ${node.left} ${node.op} ${node.right}',
-      category: 'Interpreter',
+      category: 'Expression',
     );
     dynamic leftResult = await node.left.accept(this);
     dynamic rightResult = await node.right.accept(this);
@@ -47,7 +47,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     if (leftResult is Value && leftResult.isMulti) {
       Logger.debug(
         'BinaryExpression: limiting left multi-value result to first value',
-        category: 'Interpreter',
+        category: 'Expression',
       );
       final multiValues = leftResult.raw as List;
       leftResult = multiValues.isNotEmpty ? multiValues[0] : Value(null);
@@ -58,7 +58,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     if (rightResult is Value && rightResult.isMulti) {
       Logger.debug(
         'BinaryExpression: limiting right multi-value result to first value',
-        category: 'Interpreter',
+        category: 'Expression',
       );
       final multiValues = rightResult.raw as List;
       rightResult = multiValues.isNotEmpty ? multiValues[0] : Value(null);
@@ -71,7 +71,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
 
     Logger.debug(
       'BinaryExpression operands before metamethod check: $leftVal (${leftVal.raw.runtimeType}) ${node.op} $rightVal (${rightVal.raw.runtimeType})',
-      category: 'Interpreter',
+      category: 'Expression',
     );
 
     // Check for metamethods first
@@ -111,7 +111,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       if (metamethod != null) {
         Logger.debug(
           'Using metamethod $metamethodName for operation ${node.op}',
-          category: 'Interpreter',
+          category: 'Expression',
         );
 
         dynamic result;
@@ -167,7 +167,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       ),
     };
 
-    Logger.debug('BinaryExpression result: $result', category: 'Interpreter');
+    Logger.debug('BinaryExpression result: $result', category: 'Expression');
     return result is Value ? result : Value(result);
   }
 
@@ -183,7 +183,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
   Future<Object?> visitUnaryExpression(UnaryExpression node) async {
     Logger.debug(
       'Visiting UnaryExpression: ${node.op} ${node.expr}',
-      category: 'Interpreter',
+      category: 'Expression',
     );
     dynamic operandResult = await node.expr.accept(this);
 
@@ -192,7 +192,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     if (operandResult is Value && operandResult.isMulti) {
       Logger.debug(
         'UnaryExpression: limiting multi-value result to first value',
-        category: 'Interpreter',
+        category: 'Expression',
       );
       final multiValues = operandResult.raw as List;
 
@@ -223,7 +223,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       if (metamethod != null) {
         Logger.debug(
           'Using metamethod $metamethodName for unary operation ${node.op}',
-          category: 'Interpreter',
+          category: 'Expression',
         );
 
         dynamic result;
@@ -250,7 +250,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       _ => throw LuaError.typeError("Unknown unary operator ${node.op}"),
     };
 
-    Logger.debug('UnaryExpression result: $result', category: 'Interpreter');
+    Logger.debug('UnaryExpression result: $result', category: 'Expression');
     return result is Value ? result : Value(result);
   }
 
@@ -262,18 +262,18 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
   /// Returns the value of the variable, or null if not found.
   @override
   Future<Object?> visitIdentifier(Identifier node) async {
-    Logger.debug('Visiting Identifier: ${node.name}', category: 'Interpreter');
+    Logger.debug('Visiting Identifier: ${node.name}', category: 'Expression');
     final value = globals.get(node.name);
     if (value == null) {
       Logger.debug(
         'Identifier ${node.name} not found, returning nil',
-        category: 'Interpreter',
+        category: 'Expression',
       );
       return Value(null);
     }
     Logger.debug(
       'Identifier ${node.name} resolved to: $value (type: ${value.runtimeType})',
-      category: 'Interpreter',
+      category: 'Expression',
     );
     return value is Value ? value : Value(value);
   }
@@ -307,7 +307,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
   Future<Object?> visitGroupedExpression(GroupedExpression node) async {
     Logger.debug(
       'Visiting GroupedExpression: (${node.expr})',
-      category: 'Interpreter',
+      category: 'Expression',
     );
 
     final result = await node.expr.accept(this);
@@ -316,7 +316,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     // A function that returns multiple values still returns multiple values
     // when wrapped in parentheses
 
-    Logger.debug('GroupedExpression result: $result', category: 'Interpreter');
+    Logger.debug('GroupedExpression result: $result', category: 'Expression');
 
     return result;
   }
