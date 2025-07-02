@@ -372,6 +372,9 @@ class GrammarParser {
   /// `AstNode`
   /// AssignmentTarget =>
   ///   (
+  ///     target = ComplexTableAccess
+  ///     $ = { $$ = target; }
+  ///     ----
   ///     target = TableLookup
   ///     $ = { $$ = target; }
   ///     ----
@@ -382,7 +385,7 @@ class GrammarParser {
   (AstNode,)? parseAssignmentTarget(State state) {
     (AstNode,)? $0;
     (AstNode,)? $1;
-    final $2 = parseTableLookup(state);
+    final $2 = parseComplexTableAccess(state);
     if ($2 != null) {
       AstNode target = $2.$1;
       final AstNode $$;
@@ -394,9 +397,9 @@ class GrammarParser {
       $0 = $1;
     } else {
       (AstNode,)? $3;
-      final $4 = parseID(state);
+      final $4 = parseTableLookup(state);
       if ($4 != null) {
-        Identifier target = $4.$1;
+        AstNode target = $4.$1;
         final AstNode $$;
         $$ = target;
         AstNode $ = $$;
@@ -404,6 +407,19 @@ class GrammarParser {
       }
       if ($3 != null) {
         $0 = $3;
+      } else {
+        (AstNode,)? $5;
+        final $6 = parseID(state);
+        if ($6 != null) {
+          Identifier target = $6.$1;
+          final AstNode $$;
+          $$ = target;
+          AstNode $ = $$;
+          $5 = ($,);
+        }
+        if ($5 != null) {
+          $0 = $5;
+        }
       }
     }
     return $0;
@@ -887,11 +903,14 @@ class GrammarParser {
     final startPos = state.position;
     var $2 = true;
     var $3 = false;
-    final $4 = parseID(state);
-    if ($4 != null) {
-      Identifier base = $4.$1;
+    final $4 = state.position;
+    final $5 = parseID(state);
+    if ($5 != null && state.peek() != 40) {
+      Identifier base = $5.$1;
       expr = base;
       $3 = true;
+    } else {
+      state.position = $4;
     }
     if (!$3) {
       final $6 = state.position;
