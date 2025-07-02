@@ -15,7 +15,6 @@ class Logger {
   static bool enabled = false;
 
   static final Map<String, pkg_logging.Logger> _categoryLoggers = {};
-  static pkg_logging.Level _defaultLevel = pkg_logging.Level.INFO;
 
   /// Optional filters for log output
   static String? logCategoryFilter;
@@ -36,7 +35,6 @@ class Logger {
   static void initialize({
     pkg_logging.Level defaultLevel = pkg_logging.Level.INFO,
   }) {
-    _defaultLevel = defaultLevel;
     pkg_logging.Logger.root.level = defaultLevel;
     pkg_logging.Logger.root.onRecord.listen((record) {
       // Filter by category if set
@@ -72,7 +70,6 @@ class Logger {
 
   /// Set the default log level for all loggers.
   static void setDefaultLevel(pkg_logging.Level level) {
-    _defaultLevel = level;
     pkg_logging.Logger.root.level = level;
   }
 
@@ -116,7 +113,7 @@ class Logger {
   }) {
     final errorDetails = error != null ? ' - $error' : '';
     if (error is LuaError) {
-      final errorMessage = '${error.formatError()}';
+      final errorMessage = error.formatError();
       _getLogger(category).severe(errorMessage, error, trace);
       if (luaStackTrace != null) {
         _getLogger(category).severe(luaStackTrace.format());

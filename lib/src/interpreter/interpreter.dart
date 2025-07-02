@@ -484,6 +484,7 @@ class Interpreter extends AstVisitor<Object?>
       await _executeStatements(program);
     } on GotoException catch (e) {
       // Report undefined label with helpful message
+      Logger.warning('Undefined label: ${e.label}', category: 'Interpreter');
       throw GotoException('Undefined label: ${e.label}');
     }
 
@@ -514,7 +515,6 @@ class Interpreter extends AstVisitor<Object?>
         result = await node.accept(this);
         index++;
       } on GotoException catch (e) {
-        Logger.warning('Undefined label: ${e.label}', category: 'Interpreter');
         if (!labelMap.containsKey(e.label)) {
           // Propagate to outer scope for resolution
           throw GotoException(e.label);
