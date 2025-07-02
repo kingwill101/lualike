@@ -206,6 +206,9 @@ Assignment =>
 `AstNode`
 AssignmentTarget =>
   (
+    target = ComplexTableAccess
+    $ = { $$ = target; }
+    ----
     target = TableLookup
     $ = { $$ = target; }
     ----
