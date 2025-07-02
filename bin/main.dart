@@ -3,12 +3,13 @@ import 'dart:io';
 
 import 'package:dart_console/dart_console.dart';
 import 'package:lualike/history.dart';
-import 'package:lualike/lualike.dart';
 import 'package:lualike/src/io/lua_file.dart';
 import 'package:lualike/src/io/virtual_io_device.dart';
 import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:lualike/testing.dart';
 import 'package:path/path.dart' as path;
+import 'package:logging/logging.dart' as pkg_logging;
+import 'package:lualike/src/testing/testing.dart';
 
 bool debugMode = false;
 bool isReplMode = false;
@@ -375,11 +376,13 @@ void printUsage() {
   safePrint('''
 Usage: lualike [options] [script] [args]
 Options:
-  --ast       Run using AST interpreter (default)
-  --bytecode  Run using bytecode VM
-  -e code     Execute string 'code'
-  --debug     Enable debug mode with detailed logging
-  --help      Show this help message
+  --ast         Run using AST interpreter (default)
+  --bytecode    Run using bytecode VM
+  -e code       Execute string 'code'
+  --debug       Enable debug mode with detailed logging
+  --level LEVEL Set log level (FINE, INFO, WARNING, SEVERE, etc)
+  --category CAT  Set log category to filter (only logs for this category)
+  --help        Show this help message
 
 If no script or code is provided, starts REPL mode.
 ''');
@@ -387,21 +390,58 @@ If no script or code is provided, starts REPL mode.
 
 /// Main entry point for the LuaLike interpreter
 Future<void> main(List<String> args) async {
+  // Enable hierarchical logging for per-category log levels
+  pkg_logging.hierarchicalLoggingEnabled = true;
+
   ExecutionMode mode = ExecutionMode.astInterpreter;
   String? scriptPath;
   String? codeToExecute;
 
+  // Parse CLI log options
+  String? logLevelArg;
+  String? logCategoryArg;
+  List<String> filteredArgs = [];
+  for (int i = 0; i < args.length; i++) {
+    if (args[i] == '--level' && i + 1 < args.length) {
+      logLevelArg = args[++i];
+    } else if (args[i] == '--category' && i + 1 < args.length) {
+      logCategoryArg = args[++i];
+    } else {
+      filteredArgs.add(args[i]);
+    }
+  }
+  args = filteredArgs;
+
+  pkg_logging.Level? cliLevel;
+  if (logLevelArg != null && logLevelArg.isNotEmpty) {
+    cliLevel = pkg_logging.Level.LEVELS.firstWhere(
+      (lvl) => lvl.name.toUpperCase() == logLevelArg!.toUpperCase(),
+      orElse: () => pkg_logging.Level.WARNING,
+    );
+  }
+
+  // Set up logging using environment variables or CLI flags
+  // Initialize Logger first with default level, then apply filters
+  Logger.initialize(
+    defaultLevel: pkg_logging.Level.INFO,
+  ); // Initialize the single listener
+
+  // Handle --debug flag first to set debugMode
+  if (args.contains('--debug')) {
+    debugMode = true;
+    safePrint('Debug mode enabled');
+    args = args.where((arg) => arg != '--debug').toList();
+  }
+
+  setLualikeLogging(
+    enabled: debugMode, // Enabled status will be set by --debug or env
+    level: cliLevel, // CLI level overrides env
+    category: logCategoryArg, // CLI category overrides env
+  );
+
   if (args.contains('--help')) {
     printUsage();
     return;
-  }
-
-  if (args.contains('--debug')) {
-    debugMode = true;
-    Logger.setEnabled(debugMode);
-    safePrint('Debug mode enabled');
-    // Remove the debug flag from args to avoid processing it again
-    args = args.where((arg) => arg != '--debug').toList();
   }
 
   for (var i = 0; i < args.length; i++) {

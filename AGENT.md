@@ -10,10 +10,10 @@ Lualike is a lua interpreter written in Dart. It is designed to be a drop-in rep
    If any test fails, address each failure one at a time.
    Add useful debug output to make it easier to understand what's happening.
    Logger class has a Logger.setEnabled(false);
-   - which works with --debug flag when using the interpreter (dart run bin/main.dart) Note it can be very noisy.
-   - you can  use the LOGGING_ENABED  environment to the vm example: "dart --define=LOGGING_ENABLED=true run test test/stdlib/base_test.dart" will show the debug output.
+     - which works with --debug flag when using the interpreter (dart run bin/main.dart) Note it can be very noisy.
+     - you can  use the LOGGING_ENABED  environment to the vm example: "dart --define=LOGGING_ENABLED=true run test test/stdlib/base_test.dart" will show the debug output.
 
-   Compare results with the reference lua interpreter when uncertain. our interpreter supports the same cli arguments as the reference lua interpreter.
+      Compare results with the reference lua interpreter when uncertain. our interpreter supports the same cli arguments as the reference lua interpreter.
 
 4. **Prefer targeted test cases**
    When fixing bugs or investigating issues, write dedicated test cases that isolate the failing expression or behavior.
@@ -63,47 +63,3 @@ Lualike is a lua interpreter written in Dart. It is designed to be a drop-in rep
 - Never mention Dart internals, class names, or file structure
 - Use small Lua code examples to illustrate features
 - Refer to language as "lualike", not "Lua"
-
-## Command-Line Interface (CLI)
-
-The lualike CLI is a drop-in replacement for the Lua CLI, supporting similar arguments and additional features for debugging and logging.
-
-### Common Flags
-- `--ast`         : Run using AST interpreter (default)
-- `--bytecode`    : Run using bytecode VM
-- `-e code`       : Execute string 'code' inline
-- `--debug`       : Enable debug mode (and set logging to FINE level for all categories)
-- `--level LEVEL` : Set log level (FINE, INFO, WARNING, SEVERE, etc)
-- `--category CAT`: Set log category to filter (only logs for this category)
-- `--help`        : Show help message
-
-If no script or code is provided, starts REPL mode.
-
-### Logging and Filtering
-- Use `--debug` for verbose logging (all categories, FINE level) and to activate general debug features.
-- Use `--level` to set the minimum log level (e.g., `--level WARNING`).
-- Use `--category` to filter logs to a specific category (e.g., `--category Value`).
-- You can combine `--level` and `--category` for fine-grained log control.
-- Environment variables:
-  - `LOGGING_ENABLED=true` enables logging in all modes (including tests).
-  - `LOGGING_LEVEL=FINE` sets the default log level.
-
-### Examples
-- Run a script with debug logging:
-  ```sh
-  lualike --debug myscript.lua
-  ```
-- Run inline code and show only Value logs at FINE level:
-  ```sh
-  lualike --category Value --level FINE -e "1+1 >> 100"
-  ```
-- Run in REPL mode with warnings only:
-  ```sh
-  lualike --level WARNING
-  ```
-- Run with environment variable logging:
-  ```sh
-  LOGGING_ENABLED=true LOGGING_LEVEL=INFO lualike myscript.lua
-  ```
-
-See the CLI documentation in `docs/cli.md` for more details and advanced usage.

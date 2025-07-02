@@ -12,7 +12,10 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
   /// Returns the value at the specified index in the table.
   @override
   Future<Object?> visitTableAccess(TableAccessExpr node) async {
-    Logger.debug('Visiting TableAccess', category: 'Interpreter');
+    Logger.info(
+      'Accessing table: ${node.table} with key: ${node.index}',
+      category: 'TableAccess',
+    );
     final table = await node.table.accept(this);
     Object? indexResult;
 
@@ -60,9 +63,9 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     final tableVal = table is Value ? table : Value(table);
     final indexVal = indexResult is Value ? indexResult : Value(indexResult);
 
-    Logger.debug(
+    Logger.info(
       'TableAccess: ${tableVal.toString()}[${indexVal.toString()}]',
-      category: 'Interpreter',
+      category: 'TableAccess',
     );
 
     if (tableVal.raw is! Map) {
