@@ -410,6 +410,15 @@ class ToNumberFunction implements BuiltinFunction {
       // string literals, so handle common ones here for tonumber with base.
       str = str.replaceAll('\\t', '\t');
       str = str.replaceAll('\\n', '\n');
+      
+      // Lua tonumber is strict about internal whitespace after signs
+      // Reject strings like "+ 0.01" or "- 123"
+      if (str.startsWith('+') || str.startsWith('-')) {
+        if (str.length > 1 && str[1] == ' ') {
+          return Value(null);
+        }
+      }
+      
       if (base != null && base.raw is int) {
         final radix = base.raw as int;
         try {
