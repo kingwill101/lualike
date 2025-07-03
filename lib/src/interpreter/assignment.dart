@@ -270,7 +270,15 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
     // Use the current environment for assignment
     // The Environment class will handle propagating to parent environments if needed
-    globals.define(name, wrappedValue);
+    try {
+      globals.define(name, wrappedValue);
+    } catch (e) {
+      throw LuaError(
+        'Assignment to constant variable: $name',
+        cause: e,
+        node: target,
+      );
+    }
     return wrappedValue;
   }
 
@@ -414,7 +422,12 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           }
         }
       } else {
-        valueWithAttributes = rawValue;
+        // Create a new Value to avoid inheriting const/close attributes from source
+        valueWithAttributes = Value(
+          rawValue.raw,
+          metatable: rawValue.metatable,
+          // Explicitly do not copy isConst or isToBeClose
+        );
       }
 
       globals.declare(name, valueWithAttributes);
@@ -468,7 +481,16 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
             }
           }
         } else {
-          valueWithAttributes = rawValue is Value ? rawValue : Value(rawValue);
+          // Create a new Value to avoid inheriting const/close attributes from source
+          if (rawValue is Value) {
+            valueWithAttributes = Value(
+              rawValue.raw,
+              metatable: rawValue.metatable,
+              // Explicitly do not copy isConst or isToBeClose
+            );
+          } else {
+            valueWithAttributes = Value(rawValue);
+          }
         }
 
         Logger.debug(

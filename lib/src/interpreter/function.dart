@@ -161,7 +161,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       final execEnv = Environment(
         parent: closureEnv,
         interpreter: this as Interpreter,
-        isClosure: true,
+        isClosure: false,  // Don't mark as closure by default
       );
 
       // if (node.implicitSelf) {

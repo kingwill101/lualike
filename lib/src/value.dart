@@ -4,6 +4,7 @@ import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
 import 'package:lualike/src/stdlib/lib_math.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
+import 'package:lualike/src/stdlib/number_utils.dart';
 import 'package:lualike/src/upvalue.dart';
 
 /// Represents an asynchronous function that can be called with a list of arguments.
@@ -887,6 +888,17 @@ extension OperatorExtension on Value {
     return wrappedOther;
   }
 
+  // Helper method for Lua truthiness evaluation
+  bool isTruthy() {
+    // In Lua, only nil and false are falsy - everything else is truthy
+    return raw != null && raw != false;
+  }
+
+  bool isFalsy() {
+    // In Lua, only nil and false are falsy
+    return raw == null || raw == false;
+  }
+
   // Add a helper for Lua's ~= (not equal) semantics
   bool notEquals(Object other) {
     final otherRaw = other is Value ? other.raw : other;
@@ -1092,7 +1104,33 @@ extension OperatorExtension on Value {
         'ARITH: bitwise shift, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
         category: 'Value',
       );
-      final b1 = toInt(r1);
+      
+      // Handle special case where r1 is too large to convert to int
+      BigInt b1;
+      try {
+        b1 = toInt(r1);
+      } catch (e) {
+        if (e.toString().contains('number has no integer representation')) {
+          // Only wrap for large integers, not for fractional numbers
+          if (NumberUtils.isInteger(r1) && !NumberUtils.isInIntegerRange(r1)) {
+            // Use NumberUtils for safe conversion of large integers
+            final bi = NumberUtils.toBigInt(r1);
+            final maxRange = BigInt.one << NumberUtils.sizeInBits; // 2^64
+            final wrapped = bi % maxRange;
+            // Convert to signed range using NumberUtils constants
+            if (wrapped > NumberUtils.toBigInt(NumberUtils.maxInteger)) {
+              b1 = wrapped - maxRange; // Convert to signed
+            } else {
+              b1 = wrapped;
+            }
+          } else {
+            rethrow;
+          }
+        } else {
+          rethrow;
+        }
+      }
+      
       var shift = toInt(r2).toInt();
       var opToUse = op;
 
