@@ -470,4 +470,194 @@ class NumberUtils {
     final fracPart = d - intPart;
     return (intPart, fracPart);
   }
+
+  /// Perform multiplication with proper type handling
+  static dynamic multiply(dynamic a, dynamic b) {
+    if ((a is int || a is BigInt) && (b is int || b is BigInt)) {
+      // If either operand is BigInt, preserve BigInt type
+      if (a is BigInt || b is BigInt) {
+        final bigA = toBigInt(a);
+        final bigB = toBigInt(b);
+        return bigA * bigB;
+      }
+
+      // Both are regular int - check for overflow
+      final result = (a as int) * (b as int);
+      return result;
+    }
+
+    // For mixed types or floating point, use double arithmetic
+    return toDouble(a) * toDouble(b);
+  }
+
+  /// Perform division (always returns float)
+  static double divide(dynamic a, dynamic b) {
+    final f1 = toDouble(a);
+    final f2 = toDouble(b);
+    return f1 / f2;
+  }
+
+  /// Perform floor division
+  static dynamic floorDivide(dynamic a, dynamic b) {
+    // Check for division by zero for integer types
+    if ((a is int || a is BigInt) && (b is int || b is BigInt) && isZero(b)) {
+      throw LuaError('divide by zero');
+    }
+
+    if ((a is int || a is BigInt) && (b is int || b is BigInt)) {
+      // Integer floor division
+      if (a is BigInt || b is BigInt) {
+        final bigA = toBigInt(a);
+        final bigB = toBigInt(b);
+        final div = bigA.toDouble() / bigB.toDouble();
+        return (div.isInfinite || div.isNaN) ? div : div.floorToDouble();
+      }
+
+      // Both are regular integers
+      final intA = a as int;
+      final intB = b as int;
+      final quotient = intA ~/ intB;
+      final remainder = intA % intB;
+      if (remainder != 0 && (intA < 0) != (intB < 0)) {
+        return quotient - 1;
+      } else {
+        return quotient;
+      }
+    }
+
+    // For floating point
+    final f1 = toDouble(a);
+    final f2 = toDouble(b);
+    final div = f1 / f2;
+    return (div.isInfinite || div.isNaN) ? div : div.floorToDouble();
+  }
+
+  /// Perform modulo operation with Lua semantics
+  static dynamic modulo(dynamic a, dynamic b) {
+    if ((a is int || a is BigInt) && (b is int || b is BigInt)) {
+      if (a is BigInt || b is BigInt) {
+        // BigInt modulo
+        final bigA = toBigInt(a);
+        final bigB = toBigInt(b);
+        var div = bigA ~/ bigB;
+        final differentSigns =
+            (bigA.isNegative && !bigB.isNegative) ||
+            (!bigA.isNegative && bigB.isNegative);
+        if (differentSigns && bigA % bigB != BigInt.zero) {
+          div -= BigInt.one;
+        }
+        return bigA - div * bigB;
+      }
+
+      // Regular int modulo
+      final intA = a as int;
+      final intB = b as int;
+      var div = intA ~/ intB;
+      if ((intA < 0) != (intB < 0) && intA % intB != 0) {
+        div -= 1;
+      }
+      return intA - div * intB;
+    }
+
+    // Floating point modulo
+    final f1 = toDouble(a);
+    final f2 = toDouble(b);
+    var rem = f1.remainder(f2);
+    if (rem != 0 && ((f1 < 0 && f2 > 0) || (f1 > 0 && f2 < 0))) {
+      rem += f2;
+    }
+    return rem;
+  }
+
+  /// Perform exponentiation (always returns float)
+  static double exponentiate(dynamic a, dynamic b) {
+    final f1 = toDouble(a);
+    final f2 = toDouble(b);
+    return math.pow(f1, f2).toDouble();
+  }
+
+  /// Perform bitwise AND with integer validation
+  static dynamic bitwiseAnd(dynamic a, dynamic b) {
+    final bigA = _validateAndConvertToInteger(a);
+    final bigB = _validateAndConvertToInteger(b);
+
+    final result = bigA & bigB;
+
+    // Return appropriate type
+    if ((a is int && b is int) &&
+        result >= BigInt.from(minInteger) &&
+        result <= BigInt.from(maxInteger)) {
+      return result.toInt();
+    }
+    return result;
+  }
+
+  /// Perform bitwise OR with integer validation
+  static dynamic bitwiseOr(dynamic a, dynamic b) {
+    final bigA = _validateAndConvertToInteger(a);
+    final bigB = _validateAndConvertToInteger(b);
+
+    final result = bigA | bigB;
+
+    // Return appropriate type
+    if ((a is int && b is int) &&
+        result >= BigInt.from(minInteger) &&
+        result <= BigInt.from(maxInteger)) {
+      return result.toInt();
+    }
+    return result;
+  }
+
+  /// Perform bitwise XOR with integer validation
+  static dynamic bitwiseXor(dynamic a, dynamic b) {
+    final bigA = _validateAndConvertToInteger(a);
+    final bigB = _validateAndConvertToInteger(b);
+
+    final result = bigA ^ bigB;
+
+    // Return appropriate type
+    if ((a is int && b is int) &&
+        result >= BigInt.from(minInteger) &&
+        result <= BigInt.from(maxInteger)) {
+      return result.toInt();
+    }
+    return result;
+  }
+
+  /// Perform bitwise NOT with integer validation
+  static dynamic bitwiseNot(dynamic a) {
+    final bigA = _validateAndConvertToInteger(a);
+    final result = ~bigA;
+
+    // Return appropriate type
+    if (a is int &&
+        result >= BigInt.from(minInteger) &&
+        result <= BigInt.from(maxInteger)) {
+      return result.toInt();
+    }
+    return result;
+  }
+
+  /// Helper method to validate and convert to integer for bitwise operations
+  static BigInt _validateAndConvertToInteger(dynamic value) {
+    if (value is BigInt) return value;
+    if (value is int) return BigInt.from(value);
+    if (value is double) {
+      if (!value.isFinite) {
+        if (value == double.infinity || value == double.negativeInfinity) {
+          throw LuaError("number (field 'huge') has no integer representation");
+        }
+        throw LuaError("number has no integer representation");
+      }
+      if (value.floorToDouble() != value) {
+        throw LuaError('number has no integer representation');
+      }
+      final bi = BigInt.parse(value.toStringAsFixed(0));
+      if (bi < BigInt.from(minInteger) || bi > BigInt.from(maxInteger)) {
+        throw LuaError('number has no integer representation');
+      }
+      return bi;
+    }
+    throw LuaError.typeError('number has no integer representation');
+  }
 }
