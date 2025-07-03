@@ -2,7 +2,7 @@ import 'dart:math' as math;
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
-import 'package:lualike/src/stdlib/lib_math.dart';
+
 import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/stdlib/number_utils.dart';
 import 'package:lualike/src/upvalue.dart';
@@ -957,8 +957,8 @@ extension OperatorExtension on Value {
     var r1 = raw;
     var r2 = other.raw;
 
-    final minInt64 = BigInt.from(MathLib.minInteger);
-    final maxInt64 = BigInt.from(MathLib.maxInteger);
+    final minInt64 = NumberUtils.toBigInt(NumberUtils.minInteger);
+    final maxInt64 = NumberUtils.toBigInt(NumberUtils.maxInteger);
     Logger.debug(
       'ARITH: Lua 64-bit minInt64=$minInt64, maxInt64=$maxInt64',
       category: 'Value',
