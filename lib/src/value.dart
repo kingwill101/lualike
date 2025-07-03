@@ -1105,31 +1105,7 @@ extension OperatorExtension on Value {
         category: 'Value',
       );
       
-      // Handle special case where r1 is too large to convert to int
-      BigInt b1;
-      try {
-        b1 = toInt(r1);
-      } catch (e) {
-        if (e.toString().contains('number has no integer representation')) {
-          // Only wrap for large integers, not for fractional numbers
-          if (NumberUtils.isInteger(r1) && !NumberUtils.isInIntegerRange(r1)) {
-            // Use NumberUtils for safe conversion of large integers
-            final bi = NumberUtils.toBigInt(r1);
-            final maxRange = BigInt.one << NumberUtils.sizeInBits; // 2^64
-            final wrapped = bi % maxRange;
-            // Convert to signed range using NumberUtils constants
-            if (wrapped > NumberUtils.toBigInt(NumberUtils.maxInteger)) {
-              b1 = wrapped - maxRange; // Convert to signed
-            } else {
-              b1 = wrapped;
-            }
-          } else {
-            rethrow;
-          }
-        } else {
-          rethrow;
-        }
-      }
+      final b1 = toInt(r1);
       
       var shift = toInt(r2).toInt();
       var opToUse = op;
