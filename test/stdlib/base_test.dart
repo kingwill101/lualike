@@ -252,25 +252,187 @@ void main() {
         local n1 = tonumber("123")
         local n2 = tonumber("123.45")
         local n3 = tonumber("-123.45")
-
-        -- Test with base
+        
+        -- Test positive sign prefix
+        local pos1 = tonumber("+123")
+        local pos2 = tonumber("+123.45")
+        local pos3 = tonumber("+0.01")
+        local pos4 = tonumber("+.01")
+        local pos5 = tonumber("+1.")
+        
+        -- Test decimal point variations
+        local dot1 = tonumber(".01")
+        local dot2 = tonumber("-.01")
+        local dot3 = tonumber("-1.")
+        local dot4 = tonumber("1.")
+        local dot5 = tonumber("0.")
+        local dot6 = tonumber("+0.")
+        local dot7 = tonumber("-0.")
+        
+        -- Test leading/trailing zeros
+        local zero1 = tonumber("007")
+        local zero2 = tonumber("007.5")
+        local zero3 = tonumber("0.500")
+        local zero4 = tonumber("+007")
+        local zero5 = tonumber("-007")
+        
+        -- Test scientific notation
+        local sci1 = tonumber("1e2")
+        local sci2 = tonumber("1.5e2")
+        local sci3 = tonumber("1E2")
+        local sci4 = tonumber("1.5E-2")
+        local sci5 = tonumber("+1e2")
+        local sci6 = tonumber("-1e2")
+        local sci7 = tonumber("1e+2")
+        local sci8 = tonumber("1e-2")
+        
+        -- Test hex numbers (base 10 should treat these as invalid)
+        local hex_base10_1 = tonumber("0x10")
+        local hex_base10_2 = tonumber("0X10")
+        
+        -- Test with base parameter
         local hex = tonumber("FF", 16)
+        local hex2 = tonumber("ff", 16)
+        local hex3 = tonumber("10", 16)
         local bin = tonumber("1010", 2)
         local oct = tonumber("70", 8)
-
+        local base36 = tonumber("ZZ", 36)
+        
+        -- Test whitespace handling
+        local ws1 = tonumber(" 123 ")
+        local ws2 = tonumber("\\t456\\n")
+        local ws3 = tonumber("  +123.45  ")
+        local ws4 = tonumber("\\n\\t-67.89\\t\\n")
+        
+        -- Test edge cases
+        local inf_pos = tonumber("inf")
+        local inf_neg = tonumber("-inf")
+        local nan_val = tonumber("nan")
+        
         -- Test invalid conversions
         local invalid1 = tonumber("not a number")
         local invalid2 = tonumber("FF") -- without base 16
+        local invalid3 = tonumber("123abc")
+        local invalid4 = tonumber("12.34.56")
+        local invalid5 = tonumber("++123")
+        local invalid6 = tonumber("--123")
+        local invalid7 = tonumber("1.2.3")
+        local invalid8 = tonumber("")
+        local invalid9 = tonumber("   ")
+        local invalid10 = tonumber("1e")
+        local invalid11 = tonumber("1e+")
+        local invalid12 = tonumber("e5")
+        local invalid13 = tonumber(".")
+        local invalid14 = tonumber("+")
+        local invalid15 = tonumber("-")
+        
+        -- Test the specific cases from math.lua that were failing
+        local math_test1 = tonumber("+0.01")
+        local math_test2 = tonumber("+.01")
+        local math_test3 = tonumber(".01")
+        local math_test4 = tonumber("-1.")
+        local math_test5 = tonumber("+1.")
+        
+        -- Verify math.lua assertions
+        local check1 = math_test1 == 1/100
+        local check2 = math_test2 == 0.01
+        local check3 = math_test3 == 0.01
+        local check4 = math_test4 == -1
+        local check5 = math_test5 == 1
       ''');
 
+      // Basic conversions
       expect((bridge.getGlobal('n1') as Value).raw, equals(123));
       expect((bridge.getGlobal('n2') as Value).raw, equals(123.45));
       expect((bridge.getGlobal('n3') as Value).raw, equals(-123.45));
+      
+      // Positive sign prefix
+      expect((bridge.getGlobal('pos1') as Value).raw, equals(123));
+      expect((bridge.getGlobal('pos2') as Value).raw, equals(123.45));
+      expect((bridge.getGlobal('pos3') as Value).raw, equals(0.01));
+      expect((bridge.getGlobal('pos4') as Value).raw, equals(0.01));
+      expect((bridge.getGlobal('pos5') as Value).raw, equals(1.0));
+      
+      // Decimal point variations
+      expect((bridge.getGlobal('dot1') as Value).raw, equals(0.01));
+      expect((bridge.getGlobal('dot2') as Value).raw, equals(-0.01));
+      expect((bridge.getGlobal('dot3') as Value).raw, equals(-1.0));
+      expect((bridge.getGlobal('dot4') as Value).raw, equals(1.0));
+      expect((bridge.getGlobal('dot5') as Value).raw, equals(0.0));
+      expect((bridge.getGlobal('dot6') as Value).raw, equals(0.0));
+      expect((bridge.getGlobal('dot7') as Value).raw, equals(0.0));
+      
+      // Leading/trailing zeros
+      expect((bridge.getGlobal('zero1') as Value).raw, equals(7));
+      expect((bridge.getGlobal('zero2') as Value).raw, equals(7.5));
+      expect((bridge.getGlobal('zero3') as Value).raw, equals(0.5));
+      expect((bridge.getGlobal('zero4') as Value).raw, equals(7));
+      expect((bridge.getGlobal('zero5') as Value).raw, equals(-7));
+      
+      // Scientific notation
+      expect((bridge.getGlobal('sci1') as Value).raw, equals(100.0));
+      expect((bridge.getGlobal('sci2') as Value).raw, equals(150.0));
+      expect((bridge.getGlobal('sci3') as Value).raw, equals(100.0));
+      expect((bridge.getGlobal('sci4') as Value).raw, equals(0.015));
+      expect((bridge.getGlobal('sci5') as Value).raw, equals(100.0));
+      expect((bridge.getGlobal('sci6') as Value).raw, equals(-100.0));
+      expect((bridge.getGlobal('sci7') as Value).raw, equals(100.0));
+      expect((bridge.getGlobal('sci8') as Value).raw, equals(0.01));
+      
+      // Hex in base 10 (Lua supports hex notation in base 10)
+      expect((bridge.getGlobal('hex_base10_1') as Value).raw, equals(16));
+      expect((bridge.getGlobal('hex_base10_2') as Value).raw, equals(16));
+      
+      // With base parameter
       expect((bridge.getGlobal('hex') as Value).raw, equals(255));
+      expect((bridge.getGlobal('hex2') as Value).raw, equals(255));
+      expect((bridge.getGlobal('hex3') as Value).raw, equals(16));
       expect((bridge.getGlobal('bin') as Value).raw, equals(10));
       expect((bridge.getGlobal('oct') as Value).raw, equals(56));
+      expect((bridge.getGlobal('base36') as Value).raw, equals(1295)); // Z=35, so ZZ = 35*36 + 35 = 1295
+      
+      // Whitespace handling (Lua accepts leading/trailing whitespace)
+      expect((bridge.getGlobal('ws1') as Value).raw, equals(123));
+      expect((bridge.getGlobal('ws2') as Value).raw, equals(456)); // \t and \n are allowed
+      expect((bridge.getGlobal('ws3') as Value).raw, equals(123.45));
+      expect((bridge.getGlobal('ws4') as Value).raw, equals(-67.89)); // \t and \n are allowed
+      
+      // Edge cases - these might not be supported by all Lua implementations
+      // Testing for null is safer than expecting specific values for inf/nan
+      // expect((bridge.getGlobal('inf_pos') as Value).raw, anyOf(isNull, equals(double.infinity)));
+      // expect((bridge.getGlobal('inf_neg') as Value).raw, anyOf(isNull, equals(double.negativeInfinity)));
+      // expect((bridge.getGlobal('nan_val') as Value).raw, anyOf(isNull, isNaN));
+      
+      // Invalid conversions
       expect((bridge.getGlobal('invalid1') as Value).raw, isNull);
       expect((bridge.getGlobal('invalid2') as Value).raw, isNull);
+      expect((bridge.getGlobal('invalid3') as Value).raw, isNull);
+      expect((bridge.getGlobal('invalid4') as Value).raw, isNull);
+      expect((bridge.getGlobal('invalid5') as Value).raw, isNull);
+      expect((bridge.getGlobal('invalid6') as Value).raw, isNull);
+      expect((bridge.getGlobal('invalid7') as Value).raw, isNull);
+      expect((bridge.getGlobal('invalid8') as Value).raw, isNull);
+      expect((bridge.getGlobal('invalid9') as Value).raw, isNull);
+      expect((bridge.getGlobal('invalid10') as Value).raw, isNull);
+      expect((bridge.getGlobal('invalid11') as Value).raw, isNull);
+      expect((bridge.getGlobal('invalid12') as Value).raw, isNull);
+      expect((bridge.getGlobal('invalid13') as Value).raw, isNull);
+      expect((bridge.getGlobal('invalid14') as Value).raw, isNull);
+      expect((bridge.getGlobal('invalid15') as Value).raw, isNull);
+      
+      // Math.lua specific tests
+      expect((bridge.getGlobal('math_test1') as Value).raw, equals(0.01));
+      expect((bridge.getGlobal('math_test2') as Value).raw, equals(0.01));
+      expect((bridge.getGlobal('math_test3') as Value).raw, equals(0.01));
+      expect((bridge.getGlobal('math_test4') as Value).raw, equals(-1.0));
+      expect((bridge.getGlobal('math_test5') as Value).raw, equals(1.0));
+      
+      // Verify the assertions that were failing in math.lua
+      expect((bridge.getGlobal('check1') as Value).raw, isTrue);
+      expect((bridge.getGlobal('check2') as Value).raw, isTrue);
+      expect((bridge.getGlobal('check3') as Value).raw, isTrue);
+      expect((bridge.getGlobal('check4') as Value).raw, isTrue);
+      expect((bridge.getGlobal('check5') as Value).raw, isTrue);
     });
 
     test('select', () async {
