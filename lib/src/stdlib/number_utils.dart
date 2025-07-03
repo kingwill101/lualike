@@ -1,4 +1,6 @@
 import 'dart:math' as math;
+import '../exceptions.dart';
+import '../logger.dart';
 import '../lua_error.dart';
 import '../number.dart';
 import '../value.dart';
@@ -626,6 +628,17 @@ class NumberUtils {
 
   /// Perform bitwise NOT with integer validation
   static dynamic bitwiseNot(dynamic a) {
+    // Try to convert strings to numbers (Lua automatic conversion)
+    if (a is String) {
+      try {
+        a = LuaNumberParser.parse(a);
+      } catch (e) {
+        throw LuaError.typeError(
+          "attempt to perform arithmetic on a string value",
+        );
+      }
+    }
+
     final bigA = _validateAndConvertToInteger(a);
     final result = ~bigA;
 
@@ -659,5 +672,153 @@ class NumberUtils {
       return bi;
     }
     throw LuaError.typeError('number has no integer representation');
+  }
+
+  /// Perform arithmetic operation with full Lua semantics including string conversion
+  static dynamic performArithmetic(String op, dynamic r1, dynamic r2) {
+    Logger.debug(
+      'ARITH: START op=$op, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
+      category: 'NumberUtils',
+    );
+
+    // Try to convert strings to numbers (Lua automatic conversion)
+    if (r1 is String) {
+      Logger.debug('ARITH: r1 is String, parsing...', category: 'NumberUtils');
+      try {
+        r1 = LuaNumberParser.parse(r1);
+        Logger.debug(
+          'ARITH: r1 parsed to $r1 (${r1.runtimeType})',
+          category: 'NumberUtils',
+        );
+      } catch (e) {
+        Logger.warning(
+          'ARITH: r1 parse error: $e',
+          category: 'NumberUtils',
+          error: e,
+        );
+        throw LuaError.typeError(
+          "attempt to perform arithmetic on a string value",
+        );
+      }
+    }
+
+    if (r2 is String) {
+      Logger.debug('ARITH: r2 is String, parsing...', category: 'NumberUtils');
+      try {
+        r2 = LuaNumberParser.parse(r2);
+        Logger.debug(
+          'ARITH: r2 parsed to $r2 (${r2.runtimeType})',
+          category: 'NumberUtils',
+        );
+      } catch (e) {
+        Logger.warning(
+          'ARITH: r2 parse error: $e',
+          category: 'NumberUtils',
+          error: e,
+        );
+        throw LuaError.typeError(
+          "attempt to perform arithmetic on a string value",
+        );
+      }
+    }
+
+    Logger.debug(
+      'ARITH: after string parse, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
+      category: 'NumberUtils',
+    );
+
+    // Validate that we have numbers
+    if (!((r1 is num || r1 is BigInt) && (r2 is num || r2 is BigInt))) {
+      Logger.warning(
+        'ARITH: type error, non-number values',
+        category: 'NumberUtils',
+      );
+      throw LuaError.typeError(
+        "attempt to perform arithmetic on non-number values",
+      );
+    }
+
+    // Delegate all arithmetic operations to the appropriate methods
+    dynamic result;
+    try {
+      switch (op) {
+        case '+':
+          result = add(r1, r2);
+          break;
+        case '-':
+          result = subtract(r1, r2);
+          break;
+        case '*':
+          result = multiply(r1, r2);
+          break;
+        case '/':
+          result = divide(r1, r2);
+          break;
+        case '//':
+          result = floorDivide(r1, r2);
+          break;
+        case '%':
+          result = modulo(r1, r2);
+          break;
+        case '^':
+          result = exponentiate(r1, r2);
+          break;
+        case '<<':
+          result = leftShift(r1, r2);
+          break;
+        case '>>':
+          result = rightShift(r1, r2);
+          break;
+        case '&':
+          result = bitwiseAnd(r1, r2);
+          break;
+        case '|':
+          result = bitwiseOr(r1, r2);
+          break;
+        case 'bxor':
+          result = bitwiseXor(r1, r2);
+          break;
+        default:
+          Logger.warning(
+            'ARITH: unsupported operation: $op',
+            category: 'NumberUtils',
+          );
+          throw LuaError.typeError('operation "$op" not supported');
+      }
+    } catch (e) {
+      Logger.warning(
+        'ARITH: operation failed: $e',
+        category: 'NumberUtils',
+        error: e,
+      );
+      rethrow;
+    }
+
+    Logger.debug(
+      'ARITH: result: $result (${result.runtimeType})',
+      category: 'NumberUtils',
+    );
+    return result;
+  }
+
+  /// Perform unary negation with Lua semantics including string conversion
+  static dynamic negate(dynamic value) {
+    // Try to convert strings to numbers (Lua automatic conversion)
+    if (value is String) {
+      try {
+        value = LuaNumberParser.parse(value);
+      } catch (e) {
+        throw LuaError.typeError(
+          "attempt to perform arithmetic on a string value",
+        );
+      }
+    }
+
+    if (value is BigInt) return -value;
+    if (value is num) return -value;
+
+    throw LuaError.typeError(
+      'Unary negation not supported for type ${value.runtimeType}',
+    );
   }
 }

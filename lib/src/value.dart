@@ -954,128 +954,7 @@ extension OperatorExtension on Value {
   }
 
   Value _arith(String op, Value other) {
-    var r1 = raw;
-    var r2 = other.raw;
-
-    Logger.debug(
-      'ARITH: START op=$op, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
-      category: 'Value',
-    );
-
-    // Try to convert strings to numbers (Lua automatic conversion)
-    if (r1 is String) {
-      Logger.debug('ARITH: r1 is String, parsing...', category: 'Value');
-      try {
-        r1 = LuaNumberParser.parse(r1);
-        Logger.debug(
-          'ARITH: r1 parsed to $r1 (${r1.runtimeType})',
-          category: 'Value',
-        );
-      } catch (e) {
-        Logger.warning(
-          'ARITH: r1 parse error: $e',
-          category: 'Value',
-          error: e,
-        );
-        throw LuaError.typeError(
-          "attempt to perform arithmetic on a string value",
-        );
-      }
-    }
-
-    if (r2 is String) {
-      Logger.debug('ARITH: r2 is String, parsing...', category: 'Value');
-      try {
-        r2 = LuaNumberParser.parse(r2);
-        Logger.debug(
-          'ARITH: r2 parsed to $r2 (${r2.runtimeType})',
-          category: 'Value',
-        );
-      } catch (e) {
-        Logger.warning(
-          'ARITH: r2 parse error: $e',
-          category: 'Value',
-          error: e,
-        );
-        throw LuaError.typeError(
-          "attempt to perform arithmetic on a string value",
-        );
-      }
-    }
-
-    Logger.debug(
-      'ARITH: after string parse, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
-      category: 'Value',
-    );
-
-    // Validate that we have numbers
-    if (!((r1 is num || r1 is BigInt) && (r2 is num || r2 is BigInt))) {
-      Logger.warning('ARITH: type error, non-number values', category: 'Value');
-      throw LuaError.typeError(
-        "attempt to perform arithmetic on non-number values",
-      );
-    }
-
-    // Delegate all arithmetic operations to NumberUtils
-    dynamic result;
-    try {
-      switch (op) {
-        case '+':
-          result = NumberUtils.add(r1, r2);
-          break;
-        case '-':
-          result = NumberUtils.subtract(r1, r2);
-          break;
-        case '*':
-          result = NumberUtils.multiply(r1, r2);
-          break;
-        case '/':
-          result = NumberUtils.divide(r1, r2);
-          break;
-        case '//':
-          result = NumberUtils.floorDivide(r1, r2);
-          break;
-        case '%':
-          result = NumberUtils.modulo(r1, r2);
-          break;
-        case '^':
-          result = NumberUtils.exponentiate(r1, r2);
-          break;
-        case '<<':
-          result = NumberUtils.leftShift(r1, r2);
-          break;
-        case '>>':
-          result = NumberUtils.rightShift(r1, r2);
-          break;
-        case '&':
-          result = NumberUtils.bitwiseAnd(r1, r2);
-          break;
-        case '|':
-          result = NumberUtils.bitwiseOr(r1, r2);
-          break;
-        case 'bxor':
-          result = NumberUtils.bitwiseXor(r1, r2);
-          break;
-        default:
-          Logger.warning(
-            'ARITH: unsupported operation: $op',
-            category: 'Value',
-          );
-          throw LuaError.typeError('operation "$op" not supported');
-      }
-    } catch (e) {
-      Logger.warning(
-        'ARITH: operation failed: $e',
-        category: 'Value',
-        error: e,
-      );
-      rethrow;
-    }
-
-    Logger.debug(
-      'ARITH: result: $result (${result.runtimeType})',
-      category: 'Value',
-    );
+    final result = NumberUtils.performArithmetic(op, raw, other.raw);
     return Value(result);
   }
 
@@ -1093,31 +972,8 @@ extension OperatorExtension on Value {
 
   // Overload the bitwise NOT operator
   Value operator ~() {
-    var r = raw;
-
-    // Try to convert strings to numbers (Lua automatic conversion)
-    if (r is String) {
-      try {
-        r = LuaNumberParser.parse(r);
-      } catch (e) {
-        throw LuaError.typeError(
-          "attempt to perform arithmetic on a string value",
-        );
-      }
-    }
-
-    if (r is int) return Value(~r);
-    if (r is BigInt) return Value(~r);
-    if (r is double) {
-      if (!r.isFinite || r.floorToDouble() != r) {
-        throw LuaError('number has no integer representation');
-      }
-      return Value(~r.toInt());
-    }
-
-    throw LuaError.typeError(
-      'Bitwise NOT not supported for these types ${raw.runtimeType}',
-    );
+    final result = NumberUtils.bitwiseNot(raw);
+    return Value(result);
   }
 
   // Overload the left shift operator
@@ -1137,25 +993,8 @@ extension OperatorExtension on Value {
 
   // Overload the negation operator
   Value operator -() {
-    var r = raw;
-
-    // Try to convert strings to numbers (Lua automatic conversion)
-    if (r is String) {
-      try {
-        r = LuaNumberParser.parse(r);
-      } catch (e) {
-        throw LuaError.typeError(
-          "attempt to perform arithmetic on a string value",
-        );
-      }
-    }
-
-    if (r is BigInt) return Value(-r);
-    if (r is num) return Value(-r);
-
-    throw UnsupportedError(
-      'Negation not supported for type ${raw.runtimeType}',
-    );
+    final result = NumberUtils.negate(raw);
+    return Value(result);
   }
 
   // Overload the concatenation operator
