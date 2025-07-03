@@ -1,0 +1,266 @@
+import 'dart:math' as math;
+import '../lua_error.dart';
+import '../number.dart';
+import '../value.dart';
+
+/// Utility class for common number operations and conversions used throughout the stdlib
+class NumberUtils {
+  NumberUtils._(); // Prevent instantiation
+
+  /// 64-bit signed integer limits
+  static const int maxInteger = (1 << 63) - 1; // 9223372036854775807
+  static const int minInteger = -(1 << 63); // -9223372036854775808
+  static const int sizeInBits = 64;
+
+  /// Get type name for error messages
+  static String typeName(dynamic value) {
+    if (value == null) return 'nil';
+    if (value is bool) return 'boolean';
+    if (value is num) return 'number';
+    if (value is String) return 'string';
+    if (value is List) return 'table';
+    if (value is Function) return 'function';
+    return value.runtimeType.toString();
+  }
+
+  /// Extract and validate a number from a Value with proper error handling
+  static dynamic getNumber(Value value, String funcName, int argNum) {
+    if (value.raw is! num && value.raw is! BigInt) {
+      throw LuaError.typeError(
+        "bad argument #$argNum to '$funcName' (number expected, got ${typeName(value.raw)})",
+      );
+    }
+    return value.raw;
+  }
+
+  /// Convert any numeric type to double
+  static double toDouble(dynamic number) {
+    if (number is BigInt) return number.toDouble();
+    return (number as num).toDouble();
+  }
+
+  /// Convert any numeric type to int (with overflow handling)
+  static int toInt(dynamic number) {
+    if (number is BigInt) return number.toInt();
+    if (number is int) return number;
+    return (number as num).toInt();
+  }
+
+  /// Convert any numeric type to BigInt
+  static BigInt toBigInt(dynamic number) {
+    if (number is BigInt) return number;
+    if (number is int) return BigInt.from(number);
+    return BigInt.from((number as num).toInt());
+  }
+
+  /// Convert double to BigInt safely, handling scientific notation
+  static BigInt doubleToBigInt(double value) {
+    final str = value.toStringAsFixed(0);
+    if (str.contains('e') || str.contains('E')) {
+      // Use LuaNumberParser for scientific notation
+      final parsed = LuaNumberParser.parse(str);
+      if (parsed is double) {
+        throw FormatException('Cannot convert to BigInt');
+      }
+      return parsed is BigInt ? parsed : BigInt.from(parsed);
+    }
+    return BigInt.parse(str);
+  }
+
+  /// Check if a number is zero (works with int, double, BigInt)
+  static bool isZero(dynamic number) {
+    if (number is BigInt) return number == BigInt.zero;
+    return (number as num) == 0;
+  }
+
+  /// Check if a number is finite (for doubles)
+  static bool isFinite(dynamic number) {
+    if (number is double) return number.isFinite;
+    return true; // int and BigInt are always finite
+  }
+
+  /// Check if a number is an integer (no fractional part)
+  static bool isInteger(dynamic number) {
+    if (number is int || number is BigInt) return true;
+    if (number is double) {
+      return number.isFinite && number == number.truncateToDouble();
+    }
+    return false;
+  }
+
+  /// Check if a value is within the 64-bit signed integer range
+  static bool isInIntegerRange(dynamic number) {
+    if (number is int) return true; // Dart ints are always in range
+    if (number is BigInt) {
+      return number >= BigInt.from(minInteger) &&
+          number <= BigInt.from(maxInteger);
+    }
+    if (number is double) {
+      return number >= minInteger.toDouble() && number <= maxInteger.toDouble();
+    }
+    return false;
+  }
+
+  /// Convert a number to integer if possible, respecting Lua's math.tointeger semantics
+  static int? tryToInteger(dynamic value) {
+    if (value is String) {
+      try {
+        value = LuaNumberParser.parse(value);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    if (value is int) {
+      return value;
+    } else if (value is BigInt) {
+      if (value <= BigInt.from(maxInteger) &&
+          value >= BigInt.from(minInteger)) {
+        return value.toInt();
+      }
+      return null;
+    } else if (value is double) {
+      if (!value.isFinite) return null;
+
+      // For values at the edge of double precision, we need to be more careful
+      // Any double >= 2^63 (9223372036854775808.0) cannot be exactly represented as int64
+      if (value >= 9223372036854775808.0 || value < -9223372036854775808.0) {
+        return null;
+      }
+
+      final int intVal = value.toInt();
+
+      // Check if the conversion is exact (no fractional part)
+      if (intVal.toDouble() == value) {
+        return intVal;
+      }
+      return null;
+    }
+    return null;
+  }
+
+  /// Convert a double result to the most appropriate numeric type (int or double)
+  /// This is useful for functions like floor/ceil that may return integers
+  static dynamic optimizeNumericResult(double result) {
+    if (!result.isFinite) return result;
+
+    try {
+      // Try to convert to BigInt to avoid floating point precision issues
+      final bigIntRes = doubleToBigInt(result);
+      // Check if it fits in int64 range
+      if (bigIntRes >= BigInt.from(minInteger) &&
+          bigIntRes <= BigInt.from(maxInteger)) {
+        final intRes = bigIntRes.toInt();
+        // Verify the conversion is exact
+        if (intRes.toDouble() == result) {
+          return intRes;
+        }
+      }
+    } catch (_) {
+      // If BigInt conversion fails, fall through to return double
+    }
+
+    return result;
+  }
+
+  /// Perform unsigned comparison for math.ult
+  static bool unsignedLessThan(dynamic m, dynamic n) {
+    if (m is! int && m is! BigInt) {
+      throw LuaError.typeError('math.ult first argument must be an integer');
+    }
+    if (n is! int && n is! BigInt) {
+      throw LuaError.typeError('math.ult second argument must be an integer');
+    }
+
+    BigInt mb = m is BigInt ? m : BigInt.from(m as int);
+    BigInt nb = n is BigInt ? n : BigInt.from(n as int);
+
+    final BigInt mod = BigInt.one << sizeInBits;
+    if (mb.isNegative) mb += mod;
+    if (nb.isNegative) nb += mod;
+
+    return mb < nb;
+  }
+
+  /// Compare two numbers of any type
+  static int compare(dynamic a, dynamic b) {
+    // If both are integers (int or BigInt), use BigInt comparison to avoid precision loss
+    if ((a is int || a is BigInt) && (b is int || b is BigInt)) {
+      final bigA = toBigInt(a);
+      final bigB = toBigInt(b);
+      return bigA.compareTo(bigB);
+    }
+    
+    // For mixed types or floating point, use double comparison
+    final doubleA = toDouble(a);
+    final doubleB = toDouble(b);
+    return doubleA.compareTo(doubleB);
+  }
+
+  /// Check division by zero for any numeric type
+  static void checkDivisionByZero(dynamic divisor, String funcName) {
+    if (isZero(divisor)) {
+      throw LuaError.typeError("bad argument to '$funcName' (zero)");
+    }
+  }
+
+  /// Perform modulo operation following Lua semantics
+  static dynamic fmod(dynamic x, dynamic y) {
+    checkDivisionByZero(y, 'math.fmod');
+
+    if (x is BigInt || y is BigInt) {
+      final bigX = toBigInt(x);
+      final bigY = toBigInt(y);
+      return bigX - (bigX ~/ bigY) * bigY;
+    }
+
+    // For integers, use integer arithmetic to avoid precision loss
+    if (x is int && y is int) {
+      final quotient = x ~/ y; // truncated division
+      return x - quotient * y;
+    }
+
+    // For floating point cases, use standard fmod behavior
+    // Lua's fmod follows: fmod(x, y) = x - trunc(x/y) * y
+    final dx = toDouble(x);
+    final dy = toDouble(y);
+    final quotient = dx / dy;
+    final truncatedQuotient = quotient.truncateToDouble();
+    return dx - truncatedQuotient * dy;
+  }
+
+  /// Get the absolute value of any numeric type
+  static dynamic abs(dynamic number) {
+    if (number is BigInt) return number.abs();
+    return (number as num).abs();
+  }
+
+  /// Find maximum of two numbers
+  static dynamic max(dynamic a, dynamic b) {
+    return compare(a, b) >= 0 ? a : b;
+  }
+
+  /// Find minimum of two numbers
+  static dynamic min(dynamic a, dynamic b) {
+    return compare(a, b) <= 0 ? a : b;
+  }
+
+  /// Perform modf operation (split into integer and fractional parts)
+  static (dynamic, double) modf(dynamic number) {
+    if (number is int || number is BigInt) {
+      return (number, 0.0);
+    }
+
+    final d = toDouble(number);
+    if (d.isNaN) {
+      return (double.nan, double.nan);
+    }
+    if (d.isInfinite) {
+      return (d, 0.0);
+    }
+
+    final intPart = d.truncateToDouble();
+    final fracPart = d - intPart;
+    return (intPart, fracPart);
+  }
+}
