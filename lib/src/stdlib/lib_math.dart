@@ -2,39 +2,12 @@ import 'dart:math' as math;
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/lualike.dart';
 import 'package:xrandom/xrandom.dart';
+import 'number_utils.dart';
 
 // Base class for math functions to handle common number validation
 abstract class _MathFunction implements BuiltinFunction {
-  String _typeName(dynamic value) {
-    if (value == null) return 'nil';
-    if (value is bool) return 'boolean';
-    if (value is num) return 'number';
-    if (value is String) return 'string';
-    if (value is List) return 'table';
-    if (value is Function) return 'function';
-    return value.runtimeType.toString();
-  }
-
   dynamic _getNumber(Value value, String funcName, int argNum) {
-    if (value.raw is! num && value.raw is! BigInt) {
-      throw LuaError.typeError(
-        "bad argument #$argNum to '$funcName' (number expected, got ${_typeName(value.raw)})",
-      );
-    }
-    return value.raw;
-  }
-
-  BigInt _doubleToBigInt(double value) {
-    final str = value.toStringAsFixed(0);
-    if (str.contains('e') || str.contains('E')) {
-      // Use LuaNumberParser for scientific notation
-      final parsed = LuaNumberParser.parse(str);
-      if (parsed is double) {
-        throw FormatException('Cannot convert to BigInt');
-      }
-      return parsed is BigInt ? parsed : BigInt.from(parsed);
-    }
-    return BigInt.parse(str);
+    return NumberUtils.getNumber(value, funcName, argNum);
   }
 }
 
@@ -47,10 +20,7 @@ class _MathAbs extends _MathFunction {
       );
     }
     final number = _getNumber(args[0] as Value, "abs", 1);
-    if (number is BigInt) {
-      return Value(number.abs());
-    }
-    return Value((number as num).abs());
+    return Value(NumberUtils.abs(number));
   }
 }
 
@@ -63,10 +33,7 @@ class _MathAcos extends _MathFunction {
       );
     }
     final number = _getNumber(args[0] as Value, "acos", 1);
-    final double val = number is BigInt
-        ? number.toDouble()
-        : (number as num).toDouble();
-    return Value(math.acos(val));
+    return Value(math.acos(NumberUtils.toDouble(number)));
   }
 }
 
@@ -79,10 +46,7 @@ class _MathAsin extends _MathFunction {
       );
     }
     final number = _getNumber(args[0] as Value, "asin", 1);
-    final double val = number is BigInt
-        ? number.toDouble()
-        : (number as num).toDouble();
-    return Value(math.asin(val));
+    return Value(math.asin(NumberUtils.toDouble(number)));
   }
 }
 
@@ -96,11 +60,11 @@ class _MathAtan extends _MathFunction {
     }
 
     final y = _getNumber(args[0] as Value, "atan", 1);
-    final double yDouble = y is BigInt ? y.toDouble() : (y as num).toDouble();
+    final double yDouble = NumberUtils.toDouble(y);
 
     if (args.length > 1) {
       final x = _getNumber(args[1] as Value, "atan", 2);
-      final double xDouble = x is BigInt ? x.toDouble() : (x as num).toDouble();
+      final double xDouble = NumberUtils.toDouble(x);
       return Value(math.atan2(yDouble, xDouble));
     }
 
@@ -117,36 +81,14 @@ class _MathCeil extends _MathFunction {
       );
     }
     final number = _getNumber(args[0] as Value, "ceil", 1);
-    if (number is BigInt) {
+    if (number is BigInt || number is int) {
       return Value(number);
     }
-    if (number is int) {
-      return Value(number);
-    }
-    final num n = number as num;
-    if (n is double) {
-      if (!n.isFinite) return Value(n);
-      final doubleRes = n.ceilToDouble();
-      if (doubleRes.isFinite) {
-        try {
-          // Try to convert to BigInt to avoid floating point precision issues
-          final bigIntRes = _doubleToBigInt(doubleRes);
-          // Check if it fits in int64 range
-          if (bigIntRes >= BigInt.from(MathLib.minInteger) &&
-              bigIntRes <= BigInt.from(MathLib.maxInteger)) {
-            final intRes = bigIntRes.toInt();
-            // Verify the conversion is exact
-            if (intRes.toDouble() == doubleRes) {
-              return Value(intRes);
-            }
-          }
-        } catch (_) {
-          // If BigInt conversion fails, fall through to return double
-        }
-      }
-      return Value(doubleRes);
-    }
-    return Value(n);
+    final double n = NumberUtils.toDouble(number);
+    if (!n.isFinite) return Value(n);
+    
+    final doubleRes = n.ceilToDouble();
+    return Value(NumberUtils.optimizeNumericResult(doubleRes));
   }
 }
 
@@ -159,10 +101,7 @@ class _MathCos extends _MathFunction {
       );
     }
     final number = _getNumber(args[0] as Value, "cos", 1);
-    final double val = number is BigInt
-        ? number.toDouble()
-        : (number as num).toDouble();
-    return Value(math.cos(val));
+    return Value(math.cos(NumberUtils.toDouble(number)));
   }
 }
 
@@ -175,10 +114,7 @@ class _MathDeg extends _MathFunction {
       );
     }
     final number = _getNumber(args[0] as Value, "deg", 1);
-    final double val = number is BigInt
-        ? number.toDouble()
-        : (number as num).toDouble();
-    return Value(val * 180 / math.pi);
+    return Value(NumberUtils.toDouble(number) * 180 / math.pi);
   }
 }
 
@@ -191,10 +127,7 @@ class _MathExp extends _MathFunction {
       );
     }
     final number = _getNumber(args[0] as Value, "exp", 1);
-    final double val = number is BigInt
-        ? number.toDouble()
-        : (number as num).toDouble();
-    return Value(math.exp(val));
+    return Value(math.exp(NumberUtils.toDouble(number)));
   }
 }
 
@@ -207,36 +140,14 @@ class _MathFloor extends _MathFunction {
       );
     }
     final number = _getNumber(args[0] as Value, "floor", 1);
-    if (number is BigInt) {
+    if (number is BigInt || number is int) {
       return Value(number);
     }
-    if (number is int) {
-      return Value(number);
-    }
-    final num n = number as num;
-    if (n is double) {
-      if (!n.isFinite) return Value(n);
-      final doubleRes = n.floorToDouble();
-      if (doubleRes.isFinite) {
-        try {
-          // Try to convert to BigInt to avoid floating point precision issues
-          final bigIntRes = _doubleToBigInt(doubleRes);
-          // Check if it fits in int64 range
-          if (bigIntRes >= BigInt.from(MathLib.minInteger) &&
-              bigIntRes <= BigInt.from(MathLib.maxInteger)) {
-            final intRes = bigIntRes.toInt();
-            // Verify the conversion is exact
-            if (intRes.toDouble() == doubleRes) {
-              return Value(intRes);
-            }
-          }
-        } catch (_) {
-          // If BigInt conversion fails, fall through to return double
-        }
-      }
-      return Value(doubleRes);
-    }
-    return Value(n);
+    final double n = NumberUtils.toDouble(number);
+    if (!n.isFinite) return Value(n);
+    
+    final doubleRes = n.floorToDouble();
+    return Value(NumberUtils.optimizeNumericResult(doubleRes));
   }
 }
 
@@ -257,35 +168,7 @@ class _MathFmod extends _MathFunction {
     final x = _getNumber(args[0] as Value, "fmod", 1);
     final y = _getNumber(args[1] as Value, "fmod", 2);
 
-    // Check for division by zero
-    if ((y is num && y == 0) || (y is BigInt && y == BigInt.zero)) {
-      throw LuaError.typeError("bad argument #2 to 'math.fmod' (zero)");
-    }
-
-    if (x is BigInt || y is BigInt) {
-      final bigX = x is BigInt ? x : BigInt.from(x as num);
-      final bigY = y is BigInt ? y : BigInt.from(y as num);
-      final result = bigX - (bigX ~/ bigY) * bigY;
-      return Value(result);
-    }
-
-    // For integers, use integer arithmetic to avoid precision loss
-    if (x is int && y is int) {
-      // Use integer division to avoid floating point precision issues
-      final quotient = x ~/ y; // truncated division
-      final result = x - quotient * y;
-      return Value(result);
-    }
-
-    // For floating point cases, use standard fmod behavior
-    // Lua's fmod follows: fmod(x, y) = x - trunc(x/y) * y
-    final dx = (x as num).toDouble();
-    final dy = (y as num).toDouble();
-    final quotient = dx / dy;
-    final truncatedQuotient = quotient.truncateToDouble();
-    final result = dx - truncatedQuotient * dy;
-
-    return Value(result);
+    return Value(NumberUtils.fmod(x, y));
   }
 }
 
@@ -299,13 +182,11 @@ class _MathLog extends _MathFunction {
     }
 
     final x = _getNumber(args[0] as Value, "log", 1);
-    final double xDouble = x is BigInt ? x.toDouble() : (x as num).toDouble();
+    final double xDouble = NumberUtils.toDouble(x);
 
     if (args.length > 1) {
       final base = _getNumber(args[1] as Value, "log", 2);
-      final double baseDouble = base is BigInt
-          ? base.toDouble()
-          : (base as num).toDouble();
+      final double baseDouble = NumberUtils.toDouble(base);
       return Value(math.log(xDouble) / math.log(baseDouble));
     }
 
@@ -324,9 +205,7 @@ class _MathMax extends _MathFunction {
 
     for (int i = 1; i < args.length; i++) {
       final num = _getNumber(args[i] as Value, "max", i + 1);
-      if (num > max) {
-        max = num;
-      }
+      max = NumberUtils.max(max, num);
     }
 
     return Value(max);
@@ -344,9 +223,7 @@ class _MathMin extends _MathFunction {
 
     for (int i = 1; i < args.length; i++) {
       final num = _getNumber(args[i] as Value, "min", i + 1);
-      if (num < min) {
-        min = num;
-      }
+      min = NumberUtils.min(min, num);
     }
 
     return Value(min);
@@ -361,18 +238,7 @@ class _MathModf extends _MathFunction {
     }
 
     final number = _getNumber(args[0] as Value, "modf", 1);
-    if (number is int || number is BigInt) {
-      return Value.multi([Value(number), Value(0.0)]);
-    }
-    final d = number as double;
-    if (d.isNaN) {
-      return Value.multi([Value(double.nan), Value(double.nan)]);
-    }
-    if (d.isInfinite) {
-      return Value.multi([Value(d), Value(0.0)]);
-    }
-    final intPart = d.truncateToDouble();
-    final fracPart = d - intPart;
+    final (intPart, fracPart) = NumberUtils.modf(number);
     return Value.multi([Value(intPart), Value(fracPart)]);
   }
 }
@@ -384,10 +250,7 @@ class _MathRad extends _MathFunction {
       throw LuaError.typeError("math.rad requires a number argument");
     }
     final number = _getNumber(args[0] as Value, "rad", 1);
-    final double val = number is BigInt
-        ? number.toDouble()
-        : (number as num).toDouble();
-    return Value(val * math.pi / 180);
+    return Value(NumberUtils.toDouble(number) * math.pi / 180);
   }
 }
 
@@ -397,30 +260,72 @@ class _MathRandom extends _MathFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
+      // No arguments: return float between 0 and 1
       return Value(_random.nextDouble());
     } else if (args.length == 1) {
+      // Single argument: return integer in [1, n] or full integer if n=0
       final n = _getNumber(args[0] as Value, "random", 1);
-      final intN = n is BigInt ? n.toInt() : (n as num).toInt();
+      final intN = NumberUtils.toInt(n);
       if (intN == 0) {
-        return Value(_random.nextRaw64());
+        // Return full random 64-bit integer (signed)
+        final raw = _random.nextRaw64();
+        return Value(raw);
       }
       if (intN < 1) {
-        throw LuaError.typeError("math.random: range is empty");
+        throw LuaError.typeError("bad argument #1 to 'random' (interval is empty)");
       }
-      return Value(1 + _random.nextInt(intN));
+      // Use project method for range [1, n]
+      final rv = _random.nextRaw64();
+      final projected = _project(rv, intN);
+      return Value(1 + projected);
     } else if (args.length == 2) {
+      // Two arguments: return integer in [low, up]
       final m = _getNumber(args[0] as Value, "random", 1);
       final n = _getNumber(args[1] as Value, "random", 2);
-      final intM = m is BigInt ? m.toInt() : (m as num).toInt();
-      final intN = n is BigInt ? n.toInt() : (n as num).toInt();
+      final intM = NumberUtils.toInt(m);
+      final intN = NumberUtils.toInt(n);
 
       if (intM > intN) {
-        throw LuaError.typeError("math.random: range is empty");
+        throw LuaError.typeError("bad argument #1 to 'random' (interval is empty)");
       }
-      return Value(intM + _random.nextInt(intN - intM + 1));
+      
+      // Use BigInt arithmetic to safely calculate range size and avoid overflow
+      final bigM = NumberUtils.toBigInt(intM);
+      final bigN = NumberUtils.toBigInt(intN);
+      final bigRangeSize = bigN - bigM;
+      
+      // Check if range size + 1 exceeds what we can handle with int64
+      final bigRangePlusOne = bigRangeSize + BigInt.one;
+      
+      final rv = _random.nextRaw64();
+      final urv = rv.toUnsigned(64);
+      
+      // Use BigInt modulo to handle large ranges safely
+      final bigResult = BigInt.from(urv) % bigRangePlusOne;
+      
+      // Use BigInt addition to avoid overflow in final calculation
+      final finalResult = bigM + bigResult;
+      
+      // Ensure result fits in int64 range
+      if (finalResult < NumberUtils.toBigInt(NumberUtils.minInteger) || 
+          finalResult > NumberUtils.toBigInt(NumberUtils.maxInteger)) {
+        throw LuaError.typeError("random result overflow");
+      }
+      
+      return Value(finalResult.toInt());
     } else {
       throw LuaError.typeError("wrong number of arguments to 'random'");
     }
+  }
+  
+  // Project a 64-bit random value into range [0, n-1]
+  // This mimics Lua's project function for handling large ranges
+  int _project(int rv, int n) {
+    if (n <= 0) return 0;
+    // Use unsigned arithmetic like Lua does
+    final urv = rv.toUnsigned(64);
+    final un = n.toUnsigned(64);
+    return (urv % un).toSigned(64);
   }
 }
 
@@ -437,10 +342,10 @@ class _MathRandomseed extends _MathFunction {
       n2 = Xoshiro256ss.seeded().nextRaw64();
     } else {
       final number1 = _getNumber(args[0] as Value, "randomseed", 1);
-      n1 = number1 is BigInt ? number1.toInt() : (number1 as num).toInt();
+      n1 = NumberUtils.toInt(number1);
       if (args.length >= 2) {
         final number2 = _getNumber(args[1] as Value, "randomseed", 2);
-        n2 = number2 is BigInt ? number2.toInt() : (number2 as num).toInt();
+        n2 = NumberUtils.toInt(number2);
       } else {
         n2 = 0;
       }
@@ -463,10 +368,7 @@ class _MathSin extends _MathFunction {
       throw LuaError.typeError("math.sin requires a number argument");
     }
     final number = _getNumber(args[0] as Value, "sin", 1);
-    final double val = number is BigInt
-        ? number.toDouble()
-        : (number as num).toDouble();
-    return Value(math.sin(val));
+    return Value(math.sin(NumberUtils.toDouble(number)));
   }
 }
 
@@ -477,10 +379,7 @@ class _MathSqrt extends _MathFunction {
       throw LuaError.typeError("math.sqrt requires a number argument");
     }
     final number = _getNumber(args[0] as Value, "sqrt", 1);
-    final double val = number is BigInt
-        ? number.toDouble()
-        : (number as num).toDouble();
-    return Value(math.sqrt(val));
+    return Value(math.sqrt(NumberUtils.toDouble(number)));
   }
 }
 
@@ -491,10 +390,7 @@ class _MathTan extends _MathFunction {
       throw LuaError.typeError("math.tan requires a number argument");
     }
     final number = _getNumber(args[0] as Value, "tan", 1);
-    final double val = number is BigInt
-        ? number.toDouble()
-        : (number as num).toDouble();
-    return Value(math.tan(val));
+    return Value(math.tan(NumberUtils.toDouble(number)));
   }
 }
 
@@ -506,34 +402,8 @@ class _MathTointeger extends _MathFunction {
     }
 
     dynamic value = args[0] is Value ? (args[0] as Value).raw : args[0];
-
-    if (value is String) {
-      try {
-        value = LuaNumberParser.parse(value);
-      } catch (_) {
-        return Value(null);
-      }
-    }
-
-    if (value is int) {
-      return Value(value);
-    } else if (value is BigInt) {
-      if (value <= BigInt.from(MathLib.maxInteger) &&
-          value >= BigInt.from(MathLib.minInteger)) {
-        return Value(value.toInt());
-      }
-      return Value(null);
-    } else if (value is double) {
-      if (!value.isFinite) return Value(null);
-      final int intVal = value.toInt();
-      if (intVal.toDouble() == value &&
-          intVal <= MathLib.maxInteger &&
-          intVal >= MathLib.minInteger) {
-        return Value(intVal);
-      }
-      return Value(null);
-    }
-    return Value(null);
+    final result = NumberUtils.tryToInteger(value);
+    return Value(result);
   }
 }
 
@@ -565,29 +435,15 @@ class _MathUlt extends _MathFunction {
     dynamic m = args[0] is Value ? (args[0] as Value).raw : args[0];
     dynamic n = args[1] is Value ? (args[1] as Value).raw : args[1];
 
-    if (m is! int && m is! BigInt) {
-      throw LuaError.typeError('math.ult first argument must be an integer');
-    }
-    if (n is! int && n is! BigInt) {
-      throw LuaError.typeError('math.ult second argument must be an integer');
-    }
-
-    BigInt mb = m is BigInt ? m : BigInt.from(m as int);
-    BigInt nb = n is BigInt ? n : BigInt.from(n as int);
-
-    final BigInt mod = BigInt.one << MathLib._sizeInBits;
-    if (mb.isNegative) mb += mod;
-    if (nb.isNegative) nb += mod;
-
-    return Value(mb < nb);
+    return Value(NumberUtils.unsignedLessThan(m, n));
   }
 }
 
 class MathLib {
-  // Use 64-bit signed integer limits for maxInteger and minInteger
-  static const int _sizeInBits = 64;
-  static final int maxInteger = (1 << (_sizeInBits - 1)) - 1;
-  static final int minInteger = -(1 << (_sizeInBits - 1));
+  // Use constants from NumberUtils
+  static int get maxInteger => NumberUtils.maxInteger;
+  static int get minInteger => NumberUtils.minInteger;
+  
   static void logIntegerLimits() {
     print(
       'MathLib: Dart platform maxInteger=\x1b[32m$maxInteger\x1b[0m, minInteger=\x1b[31m$minInteger\x1b[0m',
