@@ -244,7 +244,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     // If no metamethod found, use regular operators
     var result = switch (node.op) {
       "-" => -operandWrapped,
-      "not" => !(operandWrapped.raw is bool && operandWrapped.raw),
+      "not" => Value(!operandWrapped.isTruthy()),
       "~" => ~operandWrapped,
       "#" => operandWrapped.length,
       _ => throw LuaError.typeError("Unknown unary operator ${node.op}"),
