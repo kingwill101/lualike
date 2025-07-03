@@ -1104,57 +1104,16 @@ extension OperatorExtension on Value {
         'ARITH: bitwise shift, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
         category: 'Value',
       );
-      
-      final b1 = toInt(r1);
-      
-      var shift = toInt(r2).toInt();
-      var opToUse = op;
 
-      // Handle negative shift amounts by reversing the operation
-      if (shift < 0) {
-        shift = -shift;
-        opToUse = op == '<<' ? '>>' : '<<';
-      }
-
-      const intBits = 64;
-      final mask = BigInt.parse('FFFFFFFFFFFFFFFF', radix: 16);
-      BigInt result;
-      if (opToUse == '<<') {
-        result = (b1 << shift) & mask;
+      dynamic result;
+      if (op == '<<') {
+        result = NumberUtils.leftShift(r1, r2);
       } else {
-        if (shift >= intBits) {
-          result = b1.isNegative ? BigInt.from(-1) : BigInt.zero;
-        } else {
-          result = (b1 >> shift) & mask;
-        }
+        result = NumberUtils.rightShift(r1, r2);
       }
+
       Logger.debug(
-        'ARITH: bitwise shift intermediate result: $result (${result.runtimeType})',
-        category: 'Value',
-      );
-      if (result > maxInt64) {
-        result -= BigInt.from(2).pow(64);
-        Logger.debug(
-          'ARITH: bitwise shift wrapped to signed: $result (${result.runtimeType})',
-          category: 'Value',
-        );
-      }
-      if (r1 is BigInt || r2 is BigInt) {
-        Logger.debug(
-          'ARITH: bitwise shift operands included BigInt, returning BigInt result',
-          category: 'Value',
-        );
-        return Value(result);
-      }
-      if (result >= minInt64 && result <= maxInt64) {
-        Logger.debug(
-          'ARITH: bitwise shift result fits in int64, returning int: ${result.toInt()}',
-          category: 'Value',
-        );
-        return Value(result.toInt());
-      }
-      Logger.debug(
-        'ARITH: bitwise shift result does not fit in int64, returning BigInt: $result',
+        'ARITH: bitwise shift result: $result (${result.runtimeType})',
         category: 'Value',
       );
       return Value(result);
@@ -1167,10 +1126,10 @@ extension OperatorExtension on Value {
       dynamic result;
       switch (op) {
         case '+':
-          result = d1 + d2;
+          result = NumberUtils.add(d1, d2);
           break;
         case '-':
-          result = d1 - d2;
+          result = NumberUtils.subtract(d1, d2);
           break;
         case '*':
           result = d1 * d2;
@@ -1245,10 +1204,10 @@ extension OperatorExtension on Value {
       dynamic result;
       switch (op) {
         case '+':
-          result = b1 + b2;
+          result = NumberUtils.add(b1, b2);
           break;
         case '-':
-          result = b1 - b2;
+          result = NumberUtils.subtract(b1, b2);
           break;
         case '*':
           result = b1 * b2;
@@ -1308,10 +1267,10 @@ extension OperatorExtension on Value {
       dynamic result;
       switch (op) {
         case '+':
-          result = r1 + r2;
+          result = NumberUtils.add(r1, r2);
           break;
         case '-':
-          result = r1 - r2;
+          result = NumberUtils.subtract(r1, r2);
           break;
         case '*':
           result = r1 * r2;
