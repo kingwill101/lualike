@@ -957,12 +957,6 @@ extension OperatorExtension on Value {
     var r1 = raw;
     var r2 = other.raw;
 
-    final minInt64 = NumberUtils.toBigInt(NumberUtils.minInteger);
-    final maxInt64 = NumberUtils.toBigInt(NumberUtils.maxInteger);
-    Logger.debug(
-      'ARITH: Lua 64-bit minInt64=$minInt64, maxInt64=$maxInt64',
-      category: 'Value',
-    );
     Logger.debug(
       'ARITH: START op=$op, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
       category: 'Value',
@@ -1014,6 +1008,7 @@ extension OperatorExtension on Value {
       category: 'Value',
     );
 
+    // Validate that we have numbers
     if (!((r1 is num || r1 is BigInt) && (r2 is num || r2 is BigInt))) {
       Logger.warning('ARITH: type error, non-number values', category: 'Value');
       throw LuaError.typeError(
@@ -1021,250 +1016,9 @@ extension OperatorExtension on Value {
       );
     }
 
-    bool isZero(dynamic v) {
-      if (v is int) return v == 0;
-      if (v is BigInt) return v == BigInt.zero;
-      if (v is double) return v == 0.0;
-      return false;
-    }
-
-    BigInt toInt(dynamic v) {
-      if (v is BigInt) return v;
-      if (v is int) return BigInt.from(v);
-      if (v is double) {
-        if (!v.isFinite) {
-          // Match Lua's error message for math.huge
-          throw LuaError("number (field 'huge') has no integer representation");
-        }
-        if (v.floorToDouble() != v) {
-          throw LuaError('number has no integer representation');
-        }
-        final bi = BigInt.parse(v.toStringAsFixed(0));
-        if (bi < minInt64 || bi > maxInt64) {
-          throw LuaError('number has no integer representation');
-        }
-        return bi;
-      }
-      throw LuaError.typeError('number has no integer representation');
-    }
-
-    if ((op == '//' || op == '%') &&
-        isZero(r2) &&
-        r1 is! double &&
-        r2 is! double) {
-      throw LuaError('divide by zero');
-    }
-
-    // After parsing and before operation, check for double promotion
-    final isDoubleOp = r1 is double || r2 is double;
-    Logger.debug(
-      'ARITH: double promotion needed? $isDoubleOp',
-      category: 'Value',
-    );
-
-    if (op == '^') {
-      Logger.debug(
-        'ARITH: exponentiation, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
-        category: 'Value',
-      );
-      final f1 = (r1 is BigInt)
-          ? r1.toDouble()
-          : (r1 is int ? r1.toDouble() : r1 as double);
-      final f2 = (r2 is BigInt)
-          ? r2.toDouble()
-          : (r2 is int ? r2.toDouble() : r2 as double);
-      final result = math.pow(f1, f2);
-      Logger.debug(
-        'ARITH: exponentiation result: $result (${result.runtimeType})',
-        category: 'Value',
-      );
-      return Value(result);
-    }
-    if (op == '/') {
-      Logger.debug(
-        'ARITH: division, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
-        category: 'Value',
-      );
-      final f1 = (r1 is BigInt)
-          ? r1.toDouble()
-          : (r1 is int ? r1.toDouble() : r1 as double);
-      final f2 = (r2 is BigInt)
-          ? r2.toDouble()
-          : (r2 is int ? r2.toDouble() : r2 as double);
-      final result = f1 / f2;
-      Logger.debug(
-        'ARITH: division result: $result (${result.runtimeType})',
-        category: 'Value',
-      );
-      return Value(result);
-    }
-
-    if (op == '<<' || op == '>>') {
-      Logger.debug(
-        'ARITH: bitwise shift, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
-        category: 'Value',
-      );
-
-      dynamic result;
-      if (op == '<<') {
-        result = NumberUtils.leftShift(r1, r2);
-      } else {
-        result = NumberUtils.rightShift(r1, r2);
-      }
-
-      Logger.debug(
-        'ARITH: bitwise shift result: $result (${result.runtimeType})',
-        category: 'Value',
-      );
-      return Value(result);
-    }
-
-    if (isDoubleOp) {
-      // Promote both to double for arithmetic
-      final d1 = (r1 is BigInt) ? r1.toDouble() : (r1 as num).toDouble();
-      final d2 = (r2 is BigInt) ? r2.toDouble() : (r2 as num).toDouble();
-      dynamic result;
-      switch (op) {
-        case '+':
-          result = NumberUtils.add(d1, d2);
-          break;
-        case '-':
-          result = NumberUtils.subtract(d1, d2);
-          break;
-        case '*':
-          result = d1 * d2;
-          break;
-        case '~/':
-          result = d1 ~/ d2;
-          break;
-        case '//':
-          final div = d1 / d2;
-          result = (div.isInfinite || div.isNaN) ? div : div.floorToDouble();
-          break;
-        case '%':
-          var rem = d1.remainder(d2);
-          if (rem != 0 && ((d1 < 0 && d2 > 0) || (d1 > 0 && d2 < 0))) {
-            rem += d2;
-          }
-          result = rem;
-          break;
-        case '&':
-          final bi1 = toInt(d1);
-          final bi2 = toInt(d2);
-          var biRes = bi1 & bi2;
-          if (biRes >= minInt64 && biRes <= maxInt64) {
-            result = biRes.toInt();
-          } else {
-            result = biRes;
-          }
-          break;
-        case '|':
-          final bi1 = toInt(d1);
-          final bi2 = toInt(d2);
-          var biRes = bi1 | bi2;
-          if (biRes >= minInt64 && biRes <= maxInt64) {
-            result = biRes.toInt();
-          } else {
-            result = biRes;
-          }
-          break;
-        case 'bxor':
-          final bi1 = toInt(d1);
-          final bi2 = toInt(d2);
-          var biRes = bi1 ^ bi2;
-          if (biRes >= minInt64 && biRes <= maxInt64) {
-            result = biRes.toInt();
-          } else {
-            result = biRes;
-          }
-          break;
-        default:
-          Logger.warning(
-            'ARITH: unsupported op for double promotion: $op',
-            category: 'Value',
-          );
-          throw LuaError.typeError(
-            'operation "$op" not supported for double promotion',
-          );
-      }
-      Logger.debug(
-        'ARITH: double promotion result: $result (${result.runtimeType})',
-        category: 'Value',
-      );
-      return Value(result);
-    }
-
-    if (r1 is BigInt || r2 is BigInt) {
-      Logger.debug(
-        'ARITH: at least one operand is BigInt, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
-        category: 'Value',
-      );
-      final b1 = toInt(r1);
-      final b2 = toInt(r2);
-      dynamic result;
-      switch (op) {
-        case '+':
-          result = NumberUtils.add(b1, b2);
-          break;
-        case '-':
-          result = NumberUtils.subtract(b1, b2);
-          break;
-        case '*':
-          result = b1 * b2;
-          break;
-        case '~/':
-          result = b1 ~/ b2;
-          break;
-        case '//':
-          final div = b1.toDouble() / b2.toDouble();
-          result = (div.isInfinite || div.isNaN) ? div : div.floorToDouble();
-          break;
-        case '%':
-          var div = b1 ~/ b2;
-          final differentSigns =
-              (b1.isNegative && !b2.isNegative) ||
-              (!b1.isNegative && b2.isNegative);
-          if (differentSigns && b1 % b2 != BigInt.zero) {
-            div -= BigInt.one;
-          }
-          result = b1 - div * b2;
-          break;
-        case '&':
-          result = b1 & b2;
-          break;
-        case '|':
-          result = b1 | b2;
-          break;
-        case 'bxor':
-          result = b1 ^ b2;
-          break;
-        default:
-          Logger.warning(
-            'ARITH: unsupported op for BigInt: $op',
-            category: 'Value',
-          );
-          throw LuaError.typeError('operation "$op" not supported for BigInt');
-      }
-      Logger.debug(
-        'ARITH: BigInt result: $result (${result.runtimeType})',
-        category: 'Value',
-      );
-      if (result is BigInt) {
-        return Value(result);
-      }
-      Logger.debug(
-        'ARITH: BigInt result is not BigInt, returning as is',
-        category: 'Value',
-      );
-      return Value(result);
-    }
-
-    if (r1 is num && r2 is num) {
-      Logger.debug(
-        'ARITH: both operands are num, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
-        category: 'Value',
-      );
-      dynamic result;
+    // Delegate all arithmetic operations to NumberUtils
+    dynamic result;
+    try {
       switch (op) {
         case '+':
           result = NumberUtils.add(r1, r2);
@@ -1273,95 +1027,56 @@ extension OperatorExtension on Value {
           result = NumberUtils.subtract(r1, r2);
           break;
         case '*':
-          result = r1 * r2;
+          result = NumberUtils.multiply(r1, r2);
           break;
-        case '~/':
-          result = r1 ~/ r2;
+        case '/':
+          result = NumberUtils.divide(r1, r2);
           break;
         case '//':
-          if (r1 is int && r2 is int) {
-            final quotient = r1 ~/ r2;
-            final remainder = r1 % r2;
-            if (remainder != 0 && (r1 < 0) != (r2 < 0)) {
-              result = quotient - 1;
-            } else {
-              result = quotient;
-            }
-          } else {
-            final div = r1 / r2;
-            result = (div.isInfinite || div.isNaN) ? div : div.floorToDouble();
-          }
+          result = NumberUtils.floorDivide(r1, r2);
           break;
         case '%':
-          if (r1 is int && r2 is int) {
-            var div = r1 ~/ r2;
-            if ((r1 < 0) != (r2 < 0) && r1 % r2 != 0) {
-              div -= 1;
-            }
-            result = r1 - div * r2;
-          } else {
-            final div = (r1 / r2).floor();
-            result = r1 - div * r2;
-          }
+          result = NumberUtils.modulo(r1, r2);
+          break;
+        case '^':
+          result = NumberUtils.exponentiate(r1, r2);
+          break;
+        case '<<':
+          result = NumberUtils.leftShift(r1, r2);
+          break;
+        case '>>':
+          result = NumberUtils.rightShift(r1, r2);
           break;
         case '&':
-          final bi1 = toInt(r1);
-          final bi2 = toInt(r2);
-          var biRes = bi1 & bi2;
-          if (r1 is int &&
-              r2 is int &&
-              biRes >= minInt64 &&
-              biRes <= maxInt64) {
-            result = biRes.toInt();
-          } else {
-            result = biRes;
-          }
+          result = NumberUtils.bitwiseAnd(r1, r2);
           break;
         case '|':
-          final bi1 = toInt(r1);
-          final bi2 = toInt(r2);
-          var biRes = bi1 | bi2;
-          if (r1 is int &&
-              r2 is int &&
-              biRes >= minInt64 &&
-              biRes <= maxInt64) {
-            result = biRes.toInt();
-          } else {
-            result = biRes;
-          }
+          result = NumberUtils.bitwiseOr(r1, r2);
           break;
         case 'bxor':
-          final bi1 = toInt(r1);
-          final bi2 = toInt(r2);
-          var biRes = bi1 ^ bi2;
-          if (r1 is int &&
-              r2 is int &&
-              biRes >= minInt64 &&
-              biRes <= maxInt64) {
-            result = biRes.toInt();
-          } else {
-            result = biRes;
-          }
+          result = NumberUtils.bitwiseXor(r1, r2);
           break;
         default:
           Logger.warning(
-            'ARITH: unsupported op for num: $op',
+            'ARITH: unsupported operation: $op',
             category: 'Value',
           );
-          throw LuaError.typeError('operation "$op" not supported for num');
+          throw LuaError.typeError('operation "$op" not supported');
       }
-      Logger.debug(
-        'ARITH: num result: $result (${result.runtimeType})',
+    } catch (e) {
+      Logger.warning(
+        'ARITH: operation failed: $e',
         category: 'Value',
+        error: e,
       );
-      return Value(result);
+      rethrow;
     }
 
-    Logger.warning(
-      'ARITH: type error, operation not supported for these types',
+    Logger.debug(
+      'ARITH: result: $result (${result.runtimeType})',
       category: 'Value',
     );
-    throw LuaError.typeError('operation "$op" not supported for these types');
+    return Value(result);
   }
 
   /// Overload the addition operator
