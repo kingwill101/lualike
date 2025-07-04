@@ -528,6 +528,9 @@ class LoadFunction implements BuiltinFunction {
       if ((args[0] as Value).raw is String) {
         // Load from string
         source = (args[0] as Value).raw as String;
+      } else if ((args[0] as Value).raw is LuaString) {
+        // Load from LuaString
+        source = ((args[0] as Value).raw as LuaString).toString();
       } else if ((args[0] as Value).raw is Function) {
         // Load from reader function
         final chunks = <String>[];

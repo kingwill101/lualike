@@ -97,9 +97,15 @@ void main() {
         local c = string.rep("abc", 0)
       ''');
 
-      expect((bridge.getGlobal('a') as Value).raw, equals("abcabcabc"));
-      expect((bridge.getGlobal('b') as Value).raw, equals("abc-abc-abc"));
-      expect((bridge.getGlobal('c') as Value).raw, equals(""));
+      expect(
+        (bridge.getGlobal('a') as Value).raw.toString(),
+        equals("abcabcabc"),
+      );
+      expect(
+        (bridge.getGlobal('b') as Value).raw.toString(),
+        equals("abc-abc-abc"),
+      );
+      expect((bridge.getGlobal('c') as Value).raw.toString(), equals(""));
     });
 
     // Pattern matching
@@ -207,7 +213,7 @@ void main() {
           pairs[i] = {k=k, v=v}
           i = i + 1
         end
-        
+
       ''');
 
       // Check key-value pairs

@@ -1,0 +1,99 @@
+import 'package:test/test.dart';
+import 'package:lualike/src/stdlib/format_parser.dart';
+
+void main() {
+  group('FormatStringParser', () {
+    void expectParts(String input, List<Type> expectedTypes) {
+      final parts = FormatStringParser.parse(input);
+      expect(
+        parts.length,
+        expectedTypes.length,
+        reason: 'Expected ${expectedTypes.length} parts, got ${parts.length}',
+      );
+      for (var i = 0; i < parts.length; i++) {
+        if (expectedTypes[i] == LiteralPart) {
+          expect(
+            parts[i],
+            isA<LiteralPart>(),
+            reason:
+                'Part $i should be LiteralPart, got ${parts[i].runtimeType}',
+          );
+        } else if (expectedTypes[i] == SpecifierPart) {
+          expect(
+            parts[i],
+            isA<SpecifierPart>(),
+            reason:
+                'Part $i should be SpecifierPart, got ${parts[i].runtimeType}',
+          );
+        } else {
+          fail('Unknown expected type: ${expectedTypes[i]}');
+        }
+      }
+    }
+
+    test('parses simple literal', () {
+      expectParts('hello world', [LiteralPart]);
+    });
+
+    test('parses single specifier', () {
+      expectParts('%d', [SpecifierPart]);
+    });
+
+    test('parses literal and specifier', () {
+      expectParts('foo %s bar', [LiteralPart, SpecifierPart, LiteralPart]);
+    });
+
+    test('parses multiple specifiers', () {
+      expectParts('%d %s %q', [
+        SpecifierPart,
+        LiteralPart,
+        SpecifierPart,
+        LiteralPart,
+        SpecifierPart,
+      ]);
+    });
+
+    test('parses single specifier %p', () {
+      final part = FormatStringParser.parse('%p')[0];
+      expect(part, isA<SpecifierPart>());
+      expect((part as SpecifierPart).specifier, 'p');
+      expect((part).flags, '');
+      expect(part.width, isNull);
+      expect(part.precision, isNull);
+    });
+
+    test('parses flags, width, precision', () {
+      final part = FormatStringParser.parse('%-+ 0#10.5f')[0];
+      expect(part, isA<SpecifierPart>());
+      final s = part as SpecifierPart;
+      expect(s.flags, '-+ 0#');
+      expect(s.width, '10');
+      expect(s.precision, '.5');
+      expect(s.specifier, 'f');
+    });
+
+    test('parses %% as specifier', () {
+      final part = FormatStringParser.parse('%%')[0];
+      expect(part, isA<SpecifierPart>());
+      expect((part as SpecifierPart).specifier, '%');
+    });
+
+    test('parses complex format string', () {
+      final input = 'foo %10.2f bar %q baz %% end';
+      final parts = FormatStringParser.parse(input);
+      expect(parts.length, 7);
+      expect(parts[0], isA<LiteralPart>());
+      expect(parts[1], isA<SpecifierPart>());
+      expect(parts[2], isA<LiteralPart>());
+      expect(parts[3], isA<SpecifierPart>());
+      expect(parts[4], isA<LiteralPart>());
+      expect(parts[5], isA<SpecifierPart>());
+      expect(parts[6], isA<LiteralPart>());
+    });
+
+    test('throws on invalid format', () {
+      expect(() => FormatStringParser.parse('%'), throwsFormatException);
+      expect(() => FormatStringParser.parse('%z'), throwsFormatException);
+    });
+  });
+}
