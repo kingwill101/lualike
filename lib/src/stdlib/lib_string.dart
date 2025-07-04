@@ -1022,7 +1022,7 @@ class _StringRep implements BuiltinFunction {
     // Check for potential integer overflow in total length calculation
     if (separator.isEmpty) {
       // For no separator: result length = str.length * count
-      if (str.length > 0 && count > maxStringLength ~/ str.length) {
+      if (str.isNotEmpty && count > maxStringLength ~/ str.length) {
         throw LuaError("resulting string too large");
       }
       // Additional safety check for extremely large counts
@@ -1035,10 +1035,10 @@ class _StringRep implements BuiltinFunction {
     } else {
       // For separator: result length = str.length * count + separator.length * (count - 1)
       // Check each component separately to avoid integer overflow
-      if (str.length > 0 && count > maxStringLength ~/ str.length) {
+      if (str.isNotEmpty && count > maxStringLength ~/ str.length) {
         throw LuaError("resulting string too large");
       }
-      if (separator.length > 0 &&
+      if (separator.isNotEmpty &&
           count > 1 &&
           (count - 1) > maxStringLength ~/ separator.length) {
         throw LuaError("resulting string too large");

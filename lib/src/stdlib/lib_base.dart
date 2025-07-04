@@ -384,7 +384,7 @@ class TypeFunction implements BuiltinFunction {
     if (value.raw is String || value.raw is LuaString) return Value("string");
     if (value.raw is Coroutine) return Value("thread");
     if (value.raw is Map) return Value("table");
-    if (value.raw is Function || value is BuiltinFunction) {
+    if (value.raw is Function || value.raw is BuiltinFunction) {
       return Value("function");
     }
 
@@ -473,8 +473,8 @@ class ToStringFunction implements BuiltinFunction {
       return Value(value.raw.toString());
     }
     if (value.raw is Map) return Value("table: ${value.raw.hashCode}");
-    if (value.raw is Function || value is BuiltinFunction) {
-      return Value("function: ${value.hashCode}");
+    if (value.raw is Function || value.raw is BuiltinFunction) {
+      return Value("function: ${value.raw.hashCode}");
     }
 
     return Value(value.raw.toString());
@@ -1515,40 +1515,40 @@ void defineBaseLibrary({
   // Create a map of all functions and variables
   final baseLib = {
     // Core functions
-    "assert": AssertFunction(vm),
-    "error": ErrorFunction(vm),
-    "ipairs": IPairsFunction(),
-    "pairs": PairsFunction(),
-    "collectgarbage": CollectGarbageFunction(vm),
-    "rawget": RawGetFunction(),
-    "print": PrintFunction(),
-    "type": TypeFunction(),
-    "tonumber": ToNumberFunction(),
-    "tostring": ToStringFunction(),
-    "select": SelectFunction(),
+    "assert": Value(AssertFunction(vm)),
+    "error": Value(ErrorFunction(vm)),
+    "ipairs": Value(IPairsFunction()),
+    "pairs": Value(PairsFunction()),
+    "collectgarbage": Value(CollectGarbageFunction(vm)),
+    "rawget": Value(RawGetFunction()),
+    "print": Value(PrintFunction()),
+    "type": Value(TypeFunction()),
+    "tonumber": Value(ToNumberFunction()),
+    "tostring": Value(ToStringFunction()),
+    "select": Value(SelectFunction()),
 
     // File operations
-    "dofile": DoFileFunction(vm),
-    "load": LoadFunction(vm),
-    "loadfile": LoadfileFunction(),
-    "require": RequireFunction(vm),
+    "dofile": Value(DoFileFunction(vm)),
+    "load": Value(LoadFunction(vm)),
+    "loadfile": Value(LoadfileFunction()),
+    "require": Value(RequireFunction(vm)),
 
     // Table operations
-    "next": NextFunction(),
-    "rawequal": RawEqualFunction(),
-    "rawlen": RawLenFunction(),
-    "rawset": RawSetFunction(),
+    "next": Value(NextFunction()),
+    "rawequal": Value(RawEqualFunction()),
+    "rawlen": Value(RawLenFunction()),
+    "rawset": Value(RawSetFunction()),
 
     // Protected calls
-    "pcall": PCAllFunction(vm),
-    "xpcall": XPCallFunction(),
+    "pcall": Value(PCAllFunction(vm)),
+    "xpcall": Value(XPCallFunction()),
 
     // Metatables
-    "getmetatable": GetMetatableFunction(),
-    "setmetatable": SetMetatableFunction(),
+    "getmetatable": Value(GetMetatableFunction()),
+    "setmetatable": Value(SetMetatableFunction()),
 
     // Miscellaneous
-    "warn": WarnFunction(),
+    "warn": Value(WarnFunction()),
 
     // Global variables
     "_VERSION": Value("LuaLike 0.1"),
