@@ -903,14 +903,11 @@ class GrammarParser {
     final startPos = state.position;
     var $2 = true;
     var $3 = false;
-    final $4 = state.position;
-    final $5 = parseID(state);
-    if ($5 != null && state.peek() != 40) {
-      Identifier base = $5.$1;
+    final $4 = parseID(state);
+    if ($4 != null) {
+      Identifier base = $4.$1;
       expr = base;
       $3 = true;
-    } else {
-      state.position = $4;
     }
     if (!$3) {
       final $6 = state.position;
@@ -5621,11 +5618,12 @@ class GrammarParser {
   /// String =>
   ///   {
   ///     String value = '';
+  ///     bool isLongString = false;
   ///     final startPos = state.position;
   ///   }
   ///   (
   ///     c = LongString
-  ///     {value = c;}
+  ///     {value = c; isLongString = true;}
   ///     ----
   ///     '"'
   ///     c = DoubleChars?
@@ -5640,7 +5638,7 @@ class GrammarParser {
   ///     {value = c;}
   ///   )
   ///   $ = {
-  ///     final node = StringLiteral(value);
+  ///     final node = StringLiteral(value, isLongString: isLongString);
   ///     $$ = _setNodeSpan(node, startPos, state.position, state);
   ///   }
   ///```
@@ -5648,6 +5646,7 @@ class GrammarParser {
     final $1 = state.position;
     (StringLiteral,)? $0;
     String value = '';
+    bool isLongString = false;
     final startPos = state.position;
     var $2 = true;
     var $3 = false;
@@ -5655,6 +5654,7 @@ class GrammarParser {
     if ($4 != null) {
       String c = $4.$1;
       value = c;
+      isLongString = true;
       $3 = true;
     }
     if (!$3) {
@@ -5708,7 +5708,7 @@ class GrammarParser {
     }
     if ($2) {
       final StringLiteral $$;
-      final node = StringLiteral(value);
+      final node = StringLiteral(value, isLongString: isLongString);
       $$ = _setNodeSpan(node, startPos, state.position, state);
       StringLiteral $ = $$;
       $0 = ($,);
