@@ -300,8 +300,13 @@ class _TableUnpack implements BuiltinFunction {
     }
 
     final map = table.raw as Map;
-    var i = args.length > 1 ? (args[1] as Value).raw as int : 1;
-    var j = args.length > 2 ? (args[2] as Value).raw as int : map.length;
+    var i, j;
+    try {
+      i = args.length > 1 ? (args[1] as Value).raw as int : 1;
+      j = args.length > 2 ? (args[2] as Value).raw as int : map.length;
+    } catch (e) {
+      throw LuaError.typeError("table.unpack requires a table argument");
+    }
 
     final result = <Value>[];
     for (var k = i; k <= j; k++) {

@@ -345,14 +345,14 @@ void main() {
       expect((bridge.getGlobal('n1') as Value).raw, equals(123));
       expect((bridge.getGlobal('n2') as Value).raw, equals(123.45));
       expect((bridge.getGlobal('n3') as Value).raw, equals(-123.45));
-      
+
       // Positive sign prefix
       expect((bridge.getGlobal('pos1') as Value).raw, equals(123));
       expect((bridge.getGlobal('pos2') as Value).raw, equals(123.45));
       expect((bridge.getGlobal('pos3') as Value).raw, equals(0.01));
       expect((bridge.getGlobal('pos4') as Value).raw, equals(0.01));
       expect((bridge.getGlobal('pos5') as Value).raw, equals(1.0));
-      
+
       // Decimal point variations
       expect((bridge.getGlobal('dot1') as Value).raw, equals(0.01));
       expect((bridge.getGlobal('dot2') as Value).raw, equals(-0.01));
@@ -361,14 +361,14 @@ void main() {
       expect((bridge.getGlobal('dot5') as Value).raw, equals(0.0));
       expect((bridge.getGlobal('dot6') as Value).raw, equals(0.0));
       expect((bridge.getGlobal('dot7') as Value).raw, equals(0.0));
-      
+
       // Leading/trailing zeros
       expect((bridge.getGlobal('zero1') as Value).raw, equals(7));
       expect((bridge.getGlobal('zero2') as Value).raw, equals(7.5));
       expect((bridge.getGlobal('zero3') as Value).raw, equals(0.5));
       expect((bridge.getGlobal('zero4') as Value).raw, equals(7));
       expect((bridge.getGlobal('zero5') as Value).raw, equals(-7));
-      
+
       // Scientific notation
       expect((bridge.getGlobal('sci1') as Value).raw, equals(100.0));
       expect((bridge.getGlobal('sci2') as Value).raw, equals(150.0));
@@ -378,31 +378,40 @@ void main() {
       expect((bridge.getGlobal('sci6') as Value).raw, equals(-100.0));
       expect((bridge.getGlobal('sci7') as Value).raw, equals(100.0));
       expect((bridge.getGlobal('sci8') as Value).raw, equals(0.01));
-      
+
       // Hex in base 10 (Lua supports hex notation in base 10)
       expect((bridge.getGlobal('hex_base10_1') as Value).raw, equals(16));
       expect((bridge.getGlobal('hex_base10_2') as Value).raw, equals(16));
-      
+
       // With base parameter
       expect((bridge.getGlobal('hex') as Value).raw, equals(255));
       expect((bridge.getGlobal('hex2') as Value).raw, equals(255));
       expect((bridge.getGlobal('hex3') as Value).raw, equals(16));
       expect((bridge.getGlobal('bin') as Value).raw, equals(10));
       expect((bridge.getGlobal('oct') as Value).raw, equals(56));
-      expect((bridge.getGlobal('base36') as Value).raw, equals(1295)); // Z=35, so ZZ = 35*36 + 35 = 1295
-      
+      expect(
+        (bridge.getGlobal('base36') as Value).raw,
+        equals(1295),
+      ); // Z=35, so ZZ = 35*36 + 35 = 1295
+
       // Whitespace handling (Lua accepts leading/trailing whitespace)
       expect((bridge.getGlobal('ws1') as Value).raw, equals(123));
-      expect((bridge.getGlobal('ws2') as Value).raw, equals(456)); // \t and \n are allowed
+      expect(
+        (bridge.getGlobal('ws2') as Value).raw,
+        equals(456),
+      ); // \t and \n are allowed
       expect((bridge.getGlobal('ws3') as Value).raw, equals(123.45));
-      expect((bridge.getGlobal('ws4') as Value).raw, equals(-67.89)); // \t and \n are allowed
-      
+      expect(
+        (bridge.getGlobal('ws4') as Value).raw,
+        equals(-67.89),
+      ); // \t and \n are allowed
+
       // Edge cases - these might not be supported by all Lua implementations
       // Testing for null is safer than expecting specific values for inf/nan
       // expect((bridge.getGlobal('inf_pos') as Value).raw, anyOf(isNull, equals(double.infinity)));
       // expect((bridge.getGlobal('inf_neg') as Value).raw, anyOf(isNull, equals(double.negativeInfinity)));
       // expect((bridge.getGlobal('nan_val') as Value).raw, anyOf(isNull, isNaN));
-      
+
       // Invalid conversions
       expect((bridge.getGlobal('invalid1') as Value).raw, isNull);
       expect((bridge.getGlobal('invalid2') as Value).raw, isNull);
@@ -419,14 +428,14 @@ void main() {
       expect((bridge.getGlobal('invalid13') as Value).raw, isNull);
       expect((bridge.getGlobal('invalid14') as Value).raw, isNull);
       expect((bridge.getGlobal('invalid15') as Value).raw, isNull);
-      
+
       // Math.lua specific tests
       expect((bridge.getGlobal('math_test1') as Value).raw, equals(0.01));
       expect((bridge.getGlobal('math_test2') as Value).raw, equals(0.01));
       expect((bridge.getGlobal('math_test3') as Value).raw, equals(0.01));
       expect((bridge.getGlobal('math_test4') as Value).raw, equals(-1.0));
       expect((bridge.getGlobal('math_test5') as Value).raw, equals(1.0));
-      
+
       // Verify the assertions that were failing in math.lua
       expect((bridge.getGlobal('check1') as Value).raw, isTrue);
       expect((bridge.getGlobal('check2') as Value).raw, isTrue);

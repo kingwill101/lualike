@@ -38,21 +38,23 @@ class LuaNumberParser {
     final unsigned = (neg || literal.startsWith('+'))
         ? literal.substring(1)
         : literal;
-    
+
     // Check for multiple signs (invalid in Lua)
     if (unsigned.startsWith('+') || unsigned.startsWith('-')) {
       throw FormatException('Multiple signs in numeric literal: $literal');
     }
-    
+
     final s = unsigned.toLowerCase();
 
     // ============ HEXADECIMAL BRANCH ============
     if (s.startsWith('0x')) {
       final body = s.substring(2);
-      
+
       // Reject hex numbers with leading/trailing spaces or internal spaces
       if (body.trim() != body || body.contains(' ') || body.contains('\t')) {
-        throw FormatException('Invalid hexadecimal number with whitespace: $literal');
+        throw FormatException(
+          'Invalid hexadecimal number with whitespace: $literal',
+        );
       }
 
       final hasDot = body.contains('.');
