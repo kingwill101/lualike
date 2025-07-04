@@ -699,7 +699,7 @@ class StringLiteral extends AstNode {
 
   static String unescapeLuaString(String s) {
     final buffer = StringBuffer();
-    try{
+    try {
       for (var i = 0; i < s.length; i++) {
         var ch = s[i];
         if (ch != '\\') {
@@ -797,7 +797,7 @@ class StringLiteral extends AstNode {
             }
         }
       }
-    }catch(e, s){
+    } catch (e, s) {
       print(e);
       buffer.write(s);
     }
