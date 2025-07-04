@@ -30,15 +30,15 @@ void main() {
 
       await bridge.runCode(code);
       final results = bridge.getGlobal('results');
-      
+
       final map = results.raw as Map;
       final list = List.generate(map.length, (i) => map[i + 1]);
 
       // Expected results according to Lua truthiness rules
       final expected = [
         false, // not true
-        true,  // not false  
-        true,  // not nil
+        true, // not false
+        true, // not nil
         false, // not 0
         false, // not 1
         false, // not 0.001
@@ -50,8 +50,11 @@ void main() {
 
       expect(list.length, equals(expected.length));
       for (int i = 0; i < expected.length; i++) {
-        expect(list[i].raw, equals(expected[i]), 
-               reason: 'Test case ${i+1} failed');
+        expect(
+          list[i].raw,
+          equals(expected[i]),
+          reason: 'Test case ${i + 1} failed',
+        );
       }
     });
 
@@ -72,16 +75,16 @@ void main() {
 
       await bridge.runCode(code);
       final results = bridge.getGlobal('results');
-      
+
       final map = results.raw as Map;
       final list = List.generate(map.length, (i) => map[i + 1]);
 
-      expect(list[0].raw, equals("yes"));     // 0.001 and "yes"
-      expect(list[1].raw, equals(false));     // false and "yes"
-      expect(list[2].raw, equals(null));      // nil and "yes"
-      expect(list[3].raw, equals(0.001));     // 0.001 or "no"
-      expect(list[4].raw, equals("yes"));     // false or "yes"
-      expect(list[5].raw, equals("yes"));     // nil or "yes"
+      expect(list[0].raw, equals("yes")); // 0.001 and "yes"
+      expect(list[1].raw, equals(false)); // false and "yes"
+      expect(list[2].raw, equals(null)); // nil and "yes"
+      expect(list[3].raw, equals(0.001)); // 0.001 or "no"
+      expect(list[4].raw, equals("yes")); // false or "yes"
+      expect(list[5].raw, equals("yes")); // nil or "yes"
     });
 
     test('eq function from incd.lua now works correctly', () async {
@@ -103,9 +106,9 @@ void main() {
       ''';
 
       await bridge.runCode(code);
-      
+
       final result1 = bridge.getGlobal('result1');
-      final result2 = bridge.getGlobal('result2');  
+      final result2 = bridge.getGlobal('result2');
       final combined = bridge.getGlobal('combined');
 
       expect(result1.raw, isTrue);

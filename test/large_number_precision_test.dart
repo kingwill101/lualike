@@ -32,12 +32,12 @@ void main() {
       ''';
 
       await bridge.runCode(code);
-      
+
       final multValue = bridge.getGlobal('mult_value');
       final results = bridge.getGlobal('results');
-      
+
       print('mult = 2^53 = ${multValue.raw}');
-      
+
       final resultsMap = results.raw as Map;
       for (int i = 1; i <= 5; i++) {
         final resultMap = resultsMap[i] as Map;
@@ -45,13 +45,15 @@ void main() {
         final product = resultMap['product']?.raw;
         final modResult = resultMap['mod_result']?.raw;
         final equalsZero = resultMap['equals_zero']?.raw;
-        
-        print('Value $original: product=$product, mod=$modResult, equals_zero=$equalsZero');
-        
+
+        print(
+          'Value $original: product=$product, mod=$modResult, equals_zero=$equalsZero',
+        );
+
         // For most random values, (val * 2^53) % 1 should NOT equal 0
         // Only values that are exact multiples of 1/2^53 should give mod == 0
       }
-      
+
       // Compare with Dart's native calculation
       final mult = math.pow(2, 53).toDouble();
       print('\nDart native calculations:');
@@ -60,7 +62,9 @@ void main() {
         final product = val * mult;
         final modResult = product % 1.0;
         final equalsZero = modResult == 0.0;
-        print('Value $val: product=$product, mod=$modResult, equals_zero=$equalsZero');
+        print(
+          'Value $val: product=$product, mod=$modResult, equals_zero=$equalsZero',
+        );
       }
     });
 
@@ -95,12 +99,12 @@ void main() {
       ''';
 
       await bridge.runCode(code);
-      
+
       final results = bridge.getGlobal('results');
       final zeroRatio = bridge.getGlobal('zero_ratio');
-      
+
       print('Zero ratio: ${zeroRatio.raw}');
-      
+
       final resultsMap = results.raw as Map;
       for (int i = 1; i <= 10; i++) {
         final resultMap = resultsMap[i] as Map;
@@ -108,10 +112,12 @@ void main() {
         final product = resultMap['product']?.raw;
         final modResult = resultMap['mod_result']?.raw;
         final equalsZero = resultMap['equals_zero']?.raw;
-        
-        print('Random $i: value=$randomValue, product=$product, mod=$modResult, equals_zero=$equalsZero');
+
+        print(
+          'Random $i: value=$randomValue, product=$product, mod=$modResult, equals_zero=$equalsZero',
+        );
       }
-      
+
       // In a correct implementation, zero_ratio should be much less than 1.0
       // Most random values should NOT result in (value * 2^53) % 1 == 0
     });

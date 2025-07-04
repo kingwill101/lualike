@@ -21,7 +21,7 @@ void main() {
 
       await bridge.runCode(code);
       final result = bridge.getGlobal('result');
-      
+
       expect(result.raw, equals(53));
     });
 
@@ -55,20 +55,23 @@ void main() {
       await bridge.runCode(code);
       final results = bridge.getGlobal('results');
       final successRate = bridge.getGlobal('success_rate');
-      
+
       print('Success rate: ${successRate.raw}');
-      
+
       final resultsMap = results.raw as Map;
-      for (int i = 1; i <= 10; i++) {  // Show first 10 results
+      for (int i = 1; i <= 10; i++) {
+        // Show first 10 results
         final resultMap = (resultsMap[i] as Map);
         final value = resultMap['value']?.raw;
         final multResult = resultMap['mult_result']?.raw;
         final modResult = resultMap['mod_result']?.raw;
         final passesCheck = resultMap['passes_check']?.raw;
-        
-        print('Test $i: value=$value, mult_result=$multResult, mod_result=$modResult, passes=$passesCheck');
+
+        print(
+          'Test $i: value=$value, mult_result=$multResult, mod_result=$modResult, passes=$passesCheck',
+        );
       }
-      
+
       // The success rate should be > 0 for the algorithm to work
       expect(successRate.raw, greaterThan(0.0));
     });
@@ -117,28 +120,30 @@ void main() {
       final results = bridge.getGlobal('results');
       final validCount = bridge.getGlobal('valid_count');
       final totalAttempts = bridge.getGlobal('total_attempts');
-      
-      print('Found ${validCount.raw} valid values in ${totalAttempts.raw} attempts');
-      
+
+      print(
+        'Found ${validCount.raw} valid values in ${totalAttempts.raw} attempts',
+      );
+
       final resultsMap = results.raw as Map;
       if ((validCount.raw as num) > 0) {
         // Show the bit pattern for the first valid value
         final firstResult = resultsMap[1] as Map;
         final value = firstResult['value']?.raw;
         final bitsMap = firstResult['bits'] as Map;
-        
+
         print('First valid value: $value');
-        
+
         for (int bit = 0; bit <= 5; bit++) {
           final bitData = bitsMap[bit] as Map;
           final multResult = bitData['mult_result']?.raw;
           final modResult = bitData['mod_result']?.raw;
           final isSet = bitData['is_set']?.raw;
-          
+
           print('  Bit $bit: mult=$multResult, mod=$modResult, set=$isSet');
         }
       }
-      
+
       expect(validCount.raw, greaterThan(0));
     });
   });

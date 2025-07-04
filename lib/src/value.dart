@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
 
@@ -457,6 +455,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   @override
   int get length {
+    if (raw == null) return 0;
     final lenMeta = getMetamethod('__len');
     if (lenMeta != null) {
       final result = callMetamethod('__len', [this]);
