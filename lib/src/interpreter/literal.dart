@@ -53,7 +53,17 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
   Future<Object?> visitStringLiteral(StringLiteral node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
     Logger.debug('Visiting StringLiteral: ${node.value}', category: 'Literal');
-    return Value(node.value);
+
+    // Check if the string contains non-ASCII bytes that require LuaString handling
+    try {
+      // If the string can be encoded as latin1, it might contain byte sequences
+      // For now, let's just return regular Dart strings for better interop
+      // Only use LuaString for string operations that explicitly need byte manipulation
+      return Value(node.value);
+    } catch (e) {
+      // If there's any issue, fall back to regular string
+      return Value(node.value);
+    }
   }
 
   /// Evaluates a table constructor.

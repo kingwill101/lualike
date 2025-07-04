@@ -4,6 +4,8 @@ import 'package:lualike/src/stdlib/lib_string.dart' show StringLib;
 
 import '../../lualike.dart';
 import '../value_class.dart';
+import '../lua_string.dart';
+import 'lib_string.dart';
 
 /// Handles default metatables and metamethods for built-in types
 class MetaTable {
@@ -44,6 +46,9 @@ class MetaTable {
           'String __len metamethod called for "${str.raw}"',
           category: 'Metatables',
         );
+        if (str.raw is LuaString) {
+          return Value((str.raw as LuaString).length);
+        }
         return Value(str.raw.toString().length);
       },
       '__concat': (List<Object?> args) {
@@ -53,7 +58,21 @@ class MetaTable {
           'String __concat metamethod called: "${a.raw}" .. "${b.raw}"',
           category: 'Metatables',
         );
-        return Value(a.raw.toString() + b.raw.toString());
+
+        // For better interop, return Dart strings unless LuaString is needed
+        if (a.raw is LuaString || b.raw is LuaString) {
+          // If either operand is a LuaString, preserve byte-level operations
+          final aStr = a.raw is LuaString
+              ? (a.raw as LuaString)
+              : LuaString.fromDartString(a.raw.toString());
+          final bStr = b.raw is LuaString
+              ? (b.raw as LuaString)
+              : LuaString.fromDartString(b.raw.toString());
+          return Value(aStr + bStr);
+        } else {
+          // Both operands are normal types, return Dart string
+          return Value(a.raw.toString() + b.raw.toString());
+        }
       },
       '__index': (List<Object?> args) {
         final str = args[0] as Value;
@@ -402,6 +421,7 @@ class MetaTable {
           (const (Map)) => table.unwrap().length,
           (const (List)) => table.unwrap().length,
           (const (List<Object?>)) => table.unwrap().length,
+          (const (LuaString)) => (table.unwrap() as LuaString).length,
           _ => throw LuaError(
             "attempt to get length of unknown value ${table.unwrap().runtimeType}",
           ),
@@ -444,6 +464,7 @@ class MetaTable {
     return switch (value) {
       null => 'nil',
       String() => 'string',
+      LuaString() => 'string',
       num() => 'number',
       BigInt() => 'number',
       bool() => 'boolean',

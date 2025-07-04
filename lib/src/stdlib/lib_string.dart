@@ -6,6 +6,8 @@ import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/pattern.dart';
 
 import '../value_class.dart';
+import 'number_utils.dart';
+import '../lua_string.dart';
 
 class StringLib {
   static final ValueClass stringClass = ValueClass.create({
@@ -47,45 +49,54 @@ class _StringByte implements BuiltinFunction {
     if (args.isEmpty) {
       throw LuaError.typeError("string.byte requires a string argument");
     }
-    final str = (args[0] as Value).raw.toString();
-    var start = args.length > 1 ? (args[1] as Value).raw as int : 1;
-    var end = args.length > 2 ? (args[2] as Value).raw as int : start;
 
-    // Adjust for Lua's 1-based indexing
-    start = start < 0 ? str.length + start + 1 : start;
-    end = end < 0 ? str.length + end + 1 : end;
+    final value = args[0] as Value;
+    final bytes = value.raw is LuaString
+        ? (value.raw as LuaString).bytes
+        : LuaString.fromDartString(value.raw.toString()).bytes;
 
-    // Ensure indices are within bounds
-    start = math.max(1, math.min(start, str.length + 1));
-    end = math.max(1, math.min(end, str.length + 1));
+    var start = args.length > 1 ? NumberUtils.toInt((args[1] as Value).raw) : 1;
+    var end = args.length > 2
+        ? NumberUtils.toInt((args[2] as Value).raw)
+        : start;
 
-    // Convert to 0-based for Dart
-    start--;
-    end--;
+    start = start < 0 ? bytes.length + start + 1 : start;
+    end = end < 0 ? bytes.length + end + 1 : end;
+
+    if (start < 1) start = 1;
+    if (end > bytes.length) end = bytes.length;
 
     final result = <Value>[];
-    for (var i = start; i <= end && i < str.length; i++) {
-      result.add(Value(str.codeUnitAt(i)));
+    for (var i = start; i <= end; i++) {
+      result.add(Value(bytes[i - 1]));
     }
 
-    if (result.length == 1) {
-      return result.first;
+    if (result.isEmpty) {
+      return Value(null);
+    } else if (result.length == 1) {
+      return result[0];
+    } else {
+      return Value.multi(result);
     }
-
-    return result is Value ? result : Value(result);
   }
 }
 
 class _StringChar implements BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
-    final buffer = StringBuffer();
-    for (var arg in args.where((arg) => arg is Value && arg.raw is int)) {
-      final code = (arg as Value).raw as int;
-      buffer.writeCharCode(code);
+    final bytes = <int>[];
+    for (var arg in args.where(
+      (arg) => arg is Value && (arg.raw is num || arg.raw is BigInt),
+    )) {
+      final code = NumberUtils.toInt((arg as Value).raw);
+      if (code < 0 || code > 255) {
+        throw LuaError('out of range $code');
+      }
+      bytes.add(code);
     }
-
-    return Value(buffer.toString());
+    // Return Dart string for better interop - use latin1 to handle all byte values 0-255
+    final str = String.fromCharCodes(bytes);
+    return Value(str);
   }
 }
 
@@ -116,12 +127,22 @@ class _StringFind implements BuiltinFunction {
 
     final str = (args[0] as Value).raw.toString();
     final pattern = (args[1] as Value).raw.toString();
-    var start = args.length > 2 ? ((args[2] as Value).raw as int) - 1 : 0;
-    final plain = args.length > 3 ? (args[3] as Value).raw as bool : false;
+    var init = args.length > 2 ? NumberUtils.toInt((args[2] as Value).raw) : 1;
+    var start = init < 0 ? str.length + init + 1 : init;
+    if (start < 1) start = 1;
+    start -= 1;
+    bool plain = false;
+    if (args.length > 3) {
+      final rawPlain = (args[3] as Value).raw;
+      plain = rawPlain != false && rawPlain != null;
+    }
 
-    // Handle negative indices
-    if (start < 0) start = 0;
-    if (start >= str.length) return Value(null);
+    // Handle bounds
+    if (start > str.length) return Value(null);
+
+    if (pattern.isEmpty) {
+      return [Value(start + 1), Value(start)];
+    }
 
     if (plain) {
       final index = str.indexOf(pattern, start);
@@ -216,13 +237,13 @@ String _formatString(_FormatContext ctx) {
 }
 
 String _formatCharacter(_FormatContext ctx) {
-  if (ctx.value is! num) {
+  if (ctx.value is! num && ctx.value is! BigInt) {
     throw LuaError.typeError(
       "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${_typeName(ctx.value)})",
     );
   }
 
-  final charCode = ctx.value.toInt();
+  final charCode = NumberUtils.toInt(ctx.value);
   final char = String.fromCharCode(charCode);
 
   return _applyPadding(char, ctx);
@@ -242,14 +263,27 @@ String _formatQuoted(_FormatContext ctx) {
   }
 }
 
+String _formatPointer(_FormatContext ctx) {
+  String ptr;
+  final v = ctx.value;
+  if (v == null || v is num || v is bool) {
+    ptr = '(null)';
+  } else {
+    ptr = v.hashCode.toRadixString(16);
+  }
+
+  ptr = _applyPadding(ptr, ctx);
+  return ptr;
+}
+
 String _formatFloat(_FormatContext ctx, bool uppercase) {
-  if (ctx.value is! num) {
+  if (ctx.value is! num && ctx.value is! BigInt) {
     throw LuaError.typeError(
       "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${_typeName(ctx.value)})",
     );
   }
 
-  final doubleValue = ctx.value.toDouble();
+  final doubleValue = NumberUtils.toDouble(ctx.value);
 
   // Handle special values
   if (doubleValue.isNaN) return uppercase ? 'NAN' : 'nan';
@@ -270,13 +304,13 @@ String _formatFloat(_FormatContext ctx, bool uppercase) {
 }
 
 String _formatScientific(_FormatContext ctx, bool uppercase) {
-  if (ctx.value is! num) {
+  if (ctx.value is! num && ctx.value is! BigInt) {
     throw LuaError.typeError(
       "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${_typeName(ctx.value)})",
     );
   }
 
-  final doubleValue = ctx.value.toDouble();
+  final doubleValue = NumberUtils.toDouble(ctx.value);
 
   // Handle special values
   if (doubleValue.isNaN) return uppercase ? 'NAN' : 'nan';
@@ -312,14 +346,64 @@ String _formatScientific(_FormatContext ctx, bool uppercase) {
   return _applyPadding(result, ctx);
 }
 
-String _formatInteger(_FormatContext ctx, {bool unsigned = false}) {
-  if (ctx.value is! num) {
+String _formatHexFloat(_FormatContext ctx, bool uppercase) {
+  if (ctx.value is! num && ctx.value is! BigInt) {
     throw LuaError.typeError(
       "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${_typeName(ctx.value)})",
     );
   }
 
-  var intValue = ctx.value.toInt();
+  double v = NumberUtils.toDouble(ctx.value);
+
+  if (v.isNaN) return uppercase ? 'NAN' : 'nan';
+  if (v.isInfinite) {
+    final sign = v.isNegative ? '-' : (ctx.showSign ? '+' : '');
+    return uppercase ? '${sign}INF' : '${sign}inf';
+  }
+
+  String sign = '';
+  if (v.isNegative) {
+    sign = '-';
+    v = -v;
+  } else if (ctx.showSign) {
+    sign = '+';
+  } else if (ctx.spacePrefix) {
+    sign = ' ';
+  }
+
+  int exponent = 0;
+  if (v != 0.0) {
+    exponent = (math.log(v) / math.ln2).floor();
+    v /= math.pow(2, exponent);
+  }
+
+  int precision = ctx.precision.isNotEmpty ? ctx.precisionValue : 13;
+  StringBuffer hex = StringBuffer();
+  hex.write(v.floor().toRadixString(16));
+  double frac = v - v.floor();
+  if (precision > 0 || ctx.alternative) hex.write('.');
+  for (int i = 0; i < precision; i++) {
+    frac *= 16;
+    int digit = frac.floor();
+    hex.write(digit.toRadixString(16));
+    frac -= digit;
+  }
+
+  String result = '0x${hex.toString()}p${exponent >= 0 ? '+' : ''}$exponent';
+  if (uppercase) result = result.toUpperCase();
+  result = sign + result;
+
+  return _applyPadding(result, ctx);
+}
+
+String _formatInteger(_FormatContext ctx, {bool unsigned = false}) {
+  if (ctx.value is! num && ctx.value is! BigInt) {
+    throw LuaError.typeError(
+      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${_typeName(ctx.value)})",
+    );
+  }
+
+  var intValue = NumberUtils.toInt(ctx.value);
   if (unsigned) intValue = intValue.abs();
 
   String result;
@@ -340,13 +424,13 @@ String _formatInteger(_FormatContext ctx, {bool unsigned = false}) {
 }
 
 String _formatHex(_FormatContext ctx, bool uppercase) {
-  if (ctx.value is! num) {
+  if (ctx.value is! num && ctx.value is! BigInt) {
     throw LuaError.typeError(
       "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${_typeName(ctx.value)})",
     );
   }
 
-  final intValue = ctx.value.toInt();
+  final intValue = NumberUtils.toInt(ctx.value);
   String result = intValue.toRadixString(16);
   if (uppercase) result = result.toUpperCase();
 
@@ -398,13 +482,13 @@ class _FormatContext {
 }
 
 String _formatOctal(_FormatContext ctx) {
-  if (ctx.value is! num) {
+  if (ctx.value is! num && ctx.value is! BigInt) {
     throw LuaError.typeError(
       "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${_typeName(ctx.value)})",
     );
   }
 
-  final intValue = ctx.value.toInt();
+  final intValue = NumberUtils.toInt(ctx.value);
   String result = intValue.toRadixString(8);
 
   if (ctx.alternative && intValue != 0) {
@@ -481,6 +565,10 @@ class _StringFormat implements BuiltinFunction {
                 return _formatScientific(ctx, false);
               case 'E':
                 return _formatScientific(ctx, true);
+              case 'a':
+                return _formatHexFloat(ctx, false);
+              case 'A':
+                return _formatHexFloat(ctx, true);
               case 'c':
                 return _formatCharacter(ctx);
               case 's':
@@ -488,9 +576,7 @@ class _StringFormat implements BuiltinFunction {
               case 'q':
                 return _formatQuoted(ctx);
               case 'p':
-                return (ctx.value?.hashCode ?? 0)
-                    .toRadixString(16)
-                    .padLeft(8, '0');
+                return _formatPointer(ctx);
               default:
                 throw LuaError.typeError(
                   "Invalid format specifier: %$specifier",
@@ -591,7 +677,7 @@ class _StringGsub implements BuiltinFunction {
     final str = (args[0] as Value).raw.toString();
     final pattern = (args[1] as Value).raw.toString();
     final repl = args[2] as Value;
-    final n = args.length > 3 ? (args[3] as Value).raw as int : -1;
+    final n = args.length > 3 ? NumberUtils.toInt((args[3] as Value).raw) : -1;
 
     try {
       var count = 0;
@@ -761,7 +847,10 @@ class _StringLower implements BuiltinFunction {
     if (args.isEmpty) {
       throw LuaError.typeError("string.lower requires a string argument");
     }
-    final str = (args[0] as Value).raw.toString();
+
+    final value = args[0] as Value;
+    // For normal string operations, use Dart's string methods for better interop
+    final str = value.raw.toString();
     return Value(str.toLowerCase());
   }
 }
@@ -775,7 +864,7 @@ class _StringMatch implements BuiltinFunction {
 
     final str = (args[0] as Value).raw.toString();
     final pattern = (args[1] as Value).raw.toString();
-    var init = args.length > 2 ? (args[2] as Value).raw as int : 1;
+    var init = args.length > 2 ? NumberUtils.toInt((args[2] as Value).raw) : 1;
 
     Logger.debug(
       '_StringMatch: Called with str="$str", pattern="$pattern", init=$init',
@@ -863,12 +952,23 @@ class _StringRep implements BuiltinFunction {
     if (args.length < 2) {
       throw LuaError.typeError("string.rep requires a string and count");
     }
-    final str = (args[0] as Value).raw.toString();
-    final n = (args[1] as Value).raw as int;
-    final sep = args.length > 2 ? (args[2] as Value).raw.toString() : "";
 
-    final result = List.filled(n, str).join(sep);
-    return Value(result);
+    final value = args[0] as Value;
+    final str = value.raw.toString();
+    final count = NumberUtils.toInt((args[1] as Value).raw);
+    final separator = args.length > 2 ? (args[2] as Value).raw.toString() : "";
+
+    if (count <= 0) {
+      return Value("");
+    }
+
+    if (separator.isEmpty) {
+      return Value(str * count);
+    } else {
+      // Create list and join with separator
+      final parts = List.filled(count, str);
+      return Value(parts.join(separator));
+    }
   }
 }
 
@@ -878,30 +978,45 @@ class _StringReverse implements BuiltinFunction {
     if (args.isEmpty) {
       throw LuaError.typeError("string.reverse requires a string argument");
     }
-    final str = (args[0] as Value).raw.toString();
-    return Value(String.fromCharCodes(str.codeUnits.reversed));
+
+    final value = args[0] as Value;
+    final str = value.raw.toString();
+
+    return Value(str.split('').reversed.join(''));
   }
 }
 
 class _StringSub implements BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
-    if (args.length < 2) {
-      throw LuaError.typeError("string.sub requires a string and start index");
+    if (args.isEmpty) {
+      throw LuaError.typeError("string.sub requires a string argument");
     }
-    final str = (args[0] as Value).raw.toString();
-    var start = (args[1] as Value).raw as int;
-    var end = args.length > 2 ? (args[2] as Value).raw as int : -1;
 
-    // Convert Lua 1-based indexing to Dart 0-based
-    start = start > 0 ? start - 1 : str.length + start;
-    end = end > 0 ? end : str.length + end + 1;
+    final value = args[0] as Value;
+    final str = value.raw.toString();
 
-    if (start < 0) start = 0;
+    var start = args.length > 1 ? NumberUtils.toInt((args[1] as Value).raw) : 1;
+    var end = args.length > 2
+        ? NumberUtils.toInt((args[2] as Value).raw)
+        : str.length;
+
+    // Handle negative indices
+    if (start < 0) start = str.length + start + 1;
+    if (end < 0) end = str.length + end + 1;
+
+    // Clamp to valid range
+    if (start < 1) start = 1;
     if (end > str.length) end = str.length;
 
-    if (start >= end) return Value("");
-    return Value(str.substring(start, end));
+    // Handle empty substring
+    if (start > end || start > str.length) {
+      return Value("");
+    }
+
+    // Extract substring (1-based to 0-based conversion)
+    final result = str.substring(start - 1, end);
+    return Value(result);
   }
 }
 
@@ -927,7 +1042,7 @@ class _StringPack implements BuiltinFunction {
 
       switch (c) {
         case 'b': // signed byte
-          final value = (values[i] as Value).raw as int;
+          final value = NumberUtils.toInt((values[i] as Value).raw);
           Logger.debug(
             'string.pack: packing signed byte: $value',
             category: 'String',
@@ -936,7 +1051,7 @@ class _StringPack implements BuiltinFunction {
           i++;
           break;
         case 'B': // unsigned byte
-          final value = (values[i] as Value).raw as int;
+          final value = NumberUtils.toInt((values[i] as Value).raw);
           Logger.debug(
             'string.pack: packing unsigned byte: $value',
             category: 'String',
@@ -945,7 +1060,7 @@ class _StringPack implements BuiltinFunction {
           i++;
           break;
         case 'h': // signed short
-          var n = (values[i] as Value).raw as int;
+          var n = NumberUtils.toInt((values[i] as Value).raw);
           Logger.debug(
             'string.pack: packing signed short: $n',
             category: 'String',
@@ -956,7 +1071,7 @@ class _StringPack implements BuiltinFunction {
           i++;
           break;
         case 'H': // unsigned short
-          var n = (values[i] as Value).raw as int;
+          var n = NumberUtils.toInt((values[i] as Value).raw);
           Logger.debug(
             'string.pack: packing unsigned short: $n',
             category: 'String',
@@ -967,7 +1082,7 @@ class _StringPack implements BuiltinFunction {
           i++;
           break;
         case 'i': // signed int
-          var n = (values[i] as Value).raw as int;
+          var n = NumberUtils.toInt((values[i] as Value).raw);
           Logger.debug(
             'string.pack: packing signed int: $n',
             category: 'String',
@@ -1045,7 +1160,7 @@ class _StringUnpack implements BuiltinFunction {
     }
     final format = (args[0] as Value).raw.toString();
     final binary = (args[1] as Value).raw.toString();
-    final pos = args.length > 2 ? (args[2] as Value).raw as int : 1;
+    final pos = args.length > 2 ? NumberUtils.toInt((args[2] as Value).raw) : 1;
 
     Logger.debug(
       'string.unpack: format=$format, binary length=${binary.length}, pos=$pos',
@@ -1141,7 +1256,10 @@ class _StringUpper implements BuiltinFunction {
     if (args.isEmpty) {
       throw LuaError.typeError("string.upper requires a string argument");
     }
-    final str = (args[0] as Value).raw.toString();
+
+    final value = args[0] as Value;
+    // For normal string operations, use Dart's string methods for better interop
+    final str = value.raw.toString();
     return Value(str.toUpperCase());
   }
 }
