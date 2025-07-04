@@ -455,6 +455,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   @override
   int get length {
+    if (raw == null) return 0;
     final lenMeta = getMetamethod('__len');
     if (lenMeta != null) {
       final result = callMetamethod('__len', [this]);

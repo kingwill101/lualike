@@ -57,7 +57,6 @@ class ReplHistory {
           ? _history.sublist(_history.length - 1000)
           : _history;
       file.writeAsStringSync(historyToSave.join('\n'));
-      print('Saved ${historyToSave.length} commands to history file');
     } catch (e) {
       print('Failed to save history: $e');
     }
