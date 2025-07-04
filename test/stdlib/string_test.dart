@@ -21,8 +21,8 @@ void main() {
       final bridge = LuaLike();
       await bridge.runCode('''
         local a = string.byte("ABCDE", 1)
-        local b = string.byte("ABCDE", 2, 4)
-        local c = string.byte("ABCDE", -1) -- negative index
+        local b,c,d = string.byte("ABCDE", 2, 4)
+        local e = string.byte("ABCDE", -1) -- negative index
       ''');
 
       expect(
@@ -30,15 +30,10 @@ void main() {
         equals(65),
       ); // ASCII for 'A'
 
-      final bResult = (bridge.getGlobal('b') as Value).unwrap();
-      expect(bResult, isList);
-      final bList = bResult as List;
-      expect(bList.length, equals(3));
-      expect((bList[0] as Value).raw, equals(66)); // 'B'
-      expect((bList[1] as Value).raw, equals(67)); // 'C'
-      expect((bList[2] as Value).raw, equals(68)); // 'D'
-
-      expect((bridge.getGlobal('c') as Value).raw, equals(69)); // 'E'
+      expect((bridge.getGlobal('b') as Value).raw, equals(66)); // 'B'
+      expect((bridge.getGlobal('c') as Value).raw, equals(67)); // 'C'
+      expect((bridge.getGlobal('d') as Value).raw, equals(68)); // 'D'
+      expect((bridge.getGlobal('e') as Value).raw, equals(69)); // 'E'
     });
 
     test('string.char', () async {
@@ -212,7 +207,7 @@ void main() {
           pairs[i] = {k=k, v=v}
           i = i + 1
         end
-        
+
       ''');
 
       // Check key-value pairs
@@ -538,5 +533,118 @@ void main() {
         throwsA(isA<LuaError>()),
       );
     });
+
+    test(
+      'string.byte and string.char roundtrip and edge cases (Lua spec)',
+      () async {
+        final bridge = LuaLike();
+        await bridge.runCode(r'''
+        local s = "\xe4l\0\u{FFFD}u"
+        local b1, b2, b3, b4, b5 = string.byte(s, 1, -1)
+        local s2 = string.char(b1, b2, b3, b4, b5)
+        local empty = string.char()
+        local multi = string.char(0, 255, 0)
+        local multi2 = string.char(0, string.byte("\xe4"), 0)
+        local sub = string.sub("123456789", 2, 4)
+        local sub2 = string.sub("123456789", 7)
+        local sub3 = string.sub("123456789", 7, 6)
+        local sub4 = string.sub("123456789", 7, 7)
+        local sub5 = string.sub("123456789", 0, 0)
+        local sub6 = string.sub("123456789", -10, 10)
+        local sub7 = string.sub("123456789", 1, 9)
+        local sub8 = string.sub("123456789", -10, -20)
+        local sub9 = string.sub("123456789", -1)
+        local sub10 = string.sub("123456789", -4)
+        local sub11 = string.sub("123456789", -6, -4)
+        local upper = string.upper("ab\0c")
+        local lower = string.lower("\0ABCc%$")
+        local rep1 = string.rep('teste', 0)
+        local rep2 = string.rep('t\u{E1}s\00t\u{E9}', 2)
+        local rep3 = string.rep('', 10)
+        local rep4 = string.rep('teste', 0, 'xuxu')
+        local rep5 = string.rep('teste', 1, 'xuxu')
+        local rep6 = string.rep('\1\0\1', 2, '\0\0')
+        local rep7 = string.rep('', 10, '.')
+        local rev1 = string.reverse""
+        local rev2 = string.reverse"\0\1\2\3"
+        local rev3 = string.reverse"\0001234"
+        local len1 = string.len("")
+        local len2 = string.len("\0\0\0")
+        local len3 = string.len("1234567890")
+        local hash1 = #""
+        local hash2 = #"\0\0\0"
+        local hash3 = #"1234567890"
+        _G._test = {
+          s2 = s2,
+          empty = empty,
+          multi = multi,
+          multi2 = multi2,
+          sub = sub,
+          sub2 = sub2,
+          sub3 = sub3,
+          sub4 = sub4,
+          sub5 = sub5,
+          sub6 = sub6,
+          sub7 = sub7,
+          sub8 = sub8,
+          sub9 = sub9,
+          sub10 = sub10,
+          sub11 = sub11,
+          upper = upper,
+          lower = lower,
+          rep1 = rep1,
+          rep2 = rep2,
+          rep3 = rep3,
+          rep4 = rep4,
+          rep5 = rep5,
+          rep6 = rep6,
+          rep7 = rep7,
+          rev1 = rev1,
+          rev2 = rev2,
+          rev3 = rev3,
+          len1 = len1,
+          len2 = len2,
+          len3 = len3,
+          hash1 = hash1,
+          hash2 = hash2,
+          hash3 = hash3,
+        }
+      ''');
+        final t = (bridge.getGlobal('_test') as Value).raw as Map;
+        expect(t['s2'], equals(Value(r"\xe4l\0\u{FFFD}u")));
+        expect(t['empty'], equals(Value("")));
+        expect(t['multi'], equals(Value("\x00\xFF\x00")));
+        expect(t['multi2'], equals(Value("\x00\xE4\x00")));
+        expect(t['sub'], equals(Value("234")));
+        expect(t['sub2'], equals(Value("789")));
+        expect(t['sub3'], equals(Value("")));
+        expect(t['sub4'], equals(Value("7")));
+        expect(t['sub5'], equals(Value("")));
+        expect(t['sub6'], equals(Value("123456789")));
+        expect(t['sub7'], equals(Value("123456789")));
+        expect(t['sub8'], equals(Value("")));
+        expect(t['sub9'], equals(Value("9")));
+        expect(t['sub10'], equals(Value("6789")));
+        expect(t['sub11'], equals(Value("456")));
+        expect(t['upper'], equals(Value("AB\x00C")));
+        expect(t['lower'], equals(Value(r"\x00abcc%$")));
+        expect(t['rep1'], equals(Value('')));
+        expect(t['rep2'], isA<Value>()); // just check it runs
+        expect(t['rep3'], equals(Value('')));
+        expect(t['rep4'], equals(Value('')));
+        expect(t['rep5'], equals(Value('teste')));
+        expect(t['rep6'], equals(Value("\x01\x00\x01\x00\x00\x01\x00\x01")));
+        expect(t['rep7'], equals(Value(".........")));
+        expect(t['rev1'], equals(Value('')));
+        expect(t['rev2'], equals(Value(r"\x03\x02\x01\x00")));
+        expect(t['rev3'], equals(Value("4321\x00")));
+        expect(t['len1'], equals(Value(0)));
+        expect(t['len2'], equals(Value(3)));
+        expect(t['len3'], equals(Value(10)));
+        expect(t['hash1'], equals(Value(0)));
+        expect(t['hash2'], equals(Value(3)));
+        expect(t['hash3'], equals(Value(10)));
+      },
+    );
   });
 }
