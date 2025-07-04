@@ -9,6 +9,32 @@ import '../value_class.dart';
 import 'number_utils.dart';
 import '../lua_string.dart';
 
+/// String interning cache for short strings (Lua-like behavior)
+/// In Lua, short strings are typically internalized while long strings are not
+class StringInterning {
+  static const int shortStringThreshold = 40; // Lua 5.4 uses 40 characters
+  static final Map<String, LuaString> _internCache = <String, LuaString>{};
+
+  /// Creates or retrieves an interned LuaString
+  static LuaString intern(String content) {
+    // Only intern short strings
+    if (content.length <= shortStringThreshold) {
+      return _internCache.putIfAbsent(
+        content,
+        () => LuaString.fromDartString(content),
+      );
+    } else {
+      // Long strings are not interned - always create new instances
+      return LuaString.fromDartString(content);
+    }
+  }
+
+  /// Creates a Value with proper string interning
+  static Value createStringValue(String content) {
+    return Value(intern(content));
+  }
+}
+
 class StringLib {
   static final ValueClass stringClass = ValueClass.create({
     "__len": (List<Object?> args) {
@@ -22,24 +48,24 @@ class StringLib {
     },
   });
 
-  static final Map<String, BuiltinFunction> functions = {
-    "byte": _StringByte(),
-    "char": _StringChar(),
-    "dump": _StringDump(),
-    "find": _StringFind(),
-    "format": _StringFormat(),
-    "gmatch": _StringGmatch(),
-    "gsub": _StringGsub(),
-    "len": _StringLen(),
-    "lower": _StringLower(),
-    "match": _StringMatch(),
-    "pack": _StringPack(),
-    "packsize": _StringPackSize(),
-    "rep": _StringRep(),
-    "reverse": _StringReverse(),
-    "sub": _StringSub(),
-    "unpack": _StringUnpack(),
-    "upper": _StringUpper(),
+  static final Map<String, dynamic> functions = {
+    "byte": Value(_StringByte()),
+    "char": Value(_StringChar()),
+    "dump": Value(_StringDump()),
+    "find": Value(_StringFind()),
+    "format": Value(_StringFormat()),
+    "gmatch": Value(_StringGmatch()),
+    "gsub": Value(_StringGsub()),
+    "len": Value(_StringLen()),
+    "lower": Value(_StringLower()),
+    "match": Value(_StringMatch()),
+    "pack": Value(_StringPack()),
+    "packsize": Value(_StringPackSize()),
+    "rep": Value(_StringRep()),
+    "reverse": Value(_StringReverse()),
+    "sub": Value(_StringSub()),
+    "unpack": Value(_StringUnpack()),
+    "upper": Value(_StringUpper()),
   };
 }
 
@@ -211,18 +237,22 @@ String _typeName(dynamic value) {
 }
 
 String _escapeLuaString(String str) {
-  return str
-      .replaceAll('\\', '\\\\')
-      .replaceAll('"', '\\"')
-      .replaceAll('\n', '\\n')
-      .replaceAll('\r', '\\r')
-      .replaceAll('\t', '\\t')
-      .replaceAll('\b', '\\b')
-      .replaceAll('\f', '\\f');
+  // Lua's %q format only escapes quotes and backslashes
+  // Other characters like newlines, tabs, etc. are left as-is
+  return str.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
 }
 
 String _formatString(_FormatContext ctx) {
-  final str = ctx.value?.toString() ?? 'null';
+  final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
+
+  String str;
+  if (rawValue == null) {
+    str = 'nil';
+  } else if (rawValue is bool) {
+    str = rawValue.toString(); // true/false are already correct in Dart
+  } else {
+    str = rawValue.toString();
+  }
 
   // Handle precision for strings - truncate if needed
   String result = str;
@@ -250,14 +280,17 @@ String _formatCharacter(_FormatContext ctx) {
 }
 
 String _formatQuoted(_FormatContext ctx) {
-  if (ctx.value == null) {
+  // Extract the raw value from Value objects
+  final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
+
+  if (rawValue == null) {
     return 'nil';
-  } else if (ctx.value is bool) {
-    return ctx.value ? 'true' : 'false';
-  } else if (ctx.value is num) {
-    return ctx.value.toString();
+  } else if (rawValue is bool) {
+    return rawValue ? 'true' : 'false';
+  } else if (rawValue is num) {
+    return rawValue.toString();
   } else {
-    final str = ctx.value.toString();
+    final str = rawValue.toString();
     final escaped = _escapeLuaString(str);
     return '"$escaped"';
   }
@@ -266,10 +299,19 @@ String _formatQuoted(_FormatContext ctx) {
 String _formatPointer(_FormatContext ctx) {
   String ptr;
   final v = ctx.value;
-  if (v == null || v is num || v is bool) {
+
+  // Extract raw value if it's a Value object
+  final rawValue = v is Value ? v.raw : v;
+
+  if (rawValue == null || rawValue is num || rawValue is bool) {
     ptr = '(null)';
+  } else if (rawValue is LuaString) {
+    // For LuaString objects, use the identity of the LuaString itself
+    // This enables proper pointer equality for interned strings
+    ptr = identityHashCode(rawValue).toRadixString(16);
   } else {
-    ptr = v.hashCode.toRadixString(16);
+    // For other objects, use identityHashCode of the Value object itself for unique identification
+    ptr = identityHashCode(v).toRadixString(16);
   }
 
   ptr = _applyPadding(ptr, ctx);
@@ -511,6 +553,10 @@ class _StringFormat implements BuiltinFunction {
     }
     final format = (args[0] as Value).raw.toString();
     var values = args.skip(1).map((arg) => (arg as Value).raw).toList();
+    var valueObjects = args
+        .skip(1)
+        .map((arg) => arg as Value)
+        .toList(); // Keep original Value objects
 
     Logger.debug(
       'string.format: format="$format", ${values.length} values',
@@ -535,15 +581,22 @@ class _StringFormat implements BuiltinFunction {
               );
             }
 
+            final specifier = match.group(4)!;
+
+            // For pointer formatting, use the original Value object
+            final ctxValue = specifier == 'p'
+                ? valueObjects[valueIndex]
+                : values[valueIndex];
+
             final ctx = _FormatContext(
               flags: match.group(1) ?? '',
               width: match.group(2) ?? '',
               precision: match.group(3) ?? '',
               valueIndex: valueIndex + 2,
-              value: values[valueIndex++],
+              value: ctxValue,
             );
 
-            final specifier = match.group(4)!;
+            valueIndex++;
 
             switch (specifier) {
               case 'd':
@@ -959,15 +1012,55 @@ class _StringRep implements BuiltinFunction {
     final separator = args.length > 2 ? (args[2] as Value).raw.toString() : "";
 
     if (count <= 0) {
-      return Value("");
+      return StringInterning.createStringValue("");
     }
 
+    // Check for result size overflow (based on Lua's limits)
+    // Use a more conservative limit to match Lua's behavior
+    const maxStringLength = 1000000000; // 1 billion characters max
+
+    // Check for potential integer overflow in total length calculation
     if (separator.isEmpty) {
-      return Value(str * count);
+      // For no separator: result length = str.length * count
+      if (str.length > 0 && count > maxStringLength ~/ str.length) {
+        throw LuaError("resulting string too large");
+      }
+      // Additional safety check for extremely large counts
+      if (count > 100000000) {
+        // 100 million is already very large
+        throw LuaError("resulting string too large");
+      }
+      final result = str * count;
+      return StringInterning.createStringValue(result);
     } else {
+      // For separator: result length = str.length * count + separator.length * (count - 1)
+      // Check each component separately to avoid integer overflow
+      if (str.length > 0 && count > maxStringLength ~/ str.length) {
+        throw LuaError("resulting string too large");
+      }
+      if (separator.length > 0 &&
+          count > 1 &&
+          (count - 1) > maxStringLength ~/ separator.length) {
+        throw LuaError("resulting string too large");
+      }
+
+      // Double-check total length won't overflow
+      final strTotalLength = str.length * count;
+      final sepTotalLength = separator.length * (count - 1);
+      if (strTotalLength > maxStringLength - sepTotalLength) {
+        throw LuaError("resulting string too large");
+      }
+
+      // Additional safety check for extremely large counts
+      if (count > 100000000) {
+        // 100 million is already very large
+        throw LuaError("resulting string too large");
+      }
+
       // Create list and join with separator
       final parts = List.filled(count, str);
-      return Value(parts.join(separator));
+      final result = parts.join(separator);
+      return StringInterning.createStringValue(result);
     }
   }
 }
