@@ -22,27 +22,21 @@ void main() {
       ''');
 
       var files = bridge.getGlobal('files') as Value;
-      var filesMap = files.raw as Map<dynamic, dynamic>;
+      var filesMap = files.unwrap() as Map<dynamic, dynamic>;
 
       expect(
-        (filesMap['names.lua'] as Value).raw,
+        filesMap['names.lua'],
         equals('do return {...} end\n'.replaceAll('\\n', '\n')),
       );
-      expect((filesMap['err.lua'] as Value).raw, equals('B = 15; a = a + 1;'));
-      expect((filesMap['synerr.lua'] as Value).raw, equals('B ='));
-      expect((filesMap['A.lua'] as Value).raw, equals(''));
-      expect(
-        (filesMap['B.lua'] as Value).raw,
-        equals("assert(...=='B');require 'A'"),
-      );
-      expect((filesMap['A.lc'] as Value).raw, equals(''));
-      expect((filesMap['A'] as Value).raw, equals(''));
-      expect((filesMap['L'] as Value).raw, equals(''));
-      expect((filesMap['XXxX'] as Value).raw, equals(''));
-      expect(
-        (filesMap['C.lua'] as Value).raw,
-        equals("package.loaded[...] = 25; require'C'"),
-      );
+      expect(filesMap['err.lua'], equals('B = 15; a = a + 1;'));
+      expect(filesMap['synerr.lua'], equals('B ='));
+      expect(filesMap['A.lua'], equals(''));
+      expect(filesMap['B.lua'], equals("assert(...=='B');require 'A'"));
+      expect(filesMap['A.lc'], equals(''));
+      expect(filesMap['A'], equals(''));
+      expect(filesMap['L'], equals(''));
+      expect(filesMap['XXxX'], equals(''));
+      expect(filesMap['C.lua'], equals("package.loaded[...] = 25; require'C'"));
     });
 
     test('mixed table constructor with string and identifier keys', () async {
@@ -81,15 +75,14 @@ void main() {
       ''');
 
       var nested = bridge.getGlobal('nested') as Value;
-      var nestedMap = nested.raw as Map<dynamic, dynamic>;
+      var nestedMap = nested.unwrap() as Map<dynamic, dynamic>;
 
-      var outerKey =
-          (nestedMap['outer.key'] as Value).raw as Map<dynamic, dynamic>;
-      expect((outerKey['inner.key'] as Value).raw, equals('inner value'));
-      expect((outerKey['normal'] as Value).raw, equals('normal value'));
+      var outerKey = nestedMap['outer.key'] as Map<dynamic, dynamic>;
+      expect(outerKey['inner.key'], equals('inner value'));
+      expect(outerKey['normal'], equals('normal value'));
 
-      var normal = (nestedMap['normal'] as Value).raw as Map<dynamic, dynamic>;
-      expect((normal['deep.key'] as Value).raw, equals('deep value'));
+      var normal = nestedMap['normal'] as Map<dynamic, dynamic>;
+      expect(normal['deep.key'], equals('deep value'));
     });
   });
 

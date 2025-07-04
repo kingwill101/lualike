@@ -24,9 +24,9 @@ void main() {
       var age = bridge.getGlobal('age');
       var greeting = bridge.getGlobal('greeting');
 
-      expect((name as Value).raw, equals("Alice"));
-      expect((age as Value).raw, equals(30));
-      expect((greeting as Value).raw, equals("Hello, I'm Alice"));
+      expect((name as Value).unwrap(), equals("Alice"));
+      expect((age as Value).unwrap(), equals(30));
+      expect((greeting as Value).unwrap(), equals("Hello, I'm Alice"));
     });
 
     // SKIP: Our parser doesn't support function calls on table elements accessed with bracket notation
@@ -56,9 +56,9 @@ void main() {
       var age = bridge.getGlobal('age');
       var greeting = bridge.getGlobal('greeting');
 
-      expect((name as Value).raw, equals("Bob"));
-      expect((age as Value).raw, equals(25));
-      expect((greeting as Value).raw, equals("Hello, I'm Bob"));
+      expect((name as Value).unwrap(), equals("Bob"));
+      expect((age as Value).unwrap(), equals(25));
+      expect((greeting as Value).unwrap(), equals("Hello, I'm Bob"));
     });
 
     // SKIP: Our parser doesn't support bracket notation after dot notation
@@ -92,10 +92,10 @@ void main() {
       var email = bridge.getGlobal('email');
       var phone = bridge.getGlobal('phone');
 
-      expect((name as Value).raw, equals("Charlie"));
-      expect((age as Value).raw, equals(35));
-      expect((email as Value).raw, equals("charlie@example.com"));
-      expect((phone as Value).raw, equals("555-1234"));
+      expect((name as Value).unwrap(), equals("Charlie"));
+      expect((age as Value).unwrap(), equals(35));
+      expect((email as Value).unwrap(), equals("charlie@example.com"));
+      expect((phone as Value).unwrap(), equals("555-1234"));
     });
 
     // SKIP: Issue with table access using computed keys
@@ -117,7 +117,7 @@ void main() {
       ''');
 
       var result = bridge.getGlobal('result');
-      expect((result as Value).raw, equals("three"));
+      expect((result as Value).unwrap(), equals("three"));
     });
 
     test('table.property function call syntax', () async {
@@ -140,8 +140,8 @@ void main() {
       var result1 = bridge.getGlobal('result1');
       var result2 = bridge.getGlobal('result2');
 
-      expect((result1 as Value).raw, equals("Property: first"));
-      expect((result2 as Value).raw, equals("Property: second"));
+      expect((result1 as Value).unwrap(), equals("Property: first"));
+      expect((result2 as Value).unwrap(), equals("Property: second"));
     });
   });
 }

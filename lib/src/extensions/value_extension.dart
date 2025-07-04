@@ -39,6 +39,9 @@ dynamic fromLuaValue(dynamic obj) {
     }
 
     // 3) Otherwise, it's a primitive or something else; just return its raw value.
+    if (obj.raw is LuaString) {
+      return obj.raw.toString();
+    }
     return obj.raw;
   }
 
@@ -89,7 +92,23 @@ extension ValueExtension<T> on T {
   Value get value => this is Value ? this as Value : Value(this);
 
   /// Unwraps a Value to its raw content if it is a Value, otherwise returns the object itself
-  dynamic get unwrapped => raw is Value ? (raw as Value).unwrapped : raw;
+  dynamic get unwrapped {
+    if (raw is Value) {
+      return (raw as Value).completeUnwrap();
+    } else if (raw is LuaString) {
+      return (raw as LuaString).toString();
+    }
+    return raw;
+  }
+
+  dynamic unwrap() {
+    if (this is Value) {
+      return (this as Value).completeUnwrap();
+    } else if (this is LuaString) {
+      return (this as LuaString).toString();
+    }
+    return this;
+  }
 
   /// Checks if this Value is nil (null in Lua sense)
   bool get isNil => raw == null;

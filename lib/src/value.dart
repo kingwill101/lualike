@@ -289,9 +289,13 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     if (raw is Map) {
       final unwrapped = <dynamic, dynamic>{};
       (raw as Map).forEach((key, value) {
-        unwrapped[key] = value is Value ? value.completeUnwrap() : value;
+        var realKey = key is LuaString ? key.toString() : key;
+        unwrapped[realKey] = value is Value ? value.completeUnwrap() : value;
       });
       return unwrapped;
+    }
+    if (raw is LuaString) {
+      return (raw as LuaString).toString();
     }
     return raw is Value ? raw.completeUnwrap() : raw;
   }
@@ -300,6 +304,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     var current = raw;
     while (current is Value) {
       current = current.unwrap();
+    }
+    if (current is LuaString) {
+      return current.toString();
     }
     return current;
   }
