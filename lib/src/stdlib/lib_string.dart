@@ -1,9 +1,12 @@
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/pattern.dart';
+import 'package:lualike/src/stdlib/format_parser.dart';
+import 'package:petitparser/petitparser.dart';
 
 import '../value_class.dart';
 import 'number_utils.dart';
@@ -209,18 +212,18 @@ class _StringFind implements BuiltinFunction {
 }
 
 String _applyPadding(String text, _FormatContext ctx) {
-  if (ctx.paddingSize > 0) {
+  if (ctx.widthValue > 0) {
     if (ctx.leftAlign) {
-      return text.padRight(ctx.paddingSize, ' ');
+      return text.padRight(ctx.widthValue, ' ');
     } else if (ctx.zeroPad) {
       final signChar =
           (text.startsWith('+') || text.startsWith('-') || text.startsWith(' '))
           ? text[0]
           : '';
       final numPart = signChar.isNotEmpty ? text.substring(1) : text;
-      return signChar + numPart.padLeft(ctx.paddingSize - signChar.length, '0');
+      return signChar + numPart.padLeft(ctx.widthValue - signChar.length, '0');
     } else {
-      return text.padLeft(ctx.paddingSize, ' ');
+      return text.padLeft(ctx.widthValue, ' ');
     }
   }
   return text;
@@ -237,9 +240,71 @@ String _typeName(dynamic value) {
 }
 
 String _escapeLuaString(String str) {
-  // Lua's %q format only escapes quotes and backslashes
-  // Other characters like newlines, tabs, etc. are left as-is
-  return str.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
+  // Lua's %q format escapes quotes, backslashes, newlines, and control characters
+  final buffer = StringBuffer();
+  final bytes = str.codeUnits;
+  int i = 0;
+  while (i < bytes.length) {
+    final code = bytes[i];
+    if (code == 92) {
+      // backslash
+      buffer.write('\\\\');
+    } else if (code == 34) {
+      // quote
+      buffer.write('\\"');
+    } else if (code == 10) {
+      // newline - special case: backslash + literal newline
+      buffer.write('\\\n');
+    } else if (code == 0) {
+      // null - check if next character is a digit
+      if (i + 1 < bytes.length && bytes[i + 1] >= 48 && bytes[i + 1] <= 57) {
+        buffer.write('\\000');
+      } else {
+        buffer.write('\\0');
+      }
+    } else if (code == 7) {
+      // bell
+      buffer.write('\\a');
+    } else if (code == 8) {
+      // backspace
+      buffer.write('\\b');
+    } else if (code == 12) {
+      // form feed
+      buffer.write('\\f');
+    } else if (code == 13) {
+      // carriage return
+      buffer.write('\\r');
+    } else if (code == 9) {
+      // tab
+      buffer.write('\\t');
+    } else if (code == 11) {
+      // vertical tab
+      buffer.write('\\v');
+    } else if (code < 32 || code == 127) {
+      // other control characters - use minimal digits unless next char is digit
+      String codeStr = code.toString();
+      if (i + 1 < bytes.length && bytes[i + 1] >= 48 && bytes[i + 1] <= 57) {
+        codeStr = codeStr.padLeft(3, '0');
+      }
+      buffer.write('\\$codeStr');
+    } else if (code >= 0x80) {
+      // Try to decode as UTF-8 sequence
+      try {
+        final decoded = utf8.decode([code], allowMalformed: true);
+        if (decoded == '\uFFFD') {
+          buffer.write('\\ufffd');
+        } else {
+          buffer.write(decoded);
+        }
+      } catch (_) {
+        buffer.write('\\ufffd');
+      }
+    } else {
+      buffer.write(String.fromCharCode(code));
+    }
+    i++;
+  }
+  return buffer.toString();
 }
 
 String _formatString(_FormatContext ctx) {
@@ -250,11 +315,24 @@ String _formatString(_FormatContext ctx) {
     str = 'nil';
   } else if (rawValue is bool) {
     str = rawValue.toString(); // true/false are already correct in Dart
+  } else if (rawValue is LuaString) {
+    // For LuaString, we need to handle it specially to preserve byte-level precision
+    final luaStr = rawValue;
+    if (ctx.precision.isNotEmpty) {
+      final precValue = ctx.precisionValue;
+      if (precValue < luaStr.length) {
+        // Create a new LuaString with truncated bytes, then convert to string
+        final truncatedBytes = luaStr.bytes.sublist(0, precValue);
+        final truncatedLuaStr = LuaString(truncatedBytes);
+        return _applyPadding(truncatedLuaStr.toString(), ctx);
+      }
+    }
+    str = luaStr.toString();
   } else {
     str = rawValue.toString();
   }
 
-  // Handle precision for strings - truncate if needed
+  // Handle precision for regular strings - truncate if needed
   String result = str;
   if (ctx.precision.isNotEmpty) {
     final precValue = ctx.precisionValue;
@@ -493,34 +571,33 @@ String _formatHex(_FormatContext ctx, bool uppercase) {
 }
 
 class _FormatContext {
-  final String flags;
+  final Object? value;
+  final int valueIndex;
+  final Set<String> flags;
   final String width;
   final String precision;
-  final int valueIndex;
-  final dynamic value;
+  final String specifier;
+
+  int get widthValue => width.isEmpty ? 0 : int.parse(width);
+  int get precisionValue => precision.isEmpty
+      ? 6
+      : int.parse(
+          precision.startsWith('.') ? precision.substring(1) : precision,
+        );
+  bool get leftAlign => flags.contains('-');
+  bool get showSign => flags.contains('+');
+  bool get spacePrefix => flags.contains(' ');
+  bool get zeroPad => flags.contains('0');
+  bool get alternative => flags.contains('#');
 
   _FormatContext({
+    required this.value,
+    required this.valueIndex,
     required this.flags,
     required this.width,
     required this.precision,
-    required this.valueIndex,
-    required this.value,
+    required this.specifier,
   });
-
-  bool get leftAlign => flags.contains('-');
-
-  bool get showSign => flags.contains('+');
-
-  bool get spacePrefix => flags.contains(' ');
-
-  bool get zeroPad => flags.contains('0');
-
-  bool get alternative => flags.contains('#');
-
-  int get paddingSize => width.isNotEmpty ? int.parse(width) : 0;
-
-  int get precisionValue =>
-      precision.isNotEmpty ? int.parse(precision.substring(1)) : 6;
 }
 
 String _formatOctal(_FormatContext ctx) {
@@ -549,95 +626,124 @@ class _StringFormat implements BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
-      throw LuaError.typeError("string.format requires a format string");
+      throw LuaError.typeError(
+        "missing argument #1 to 'format' (string expected)",
+      );
     }
-    final format = (args[0] as Value).raw.toString();
-    var values = args.skip(1).map((arg) => (arg as Value).raw).toList();
-    var valueObjects = args
-        .skip(1)
-        .map((arg) => arg as Value)
-        .toList(); // Keep original Value objects
 
-    Logger.debug(
-      'string.format: format="$format", ${values.length} values',
-      category: 'StringLib',
-    );
+    final formatStringValue = args[0] as Value;
+    if (formatStringValue.raw is! String &&
+        formatStringValue.raw is! LuaString) {
+      throw LuaError.typeError(
+        "bad argument #1 to 'format' (string expected, got ${_typeName(formatStringValue.raw)}) ",
+      );
+    }
 
-    final formatRegex = RegExp(
-      r'%([#0 +-]*)(\d*)((?:\.\d+)?)([diuoxXfeEgGcspqaAo])',
-    );
+    final formatString = formatStringValue.raw.toString();
+    final buffer = StringBuffer();
+    var argIndex = 1;
 
-    int valueIndex = 0;
+    try {
+      final parser = FormatStringParser.formatStringParser;
+      final result = parser.parse(formatString);
 
-    return Value(
-      format
-          .replaceAllMapped(formatRegex, (match) {
-            // Handle %% which outputs a literal %
-            if (match.group(0) == '%%') return '%';
+      if (result is! Success) {
+        throw FormatException(
+          "Invalid format string: ${result.message} at ${result.position}",
+        );
+      }
 
-            if (valueIndex >= values.length) {
-              throw LuaError.typeError(
-                "bad argument #${valueIndex + 2} to 'format' (no value)",
-              );
-            }
+      final formatParts = result.value;
 
-            final specifier = match.group(4)!;
+      for (final part in formatParts) {
+        if (part is LiteralPart) {
+          buffer.write(part.text);
+        } else if (part is SpecifierPart) {
+          if (part.specifier == '%') {
+            buffer.write('%');
+            continue;
+          }
 
-            // For pointer formatting, use the original Value object
-            final ctxValue = specifier == 'p'
-                ? valueObjects[valueIndex]
-                : values[valueIndex];
-
-            final ctx = _FormatContext(
-              flags: match.group(1) ?? '',
-              width: match.group(2) ?? '',
-              precision: match.group(3) ?? '',
-              valueIndex: valueIndex + 2,
-              value: ctxValue,
+          if (argIndex >= args.length) {
+            throw LuaError(
+              "no value for format specifier '%${part.specifier}'",
             );
+          }
 
-            valueIndex++;
+          final currentArg = args[argIndex];
+          Logger.debug(
+            'currentArg type: ${currentArg.runtimeType}, value: $currentArg, specifier: ${part.specifier}',
+            category: 'StringLib',
+          );
+          final ctx = _FormatContext(
+            value: (currentArg is Value) ? currentArg.raw : currentArg,
+            valueIndex: argIndex + 1,
+            flags: part.flags.split('').toSet(),
+            width: part.width ?? '',
+            precision: part.precision ?? '',
+            specifier: part.specifier,
+          );
 
-            switch (specifier) {
-              case 'd':
-              case 'i':
-                return _formatInteger(ctx);
-              case 'u':
-                return _formatInteger(ctx, unsigned: true);
-              case 'x':
-                return _formatHex(ctx, false);
-              case 'X':
-                return _formatHex(ctx, true);
-              case 'o':
-                return _formatOctal(ctx);
-              case 'f':
-                return _formatFloat(ctx, false);
-              case 'F':
-                return _formatFloat(ctx, true);
-              case 'e':
-                return _formatScientific(ctx, false);
-              case 'E':
-                return _formatScientific(ctx, true);
-              case 'a':
-                return _formatHexFloat(ctx, false);
-              case 'A':
-                return _formatHexFloat(ctx, true);
-              case 'c':
-                return _formatCharacter(ctx);
-              case 's':
-                return _formatString(ctx);
-              case 'q':
-                return _formatQuoted(ctx);
-              case 'p':
-                return _formatPointer(ctx);
-              default:
-                throw LuaError.typeError(
-                  "Invalid format specifier: %$specifier",
-                );
-            }
-          })
-          .replaceAll('%%', '%'),
-    );
+          switch (part.specifier) {
+            case 'd':
+            case 'i':
+            case 'u': // Lua treats 'u' as signed integer format
+              buffer.write(
+                _formatInteger(ctx, unsigned: part.specifier == 'u'),
+              );
+              break;
+            case 'o':
+              buffer.write(_formatOctal(ctx));
+              break;
+            case 'x':
+              buffer.write(_formatHex(ctx, false));
+              break;
+            case 'X':
+              buffer.write(_formatHex(ctx, true));
+              break;
+            case 'f':
+            case 'F':
+              buffer.write(_formatFloat(ctx, part.specifier == 'F'));
+              break;
+            case 'e':
+              buffer.write(_formatScientific(ctx, false));
+              break;
+            case 'E':
+              buffer.write(_formatScientific(ctx, true));
+              break;
+            case 'a':
+              buffer.write(_formatHexFloat(ctx, false));
+              break;
+            case 'A':
+              buffer.write(_formatHexFloat(ctx, true));
+              break;
+            case 'c':
+              buffer.write(_formatCharacter(ctx));
+              break;
+            case 's':
+              buffer.write(_formatString(ctx));
+              break;
+            case 'q':
+              buffer.write(_formatQuoted(ctx));
+              break;
+            case 'p':
+              buffer.write(_formatPointer(ctx));
+              break;
+            default:
+              throw LuaError.typeError(
+                "Invalid format specifier: %${part.specifier}",
+              );
+          }
+          argIndex++;
+        }
+      }
+    } on FormatException catch (e) {
+      throw LuaError("bad argument #1 to 'format' (${e.message})");
+    } catch (e) {
+      throw LuaError("Error in string.format: $e");
+    }
+
+    return Value(buffer.toString());
   }
 }
 
@@ -653,11 +759,6 @@ class _StringGmatch implements BuiltinFunction {
 
     try {
       final regexp = LuaPattern.toRegExp(pattern);
-      Logger.debug(
-        '_StringGmatch: Using RegExp "$regexp"',
-        category: 'StringLib',
-      );
-
       final matches = regexp.allMatches(str).toList();
       var currentIndex = 0;
 
@@ -668,18 +769,9 @@ class _StringGmatch implements BuiltinFunction {
         }
 
         final match = matches[currentIndex++];
-        Logger.debug(
-          '_StringGmatch: Returning match ${currentIndex - 1}: "${match.group(0)}"',
-          category: 'StringLib',
-        );
-
         if (match.groupCount == 0) {
           // No captures, return the whole match as a string
           final wholeMatch = match.group(0);
-          Logger.debug(
-            '_StringGmatch: Returning whole match: "$wholeMatch"',
-            category: 'StringLib',
-          );
           return Value(wholeMatch);
         }
 
@@ -688,16 +780,8 @@ class _StringGmatch implements BuiltinFunction {
         for (var i = 1; i <= match.groupCount; i++) {
           final group = match.group(i);
           if (group != null) {
-            Logger.debug(
-              '_StringGmatch: Capture $i: "$group"',
-              category: 'StringLib',
-            );
             captures.add(Value(group));
           } else {
-            Logger.debug(
-              '_StringGmatch: Capture $i is null',
-              category: 'StringLib',
-            );
             captures.add(Value(null));
           }
         }
@@ -713,7 +797,6 @@ class _StringGmatch implements BuiltinFunction {
         }
       });
     } catch (e) {
-      Logger.error('_StringGmatch: Error: $e', error: e);
       throw LuaError.typeError("malformed pattern: $e");
     }
   }
@@ -809,49 +892,42 @@ class _StringGsub implements BuiltinFunction {
           buffer.write(str.substring(lastEnd));
         }
         result = buffer.toString();
-      } else if (repl.raw is String) {
+      } else if (repl.raw is String || repl.raw is LuaString) {
         final replStr = repl.raw.toString();
         result = str.replaceAllMapped(regexp, (match) {
           if (n != -1 && count >= n) return match.group(0)!;
 
           String replacement = replStr;
-          bool replaced = false;
+          bool captureReplaced = false;
 
-          if (repl.raw is String) {
-            for (int i = 0; i <= match.groupCount; i++) {
-              final newReplacement = replacement.replaceAll(
-                '%$i',
-                match.group(i) ?? '',
-              );
-              if (newReplacement != replacement) {
-                replaced = true;
-                replacement = newReplacement;
-              }
+          // Handle %0, %1, %2... captures in the replacement string
+          for (int i = 0; i <= match.groupCount; i++) {
+            final capture = match.group(i);
+            // Only replace if the capture exists and the placeholder is found
+            final placeholder = '%$i';
+            if (replacement.contains(placeholder)) {
+              replacement = replacement.replaceAll(placeholder, capture ?? '');
+              captureReplaced = true;
             }
           }
-
-          if (replaced) {
-            count++;
-            return replacement;
+          // Handle %% (literal percent) - this was previously handled outside, but now needs to be here
+          if (replacement.contains('%%')) {
+            replacement = replacement.replaceAll('%%', '%');
+            captureReplaced =
+                true; // Mark as replaced if literal percent was processed
           }
 
-          // if no captures were replaced, and it's a string, we still count it
-          if (repl.raw is String) {
+          // Lua 5.4 behavior: if no captures replaced but it's a string literal replacement, count it
+          // If `captureReplaced` is true, we already incremented `count`.
+          // If `captureReplaced` is false, it means `replStr` did not contain any %n or %%,
+          // so we treat `replStr` as a literal replacement for the whole match.
+          if (captureReplaced || replStr.isNotEmpty) {
+            // Lua counts replacements even if no captures are used
             count++;
-            return replacement;
           }
 
-          return match.group(0)!;
+          return replacement;
         });
-
-        // if the replacement is not a string, we need to count manually
-        if (repl.raw is! String) {
-          result = str.replaceAllMapped(regexp, (match) {
-            if (n != -1 && count >= n) return match.group(0)!;
-            count++;
-            return repl.raw.toString();
-          });
-        }
       } else {
         throw LuaError.typeError("Invalid replacement type");
       }
@@ -869,28 +945,14 @@ class _StringLen implements BuiltinFunction {
     if (args.isEmpty) {
       throw LuaError.typeError("string.len requires a string argument");
     }
-    final str = (args[0] as Value).raw.toString();
-
-    // In Lua, string.len returns the number of bytes in the string
-    // For Dart strings, we need to handle escaped characters correctly
-    // The test expects "hello\0world" to have length 11, not 12
-
-    // Check if the string contains escaped characters
-    if (str.contains('\\')) {
-      // Count each escaped sequence as a single character
-      int length = 0;
-      for (int i = 0; i < str.length; i++) {
-        if (str[i] == '\\' && i + 1 < str.length) {
-          // Skip the next character as it's part of the escape sequence
-          i++;
-        }
-        length++;
-      }
-      return Value(length);
+    final value = args[0] as Value;
+    int len;
+    if (value.raw is LuaString) {
+      len = (value.raw as LuaString).bytes.length;
     } else {
-      // No escaped characters, just return the length
-      return Value(str.length);
+      len = utf8.encode(value.raw.toString()).length;
     }
+    return Value(len);
   }
 }
 
@@ -919,62 +981,22 @@ class _StringMatch implements BuiltinFunction {
     final pattern = (args[1] as Value).raw.toString();
     var init = args.length > 2 ? NumberUtils.toInt((args[2] as Value).raw) : 1;
 
-    Logger.debug(
-      '_StringMatch: Called with str="$str", pattern="$pattern", init=$init',
-      category: 'StringLib',
-    );
-
     // Convert to 0-based index and handle negative indices
     init = init > 0 ? init - 1 : str.length + init;
     if (init < 0) init = 0;
     if (init > str.length) {
-      Logger.debug(
-        '_StringMatch: init > str.length, returning null',
-        category: 'StringLib',
-      );
       return Value(null);
     }
 
-    Logger.debug('_StringMatch: Adjusted init=$init', category: 'StringLib');
     final substring = str.substring(init);
-    Logger.debug(
-      '_StringMatch: Substring to match: "$substring"',
-      category: 'StringLib',
-    );
-
     try {
       final regexp = LuaPattern.toRegExp(pattern);
-      Logger.debug(
-        '_StringMatch: Pattern "$pattern" converted to RegExp: "$regexp"',
-        category: 'StringLib',
-      );
-
-      // Test the RegExp against the string
-      Logger.debug(
-        '_StringMatch: Testing RegExp against "$substring"',
-        category: 'StringLib',
-      );
       final hasMatch = regexp.hasMatch(substring);
-      Logger.debug('_StringMatch: hasMatch=$hasMatch', category: 'StringLib');
 
       final match = regexp.firstMatch(substring);
       if (match == null) {
-        Logger.debug('_StringMatch: No match found', category: 'StringLib');
         return Value(null);
       }
-
-      Logger.debug(
-        '_StringMatch: Match found at positions ${match.start}-${match.end}',
-        category: 'StringLib',
-      );
-      Logger.debug(
-        '_StringMatch: Match text: "${match.group(0)}"',
-        category: 'StringLib',
-      );
-      Logger.debug(
-        '_StringMatch: Group count: ${match.groupCount}',
-        category: 'StringLib',
-      );
 
       if (match.groupCount > 0) {
         // Return captures
@@ -993,7 +1015,6 @@ class _StringMatch implements BuiltinFunction {
         return Value(match.group(0));
       }
     } catch (e) {
-      Logger.error('_StringMatch: Error: $e', error: e);
       throw LuaError.typeError("malformed pattern: $e");
     }
   }
@@ -1007,61 +1028,81 @@ class _StringRep implements BuiltinFunction {
     }
 
     final value = args[0] as Value;
-    final str = value.raw.toString();
     final count = NumberUtils.toInt((args[1] as Value).raw);
-    final separator = args.length > 2 ? (args[2] as Value).raw.toString() : "";
+    final separatorValue = args.length > 2 ? (args[2] as Value) : null;
+
+    Uint8List originalBytes;
+    if (value.raw is LuaString) {
+      originalBytes = (value.raw as LuaString).bytes;
+    } else {
+      originalBytes = utf8.encode(value.raw.toString());
+    }
+
+    Uint8List separatorBytes = Uint8List(0);
+    if (separatorValue != null) {
+      if (separatorValue.raw is LuaString) {
+        separatorBytes = (separatorValue.raw as LuaString).bytes;
+      } else {
+        separatorBytes = utf8.encode(separatorValue.raw.toString());
+      }
+    }
 
     if (count <= 0) {
       return StringInterning.createStringValue("");
     }
 
-    // Check for result size overflow (based on Lua's limits)
-    // Use a more conservative limit to match Lua's behavior
-    const maxStringLength = 1000000000; // 1 billion characters max
+    const maxAllowedLength = 2000000000;
+    int expectedTotalLength;
 
-    // Check for potential integer overflow in total length calculation
-    if (separator.isEmpty) {
-      // For no separator: result length = str.length * count
-      if (str.isNotEmpty && count > maxStringLength ~/ str.length) {
+    if (separatorBytes.isEmpty) {
+      if (originalBytes.length > maxAllowedLength ~/ count) {
         throw LuaError("resulting string too large");
       }
-      // Additional safety check for extremely large counts
-      if (count > 100000000) {
-        // 100 million is already very large
-        throw LuaError("resulting string too large");
-      }
-      final result = str * count;
-      return StringInterning.createStringValue(result);
+      expectedTotalLength = originalBytes.length * count;
     } else {
-      // For separator: result length = str.length * count + separator.length * (count - 1)
-      // Check each component separately to avoid integer overflow
-      if (str.isNotEmpty && count > maxStringLength ~/ str.length) {
+      if (originalBytes.length > maxAllowedLength ~/ count) {
         throw LuaError("resulting string too large");
       }
-      if (separator.isNotEmpty &&
-          count > 1 &&
-          (count - 1) > maxStringLength ~/ separator.length) {
-        throw LuaError("resulting string too large");
-      }
+      final lengthOfRepeatedStrings = originalBytes.length * count;
 
-      // Double-check total length won't overflow
-      final strTotalLength = str.length * count;
-      final sepTotalLength = separator.length * (count - 1);
-      if (strTotalLength > maxStringLength - sepTotalLength) {
+      final numSeparators = count - 1;
+      if (numSeparators > 0 &&
+          separatorBytes.length > maxAllowedLength ~/ numSeparators) {
         throw LuaError("resulting string too large");
       }
+      final lengthOfSeparators = separatorBytes.length * numSeparators;
 
-      // Additional safety check for extremely large counts
-      if (count > 100000000) {
-        // 100 million is already very large
+      if (lengthOfRepeatedStrings > maxAllowedLength - lengthOfSeparators) {
         throw LuaError("resulting string too large");
       }
-
-      // Create list and join with separator
-      final parts = List.filled(count, str);
-      final result = parts.join(separator);
-      return StringInterning.createStringValue(result);
+      expectedTotalLength = lengthOfRepeatedStrings + lengthOfSeparators;
     }
+
+    if (expectedTotalLength > maxAllowedLength) {
+      throw LuaError("resulting string too large");
+    }
+
+    final Uint8List resultBytes = Uint8List(expectedTotalLength);
+    int currentOffset = 0;
+    for (int i = 0; i < count; i++) {
+      resultBytes.setRange(
+        currentOffset,
+        currentOffset + originalBytes.length,
+        originalBytes,
+      );
+      currentOffset += originalBytes.length;
+      if (i < count - 1) {
+        resultBytes.setRange(
+          currentOffset,
+          currentOffset + separatorBytes.length,
+          separatorBytes,
+        );
+        currentOffset += separatorBytes.length;
+      }
+    }
+
+    final resultString = utf8.decode(resultBytes, allowMalformed: true);
+    return Value(resultString);
   }
 }
 
@@ -1122,11 +1163,6 @@ class _StringPack implements BuiltinFunction {
     final format = (args[0] as Value).raw.toString();
     final values = args.sublist(1);
 
-    Logger.debug(
-      'string.pack: format=$format, values=$values',
-      category: 'String',
-    );
-
     final bytes = <int>[];
     var i = 0;
 
@@ -1136,28 +1172,16 @@ class _StringPack implements BuiltinFunction {
       switch (c) {
         case 'b': // signed byte
           final value = NumberUtils.toInt((values[i] as Value).raw);
-          Logger.debug(
-            'string.pack: packing signed byte: $value',
-            category: 'String',
-          );
           bytes.add(value & 0xFF);
           i++;
           break;
         case 'B': // unsigned byte
           final value = NumberUtils.toInt((values[i] as Value).raw);
-          Logger.debug(
-            'string.pack: packing unsigned byte: $value',
-            category: 'String',
-          );
           bytes.add(value & 0xFF);
           i++;
           break;
         case 'h': // signed short
           var n = NumberUtils.toInt((values[i] as Value).raw);
-          Logger.debug(
-            'string.pack: packing signed short: $n',
-            category: 'String',
-          );
           // Little endian
           bytes.add(n & 0xFF);
           bytes.add((n >> 8) & 0xFF);
@@ -1165,10 +1189,6 @@ class _StringPack implements BuiltinFunction {
           break;
         case 'H': // unsigned short
           var n = NumberUtils.toInt((values[i] as Value).raw);
-          Logger.debug(
-            'string.pack: packing unsigned short: $n',
-            category: 'String',
-          );
           // Little endian
           bytes.add(n & 0xFF);
           bytes.add((n >> 8) & 0xFF);
@@ -1176,10 +1196,6 @@ class _StringPack implements BuiltinFunction {
           break;
         case 'i': // signed int
           var n = NumberUtils.toInt((values[i] as Value).raw);
-          Logger.debug(
-            'string.pack: packing signed int: $n',
-            category: 'String',
-          );
           // Little endian
           bytes.add(n & 0xFF);
           bytes.add((n >> 8) & 0xFF);
@@ -1189,7 +1205,6 @@ class _StringPack implements BuiltinFunction {
           break;
         case 's': // string
           var s = (values[i] as Value).raw.toString();
-          Logger.debug('string.pack: packing string: "$s"', category: 'String');
           bytes.addAll(utf8.encode(s));
           bytes.add(0); // null terminator
           i++;
@@ -1198,10 +1213,6 @@ class _StringPack implements BuiltinFunction {
     }
 
     final result = String.fromCharCodes(bytes);
-    Logger.debug(
-      'string.pack: final result bytes=${bytes.length}',
-      category: 'String',
-    );
     return Value(result);
   }
 }
@@ -1214,7 +1225,6 @@ class _StringPackSize implements BuiltinFunction {
     }
     final format = (args[0] as Value).raw.toString();
 
-    Logger.debug('string.packsize: format=$format', category: 'String');
     var size = 0;
     for (var c in format.split('')) {
       switch (c) {
@@ -1238,7 +1248,6 @@ class _StringPackSize implements BuiltinFunction {
           throw LuaError.typeError("Invalid format option '$c'");
       }
     }
-    Logger.debug('string.packsize: calculated size=$size', category: 'String');
     return Value(size);
   }
 }
@@ -1255,11 +1264,6 @@ class _StringUnpack implements BuiltinFunction {
     final binary = (args[1] as Value).raw.toString();
     final pos = args.length > 2 ? NumberUtils.toInt((args[2] as Value).raw) : 1;
 
-    Logger.debug(
-      'string.unpack: format=$format, binary length=${binary.length}, pos=$pos',
-      category: 'String',
-    );
-
     final results = <Value>[];
     var offset = pos - 1;
     final bytes = binary.codeUnits;
@@ -1275,10 +1279,6 @@ class _StringUnpack implements BuiltinFunction {
           if (value & 0x80 != 0) {
             value = value - 256;
           }
-          Logger.debug(
-            'string.unpack: unpacking signed byte: $value at offset $offset',
-            category: 'String',
-          );
           results.add(Value(value));
           offset++;
           break;
@@ -1292,10 +1292,6 @@ class _StringUnpack implements BuiltinFunction {
           if (value & 0x8000 != 0) {
             value = value - 65536;
           }
-          Logger.debug(
-            'string.unpack: unpacking signed short: $value at offset $offset',
-            category: 'String',
-          );
           results.add(Value(value));
           offset += 2;
           break;
@@ -1313,10 +1309,6 @@ class _StringUnpack implements BuiltinFunction {
           if (value >= 0x80000000) {
             value = value - 0x100000000;
           }
-          Logger.debug(
-            'string.unpack: unpacking signed int: $value at offset $offset',
-            category: 'String',
-          );
           results.add(Value(value));
           offset += 4;
           break;
@@ -1324,20 +1316,12 @@ class _StringUnpack implements BuiltinFunction {
           var end = bytes.indexOf(0, offset);
           if (end == -1) end = bytes.length;
           var str = String.fromCharCodes(bytes.sublist(offset, end));
-          Logger.debug(
-            'string.unpack: unpacking string: "$str" at offset $offset',
-            category: 'String',
-          );
           results.add(Value(str));
           offset = end + 1;
           break;
       }
     }
 
-    Logger.debug(
-      'string.unpack: final offset=${offset + 1}, results count=${results.length}',
-      category: 'String',
-    );
     results.add(Value(offset + 1)); // Next position after unpacking
     return results;
   }

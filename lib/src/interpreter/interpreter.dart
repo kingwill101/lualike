@@ -1,4 +1,3 @@
-import 'dart:convert' show utf8;
 import 'dart:io' show Directory, Platform;
 
 import 'package:lualike/src/ast.dart';
