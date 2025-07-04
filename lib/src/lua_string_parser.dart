@@ -1,4 +1,3 @@
-import 'dart:typed_data';
 import 'package:petitparser/petitparser.dart';
 
 /// A PetitParser-based parser for Lua string literals that handles escape sequences correctly

@@ -145,8 +145,9 @@ void _defineCoroutineStub({required Environment env}) {
 
     // Add other minimal stubs if needed
     "status": Value((List<Object?> args) {
-      if (args.isEmpty)
+      if (args.isEmpty) {
         throw Exception("coroutine.status requires a coroutine argument");
+      }
       return Value("running");
     }),
   };
