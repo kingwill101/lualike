@@ -54,16 +54,10 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
     Logger.debug('Visiting StringLiteral: ${node.value}', category: 'Literal');
 
-    // Check if the string contains non-ASCII bytes that require LuaString handling
-    try {
-      // If the string can be encoded as latin1, it might contain byte sequences
-      // For now, let's just return regular Dart strings for better interop
-      // Only use LuaString for string operations that explicitly need byte manipulation
-      return Value(node.value);
-    } catch (e) {
-      // If there's any issue, fall back to regular string
-      return Value(node.value);
-    }
+    // Always use LuaString for proper byte-level string handling
+    // This ensures Lua's string semantics are preserved
+    final bytes = node.bytes;
+    return Value(LuaString.fromBytes(bytes));
   }
 
   /// Evaluates a table constructor.

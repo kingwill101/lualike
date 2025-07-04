@@ -1,3 +1,4 @@
+import 'dart:convert' show utf8;
 import 'dart:io' show Directory, Platform;
 
 import 'package:lualike/src/ast.dart';
@@ -13,6 +14,7 @@ import 'package:lualike/src/stack.dart';
 import 'package:lualike/src/stdlib/init.dart' show initializeStandardLibrary;
 import 'package:lualike/src/value.dart';
 import 'package:lualike/src/value_class.dart';
+import 'package:lualike/src/lua_string.dart';
 
 import '../coroutine.dart';
 import '../exceptions.dart';
