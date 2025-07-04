@@ -1,4 +1,5 @@
 import 'package:source_span/source_span.dart';
+import 'lua_string_parser.dart';
 
 /// Base class for all ASFuture`<T>` nodes.
 abstract class AstNode {
@@ -695,170 +696,15 @@ class NumberLiteral extends AstNode {
 class StringLiteral extends AstNode {
   final String value;
 
-  StringLiteral(String raw) : value = StringLiteral.unescapeLuaString(raw);
+  // Cache the parsed bytes for efficient access
+  late final List<int> _bytes;
 
-  static String unescapeLuaString(String s) {
-    final result = StringBuffer();
-    int i = 0;
-
-    while (i < s.length) {
-      if (s[i] == '\\' && i + 1 < s.length) {
-        final next = s[i + 1];
-
-        switch (next) {
-          case 'a':
-            result.write('\x07'); // Bell
-            i += 2;
-            break;
-          case 'b':
-            result.write('\b'); // Backspace
-            i += 2;
-            break;
-          case 'f':
-            result.write('\f'); // Form feed
-            i += 2;
-            break;
-          case 'n':
-            result.write('\n'); // Newline
-            i += 2;
-            break;
-          case 'r':
-            result.write('\r'); // Carriage return
-            i += 2;
-            break;
-          case 't':
-            result.write('\t'); // Tab
-            i += 2;
-            break;
-          case 'v':
-            result.write('\v'); // Vertical tab
-            i += 2;
-            break;
-          case '"':
-            result.write('"');
-            i += 2;
-            break;
-          case "'":
-            result.write("'");
-            i += 2;
-            break;
-          case '\\':
-            result.write('\\');
-            i += 2;
-            break;
-          case 'z':
-            // Skip whitespace characters including line breaks
-            i += 2;
-            while (i < s.length && _isWhitespace(s[i])) {
-              i++;
-            }
-            break;
-          case 'x':
-            // Hexadecimal escape sequence: \xXX (exactly 2 hex digits)
-            if (i + 3 < s.length) {
-              final hex = s.substring(i + 2, i + 4);
-              try {
-                final value = int.parse(hex, radix: 16);
-                result.writeCharCode(value);
-                i += 4;
-              } catch (e) {
-                // Invalid hex escape, treat as literal
-                result.write(s[i]);
-                i++;
-              }
-            } else {
-              // Incomplete hex escape, treat as literal
-              result.write(s[i]);
-              i++;
-            }
-            break;
-          case 'u':
-            // Unicode escape sequence: \u{XXX} (1 or more hex digits in braces)
-            if (i + 2 < s.length && s[i + 2] == '{') {
-              int closeBrace = s.indexOf('}', i + 3);
-              if (closeBrace != -1) {
-                final hex = s.substring(i + 3, closeBrace);
-                try {
-                  final codePoint = int.parse(hex, radix: 16);
-                  if (codePoint < 0x80000000) {
-                    // Valid Unicode range for Lua
-                    result.write(String.fromCharCode(codePoint));
-                    i = closeBrace + 1;
-                  } else {
-                    // Invalid Unicode code point, treat as literal
-                    result.write(s[i]);
-                    i++;
-                  }
-                } catch (e) {
-                  // Invalid hex in Unicode escape, treat as literal
-                  result.write(s[i]);
-                  i++;
-                }
-              } else {
-                // No closing brace, treat as literal
-                result.write(s[i]);
-                i++;
-              }
-            } else {
-              // Invalid Unicode escape format, treat as literal
-              result.write(s[i]);
-              i++;
-            }
-            break;
-          default:
-            // Check for decimal escape sequence: \ddd (1-3 decimal digits)
-            if (_isDecimalDigit(next)) {
-              int endPos = i + 2;
-              while (endPos < s.length &&
-                  endPos < i + 4 &&
-                  _isDecimalDigit(s[endPos])) {
-                endPos++;
-              }
-              final decimal = s.substring(i + 1, endPos);
-              try {
-                final value = int.parse(decimal);
-                if (value <= 255) {
-                  result.writeCharCode(value);
-                  i = endPos;
-                } else {
-                  // Value too large, treat as literal
-                  result.write(s[i]);
-                  i++;
-                }
-              } catch (e) {
-                // Invalid decimal escape, treat as literal
-                result.write(s[i]);
-                i++;
-              }
-            } else {
-              // Unknown escape sequence, treat as literal
-              result.write(s[i]);
-              i++;
-            }
-            break;
-        }
-      } else {
-        result.write(s[i]);
-        i++;
-      }
-    }
-
-    return result.toString();
+  StringLiteral(String raw) : value = raw {
+    _bytes = LuaStringParser.parseStringContent(raw);
   }
 
-  static bool _isWhitespace(String char) {
-    return char == ' ' ||
-        char == '\t' ||
-        char == '\n' ||
-        char == '\r' ||
-        char == '\f' ||
-        char == '\v';
-  }
-
-  static bool _isDecimalDigit(String char) {
-    return char.codeUnitAt(0) >= '0'.codeUnitAt(0) &&
-        char.codeUnitAt(0) <= '9'.codeUnitAt(0);
-  }
+  /// Get the byte representation of this string literal
+  List<int> get bytes => _bytes;
 
   @override
   Future<T> accept<T>(AstVisitor<T> visitor) =>
