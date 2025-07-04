@@ -31,15 +31,14 @@ void setLualikeLogging({
   pkg_logging.Level? level,
   String? category,
 }) {
-  final envEnabled = Platform.environment['LOGGING_ENABLED'];
+  final envEnabled =
+      Platform.environment['LOGGING_ENABLED'] == 'true' ||
+      Platform.environment['LOGGING_ENABLED'] == '1';
+
   final envLevel = Platform.environment['LOGGING_LEVEL'];
   final envCategory = Platform.environment['LOGGING_CATEGORY'];
 
-  final bool useEnabled =
-      enabled ??
-      (envEnabled != null
-          ? envEnabled.toLowerCase() != 'false' && envEnabled != ''
-          : loggingEnabled);
+  final bool useEnabled = enabled ?? envEnabled;
 
   pkg_logging.Level useLevel = level ?? pkg_logging.Level.WARNING;
   if (envLevel != null) {
