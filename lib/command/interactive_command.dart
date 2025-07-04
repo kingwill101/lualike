@@ -4,6 +4,57 @@ import 'package:lualike/src/io/lua_file.dart';
 import 'package:lualike/src/io/virtual_io_device.dart';
 import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:lualike/testing.dart';
+import 'package:lualike/src/io/io_device.dart';
+
+// ConsoleOutputDevice implements IODevice for Console output
+class ConsoleOutputDevice implements IODevice {
+  final Console console;
+  bool _isClosed = false;
+
+  ConsoleOutputDevice(this.console);
+
+  @override
+  bool get isClosed => _isClosed;
+
+  @override
+  String get mode => 'w';
+
+  @override
+  Future<void> close() async {
+    _isClosed = true;
+  }
+
+  @override
+  Future<void> flush() async {}
+
+  @override
+  Future<ReadResult> read([String format = "l"]) async {
+    throw UnimplementedError("ConsoleOutputDevice does not support read");
+  }
+
+  @override
+  Future<WriteResult> write(String data) async {
+    if (_isClosed) {
+      return WriteResult(false, "Device is closed");
+    }
+    console.write(data);
+    return WriteResult(true);
+  }
+
+  @override
+  Future<int> seek(SeekWhence whence, int offset) async {
+    throw UnimplementedError("ConsoleOutputDevice does not support seek");
+  }
+
+  @override
+  Future<void> setBuffering(BufferMode mode, [int? size]) async {}
+
+  @override
+  Future<int> getPosition() async => 0;
+
+  @override
+  Future<bool> isEOF() async => true;
+}
 
 /// Interactive REPL mode for LuaLike
 class InteractiveMode {
@@ -43,14 +94,13 @@ class InteractiveMode {
 
     // Set up virtual devices for REPL I/O
     final stdinDevice = VirtualIODevice();
-    final stdoutDevice = VirtualIODevice();
+    final stdoutDevice = ConsoleOutputDevice(console);
     IOLib.defaultInput = LuaFile(stdinDevice);
     IOLib.defaultOutput = LuaFile(stdoutDevice);
 
     // Custom print function that writes to our buffer instead of stdout
     void customPrint(String message) {
       stdoutDevice.write('$message\n');
-      console.writeLine(message);
     }
 
     // Print welcome message
