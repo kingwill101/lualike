@@ -695,12 +695,19 @@ class NumberLiteral extends AstNode {
 /// String literal.
 class StringLiteral extends AstNode {
   final String value;
+  final bool isLongString;
 
   // Cache the parsed bytes for efficient access
   late final List<int> _bytes;
 
-  StringLiteral(String raw) : value = raw {
-    _bytes = LuaStringParser.parseStringContent(raw);
+  StringLiteral(String raw, {this.isLongString = false}) : value = raw {
+    if (isLongString) {
+      // Long strings don't process escape sequences - use raw bytes
+      _bytes = raw.codeUnits;
+    } else {
+      // Regular strings process escape sequences
+      _bytes = LuaStringParser.parseStringContent(raw);
+    }
   }
 
   /// Get the byte representation of this string literal

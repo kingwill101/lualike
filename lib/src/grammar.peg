@@ -1467,11 +1467,12 @@ Number =>
 String =>
   {
     String value = '';
+    bool isLongString = false;
     final startPos = state.position;
   }
   (
     c = LongString
-    {value = c;}
+    {value = c; isLongString = true;}
     ----
     '"' c = DoubleChars? '"' S
     {value = c;}
@@ -1480,7 +1481,7 @@ String =>
     {value = c;}
   )
   $ = {
-    final node = StringLiteral(value);
+    final node = StringLiteral(value, isLongString: isLongString);
     $$ = _setNodeSpan(node, startPos, state.position, state);
   }
 
