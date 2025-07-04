@@ -410,7 +410,7 @@ class ToNumberFunction implements BuiltinFunction {
       // string literals, so handle common ones here for tonumber with base.
       str = str.replaceAll('\\t', '\t');
       str = str.replaceAll('\\n', '\n');
-      
+
       // Lua tonumber is strict about internal whitespace after signs
       // Reject strings like "+ 0.01" or "- 123"
       if (str.startsWith('+') || str.startsWith('-')) {
@@ -418,7 +418,7 @@ class ToNumberFunction implements BuiltinFunction {
           return Value(null);
         }
       }
-      
+
       if (base != null && base.raw is int) {
         final radix = base.raw as int;
         try {
@@ -470,8 +470,8 @@ class ToStringFunction implements BuiltinFunction {
     if (value.raw is num) return Value(value.raw.toString());
     if (value.raw is String) return Value(value.raw.toString());
     if (value.raw is Map) return Value("table: ${value.raw.hashCode}");
-    if (value.raw is Function || value is BuiltinFunction) {
-      return Value("function: ${value.hashCode}");
+    if (value.raw is BuiltinFunction || value.raw is Function) {
+      return Value("function: ${value.raw.hashCode}");
     }
 
     return Value(value.raw.toString());

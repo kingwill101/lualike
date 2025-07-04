@@ -54,15 +54,16 @@ class _StringByte implements BuiltinFunction {
         ? NumberUtils.toInt((args[2] as Value).raw)
         : start;
 
-    // Adjust for Lua's 1-based indexing
     start = start < 0 ? str.length + start + 1 : start;
     end = end < 0 ? str.length + end + 1 : end;
 
-    // Ensure indices are within bounds
-    start = math.max(1, math.min(start, str.length + 1));
-    end = math.max(1, math.min(end, str.length + 1));
+    if (start < 1) start = 1;
+    if (end > str.length) end = str.length;
 
-    // Convert to 0-based for Dart
+    if (start > end || start > str.length) {
+      return Value(null);
+    }
+
     start--;
     end--;
 
@@ -71,11 +72,14 @@ class _StringByte implements BuiltinFunction {
       result.add(Value(str.codeUnitAt(i)));
     }
 
+    if (result.isEmpty) {
+      return Value(null);
+    }
     if (result.length == 1) {
       return result.first;
     }
 
-    return result is Value ? result : Value(result);
+    return Value.multi(result);
   }
 }
 
@@ -87,6 +91,9 @@ class _StringChar implements BuiltinFunction {
       (arg) => arg is Value && (arg.raw is num || arg.raw is BigInt),
     )) {
       final code = NumberUtils.toInt((arg as Value).raw);
+      if (code < 0 || code > 255) {
+        throw LuaError('out of range');
+      }
       buffer.writeCharCode(code);
     }
 
@@ -121,14 +128,22 @@ class _StringFind implements BuiltinFunction {
 
     final str = (args[0] as Value).raw.toString();
     final pattern = (args[1] as Value).raw.toString();
-    var start = args.length > 2
-        ? NumberUtils.toInt((args[2] as Value).raw) - 1
-        : 0;
-    final plain = args.length > 3 ? (args[3] as Value).raw as bool : false;
+    var init = args.length > 2 ? NumberUtils.toInt((args[2] as Value).raw) : 1;
+    var start = init < 0 ? str.length + init + 1 : init;
+    if (start < 1) start = 1;
+    start -= 1;
+    bool plain = false;
+    if (args.length > 3) {
+      final rawPlain = (args[3] as Value).raw;
+      plain = rawPlain != false && rawPlain != null;
+    }
 
-    // Handle negative indices
-    if (start < 0) start = 0;
-    if (start >= str.length) return Value(null);
+    // Handle bounds
+    if (start > str.length) return Value(null);
+
+    if (pattern.isEmpty) {
+      return [Value(start + 1), Value(start)];
+    }
 
     if (plain) {
       final index = str.indexOf(pattern, start);
