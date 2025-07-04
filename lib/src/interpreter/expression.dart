@@ -159,7 +159,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       '>=' => leftVal >= rightVal,
       '<=' => leftVal <= rightVal,
       '>>' => leftVal >> rightVal,
-      '..' => leftVal.concat(rightVal.raw.toString()),
+      '..' => leftVal.concat(rightVal),
       'and' => leftVal.and(rightVal),
       'or' => leftVal.or(rightVal),
       _ => throw LuaError.typeError(

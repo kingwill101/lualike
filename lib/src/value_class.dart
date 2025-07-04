@@ -1,6 +1,7 @@
 import 'value.dart';
 import 'builtin_function.dart';
 import 'stdlib/metatables.dart';
+import 'lua_string.dart';
 
 /// Example usage:
 /// ```dart
@@ -41,7 +42,7 @@ class ValueClass implements BuiltinFunction {
   /// Creates a new string with default string metamethods
   static Value string(String value) {
     return Value(
-      value,
+      LuaString.fromDartString(value),
       metatable: MetaTable().getTypeMetatable('string')?.metamethods,
     );
   }

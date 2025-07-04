@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/coroutine.dart' show Coroutine;
+import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:path/path.dart' as path;
 
@@ -348,7 +349,7 @@ class PrintFunction implements BuiltinFunction {
               ? value.raw.toString()
               : (value.raw as double).toString(),
         );
-      } else if (value.raw is String) {
+      } else if (value.raw is String || value.raw is LuaString) {
         outputs.add(value.raw.toString());
       } else if (value.raw is Map) {
         outputs.add("table: ${value.raw.hashCode}");
@@ -380,7 +381,7 @@ class TypeFunction implements BuiltinFunction {
     if (value.raw == null) return Value("nil");
     if (value.raw is bool) return Value("boolean");
     if (value.raw is num || value.raw is BigInt) return Value("number");
-    if (value.raw is String) return Value("string");
+    if (value.raw is String || value.raw is LuaString) return Value("string");
     if (value.raw is Coroutine) return Value("thread");
     if (value.raw is Map) return Value("table");
     if (value.raw is Function || value is BuiltinFunction) {
@@ -468,7 +469,9 @@ class ToStringFunction implements BuiltinFunction {
       return Value(boolStr);
     }
     if (value.raw is num) return Value(value.raw.toString());
-    if (value.raw is String) return Value(value.raw.toString());
+    if (value.raw is String || value.raw is LuaString) {
+      return Value(value.raw.toString());
+    }
     if (value.raw is Map) return Value("table: ${value.raw.hashCode}");
     if (value.raw is Function || value is BuiltinFunction) {
       return Value("function: ${value.hashCode}");
@@ -488,7 +491,18 @@ class SelectFunction implements BuiltinFunction {
       return Value(args.length - 1);
     }
 
-    final idx = index.raw as int;
+    if (index.raw is LuaString && (index.raw as LuaString).toString() == "#") {
+      return Value(args.length - 1);
+    }
+
+    // Handle non-integer indices
+    if (index.raw is! num) {
+      throw Exception(
+        "bad argument #1 to 'select' (number expected, got ${index.raw.runtimeType})",
+      );
+    }
+
+    final idx = (index.raw as num).toInt();
     if (idx <= 0) throw Exception("index out of range");
 
     if (idx >= args.length) return Value(null);
@@ -761,6 +775,7 @@ class RawLenFunction implements BuiltinFunction {
     if (args.isEmpty) throw Exception("rawlen requires an argument");
     final value = args[0] as Value;
     if (value.raw is String) return Value(value.raw.toString().length);
+    if (value.raw is LuaString) return Value((value.raw as LuaString).length);
     if (value.raw is Map) return Value((value.raw as Map).length);
     throw Exception("rawlen requires a string or table");
   }

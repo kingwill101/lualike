@@ -1,4 +1,5 @@
 import '../logger.dart';
+import '../lua_string.dart';
 import '../value.dart';
 
 dynamic fromLuaValue(dynamic obj) {
@@ -103,7 +104,7 @@ extension ValueExtension<T> on T {
   bool get isNumber => raw is num;
 
   /// Checks if this Value is a string
-  bool get isString => raw is String;
+  bool get isString => raw is String || raw is LuaString;
 
   /// Checks if this Value is a boolean
   bool get isBoolean => raw is bool;

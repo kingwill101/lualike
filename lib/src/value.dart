@@ -1,9 +1,13 @@
+import 'dart:async';
+
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
 
 import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/stdlib/number_utils.dart';
 import 'package:lualike/src/upvalue.dart';
+
+import 'lua_string.dart';
 
 /// Represents an asynchronous function that can be called with a list of arguments.
 typedef AsyncFunction = Future<Object?> Function(List<Object?> args);
@@ -456,10 +460,19 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   @override
   int get length {
     if (raw == null) return 0;
+
+    if (raw is LuaString) {
+      return (raw as LuaString).length;
+    }
+
     final lenMeta = getMetamethod('__len');
     if (lenMeta != null) {
       final result = callMetamethod('__len', [this]);
       return result is Value ? result.raw as int : result as int;
+    }
+
+    if (raw is String) {
+      return (raw as String).length;
     }
 
     return (raw as Map).length;
@@ -1001,22 +1014,44 @@ extension OperatorExtension on Value {
     // Wrap the other value if needed
     final wrappedOther = other is Value ? other : Value.wrap(other);
 
-    // Only perform direct operation on raw values
+    // Handle LuaString concatenation
+    if (raw is LuaString) {
+      if (wrappedOther.raw is LuaString) {
+        return Value((raw as LuaString) + (wrappedOther.raw as LuaString));
+      } else if (wrappedOther.raw is num) {
+        final otherStr = LuaString.fromDartString(wrappedOther.raw.toString());
+        return Value((raw as LuaString) + otherStr);
+      } else {
+        final otherStr = LuaString.fromDartString(wrappedOther.raw.toString());
+        return Value((raw as LuaString) + otherStr);
+      }
+    }
+
+    if (wrappedOther.raw is LuaString) {
+      if (raw is num) {
+        final thisStr = LuaString.fromDartString(raw.toString());
+        return Value(thisStr + (wrappedOther.raw as LuaString));
+      } else {
+        final thisStr = LuaString.fromDartString(raw.toString());
+        return Value(thisStr + (wrappedOther.raw as LuaString));
+      }
+    }
+
+    // Regular string concatenation - return Dart strings for better interop
     if (raw is String) {
       if (wrappedOther.raw is String) {
         return Value(raw + wrappedOther.raw);
-      } else if (wrappedOther is num) {
-        return Value(raw + wrappedOther.toString());
+      } else if (wrappedOther.raw is num) {
+        return Value(raw + wrappedOther.raw.toString());
       }
-
-      return Value(raw + wrappedOther.raw);
+      return Value(raw + wrappedOther.raw.toString());
     }
 
     if (raw is num) {
       if (wrappedOther.raw is String) {
         return Value(raw.toString() + wrappedOther.raw);
-      } else if (wrappedOther is num) {
-        return Value(raw.toString() + wrappedOther.toString());
+      } else if (wrappedOther.raw is num) {
+        return Value(raw.toString() + wrappedOther.raw.toString());
       }
       return Value(raw.toString() + wrappedOther.raw.toString());
     }
@@ -1109,6 +1144,15 @@ extension OperatorExtension on Value {
     if (raw is String && otherRaw is String) {
       return raw.compareTo(otherRaw) > 0;
     }
+    if (raw is LuaString && otherRaw is LuaString) {
+      return (raw as LuaString) > otherRaw;
+    }
+    if (raw is LuaString && otherRaw is String) {
+      return (raw as LuaString) > LuaString.fromDartString(otherRaw);
+    }
+    if (raw is String && otherRaw is LuaString) {
+      return LuaString.fromDartString(raw) > otherRaw;
+    }
     throw UnsupportedError(
       'Greater than not supported for these types ${raw.runtimeType} and ${other.runtimeType}',
     );
@@ -1182,6 +1226,15 @@ extension OperatorExtension on Value {
     if (raw is String && otherRaw is String) {
       return raw.compareTo(otherRaw) < 0;
     }
+    if (raw is LuaString && otherRaw is LuaString) {
+      return (raw as LuaString) < otherRaw;
+    }
+    if (raw is LuaString && otherRaw is String) {
+      return (raw as LuaString) < LuaString.fromDartString(otherRaw);
+    }
+    if (raw is String && otherRaw is LuaString) {
+      return LuaString.fromDartString(raw) < otherRaw;
+    }
     throw UnsupportedError(
       'Less than not supported for these types ${raw.runtimeType} and ${other.runtimeType}',
     );
@@ -1253,6 +1306,15 @@ extension OperatorExtension on Value {
     if (raw is String && otherRaw is String) {
       return raw.compareTo(otherRaw) >= 0;
     }
+    if (raw is LuaString && otherRaw is LuaString) {
+      return (raw as LuaString) >= otherRaw;
+    }
+    if (raw is LuaString && otherRaw is String) {
+      return (raw as LuaString) >= LuaString.fromDartString(otherRaw);
+    }
+    if (raw is String && otherRaw is LuaString) {
+      return LuaString.fromDartString(raw) >= otherRaw;
+    }
     throw UnsupportedError(
       'Greater than or equal not supported for these types ${raw.runtimeType} and ${other.runtimeType}',
     );
@@ -1323,6 +1385,15 @@ extension OperatorExtension on Value {
     }
     if (raw is String && otherRaw is String) {
       return raw.compareTo(otherRaw) <= 0;
+    }
+    if (raw is LuaString && otherRaw is LuaString) {
+      return (raw as LuaString) <= otherRaw;
+    }
+    if (raw is LuaString && otherRaw is String) {
+      return (raw as LuaString) <= LuaString.fromDartString(otherRaw);
+    }
+    if (raw is String && otherRaw is LuaString) {
+      return LuaString.fromDartString(raw) <= otherRaw;
     }
     throw UnsupportedError(
       'Less than or equal not supported for these types ${raw.runtimeType} and ${other.runtimeType}',
@@ -1434,6 +1505,16 @@ extension OperatorExtension on Value {
       return raw.isFinite &&
           raw == otherRaw.toDouble() &&
           BigInt.from(raw) == otherRaw;
+    }
+
+    if (raw is LuaString && otherRaw is LuaString) {
+      return raw == otherRaw;
+    }
+    if (raw is LuaString && otherRaw is String) {
+      return raw == LuaString.fromDartString(otherRaw);
+    }
+    if (raw is String && otherRaw is LuaString) {
+      return LuaString.fromDartString(raw) == otherRaw;
     }
 
     if (raw is Map && otherRaw is Map) {

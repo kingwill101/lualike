@@ -300,7 +300,7 @@ class _TableUnpack implements BuiltinFunction {
     }
 
     final map = table.raw as Map;
-    var i, j;
+    int i, j;
     try {
       i = args.length > 1 ? (args[1] as Value).raw as int : 1;
       j = args.length > 2 ? (args[2] as Value).raw as int : map.length;

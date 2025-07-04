@@ -21,8 +21,8 @@ void main() {
       final bridge = LuaLike();
       await bridge.runCode('''
         local a = string.byte("ABCDE", 1)
-        local b = string.byte("ABCDE", 2, 4)
-        local c = string.byte("ABCDE", -1) -- negative index
+        local b,c,d = string.byte("ABCDE", 2, 4)
+        local e = string.byte("ABCDE", -1) -- negative index
       ''');
 
       expect(
@@ -30,15 +30,10 @@ void main() {
         equals(65),
       ); // ASCII for 'A'
 
-      final bResult = (bridge.getGlobal('b') as Value).unwrap();
-      expect(bResult, isList);
-      final bList = bResult as List;
-      expect(bList.length, equals(3));
-      expect((bList[0] as Value).raw, equals(66)); // 'B'
-      expect((bList[1] as Value).raw, equals(67)); // 'C'
-      expect((bList[2] as Value).raw, equals(68)); // 'D'
-
-      expect((bridge.getGlobal('c') as Value).raw, equals(69)); // 'E'
+      expect((bridge.getGlobal('b') as Value).raw, equals(66)); // 'B'
+      expect((bridge.getGlobal('c') as Value).raw, equals(67)); // 'E'
+      expect((bridge.getGlobal('d') as Value).raw, equals(68)); // 'E'
+      expect((bridge.getGlobal('e') as Value).raw, equals(69)); // 'E'
     });
 
     test('string.char', () async {
