@@ -86,7 +86,7 @@ class _MathCeil extends _MathFunction {
     }
     final double n = NumberUtils.toDouble(number);
     if (!n.isFinite) return Value(n);
-    
+
     final doubleRes = n.ceilToDouble();
     return Value(NumberUtils.optimizeNumericResult(doubleRes));
   }
@@ -145,7 +145,7 @@ class _MathFloor extends _MathFunction {
     }
     final double n = NumberUtils.toDouble(number);
     if (!n.isFinite) return Value(n);
-    
+
     final doubleRes = n.floorToDouble();
     return Value(NumberUtils.optimizeNumericResult(doubleRes));
   }
@@ -272,7 +272,9 @@ class _MathRandom extends _MathFunction {
         return Value(raw);
       }
       if (intN < 1) {
-        throw LuaError.typeError("bad argument #1 to 'random' (interval is empty)");
+        throw LuaError.typeError(
+          "bad argument #1 to 'random' (interval is empty)",
+        );
       }
       // Use project method for range [1, n]
       final rv = _random.nextRaw64();
@@ -286,38 +288,40 @@ class _MathRandom extends _MathFunction {
       final intN = NumberUtils.toInt(n);
 
       if (intM > intN) {
-        throw LuaError.typeError("bad argument #1 to 'random' (interval is empty)");
+        throw LuaError.typeError(
+          "bad argument #1 to 'random' (interval is empty)",
+        );
       }
-      
+
       // Use BigInt arithmetic to safely calculate range size and avoid overflow
       final bigM = NumberUtils.toBigInt(intM);
       final bigN = NumberUtils.toBigInt(intN);
       final bigRangeSize = bigN - bigM;
-      
+
       // Check if range size + 1 exceeds what we can handle with int64
       final bigRangePlusOne = bigRangeSize + BigInt.one;
-      
+
       final rv = _random.nextRaw64();
       final urv = rv.toUnsigned(64);
-      
+
       // Use BigInt modulo to handle large ranges safely
       final bigResult = BigInt.from(urv) % bigRangePlusOne;
-      
+
       // Use BigInt addition to avoid overflow in final calculation
       final finalResult = bigM + bigResult;
-      
+
       // Ensure result fits in int64 range
-      if (finalResult < NumberUtils.toBigInt(NumberUtils.minInteger) || 
+      if (finalResult < NumberUtils.toBigInt(NumberUtils.minInteger) ||
           finalResult > NumberUtils.toBigInt(NumberUtils.maxInteger)) {
         throw LuaError.typeError("random result overflow");
       }
-      
+
       return Value(finalResult.toInt());
     } else {
       throw LuaError.typeError("wrong number of arguments to 'random'");
     }
   }
-  
+
   // Project a 64-bit random value into range [0, n-1]
   // This mimics Lua's project function for handling large ranges
   int _project(int rv, int n) {
@@ -443,7 +447,7 @@ class MathLib {
   // Use constants from NumberUtils
   static int get maxInteger => NumberUtils.maxInteger;
   static int get minInteger => NumberUtils.minInteger;
-  
+
   static void logIntegerLimits() {
     print(
       'MathLib: Dart platform maxInteger=\x1b[32m$maxInteger\x1b[0m, minInteger=\x1b[31m$minInteger\x1b[0m',

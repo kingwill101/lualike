@@ -116,15 +116,21 @@ void main() {
 
       // Expected values from reference Lua
       final expectedResults = [
-        0.50000000000000000, 0.00000000000000000, 0.00000000000000000,  // 0.5 series
-        0.25000000000000000, 0.50000000000000000, 0.00000000000000000,  // 0.25 series
-        0.75000000000000000, 0.50000000000000000, 0.00000000000000000,  // 0.75 series
+        0.50000000000000000,
+        0.00000000000000000,
+        0.00000000000000000, // 0.5 series
+        0.25000000000000000,
+        0.50000000000000000,
+        0.00000000000000000, // 0.25 series
+        0.75000000000000000,
+        0.50000000000000000,
+        0.00000000000000000, // 0.75 series
       ];
-      
+
       final expectedBits = [
-        true, false, false,   // 0.5 series
-        false, true, false,   // 0.25 series
-        true, true, false,    // 0.75 series
+        true, false, false, // 0.5 series
+        false, true, false, // 0.25 series
+        true, true, false, // 0.75 series
       ];
 
       expect(list.length, equals(9));
@@ -160,7 +166,7 @@ void main() {
         final modResult = triple[0].raw;
         final fmodResult = triple[1].raw;
         final areEqual = triple[2].raw;
-        
+
         expect(modResult, closeTo(fmodResult, 1e-16));
         expect(areEqual, isTrue);
       }

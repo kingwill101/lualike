@@ -49,18 +49,20 @@ class _StringByte implements BuiltinFunction {
       throw LuaError.typeError("string.byte requires a string argument");
     }
     final str = (args[0] as Value).raw.toString();
+    final codeUnits = str.codeUnits;
+
     var start = args.length > 1 ? NumberUtils.toInt((args[1] as Value).raw) : 1;
     var end = args.length > 2
         ? NumberUtils.toInt((args[2] as Value).raw)
         : start;
 
-    start = start < 0 ? str.length + start + 1 : start;
-    end = end < 0 ? str.length + end + 1 : end;
+    start = start < 0 ? codeUnits.length + start + 1 : start;
+    end = end < 0 ? codeUnits.length + end + 1 : end;
 
     if (start < 1) start = 1;
-    if (end > str.length) end = str.length;
+    if (end > codeUnits.length) end = codeUnits.length;
 
-    if (start > end || start > str.length) {
+    if (start > end || start > codeUnits.length) {
       return Value(null);
     }
 
@@ -68,8 +70,8 @@ class _StringByte implements BuiltinFunction {
     end--;
 
     final result = <Value>[];
-    for (var i = start; i <= end && i < str.length; i++) {
-      result.add(Value(str.codeUnitAt(i)));
+    for (var i = start; i <= end && i < codeUnits.length; i++) {
+      result.add(Value(codeUnits[i] & 0xFF));
     }
 
     if (result.isEmpty) {
@@ -86,18 +88,18 @@ class _StringByte implements BuiltinFunction {
 class _StringChar implements BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
-    final buffer = StringBuffer();
+    final bytes = <int>[];
     for (var arg in args.where(
       (arg) => arg is Value && (arg.raw is num || arg.raw is BigInt),
     )) {
       final code = NumberUtils.toInt((arg as Value).raw);
       if (code < 0 || code > 255) {
-        throw LuaError('out of range');
+        throw LuaError('out of range $code');
       }
-      buffer.writeCharCode(code);
+      bytes.add(code);
     }
-
-    return Value(buffer.toString());
+    final str = latin1.decode(bytes, allowInvalid: true);
+    return Value(str);
   }
 }
 
