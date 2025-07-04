@@ -36,5 +36,12 @@ void main() {
       var result = await nilNode.accept(vm);
       expect(result, equals(Value(null)));
     });
+
+    test('StringLiteral escape sequences', () async {
+      var lit = StringLiteral("a\\x41\\u{42}\\97z");
+      var vm = Interpreter();
+      var result = await lit.accept(vm);
+      expect(result, equals(Value("aABaz")));
+    });
   });
 }

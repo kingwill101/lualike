@@ -507,5 +507,36 @@ void main() {
 
       expect(tests['ptr1'].raw.toString(), matches(RegExp(r'^[0-9a-f]+$')));
     });
+
+    test('string.format hexfloat and pointer variants', () async {
+      final bridge = LuaLike();
+      await bridge.runCode('''
+        local tests = {}
+        tests.hf1 = string.format("%a", 0.1)
+        tests.hf2 = string.format("%A", 0.1)
+        tests.ptrnull = string.format("%p", nil)
+        tests.ptrnum = string.format("%p", 5)
+        tests.ptrpad = string.format("%10p", nil)
+      ''');
+
+      final tests = (bridge.getGlobal('tests') as Value).raw as Map;
+      expect(tests['hf1'].raw.toString(), startsWith('0x'));
+      expect(tests['hf2'].raw.toString(), startsWith('0X'));
+      expect(tests['ptrnull'], equals(Value('(null)')));
+      expect(tests['ptrnum'], equals(Value('(null)')));
+      expect(tests['ptrpad'], equals(Value('     (null)')));
+    });
+
+    test('string.rep invalid counts', () async {
+      final bridge = LuaLike();
+      expect(
+        () async => await bridge.runCode('string.rep("a", -1)'),
+        throwsA(isA<LuaError>()),
+      );
+      expect(
+        () async => await bridge.runCode('string.rep("a", (1 << 31) + 1)'),
+        throwsA(isA<LuaError>()),
+      );
+    });
   });
 }

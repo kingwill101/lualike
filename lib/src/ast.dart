@@ -698,39 +698,105 @@ class StringLiteral extends AstNode {
   StringLiteral(String raw) : value = StringLiteral.unescapeLuaString(raw);
 
   static String unescapeLuaString(String s) {
-    return s.replaceAllMapped(
-      RegExp(
-        r'\\([abfnrtv"'
-        "'"
-        r'\\])',
-      ),
-      (m) {
-        switch (m[1]) {
-          case 'a':
-            return '\x07';
-          case 'b':
-            return '\b';
-          case 'f':
-            return '\f';
-          case 'n':
-            return '\n';
-          case 'r':
-            return '\r';
-          case 't':
-            return '\t';
-          case 'v':
-            return '\v';
-          case '"':
-            return '"';
-          case "'":
-            return "'";
-          case '\\':
-            return '\\';
-          default:
-            return m[0]!;
-        }
-      },
-    );
+    final buffer = StringBuffer();
+    for (var i = 0; i < s.length; i++) {
+      var ch = s[i];
+      if (ch != '\\') {
+        buffer.write(ch);
+        continue;
+      }
+
+      if (i + 1 >= s.length) {
+        buffer.write('\\');
+        break;
+      }
+
+      final next = s[i + 1];
+      i++;
+      switch (next) {
+        case 'a':
+          buffer.write('\x07');
+          break;
+        case 'b':
+          buffer.write('\b');
+          break;
+        case 'f':
+          buffer.write('\f');
+          break;
+        case 'n':
+          buffer.write('\n');
+          break;
+        case 'r':
+          buffer.write('\r');
+          break;
+        case 't':
+          buffer.write('\t');
+          break;
+        case 'v':
+          buffer.write('\v');
+          break;
+        case '\\':
+          buffer.write('\\');
+          break;
+        case '"':
+          buffer.write('"');
+          break;
+        case "'":
+          buffer.write("'");
+          break;
+        case 'x':
+          if (i + 2 <= s.length - 1) {
+            final hex = s.substring(i + 1, i + 3);
+            final code = int.parse(hex, radix: 16);
+            buffer.writeCharCode(code);
+            i += 2;
+            break;
+          }
+          buffer.write('x');
+          break;
+        case 'u':
+          if (i + 1 < s.length && s[i + 1] == '{') {
+            var j = i + 2;
+            final codeStr = StringBuffer();
+            while (j < s.length && s[j] != '}') {
+              codeStr.write(s[j]);
+              j++;
+            }
+            if (j < s.length) {
+              final code = int.parse(codeStr.toString(), radix: 16);
+              buffer.write(String.fromCharCode(code));
+              i = j;
+              break;
+            }
+          }
+          buffer.write('u');
+          break;
+        case 'z':
+          while (i + 1 < s.length && RegExp(r'\s').hasMatch(s[i + 1])) {
+            i++;
+          }
+          break;
+        default:
+          if (RegExp(r'[0-9]').hasMatch(next)) {
+            var j = i;
+            var digits = next;
+            var count = 1;
+            while (count < 3 &&
+                j + 1 < s.length &&
+                RegExp(r'[0-9]').hasMatch(s[j + 1])) {
+              digits += s[j + 1];
+              j++;
+              count++;
+            }
+            final code = int.parse(digits);
+            buffer.writeCharCode(code);
+            i = j;
+          } else {
+            buffer.write(next);
+          }
+      }
+    }
+    return buffer.toString();
   }
 
   @override

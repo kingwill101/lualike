@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
