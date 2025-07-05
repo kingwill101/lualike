@@ -1,7 +1,9 @@
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/lualike.dart';
+import 'package:lualike/src/lua_string.dart';
 
 import '../value_class.dart';
+import 'number_utils.dart';
 
 class TableLib {
   static final ValueClass tableClass = ValueClass.create({
@@ -89,13 +91,11 @@ class _TableConcat implements BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
-      throw LuaError.typeError("table.concat requires a table argument");
+      throw LuaError.typeError("table expected");
     }
     final table = args[0] as Value;
     if (table.raw is! Map) {
-      throw LuaError.typeError(
-        "table.concat requires a table as first argument",
-      );
+      throw LuaError.typeError("table expected");
     }
 
     final map = table.raw as Map;
@@ -103,15 +103,30 @@ class _TableConcat implements BuiltinFunction {
     final start = args.length > 2 ? (args[2] as Value).raw as int : 1;
     final end = args.length > 3 ? (args[3] as Value).raw as int : map.length;
 
+    // If start > end, return empty string (Lua behavior)
+    if (start > end) {
+      return Value("");
+    }
+
     final buffer = StringBuffer();
     for (var i = start; i <= end; i++) {
       if (i > start) {
         buffer.write(sep);
       }
       final value = map[i];
-      if (value != null) {
-        buffer.write((value as Value).raw.toString());
+      if (value == null || (value is Value && value.raw == null)) {
+        // Lua throws an error when encountering nil values in the range
+        throw LuaError("invalid value (nil) at index $i in table for 'concat'");
       }
+
+      // Validate that the value is a string or number
+      final rawValue = (value as Value).raw;
+      NumberUtils.validateStringOrNumber(rawValue, 'concat', i);
+
+      buffer.write(rawValue.toString());
+
+      // Prevent integer overflow when i == max integer
+      if (i == NumberUtils.maxInteger) break;
     }
 
     return Value(buffer.toString());

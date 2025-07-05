@@ -20,9 +20,27 @@ class NumberUtils {
     if (value is bool) return 'boolean';
     if (value is num) return 'number';
     if (value is String || value is LuaString) return 'string';
-    if (value is List) return 'table';
+    if (value is List || value is Map) return 'table';
     if (value is Function) return 'function';
     return value.runtimeType.toString();
+  }
+
+  /// Validate that a value is a string or number, throwing appropriate error if not
+  static void validateStringOrNumber(
+    dynamic value,
+    String context, [
+    int? index,
+  ]) {
+    if (value is! String && value is! num && value is! LuaString) {
+      final typeName = NumberUtils.typeName(value);
+      if (index != null) {
+        throw LuaError(
+          "invalid value ($typeName) at index $index in table for '$context'",
+        );
+      } else {
+        throw LuaError("invalid value ($typeName) for '$context'");
+      }
+    }
   }
 
   /// Extract and validate a number from a Value with proper error handling
