@@ -602,7 +602,7 @@ String _formatOctal(_FormatContext ctx) {
   return _applyPadding(result, ctx);
 }
 
-String _formatQuoted(_FormatContext ctx) {
+LuaString _formatQuoted(_FormatContext ctx) {
   final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
   final Uint8List bytes;
   if (rawValue is LuaString) {
@@ -611,7 +611,16 @@ String _formatQuoted(_FormatContext ctx) {
     bytes = utf8.encode(rawValue.toString());
   }
   final escaped = FormatStringParser.escape(bytes);
-  return '"$escaped"';
+
+  // Convert the escaped string back to bytes preserving Latin-1 characters
+  final escapedBytes = <int>[];
+  escapedBytes.add(34); // opening quote "
+  for (int i = 0; i < escaped.length; i++) {
+    escapedBytes.add(escaped.codeUnitAt(i));
+  }
+  escapedBytes.add(34); // closing quote "
+
+  return LuaString(Uint8List.fromList(escapedBytes));
 }
 
 class _StringFormat implements BuiltinFunction {

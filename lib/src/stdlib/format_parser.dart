@@ -112,8 +112,8 @@ class FormatStringParser {
         // \
         buffer.write(r'\\');
       } else if (code == 10) {
-        // \n
-        buffer.write(r'\n');
+        // \n - escape as backslash followed by actual newline (Lua format)
+        buffer.write('\\\n');
       } else if (code == 13) {
         // \r
         buffer.write(r'\r');
@@ -139,11 +139,11 @@ class FormatStringParser {
         // Printable ASCII characters
         buffer.writeCharCode(code);
       } else if (code >= 128 && code <= 255) {
-        // Extended ASCII - escape as hex
-        buffer.write('\\x${code.toRadixString(16).padLeft(2, '0')}');
+        // Extended ASCII - don't escape, keep as raw bytes (Lua behavior)
+        buffer.writeCharCode(code);
       } else {
-        // Other control characters (1-31, 127)
-        buffer.write('\\$code');
+        // Other control characters (1-31, 127) - pad to 3 digits
+        buffer.write('\\${code.toString().padLeft(3, '0')}');
       }
     }
     return buffer.toString();
