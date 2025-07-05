@@ -133,18 +133,37 @@ void main() {
         local canAccessGlobal = newVar == "global variable"
       ''');
 
-      expect((bridge.getGlobal('isGlobalTable') as Value).raw, isTrue);
-      expect((bridge.getGlobal('hasG') as Value).raw, isTrue);
-      expect((bridge.getGlobal('canAccessGlobal') as Value).raw, isTrue);
+      expect((bridge.getGlobal('isGlobalTable') as Value).unwrap(), isTrue);
+      expect((bridge.getGlobal('hasG') as Value).unwrap(), isTrue);
+      expect((bridge.getGlobal('canAccessGlobal') as Value).unwrap(), isTrue);
       expect(
-        (bridge.getGlobal('newVar') as Value).raw,
+        (bridge.getGlobal('newVar') as Value).unwrap(),
         equals("global variable"),
       );
     });
 
-    test('getmetatable and setmetatable', () async {
-      final bridge = LuaLike();
-      await bridge.runCode('''
+    group("setmetatable", () {
+      test('setmetatable with function', () async {
+        final bridge = LuaLike();
+        await bridge.runCode(r'''
+local t = {x = 1}
+local mt = {__tostring = function(self) return "custom: " .. self.x end}
+
+-- Set metatable with __tostring function
+setmetatable(t, mt)
+
+-- Test that the __tostring function is called when converting to string
+local result = tostring(t)
+        ''');
+        expect(
+          (bridge.getGlobal('result') as Value).unwrap(),
+          equals("custom: 1"),
+        );
+      });
+
+      test('getmetatable and setmetatable', () async {
+        final bridge = LuaLike();
+        await bridge.runCode('''
         local t = {}
         local mt = {__index = {value = 10}}
 
@@ -156,23 +175,23 @@ void main() {
         local nilMt = getmetatable(123) == nil
       ''');
 
-      expect((bridge.getGlobal('result') as Value).raw, isA<Map>());
-      expect((bridge.getGlobal('hasMt') as Value).raw, isTrue);
-      expect((bridge.getGlobal('nilMt') as Value).raw, isFalse);
+        expect((bridge.getGlobal('result') as Value).raw, isA<Map>());
+        expect((bridge.getGlobal('hasMt') as Value).raw, isTrue);
+        expect((bridge.getGlobal('nilMt') as Value).raw, isFalse);
 
-      // Test __metatable field separately
-      await bridge.runCode('''
+        // Test __metatable field separately
+        await bridge.runCode('''
         local t2 = {}
         setmetatable(t2, {__metatable = "protected"})
         local protectedMt = getmetatable(t2)
       ''');
 
-      expect(
-        (bridge.getGlobal('protectedMt') as Value).raw,
-        equals("protected"),
-      );
+        expect(
+          (bridge.getGlobal('protectedMt') as Value).unwrap(),
+          equals("protected"),
+        );
+      });
     });
-
     test('print', () async {
       final bridge = LuaLike();
       await bridge.runCode('''
@@ -197,13 +216,13 @@ void main() {
         }
       ''');
 
-      final types = (bridge.getGlobal('types') as Value).raw as Map;
-      expect((types['nil_type'] as Value).raw, equals("nil"));
-      expect((types['number_type'] as Value).raw, equals("number"));
-      expect((types['string_type'] as Value).raw, equals("string"));
-      expect((types['boolean_type'] as Value).raw, equals("boolean"));
-      expect((types['table_type'] as Value).raw, equals("table"));
-      expect((types['function_type'] as Value).raw, equals("function"));
+      final types = (bridge.getGlobal('types') as Value).unwrap() as Map;
+      expect(types['nil_type'], equals("nil"));
+      expect(types['number_type'], equals("number"));
+      expect(types['string_type'], equals("string"));
+      expect(types['boolean_type'], equals("boolean"));
+      expect(types['table_type'], equals("table"));
+      expect(types['function_type'], equals("function"));
     });
 
     test('_VERSION', () async {
@@ -213,9 +232,9 @@ void main() {
         local isString = type(version) == "string"
       ''');
 
-      expect((bridge.getGlobal('isString') as Value).raw, equals(true));
+      expect((bridge.getGlobal('isString') as Value).unwrap(), equals(true));
       expect(
-        (bridge.getGlobal('version') as Value).raw.toString(),
+        (bridge.getGlobal('version') as Value).unwrap().toString(),
         contains("LuaLike"),
       );
     });
@@ -241,8 +260,8 @@ void main() {
         local s3 = tostring(nil)
       ''');
 
-      expect((bridge.getGlobal('s1') as Value).raw, equals("123"));
-      expect((bridge.getGlobal('s3') as Value).raw, equals("nil"));
+      expect((bridge.getGlobal('s1') as Value).unwrap(), equals("123"));
+      expect((bridge.getGlobal('s3') as Value).unwrap(), equals("nil"));
     });
 
     test('tonumber', () async {
@@ -252,14 +271,14 @@ void main() {
         local n1 = tonumber("123")
         local n2 = tonumber("123.45")
         local n3 = tonumber("-123.45")
-        
+
         -- Test positive sign prefix
         local pos1 = tonumber("+123")
         local pos2 = tonumber("+123.45")
         local pos3 = tonumber("+0.01")
         local pos4 = tonumber("+.01")
         local pos5 = tonumber("+1.")
-        
+
         -- Test decimal point variations
         local dot1 = tonumber(".01")
         local dot2 = tonumber("-.01")
@@ -268,14 +287,14 @@ void main() {
         local dot5 = tonumber("0.")
         local dot6 = tonumber("+0.")
         local dot7 = tonumber("-0.")
-        
+
         -- Test leading/trailing zeros
         local zero1 = tonumber("007")
         local zero2 = tonumber("007.5")
         local zero3 = tonumber("0.500")
         local zero4 = tonumber("+007")
         local zero5 = tonumber("-007")
-        
+
         -- Test scientific notation
         local sci1 = tonumber("1e2")
         local sci2 = tonumber("1.5e2")
@@ -285,11 +304,11 @@ void main() {
         local sci6 = tonumber("-1e2")
         local sci7 = tonumber("1e+2")
         local sci8 = tonumber("1e-2")
-        
+
         -- Test hex numbers (base 10 should treat these as invalid)
         local hex_base10_1 = tonumber("0x10")
         local hex_base10_2 = tonumber("0X10")
-        
+
         -- Test with base parameter
         local hex = tonumber("FF", 16)
         local hex2 = tonumber("ff", 16)
@@ -297,18 +316,18 @@ void main() {
         local bin = tonumber("1010", 2)
         local oct = tonumber("70", 8)
         local base36 = tonumber("ZZ", 36)
-        
+
         -- Test whitespace handling
         local ws1 = tonumber(" 123 ")
         local ws2 = tonumber("\\t456\\n")
         local ws3 = tonumber("  +123.45  ")
         local ws4 = tonumber("\\n\\t-67.89\\t\\n")
-        
+
         -- Test edge cases
         local inf_pos = tonumber("inf")
         local inf_neg = tonumber("-inf")
         local nan_val = tonumber("nan")
-        
+
         -- Test invalid conversions
         local invalid1 = tonumber("not a number")
         local invalid2 = tonumber("FF") -- without base 16
@@ -325,14 +344,14 @@ void main() {
         local invalid13 = tonumber(".")
         local invalid14 = tonumber("+")
         local invalid15 = tonumber("-")
-        
+
         -- Test the specific cases from math.lua that were failing
         local math_test1 = tonumber("+0.01")
         local math_test2 = tonumber("+.01")
         local math_test3 = tonumber(".01")
         local math_test4 = tonumber("-1.")
         local math_test5 = tonumber("+1.")
-        
+
         -- Verify math.lua assertions
         local check1 = math_test1 == 1/100
         local check2 = math_test2 == 0.01
@@ -489,7 +508,10 @@ void main() {
         local rawGetResult = rawget(t, "key")
       ''');
 
-      expect((bridge.getGlobal('rawGetResult') as Value).raw, equals("value"));
+      expect(
+        (bridge.getGlobal('rawGetResult') as Value).unwrap(),
+        equals("value"),
+      );
     });
 
     test('rawset rejects invalid keys', () async {
@@ -500,14 +522,14 @@ void main() {
         okNil, errNil = pcall(rawset, t, nil, 1)
       ''');
 
-      expect((bridge.getGlobal('okNaN') as Value).raw, equals(false));
+      expect((bridge.getGlobal('okNaN') as Value).unwrap(), equals(false));
       expect(
-        (bridge.getGlobal('errNaN') as Value).raw.toString(),
+        (bridge.getGlobal('errNaN') as Value).unwrap().toString(),
         contains('table index is NaN'),
       );
-      expect((bridge.getGlobal('okNil') as Value).raw, equals(false));
+      expect((bridge.getGlobal('okNil') as Value).unwrap(), equals(false));
       expect(
-        (bridge.getGlobal('errNil') as Value).raw.toString(),
+        (bridge.getGlobal('errNil') as Value).unwrap().toString(),
         contains('table index is nil'),
       );
     });
@@ -675,17 +697,20 @@ void main() {
         local argStatus, argResult = pcall(function(x, y) return x + y end, 10, 20)
       ''');
 
-      expect((bridge.getGlobal('status') as Value).raw, equals(true));
-      expect((bridge.getGlobal('result') as Value).raw, equals("success"));
+      expect((bridge.getGlobal('status') as Value).unwrap(), equals(true));
+      expect((bridge.getGlobal('result') as Value).unwrap(), equals("success"));
 
-      expect((bridge.getGlobal('errorStatus') as Value).raw, equals(false));
       expect(
-        (bridge.getGlobal('errorMsg') as Value).raw.toString(),
+        (bridge.getGlobal('errorStatus') as Value).unwrap(),
+        equals(false),
+      );
+      expect(
+        (bridge.getGlobal('errorMsg') as Value).unwrap().toString(),
         contains("test error"),
       );
 
-      expect((bridge.getGlobal('argStatus') as Value).raw, equals(true));
-      expect((bridge.getGlobal('argResult') as Value).raw, equals(30));
+      expect((bridge.getGlobal('argStatus') as Value).unwrap(), equals(true));
+      expect((bridge.getGlobal('argResult') as Value).unwrap(), equals(30));
     });
 
     test('xpcall', () async {
@@ -713,21 +738,24 @@ void main() {
         )
       ''');
 
-      expect((bridge.getGlobal('status') as Value).raw, equals(true));
-      expect((bridge.getGlobal('result') as Value).raw, equals("success"));
+      expect((bridge.getGlobal('status') as Value).unwrap(), equals(true));
+      expect((bridge.getGlobal('result') as Value).unwrap(), equals("success"));
 
-      expect((bridge.getGlobal('errorStatus') as Value).raw, equals(false));
       expect(
-        (bridge.getGlobal('errorMsg') as Value).raw.toString(),
+        (bridge.getGlobal('errorStatus') as Value).unwrap(),
+        equals(false),
+      );
+      expect(
+        (bridge.getGlobal('errorMsg') as Value).unwrap().toString(),
         contains("Handled: "),
       );
       expect(
-        (bridge.getGlobal('errorMsg') as Value).raw.toString(),
+        (bridge.getGlobal('errorMsg') as Value).unwrap().toString(),
         contains("test error"),
       );
 
-      expect((bridge.getGlobal('argStatus') as Value).raw, equals(true));
-      expect((bridge.getGlobal('argResult') as Value).raw, equals(30));
+      expect((bridge.getGlobal('argStatus') as Value).unwrap(), equals(true));
+      expect((bridge.getGlobal('argResult') as Value).unwrap(), equals(30));
     });
   });
 }

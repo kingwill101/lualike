@@ -19,7 +19,7 @@ void main() {
       ''');
 
       var result = bridge.getGlobal('result');
-      expect((result as Value).raw, equals(15));
+      expect((result as Value).unwrap(), equals(15));
     });
 
     test('vararg with named parameters', () async {
@@ -42,8 +42,11 @@ void main() {
       var result1 = bridge.getGlobal('result1');
       var result2 = bridge.getGlobal('result2');
 
-      expect((result1 as Value).raw, equals("Hello, Alice"));
-      expect((result2 as Value).raw, equals("Hello, Alice and Bob, Charlie"));
+      expect((result1 as Value).unwrap(), equals("Hello, Alice"));
+      expect(
+        (result2 as Value).unwrap(),
+        equals("Hello, Alice and Bob, Charlie"),
+      );
     });
 
     // New comprehensive parameter list tests
@@ -60,7 +63,7 @@ void main() {
         ''');
 
         var result = bridge.getGlobal('result');
-        expect((result as Value).raw, equals("no parameters"));
+        expect((result as Value).unwrap(), equals("no parameters"));
       });
 
       test('vararg only parameter list', () async {
@@ -79,8 +82,8 @@ void main() {
         var result1 = bridge.getGlobal('result1');
         var result2 = bridge.getGlobal('result2');
 
-        expect((result1 as Value).raw, equals(0));
-        expect((result2 as Value).raw, equals(3));
+        expect((result1 as Value).unwrap(), equals(0));
+        expect((result2 as Value).unwrap(), equals(3));
       });
 
       test('named parameters with comma before vararg', () async {
@@ -99,8 +102,8 @@ void main() {
         var result1 = bridge.getGlobal('result1');
         var result2 = bridge.getGlobal('result2');
 
-        expect((result1 as Value).raw, equals(30)); // 10 + 20 + 0
-        expect((result2 as Value).raw, equals(33)); // 10 + 20 + 3
+        expect((result1 as Value).unwrap(), equals(30)); // 10 + 20 + 0
+        expect((result2 as Value).unwrap(), equals(33)); // 10 + 20 + 3
       });
 
       test('named parameters without comma before vararg', () async {
@@ -119,8 +122,8 @@ void main() {
         var result1 = bridge.getGlobal('result1');
         var result2 = bridge.getGlobal('result2');
 
-        expect((result1 as Value).raw, equals(20)); // 5 * 4 + 0
-        expect((result2 as Value).raw, equals(22)); // 5 * 4 + 2
+        expect((result1 as Value).unwrap(), equals(20)); // 5 * 4 + 0
+        expect((result2 as Value).unwrap(), equals(22)); // 5 * 4 + 2
       });
 
       test('single named parameter with vararg', () async {
@@ -139,8 +142,8 @@ void main() {
         var result1 = bridge.getGlobal('result1');
         var result2 = bridge.getGlobal('result2');
 
-        expect((result1 as Value).raw, equals("hello 0"));
-        expect((result2 as Value).raw, equals("hello 2"));
+        expect((result1 as Value).unwrap(), equals("hello 0"));
+        expect((result2 as Value).unwrap(), equals("hello 2"));
       });
 
       test('multiple named parameters with vararg', () async {
@@ -163,8 +166,8 @@ void main() {
         var result1 = bridge.getGlobal('result1');
         var result2 = bridge.getGlobal('result2');
 
-        expect((result1 as Value).raw, equals(6)); // 1 + 2 + 3
-        expect((result2 as Value).raw, equals(36)); // 1 + 2 + 3 + 10 + 20
+        expect((result1 as Value).unwrap(), equals(6)); // 1 + 2 + 3
+        expect((result2 as Value).unwrap(), equals(36)); // 1 + 2 + 3 + 10 + 20
       });
     });
 
@@ -181,7 +184,7 @@ void main() {
         ''');
 
         var result = bridge.getGlobal('result');
-        expect((result as Value).raw, equals(3));
+        expect((result as Value).unwrap(), equals(3));
       });
 
       test('local function with named params and vararg', () async {
@@ -204,8 +207,8 @@ void main() {
         var result1 = bridge.getGlobal('result1');
         var result2 = bridge.getGlobal('result2');
 
-        expect((result1 as Value).raw, equals("start"));
-        expect((result2 as Value).raw, equals("start-middle-end"));
+        expect((result1 as Value).unwrap(), equals("start"));
+        expect((result2 as Value).unwrap(), equals("start-middle-end"));
       });
     });
 
@@ -227,7 +230,7 @@ void main() {
       ''');
 
       var result = bridge.getGlobal('result');
-      expect((result as Value).raw, equals("Count: 3, First: A"));
+      expect((result as Value).unwrap(), equals("Count: 3, First: A"));
     });
 
     test('vararg in local function', () async {
@@ -253,9 +256,9 @@ void main() {
       var second = bridge.getGlobal('second');
       var third = bridge.getGlobal('third');
 
-      expect((first as Value).raw, equals(20));
-      expect((second as Value).raw, equals(40));
-      expect((third as Value).raw, equals(60));
+      expect((first as Value).unwrap(), equals(20));
+      expect((second as Value).unwrap(), equals(40));
+      expect((third as Value).unwrap(), equals(60));
     });
 
     test('empty varargs handling', () async {
@@ -274,8 +277,8 @@ void main() {
       var empty = bridge.getGlobal('empty');
       var nonempty = bridge.getGlobal('nonempty');
 
-      expect((empty as Value).raw, equals(0));
-      expect((nonempty as Value).raw, equals(3));
+      expect((empty as Value).unwrap(), equals(0));
+      expect((nonempty as Value).unwrap(), equals(3));
     });
 
     // Tests for varargs in table constructors
@@ -300,10 +303,10 @@ void main() {
         var second = bridge.getGlobal('second');
         var third = bridge.getGlobal('third');
 
-        expect((count as Value).raw, equals(3));
-        expect((first as Value).raw, equals(1));
-        expect((second as Value).raw, equals(2));
-        expect((third as Value).raw, equals(3));
+        expect((count as Value).unwrap(), equals(3));
+        expect((first as Value).unwrap(), equals(1));
+        expect((second as Value).unwrap(), equals(2));
+        expect((third as Value).unwrap(), equals(3));
       });
 
       test('mixed values and varargs in table constructor', () async {
@@ -326,19 +329,19 @@ void main() {
         var len = bridge.getGlobal('len') as Value;
 
         expect(
-          len.raw,
+          len.unwrap(),
           equals(7),
         ); // 2 prefix values + 3 varargs + 2 suffix values
 
         // Get values map and verify contents
-        var valuesMap = values.raw as Map;
-        expect((valuesMap[1] as Value).raw, equals(10));
-        expect((valuesMap[2] as Value).raw, equals(20));
-        expect((valuesMap[3] as Value).raw, equals("a"));
-        expect((valuesMap[4] as Value).raw, equals("b"));
-        expect((valuesMap[5] as Value).raw, equals("c"));
-        expect((valuesMap[6] as Value).raw, equals(30));
-        expect((valuesMap[7] as Value).raw, equals(40));
+        var valuesMap = values.unwrap() as Map;
+        expect(valuesMap[1], equals(10));
+        expect(valuesMap[2], equals(20));
+        expect(valuesMap[3], equals("a"));
+        expect(valuesMap[4], equals("b"));
+        expect(valuesMap[5], equals("c"));
+        expect(valuesMap[6], equals(30));
+        expect(valuesMap[7], equals(40));
       });
 
       test('function returns in table constructor', () async {
@@ -373,14 +376,14 @@ void main() {
         var count = bridge.getGlobal('count') as Value;
 
         // In regular table constructor, only first return value is used
-        expect(first.raw, equals("x"));
-        expect(size.raw, equals(3));
+        expect(first.unwrap(), equals("x"));
+        expect(size.unwrap(), equals(3));
 
         // When passed through varargs, all values are preserved
-        expect(x.raw, equals("x"));
-        expect(y.raw, equals("y"));
-        expect(z.raw, equals("z"));
-        expect(count.raw, equals(3));
+        expect(x.unwrap(), equals("x"));
+        expect(y.unwrap(), equals("y"));
+        expect(z.unwrap(), equals("z"));
+        expect(count.unwrap(), equals(3));
       });
 
       test('empty varargs in table constructor', () async {
@@ -402,10 +405,10 @@ void main() {
         var size2 = bridge.getGlobal('size2') as Value;
 
         // Without varargs: just the fixed elements
-        expect(size1.raw, equals(3)); // [1, 2, 3]
+        expect(size1.unwrap(), equals(3)); // [1, 2, 3]
 
         // With varargs: fixed elements plus varargs
-        expect(size2.raw, equals(5)); // [1, 2, "a", "b", 3]
+        expect(size2.unwrap(), equals(5)); // [1, 2, "a", "b", 3]
       });
 
       test('nested table with varargs', () async {
@@ -433,11 +436,11 @@ void main() {
         var second = bridge.getGlobal('second') as Value;
         var third = bridge.getGlobal('third') as Value;
 
-        expect(outer.raw, equals(1));
-        expect(innerCount.raw, equals(3));
-        expect(first.raw, equals("a"));
-        expect(second.raw, equals("b"));
-        expect(third.raw, equals("c"));
+        expect(outer.unwrap(), equals(1));
+        expect(innerCount.unwrap(), equals(3));
+        expect(first.unwrap(), equals("a"));
+        expect(second.unwrap(), equals("b"));
+        expect(third.unwrap(), equals("c"));
       });
     });
 
@@ -455,7 +458,7 @@ void main() {
         ''');
 
         var result = bridge.getGlobal('result');
-        expect((result as Value).raw, equals(3));
+        expect((result as Value).unwrap(), equals(3));
       });
 
       test('function with whitespace around comma and vararg', () async {
@@ -470,7 +473,7 @@ void main() {
         ''');
 
         var result = bridge.getGlobal('result');
-        expect((result as Value).raw, equals(12)); // 10 + 2
+        expect((result as Value).unwrap(), equals(12)); // 10 + 2
       });
 
       test('nested function calls with different parameter patterns', () async {
@@ -493,7 +496,7 @@ void main() {
         ''');
 
         var result = bridge.getGlobal('result');
-        expect((result as Value).raw, equals(9));
+        expect((result as Value).unwrap(), equals(9));
       });
 
       test('function assignment with different parameter patterns', () async {
@@ -513,9 +516,9 @@ void main() {
         var result2 = bridge.getGlobal('result2');
         var result3 = bridge.getGlobal('result3');
 
-        expect((result1 as Value).raw, equals(3));
-        expect((result2 as Value).raw, equals(12)); // 10 + 2
-        expect((result3 as Value).raw, equals(9)); // 1 + 2 + 3 + 3
+        expect((result1 as Value).unwrap(), equals(3));
+        expect((result2 as Value).unwrap(), equals(12)); // 10 + 2
+        expect((result3 as Value).unwrap(), equals(9)); // 1 + 2 + 3 + 3
       });
 
       test('method definition with varargs', () async {
@@ -539,8 +542,8 @@ void main() {
         var result1 = bridge.getGlobal('result1');
         var result2 = bridge.getGlobal('result2');
 
-        expect((result1 as Value).raw, equals(2));
-        expect((result2 as Value).raw, equals("hello2"));
+        expect((result1 as Value).unwrap(), equals(2));
+        expect((result2 as Value).unwrap(), equals("hello2"));
       });
 
       test('complex nested vararg scenarios', () async {
@@ -566,9 +569,9 @@ void main() {
         var count = bridge.getGlobal('count');
         var first = bridge.getGlobal('first');
 
-        expect((prefix as Value).raw, equals("nested"));
-        expect((count as Value).raw, equals(3));
-        expect((first as Value).raw, equals("a"));
+        expect((prefix as Value).unwrap(), equals("nested"));
+        expect((count as Value).unwrap(), equals(3));
+        expect((first as Value).unwrap(), equals("a"));
       });
     });
 
@@ -603,11 +606,11 @@ void main() {
         var third = bridge.getGlobal('third');
         var fourth = bridge.getGlobal('fourth');
 
-        expect((count as Value).raw, equals(4));
-        expect((first as Value).raw, equals("a"));
-        expect((second as Value).raw, equals("nil_placeholder"));
-        expect((third as Value).raw, equals("b"));
-        expect((fourth as Value).raw, equals("nil_placeholder"));
+        expect((count as Value).unwrap(), equals(4));
+        expect((first as Value).unwrap(), equals("a"));
+        expect((second as Value).unwrap(), equals("nil_placeholder"));
+        expect((third as Value).unwrap(), equals("b"));
+        expect((fourth as Value).unwrap(), equals("nil_placeholder"));
       });
 
       test('large number of varargs', () async {
@@ -628,7 +631,7 @@ void main() {
         ''');
 
         var result = bridge.getGlobal('result');
-        expect((result as Value).raw, equals(100));
+        expect((result as Value).unwrap(), equals(100));
       });
     });
   });

@@ -60,11 +60,16 @@ void main() {
     test('latin1Encode and latin1Decode roundtrip', () async {
       final bridge = LuaLike();
       await bridge.runCode(r'''
-        latin1_encoded = convert.latin1Encode("blåbærgrød")
+        -- Use a string with Latin-1 characters (byte values 128-255)
+        -- Create the string using string.char to ensure proper byte values
+        local test_str = string.char(98, 108, 229, 98, 230, 114, 103, 114, 246, 100) -- "bl" + å + "b" + æ + "rgr" + ö + "d"
+        latin1_encoded = convert.latin1Encode(test_str)
         latin1_decoded = convert.latin1Decode(latin1_encoded)
       ''');
       final decoded = bridge.getGlobal('latin1_decoded')!;
-      expect(decoded.raw, 'blåbærgrød');
+      // The decoded string should match the original byte sequence
+      final original = bridge.getGlobal('test_str')!;
+      expect(decoded.raw.toString(), equals(original.raw.toString()));
     });
   });
 }

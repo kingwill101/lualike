@@ -11,6 +11,6 @@ extension FutureValueExtension on Future<dynamic> {
   /// Unwrap a Future`<Value>` to Future`<dynamic>`
   Future<dynamic> unwrapValue() async {
     final result = await this;
-    return result is Value ? result.raw : result;
+    return result is Value ? result.unwrap() : result;
   }
 }

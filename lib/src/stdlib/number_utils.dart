@@ -3,6 +3,7 @@ import '../logger.dart';
 import '../lua_error.dart';
 import '../number.dart';
 import '../value.dart';
+import '../lua_string.dart';
 
 /// Utility class for common number operations and conversions used throughout the stdlib
 class NumberUtils {
@@ -18,10 +19,28 @@ class NumberUtils {
     if (value == null) return 'nil';
     if (value is bool) return 'boolean';
     if (value is num) return 'number';
-    if (value is String) return 'string';
-    if (value is List) return 'table';
+    if (value is String || value is LuaString) return 'string';
+    if (value is List || value is Map) return 'table';
     if (value is Function) return 'function';
     return value.runtimeType.toString();
+  }
+
+  /// Validate that a value is a string or number, throwing appropriate error if not
+  static void validateStringOrNumber(
+    dynamic value,
+    String context, [
+    int? index,
+  ]) {
+    if (value is! String && value is! num && value is! LuaString) {
+      final typeName = NumberUtils.typeName(value);
+      if (index != null) {
+        throw LuaError(
+          "invalid value ($typeName) at index $index in table for '$context'",
+        );
+      } else {
+        throw LuaError("invalid value ($typeName) for '$context'");
+      }
+    }
   }
 
   /// Extract and validate a number from a Value with proper error handling
@@ -36,12 +55,18 @@ class NumberUtils {
 
   /// Convert any numeric type to double
   static double toDouble(dynamic number) {
+    if (number is String || number is LuaString) {
+      number = LuaNumberParser.parse(number.toString());
+    }
     if (number is BigInt) return number.toDouble();
     return (number as num).toDouble();
   }
 
   /// Convert any numeric type to int (with overflow handling)
   static int toInt(dynamic number) {
+    if (number is String || number is LuaString) {
+      number = LuaNumberParser.parse(number.toString());
+    }
     if (number is BigInt) return number.toInt();
     if (number is int) return number;
     return (number as num).toInt();
@@ -49,6 +74,9 @@ class NumberUtils {
 
   /// Convert any numeric type to BigInt
   static BigInt toBigInt(dynamic number) {
+    if (number is String || number is LuaString) {
+      number = LuaNumberParser.parse(number.toString());
+    }
     if (number is BigInt) return number;
     if (number is int) return BigInt.from(number);
     return BigInt.from((number as num).toInt());
@@ -104,9 +132,9 @@ class NumberUtils {
 
   /// Convert a number to integer if possible, respecting Lua's math.tointeger semantics
   static int? tryToInteger(dynamic value) {
-    if (value is String) {
+    if (value is String || value is LuaString) {
       try {
-        value = LuaNumberParser.parse(value);
+        value = LuaNumberParser.parse(value.toString());
       } catch (_) {
         return null;
       }
@@ -269,8 +297,8 @@ class NumberUtils {
 
     // Convert to signed 64-bit representation
     if (masked > BigInt.from(maxInteger)) {
-      // If result is > maxInt64, subtract 2^64 to get the wrapped negative value
-      final wrapped = masked - (BigInt.one << 64);
+      // If result is > maxInt64, subtract 2^sizeInBits to get the wrapped negative value
+      final wrapped = masked - (BigInt.one << sizeInBits);
       return wrapped.toInt();
     }
 
@@ -318,8 +346,8 @@ class NumberUtils {
         return leftShift(a, -shift);
       }
 
-      // Handle large shifts (>= 64 bits)
-      if (shift >= 64) {
+      // Handle large shifts (>= sizeInBits bits)
+      if (shift >= sizeInBits) {
         return bigA.isNegative ? BigInt.from(-1) : BigInt.zero;
       }
 
@@ -334,8 +362,8 @@ class NumberUtils {
       return leftShift(a, -shift);
     }
 
-    // Handle large shifts (>= 64 bits)
-    if (shift >= 64) {
+    // Handle large shifts (>= sizeInBits bits)
+    if (shift >= sizeInBits) {
       return bigA.isNegative ? -1 : 0;
     }
 
@@ -404,8 +432,8 @@ class NumberUtils {
 
     // Convert to signed 64-bit representation
     if (masked > BigInt.from(maxInteger)) {
-      // If result is > maxInt64, subtract 2^64 to get the wrapped negative value
-      final wrapped = masked - (BigInt.one << 64);
+      // If result is > maxInt64, subtract 2^sizeInBits to get the wrapped negative value
+      final wrapped = masked - (BigInt.one << sizeInBits);
       return wrapped.toInt();
     }
 
@@ -577,6 +605,16 @@ class NumberUtils {
     return math.pow(f1, f2).toDouble();
   }
 
+  /// Convert a signed integer to its unsigned 64-bit representation
+  /// This is used for formatting negative numbers as unsigned values (%u, %x, %o)
+  static BigInt toUnsigned64(int value) {
+    if (value >= 0) {
+      return BigInt.from(value);
+    }
+    // For negative values, add 2^sizeInBits to get the unsigned representation
+    return (BigInt.one << sizeInBits) + BigInt.from(value);
+  }
+
   /// Perform bitwise AND with integer validation
   static dynamic bitwiseAnd(dynamic a, dynamic b) {
     final bigA = _validateAndConvertToInteger(a);
@@ -628,9 +666,9 @@ class NumberUtils {
   /// Perform bitwise NOT with integer validation
   static dynamic bitwiseNot(dynamic a) {
     // Try to convert strings to numbers (Lua automatic conversion)
-    if (a is String) {
+    if (a is String || a is LuaString) {
       try {
-        a = LuaNumberParser.parse(a);
+        a = LuaNumberParser.parse(a.toString());
       } catch (e) {
         throw LuaError.typeError(
           "attempt to perform arithmetic on a string value",
@@ -652,6 +690,13 @@ class NumberUtils {
 
   /// Helper method to validate and convert to integer for bitwise operations
   static BigInt _validateAndConvertToInteger(dynamic value) {
+    if (value is String || value is LuaString) {
+      try {
+        value = LuaNumberParser.parse(value.toString());
+      } catch (_) {
+        throw LuaError.typeError('number has no integer representation');
+      }
+    }
     if (value is BigInt) return value;
     if (value is int) return BigInt.from(value);
     if (value is double) {
@@ -681,10 +726,10 @@ class NumberUtils {
     );
 
     // Try to convert strings to numbers (Lua automatic conversion)
-    if (r1 is String) {
+    if (r1 is String || r1 is LuaString) {
       Logger.debug('ARITH: r1 is String, parsing...', category: 'NumberUtils');
       try {
-        r1 = LuaNumberParser.parse(r1);
+        r1 = LuaNumberParser.parse(r1.toString());
         Logger.debug(
           'ARITH: r1 parsed to $r1 (${r1.runtimeType})',
           category: 'NumberUtils',
@@ -701,10 +746,10 @@ class NumberUtils {
       }
     }
 
-    if (r2 is String) {
+    if (r2 is String || r2 is LuaString) {
       Logger.debug('ARITH: r2 is String, parsing...', category: 'NumberUtils');
       try {
-        r2 = LuaNumberParser.parse(r2);
+        r2 = LuaNumberParser.parse(r2.toString());
         Logger.debug(
           'ARITH: r2 parsed to $r2 (${r2.runtimeType})',
           category: 'NumberUtils',
@@ -803,9 +848,9 @@ class NumberUtils {
   /// Perform unary negation with Lua semantics including string conversion
   static dynamic negate(dynamic value) {
     // Try to convert strings to numbers (Lua automatic conversion)
-    if (value is String) {
+    if (value is String || value is LuaString) {
       try {
-        value = LuaNumberParser.parse(value);
+        value = LuaNumberParser.parse(value.toString());
       } catch (e) {
         throw LuaError.typeError(
           "attempt to perform arithmetic on a string value",

@@ -4784,8 +4784,12 @@ class GrammarParser {
   ///     { comment.add(c); }
   ///     ----
   ///     c = '--'
-  ///     [^{a}]*
-  ///     [{a}]?
+  ///     @while (*) (
+  ///       !'\n'
+  ///       !EOF
+  ///       .
+  ///     )
+  ///     ('\n' / EOF)
   ///     { comment.add(c); }
   ///   )
   ///```
@@ -4946,27 +4950,72 @@ class GrammarParser {
             }
             if (!$19) {
               state.position = $20;
-              var $27 = false;
               final $28 = state.position;
+              var $27 = false;
               if (state.peek() == 45 &&
                   state.startsWith('--', state.position)) {
                 state.consume('--', $28);
                 String c = '--';
-                for (var c = state.peek(); c != 10;) {
-                  state.position += state.charSize(c);
-                  c = state.peek();
+                while (true) {
+                  final $30 = state.position;
+                  var $29 = false;
+                  final $31 = state.predicate;
+                  state.predicate = true;
+                  var $32 = true;
+                  if (state.peek() == 10) {
+                    state.consume('\n', $30);
+                    state.failAndBacktrack($30);
+                    $32 = false;
+                  } else {
+                    state.expected('\n');
+                  }
+                  state.predicate = $31;
+                  if ($32) {
+                    final $33 = state.position;
+                    final $34 = state.predicate;
+                    state.predicate = true;
+                    var $36 = true;
+                    final $35 = parseEOF(state);
+                    if ($35 != null) {
+                      state.failAndBacktrack($33);
+                      $36 = false;
+                    }
+                    state.predicate = $34;
+                    if ($36) {
+                      final $37 = state.peek();
+                      if ($37 != 0) {
+                        state.position += state.charSize($37);
+                        $29 = true;
+                      } else {
+                        state.fail();
+                      }
+                    }
+                  }
+                  if (!$29) {
+                    state.position = $30;
+                    break;
+                  }
                 }
+                var $38 = true;
+                final $39 = state.position;
                 if (state.peek() == 10) {
-                  state.position += state.charSize(10);
+                  state.consume('\n', $39);
                 } else {
-                  state.fail();
+                  state.expected('\n');
+                  final $40 = parseEOF(state);
+                  if ($40 == null) {
+                    $38 = false;
+                  }
                 }
-                comment.add(c);
-                $27 = true;
+                if ($38) {
+                  comment.add(c);
+                  $27 = true;
+                }
               } else {
                 state.expected('--');
               }
               if (!$27) {
+                state.position = $28;
                 $0 = false;
               }
             }

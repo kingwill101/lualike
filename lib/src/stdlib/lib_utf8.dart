@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:characters/characters.dart';
 import 'package:lualike/src/bytecode/vm.dart' show BytecodeVM;
@@ -6,6 +7,7 @@ import 'package:lualike/src/builtin_function.dart' show BuiltinFunction;
 import 'package:lualike/src/environment.dart' show Environment;
 import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/value.dart' show Value;
+import 'package:lualike/src/lua_string.dart';
 import '../../lualike.dart' show Value;
 import '../value_class.dart';
 
@@ -17,7 +19,7 @@ class UTF8Lib {
   static final ValueClass utf8Class = ValueClass.create({
     "__len": (List<Object?> args) {
       final str = args[0] as Value;
-      if (str.raw is! String) {
+      if (str.raw is! String && str.raw is! LuaString) {
         throw Exception("utf8 operation on non-string value");
       }
       return Value(str.raw.toString().characters.length);
@@ -56,7 +58,12 @@ class _UTF8Char implements BuiltinFunction {
     }
 
     try {
-      return Value(String.fromCharCodes(codePoints));
+      // Create a proper Dart string from the codepoints
+      final dartString = String.fromCharCodes(codePoints);
+      // Encode it to UTF-8 bytes
+      final utf8Bytes = utf8.encode(dartString);
+      // Create a LuaString with the UTF-8 bytes
+      return Value(LuaString(Uint8List.fromList(utf8Bytes)));
     } catch (e) {
       throw Exception("invalid UTF-8 code");
     }
@@ -73,22 +80,30 @@ class _UTF8Codes implements BuiltinFunction {
     final str = (args[0] as Value).raw.toString();
     final lax = args.length > 1 ? (args[1] as Value).raw as bool : false;
 
-    var index = 0;
+    // Get the UTF-8 bytes of the string
+    final utf8Bytes = utf8.encode(str);
+    var byteIndex = 0;
     final chars = str.characters.toList();
+    var charIndex = 0;
 
     return Value((List<Object?> iterArgs) {
-      if (index >= chars.length) {
+      if (charIndex >= chars.length) {
         return Value(null);
       }
 
-      final char = chars[index];
+      final char = chars[charIndex];
       final codePoint = char.runes.first;
       if (!lax && codePoint > 0x10FFFF) {
         throw Exception("invalid UTF-8 code");
       }
 
-      final currentPos = index + 1;
-      index++;
+      // Calculate the current byte position (1-based for Lua)
+      final currentPos = byteIndex + 1;
+
+      // Move to next character and update byte position
+      final charBytes = utf8.encode(char);
+      byteIndex += charBytes.length;
+      charIndex++;
 
       return [Value(currentPos), Value(codePoint)];
     });

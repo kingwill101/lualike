@@ -589,13 +589,35 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
           try {
             final result = await func.raw(args);
             Logger.debug(
-              '>>> Dart function returned: $result',
+              '>>> Dart function returned: $result (${result.runtimeType})',
               category: 'Interpreter',
             );
             return result;
           } catch (e, s) {
             Logger.debug(
               '>>> Error in Dart function: $e',
+              category: 'Interpreter',
+            );
+            Logger.debug('>>> Stack trace: $s', category: 'Interpreter');
+            rethrow;
+          }
+        } else if (func.raw is BuiltinFunction) {
+          // Call the builtin function
+          Logger.debug(
+            '>>> Calling builtin function from Value: ${func.raw.runtimeType}',
+            category: 'Interpreter',
+          );
+          try {
+            var result = (func.raw as BuiltinFunction).call(args);
+
+            if (result is Future) {
+              result = await result;
+            }
+
+            return result;
+          } catch (e, s) {
+            Logger.debug(
+              '>>> Error in builtin function: $e',
               category: 'Interpreter',
             );
             Logger.debug('>>> Stack trace: $s', category: 'Interpreter');

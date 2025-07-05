@@ -11,11 +11,16 @@ import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/bytecode/vm.dart' show BytecodeVM;
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/value.dart';
+import 'package:lualike/src/lua_string.dart';
 
 Uint8List _toBytes(Value value) {
   final raw = value.raw;
   if (raw is String) {
     return utf8.encode(raw);
+  }
+  if (raw is LuaString) {
+    // Preserve the original byte representation when passed a LuaString.
+    return Uint8List.fromList(raw.bytes);
   }
   if (raw is Uint8List) {
     return raw;

@@ -18,7 +18,7 @@ void main() {
       ''');
 
       var result = bridge.getGlobal('result');
-      expect((result as Value).raw, equals("Hello, World"));
+      expect((result as Value).unwrap(), equals("Hello, World"));
     });
 
     test('multiple chained function calls (a()()())', () async {
@@ -38,7 +38,7 @@ void main() {
       ''');
 
       var result = bridge.getGlobal('result');
-      expect((result as Value).raw, equals("3 levels deep"));
+      expect((result as Value).unwrap(), equals("3 levels deep"));
     });
 
     test('function chaining with arguments', () async {
@@ -56,7 +56,7 @@ void main() {
       ''');
 
       var result = bridge.getGlobal('result');
-      expect((result as Value).raw, equals(15));
+      expect((result as Value).unwrap(), equals(15));
     });
 
     test('function chaining in assignment', () async {
@@ -79,8 +79,8 @@ void main() {
       var first = bridge.getGlobal('first');
       var second = bridge.getGlobal('second');
 
-      expect((first as Value).raw, equals(1));
-      expect((second as Value).raw, equals(2));
+      expect((first as Value).unwrap(), equals(1));
+      expect((second as Value).unwrap(), equals(2));
     });
 
     test('complex function call chain with table access', () async {
@@ -107,7 +107,7 @@ void main() {
       ''');
 
       var result = bridge.getGlobal('result');
-      expect((result as Value).raw, equals("Hello from MyLib"));
+      expect((result as Value).unwrap(), equals("Hello from MyLib"));
     });
   });
 }

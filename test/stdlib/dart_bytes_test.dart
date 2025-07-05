@@ -1,5 +1,7 @@
 import 'dart:typed_data';
+import 'dart:convert';
 import 'package:lualike/testing.dart';
+import 'package:lualike/src/lua_string.dart';
 
 void main() {
   test(
@@ -44,11 +46,22 @@ void main() {
   test('dart.string.bytes.toBytes with unicode characters', () async {
     final bridge = LuaLike();
     await bridge.runCode('''
-      local bytes = dart.string.bytes.toBytes("你好")
+      -- Construct UTF-8 string for "你好" using proper byte sequence
+      local utf8_string = string.char(228, 189, 160, 229, 165, 189)
+      local bytes = dart.string.bytes.toBytes(utf8_string)
       str_result = dart.string.bytes.fromBytes(bytes)
     ''');
     final strResult = bridge.getGlobal('str_result')!;
-    expect(strResult.raw, '你好');
+    // The result should be the UTF-8 bytes for "你好"
+    final expectedBytes = [228, 189, 160, 229, 165, 189];
+    List<int> actualBytes;
+    if (strResult.raw is LuaString) {
+      actualBytes = (strResult.raw as LuaString).bytes;
+    } else {
+      // If it's a regular string, convert to bytes
+      actualBytes = utf8.encode(strResult.raw.toString());
+    }
+    expect(actualBytes, equals(expectedBytes));
   });
 
   test('dart.string.bytes.toBytes throws error with no arguments', () {

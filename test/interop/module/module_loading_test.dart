@@ -33,8 +33,8 @@ void main() {
       var initial = bridge.getGlobal('initial');
       var updated = bridge.getGlobal('updated');
 
-      expect((initial as Value).raw, equals(42));
-      expect((updated as Value).raw, equals(100));
+      expect((initial as Value).unwrap(), equals(42));
+      expect((updated as Value).unwrap(), equals(100));
     });
 
     // SKIP: Issue with package.loaded access
@@ -69,8 +69,8 @@ void main() {
       var count2 = bridge.getGlobal('count2');
 
       // count2 should be 2 because m1 and m2 reference the same module instance
-      expect((count1 as Value).raw, equals(1));
-      expect((count2 as Value).raw, equals(2));
+      expect((count1 as Value).unwrap(), equals(1));
+      expect((count2 as Value).unwrap(), equals(2));
     });
 
     test('tracegc module functionality', () async {
@@ -110,8 +110,8 @@ void main() {
       var propResult = bridge.getGlobal('propResult');
       var status = bridge.getGlobal('status');
 
-      expect((propResult as Value).raw, equals("TracerProperty: status"));
-      expect((status as Value).raw, equals("active"));
+      expect((propResult as Value).unwrap(), equals("TracerProperty: status"));
+      expect((status as Value).unwrap(), equals("active"));
     });
 
     // SKIP: Our implementation doesn't support method chaining
@@ -148,7 +148,7 @@ void main() {
       ''');
 
       var result = bridge.getGlobal('result');
-      expect((result as Value).raw, equals(10));
+      expect((result as Value).unwrap(), equals(10));
     });
   });
 }

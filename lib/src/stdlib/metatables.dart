@@ -3,8 +3,6 @@ import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/stdlib/lib_string.dart' show StringLib;
 
 import '../../lualike.dart';
-import '../value_class.dart';
-import '../lua_string.dart';
 import 'lib_string.dart';
 
 /// Handles default metatables and metamethods for built-in types
@@ -112,6 +110,15 @@ class MetaTable {
         );
         return Value(null);
       },
+      '__eq': (List<Object?> args) {
+        final a = args[0] as Value;
+        final b = args[1] as Value;
+        Logger.debug(
+          'String __eq metamethod called: "${a.raw}" == "${b.raw}"',
+          category: 'Metatables',
+        );
+        return Value(a == b);
+      },
     });
     Logger.debug('String metatable initialized', category: 'Metatables');
 
@@ -187,7 +194,11 @@ class MetaTable {
           category: 'Metatables',
         );
         if (table.raw is Map) {
-          final value = (table.raw as Map)[key.raw];
+          var rawKey = key.raw;
+          if (rawKey is LuaString) {
+            rawKey = rawKey.toString();
+          }
+          final value = (table.raw as Map)[rawKey];
           Logger.debug('Table index result: $value', category: 'Metatables');
           return value is Value ? value : Value(value);
         }
@@ -202,7 +213,11 @@ class MetaTable {
           category: 'Metatables',
         );
         if (table.raw is Map) {
-          (table.raw as Map)[key.raw] = value;
+          var rawKey = key.raw;
+          if (rawKey is LuaString) {
+            rawKey = rawKey.toString();
+          }
+          (table.raw as Map)[rawKey] = value;
           return Value(null);
         }
         throw Exception("attempt to index non-table value");
