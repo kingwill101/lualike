@@ -78,12 +78,12 @@ void main() {
       var words = bridge.getGlobal('words') as Value;
       var something = (words.raw as Map)['something'] as Value;
       var value = (something.raw as Map)['value'] as Value;
-      var valueMap = value.raw as Map<dynamic, dynamic>;
+      var valueMap = value.unwrap() as Map<dynamic, dynamic>;
 
       // Check that the deep assignment worked
-      expect((valueMap[3] as Value).unwrap(), equals(11));
-      expect((valueMap[1] as Value).unwrap(), equals("deep1"));
-      expect((valueMap[2] as Value).unwrap(), equals("deep2"));
+      expect(valueMap[3], equals(11));
+      expect(valueMap[1], equals("deep1"));
+      expect(valueMap[2], equals("deep2"));
     });
 
     test('deeply nested table assignment with indexing (workaround)', () async {
@@ -109,12 +109,12 @@ void main() {
       var words = bridge.getGlobal('words') as Value;
       var something = (words.raw as Map)['something'] as Value;
       var value = (something.raw as Map)['value'] as Value;
-      var valueMap = value.raw as Map<dynamic, dynamic>;
+      var valueMap = value.unwrap() as Map<dynamic, dynamic>;
 
       // Check that the deep assignment worked
-      expect((valueMap[3] as Value).unwrap(), equals(11));
-      expect((valueMap[1] as Value).unwrap(), equals("deep1"));
-      expect((valueMap[2] as Value).unwrap(), equals("deep2"));
+      expect(valueMap[3], equals(11));
+      expect(valueMap[1], equals("deep1"));
+      expect(valueMap[2], equals("deep2"));
     });
 
     test('require module functionality', () async {

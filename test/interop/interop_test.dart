@@ -62,10 +62,10 @@ void main() {
         person.score = 95
       ''');
       var person = bridge.getGlobal('person') as Value;
-      var personMap = person.unwrap() as Map<String, dynamic>;
-      expect((personMap['name'] as Value).unwrap(), equals('Alice'));
-      expect((personMap['age'] as Value).unwrap(), equals(30));
-      expect((personMap['score'] as Value).unwrap(), equals(95));
+      var personMap = person.unwrap() as Map;
+      expect(personMap['name'], equals('Alice'));
+      expect(personMap['age'], equals(30));
+      expect(personMap['score'], equals(95));
     });
   });
 
@@ -89,9 +89,8 @@ void main() {
     var t = result as Value;
     expect(t.raw, isA<Map>());
 
-    var tableMap = t.raw as Map<dynamic, dynamic>;
-    expect(tableMap['x_modified'], isA<Value>());
-    expect((tableMap['x_modified'] as Value).unwrap(), equals(20));
+    var tableMap = t.unwrap() as Map<dynamic, dynamic>;
+    expect(tableMap['x_modified'], equals(20));
     expect(
       tableMap.containsKey('x'),
       isFalse,

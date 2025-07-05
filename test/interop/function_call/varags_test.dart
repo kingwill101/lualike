@@ -335,13 +335,13 @@ void main() {
 
         // Get values map and verify contents
         var valuesMap = values.unwrap() as Map;
-        expect((valuesMap[1] as Value).unwrap(), equals(10));
-        expect((valuesMap[2] as Value).unwrap(), equals(20));
-        expect((valuesMap[3] as Value).unwrap(), equals("a"));
-        expect((valuesMap[4] as Value).unwrap(), equals("b"));
-        expect((valuesMap[5] as Value).unwrap(), equals("c"));
-        expect((valuesMap[6] as Value).unwrap(), equals(30));
-        expect((valuesMap[7] as Value).unwrap(), equals(40));
+        expect(valuesMap[1], equals(10));
+        expect(valuesMap[2], equals(20));
+        expect(valuesMap[3], equals("a"));
+        expect(valuesMap[4], equals("b"));
+        expect(valuesMap[5], equals("c"));
+        expect(valuesMap[6], equals(30));
+        expect(valuesMap[7], equals(40));
       });
 
       test('function returns in table constructor', () async {

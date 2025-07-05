@@ -63,7 +63,7 @@ void main() {
       final bridge = LuaLike();
 
       await bridge.runCode('''
-        local nested = {
+        nested = {
           ["outer.key"] = {
             ["inner.key"] = "inner value",
             normal = "normal value"

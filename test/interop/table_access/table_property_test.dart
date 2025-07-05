@@ -70,13 +70,15 @@ void main() {
         person = {}
         person.name = "Charlie"
         person["age"] = 35
-        person.contact = {}
+        person["contact"] = {}
       ''');
 
-      // Set nested properties separately
+      // Set nested properties directly
       await bridge.runCode('''
-        person["contact"].email = "charlie@example.com"
-        person.contact.phone = "555-1234"
+        person["contact"] = {
+          email = "charlie@example.com",
+          phone = "555-1234"
+        }
       ''');
 
       // Access properties using mixed notation

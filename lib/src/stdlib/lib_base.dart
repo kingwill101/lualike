@@ -405,8 +405,8 @@ class ToNumberFunction implements BuiltinFunction {
       base = args[1] as Value;
     }
 
-    if (value.raw is String) {
-      var str = (value.raw as String).trim();
+    if (value.raw is String || value.raw is LuaString) {
+      var str = value.raw.toString().trim();
       // Our parser currently does not interpret escape sequences in
       // string literals, so handle common ones here for tonumber with base.
       str = str.replaceAll('\\t', '\t');

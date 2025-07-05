@@ -6,6 +6,7 @@ import 'package:lualike/src/builtin_function.dart' show BuiltinFunction;
 import 'package:lualike/src/environment.dart' show Environment;
 import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/value.dart' show Value;
+import 'package:lualike/src/lua_string.dart';
 import '../../lualike.dart' show Value;
 import '../value_class.dart';
 
@@ -17,7 +18,7 @@ class UTF8Lib {
   static final ValueClass utf8Class = ValueClass.create({
     "__len": (List<Object?> args) {
       final str = args[0] as Value;
-      if (str.raw is! String) {
+      if (str.raw is! String && str.raw is! LuaString) {
         throw Exception("utf8 operation on non-string value");
       }
       return Value(str.raw.toString().characters.length);

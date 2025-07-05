@@ -72,12 +72,12 @@ void main() {
       var words = bridge.getGlobal('words') as Value;
       var something = (words.raw as Map)['something'] as Value;
       var value = (something.raw as Map)['value'] as Value;
-      var valueMap = value.raw as Map<dynamic, dynamic>;
+      var valueMap = value.unwrap() as Map<dynamic, dynamic>;
 
       // Check that the deep assignment worked
-      expect(valueMap[3], equals(Value(11)));
-      expect(valueMap[1], equals(Value("deep1")));
-      expect(valueMap[2], equals(Value("deep2")));
+      expect(valueMap[3], equals(11));
+      expect(valueMap[1], equals("deep1"));
+      expect(valueMap[2], equals("deep2"));
     });
 
     test('deeply nested table with for loop (expected to fail)', () async {
@@ -96,12 +96,12 @@ void main() {
       var words = bridge.getGlobal('words') as Value;
       var something = (words.raw as Map)['something'] as Value;
       var value = (something.raw as Map)['value'] as Value;
-      var valueMap = value.raw as Map<dynamic, dynamic>;
-      expect(valueMap[1], equals(Value("deep1")));
-      expect(valueMap[2], equals(Value("deep2")));
-      expect(valueMap[3], equals(Value("deep3")));
-      expect(valueMap[4], equals(Value("deep4")));
-      expect(valueMap[5], equals(Value("deep5")));
+      var valueMap = value.unwrap() as Map<dynamic, dynamic>;
+      expect(valueMap[1], equals("deep1"));
+      expect(valueMap[2], equals("deep2"));
+      expect(valueMap[3], equals("deep3"));
+      expect(valueMap[4], equals("deep4"));
+      expect(valueMap[5], equals("deep5"));
       //test deep assignment
     });
   });

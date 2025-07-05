@@ -8,13 +8,10 @@ class LuaString {
   LuaString(this.bytes);
 
   factory LuaString.fromDartString(String s) {
-    try {
-      // Try Latin-1 encoding first (fastest for ASCII/Latin-1 strings)
-      return LuaString(Uint8List.fromList(latin1.encode(s)));
-    } catch (e) {
-      // If Latin-1 fails, encode as UTF-8 bytes (handles all Unicode characters)
-      return LuaString(Uint8List.fromList(utf8.encode(s)));
-    }
+    // Use UTF-8 for all strings to avoid decoding issues when characters are
+    // outside the Latin-1 range. This ensures `toString()` always produces the
+    // original Dart string regardless of content.
+    return LuaString(Uint8List.fromList(utf8.encode(s)));
   }
 
   factory LuaString.fromBytes(List<int> b) => LuaString(Uint8List.fromList(b));
