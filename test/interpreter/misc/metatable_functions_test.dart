@@ -61,11 +61,11 @@ void main() {
       ]);
 
       // Verify that rawset bypassed the metamethod
-        var table = vm.globals.get("t") as Value;
-        var tableMap = table.unwrap() as Map;
-        expect(tableMap["x"], equals(10));
-        expect(tableMap.containsKey("x_modified"), isFalse);
-      });
+      var table = vm.globals.get("t") as Value;
+      var tableMap = table.unwrap() as Map;
+      expect(tableMap["x"], equals(10));
+      expect(tableMap.containsKey("x_modified"), isFalse);
+    });
 
     test('rawset throws on non-table value', () async {
       var vm = Interpreter();

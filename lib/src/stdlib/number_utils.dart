@@ -3,6 +3,7 @@ import '../logger.dart';
 import '../lua_error.dart';
 import '../number.dart';
 import '../value.dart';
+import '../lua_string.dart';
 
 /// Utility class for common number operations and conversions used throughout the stdlib
 class NumberUtils {
@@ -18,7 +19,7 @@ class NumberUtils {
     if (value == null) return 'nil';
     if (value is bool) return 'boolean';
     if (value is num) return 'number';
-    if (value is String) return 'string';
+    if (value is String || value is LuaString) return 'string';
     if (value is List) return 'table';
     if (value is Function) return 'function';
     return value.runtimeType.toString();
@@ -36,12 +37,18 @@ class NumberUtils {
 
   /// Convert any numeric type to double
   static double toDouble(dynamic number) {
+    if (number is String || number is LuaString) {
+      number = LuaNumberParser.parse(number.toString());
+    }
     if (number is BigInt) return number.toDouble();
     return (number as num).toDouble();
   }
 
   /// Convert any numeric type to int (with overflow handling)
   static int toInt(dynamic number) {
+    if (number is String || number is LuaString) {
+      number = LuaNumberParser.parse(number.toString());
+    }
     if (number is BigInt) return number.toInt();
     if (number is int) return number;
     return (number as num).toInt();
@@ -49,6 +56,9 @@ class NumberUtils {
 
   /// Convert any numeric type to BigInt
   static BigInt toBigInt(dynamic number) {
+    if (number is String || number is LuaString) {
+      number = LuaNumberParser.parse(number.toString());
+    }
     if (number is BigInt) return number;
     if (number is int) return BigInt.from(number);
     return BigInt.from((number as num).toInt());
@@ -104,9 +114,9 @@ class NumberUtils {
 
   /// Convert a number to integer if possible, respecting Lua's math.tointeger semantics
   static int? tryToInteger(dynamic value) {
-    if (value is String) {
+    if (value is String || value is LuaString) {
       try {
-        value = LuaNumberParser.parse(value);
+        value = LuaNumberParser.parse(value.toString());
       } catch (_) {
         return null;
       }
@@ -628,9 +638,9 @@ class NumberUtils {
   /// Perform bitwise NOT with integer validation
   static dynamic bitwiseNot(dynamic a) {
     // Try to convert strings to numbers (Lua automatic conversion)
-    if (a is String) {
+    if (a is String || a is LuaString) {
       try {
-        a = LuaNumberParser.parse(a);
+        a = LuaNumberParser.parse(a.toString());
       } catch (e) {
         throw LuaError.typeError(
           "attempt to perform arithmetic on a string value",
@@ -652,6 +662,13 @@ class NumberUtils {
 
   /// Helper method to validate and convert to integer for bitwise operations
   static BigInt _validateAndConvertToInteger(dynamic value) {
+    if (value is String || value is LuaString) {
+      try {
+        value = LuaNumberParser.parse(value.toString());
+      } catch (_) {
+        throw LuaError.typeError('number has no integer representation');
+      }
+    }
     if (value is BigInt) return value;
     if (value is int) return BigInt.from(value);
     if (value is double) {
@@ -681,10 +698,10 @@ class NumberUtils {
     );
 
     // Try to convert strings to numbers (Lua automatic conversion)
-    if (r1 is String) {
+    if (r1 is String || r1 is LuaString) {
       Logger.debug('ARITH: r1 is String, parsing...', category: 'NumberUtils');
       try {
-        r1 = LuaNumberParser.parse(r1);
+        r1 = LuaNumberParser.parse(r1.toString());
         Logger.debug(
           'ARITH: r1 parsed to $r1 (${r1.runtimeType})',
           category: 'NumberUtils',
@@ -701,10 +718,10 @@ class NumberUtils {
       }
     }
 
-    if (r2 is String) {
+    if (r2 is String || r2 is LuaString) {
       Logger.debug('ARITH: r2 is String, parsing...', category: 'NumberUtils');
       try {
-        r2 = LuaNumberParser.parse(r2);
+        r2 = LuaNumberParser.parse(r2.toString());
         Logger.debug(
           'ARITH: r2 parsed to $r2 (${r2.runtimeType})',
           category: 'NumberUtils',
@@ -803,9 +820,9 @@ class NumberUtils {
   /// Perform unary negation with Lua semantics including string conversion
   static dynamic negate(dynamic value) {
     // Try to convert strings to numbers (Lua automatic conversion)
-    if (value is String) {
+    if (value is String || value is LuaString) {
       try {
-        value = LuaNumberParser.parse(value);
+        value = LuaNumberParser.parse(value.toString());
       } catch (e) {
         throw LuaError.typeError(
           "attempt to perform arithmetic on a string value",

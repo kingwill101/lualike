@@ -489,7 +489,10 @@ void main() {
         local rawGetResult = rawget(t, "key")
       ''');
 
-      expect((bridge.getGlobal('rawGetResult') as Value).unwrap(), equals("value"));
+      expect(
+        (bridge.getGlobal('rawGetResult') as Value).unwrap(),
+        equals("value"),
+      );
     });
 
     test('rawset rejects invalid keys', () async {
@@ -678,7 +681,10 @@ void main() {
       expect((bridge.getGlobal('status') as Value).unwrap(), equals(true));
       expect((bridge.getGlobal('result') as Value).unwrap(), equals("success"));
 
-      expect((bridge.getGlobal('errorStatus') as Value).unwrap(), equals(false));
+      expect(
+        (bridge.getGlobal('errorStatus') as Value).unwrap(),
+        equals(false),
+      );
       expect(
         (bridge.getGlobal('errorMsg') as Value).unwrap().toString(),
         contains("test error"),
@@ -716,7 +722,10 @@ void main() {
       expect((bridge.getGlobal('status') as Value).unwrap(), equals(true));
       expect((bridge.getGlobal('result') as Value).unwrap(), equals("success"));
 
-      expect((bridge.getGlobal('errorStatus') as Value).unwrap(), equals(false));
+      expect(
+        (bridge.getGlobal('errorStatus') as Value).unwrap(),
+        equals(false),
+      );
       expect(
         (bridge.getGlobal('errorMsg') as Value).unwrap().toString(),
         contains("Handled: "),
