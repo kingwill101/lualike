@@ -368,8 +368,13 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   @override
   dynamic operator [](Object? key) {
     if (raw is Map && getMetamethod('__index') == null) {
-      // If key is a Value, use its raw value, else key directly
-      final rawKey = key is Value ? key.raw : key;
+      // If key is a Value, use its raw value, else key directly.
+      // Normalize LuaString keys to Dart strings so lookups succeed
+      // regardless of how the table was created (dot vs bracket).
+      var rawKey = key is Value ? key.raw : key;
+      if (rawKey is LuaString) {
+        rawKey = rawKey.toString();
+      }
       var result = (raw as Map)[rawKey];
       // If the result is not already wrapped, wrap it
       if (result is! Value) result = Value(result);
@@ -382,7 +387,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   @override
   void operator []=(Object key, dynamic value) {
-    final rawKey = key is Value ? key.raw : key;
+    var rawKey = key is Value ? key.raw : key;
+    if (rawKey is LuaString) {
+      rawKey = rawKey.toString();
+    }
     if (rawKey == null) {
       throw LuaError.typeError('table index is nil');
     }

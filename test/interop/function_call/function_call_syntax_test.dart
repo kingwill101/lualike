@@ -16,7 +16,7 @@ void main() {
       ''');
 
       var result = bridge.getGlobal('result');
-      expect((result as Value).raw, equals("Hello, World"));
+      expect((result as Value).unwrap(), equals("Hello, World"));
     });
 
     test('function call without parentheses for string literal', () async {
@@ -32,7 +32,7 @@ void main() {
       ''');
 
       var result = bridge.getGlobal('result');
-      expect((result as Value).raw, equals("Hello, World"));
+      expect((result as Value).unwrap(), equals("Hello, World"));
     });
 
     test('table method call with parentheses', () async {
@@ -49,7 +49,7 @@ void main() {
       ''');
 
       var result = bridge.getGlobal('result');
-      expect((result as Value).raw, equals("Method called with: test"));
+      expect((result as Value).unwrap(), equals("Method called with: test"));
     });
 
     test('table method call without parentheses', () async {
@@ -66,7 +66,7 @@ void main() {
       ''');
 
       var result = bridge.getGlobal('result');
-      expect((result as Value).raw, equals("Method called with: test"));
+      expect((result as Value).unwrap(), equals("Method called with: test"));
     });
 
     test('standard library function call without parentheses', () async {
@@ -78,7 +78,7 @@ void main() {
       ''');
 
       var result = bridge.getGlobal('result');
-      expect((result as Value).raw, equals("HELLO"));
+      expect((result as Value).unwrap(), equals("HELLO"));
     });
 
     test('require function call with parentheses', () async {
@@ -98,7 +98,7 @@ void main() {
       ''');
 
       var result = bridge.getGlobal('result');
-      expect((result as Value).raw, equals("test ok"));
+      expect((result as Value).unwrap(), equals("test ok"));
     });
 
     test('require function call without parentheses', () async {
@@ -118,7 +118,7 @@ void main() {
       ''');
 
       var result = bridge.getGlobal('result');
-      expect((result as Value).raw, equals("test ok"));
+      expect((result as Value).unwrap(), equals("test ok"));
     });
   });
 
@@ -146,7 +146,7 @@ void main() {
       ''');
 
       var result = bridge.getGlobal('result');
-      expect((result as Value).raw, equals(10));
+      expect((result as Value).unwrap(), equals(10));
     });
 
     test('method chaining on require results (expected to fail)', () async {
@@ -172,7 +172,7 @@ void main() {
           local result = require("test_module").test()
         ''');
       final result = bridge.getGlobal('result');
-      expect((result as Value).raw, equals("test ok"));
+      expect((result as Value).unwrap(), equals("test ok"));
     });
 
     test('combined alternative syntax (workaround)', () async {
@@ -192,7 +192,7 @@ void main() {
       ''');
 
       var result = bridge.getGlobal('result');
-      expect((result as Value).raw, equals("test: param"));
+      expect((result as Value).unwrap(), equals("test: param"));
     });
   });
 
@@ -211,10 +211,10 @@ void main() {
       var n = bridge.getGlobal('n');
       var a = bridge.getGlobal('a');
       var b = bridge.getGlobal('b');
-      expect((sx as Value).raw, equals(42)); // self.x
-      expect((n as Value).raw, equals(2));
-      expect((a as Value).raw, equals(10));
-      expect((b as Value).raw, equals(20));
+      expect((sx as Value).unwrap(), equals(42)); // self.x
+      expect((n as Value).unwrap(), equals(2));
+      expect((a as Value).unwrap(), equals(10));
+      expect((b as Value).unwrap(), equals(20));
     });
 
     test('self field assignment and access', () async {
@@ -232,9 +232,9 @@ void main() {
       var a = bridge.getGlobal('a');
       var b = bridge.getGlobal('b');
       var c = bridge.getGlobal('c');
-      expect((a as Value).raw, equals(1));
-      expect((b as Value).raw, equals(2));
-      expect((c as Value).raw, equals(2));
+      expect((a as Value).unwrap(), equals(1));
+      expect((b as Value).unwrap(), equals(2));
+      expect((c as Value).unwrap(), equals(2));
     });
 
     test('method chaining with self', () async {
@@ -255,7 +255,7 @@ void main() {
         local result = obj:inc(2):inc(3):get()
       ''');
       var result = bridge.getGlobal('result');
-      expect((result as Value).raw, equals(6));
+      expect((result as Value).unwrap(), equals(6));
     });
 
     test('dot method definition and call', () async {
@@ -271,10 +271,10 @@ void main() {
       var n = bridge.getGlobal('n');
       var a = bridge.getGlobal('a');
       var b = bridge.getGlobal('b');
-      expect((ox as Value).raw, equals(99));
-      expect((n as Value).raw, equals(2));
-      expect((a as Value).raw, equals(10));
-      expect((b as Value).raw, equals(20));
+      expect((ox as Value).unwrap(), equals(99));
+      expect((n as Value).unwrap(), equals(2));
+      expect((a as Value).unwrap(), equals(10));
+      expect((b as Value).unwrap(), equals(20));
     });
 
     test(
@@ -310,12 +310,12 @@ void main() {
         var b = bridge.getGlobal('b');
         var c = bridge.getGlobal('c');
         expect(
-          (ay as Value).raw,
+          (ay as Value).unwrap(),
           equals(7),
         ); // self is passed as x, so x.y == 7
-        expect((n as Value).raw, equals(3));
-        expect((b as Value).raw, equals(1));
-        expect((c as Value).raw, equals(2));
+        expect((n as Value).unwrap(), equals(3));
+        expect((b as Value).unwrap(), equals(1));
+        expect((c as Value).unwrap(), equals(2));
       },
     );
 
@@ -331,7 +331,7 @@ void main() {
       var result = bridge.getGlobal('result');
       expect(result, isNotNull);
       expect((result as Value).raw is Map, isTrue);
-      expect((((result).raw)['id'] as Value).raw, equals(123));
+      expect((((result).raw)['id'] as Value).unwrap(), equals(123));
     });
 
     test('colon method returns self and argument', () async {
@@ -346,7 +346,7 @@ void main() {
       var s = bridge.getGlobal('s');
       var x = bridge.getGlobal('x');
       expect((s as Value).raw is Map, isTrue);
-      expect((fromLuaValue(((s).raw)['name'])), equals('A'));
+      expect(fromLuaValue(((s).raw)['name']), equals('A'));
       expect(fromLuaValue(x), equals(42));
     });
 
@@ -360,7 +360,7 @@ end
 local result = obj:val(99)
       ''');
       var result = bridge.getGlobal('result');
-      expect((result as Value).raw, equals(141));
+      expect((result as Value).unwrap(), equals(141));
     });
 
     test('colon method returns constant', () async {
@@ -373,7 +373,7 @@ local result = obj:val(99)
         local result = obj:const()
       ''');
       var result = bridge.getGlobal('result');
-      expect((result as Value).raw, equals(7));
+      expect((result as Value).unwrap(), equals(7));
     });
 
     test('colon method returns self.x', () async {
@@ -386,7 +386,7 @@ local result = obj:val(99)
         local result = obj:readx()
       ''');
       var result = bridge.getGlobal('result');
-      expect((result as Value).raw, equals(55));
+      expect((result as Value).unwrap(), equals(55));
     });
   });
 }
