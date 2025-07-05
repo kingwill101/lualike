@@ -46,9 +46,16 @@ void main() {
         expect(FormatStringParser.escape(bytes), r'\0');
       });
 
-      test('handles extended ASCII without escaping', () {
-        final bytes = Uint8List.fromList([225]); // á in Latin-1
-        expect(FormatStringParser.escape(bytes), 'á');
+      test('handles safe extended ASCII without escaping', () {
+        final bytes = Uint8List.fromList([224]); // à in Latin-1 (safe byte)
+        expect(FormatStringParser.escape(bytes), 'à');
+      });
+
+      test('escapes extended ASCII that causes round-trip issues', () {
+        final bytes = Uint8List.fromList([
+          225,
+        ]); // byte 225 causes round-trip issues
+        expect(FormatStringParser.escape(bytes), '\\225');
       });
     });
 

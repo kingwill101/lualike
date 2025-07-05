@@ -144,13 +144,18 @@ class FormatStringParser {
           }
           i += sequenceLength;
         } else if (sequenceLength == 1) {
-          // Single byte in 128-255 range - treat as Latin-1 character
-          // These should be preserved like Lua does, except for byte 255
-          if (code == 255) {
-            // Byte 255 causes round-trip issues, escape it
-            buffer.write('\\255');
+          // Single byte in 128-255 range - check if it causes round-trip issues
+          if (code == 255 || code == 225) {
+            // Bytes that cause round-trip issues, escape them
+            if (i + 1 < bytes.length &&
+                bytes[i + 1] >= 48 &&
+                bytes[i + 1] <= 57) {
+              buffer.write('\\${code.toString().padLeft(3, '0')}');
+            } else {
+              buffer.write('\\$code');
+            }
           } else {
-            // Other single bytes 128-254 are safe Latin-1 characters
+            // Other single bytes 128-254 (except 225) are safe Latin-1 characters
             buffer.writeCharCode(code);
           }
           i++;

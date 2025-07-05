@@ -11,6 +11,7 @@ import 'package:petitparser/petitparser.dart';
 import '../value_class.dart';
 import 'number_utils.dart';
 import '../lua_string.dart';
+import '../number.dart';
 
 /// String interning cache for short strings (Lua-like behavior)
 /// In Lua, short strings are typically internalized while long strings are not
@@ -383,6 +384,88 @@ String _formatPointer(_FormatContext ctx) {
   return ptr;
 }
 
+// Helper function to format large numbers with high precision using NumberUtils approach
+String _formatLargeNumber(double value, int precision) {
+  // For very large numbers in scientific notation, we need to manually expand them
+  final str = value.toString();
+
+  if (str.contains('e+') || str.contains('E+')) {
+    // Parse scientific notation manually: e.g., "1e+308" or "-1.23e+10"
+    final parts = str.toLowerCase().split('e+');
+    if (parts.length == 2) {
+      final mantissa = double.parse(parts[0]);
+      final exponent = int.parse(parts[1]);
+
+      // For positive exponents, we need to create a number with 'exponent' digits
+      // e.g., 1e+308 should become 1 followed by 308 zeros
+      final mantissaStr = mantissa.abs().toString();
+      final dotIndex = mantissaStr.indexOf('.');
+
+      if (dotIndex == -1) {
+        // Integer mantissa (e.g., "1e+308")
+        final integerPart = mantissaStr + ('0' * exponent);
+        final fractionalPart = '0' * precision;
+        return '${mantissa.isNegative ? '-' : ''}$integerPart.$fractionalPart';
+      } else {
+        // Decimal mantissa (e.g., "1.23e+10")
+        final beforeDot = mantissaStr.substring(0, dotIndex);
+        final afterDot = mantissaStr.substring(dotIndex + 1);
+
+        if (exponent >= afterDot.length) {
+          // Move decimal point to the right, pad with zeros
+          final integerPart =
+              beforeDot + afterDot + ('0' * (exponent - afterDot.length));
+          final fractionalPart = '0' * precision;
+          return '${mantissa.isNegative ? '-' : ''}$integerPart.$fractionalPart';
+        } else {
+          // Move decimal point within the existing digits
+          final newIntegerPart = beforeDot + afterDot.substring(0, exponent);
+          final newFractionalPart = afterDot
+              .substring(exponent)
+              .padRight(precision, '0');
+          return '${mantissa.isNegative ? '-' : ''}$newIntegerPart.${newFractionalPart.substring(0, precision)}';
+        }
+      }
+    }
+  }
+
+  if (str.contains('e-') || str.contains('E-')) {
+    // Negative exponent - very small number
+    final parts = str.toLowerCase().split('e-');
+    if (parts.length == 2) {
+      final mantissa = double.parse(parts[0]);
+      final exponent = int.parse(parts[1]);
+
+      // For negative exponents, we need leading zeros
+      final mantissaStr = mantissa.abs().toString().replaceAll('.', '');
+      final zeros = '0' * (exponent - 1);
+      final result = '0.$zeros$mantissaStr';
+      final dotIndex = result.indexOf('.');
+      final paddedResult = result.padRight(dotIndex + 1 + precision, '0');
+      return mantissa.isNegative ? '-$paddedResult' : paddedResult;
+    }
+  }
+
+  // Not in scientific notation or couldn't parse, handle normally
+  if (value.abs() < 1e15) {
+    final intPart = value.truncate();
+    final fracPart = (value - intPart).abs();
+    final fracStr = fracPart.toStringAsFixed(20);
+    final fracDigits = fracStr.substring(2);
+    final paddedFracDigits = fracDigits.padRight(precision, '0');
+
+    if (value.isNegative && intPart == 0) {
+      return '-$intPart.${paddedFracDigits.substring(0, precision)}';
+    } else {
+      return '$intPart.${paddedFracDigits.substring(0, precision)}';
+    }
+  } else {
+    // Very large number but not in recognizable scientific notation
+    // Fall back to padding approach
+    return value.toStringAsFixed(20).padRight(precision + 10, '0');
+  }
+}
+
 String _formatFloat(_FormatContext ctx, bool uppercase) {
   final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
   if (rawValue is! num && rawValue is! BigInt) {
@@ -400,7 +483,16 @@ String _formatFloat(_FormatContext ctx, bool uppercase) {
     return uppercase ? '${sign}INF' : '${sign}inf';
   }
 
-  String result = doubleValue.toStringAsFixed(ctx.precisionValue);
+  String result;
+  final precision = ctx.precisionValue;
+
+  // Dart's toStringAsFixed only supports 0-20 fraction digits
+  if (precision <= 20) {
+    result = doubleValue.toStringAsFixed(precision);
+  } else {
+    // For larger precision values, use NumberUtils approach
+    result = _formatLargeNumber(doubleValue, precision);
+  }
 
   if (ctx.showSign && !doubleValue.isNegative) {
     result = '+$result';
@@ -618,57 +710,42 @@ String _formatOctal(_FormatContext ctx) {
 LuaString _formatQuoted(_FormatContext ctx) {
   final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
 
-  // Handle nil - return unquoted 'nil'
+  // Handle different types according to Lua %q specification
   if (rawValue == null) {
+    // nil -> nil (unquoted)
     return LuaString.fromDartString('nil');
-  }
-
-  // Handle booleans - return unquoted 'true' or 'false'
-  if (rawValue is bool) {
+  } else if (rawValue is bool) {
+    // boolean -> true/false (unquoted)
     return LuaString.fromDartString(rawValue.toString());
-  }
-
-  // Handle numbers - return unquoted numeric literals
-  if (rawValue is num || rawValue is BigInt) {
-    final doubleValue = NumberUtils.toDouble(rawValue);
-
-    // Handle NaN - return (0/0)
-    if (doubleValue.isNaN) {
-      return LuaString.fromDartString('(0/0)');
-    }
-
-    // Handle infinity - return 1e9999 or -1e9999
-    if (doubleValue.isInfinite) {
-      return LuaString.fromDartString(
-        doubleValue.isNegative ? '-1e9999' : '1e9999',
-      );
-    }
-
-    // Handle minimum 64-bit integer edge case (math.mininteger)
-    if (rawValue is int && rawValue == NumberUtils.minInteger) {
-      return LuaString.fromDartString('0x8000000000000000');
-    }
-
-    // Handle integers using NumberUtils
-    if (NumberUtils.isInteger(rawValue)) {
-      final intValue = NumberUtils.tryToInteger(rawValue);
-      if (intValue != null) {
-        return LuaString.fromDartString(intValue.toString());
+  } else if (rawValue is num || rawValue is BigInt) {
+    // Numbers should be returned as unquoted literals
+    if (rawValue is double) {
+      if (rawValue.isNaN) {
+        return LuaString.fromDartString('(0/0)');
+      } else if (rawValue.isInfinite) {
+        return LuaString.fromDartString(
+          rawValue.isNegative ? '-1e9999' : '1e9999',
+        );
       }
     }
 
-    // Handle finite non-integer doubles - use hex float format for precision
-    if (NumberUtils.isFinite(rawValue) && !NumberUtils.isInteger(rawValue)) {
-      // Use hex float format to preserve exact precision
-      return LuaString.fromDartString(_formatDoubleAsHex(doubleValue));
+    // Special case for minimum 64-bit integer (must be hex to round-trip correctly)
+    final intValue = rawValue is BigInt
+        ? rawValue
+        : (rawValue is int ? rawValue : rawValue.toInt());
+    if (intValue == NumberUtils.minInteger) {
+      return LuaString.fromDartString('0x8000000000000000');
     }
 
-    // Fallback for other numeric types
+    // Regular numbers
     return LuaString.fromDartString(rawValue.toString());
-  }
-
-  // Handle strings and LuaStrings - escape and quote them
-  if (rawValue is String || rawValue is LuaString) {
+  } else if (rawValue is Map || rawValue is Function) {
+    // Tables, functions, etc. have no literal form
+    throw LuaError(
+      "bad argument #${ctx.valueIndex} to 'format' (value has no literal form)",
+    );
+  } else {
+    // Strings and other types need to be quoted and escaped
     final Uint8List bytes;
     if (rawValue is LuaString) {
       bytes = rawValue.bytes;
@@ -687,58 +764,6 @@ LuaString _formatQuoted(_FormatContext ctx) {
 
     return LuaString(Uint8List.fromList(escapedBytes));
   }
-
-  // Handle unsupported types - throw error
-  throw LuaError(
-    "bad argument #${ctx.valueIndex} to 'format' (value has no literal form)",
-  );
-}
-
-// Helper function to format doubles as hex floats for exact precision
-String _formatDoubleAsHex(double value) {
-  if (value == 0.0) {
-    return value.isNegative ? '-0x0p+0' : '0x0p+0';
-  }
-
-  final sign = value.isNegative ? '-' : '';
-  final absValue = value.abs();
-
-  // Get the exponent by finding the power of 2
-  final exponent = (math.log(absValue) / math.ln2).floor();
-  final mantissa = absValue / math.pow(2, exponent);
-
-  // Convert mantissa to hex
-  final mantissaHex = _doubleToHexMantissa(mantissa);
-
-  return '${sign}0x${mantissaHex}p${exponent >= 0 ? '+' : ''}$exponent';
-}
-
-// Helper function to convert mantissa to hex representation
-String _doubleToHexMantissa(double mantissa) {
-  // Normalize mantissa to be in range [1, 2)
-  if (mantissa >= 2.0) {
-    mantissa /= 2.0;
-  }
-
-  final intPart = mantissa.floor();
-  var fracPart = mantissa - intPart;
-
-  final buffer = StringBuffer();
-  buffer.write(intPart.toRadixString(16));
-
-  if (fracPart > 0) {
-    buffer.write('.');
-
-    // Convert fractional part to hex
-    for (int i = 0; i < 13 && fracPart > 0; i++) {
-      fracPart *= 16;
-      final digit = fracPart.floor();
-      buffer.write(digit.toRadixString(16));
-      fracPart -= digit;
-    }
-  }
-
-  return buffer.toString();
 }
 
 class _StringFormat implements BuiltinFunction {

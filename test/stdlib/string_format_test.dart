@@ -17,7 +17,7 @@ void main() {
       print(script);
       await bridge.runCode(script);
       final result = (bridge.getGlobal('result') as Value).raw.toString();
-      final expected = '"\\"�lo\\"\\\n\\\\""�lo"\n\\';
+      final expected = '"\\"\\225lo\\"\\\n\\\\""�lo"\n\\';
 
       // For debugging in the test output
       print('Failing test case from strings.lua');

@@ -294,7 +294,11 @@ class FileManager {
         // Try physical file
         final file = File(fullPath);
         if (file.existsSync()) {
-          return file.readAsStringSync();
+          // Read as raw bytes and convert to Latin-1 string to preserve byte values
+          // This ensures that high bytes (like 225) are preserved as individual bytes
+          // instead of being interpreted as UTF-8 sequences
+          final bytes = file.readAsBytesSync();
+          return String.fromCharCodes(bytes);
         }
       }
     }
@@ -315,7 +319,11 @@ class FileManager {
           // Try physical file
           final file = File(fullPath);
           if (file.existsSync()) {
-            return file.readAsStringSync();
+            // Read as raw bytes and convert to Latin-1 string to preserve byte values
+            // This ensures that high bytes (like 225) are preserved as individual bytes
+            // instead of being interpreted as UTF-8 sequences
+            final bytes = file.readAsBytesSync();
+            return String.fromCharCodes(bytes);
           }
         }
       } catch (e) {
@@ -343,7 +351,11 @@ class FileManager {
           // Try physical file
           final file = File(fullPath);
           if (file.existsSync()) {
-            return file.readAsStringSync();
+            // Read as raw bytes and convert to Latin-1 string to preserve byte values
+            // This ensures that high bytes (like 225) are preserved as individual bytes
+            // instead of being interpreted as UTF-8 sequences
+            final bytes = file.readAsBytesSync();
+            return String.fromCharCodes(bytes);
           }
         }
 
@@ -360,7 +372,11 @@ class FileManager {
           // Try physical file
           final file = File(fullPath);
           if (file.existsSync()) {
-            return file.readAsStringSync();
+            // Read as raw bytes and convert to Latin-1 string to preserve byte values
+            // This ensures that high bytes (like 225) are preserved as individual bytes
+            // instead of being interpreted as UTF-8 sequences
+            final bytes = file.readAsBytesSync();
+            return String.fromCharCodes(bytes);
           }
         }
 
@@ -385,7 +401,11 @@ class FileManager {
               // Try physical file
               final file = File(fullPath);
               if (file.existsSync()) {
-                return file.readAsStringSync();
+                // Read as raw bytes and convert to Latin-1 string to preserve byte values
+                // This ensures that high bytes (like 225) are preserved as individual bytes
+                // instead of being interpreted as UTF-8 sequences
+                final bytes = file.readAsBytesSync();
+                return String.fromCharCodes(bytes);
               }
             }
           }

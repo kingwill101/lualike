@@ -471,12 +471,24 @@ class ToStringFunction implements BuiltinFunction {
         final result = value.callMetamethod('__tostring', [value]);
         // Await the result if it's a Future
         final awaitedResult = result is Future ? await result : result;
+
+        // Validate that __tostring returned a string
         if (awaitedResult is Value) {
-          return awaitedResult;
+          if (awaitedResult.raw is String || awaitedResult.raw is LuaString) {
+            return awaitedResult;
+          } else {
+            throw LuaError("'__tostring' must return a string");
+          }
+        } else if (awaitedResult is String) {
+          return Value(awaitedResult);
+        } else {
+          throw LuaError("'__tostring' must return a string");
         }
-        // If the result is not a Value, wrap it
-        return Value(awaitedResult);
       } catch (e) {
+        // If it's already a LuaError, re-throw it
+        if (e is LuaError) {
+          rethrow;
+        }
         // If metamethod call fails, fall back to default behavior
       }
     }
@@ -677,7 +689,11 @@ class LoadfileFunction implements BuiltinFunction {
       final source = filename == null
           ? stdin.readLineSync() ??
                 "" // Read from stdin if no filename
-          : File(filename).readAsStringSync();
+          : () {
+              // Read as raw bytes and convert to preserve byte values
+              final bytes = File(filename).readAsBytesSync();
+              return String.fromCharCodes(bytes);
+            }();
 
       final ast = parse(source);
       return Value((List<Object?> callArgs) {

@@ -32,7 +32,9 @@ class ScriptCommand extends BaseCommand {
         exit(1);
       }
 
-      final sourceCode = await file.readAsString();
+      final sourceCode = await file.readAsBytes().then(
+        (bytes) => String.fromCharCodes(bytes),
+      );
       await bridge.runCode(sourceCode, scriptPath: scriptPath);
     } catch (e) {
       safePrint('Error executing script "$scriptPath": $e');

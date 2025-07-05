@@ -104,7 +104,7 @@ class LuaStringParser {
     // Regular character (not backslash)
     final regularChar = pattern(
       '^\\\\',
-    ).plus().flatten().map((chars) => utf8.encode(chars)).cast<List<int>>();
+    ).plus().flatten().map((chars) => chars.codeUnits).cast<List<int>>();
 
     // String content: sequence of escape sequences or regular characters
     final stringContent = (anyEscape | regularChar).star().map(
