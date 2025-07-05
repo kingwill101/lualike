@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:petitparser/petitparser.dart';
 
 /// A PetitParser-based parser for Lua string literals that handles escape sequences correctly
@@ -99,37 +101,9 @@ class LuaStringParser {
     ].toChoiceParser().cast<List<int>>();
 
     // Regular character (not backslash)
-    final regularChar = pattern('^\\\\').map((char) {
-      // Convert character to its UTF-8 bytes
-      final bytes = char.codeUnits;
-      if (bytes.length == 1 && bytes[0] <= 255) {
-        // ASCII/Latin-1 character, use as single byte
-        return [bytes[0]];
-      } else {
-        // Multi-byte UTF-8 character, encode properly
-        final utf8Bytes = char.runes.expand((rune) {
-          if (rune <= 0x7F) {
-            return [rune];
-          } else if (rune <= 0x7FF) {
-            return [0xC0 | (rune >> 6), 0x80 | (rune & 0x3F)];
-          } else if (rune <= 0xFFFF) {
-            return [
-              0xE0 | (rune >> 12),
-              0x80 | ((rune >> 6) & 0x3F),
-              0x80 | (rune & 0x3F),
-            ];
-          } else {
-            return [
-              0xF0 | (rune >> 18),
-              0x80 | ((rune >> 12) & 0x3F),
-              0x80 | ((rune >> 6) & 0x3F),
-              0x80 | (rune & 0x3F),
-            ];
-          }
-        }).toList();
-        return utf8Bytes;
-      }
-    }).cast<List<int>>();
+    final regularChar = pattern(
+      '^\\\\',
+    ).plus().flatten().map((chars) => utf8.encode(chars)).cast<List<int>>();
 
     // String content: sequence of escape sequences or regular characters
     final stringContent = (anyEscape | regularChar).star().map(

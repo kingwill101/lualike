@@ -284,15 +284,37 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     return Value(value);
   }
 
-  /// Unwraps a Value to get its raw value, recursively for tables
+  /// Unwraps a Value to get its raw value, recursively for tables and lists.
   dynamic unwrap() {
     if (raw is Map) {
       final unwrapped = <dynamic, dynamic>{};
       (raw as Map).forEach((key, value) {
-        var realKey = key is LuaString ? key.toString() : key;
-        unwrapped[realKey] = value is Value ? value.completeUnwrap() : value;
+        final realKey = key is LuaString ? key.toString() : key;
+        dynamic out;
+        if (value is Value) {
+          out = value.unwrap();
+        } else if (value is Map || value is List) {
+          out = Value(value).completeUnwrap();
+        } else if (value is LuaString) {
+          out = value.toString();
+        } else {
+          out = value;
+        }
+        unwrapped[realKey] = out;
       });
       return unwrapped;
+    }
+    if (raw is List) {
+      return (raw as List).map((e) {
+        if (e is Value) {
+          return e.unwrap();
+        } else if (e is Map || e is List) {
+          return Value(e).unwrap();
+        } else if (e is LuaString) {
+          return e.toString();
+        }
+        return e;
+      }).toList();
     }
     if (raw is LuaString) {
       return (raw as LuaString).toString();

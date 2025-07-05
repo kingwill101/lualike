@@ -187,7 +187,11 @@ class MetaTable {
           category: 'Metatables',
         );
         if (table.raw is Map) {
-          final value = (table.raw as Map)[key.raw];
+          var rawKey = key.raw;
+          if (rawKey is LuaString) {
+            rawKey = rawKey.toString();
+          }
+          final value = (table.raw as Map)[rawKey];
           Logger.debug('Table index result: $value', category: 'Metatables');
           return value is Value ? value : Value(value);
         }
@@ -202,7 +206,11 @@ class MetaTable {
           category: 'Metatables',
         );
         if (table.raw is Map) {
-          (table.raw as Map)[key.raw] = value;
+          var rawKey = key.raw;
+          if (rawKey is LuaString) {
+            rawKey = rawKey.toString();
+          }
+          (table.raw as Map)[rawKey] = value;
           return Value(null);
         }
         throw Exception("attempt to index non-table value");

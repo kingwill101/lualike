@@ -234,9 +234,11 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
         if (value is Value && value.isMulti) {
           value = Value((value.raw as List).first);
         }
-        tableMap[key is Value ? key.raw : key] = value is Value
-            ? value
-            : Value(value);
+        var mapKey = key is Value ? key.raw : key;
+        if (mapKey is LuaString) {
+          mapKey = mapKey.toString();
+        }
+        tableMap[mapKey] = value is Value ? value : Value(value);
         // If a keyed entry uses a numerical key, we must update the nextSequentialIndex
         // if it's greater than or equal to the current nextSequentialIndex.
         if (key is Value && key.raw is int && key.raw >= nextSequentialIndex) {
@@ -248,6 +250,9 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
         dynamic key = await field.key.accept(this);
         if (key is Value) {
           key = key.raw;
+        }
+        if (key is LuaString) {
+          key = key.toString();
         }
 
         var value = await field.value.accept(this);

@@ -194,9 +194,9 @@ void main() {
         ''');
       } on ReturnException catch (e) {
         var values = (e.value as Value).unwrap();
-        expect((values[0] as Value).raw, equals(42));
-        expect((values[1] as Value).raw, closeTo(1, 1e-10));
-        expect((values[2] as Value).raw, equals(3));
+        expect(values[0], equals(42));
+        expect(values[1], closeTo(1, 1e-10));
+        expect(values[2], equals(3));
       }
     });
 
@@ -207,9 +207,9 @@ void main() {
         ''');
       } on ReturnException catch (e) {
         var values = (e.value as Value).unwrap();
-        expect((values[0] as Value).raw, equals("HELLO"));
-        expect((values[1] as Value).raw, equals(5));
-        expect((values[2] as Value).raw, equals("ell"));
+        expect(values[0], equals("HELLO"));
+        expect(values[1], equals(5));
+        expect(values[2], equals("ell"));
       }
     });
 
@@ -223,9 +223,9 @@ void main() {
         ''');
       } on ReturnException catch (e) {
         var values = (e.value as Value).unwrap();
-        expect((values[0] as Value).raw, equals(1));
-        expect((values[1] as Value).raw, equals(3));
-        expect((values[2] as Value).raw, equals(4));
+        expect(values[0], equals(1));
+        expect(values[1], equals(3));
+        expect(values[2], equals(4));
       }
     });
   });
