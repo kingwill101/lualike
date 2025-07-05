@@ -26,6 +26,11 @@ class LuaString {
     }
   }
 
+  /// Convert to string using Latin-1 interpretation (for Lua string display)
+  String toLatin1String() {
+    return bytes.map((byte) => String.fromCharCode(byte)).join();
+  }
+
   int get length => bytes.length;
 
   int operator [](int index) => bytes[index];

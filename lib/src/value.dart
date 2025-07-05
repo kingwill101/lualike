@@ -317,7 +317,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       }).toList();
     }
     if (raw is LuaString) {
-      return (raw as LuaString).toString();
+      return (raw as LuaString).toLatin1String();
     }
     return raw is Value ? raw.completeUnwrap() : raw;
   }
@@ -328,7 +328,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       current = current.unwrap();
     }
     if (current is LuaString) {
-      return current.toString();
+      return current.toLatin1String();
     }
     return current;
   }
@@ -339,12 +339,50 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   @override
   bool operator ==(Object other) => equals(other);
 
+  // Guard to prevent infinite recursion in toString
+  static final Set<int> _toStringGuard = <int>{};
+
   @override
   String toString() {
+    final objectId = identityHashCode(this);
+
+    // Check if we're already in a toString call for this object
+    if (_toStringGuard.contains(objectId)) {
+      // Fallback to simple representation to avoid recursion
+      if (raw == null) return "Value:<nil>";
+      if (raw is bool) return "Value:<$raw>";
+      if (raw is num || raw is BigInt) return "Value:<$raw>";
+      if (raw is String) return "Value:<$raw>";
+      if (raw is List) return "Value:<list:${raw.hashCode}>";
+      if (raw is Map) return "Value:<table:${raw.hashCode}>";
+      if (raw is Function) return "Value:<function:${raw.hashCode}>";
+      return "Value:<$raw>";
+    }
+
     final tostringMeta = getMetamethod('__tostring');
     if (tostringMeta != null) {
-      final result = callMetamethod('__tostring', [this]);
-      return result is Value ? result.raw.toString() : result.toString();
+      // Check if this is a Lua function (which would return a Future)
+      if (tostringMeta is Value && tostringMeta.raw is Function) {
+        // This is a Lua function, calling it would return a Future
+        // For toString(), we can't handle Futures, so use default representation
+        return "Value:<table:${raw.hashCode}>";
+      }
+
+      try {
+        _toStringGuard.add(objectId);
+        final result = callMetamethod('__tostring', [this]);
+        // Handle both sync and async results
+        if (result is Future) {
+          // For toString(), we can't await, so return a placeholder
+          return "Value:<table:${raw.hashCode}>";
+        }
+        return result is Value ? result.raw.toString() : result.toString();
+      } catch (e) {
+        // If metamethod call fails, fall back to default behavior
+        Logger.debug('Error in __tostring metamethod: $e', category: 'Value');
+      } finally {
+        _toStringGuard.remove(objectId);
+      }
     }
 
     if (raw == null) return "Value:<nil>";
@@ -701,13 +739,23 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     if (method == null) {
       throw UnsupportedError("attempt to call a nil value");
     }
-    if (method is Function || (method is Value && method.raw is Function)) {
-      return method is Value ? method.unwrap()(list) : method(list);
-    } else {
-      throw UnsupportedError(
-        "attempt to call a non-function $s(${list.map((a) => a.unwrap()).join(', ')})",
-      );
+    if (method is Function) {
+      return method(list);
+    } else if (method is BuiltinFunction) {
+      return method.call(list);
+    } else if (method is Value) {
+      if (method.raw is Function) {
+        // This is a Lua function - calling it directly returns a Future
+        // For synchronous contexts like toString(), we need to avoid this
+        final result = (method.raw as Function)(list);
+        return result;
+      } else if (method.raw is BuiltinFunction) {
+        return (method.raw as BuiltinFunction).call(list);
+      }
     }
+    throw UnsupportedError(
+      "attempt to call a non-function $s(${list.map((a) => a.unwrap()).join(', ')})",
+    );
   }
 
   @override

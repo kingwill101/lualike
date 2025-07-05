@@ -1,6 +1,8 @@
 import '../logger.dart';
 import '../lua_string.dart';
 import '../value.dart';
+import '../lua_error.dart';
+import '../stdlib/lib_string.dart';
 
 dynamic fromLuaValue(dynamic obj) {
   if (obj is Value) {
@@ -40,7 +42,7 @@ dynamic fromLuaValue(dynamic obj) {
 
     // 3) Otherwise, it's a primitive or something else; just return its raw value.
     if (obj.raw is LuaString) {
-      return obj.raw.toString();
+      return obj.raw.toLatin1String();
     }
     return obj.raw;
   }
@@ -96,7 +98,7 @@ extension ValueExtension<T> on T {
     if (raw is Value) {
       return (raw as Value).completeUnwrap();
     } else if (raw is LuaString) {
-      return (raw as LuaString).toString();
+      return (raw as LuaString).toLatin1String();
     }
     return raw;
   }
@@ -105,7 +107,7 @@ extension ValueExtension<T> on T {
     if (this is Value) {
       return (this as Value).completeUnwrap();
     } else if (this is LuaString) {
-      return (this as LuaString).toString();
+      return (this as LuaString).toLatin1String();
     }
     return this;
   }
@@ -187,5 +189,51 @@ extension ValueExtension<T> on T {
   bool hasAnyMetamethod(List<String> methods) {
     if (value.metatable == null) return false;
     return methods.any((method) => value.metatable!.containsKey(method));
+  }
+
+  /// Concatenates this value with another value.
+  /// Handles string and table concatenation with metamethods.
+  /// Returns a new Value representing the concatenated result.
+  Value concat(dynamic other) {
+    final wrappedOther = other is Value ? other : Value(other);
+
+    // Check for __concat metamethod
+    var metamethod =
+        value.getMetamethod('__concat') ??
+        wrappedOther.getMetamethod('__concat');
+
+    if (metamethod != null) {
+      try {
+        dynamic result;
+        if (metamethod is Function) {
+          result = metamethod([this, wrappedOther]);
+        } else if (metamethod is Value && metamethod.raw is Function) {
+          result = metamethod.raw([this, wrappedOther]);
+        } else {
+          throw UnsupportedError(
+            "Metamethod __concat exists but is not callable: $metamethod",
+          );
+        }
+        return result is Value ? result : Value(result);
+      } catch (e) {
+        Logger.error('Error invoking __concat metamethod: $e', error: e);
+        rethrow;
+      }
+    }
+
+    // Default string concatenation behavior
+    if (isString || wrappedOther.isString) {
+      final String leftStr = raw is LuaString
+          ? (raw as LuaString).toLatin1String()
+          : raw.toString();
+      final String rightStr = wrappedOther.raw is LuaString
+          ? (wrappedOther.raw as LuaString).toLatin1String()
+          : wrappedOther.raw.toString();
+      return StringInterning.createStringValue(leftStr + rightStr);
+    }
+
+    throw LuaError.typeError(
+      "attempt to concatenate a ${raw.runtimeType} with a ${wrappedOther.raw.runtimeType}",
+    );
   }
 }
