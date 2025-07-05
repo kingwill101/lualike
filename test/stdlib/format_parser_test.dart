@@ -38,7 +38,12 @@ void main() {
 
       test('handles mixed characters', () {
         final bytes = Uint8List.fromList('a"\n\b\\c\x01'.codeUnits);
-        expect(FormatStringParser.escape(bytes), r'a\"' + '\\\n' + r'\8\\c\1');
+        expect(
+          FormatStringParser.escape(bytes),
+          r'a\"'
+          '\\\n'
+          r'\8\\c\1',
+        );
       });
 
       test('handles null byte specifically', () {

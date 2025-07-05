@@ -6,12 +6,10 @@ import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/pattern.dart';
 import 'package:lualike/src/stdlib/format_parser.dart';
-import 'package:petitparser/petitparser.dart';
 
 import '../value_class.dart';
 import 'number_utils.dart';
 import '../lua_string.dart';
-import '../number.dart';
 
 /// String interning cache for short strings (Lua-like behavior)
 /// In Lua, short strings are typically internalized while long strings are not
@@ -232,16 +230,6 @@ String _applyPadding(String text, _FormatContext ctx) {
   return text;
 }
 
-String _typeName(dynamic value) {
-  if (value == null) return 'nil';
-  if (value is bool) return 'boolean';
-  if (value is num) return 'number';
-  if (value is String) return 'string';
-  if (value is List) return 'table';
-  if (value is Function) return 'function';
-  return value.runtimeType.toString();
-}
-
 Future<Object> _formatString(_FormatContext ctx) async {
   final value = ctx.value;
 
@@ -353,7 +341,7 @@ LuaString _formatCharacter(_FormatContext ctx) {
   final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
   if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
-      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${_typeName(rawValue)})",
+      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${NumberUtils.typeName(rawValue)})",
     );
   }
 
@@ -484,7 +472,7 @@ String _formatFloat(_FormatContext ctx, bool uppercase) {
   final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
   if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
-      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${_typeName(rawValue)})",
+      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${NumberUtils.typeName(rawValue)})",
     );
   }
 
@@ -526,7 +514,7 @@ String _formatScientific(_FormatContext ctx, bool uppercase) {
   final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
   if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
-      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${_typeName(rawValue)})",
+      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${NumberUtils.typeName(rawValue)})",
     );
   }
 
@@ -570,7 +558,7 @@ String _formatHexFloat(_FormatContext ctx, bool uppercase) {
   final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
   if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
-      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${_typeName(rawValue)})",
+      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${NumberUtils.typeName(rawValue)})",
     );
   }
 
@@ -646,7 +634,7 @@ String _formatInteger(_FormatContext ctx, {bool unsigned = false}) {
   final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
   if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
-      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${_typeName(rawValue)})",
+      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${NumberUtils.typeName(rawValue)})",
     );
   }
 
@@ -668,7 +656,7 @@ String _formatInteger(_FormatContext ctx, {bool unsigned = false}) {
       // For negative numbers, separate the sign and pad the absolute value
       final precValue = ctx.precisionValue;
       final absValue = intValue.abs().toString();
-      result = '-' + absValue.padLeft(precValue, '0');
+      result = '-${absValue.padLeft(precValue, '0')}';
     } else {
       result = intValue.toString();
       // Apply precision padding for non-negative numbers
@@ -692,7 +680,7 @@ String _formatHex(_FormatContext ctx, bool uppercase) {
   final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
   if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
-      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${_typeName(rawValue)})",
+      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${NumberUtils.typeName(rawValue)})",
     );
   }
 
@@ -768,7 +756,7 @@ String _formatOctal(_FormatContext ctx) {
   final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
   if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
-      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${_typeName(rawValue)})",
+      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${NumberUtils.typeName(rawValue)})",
     );
   }
 
@@ -867,11 +855,11 @@ class _StringFormat implements BuiltinFunction {
     List<FormatPart> formatParts;
     try {
       final parsedParts = FormatStringParser.parse(formatString);
-      formatParts = parsedParts as List<FormatPart>;
+      formatParts = parsedParts;
     } catch (e) {
       if (e is FormatException) {
         // Convert FormatException to appropriate LuaError
-        if (e.message!.contains('end of input expected')) {
+        if (e.message.contains('end of input expected')) {
           // This happens when there's an invalid specifier
           throw LuaError(
             "invalid conversion '${formatString.substring(formatString.lastIndexOf('%'))}' to 'format'",
@@ -1606,7 +1594,7 @@ String _formatGeneral(_FormatContext ctx, bool uppercase) {
   final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
   if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
-      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${_typeName(rawValue)})",
+      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${NumberUtils.typeName(rawValue)})",
     );
   }
 

@@ -1,10 +1,5 @@
 import 'dart:typed_data';
 
-import 'dart:typed_data';
-
-import 'dart:convert';
-import 'dart:typed_data';
-
 import 'package:petitparser/petitparser.dart';
 
 /// Represents a parsed format specifier or a literal string segment.

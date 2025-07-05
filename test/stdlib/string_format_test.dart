@@ -1,7 +1,6 @@
 @Tags(['stdlib'])
 import 'package:lualike/testing.dart';
 import 'dart:convert';
-import 'dart:typed_data';
 
 void main() {
   group('String Library string.format', () {

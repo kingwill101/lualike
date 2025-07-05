@@ -602,7 +602,7 @@ void main() {
       ''';
       await bridge.runCode(script);
       final result = (bridge.getGlobal('result') as Value).unwrap();
-      expect(result, equals('\"a' + ' ' * 49 + '\"'));
+      expect(result, equals('"a${' ' * 49}"'));
     });
 
     test('Lua strings.lua: -%.20s.20s', () async {
@@ -612,7 +612,7 @@ void main() {
       ''';
       await bridge.runCode(script);
       final result = (bridge.getGlobal('result') as Value).unwrap();
-      expect(result, equals('-' + '%' * 20 + '.20s'));
+      expect(result, equals('-${'%' * 20}.20s'));
     });
 
     test('Lua strings.lua: quoted long string', () async {
