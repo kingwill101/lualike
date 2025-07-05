@@ -13,10 +13,10 @@ void main() {
         ''');
       } on ReturnException catch (e) {
         var t1 = (e.value as Value).unwrap();
-        expect((t1[0] as Value).raw, equals(1));
-        expect((t1[1] as Value).raw, equals(4));
-        expect((t1[2] as Value).raw, equals(2));
-        expect((t1[3] as Value).raw, equals(3));
+        expect(t1[0], equals(1));
+        expect(t1[1], equals(4));
+        expect(t1[2], equals(2));
+        expect(t1[3], equals(3));
       }
     });
 
@@ -31,10 +31,10 @@ void main() {
         ''');
       } on ReturnException catch (e) {
         var t1 = (e.value as Value).unwrap();
-        expect((t1[0] as Value).raw, equals(1));
-        expect((t1[1] as Value).raw, equals(2));
-        expect((t1[2] as Value).raw, equals(3));
-        expect((t1[3] as Value).raw, equals(4));
+        expect(t1[0], equals(1));
+        expect(t1[1], equals(2));
+        expect(t1[2], equals(3));
+        expect(t1[3], equals(4));
       }
     });
 
@@ -49,9 +49,9 @@ void main() {
         ''');
       } on ReturnException catch (e) {
         var t1 = (e.value as Value).unwrap();
-        expect((t1[0] as Value).raw, equals(1));
-        expect((t1[1] as Value).raw, equals(3));
-        expect((t1[2] as Value).raw, equals(2));
+        expect(t1[0], equals(1));
+        expect(t1[1], equals(3));
+        expect(t1[2], equals(2));
       }
     });
 
@@ -66,10 +66,10 @@ void main() {
         ''');
       } on ReturnException catch (e) {
         var t1 = (e.value as Value).unwrap();
-        expect((t1[0] as Value).raw, equals(1));
-        expect((t1[1] as Value).raw, equals(2));
-        expect((t1[2] as Value).raw, isNull);
-        expect((t1[3] as Value).raw, equals(3));
+        expect(t1[0], equals(1));
+        expect(t1[1], equals(2));
+        expect(t1[2], isNull);
+        expect(t1[3], equals(3));
       }
     });
 
@@ -100,8 +100,8 @@ void main() {
         ''');
       } on ReturnException catch (e) {
         var results = (e.value as Value).unwrap();
-        expect((results[0] as Value).raw, equals("world-from"));
-        expect((results[1] as Value).raw, equals("helloworld"));
+        expect(results[0], equals("world-from"));
+        expect(results[1], equals("helloworld"));
       }
     });
 
@@ -117,8 +117,8 @@ void main() {
         ''');
       } on ReturnException catch (e) {
         var results = (e.value as Value).unwrap();
-        expect((results[0] as Value).raw, equals(""));
-        expect((results[1] as Value).raw, equals(""));
+        expect(results[0], equals(""));
+        expect(results[1], equals(""));
       }
     });
 
@@ -134,13 +134,10 @@ void main() {
         ''');
       } on ReturnException catch (e) {
         var results = (e.value as Value).unwrap();
-        expect((results[0] as Value).raw, equals(2));
-        expect((results[1] as Value).raw, equals(3));
-        expect((results[2] as Value).raw, equals(4));
-        expect(
-          (results[3] as Value).raw,
-          equals(2),
-        ); // Original table unchanged
+        expect(results[0], equals(2));
+        expect(results[1], equals(3));
+        expect(results[2], equals(4));
+        expect(results[3], equals(2)); // Original table unchanged
       }
     });
 
@@ -155,11 +152,11 @@ void main() {
         ''');
       } on ReturnException catch (e) {
         var results = (e.value as Value).unwrap();
-        expect((results[0] as Value).raw, equals(1)); // Unchanged
-        expect((results[1] as Value).raw, equals(2)); // Unchanged
-        expect((results[2] as Value).raw, equals(1)); // Moved from t[1]
-        expect((results[3] as Value).raw, equals(2)); // Moved from t[2]
-        expect((results[4] as Value).raw, equals(3)); // Moved from t[3]
+        expect(results[0], equals(1)); // Unchanged
+        expect(results[1], equals(2)); // Unchanged
+        expect(results[2], equals(1)); // Moved from t[1]
+        expect(results[3], equals(2)); // Moved from t[2]
+        expect(results[4], equals(3)); // Moved from t[3]
       }
     });
 
@@ -173,10 +170,10 @@ void main() {
         ''');
       } on ReturnException catch (e) {
         var t1 = (e.value as Value).unwrap();
-        expect((t1[0] as Value).raw, equals(10));
-        expect((t1[1] as Value).raw, equals(20));
-        expect((t1[2] as Value).raw, equals(30));
-        expect((t1[3] as Value).raw, equals(3));
+        expect(t1[0], equals(10));
+        expect(t1[1], equals(20));
+        expect(t1[2], equals(30));
+        expect(t1[3], equals(3));
       }
     });
 
@@ -191,10 +188,10 @@ void main() {
         ''');
       } on ReturnException catch (e) {
         var t1 = (e.value as Value).unwrap();
-        expect((t1[0] as Value).raw, equals(10));
-        expect((t1[1] as Value).raw, isNull);
-        expect((t1[2] as Value).raw, equals(30));
-        expect((t1[3] as Value).raw, equals(3)); // n should be 3 even with nil
+        expect(t1[0], equals(10));
+        expect(t1[1], isNull);
+        expect(t1[2], equals(30));
+        expect(t1[3], equals(3)); // n should be 3 even with nil
       }
     });
 
@@ -209,11 +206,11 @@ void main() {
         ''');
       } on ReturnException catch (e) {
         var results = (e.value as Value).unwrap();
-        expect((results[0] as Value).raw, equals(1));
-        expect((results[1] as Value).raw, equals(2));
-        expect((results[2] as Value).raw, equals(3));
-        expect((results[3] as Value).raw, equals(4));
-        expect((results[4] as Value).raw, equals(5));
+        expect(results[0], equals(1));
+        expect(results[1], equals(2));
+        expect(results[2], equals(3));
+        expect(results[3], equals(4));
+        expect(results[4], equals(5));
       }
     });
 
@@ -231,13 +228,13 @@ void main() {
       } on ReturnException catch (e) {
         var results = (e.value as Value).unwrap();
         Logger.debug(
-          "Results: ${(results[0] as Value).raw}, ${(results[1] as Value).raw}, ${(results[2] as Value).raw}, ${(results[3] as Value).raw}, ${(results[4] as Value).raw}",
+          "Results: ${results[0]}, ${results[1]}, ${results[2]}, ${results[3]}, ${results[4]}",
         );
-        expect((results[0] as Value).raw, equals(5));
-        expect((results[1] as Value).raw, equals(4));
-        expect((results[2] as Value).raw, equals(3));
-        expect((results[3] as Value).raw, equals(2));
-        expect((results[4] as Value).raw, equals(1));
+        expect(results[0], equals(5));
+        expect(results[1], equals(4));
+        expect(results[2], equals(3));
+        expect(results[3], equals(2));
+        expect(results[4], equals(1));
       }
     });
 
@@ -252,9 +249,9 @@ void main() {
         ''');
       } on ReturnException catch (e) {
         var results = (e.value as Value).unwrap();
-        expect((results[0] as Value).raw, equals(20));
-        expect((results[1] as Value).raw, equals(30));
-        expect((results[2] as Value).raw, equals(40));
+        expect(results[0], equals(20));
+        expect(results[1], equals(30));
+        expect(results[2], equals(40));
       }
     });
 
@@ -269,9 +266,9 @@ void main() {
         ''');
       } on ReturnException catch (e) {
         var results = (e.value as Value).unwrap();
-        expect((results[0] as Value).raw, equals(10));
-        expect((results[1] as Value).raw, equals(20));
-        expect((results[2] as Value).raw, equals(30));
+        expect(results[0], equals(10));
+        expect(results[1], equals(20));
+        expect(results[2], equals(30));
       }
     });
   });

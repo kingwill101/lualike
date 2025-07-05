@@ -25,7 +25,9 @@ abstract class BaseCommand extends Command {
         // Execute file
         final filename = luaInit.substring(1);
         try {
-          final sourceCode = await File(filename).readAsString();
+          final sourceCode = await File(
+            filename,
+          ).readAsBytes().then((bytes) => String.fromCharCodes(bytes));
           await bridge.runCode(sourceCode, scriptPath: filename);
         } catch (e) {
           safePrint('Error in LUA_INIT file: $e');

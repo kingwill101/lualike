@@ -32,10 +32,17 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         category: 'Assignment',
       );
 
-      if (value is Value && value.raw is Future) {
+      // Handle Future values - both direct Futures and Values containing Futures
+      if (value is Future) {
+        value = await value;
+        Logger.debug(
+          'visitAssignment: Awaited direct future value: \\$value',
+          category: 'Assignment',
+        );
+      } else if (value is Value && value.raw is Future) {
         value = Value(await value.raw);
         Logger.debug(
-          'visitAssignment: Awaited future value: \\$value',
+          'visitAssignment: Awaited future value from Value.raw: \\$value',
           category: 'Assignment',
         );
       }
@@ -325,6 +332,14 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         // Handle grouped expressions (e.g., local x, y, z = (f()))
         // In Lua, parentheses limit multiple return values to just the first one
         value = await expr.expr.accept(this);
+
+        // Handle Future values
+        if (value is Future) {
+          value = await value;
+        } else if (value is Value && value.raw is Future) {
+          value = Value(await value.raw);
+        }
+
         Logger.debug(
           'LocalDeclaration: handling GroupedExpression with inner result: $value',
           category: 'Interpreter',
@@ -349,6 +364,13 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         // Function and method calls are already evaluated when visited
         value = await expr.accept(this);
 
+        // Handle Future values
+        if (value is Future) {
+          value = await value;
+        } else if (value is Value && value.raw is Future) {
+          value = Value(await value.raw);
+        }
+
         if (value is List) {
           values.addAll(value);
         } else if (value is Value && value.isMulti) {
@@ -358,6 +380,14 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         }
       } else {
         value = await expr.accept(this);
+
+        // Handle Future values
+        if (value is Future) {
+          value = await value;
+        } else if (value is Value && value.raw is Future) {
+          value = Value(await value.raw);
+        }
+
         // Wrap non-Value results
         if (value is List) {
           values.addAll(value);
@@ -527,6 +557,14 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     // Special handling for grouped expressions
     if (node.value is GroupedExpression) {
       var result = await (node.value as GroupedExpression).expr.accept(this);
+
+      // Handle Future values
+      if (result is Future) {
+        result = await result;
+      } else if (result is Value && result.raw is Future) {
+        result = Value(await result.raw);
+      }
+
       Logger.debug(
         'AssignmentIndexAccessExpr: handling GroupedExpression with inner result: $result',
         category: 'Interpreter',
@@ -545,6 +583,13 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       }
     } else {
       valueToAssign = await node.value.accept(this);
+
+      // Handle Future values
+      if (valueToAssign is Future) {
+        valueToAssign = await valueToAssign;
+      } else if (valueToAssign is Value && valueToAssign.raw is Future) {
+        valueToAssign = Value(await valueToAssign.raw);
+      }
     }
 
     // Wrap the value if needed

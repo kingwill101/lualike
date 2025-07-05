@@ -231,24 +231,26 @@ class _OSSetLocale implements BuiltinFunction {
       return Value(_currentLocale ?? 'C');
     }
 
-    final locale = (args[0] as Value).raw.toString();
+    final localeArg = args[0] as Value;
     // final category =
     //     args.length > 1 ? (args[1] as Value).raw.toString() : 'all';
 
-    // We don't actually change the locale since Dart doesn't provide
-    // direct locale control, but we track what was requested
+    // If locale argument is nil, return current locale
+    if (localeArg.raw == null) {
+      return Value(_currentLocale ?? 'C');
+    }
+
+    final locale = localeArg.raw.toString();
+
+    // We only support the "C" locale since we don't implement
+    // locale-specific functionality like collation
     if (locale == '') {
-      _currentLocale = io.Platform.localeName;
+      _currentLocale = 'C'; // Default to C locale
     } else if (locale == 'C' || locale == 'POSIX') {
       _currentLocale = 'C';
     } else {
-      // Try to match requested locale
-      try {
-        // Locale(locale);
-        _currentLocale = locale;
-      } catch (_) {
-        return Value(null);
-      }
+      // For any other locale, return nil since we don't support it
+      return Value(null);
     }
     return Value(_currentLocale);
   }

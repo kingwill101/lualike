@@ -139,6 +139,16 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     }
 
     // If no metamethod found, use regular operators
+    if (node.op == '==') {
+      Logger.debug(
+        'Equality check: leftVal.raw type = ${leftVal.raw.runtimeType}, value = "${leftVal.raw}"',
+        category: 'Expression/Equality',
+      );
+      Logger.debug(
+        'Equality check: rightVal.raw type = ${rightVal.raw.runtimeType}, value = "${rightVal.raw}"',
+        category: 'Expression/Equality',
+      );
+    }
     var result = switch (node.op) {
       '+' => leftVal + rightVal,
       '-' => leftVal - rightVal,
@@ -167,7 +177,10 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       ),
     };
 
-    Logger.debug('BinaryExpression result: $result', category: 'Expression');
+    Logger.debug(
+      'BinaryExpression result: $result (raw: ${(result is Value ? result.raw : result).runtimeType})',
+      category: 'Expression',
+    );
     return result is Value ? result : Value(result);
   }
 

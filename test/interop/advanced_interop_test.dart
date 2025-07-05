@@ -22,9 +22,9 @@ void main() {
       var wordsMap = words.raw as Map<dynamic, dynamic>;
 
       // Check that the assignment worked
-      expect((wordsMap[3] as Value).raw, equals(11));
-      expect((wordsMap[1] as Value).raw, equals("word1"));
-      expect((wordsMap[2] as Value).raw, equals("word2"));
+      expect((wordsMap[3] as Value).unwrap(), equals(11));
+      expect((wordsMap[1] as Value).unwrap(), equals("word1"));
+      expect((wordsMap[2] as Value).unwrap(), equals("word2"));
     });
 
     test('nested table assignment with direct indexing (workaround)', () async {
@@ -49,9 +49,9 @@ void main() {
       var wordsMap = words.raw as Map<dynamic, dynamic>;
 
       // Check that the assignment worked
-      expect((wordsMap[3] as Value).raw, equals(11));
-      expect((wordsMap[1] as Value).raw, equals("word1"));
-      expect((wordsMap[2] as Value).raw, equals("word2"));
+      expect((wordsMap[3] as Value).unwrap(), equals(11));
+      expect((wordsMap[1] as Value).unwrap(), equals("word1"));
+      expect((wordsMap[2] as Value).unwrap(), equals("word2"));
     });
 
     test('deeply nested table assignment with indexing', () async {
@@ -78,12 +78,12 @@ void main() {
       var words = bridge.getGlobal('words') as Value;
       var something = (words.raw as Map)['something'] as Value;
       var value = (something.raw as Map)['value'] as Value;
-      var valueMap = value.raw as Map<dynamic, dynamic>;
+      var valueMap = value.unwrap() as Map<dynamic, dynamic>;
 
       // Check that the deep assignment worked
-      expect((valueMap[3] as Value).raw, equals(11));
-      expect((valueMap[1] as Value).raw, equals("deep1"));
-      expect((valueMap[2] as Value).raw, equals("deep2"));
+      expect(valueMap[3], equals(11));
+      expect(valueMap[1], equals("deep1"));
+      expect(valueMap[2], equals("deep2"));
     });
 
     test('deeply nested table assignment with indexing (workaround)', () async {
@@ -109,12 +109,12 @@ void main() {
       var words = bridge.getGlobal('words') as Value;
       var something = (words.raw as Map)['something'] as Value;
       var value = (something.raw as Map)['value'] as Value;
-      var valueMap = value.raw as Map<dynamic, dynamic>;
+      var valueMap = value.unwrap() as Map<dynamic, dynamic>;
 
       // Check that the deep assignment worked
-      expect((valueMap[3] as Value).raw, equals(11));
-      expect((valueMap[1] as Value).raw, equals("deep1"));
-      expect((valueMap[2] as Value).raw, equals("deep2"));
+      expect(valueMap[3], equals(11));
+      expect(valueMap[1], equals("deep1"));
+      expect(valueMap[2], equals("deep2"));
     });
 
     test('require module functionality', () async {
@@ -144,7 +144,7 @@ void main() {
       ''');
 
       var result = bridge.getGlobal('result');
-      expect((result as Value).raw, equals("GC tracing started"));
+      expect((result as Value).unwrap(), equals("GC tracing started"));
     });
 
     test('require module functionality (workaround)', () async {
@@ -172,7 +172,7 @@ void main() {
       ''');
 
       var result = bridge.getGlobal('result');
-      expect((result as Value).raw, equals("GC tracing started"));
+      expect((result as Value).unwrap(), equals("GC tracing started"));
     });
 
     test('table property syntax', () async {
@@ -190,7 +190,7 @@ void main() {
       ''');
 
       var result = bridge.getGlobal('result');
-      expect((result as Value).raw, equals("Property: first"));
+      expect((result as Value).unwrap(), equals("Property: first"));
     });
 
     test('table property syntax with alternative call style', () async {
@@ -210,7 +210,7 @@ void main() {
       ''');
 
       var result = bridge.getGlobal('result');
-      expect((result as Value).raw, equals("Property: first"));
+      expect((result as Value).unwrap(), equals("Property: first"));
     });
 
     test(
@@ -230,7 +230,7 @@ void main() {
       ''');
 
         var result = bridge.getGlobal('result');
-        expect((result as Value).raw, equals("Property: first"));
+        expect((result as Value).unwrap(), equals("Property: first"));
       },
     );
 
@@ -260,7 +260,7 @@ void main() {
       ''');
 
       var result = bridge.getGlobal('result');
-      expect((result as Value).raw, equals("GC tracing started"));
+      expect((result as Value).unwrap(), equals("GC tracing started"));
     });
 
     test('require with alternative call style (workaround)', () async {
@@ -288,7 +288,7 @@ void main() {
       ''');
 
       var result = bridge.getGlobal('result');
-      expect((result as Value).raw, equals("GC tracing started"));
+      expect((result as Value).unwrap(), equals("GC tracing started"));
     });
 
     test('combined require and table property syntax', () async {
@@ -323,8 +323,8 @@ void main() {
       var propResult = bridge.getGlobal('propResult');
       var status = bridge.getGlobal('status');
 
-      expect((propResult as Value).raw, equals("TracerProperty: status"));
-      expect((status as Value).raw, equals("active"));
+      expect((propResult as Value).unwrap(), equals("TracerProperty: status"));
+      expect((status as Value).unwrap(), equals("active"));
     });
 
     test('combined require and table property syntax (workaround)', () async {
@@ -360,8 +360,8 @@ void main() {
       var propResult = bridge.getGlobal('propResult');
       var status = bridge.getGlobal('status');
 
-      expect((propResult as Value).raw, equals("TracerProperty: status"));
-      expect((status as Value).raw, equals("active"));
+      expect((propResult as Value).unwrap(), equals("TracerProperty: status"));
+      expect((status as Value).unwrap(), equals("active"));
     });
 
     test('combined alternative call styles', () async {
@@ -400,8 +400,8 @@ void main() {
       var propResult = bridge.getGlobal('propResult');
       var status = bridge.getGlobal('status');
 
-      expect((propResult as Value).raw, equals("TracerProperty: status"));
-      expect((status as Value).raw, equals("active"));
+      expect((propResult as Value).unwrap(), equals("TracerProperty: status"));
+      expect((status as Value).unwrap(), equals("active"));
     });
 
     test('combined alternative call styles (workaround)', () async {
@@ -437,8 +437,8 @@ void main() {
       var propResult = bridge.getGlobal('propResult');
       var status = bridge.getGlobal('status');
 
-      expect((propResult as Value).raw, equals("TracerProperty: status"));
-      expect((status as Value).raw, equals("active"));
+      expect((propResult as Value).unwrap(), equals("TracerProperty: status"));
+      expect((status as Value).unwrap(), equals("active"));
     });
   });
 }

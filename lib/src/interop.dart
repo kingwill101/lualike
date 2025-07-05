@@ -216,7 +216,9 @@ Future<List<Value>> runFile(String path, {Map<String, dynamic>? env}) async {
   if (!await file.exists()) {
     throw Exception('File not found: $path');
   }
-  final code = await file.readAsString();
+  final code = await file.readAsBytes().then(
+    (bytes) => String.fromCharCodes(bytes),
+  );
 
   // Create a new environment if one wasn't provided
   env ??= {};
@@ -274,7 +276,9 @@ Future<Value> loadFile(String path) async {
     if (!await file.exists()) {
       throw LuaError.typeError('File not found: $path');
     }
-    final content = await file.readAsString();
+    final content = await file.readAsBytes().then(
+      (bytes) => String.fromCharCodes(bytes),
+    );
     // runCode returns a list, loadFile should return the first result or nil
     final results = await runCode(content, filePath: path);
     return results.isNotEmpty ? results[0] : Value(null);
