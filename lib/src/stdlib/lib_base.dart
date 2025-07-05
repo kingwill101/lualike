@@ -44,8 +44,9 @@ class SetMetatableFunction implements BuiltinFunction {
     if (args.length != 2) {
       throw Exception("setmetatable expects two arguments");
     }
-    var table = args[0];
-    var metatable = args[1];
+
+    final table = args[0];
+    final metatable = args[1];
 
     if (table is! Value || table.raw is! Map) {
       throw Exception("setmetatable only supported for table values");
@@ -53,16 +54,18 @@ class SetMetatableFunction implements BuiltinFunction {
 
     if (metatable is Value) {
       if (metatable.raw is Map) {
-        // Convert the map to the right type without using 'as'
+        // Convert the map to the right type
         final Map<String, dynamic> mtMap = {};
-        (metatable.raw as Map).forEach((key, value) {
-          if (key is String) {
-            mtMap[key] = value;
-          } else {
-            mtMap[key.toString()] = value;
-          }
-        });
-        table.setMetatable(mtMap);
+        for (final entry in (metatable.raw as Map).entries) {
+          final key = entry.key;
+          final value = entry.value;
+
+          final keyStr = key is String ? key : key.toString();
+          final wrappedValue = value is Value ? value : Value(value);
+          mtMap[keyStr] = wrappedValue;
+        }
+
+        table.metatable = mtMap;
         return table;
       } else if (metatable.raw == null) {
         // Setting nil metatable removes the metatable
@@ -318,7 +321,7 @@ class IPairsFunction implements BuiltinFunction {
 
 class PrintFunction implements BuiltinFunction {
   @override
-  Object? call(List<Object?> args) {
+  Future<Object?> call(List<Object?> args) async {
     final outputs = <String>[];
 
     for (final arg in args) {
@@ -332,9 +335,18 @@ class PrintFunction implements BuiltinFunction {
       // Check for __tostring metamethod first
       final tostring = value.getMetamethod("__tostring");
       if (tostring != null) {
-        final result = tostring([value]);
-        outputs.add((result as Value).raw.toString());
-        continue;
+        try {
+          final result = value.callMetamethod('__tostring', [value]);
+          // Handle both sync and async results
+          final awaitedResult = result is Future ? await result : result;
+          final stringResult = awaitedResult is Value
+              ? awaitedResult.raw.toString()
+              : awaitedResult.toString();
+          outputs.add(stringResult);
+          continue;
+        } catch (e) {
+          // If metamethod call fails, fall back to default behavior
+        }
       }
 
       // Handle basic types
@@ -353,8 +365,10 @@ class PrintFunction implements BuiltinFunction {
         outputs.add(value.raw.toString());
       } else if (value.raw is Map) {
         outputs.add("table: ${value.raw.hashCode}");
-      } else if (value.raw is Function || value is BuiltinFunction) {
+      } else if (value.raw is Function || value.raw is BuiltinFunction) {
         outputs.add("function: ${value.hashCode}");
+      } else if (value.raw is Future) {
+        outputs.add("list: ${value.raw.hashCode}");
       } else {
         outputs.add(value.raw.toString());
       }
@@ -446,25 +460,30 @@ class ToNumberFunction implements BuiltinFunction {
 
 class ToStringFunction implements BuiltinFunction {
   @override
-  Object? call(List<Object?> args) {
+  Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) throw Exception("tostring requires an argument");
     final value = args[0] as Value;
 
     // Check for __tostring metamethod
     final tostring = value.getMetamethod("__tostring");
     if (tostring != null) {
-      if (tostring is Function) {
-        final result = tostring([value]);
-        if (result is Value) {
-          return result;
+      try {
+        final result = value.callMetamethod('__tostring', [value]);
+        // Await the result if it's a Future
+        final awaitedResult = result is Future ? await result : result;
+        if (awaitedResult is Value) {
+          return awaitedResult;
         }
+        // If the result is not a Value, wrap it
+        return Value(awaitedResult);
+      } catch (e) {
+        // If metamethod call fails, fall back to default behavior
       }
     }
 
     // Handle basic types directly
     if (value.raw == null) return Value("nil");
     if (value.raw is bool) {
-      // Special handling for boolean values
       final boolStr = value.raw.toString();
       return Value(boolStr);
     }
@@ -1202,7 +1221,7 @@ class PairsFunction implements BuiltinFunction {
         return Value.multi([nextKey, nextValue]);
       }
 
-      // If we didn't find the next entry, return nil
+      // If we didn2t find the next entry, return nil
       Logger.debug(
         'PairsFunction.iterator: No more entries, returning nil',
         category: 'Base',

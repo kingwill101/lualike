@@ -1,3 +1,10 @@
+import 'dart:typed_data';
+
+import 'dart:typed_data';
+
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:petitparser/petitparser.dart';
 
 /// Represents a parsed format specifier or a literal string segment.
@@ -43,7 +50,7 @@ class FormatStringParser {
               flags: values[1] as String,
               width: values[2] as String?,
               precision: values[3] as String?,
-              specifier: values[4] as String,
+              specifier: values.last.toString(),
             );
           });
 
@@ -92,5 +99,53 @@ class FormatStringParser {
         'Invalid format string: ${result.message ?? "Unknown error"}',
       );
     }
+  }
+
+  /// Escapes a byte list according to Lua's %q format rules.
+  static String escape(Uint8List bytes) {
+    final buffer = StringBuffer();
+    for (final code in bytes) {
+      if (code == 34) {
+        // "
+        buffer.write(r'\"');
+      } else if (code == 92) {
+        // \
+        buffer.write(r'\\');
+      } else if (code == 10) {
+        // \n
+        buffer.write(r'\n');
+      } else if (code == 13) {
+        // \r
+        buffer.write(r'\r');
+      } else if (code == 9) {
+        // \t
+        buffer.write(r'\t');
+      } else if (code == 7) {
+        // \a (bell)
+        buffer.write(r'\a');
+      } else if (code == 8) {
+        // \b (backspace)
+        buffer.write(r'\b');
+      } else if (code == 11) {
+        // \v (vertical tab)
+        buffer.write(r'\v');
+      } else if (code == 12) {
+        // \f (form feed)
+        buffer.write(r'\f');
+      } else if (code == 0) {
+        // null byte - special case
+        buffer.write(r'\0');
+      } else if (code >= 32 && code <= 126) {
+        // Printable ASCII characters
+        buffer.writeCharCode(code);
+      } else if (code >= 128 && code <= 255) {
+        // Extended ASCII - escape as hex
+        buffer.write('\\x${code.toRadixString(16).padLeft(2, '0')}');
+      } else {
+        // Other control characters (1-31, 127)
+        buffer.write('\\$code');
+      }
+    }
+    return buffer.toString();
   }
 }

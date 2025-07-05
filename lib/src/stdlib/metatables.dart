@@ -112,6 +112,15 @@ class MetaTable {
         );
         return Value(null);
       },
+      '__eq': (List<Object?> args) {
+        final a = args[0] as Value;
+        final b = args[1] as Value;
+        Logger.debug(
+          'String __eq metamethod called: "${a.raw}" == "${b.raw}"',
+          category: 'Metatables',
+        );
+        return Value(a == b);
+      },
     });
     Logger.debug('String metatable initialized', category: 'Metatables');
 

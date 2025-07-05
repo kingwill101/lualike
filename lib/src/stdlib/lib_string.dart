@@ -97,7 +97,8 @@ class _StringByte implements BuiltinFunction {
 
     final result = <Value>[];
     for (var i = start; i <= end; i++) {
-      result.add(Value(bytes[i - 1]));
+      final byteValue = bytes[i - 1];
+      result.add(Value(byteValue));
     }
 
     if (result.isEmpty) {
@@ -123,9 +124,10 @@ class _StringChar implements BuiltinFunction {
       }
       bytes.add(code);
     }
-    // Return Dart string for better interop - use latin1 to handle all byte values 0-255
-    final str = String.fromCharCodes(bytes);
-    return Value(str);
+    // Instead of creating a Dart String and potentially losing byte integrity,
+    // create a LuaString directly from the bytes.
+    final luaString = LuaString.fromBytes(Uint8List.fromList(bytes));
+    return Value(luaString);
   }
 }
 
@@ -239,139 +241,111 @@ String _typeName(dynamic value) {
   return value.runtimeType.toString();
 }
 
-String _escapeLuaString(String str) {
-  // Lua's %q format escapes quotes, backslashes, newlines, and control characters
-  final buffer = StringBuffer();
-  final bytes = str.codeUnits;
-  int i = 0;
-  while (i < bytes.length) {
-    final code = bytes[i];
-    if (code == 92) {
-      // backslash
-      buffer.write('\\\\');
-    } else if (code == 34) {
-      // quote
-      buffer.write('\\"');
-    } else if (code == 10) {
-      // newline - special case: backslash + literal newline
-      buffer.write('\\\n');
-    } else if (code == 0) {
-      // null - check if next character is a digit
-      if (i + 1 < bytes.length && bytes[i + 1] >= 48 && bytes[i + 1] <= 57) {
-        buffer.write('\\000');
-      } else {
-        buffer.write('\\0');
-      }
-    } else if (code == 7) {
-      // bell
-      buffer.write('\\a');
-    } else if (code == 8) {
-      // backspace
-      buffer.write('\\b');
-    } else if (code == 12) {
-      // form feed
-      buffer.write('\\f');
-    } else if (code == 13) {
-      // carriage return
-      buffer.write('\\r');
-    } else if (code == 9) {
-      // tab
-      buffer.write('\\t');
-    } else if (code == 11) {
-      // vertical tab
-      buffer.write('\\v');
-    } else if (code < 32 || code == 127) {
-      // other control characters - use minimal digits unless next char is digit
-      String codeStr = code.toString();
-      if (i + 1 < bytes.length && bytes[i + 1] >= 48 && bytes[i + 1] <= 57) {
-        codeStr = codeStr.padLeft(3, '0');
-      }
-      buffer.write('\\$codeStr');
-    } else if (code >= 0x80) {
-      // Try to decode as UTF-8 sequence
-      try {
-        final decoded = utf8.decode([code], allowMalformed: true);
-        if (decoded == '\uFFFD') {
-          buffer.write('\\ufffd');
-        } else {
-          buffer.write(decoded);
-        }
-      } catch (_) {
-        buffer.write('\\ufffd');
-      }
-    } else {
-      buffer.write(String.fromCharCode(code));
-    }
-    i++;
-  }
-  return buffer.toString();
-}
+Future<Object> _formatString(_FormatContext ctx) async {
+  final value = ctx.value;
 
-String _formatString(_FormatContext ctx) {
-  final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
+  // If it's a Value object, check for __tostring metamethod first
+  if (value is Value) {
+    final tostring = value.getMetamethod("__tostring");
+    if (tostring != null) {
+      try {
+        final result = value.callMetamethod('__tostring', [value]);
+        // Await the result if it's a Future
+        final awaitedResult = result is Future ? await result : result;
+        final str = awaitedResult is Value
+            ? awaitedResult.raw.toString()
+            : awaitedResult.toString();
+        if (ctx.precision.isNotEmpty) {
+          final precValue = ctx.precisionValue;
+          if (precValue < str.length) {
+            return _applyPadding(str.substring(0, precValue), ctx);
+          }
+        }
+        return _applyPadding(str, ctx);
+      } catch (e) {
+        // If metamethod call fails, fall back to default behavior
+      }
+    }
+
+    // Check for __name metamethod as fallback for tables
+    if (value.raw is Map) {
+      final name = value.getMetamethod("__name");
+      if (name != null &&
+          name is Value &&
+          (name.raw is String || name.raw is LuaString)) {
+        final str = '${name.raw}: ${value.raw.hashCode.toRadixString(16)}';
+        if (ctx.precision.isNotEmpty) {
+          final precValue = ctx.precisionValue;
+          if (precValue < str.length) {
+            return _applyPadding(str.substring(0, precValue), ctx);
+          }
+        }
+        return _applyPadding(str, ctx);
+      }
+    }
+  }
+
+  final rawValue = value is Value ? value.raw : value;
+
+  if (rawValue is LuaString) {
+    // For %s format, preserve the original bytes but handle precision and padding
+    var bytes = rawValue.bytes;
+    if (ctx.precision.isNotEmpty) {
+      final precValue = ctx.precisionValue;
+      if (precValue < bytes.length) {
+        bytes = Uint8List.fromList(bytes.sublist(0, precValue));
+      }
+    }
+
+    // Apply padding at byte level to preserve Latin-1 characters
+    final width = ctx.widthValue;
+    if (width > 0 && bytes.length < width) {
+      final padding = List.filled(width - bytes.length, 32); // space
+      if (ctx.leftAlign) {
+        bytes = Uint8List.fromList([...bytes, ...padding]);
+      } else {
+        bytes = Uint8List.fromList([...padding, ...bytes]);
+      }
+    }
+
+    return LuaString(bytes);
+  }
 
   String str;
   if (rawValue == null) {
     str = 'nil';
   } else if (rawValue is bool) {
-    str = rawValue.toString(); // true/false are already correct in Dart
-  } else if (rawValue is LuaString) {
-    // For LuaString, we need to handle it specially to preserve byte-level precision
-    final luaStr = rawValue;
-    if (ctx.precision.isNotEmpty) {
-      final precValue = ctx.precisionValue;
-      if (precValue < luaStr.length) {
-        // Create a new LuaString with truncated bytes, then convert to string
-        final truncatedBytes = luaStr.bytes.sublist(0, precValue);
-        final truncatedLuaStr = LuaString(truncatedBytes);
-        return _applyPadding(truncatedLuaStr.toString(), ctx);
-      }
-    }
-    str = luaStr.toString();
+    str = rawValue.toString();
+  } else if (rawValue is Map) {
+    str = 'table: ${rawValue.hashCode.toRadixString(16)}';
+  } else if (rawValue is Function) {
+    str = 'function: ${rawValue.hashCode.toRadixString(16)}';
   } else {
     str = rawValue.toString();
   }
 
-  // Handle precision for regular strings - truncate if needed
-  String result = str;
   if (ctx.precision.isNotEmpty) {
     final precValue = ctx.precisionValue;
     if (precValue < str.length) {
-      result = str.substring(0, precValue);
+      str = str.substring(0, precValue);
     }
   }
 
-  return _applyPadding(result, ctx);
+  return _applyPadding(str, ctx);
 }
 
 String _formatCharacter(_FormatContext ctx) {
-  if (ctx.value is! num && ctx.value is! BigInt) {
+  final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
+  if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
-      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${_typeName(ctx.value)})",
+      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${_typeName(rawValue)})",
     );
   }
 
-  final charCode = NumberUtils.toInt(ctx.value);
+  final charCode = NumberUtils.toInt(rawValue);
   final char = String.fromCharCode(charCode);
 
   return _applyPadding(char, ctx);
-}
-
-String _formatQuoted(_FormatContext ctx) {
-  // Extract the raw value from Value objects
-  final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
-
-  if (rawValue == null) {
-    return 'nil';
-  } else if (rawValue is bool) {
-    return rawValue ? 'true' : 'false';
-  } else if (rawValue is num) {
-    return rawValue.toString();
-  } else {
-    final str = rawValue.toString();
-    final escaped = _escapeLuaString(str);
-    return '"$escaped"';
-  }
 }
 
 String _formatPointer(_FormatContext ctx) {
@@ -397,13 +371,14 @@ String _formatPointer(_FormatContext ctx) {
 }
 
 String _formatFloat(_FormatContext ctx, bool uppercase) {
-  if (ctx.value is! num && ctx.value is! BigInt) {
+  final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
+  if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
-      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${_typeName(ctx.value)})",
+      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${_typeName(rawValue)})",
     );
   }
 
-  final doubleValue = NumberUtils.toDouble(ctx.value);
+  final doubleValue = NumberUtils.toDouble(rawValue);
 
   // Handle special values
   if (doubleValue.isNaN) return uppercase ? 'NAN' : 'nan';
@@ -424,13 +399,14 @@ String _formatFloat(_FormatContext ctx, bool uppercase) {
 }
 
 String _formatScientific(_FormatContext ctx, bool uppercase) {
-  if (ctx.value is! num && ctx.value is! BigInt) {
+  final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
+  if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
-      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${_typeName(ctx.value)})",
+      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${_typeName(rawValue)})",
     );
   }
 
-  final doubleValue = NumberUtils.toDouble(ctx.value);
+  final doubleValue = NumberUtils.toDouble(rawValue);
 
   // Handle special values
   if (doubleValue.isNaN) return uppercase ? 'NAN' : 'nan';
@@ -467,13 +443,14 @@ String _formatScientific(_FormatContext ctx, bool uppercase) {
 }
 
 String _formatHexFloat(_FormatContext ctx, bool uppercase) {
-  if (ctx.value is! num && ctx.value is! BigInt) {
+  final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
+  if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
-      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${_typeName(ctx.value)})",
+      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${_typeName(rawValue)})",
     );
   }
 
-  double v = NumberUtils.toDouble(ctx.value);
+  double v = NumberUtils.toDouble(rawValue);
 
   if (v.isNaN) return uppercase ? 'NAN' : 'nan';
   if (v.isInfinite) {
@@ -517,13 +494,14 @@ String _formatHexFloat(_FormatContext ctx, bool uppercase) {
 }
 
 String _formatInteger(_FormatContext ctx, {bool unsigned = false}) {
-  if (ctx.value is! num && ctx.value is! BigInt) {
+  final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
+  if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
-      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${_typeName(ctx.value)})",
+      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${_typeName(rawValue)})",
     );
   }
 
-  var intValue = NumberUtils.toInt(ctx.value);
+  var intValue = NumberUtils.toInt(rawValue);
   if (unsigned) intValue = intValue.abs();
 
   String result;
@@ -544,13 +522,14 @@ String _formatInteger(_FormatContext ctx, {bool unsigned = false}) {
 }
 
 String _formatHex(_FormatContext ctx, bool uppercase) {
-  if (ctx.value is! num && ctx.value is! BigInt) {
+  final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
+  if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
-      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${_typeName(ctx.value)})",
+      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${_typeName(rawValue)})",
     );
   }
 
-  final intValue = NumberUtils.toInt(ctx.value);
+  final intValue = NumberUtils.toInt(rawValue);
   String result = intValue.toRadixString(16);
   if (uppercase) result = result.toUpperCase();
 
@@ -601,13 +580,14 @@ class _FormatContext {
 }
 
 String _formatOctal(_FormatContext ctx) {
-  if (ctx.value is! num && ctx.value is! BigInt) {
+  final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
+  if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
-      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${_typeName(ctx.value)})",
+      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${_typeName(rawValue)})",
     );
   }
 
-  final intValue = NumberUtils.toInt(ctx.value);
+  final intValue = NumberUtils.toInt(rawValue);
   String result = intValue.toRadixString(8);
 
   if (ctx.alternative && intValue != 0) {
@@ -622,128 +602,199 @@ String _formatOctal(_FormatContext ctx) {
   return _applyPadding(result, ctx);
 }
 
+String _formatQuoted(_FormatContext ctx) {
+  final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
+  final Uint8List bytes;
+  if (rawValue is LuaString) {
+    bytes = rawValue.bytes;
+  } else {
+    bytes = utf8.encode(rawValue.toString());
+  }
+  final escaped = FormatStringParser.escape(bytes);
+  return '"$escaped"';
+}
+
 class _StringFormat implements BuiltinFunction {
   @override
-  Object? call(List<Object?> args) {
+  Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
-      throw LuaError.typeError(
-        "missing argument #1 to 'format' (string expected)",
-      );
+      throw LuaError.typeError("string.format requires a format string");
     }
 
-    final formatStringValue = args[0] as Value;
-    if (formatStringValue.raw is! String &&
-        formatStringValue.raw is! LuaString) {
-      throw LuaError.typeError(
-        "bad argument #1 to 'format' (string expected, got ${_typeName(formatStringValue.raw)}) ",
-      );
-    }
+    final formatString = (args[0] as Value).raw.toString();
 
-    final formatString = formatStringValue.raw.toString();
-    final buffer = StringBuffer();
-    var argIndex = 1;
-
+    List<FormatPart> formatParts;
     try {
-      final parser = FormatStringParser.formatStringParser;
-      final result = parser.parse(formatString);
-
-      if (result is! Success) {
-        throw FormatException(
-          "Invalid format string: ${result.message} at ${result.position}",
-        );
+      final parsedParts = FormatStringParser.parse(formatString);
+      formatParts = parsedParts as List<FormatPart>;
+    } catch (e) {
+      if (e is FormatException) {
+        // Convert FormatException to appropriate LuaError
+        if (e.message!.contains('end of input expected')) {
+          // This happens when there's an invalid specifier
+          throw LuaError(
+            "invalid conversion '${formatString.substring(formatString.lastIndexOf('%'))}' to 'format'",
+          );
+        }
+        throw LuaError("invalid format string");
       }
+      rethrow;
+    }
 
-      final formatParts = result.value;
+    final buffer = <Object>[];
+    int argIndex = 1;
 
-      for (final part in formatParts) {
-        if (part is LiteralPart) {
-          buffer.write(part.text);
-        } else if (part is SpecifierPart) {
-          if (part.specifier == '%') {
-            buffer.write('%');
+    for (final part in formatParts) {
+      if (part is LiteralPart) {
+        buffer.add(part.text);
+      } else if (part is SpecifierPart) {
+        // Validate the format specifier
+        _validateFormatSpecifier(part);
+
+        if (argIndex >= args.length) {
+          throw LuaError(
+            'bad argument #${argIndex + 1} to \'format\' (no value)',
+          );
+        }
+
+        final currentArg = args[argIndex];
+        final ctx = _FormatContext(
+          value: currentArg is Value ? currentArg : Value(currentArg),
+          valueIndex: argIndex + 1,
+          flags: part.flags.split('').toSet(),
+          width: part.width ?? '',
+          precision: part.precision ?? '',
+          specifier: part.specifier,
+        );
+
+        Object formatted;
+        switch (part.specifier) {
+          case 'd':
+          case 'i':
+          case 'u':
+            formatted = _formatInteger(ctx, unsigned: part.specifier == 'u');
+            break;
+          case 'o':
+            formatted = _formatOctal(ctx);
+            break;
+          case 'x':
+            formatted = _formatHex(ctx, false);
+            break;
+          case 'X':
+            formatted = _formatHex(ctx, true);
+            break;
+          case 'f':
+          case 'F':
+            formatted = _formatFloat(ctx, part.specifier == 'F');
+            break;
+          case 'e':
+            formatted = _formatScientific(ctx, false);
+            break;
+          case 'E':
+            formatted = _formatScientific(ctx, true);
+            break;
+          case 'a':
+            formatted = _formatHexFloat(ctx, false);
+            break;
+          case 'A':
+            formatted = _formatHexFloat(ctx, true);
+            break;
+          case 'c':
+            formatted = _formatCharacter(ctx);
+            break;
+          case 's':
+            formatted = await _formatString(ctx);
+            break;
+          case 'q':
+            formatted = _formatQuoted(ctx);
+            break;
+          case 'p':
+            formatted = _formatPointer(ctx);
+            break;
+          case '%':
+            formatted = '%';
+            // Don't increment argIndex for %% - it doesn't consume an argument
+            buffer.add(formatted);
             continue;
-          }
-
-          if (argIndex >= args.length) {
+          default:
             throw LuaError(
-              "no value for format specifier '%${part.specifier}'",
+              "invalid conversion '%${part.specifier}' to 'format'",
             );
-          }
+        }
+        buffer.add(formatted);
+        argIndex++;
+      }
+    }
 
-          final currentArg = args[argIndex];
-          Logger.debug(
-            'currentArg type: ${currentArg.runtimeType}, value: $currentArg, specifier: ${part.specifier}',
-            category: 'StringLib',
-          );
-          final ctx = _FormatContext(
-            value: (currentArg is Value) ? currentArg.raw : currentArg,
-            valueIndex: argIndex + 1,
-            flags: part.flags.split('').toSet(),
-            width: part.width ?? '',
-            precision: part.precision ?? '',
-            specifier: part.specifier,
-          );
+    final bytesBuilder = BytesBuilder(copy: false);
+    for (final item in buffer) {
+      if (item is LuaString) {
+        bytesBuilder.add(item.bytes);
+      } else {
+        bytesBuilder.add(utf8.encode(item.toString()));
+      }
+    }
+    return Value(LuaString(bytesBuilder.takeBytes()));
+  }
 
-          switch (part.specifier) {
-            case 'd':
-            case 'i':
-            case 'u': // Lua treats 'u' as signed integer format
-              buffer.write(
-                _formatInteger(ctx, unsigned: part.specifier == 'u'),
-              );
-              break;
-            case 'o':
-              buffer.write(_formatOctal(ctx));
-              break;
-            case 'x':
-              buffer.write(_formatHex(ctx, false));
-              break;
-            case 'X':
-              buffer.write(_formatHex(ctx, true));
-              break;
-            case 'f':
-            case 'F':
-              buffer.write(_formatFloat(ctx, part.specifier == 'F'));
-              break;
-            case 'e':
-              buffer.write(_formatScientific(ctx, false));
-              break;
-            case 'E':
-              buffer.write(_formatScientific(ctx, true));
-              break;
-            case 'a':
-              buffer.write(_formatHexFloat(ctx, false));
-              break;
-            case 'A':
-              buffer.write(_formatHexFloat(ctx, true));
-              break;
-            case 'c':
-              buffer.write(_formatCharacter(ctx));
-              break;
-            case 's':
-              buffer.write(_formatString(ctx));
-              break;
-            case 'q':
-              buffer.write(_formatQuoted(ctx));
-              break;
-            case 'p':
-              buffer.write(_formatPointer(ctx));
-              break;
-            default:
-              throw LuaError.typeError(
-                "Invalid format specifier: %${part.specifier}",
-              );
-          }
-          argIndex++;
+  void _validateFormatSpecifier(SpecifierPart part) {
+    // Check if the format specifier is too long
+    if (part.full.length > 100) {
+      throw LuaError("invalid format (too long)");
+    }
+
+    // Check for modifiers that aren't allowed with certain specifiers
+    final hasModifiers =
+        part.flags.isNotEmpty || part.width != null || part.precision != null;
+
+    switch (part.specifier) {
+      case 'q':
+        if (hasModifiers) {
+          throw LuaError("specifier '%q' cannot have modifiers");
+        }
+        break;
+      case 'c':
+        if (part.precision != null) {
+          throw LuaError("invalid conversion '%${part.full}' to 'format'");
+        }
+        if (part.flags.contains('0') && part.width != null) {
+          throw LuaError("invalid conversion '%${part.full}' to 'format'");
+        }
+        break;
+      case 's':
+        if (part.flags.contains('0')) {
+          throw LuaError("invalid conversion '%${part.full}' to 'format'");
+        }
+        break;
+      case 'p':
+        if (part.precision != null) {
+          throw LuaError("invalid conversion '%${part.full}' to 'format'");
+        }
+        break;
+      case 'i':
+        if (part.flags.contains('#')) {
+          throw LuaError("invalid conversion '%${part.full}' to 'format'");
+        }
+        break;
+    }
+
+    // Check for precision on integer formats that don't allow large precision
+    if (['d', 'i', 'u', 'o', 'x', 'X'].contains(part.specifier)) {
+      if (part.precision != null) {
+        final precisionValue = int.tryParse(part.precision!.substring(1));
+        if (precisionValue != null && precisionValue >= 100) {
+          throw LuaError("invalid conversion '%${part.full}' to 'format'");
         }
       }
-    } on FormatException catch (e) {
-      throw LuaError("bad argument #1 to 'format' (${e.message})");
-    } catch (e) {
-      throw LuaError("Error in string.format: $e");
     }
 
-    return Value(buffer.toString());
+    // Check for width that's too large
+    if (part.width != null) {
+      final widthValue = int.tryParse(part.width!);
+      if (widthValue != null && widthValue >= 100) {
+        throw LuaError("invalid conversion '%${part.full}' to 'format'");
+      }
+    }
   }
 }
 
@@ -1031,78 +1082,38 @@ class _StringRep implements BuiltinFunction {
     final count = NumberUtils.toInt((args[1] as Value).raw);
     final separatorValue = args.length > 2 ? (args[2] as Value) : null;
 
-    Uint8List originalBytes;
-    if (value.raw is LuaString) {
-      originalBytes = (value.raw as LuaString).bytes;
-    } else {
-      originalBytes = utf8.encode(value.raw.toString());
-    }
-
-    Uint8List separatorBytes = Uint8List(0);
-    if (separatorValue != null) {
-      if (separatorValue.raw is LuaString) {
-        separatorBytes = (separatorValue.raw as LuaString).bytes;
-      } else {
-        separatorBytes = utf8.encode(separatorValue.raw.toString());
-      }
-    }
+    final originalStr = value.raw.toString();
+    final separatorStr = separatorValue?.raw?.toString() ?? '';
 
     if (count <= 0) {
-      return StringInterning.createStringValue("");
+      return StringInterning.createStringValue('');
     }
 
-    const maxAllowedLength = 2000000000;
-    int expectedTotalLength;
+    final totalLength =
+        (BigInt.from(originalStr.length) * BigInt.from(count)) +
+        (BigInt.from(separatorStr.length) *
+            BigInt.from(math.max(0, count - 1)));
 
-    if (separatorBytes.isEmpty) {
-      if (originalBytes.length > maxAllowedLength ~/ count) {
-        throw LuaError("resulting string too large");
-      }
-      expectedTotalLength = originalBytes.length * count;
-    } else {
-      if (originalBytes.length > maxAllowedLength ~/ count) {
-        throw LuaError("resulting string too large");
-      }
-      final lengthOfRepeatedStrings = originalBytes.length * count;
-
-      final numSeparators = count - 1;
-      if (numSeparators > 0 &&
-          separatorBytes.length > maxAllowedLength ~/ numSeparators) {
-        throw LuaError("resulting string too large");
-      }
-      final lengthOfSeparators = separatorBytes.length * numSeparators;
-
-      if (lengthOfRepeatedStrings > maxAllowedLength - lengthOfSeparators) {
-        throw LuaError("resulting string too large");
-      }
-      expectedTotalLength = lengthOfRepeatedStrings + lengthOfSeparators;
+    // Dart strings can be huge, but creating multi-gigabyte strings is risky.
+    // Let's cap it at something sane to prevent OOM errors, similar to Lua.
+    // (e.g., 2^30 bytes, ~1GB). Lua's limit is related to size_t.
+    if (totalLength > BigInt.from(1 << 30)) {
+      throw LuaError('too large');
     }
 
-    if (expectedTotalLength > maxAllowedLength) {
-      throw LuaError("resulting string too large");
+    if (count == 1) {
+      return StringInterning.createStringValue(originalStr);
     }
 
-    final Uint8List resultBytes = Uint8List(expectedTotalLength);
-    int currentOffset = 0;
-    for (int i = 0; i < count; i++) {
-      resultBytes.setRange(
-        currentOffset,
-        currentOffset + originalBytes.length,
-        originalBytes,
-      );
-      currentOffset += originalBytes.length;
-      if (i < count - 1) {
-        resultBytes.setRange(
-          currentOffset,
-          currentOffset + separatorBytes.length,
-          separatorBytes,
-        );
-        currentOffset += separatorBytes.length;
+    final buffer = StringBuffer();
+    for (var i = 0; i < count; i++) {
+      buffer.write(originalStr);
+      if (separatorStr.isNotEmpty && i < count - 1) {
+        buffer.write(separatorStr);
       }
     }
 
-    final resultString = utf8.decode(resultBytes, allowMalformed: true);
-    return Value(resultString);
+    return StringInterning.createStringValue(buffer.toString());
   }
 }
 
