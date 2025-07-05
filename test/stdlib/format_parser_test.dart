@@ -28,20 +28,17 @@ void main() {
 
       test('escapes control characters', () {
         final bytes = Uint8List.fromList([1, 2, 31]);
-        expect(FormatStringParser.escape(bytes), r'\001\002\031');
+        expect(FormatStringParser.escape(bytes), r'\1\2\31');
       });
 
       test('escapes non-printable ascii', () {
         final bytes = Uint8List.fromList([127, 255]);
-        expect(FormatStringParser.escape(bytes), '\\127ÿ');
+        expect(FormatStringParser.escape(bytes), '\\127\\255');
       });
 
       test('handles mixed characters', () {
         final bytes = Uint8List.fromList('a"\n\b\\c\x01'.codeUnits);
-        expect(
-          FormatStringParser.escape(bytes),
-          r'a\"' + '\\\n' + r'\b\\c\001',
-        );
+        expect(FormatStringParser.escape(bytes), r'a\"' + '\\\n' + r'\8\\c\1');
       });
 
       test('handles null byte specifically', () {

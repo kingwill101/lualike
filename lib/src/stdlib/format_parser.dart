@@ -143,6 +143,17 @@ class FormatStringParser {
             buffer.writeCharCode(bytes[i + j]);
           }
           i += sequenceLength;
+        } else if (sequenceLength == 1) {
+          // Single byte in 128-255 range - treat as Latin-1 character
+          // These should be preserved like Lua does, except for byte 255
+          if (code == 255) {
+            // Byte 255 causes round-trip issues, escape it
+            buffer.write('\\255');
+          } else {
+            // Other single bytes 128-254 are safe Latin-1 characters
+            buffer.writeCharCode(code);
+          }
+          i++;
         } else {
           // Invalid or potentially problematic byte, escape it
           if (i + 1 < bytes.length &&

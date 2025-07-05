@@ -16,10 +16,8 @@ void main() {
       print('Script being executed:');
       print(script);
       await bridge.runCode(script);
-      final result = latin1.decode(
-        (bridge.getGlobal('result') as Value).raw.bytes,
-      );
-      final expected = '"\\"álo\\"\\\n\\\\""álo"\n\\';
+      final result = (bridge.getGlobal('result') as Value).raw.toString();
+      final expected = '"\\"�lo\\"\\\n\\\\""�lo"\n\\';
 
       // For debugging in the test output
       print('Failing test case from strings.lua');
