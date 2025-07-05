@@ -70,8 +70,9 @@ class LuaStringParser {
               }
               // Convert Unicode code point to UTF-8 bytes
               final str = String.fromCharCode(codePoint);
-              return str
-                  .codeUnits; // Returns List<int> of UTF-16 code units, but for most chars this works
+              return utf8.encode(
+                str,
+              ); // Use UTF-8 encoding  instead of codeUnits
             })
             .cast<List<int>>();
 

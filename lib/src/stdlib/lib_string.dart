@@ -334,7 +334,7 @@ Future<Object> _formatString(_FormatContext ctx) async {
   return _applyPadding(str, ctx);
 }
 
-String _formatCharacter(_FormatContext ctx) {
+LuaString _formatCharacter(_FormatContext ctx) {
   final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
   if (rawValue is! num && rawValue is! BigInt) {
     throw LuaError.typeError(
@@ -343,9 +343,22 @@ String _formatCharacter(_FormatContext ctx) {
   }
 
   final charCode = NumberUtils.toInt(rawValue);
-  final char = String.fromCharCode(charCode);
 
-  return _applyPadding(char, ctx);
+  // For %c format, we need to return the raw byte, not a UTF-8 encoded character
+  // Create a LuaString with the single byte
+  final luaString = LuaString.fromBytes([charCode]);
+
+  // For padding, we need to work at the byte level
+  if (ctx.widthValue > 0 && luaString.length < ctx.widthValue) {
+    final padding = List.filled(ctx.widthValue - luaString.length, 32); // space
+    if (ctx.leftAlign) {
+      return LuaString.fromBytes([...luaString.bytes, ...padding]);
+    } else {
+      return LuaString.fromBytes([...padding, ...luaString.bytes]);
+    }
+  }
+
+  return luaString;
 }
 
 String _formatPointer(_FormatContext ctx) {
