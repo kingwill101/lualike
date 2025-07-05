@@ -279,8 +279,8 @@ class NumberUtils {
 
     // Convert to signed 64-bit representation
     if (masked > BigInt.from(maxInteger)) {
-      // If result is > maxInt64, subtract 2^64 to get the wrapped negative value
-      final wrapped = masked - (BigInt.one << 64);
+      // If result is > maxInt64, subtract 2^sizeInBits to get the wrapped negative value
+      final wrapped = masked - (BigInt.one << sizeInBits);
       return wrapped.toInt();
     }
 
@@ -328,8 +328,8 @@ class NumberUtils {
         return leftShift(a, -shift);
       }
 
-      // Handle large shifts (>= 64 bits)
-      if (shift >= 64) {
+      // Handle large shifts (>= sizeInBits bits)
+      if (shift >= sizeInBits) {
         return bigA.isNegative ? BigInt.from(-1) : BigInt.zero;
       }
 
@@ -344,8 +344,8 @@ class NumberUtils {
       return leftShift(a, -shift);
     }
 
-    // Handle large shifts (>= 64 bits)
-    if (shift >= 64) {
+    // Handle large shifts (>= sizeInBits bits)
+    if (shift >= sizeInBits) {
       return bigA.isNegative ? -1 : 0;
     }
 
@@ -414,8 +414,8 @@ class NumberUtils {
 
     // Convert to signed 64-bit representation
     if (masked > BigInt.from(maxInteger)) {
-      // If result is > maxInt64, subtract 2^64 to get the wrapped negative value
-      final wrapped = masked - (BigInt.one << 64);
+      // If result is > maxInt64, subtract 2^sizeInBits to get the wrapped negative value
+      final wrapped = masked - (BigInt.one << sizeInBits);
       return wrapped.toInt();
     }
 
@@ -585,6 +585,16 @@ class NumberUtils {
     final f1 = toDouble(a);
     final f2 = toDouble(b);
     return math.pow(f1, f2).toDouble();
+  }
+
+  /// Convert a signed integer to its unsigned 64-bit representation
+  /// This is used for formatting negative numbers as unsigned values (%u, %x, %o)
+  static BigInt toUnsigned64(int value) {
+    if (value >= 0) {
+      return BigInt.from(value);
+    }
+    // For negative values, add 2^sizeInBits to get the unsigned representation
+    return (BigInt.one << sizeInBits) + BigInt.from(value);
   }
 
   /// Perform bitwise AND with integer validation

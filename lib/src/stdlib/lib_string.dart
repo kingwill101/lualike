@@ -245,6 +245,20 @@ String _typeName(dynamic value) {
 Future<Object> _formatString(_FormatContext ctx) async {
   final value = ctx.value;
 
+  // Check for null bytes in string when width is specified (Lua requirement)
+  if (ctx.widthValue > 0) {
+    final rawValue = value is Value ? value.raw : value;
+    if (rawValue is String && rawValue.contains('\u0000')) {
+      throw LuaError(
+        "bad argument #${ctx.valueIndex} to 'format' (string contains zeros)",
+      );
+    } else if (rawValue is LuaString && rawValue.bytes.contains(0)) {
+      throw LuaError(
+        "bad argument #${ctx.valueIndex} to 'format' (string contains zeros)",
+      );
+    }
+  }
+
   // If it's a Value object, check for __tostring metamethod first
   if (value is Value) {
     final tostring = value.getMetamethod("__tostring");
@@ -607,19 +621,25 @@ String _formatInteger(_FormatContext ctx, {bool unsigned = false}) {
   }
 
   var intValue = NumberUtils.toInt(rawValue);
-  if (unsigned) intValue = intValue.abs();
 
   String result;
-  if (ctx.precision.isNotEmpty) {
-    final precValue = ctx.precisionValue;
-    result = intValue.toString().padLeft(precValue, '0');
+  if (unsigned && intValue < 0) {
+    // For unsigned format with negative numbers, treat as unsigned 64-bit integer
+    final unsignedValue = NumberUtils.toUnsigned64(intValue);
+    result = unsignedValue.toString();
   } else {
     result = intValue.toString();
   }
 
-  if (ctx.showSign && intValue >= 0) {
+  // Apply precision padding for non-negative numbers or when not unsigned
+  if (ctx.precision.isNotEmpty && (!unsigned || intValue >= 0)) {
+    final precValue = ctx.precisionValue;
+    result = result.padLeft(precValue, '0');
+  }
+
+  if (!unsigned && ctx.showSign && intValue >= 0) {
     result = '+$result';
-  } else if (ctx.spacePrefix && intValue >= 0) {
+  } else if (!unsigned && ctx.spacePrefix && intValue >= 0) {
     result = ' $result';
   }
 
@@ -635,7 +655,17 @@ String _formatHex(_FormatContext ctx, bool uppercase) {
   }
 
   final intValue = NumberUtils.toInt(rawValue);
-  String result = intValue.toRadixString(16);
+
+  // For negative numbers, treat as unsigned 64-bit integer (two's complement)
+  String result;
+  if (intValue < 0) {
+    // Convert to unsigned 64-bit representation
+    final unsignedValue = NumberUtils.toUnsigned64(intValue);
+    result = unsignedValue.toRadixString(16);
+  } else {
+    result = intValue.toRadixString(16);
+  }
+
   if (uppercase) result = result.toUpperCase();
 
   if (ctx.alternative && intValue != 0) {
@@ -693,7 +723,16 @@ String _formatOctal(_FormatContext ctx) {
   }
 
   final intValue = NumberUtils.toInt(rawValue);
-  String result = intValue.toRadixString(8);
+
+  // For negative numbers, treat as unsigned 64-bit integer (two's complement)
+  String result;
+  if (intValue < 0) {
+    // Convert to unsigned 64-bit representation
+    final unsignedValue = NumberUtils.toUnsigned64(intValue);
+    result = unsignedValue.toRadixString(8);
+  } else {
+    result = intValue.toRadixString(8);
+  }
 
   if (ctx.alternative && intValue != 0) {
     result = '0$result';
