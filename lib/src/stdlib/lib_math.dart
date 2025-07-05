@@ -2,7 +2,6 @@ import 'dart:math' as math;
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/lualike.dart';
 import 'package:xrandom/xrandom.dart';
-import 'number_utils.dart';
 
 // Base class for math functions to handle common number validation
 abstract class _MathFunction implements BuiltinFunction {

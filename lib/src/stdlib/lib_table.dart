@@ -1,8 +1,6 @@
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/lualike.dart';
 
-import '../value_class.dart';
-import 'number_utils.dart';
 
 class TableLib {
   static final ValueClass tableClass = ValueClass.create({

@@ -1,4 +1,3 @@
-import 'package:lualike/src/value_class.dart';
 import 'package:lualike/testing.dart';
 
 /// A simple built-in function that multiplies two numbers.

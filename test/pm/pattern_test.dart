@@ -1,5 +1,3 @@
-@Tags(['pm'])
-import 'package:lualike/src/pattern.dart';
 import 'package:lualike/testing.dart';
 
 void main() {

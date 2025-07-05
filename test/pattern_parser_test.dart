@@ -1,4 +1,3 @@
-import 'package:lualike/src/pattern_parser.dart';
 import 'package:lualike/testing.dart';
 
 void main() {
