@@ -1,6 +1,5 @@
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/lualike.dart';
-import 'package:lualike/src/lua_string.dart';
 
 import '../value_class.dart';
 import 'number_utils.dart';
