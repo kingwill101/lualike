@@ -617,23 +617,128 @@ String _formatOctal(_FormatContext ctx) {
 
 LuaString _formatQuoted(_FormatContext ctx) {
   final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
-  final Uint8List bytes;
-  if (rawValue is LuaString) {
-    bytes = rawValue.bytes;
-  } else {
-    bytes = utf8.encode(rawValue.toString());
-  }
-  final escaped = FormatStringParser.escape(bytes);
 
-  // Convert the escaped string back to bytes preserving Latin-1 characters
-  final escapedBytes = <int>[];
-  escapedBytes.add(34); // opening quote "
-  for (int i = 0; i < escaped.length; i++) {
-    escapedBytes.add(escaped.codeUnitAt(i));
+  // Handle nil - return unquoted 'nil'
+  if (rawValue == null) {
+    return LuaString.fromDartString('nil');
   }
-  escapedBytes.add(34); // closing quote "
 
-  return LuaString(Uint8List.fromList(escapedBytes));
+  // Handle booleans - return unquoted 'true' or 'false'
+  if (rawValue is bool) {
+    return LuaString.fromDartString(rawValue.toString());
+  }
+
+  // Handle numbers - return unquoted numeric literals
+  if (rawValue is num || rawValue is BigInt) {
+    final doubleValue = NumberUtils.toDouble(rawValue);
+
+    // Handle NaN - return (0/0)
+    if (doubleValue.isNaN) {
+      return LuaString.fromDartString('(0/0)');
+    }
+
+    // Handle infinity - return 1e9999 or -1e9999
+    if (doubleValue.isInfinite) {
+      return LuaString.fromDartString(
+        doubleValue.isNegative ? '-1e9999' : '1e9999',
+      );
+    }
+
+    // Handle minimum 64-bit integer edge case (math.mininteger)
+    if (rawValue is int && rawValue == NumberUtils.minInteger) {
+      return LuaString.fromDartString('0x8000000000000000');
+    }
+
+    // Handle integers using NumberUtils
+    if (NumberUtils.isInteger(rawValue)) {
+      final intValue = NumberUtils.tryToInteger(rawValue);
+      if (intValue != null) {
+        return LuaString.fromDartString(intValue.toString());
+      }
+    }
+
+    // Handle finite non-integer doubles - use hex float format for precision
+    if (NumberUtils.isFinite(rawValue) && !NumberUtils.isInteger(rawValue)) {
+      // Use hex float format to preserve exact precision
+      return LuaString.fromDartString(_formatDoubleAsHex(doubleValue));
+    }
+
+    // Fallback for other numeric types
+    return LuaString.fromDartString(rawValue.toString());
+  }
+
+  // Handle strings and LuaStrings - escape and quote them
+  if (rawValue is String || rawValue is LuaString) {
+    final Uint8List bytes;
+    if (rawValue is LuaString) {
+      bytes = rawValue.bytes;
+    } else {
+      bytes = utf8.encode(rawValue.toString());
+    }
+    final escaped = FormatStringParser.escape(bytes);
+
+    // Convert the escaped string back to bytes preserving Latin-1 characters
+    final escapedBytes = <int>[];
+    escapedBytes.add(34); // opening quote "
+    for (int i = 0; i < escaped.length; i++) {
+      escapedBytes.add(escaped.codeUnitAt(i));
+    }
+    escapedBytes.add(34); // closing quote "
+
+    return LuaString(Uint8List.fromList(escapedBytes));
+  }
+
+  // Handle unsupported types - throw error
+  throw LuaError(
+    "bad argument #${ctx.valueIndex} to 'format' (value has no literal form)",
+  );
+}
+
+// Helper function to format doubles as hex floats for exact precision
+String _formatDoubleAsHex(double value) {
+  if (value == 0.0) {
+    return value.isNegative ? '-0x0p+0' : '0x0p+0';
+  }
+
+  final sign = value.isNegative ? '-' : '';
+  final absValue = value.abs();
+
+  // Get the exponent by finding the power of 2
+  final exponent = (math.log(absValue) / math.ln2).floor();
+  final mantissa = absValue / math.pow(2, exponent);
+
+  // Convert mantissa to hex
+  final mantissaHex = _doubleToHexMantissa(mantissa);
+
+  return '${sign}0x${mantissaHex}p${exponent >= 0 ? '+' : ''}$exponent';
+}
+
+// Helper function to convert mantissa to hex representation
+String _doubleToHexMantissa(double mantissa) {
+  // Normalize mantissa to be in range [1, 2)
+  if (mantissa >= 2.0) {
+    mantissa /= 2.0;
+  }
+
+  final intPart = mantissa.floor();
+  var fracPart = mantissa - intPart;
+
+  final buffer = StringBuffer();
+  buffer.write(intPart.toRadixString(16));
+
+  if (fracPart > 0) {
+    buffer.write('.');
+
+    // Convert fractional part to hex
+    for (int i = 0; i < 13 && fracPart > 0; i++) {
+      fracPart *= 16;
+      final digit = fracPart.floor();
+      buffer.write(digit.toRadixString(16));
+      fracPart -= digit;
+    }
+  }
+
+  return buffer.toString();
 }
 
 class _StringFormat implements BuiltinFunction {
