@@ -39,7 +39,7 @@ class FormatStringParser {
   static Parser<String> get percent => char('%');
   static Parser<String> get flags => pattern('-+ 0#').star().flatten();
   static Parser<String> get width => digit().plus().flatten();
-  static Parser<String> get precision => (char('.') & digit().plus()).flatten();
+  static Parser<String> get precision => (char('.') & digit().star()).flatten();
   static Parser<String> get specifier => pattern('cdiouxXeEfgGqQs%aAp');
 
   static Parser<SpecifierPart> get specifierParser =>

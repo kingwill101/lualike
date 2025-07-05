@@ -508,6 +508,11 @@ String _formatFloat(_FormatContext ctx, bool uppercase) {
     result = _formatLargeNumber(doubleValue, precision);
   }
 
+  // Handle alternative flag: force decimal point even with precision 0
+  if (ctx.alternative && precision == 0 && !result.contains('.')) {
+    result += '.';
+  }
+
   if (ctx.showSign && !doubleValue.isNegative) {
     result = '+$result';
   } else if (ctx.spacePrefix && !doubleValue.isNegative) {
@@ -580,7 +585,7 @@ String _formatHexFloat(_FormatContext ctx, bool uppercase) {
   String sign = '';
   if (v.isNegative) {
     sign = '-';
-    v = -v;
+    v = NumberUtils.abs(v);
   } else if (ctx.showSign) {
     sign = '+';
   } else if (ctx.spacePrefix) {
@@ -588,26 +593,51 @@ String _formatHexFloat(_FormatContext ctx, bool uppercase) {
   }
 
   int exponent = 0;
-  if (v != 0.0) {
-    exponent = (math.log(v) / math.ln2).floor();
-    v /= math.pow(2, exponent);
+  if (v == 0.0) {
+    exponent = 0;
+  } else {
+    // Use math library functions from NumberUtils context
+    // Calculate exponent: floor(log2(v))
+    final logValue = math.log(v) / math.ln2;
+    exponent = logValue.floor();
+    v = v / NumberUtils.exponentiate(2.0, exponent);
   }
 
-  int precision = ctx.precision.isNotEmpty ? ctx.precisionValue : 13;
-  StringBuffer hex = StringBuffer();
-  hex.write(v.floor().toRadixString(16));
-  double frac = v - v.floor();
-  if (precision > 0 || ctx.alternative) hex.write('.');
-  for (int i = 0; i < precision; i++) {
-    frac *= 16;
-    int digit = frac.floor();
-    hex.write(digit.toRadixString(16));
-    frac -= digit;
+  final hex = StringBuffer();
+  hex.write(uppercase ? '0X' : '0x');
+
+  // Get the integer part
+  final integerPart = v.floor();
+  hex.write(integerPart.toInt().toRadixString(16));
+
+  // Get fractional part
+  double fractionalPart = v - integerPart;
+
+  // For hex float format, use explicit precision if provided, otherwise use 13 for round-trip accuracy
+  // This differs from other formats where the default precision is 6
+  final precision = ctx.precision.isNotEmpty ? ctx.precisionValue : 13;
+
+  if (fractionalPart > 0 || precision > 0) {
+    hex.write('.');
+
+    // Convert fractional part to hex with sufficient precision
+    for (int i = 0; i < precision; i++) {
+      fractionalPart *= 16;
+      final digit = fractionalPart.floor().toInt();
+      hex.write(digit.toRadixString(16));
+      fractionalPart -= digit;
+      if (fractionalPart == 0 && ctx.precision.isEmpty) break;
+    }
   }
 
-  String result = '0x${hex.toString()}p${exponent >= 0 ? '+' : ''}$exponent';
-  if (uppercase) result = result.toUpperCase();
-  result = sign + result;
+  hex.write(uppercase ? 'P' : 'p');
+  hex.write(exponent >= 0 ? '+' : '');
+  hex.write(exponent);
+
+  String result = sign + hex.toString();
+  if (uppercase) {
+    result = result.toUpperCase().replaceAll('0X', '0X');
+  }
 
   return _applyPadding(result, ctx);
 }
@@ -622,19 +652,31 @@ String _formatInteger(_FormatContext ctx, {bool unsigned = false}) {
 
   var intValue = NumberUtils.toInt(rawValue);
 
+  // Special case: precision 0 with value 0 produces empty string
+  if (ctx.precision.isNotEmpty && ctx.precisionValue == 0 && intValue == 0) {
+    return _applyPadding('', ctx);
+  }
+
   String result;
   if (unsigned && intValue < 0) {
     // For unsigned format with negative numbers, treat as unsigned 64-bit integer
     final unsignedValue = NumberUtils.toUnsigned64(intValue);
     result = unsignedValue.toString();
   } else {
-    result = intValue.toString();
-  }
-
-  // Apply precision padding for non-negative numbers or when not unsigned
-  if (ctx.precision.isNotEmpty && (!unsigned || intValue >= 0)) {
-    final precValue = ctx.precisionValue;
-    result = result.padLeft(precValue, '0');
+    // Handle precision padding correctly for negative numbers
+    if (ctx.precision.isNotEmpty && intValue < 0) {
+      // For negative numbers, separate the sign and pad the absolute value
+      final precValue = ctx.precisionValue;
+      final absValue = intValue.abs().toString();
+      result = '-' + absValue.padLeft(precValue, '0');
+    } else {
+      result = intValue.toString();
+      // Apply precision padding for non-negative numbers
+      if (ctx.precision.isNotEmpty) {
+        final precValue = ctx.precisionValue;
+        result = result.padLeft(precValue, '0');
+      }
+    }
   }
 
   if (!unsigned && ctx.showSign && intValue >= 0) {
@@ -693,11 +735,19 @@ class _FormatContext {
   final String specifier;
 
   int get widthValue => width.isEmpty ? 0 : int.parse(width);
-  int get precisionValue => precision.isEmpty
-      ? 6
-      : int.parse(
-          precision.startsWith('.') ? precision.substring(1) : precision,
-        );
+  int get precisionValue {
+    if (precision.isEmpty) {
+      return 6; // Default precision
+    }
+    final precisionStr = precision.startsWith('.')
+        ? precision.substring(1)
+        : precision;
+    if (precisionStr.isEmpty) {
+      return 0; // "." means precision 0
+    }
+    return int.parse(precisionStr);
+  }
+
   bool get leftAlign => flags.contains('-');
   bool get showSign => flags.contains('+');
   bool get spacePrefix => flags.contains(' ');
@@ -890,6 +940,12 @@ class _StringFormat implements BuiltinFunction {
           case 'A':
             formatted = _formatHexFloat(ctx, true);
             break;
+          case 'g':
+            formatted = _formatGeneral(ctx, false);
+            break;
+          case 'G':
+            formatted = _formatGeneral(ctx, true);
+            break;
           case 'c':
             formatted = _formatCharacter(ctx);
             break;
@@ -972,7 +1028,10 @@ class _StringFormat implements BuiltinFunction {
     // Check for precision on integer formats that don't allow large precision
     if (['d', 'i', 'u', 'o', 'x', 'X'].contains(part.specifier)) {
       if (part.precision != null) {
-        final precisionValue = int.tryParse(part.precision!.substring(1));
+        final precisionStr = part.precision!.substring(1);
+        final precisionValue = precisionStr.isEmpty
+            ? 0
+            : int.tryParse(precisionStr);
         if (precisionValue != null && precisionValue >= 100) {
           throw LuaError("invalid conversion '%${part.full}' to 'format'");
         }
@@ -1541,6 +1600,79 @@ class _StringUpper implements BuiltinFunction {
     final str = value.raw.toString();
     return Value(str.toUpperCase());
   }
+}
+
+String _formatGeneral(_FormatContext ctx, bool uppercase) {
+  final rawValue = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
+  if (rawValue is! num && rawValue is! BigInt) {
+    throw LuaError.typeError(
+      "bad argument #${ctx.valueIndex} to 'format' (number expected, got ${_typeName(rawValue)})",
+    );
+  }
+
+  final doubleValue = NumberUtils.toDouble(rawValue);
+
+  // Handle special values
+  if (doubleValue.isNaN) return uppercase ? 'NAN' : 'nan';
+  if (doubleValue.isInfinite) {
+    final sign = doubleValue.isNegative ? '-' : (ctx.showSign ? '+' : '');
+    return uppercase ? '${sign}INF' : '${sign}inf';
+  }
+
+  // For %g/%G, precision means significant digits, not decimal places
+  // Default precision is 6 if not specified
+  final precision = ctx.precision.isNotEmpty ? ctx.precisionValue : 6;
+
+  // Determine the exponent
+  final absValue = doubleValue.abs();
+  int exponent = 0;
+  if (absValue != 0.0) {
+    exponent = (math.log(absValue) / math.ln10).floor();
+  }
+
+  // Choose between %f and %e format based on the exponent
+  // Use %e if exponent < -4 or exponent >= precision
+  final useScientific = exponent < -4 || exponent >= precision;
+
+  String result;
+  if (useScientific) {
+    // Use scientific notation (like %e)
+    if (doubleValue == 0.0) {
+      result = '0${uppercase ? 'E+00' : 'e+00'}';
+    } else {
+      final mantissa = absValue / NumberUtils.exponentiate(10.0, exponent);
+      final mantissaStr = mantissa.toStringAsFixed(precision - 1);
+      final expStr = exponent.abs().toString().padLeft(2, '0');
+      result =
+          mantissaStr +
+          (uppercase ? 'E' : 'e') +
+          (exponent >= 0 ? '+' : '-') +
+          expStr;
+    }
+  } else {
+    // Use fixed-point notation (like %f)
+    final decimalPlaces = precision - 1 - exponent;
+    result = absValue.toStringAsFixed(math.max(0, decimalPlaces));
+  }
+
+  // Remove trailing zeros and decimal point if not needed (specific to %g/%G)
+  if (result.contains('.')) {
+    result = result.replaceAll(RegExp(r'0+$'), '');
+    if (result.endsWith('.')) {
+      result = result.substring(0, result.length - 1);
+    }
+  }
+
+  // Apply sign
+  if (doubleValue.isNegative) {
+    result = '-$result';
+  } else if (ctx.showSign) {
+    result = '+$result';
+  } else if (ctx.spacePrefix) {
+    result = ' $result';
+  }
+
+  return _applyPadding(result, ctx);
 }
 
 void defineStringLibrary({
