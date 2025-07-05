@@ -21,6 +21,10 @@ export 'src/utils/platform_utils.dart';
 export 'src/lua_error.dart';
 export 'src/lua_stack_trace.dart';
 export 'src/error_utils.dart';
+export 'src/stdlib/number_utils.dart';
+export 'src/lua_string.dart';
+export 'src/pattern.dart';
+export 'src/pattern_parser.dart';
 export 'src/executor.dart'
     show
         executeCode,
@@ -28,3 +32,4 @@ export 'src/executor.dart'
         compileToBytecode,
         executeBytecodeChunk,
         executeAst;
+export 'src/value_class.dart';

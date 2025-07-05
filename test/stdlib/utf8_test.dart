@@ -20,15 +20,37 @@ void main() {
         local str1 = utf8.char(65, 66, 67)
         local str2 = utf8.char(0x1F600)
         local str3 = utf8.char(0x0041, 0x00A9)
+
+        -- Get byte sequences for verification
+        str2_bytes = {}
+        for i = 1, #str2 do
+          str2_bytes[i] = string.byte(str2, i)
+        end
+
+        str3_bytes = {}
+        for i = 1, #str3 do
+          str3_bytes[i] = string.byte(str3, i)
+        end
       ''');
 
       var str1 = bridge.getGlobal('str1');
-      var str2 = bridge.getGlobal('str2');
-      var str3 = bridge.getGlobal('str3');
+      var str2Bytes = bridge.getGlobal('str2_bytes') as Value;
+      var str3Bytes = bridge.getGlobal('str3_bytes') as Value;
 
       expect((str1 as Value).unwrap(), equals('ABC'));
-      expect((str2 as Value).unwrap(), equals('😀'));
-      expect((str3 as Value).unwrap(), equals('A©'));
+
+      // Check that str2 produces the correct UTF-8 bytes for 😀 (U+1F600)
+      var str2BytesMap = str2Bytes.unwrap() as Map;
+      expect(str2BytesMap[1], equals(240)); // 0xF0
+      expect(str2BytesMap[2], equals(159)); // 0x9F
+      expect(str2BytesMap[3], equals(152)); // 0x98
+      expect(str2BytesMap[4], equals(128)); // 0x80
+
+      // Check that str3 produces the correct UTF-8 bytes for A©
+      var str3BytesMap = str3Bytes.unwrap() as Map;
+      expect(str3BytesMap[1], equals(65)); // A
+      expect(str3BytesMap[2], equals(194)); // First byte of © in UTF-8
+      expect(str3BytesMap[3], equals(169)); // Second byte of © in UTF-8
     });
 
     test('utf8.char error handling', () async {
@@ -41,7 +63,9 @@ void main() {
 
     test('utf8.codes iteration', () async {
       await bridge.runCode('''
-        local s = "ABC👋🌍"
+        -- Construct string with UTF-8 characters using proper byte sequences
+        -- "ABC" + 👋 (U+1F44B) + 🌍 (U+1F30D)
+        local s = "ABC" .. string.char(240, 159, 145, 139) .. string.char(240, 159, 140, 141)
         local positions = {}
         local codepoints = {}
         for pos, cp in utf8.codes(s) do
@@ -59,7 +83,7 @@ void main() {
       expect(posMap[2], equals(2));
       expect(posMap[3], equals(3));
       expect(posMap[4], equals(4));
-      expect(posMap[5], equals(5));
+      expect(posMap[5], equals(8)); // After 4-byte emoji
 
       // Check codepoints
       var cpMap = codepoints.unwrap() as Map;
@@ -72,7 +96,8 @@ void main() {
 
     test('utf8.codepoint extraction', () async {
       await bridge.runCode('''
-        local s = "Hello🌍World"
+        -- Construct "Hello🌍World" using proper UTF-8 bytes
+        local s = "Hello" .. string.char(240, 159, 140, 141) .. "World"
         local cp1 = utf8.codepoint(s, 1)
         local cp2 = utf8.codepoint(s, 6)
         local cp3 = utf8.codepoint(s, 7)
@@ -99,8 +124,10 @@ void main() {
     test('utf8.len string length', () async {
       await bridge.runCode('''
         local s1 = "Hello"
-        local s2 = "Hello🌍"
-        local s3 = "🌍🌎🌏"
+        -- Construct "Hello🌍" using proper UTF-8 bytes for 🌍
+        local s2 = "Hello" .. string.char(240, 159, 140, 141)
+        -- Construct "🌍🌎🌏" using proper UTF-8 bytes
+        local s3 = string.char(240, 159, 140, 141) .. string.char(240, 159, 140, 142) .. string.char(240, 159, 140, 143)
         local len1 = utf8.len(s1)
         local len2 = utf8.len(s2)
         local len3 = utf8.len(s3)
@@ -120,7 +147,8 @@ void main() {
 
     test('utf8.offset position calculation', () async {
       await bridge.runCode('''
-        local s = "Hello🌍World"
+        -- Construct "Hello🌍World" using proper UTF-8 bytes
+        local s = "Hello" .. string.char(240, 159, 140, 141) .. "World"
         local pos1 = utf8.offset(s, 1)
         local pos2 = utf8.offset(s, 6)
         local pos3 = utf8.offset(s, 7)

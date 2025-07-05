@@ -3,8 +3,6 @@ import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/stdlib/lib_string.dart' show StringLib;
 
 import '../../lualike.dart';
-import '../value_class.dart';
-import '../lua_string.dart';
 import 'lib_string.dart';
 
 /// Handles default metatables and metamethods for built-in types

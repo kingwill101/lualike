@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/lua_error.dart';
+import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/value.dart';
 
 class DartBytesLib {
@@ -22,10 +23,17 @@ class DartToBytes implements BuiltinFunction {
       );
     }
     final value = args[0] as Value;
-    final str = value.raw.toString();
 
-    final bytes = utf8.encode(str);
-    return Value(Uint8List.fromList(bytes));
+    // For LuaString, use the raw bytes directly (they're already UTF-8)
+    if (value.raw is LuaString) {
+      final luaString = value.raw as LuaString;
+      return Value(Uint8List.fromList(luaString.bytes));
+    } else {
+      // For other types, convert to string first then encode as UTF-8
+      final str = value.raw.toString();
+      final bytes = utf8.encode(str);
+      return Value(Uint8List.fromList(bytes));
+    }
   }
 }
 

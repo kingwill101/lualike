@@ -527,9 +527,9 @@ void main() {
       await bridge.runCode(script);
       final result = (bridge.getGlobal('result') as Value).raw.toString();
       // The expected string matches Lua's actual behavior: %q shows byte 225 as \225 (escaped),
-      // and %s also shows it as when converted to string
+      // and %s shows byte 225 as replacement character � when converted to string
       // Note: the \n in %q format is escaped as backslash followed by actual newline
-      final expected = '"\\"\\225lo\\"\\\n\\\\""lo"\n\\';
+      final expected = '"\\"\\225lo\\"\\\n\\\\""�lo"\n\\';
       expect(result, equals(expected));
     });
 

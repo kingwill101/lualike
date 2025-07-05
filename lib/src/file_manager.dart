@@ -188,8 +188,9 @@ class FileManager {
   /// trying different extensions and search paths.
   ///
   /// [filePath] - The path of the file to load
+  /// [preserveRawBytes] - If true, read as raw bytes to preserve high byte values
   /// Returns the file contents if found, null otherwise
-  String? loadSource(String filePath) {
+  String? loadSource(String filePath, {bool preserveRawBytes = false}) {
     final extensions = ['', '.lua'];
 
     // Check if we have a current script path and add its directory to search paths
@@ -294,11 +295,7 @@ class FileManager {
         // Try physical file
         final file = File(fullPath);
         if (file.existsSync()) {
-          // Read as raw bytes and convert to Latin-1 string to preserve byte values
-          // This ensures that high bytes (like 225) are preserved as individual bytes
-          // instead of being interpreted as UTF-8 sequences
-          final bytes = file.readAsBytesSync();
-          return String.fromCharCodes(bytes);
+          return _readFileWithStrategy(file, preserveRawBytes);
         }
       }
     }
@@ -319,11 +316,7 @@ class FileManager {
           // Try physical file
           final file = File(fullPath);
           if (file.existsSync()) {
-            // Read as raw bytes and convert to Latin-1 string to preserve byte values
-            // This ensures that high bytes (like 225) are preserved as individual bytes
-            // instead of being interpreted as UTF-8 sequences
-            final bytes = file.readAsBytesSync();
-            return String.fromCharCodes(bytes);
+            return _readFileWithStrategy(file, preserveRawBytes);
           }
         }
       } catch (e) {
@@ -351,11 +344,7 @@ class FileManager {
           // Try physical file
           final file = File(fullPath);
           if (file.existsSync()) {
-            // Read as raw bytes and convert to Latin-1 string to preserve byte values
-            // This ensures that high bytes (like 225) are preserved as individual bytes
-            // instead of being interpreted as UTF-8 sequences
-            final bytes = file.readAsBytesSync();
-            return String.fromCharCodes(bytes);
+            return _readFileWithStrategy(file, preserveRawBytes);
           }
         }
 
@@ -372,53 +361,33 @@ class FileManager {
           // Try physical file
           final file = File(fullPath);
           if (file.existsSync()) {
-            // Read as raw bytes and convert to Latin-1 string to preserve byte values
-            // This ensures that high bytes (like 225) are preserved as individual bytes
-            // instead of being interpreted as UTF-8 sequences
-            final bytes = file.readAsBytesSync();
-            return String.fromCharCodes(bytes);
-          }
-        }
-
-        // Try special directories
-        final specialDirs = [
-          path.join(projectRoot, 'test'),
-          path.join(projectRoot, '.lua-tests'),
-          path.join(Directory.current.path, 'test'),
-          path.join(Directory.current.path, '.lua-tests'),
-        ];
-
-        for (final dir in specialDirs) {
-          if (Directory(dir).existsSync()) {
-            for (final ext in extensions) {
-              final fullPath = path.join(dir, filePath + ext);
-
-              // Check virtual files with this path
-              if (_virtualFiles.containsKey(fullPath)) {
-                return _virtualFiles[fullPath];
-              }
-
-              // Try physical file
-              final file = File(fullPath);
-              if (file.existsSync()) {
-                // Read as raw bytes and convert to Latin-1 string to preserve byte values
-                // This ensures that high bytes (like 225) are preserved as individual bytes
-                // instead of being interpreted as UTF-8 sequences
-                final bytes = file.readAsBytesSync();
-                return String.fromCharCodes(bytes);
-              }
-            }
+            return _readFileWithStrategy(file, preserveRawBytes);
           }
         }
       } catch (e) {
         Logger.debug(
-          "Error resolving path relative to Dart script: $e",
+          "Error resolving path relative to Dart script path: $e",
           category: 'FileManager',
         );
       }
     }
 
     return null;
+  }
+
+  /// Reads a file using the appropriate strategy based on the preserveRawBytes flag
+  String _readFileWithStrategy(File file, bool preserveRawBytes) {
+    if (preserveRawBytes) {
+      // Read as raw bytes and convert to Latin-1 string to preserve byte values
+      // This ensures that high bytes (like 225) are preserved as individual bytes
+      // instead of being interpreted as UTF-8 sequences
+      final bytes = file.readAsBytesSync();
+      return String.fromCharCodes(bytes);
+    } else {
+      // Read as UTF-8 string (default behavior)
+      // This properly handles UTF-8 characters like å, æ, ö
+      return file.readAsStringSync();
+    }
   }
 
   /// Clears all registered virtual files.

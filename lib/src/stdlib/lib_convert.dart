@@ -8,6 +8,7 @@ import 'package:lualike/src/extensions/value_extension.dart';
 import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/bytecode/vm.dart' show BytecodeVM;
 import 'package:lualike/src/lua_error.dart';
+import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/value.dart';
 
 List<int> _toListInt(Value value) {
@@ -147,9 +148,26 @@ class Latin1Encode implements BuiltinFunction {
     if (args.isEmpty) {
       throw LuaError('dart.convert.latin1Encode requires 1 argument');
     }
-    final str = (args[0] as Value).raw.toString();
+    final value = args[0] as Value;
     try {
-      return Value(latin1.encode(str));
+      // For LuaString, use the raw bytes directly
+      if (value.raw is LuaString) {
+        final luaString = value.raw as LuaString;
+        // Latin-1 encoding is just the raw bytes (0-255)
+        // Check that all bytes are valid Latin-1 (0-255)
+        for (final byte in luaString.bytes) {
+          if (byte < 0 || byte > 255) {
+            throw ArgumentError(
+              'Byte value $byte is outside Latin-1 range (0-255)',
+            );
+          }
+        }
+        return Value(Uint8List.fromList(luaString.bytes));
+      } else {
+        // For other types, convert to string first
+        final str = value.raw.toString();
+        return Value(latin1.encode(str));
+      }
     } catch (e) {
       throw LuaError('Failed to encode to Latin-1: $e');
     }
@@ -163,6 +181,8 @@ class Latin1Decode implements BuiltinFunction {
       throw LuaError('dart.convert.latin1Decode requires 1 argument');
     }
     final bytes = _toListInt(args[0] as Value);
-    return Value(latin1.decode(bytes));
+    // For Lua compatibility, return a LuaString with the raw bytes
+    // instead of converting to UTF-8 string
+    return Value(LuaString(Uint8List.fromList(bytes)));
   }
 }
