@@ -133,11 +133,11 @@ void main() {
         local canAccessGlobal = newVar == "global variable"
       ''');
 
-      expect((bridge.getGlobal('isGlobalTable') as Value).raw, isTrue);
-      expect((bridge.getGlobal('hasG') as Value).raw, isTrue);
-      expect((bridge.getGlobal('canAccessGlobal') as Value).raw, isTrue);
+      expect((bridge.getGlobal('isGlobalTable') as Value).unwrap(), isTrue);
+      expect((bridge.getGlobal('hasG') as Value).unwrap(), isTrue);
+      expect((bridge.getGlobal('canAccessGlobal') as Value).unwrap(), isTrue);
       expect(
-        (bridge.getGlobal('newVar') as Value).raw,
+        (bridge.getGlobal('newVar') as Value).unwrap(),
         equals("global variable"),
       );
     });
@@ -168,7 +168,7 @@ void main() {
       ''');
 
       expect(
-        (bridge.getGlobal('protectedMt') as Value).raw,
+        (bridge.getGlobal('protectedMt') as Value).unwrap(),
         equals("protected"),
       );
     });
@@ -197,13 +197,13 @@ void main() {
         }
       ''');
 
-      final types = (bridge.getGlobal('types') as Value).raw as Map;
-      expect((types['nil_type'] as Value).raw, equals("nil"));
-      expect((types['number_type'] as Value).raw, equals("number"));
-      expect((types['string_type'] as Value).raw, equals("string"));
-      expect((types['boolean_type'] as Value).raw, equals("boolean"));
-      expect((types['table_type'] as Value).raw, equals("table"));
-      expect((types['function_type'] as Value).raw, equals("function"));
+      final types = (bridge.getGlobal('types') as Value).unwrap() as Map;
+      expect(types['nil_type'], equals("nil"));
+      expect(types['number_type'], equals("number"));
+      expect(types['string_type'], equals("string"));
+      expect(types['boolean_type'], equals("boolean"));
+      expect(types['table_type'], equals("table"));
+      expect(types['function_type'], equals("function"));
     });
 
     test('_VERSION', () async {
@@ -213,9 +213,9 @@ void main() {
         local isString = type(version) == "string"
       ''');
 
-      expect((bridge.getGlobal('isString') as Value).raw, equals(true));
+      expect((bridge.getGlobal('isString') as Value).unwrap(), equals(true));
       expect(
-        (bridge.getGlobal('version') as Value).raw.toString(),
+        (bridge.getGlobal('version') as Value).unwrap().toString(),
         contains("LuaLike"),
       );
     });
@@ -241,8 +241,8 @@ void main() {
         local s3 = tostring(nil)
       ''');
 
-      expect((bridge.getGlobal('s1') as Value).raw, equals("123"));
-      expect((bridge.getGlobal('s3') as Value).raw, equals("nil"));
+      expect((bridge.getGlobal('s1') as Value).unwrap(), equals("123"));
+      expect((bridge.getGlobal('s3') as Value).unwrap(), equals("nil"));
     });
 
     test('tonumber', () async {
@@ -489,7 +489,7 @@ void main() {
         local rawGetResult = rawget(t, "key")
       ''');
 
-      expect((bridge.getGlobal('rawGetResult') as Value).raw, equals("value"));
+      expect((bridge.getGlobal('rawGetResult') as Value).unwrap(), equals("value"));
     });
 
     test('rawset rejects invalid keys', () async {
@@ -500,14 +500,14 @@ void main() {
         okNil, errNil = pcall(rawset, t, nil, 1)
       ''');
 
-      expect((bridge.getGlobal('okNaN') as Value).raw, equals(false));
+      expect((bridge.getGlobal('okNaN') as Value).unwrap(), equals(false));
       expect(
-        (bridge.getGlobal('errNaN') as Value).raw.toString(),
+        (bridge.getGlobal('errNaN') as Value).unwrap().toString(),
         contains('table index is NaN'),
       );
-      expect((bridge.getGlobal('okNil') as Value).raw, equals(false));
+      expect((bridge.getGlobal('okNil') as Value).unwrap(), equals(false));
       expect(
-        (bridge.getGlobal('errNil') as Value).raw.toString(),
+        (bridge.getGlobal('errNil') as Value).unwrap().toString(),
         contains('table index is nil'),
       );
     });
@@ -675,17 +675,17 @@ void main() {
         local argStatus, argResult = pcall(function(x, y) return x + y end, 10, 20)
       ''');
 
-      expect((bridge.getGlobal('status') as Value).raw, equals(true));
-      expect((bridge.getGlobal('result') as Value).raw, equals("success"));
+      expect((bridge.getGlobal('status') as Value).unwrap(), equals(true));
+      expect((bridge.getGlobal('result') as Value).unwrap(), equals("success"));
 
-      expect((bridge.getGlobal('errorStatus') as Value).raw, equals(false));
+      expect((bridge.getGlobal('errorStatus') as Value).unwrap(), equals(false));
       expect(
-        (bridge.getGlobal('errorMsg') as Value).raw.toString(),
+        (bridge.getGlobal('errorMsg') as Value).unwrap().toString(),
         contains("test error"),
       );
 
-      expect((bridge.getGlobal('argStatus') as Value).raw, equals(true));
-      expect((bridge.getGlobal('argResult') as Value).raw, equals(30));
+      expect((bridge.getGlobal('argStatus') as Value).unwrap(), equals(true));
+      expect((bridge.getGlobal('argResult') as Value).unwrap(), equals(30));
     });
 
     test('xpcall', () async {
@@ -713,21 +713,21 @@ void main() {
         )
       ''');
 
-      expect((bridge.getGlobal('status') as Value).raw, equals(true));
-      expect((bridge.getGlobal('result') as Value).raw, equals("success"));
+      expect((bridge.getGlobal('status') as Value).unwrap(), equals(true));
+      expect((bridge.getGlobal('result') as Value).unwrap(), equals("success"));
 
-      expect((bridge.getGlobal('errorStatus') as Value).raw, equals(false));
+      expect((bridge.getGlobal('errorStatus') as Value).unwrap(), equals(false));
       expect(
-        (bridge.getGlobal('errorMsg') as Value).raw.toString(),
+        (bridge.getGlobal('errorMsg') as Value).unwrap().toString(),
         contains("Handled: "),
       );
       expect(
-        (bridge.getGlobal('errorMsg') as Value).raw.toString(),
+        (bridge.getGlobal('errorMsg') as Value).unwrap().toString(),
         contains("test error"),
       );
 
-      expect((bridge.getGlobal('argStatus') as Value).raw, equals(true));
-      expect((bridge.getGlobal('argResult') as Value).raw, equals(30));
+      expect((bridge.getGlobal('argStatus') as Value).unwrap(), equals(true));
+      expect((bridge.getGlobal('argResult') as Value).unwrap(), equals(30));
     });
   });
 }

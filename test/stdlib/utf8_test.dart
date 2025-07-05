@@ -26,9 +26,9 @@ void main() {
       var str2 = bridge.getGlobal('str2');
       var str3 = bridge.getGlobal('str3');
 
-      expect((str1 as Value).raw, equals('ABC'));
-      expect((str2 as Value).raw, equals('😀'));
-      expect((str3 as Value).raw, equals('A©'));
+      expect((str1 as Value).unwrap(), equals('ABC'));
+      expect((str2 as Value).unwrap(), equals('😀'));
+      expect((str3 as Value).unwrap(), equals('A©'));
     });
 
     test('utf8.char error handling', () async {
@@ -54,18 +54,20 @@ void main() {
       var codepoints = bridge.getGlobal('codepoints') as Value;
 
       // Check positions (1-based in Lua)
-      expect((positions.raw as Map)[1].raw, equals(1));
-      expect((positions.raw as Map)[2].raw, equals(2));
-      expect((positions.raw as Map)[3].raw, equals(3));
-      expect((positions.raw as Map)[4].raw, equals(4));
-      expect((positions.raw as Map)[5].raw, equals(5));
+      var posMap = positions.unwrap() as Map;
+      expect(posMap[1], equals(1));
+      expect(posMap[2], equals(2));
+      expect(posMap[3], equals(3));
+      expect(posMap[4], equals(4));
+      expect(posMap[5], equals(5));
 
       // Check codepoints
-      expect((codepoints.raw as Map)[1].raw, equals('A'.codeUnitAt(0)));
-      expect((codepoints.raw as Map)[2].raw, equals('B'.codeUnitAt(0)));
-      expect((codepoints.raw as Map)[3].raw, equals('C'.codeUnitAt(0)));
-      expect((codepoints.raw as Map)[4].raw, equals(0x1F44B)); // 👋
-      expect((codepoints.raw as Map)[5].raw, equals(0x1F30D)); // 🌍
+      var cpMap = codepoints.unwrap() as Map;
+      expect(cpMap[1], equals('A'.codeUnitAt(0)));
+      expect(cpMap[2], equals('B'.codeUnitAt(0)));
+      expect(cpMap[3], equals('C'.codeUnitAt(0)));
+      expect(cpMap[4], equals(0x1F44B)); // 👋
+      expect(cpMap[5], equals(0x1F30D)); // 🌍
     });
 
     test('utf8.codepoint extraction', () async {
@@ -85,11 +87,11 @@ void main() {
       var cp3 = bridge.getGlobal('cp3');
       var multi = bridge.getGlobal('multi');
 
-      expect((cp1 as Value).raw, equals('H'.codeUnitAt(0)));
-      expect((cp2 as Value).raw, equals(0x1F30D)); // 🌍
-      expect((cp3 as Value).raw, equals('W'.codeUnitAt(0)));
+      expect((cp1 as Value).unwrap(), equals('H'.codeUnitAt(0)));
+      expect((cp2 as Value).unwrap(), equals(0x1F30D)); // 🌍
+      expect((cp3 as Value).unwrap(), equals('W'.codeUnitAt(0)));
       expect(
-        (multi as Value).raw,
+        (multi as Value).unwrap(),
         equals('72101108'),
       ); // ASCII values for 'Hel'
     });
@@ -110,10 +112,10 @@ void main() {
       var len3 = bridge.getGlobal('len3');
       var partial = bridge.getGlobal('partial');
 
-      expect((len1 as Value).raw, equals(5));
-      expect((len2 as Value).raw, equals(6));
-      expect((len3 as Value).raw, equals(3));
-      expect((partial as Value).raw, equals(5));
+      expect((len1 as Value).unwrap(), equals(5));
+      expect((len2 as Value).unwrap(), equals(6));
+      expect((len3 as Value).unwrap(), equals(3));
+      expect((partial as Value).unwrap(), equals(5));
     });
 
     test('utf8.offset position calculation', () async {
@@ -130,10 +132,10 @@ void main() {
       var pos3 = bridge.getGlobal('pos3');
       var pos4 = bridge.getGlobal('pos4');
 
-      expect((pos1 as Value).raw, equals(1));
-      expect((pos2 as Value).raw, equals(6));
-      expect((pos3 as Value).raw, equals(10));
-      expect((pos4 as Value).raw, equals(12));
+      expect((pos1 as Value).unwrap(), equals(1));
+      expect((pos2 as Value).unwrap(), equals(6));
+      expect((pos3 as Value).unwrap(), equals(10));
+      expect((pos4 as Value).unwrap(), equals(12));
     });
 
     test('utf8.charpattern exists', () async {
@@ -143,7 +145,7 @@ void main() {
       ''');
 
       var patternType = bridge.getGlobal('pattern_type');
-      expect((patternType as Value).raw, equals('string'));
+      expect((patternType as Value).unwrap(), equals('string'));
     });
 
     test('string library basic functions', () async {
@@ -161,11 +163,11 @@ void main() {
       var matchResult = bridge.getGlobal('match_result');
       var gsubResult = bridge.getGlobal('gsub_result');
 
-      expect((upperResult as Value).raw, equals('TEST'));
-      expect((findStart as Value).raw, equals(3));
-      expect((findEnd as Value).raw, equals(4));
-      expect((matchResult as Value).raw, equals('ll'));
-      expect((gsubResult as Value).raw, equals('heXXo'));
+      expect((upperResult as Value).unwrap(), equals('TEST'));
+      expect((findStart as Value).unwrap(), equals(3));
+      expect((findEnd as Value).unwrap(), equals(4));
+      expect((matchResult as Value).unwrap(), equals('ll'));
+      expect((gsubResult as Value).unwrap(), equals('heXXo'));
     });
   });
 }

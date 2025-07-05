@@ -51,7 +51,7 @@ void main() {
       expect(list.length, equals(expected.length));
       for (int i = 0; i < expected.length; i++) {
         expect(
-          list[i].raw,
+          list[i].unwrap(),
           equals(expected[i]),
           reason: 'Test case ${i + 1} failed',
         );
@@ -79,12 +79,12 @@ void main() {
       final map = results.raw as Map;
       final list = List.generate(map.length, (i) => map[i + 1]);
 
-      expect(list[0].raw, equals("yes")); // 0.001 and "yes"
-      expect(list[1].raw, equals(false)); // false and "yes"
-      expect(list[2].raw, equals(null)); // nil and "yes"
-      expect(list[3].raw, equals(0.001)); // 0.001 or "no"
-      expect(list[4].raw, equals("yes")); // false or "yes"
-      expect(list[5].raw, equals("yes")); // nil or "yes"
+      expect(list[0].unwrap(), equals("yes")); // 0.001 and "yes"
+      expect(list[1].unwrap(), equals(false)); // false and "yes"
+      expect(list[2].unwrap(), equals(null)); // nil and "yes"
+      expect(list[3].unwrap(), equals(0.001)); // 0.001 or "no"
+      expect(list[4].unwrap(), equals("yes")); // false or "yes"
+      expect(list[5].unwrap(), equals("yes")); // nil or "yes"
     });
 
     test('eq function from incd.lua now works correctly', () async {
@@ -111,9 +111,9 @@ void main() {
       final result2 = bridge.getGlobal('result2');
       final combined = bridge.getGlobal('combined');
 
-      expect(result1.raw, isTrue);
-      expect(result2.raw, isTrue);
-      expect(combined.raw, isTrue);
+      expect(result1.unwrap(), isTrue);
+      expect(result2.unwrap(), isTrue);
+      expect(combined.unwrap(), isTrue);
     });
   });
 }
