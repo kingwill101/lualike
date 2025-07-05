@@ -1,8 +1,60 @@
+import 'dart:typed_data';
+
 import 'package:test/test.dart';
 import 'package:lualike/src/stdlib/format_parser.dart';
 
 void main() {
   group('FormatStringParser', () {
+    group('.escape', () {
+      test('handles simple strings', () {
+        final bytes = Uint8List.fromList('hello'.codeUnits);
+        expect(FormatStringParser.escape(bytes), 'hello');
+      });
+
+      test('escapes double quotes', () {
+        final bytes = Uint8List.fromList('"hello"'.codeUnits);
+        expect(FormatStringParser.escape(bytes), r'\"hello\"');
+      });
+
+      test('escapes backslashes', () {
+        final bytes = Uint8List.fromList(r'a\b'.codeUnits);
+        expect(FormatStringParser.escape(bytes), r'a\\b');
+      });
+
+      test('escapes newlines', () {
+        final bytes = Uint8List.fromList('a\nb'.codeUnits);
+        expect(FormatStringParser.escape(bytes), 'a\\\nb');
+      });
+
+      test('escapes control characters', () {
+        final bytes = Uint8List.fromList([1, 2, 31]);
+        expect(FormatStringParser.escape(bytes), r'\001\002\031');
+      });
+
+      test('escapes non-printable ascii', () {
+        final bytes = Uint8List.fromList([127, 255]);
+        expect(FormatStringParser.escape(bytes), '\\127ÿ');
+      });
+
+      test('handles mixed characters', () {
+        final bytes = Uint8List.fromList('a"\n\b\\c\x01'.codeUnits);
+        expect(
+          FormatStringParser.escape(bytes),
+          r'a\"' + '\\\n' + r'\b\\c\001',
+        );
+      });
+
+      test('handles null byte specifically', () {
+        final bytes = Uint8List.fromList([0]);
+        expect(FormatStringParser.escape(bytes), r'\0');
+      });
+
+      test('handles extended ASCII without escaping', () {
+        final bytes = Uint8List.fromList([225]); // á in Latin-1
+        expect(FormatStringParser.escape(bytes), 'á');
+      });
+    });
+
     void expectParts(String input, List<Type> expectedTypes) {
       final parts = FormatStringParser.parse(input);
       expect(

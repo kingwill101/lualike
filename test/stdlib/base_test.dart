@@ -142,9 +142,28 @@ void main() {
       );
     });
 
-    test('getmetatable and setmetatable', () async {
-      final bridge = LuaLike();
-      await bridge.runCode('''
+    group("setmetatable", () {
+      test('setmetatable with function', () async {
+        final bridge = LuaLike();
+        await bridge.runCode(r'''
+local t = {x = 1}
+local mt = {__tostring = function(self) return "custom: " .. self.x end}
+
+-- Set metatable with __tostring function
+setmetatable(t, mt)
+
+-- Test that the __tostring function is called when converting to string
+local result = tostring(t)
+        ''');
+        expect(
+          (bridge.getGlobal('result') as Value).unwrap(),
+          equals("custom: 1"),
+        );
+      });
+
+      test('getmetatable and setmetatable', () async {
+        final bridge = LuaLike();
+        await bridge.runCode('''
         local t = {}
         local mt = {__index = {value = 10}}
 
@@ -156,23 +175,23 @@ void main() {
         local nilMt = getmetatable(123) == nil
       ''');
 
-      expect((bridge.getGlobal('result') as Value).raw, isA<Map>());
-      expect((bridge.getGlobal('hasMt') as Value).raw, isTrue);
-      expect((bridge.getGlobal('nilMt') as Value).raw, isFalse);
+        expect((bridge.getGlobal('result') as Value).raw, isA<Map>());
+        expect((bridge.getGlobal('hasMt') as Value).raw, isTrue);
+        expect((bridge.getGlobal('nilMt') as Value).raw, isFalse);
 
-      // Test __metatable field separately
-      await bridge.runCode('''
+        // Test __metatable field separately
+        await bridge.runCode('''
         local t2 = {}
         setmetatable(t2, {__metatable = "protected"})
         local protectedMt = getmetatable(t2)
       ''');
 
-      expect(
-        (bridge.getGlobal('protectedMt') as Value).unwrap(),
-        equals("protected"),
-      );
+        expect(
+          (bridge.getGlobal('protectedMt') as Value).unwrap(),
+          equals("protected"),
+        );
+      });
     });
-
     test('print', () async {
       final bridge = LuaLike();
       await bridge.runCode('''
@@ -252,14 +271,14 @@ void main() {
         local n1 = tonumber("123")
         local n2 = tonumber("123.45")
         local n3 = tonumber("-123.45")
-        
+
         -- Test positive sign prefix
         local pos1 = tonumber("+123")
         local pos2 = tonumber("+123.45")
         local pos3 = tonumber("+0.01")
         local pos4 = tonumber("+.01")
         local pos5 = tonumber("+1.")
-        
+
         -- Test decimal point variations
         local dot1 = tonumber(".01")
         local dot2 = tonumber("-.01")
@@ -268,14 +287,14 @@ void main() {
         local dot5 = tonumber("0.")
         local dot6 = tonumber("+0.")
         local dot7 = tonumber("-0.")
-        
+
         -- Test leading/trailing zeros
         local zero1 = tonumber("007")
         local zero2 = tonumber("007.5")
         local zero3 = tonumber("0.500")
         local zero4 = tonumber("+007")
         local zero5 = tonumber("-007")
-        
+
         -- Test scientific notation
         local sci1 = tonumber("1e2")
         local sci2 = tonumber("1.5e2")
@@ -285,11 +304,11 @@ void main() {
         local sci6 = tonumber("-1e2")
         local sci7 = tonumber("1e+2")
         local sci8 = tonumber("1e-2")
-        
+
         -- Test hex numbers (base 10 should treat these as invalid)
         local hex_base10_1 = tonumber("0x10")
         local hex_base10_2 = tonumber("0X10")
-        
+
         -- Test with base parameter
         local hex = tonumber("FF", 16)
         local hex2 = tonumber("ff", 16)
@@ -297,18 +316,18 @@ void main() {
         local bin = tonumber("1010", 2)
         local oct = tonumber("70", 8)
         local base36 = tonumber("ZZ", 36)
-        
+
         -- Test whitespace handling
         local ws1 = tonumber(" 123 ")
         local ws2 = tonumber("\\t456\\n")
         local ws3 = tonumber("  +123.45  ")
         local ws4 = tonumber("\\n\\t-67.89\\t\\n")
-        
+
         -- Test edge cases
         local inf_pos = tonumber("inf")
         local inf_neg = tonumber("-inf")
         local nan_val = tonumber("nan")
-        
+
         -- Test invalid conversions
         local invalid1 = tonumber("not a number")
         local invalid2 = tonumber("FF") -- without base 16
@@ -325,14 +344,14 @@ void main() {
         local invalid13 = tonumber(".")
         local invalid14 = tonumber("+")
         local invalid15 = tonumber("-")
-        
+
         -- Test the specific cases from math.lua that were failing
         local math_test1 = tonumber("+0.01")
         local math_test2 = tonumber("+.01")
         local math_test3 = tonumber(".01")
         local math_test4 = tonumber("-1.")
         local math_test5 = tonumber("+1.")
-        
+
         -- Verify math.lua assertions
         local check1 = math_test1 == 1/100
         local check2 = math_test2 == 0.01

@@ -43,8 +43,8 @@ void main() {
         local b = string.char()
       ''');
 
-      expect((bridge.getGlobal('a') as Value).raw, equals("ABCDE"));
-      expect((bridge.getGlobal('b') as Value).raw, equals(""));
+      expect((bridge.getGlobal('a') as Value).raw.toString(), equals("ABCDE"));
+      expect((bridge.getGlobal('b') as Value).raw.toString(), equals(""));
     });
 
     test('string.sub', () async {
@@ -59,12 +59,15 @@ void main() {
         local f = string.sub(s, 100, 200) -- "" (start > string length)
       ''');
 
-      expect((bridge.getGlobal('a') as Value).raw, equals("cde"));
-      expect((bridge.getGlobal('b') as Value).raw, equals("cdefghijklm"));
-      expect((bridge.getGlobal('c') as Value).raw, equals("ijklm"));
-      expect((bridge.getGlobal('d') as Value).raw, equals("ijk"));
-      expect((bridge.getGlobal('e') as Value).raw, equals(""));
-      expect((bridge.getGlobal('f') as Value).raw, equals(""));
+      expect((bridge.getGlobal('a') as Value).raw.toString(), equals("cde"));
+      expect(
+        (bridge.getGlobal('b') as Value).raw.toString(),
+        equals("cdefghijklm"),
+      );
+      expect((bridge.getGlobal('c') as Value).raw.toString(), equals("ijklm"));
+      expect((bridge.getGlobal('d') as Value).raw.toString(), equals("ijk"));
+      expect((bridge.getGlobal('e') as Value).raw.toString(), equals(""));
+      expect((bridge.getGlobal('f') as Value).raw.toString(), equals(""));
     });
 
     test('string.upper and string.lower', () async {
@@ -74,8 +77,14 @@ void main() {
         local b = string.lower("Hello, World!")
       ''');
 
-      expect((bridge.getGlobal('a') as Value).raw, equals("HELLO, WORLD!"));
-      expect((bridge.getGlobal('b') as Value).raw, equals("hello, world!"));
+      expect(
+        (bridge.getGlobal('a') as Value).raw.toString(),
+        equals("HELLO, WORLD!"),
+      );
+      expect(
+        (bridge.getGlobal('b') as Value).raw.toString(),
+        equals("hello, world!"),
+      );
     });
 
     test('string.reverse', () async {
@@ -85,8 +94,8 @@ void main() {
         local b = string.reverse("")
       ''');
 
-      expect((bridge.getGlobal('a') as Value).raw, equals("olleh"));
-      expect((bridge.getGlobal('b') as Value).raw, equals(""));
+      expect((bridge.getGlobal('a') as Value).raw.toString(), equals("olleh"));
+      expect((bridge.getGlobal('b') as Value).raw.toString(), equals(""));
     });
 
     test('string.rep', () async {
@@ -507,6 +516,213 @@ void main() {
       expect(tests['char2'], equals(Value('a')));
 
       expect(tests['ptr1'].raw.toString(), matches(RegExp(r'^[0-9a-f]+$')));
+    });
+
+    test('Lua strings.lua: %q%s complex case', () async {
+      final bridge = LuaLike();
+      final script = r'''
+        local x = '"\225lo"\n\\'
+        result = string.format('%q%s', x, x)
+      ''';
+      await bridge.runCode(script);
+      final result = (bridge.getGlobal('result') as Value).unwrap();
+      // The expected string should match actual output: %q escapes the byte 225 as \xe1,
+      // but %s preserves it as the actual character when converted to string
+      final expected = '"\\"\\xe1lo\\"\\n\\\\""álo"\n\\';
+      expect(result, equals(expected));
+    });
+
+    test('Lua strings.lua: %q with null byte', () async {
+      final bridge = LuaLike();
+      final script = r'''
+        result = string.format('%q', "\0")
+      ''';
+      await bridge.runCode(script);
+      final result = (bridge.getGlobal('result') as Value).unwrap();
+      expect(result, equals('"\\0"'));
+    });
+
+    test('Lua strings.lua: empty format string', () async {
+      final bridge = LuaLike();
+      final script = r'''
+        result = string.format('')
+      ''';
+      await bridge.runCode(script);
+      final result = (bridge.getGlobal('result') as Value).unwrap();
+      expect(result, equals(''));
+    });
+
+    test('Lua strings.lua: %c and concatenation', () async {
+      final bridge = LuaLike();
+      final script = r'''
+        result = string.format("%c",34)..string.format("%c",48)..string.format("%c",90)..string.format("%c",100)
+        expected = string.format("%1c%-c%-1c%c", 34, 48, 90, 100)
+      ''';
+      await bridge.runCode(script);
+      final result = (bridge.getGlobal('result') as Value).unwrap();
+      final expected = (bridge.getGlobal('expected') as Value).unwrap();
+      expect(result, equals(expected));
+    });
+
+    test('Lua strings.lua: %s\\0 is not \\0%s', () async {
+      final bridge = LuaLike();
+      final script = r'''
+        result = string.format("%s\0 is not \0%s", 'not be', 'be')
+      ''';
+      await bridge.runCode(script);
+      final result = (bridge.getGlobal('result') as Value).unwrap();
+      expect(result, equals('not be\x00 is not \x00be'));
+    });
+
+    test('Lua strings.lua: %%%d %010d', () async {
+      final bridge = LuaLike();
+      final script = r'''
+        result = string.format("%%%d %010d", 10, 23)
+      ''';
+      await bridge.runCode(script);
+      final result = (bridge.getGlobal('result') as Value).unwrap();
+      expect(result, equals('%10 0000000023'));
+    });
+
+    test('Lua strings.lua: %f float', () async {
+      final bridge = LuaLike();
+      final script = r'''
+        result = string.format("%f", 10.3)
+      ''';
+      await bridge.runCode(script);
+      final result = (bridge.getGlobal('result') as Value).unwrap();
+      expect(double.parse(result), closeTo(10.3, 1e-6));
+    });
+
+    test('Lua strings.lua: quoted string with width', () async {
+      final bridge = LuaLike();
+      final script = r'''
+        result = string.format('"%-50s"', 'a')
+      ''';
+      await bridge.runCode(script);
+      final result = (bridge.getGlobal('result') as Value).unwrap();
+      expect(result, equals('\"a' + ' ' * 49 + '\"'));
+    });
+
+    test('Lua strings.lua: -%.20s.20s', () async {
+      final bridge = LuaLike();
+      final script = r'''
+        result = string.format("-%.20s.20s", string.rep("%", 2000))
+      ''';
+      await bridge.runCode(script);
+      final result = (bridge.getGlobal('result') as Value).unwrap();
+      expect(result, equals('-' + '%' * 20 + '.20s'));
+    });
+
+    test('Lua strings.lua: quoted long string', () async {
+      final bridge = LuaLike();
+      final script = r'''
+        result = string.format('"-%20s.20s"', string.rep("%", 2000))
+        expected = string.format("%q", "-"..string.rep("%", 2000)..".20s")
+      ''';
+      await bridge.runCode(script);
+      final result = (bridge.getGlobal('result') as Value).unwrap();
+      final expected = (bridge.getGlobal('expected') as Value).unwrap();
+      expect(result, equals(expected));
+    });
+
+    test('Lua strings.lua: %s %s nil true', () async {
+      final bridge = LuaLike();
+      final script = r'''
+        result = string.format("%s %s", nil, true)
+      ''';
+      await bridge.runCode(script);
+      final result = (bridge.getGlobal('result') as Value).unwrap();
+      expect(result, equals('nil true'));
+    });
+
+    test('Lua strings.lua: %s %.4s false true', () async {
+      final bridge = LuaLike();
+      final script = r'''
+        result = string.format("%s %.4s", false, true)
+      ''';
+      await bridge.runCode(script);
+      final result = (bridge.getGlobal('result') as Value).unwrap();
+      expect(result, equals('false true'));
+    });
+
+    test('Lua strings.lua: %.3s %.3s false true', () async {
+      final bridge = LuaLike();
+      final script = r'''
+        result = string.format("%.3s %.3s", false, true)
+      ''';
+      await bridge.runCode(script);
+      final result = (bridge.getGlobal('result') as Value).unwrap();
+      expect(result, equals('fal tru'));
+    });
+
+    test('Lua strings.lua: %s %.10s with metatable __tostring', () async {
+      final bridge = LuaLike();
+      final script = r'''
+        local m = setmetatable({}, {__tostring = function () return "hello" end, __name = "hi"})
+        result = string.format("%s %.10s", m, m)
+      ''';
+      await bridge.runCode(script);
+      final result = (bridge.getGlobal('result') as Value).unwrap();
+      expect(result, equals('hello hello'));
+    });
+
+    test('Lua strings.lua: %.4s with metatable __name', () async {
+      final bridge = LuaLike();
+      final script = r'''
+        local m = setmetatable({}, {__tostring = function () return "hello" end, __name = "hi"})
+        getmetatable(m).__tostring = nil
+        result = string.format("%.4s", m)
+      ''';
+      await bridge.runCode(script);
+      final result = (bridge.getGlobal('result') as Value).unwrap();
+      expect(result, equals('hi: '));
+    });
+
+    // Error cases
+    test('Lua strings.lua: error on invalid conversion', () async {
+      final bridge = LuaLike();
+      final script = r'''
+        local ok, err = pcall(function() string.format('%t', 10) end)
+        result = err
+      ''';
+      await bridge.runCode(script);
+      final result = (bridge.getGlobal('result') as Value).unwrap();
+      expect(result, contains('invalid conversion'));
+    });
+
+    test('Lua strings.lua: error on too long format', () async {
+      final bridge = LuaLike();
+      final script = r'''
+        local aux = string.rep('0', 600)
+        local ok, err = pcall(function() string.format('%1'..aux..'d', 10) end)
+        result = err
+      ''';
+      await bridge.runCode(script);
+      final result = (bridge.getGlobal('result') as Value).unwrap();
+      expect(result, contains('too long'));
+    });
+
+    test('Lua strings.lua: error on no value', () async {
+      final bridge = LuaLike();
+      final script = r'''
+        local ok, err = pcall(function() string.format('%d %d', 10) end)
+        result = err
+      ''';
+      await bridge.runCode(script);
+      final result = (bridge.getGlobal('result') as Value).unwrap();
+      expect(result, contains('no value'));
+    });
+
+    test('Lua strings.lua: error on cannot have modifiers for %q', () async {
+      final bridge = LuaLike();
+      final script = r'''
+        local ok, err = pcall(function() string.format('%10q', 'foo') end)
+        result = err
+      ''';
+      await bridge.runCode(script);
+      final result = (bridge.getGlobal('result') as Value).unwrap();
+      expect(result, contains('cannot have modifiers'));
     });
   });
 }
