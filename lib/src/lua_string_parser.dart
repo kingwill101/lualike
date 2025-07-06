@@ -18,7 +18,7 @@ class LuaStringParser {
       final byte3 = 0x80 | (codePoint & 0x3F);
       return [byte1, byte2, byte3];
     } else if (codePoint > 0x10FFFF) {
-      // Code points above valid Unicode range
+      // Code points above valid Unicode range - use extended UTF-8 encoding
       if (codePoint <= 0x1FFFFF) {
         // 4-byte sequence
         final byte1 = 0xF0 | ((codePoint >> 18) & 0x07);
@@ -26,8 +26,25 @@ class LuaStringParser {
         final byte3 = 0x80 | ((codePoint >> 6) & 0x3F);
         final byte4 = 0x80 | (codePoint & 0x3F);
         return [byte1, byte2, byte3, byte4];
+      } else if (codePoint <= 0x3FFFFFF) {
+        // 5-byte sequence (original UTF-8 specification)
+        final byte1 = 0xF8 | ((codePoint >> 24) & 0x03);
+        final byte2 = 0x80 | ((codePoint >> 18) & 0x3F);
+        final byte3 = 0x80 | ((codePoint >> 12) & 0x3F);
+        final byte4 = 0x80 | ((codePoint >> 6) & 0x3F);
+        final byte5 = 0x80 | (codePoint & 0x3F);
+        return [byte1, byte2, byte3, byte4, byte5];
+      } else if (codePoint <= 0x7FFFFFFF) {
+        // 6-byte sequence (original UTF-8 specification)
+        final byte1 = 0xFC | ((codePoint >> 30) & 0x01);
+        final byte2 = 0x80 | ((codePoint >> 24) & 0x3F);
+        final byte3 = 0x80 | ((codePoint >> 18) & 0x3F);
+        final byte4 = 0x80 | ((codePoint >> 12) & 0x3F);
+        final byte5 = 0x80 | ((codePoint >> 6) & 0x3F);
+        final byte6 = 0x80 | (codePoint & 0x3F);
+        return [byte1, byte2, byte3, byte4, byte5, byte6];
       } else {
-        // Very large codepoints - use clearly invalid bytes
+        // Extremely large codepoints - use clearly invalid bytes
         return [0xFF, 0xFF, 0xFF, 0xFF];
       }
     } else {
