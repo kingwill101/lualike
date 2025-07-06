@@ -8,3 +8,8 @@ pubspec.lock
 lualike
 *lua-tests/
 test-logs/
+lua
+*_debug.lua
+debug_*.lua
+test_*.lua
+*_test.lua
