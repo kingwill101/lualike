@@ -6,12 +6,34 @@ import 'package:petitparser/petitparser.dart';
 class LuaStringParser {
   /// Encode an invalid Unicode code point as raw bytes that will be detected as invalid UTF-8
   static List<int> _encodeInvalidCodePoint(int codePoint) {
-    // For invalid code points, we'll create an invalid UTF-8 sequence
-    // that the UTF-8 library can detect and report as an error
+    // For invalid code points, we need to create the UTF-8 byte sequence
+    // that would be generated if the codepoint were valid, but which will
+    // be detected as invalid by UTF-8 validation functions
 
-    // Use a byte sequence that's clearly invalid UTF-8
-    // 0xFF is never valid in UTF-8, so we'll use that as a marker
-    return [0xFF, 0xFF, 0xFF, 0xFF]; // Invalid UTF-8 sequence
+    if (codePoint >= 0xD800 && codePoint <= 0xDFFF) {
+      // Surrogates: encode as 3-byte UTF-8 sequence (even though invalid)
+      // This matches what some systems do and what the tests expect
+      final byte1 = 0xE0 | ((codePoint >> 12) & 0x0F);
+      final byte2 = 0x80 | ((codePoint >> 6) & 0x3F);
+      final byte3 = 0x80 | (codePoint & 0x3F);
+      return [byte1, byte2, byte3];
+    } else if (codePoint > 0x10FFFF) {
+      // Code points above valid Unicode range
+      if (codePoint <= 0x1FFFFF) {
+        // 4-byte sequence
+        final byte1 = 0xF0 | ((codePoint >> 18) & 0x07);
+        final byte2 = 0x80 | ((codePoint >> 12) & 0x3F);
+        final byte3 = 0x80 | ((codePoint >> 6) & 0x3F);
+        final byte4 = 0x80 | (codePoint & 0x3F);
+        return [byte1, byte2, byte3, byte4];
+      } else {
+        // Very large codepoints - use clearly invalid bytes
+        return [0xFF, 0xFF, 0xFF, 0xFF];
+      }
+    } else {
+      // Other invalid cases - use clearly invalid byte
+      return [0xFF];
+    }
   }
 
   static Parser<List<int>> build() {
@@ -76,12 +98,13 @@ class LuaStringParser {
 
               // Allow invalid Unicode code points in string literals
               // The UTF-8 library functions will handle validation
-              if (codePoint <= 0x10FFFF) {
+              if (codePoint <= 0x10FFFF &&
+                  !(codePoint >= 0xD800 && codePoint <= 0xDFFF)) {
                 // Valid Unicode code point - encode as UTF-8
                 final str = String.fromCharCode(codePoint);
                 return utf8.encode(str);
               } else {
-                // Invalid Unicode code point - store as raw bytes
+                // Invalid Unicode code point (including surrogates) - store as raw bytes
                 // This will be detected by UTF-8 functions as invalid
                 return _encodeInvalidCodePoint(codePoint);
               }

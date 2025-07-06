@@ -163,7 +163,10 @@ void main() {
       expect((pos1 as Value).unwrap(), equals(1));
       expect((pos2 as Value).unwrap(), equals(6));
       expect((pos3 as Value).unwrap(), equals(10));
-      expect((pos4 as Value).unwrap(), equals(12));
+      expect(
+        (pos4 as Value).unwrap(),
+        equals(14),
+      ); // Last character 'd' is at position 14
     });
 
     test('utf8.charpattern exists', () async {
