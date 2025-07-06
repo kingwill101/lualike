@@ -6,7 +6,7 @@ void main() {
     test('Testing pattern: "$luaPattern" on string: "$testString"', () {
       try {
         // Convert Lua pattern to RegExp
-        final regex = LuaPattern.toRegExp(luaPattern, plain: plain);
+        final regex = LuaPattern.toRegExp(luaPattern);
         Logger.debug('Converted to RegExp: ${regex.pattern}');
 
         // Test matching

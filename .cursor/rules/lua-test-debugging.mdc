@@ -1,0 +1,134 @@
+# Lua Test Debugging Guide
+
+## Essential First Step: Always Compile After Changes
+
+**CRITICAL**: After making ANY changes to Dart code, you MUST recompile the lualike binary:
+
+```bash
+dart compile exe bin/main.dart -o lualike
+```
+
+Failure to recompile will result in testing against stale code, leading to confusing debugging sessions where fixes don't appear to work.
+
+## Systematic Debugging Approach
+
+### 1. Isolate the Problem
+- **Create minimal test cases**: Extract the failing assertion into the smallest possible Lua script
+- **Use debug scripts**: Create `debug_*.lua` files to isolate specific behaviors
+- **Test incrementally**: Start with simple cases and gradually add complexity
+
+### 2. Add Comprehensive Logging
+- **Enable debug mode**: Use `--debug` flag when running lualike (specify trace level TRACE/WARNING/FINE etc)
+- **Add targeted logging**: Insert debug prints in relevant Dart files:
+  ```dart
+  print("DEBUG: variable 'x' = ${x.raw} (${x.raw.runtimeType})");
+  ```
+- **Trace execution flow**: Log entry/exit points of critical functions
+- **Monitor state changes**: Log before/after values in assignments and function calls
+
+### 3. Common Issue Categories
+
+#### Variable Scoping Issues
+- Check `lib/src/environment.dart` for variable resolution
+- Verify `define()` vs `declare()` usage in function parameters
+- Look for variable corruption between function calls
+
+#### Assignment Problems
+- Examine `lib/src/interpreter/assignment.dart` for multiple assignment logic
+- Check varargs expansion in assignments (`n, b, a = n-1, ..., a`)
+- Verify expression evaluation order
+
+#### Function Call Issues
+- Check `lib/src/interpreter/function.dart` for parameter binding
+- Verify environment setup for function execution
+- Look for argument evaluation problems
+
+#### Standard Library Bugs
+- Check relevant `lib/src/stdlib/lib_*.dart` files
+- Verify function implementations match Lua behavior
+- Test edge cases (negative indices, empty inputs, etc.)
+
+### 4. Testing Strategy
+
+#### Create Regression Tests
+- Add tests in `test/` directory that reproduce the issue
+- Use descriptive test names that explain the scenario
+- Include both positive and negative test cases
+
+#### Use Comparison Testing
+- Run equivalent code in standard Lua interpreter
+- Compare outputs byte-by-byte for string operations
+- Verify numeric precision for mathematical operations
+
+#### Test Incrementally
+- Fix one issue at a time
+- Run full test suite after each fix: `dart test`
+- Check for regressions in previously passing tests
+
+### 5. Key Files to Examine
+
+#### Core Interpreter
+- [lib/src/interpreter/interpreter.dart](mdc:lib/src/interpreter/interpreter.dart) - Main execution logic
+- [lib/src/interpreter/assignment.dart](mdc:lib/src/interpreter/assignment.dart) - Variable assignments
+- [lib/src/interpreter/function.dart](mdc:lib/src/interpreter/function.dart) - Function calls
+- [lib/src/environment.dart](mdc:lib/src/environment.dart) - Variable scoping
+
+#### Standard Library
+- [lib/src/stdlib/lib_base.dart](mdc:lib/src/stdlib/lib_base.dart) - Core functions (load, select, etc.)
+- [lib/src/stdlib/lib_string.dart](mdc:lib/src/stdlib/lib_string.dart) - String operations
+- [lib/src/stdlib/lib_table.dart](mdc:lib/src/stdlib/lib_table.dart) - Table operations
+- [lib/src/stdlib/lib_math.dart](mdc:lib/src/stdlib/lib_math.dart) - Mathematical functions
+
+#### Value System
+- [lib/src/value.dart](mdc:lib/src/value.dart) - Core value representation
+- [lib/src/lua_string.dart](mdc:lib/src/lua_string.dart) - String handling
+- [lib/src/number.dart](mdc:lib/src/number.dart) - Number operations
+
+### 6. Memory Preferences
+- **Numeric calculations**: Implement in [lib/src/stdlib/number_utils.dart](mdc:lib/src/stdlib/number_utils.dart)
+- **String conversion**: Use `.unwrap()` instead of `.raw.toString()`
+
+### 7. Common Debugging Commands
+
+```bash
+# Compile and test specific file
+dart compile exe bin/main.dart -o lualike && ./lualike test_file.lua
+
+# Run with debug output
+./lualike --debug problematic_script.lua
+
+# Run specific test suite
+dart test test/specific_test.dart
+
+# Run all tests
+dart test
+
+# Compare with standard Lua
+lua test_file.lua
+./lualike test_file.lua
+```
+
+### 8. Validation Checklist
+
+Before considering a fix complete:
+- [ ] Recompiled lualike binary
+- [ ] Original failing test now passes
+- [ ] Created regression test for the issue
+- [ ] Full test suite passes (`dart test`)
+- [ ] No new failures introduced
+- [ ] Edge cases tested and handled
+- [ ] Code follows project style guidelines
+
+### 9. When Stuck
+
+1. **Step back and simplify**: Create the most minimal reproduction case
+2. **Compare with Lua reference**: Test identical code in standard Lua
+3. **Check recent changes**: Look at git history for related modifications
+4. **Review similar implementations**: Check how similar features are handled
+5. **Add more logging**: Often the issue becomes clear with sufficient debug output
+
+Remember: Systematic debugging with proper compilation and logging will resolve most issues efficiently. Don't skip the recompilation step!
+description: fixing failing lua test files
+globs:
+alwaysApply: true
+---
