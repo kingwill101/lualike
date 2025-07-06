@@ -1,5 +1,6 @@
 @Tags(['stdlib'])
 import 'package:lualike/testing.dart';
+import 'package:lualike/src/lua_string.dart';
 
 void main() {
   group('String Library', () {
@@ -178,20 +179,17 @@ void main() {
         local r3, n3 = string.gsub(s, "(%w+)", "%1!")
       ''');
 
-      expect(
-        (bridge.getGlobal('r1') as Value).raw,
-        equals("heLLo worLd from Lua"),
-      );
+      final r1 = (bridge.getGlobal('r1') as Value).raw;
+      final r1String = r1 is LuaString ? r1.toString() : r1.toString();
+      expect(r1String, equals("heLLo worLd from Lua"));
       expect((bridge.getGlobal('n1') as Value).raw, equals(4));
-      expect(
-        (bridge.getGlobal('r2') as Value).raw,
-        equals("heLLo world from lua"),
-      );
+      final r2 = (bridge.getGlobal('r2') as Value).raw;
+      final r2String = r2 is LuaString ? r2.toString() : r2.toString();
+      expect(r2String, equals("heLLo world from lua"));
       expect((bridge.getGlobal('n2') as Value).raw, equals(2));
-      expect(
-        (bridge.getGlobal('r3') as Value).raw,
-        equals("hello! world! from! lua!"),
-      );
+      final r3 = (bridge.getGlobal('r3') as Value).raw;
+      final r3String = r3 is LuaString ? r3.toString() : r3.toString();
+      expect(r3String, equals("hello! world! from! lua!"));
       expect((bridge.getGlobal('n3') as Value).raw, equals(4));
     });
 
