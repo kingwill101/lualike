@@ -56,7 +56,7 @@ void main() {
     test('utf8.char error handling', () async {
       expect(() async {
         await bridge.runCode('''
-          local invalid = utf8.char(0x110000) -- Too large
+          local invalid = utf8.char(0x80000000) -- Too large (beyond 0x7FFFFFFF)
         ''');
       }, throwsA(isA<Exception>()));
     });
