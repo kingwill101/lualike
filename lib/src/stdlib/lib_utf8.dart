@@ -321,8 +321,14 @@ class _UTF8CodePoint implements BuiltinFunction {
       j = len + j + 1;
     }
 
+    // If start > end, return no values (like Lua)
+    if (i > j) {
+      return Value.multi([]);
+    }
+
     // Validate bounds (byte positions)
-    if (i < 1 || i > len) {
+    // For empty string, allow i=1, j=0 case (handled above by i > j check)
+    if (i < 1 || (len > 0 && i > len)) {
       throw LuaError("out of bounds");
     }
     if (j < 1 || j > len) {
