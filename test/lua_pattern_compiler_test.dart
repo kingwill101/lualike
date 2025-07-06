@@ -130,6 +130,25 @@ void main() {
       final p = lp.compileLuaPattern('%b{}');
       expect(p.parse('{x{y}z}').value, '{x{y}z}');
     });
+
+    test('capture %b() substring', () {
+      final p = lp.LuaPattern.compile('(%b())');
+      final r = p.firstMatch('foo(bar)baz');
+      expect(r, isNotNull);
+      expect(r!.match, '(bar)');
+    });
+
+    test('%b() inside other capture', () {
+      final p = lp.LuaPattern.compile('(%a)(%b())');
+      final r = p.firstMatch('x(y)');
+      expect(r, isNotNull);
+      expect(r!.match, 'x(y)');
+    });
+
+    test('unbalanced fails', () {
+      final p = lp.compileLuaPattern('%b()');
+      expect(p.parse('(foo'), isA<Failure>());
+    });
   });
 
   group('Back references', () {
