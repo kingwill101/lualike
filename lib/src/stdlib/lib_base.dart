@@ -1397,178 +1397,182 @@ class RequireFunction implements BuiltinFunction {
       vm.fileManager.printResolvedGlobs();
     }
 
-    if (modulePath != null) {
-      Logger.debug(
-        "(REQUIRE) RequireFunction: Loading module '$moduleName' from path: $modulePath",
-        category: 'Require',
-      );
+    if (modulePath == null) {
+      throw Exception("module '$moduleName' not found");
+    }
 
-      final source = vm.fileManager.loadSource(modulePath);
-      if (source != null) {
-        try {
-          Logger.debug(
-            "REQUIRE: Module source loaded, parsing and executing",
-            category: 'Require',
+    final modulePathStr = modulePath;
+
+    Logger.debug(
+      "(REQUIRE) RequireFunction: Loading module '$moduleName' from path: $modulePathStr",
+      category: 'Require',
+    );
+
+    final source = vm.fileManager.loadSource(modulePathStr);
+    if (source != null) {
+      try {
+        Logger.debug(
+          "REQUIRE: Module source loaded, parsing and executing",
+          category: 'Require',
+        );
+        // Parse the module code
+        final ast = parse(source);
+
+        // Create a new environment for the module
+        final moduleEnv = Environment(parent: vm.globals, interpreter: vm);
+
+        // We'll execute the module code using the current interpreter to
+        // ensure package.loaded is shared.
+
+        // Resolve the absolute path for the module
+        String absoluteModulePath;
+        if (path.isAbsolute(modulePathStr)) {
+          absoluteModulePath = modulePathStr;
+        } else {
+          absoluteModulePath = vm.fileManager.resolveAbsoluteModulePath(
+            modulePathStr,
           );
-          // Parse the module code
-          final ast = parse(source);
-
-          // Create a new environment for the module
-          final moduleEnv = Environment(parent: vm.globals, interpreter: vm);
-
-          // We'll execute the module code using the current interpreter to
-          // ensure package.loaded is shared.
-
-          // Resolve the absolute path for the module
-          String absoluteModulePath;
-          if (path.isAbsolute(modulePath)) {
-            absoluteModulePath = modulePath;
-          } else {
-            absoluteModulePath = vm.fileManager.resolveAbsoluteModulePath(
-              modulePath,
-            );
-          }
-
-          // Get the directory part of the script path
-          final moduleDir = path.dirname(absoluteModulePath);
-
-          // Temporarily switch to the module environment
-          final prevEnv = vm.getCurrentEnv();
-          final prevPath = vm.currentScriptPath;
-          vm.setCurrentEnv(moduleEnv);
-          vm.currentScriptPath = absoluteModulePath;
-
-          // Store the script path in the module environment
-          moduleEnv.define('_SCRIPT_PATH', Value(absoluteModulePath));
-          moduleEnv.define('_SCRIPT_DIR', Value(moduleDir));
-
-          // Also set _MODULE_NAME global
-          moduleEnv.define('_MODULE_NAME', Value(moduleName));
-          moduleEnv.define('_MAIN_CHUNK', Value(false));
-
-          Logger.debug(
-            "DEBUG: Module environment set up with _SCRIPT_PATH=$absoluteModulePath, _SCRIPT_DIR=$moduleDir, _MODULE_NAME=$moduleName",
-          );
-
-          Object? result;
-          try {
-            // Run the module code within the current interpreter
-            await vm.run(ast.statements);
-            // If no explicit return, the result is nil
-            result = Value(null);
-          } on ReturnException catch (e) {
-            // Handle explicit return from module
-            result = e.value;
-          } finally {
-            // Restore previous environment and script path
-            vm.setCurrentEnv(prevEnv);
-            vm.currentScriptPath = prevPath;
-          }
-
-          // If the module didn't return anything, return an empty table
-          if (result == null || (result is Value && result.raw == null)) {
-            result = Value({});
-          }
-
-          Logger.debug(
-            "(REQUIRE) RequireFunction: Module '$moduleName' loaded successfully",
-            category: 'Require',
-          );
-
-          // Store the result in package.loaded
-          loaded[moduleName] = result;
-          Logger.debug(
-            "Module '$moduleName' stored in package.loaded",
-            category: 'Require',
-          );
-          Logger.debug(
-            "Loaded table now contains: ${loaded.keys.join(",")}",
-            category: 'Require',
-          );
-
-          // Return the loaded module
-          return result;
-        } catch (e) {
-          throw Exception("error loading module '$moduleName': $e");
         }
-      }
 
-      // Step 3: If direct loading failed, try the searchers
-      if (!packageTable.containsKey("searchers") ||
-          packageTable["searchers"] is! Value) {
-        throw Exception("package.searchers is not a table");
-      }
-      final searchersVal = packageTable["searchers"] as Value;
-      if (searchersVal.raw is! List) {
-        throw Exception("package.searchers is not a list");
-      }
-      final searchers = searchersVal.raw as List;
+        // Get the directory part of the script path
+        final moduleDir = path.dirname(absoluteModulePath);
 
-      // Try each searcher in order
-      final errors = <String>[];
+        // Temporarily switch to the module environment
+        final prevEnv = vm.getCurrentEnv();
+        final prevPath = vm.currentScriptPath;
+        vm.setCurrentEnv(moduleEnv);
+        vm.currentScriptPath = absoluteModulePath;
 
-      for (int i = 0; i < searchers.length; i++) {
-        final searcher = searchers[i];
-        if (searcher is! Value || searcher.raw is! Function) {
-          continue;
+        // Store the script path in the module environment
+        moduleEnv.define('_SCRIPT_PATH', Value(absoluteModulePath));
+        moduleEnv.define('_SCRIPT_DIR', Value(moduleDir));
+
+        // Also set _MODULE_NAME global
+        moduleEnv.define('_MODULE_NAME', Value(moduleName));
+        moduleEnv.define('_MAIN_CHUNK', Value(false));
+
+        Logger.debug(
+          "DEBUG: Module environment set up with _SCRIPT_PATH=$absoluteModulePath, _SCRIPT_DIR=$moduleDir, _MODULE_NAME=$moduleName",
+        );
+
+        Object? result;
+        try {
+          // Run the module code within the current interpreter
+          await vm.run(ast.statements);
+          // If no explicit return, the result is nil
+          result = Value(null);
+        } on ReturnException catch (e) {
+          // Handle explicit return from module
+          result = e.value;
+        } finally {
+          // Restore previous environment and script path
+          vm.setCurrentEnv(prevEnv);
+          vm.currentScriptPath = prevPath;
+        }
+
+        // If the module didn't return anything, return an empty table
+        if ((result is Value && result.raw == null)) {
+          result = Value({});
         }
 
         Logger.debug(
-          "RequireFunction: Trying searcher #$i for '$moduleName'",
+          "(REQUIRE) RequireFunction: Module '$moduleName' loaded successfully",
           category: 'Require',
         );
 
-        try {
-          // Call the searcher with the module name
-          final result = await (searcher.raw as Function)([Value(moduleName)]);
+        // Store the result in package.loaded
+        loaded[moduleName] = result;
+        Logger.debug(
+          "Module '$moduleName' stored in package.loaded",
+          category: 'Require',
+        );
+        Logger.debug(
+          "Loaded table now contains: ${loaded.keys.join(",")}",
+          category: 'Require',
+        );
 
-          // If the searcher returns a loader function
-          if (result is List &&
-              result.isNotEmpty &&
-              result[0] is Value &&
-              result[0].raw is Function) {
-            final loader = result[0] as Value;
-            final loaderData = result.length > 1 ? result[1] : Value(null);
-
-            Logger.debug(
-              "RequireFunction: Found loader for '$moduleName' with data: $loaderData",
-              category: 'Require',
-            );
-
-            // Call the loader with the module name and loader data
-            final moduleResult = await (loader.raw as Function)([
-              Value(moduleName),
-              loaderData,
-            ]);
-
-            // Store the result in package.loaded
-            if (moduleResult != null) {
-              loaded[moduleName] = moduleResult;
-            } else if (!loaded.containsKey(moduleName) ||
-                loaded[moduleName] == false) {
-              // If nothing was returned and nothing was stored, store true
-              loaded[moduleName] = Value(true);
-            }
-
-            // Return the loaded module
-            return loaded[moduleName];
-          } else if (result is String) {
-            // If the searcher returns an error message
-            errors.add(result);
-          } else if (result is Value && result.raw is String) {
-            errors.add(result.raw.toString());
-          }
-        } catch (e) {
-          errors.add("searcher #$i error: $e");
-        }
+        // Return the loaded module
+        return result;
+      } catch (e) {
+        throw Exception("error loading module '$moduleName': $e");
       }
-
-      // If we get here, no searcher found the module
-      final errorMsg =
-          "module '$moduleName' not found:${errors.isNotEmpty ? '\n\t${errors.join('\n\t')}' : ''}";
-      throw Exception(errorMsg);
     }
 
+    // Step 3: If direct loading failed, try the searchers
+    if (!packageTable.containsKey("searchers") ||
+        packageTable["searchers"] is! Value) {
+      throw Exception("package.searchers is not a table");
+    }
+    final searchersVal = packageTable["searchers"] as Value;
+    if (searchersVal.raw is! List) {
+      throw Exception("package.searchers is not a list");
+    }
+    final searchers = searchersVal.raw as List;
+
+    // Try each searcher in order
+    final errors = <String>[];
+
+    for (int i = 0; i < searchers.length; i++) {
+      final searcher = searchers[i];
+      if (searcher is! Value || searcher.raw is! Function) {
+        continue;
+      }
+
+      Logger.debug(
+        "RequireFunction: Trying searcher #$i for '$moduleName'",
+        category: 'Require',
+      );
+
+      try {
+        // Call the searcher with the module name
+        final result = await (searcher.raw as Function)([Value(moduleName)]);
+
+        // If the searcher returns a loader function
+        if (result is List &&
+            result.isNotEmpty &&
+            result[0] is Value &&
+            result[0].raw is Function) {
+          final loader = result[0] as Value;
+          final loaderData = result.length > 1 ? result[1] : Value(null);
+
+          Logger.debug(
+            "RequireFunction: Found loader for '$moduleName' with data: $loaderData",
+            category: 'Require',
+          );
+
+          // Call the loader with the module name and loader data
+          final moduleResult = await (loader.raw as Function)([
+            Value(moduleName),
+            loaderData,
+          ]);
+
+          // Store the result in package.loaded
+          if (moduleResult != null) {
+            loaded[moduleName] = moduleResult;
+          } else if (!loaded.containsKey(moduleName) ||
+              loaded[moduleName] == false) {
+            // If nothing was returned and nothing was stored, store true
+            loaded[moduleName] = Value(true);
+          }
+
+          // Return the loaded module
+          return loaded[moduleName];
+        } else if (result is String) {
+          // If the searcher returns an error message
+          errors.add(result);
+        } else if (result is Value && result.raw is String) {
+          errors.add(result.raw.toString());
+        }
+      } catch (e) {
+        errors.add("searcher #$i error: $e");
+      }
+    }
+
+    // If we get here, no searcher found the module
+    final errorMsg =
+        "module '$moduleName' not found:${errors.isNotEmpty ? '\n\t${errors.join('\n\t')}' : ''}";
+    throw Exception(errorMsg);
+  
     // If we couldn't find the module anywhere, throw an error
     throw Exception("module '$moduleName' not found");
   }

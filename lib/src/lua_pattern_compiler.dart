@@ -223,7 +223,9 @@ Parser<String> _bracketClass(String spec, {required bool negate}) {
       if (i + 1 >= spec.length) {
         throw FormatException('Malformed set: \$spec');
       }
-      final cls = _classFor(spec[i + 1]);
+      final letter = spec[i + 1];
+      final base = _classFor(letter.toLowerCase());
+      final cls = letter == letter.toUpperCase() ? _negate(base) : base;
       allowed.add(cls);
       i += 2;
       continue;
@@ -322,7 +324,8 @@ class LuaPatternCompiler {
         final following = _parseSequence(stopOnRightParen: stopOnRightParen);
         return base.plusGreedy(following).seq(following);
       case '?':
-        return base.optional();
+        final following = _parseSequence(stopOnRightParen: stopOnRightParen);
+        return base.seq(following).or(following);
       case '-':
         final following = _parseSequence(stopOnRightParen: stopOnRightParen);
         return base.starLazy(following).seq(following);
@@ -407,22 +410,32 @@ class LuaPatternCompiler {
   Parser _parseCapture() {
     assert(_pattern[_pos] == '(');
     _pos++;
+    final index = _captures.length;
+    _captures.add(epsilon().map((_) => ''));
+
     if (_pattern[_pos] == ')') {
       _pos++;
-      return epsilon();
+      final capture = _RecordCaptureParser(
+        epsilon().map((_) => ''),
+        index,
+        _captureValues,
+      );
+      _captures[index] = capture;
+      return capture;
     }
+
     final inner = _parseSequence(stopOnRightParen: true);
     if (_pos >= _pattern.length || _pattern[_pos] != ')') {
       throw FormatException('Unclosed ( in pattern');
     }
     _pos++;
-    final index = _captures.length;
+
     final capture = _RecordCaptureParser(
       inner.flatten(),
       index,
       _captureValues,
     );
-    _captures.add(capture);
+    _captures[index] = capture;
     return capture;
   }
 }
