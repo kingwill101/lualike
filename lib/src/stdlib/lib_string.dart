@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/stdlib/format_parser.dart';
+import 'package:lualike/src/pattern.dart';
 
 /// String interning cache for short strings (Lua-like behavior)
 /// In Lua, short strings are typically internalized while long strings are not
@@ -150,8 +151,15 @@ class _StringFind implements BuiltinFunction {
       throw LuaError.typeError("string.find requires a string and a pattern");
     }
 
-    final str = (args[0] as Value).raw.toString();
-    final pattern = (args[1] as Value).raw.toString();
+    // Use toLatin1String for pattern processing to preserve raw bytes
+    final strValue = (args[0] as Value).raw;
+    final str = strValue is LuaString
+        ? strValue.toLatin1String()
+        : strValue.toString();
+    final patternValue = (args[1] as Value).raw;
+    final pattern = patternValue is LuaString
+        ? patternValue.toLatin1String()
+        : patternValue.toString();
     var init = args.length > 2 ? NumberUtils.toInt((args[2] as Value).raw) : 1;
     var start = init < 0 ? str.length + init + 1 : init;
     if (start < 1) start = 1;
@@ -1038,8 +1046,15 @@ class _StringGmatch implements BuiltinFunction {
       throw LuaError.typeError("string.gmatch requires a string and a pattern");
     }
 
-    final str = (args[0] as Value).raw.toString();
-    final pattern = (args[1] as Value).raw.toString();
+    // Use toLatin1String for pattern processing to preserve raw bytes
+    final strValue = (args[0] as Value).raw;
+    final str = strValue is LuaString
+        ? strValue.toLatin1String()
+        : strValue.toString();
+    final patternValue = (args[1] as Value).raw;
+    final pattern = patternValue is LuaString
+        ? patternValue.toLatin1String()
+        : patternValue.toString();
 
     try {
       final regexp = LuaPattern.toRegExp(pattern);
@@ -1094,8 +1109,15 @@ class _StringGsub implements BuiltinFunction {
         "string.gsub requires string, pattern, and replacement",
       );
     }
-    final str = (args[0] as Value).raw.toString();
-    final pattern = (args[1] as Value).raw.toString();
+    // Use toLatin1String for pattern processing to preserve raw bytes
+    final strValue = (args[0] as Value).raw;
+    final str = strValue is LuaString
+        ? strValue.toLatin1String()
+        : strValue.toString();
+    final patternValue = (args[1] as Value).raw;
+    final pattern = patternValue is LuaString
+        ? patternValue.toLatin1String()
+        : patternValue.toString();
     final repl = args[2] as Value;
     final n = args.length > 3 ? NumberUtils.toInt((args[3] as Value).raw) : -1;
 
@@ -1261,8 +1283,15 @@ class _StringMatch implements BuiltinFunction {
       throw LuaError.typeError("string.match requires a string and a pattern");
     }
 
-    final str = (args[0] as Value).raw.toString();
-    final pattern = (args[1] as Value).raw.toString();
+    // Use toLatin1String for pattern processing to preserve raw bytes
+    final strValue = (args[0] as Value).raw;
+    final str = strValue is LuaString
+        ? strValue.toLatin1String()
+        : strValue.toString();
+    final patternValue = (args[1] as Value).raw;
+    final pattern = patternValue is LuaString
+        ? patternValue.toLatin1String()
+        : patternValue.toString();
     var init = args.length > 2 ? NumberUtils.toInt((args[2] as Value).raw) : 1;
 
     // Convert to 0-based index and handle negative indices
