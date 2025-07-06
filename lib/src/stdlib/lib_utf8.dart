@@ -196,39 +196,119 @@ class _UTF8CodePoint implements BuiltinFunction {
       throw LuaError("utf8.codepoint requires a string argument");
     }
 
-    final str = (args[0] as Value).raw.toString();
+    // Work with raw bytes to properly handle UTF-8
+    final value = (args[0] as Value).raw;
+    final bytes = value is LuaString
+        ? value.bytes
+        : convert.utf8.encode(value.toString());
+
     var i = args.length > 1 ? (args[1] as Value).raw as int : 1;
     var j = args.length > 2 ? (args[2] as Value).raw as int : i;
     final lax = args.length > 3
         ? ((args[3] as Value).raw as bool? ?? false)
         : false;
 
-    // Convert to 0-based indices
-    i = i > 0 ? i - 1 : str.characters.length + i;
-    j = j > 0 ? j - 1 : str.characters.length + j;
+    // Handle negative indices relative to byte length
+    final len = bytes.length;
+    if (i < 0) {
+      i = len + i + 1;
+    }
+    if (j < 0) {
+      j = len + j + 1;
+    }
 
-    final chars = str.characters.toList();
-    if (i < 0) i = 0;
-    if (j >= chars.length) j = chars.length - 1;
+    // Validate bounds (byte positions)
+    if (i < 1 || i > len) {
+      throw LuaError("out of bounds");
+    }
+    if (j < 1 || j > len) {
+      throw LuaError("out of bounds");
+    }
 
-    // Return individual values instead of a list to match Lua's behavior
-    if (i == j) {
-      final codePoint = chars[i].runes.first;
+    final codePoints = <Value>[];
+    int bytePos = i - 1; // Convert to 0-based
+    final endPos = j - 1; // Convert to 0-based
+
+    while (bytePos <= endPos) {
+      // Check if we're at the start of a UTF-8 character
+      if (bytePos > 0 && (bytes[bytePos] & 0xC0) == 0x80) {
+        throw LuaError("invalid UTF-8 code");
+      }
+
+      final byte = bytes[bytePos];
+      int sequenceLength;
+      int codePoint;
+
+      // Determine UTF-8 sequence length and decode
+      if (byte < 0x80) {
+        // ASCII: 0xxxxxxx
+        sequenceLength = 1;
+        codePoint = byte;
+      } else if ((byte & 0xE0) == 0xC0) {
+        // 2-byte: 110xxxxx 10xxxxxx
+        sequenceLength = 2;
+        if (bytePos + 1 >= bytes.length ||
+            (bytes[bytePos + 1] & 0xC0) != 0x80) {
+          throw LuaError("invalid UTF-8 code");
+        }
+        codePoint = ((byte & 0x1F) << 6) | (bytes[bytePos + 1] & 0x3F);
+        if (!lax && codePoint < 0x80) {
+          throw LuaError("invalid UTF-8 code");
+        }
+      } else if ((byte & 0xF0) == 0xE0) {
+        // 3-byte: 1110xxxx 10xxxxxx 10xxxxxx
+        sequenceLength = 3;
+        if (bytePos + 2 >= bytes.length ||
+            (bytes[bytePos + 1] & 0xC0) != 0x80 ||
+            (bytes[bytePos + 2] & 0xC0) != 0x80) {
+          throw LuaError("invalid UTF-8 code");
+        }
+        codePoint =
+            ((byte & 0x0F) << 12) |
+            ((bytes[bytePos + 1] & 0x3F) << 6) |
+            (bytes[bytePos + 2] & 0x3F);
+        if (!lax &&
+            (codePoint < 0x800 ||
+                (codePoint >= 0xD800 && codePoint <= 0xDFFF))) {
+          throw LuaError("invalid UTF-8 code");
+        }
+      } else if ((byte & 0xF8) == 0xF0) {
+        // 4-byte: 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
+        sequenceLength = 4;
+        if (bytePos + 3 >= bytes.length ||
+            (bytes[bytePos + 1] & 0xC0) != 0x80 ||
+            (bytes[bytePos + 2] & 0xC0) != 0x80 ||
+            (bytes[bytePos + 3] & 0xC0) != 0x80) {
+          throw LuaError("invalid UTF-8 code");
+        }
+        codePoint =
+            ((byte & 0x07) << 18) |
+            ((bytes[bytePos + 1] & 0x3F) << 12) |
+            ((bytes[bytePos + 2] & 0x3F) << 6) |
+            (bytes[bytePos + 3] & 0x3F);
+        if (!lax && (codePoint < 0x10000 || codePoint > 0x10FFFF)) {
+          throw LuaError("invalid UTF-8 code");
+        }
+      } else {
+        throw LuaError("invalid UTF-8 code");
+      }
+
+      // Check Unicode validity if not in lax mode
       if (!lax && codePoint > 0x10FFFF) {
         throw LuaError("invalid UTF-8 code");
       }
-      return Value(codePoint);
-    } else {
-      final codePoints = <Value>[];
-      for (var pos = i; pos <= j; pos++) {
-        final codePoint = chars[pos].runes.first;
-        if (!lax && codePoint > 0x10FFFF) {
-          throw LuaError("invalid UTF-8 code");
-        }
-        codePoints.add(Value(codePoint));
+
+      codePoints.add(Value(codePoint));
+
+      // If we only need one codepoint and this completes a character
+      if (i == j || bytePos + sequenceLength - 1 >= endPos) {
+        break;
       }
-      return Value.multi(codePoints);
+
+      bytePos += sequenceLength;
     }
+
+    return codePoints.length == 1 ? codePoints[0] : Value.multi(codePoints);
   }
 }
 
