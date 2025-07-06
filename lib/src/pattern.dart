@@ -1,5 +1,13 @@
 import 'package:lualike/src/logger.dart';
 
+/// Information about position captures in a pattern
+class PatternInfo {
+  final String regexPattern;
+  final List<int> positionCaptureIndices;
+
+  PatternInfo(this.regexPattern, this.positionCaptureIndices);
+}
+
 /// A class that converts Lua patterns to Dart RegExp patterns.
 /// This class handles the conversion of Lua's pattern matching syntax to Dart's regular expression syntax.
 ///
@@ -9,6 +17,7 @@ import 'package:lualike/src/logger.dart';
 /// - Captures use () without needing to escape them
 /// - Frontier patterns (%f) have no direct RegExp equivalent
 /// - Balanced patterns (%b) are unique to Lua
+/// - Position captures () capture the current string position, not text
 class LuaPattern {
   /// Special characters that need to be escaped in RegExp
   static final _specialChars = RegExp(r'[.^$*+?()[\]{}|\\]');
@@ -40,6 +49,25 @@ class LuaPattern {
     'Z': '[^\\0]',
   };
 
+  /// Convert a Lua pattern to a RegExp pattern with position capture information
+  ///
+  /// [pattern] is the Lua pattern to convert
+  ///
+  /// Returns a PatternInfo object containing the RegExp pattern and position capture indices
+  ///
+  /// Throws [FormatException] if the pattern is malformed
+  static PatternInfo toPatternInfo(String pattern) {
+    // Process the pattern and detect position captures
+    final result = _processPatternWithPositionCaptures(pattern);
+
+    try {
+      final regExp = RegExp(result.regexPattern);
+      return result;
+    } catch (e) {
+      throw ArgumentError('Invalid pattern: ${result.regexPattern}');
+    }
+  }
+
   /// Convert a Lua pattern to a RegExp pattern
   ///
   /// [pattern] is the Lua pattern to convert
@@ -58,6 +86,47 @@ class LuaPattern {
     } catch (e) {
       throw ArgumentError('Invalid pattern: $processed');
     }
+  }
+
+  /// Process a Lua pattern and detect position captures
+  static PatternInfo _processPatternWithPositionCaptures(String pattern) {
+    // First, detect position captures
+    final positionCaptureIndices = <int>[];
+    var captureIndex = 0;
+    var i = 0;
+    var inPercent = false;
+
+    while (i < pattern.length) {
+      if (inPercent) {
+        inPercent = false;
+        i++;
+        continue;
+      }
+
+      if (pattern[i] == '%') {
+        inPercent = true;
+        i++;
+        continue;
+      }
+
+      if (pattern[i] == '(') {
+        // Check if this is a position capture
+        var j = i + 1;
+        while (j < pattern.length && pattern[j] == ' ') j++; // Skip whitespace
+
+        if (j < pattern.length && pattern[j] == ')') {
+          // This is a position capture ()
+          positionCaptureIndices.add(captureIndex);
+        }
+        captureIndex++;
+      }
+      i++;
+    }
+
+    // Process the pattern normally
+    final regexPattern = _processPattern(pattern);
+
+    return PatternInfo(regexPattern, positionCaptureIndices);
   }
 
   /// Process a Lua pattern and convert it to a RegExp pattern

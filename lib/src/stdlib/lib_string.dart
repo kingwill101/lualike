@@ -184,7 +184,8 @@ class _StringFind implements BuiltinFunction {
     }
 
     try {
-      final regexp = LuaPattern.toRegExp(pattern);
+      final patternInfo = LuaPattern.toPatternInfo(pattern);
+      final regexp = RegExp(patternInfo.regexPattern);
       final substring = str.substring(start);
       final match = regexp.firstMatch(substring);
 
@@ -196,11 +197,21 @@ class _StringFind implements BuiltinFunction {
 
       final results = [Value(startPos), Value(endPos)];
 
-      // Add captured groups if any
+      // Add captured groups if any, handling position captures
       for (var i = 1; i <= match.groupCount; i++) {
-        final group = match.group(i);
-        if (group != null) {
-          results.add(Value(group));
+        // Check if this capture index is a position capture
+        if (patternInfo.positionCaptureIndices.contains(i - 1)) {
+          // This is a position capture - return the 1-based position relative to original string
+          final position =
+              start +
+              match.start +
+              1; // Convert to 1-based and adjust for substring
+          results.add(Value(position));
+        } else {
+          final group = match.group(i);
+          if (group != null) {
+            results.add(Value(group));
+          }
         }
       }
 
@@ -1062,7 +1073,8 @@ class _StringGmatch implements BuiltinFunction {
     final pattern = String.fromCharCodes(patternBytes);
 
     try {
-      final regexp = LuaPattern.toRegExp(pattern);
+      final patternInfo = LuaPattern.toPatternInfo(pattern);
+      final regexp = RegExp(patternInfo.regexPattern);
       final matches = regexp.allMatches(str).toList();
       var currentIndex = 0;
 
@@ -1087,20 +1099,29 @@ class _StringGmatch implements BuiltinFunction {
           }
         }
 
-        // Return all captures as separate values
+        // Return all captures as separate values, handling position captures
         final captures = <Value>[];
         for (var i = 1; i <= match.groupCount; i++) {
-          final group = match.group(i);
-          if (group != null) {
-            // Check if it contains non-ASCII bytes that need LuaString preservation
-            if (group.codeUnits.any((c) => c > 127)) {
-              final groupBytes = group.codeUnits.map((c) => c & 0xFF).toList();
-              captures.add(Value(LuaString.fromBytes(groupBytes)));
-            } else {
-              captures.add(Value(group));
-            }
+          // Check if this capture index is a position capture
+          if (patternInfo.positionCaptureIndices.contains(i - 1)) {
+            // This is a position capture - return the 1-based position
+            final position = match.start + 1; // Convert to 1-based
+            captures.add(Value(position));
           } else {
-            captures.add(Value(null));
+            final group = match.group(i);
+            if (group != null) {
+              // Check if it contains non-ASCII bytes that need LuaString preservation
+              if (group.codeUnits.any((c) => c > 127)) {
+                final groupBytes = group.codeUnits
+                    .map((c) => c & 0xFF)
+                    .toList();
+                captures.add(Value(LuaString.fromBytes(groupBytes)));
+              } else {
+                captures.add(Value(group));
+              }
+            } else {
+              captures.add(Value(null));
+            }
           }
         }
 
@@ -1142,7 +1163,8 @@ class _StringGsub implements BuiltinFunction {
 
     try {
       var count = 0;
-      final regexp = LuaPattern.toRegExp(pattern);
+      final patternInfo = LuaPattern.toPatternInfo(pattern);
+      final regexp = RegExp(patternInfo.regexPattern);
 
       String result;
       if (repl.raw is Function) {
@@ -1162,7 +1184,14 @@ class _StringGsub implements BuiltinFunction {
             captures.add(Value(match.group(0)));
           } else {
             for (var i = 1; i <= match.groupCount; i++) {
-              captures.add(Value(match.group(i)));
+              // Check if this capture index is a position capture
+              if (patternInfo.positionCaptureIndices.contains(i - 1)) {
+                // This is a position capture - return the 1-based position
+                final position = match.start + 1; // Convert to 1-based
+                captures.add(Value(position));
+              } else {
+                captures.add(Value(match.group(i)));
+              }
             }
           }
 
@@ -1330,17 +1359,28 @@ class _StringMatch implements BuiltinFunction {
 
     final substring = str.substring(init);
     try {
-      final regexp = LuaPattern.toRegExp(pattern);
+      final patternInfo = LuaPattern.toPatternInfo(pattern);
+      final regexp = RegExp(patternInfo.regexPattern);
       final match = regexp.firstMatch(substring);
       if (match == null) {
         return Value(null);
       }
 
       if (match.groupCount > 0) {
-        // Return captures
+        // Return captures, handling position captures
         List<Value> captures = [];
         for (int i = 1; i <= match.groupCount; i++) {
-          captures.add(Value(match.group(i)));
+          // Check if this capture index is a position capture
+          if (patternInfo.positionCaptureIndices.contains(i - 1)) {
+            // This is a position capture - return the 1-based position relative to original string
+            final position =
+                init +
+                match.start +
+                1; // Convert to 1-based and adjust for substring
+            captures.add(Value(position));
+          } else {
+            captures.add(Value(match.group(i)));
+          }
         }
 
         if (captures.length == 1) {
