@@ -154,6 +154,43 @@ class _RecordCaptureParser extends Parser<String> {
 
 /// Parser that matches the previously captured substring at [index].
 
+class _BackReferenceParser extends Parser<String> {
+  _BackReferenceParser(this.index, this.storage);
+
+  final int index;
+  final List<String?> storage;
+
+  @override
+  Result<String> parseOn(Context context) {
+    if (index >= storage.length || storage[index] == null) {
+      return context.failure('Back reference $index not defined');
+    }
+    final value = storage[index]!;
+    final end = context.position + value.length;
+    if (end > context.buffer.length ||
+        context.buffer.substring(context.position, end) != value) {
+      return context.failure('Back reference $index mismatch');
+    }
+    return context.success(value, end);
+  }
+
+  @override
+  int fastParseOn(String buffer, int position) {
+    if (index >= storage.length || storage[index] == null) {
+      return -1;
+    }
+    final value = storage[index]!;
+    final end = position + value.length;
+    if (end > buffer.length || buffer.substring(position, end) != value) {
+      return -1;
+    }
+    return end;
+  }
+
+  @override
+  _BackReferenceParser copy() => _BackReferenceParser(index, storage);
+}
+
 /// Root parser that resets capture storage before parsing.
 class _LuaPatternParser extends Parser<String> {
   _LuaPatternParser(this.delegate, this.storage);
@@ -269,8 +306,8 @@ class LuaPatternCompiler {
     if (_pos < _pattern.length) {
       final rep = _pattern[_pos];
       if ('*+-?'.contains(rep)) {
+        _pos++; // consume repetition operator
         item = _applyRepetition(item, rep, stopOnRightParen);
-        _pos++;
       }
     }
     return item;
@@ -279,9 +316,11 @@ class LuaPatternCompiler {
   Parser _applyRepetition(Parser base, String op, bool stopOnRightParen) {
     switch (op) {
       case '*':
-        return base.star();
+        final following = _parseSequence(stopOnRightParen: stopOnRightParen);
+        return base.starGreedy(following).seq(following);
       case '+':
-        return base.plus();
+        final following = _parseSequence(stopOnRightParen: stopOnRightParen);
+        return base.plusGreedy(following).seq(following);
       case '?':
         return base.optional();
       case '-':
@@ -300,7 +339,12 @@ class LuaPatternCompiler {
     }
     final next = _pattern[_pos];
     if ('123456789'.contains(next)) {
-      throw UnimplementedError('%n back-reference not implemented');
+      final index = int.parse(next) - 1;
+      if (index >= _captures.length) {
+        throw FormatException('Invalid back reference %$next');
+      }
+      _pos++;
+      return _BackReferenceParser(index, _captureValues);
     }
     if (next == 'b') {
       if (_pos + 2 >= _pattern.length) {

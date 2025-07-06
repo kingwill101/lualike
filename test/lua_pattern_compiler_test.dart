@@ -94,10 +94,10 @@ void main() {
 
     test('Greedy vs non-greedy * vs -', () {
       final greedy = lp.compileLuaPattern('a.*b');
-      expect(greedy.parse('aXXbYYb'), isA<Failure>());
+      expect(greedy.parse('aXXbYYb').value, 'aXXbYYb');
 
       final nongreedy = lp.compileLuaPattern('a.-b');
-      expect(nongreedy.parse('aXXbYYb'), isA<Failure>());
+      expect(nongreedy.parse('aXXbYYb').value, 'aXXb');
     });
   });
 
@@ -133,10 +133,22 @@ void main() {
   });
 
   group('Back references', () {
-    test('unimplemented back reference', () {
+    test('simple repeated capture', () {
+      final p = lp.compileLuaPattern('(%a)%1');
+      expect(p.parse('aa').value, 'aa');
+      expect(p.parse('ab'), isA<Failure>());
+    });
+
+    test('single char back reference', () {
+      final p = lp.compileLuaPattern('(.)%1');
+      expect(p.parse('aa').value, 'aa');
+      expect(p.parse('ab'), isA<Failure>());
+    });
+
+    test('invalid forward reference', () {
       expect(
-        () => lp.compileLuaPattern('%1'),
-        throwsA(isA<UnimplementedError>()),
+        () => lp.compileLuaPattern('%1(%a+)'),
+        throwsA(isA<FormatException>()),
       );
     });
   });
