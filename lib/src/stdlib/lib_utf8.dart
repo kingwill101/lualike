@@ -16,7 +16,7 @@ import 'package:lualike/src/logger.dart';
 
 class UTF8Lib {
   // Pattern that matches exactly one UTF-8 byte sequence
-  // This matches Lua 5.4's utf8.charpattern which is "[\0-\x7F\xC2-\xF4][\x80-\xBF]*"
+  // Extended to support 5-byte and 6-byte UTF-8 sequences: "[\0-\x7F\xC2-\xF4\xF8\xFC][\x80-\xBF]*"
   // We create this as a proper Latin-1 string to avoid UTF-8 corruption
   static final LuaString charpattern = () {
     // Create the pattern as Latin-1 string to match raw bytes
@@ -30,10 +30,10 @@ class UTF8Lib {
     bytes.add(0x2D); // -
     bytes.add(0x7F);
 
-    // Add \xC2-\xF4 range (UTF-8 start bytes for multi-byte sequences)
+    // Add \xC2-\xFD range (UTF-8 start bytes for 2-6 byte sequences, matching real Lua)
     bytes.add(0xC2);
     bytes.add(0x2D); // -
-    bytes.add(0xF4);
+    bytes.add(0xFD);
 
     // Add ]
     bytes.add(0x5D);
@@ -232,6 +232,14 @@ class _UTF8Codes implements BuiltinFunction {
           // 4-byte: 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
           sequenceLength = 4;
           Logger.debug('UTF8Codes: 4-byte UTF-8 sequence', category: 'UTF8');
+        } else if ((byte & 0xFC) == 0xF8) {
+          // 5-byte: 111110xx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx
+          sequenceLength = 5;
+          Logger.debug('UTF8Codes: 5-byte UTF-8 sequence', category: 'UTF8');
+        } else if ((byte & 0xFE) == 0xFC) {
+          // 6-byte: 1111110x 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx
+          sequenceLength = 6;
+          Logger.debug('UTF8Codes: 6-byte UTF-8 sequence', category: 'UTF8');
         } else {
           // Invalid start byte
           Logger.debug(
@@ -317,8 +325,31 @@ class _UTF8Codes implements BuiltinFunction {
               ((bytes[bytePos + 1] & 0x3F) << 12) |
               ((bytes[bytePos + 2] & 0x3F) << 6) |
               (bytes[bytePos + 3] & 0x3F);
-          // Check for overlong encoding and out-of-range code points
+          // Check for overlong encoding and valid Unicode range for 4-byte sequences
           if (!lax && (codePoint < 0x10000 || codePoint > 0x10FFFF)) {
+            throw LuaError("invalid UTF-8 code");
+          }
+        } else if (sequenceLength == 5) {
+          codePoint =
+              ((byte & 0x03) << 24) |
+              ((bytes[bytePos + 1] & 0x3F) << 18) |
+              ((bytes[bytePos + 2] & 0x3F) << 12) |
+              ((bytes[bytePos + 3] & 0x3F) << 6) |
+              (bytes[bytePos + 4] & 0x3F);
+          // Check for overlong encoding
+          if (!lax && codePoint < 0x200000) {
+            throw LuaError("invalid UTF-8 code");
+          }
+        } else if (sequenceLength == 6) {
+          codePoint =
+              ((byte & 0x01) << 30) |
+              ((bytes[bytePos + 1] & 0x3F) << 24) |
+              ((bytes[bytePos + 2] & 0x3F) << 18) |
+              ((bytes[bytePos + 3] & 0x3F) << 12) |
+              ((bytes[bytePos + 4] & 0x3F) << 6) |
+              (bytes[bytePos + 5] & 0x3F);
+          // Check for overlong encoding
+          if (!lax && codePoint < 0x4000000) {
             throw LuaError("invalid UTF-8 code");
           }
         }
@@ -454,8 +485,8 @@ class _UTF8CodePoint implements BuiltinFunction {
         if (!lax && (codePoint < 0x10000 || codePoint > 0x10FFFF)) {
           throw LuaError("invalid UTF-8 code");
         }
-      } else if (lax && (byte & 0xFC) == 0xF8) {
-        // 5-byte: 111110xx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx (lax mode only)
+      } else if ((byte & 0xFC) == 0xF8) {
+        // 5-byte: 111110xx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx
         sequenceLength = 5;
         if (bytePos + 4 >= bytes.length ||
             (bytes[bytePos + 1] & 0xC0) != 0x80 ||
@@ -470,8 +501,8 @@ class _UTF8CodePoint implements BuiltinFunction {
             ((bytes[bytePos + 2] & 0x3F) << 12) |
             ((bytes[bytePos + 3] & 0x3F) << 6) |
             (bytes[bytePos + 4] & 0x3F);
-      } else if (lax && (byte & 0xFE) == 0xFC) {
-        // 6-byte: 1111110x 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx (lax mode only)
+      } else if ((byte & 0xFE) == 0xFC) {
+        // 6-byte: 1111110x 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx
         sequenceLength = 6;
         if (bytePos + 5 >= bytes.length ||
             (bytes[bytePos + 1] & 0xC0) != 0x80 ||
@@ -492,10 +523,8 @@ class _UTF8CodePoint implements BuiltinFunction {
         throw LuaError("invalid UTF-8 code");
       }
 
-      // Check Unicode validity if not in lax mode
-      if (!lax && codePoint > 0x10FFFF) {
-        throw LuaError("invalid UTF-8 code");
-      }
+      // Note: Extended UTF-8 sequences beyond 0x10FFFF are allowed in Lua
+      // (no validation needed)
 
       codePoints.add(Value(codePoint));
 
@@ -574,11 +603,11 @@ class _UTF8Len implements BuiltinFunction {
       } else if ((byte & 0xF8) == 0xF0) {
         // 4-byte: 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
         sequenceLength = 4;
-      } else if (lax && (byte & 0xFC) == 0xF8) {
-        // 5-byte: 111110xx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx (lax mode only)
+      } else if ((byte & 0xFC) == 0xF8) {
+        // 5-byte: 111110xx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx
         sequenceLength = 5;
-      } else if (lax && (byte & 0xFE) == 0xFC) {
-        // 6-byte: 1111110x 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx (lax mode only)
+      } else if ((byte & 0xFE) == 0xFC) {
+        // 6-byte: 1111110x 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx
         sequenceLength = 6;
       } else {
         // Invalid UTF-8 sequence found - return nil and byte position
@@ -627,7 +656,7 @@ class _UTF8Len implements BuiltinFunction {
               ((bytes[pos + 1] & 0x3F) << 12) |
               ((bytes[pos + 2] & 0x3F) << 6) |
               (bytes[pos + 3] & 0x3F);
-          // Check for overlong encoding and out-of-range code points
+          // Check for overlong encoding and valid Unicode range for 4-byte sequences
           if (codePoint < 0x10000 || codePoint > 0x10FFFF) {
             return Value.multi([Value(null), Value(pos + 1)]);
           }
