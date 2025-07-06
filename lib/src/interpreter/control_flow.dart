@@ -656,7 +656,22 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           'ForInLoop: Calling iterator with state: $state, control: $control',
           category: 'ControlFlow',
         );
-        final items = await iterFunc([state, control]);
+
+        Object? items;
+        try {
+          items = await iterFunc([state, control]);
+        } catch (e) {
+          // Check if we're in a protected call context (pcall)
+          if (this is Interpreter && (this as Interpreter).isInProtectedCall) {
+            // Convert the error and exit the for-in loop early
+            // The error will be handled by the pcall context
+            throw e;
+          } else {
+            // Re-throw if not in protected context
+            rethrow;
+          }
+        }
+
         Logger.debug(
           'ForInLoop: Iterator returned: $items',
           category: 'ControlFlow',
