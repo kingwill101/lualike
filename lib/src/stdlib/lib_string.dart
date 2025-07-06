@@ -1032,8 +1032,8 @@ class _StringGmatch implements BuiltinFunction {
     final pattern = (args[1] as Value).raw.toString();
 
     try {
-      final regexp = LuaPattern.toRegExp(pattern);
-      final matches = regexp.allMatches(str).toList();
+      final lp = lpc.LuaPattern.compile(pattern);
+      final matches = lp.allMatches(str).toList();
       var currentIndex = 0;
 
       // Return iterator function that follows Lua's behavior
@@ -1043,30 +1043,17 @@ class _StringGmatch implements BuiltinFunction {
         }
 
         final match = matches[currentIndex++];
-        if (match.groupCount == 0) {
-          // No captures, return the whole match as a string
-          final wholeMatch = match.group(0);
-          return Value(wholeMatch);
+        if (match.captures.isEmpty) {
+          return Value(match.match);
         }
 
-        // Return all captures as separate values
-        final captures = <Value>[];
-        for (var i = 1; i <= match.groupCount; i++) {
-          final group = match.group(i);
-          if (group != null) {
-            captures.add(Value(group));
-          } else {
-            captures.add(Value(null));
-          }
-        }
+        final captures = match.captures
+            .map((c) => c == null ? Value(null) : Value(c))
+            .toList();
 
-        // For Lua compatibility, we need to return multiple values
-        // but not as a list - they should be separate return values
         if (captures.length == 1) {
           return captures[0];
         } else {
-          // Use Value.multi to return multiple values
-          // This will be handled by the VM to bind multiple variables in a for-in loop
           return Value.multi(captures);
         }
       });
@@ -1091,14 +1078,14 @@ class _StringGsub implements BuiltinFunction {
 
     try {
       var count = 0;
-      final regexp = LuaPattern.toRegExp(pattern);
+      final lp = lpc.LuaPattern.compile(pattern);
 
       String result;
       if (repl.raw is Function) {
         final replFunc = repl.raw as Function;
         final buffer = StringBuffer();
         var lastEnd = 0;
-        final matches = regexp.allMatches(str);
+        final matches = lp.allMatches(str);
 
         for (final match in matches) {
           if (n != -1 && count >= n) {
@@ -1107,11 +1094,11 @@ class _StringGsub implements BuiltinFunction {
           buffer.write(str.substring(lastEnd, match.start));
 
           final captures = <Value>[];
-          if (match.groupCount == 0) {
-            captures.add(Value(match.group(0)));
+          if (match.captures.isEmpty) {
+            captures.add(Value(match.match));
           } else {
-            for (var i = 1; i <= match.groupCount; i++) {
-              captures.add(Value(match.group(i)));
+            for (final cap in match.captures) {
+              captures.add(cap == null ? Value(null) : Value(cap));
             }
           }
 
@@ -1123,7 +1110,7 @@ class _StringGsub implements BuiltinFunction {
           if (replacement == null ||
               (replacement is Value &&
                   (replacement.isNil || replacement.raw == false))) {
-            buffer.write(match.group(0));
+            buffer.write(match.match);
           } else {
             buffer.write(replacement is Value ? replacement.raw : replacement);
             count++;
@@ -1140,13 +1127,13 @@ class _StringGsub implements BuiltinFunction {
         final buffer = StringBuffer();
         var lastEnd = 0;
 
-        for (final match in regexp.allMatches(str)) {
+        for (final match in lp.allMatches(str)) {
           if (n != -1 && count >= n) {
             break;
           }
           buffer.write(str.substring(lastEnd, match.start));
 
-          final key = Value(match.group(0)!);
+          final key = Value(match.match);
           var replacement = replTable[key];
 
           if (replacement is Value) {
@@ -1157,7 +1144,7 @@ class _StringGsub implements BuiltinFunction {
             buffer.write(replacement.toString());
             count++;
           } else {
-            buffer.write(match.group(0)!);
+            buffer.write(match.match);
           }
           lastEnd = match.end;
         }
@@ -1168,40 +1155,43 @@ class _StringGsub implements BuiltinFunction {
         result = buffer.toString();
       } else if (repl.raw is String || repl.raw is LuaString) {
         final replStr = repl.raw.toString();
-        result = str.replaceAllMapped(regexp, (match) {
-          if (n != -1 && count >= n) return match.group(0)!;
+        final buffer = StringBuffer();
+        var lastEnd = 0;
+
+        for (final match in lp.allMatches(str)) {
+          if (n != -1 && count >= n) break;
+
+          buffer.write(str.substring(lastEnd, match.start));
 
           String replacement = replStr;
           bool captureReplaced = false;
 
-          // Handle %0, %1, %2... captures in the replacement string
-          for (int i = 0; i <= match.groupCount; i++) {
-            final capture = match.group(i);
-            // Only replace if the capture exists and the placeholder is found
+          for (int i = 0; i <= match.captures.length; i++) {
+            final capture = i == 0 ? match.match : match.captures[i - 1];
             final placeholder = '%$i';
             if (replacement.contains(placeholder)) {
               replacement = replacement.replaceAll(placeholder, capture ?? '');
               captureReplaced = true;
             }
           }
-          // Handle %% (literal percent) - this was previously handled outside, but now needs to be here
+
           if (replacement.contains('%%')) {
             replacement = replacement.replaceAll('%%', '%');
-            captureReplaced =
-                true; // Mark as replaced if literal percent was processed
+            captureReplaced = true;
           }
 
-          // Lua 5.4 behavior: if no captures replaced but it's a string literal replacement, count it
-          // If `captureReplaced` is true, we already incremented `count`.
-          // If `captureReplaced` is false, it means `replStr` did not contain any %n or %%,
-          // so we treat `replStr` as a literal replacement for the whole match.
           if (captureReplaced || replStr.isNotEmpty) {
-            // Lua counts replacements even if no captures are used
             count++;
           }
 
-          return replacement;
-        });
+          buffer.write(replacement);
+          lastEnd = match.end;
+        }
+
+        if (lastEnd < str.length) {
+          buffer.write(str.substring(lastEnd));
+        }
+        result = buffer.toString();
       } else {
         throw LuaError.typeError("Invalid replacement type");
       }
@@ -1262,32 +1252,24 @@ class _StringMatch implements BuiltinFunction {
       return Value(null);
     }
 
-    final substring = str.substring(init);
     try {
-      final regexp = LuaPattern.toRegExp(pattern);
-      final _ = regexp.hasMatch(substring);
-
-      final match = regexp.firstMatch(substring);
+      final lp = lpc.LuaPattern.compile(pattern);
+      final match = lp.firstMatch(str, init);
       if (match == null) {
         return Value(null);
       }
 
-      if (match.groupCount > 0) {
-        // Return captures
-        List<Value> captures = [];
-        for (int i = 1; i <= match.groupCount; i++) {
-          captures.add(Value(match.group(i)));
-        }
-
+      if (match.captures.isNotEmpty) {
+        final captures = match.captures
+            .map((c) => c == null ? Value(null) : Value(c))
+            .toList();
         if (captures.length == 1) {
           return captures[0];
-        } else {
-          return Value(captures);
         }
-      } else {
-        // Return whole match
-        return Value(match.group(0));
+        return Value.multi(captures);
       }
+
+      return Value(match.match);
     } catch (e) {
       throw LuaError.typeError("malformed pattern: $e");
     }
