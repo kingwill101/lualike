@@ -1222,7 +1222,15 @@ class _StringGsub implements BuiltinFunction {
         throw LuaError.typeError("Invalid replacement type");
       }
 
-      return [Value(result), Value(count)];
+      // Preserve byte representation for LuaString inputs, use regular String for String inputs
+      final resultValue = strValue is LuaString
+          ? Value(
+              LuaString.fromBytes(
+                result.codeUnits.map((c) => c & 0xFF).toList(),
+              ),
+            )
+          : Value(result);
+      return [resultValue, Value(count)];
     } catch (e) {
       throw LuaError.typeError("Error in string.gsub: $e");
     }

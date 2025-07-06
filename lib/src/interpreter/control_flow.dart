@@ -717,7 +717,8 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         );
 
         // Update control variable for next iteration
-        control = values[0] is Value ? values[0] : Value(values[0]);
+        final rawControl = values.isNotEmpty ? values[0] : null;
+        control = rawControl is Value ? rawControl : Value(rawControl);
         Logger.debug(
           'ForInLoop: Updated control to: $control',
           category: 'ControlFlow',
@@ -744,7 +745,8 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
 
           // Bind loop variables
           for (var i = 0; i < node.names.length; i++) {
-            final value = i < values.length ? values[i] : Value(null);
+            final rawValue = i < values.length ? values[i] : null;
+            final value = rawValue is Value ? rawValue : Value(rawValue);
             Logger.debug(
               'ForInLoop: Binding ${node.names[i].name} = $value',
               category: 'ControlFlow',
