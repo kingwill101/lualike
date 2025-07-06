@@ -1,7 +1,6 @@
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/lualike.dart';
 
-
 class TableLib {
   static final ValueClass tableClass = ValueClass.create({
     "__len": (List<Object?> args) {
@@ -313,21 +312,55 @@ class _TableUnpack implements BuiltinFunction {
 
     final map = table.raw as Map;
     int i, j;
-    try {
-      i = args.length > 1 ? (args[1] as Value).raw as int : 1;
-      j = args.length > 2 ? (args[2] as Value).raw as int : map.length;
-    } catch (e) {
-      throw LuaError.typeError("table.unpack requires a table argument");
+
+    // Handle start index (default to 1)
+    if (args.length > 1) {
+      final startArg = args[1] as Value;
+      if (startArg.raw == null) {
+        throw LuaError.typeError(
+          "bad argument #2 to 'unpack' (number expected, got nil)",
+        );
+      }
+      try {
+        i = startArg.raw as int;
+      } catch (e) {
+        throw LuaError.typeError(
+          "bad argument #2 to 'unpack' (number expected)",
+        );
+      }
+    } else {
+      i = 1;
+    }
+
+    // Handle end index (default to table length, or nil means use table length)
+    if (args.length > 2) {
+      final endArg = args[2] as Value;
+      if (endArg.raw == null) {
+        // nil means use table length (same as not providing the argument)
+        j = map.length;
+      } else {
+        try {
+          j = endArg.raw as int;
+        } catch (e) {
+          throw LuaError.typeError(
+            "bad argument #3 to 'unpack' (number expected)",
+          );
+        }
+      }
+    } else {
+      j = map.length;
     }
 
     final result = <Value>[];
     for (var k = i; k <= j; k++) {
       final v = map[k];
       if (v == null || (v is Value && v.raw == null)) {
-        break;
+        result.add(Value(null));
+      } else {
+        result.add(v is Value ? v : Value(v));
       }
-      result.add(v is Value ? v : Value(v));
     }
+
     if (result.isEmpty) return Value(null);
     if (result.length == 1) return result[0];
     return Value.multi(result);
