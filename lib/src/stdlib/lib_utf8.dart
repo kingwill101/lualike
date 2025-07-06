@@ -184,7 +184,7 @@ class _UTF8Codes implements BuiltinFunction {
       // Move to next character
       bytePos += sequenceLength;
 
-      return [Value(currentPos), Value(codePoint)];
+      return Value.multi([Value(currentPos), Value(codePoint)]);
     });
   }
 }
@@ -227,7 +227,7 @@ class _UTF8CodePoint implements BuiltinFunction {
         }
         codePoints.add(Value(codePoint));
       }
-      return codePoints;
+      return Value.multi(codePoints);
     }
   }
 }
@@ -282,18 +282,21 @@ class _UTF8Len implements BuiltinFunction {
         sequenceLength = 4;
       } else {
         // Invalid UTF-8 sequence found - return nil and byte position
-        return [Value(null), Value(pos + 1)]; // 1-based position for Lua
+        return Value.multi([
+          Value(null),
+          Value(pos + 1),
+        ]); // 1-based position for Lua
       }
 
       // Check if we have enough bytes for the complete sequence
       if (pos + sequenceLength > end) {
-        return [Value(null), Value(pos + 1)];
+        return Value.multi([Value(null), Value(pos + 1)]);
       }
 
       // For multi-byte sequences, check that continuation bytes are valid
       for (int k = 1; k < sequenceLength; k++) {
         if (pos + k >= bytes.length || (bytes[pos + k] & 0xC0) != 0x80) {
-          return [Value(null), Value(pos + 1)];
+          return Value.multi([Value(null), Value(pos + 1)]);
         }
       }
 
@@ -306,7 +309,7 @@ class _UTF8Len implements BuiltinFunction {
           codePoint = ((byte & 0x1F) << 6) | (bytes[pos + 1] & 0x3F);
           // Check for overlong encoding
           if (codePoint < 0x80) {
-            return [Value(null), Value(pos + 1)];
+            return Value.multi([Value(null), Value(pos + 1)]);
           }
         } else if (sequenceLength == 3) {
           codePoint =
@@ -316,7 +319,7 @@ class _UTF8Len implements BuiltinFunction {
           // Check for overlong encoding and surrogate pairs
           if (codePoint < 0x800 ||
               (codePoint >= 0xD800 && codePoint <= 0xDFFF)) {
-            return [Value(null), Value(pos + 1)];
+            return Value.multi([Value(null), Value(pos + 1)]);
           }
         } else if (sequenceLength == 4) {
           codePoint =
@@ -326,7 +329,7 @@ class _UTF8Len implements BuiltinFunction {
               (bytes[pos + 3] & 0x3F);
           // Check for overlong encoding and out-of-range code points
           if (codePoint < 0x10000 || codePoint > 0x10FFFF) {
-            return [Value(null), Value(pos + 1)];
+            return Value.multi([Value(null), Value(pos + 1)]);
           }
         }
       }
