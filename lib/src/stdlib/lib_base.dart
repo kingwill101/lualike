@@ -1572,9 +1572,6 @@ class RequireFunction implements BuiltinFunction {
     final errorMsg =
         "module '$moduleName' not found:${errors.isNotEmpty ? '\n\t${errors.join('\n\t')}' : ''}";
     throw Exception(errorMsg);
-  
-    // If we couldn't find the module anywhere, throw an error
-    throw Exception("module '$moduleName' not found");
   }
 }
 

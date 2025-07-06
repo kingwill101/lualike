@@ -317,10 +317,11 @@ class LuaPatternCompiler {
   }
 
   Parser _applyRepetition(Parser base, String op, bool stopOnRightParen) {
-    final saved = _pos;
+    final startPos = _pos;
     final following = _parseSequence(stopOnRightParen: stopOnRightParen);
-    final isEmpty = _pos == saved;
-    _pos = saved;
+    final isEmpty = _pos == startPos;
+    // Keep the parser position after the following sequence so we don't
+    // reparse it again in the caller.
 
     Parser result;
     if (isEmpty) {
