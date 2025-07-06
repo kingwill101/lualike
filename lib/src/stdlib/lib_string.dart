@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/stdlib/format_parser.dart';
+import 'package:lualike/src/lua_pattern_compiler.dart' as lpc;
 
 /// String interning cache for short strings (Lua-like behavior)
 /// In Lua, short strings are typically internalized while long strings are not
@@ -176,33 +177,22 @@ class _StringFind implements BuiltinFunction {
     }
 
     try {
-      final regexp = LuaPattern.toRegExp(pattern);
-      final substring = str.substring(start);
-      final match = regexp.firstMatch(substring);
-
+      final lp = lpc.LuaPattern.compile(pattern);
+      final match = lp.firstMatch(str, start);
       if (match == null) return Value(null);
 
-      // In Lua, string.find returns the 1-based indices of the match
-      final startPos = start + match.start + 1;
-      final endPos = start + match.end;
-
+      final startPos = match.start + 1;
+      final endPos = match.end;
       final results = [Value(startPos), Value(endPos)];
-
-      // Add captured groups if any
-      for (var i = 1; i <= match.groupCount; i++) {
-        final group = match.group(i);
-        if (group != null) {
-          results.add(Value(group));
-        }
+      for (final cap in match.captures) {
+        results.add(cap == null ? Value(null) : Value(cap));
       }
-
-      if (match.groupCount > 0) {
+      if (match.captures.isNotEmpty) {
         return Value.multi(results);
       }
-
       return results;
     } catch (e) {
-      throw Exception("malformed pattern: $e");
+      throw Exception('malformed pattern: $e');
     }
   }
 }

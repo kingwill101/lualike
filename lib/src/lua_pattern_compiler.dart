@@ -429,3 +429,55 @@ class LuaPatternCompiler {
 
 Parser<String> compileLuaPattern(String pattern) =>
     LuaPatternCompiler(pattern).compile();
+
+/// Result of a single Lua pattern match.
+class LuaMatch {
+  LuaMatch(this.start, this.end, this.match, this.captures);
+
+  final int start;
+  final int end;
+  final String match;
+  final List<String?> captures;
+}
+
+/// Compiled Lua pattern that can search within strings.
+class LuaPattern {
+  LuaPattern._(this._parser, this._captures);
+
+  final _LuaPatternParser _parser;
+  final List<String?> _captures;
+
+  /// Compile [pattern] into a [LuaPattern].
+  factory LuaPattern.compile(String pattern) {
+    final compiler = LuaPatternCompiler(pattern);
+    final parser = compiler.compile() as _LuaPatternParser;
+    return LuaPattern._(parser, compiler._captureValues);
+  }
+
+  /// Find the first match in [input] starting from [start].
+  LuaMatch? firstMatch(String input, [int start = 0]) {
+    for (var pos = start; pos <= input.length; pos++) {
+      final result = _parser.parseOn(Context(input, pos));
+      if (result is Success<String>) {
+        final captures = List<String?>.from(_captures);
+        return LuaMatch(pos, result.position, result.value, captures);
+      }
+    }
+    return null;
+  }
+
+  /// Iterate over all matches in [input] starting from [start].
+  Iterable<LuaMatch> allMatches(String input, [int start = 0]) sync* {
+    var pos = start;
+    while (pos <= input.length) {
+      final result = _parser.parseOn(Context(input, pos));
+      if (result is Success<String>) {
+        final captures = List<String?>.from(_captures);
+        yield LuaMatch(pos, result.position, result.value, captures);
+        pos = result.position > pos ? result.position : pos + 1;
+      } else {
+        pos++;
+      }
+    }
+  }
+}
