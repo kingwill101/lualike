@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'dart:convert';
 import 'package:lualike/testing.dart';
+import 'package:lualike/src/lua_string.dart';
 
 void main() {
   test(
