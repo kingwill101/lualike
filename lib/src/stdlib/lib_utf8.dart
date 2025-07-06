@@ -100,7 +100,9 @@ class _UTF8Codes implements BuiltinFunction {
     final bytes = value is LuaString
         ? value.bytes
         : convert.utf8.encode(value.toString());
-    final lax = args.length > 1 ? (args[1] as Value).raw as bool : false;
+    final lax = args.length > 1
+        ? ((args[1] as Value).raw as bool? ?? false)
+        : false;
 
     var bytePos = 0;
 
@@ -197,7 +199,9 @@ class _UTF8CodePoint implements BuiltinFunction {
     final str = (args[0] as Value).raw.toString();
     var i = args.length > 1 ? (args[1] as Value).raw as int : 1;
     var j = args.length > 2 ? (args[2] as Value).raw as int : i;
-    final lax = args.length > 3 ? (args[3] as Value).raw as bool : false;
+    final lax = args.length > 3
+        ? ((args[3] as Value).raw as bool? ?? false)
+        : false;
 
     // Convert to 0-based indices
     i = i > 0 ? i - 1 : str.characters.length + i;
@@ -243,7 +247,9 @@ class _UTF8Len implements BuiltinFunction {
 
     var i = args.length > 1 ? (args[1] as Value).raw as int : 1;
     var j = args.length > 2 ? (args[2] as Value).raw as int : -1;
-    final lax = args.length > 3 ? (args[3] as Value).raw as bool : false;
+    final lax = args.length > 3
+        ? ((args[3] as Value).raw as bool? ?? false)
+        : false;
 
     // Convert to 0-based indices for byte array access
     final startByte = i > 0 ? i - 1 : bytes.length + i;
