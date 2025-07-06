@@ -533,10 +533,23 @@ class SelectFunction implements BuiltinFunction {
     }
 
     final idx = (index.raw as num).toInt();
-    if (idx <= 0) throw Exception("index out of range");
+    final argCount = args.length - 1; // Don't count the index argument
 
-    if (idx >= args.length) return Value(null);
-    return args.sublist(idx);
+    // Handle negative indices: -1 means last argument, -2 means second-to-last, etc.
+    int actualIndex;
+    if (idx < 0) {
+      actualIndex = argCount + idx + 1; // Convert negative to positive index
+    } else {
+      actualIndex = idx;
+    }
+
+    // Check bounds
+    if (actualIndex <= 0 || actualIndex > argCount) {
+      return Value.multi([]); // Return empty for out-of-bounds
+    }
+
+    // Return all arguments from actualIndex onwards
+    return Value.multi(args.sublist(actualIndex));
   }
 }
 
