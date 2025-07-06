@@ -4,6 +4,16 @@ import 'package:petitparser/petitparser.dart';
 
 /// A PetitParser-based parser for Lua string literals that handles escape sequences correctly
 class LuaStringParser {
+  /// Encode an invalid Unicode code point as raw bytes that will be detected as invalid UTF-8
+  static List<int> _encodeInvalidCodePoint(int codePoint) {
+    // For invalid code points, we'll create an invalid UTF-8 sequence
+    // that the UTF-8 library can detect and report as an error
+
+    // Use a byte sequence that's clearly invalid UTF-8
+    // 0xFF is never valid in UTF-8, so we'll use that as a marker
+    return [0xFF, 0xFF, 0xFF, 0xFF]; // Invalid UTF-8 sequence
+  }
+
   static Parser<List<int>> build() {
     // Helper parsers for different escape sequences
     final escapeChar = char('\\');
@@ -63,16 +73,18 @@ class LuaStringParser {
             .map((parts) {
               final hex = parts[3] as String;
               final codePoint = int.parse(hex, radix: 16);
-              if (codePoint > 0x10FFFF) {
-                throw FormatException(
-                  'Unicode escape \\u{$hex} out of valid range',
-                );
+
+              // Allow invalid Unicode code points in string literals
+              // The UTF-8 library functions will handle validation
+              if (codePoint <= 0x10FFFF) {
+                // Valid Unicode code point - encode as UTF-8
+                final str = String.fromCharCode(codePoint);
+                return utf8.encode(str);
+              } else {
+                // Invalid Unicode code point - store as raw bytes
+                // This will be detected by UTF-8 functions as invalid
+                return _encodeInvalidCodePoint(codePoint);
               }
-              // Convert Unicode code point to UTF-8 bytes
-              final str = String.fromCharCode(codePoint);
-              return utf8.encode(
-                str,
-              ); // Use UTF-8 encoding  instead of codeUnits
             })
             .cast<List<int>>();
 
