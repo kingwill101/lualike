@@ -1035,15 +1035,20 @@ class _StringGmatch implements BuiltinFunction {
       throw LuaError.typeError("string.gmatch requires a string and a pattern");
     }
 
-    // Use toLatin1String for pattern processing to preserve raw bytes
     final strValue = (args[0] as Value).raw;
-    final str = strValue is LuaString
-        ? strValue.toLatin1String()
-        : strValue.toString();
     final patternValue = (args[1] as Value).raw;
-    final pattern = patternValue is LuaString
-        ? patternValue.toLatin1String()
-        : patternValue.toString();
+
+    // For pattern matching, we need to work with raw bytes to handle UTF-8 properly
+    final strBytes = strValue is LuaString
+        ? strValue.bytes
+        : Uint8List.fromList(utf8.encode(strValue.toString()));
+    final patternBytes = patternValue is LuaString
+        ? patternValue.bytes
+        : Uint8List.fromList(utf8.encode(patternValue.toString()));
+
+    // Convert bytes to Latin-1 strings for pattern matching
+    final str = String.fromCharCodes(strBytes);
+    final pattern = String.fromCharCodes(patternBytes);
 
     try {
       final lp = lpc.LuaPattern.compile(pattern);
@@ -1401,9 +1406,15 @@ class _StringSub implements BuiltinFunction {
     // Extract substring (1-based to 0-based conversion)
     final result = str.substring(start - 1, end);
 
-    // Return as LuaString to preserve byte sequence integrity
-    final bytes = result.codeUnits.map((c) => c & 0xFF).toList();
-    return Value(LuaString.fromBytes(Uint8List.fromList(bytes)));
+    // For better interop, return regular strings when they only contain ASCII
+    // Only use LuaString when we have non-ASCII bytes that need preservation
+    if (result.codeUnits.every((c) => c <= 127)) {
+      return Value(result); // Regular Dart string for ASCII content
+    } else {
+      // Return as LuaString to preserve byte sequence integrity for non-ASCII
+      final bytes = result.codeUnits.map((c) => c & 0xFF).toList();
+      return Value(LuaString.fromBytes(Uint8List.fromList(bytes)));
+    }
   }
 }
 
