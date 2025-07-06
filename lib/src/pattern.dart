@@ -48,22 +48,28 @@ class LuaPattern {
   /// Returns a RegExp object corresponding to the Lua pattern
   ///
   /// Throws [FormatException] if the pattern is malformed
-  static RegExp toRegExp(String pattern, {bool plain = false}) {
-    if (plain) {
-      return RegExp(RegExp.escape(pattern));
-    }
+  static RegExp toRegExp(String pattern) {
+    Logger.debug(
+      'toRegExp called with pattern: "$pattern"',
+      category: 'PATTERN_DEBUG',
+    );
+    Logger.debug(
+      'Pattern character codes: ${pattern.codeUnits}',
+      category: 'PATTERN_DEBUG',
+    );
 
-    Logger.debug('Converting pattern: $pattern', category: 'LuaPattern');
+    // Process the pattern
+    var processed = _processPattern(pattern);
+    Logger.debug(
+      'After processPattern: "$processed"',
+      category: 'PATTERN_DEBUG',
+    );
 
     try {
-      String regexPattern = _processPattern(pattern);
-      Logger.debug(
-        'Converted to RegExp: $regexPattern',
-        category: 'LuaPattern',
-      );
-      return RegExp(regexPattern, dotAll: true);
+      final regExp = RegExp(processed);
+      return regExp;
     } catch (e) {
-      throw FormatException('Invalid pattern: $pattern', e);
+      throw ArgumentError('Invalid pattern: $processed');
     }
   }
 
@@ -77,17 +83,6 @@ class LuaPattern {
     // Validate the pattern
     _validatePattern(pattern);
 
-    // // Special case for the test pattern
-    // if (pattern == '%f[%S](.-%f[%s].-%f[%S])') {
-    //   Logger.debug(
-    //     'Using special case for frontier pattern test',
-    //     category: 'LuaPattern',
-    //   );
-    //   // This pattern is looking for a word at a word boundary, followed by a space
-    //   // In Lua: match a word that starts after whitespace and ends with whitespace
-    //   return '(?<=\\s|^)(\\S+)(?=\\s)';
-    // }
-
     // Process balanced pattern sequences first
     pattern = _processBalancedPatterns(pattern);
 
@@ -97,11 +92,6 @@ class LuaPattern {
     // Process character classes
     pattern = _processCharacterClasses(pattern);
 
-    // Special case for common patterns - handle Lua's non-greedy operator
-    // if (pattern.contains('.-')) {
-    //   pattern = pattern.replaceAll('.-', '.*?');
-    // }
-
     // Process the regular pattern
     pattern = _processRegularPattern(pattern);
 
@@ -109,7 +99,8 @@ class LuaPattern {
     pattern = _processQuantifiers(pattern);
 
     // Apply special shortcuts
-    return _applySpecialShortcuts(pattern);
+    final finalPattern = _applySpecialShortcuts(pattern);
+    return finalPattern;
   }
 
   /// Validate that the pattern is well-formed
@@ -162,11 +153,6 @@ class LuaPattern {
         final safeC1 = c1 == '\u0000' ? '\\0' : ec1;
         final safeC2 = c2 == '\u0000' ? '\\0' : ec2;
 
-        Logger.debug(
-          'Processing balanced pattern: %b$c1$c2 -> $safeC1...$safeC2',
-          category: 'LuaPattern',
-        );
-
         // Match everything between balanced delimiters, including nested balanced delimiters
         // In Lua, %b() matches a balanced string starting with '(' and ending with ')'
 
@@ -201,50 +187,29 @@ class LuaPattern {
     if (pattern.contains('%f[')) {
       final frontierMatcher = RegExp(r'%f\[([^\]]+)\]');
 
-      // Log the original pattern
-      Logger.debug(
-        'Processing frontier pattern: $pattern',
-        category: 'LuaPattern',
-      );
-
       pattern = pattern.replaceAllMapped(frontierMatcher, (match) {
         final set = _processCharClass(match[1]!);
 
-        // Log what we're matching and replacing
-        Logger.debug(
-          'Frontier match: %f[${match[1]}] -> set: [$set]',
-          category: 'LuaPattern',
-        );
-
         // General case
         final result = '(?<![$set])(?=[$set])';
-        Logger.debug('Converted to: $result', category: 'LuaPattern');
         return result;
       });
-
-      // Log the processed pattern
-      Logger.debug(
-        'After frontier processing: $pattern',
-        category: 'LuaPattern',
-      );
     }
     return pattern;
   }
 
   /// Process regular character classes
   static String _processCharacterClasses(String pattern) {
-    return pattern.replaceAllMapped(RegExp(r'\[(.*?)\]'), (match) {
-      return '[${_processCharClass(match[1]!)}]';
+    final result = pattern.replaceAllMapped(RegExp(r'\[(.*?)\]'), (match) {
+      final charContent = match[1]!;
+      final processed = _processCharClass(charContent);
+      return '[$processed]';
     });
+    return result;
   }
 
   /// Process the regular pattern
   static String _processRegularPattern(String pattern) {
-    Logger.debug(
-      'Processing regular pattern: $pattern',
-      category: 'LuaPattern',
-    );
-
     StringBuffer result = StringBuffer();
     bool escaped = false;
     bool inCharClass = false;
@@ -294,12 +259,15 @@ class LuaPattern {
         // Handle null byte in pattern
         result.write('\\0');
       } else {
-        result.write(char);
+        if (_specialChars.hasMatch(char)) {
+          result.write('\\$char');
+        } else {
+          result.write(char);
+        }
       }
     }
 
     String converted = result.toString();
-    Logger.debug('Converted to RegExp: $converted', category: 'LuaPattern');
     return converted;
   }
 
@@ -321,7 +289,6 @@ class LuaPattern {
 
   /// Process the contents of a character class
   static String _processCharClass(String chars) {
-    Logger.debug('Processing character class: $chars', category: 'LuaPattern');
     StringBuffer result = StringBuffer();
     bool isNegated = chars.startsWith('^');
 
@@ -335,46 +302,38 @@ class LuaPattern {
         var rangeStart = char;
         var rangeEnd = chars[i + 2];
 
-        // Special handling for null bytes and control characters in ranges
-        if (rangeStart == '\u0000' || rangeEnd == '\u0000') {
-          Logger.debug(
-            'Processing range with null bytes: $rangeStart-$rangeEnd',
-            category: 'LuaPattern',
-          );
+        // Convert to code points for the range
+        var startCode = rangeStart.codeUnitAt(0);
+        var endCode = rangeEnd.codeUnitAt(0);
 
-          // Convert to code points for the range
-          var startCode = rangeStart.codeUnitAt(0);
-          var endCode = rangeEnd.codeUnitAt(0);
-
-          // Add each character in the range individually
-          for (var code = startCode; code <= endCode; code++) {
-            if (code == 0) {
-              result.write('\\0');
-            } else {
-              result.write(String.fromCharCode(code));
-            }
-          }
-
-          i += 2; // Skip the range end
-          continue;
+        // Special handling for common byte ranges that cause regex issues
+        // Convert control characters and extended ASCII to hex escapes
+        if (startCode < 32 ||
+            startCode > 126 ||
+            endCode < 32 ||
+            endCode > 126) {
+          // Use hex escape format for non-printable and extended ASCII characters
+          final hexRange =
+              '\\x${startCode.toRadixString(16).padLeft(2, '0')}-\\x${endCode.toRadixString(16).padLeft(2, '0')}';
+          result.write(hexRange);
+        } else {
+          // Standard characters can be used directly
+          result.write(rangeStart);
+          result.write('-');
+          result.write(rangeEnd);
         }
+
+        i += 2; // Skip the range end
+        continue;
       }
 
       if (char == '%' && i + 1 < chars.length) {
         var nextChar = chars[i + 1];
-        Logger.debug(
-          'In char class: found % with next char $nextChar',
-          category: 'LuaPattern',
-        );
 
         if (_magicChars.containsKey(nextChar)) {
           var magicClass = _magicChars[nextChar]!;
           // Strip brackets from character class
           var content = magicClass.replaceAll(RegExp(r'^\[|\]$'), '');
-          Logger.debug(
-            'Replacing %$nextChar in char class with: $content',
-            category: 'LuaPattern',
-          );
           result.write(content);
         } else if (nextChar == '0') {
           // Special handling for null byte
@@ -390,17 +349,24 @@ class LuaPattern {
       } else if (char == '\u0000') {
         // Handle null byte in character class
         result.write('\\0');
+      } else if (char.codeUnitAt(0) < 32 || char.codeUnitAt(0) > 126) {
+        // Handle control characters and extended ASCII as hex escapes
+        final hexEscape =
+            '\\x${char.codeUnitAt(0).toRadixString(16).padLeft(2, '0')}';
+        result.write(hexEscape);
       } else {
-        result.write(char);
+        // Handle individual characters
+        if (_specialChars.hasMatch(char)) {
+          result.write('\\$char');
+        } else {
+          result.write(char);
+        }
       }
     }
 
     final processedClass = result.toString();
-    Logger.debug(
-      'Processed character class: $processedClass',
-      category: 'LuaPattern',
-    );
-    return isNegated ? "^$processedClass" : processedClass;
+    final finalResult = isNegated ? "^$processedClass" : processedClass;
+    return finalResult;
   }
 
   /// Check if a string has unclosed brackets
@@ -410,6 +376,9 @@ class LuaPattern {
     bool justOpened = false;
 
     for (int i = 0; i < pattern.length; i++) {
+      final char = pattern[i];
+      final code = char.codeUnitAt(0);
+
       if (inPercent) {
         inPercent = false;
         continue;
@@ -432,8 +401,13 @@ class LuaPattern {
           return true;
         }
         justOpened = false;
+      } else {
+        if (justOpened) {
+          justOpened = false;
+        }
       }
     }
+
     return count != 0;
   }
 
@@ -462,11 +436,6 @@ class LuaPattern {
     }
     return count != 0;
   }
-
-  /// Check if a character is a special regex character
-  // static bool _isRegexSpecialChar(String char) {
-  //   return _specialChars.hasMatch(char);
-  // }
 
   /// Process quantifiers in the pattern
   static String _processQuantifiers(String pattern) {
