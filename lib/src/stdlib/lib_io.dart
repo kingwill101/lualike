@@ -7,7 +7,6 @@ import 'package:path/path.dart' as path;
 
 import '../io/io_device.dart';
 import '../io/lua_file.dart';
-import '../value_class.dart';
 
 class IOLib {
   // Singleton instances for standard devices

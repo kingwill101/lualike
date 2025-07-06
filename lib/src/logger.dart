@@ -33,7 +33,7 @@ class Logger {
   /// Initialize the root logger and set up a default handler.
   /// Only logs matching the selected category and level are printed.
   static void initialize({
-    pkg_logging.Level defaultLevel = pkg_logging.Level.INFO,
+    pkg_logging.Level defaultLevel = pkg_logging.Level.FINEST,
   }) {
     pkg_logging.Logger.root.level = defaultLevel;
     pkg_logging.Logger.root.onRecord.listen((record) {

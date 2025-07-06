@@ -1,5 +1,4 @@
 import 'package:lualike/testing.dart';
-import 'package:lualike/src/value_class.dart';
 
 void main() {
   group('ValueClass', () {

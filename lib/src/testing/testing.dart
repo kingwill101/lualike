@@ -40,7 +40,7 @@ void setLualikeLogging({
 
   final bool useEnabled = enabled ?? envEnabled;
 
-  pkg_logging.Level useLevel = level ?? pkg_logging.Level.WARNING;
+  pkg_logging.Level useLevel = level ?? pkg_logging.Level.FINEST;
   if (envLevel != null) {
     useLevel = pkg_logging.Level.LEVELS.firstWhere(
       (lvl) => lvl.name.toUpperCase() == envLevel.toUpperCase(),
@@ -49,7 +49,7 @@ void setLualikeLogging({
   }
 
   final String? useCategory = category ?? envCategory;
-
+  Logger.initialize(defaultLevel: useLevel);
   // Enable logging if explicitly enabled, or if a level/category filter is set
   Logger.setEnabled(
     useEnabled ||

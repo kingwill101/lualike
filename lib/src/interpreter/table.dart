@@ -57,6 +57,12 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     } else {
       // Non-identifier index, evaluate normally
       indexResult = await node.index.accept(this);
+
+      // If the index is a multi-value (like from varargs), use only the first value
+      if (indexResult is Value && indexResult.isMulti) {
+        final values = indexResult.raw as List;
+        indexResult = values.isNotEmpty ? values[0] : Value(null);
+      }
     }
 
     // Ensure proper Value wrapping

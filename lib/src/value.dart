@@ -4,10 +4,7 @@ import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
 
 import 'package:lualike/src/stdlib/metatables.dart';
-import 'package:lualike/src/stdlib/number_utils.dart';
 import 'package:lualike/src/upvalue.dart';
-
-import 'lua_string.dart';
 
 /// Represents an asynchronous function that can be called with a list of arguments.
 typedef AsyncFunction = Future<Object?> Function(List<Object?> args);

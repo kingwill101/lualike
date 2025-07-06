@@ -114,7 +114,6 @@ class LuaLikeCommandRunner extends CommandRunner {
         );
       }
 
-      Logger.initialize(defaultLevel: pkg_logging.Level.INFO);
       setLualikeLogging(
         enabled: debugMode,
         level: cliLevel,

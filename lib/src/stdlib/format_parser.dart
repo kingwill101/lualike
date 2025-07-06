@@ -90,9 +90,7 @@ class FormatStringParser {
     if (result is Success) {
       return List<FormatPart>.from(result.value);
     } else {
-      throw FormatException(
-        'Invalid format string: ${result.message ?? "Unknown error"}',
-      );
+      throw FormatException('Invalid format string: ${result.message}');
     }
   }
 
@@ -178,54 +176,6 @@ class FormatStringParser {
       }
     }
     return buffer.toString();
-  }
-
-  /// Check if a byte at position i would cause UTF-8 conversion issues
-  static bool _wouldCauseUTF8Issues(Uint8List bytes, int i) {
-    final byte = bytes[i];
-
-    // Only escape bytes that we know cause round-trip issues
-    // Based on our testing, these are primarily isolated high bytes
-    // that don't form valid UTF-8 sequences
-
-    // Byte 255 always causes issues
-    if (byte == 255) return true;
-
-    // Check if this byte is part of a valid UTF-8 sequence
-    if (byte >= 0xC2 && byte <= 0xDF) {
-      // 2-byte sequence - check if we have a valid continuation
-      if (i + 1 < bytes.length && _isUTF8Continuation(bytes[i + 1])) {
-        return false; // Valid UTF-8 sequence, don't escape
-      }
-      return true; // Invalid sequence, escape it
-    } else if (byte >= 0xE0 && byte <= 0xEF) {
-      // 3-byte sequence - check if we have valid continuations
-      if (i + 2 < bytes.length &&
-          _isUTF8Continuation(bytes[i + 1]) &&
-          _isUTF8Continuation(bytes[i + 2])) {
-        return false; // Valid UTF-8 sequence, don't escape
-      }
-      return true; // Invalid sequence, escape it
-    } else if (byte >= 0xF0 && byte <= 0xF4) {
-      // 4-byte sequence - check if we have valid continuations
-      if (i + 3 < bytes.length &&
-          _isUTF8Continuation(bytes[i + 1]) &&
-          _isUTF8Continuation(bytes[i + 2]) &&
-          _isUTF8Continuation(bytes[i + 3])) {
-        return false; // Valid UTF-8 sequence, don't escape
-      }
-      return true; // Invalid sequence, escape it
-    } else if (byte >= 0x80 && byte <= 0xBF) {
-      // Continuation byte - check if it's part of a valid sequence
-      // by looking backward (this is complex, so for now escape orphaned ones)
-      return true;
-    }
-
-    // For other bytes in 128-255 range that don't start UTF-8 sequences,
-    // escape them as they likely cause issues
-    if (byte >= 128) return true;
-
-    return false; // ASCII bytes are fine
   }
 
   /// Check if a byte is a valid UTF-8 continuation byte (10xxxxxx)

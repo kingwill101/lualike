@@ -75,11 +75,4 @@ class LuaString {
 
   @override
   int get hashCode => Object.hashAll(bytes);
-
-  static bool _equalBytes(Uint8List a, Uint8List b) {
-    for (int i = 0; i < a.length; i++) {
-      if (a[i] != b[i]) return false;
-    }
-    return true;
-  }
 }

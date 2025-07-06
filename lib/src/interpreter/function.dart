@@ -186,12 +186,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       for (var i = 0; i < regularParamCount; i++) {
         final paramName = (node.parameters![i]).name;
         if (i < args.length) {
-          execEnv.define(
+          execEnv.declare(
             paramName,
             args[i] is Value ? args[i] : Value(args[i]),
           );
         } else {
-          execEnv.define(paramName, Value(null));
+          execEnv.declare(paramName, Value(null));
         }
       }
 
@@ -200,7 +200,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         List<Object?> varargs = args.length > regularParamCount
             ? args.sublist(regularParamCount)
             : [];
-        execEnv.define("...", Value.multi(varargs));
+        execEnv.declare("...", Value.multi(varargs));
       }
 
       // Set up call frame
@@ -281,8 +281,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
     // Evaluate the arguments with proper multi-value handling
     final args = <Object?>[];
+
     for (int i = 0; i < node.args.length; i++) {
       final arg = node.args[i];
+
       final value = await arg.accept(this);
       Logger.debug(
         'Argument evaluated to: $value (${value.runtimeType})',
