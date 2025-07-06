@@ -50,6 +50,49 @@ Parser<String> _classFor(String letter) {
 
 Parser<String> _negate(Parser<String> p) => p.neg();
 
+/// Parser that matches a balanced pair like `%bxy` in Lua.
+class _BalancedParser extends Parser<String> {
+  final String open;
+  final String close;
+  _BalancedParser(this.open, this.close);
+
+  @override
+  Result<String> parseOn(Context context) {
+    final buffer = context.buffer;
+    var pos = context.position;
+    if (pos >= buffer.length || buffer[pos] != open) {
+      return context.failure('Expected $open');
+    }
+    var depth = 1;
+    pos++;
+    while (pos < buffer.length) {
+      final ch = buffer[pos];
+      if (ch == open) {
+        depth++;
+      } else if (ch == close) {
+        depth--;
+        if (depth == 0) {
+          return context.success(
+            buffer.substring(context.position, pos + 1),
+            pos + 1,
+          );
+        }
+      }
+      pos++;
+    }
+    return context.failure('Unbalanced $open$close');
+  }
+
+  @override
+  int fastParseOn(String buffer, int position) {
+    final result = parseOn(Context(buffer, position));
+    return result is Failure ? -1 : result.position;
+  }
+
+  @override
+  _BalancedParser copy() => _BalancedParser(open, close);
+}
+
 Parser<String> _bracketClass(String spec, {required bool negate}) {
   final allowed = <Parser<String>>[];
   var i = 0;
@@ -176,7 +219,13 @@ class LuaPatternCompiler {
       throw UnimplementedError('%n back-reference not implemented');
     }
     if (next == 'b') {
-      throw UnimplementedError('%bxy balanced match not implemented');
+      if (_pos + 2 >= _pattern.length) {
+        throw FormatException('Malformed %b sequence');
+      }
+      final open = _pattern[_pos + 1];
+      final close = _pattern[_pos + 2];
+      _pos += 3;
+      return _BalancedParser(open, close);
     }
     if (next == 'f') {
       throw UnimplementedError('%f[set] frontier match not implemented');

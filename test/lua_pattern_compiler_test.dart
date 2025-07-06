@@ -118,17 +118,24 @@ void main() {
     });
   });
 
+  group('Balanced patterns', () {
+    test('%b() simple', () {
+      final p = lp.compileLuaPattern('%b()');
+      expect(p.parse('(a)').value, '(a)');
+      expect(p.parse('(a(b)c)d').value, '(a(b)c)');
+      expect(p.parse('nope'), isA<Failure>());
+    });
+
+    test('nested %b{}', () {
+      final p = lp.compileLuaPattern('%b{}');
+      expect(p.parse('{x{y}z}').value, '{x{y}z}');
+    });
+  });
+
   group('Unimplemented constructs', () {
     test('back-reference %1 throws', () {
       expect(
         () => lp.compileLuaPattern('%1'),
-        throwsA(isA<UnimplementedError>()),
-      );
-    });
-
-    test('%b() balanced throws', () {
-      expect(
-        () => lp.compileLuaPattern('%b()'),
         throwsA(isA<UnimplementedError>()),
       );
     });
