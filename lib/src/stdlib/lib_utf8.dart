@@ -498,12 +498,11 @@ class _UTF8Len implements BuiltinFunction {
     final end = endByte + 1;
 
     // Validate UTF-8 sequence by sequence in the specified range
-    // In Lua, utf8.len counts characters that START within [i, j],
-    // even if they extend beyond j
+    // In Lua, utf8.len counts characters that START within [i, j]
     int charCount = 0;
     int pos = start;
 
-    while (pos <= endByte) {
+    while (pos <= endByte && pos < bytes.length) {
       final byte = bytes[pos];
       int sequenceLength;
 
