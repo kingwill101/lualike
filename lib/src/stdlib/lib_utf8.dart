@@ -16,7 +16,42 @@ import 'package:lualike/src/lua_error.dart';
 class UTF8Lib {
   // Pattern that matches exactly one UTF-8 byte sequence
   // This matches Lua 5.4's utf8.charpattern which is "[\0-\x7F\xC2-\xF4][\x80-\xBF]*"
-  static const String charpattern = "[\x00-\x7F\xC2-\xF4][\x80-\xBF]*";
+  // We create this as a proper Latin-1 string to avoid UTF-8 corruption
+  static final LuaString charpattern = () {
+    // Create the pattern as Latin-1 string to match raw bytes
+    final bytes = <int>[];
+
+    // Add [
+    bytes.add(0x5B);
+
+    // Add \x00-\x7F range (ASCII characters)
+    bytes.add(0x00);
+    bytes.add(0x2D); // -
+    bytes.add(0x7F);
+
+    // Add \xC2-\xF4 range (UTF-8 start bytes for multi-byte sequences)
+    bytes.add(0xC2);
+    bytes.add(0x2D); // -
+    bytes.add(0xF4);
+
+    // Add ]
+    bytes.add(0x5D);
+
+    // Add [
+    bytes.add(0x5B);
+
+    // Add \x80-\xBF range (UTF-8 continuation bytes)
+    bytes.add(0x80);
+    bytes.add(0x2D); // -
+    bytes.add(0xBF);
+
+    // Add ]*
+    bytes.add(0x5D);
+    bytes.add(0x2A); // *
+
+    // Create a LuaString directly from the raw bytes
+    return LuaString.fromBytes(bytes);
+  }();
 
   static final ValueClass utf8Class = ValueClass.create({
     "__len": (List<Object?> args) {
@@ -58,21 +93,30 @@ class _UTF8Helper {
 class _UTF8Char implements BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
-    if (args.isEmpty) {
-      return Value(LuaString(Uint8List(0))); // empty string
-    }
-
     final codePoints = <int>[];
+
+    // Process all arguments, filtering out nils
     for (final arg in args) {
       final value = (arg as Value).raw;
+
+      // Skip nil values (matches Lua behavior)
+      if (value == null) {
+        continue;
+      }
+
       if (value is! num) {
-        throw LuaError("utf8.char requires at least one argument");
+        throw LuaError("bad argument to 'utf8.char' (number expected)");
       }
       final codePoint = value.toInt();
       if (codePoint < 0 || codePoint > 0x10FFFF) {
         throw LuaError("bad argument to 'utf8.char' (value out of range)");
       }
       codePoints.add(codePoint);
+    }
+
+    // If no valid code points, return empty string
+    if (codePoints.isEmpty) {
+      return Value(LuaString(Uint8List(0))); // empty string
     }
 
     try {
@@ -129,19 +173,37 @@ class _UTF8Codes implements BuiltinFunction {
         sequenceLength = 4;
       } else {
         // Invalid start byte
-        throw LuaError("invalid UTF-8 code");
+        if (lax) {
+          // In lax mode, skip this byte and continue
+          bytePos++;
+          return this(iterArgs); // Recursively call to get next valid character
+        } else {
+          throw LuaError("invalid UTF-8 code");
+        }
       }
 
       // Check if we have enough bytes for the complete sequence
       if (bytePos + sequenceLength > bytes.length) {
-        throw LuaError("invalid UTF-8 code");
+        if (lax) {
+          // In lax mode, skip to end
+          bytePos = bytes.length;
+          return Value(null);
+        } else {
+          throw LuaError("invalid UTF-8 code");
+        }
       }
 
       // For multi-byte sequences, check that continuation bytes are valid
       for (int k = 1; k < sequenceLength; k++) {
         if (bytePos + k >= bytes.length ||
             (bytes[bytePos + k] & 0xC0) != 0x80) {
-          throw LuaError("invalid UTF-8 code");
+          if (lax) {
+            // In lax mode, skip this character and continue
+            bytePos++;
+            return this(iterArgs);
+          } else {
+            throw LuaError("invalid UTF-8 code");
+          }
         }
       }
 
@@ -326,7 +388,9 @@ class _UTF8Len implements BuiltinFunction {
         : convert.utf8.encode(value.toString());
 
     var i = args.length > 1 ? (args[1] as Value).raw as int : 1;
-    var j = args.length > 2 ? (args[2] as Value).raw as int : -1;
+    var j = args.length > 2 && args[2] != null
+        ? (args[2] as Value).raw as int
+        : -1;
     final lax = args.length > 3
         ? ((args[3] as Value).raw as bool? ?? false)
         : false;
@@ -456,8 +520,19 @@ class _UTF8Offset implements BuiltinFunction {
     posi = _posrelat(posi, bytes.length);
 
     // Bounds check with 0-based conversion like C version
+    // This happens BEFORE any empty string handling
     if (!(1 <= posi && posi - 1 <= bytes.length)) {
       throw LuaError("position out of bounds");
+    }
+
+    // Handle empty string case AFTER bounds checking
+    if (bytes.isEmpty) {
+      // For empty strings, utf8.offset(s, 0) should return 1
+      if (n == 0) {
+        return Value(1);
+      }
+      // For other values of n, return nil (no character exists)
+      return Value(null);
     }
 
     // Convert to 0-based for internal processing
@@ -501,7 +576,8 @@ class _UTF8Offset implements BuiltinFunction {
       return Value(null); // Did not find given character
     }
 
-    // Return only the start position like official Lua 5.4
+    // Return the position (1-based) even if it's past the end of the string
+    // This is correct behavior when finding the position after the last character
     final startPos = posi + 1; // Convert back to 1-based
 
     return Value(startPos);
