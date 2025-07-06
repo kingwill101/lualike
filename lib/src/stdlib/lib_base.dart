@@ -91,15 +91,23 @@ class RawSetFunction implements BuiltinFunction {
     }
 
     final key = args[1] as Value;
-    if (key == null) {
+
+    // Check for nil key
+    if (key.raw == null) {
       throw LuaError.typeError('table index is nil');
     }
-    if (key.raw is num && key.raw.isNaN) {
+
+    // Check for NaN key
+    if (key.raw is num && (key.raw as num).isNaN) {
       throw LuaError.typeError('table index is NaN');
     }
-    final value = args[2] is Value ? args[2] : Value(args[2]);
 
-    (table.raw as Map)[key.raw] = value.raw;
+    final value = args[2];
+    final wrappedValue = value is Value ? value : Value(value);
+
+    // Use raw key like normal table operations do
+    final rawKey = key.raw;
+    (table.raw as Map)[rawKey] = wrappedValue;
     return table;
   }
 }
@@ -1127,9 +1135,10 @@ class RawGetFunction implements BuiltinFunction {
     final key = args[1] as Value;
     final map = table.raw as Map;
 
-    // Direct table access without metamethods
-    final value = map[key.raw];
-    return value is Value ? value : Value(value);
+    // Use raw key like normal table operations and rawset do
+    final rawKey = key.raw;
+    final value = map[rawKey];
+    return value ?? Value(null);
   }
 }
 

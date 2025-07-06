@@ -1046,15 +1046,20 @@ class _StringGmatch implements BuiltinFunction {
       throw LuaError.typeError("string.gmatch requires a string and a pattern");
     }
 
-    // Use toLatin1String for pattern processing to preserve raw bytes
     final strValue = (args[0] as Value).raw;
-    final str = strValue is LuaString
-        ? strValue.toLatin1String()
-        : strValue.toString();
     final patternValue = (args[1] as Value).raw;
-    final pattern = patternValue is LuaString
-        ? patternValue.toLatin1String()
-        : patternValue.toString();
+
+    // For pattern matching, we need to work with raw bytes to handle UTF-8 properly
+    final strBytes = strValue is LuaString
+        ? strValue.bytes
+        : Uint8List.fromList(utf8.encode(strValue.toString()));
+    final patternBytes = patternValue is LuaString
+        ? patternValue.bytes
+        : Uint8List.fromList(utf8.encode(patternValue.toString()));
+
+    // Convert bytes to Latin-1 strings for pattern matching
+    final str = String.fromCharCodes(strBytes);
+    final pattern = String.fromCharCodes(patternBytes);
 
     try {
       final regexp = LuaPattern.toRegExp(pattern);
@@ -1069,9 +1074,17 @@ class _StringGmatch implements BuiltinFunction {
 
         final match = matches[currentIndex++];
         if (match.groupCount == 0) {
-          // No captures, return the whole match as a string
-          final wholeMatch = match.group(0);
-          return Value(wholeMatch);
+          // No captures, return the whole match as a regular string for better interop
+          final wholeMatch = match.group(0)!;
+          // Check if it contains non-ASCII bytes that need LuaString preservation
+          if (wholeMatch.codeUnits.any((c) => c > 127)) {
+            final matchBytes = wholeMatch.codeUnits
+                .map((c) => c & 0xFF)
+                .toList();
+            return Value(LuaString.fromBytes(matchBytes));
+          } else {
+            return Value(wholeMatch);
+          }
         }
 
         // Return all captures as separate values
@@ -1079,7 +1092,13 @@ class _StringGmatch implements BuiltinFunction {
         for (var i = 1; i <= match.groupCount; i++) {
           final group = match.group(i);
           if (group != null) {
-            captures.add(Value(group));
+            // Check if it contains non-ASCII bytes that need LuaString preservation
+            if (group.codeUnits.any((c) => c > 127)) {
+              final groupBytes = group.codeUnits.map((c) => c & 0xFF).toList();
+              captures.add(Value(LuaString.fromBytes(groupBytes)));
+            } else {
+              captures.add(Value(group));
+            }
           } else {
             captures.add(Value(null));
           }
@@ -1428,9 +1447,15 @@ class _StringSub implements BuiltinFunction {
     // Extract substring (1-based to 0-based conversion)
     final result = str.substring(start - 1, end);
 
-    // Return as LuaString to preserve byte sequence integrity
-    final bytes = result.codeUnits.map((c) => c & 0xFF).toList();
-    return Value(LuaString.fromBytes(Uint8List.fromList(bytes)));
+    // For better interop, return regular strings when they only contain ASCII
+    // Only use LuaString when we have non-ASCII bytes that need preservation
+    if (result.codeUnits.every((c) => c <= 127)) {
+      return Value(result); // Regular Dart string for ASCII content
+    } else {
+      // Return as LuaString to preserve byte sequence integrity for non-ASCII
+      final bytes = result.codeUnits.map((c) => c & 0xFF).toList();
+      return Value(LuaString.fromBytes(Uint8List.fromList(bytes)));
+    }
   }
 }
 
