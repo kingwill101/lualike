@@ -19,7 +19,8 @@ final _space = whitespace();
 final _punct = pattern('!-/:-@\\[-`{-~');
 final _control = _predicate((c) => c < 32 || c == 127);
 final _graph = pattern('!-~');
-final _alnum = pattern('0-9A-Za-z');
+// %w in Lua also includes the underscore character
+final _alnum = pattern('0-9A-Za-z_');
 
 Parser<String> _classFor(String letter) {
   switch (letter) {
@@ -316,22 +317,48 @@ class LuaPatternCompiler {
   }
 
   Parser _applyRepetition(Parser base, String op, bool stopOnRightParen) {
-    switch (op) {
-      case '*':
-        final following = _parseSequence(stopOnRightParen: stopOnRightParen);
-        return base.starGreedy(following).seq(following);
-      case '+':
-        final following = _parseSequence(stopOnRightParen: stopOnRightParen);
-        return base.plusGreedy(following).seq(following);
-      case '?':
-        final following = _parseSequence(stopOnRightParen: stopOnRightParen);
-        return base.seq(following).or(following);
-      case '-':
-        final following = _parseSequence(stopOnRightParen: stopOnRightParen);
-        return base.starLazy(following).seq(following);
-      default:
-        throw StateError('Unhandled repetition \$op');
+    final saved = _pos;
+    final following = _parseSequence(stopOnRightParen: stopOnRightParen);
+    final isEmpty = _pos == saved;
+    _pos = saved;
+
+    Parser result;
+    if (isEmpty) {
+      switch (op) {
+        case '*':
+          result = base.star();
+          break;
+        case '+':
+          result = base.plus();
+          break;
+        case '?':
+          result = base.optional();
+          break;
+        case '-':
+          result = base.starLazy(epsilon());
+          break;
+        default:
+          throw StateError('Unhandled repetition $op');
+      }
+    } else {
+      switch (op) {
+        case '*':
+          result = base.starGreedy(following).seq(following);
+          break;
+        case '+':
+          result = base.plusGreedy(following).seq(following);
+          break;
+        case '?':
+          result = base.seq(following).or(following);
+          break;
+        case '-':
+          result = base.starLazy(following).seq(following);
+          break;
+        default:
+          throw StateError('Unhandled repetition $op');
+      }
     }
+    return result;
   }
 
   Parser _parsePercent() {
