@@ -162,6 +162,36 @@ class Interpreter extends AstVisitor<Object?>
 
   bool isYieldable = true;
 
+  /// Stack of active protected call contexts
+  final List<bool> _protectedCallStack = [];
+
+  /// Check if we're currently in a protected call context
+  bool get isInProtectedCall =>
+      _protectedCallStack.isNotEmpty && _protectedCallStack.last;
+
+  /// Enter a protected call context
+  void enterProtectedCall() {
+    _protectedCallStack.add(true);
+  }
+
+  /// Exit a protected call context
+  void exitProtectedCall() {
+    if (_protectedCallStack.isNotEmpty) {
+      _protectedCallStack.removeLast();
+    }
+  }
+
+  /// Handle errors in protected call context
+  Object? handleProtectedError(Object error) {
+    if (isInProtectedCall) {
+      // Convert error to appropriate format for pcall
+      final errorMessage = error is LuaError ? error.message : error.toString();
+      return Value.multi([false, errorMessage]);
+    }
+    // Re-throw if not in protected context
+    throw error;
+  }
+
   /// Gets root objects for garbage collection.
   ///
   /// These are the starting points for the mark phase of the garbage collector.
