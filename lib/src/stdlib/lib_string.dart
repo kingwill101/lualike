@@ -1323,8 +1323,6 @@ class _StringMatch implements BuiltinFunction {
     final substring = str.substring(init);
     try {
       final regexp = LuaPattern.toRegExp(pattern);
-      final _ = regexp.hasMatch(substring);
-
       final match = regexp.firstMatch(substring);
       if (match == null) {
         return Value(null);
