@@ -1374,7 +1374,11 @@ class _StringSub implements BuiltinFunction {
     }
 
     final value = args[0] as Value;
-    final str = value.raw.toString();
+    // Use toLatin1String for byte-level operations to preserve raw bytes
+    final strValue = value.raw;
+    final str = strValue is LuaString
+        ? strValue.toLatin1String()
+        : strValue.toString();
 
     var start = args.length > 1 ? NumberUtils.toInt((args[1] as Value).raw) : 1;
     var end = args.length > 2
@@ -1396,7 +1400,10 @@ class _StringSub implements BuiltinFunction {
 
     // Extract substring (1-based to 0-based conversion)
     final result = str.substring(start - 1, end);
-    return Value(result);
+
+    // Return as LuaString to preserve byte sequence integrity
+    final bytes = result.codeUnits.map((c) => c & 0xFF).toList();
+    return Value(LuaString.fromBytes(Uint8List.fromList(bytes)));
   }
 }
 

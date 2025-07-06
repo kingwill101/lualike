@@ -1,0 +1,56 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "lua tests suite(full)",
+            "request": "launch",
+            "type": "dart",
+            "program": "bin/main.dart",
+            "args": [
+                "--debug",
+                ".lua-tests/all.lua"
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "lua tests suite(gengc)",
+            "request": "launch",
+            "type": "dart",
+            "program": "bin/main.dart",
+            "args": [
+                "--debug",
+                ".lua-tests/gengc.lua"
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "lua tests suite(big)",
+            "request": "launch",
+            "type": "dart",
+            "program": "bin/main.dart",
+            "args": [
+                "--debug",
+                ".lua-tests/big.lua"
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lua",
+            "request": "launch",
+            "name": "Launch",
+            "luaexe": "luamake",
+            "path": null,
+            "cpath": null,
+            "program": "init"
+        }
+        // {
+        //     "type": "lua",
+        //     "request": "launch",
+        //     "name": "Launch",
+        //     "program": "${workspaceFolder}/lua_tests/01_basic_coroutine.lua"
+        // }
+    ]
+}
