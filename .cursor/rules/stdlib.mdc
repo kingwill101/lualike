@@ -1,0 +1,27 @@
+---
+description: lualike implemenation
+globs: *.dart
+---
+# Lua 5.4 Reference implemenation 
+
+For every change made, you should ALWAYS run the lua cli to verify that what we get is what lua gets.
+
+When testing/implementing we should:
+
+all checks for correctness should involve
+
+executing the lua -e "" cli to check what lua does
+run same code with our repl using dart run bin/main.dart -e "" similar to the lua cli.
+when working on correctness testing, always focus on a single function/utitlity
+dont attempt to bulk implementation for several builtins etc because you lose focus on what you are doing.
+if a lua function returns multi values, use Value.multi([]) to let the interpreter know the returned value is multi value.
+if when you run the code with our interpreter and you get an error such as FormatException that indicates the syntax is not supported, stop and report the issue without attempting to make any additional changes.
+ all methods on worked on should have thorough test cases that check all the behaviours observed with the lua cli implementations.
+
+look at just file how run the repl
+[justfile](mdc:justfile)
+[main.dart](mdc:bin/main.dart)
+
+use the [logger.dart](mdc:lib/src/logger.dart) when implementing /testing anything until we are certain about the expected results
+
+make sure we are spec compliant. remember to run checks against the lua cli via lua -e "" and compare the result with out repl  dart run bin/main.dart -e "". you dont need permission to run commands

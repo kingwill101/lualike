@@ -49,21 +49,8 @@ class LuaPattern {
   ///
   /// Throws [FormatException] if the pattern is malformed
   static RegExp toRegExp(String pattern) {
-    Logger.debug(
-      'toRegExp called with pattern: "$pattern"',
-      category: 'PATTERN_DEBUG',
-    );
-    Logger.debug(
-      'Pattern character codes: ${pattern.codeUnits}',
-      category: 'PATTERN_DEBUG',
-    );
-
     // Process the pattern
     var processed = _processPattern(pattern);
-    Logger.debug(
-      'After processPattern: "$processed"',
-      category: 'PATTERN_DEBUG',
-    );
 
     try {
       final regExp = RegExp(processed);
@@ -242,6 +229,9 @@ class LuaPattern {
       } else if (char == ']' && inCharClass) {
         inCharClass = false;
         result.write(']');
+      } else if (inCharClass) {
+        // Inside character class: don't re-escape, character classes are already processed
+        result.write(char);
       } else if (char == '(' && !inCharClass) {
         // For capture groups, don't escape the parentheses
         inCapture = true;
@@ -313,6 +303,7 @@ class LuaPattern {
             endCode < 32 ||
             endCode > 126) {
           // Use hex escape format for non-printable and extended ASCII characters
+          // In character classes, we need single backslashes for RegExp to interpret as hex escapes
           final hexRange =
               '\\x${startCode.toRadixString(16).padLeft(2, '0')}-\\x${endCode.toRadixString(16).padLeft(2, '0')}';
           result.write(hexRange);
