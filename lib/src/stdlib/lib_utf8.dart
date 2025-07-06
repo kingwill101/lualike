@@ -441,34 +441,83 @@ class _UTF8Offset implements BuiltinFunction {
       throw LuaError("utf8.offset requires string and n arguments");
     }
 
-    final str = (args[0] as Value).raw.toString();
+    // Work with raw bytes to properly handle UTF-8
+    final value = (args[0] as Value).raw;
+    final bytes = value is LuaString
+        ? value.bytes
+        : convert.utf8.encode(value.toString());
     final n = (args[1] as Value).raw as int;
-    final i = args.length > 2 ? (args[2] as Value).raw as int : 1;
 
-    // Lua string positions are 1-based
-    if (n == 0) {
-      // Return the start of the character that contains byte i
-      return Value(i);
+    // Default position logic matches C implementation
+    int defaultPosi = (n >= 0) ? 1 : bytes.length + 1;
+    int posi = args.length > 2 ? (args[2] as Value).raw as int : defaultPosi;
+
+    // Apply u_posrelat equivalent (convert negative positions)
+    posi = _posrelat(posi, bytes.length);
+
+    // Bounds check with 0-based conversion like C version
+    if (!(1 <= posi && posi - 1 <= bytes.length)) {
+      throw LuaError("position out of bounds");
     }
 
-    // For simplicity, using Dart's character iterator
-    // This is not perfectly accurate for all UTF-8 edge cases
-    final chars = str.characters;
-    final charList = chars.toList();
+    // Convert to 0-based for internal processing
+    posi = posi - 1;
 
-    if (n > 0) {
-      final targetIndex = i + n - 1;
-      if (targetIndex <= charList.length) {
-        return Value(targetIndex + 1); // Convert back to 1-based
+    // Copy C logic exactly
+    int nCopy = n;
+
+    if (nCopy == 0) {
+      // Find beginning of current byte sequence
+      while (posi > 0 && _iscont(bytes, posi)) {
+        posi--;
       }
-      return Value(null);
     } else {
-      final targetIndex = i + n - 1;
-      if (targetIndex >= 0) {
-        return Value(targetIndex + 1); // Convert back to 1-based
+      if (_iscont(bytes, posi)) {
+        throw LuaError("initial position is a continuation byte");
       }
-      return Value(null);
+
+      if (nCopy < 0) {
+        while (nCopy < 0 && posi > 0) {
+          // Move back - find beginning of previous character
+          do {
+            posi--;
+          } while (posi > 0 && _iscont(bytes, posi));
+          nCopy++;
+        }
+      } else {
+        nCopy--; // Do not move for 1st character
+        while (nCopy > 0 && posi < bytes.length) {
+          // Find beginning of next character
+          do {
+            posi++;
+          } while (posi < bytes.length && _iscont(bytes, posi));
+          nCopy--;
+        }
+      }
     }
+
+    // Check if we found the character
+    if (nCopy != 0) {
+      return Value(null); // Did not find given character
+    }
+
+    // Return only the start position like official Lua 5.4
+    final startPos = posi + 1; // Convert back to 1-based
+
+    return Value(startPos);
+  }
+
+  // Equivalent of u_posrelat from C code
+  int _posrelat(int pos, int len) {
+    if (pos >= 0) return pos;
+    if (-pos > len) return 0;
+    return len + pos + 1;
+  }
+
+  // Equivalent of iscont macro: checks if byte is continuation byte
+  bool _iscont(Uint8List bytes, int pos) {
+    if (pos >= bytes.length) return false;
+    return (bytes[pos] & 0xC0) == 0x80;
   }
 }
 
