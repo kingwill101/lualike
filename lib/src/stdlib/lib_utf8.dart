@@ -76,6 +76,51 @@ class UTF8Lib {
     'offset': _UTF8Offset(),
     'charpattern': Value(charpattern),
   };
+
+  /// Encode a codepoint to UTF-8 bytes, supporting extended range up to 0x7FFFFFFF
+  static List<int> _encodeCodePointToUTF8(int codePoint) {
+    if (codePoint < 0x80) {
+      // 1-byte: 0xxxxxxx
+      return [codePoint];
+    } else if (codePoint < 0x800) {
+      // 2-byte: 110xxxxx 10xxxxxx
+      return [0xC0 | ((codePoint >> 6) & 0x1F), 0x80 | (codePoint & 0x3F)];
+    } else if (codePoint < 0x10000) {
+      // 3-byte: 1110xxxx 10xxxxxx 10xxxxxx
+      return [
+        0xE0 | ((codePoint >> 12) & 0x0F),
+        0x80 | ((codePoint >> 6) & 0x3F),
+        0x80 | (codePoint & 0x3F),
+      ];
+    } else if (codePoint < 0x200000) {
+      // 4-byte: 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
+      return [
+        0xF0 | ((codePoint >> 18) & 0x07),
+        0x80 | ((codePoint >> 12) & 0x3F),
+        0x80 | ((codePoint >> 6) & 0x3F),
+        0x80 | (codePoint & 0x3F),
+      ];
+    } else if (codePoint < 0x4000000) {
+      // 5-byte: 111110xx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx
+      return [
+        0xF8 | ((codePoint >> 24) & 0x03),
+        0x80 | ((codePoint >> 18) & 0x3F),
+        0x80 | ((codePoint >> 12) & 0x3F),
+        0x80 | ((codePoint >> 6) & 0x3F),
+        0x80 | (codePoint & 0x3F),
+      ];
+    } else {
+      // 6-byte: 1111110x 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx
+      return [
+        0xFC | ((codePoint >> 30) & 0x01),
+        0x80 | ((codePoint >> 24) & 0x3F),
+        0x80 | ((codePoint >> 18) & 0x3F),
+        0x80 | ((codePoint >> 12) & 0x3F),
+        0x80 | ((codePoint >> 6) & 0x3F),
+        0x80 | (codePoint & 0x3F),
+      ];
+    }
+  }
 }
 
 class _UTF8Helper {
@@ -108,7 +153,7 @@ class _UTF8Char implements BuiltinFunction {
         throw LuaError("bad argument to 'utf8.char' (number expected)");
       }
       final codePoint = value.toInt();
-      if (codePoint < 0 || codePoint > 0x10FFFF) {
+      if (codePoint < 0 || codePoint > 0x7FFFFFFF) {
         throw LuaError("bad argument to 'utf8.char' (value out of range)");
       }
       codePoints.add(codePoint);
@@ -119,16 +164,13 @@ class _UTF8Char implements BuiltinFunction {
       return Value(LuaString(Uint8List(0))); // empty string
     }
 
-    try {
-      // Create a proper Dart string from the codepoints
-      final dartString = String.fromCharCodes(codePoints);
-      // Encode it to UTF-8 bytes
-      final utf8Bytes = convert.utf8.encode(dartString);
-      // Create a LuaString with the UTF-8 bytes
-      return Value(LuaString(Uint8List.fromList(utf8Bytes)));
-    } catch (e) {
-      throw LuaError("invalid UTF-8 code");
+    // Manually encode UTF-8 to support extended codepoints
+    final bytes = <int>[];
+    for (final codePoint in codePoints) {
+      bytes.addAll(UTF8Lib._encodeCodePointToUTF8(codePoint));
     }
+
+    return Value(LuaString(Uint8List.fromList(bytes)));
   }
 }
 
@@ -351,6 +393,40 @@ class _UTF8CodePoint implements BuiltinFunction {
         if (!lax && (codePoint < 0x10000 || codePoint > 0x10FFFF)) {
           throw LuaError("invalid UTF-8 code");
         }
+      } else if (lax && (byte & 0xFC) == 0xF8) {
+        // 5-byte: 111110xx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx (lax mode only)
+        sequenceLength = 5;
+        if (bytePos + 4 >= bytes.length ||
+            (bytes[bytePos + 1] & 0xC0) != 0x80 ||
+            (bytes[bytePos + 2] & 0xC0) != 0x80 ||
+            (bytes[bytePos + 3] & 0xC0) != 0x80 ||
+            (bytes[bytePos + 4] & 0xC0) != 0x80) {
+          throw LuaError("invalid UTF-8 code");
+        }
+        codePoint =
+            ((byte & 0x03) << 24) |
+            ((bytes[bytePos + 1] & 0x3F) << 18) |
+            ((bytes[bytePos + 2] & 0x3F) << 12) |
+            ((bytes[bytePos + 3] & 0x3F) << 6) |
+            (bytes[bytePos + 4] & 0x3F);
+      } else if (lax && (byte & 0xFE) == 0xFC) {
+        // 6-byte: 1111110x 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx (lax mode only)
+        sequenceLength = 6;
+        if (bytePos + 5 >= bytes.length ||
+            (bytes[bytePos + 1] & 0xC0) != 0x80 ||
+            (bytes[bytePos + 2] & 0xC0) != 0x80 ||
+            (bytes[bytePos + 3] & 0xC0) != 0x80 ||
+            (bytes[bytePos + 4] & 0xC0) != 0x80 ||
+            (bytes[bytePos + 5] & 0xC0) != 0x80) {
+          throw LuaError("invalid UTF-8 code");
+        }
+        codePoint =
+            ((byte & 0x01) << 30) |
+            ((bytes[bytePos + 1] & 0x3F) << 24) |
+            ((bytes[bytePos + 2] & 0x3F) << 18) |
+            ((bytes[bytePos + 3] & 0x3F) << 12) |
+            ((bytes[bytePos + 4] & 0x3F) << 6) |
+            (bytes[bytePos + 5] & 0x3F);
       } else {
         throw LuaError("invalid UTF-8 code");
       }
@@ -438,6 +514,12 @@ class _UTF8Len implements BuiltinFunction {
       } else if ((byte & 0xF8) == 0xF0) {
         // 4-byte: 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
         sequenceLength = 4;
+      } else if (lax && (byte & 0xFC) == 0xF8) {
+        // 5-byte: 111110xx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx (lax mode only)
+        sequenceLength = 5;
+      } else if (lax && (byte & 0xFE) == 0xFC) {
+        // 6-byte: 1111110x 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx (lax mode only)
+        sequenceLength = 6;
       } else {
         // Invalid UTF-8 sequence found - return nil and byte position
         return Value.multi([
@@ -489,6 +571,23 @@ class _UTF8Len implements BuiltinFunction {
           if (codePoint < 0x10000 || codePoint > 0x10FFFF) {
             return Value.multi([Value(null), Value(pos + 1)]);
           }
+        } else if (sequenceLength == 5) {
+          codePoint =
+              ((byte & 0x03) << 24) |
+              ((bytes[pos + 1] & 0x3F) << 18) |
+              ((bytes[pos + 2] & 0x3F) << 12) |
+              ((bytes[pos + 3] & 0x3F) << 6) |
+              (bytes[pos + 4] & 0x3F);
+          // No validation needed for 5-byte sequences in lax mode
+        } else if (sequenceLength == 6) {
+          codePoint =
+              ((byte & 0x01) << 30) |
+              ((bytes[pos + 1] & 0x3F) << 24) |
+              ((bytes[pos + 2] & 0x3F) << 18) |
+              ((bytes[pos + 3] & 0x3F) << 12) |
+              ((bytes[pos + 4] & 0x3F) << 6) |
+              (bytes[pos + 5] & 0x3F);
+          // No validation needed for 6-byte sequences in lax mode
         }
       }
 
