@@ -251,13 +251,25 @@ class _UTF8Len implements BuiltinFunction {
         ? ((args[3] as Value).raw as bool? ?? false)
         : false;
 
-    // Convert to 0-based indices for byte array access
-    final startByte = i > 0 ? i - 1 : bytes.length + i;
-    final endByte = j > 0 ? j - 1 : bytes.length + j;
+    // Validate bounds before processing
+    if (i < 1 || i > bytes.length + 1) {
+      throw LuaError("out of bounds");
+    }
 
-    // Clamp indices to valid range
-    final start = math.max(0, math.min(startByte, bytes.length));
-    final end = math.max(start, math.min(endByte + 1, bytes.length));
+    // Handle negative j (default -1 means end of string)
+    if (j == -1) {
+      j = bytes.length;
+    } else if (j < 1 || j > bytes.length) {
+      throw LuaError("out of bounds");
+    }
+
+    // Convert to 0-based indices for byte array access
+    final startByte = i - 1;
+    final endByte = j - 1;
+
+    // Ensure valid range
+    final start = startByte;
+    final end = endByte + 1;
 
     // Validate UTF-8 sequence by sequence in the specified range
     int charCount = 0;
