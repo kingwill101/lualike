@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:math' as math;
 
 import 'package:characters/characters.dart';
 import 'package:lualike/src/bytecode/vm.dart' show BytecodeVM;
@@ -77,31 +78,92 @@ class _UTF8Codes implements BuiltinFunction {
       throw Exception("utf8.codes requires a string argument");
     }
 
-    final str = (args[0] as Value).raw.toString();
+    // Work with raw bytes to properly detect invalid UTF-8
+    final value = (args[0] as Value).raw;
+    final bytes = value is LuaString
+        ? value.bytes
+        : utf8.encode(value.toString());
     final lax = args.length > 1 ? (args[1] as Value).raw as bool : false;
 
-    var byteIndex = 0;
-    final chars = str.characters.toList();
-    var charIndex = 0;
+    var bytePos = 0;
 
     return Value((List<Object?> iterArgs) {
-      if (charIndex >= chars.length) {
+      if (bytePos >= bytes.length) {
         return Value(null);
       }
 
-      final char = chars[charIndex];
-      final codePoint = char.runes.first;
-      if (!lax && codePoint > 0x10FFFF) {
+      final byte = bytes[bytePos];
+      int sequenceLength;
+
+      // Determine UTF-8 sequence length from first byte
+      if (byte < 0x80) {
+        // ASCII: 0xxxxxxx
+        sequenceLength = 1;
+      } else if ((byte & 0xE0) == 0xC0) {
+        // 2-byte: 110xxxxx 10xxxxxx
+        sequenceLength = 2;
+      } else if ((byte & 0xF0) == 0xE0) {
+        // 3-byte: 1110xxxx 10xxxxxx 10xxxxxx
+        sequenceLength = 3;
+      } else if ((byte & 0xF8) == 0xF0) {
+        // 4-byte: 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
+        sequenceLength = 4;
+      } else {
+        // Invalid start byte
         throw Exception("invalid UTF-8 code");
       }
 
-      // Calculate the current byte position (1-based for Lua)
-      final currentPos = byteIndex + 1;
+      // Check if we have enough bytes for the complete sequence
+      if (bytePos + sequenceLength > bytes.length) {
+        throw Exception("invalid UTF-8 code");
+      }
 
-      // Move to next character and update byte position
-      final charBytes = utf8.encode(char);
-      byteIndex += charBytes.length;
-      charIndex++;
+      // For multi-byte sequences, check that continuation bytes are valid
+      for (int k = 1; k < sequenceLength; k++) {
+        if (bytePos + k >= bytes.length ||
+            (bytes[bytePos + k] & 0xC0) != 0x80) {
+          throw Exception("invalid UTF-8 code");
+        }
+      }
+
+      // Decode the code point
+      int codePoint = 0;
+      if (sequenceLength == 1) {
+        codePoint = byte;
+      } else if (sequenceLength == 2) {
+        codePoint = ((byte & 0x1F) << 6) | (bytes[bytePos + 1] & 0x3F);
+        // Check for overlong encoding
+        if (!lax && codePoint < 0x80) {
+          throw Exception("invalid UTF-8 code");
+        }
+      } else if (sequenceLength == 3) {
+        codePoint =
+            ((byte & 0x0F) << 12) |
+            ((bytes[bytePos + 1] & 0x3F) << 6) |
+            (bytes[bytePos + 2] & 0x3F);
+        // Check for overlong encoding and surrogate pairs
+        if (!lax &&
+            (codePoint < 0x800 ||
+                (codePoint >= 0xD800 && codePoint <= 0xDFFF))) {
+          throw Exception("invalid UTF-8 code");
+        }
+      } else if (sequenceLength == 4) {
+        codePoint =
+            ((byte & 0x07) << 18) |
+            ((bytes[bytePos + 1] & 0x3F) << 12) |
+            ((bytes[bytePos + 2] & 0x3F) << 6) |
+            (bytes[bytePos + 3] & 0x3F);
+        // Check for overlong encoding and out-of-range code points
+        if (!lax && (codePoint < 0x10000 || codePoint > 0x10FFFF)) {
+          throw Exception("invalid UTF-8 code");
+        }
+      }
+
+      // Calculate the current byte position (1-based for Lua)
+      final currentPos = bytePos + 1;
+
+      // Move to next character
+      bytePos += sequenceLength;
 
       return [Value(currentPos), Value(codePoint)];
     });
@@ -156,32 +218,109 @@ class _UTF8Len implements BuiltinFunction {
       throw Exception("utf8.len requires a string argument");
     }
 
-    final str = (args[0] as Value).raw.toString();
+    // Work with raw bytes to properly detect invalid UTF-8
+    final value = (args[0] as Value).raw;
+    final bytes = value is LuaString
+        ? value.bytes
+        : utf8.encode(value.toString());
+
     var i = args.length > 1 ? (args[1] as Value).raw as int : 1;
     var j = args.length > 2 ? (args[2] as Value).raw as int : -1;
     final lax = args.length > 3 ? (args[3] as Value).raw as bool : false;
 
-    try {
-      final chars = str.characters;
-      final substring = chars
-          .getRange(
-            i > 0 ? i - 1 : chars.length + i,
-            j > 0 ? j : chars.length + j + 1,
-          )
-          .toString();
+    // Convert to 0-based indices for byte array access
+    final startByte = i > 0 ? i - 1 : bytes.length + i;
+    final endByte = j > 0 ? j - 1 : bytes.length + j;
+
+    // Clamp indices to valid range
+    final start = math.max(0, math.min(startByte, bytes.length));
+    final end = math.max(start, math.min(endByte + 1, bytes.length));
+
+    // Validate UTF-8 sequence by sequence in the specified range
+    int charCount = 0;
+    int pos = start;
+
+    while (pos < end) {
+      final byte = bytes[pos];
+      int sequenceLength;
+
+      // Determine UTF-8 sequence length from first byte
+      if (byte < 0x80) {
+        // ASCII: 0xxxxxxx
+        sequenceLength = 1;
+      } else if ((byte & 0xE0) == 0xC0) {
+        // 2-byte: 110xxxxx 10xxxxxx
+        sequenceLength = 2;
+      } else if ((byte & 0xF0) == 0xE0) {
+        // 3-byte: 1110xxxx 10xxxxxx 10xxxxxx
+        sequenceLength = 3;
+      } else if ((byte & 0xF8) == 0xF0) {
+        // 4-byte: 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
+        sequenceLength = 4;
+      } else {
+        // Invalid start byte
+        return [Value(null), Value(pos + 1)]; // Return 1-based position
+      }
+
+      // Check if we have enough bytes for the complete sequence
+      if (pos + sequenceLength > bytes.length) {
+        return [Value(null), Value(pos + 1)]; // Incomplete sequence
+      }
+
+      // For multi-byte sequences, check that continuation bytes are valid
+      for (int k = 1; k < sequenceLength; k++) {
+        if (pos + k >= bytes.length || (bytes[pos + k] & 0xC0) != 0x80) {
+          return [
+            Value(null),
+            Value(pos + 1),
+          ]; // Invalid continuation byte at start position
+        }
+      }
 
       if (!lax) {
-        for (final char in substring.characters) {
-          if (char.runes.first > 0x10FFFF) {
-            return [Value(null), Value(i)];
+        // Additional validation for overlong sequences and invalid code points
+        int codePoint;
+
+        if (sequenceLength == 1) {
+          codePoint = byte;
+        } else if (sequenceLength == 2) {
+          codePoint = ((byte & 0x1F) << 6) | (bytes[pos + 1] & 0x3F);
+          // Check for overlong encoding
+          if (codePoint < 0x80) {
+            return [Value(null), Value(pos + 1)];
+          }
+        } else if (sequenceLength == 3) {
+          codePoint =
+              ((byte & 0x0F) << 12) |
+              ((bytes[pos + 1] & 0x3F) << 6) |
+              (bytes[pos + 2] & 0x3F);
+          // Check for overlong encoding and surrogate pairs
+          if (codePoint < 0x800 ||
+              (codePoint >= 0xD800 && codePoint <= 0xDFFF)) {
+            return [Value(null), Value(pos + 1)];
+          }
+        } else if (sequenceLength == 4) {
+          codePoint =
+              ((byte & 0x07) << 18) |
+              ((bytes[pos + 1] & 0x3F) << 12) |
+              ((bytes[pos + 2] & 0x3F) << 6) |
+              (bytes[pos + 3] & 0x3F);
+          // Check for overlong encoding and out-of-range code points
+          if (codePoint < 0x10000 || codePoint > 0x10FFFF) {
+            return [Value(null), Value(pos + 1)];
           }
         }
       }
 
-      return Value(substring.characters.length);
-    } catch (e) {
-      return [Value(null), Value(i)];
+      // Move to next character
+      pos += sequenceLength;
+      charCount++;
+
+      // Stop if we've reached the end of our range
+      if (pos >= end) break;
     }
+
+    return Value(charCount);
   }
 }
 
