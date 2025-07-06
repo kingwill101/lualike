@@ -4,12 +4,7 @@ import 'dart:typed_data';
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
-import 'package:lualike/src/pattern.dart';
 import 'package:lualike/src/stdlib/format_parser.dart';
-
-import '../value_class.dart';
-import 'number_utils.dart';
-import '../lua_string.dart';
 
 /// String interning cache for short strings (Lua-like behavior)
 /// In Lua, short strings are typically internalized while long strings are not
@@ -1280,7 +1275,7 @@ class _StringMatch implements BuiltinFunction {
     final substring = str.substring(init);
     try {
       final regexp = LuaPattern.toRegExp(pattern);
-      final hasMatch = regexp.hasMatch(substring);
+      final _ = regexp.hasMatch(substring);
 
       final match = regexp.firstMatch(substring);
       if (match == null) {

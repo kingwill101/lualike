@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/coroutine.dart' show Coroutine;
-import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:path/path.dart' as path;
 
@@ -534,10 +533,23 @@ class SelectFunction implements BuiltinFunction {
     }
 
     final idx = (index.raw as num).toInt();
-    if (idx <= 0) throw Exception("index out of range");
+    final argCount = args.length - 1; // Don't count the index argument
 
-    if (idx >= args.length) return Value(null);
-    return args.sublist(idx);
+    // Handle negative indices: -1 means last argument, -2 means second-to-last, etc.
+    int actualIndex;
+    if (idx < 0) {
+      actualIndex = argCount + idx + 1; // Convert negative to positive index
+    } else {
+      actualIndex = idx;
+    }
+
+    // Check bounds
+    if (actualIndex <= 0 || actualIndex > argCount) {
+      return Value.multi([]); // Return empty for out-of-bounds
+    }
+
+    // Return all arguments from actualIndex onwards
+    return Value.multi(args.sublist(actualIndex));
   }
 }
 
@@ -592,8 +604,27 @@ class LoadFunction implements BuiltinFunction {
       final ast = parse(source);
       return Value((List<Object?> callArgs) async {
         try {
-          final result = await vm.run(ast.statements);
-          return result;
+          // Create a new environment for the loaded chunk with varargs
+          final chunkEnv = Environment(
+            parent: vm.globals,
+            interpreter: vm,
+            isClosure: false,
+          );
+
+          // Set up varargs in the new environment
+          chunkEnv.declare("...", Value.multi(callArgs));
+
+          // Save the current environment and switch to the chunk environment
+          final savedEnv = vm.getCurrentEnv();
+          vm.setCurrentEnv(chunkEnv);
+
+          try {
+            final result = await vm.run(ast.statements);
+            return result;
+          } finally {
+            // Restore the previous environment
+            vm.setCurrentEnv(savedEnv);
+          }
         } on ReturnException catch (e) {
           // return statements inside the loaded chunk should just
           // provide values to the caller, not unwind the interpreter

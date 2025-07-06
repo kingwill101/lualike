@@ -80,8 +80,6 @@ class _UTF8Codes implements BuiltinFunction {
     final str = (args[0] as Value).raw.toString();
     final lax = args.length > 1 ? (args[1] as Value).raw as bool : false;
 
-    // Get the UTF-8 bytes of the string
-    final utf8Bytes = utf8.encode(str);
     var byteIndex = 0;
     final chars = str.characters.toList();
     var charIndex = 0;

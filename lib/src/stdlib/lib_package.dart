@@ -4,8 +4,6 @@ import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:path/path.dart' as path;
 
-import '../value_class.dart';
-
 class PackageLib {
   final Interpreter vm;
   final FileManager fileManager;

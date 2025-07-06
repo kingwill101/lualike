@@ -21,7 +21,8 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     );
     // Evaluate the expressions on the right-hand side into a list
     final expressions = <Object?>[];
-    for (final expr in node.exprs) {
+    for (int i = 0; i < node.exprs.length; i++) {
+      final expr = node.exprs[i];
       Logger.debug(
         'visitAssignment: Evaluating expr of type: \\${expr.runtimeType}',
         category: 'Assignment',
@@ -83,23 +84,27 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           expressions.addAll(value);
         }
       } else if (value is Value && value.isMulti) {
-        // When a multi-value is assigned, it should be treated as a list/table.
-        // If there is only one target, it will receive the first value, and others are discarded.
-        // If there are multiple targets, they will receive values one by one.
-        // If the left hand side is a table constructor, it means all multi-values are captured.
-        if (node.targets.length == 1 &&
-            node.targets.first is! TableConstructor) {
+        // For multi-value expressions (like varargs or function calls):
+        // - If it's the last expression, expand all values
+        // - If it's not the last expression, only use the first value
+        if (i == node.exprs.length - 1) {
+          // Last expression: expand all values
           Logger.debug(
-            'Assignment: Single non-table target for multi-value. Taking first: ${value.raw.first}',
-            category: 'Assignment',
-          );
-          expressions.add((value.raw as List).first);
-        } else {
-          Logger.debug(
-            'Assignment: Multi-value for multi-target or table constructor. Adding all: ${value.raw}',
+            'Assignment: Last expression is multi-value, expanding all: ${value.raw}',
             category: 'Assignment',
           );
           expressions.addAll(value.raw);
+        } else {
+          // Not last expression: only use first value
+          final multiValues = value.raw as List;
+          final firstValue = multiValues.isNotEmpty
+              ? multiValues.first
+              : Value(null);
+          Logger.debug(
+            'Assignment: Non-last expression is multi-value, taking first: $firstValue',
+            category: 'Assignment',
+          );
+          expressions.add(firstValue);
         }
       } else if (expr is TableAccessExpr &&
           value is Value &&
