@@ -1254,13 +1254,14 @@ class _StringMatch implements BuiltinFunction {
 
     try {
       final lp = lpc.LuaPattern.compile(pattern);
-      final match = lp.firstMatch(str, init);
-      if (match == null) {
+      final resultMatch = lp.firstMatch(str, init);
+      if (resultMatch == null) {
         return Value(null);
       }
 
-      if (match.captures.isNotEmpty) {
-        final captures = match.captures
+      if (resultMatch.captures.isNotEmpty) {
+        final captures = resultMatch.captures
+
             .map((c) => c == null ? Value(null) : Value(c))
             .toList();
         if (captures.length == 1) {
@@ -1269,7 +1270,8 @@ class _StringMatch implements BuiltinFunction {
         return Value.multi(captures);
       }
 
-      return Value(match.match);
+      return Value(resultMatch.match);
+
     } catch (e) {
       throw LuaError.typeError("malformed pattern: $e");
     }

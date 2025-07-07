@@ -269,6 +269,55 @@ class LuaPatternCompiler {
   bool _isEscaped(int index) =>
       index > 0 && _pattern[index - 1] == '%' && !_isEscaped(index - 1);
 
+  Parser<String>? _lookaheadItem(int index) {
+    if (index >= _pattern.length) return null;
+    final ch = _pattern[index];
+    if (ch == '%') {
+      if (index + 1 >= _pattern.length) return null;
+      final next = _pattern[index + 1];
+      if (RegExp(r'[a-zA-Z]').hasMatch(next)) {
+        return _classFor(next.toLowerCase());
+      }
+      if (next == 'b' && index + 2 < _pattern.length) {
+        return char(_pattern[index + 2]);
+      }
+      if (next == 'f' &&
+          index + 2 < _pattern.length &&
+          _pattern[index + 2] == '[') {
+        final buffer = StringBuffer();
+        var i = index + 3;
+        while (i < _pattern.length && _pattern[i] != ']') {
+          buffer.write(_pattern[i]);
+          i++;
+        }
+        return pattern(buffer.toString());
+      }
+      return char(next);
+    } else if (ch == '(') {
+      return _lookaheadItem(index + 1);
+    } else if (ch == '[') {
+      var i = index + 1;
+      var negate = false;
+      if (i < _pattern.length && _pattern[i] == '^') {
+        negate = true;
+        i++;
+      }
+      final buffer = StringBuffer();
+      while (i < _pattern.length && _pattern[i] != ']') {
+        buffer.write(_pattern[i]);
+        i++;
+      }
+      return _bracketClass(buffer.toString(), negate: negate);
+    } else if (ch == '.') {
+      return any();
+    } else if (ch == '^' || ch == '\$' || ch == ')') {
+      return null;
+    } else {
+      return char(ch);
+    }
+  }
+
+
   Parser _parseSequence({bool stopOnRightParen = false}) {
     final elements = <Parser>[];
     while (_pos < _pattern.length) {
@@ -325,21 +374,45 @@ class LuaPatternCompiler {
 
     Parser result;
     if (isEmpty) {
-      switch (op) {
-        case '*':
-          result = base.star();
-          break;
-        case '+':
-          result = base.plus();
-          break;
-        case '?':
-          result = base.optional();
-          break;
-        case '-':
-          result = base.starLazy(epsilon());
-          break;
-        default:
-          throw StateError('Unhandled repetition $op');
+      Parser? limit;
+      if (stopOnRightParen && _pos < _pattern.length && _pattern[_pos] == ')') {
+        limit = _lookaheadItem(_pos + 1);
+      }
+      if (limit != null) {
+        switch (op) {
+          case '*':
+            result = base.starGreedy(limit);
+            break;
+          case '+':
+            result = base.plusGreedy(limit);
+            break;
+          case '?':
+            result = base.optional();
+            break;
+          case '-':
+            result = base.starLazy(limit);
+            break;
+          default:
+            throw StateError('Unhandled repetition $op');
+        }
+      } else {
+        switch (op) {
+          case '*':
+            result = base.star();
+            break;
+          case '+':
+            result = base.plus();
+            break;
+          case '?':
+            result = base.optional();
+            break;
+          case '-':
+            result = base.starLazy(epsilon());
+            break;
+          default:
+            throw StateError('Unhandled repetition $op');
+        }
+
       }
     } else {
       switch (op) {
@@ -366,20 +439,20 @@ class LuaPatternCompiler {
     assert(_pattern[_pos] == '%');
     _pos++;
     if (_pos >= _pattern.length) {
-      throw FormatException('Trailing % in pattern');
+      throw FormatException("malformed pattern (ends with '%')");
     }
     final next = _pattern[_pos];
     if ('123456789'.contains(next)) {
       final index = int.parse(next) - 1;
       if (index >= _captures.length) {
-        throw FormatException('Invalid back reference %$next');
+        throw FormatException('invalid capture index %$next');
       }
       _pos++;
       return _BackReferenceParser(index, _captureValues);
     }
     if (next == 'b') {
       if (_pos + 2 >= _pattern.length) {
-        throw FormatException('Malformed %b sequence');
+        throw FormatException('malformed pattern (missing arguments to %b)');
       }
       final open = _pattern[_pos + 1];
       final close = _pattern[_pos + 2];
@@ -389,7 +462,7 @@ class LuaPatternCompiler {
     if (next == 'f') {
       _pos++;
       if (_pos >= _pattern.length || _pattern[_pos] != '[') {
-        throw FormatException('Malformed %f sequence');
+        throw FormatException("missing '[' after '%f' in pattern");
       }
       _pos++; // skip [
       final buffer = StringBuffer();
@@ -398,7 +471,7 @@ class LuaPatternCompiler {
         _pos++;
       }
       if (_pos >= _pattern.length) {
-        throw FormatException('Unclosed %f[]');
+        throw FormatException("malformed pattern (missing ']')");
       }
       _pos++; // consume ]
       final set = _bracketClass(buffer.toString(), negate: false);
@@ -416,7 +489,6 @@ class LuaPatternCompiler {
 
   Parser _parseBracket() {
     assert(_pattern[_pos] == '[');
-    final start = _pos;
     _pos++;
     var negate = false;
     if (_pattern[_pos] == '^') {
@@ -429,7 +501,7 @@ class LuaPatternCompiler {
       _pos++;
     }
     if (_pos >= _pattern.length) {
-      throw FormatException('Unclosed character class in pattern at $start');
+      throw FormatException("malformed pattern (missing ']')");
     }
     _pos++;
     return _bracketClass(buffer.toString(), negate: negate);
@@ -454,7 +526,7 @@ class LuaPatternCompiler {
 
     final inner = _parseSequence(stopOnRightParen: true);
     if (_pos >= _pattern.length || _pattern[_pos] != ')') {
-      throw FormatException('Unclosed ( in pattern');
+      throw FormatException('unfinished capture');
     }
     _pos++;
 

@@ -266,7 +266,7 @@ void main() {
         expect((bridge.getGlobal('r11') as Value).raw, equals(""));
         expect((bridge.getGlobal('r12') as Value).raw, equals(""));
         expect((bridge.getGlobal('r13') as Value).raw, isNull);
-        expect((bridge.getGlobal('r14') as Value).raw, equals("alo"));
+        expect((bridge.getGlobal('r14') as Value).raw, equals("alo "));
         expect(
           (bridge.getGlobal('r15') as Value).raw,
           equals("\u0000\u0001\u0002"),
