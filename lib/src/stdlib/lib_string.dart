@@ -4,7 +4,6 @@ import 'dart:typed_data';
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
-import 'package:lualike/src/parsers/format.dart';
 import 'package:lualike/src/parsers/pattern.dart' as lpc;
 
 /// String interning cache for short strings (Lua-like behavior)

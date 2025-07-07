@@ -20,7 +20,7 @@ void main() {
   ]);
   final testString = String.fromCharCodes(testBytes);
 
-  print("Test string bytes: ${testBytes}");
+  print("Test string bytes: $testBytes");
   print("Test string length: ${testString.length}");
   print("Test string: '$testString'");
 
