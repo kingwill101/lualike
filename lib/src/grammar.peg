@@ -1667,7 +1667,7 @@ LongComment =>
 S =>
 { List<dynamic> comment = []; }
   (
-    c = [ \t\r\n\v\f]
+    c = (' ' / '\t' / '\r' / '\n' / '\v' / '\f')
     { comment.add(c); }
     ----
     c = LongComment

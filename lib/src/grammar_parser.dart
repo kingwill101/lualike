@@ -4961,7 +4961,19 @@ class GrammarParser {
   /// S =>
   ///   { List<dynamic> comment = []; }
   ///   @while (*) (
-  ///     c = [ {9}{d}{a}{b}{c}]
+  ///     c = (
+  ///       ' '
+  ///       ----
+  ///       '\t'
+  ///       ----
+  ///       '\r'
+  ///       ----
+  ///       '\n'
+  ///       ----
+  ///       '\v'
+  ///       ----
+  ///       '\f'
+  ///     )
   ///     { comment.add(c); }
   ///     ----
   ///     c = LongComment
@@ -4982,89 +4994,128 @@ class GrammarParser {
     while (true) {
       var $0 = true;
       var $1 = false;
-      final $2 = state.peek();
-      if ($2 >= 32 ? $2 <= 32 : $2 >= 9 && $2 <= 13) {
-        state.position += state.charSize($2);
-        int c = $2;
+      (String,)? $2;
+      final $3 = state.position;
+      if (state.peek() == 32) {
+        state.consume(' ', $3);
+        $2 = (' ',);
+      } else {
+        state.expected(' ');
+        final $4 = state.position;
+        if (state.peek() == 9) {
+          state.consume('\t', $4);
+          $2 = ('\t',);
+        } else {
+          state.expected('\t');
+          final $5 = state.position;
+          if (state.peek() == 13) {
+            state.consume('\r', $5);
+            $2 = ('\r',);
+          } else {
+            state.expected('\r');
+            final $6 = state.position;
+            if (state.peek() == 10) {
+              state.consume('\n', $6);
+              $2 = ('\n',);
+            } else {
+              state.expected('\n');
+              final $7 = state.position;
+              if (state.peek() == 11) {
+                state.consume('\v', $7);
+                $2 = ('\v',);
+              } else {
+                state.expected('\v');
+                final $8 = state.position;
+                if (state.peek() == 12) {
+                  state.consume('\f', $8);
+                  $2 = ('\f',);
+                } else {
+                  state.expected('\f');
+                }
+              }
+            }
+          }
+        }
+      }
+      if ($2 != null) {
+        String c = $2.$1;
         comment.add(c);
         $1 = true;
-      } else {
-        state.fail();
       }
       if (!$1) {
-        var $3 = false;
-        final $4 = parseLongComment(state);
-        if ($4 != null) {
-          String c = $4.$1;
+        var $9 = false;
+        final $10 = parseLongComment(state);
+        if ($10 != null) {
+          String c = $10.$1;
           comment.add(c);
-          $3 = true;
+          $9 = true;
         }
-        if (!$3) {
-          final $6 = state.position;
-          var $5 = false;
+        if (!$9) {
+          final $12 = state.position;
+          var $11 = false;
           if (state.peek() == 45 && state.startsWith('--', state.position)) {
-            state.consume('--', $6);
+            state.consume('--', $12);
             String c = '--';
             while (true) {
-              final $8 = state.position;
-              var $7 = false;
-              final $9 = state.predicate;
+              final $14 = state.position;
+              var $13 = false;
+              final $15 = state.predicate;
               state.predicate = true;
-              var $10 = true;
+              var $16 = true;
               if (state.peek() == 10) {
-                state.consume('\n', $8);
-                state.failAndBacktrack($8);
-                $10 = false;
+                state.consume('\n', $14);
+                state.failAndBacktrack($14);
+                $16 = false;
               } else {
                 state.expected('\n');
               }
-              state.predicate = $9;
-              if ($10) {
-                final $11 = state.position;
-                final $12 = state.predicate;
+              state.predicate = $15;
+              if ($16) {
+                final $17 = state.position;
+                final $18 = state.predicate;
                 state.predicate = true;
-                var $14 = true;
-                final $13 = parseEOF(state);
-                if ($13 != null) {
-                  state.failAndBacktrack($11);
-                  $14 = false;
+                var $20 = true;
+                final $19 = parseEOF(state);
+                if ($19 != null) {
+                  state.failAndBacktrack($17);
+                  $20 = false;
                 }
-                state.predicate = $12;
-                if ($14) {
-                  final $15 = state.peek();
-                  if ($15 != 0) {
-                    state.position += state.charSize($15);
-                    $7 = true;
+                state.predicate = $18;
+                if ($20) {
+                  final $21 = state.peek();
+                  if ($21 != 0) {
+                    state.position += state.charSize($21);
+                    $13 = true;
                   } else {
                     state.fail();
                   }
                 }
               }
-              if (!$7) {
-                state.position = $8;
+              if (!$13) {
+                state.position = $14;
                 break;
               }
             }
-            var $16 = true;
-            final $17 = state.position;
+            var $22 = true;
+            final $23 = state.position;
             if (state.peek() == 10) {
-              state.consume('\n', $17);
+              state.consume('\n', $23);
             } else {
               state.expected('\n');
-              final $18 = parseEOF(state);
-              if ($18 == null) {
-                $16 = false;
+              final $24 = parseEOF(state);
+              if ($24 == null) {
+                $22 = false;
               }
             }
-            if ($16) {
+            if ($22) {
               comment.add(c);
-              $5 = true;
+              $11 = true;
             }
           } else {
             state.expected('--');
           }
-          if (!$5) {
-            state.position = $6;
+          if (!$11) {
+            state.position = $12;
             $0 = false;
           }
         }
