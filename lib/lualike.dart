@@ -24,7 +24,7 @@ export 'src/lua_error.dart';
 export 'src/lua_stack_trace.dart';
 export 'src/lua_string.dart';
 export 'src/number.dart';
-export 'src/parser_wrapper.dart' show parse;
+export 'src/parse.dart' show parse;
 export 'src/parsers/parsers.dart';
 export 'src/return_exception.dart';
 export 'src/stack.dart';
