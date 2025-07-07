@@ -303,13 +303,10 @@ end
 do
   local function matchhexa (n)
     local s = string.format("%a", n)
--- PATTERN ISSUE:     -- result matches ISO C requirements
-    -- COMMENTED OUT: Pattern matching not fully implemented
-    -- assert(string.find(s, "^%-?0x[1-9a-f]%.?[0-9a-f]*p[-+]?%d+$"))
+    assert(string.find(s, "^%-?0x[1-9a-f]%.?[0-9a-f]*p[-+]?%d+$"))
     assert(tonumber(s) == n)  -- and has full precision
     s = string.format("%A", n)
-    -- COMMENTED OUT: Pattern matching not fully implemented
-    -- assert(string.find(s, "^%-?0X[1-9A-F]%.?[0-9A-F]*P[-+]?%d+$"))
+    assert(string.find(s, "^%-?0X[1-9A-F]%.?[0-9A-F]*P[-+]?%d+$"))
     assert(tonumber(s) == n)
   end
   for _, n in ipairs{0.1, -0.1, 1/3, -1/3, 1e30, -1e30,
@@ -317,8 +314,8 @@ do
     matchhexa(n)
   end
 
--- PATTERN ISSUE:   assert(string.find(string.format("%A", 0.0), "^0X0%.?0*P%+?0$"))
--- PATTERN ISSUE:   assert(string.find(string.format("%a", -0.0), "^%-0x0%.?0*p%+?0$"))
+ assert(string.find(string.format("%A", 0.0), "^0X0%.?0*P%+?0$"))
+ assert(string.find(string.format("%a", -0.0), "^%-0x0%.?0*p%+?0$"))
 
   if not _port then   -- test inf, -inf, NaN, and -0.0
     assert(string.find(string.format("%a", 1/0), "^inf"))
@@ -330,8 +327,10 @@ do
   if not pcall(string.format, "%.3a", 0) then
     (Message or print)("\n >>> modifiers for format '%a' not available <<<\n")
   else
-    --assert(string.find(string.format("%+.2A", 12), "^%+0X%x%.%x0P%+?%d$"))
-    --assert(string.find(string.format("%.4A", -12), "^%-0X%x%.%x000P%+?%d$"))
+    --
+    assert(string.find(string.format("%+.2A", 12), "^%+0X%x%.%x0P%+?%d$"))
+    --
+    assert(string.find(string.format("%.4A", -12), "^%-0X%x%.%x000P%+?%d$"))
   end
 end
 
@@ -352,8 +351,8 @@ assert(string.format("%.s", "alo")  == "")
 -- ISO C89 says that "The exponent always contains at least two digits",
 -- but unlike ISO C99 it does not ensure that it contains "only as many
 -- more digits as necessary".
--- PATTERN ISSUE: assert(string.match(string.format("% 1.0E", 100), "^ 1E%+0+2$"))
--- PATTERN ISSUE: assert(string.match(string.format("% .1g", 2^10), "^ 1e%+0+3$"))
+assert(string.match(string.format("% 1.0E", 100), "^ 1E%+0+2$"))
+assert(string.match(string.format("% .1g", 2^10), "^ 1e%+0+3$"))
 
 
 -- errors in format
