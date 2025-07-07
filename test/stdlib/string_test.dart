@@ -198,8 +198,8 @@ void main() {
       await bridge.runCode('''
         local s, n = string.gsub("abc", "", "-")
       ''');
-      expect((bridge.getGlobal('s') as Value).raw, equals("-a-b-c-"));
-      expect((bridge.getGlobal('n') as Value).raw, equals(4));
+      expect((bridge.getGlobal('s') as Value).unwrap(), equals("-a-b-c-"));
+      expect((bridge.getGlobal('n') as Value).unwrap(), equals(4));
     });
 
     test('string.gmatch', () async {
