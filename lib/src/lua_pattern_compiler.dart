@@ -317,6 +317,7 @@ class LuaPatternCompiler {
     }
   }
 
+
   Parser _parseSequence({bool stopOnRightParen = false}) {
     final elements = <Parser>[];
     while (_pos < _pattern.length) {
@@ -411,6 +412,7 @@ class LuaPatternCompiler {
           default:
             throw StateError('Unhandled repetition $op');
         }
+
       }
     } else {
       switch (op) {
