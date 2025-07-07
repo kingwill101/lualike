@@ -115,7 +115,7 @@ void main() {
       final r = p.parse('abc 123');
       expect(r, isA<Success>());
       expect((r as Success).value, 'abc 123');
-    }, skip: "broken");
+    });
   });
 
   group('Balanced patterns', () {
