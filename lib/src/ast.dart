@@ -1,5 +1,6 @@
 import 'package:source_span/source_span.dart';
-import 'lua_string_parser.dart';
+
+import 'parsers/string.dart';
 
 /// Base class for all ASFuture`<T>` nodes.
 abstract class AstNode {

@@ -1,5 +1,5 @@
+import 'package:lualike/src/parsers/pattern.dart' as lpc;
 import 'package:lualike/testing.dart';
-import 'package:lualike/src/lua_pattern_compiler.dart' as lpc;
 
 void main() {
   Logger.debug(

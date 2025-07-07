@@ -4,8 +4,8 @@ import 'dart:typed_data';
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
-import 'package:lualike/src/stdlib/format_parser.dart';
-import 'package:lualike/src/lua_pattern_compiler.dart' as lpc;
+import 'package:lualike/src/parsers/format.dart';
+import 'package:lualike/src/parsers/pattern.dart' as lpc;
 
 /// String interning cache for short strings (Lua-like behavior)
 /// In Lua, short strings are typically internalized while long strings are not
@@ -1302,7 +1302,6 @@ class _StringMatch implements BuiltinFunction {
 
       if (resultMatch.captures.isNotEmpty) {
         final captures = resultMatch.captures
-
             .map((c) => c == null ? Value(null) : Value(c))
             .toList();
         if (captures.length == 1) {
@@ -1312,7 +1311,6 @@ class _StringMatch implements BuiltinFunction {
       }
 
       return Value(resultMatch.match);
-
     } catch (e) {
       throw LuaError.typeError("malformed pattern: $e");
     }

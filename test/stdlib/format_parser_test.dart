@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:lualike/src/parsers/format.dart';
 import 'package:test/test.dart';
-import 'package:lualike/src/stdlib/format_parser.dart';
 
 void main() {
   group('FormatStringParser', () {
