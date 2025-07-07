@@ -566,6 +566,75 @@ class LoadFunction implements BuiltinFunction {
 
   LoadFunction(this.vm);
 
+  void _checkConstAssignments(Program ast) {
+    final constVars = <String>{};
+
+    void collectConsts(List<AstNode> nodes) {
+      for (final node in nodes) {
+        if (node is LocalDeclaration) {
+          for (var i = 0; i < node.names.length; i++) {
+            if (i < node.attributes.length && node.attributes[i] == 'const') {
+              constVars.add(node.names[i].name);
+            }
+          }
+        } else if (node is DoBlock) {
+          collectConsts(node.body);
+        } else if (node is FunctionDef) {
+          collectConsts(node.body.body);
+        } else if (node is LocalFunctionDef) {
+          collectConsts(node.funcBody.body);
+        } else if (node is ForLoop) {
+          collectConsts(node.body);
+        } else if (node is ForInLoop) {
+          collectConsts(node.body);
+        } else if (node is RepeatUntilLoop) {
+          collectConsts(node.body);
+        } else if (node is IfStatement) {
+          collectConsts(node.thenBlock);
+          for (final e in node.elseIfs) {
+            collectConsts(e.thenBlock);
+          }
+          collectConsts(node.elseBlock);
+        }
+      }
+    }
+
+    void checkAssigns(List<AstNode> nodes) {
+      for (final node in nodes) {
+        if (node is Assignment) {
+          for (final t in node.targets) {
+            if (t is Identifier && constVars.contains(t.name)) {
+              throw FormatException(
+                ":1: attempt to assign to const variable '${t.name}'",
+              );
+            }
+          }
+        } else if (node is DoBlock) {
+          checkAssigns(node.body);
+        } else if (node is FunctionDef) {
+          checkAssigns(node.body.body);
+        } else if (node is LocalFunctionDef) {
+          checkAssigns(node.funcBody.body);
+        } else if (node is ForLoop) {
+          checkAssigns(node.body);
+        } else if (node is ForInLoop) {
+          checkAssigns(node.body);
+        } else if (node is RepeatUntilLoop) {
+          checkAssigns(node.body);
+        } else if (node is IfStatement) {
+          checkAssigns(node.thenBlock);
+          for (final e in node.elseIfs) {
+            checkAssigns(e.thenBlock);
+          }
+          checkAssigns(node.elseBlock);
+        }
+      }
+    }
+
+    collectConsts(ast.statements);
+    checkAssigns(ast.statements);
+  }
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -610,6 +679,7 @@ class LoadFunction implements BuiltinFunction {
 
     try {
       final ast = parse(source);
+      _checkConstAssignments(ast);
       return Value((List<Object?> callArgs) async {
         try {
           // Create a new environment for the loaded chunk with varargs

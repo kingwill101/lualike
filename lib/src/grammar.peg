@@ -251,7 +251,7 @@ ComplexTableAccess =>
             '.' S
             fld = ID
             {
-                expr = TableAccessExpr(expr!, fld);
+                expr = TableAccessExpr(expr!, StringLiteral(fld.name));
             }
         )
 

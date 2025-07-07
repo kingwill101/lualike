@@ -4,7 +4,7 @@ import 'number.dart';
 
 bool _checkAttr(String attr, int start, int end, State state) {
   if (attr == "const" || attr == "close") return true;
-  state.error("Invalid attribute '$attr'", start, end, 0);
+  state.error("unknown attribute '$attr'", start, end, 0);
   return false;
 }
 
@@ -1027,7 +1027,7 @@ class GrammarParser {
   ///       S
   ///       fld = ID
   ///       {
-  ///         expr = TableAccessExpr(expr!, fld);
+  ///         expr = TableAccessExpr(expr!, StringLiteral(fld.name));
   ///       }
   ///     )
   ///     @while (*) (
@@ -1140,7 +1140,7 @@ class GrammarParser {
               final $20 = parseID(state);
               if ($20 != null) {
                 Identifier fld = $20.$1;
-                expr = TableAccessExpr(expr!, fld);
+                expr = TableAccessExpr(expr!, StringLiteral(fld.name));
                 $18 = true;
               }
             } else {
