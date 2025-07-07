@@ -1,4 +1,6 @@
 @Tags(['statements'])
+library;
+
 import 'package:lualike/testing.dart';
 
 void main() {

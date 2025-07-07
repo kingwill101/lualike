@@ -1,8 +1,9 @@
 import 'dart:io';
-import 'package:lualike/testing.dart';
+
 import 'package:lualike/src/io/io_device.dart';
 import 'package:lualike/src/io/lua_file.dart';
 import 'package:lualike/src/stdlib/lib_io.dart';
+import 'package:lualike/testing.dart';
 
 void main() {
   group('IO library', () {

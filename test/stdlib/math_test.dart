@@ -1,5 +1,6 @@
-import 'package:lualike/testing.dart';
 import 'dart:math' as math;
+
+import 'package:lualike/testing.dart';
 
 void main() {
   group('Math Library', () {

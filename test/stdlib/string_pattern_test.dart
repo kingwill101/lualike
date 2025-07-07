@@ -1,4 +1,6 @@
 @Tags(['pm'])
+library;
+
 import 'package:lualike/testing.dart';
 
 void main() {
