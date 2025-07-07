@@ -183,6 +183,11 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
     if (tableValue is Value) {
       if (tableValue.raw is Map) {
+        if (target.index is StringLiteral) {
+          final key = (target.index as StringLiteral).value;
+          tableValue[key] = wrappedValue;
+          return wrappedValue;
+        }
         if (target.index is! Identifier) {
           final table = await target.table.accept(this).toValue();
           if (!table.isNil) {
@@ -239,14 +244,14 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           final identName = (target.index as Identifier).name;
           try {
             identifier = await target.index.accept(this);
-            if (identifier is Value && identifier.raw == null) {
-              identifier = identName;
-            }
+            if (identifier is Value) identifier = identifier.raw;
+            if (identifier == null) identifier = identName;
           } catch (_) {
             identifier = identName;
           }
         } else {
           identifier = await target.index.accept(this);
+          if (identifier is Value) identifier = identifier.raw;
         }
 
         tableValue[identifier] = wrappedValue;

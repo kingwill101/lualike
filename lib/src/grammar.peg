@@ -805,14 +805,62 @@ BitwiseExpression =>
   {
     final startPos = state.position;
   }
+  result = BitwiseOrExpression
+  $ = {
+    $$ = _setNodeSpan(result, startPos, state.position, state);
+  }
+
+`AstNode`
+BitwiseOrExpression =>
+  {
+    final startPos = state.position;
+  }
+  result = BitwiseXorExpression
+  @while (*) {
+    S
+    '|'
+    S
+    right = BitwiseXorExpression
+    {
+      result = BinaryExpression(result, '|', right);
+    }
+  }
+  $ = {
+    $$ = _setNodeSpan(result, startPos, state.position, state);
+  }
+
+`AstNode`
+BitwiseXorExpression =>
+  {
+    final startPos = state.position;
+  }
+  result = BitwiseAndExpression
+  @while (*) {
+    S
+    '~'
+    S
+    right = BitwiseAndExpression
+    {
+      result = BinaryExpression(result, '~', right);
+    }
+  }
+  $ = {
+    $$ = _setNodeSpan(result, startPos, state.position, state);
+  }
+
+`AstNode`
+BitwiseAndExpression =>
+  {
+    final startPos = state.position;
+  }
   result = ShiftExpression
   @while (*) {
     S
-    op = <([&~|])>
+    '&'
     S
     right = ShiftExpression
     {
-      result = BinaryExpression(result, op, right);
+      result = BinaryExpression(result, '&', right);
     }
   }
   $ = {
@@ -1404,11 +1452,11 @@ TableFieldAccess =>
     final startPos = state.position;
   }
   table = ID
-  { List<Identifier> fields = []; }
+  { List<AstNode> fields = []; }
   @while(+) {
     '.' S
     field = ID
-    { fields.add(field); }
+    { fields.add(StringLiteral(field.name)); }
   }
   $ = {
     TableAccessExpr result = TableAccessExpr(table, fields[0]);
@@ -1439,7 +1487,7 @@ TableLookup =>
       ----
       '.' S
       field = ID
-      { expr = TableAccessExpr(expr!, field); }
+      { expr = TableAccessExpr(expr!, StringLiteral(field.name)); }
     )
   }
 

@@ -314,8 +314,8 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           // Set the loop environment as the current environment
           setCurrentEnv(loopEnv);
 
-          // Define the loop variable in the loop environment
-          loopEnv.define(node.varName.name, Value(i));
+          // Define the loop variable as a new local in the loop environment
+          loopEnv.declare(node.varName.name, Value(i));
 
           // Execute the loop body
           if (this is Interpreter) {
@@ -531,10 +531,10 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
 
             // For table iteration, we have key, value pairs
             if (node.names.isNotEmpty) {
-              loopEnv.define(node.names[0].name, key);
+              loopEnv.declare(node.names[0].name, key);
             }
             if (node.names.length >= 2) {
-              loopEnv.define(node.names[1].name, value);
+              loopEnv.declare(node.names[1].name, value);
             }
 
             // Execute loop body
@@ -756,7 +756,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
               'ForInLoop: Binding ${node.names[i].name} = $value',
               category: 'ControlFlow',
             );
-            loopEnv.define(node.names[i].name, value);
+            loopEnv.declare(node.names[i].name, value);
           }
 
           // Execute loop body

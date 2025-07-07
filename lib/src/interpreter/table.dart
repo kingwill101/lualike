@@ -203,14 +203,23 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     final Map<Object?, Value> tableMap = {};
     int nextSequentialIndex = 1;
 
-    for (final field in node.entries) {
+    for (var i = 0; i < node.entries.length; i++) {
+      final field = node.entries[i];
       if (field is TableEntryLiteral) {
         var value = await field.expr.accept(this);
         if (value is Value && value.isMulti) {
-          for (final item in value.raw as List<Object?>) {
-            tableMap[nextSequentialIndex++] = item is Value
-                ? item
-                : Value(item);
+          final items = value.raw as List<Object?>;
+          if (i == node.entries.length - 1) {
+            for (final item in items) {
+              tableMap[nextSequentialIndex++] = item is Value
+                  ? item
+                  : Value(item);
+            }
+          } else {
+            final first = items.isNotEmpty ? items.first : null;
+            tableMap[nextSequentialIndex++] = first is Value
+                ? first
+                : Value(first);
           }
         } else {
           tableMap[nextSequentialIndex++] = value is Value

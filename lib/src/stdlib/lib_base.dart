@@ -613,25 +613,17 @@ class LoadFunction implements BuiltinFunction {
       return Value((List<Object?> callArgs) async {
         try {
           // Create a new environment for the loaded chunk with varargs
-          final chunkEnv = Environment(
-            parent: vm.globals,
-            interpreter: vm,
-            isClosure: false,
-          );
-
-          // Set up varargs in the new environment
-          chunkEnv.declare("...", Value.multi(callArgs));
-
-          // Save the current environment and switch to the chunk environment
+          // Execute loaded chunk in the caller's environment
           final savedEnv = vm.getCurrentEnv();
-          vm.setCurrentEnv(chunkEnv);
+          // Set up varargs
+          savedEnv.declare("...", Value.multi(callArgs));
 
           try {
             final result = await vm.run(ast.statements);
             return result;
           } finally {
-            // Restore the previous environment
-            vm.setCurrentEnv(savedEnv);
+            // Remove varargs declaration after execution
+            savedEnv.values.remove("...");
           }
         } on ReturnException catch (e) {
           // return statements inside the loaded chunk should just

@@ -243,6 +243,31 @@ class Interpreter extends AstVisitor<Object?>
       _currentEnv,
     ); // Register the initial environment
 
+    // Expose the global environment through the `_ENV` variable
+    final envTable = <dynamic, dynamic>{};
+    final envValue = Value(envTable);
+    final proxyHandler = <String, Function>{
+      '__index': (List<Object?> args) {
+        final key = args[1] as Value;
+        final keyStr = key.raw.toString();
+        final val = _currentEnv.get(keyStr);
+        if (val != null) {
+          envTable[keyStr] = val;
+        }
+        return val;
+      },
+      '__newindex': (List<Object?> args) {
+        final key = args[1] as Value;
+        final value = args[2] as Value;
+        final keyStr = key.raw.toString();
+        _currentEnv.define(keyStr, value);
+        envTable[keyStr] = value;
+        return Value(null);
+      },
+    };
+    envValue.setMetatable(proxyHandler);
+    _currentEnv.define('_ENV', envValue);
+
     // Initialize coroutines before the standard library
     initializeCoroutines();
 

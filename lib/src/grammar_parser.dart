@@ -519,29 +519,29 @@ class GrammarParser {
     }
   }
 
-  /// **BitwiseExpression**
+  /// **BitwiseAndExpression**
   ///
   ///```text
   /// `AstNode`
-  /// BitwiseExpression =>
+  /// BitwiseAndExpression =>
   ///   {
   ///     final startPos = state.position;
   ///   }
   ///   result = ShiftExpression
   ///   @while (*) (
   ///     S
-  ///     op = <([&~|])>
+  ///     '&'
   ///     S
   ///     right = ShiftExpression
   ///     {
-  ///       result = BinaryExpression(result, op, right);
+  ///       result = BinaryExpression(result, '&', right);
   ///     }
   ///   )
   ///   $ = {
   ///     $$ = _setNodeSpan(result, startPos, state.position, state);
   ///   }
   ///```
-  (AstNode,)? parseBitwiseExpression(State state) {
+  (AstNode,)? parseBitwiseAndExpression(State state) {
     final $1 = state.position;
     (AstNode,)? $0;
     final startPos = state.position;
@@ -553,20 +553,178 @@ class GrammarParser {
         var $3 = false;
         parseS(state);
         final $5 = state.position;
-        final $6 = state.peek();
-        if ($6 >= 124 ? $6 <= 124 || $6 == 126 : $6 == 38) {
-          state.position += state.charSize($6);
-          final $7 = state.substring($5, state.position);
-          String op = $7;
+        if (state.peek() == 38) {
+          state.consume('&', $5);
           parseS(state);
-          final $8 = parseShiftExpression(state);
-          if ($8 != null) {
-            AstNode right = $8.$1;
-            result = BinaryExpression(result, op, right);
+          final $6 = parseShiftExpression(state);
+          if ($6 != null) {
+            AstNode right = $6.$1;
+            result = BinaryExpression(result, '&', right);
             $3 = true;
           }
         } else {
-          state.fail();
+          state.expected('&');
+        }
+        if (!$3) {
+          state.position = $4;
+          break;
+        }
+      }
+      final AstNode $$;
+      $$ = _setNodeSpan(result, startPos, state.position, state);
+      AstNode $ = $$;
+      $0 = ($,);
+    }
+    if ($0 != null) {
+      return $0;
+    } else {
+      state.position = $1;
+      return null;
+    }
+  }
+
+  /// **BitwiseExpression**
+  ///
+  ///```text
+  /// `AstNode`
+  /// BitwiseExpression =>
+  ///   {
+  ///     final startPos = state.position;
+  ///   }
+  ///   result = BitwiseOrExpression
+  ///   $ = {
+  ///     $$ = _setNodeSpan(result, startPos, state.position, state);
+  ///   }
+  ///```
+  (AstNode,)? parseBitwiseExpression(State state) {
+    final $1 = state.position;
+    (AstNode,)? $0;
+    final startPos = state.position;
+    final $2 = parseBitwiseOrExpression(state);
+    if ($2 != null) {
+      AstNode result = $2.$1;
+      final AstNode $$;
+      $$ = _setNodeSpan(result, startPos, state.position, state);
+      AstNode $ = $$;
+      $0 = ($,);
+    }
+    if ($0 != null) {
+      return $0;
+    } else {
+      state.position = $1;
+      return null;
+    }
+  }
+
+  /// **BitwiseOrExpression**
+  ///
+  ///```text
+  /// `AstNode`
+  /// BitwiseOrExpression =>
+  ///   {
+  ///     final startPos = state.position;
+  ///   }
+  ///   result = BitwiseXorExpression
+  ///   @while (*) (
+  ///     S
+  ///     '|'
+  ///     S
+  ///     right = BitwiseXorExpression
+  ///     {
+  ///       result = BinaryExpression(result, '|', right);
+  ///     }
+  ///   )
+  ///   $ = {
+  ///     $$ = _setNodeSpan(result, startPos, state.position, state);
+  ///   }
+  ///```
+  (AstNode,)? parseBitwiseOrExpression(State state) {
+    final $1 = state.position;
+    (AstNode,)? $0;
+    final startPos = state.position;
+    final $2 = parseBitwiseXorExpression(state);
+    if ($2 != null) {
+      AstNode result = $2.$1;
+      while (true) {
+        final $4 = state.position;
+        var $3 = false;
+        parseS(state);
+        final $5 = state.position;
+        if (state.peek() == 124) {
+          state.consume('|', $5);
+          parseS(state);
+          final $6 = parseBitwiseXorExpression(state);
+          if ($6 != null) {
+            AstNode right = $6.$1;
+            result = BinaryExpression(result, '|', right);
+            $3 = true;
+          }
+        } else {
+          state.expected('|');
+        }
+        if (!$3) {
+          state.position = $4;
+          break;
+        }
+      }
+      final AstNode $$;
+      $$ = _setNodeSpan(result, startPos, state.position, state);
+      AstNode $ = $$;
+      $0 = ($,);
+    }
+    if ($0 != null) {
+      return $0;
+    } else {
+      state.position = $1;
+      return null;
+    }
+  }
+
+  /// **BitwiseXorExpression**
+  ///
+  ///```text
+  /// `AstNode`
+  /// BitwiseXorExpression =>
+  ///   {
+  ///     final startPos = state.position;
+  ///   }
+  ///   result = BitwiseAndExpression
+  ///   @while (*) (
+  ///     S
+  ///     '~'
+  ///     S
+  ///     right = BitwiseAndExpression
+  ///     {
+  ///       result = BinaryExpression(result, '~', right);
+  ///     }
+  ///   )
+  ///   $ = {
+  ///     $$ = _setNodeSpan(result, startPos, state.position, state);
+  ///   }
+  ///```
+  (AstNode,)? parseBitwiseXorExpression(State state) {
+    final $1 = state.position;
+    (AstNode,)? $0;
+    final startPos = state.position;
+    final $2 = parseBitwiseAndExpression(state);
+    if ($2 != null) {
+      AstNode result = $2.$1;
+      while (true) {
+        final $4 = state.position;
+        var $3 = false;
+        parseS(state);
+        final $5 = state.position;
+        if (state.peek() == 126) {
+          state.consume('~', $5);
+          parseS(state);
+          final $6 = parseBitwiseAndExpression(state);
+          if ($6 != null) {
+            AstNode right = $6.$1;
+            result = BinaryExpression(result, '~', right);
+            $3 = true;
+          }
+        } else {
+          state.expected('~');
         }
         if (!$3) {
           state.position = $4;
@@ -6086,12 +6244,12 @@ class GrammarParser {
   ///     final startPos = state.position;
   ///   }
   ///   table = ID
-  ///   { List<Identifier> fields = []; }
+  ///   { List<AstNode> fields = []; }
   ///   @while (+) (
   ///     '.'
   ///     S
   ///     field = ID
-  ///     { fields.add(field); }
+  ///     { fields.add(StringLiteral(field.name)); }
   ///   )
   ///   $ = {
   ///     TableAccessExpr result = TableAccessExpr(table, fields[0]);
@@ -6108,7 +6266,7 @@ class GrammarParser {
     final $2 = parseID(state);
     if ($2 != null) {
       Identifier table = $2.$1;
-      List<Identifier> fields = [];
+      List<AstNode> fields = [];
       final $3 = state.position;
       while (true) {
         final $5 = state.position;
@@ -6119,7 +6277,7 @@ class GrammarParser {
           final $6 = parseID(state);
           if ($6 != null) {
             Identifier field = $6.$1;
-            fields.add(field);
+            fields.add(StringLiteral(field.name));
             $4 = true;
           }
         } else {
@@ -6431,7 +6589,7 @@ class GrammarParser {
   ///       '.'
   ///       S
   ///       field = ID
-  ///       { expr = TableAccessExpr(expr!, field); }
+  ///       { expr = TableAccessExpr(expr!, StringLiteral(field.name)); }
   ///     )
   ///   )
   ///   $ = {
@@ -6481,7 +6639,7 @@ class GrammarParser {
             final $11 = parseID(state);
             if ($11 != null) {
               Identifier field = $11.$1;
-              expr = TableAccessExpr(expr!, field);
+              expr = TableAccessExpr(expr!, StringLiteral(field.name));
               $9 = true;
             }
           } else {
