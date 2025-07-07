@@ -132,13 +132,13 @@ void main() {
       expect((bridge.getGlobal('j') as Value).raw, equals(11));
       expect((bridge.getGlobal('k') as Value).raw, isNull);
       expect((bridge.getGlobal('l') as Value).raw, isNull);
-      expect((bridge.getGlobal('m') as Value).raw, equals(8));
-      expect((bridge.getGlobal('n') as Value).raw, equals(8));
+      expect((bridge.getGlobal('m') as Value).raw, equals(5));
+      expect((bridge.getGlobal('n') as Value).raw, equals(5));
       expect(
         (bridge.getGlobal('plain_i') as Value).raw,
         isNull,
       ); // "o." not found as plain text
-    }, skip: "pattern matching issue");
+    });
 
     test('string.find with captures', () async {
       final bridge = LuaLike();
@@ -167,7 +167,7 @@ void main() {
       expect((bridge.getGlobal('w1') as Value).raw, equals("hello"));
       expect((bridge.getGlobal('w2') as Value).raw, equals("world"));
       expect((bridge.getGlobal('no_match') as Value).raw, isNull);
-    }, skip: 'Issue with pattern matching');
+    });
 
     test('string.gsub', () async {
       final bridge = LuaLike();
@@ -193,6 +193,15 @@ void main() {
         equals("hello! world! from! lua!"),
       );
       expect((bridge.getGlobal('n3') as Value).raw, equals(4));
+    });
+
+    test('string.gsub zero-length pattern', () async {
+      final bridge = LuaLike();
+      await bridge.runCode('''
+        local s, n = string.gsub("abc", "", "-")
+      ''');
+      expect((bridge.getGlobal('s') as Value).raw, equals("-a-b-c-"));
+      expect((bridge.getGlobal('n') as Value).raw, equals(4));
     });
 
     test('string.gmatch', () async {
@@ -233,6 +242,18 @@ void main() {
       expect((pair1['v'] as Value).raw, equals("value1"));
       expect((pair2['k'] as Value).raw, equals("key2"));
       expect((pair2['v'] as Value).raw, equals("value2"));
+    });
+
+    test('string.gmatch zero-length pattern', () async {
+      final bridge = LuaLike();
+      await bridge.runCode('''
+        local t = {}
+        for w in string.gmatch("abc", "") do
+          table.insert(t, w or "")
+        end
+      ''');
+      final t = (bridge.getGlobal('t') as Value).raw as Map;
+      expect(t.length, equals(4));
     });
 
     // Binary string operations
@@ -349,7 +370,7 @@ void main() {
       expect(tests['u1'], equals(Value("DEF")));
       expect(tests['A1'], equals(Value("123")));
       expect(tests['D1'], equals(Value("abc")));
-    }, skip: 'Issue with pattern matching');
+    });
 
     // Pattern matching special items
     test('pattern matching special items', () async {
@@ -392,7 +413,7 @@ void main() {
       expect(tests['balanced2'], equals(Value("{hello [world]}")));
 
       expect(tests['frontier1'], equals(Value("hello")));
-    }, skip: 'Issue with pattern matching');
+    });
 
     test('string.format comprehensive', () async {
       final bridge = LuaLike();
