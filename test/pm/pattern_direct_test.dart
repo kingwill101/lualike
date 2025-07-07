@@ -1,24 +1,19 @@
 import 'package:lualike/testing.dart';
+import 'package:lualike/src/lua_pattern_compiler.dart' as lpc;
 
 void main() {
   // Test function to check pattern conversion and matching
   void testPattern(String luaPattern, String testString, {bool plain = false}) {
     test('Testing pattern: "$luaPattern" on string: "$testString"', () {
       try {
-        // Convert Lua pattern to RegExp
-        final regex = LuaPattern.toRegExp(luaPattern, plain: plain);
-        Logger.debug('Converted to RegExp: ${regex.pattern}');
-
-        // Test matching
-        final match = regex.firstMatch(testString);
+        final lp = lpc.LuaPattern.compile(luaPattern);
+        final match = lp.firstMatch(testString);
         if (match != null) {
           Logger.debug(
             'Match found: "${testString.substring(match.start, match.end)}"',
           );
-
-          // Logger.debug capture groups if any
-          for (var i = 1; i < match.groupCount + 1; i++) {
-            Logger.debug('  Group $i: "${match.group(i)}"');
+          for (var i = 0; i < match.captures.length; i++) {
+            Logger.debug('  Group ${i + 1}: "${match.captures[i]}"');
           }
         } else {
           Logger.debug('No match found');

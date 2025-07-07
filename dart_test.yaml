@@ -9,9 +9,7 @@ tags:
   bytecode: {
     skip:  "Bytecode can be officially tested after we complete enough work on the interpreter."
   }
-  pm: {
-    skip: "PM tests are not yet supported."
-  }
+  pm: {}
   stdlib: {}
   interop: {}
   interpreter: {}
