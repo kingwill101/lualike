@@ -665,7 +665,12 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           if (this is Interpreter && (this as Interpreter).isInProtectedCall) {
             // Convert the error and exit the for-in loop early
             // The error will be handled by the pcall context
-            throw e;
+            Logger.error(
+              'ForInLoop: Error in protected call for-in loop: $e',
+              error: e,
+              category: 'ControlFlow',
+            );
+            rethrow;
           } else {
             // Re-throw if not in protected context
             rethrow;
@@ -724,7 +729,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           category: 'ControlFlow',
         );
 
-        if ((control is Value) && control.raw == null || control == null) {
+        if ((control is Value) && control.raw == null) {
           Logger.debug(
             'ForInLoop: Control is null, breaking loop',
             category: 'ControlFlow',

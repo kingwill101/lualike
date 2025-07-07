@@ -40,7 +40,7 @@ void setLualikeLogging({
 
   final bool useEnabled = enabled ?? envEnabled;
 
-  pkg_logging.Level useLevel = level ?? pkg_logging.Level.FINEST;
+  pkg_logging.Level useLevel = level ?? pkg_logging.Level.INFO;
   if (envLevel != null) {
     useLevel = pkg_logging.Level.LEVELS.firstWhere(
       (lvl) => lvl.name.toUpperCase() == envLevel.toUpperCase(),
