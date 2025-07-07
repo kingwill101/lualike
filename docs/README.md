@@ -10,6 +10,7 @@ This directory contains documentation for the LuaLike library, a Lua implementat
   - [Metatables and Metamethods](./guides/metatables.md): Working with metatables and implementing metamethods
   - [Standard Library Implementation](./guides/standard_library.md): Guidelines for implementing standard library functions
   - [Error Handling](./guides/error_handling.md): Understanding error handling and protected calls in LuaLike
+  - [Lua Pattern Compiler Migration](./guides/pattern_compiler_migration.md): Steps remaining to adopt the new pattern parser
 
 ## Purpose
 

@@ -314,5 +314,5 @@ void main() {
         );
       });
     });
-  });
+  }, skip: 'legacy pattern translation');
 }

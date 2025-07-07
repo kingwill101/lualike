@@ -1,4 +1,5 @@
 import 'package:lualike/testing.dart';
+import 'package:lualike/src/lua_pattern_compiler.dart' as lpc;
 
 void main() {
   Logger.debug(
@@ -47,12 +48,10 @@ void main() {
 void testNestedBalanced(String pattern, String text, String? expected) {
   test('Testing nested balanced pattern: "$pattern" on string: "$text"', () {
     try {
-      final regexPattern = LuaPattern.toRegExp(pattern);
-      Logger.debug('Converted to RegExp: ${regexPattern.pattern}');
-
-      final match = regexPattern.firstMatch(text);
+      final lp = lpc.LuaPattern.compile(pattern);
+      final match = lp.firstMatch(text);
       if (match != null) {
-        final result = match.group(0);
+        final result = match.match;
         Logger.debug('Match found: "$result"');
 
         if (expected != null && result != expected) {
