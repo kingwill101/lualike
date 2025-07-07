@@ -41,12 +41,11 @@ Lualike is a lua interpreter written in Dart. It is designed to be a drop-in rep
 - `dart format .` - Format all code
 - `dart fix --apply` - Apply automated fixes
 - `dart analyze` - Static analysis (uses package:lints/recommended.yaml)
-- `just peg` - Regenerate grammar parser from lib/src/grammar.peg
 - `just integrate` - Run integration tests (see justfile for variants) (not currently working)
 - `dart run bin/main.dart --debug` - Run interpreter with debug logging
 
 ## Architecture
-**Core:** Lua interpreter written in Dart. Grammar in `lib/src/grammar.peg`, AST in `lib/src/ast.dart`, interpreter engine in `lib/src/interpreter/`.
+**Core:** Lua interpreter written in Dart. Grammar in `lib/src/parsers/lua.dart`, AST in `lib/src/ast.dart`, interpreter engine in `lib/src/interpreter/`.
 **Key modules:** `lib/src/value.dart` (Lua values), `lib/src/stdlib/` (standard library), `lib/src/environment.dart` (scoping).
 **Tests:** Organized by category (stdlib, interop, interpreter) with tags in dart_test.yaml.
 

@@ -1,12 +1,10 @@
 set shell := ["zsh", "-cu"]
 
-peg:
-	/home/kingwill101/.pub-cache/bin/peg lib/src/grammar.peg
 
-run +ARG: peg
+run +ARG:
   dart run bin/main.dart --debug -e "{{ARG}}"
 
-check +ARG: peg
+check +ARG:
   dart run bin/main.dart -e "{{ARG}}"
 
 compare *ARG='':
@@ -47,6 +45,3 @@ file +ARG:
 
 example +ARG:
     dart run example/{{ARG}}.dart
-
-install-peg:
-    dart pub global activate --source git  https://github.com/mezoni/peg.git
