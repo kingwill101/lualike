@@ -1,7 +1,9 @@
 @Tags(['bytecode'])
-import 'package:test/test.dart';
-import 'package:lualike/testing.dart' as lualike;
+library;
+
 import 'package:lualike/bytecode.dart';
+import 'package:lualike/testing.dart' as lualike;
+import 'package:test/test.dart';
 
 void main() {
   group('BytecodeValue', () {

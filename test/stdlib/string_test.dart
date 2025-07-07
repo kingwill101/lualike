@@ -1,4 +1,6 @@
 @Tags(['stdlib'])
+library;
+
 import 'package:lualike/testing.dart';
 
 void main() {

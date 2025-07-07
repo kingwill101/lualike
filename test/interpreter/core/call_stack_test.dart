@@ -1,4 +1,6 @@
 @Tags(['core'])
+library;
+
 import 'package:lualike/testing.dart';
 
 void main() {

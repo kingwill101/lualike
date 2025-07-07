@@ -1,4 +1,6 @@
 @Tags(['misc'])
+library;
+
 import 'package:test/test.dart';
 
 void main() {

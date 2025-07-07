@@ -1,6 +1,8 @@
 @Tags(['bytecode'])
-import 'package:test/test.dart';
+library;
+
 import 'package:lualike/bytecode.dart';
+import 'package:test/test.dart';
 
 void main() {
   group('Bytecode Debug Info', () {

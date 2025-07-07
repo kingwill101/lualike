@@ -2,16 +2,17 @@ import 'dart:convert' as convert;
 import 'dart:typed_data';
 
 import 'package:characters/characters.dart';
-import 'package:lualike/src/bytecode/vm.dart' show BytecodeVM;
 import 'package:lualike/src/builtin_function.dart' show BuiltinFunction;
+import 'package:lualike/src/bytecode/vm.dart' show BytecodeVM;
 import 'package:lualike/src/environment.dart' show Environment;
 import 'package:lualike/src/interpreter/interpreter.dart';
-import 'package:lualike/src/value.dart' show Value;
+import 'package:lualike/src/logger.dart';
+import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_string.dart';
+import 'package:lualike/src/value.dart' show Value;
+
 import '../../lualike.dart' show Value;
 import '../value_class.dart';
-import 'package:lualike/src/lua_error.dart';
-import 'package:lualike/src/logger.dart';
 
 class UTF8Lib {
   // Pattern that matches exactly one UTF-8 byte sequence
@@ -119,18 +120,6 @@ class UTF8Lib {
         0x80 | ((codePoint >> 6) & 0x3F),
         0x80 | (codePoint & 0x3F),
       ];
-    }
-  }
-}
-
-class _UTF8Helper {
-  static Uint8List getBytes(Value value) {
-    if (value.raw is LuaString) {
-      return (value.raw as LuaString).bytes;
-    } else if (value.raw is String) {
-      return Uint8List.fromList(convert.utf8.encode(value.raw as String));
-    } else {
-      throw LuaError("utf8 operation on non-string value");
     }
   }
 }
@@ -578,7 +567,6 @@ class _UTF8Len implements BuiltinFunction {
 
     // Ensure valid range
     final start = startByte;
-    final end = endByte + 1;
 
     // Validate UTF-8 sequence by sequence in the specified range
     // In Lua, utf8.len counts characters that START within [i, j]

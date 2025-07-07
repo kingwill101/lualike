@@ -1,6 +1,8 @@
 @Tags(['core'])
-import 'package:test/test.dart';
+library;
+
 import 'package:lualike/src/stack.dart';
+import 'package:test/test.dart';
 
 void main() {
   group('Stack', () {
