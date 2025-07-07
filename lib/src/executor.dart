@@ -6,7 +6,7 @@ import 'package:lualike/src/lua_error.dart';
 import 'ast.dart';
 import 'exceptions.dart';
 import 'file_manager.dart';
-import 'grammar_parser.dart';
+import 'parser_wrapper.dart';
 import 'interpreter/interpreter.dart';
 
 typedef InterpreterSetupCallback = void Function(Interpreter);

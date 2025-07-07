@@ -1,6 +1,5 @@
 @Tags(['stdlib'])
 import 'package:lualike/testing.dart';
-import 'package:lualike/src/lua_string.dart';
 
 void main() {
   group('String Library', () {
