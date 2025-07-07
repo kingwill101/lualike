@@ -1560,7 +1560,10 @@ class GrammarParser {
   ///       .
   ///       ----
   ///       !'"'
-  ///       .
+  ///       (
+  ///         !EOF
+  ///         .
+  ///       )
   ///     )
   ///   >
   ///```
@@ -1598,12 +1601,30 @@ class GrammarParser {
         }
         state.predicate = $7;
         if ($8) {
-          final $9 = state.peek();
-          if ($9 != 0) {
-            state.position += state.charSize($9);
+          final $10 = state.position;
+          var $9 = false;
+          final $11 = state.predicate;
+          state.predicate = true;
+          var $13 = true;
+          final $12 = parseEOF(state);
+          if ($12 != null) {
+            state.failAndBacktrack($10);
+            $13 = false;
+          }
+          state.predicate = $11;
+          if ($13) {
+            final $14 = state.peek();
+            if ($14 != 0) {
+              state.position += state.charSize($14);
+              $9 = true;
+            } else {
+              state.fail();
+            }
+          }
+          if ($9) {
             $5 = true;
           } else {
-            state.fail();
+            state.position = $10;
           }
         }
         if (!$5) {
@@ -1615,8 +1636,8 @@ class GrammarParser {
         break;
       }
     }
-    final $10 = state.substring($0, state.position);
-    return $10;
+    final $15 = state.substring($0, state.position);
+    return $15;
   }
 
   /// **EOF**
@@ -3481,6 +3502,190 @@ class GrammarParser {
     }
   }
 
+  /// **LongComment**
+  ///
+  ///```text
+  /// `String`
+  /// LongComment =>
+  ///   {
+  ///     String text = '';
+  ///     int eqCount = 0;
+  ///     final startPos = state.position;
+  ///   }
+  ///   '--['
+  ///   eqs = <('='*)>
+  ///   '['
+  ///   {
+  ///     eqCount = eqs.length;
+  ///   }
+  ///   content = <
+  ///     @while (*) (
+  ///       !(
+  ///         ']'
+  ///         eqs2 = <('='*)>
+  ///         ']'
+  ///         &{ eqs2.length == eqCount }
+  ///       )
+  ///       (
+  ///         !EOF
+  ///         .
+  ///       )
+  ///     )
+  ///   >
+  ///   ']'
+  ///   eqs3 = <('='*)>
+  ///   ']'
+  ///   &{
+  ///         eqs3.length == eqCount
+  ///       }
+  ///   $ = {
+  ///     $$ = '--[' + eqs + '[' + content + ']' + eqs3 + ']';
+  ///   }
+  ///```
+  (String,)? parseLongComment(State state) {
+    final $1 = state.position;
+    (String,)? $0;
+    String text = '';
+    int eqCount = 0;
+    final startPos = state.position;
+    final $2 = state.position;
+    if (state.peek() == 45 && state.startsWith('--[', state.position)) {
+      state.consume('--[', $2);
+      final $3 = state.position;
+      while (true) {
+        final $4 = state.position;
+        if (state.peek() == 61) {
+          state.consume('=', $4);
+        } else {
+          state.expected('=');
+          break;
+        }
+      }
+      final $5 = state.substring($3, state.position);
+      String eqs = $5;
+      final $6 = state.position;
+      if (state.peek() == 91) {
+        state.consume('[', $6);
+        eqCount = eqs.length;
+        final $7 = state.position;
+        while (true) {
+          final $9 = state.position;
+          var $8 = false;
+          final $10 = state.predicate;
+          state.predicate = true;
+          var $16 = true;
+          var $11 = false;
+          if (state.peek() == 93) {
+            state.consume(']', $9);
+            final $12 = state.position;
+            while (true) {
+              final $13 = state.position;
+              if (state.peek() == 61) {
+                state.consume('=', $13);
+              } else {
+                state.expected('=');
+                break;
+              }
+            }
+            final $14 = state.substring($12, state.position);
+            String eqs2 = $14;
+            final $15 = state.position;
+            if (state.peek() == 93) {
+              state.consume(']', $15);
+              if (eqs2.length == eqCount) {
+                $11 = true;
+              }
+            } else {
+              state.expected(']');
+            }
+          } else {
+            state.expected(']');
+          }
+          if ($11) {
+            state.failAndBacktrack($9);
+            $16 = false;
+          } else {
+            state.position = $9;
+          }
+          state.predicate = $10;
+          if ($16) {
+            final $18 = state.position;
+            var $17 = false;
+            final $19 = state.predicate;
+            state.predicate = true;
+            var $21 = true;
+            final $20 = parseEOF(state);
+            if ($20 != null) {
+              state.failAndBacktrack($18);
+              $21 = false;
+            }
+            state.predicate = $19;
+            if ($21) {
+              final $22 = state.peek();
+              if ($22 != 0) {
+                state.position += state.charSize($22);
+                $17 = true;
+              } else {
+                state.fail();
+              }
+            }
+            if ($17) {
+              $8 = true;
+            } else {
+              state.position = $18;
+            }
+          }
+          if (!$8) {
+            state.position = $9;
+            break;
+          }
+        }
+        final $23 = state.substring($7, state.position);
+        String content = $23;
+        final $24 = state.position;
+        if (state.peek() == 93) {
+          state.consume(']', $24);
+          final $25 = state.position;
+          while (true) {
+            final $26 = state.position;
+            if (state.peek() == 61) {
+              state.consume('=', $26);
+            } else {
+              state.expected('=');
+              break;
+            }
+          }
+          final $27 = state.substring($25, state.position);
+          String eqs3 = $27;
+          final $28 = state.position;
+          if (state.peek() == 93) {
+            state.consume(']', $28);
+            if (eqs3.length == eqCount) {
+              final String $$;
+              $$ = '--[' + eqs + '[' + content + ']' + eqs3 + ']';
+              String $ = $$;
+              $0 = ($,);
+            }
+          } else {
+            state.expected(']');
+          }
+        } else {
+          state.expected(']');
+        }
+      } else {
+        state.expected('[');
+      }
+    } else {
+      state.expected('--[');
+    }
+    if ($0 != null) {
+      return $0;
+    } else {
+      state.position = $1;
+      return null;
+    }
+  }
+
   /// **LongString**
   ///
   ///```text
@@ -4756,31 +4961,10 @@ class GrammarParser {
   /// S =>
   ///   { List<dynamic> comment = []; }
   ///   @while (*) (
-  ///     c = [ {9}{d}{a}]
+  ///     c = [ {9}{d}{a}{b}{c}]
   ///     { comment.add(c); }
   ///     ----
-  ///     c = '--[['
-  ///     @while (*) (
-  ///       !']]'
-  ///       .
-  ///     )
-  ///     ']]'
-  ///     { comment.add(c); }
-  ///     ----
-  ///     c = '--[=['
-  ///     @while (*) (
-  ///       !']=]'
-  ///       .
-  ///     )
-  ///     ']=]'
-  ///     { comment.add(c); }
-  ///     ----
-  ///     c = '--[==['
-  ///     @while (*) (
-  ///       !']==]'
-  ///       .
-  ///     )
-  ///     ']==]'
+  ///     c = LongComment
   ///     { comment.add(c); }
   ///     ----
   ///     c = '--'
@@ -4799,7 +4983,7 @@ class GrammarParser {
       var $0 = true;
       var $1 = false;
       final $2 = state.peek();
-      if ($2 >= 13 ? $2 <= 13 || $2 == 32 : $2 >= 9 && $2 <= 10) {
+      if ($2 >= 32 ? $2 <= 32 : $2 >= 9 && $2 <= 13) {
         state.position += state.charSize($2);
         int c = $2;
         comment.add(c);
@@ -4808,217 +4992,80 @@ class GrammarParser {
         state.fail();
       }
       if (!$1) {
-        final $4 = state.position;
         var $3 = false;
-        if (state.peek() == 45 && state.startsWith('--[[', state.position)) {
-          state.consume('--[[', $4);
-          String c = '--[[';
-          while (true) {
-            final $6 = state.position;
-            var $5 = false;
-            final $7 = state.predicate;
-            state.predicate = true;
-            var $8 = true;
-            if (state.peek() == 93 && state.startsWith(']]', state.position)) {
-              state.consume(']]', $6);
-              state.failAndBacktrack($6);
-              $8 = false;
-            } else {
-              state.expected(']]');
-            }
-            state.predicate = $7;
-            if ($8) {
-              final $9 = state.peek();
-              if ($9 != 0) {
-                state.position += state.charSize($9);
-                $5 = true;
-              } else {
-                state.fail();
-              }
-            }
-            if (!$5) {
-              state.position = $6;
-              break;
-            }
-          }
-          final $10 = state.position;
-          if (state.peek() == 93 && state.startsWith(']]', state.position)) {
-            state.consume(']]', $10);
-            comment.add(c);
-            $3 = true;
-          } else {
-            state.expected(']]');
-          }
-        } else {
-          state.expected('--[[');
+        final $4 = parseLongComment(state);
+        if ($4 != null) {
+          String c = $4.$1;
+          comment.add(c);
+          $3 = true;
         }
         if (!$3) {
-          state.position = $4;
-          final $12 = state.position;
-          var $11 = false;
-          if (state.peek() == 45 && state.startsWith('--[=[', state.position)) {
-            state.consume('--[=[', $12);
-            String c = '--[=[';
+          final $6 = state.position;
+          var $5 = false;
+          if (state.peek() == 45 && state.startsWith('--', state.position)) {
+            state.consume('--', $6);
+            String c = '--';
             while (true) {
-              final $14 = state.position;
-              var $13 = false;
-              final $15 = state.predicate;
+              final $8 = state.position;
+              var $7 = false;
+              final $9 = state.predicate;
               state.predicate = true;
-              var $16 = true;
-              if (state.peek() == 93 &&
-                  state.startsWith(']=]', state.position)) {
-                state.consume(']=]', $14);
-                state.failAndBacktrack($14);
-                $16 = false;
+              var $10 = true;
+              if (state.peek() == 10) {
+                state.consume('\n', $8);
+                state.failAndBacktrack($8);
+                $10 = false;
               } else {
-                state.expected(']=]');
+                state.expected('\n');
               }
-              state.predicate = $15;
-              if ($16) {
-                final $17 = state.peek();
-                if ($17 != 0) {
-                  state.position += state.charSize($17);
-                  $13 = true;
-                } else {
-                  state.fail();
-                }
-              }
-              if (!$13) {
-                state.position = $14;
-                break;
-              }
-            }
-            final $18 = state.position;
-            if (state.peek() == 93 && state.startsWith(']=]', state.position)) {
-              state.consume(']=]', $18);
-              comment.add(c);
-              $11 = true;
-            } else {
-              state.expected(']=]');
-            }
-          } else {
-            state.expected('--[=[');
-          }
-          if (!$11) {
-            state.position = $12;
-            final $20 = state.position;
-            var $19 = false;
-            if (state.peek() == 45 &&
-                state.startsWith('--[==[', state.position)) {
-              state.consume('--[==[', $20);
-              String c = '--[==[';
-              while (true) {
-                final $22 = state.position;
-                var $21 = false;
-                final $23 = state.predicate;
+              state.predicate = $9;
+              if ($10) {
+                final $11 = state.position;
+                final $12 = state.predicate;
                 state.predicate = true;
-                var $24 = true;
-                if (state.peek() == 93 &&
-                    state.startsWith(']==]', state.position)) {
-                  state.consume(']==]', $22);
-                  state.failAndBacktrack($22);
-                  $24 = false;
-                } else {
-                  state.expected(']==]');
+                var $14 = true;
+                final $13 = parseEOF(state);
+                if ($13 != null) {
+                  state.failAndBacktrack($11);
+                  $14 = false;
                 }
-                state.predicate = $23;
-                if ($24) {
-                  final $25 = state.peek();
-                  if ($25 != 0) {
-                    state.position += state.charSize($25);
-                    $21 = true;
+                state.predicate = $12;
+                if ($14) {
+                  final $15 = state.peek();
+                  if ($15 != 0) {
+                    state.position += state.charSize($15);
+                    $7 = true;
                   } else {
                     state.fail();
                   }
                 }
-                if (!$21) {
-                  state.position = $22;
-                  break;
-                }
               }
-              final $26 = state.position;
-              if (state.peek() == 93 &&
-                  state.startsWith(']==]', state.position)) {
-                state.consume(']==]', $26);
-                comment.add(c);
-                $19 = true;
-              } else {
-                state.expected(']==]');
+              if (!$7) {
+                state.position = $8;
+                break;
               }
+            }
+            var $16 = true;
+            final $17 = state.position;
+            if (state.peek() == 10) {
+              state.consume('\n', $17);
             } else {
-              state.expected('--[==[');
-            }
-            if (!$19) {
-              state.position = $20;
-              final $28 = state.position;
-              var $27 = false;
-              if (state.peek() == 45 &&
-                  state.startsWith('--', state.position)) {
-                state.consume('--', $28);
-                String c = '--';
-                while (true) {
-                  final $30 = state.position;
-                  var $29 = false;
-                  final $31 = state.predicate;
-                  state.predicate = true;
-                  var $32 = true;
-                  if (state.peek() == 10) {
-                    state.consume('\n', $30);
-                    state.failAndBacktrack($30);
-                    $32 = false;
-                  } else {
-                    state.expected('\n');
-                  }
-                  state.predicate = $31;
-                  if ($32) {
-                    final $33 = state.position;
-                    final $34 = state.predicate;
-                    state.predicate = true;
-                    var $36 = true;
-                    final $35 = parseEOF(state);
-                    if ($35 != null) {
-                      state.failAndBacktrack($33);
-                      $36 = false;
-                    }
-                    state.predicate = $34;
-                    if ($36) {
-                      final $37 = state.peek();
-                      if ($37 != 0) {
-                        state.position += state.charSize($37);
-                        $29 = true;
-                      } else {
-                        state.fail();
-                      }
-                    }
-                  }
-                  if (!$29) {
-                    state.position = $30;
-                    break;
-                  }
-                }
-                var $38 = true;
-                final $39 = state.position;
-                if (state.peek() == 10) {
-                  state.consume('\n', $39);
-                } else {
-                  state.expected('\n');
-                  final $40 = parseEOF(state);
-                  if ($40 == null) {
-                    $38 = false;
-                  }
-                }
-                if ($38) {
-                  comment.add(c);
-                  $27 = true;
-                }
-              } else {
-                state.expected('--');
-              }
-              if (!$27) {
-                state.position = $28;
-                $0 = false;
+              state.expected('\n');
+              final $18 = parseEOF(state);
+              if ($18 == null) {
+                $16 = false;
               }
             }
+            if ($16) {
+              comment.add(c);
+              $5 = true;
+            }
+          } else {
+            state.expected('--');
+          }
+          if (!$5) {
+            state.position = $6;
+            $0 = false;
           }
         }
       }
@@ -5349,7 +5396,10 @@ class GrammarParser {
   ///       .
   ///       ----
   ///       !"'"
-  ///       .
+  ///       (
+  ///         !EOF
+  ///         .
+  ///       )
   ///     )
   ///   >
   ///```
@@ -5387,12 +5437,30 @@ class GrammarParser {
         }
         state.predicate = $7;
         if ($8) {
-          final $9 = state.peek();
-          if ($9 != 0) {
-            state.position += state.charSize($9);
+          final $10 = state.position;
+          var $9 = false;
+          final $11 = state.predicate;
+          state.predicate = true;
+          var $13 = true;
+          final $12 = parseEOF(state);
+          if ($12 != null) {
+            state.failAndBacktrack($10);
+            $13 = false;
+          }
+          state.predicate = $11;
+          if ($13) {
+            final $14 = state.peek();
+            if ($14 != 0) {
+              state.position += state.charSize($14);
+              $9 = true;
+            } else {
+              state.fail();
+            }
+          }
+          if ($9) {
             $5 = true;
           } else {
-            state.fail();
+            state.position = $10;
           }
         }
         if (!$5) {
@@ -5404,8 +5472,8 @@ class GrammarParser {
         break;
       }
     }
-    final $10 = state.substring($0, state.position);
-    return $10;
+    final $15 = state.substring($0, state.position);
+    return $15;
   }
 
   /// **Start**

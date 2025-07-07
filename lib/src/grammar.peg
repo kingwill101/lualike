@@ -1512,14 +1512,14 @@ LongString =>
 DoubleChars =>
     <(
       '\\' . /
-      !'"' .
+      !'"' (!EOF .)
     )*>
 
 `String`
 SingleChars =>
     <(
       '\\' . /
-      !"'" .
+      !"'" (!EOF .)
     )*>
 
 `BooleanLiteral`
@@ -1641,20 +1641,36 @@ ID =>
 EOF =>
   !.
 
+`String`
+LongComment =>
+    {
+      String text = '';
+      int eqCount = 0;
+      final startPos = state.position;
+    }
+    '--[' eqs = <('='*)> '['
+    {
+      eqCount = eqs.length;
+    }
+    content = <(
+      !( ']' eqs2 = <('='*)> ']' &{ eqs2.length == eqCount } ) (!EOF .)
+    )*>
+    ']' eqs3 = <('='*)> ']'
+    &{
+      eqs3.length == eqCount
+    }
+    $ = {
+      $$ = '--[' + eqs + '[' + content + ']' + eqs3 + ']';
+    }
+
 `void`
 S =>
 { List<dynamic> comment = []; }
   (
-    c = [ \t\r\n]
+    c = [ \t\r\n\v\f]
     { comment.add(c); }
     ----
-    c = '--[[' (!']]' .)* ']]'
-    { comment.add(c); }
-    ----
-    c = '--[=[' (!']=]' .)* ']=]'
-    { comment.add(c); }
-    ----
-    c =  '--[==[' (!']==]' .)* ']==]'
+    c = LongComment
     { comment.add(c); }
     ----
     c =  '--' (!'\n' !EOF .)* ('\n' / EOF)
