@@ -1,12 +1,10 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/coroutine.dart' show Coroutine;
 import 'package:lualike/src/stdlib/lib_io.dart';
-import 'package:lualike/src/stdlib/format_parser.dart';
 import 'package:path/path.dart' as path;
 
 /// Built-in function to retrieve the metatable of a value.
@@ -568,18 +566,6 @@ class LoadFunction implements BuiltinFunction {
 
   LoadFunction(this.vm);
 
-  /// Process escape sequences in source code to handle control characters
-  String _processEscapeSequences(String source) {
-    // Convert common escape sequences to actual control characters
-    return source
-        .replaceAll(r'\v', '\v') // vertical tab
-        .replaceAll(r'\f', '\f') // form feed
-        .replaceAll(r'\t', '\t') // tab
-        .replaceAll(r'\r', '\r') // carriage return
-        .replaceAll(r'\n', '\n') // newline
-        .replaceAll(r'\0', '\u0000'); // null character
-  }
-
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -624,7 +610,7 @@ class LoadFunction implements BuiltinFunction {
 
     try {
       final ast = parse(source);
-      return Value((List<Object?> callArgs) {
+      return Value((List<Object?> callArgs) async {
         try {
           // Save the current environment
           final savedEnv = vm.getCurrentEnv();
@@ -642,7 +628,7 @@ class LoadFunction implements BuiltinFunction {
           vm.setCurrentEnv(rootGlobals);
 
           try {
-            final result = vm.run(ast.statements);
+            final result = await vm.run(ast.statements);
             return result;
           } finally {
             // Restore the previous environment
