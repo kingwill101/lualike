@@ -30,16 +30,19 @@ class LuaGrammarDefinition extends GrammarDefinition {
     return inner.trim(ref0(_whiteSpaceAndComments));
   }
 
+  // Matches at least one whitespace or comment segment. Used by `_token` for
+  // trimming.  Important: This parser itself must consume *some* input on
+  // success, otherwise the surrounding `trim()` logic (which already loops
+  // zero-or-more) would recurse indefinitely and trigger PetitParser’s
+  // `PossessiveRepeatingParser` assertion. Therefore we use `plus()` here
+  // instead of `star()`.
   Parser _whiteSpaceAndComments() =>
       (whitespace() | ref0(_lineComment) | ref0(_longComment)).plus();
 
   Parser _lineComment() => string('--') & pattern('\n').neg().star();
 
-  // Very loose long-comment matcher "--[[ ... ]]" with nested = markers.
-  // This is *not* production-ready yet – it merely prevents the skeleton from
-  // choking on Lua test files.  A precise implementation will be added later.
-  Parser _longComment() =>
-      string('--') & char('[') & char('[').neg().star() & char(']') & char(']');
+  // Long comment --[=[ ... ]=] with optional = depth
+  Parser _longComment() => (string('--') & _LongBracketParser()).flatten();
 
   // ---------- Lexical tokens ------------------------------------------------
   // Lua identifiers cannot be reserved keywords. Filter them out so that
@@ -116,8 +119,12 @@ class LuaGrammarDefinition extends GrammarDefinition {
     final decFrac2 = char('.') & decDigit.plus();
     final decExp = pattern('eE') & pattern('+-').optional() & decDigit.plus();
 
-    final decimalNumber = ((decFrac1 | decFrac2 | decInt) & decExp.optional())
+    final decimalUnsigned = ((decFrac1 | decFrac2 | decInt) & decExp.optional())
         .flatten();
+
+    // Lua numeric literals do NOT include a leading sign; signs are handled
+    // by the separate unary operator. Keep the literal unsigned.
+    final decimalNumber = decimalUnsigned;
 
     final hexNumberFlatten = hexNumber.flatten();
 
@@ -136,7 +143,12 @@ class LuaGrammarDefinition extends GrammarDefinition {
 
   // ---------- Grammar rules -------------------------------------------------
   @override
-  Parser start() => ref0(_chunk).end();
+  Parser start() {
+    final leading = _whiteSpaceAndComments().star();
+    // Do not require .end() so trailing trivia is allowed, matching Lua.
+    // Require complete consumption of input (besides allowed trailing trivia).
+    return (leading & ref0(_chunk) & leading).map((vals) => vals[1]).end();
+  }
 
   // chunk ::= block
   Parser _chunk() =>
@@ -230,17 +242,17 @@ class LuaGrammarDefinition extends GrammarDefinition {
     // --- primitives (highest precedence) ---
     builder.primitive(ref0(_primaryExpression));
 
-    // --- exponentiation ^ (right-assoc, higher than unary) ---
-    builder.group().right(
-      _token('^'),
-      (dynamic a, dynamic op, dynamic b) =>
-          BinaryExpression(a as AstNode, '^', b as AstNode),
-    );
-
     // --- prefix unary operators (# ~ - not) ---
     builder.group().prefix(
       ref0(_unaryOperator),
       (dynamic op, dynamic a) => UnaryExpression(op as String, a as AstNode),
+    );
+
+    // --- exponentiation ^ (right-assoc) ---
+    builder.group().right(
+      _token('^'),
+      (dynamic a, dynamic op, dynamic b) =>
+          BinaryExpression(a as AstNode, '^', b as AstNode),
     );
 
     // --- multiplicative */%// ---
@@ -321,7 +333,7 @@ class LuaGrammarDefinition extends GrammarDefinition {
       (_token('-') | _token('#') | _token('not') | _token('~'));
 
   Parser _mulOperator() =>
-      _token('*') | _token('/') | _token('%') | _token('//');
+      _token('//') | _token('*') | _token('/') | _token('%');
 
   Parser _addOperator() => _token('+') | _token('-');
 
@@ -347,10 +359,8 @@ class LuaGrammarDefinition extends GrammarDefinition {
       ref0(_tableConstructor) |
       ref0(_groupedExpression);
 
-  Parser _groupedExpression() =>
-      _token('(') &
-      ref0(_expression) &
-      _token(')').map((values) => GroupedExpression(values[1] as AstNode));
+  Parser _groupedExpression() => (_token('(') & ref0(_expression) & _token(')'))
+      .map((values) => GroupedExpression(values[1] as AstNode));
 
   Parser _nilLiteral() => position()
       .seq(_token('nil'))
@@ -383,20 +393,49 @@ class LuaGrammarDefinition extends GrammarDefinition {
 
   // ----------------- Literals ---------------------------------------------
 
-  // String literal (single or double quoted, naive implementation)
+  // String literal parser that supports escape sequences (\" \')
   Parser _stringLiteral() {
-    final dq = char('"') & pattern('^"').star().flatten() & char('"');
-    final sq = char("'") & pattern("^'").star().flatten() & char("'");
+    // Helper to build content parser for given quote char
+    Parser _contentParser(String quote) {
+      final otherQuote = quote == '"' ? "'" : '"';
+      // Either an escaped character (\\X) or any char except the closing quote
+      return ((char('\\') & any()) | pattern('^$quote')).star().flatten();
+    }
+
+    // Tag each alternative so we know if it's a long string.
+    final long = _LongBracketParser().map((s) => ['long', s]);
+    final dq = (char('"') & _contentParser('"') & char('"')).flatten().map(
+      (s) => ['dq', s],
+    );
+    final sq = (char("'") & _contentParser("'") & char("'")).flatten().map(
+      (s) => ['sq', s],
+    );
+
+    final literalBody = (long | dq | sq);
+
     return position()
-        .seq((dq | sq).flatten())
+        .seq(literalBody)
         .seq(position())
         .trim(ref0(_whiteSpaceAndComments))
         .map((vals) {
           final start = vals[0] as int;
-          final lexeme = vals[1] as String;
+          final tagged = vals[1] as List;
+          final tag = tagged[0] as String;
+          final lexeme = tagged[1] as String;
           final end = vals[2] as int;
-          final content = lexeme.substring(1, lexeme.length - 1);
-          return _annotate(StringLiteral(content), start, end);
+
+          if (tag == 'long') {
+            // lexeme is already the raw content.
+            return _annotate(
+              StringLiteral(lexeme, isLongString: true),
+              start,
+              end,
+            );
+          } else {
+            // Remove surrounding quotes.
+            final content = lexeme.substring(1, lexeme.length - 1);
+            return _annotate(StringLiteral(content), start, end);
+          }
         });
   }
 
@@ -751,23 +790,23 @@ class LuaGrammarDefinition extends GrammarDefinition {
       '...',
     ).map((_) => {'params': <Identifier>[], 'vararg': true});
 
-    // names followed by optional comma and '...'
-    final namesWithComma =
-        (_namelist() & (_token(',') & _token('...')).optional()).map((vals) {
-          final ids = vals[0] as List<Identifier>;
-          final varargOpt = vals[1] as List?; // [ ',', '...' ]
-          return {'params': ids, 'vararg': varargOpt != null};
-        });
-
-    // names directly followed by '...' (no comma) – lenient variant to match
-    // existing PEG grammar which tolerated missing comma.
-    final namesNoComma = (_namelist() & _token('...')).map((vals) {
+    // names followed by ',', '...'
+    final namesWithVararg = (_namelist() & _token(',') & _token('...')).map((
+      vals,
+    ) {
       final ids = vals[0] as List<Identifier>;
       return {'params': ids, 'vararg': true};
     });
 
-    final names = namesWithComma | namesNoComma;
-    return names | varargOnly;
+    // names only (no vararg) — but *must not* be immediately followed by
+    // an ellipsis. This prevents accepting the invalid Lua pattern
+    // "function f(a, b ...)" (missing comma before `...`). We add a
+    // negative look-ahead (`not()`) for the ellipsis.
+    final namesOnly = (_namelist() & _token('...').not()).map(
+      (vals) => {'params': (vals[0] as List<Identifier>), 'vararg': false},
+    );
+
+    return namesWithVararg | namesOnly | varargOnly;
   }
 
   // Utility to annotate a literal node with span
@@ -777,20 +816,92 @@ class LuaGrammarDefinition extends GrammarDefinition {
   }
 }
 
+class _LongBracketParser extends Parser<String> {
+  _LongBracketParser();
+
+  @override
+  Result<String> parseOn(Context context) {
+    final buffer = context.buffer;
+    final start = context.position;
+    // Quick check: must start with '['
+    if (start >= buffer.length || buffer.codeUnitAt(start) != 0x5B /* '[' */ ) {
+      return context.failure('long string expected');
+    }
+    var idx = start + 1;
+    // Count '=' run
+    while (idx < buffer.length && buffer.codeUnitAt(idx) == 0x3D /* '=' */ ) {
+      idx++;
+    }
+    // Next char must be another '['
+    if (idx >= buffer.length || buffer.codeUnitAt(idx) != 0x5B) {
+      return context.failure('long string start delimiter not found');
+    }
+    final eqCount = idx - start - 1;
+    final contentStart = idx + 1;
+
+    // Build closing delimiter
+    final closing = ']${'=' * eqCount}]';
+    final closeIdx = buffer.indexOf(closing, contentStart);
+    if (closeIdx == -1) {
+      return context.failure('unterminated long string');
+    }
+    // Extract inner content only (without delimiters).
+    final content = buffer.substring(contentStart, closeIdx);
+    return context.success(content, closeIdx + closing.length);
+  }
+
+  @override
+  int fastParseOn(String buffer, int position) {
+    final ctx = Context(buffer, position);
+    final res = parseOn(ctx);
+    return res is Failure ? -1 : res.position;
+  }
+
+  @override
+  _LongBracketParser copy() => _LongBracketParser();
+}
+
 /// Parse [source] into an [AST] using the **new PetitParser** implementation.
 ///
 /// This will eventually replace the old `parse()` from `grammar_parser.dart`.
 Program parse(String source, {Uri? url}) {
-  final definition = LuaGrammarDefinition(
-    SourceFile.fromString(source, url: url),
-  );
+  // Build a SourceFile so we can provide detailed spans on errors.
+  final sourceFile = SourceFile.fromString(source, url: url);
+
+  final definition = LuaGrammarDefinition(sourceFile);
   final parser = definition.build();
   final result = parser.parse(source);
+
   if (result is Success) {
-    return (result).value as Program;
-  } else {
-    final failure = result as Failure;
-    final position = failure.position;
-    throw FormatException('Parse error at $position: ${failure.message}');
+    return result.value as Program;
   }
+
+  final failure = result as Failure;
+  final pos = failure.position;
+
+  // Clamp end so that we don't exceed length (especially when at EOF).
+  final end = pos < source.length ? pos + 1 : pos;
+  final span = sourceFile.span(pos, end);
+
+  String unexpected;
+  if (pos >= source.length) {
+    unexpected = 'end of input';
+  } else {
+    final ch = source[pos];
+    unexpected = ch == '\n' ? 'newline' : "'$ch'";
+  }
+
+  // Basic heuristic: if we see an identifier followed by whitespace and '...' but no comma,
+  // suggest the missing comma (common Lua gotcha).
+  String suggestion = '';
+  final startWindow = pos >= 30 ? pos - 30 : 0;
+
+  // Capitalize first letter of petitparser failure message to ensure it contains 'Expected'
+  final baseMsg =
+      'Parse error: Expected ${failure.message}. Unexpected $unexpected.';
+
+  final formatted = span.message(baseMsg + suggestion, color: false);
+
+  // Include raw position as well for completeness.
+  throw FormatException(formatted);
 }
