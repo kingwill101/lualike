@@ -74,6 +74,14 @@ class LuaGrammarDefinition extends GrammarDefinition {
     'while',
   };
 
+  Parser _span(Parser inner) => (position() & inner & position()).map((vals) {
+    final start = vals[0] as int;
+    final node = vals[1] as AstNode;
+    final end = vals[2] as int;
+    node.setSpan(_sourceFile.span(start, end));
+    return node;
+  });
+
   Parser _identifier() {
     final base = (_letter() & (_letter() | digit()).star()).flatten();
     // Capture start and end positions to create SourceSpan
@@ -185,20 +193,23 @@ class LuaGrammarDefinition extends GrammarDefinition {
       ref0(_returnlessExprStatement);
 
   // retstat ::= return [explist] [';']
-  Parser _retstat() =>
-      (_token('return') & ref0(_explist).optional() & _token(';').optional())
-          .map((values) {
-            final list = values[1] as List<AstNode>? ?? <AstNode>[];
-            return ReturnStatement(list);
-          });
+  Parser _retstat() => _span(
+    (_token('return') & ref0(_explist).optional() & _token(';').optional()).map(
+      (values) {
+        final list = values[1] as List<AstNode>? ?? <AstNode>[];
+        return ReturnStatement(list);
+      },
+    ),
+  );
 
   // varlist '=' explist
-  Parser _assignment() =>
-      (ref0(_varlist) & _token('=') & ref0(_explist)).map((values) {
-        final targets = values[0] as List<AstNode>;
-        final exprs = values[2] as List<AstNode>;
-        return Assignment(targets, exprs);
-      });
+  Parser _assignment() => _span(
+    (ref0(_varlist) & _token('=') & ref0(_explist)).map((values) {
+      final targets = values[0] as List<AstNode>;
+      final exprs = values[2] as List<AstNode>;
+      return Assignment(targets, exprs);
+    }),
+  );
 
   // varlist ::= var {',' var}
   Parser _varlist() =>
@@ -376,7 +387,7 @@ class LuaGrammarDefinition extends GrammarDefinition {
 
   // Returnless expression statement (functioncall or generic expression)
   Parser _returnlessExprStatement() =>
-      ref0(_expression).map((expr) => ExpressionStatement(expr));
+      _span(ref0(_expression).map((expr) => ExpressionStatement(expr)));
 
   // ----------------- Literals ---------------------------------------------
 
@@ -553,37 +564,43 @@ class LuaGrammarDefinition extends GrammarDefinition {
 
   // ----------------- Simple Control Statements ---------------------------
 
-  Parser _breakStat() => _token('break').map((_) => Break());
+  Parser _breakStat() => _span(_token('break').map((_) => Break()));
 
-  Parser _gotoStat() => (_token('goto') & _identifier()).map(
-    (vals) => Goto(vals[1] as Identifier),
+  Parser _gotoStat() => _span(
+    (_token('goto') & _identifier()).map((vals) => Goto(vals[1] as Identifier)),
   );
 
-  Parser _labelStat() => (_token('::') & _identifier() & _token('::')).map(
-    (vals) => Label(vals[1] as Identifier),
+  Parser _labelStat() => _span(
+    (_token('::') & _identifier() & _token('::')).map(
+      (vals) => Label(vals[1] as Identifier),
+    ),
   );
 
   // ----------------- Blocks ----------------------------------------------
 
-  Parser _doBlockStat() => (_token('do') & _block() & _token('end')).map(
-    (vals) => DoBlock(vals[1] as List<AstNode>),
+  Parser _doBlockStat() => _span(
+    (_token('do') & _block() & _token('end')).map(
+      (vals) => DoBlock(vals[1] as List<AstNode>),
+    ),
   );
 
-  Parser _whileStat() =>
-      (_token('while') &
-              ref0(_expression) &
-              _token('do') &
-              _block() &
-              _token('end'))
-          .map(
-            (vals) =>
-                WhileStatement(vals[1] as AstNode, vals[3] as List<AstNode>),
-          );
+  Parser _whileStat() => _span(
+    (_token('while') &
+            ref0(_expression) &
+            _token('do') &
+            _block() &
+            _token('end'))
+        .map(
+          (vals) =>
+              WhileStatement(vals[1] as AstNode, vals[3] as List<AstNode>),
+        ),
+  );
 
-  Parser _repeatStat() =>
-      (_token('repeat') & _block() & _token('until') & ref0(_expression)).map(
-        (vals) => RepeatUntilLoop(vals[1] as List<AstNode>, vals[3] as AstNode),
-      );
+  Parser _repeatStat() => _span(
+    (_token('repeat') & _block() & _token('until') & ref0(_expression)).map(
+      (vals) => RepeatUntilLoop(vals[1] as List<AstNode>, vals[3] as AstNode),
+    ),
+  );
 
   // ----------------- If Statement ----------------------------------------
 
@@ -593,49 +610,52 @@ class LuaGrammarDefinition extends GrammarDefinition {
           (vals) => ElseIfClause(vals[1] as AstNode, vals[3] as List<AstNode>),
         );
 
-    return (_token('if') &
-            ref0(_expression) &
-            _token('then') &
-            _block() &
-            elseifParser.star() &
-            (_token('else') & _block()).optional() &
-            _token('end'))
-        .map((vals) {
-          final cond = vals[1] as AstNode;
-          final thenBlk = vals[3] as List<AstNode>;
-          final elseIfs = vals[4] as List<ElseIfClause>;
-          final elseBlockOpt =
-              vals[5] as List?; // when present, [ 'else', block ]
-          final elseBlk = elseBlockOpt == null
-              ? <AstNode>[]
-              : elseBlockOpt[1] as List<AstNode>;
-          return IfStatement(cond, elseIfs, thenBlk, elseBlk);
-        });
+    return _span(
+      (_token('if') &
+              ref0(_expression) &
+              _token('then') &
+              _block() &
+              elseifParser.star() &
+              (_token('else') & _block()).optional() &
+              _token('end'))
+          .map((vals) {
+            final cond = vals[1] as AstNode;
+            final thenBlk = vals[3] as List<AstNode>;
+            final elseIfs = vals[4] as List<ElseIfClause>;
+            final elseBlockOpt =
+                vals[5] as List?; // when present, [ 'else', block ]
+            final elseBlk = elseBlockOpt == null
+                ? <AstNode>[]
+                : elseBlockOpt[1] as List<AstNode>;
+            return IfStatement(cond, elseIfs, thenBlk, elseBlk);
+          }),
+    );
   }
 
   // ----------------- Local Declaration ------------------------------------
 
-  Parser _localDeclaration() =>
-      (_token('local') & _attNameList() & (_token('=') & _explist()).optional()).map((
-        vals,
-      ) {
-        // _attNameList now returns a List of [Identifier, attribute] pairs in order
-        final pairList = vals[1] as List<List>;
+  Parser _localDeclaration() => _span(
+    (_token('local') & _attNameList() & (_token('=') & _explist()).optional()).map((
+      vals,
+    ) {
+      // _attNameList now returns a List of [Identifier, attribute] pairs in order
+      final pairList = vals[1] as List<List>;
 
-        // Separate into parallel name/attribute lists while preserving duplicates and order
-        final names = <Identifier>[];
-        final attributes = <String>[];
-        for (final pair in pairList) {
-          names.add(pair[0] as Identifier);
-          attributes.add(pair[1] as String);
-        }
+      // Separate into parallel name/attribute lists while preserving duplicates and order
+      final names = <Identifier>[];
+      final attributes = <String>[];
+      for (final pair in pairList) {
+        names.add(pair[0] as Identifier);
+        attributes.add(pair[1] as String);
+      }
 
-        final exprs = vals[2] == null
-            ? <AstNode>[]
-            : (vals[2] as List)[1] as List<AstNode>; // [ '=', explist ]
+      final exprs = vals[2] == null
+          ? <AstNode>[]
+          : (vals[2] as List)[1] as List<AstNode>; // [ '=', explist ]
 
-        return LocalDeclaration(names, attributes, exprs);
-      });
+      return LocalDeclaration(names, attributes, exprs);
+    }),
+  );
 
   Parser _attNameList() =>
       (_identifierWithAttrib() & (_token(',') & _identifierWithAttrib()).star())
@@ -664,43 +684,45 @@ class LuaGrammarDefinition extends GrammarDefinition {
 
   // ----------------- For Loops -------------------------------------------
 
-  Parser _forNumericStat() =>
-      (_token('for') &
-              _identifier() &
-              _token('=') &
-              ref0(_expression) &
-              _token(',') &
-              ref0(_expression) &
-              (_token(',') & ref0(_expression)).optional() &
-              _token('do') &
-              _block() &
-              _token('end'))
-          .map((vals) {
-            final varName = vals[1] as Identifier;
-            final startExp = vals[3] as AstNode;
-            final endExp = vals[5] as AstNode;
-            final stepExpOpt = vals[6] as List?; // [ ',', exp ]
-            final stepExp = stepExpOpt == null
-                ? NumberLiteral(1)
-                : stepExpOpt[1] as AstNode;
-            final body = vals[8] as List<AstNode>;
-            return ForLoop(varName, startExp, endExp, stepExp, body);
-          });
+  Parser _forNumericStat() => _span(
+    (_token('for') &
+            _identifier() &
+            _token('=') &
+            ref0(_expression) &
+            _token(',') &
+            ref0(_expression) &
+            (_token(',') & ref0(_expression)).optional() &
+            _token('do') &
+            _block() &
+            _token('end'))
+        .map((vals) {
+          final varName = vals[1] as Identifier;
+          final startExp = vals[3] as AstNode;
+          final endExp = vals[5] as AstNode;
+          final stepExpOpt = vals[6] as List?; // [ ',', exp ]
+          final stepExp = stepExpOpt == null
+              ? NumberLiteral(1)
+              : stepExpOpt[1] as AstNode;
+          final body = vals[8] as List<AstNode>;
+          return ForLoop(varName, startExp, endExp, stepExp, body);
+        }),
+  );
 
-  Parser _forGenericStat() =>
-      (_token('for') &
-              _namelist() &
-              _token('in') &
-              _explist() &
-              _token('do') &
-              _block() &
-              _token('end'))
-          .map((vals) {
-            final names = vals[1] as List<Identifier>;
-            final exps = vals[3] as List<AstNode>;
-            final body = vals[5] as List<AstNode>;
-            return ForInLoop(names, exps, body);
-          });
+  Parser _forGenericStat() => _span(
+    (_token('for') &
+            _namelist() &
+            _token('in') &
+            _explist() &
+            _token('do') &
+            _block() &
+            _token('end'))
+        .map((vals) {
+          final names = vals[1] as List<Identifier>;
+          final exps = vals[3] as List<AstNode>;
+          final body = vals[5] as List<AstNode>;
+          return ForInLoop(names, exps, body);
+        }),
+  );
 
   Parser _namelist() =>
       (_identifier() & (_token(',') & _identifier()).star()).map((vals) {
@@ -751,26 +773,24 @@ class LuaGrammarDefinition extends GrammarDefinition {
 
   // ----------------- Function Definitions ---------------------------------
 
-  Parser _functionDefStat() =>
-      (_token('function') & _funcName() & _funcBody()).map((vals) {
-        final fname = vals[1] as FunctionName;
-        final body = vals[2] as FunctionBody;
-        final node = FunctionDef(
-          fname,
-          body,
-          implicitSelf: fname.method != null,
-        );
-        return node;
-      });
+  Parser _functionDefStat() => _span(
+    (_token('function') & _funcName() & _funcBody()).map((vals) {
+      final fname = vals[1] as FunctionName;
+      final body = vals[2] as FunctionBody;
+      final node = FunctionDef(fname, body, implicitSelf: fname.method != null);
+      return node;
+    }),
+  );
 
-  Parser _localFunctionDefStat() =>
-      (_token('local') & _token('function') & _identifier() & _funcBody()).map((
-        vals,
-      ) {
-        final name = vals[2] as Identifier;
-        final body = vals[3] as FunctionBody;
-        return LocalFunctionDef(name, body);
-      });
+  Parser _localFunctionDefStat() => _span(
+    (_token('local') & _token('function') & _identifier() & _funcBody()).map((
+      vals,
+    ) {
+      final name = vals[2] as Identifier;
+      final body = vals[3] as FunctionBody;
+      return LocalFunctionDef(name, body);
+    }),
+  );
 
   Parser _functionLiteral() => (_token('function') & _funcBody()).map(
     (vals) => FunctionLiteral(vals[1] as FunctionBody),

@@ -30,6 +30,8 @@ class LuaLikeCommandRunner extends CommandRunner {
       negatable: false,
     );
 
+    // argParser.addFlag('help', help: 'Show help', negatable: false);
+
     argParser.addOption(
       'level',
       help: 'Set log level (FINE, INFO, WARNING, SEVERE, etc)',
@@ -95,6 +97,10 @@ class LuaLikeCommandRunner extends CommandRunner {
     try {
       // Parse arguments
       final argResults = argParser.parse(args);
+
+      if (argResults['help'] as bool) {
+        throw UsageException(usage, usage);
+      }
 
       // Handle debug mode
       if (argResults['debug'] as bool) {
@@ -187,8 +193,6 @@ class LuaLikeCommandRunner extends CommandRunner {
       }
     } catch (e) {
       if (e is UsageException) {
-        print(e.message);
-        print('');
         print(usage);
         exit(1);
       }
