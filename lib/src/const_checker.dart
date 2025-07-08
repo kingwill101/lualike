@@ -36,10 +36,14 @@ class ConstChecker {
       return _checkRepeatUntilLoop(stmt);
     } else if (stmt is IfStatement) {
       return _checkIfStatement(stmt);
-    } else if (stmt is FunctionDef || stmt is LocalFunctionDef) {
-      // Function definitions create new scopes, but we don't need to check them
-      // for this simple implementation
-      return null;
+    } else if (stmt is FunctionDef) {
+      return _checkFunctionDef(stmt);
+    } else if (stmt is LocalFunctionDef) {
+      return _checkLocalFunctionDef(stmt);
+    } else if (stmt is ExpressionStatement) {
+      return _checkExpressionStatement(stmt);
+    } else if (stmt is ReturnStatement) {
+      return _checkReturnStatement(stmt);
     }
     // For other statement types, continue processing
     return null;
@@ -58,7 +62,12 @@ class ConstChecker {
           _constVariables.add(name);
         } else if (attribute.isNotEmpty) {
           // Unknown attribute
-          return ":1: unknown attribute '$attribute'";
+          int lineNumber = 1;
+          if (stmt.span != null) {
+            lineNumber =
+                stmt.span!.start.line + 1; // Convert 0-based to 1-based
+          }
+          return ":$lineNumber: unknown attribute '$attribute'";
         }
       }
     }
@@ -71,7 +80,13 @@ class ConstChecker {
       if (target is Identifier) {
         final name = target.name;
         if (_constVariables.contains(name)) {
-          return ":1: attempt to assign to const variable '$name'";
+          // Try to get line number from span if available
+          int lineNumber = 1;
+          if (stmt.span != null) {
+            lineNumber =
+                stmt.span!.start.line + 1; // Convert 0-based to 1-based
+          }
+          return ":$lineNumber: attempt to assign to const variable '$name'";
         }
       }
     }
@@ -188,6 +203,120 @@ class ConstChecker {
           _constVariables.addAll(savedConsts);
           return error;
         }
+      }
+    }
+
+    _constVariables.clear();
+    _constVariables.addAll(savedConsts);
+    return null;
+  }
+
+  String? _checkFunctionDef(FunctionDef stmt) {
+    // Function definitions create new scopes but const variables
+    // from outer scopes are still visible and assignable
+    final savedConsts = Set<String>.from(_constVariables);
+
+    // Check function body for const violations
+    for (final s in stmt.body.body) {
+      final error = _checkStatement(s);
+      if (error != null) {
+        _constVariables.clear();
+        _constVariables.addAll(savedConsts);
+        return error;
+      }
+    }
+
+    _constVariables.clear();
+    _constVariables.addAll(savedConsts);
+    return null;
+  }
+
+  String? _checkLocalFunctionDef(LocalFunctionDef stmt) {
+    // Local function definitions create new scopes but const variables
+    // from outer scopes are still visible and assignable
+    final savedConsts = Set<String>.from(_constVariables);
+
+    // Check function body for const violations
+    for (final s in stmt.funcBody.body) {
+      final error = _checkStatement(s);
+      if (error != null) {
+        _constVariables.clear();
+        _constVariables.addAll(savedConsts);
+        return error;
+      }
+    }
+
+    _constVariables.clear();
+    _constVariables.addAll(savedConsts);
+    return null;
+  }
+
+  String? _checkExpressionStatement(ExpressionStatement stmt) {
+    // Check if the expression contains function literals
+    return _checkExpression(stmt.expr);
+  }
+
+  String? _checkReturnStatement(ReturnStatement stmt) {
+    // Check expressions in return statement for function literals
+    for (final expr in stmt.expr) {
+      final error = _checkExpression(expr);
+      if (error != null) return error;
+    }
+    return null;
+  }
+
+  String? _checkExpression(AstNode expr) {
+    if (expr is FunctionLiteral) {
+      return _checkFunctionLiteral(expr);
+    } else if (expr is FunctionCall) {
+      // Check function arguments for nested function literals
+      for (final arg in expr.args) {
+        final error = _checkExpression(arg);
+        if (error != null) return error;
+      }
+      return _checkExpression(expr.name);
+    } else if (expr is BinaryExpression) {
+      final leftError = _checkExpression(expr.left);
+      if (leftError != null) return leftError;
+      return _checkExpression(expr.right);
+    } else if (expr is UnaryExpression) {
+      return _checkExpression(expr.expr);
+    } else if (expr is TableConstructor) {
+      // Check table entries for function literals
+      for (final entry in expr.entries) {
+        final error = _checkTableEntry(entry);
+        if (error != null) return error;
+      }
+    }
+    // For other expressions, we don't need to check them for now
+    return null;
+  }
+
+  String? _checkTableEntry(TableEntry entry) {
+    if (entry is TableEntryLiteral) {
+      return _checkExpression(entry.expr);
+    } else if (entry is KeyedTableEntry) {
+      return _checkExpression(entry.value);
+    } else if (entry is IndexedTableEntry) {
+      final keyError = _checkExpression(entry.key);
+      if (keyError != null) return keyError;
+      return _checkExpression(entry.value);
+    }
+    return null;
+  }
+
+  String? _checkFunctionLiteral(FunctionLiteral expr) {
+    // Function literals create new scopes but const variables
+    // from outer scopes are still visible and assignable
+    final savedConsts = Set<String>.from(_constVariables);
+
+    // Check function body for const violations
+    for (final s in expr.funcBody.body) {
+      final error = _checkStatement(s);
+      if (error != null) {
+        _constVariables.clear();
+        _constVariables.addAll(savedConsts);
+        return error;
       }
     }
 
