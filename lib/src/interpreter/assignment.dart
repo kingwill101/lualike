@@ -258,10 +258,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         return wrappedValue;
       }
 
-      throw Exception("Cannot assign to field of non-table value");
+      throw LuaError("Cannot assign to field of non-table value", node: target);
     }
 
-    throw Exception("Cannot assign to field of non-Value");
+    throw LuaError("Cannot assign to field of non-Value", node: target);
   }
 
   /// Handles assignment to an identifier.
