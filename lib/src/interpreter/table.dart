@@ -277,7 +277,14 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
 
   /// Evaluates a table constructor.
   ///
-  /// Represents a table constructor.
+  /// Creates a new table with the specified fields.
+  /// Handles all Lua table constructor semantics including:
+  /// - Array-like entries with automatic indexing
+  /// - Keyed entries with explicit keys
+  /// - Indexed entries with [key] = value syntax
+  /// - Function call expansion (last vs non-last position)
+  /// - Grouped expression handling
+  /// - Vararg expansion
   ///
   /// [node] - The table constructor node
   /// Returns the constructed table.
@@ -286,80 +293,235 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
 
     Logger.debug('Visiting TableConstructor', category: 'Interpreter');
-    final Map<Object?, Value> tableMap = {};
-    int nextSequentialIndex = 1;
 
-    for (final field in node.entries) {
-      if (field is TableEntryLiteral) {
-        var value = await field.expr.accept(this);
-        if (value is Value && value.isMulti) {
-          for (final item in value.raw as List<Object?>) {
-            tableMap[nextSequentialIndex++] = item is Value
-                ? item
-                : Value(item);
-          }
-        } else {
-          tableMap[nextSequentialIndex++] = value is Value
-              ? value
-              : Value(value);
-        }
-      } else if (field is KeyedTableEntry) {
-        //TODO figure our all the possible key types and handle them
-        //a bit tricky
-        dynamic key;
-        if (field.key is Identifier) {
+    if (node.entries.isEmpty) {
+      Logger.debug(
+        'TableConstructor: No entries, returning empty table',
+        category: 'Interpreter',
+      );
+      return ValueClass.table();
+    }
+
+    final Map<Object?, Value> tableMap = {};
+    int arrayIndex = 1; // For array-like entries
+
+    // Process all fields
+    for (int i = 0; i < node.entries.length; i++) {
+      final entry = node.entries[i];
+      Logger.debug(
+        'TableConstructor: Processing entry ${i + 1}/${node.entries.length}: ${entry.runtimeType}',
+        category: 'Interpreter',
+      );
+
+      if (entry is KeyedTableEntry) {
+        // Explicit key-value pair: key = value
+        dynamic rawKey;
+        if (entry.key is Identifier) {
           // Use the identifier's name directly as the key literal
-          key = (field.key as Identifier).name;
+          rawKey = (entry.key as Identifier).name;
           Logger.debug(
-            'Using Identifier literal for key: $key',
+            'Using Identifier literal for key: $rawKey',
             category: 'Interpreter',
           );
-        } else if (field.key is Value) {
-          // If the key is already a Value, use its raw value
-          key = (field.key as Value).raw;
         } else {
-          key = await field.key.accept(this);
+          final keyResult = await entry.key.accept(this);
+          rawKey = keyResult is Value ? keyResult.raw : keyResult;
         }
 
-        var value = await field.value.accept(this);
+        var valueResult = await entry.value.accept(this);
 
-        if (value is Value && value.isMulti) {
-          value = Value((value.raw as List).first);
+        // Keyed entries always use only the first return value
+        if (valueResult is Value && valueResult.isMulti) {
+          final values = valueResult.raw as List;
+          valueResult = values.isNotEmpty ? values[0] : Value(null);
         }
-        var mapKey = key is Value ? key.raw : key;
+
+        final rawValue = valueResult is Value
+            ? valueResult
+            : Value(valueResult);
+
+        // Handle LuaString keys
+        var mapKey = rawKey;
         if (mapKey is LuaString) {
           mapKey = mapKey.toString();
         }
-        tableMap[mapKey] = value is Value ? value : Value(value);
-        // If a keyed entry uses a numerical key, we must update the nextSequentialIndex
-        // if it's greater than or equal to the current nextSequentialIndex.
-        if (key is Value && key.raw is int && key.raw >= nextSequentialIndex) {
-          nextSequentialIndex = (key.raw as int) + 1;
+
+        tableMap[mapKey] = rawValue;
+
+        // Update arrayIndex if this is a numeric key
+        if (rawKey is int && rawKey >= arrayIndex) {
+          arrayIndex = rawKey + 1;
         }
-      } else if (field is IndexedTableEntry) {
-        // Handle indexed table entries [key] = value
-        // Always evaluate the key expression for indexed entries
-        dynamic key = await field.key.accept(this);
-        if (key is Value) {
-          key = key.raw;
+      } else if (entry is IndexedTableEntry) {
+        // Indexed key-value pair: [key] = value
+        dynamic rawKey = await entry.key.accept(this);
+        if (rawKey is Value) {
+          rawKey = rawKey.raw;
         }
-        if (key is LuaString) {
-          key = key.toString();
+        if (rawKey is LuaString) {
+          rawKey = rawKey.toString();
         }
 
-        var value = await field.value.accept(this);
-        if (value is Value && value.isMulti) {
-          value = Value((value.raw as List).first);
+        var valueResult = await entry.value.accept(this);
+
+        // Indexed entries always use only the first return value
+        if (valueResult is Value && valueResult.isMulti) {
+          final values = valueResult.raw as List;
+          valueResult = values.isNotEmpty ? values[0] : Value(null);
         }
 
-        tableMap[key] = value is Value ? value : Value(value);
+        final rawValue = valueResult is Value
+            ? valueResult
+            : Value(valueResult);
+        tableMap[rawKey] = rawValue;
 
-        // If an indexed entry uses a numerical key, update nextSequentialIndex
-        if (key is int && key >= nextSequentialIndex) {
-          nextSequentialIndex = key + 1;
+        // Update arrayIndex if this is a numeric key
+        if (rawKey is int && rawKey >= arrayIndex) {
+          arrayIndex = rawKey + 1;
+        }
+      } else if (entry is TableEntryLiteral) {
+        // Array-like entry without explicit key
+        if (entry.expr is VarArg) {
+          // Handle vararg expansion: {...}
+          final args = globals.get('...');
+          if (args is Value && args.isMulti) {
+            final varargs = args.raw as List;
+            for (var j = 0; j < varargs.length; j++) {
+              tableMap[arrayIndex++] = varargs[j] is Value
+                  ? varargs[j]
+                  : Value(varargs[j]);
+            }
+          }
+        } else if (entry.expr is GroupedExpression) {
+          // Handle grouped expressions in table constructors
+          Logger.debug(
+            'TableConstructor: Processing GroupedExpression entry',
+            category: 'Interpreter',
+          );
+
+          final innerExpr = (entry.expr as GroupedExpression).expr;
+          final result = await innerExpr.accept(this);
+
+          // Grouped expressions in table constructors should only use the first return value
+          if (result is Value && result.isMulti) {
+            final values = result.raw as List;
+            if (values.isNotEmpty) {
+              tableMap[arrayIndex++] = values[0] is Value
+                  ? values[0]
+                  : Value(values[0]);
+            } else {
+              tableMap[arrayIndex++] = Value(null);
+            }
+          } else if (result is List && result.isNotEmpty) {
+            tableMap[arrayIndex++] = result[0] is Value
+                ? result[0]
+                : Value(result[0]);
+          } else {
+            tableMap[arrayIndex++] = result is Value ? result : Value(result);
+          }
+        } else if ((entry.expr is FunctionCall || entry.expr is MethodCall) &&
+            i == node.entries.length - 1) {
+          // Handle function call at the end of the constructor: {1, 2, f()}
+          // This should include all return values
+          final result = await entry.expr.accept(this);
+          if (result is Value && result.isMulti) {
+            // Multiple return values
+            final values = result.raw as List;
+            for (var j = 0; j < values.length; j++) {
+              tableMap[arrayIndex++] = values[j] is Value
+                  ? values[j]
+                  : Value(values[j]);
+            }
+          } else if (result is List) {
+            // Direct list of values
+            for (var j = 0; j < result.length; j++) {
+              tableMap[arrayIndex++] = result[j] is Value
+                  ? result[j]
+                  : Value(result[j]);
+            }
+          } else {
+            // Single return value
+            tableMap[arrayIndex++] = result is Value ? result : Value(result);
+          }
+        } else if (entry.expr is FunctionCall || entry.expr is MethodCall) {
+          // Handle function call in the middle: {1, f(), 3}
+          // This should only include the first return value
+          final result = await entry.expr.accept(this);
+
+          if (result is Value && result.isMulti) {
+            // Take only first value from multi-return
+            final values = result.raw as List;
+            if (values.isNotEmpty) {
+              tableMap[arrayIndex++] = values[0] is Value
+                  ? values[0]
+                  : Value(values[0]);
+            } else {
+              tableMap[arrayIndex++] = Value(null);
+            }
+          } else if (result is List && result.isNotEmpty) {
+            // Take only first value from list
+            tableMap[arrayIndex++] = result[0] is Value
+                ? result[0]
+                : Value(result[0]);
+          } else {
+            // Single value or empty result
+            tableMap[arrayIndex++] = result is Value ? result : Value(result);
+          }
+        } else {
+          // Regular expression
+          final value = await entry.expr.accept(this);
+          final valueVal = value is Value ? value : Value(value);
+          tableMap[arrayIndex++] = valueVal;
         }
       }
     }
+
+    // Special case: single entry that is a function call
+    // This handles cases like {table.unpack(t)} where the entire result should be expanded
+    if (node.entries.length == 1) {
+      final entry = node.entries[0];
+      if (entry is TableEntryLiteral &&
+          (entry.expr is FunctionCall || entry.expr is MethodCall)) {
+        try {
+          final result = await entry.expr.accept(this);
+          if (result is Value && result.isMulti) {
+            final values = result.raw as List;
+            // Return the expanded values directly if they form a proper table
+            final expandedTable = ValueClass.table();
+            for (var j = 0; j < values.length; j++) {
+              expandedTable[Value(j + 1)] = values[j] is Value
+                  ? values[j]
+                  : Value(values[j]);
+            }
+            return expandedTable;
+          } else if (result is List) {
+            // Direct list of values - expand into table
+            final expandedTable = ValueClass.table();
+            for (var j = 0; j < result.length; j++) {
+              expandedTable[Value(j + 1)] = result[j] is Value
+                  ? result[j]
+                  : Value(result[j]);
+            }
+            return expandedTable;
+          }
+        } on YieldException catch (ye) {
+          // After resumption, insert yielded values as array elements
+          final values = ye.values;
+          final yieldTable = ValueClass.table();
+          for (var j = 0; j < values.length; j++) {
+            yieldTable[Value(j + 1)] = values[j] is Value
+                ? values[j]
+                : Value(values[j]);
+          }
+          return yieldTable;
+        }
+      }
+    }
+
+    Logger.debug(
+      'TableConstructor: Finished constructing table with ${tableMap.length} entries',
+      category: 'Interpreter',
+    );
     return ValueClass.table(tableMap);
   }
 }
