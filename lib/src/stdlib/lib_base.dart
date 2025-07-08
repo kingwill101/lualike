@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
+import 'package:lualike/src/const_checker.dart';
 import 'package:lualike/src/coroutine.dart' show Coroutine;
 import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:path/path.dart' as path;
@@ -610,6 +611,15 @@ class LoadFunction implements BuiltinFunction {
 
     try {
       final ast = parse(source);
+
+      // Check for const variable assignment errors
+      final constChecker = ConstChecker();
+      final constError = constChecker.checkConstViolations(ast);
+      if (constError != null) {
+        // Return error in load() format: [nil, error_message]
+        return [Value(null), Value(constError)];
+      }
+
       return Value((List<Object?> callArgs) async {
         try {
           // Save the current environment

@@ -173,13 +173,13 @@ class _StringFind implements BuiltinFunction {
     if (start > str.length) return Value(null);
 
     if (pattern.isEmpty) {
-      return [Value(start + 1), Value(start)];
+      return Value.multi([Value(start + 1), Value(start)]);
     }
 
     if (plain) {
       final index = str.indexOf(pattern, start);
       if (index == -1) return Value(null);
-      return [Value(index + 1), Value(index + pattern.length)];
+      return Value.multi([Value(index + 1), Value(index + pattern.length)]);
     }
 
     try {
@@ -196,7 +196,7 @@ class _StringFind implements BuiltinFunction {
       if (match.captures.isNotEmpty) {
         return Value.multi(results);
       }
-      return results;
+      return Value.multi(results);
     } catch (e) {
       throw Exception('malformed pattern: $e');
     }
