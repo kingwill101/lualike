@@ -84,4 +84,15 @@ class CallStack {
   /// Returns the top frame of the call stack (alias for top).
   /// Provided for backward compatibility.
   CallFrame? get current => top;
+
+  /// Gets a frame at a specific level from the top of the stack.
+  /// Level 1 is the top frame, level 2 is one below, etc.
+  CallFrame? getFrameAtLevel(int level) {
+    if (level <= 0 || level > _frames.length) {
+      return null;
+    }
+    // Level 1 is the top frame (most recent)
+    final frameIndex = _frames.length - level;
+    return _frames[frameIndex];
+  }
 }

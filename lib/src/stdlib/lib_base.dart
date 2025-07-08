@@ -249,10 +249,11 @@ class IPairsFunction implements BuiltinFunction {
     final table = args[0] as Value;
     if (table.raw is! Map) throw Exception("ipairs requires a table");
 
-    Logger.debug(
-      'IPairsFunction: Creating iterator for table: ${table.raw}',
-      category: 'Base',
-    );
+    // Debug logging disabled for performance
+    // Logger.debug(
+    //   'IPairsFunction: Creating iterator for table: ${table.raw}',
+    //   category: 'Base',
+    // );
 
     // Create a function that returns the next index and value
     final iteratorFunction = Value((List<Object?> iterArgs) {
@@ -275,10 +276,11 @@ class IPairsFunction implements BuiltinFunction {
 
       final index = (iterArgs[1] as Value).raw as num;
 
-      Logger.debug(
-        'IPairsFunction.iterator: Called with index: $index',
-        category: 'Base',
-      );
+      // Debug logging disabled for performance
+      // Logger.debug(
+      //   'IPairsFunction.iterator: Called with index: $index',
+      //   category: 'Base',
+      // );
 
       // In Lua, ipairs iterates over consecutive integer keys starting from 1
       // It stops at the first nil value or non-integer key
@@ -286,10 +288,11 @@ class IPairsFunction implements BuiltinFunction {
 
       // Check if the next index exists in the table
       if (!map.containsKey(nextIndex)) {
-        Logger.debug(
-          'IPairsFunction.iterator: No next index, returning nil',
-          category: 'Base',
-        );
+        // Debug logging disabled for performance
+        // Logger.debug(
+        //   'IPairsFunction.iterator: No next index, returning nil',
+        //   category: 'Base',
+        // );
         return Value(null);
       }
 
@@ -298,28 +301,31 @@ class IPairsFunction implements BuiltinFunction {
 
       // If the value is nil, stop iteration
       if (value == null || (value is Value && value.raw == null)) {
-        Logger.debug(
-          'IPairsFunction.iterator: Value at index $nextIndex is nil, returning nil',
-          category: 'Base',
-        );
+        // Debug logging disabled for performance
+        // Logger.debug(
+        //   'IPairsFunction.iterator: Value at index $nextIndex is nil, returning nil',
+        //   category: 'Base',
+        // );
         return Value(null);
       }
 
       final nextValue = value is Value ? value : Value(value);
 
-      Logger.debug(
-        'IPairsFunction.iterator: Found next index: $nextIndex, value: $nextValue',
-        category: 'Base',
-      );
+      // Debug logging disabled for performance
+      // Logger.debug(
+      //   'IPairsFunction.iterator: Found next index: $nextIndex, value: $nextValue',
+      //   category: 'Base',
+      // );
 
       // Return the index and value as multiple values
       return Value.multi([Value(nextIndex), nextValue]);
     });
 
-    Logger.debug(
-      'IPairsFunction: Returning iterator components via Value.multi',
-      category: 'Base',
-    );
+    // Debug logging disabled for performance
+    // Logger.debug(
+    //   'IPairsFunction: Returning iterator components via Value.multi',
+    //   category: 'Base',
+    // );
 
     // Return iterator function, table, and initial control value (0) using Value.multi
     // This matches Lua's behavior: ipairs(t) returns iterator, t, 0
@@ -603,7 +609,7 @@ class LoadFunction implements BuiltinFunction {
         );
       }
       chunkname = args.length > 1
-          ? (args[1] as Value).raw as String
+          ? (args[1] as Value).raw.toString()
           : "=(load)";
     } else {
       throw Exception("load() first argument must be a string");
@@ -1494,9 +1500,11 @@ class RequireFunction implements BuiltinFunction {
         Object? result;
         try {
           // Run the module code within the current interpreter
-          await vm.run(ast.statements);
-          // If no explicit return, the result is nil
-          result = Value(null);
+          result = await vm.run(ast.statements);
+          // If the script didn't return anything, result will be null
+          if (result == null) {
+            result = Value(null);
+          }
         } on ReturnException catch (e) {
           // Handle explicit return from module
           result = e.value;

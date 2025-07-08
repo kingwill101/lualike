@@ -122,11 +122,7 @@ void initializeStandardLibrary({
     });
 
     preloadTable["debug"] = Value((List<Object?> args) {
-      final debugLib = <String, dynamic>{};
-      DebugLib.functions.forEach((key, value) {
-        debugLib[key] = value;
-      });
-      return Value(debugLib);
+      return Value(createDebugLib(astVm));
     });
 
     preloadTable["utf8"] = Value((List<Object?> args) {
