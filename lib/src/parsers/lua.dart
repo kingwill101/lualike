@@ -506,12 +506,12 @@ class LuaGrammarDefinition extends GrammarDefinition {
         final type = s[0] as String;
         switch (type) {
           case 'index':
-            final access = TableAccessExpr(expr, s[1] as AstNode);
+            final access = TableIndexAccess(expr, s[1] as AstNode);
             access.setSpan(expr.span ?? _sourceFile.span(0, 0));
             expr = access;
             break;
           case 'field':
-            final access = TableAccessExpr(expr, s[1] as Identifier);
+            final access = TableFieldAccess(expr, s[1] as Identifier);
             access.setSpan(expr.span ?? _sourceFile.span(0, 0));
             expr = access;
             break;

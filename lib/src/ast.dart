@@ -97,6 +97,9 @@ abstract class AstVisitor<T> {
   Future<T> visitGroupedExpression(GroupedExpression groupedExpression);
 
   Future<T> visitYieldStatement(YieldStatement yieldStatement);
+
+  Future<T> visitTableFieldAccess(TableFieldAccess node);
+  Future<T> visitTableIndexAccess(TableIndexAccess node);
 }
 
 /// Grouped expression in parentheses: (expr)
@@ -502,7 +505,38 @@ class AssignmentIndexAccessExpr extends AstNode {
   }
 }
 
-/// Table field access expression (table.field)
+/// Table field access expression (table.field) - dot notation
+class TableFieldAccess extends AstNode {
+  final AstNode table;
+  final Identifier fieldName; // Always an identifier for field access
+
+  TableFieldAccess(this.table, this.fieldName);
+
+  @override
+  Future<T> accept<T>(AstVisitor<T> visitor) =>
+      visitor.visitTableFieldAccess(this);
+
+  @override
+  String toSource() => "${table.toSource()}.${fieldName.toSource()}";
+}
+
+/// Table index access expression (table[expr]) - bracket notation
+class TableIndexAccess extends AstNode {
+  final AstNode table;
+  final AstNode index; // Any expression for index access
+
+  TableIndexAccess(this.table, this.index);
+
+  @override
+  Future<T> accept<T>(AstVisitor<T> visitor) =>
+      visitor.visitTableIndexAccess(this);
+
+  @override
+  String toSource() => "${table.toSource()}[${index.toSource()}]";
+}
+
+/// Legacy table access expression - kept for backward compatibility
+/// Will be deprecated in favor of TableFieldAccess and TableIndexAccess
 class TableAccessExpr extends AstNode {
   final AstNode table;
   final AstNode index;

@@ -17,16 +17,16 @@ void main() {
     });
 
     test(
-      'bracket syntax uses identifier name when variable is undefined',
+      'bracket syntax throws error when using undefined variable as index',
       () async {
         final bridge = LuaLike();
-        await bridge.runCode('''
-        t = {}
-        t[undef] = 99
-      ''');
-        final t = bridge.getGlobal('t') as Value;
-        final map = t.raw as Map<dynamic, dynamic>;
-        expect(map['undef'], equals(Value(99)));
+        expect(
+          () async => await bridge.runCode('''
+            t = {}
+            t[undef] = 99
+          '''),
+          throwsA(isA<Exception>()),
+        );
       },
     );
   });
