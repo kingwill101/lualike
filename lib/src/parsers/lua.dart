@@ -239,21 +239,8 @@ class LuaGrammarDefinition extends GrammarDefinition {
   Parser _expression() {
     final builder = ExpressionBuilder();
 
-    // --- primitives (highest precedence) ---
-    builder.primitive(ref0(_primaryExpression));
-
-    // --- prefix unary operators (# ~ - not) ---
-    builder.group().prefix(
-      ref0(_unaryOperator),
-      (dynamic op, dynamic a) => UnaryExpression(op as String, a as AstNode),
-    );
-
-    // --- exponentiation ^ (right-assoc) ---
-    builder.group().right(
-      _token('^'),
-      (dynamic a, dynamic op, dynamic b) =>
-          BinaryExpression(a as AstNode, '^', b as AstNode),
-    );
+    // --- Custom primitives: power & unary handling (Lua-specific) ---
+    builder.primitive(ref0(_unaryExpression));
 
     // --- multiplicative */%// ---
     builder.group().left(
@@ -724,6 +711,43 @@ class LuaGrammarDefinition extends GrammarDefinition {
         }
         return list;
       });
+
+  // ----------------- Expression helpers for correct '^' precedence -------
+
+  // Parses unary prefix operators and builds nested UnaryExpression nodes.
+  Parser _unaryExpression() {
+    final unarySeq = (ref0(_unaryOperator).plus() & ref0(_powerExpression)).map(
+      (vals) {
+        final ops = vals[0] as List;
+        AstNode node = vals[1] as AstNode;
+        for (var i = ops.length - 1; i >= 0; i--) {
+          node = UnaryExpression(ops[i] as String, node);
+        }
+        return node;
+      },
+    );
+
+    // If there is no unary operator, just parse the power expression.
+    return unarySeq | ref0(_powerExpression);
+  }
+
+  // Parses a chain of '^' operators with right associativity. The right-hand
+  // operand is a full unary expression, matching Lua’s grammar.
+  Parser _powerExpression() {
+    final tail = (_token('^') & ref0(_unaryExpression)).star();
+
+    return (ref0(_primaryExpression) & tail).map((vals) {
+      AstNode node = vals[0] as AstNode;
+      final rest = vals[1] as List;
+
+      // Build right-associative: process from right to left.
+      for (var i = rest.length - 1; i >= 0; i--) {
+        final rhs = rest[i][1] as AstNode; // pair = [ '^', rhs ]
+        node = BinaryExpression(node, '^', rhs);
+      }
+      return node;
+    });
+  }
 
   // ----------------- Function Definitions ---------------------------------
 

@@ -111,21 +111,15 @@ void main() {
       test('named parameters without comma before vararg', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
-          function withoutComma(a, b ...)
-            local extras = {...}
-            return a * b + #extras
-          end
-
-          local result1 = withoutComma(5, 4)
-          local result2 = withoutComma(5, 4, "x", "y")
-        ''');
-
-        var result1 = bridge.getGlobal('result1');
-        var result2 = bridge.getGlobal('result2');
-
-        expect((result1 as Value).unwrap(), equals(20)); // 5 * 4 + 0
-        expect((result2 as Value).unwrap(), equals(22)); // 5 * 4 + 2
+        // Test that invalid syntax is rejected (missing comma before ...)
+        expect(() async {
+          await bridge.runCode('''
+            function withoutComma(a, b ...)
+              local extras = {...}
+              return a * b + #extras
+            end
+          ''');
+        }, throwsA(isA<FormatException>()));
       });
 
       test('single named parameter with vararg', () async {
@@ -224,7 +218,7 @@ void main() {
         end
 
         function printAll(...)
-        print("printAll", #...) 
+        print("printAll", #...)
           return format("Count: %d, First: %s", select("#", ...), select(1, ...))
         end
 
@@ -486,11 +480,11 @@ void main() {
             local function inner(a, b, ...)
               return a + b + select("#", ...)
             end
-            
+
             local function justVararg(...)
               return select("#", ...)
             end
-            
+
             return inner(1, 2, ...) + justVararg(...)
           end
 
@@ -528,11 +522,11 @@ void main() {
 
         await bridge.runCode('''
           local obj = {}
-          
+
           function obj:method1(...)
             return select("#", ...)
           end
-          
+
           function obj:method2(a, ...)
             return a .. select("#", ...)
           end
@@ -597,7 +591,7 @@ void main() {
 
           local count, args = handleNils("a", nil, "b", nil)
           local first = args[1]
-          local second = args[2] 
+          local second = args[2]
           local third = args[3]
           local fourth = args[4]
         ''');
