@@ -27,6 +27,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// The AST node representing the function body, if this value is a Lua function.
   FunctionBody? functionBody;
 
+  /// The name of the function, if this value is a named function.
+  String? functionName;
+
   /// Whether this value is a multi-result value.
   bool isMulti = false;
 
@@ -69,6 +72,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// [isConst] - Whether this value is a constant
   /// [isToBeClose] - Whether this value is a to-be-closed variable
   /// [interpreter] - Interpreter instance (for functions/coroutines)
+  /// [functionName] - Name of the function (for debugging/debug.getinfo)
   Value(
     dynamic raw, {
     Map<String, dynamic>? metatable,
@@ -77,6 +81,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     this.upvalues,
     this.interpreter,
     this.functionBody,
+    this.functionName,
   }) {
     _raw = raw;
     _isInitialized = true;

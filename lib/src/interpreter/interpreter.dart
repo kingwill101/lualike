@@ -296,10 +296,8 @@ class Interpreter extends AstVisitor<Object?>
       }
     }
 
-    // Add the frame to the call stack
-    callStack.push(actualFunctionName, callNode: node);
-
-    // Also add to the trace buffer for error reporting
+    // Don't add to call stack - only add to the trace buffer for error reporting
+    // The call stack should only contain actual function calls, not every AST node
     final frame = CallFrame(actualFunctionName, callNode: node);
     _traceBuffer[_traceIndex] = frame;
     _traceIndex = (_traceIndex + 1) % _maxTraceFrames;
@@ -513,6 +511,16 @@ class Interpreter extends AstVisitor<Object?>
 
     try {
       await _executeStatements(program);
+    } on ReturnException catch (e) {
+      // Handle top-level return statements - this is valid in Lua
+      Logger.debug(
+        'Top-level return with value: ${e.value}',
+        category: 'Interpreter',
+      );
+      // Push the return value to eval stack so it can be retrieved
+      if (e.value != null) {
+        evalStack.push(e.value);
+      }
     } on GotoException catch (e) {
       // Report undefined label with helpful message
       Logger.warning('Undefined label: ${e.label}', category: 'Interpreter');

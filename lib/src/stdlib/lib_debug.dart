@@ -53,27 +53,98 @@ class _GetHook implements BuiltinFunction {
 }
 
 class _GetInfo implements BuiltinFunction {
+  final Interpreter? vm;
+
+  _GetInfo([this.vm]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw Exception("debug.getinfo requires function/level argument");
     }
 
-    // Create debug info table
-    return Value({
-      'name': Value(null),
-      'namewhat': Value(""),
-      'what': Value("Lua"),
-      'source': Value("=[C]"),
-      'currentline': Value(-1),
-      'linedefined': Value(-1),
-      'lastlinedefined': Value(-1),
-      'nups': Value(0),
-      'nparams': Value(0),
-      'isvararg': Value(false),
-      'istailcall': Value(false),
-      'short_src': Value("[C]"),
-    });
+    final firstArg = args[0] as Value;
+    String? what = args.length > 1
+        ? (args[1] as Value).raw.toString()
+        : "flnStu";
+
+    // Handle level-based lookup (when first arg is a number)
+    if (firstArg.raw is num) {
+      final level = (firstArg.raw as num).toInt();
+
+      // Get function info from call stack at the specified level
+      // We need to add 1 to the level to account for debug.getinfo's own call frame
+      final actualLevel = level + 1;
+      if (vm != null && vm!.callStack.depth >= actualLevel) {
+        final frame = vm!.callStack.getFrameAtLevel(actualLevel);
+        if (frame != null) {
+          String? functionName = frame.functionName;
+          if (functionName == "unknown" || functionName == "function") {
+            functionName = null;
+          }
+
+          // Create debug info table with actual function name
+          Map<String, Value> debugInfo = {};
+
+          // Add fields based on what parameter
+          if (what.contains('n')) {
+            debugInfo['name'] = Value(functionName);
+            debugInfo['namewhat'] = Value(functionName != null ? "local" : "");
+          }
+          if (what.contains('S')) {
+            debugInfo['what'] = Value("Lua");
+            debugInfo['source'] = Value("=[C]");
+            debugInfo['short_src'] = Value("[C]");
+            debugInfo['linedefined'] = Value(-1);
+            debugInfo['lastlinedefined'] = Value(-1);
+          }
+          if (what.contains('l')) {
+            debugInfo['currentline'] = Value(-1);
+          }
+          if (what.contains('t')) {
+            debugInfo['istailcall'] = Value(false);
+          }
+          if (what.contains('u')) {
+            debugInfo['nups'] = Value(0);
+            debugInfo['nparams'] = Value(0);
+            debugInfo['isvararg'] = Value(false);
+          }
+          if (what.contains('f')) {
+            // Would return the function itself, but we don't have access to it here
+          }
+
+          return Value(debugInfo);
+        }
+      }
+    }
+
+    // Default debug info table when no specific info available
+    Map<String, Value> debugInfo = {};
+
+    if (what.contains('n')) {
+      debugInfo['name'] = Value(null);
+      debugInfo['namewhat'] = Value("");
+    }
+    if (what.contains('S')) {
+      debugInfo['what'] = Value("Lua");
+      debugInfo['source'] = Value("=[C]");
+      debugInfo['short_src'] = Value("[C]");
+      debugInfo['linedefined'] = Value(-1);
+      debugInfo['lastlinedefined'] = Value(-1);
+    }
+    if (what.contains('l')) {
+      debugInfo['currentline'] = Value(-1);
+    }
+    if (what.contains('t')) {
+      debugInfo['istailcall'] = Value(false);
+    }
+    if (what.contains('u')) {
+      debugInfo['nups'] = Value(0);
+      debugInfo['nparams'] = Value(0);
+      debugInfo['isvararg'] = Value(false);
+    }
+
+    return Value(debugInfo);
   }
 }
 
@@ -231,15 +302,32 @@ class _UpvalueJoin implements BuiltinFunction {
   }
 }
 
+/// Creates debug library functions with the given interpreter instance
+Map<String, BuiltinFunction> createDebugLib(Interpreter? astVm) {
+  return {
+    'debug': _DebugInteractive(),
+    'gethook': _GetHook(),
+    'getinfo': _GetInfo(astVm), // Pass the interpreter instance
+    'getlocal': _GetLocal(),
+    'getmetatable': _GetMetatable(),
+    'getregistry': _GetRegistry(),
+    'getupvalue': _GetUpvalue(),
+    'getuservalue': _GetUserValue(),
+    'sethook': _SetHook(),
+    'setlocal': _SetLocal(),
+    'setmetatable': _SetMetatable(),
+    'setupvalue': _SetUpvalue(),
+    'setuservalue': _SetUserValue(),
+    'traceback': _Traceback(),
+    'upvalueid': _UpvalueId(),
+    'upvaluejoin': _UpvalueJoin(),
+  };
+}
+
 void defineDebugLibrary({
   required Environment env,
   Interpreter? astVm,
   BytecodeVM? bytecodeVm,
 }) {
-  final debugTable = <String, dynamic>{};
-  DebugLib.functions.forEach((key, value) {
-    debugTable[key] = value;
-  });
-
-  env.define("debug", DebugLib.functions);
+  env.define("debug", createDebugLib(astVm));
 }

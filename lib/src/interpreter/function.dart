@@ -121,6 +121,11 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     // Create function closure
     final closure = await node.funcBody.accept(this);
 
+    // Set function name on the closure for debugging
+    if (closure is Value) {
+      closure.functionName = node.name.name;
+    }
+
     // Define in current scope
     globals.declare(node.name.name, closure);
     Logger.debug(
@@ -203,9 +208,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         execEnv.declare("...", Value.multi(varargs));
       }
 
-      // Set up call frame
-      final frame = CallFrame("anonymous");
-      callStack.push(frame.functionName);
+      // Don't create a call frame here - it will be created by _callFunction
+      // which has access to the function name
+
       // Save the current environment
       final savedEnv = (this as Interpreter).getCurrentEnv();
 
@@ -231,7 +236,6 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       } finally {
         // Restore the previous environment
         (this as Interpreter).setCurrentEnv(savedEnv);
-        callStack.pop();
       }
 
       return result;
@@ -339,11 +343,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       }
     }
 
-    // Push function to call stack
-    callStack.push(functionName, callNode: node);
-
+    // Call the function with the determined function name
     try {
-      // Call the function
       final result = await _callFunction(func, args, functionName);
       Logger.debug(
         'Function call result: $result (${result.runtimeType})',
@@ -358,9 +359,6 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         node: node,
       );
       rethrow;
-    } finally {
-      // Pop function from call stack
-      callStack.pop();
     }
   }
 
@@ -556,8 +554,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
     // Get function name for call stack if possible
     String functionName = callerFunctionName ?? 'function';
+
     if (func is Value) {
-      if (func.raw is FunctionDef) {
+      if (func.functionName != null) {
+        // Use stored function name for debugging
+        functionName = func.functionName!;
+      } else if (func.raw is FunctionDef) {
         final funcDef = func.raw as FunctionDef;
         functionName = funcDef.name.first.name;
       } else if (func.raw is Function) {
@@ -578,6 +580,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     }
 
     // Push function to call stack
+    Logger.debug(
+      '>>> Pushing function name to call stack: "$functionName"',
+      category: 'Interpreter',
+    );
     callStack.push(functionName);
 
     try {
