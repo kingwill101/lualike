@@ -616,8 +616,20 @@ class LoadFunction implements BuiltinFunction {
       final constChecker = ConstChecker();
       final constError = constChecker.checkConstViolations(ast);
       if (constError != null) {
+        // Adjust line numbers for multi-line strings with leading empty lines
+        String adjustedError = constError;
+        if (source.startsWith('\n')) {
+          // If source starts with newline, adjust line numbers down by 1
+          adjustedError = constError.replaceAllMapped(RegExp(r':(\d+):'), (
+            match,
+          ) {
+            final lineNum = int.parse(match.group(1)!);
+            final adjustedLine = lineNum > 1 ? lineNum - 1 : lineNum;
+            return ':$adjustedLine:';
+          });
+        }
         // Return error in load() format: [nil, error_message]
-        return [Value(null), Value(constError)];
+        return [Value(null), Value(adjustedError)];
       }
 
       return Value((List<Object?> callArgs) async {
