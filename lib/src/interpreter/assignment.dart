@@ -150,6 +150,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         await _handleIdentifierAssignment(target, wrappedValue);
       } else if (target is FunctionLiteral || target is Function) {
         await _handleFunctionAssignment(target, wrappedValue);
+      } else if (target is TableFieldAccess) {
+        await _handleTableFieldAssignment(target, wrappedValue);
+      } else if (target is TableIndexAccess) {
+        await _handleTableIndexAssignment(target, wrappedValue);
       } else {
         throw Exception("Invalid assignment target");
       }
@@ -192,11 +196,8 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           }
         }
 
-        if (globals.contains((target.index as Identifier).name)) {
-          tableValue[globals.get((target.index as Identifier).name)] =
-              wrappedValue;
-          return tableValue;
-        }
+        // Removed problematic logic that used global variable values as table keys
+        // For table.field assignments, we should always use the field name as string key
 
         // If key doesn't exist, try __newindex metamethod
         if (!tableValue.containsKey((target.index as Identifier).name)) {
@@ -236,16 +237,30 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         // No metamethod or key exists - do regular assignment
         dynamic identifier;
         if (target.index is Identifier) {
+          // For identifier indices, we need to distinguish between:
+          // 1. table[variable] - should use variable's value as key
+          // 2. table.field - should use "field" as literal string key
+          //
+          // Since we can't distinguish syntax at AST level, we use the same
+          // heuristic as table access: try variable lookup first, fall back to literal
           final identName = (target.index as Identifier).name;
+
           try {
-            identifier = await target.index.accept(this);
-            if (identifier is Value && identifier.raw == null) {
+            // Try to get the identifier as a variable
+            final variableValue = globals.get(identName);
+            if (variableValue is Value && variableValue.raw != null) {
+              // Variable exists and has a non-nil value - use its value as key
+              identifier = variableValue.raw;
+            } else {
+              // Variable is nil or doesn't exist - use identifier name as literal key
               identifier = identName;
             }
           } catch (_) {
+            // Variable doesn't exist - use identifier name as literal key
             identifier = identName;
           }
         } else {
+          // For table[expr] assignments, evaluate the expression to get the key
           identifier = await target.index.accept(this);
         }
 
@@ -312,6 +327,154 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     );
     globals.define(funcName, wrappedValue);
     return wrappedValue;
+  }
+
+  /// Handles assignment to table field access (table.field = value).
+  ///
+  /// For dot notation, always uses the field name as a literal string key.
+  ///
+  /// [target] - The table field access expression
+  /// [wrappedValue] - The value to assign
+  /// Returns the assigned value.
+  Future<Object?> _handleTableFieldAssignment(
+    TableFieldAccess target,
+    Value wrappedValue,
+  ) async {
+    (this is Interpreter) ? (this as Interpreter).recordTrace(target) : null;
+    Logger.debug(
+      '_handleTableFieldAssignment: Assigning $wrappedValue to ${target.table}.${target.fieldName.name}',
+      category: 'Interpreter',
+    );
+    final tableValue = await target.table.accept(this);
+
+    if (tableValue is Value) {
+      if (tableValue.raw is Map) {
+        // For field access, always use the field name as literal string key
+        final fieldKey = target.fieldName.name;
+
+        // If key doesn't exist, try __newindex metamethod
+        if (!tableValue.containsKey(fieldKey)) {
+          final newindex = tableValue.getMetamethod("__newindex");
+          if (newindex != null) {
+            Logger.debug(
+              '_handleTableFieldAssignment: __newindex metamethod found',
+              category: 'Interpreter',
+            );
+            if (newindex is Function) {
+              final result = newindex([
+                tableValue,
+                Value(fieldKey),
+                wrappedValue,
+              ]);
+              return result is Future ? await result : result;
+            } else if (newindex is FunctionLiteral) {
+              return await newindex.accept(this);
+            } else if (newindex is Value) {
+              if (newindex.raw is Function) {
+                final func = newindex.raw as Function;
+                return await func([tableValue, Value(fieldKey), wrappedValue]);
+              } else if (newindex.raw is Map) {
+                final metamap = newindex.raw as Map;
+                metamap[fieldKey] = wrappedValue;
+                return wrappedValue;
+              }
+            }
+          }
+        }
+
+        // No metamethod or key exists - do regular assignment
+        tableValue[fieldKey] = wrappedValue;
+
+        Logger.debug(
+          '_handleTableFieldAssignment: Assigned ${wrappedValue.raw} to ${target.fieldName.name}',
+          category: 'Interpreter',
+        );
+        return wrappedValue;
+      }
+
+      throw LuaError("Cannot assign to field of non-table value", node: target);
+    }
+
+    throw LuaError("Cannot assign to field of non-Value", node: target);
+  }
+
+  /// Handles assignment to table index access (table[expr] = value).
+  ///
+  /// For bracket notation, evaluates the index expression to get the key.
+  ///
+  /// [target] - The table index access expression
+  /// [wrappedValue] - The value to assign
+  /// Returns the assigned value.
+  Future<Object?> _handleTableIndexAssignment(
+    TableIndexAccess target,
+    Value wrappedValue,
+  ) async {
+    (this is Interpreter) ? (this as Interpreter).recordTrace(target) : null;
+    Logger.debug(
+      '_handleTableIndexAssignment: Assigning $wrappedValue to ${target.table}[${target.index}]',
+      category: 'Interpreter',
+    );
+    final tableValue = await target.table.accept(this);
+
+    if (tableValue is Value) {
+      if (tableValue.raw is Map) {
+        // For index access, always evaluate the index expression
+        final indexResult = await target.index.accept(this);
+        final indexValue = indexResult is Value ? indexResult.raw : indexResult;
+
+        // Check for nil index - this should throw an error
+        if (indexValue == null) {
+          throw LuaError.typeError('table index is nil');
+        }
+
+        // If key doesn't exist, try __newindex metamethod
+        if (!tableValue.containsKey(indexValue)) {
+          final newindex = tableValue.getMetamethod("__newindex");
+          if (newindex != null) {
+            Logger.debug(
+              '_handleTableIndexAssignment: __newindex metamethod found',
+              category: 'Interpreter',
+            );
+            if (newindex is Function) {
+              final result = newindex([
+                tableValue,
+                Value(indexValue),
+                wrappedValue,
+              ]);
+              return result is Future ? await result : result;
+            } else if (newindex is FunctionLiteral) {
+              return await newindex.accept(this);
+            } else if (newindex is Value) {
+              if (newindex.raw is Function) {
+                final func = newindex.raw as Function;
+                return await func([
+                  tableValue,
+                  Value(indexValue),
+                  wrappedValue,
+                ]);
+              } else if (newindex.raw is Map) {
+                final metamap = newindex.raw as Map;
+                metamap[indexValue] = wrappedValue;
+                return wrappedValue;
+              }
+            }
+          }
+        }
+
+        // No metamethod or key exists - do regular assignment
+        tableValue[indexValue] = wrappedValue;
+
+        Logger.debug(
+          '_handleTableIndexAssignment: Assigned ${wrappedValue.raw} to index ${indexValue}',
+          category: 'Interpreter',
+        );
+        return wrappedValue;
+      }
+
+      throw LuaError("Cannot assign to field of non-table value", node: target);
+    }
+
+    throw LuaError("Cannot assign to field of non-Value", node: target);
   }
 
   /// Declares local variables with initial values.

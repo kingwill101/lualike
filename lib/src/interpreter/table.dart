@@ -89,6 +89,92 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     return result;
   }
 
+  /// Evaluates a table field access expression (table.field).
+  ///
+  /// For dot notation, the field name is always used as a literal string key.
+  ///
+  /// [node] - The table field access expression node
+  /// Returns the value at the specified field in the table.
+  @override
+  Future<Object?> visitTableFieldAccess(TableFieldAccess node) async {
+    Logger.info(
+      'Accessing table field: ${node.table}.${node.fieldName.name}',
+      category: 'TableAccess',
+    );
+    final table = await node.table.accept(this);
+
+    // For field access, always use the field name as a literal string key
+    final fieldKey = node.fieldName.name;
+
+    // Ensure proper Value wrapping
+    final tableVal = table is Value ? table : Value(table);
+    final indexVal = Value(fieldKey);
+
+    Logger.info(
+      'TableFieldAccess: ${tableVal.toString()}.${fieldKey}',
+      category: 'TableAccess',
+    );
+
+    if (tableVal.raw is! Map) {
+      if (tableVal.raw == null) {
+        throw LuaError.typeError('attempt to index a nil value');
+      }
+      throw LuaError.typeError(
+        'attempt to index a ${tableVal.raw.runtimeType} value',
+      );
+    }
+
+    final result = tableVal[indexVal];
+    Logger.debug('TableFieldAccess result: $result', category: 'Interpreter');
+    return result;
+  }
+
+  /// Evaluates a table index access expression (table[expr]).
+  ///
+  /// For bracket notation, the index expression is evaluated to get the key.
+  ///
+  /// [node] - The table index access expression node
+  /// Returns the value at the specified index in the table.
+  @override
+  Future<Object?> visitTableIndexAccess(TableIndexAccess node) async {
+    Logger.info(
+      'Accessing table index: ${node.table}[${node.index}]',
+      category: 'TableAccess',
+    );
+    final table = await node.table.accept(this);
+
+    // For index access, always evaluate the index expression
+    Object? indexResult = await node.index.accept(this);
+
+    // If the index is a multi-value (like from varargs), use only the first value
+    if (indexResult is Value && indexResult.isMulti) {
+      final values = indexResult.raw as List;
+      indexResult = values.isNotEmpty ? values[0] : Value(null);
+    }
+
+    // Ensure proper Value wrapping
+    final tableVal = table is Value ? table : Value(table);
+    final indexVal = indexResult is Value ? indexResult : Value(indexResult);
+
+    Logger.info(
+      'TableIndexAccess: ${tableVal.toString()}[${indexVal.toString()}]',
+      category: 'TableAccess',
+    );
+
+    if (tableVal.raw is! Map) {
+      if (tableVal.raw == null) {
+        throw LuaError.typeError('attempt to index a nil value');
+      }
+      throw LuaError.typeError(
+        'attempt to index a ${tableVal.raw.runtimeType} value',
+      );
+    }
+
+    final result = tableVal[indexVal];
+    Logger.debug('TableIndexAccess result: $result', category: 'Interpreter');
+    return result;
+  }
+
   /// Evaluates a keyed table entry.
   ///
   /// Represents a key-value pair in a table constructor.
