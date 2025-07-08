@@ -304,8 +304,9 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         Logger.debug('ForLoop iteration: i = $i', category: 'ControlFlow');
 
         // Create a new environment for each loop iteration
+        // Use the current environment as parent to properly handle nested scopes
         final loopEnv = Environment(
-          parent: globals,
+          parent: globals, // globals represents the current environment
           interpreter: this as Interpreter,
         );
         final prevEnv = globals;
@@ -314,8 +315,8 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           // Set the loop environment as the current environment
           setCurrentEnv(loopEnv);
 
-          // Define the loop variable in the loop environment
-          loopEnv.define(node.varName.name, Value(i));
+          // Declare the loop variable in the loop environment (creates new local scope)
+          loopEnv.declare(node.varName.name, Value(i));
 
           // Execute the loop body
           if (this is Interpreter) {
