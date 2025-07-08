@@ -615,17 +615,15 @@ class LoadFunction implements BuiltinFunction {
           // Save the current environment
           final savedEnv = vm.getCurrentEnv();
 
-          // Find the root global environment by traversing up the chain
-          Environment rootGlobals = vm.globals;
-          while (rootGlobals.parent != null) {
-            rootGlobals = rootGlobals.parent!;
-          }
+          // Create a new environment for the loaded code that inherits from current environment
+          // This ensures loaded code can access _ENV and other global variables properly
+          final loadEnv = Environment(parent: savedEnv, interpreter: vm);
 
-          // Set up varargs in the root global environment
-          rootGlobals.declare("...", Value.multi(callArgs));
+          // Set up varargs in the load environment
+          loadEnv.declare("...", Value.multi(callArgs));
 
-          // Switch to the root global environment to execute the loaded code
-          vm.setCurrentEnv(rootGlobals);
+          // Switch to the load environment to execute the loaded code
+          vm.setCurrentEnv(loadEnv);
 
           try {
             final result = await vm.run(ast.statements);
@@ -1683,4 +1681,8 @@ void defineBaseLibrary({
 
   // Define _G in the environment
   env.define("_G", gValue);
+
+  // Define _ENV to point to the same global environment
+  // According to Lua 5.4 spec, _ENV should be the environment table
+  env.define("_ENV", gValue);
 }
