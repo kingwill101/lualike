@@ -664,13 +664,9 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         } catch (e) {
           // Check if we're in a protected call context (pcall)
           if (this is Interpreter && (this as Interpreter).isInProtectedCall) {
-            // Convert the error and exit the for-in loop early
-            // The error will be handled by the pcall context
-            Logger.error(
-              'ForInLoop: Error in protected call for-in loop: $e',
-              error: e,
-              category: 'ControlFlow',
-            );
+            // Silently propagate the error to the surrounding pcall/xpcall
+            // without emitting a noisy log entry. The script that invoked
+            // pcall will handle the error object it receives.
             rethrow;
           } else {
             // Re-throw if not in protected context
@@ -808,8 +804,15 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         }
       }
     } catch (e, s) {
-      Logger.error('ForInLoop: Error in for-in loop: $e', error: e);
-      print(s);
+      // Only log unhandled errors when not inside a protected call (pcall/xpcall).
+      if (!(this is Interpreter && (this as Interpreter).isInProtectedCall)) {
+        Logger.error(
+          'ForInLoop: Error in for-in loop: $e',
+          error: e,
+          node: node,
+        );
+        print(s);
+      }
       rethrow;
     }
 

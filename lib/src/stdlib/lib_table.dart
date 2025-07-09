@@ -361,7 +361,7 @@ class _TableUnpack implements BuiltinFunction {
       }
     }
 
-    if (result.isEmpty) return Value(null);
+    if (result.isEmpty) return Value.multi([]);
     if (result.length == 1) return result[0];
     return Value.multi(result);
   }
