@@ -840,17 +840,12 @@ class PCAllFunction implements BuiltinFunction {
         callResult = func.raw(callArgs);
       }
 
-      // Handle both synchronous and asynchronous results
       if (callResult is Future) {
-        try {
-          final awaitedResult = await callResult;
-          return Value.multi([
-            true,
-            awaitedResult is Value ? awaitedResult.raw : awaitedResult,
-          ]);
-        } catch (e) {
-          return Value.multi([false, e.toString()]);
-        }
+        final awaitedResult = await callResult;
+        return Value.multi([
+          true,
+          awaitedResult is Value ? awaitedResult.raw : awaitedResult,
+        ]);
       } else {
         return Value.multi([
           true,
