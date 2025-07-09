@@ -153,6 +153,22 @@ class _RecordCaptureParser extends Parser<String> {
   _RecordCaptureParser copy() => _RecordCaptureParser(parser, index, storage);
 }
 
+/// Parser that captures the current position as a string representation of a number
+class _PositionCaptureParser extends Parser<String> {
+  @override
+  Result<String> parseOn(Context context) {
+    // Return the current position (1-based as per Lua convention) as a string
+    final position = context.position + 1;
+    return context.success(position.toString(), context.position);
+  }
+
+  @override
+  int fastParseOn(String buffer, int position) => position;
+
+  @override
+  _PositionCaptureParser copy() => _PositionCaptureParser();
+}
+
 /// Parser that matches the previously captured substring at [index].
 
 class _BackReferenceParser extends Parser<String> {
@@ -514,7 +530,7 @@ class LuaPatternCompiler {
     if (_pattern[_pos] == ')') {
       _pos++;
       final capture = _RecordCaptureParser(
-        epsilon().map((_) => ''),
+        _PositionCaptureParser(),
         index,
         _captureValues,
       );
