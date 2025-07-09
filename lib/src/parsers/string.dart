@@ -1,6 +1,14 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:petitparser/petitparser.dart';
+
+/// Internal helper result for UTF-8 decode routines.
+class _Utf8DecodeResult {
+  final int codePoint;
+  final int sequenceLength;
+  const _Utf8DecodeResult(this.codePoint, this.sequenceLength);
+}
 
 /// A PetitParser-based parser for Lua string literals that handles escape sequences correctly
 class LuaStringParser {
@@ -178,5 +186,131 @@ class LuaStringParser {
     } else {
       throw FormatException('Failed to parse Lua string: ${result.toString()}');
     }
+  }
+
+  // ************************************************************
+  // Added UTF-8 helpers for stdlib/utf8.dart so everything lives
+  // in one place (requested by user)
+  // ************************************************************
+
+  /// Encodes a single Unicode [codePoint] to UTF-8 bytes.
+  /// Supports the historical 5- and 6-byte forms that Lua still
+  /// recognises for code points up to 0x7FFFFFFF.
+  static List<int> encodeCodePoint(int codePoint) {
+    if (codePoint < 0) {
+      throw RangeError('Negative code points are not allowed');
+    }
+
+    if (codePoint <= 0x7F) {
+      return [codePoint];
+    } else if (codePoint <= 0x7FF) {
+      return [0xC0 | (codePoint >> 6), 0x80 | (codePoint & 0x3F)];
+    } else if (codePoint <= 0xFFFF) {
+      return [
+        0xE0 | (codePoint >> 12),
+        0x80 | ((codePoint >> 6) & 0x3F),
+        0x80 | (codePoint & 0x3F),
+      ];
+    } else if (codePoint <= 0x1FFFFF) {
+      return [
+        0xF0 | (codePoint >> 18),
+        0x80 | ((codePoint >> 12) & 0x3F),
+        0x80 | ((codePoint >> 6) & 0x3F),
+        0x80 | (codePoint & 0x3F),
+      ];
+    } else if (codePoint <= 0x3FFFFFF) {
+      return [
+        0xF8 | (codePoint >> 24),
+        0x80 | ((codePoint >> 18) & 0x3F),
+        0x80 | ((codePoint >> 12) & 0x3F),
+        0x80 | ((codePoint >> 6) & 0x3F),
+        0x80 | (codePoint & 0x3F),
+      ];
+    } else if (codePoint <= 0x7FFFFFFF) {
+      return [
+        0xFC | (codePoint >> 30),
+        0x80 | ((codePoint >> 24) & 0x3F),
+        0x80 | ((codePoint >> 18) & 0x3F),
+        0x80 | ((codePoint >> 12) & 0x3F),
+        0x80 | ((codePoint >> 6) & 0x3F),
+        0x80 | (codePoint & 0x3F),
+      ];
+    }
+
+    // Anything above 0x7FFFFFFF – fallback to clearly invalid bytes so
+    // the UTF-8 library can flag an error later.
+    return _encodeInvalidCodePoint(codePoint);
+  }
+
+  /// Decodes one UTF-8 character starting at byte position [start].
+  /// Returns `null` if the sequence is invalid (unless [lax] is true).
+  static _Utf8DecodeResult? decodeUtf8Character(
+    List<int> bytes,
+    int start, {
+    bool lax = false,
+  }) {
+    if (start >= bytes.length) return null;
+
+    int first = bytes[start];
+
+    // Single-byte (ASCII)
+    if (first <= 0x7F) {
+      return _Utf8DecodeResult(first, 1);
+    }
+
+    // Helper to validate continuation bytes
+    bool isContinuation(int byte) => (byte & 0xC0) == 0x80;
+
+    int needed = 0;
+    int codePoint = 0;
+
+    if (first >= 0xC2 && first <= 0xDF) {
+      needed = 1;
+      codePoint = first & 0x1F;
+    } else if (first >= 0xE0 && first <= 0xEF) {
+      needed = 2;
+      codePoint = first & 0x0F;
+    } else if (first >= 0xF0 && first <= (lax ? 0xF7 : 0xF4)) {
+      // Standard UTF-8 allows first byte up to 0xF4. In lax mode, Lua still
+      // accepts the historical values 0xF5–0xF7 for 4-byte sequences that
+      // encode code points larger than 0x10FFFF (up to 0x1FFFFF).
+      needed = 3;
+      codePoint = first & 0x07;
+    } else if (first >= 0xF8 && first <= 0xFB) {
+      needed = 4;
+      codePoint = first & 0x03;
+    } else if (first >= 0xFC && first <= 0xFD) {
+      needed = 5;
+      codePoint = first & 0x01;
+    } else {
+      // Illegal first byte
+      return null;
+    }
+
+    if (start + needed >= bytes.length) return null; // not enough bytes
+
+    for (int i = 1; i <= needed; i++) {
+      int byte = bytes[start + i];
+      if (!isContinuation(byte)) return null;
+      codePoint = (codePoint << 6) | (byte & 0x3F);
+    }
+
+    int sequenceLength = needed + 1;
+
+    // Reject over-long encodings and surrogate range if not in lax mode
+    if (!lax) {
+      if (sequenceLength == 2 && codePoint <= 0x7F) return null;
+      if (sequenceLength == 3 && codePoint <= 0x7FF) return null;
+      if (sequenceLength == 4 && codePoint <= 0xFFFF) return null;
+      if (sequenceLength == 5 && codePoint <= 0x1FFFFF) return null;
+      if (sequenceLength == 6 && codePoint <= 0x3FFFFFF) return null;
+      if (codePoint >= 0xD800 && codePoint <= 0xDFFF) return null; // surrogates
+      if (sequenceLength > 4)
+        return null; // standard UTF-8 max 4 bytes in strict mode
+      if (codePoint > 0x10FFFF) return null; // outside Unicode range
+      if (codePoint > 0x7FFFFFFF) return null;
+    }
+
+    return _Utf8DecodeResult(codePoint, sequenceLength);
   }
 }
