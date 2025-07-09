@@ -1037,17 +1037,42 @@ class _StringGmatch implements BuiltinFunction {
     final strValue = (args[0] as Value).raw;
     final patternValue = (args[1] as Value).raw;
 
-    // For pattern matching, we need to work with raw bytes to handle UTF-8 properly
-    final strBytes = strValue is LuaString
-        ? strValue.bytes
-        : Uint8List.fromList(utf8.encode(strValue.toString()));
-    final patternBytes = patternValue is LuaString
-        ? patternValue.bytes
-        : Uint8List.fromList(utf8.encode(patternValue.toString()));
+    // Helper function to check if LuaString contains valid UTF-8
+    bool isValidUtf8(LuaString luaStr) {
+      try {
+        utf8.decode(luaStr.bytes, allowMalformed: false);
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
 
-    // Convert bytes to Latin-1 strings for pattern matching
-    final str = String.fromCharCodes(strBytes);
-    final pattern = String.fromCharCodes(patternBytes);
+    // Only use byte-level processing when explicitly dealing with LuaString objects
+    // that contain non-UTF-8 data or when pattern is a LuaString with byte patterns
+    final bool useByteLevel =
+        (strValue is LuaString && !isValidUtf8(strValue)) ||
+        (patternValue is LuaString && !isValidUtf8(patternValue));
+
+    final String str;
+    final String pattern;
+
+    if (useByteLevel) {
+      // Only use byte-level processing when dealing with invalid UTF-8 data
+      final strBytes = strValue is LuaString
+          ? strValue.bytes
+          : Uint8List.fromList(utf8.encode(strValue.toString()));
+      final patternBytes = patternValue is LuaString
+          ? patternValue.bytes
+          : Uint8List.fromList(utf8.encode(patternValue.toString()));
+
+      str = String.fromCharCodes(strBytes);
+      pattern = String.fromCharCodes(patternBytes);
+    } else {
+      // For valid UTF-8 or normal Dart strings, work directly with UTF-8 strings
+      // This preserves proper UTF-8 character encoding
+      str = strValue.toString();
+      pattern = patternValue.toString();
+    }
 
     try {
       final lp = lpc.LuaPattern.compile(pattern);
@@ -1062,12 +1087,52 @@ class _StringGmatch implements BuiltinFunction {
 
         final match = matches[currentIndex++];
         if (match.captures.isEmpty) {
-          return Value(match.match);
+          // Return the match preserving the original encoding
+          if (useByteLevel && match.match.isNotEmpty) {
+            // Convert back to bytes and create LuaString for byte-level matches
+            final matchBytes = match.match.codeUnits
+                .map((c) => c & 0xFF)
+                .toList();
+            return Value(LuaString.fromBytes(Uint8List.fromList(matchBytes)));
+          } else {
+            return Value(match.match);
+          }
         }
 
-        final captures = match.captures
-            .map((c) => c == null ? Value(null) : Value(c))
-            .toList();
+        final captures = <Value>[];
+        for (var idx = 0; idx < match.captures.length; idx++) {
+          final cap = match.captures[idx];
+
+          if (cap == null) {
+            captures.add(Value(null));
+            continue;
+          }
+
+          // Only treat the very first capture (position capture produced by
+          // plain '()' in patterns like "()pattern") as a numeric value. All
+          // subsequent captures must **always** be returned as strings, even
+          // when they happen to consist solely of digits (e.g. the character
+          // "4"). This mimics Lua's semantics and prevents accidental type
+          // conversion that breaks code relying on string values.
+          if (idx == 0) {
+            final numericPosition = int.tryParse(cap);
+            if (numericPosition != null) {
+              captures.add(Value(numericPosition));
+              continue;
+            }
+          }
+
+          if (useByteLevel && cap.isNotEmpty) {
+            final captureBytes = cap.codeUnits
+                .map((code) => code & 0xFF)
+                .toList();
+            captures.add(
+              Value(LuaString.fromBytes(Uint8List.fromList(captureBytes))),
+            );
+          } else {
+            captures.add(Value(cap));
+          }
+        }
 
         if (captures.length == 1) {
           return captures[0];
