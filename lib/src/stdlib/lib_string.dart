@@ -1,10 +1,13 @@
 import 'dart:convert';
+import 'dart:convert' as convert;
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:collection/collection.dart' show ListEquality;
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/parsers/pattern.dart' as lpc;
+import 'package:lualike/src/stdlib/lib_utf8.dart' show UTF8Lib;
 
 /// String interning cache for short strings (Lua-like behavior)
 /// In Lua, short strings are typically internalized while long strings are not
@@ -818,7 +821,7 @@ LuaString _formatQuoted(_FormatContext ctx) {
     if (rawValue is LuaString) {
       bytes = rawValue.bytes;
     } else {
-      bytes = utf8.encode(rawValue.toString());
+      bytes = convert.utf8.encode(rawValue.toString());
     }
     final escaped = FormatStringParser.escape(bytes);
 
@@ -1052,6 +1055,68 @@ class _StringGmatch implements BuiltinFunction {
     final bool useByteLevel =
         (strValue is LuaString && !isValidUtf8(strValue)) ||
         (patternValue is LuaString && !isValidUtf8(patternValue));
+
+    // Special-case utf8.charpattern: implement our own iterator that walks
+    // UTF-8 byte sequences using LuaStringParser so we don’t rely on the
+    // LuaPattern engine (which operates on code-units and caused corruption
+    // when multi-byte characters were involved).
+
+    // Detect "utf8.charpattern" regardless of whether the script passes it
+    // as a LuaString or as a plain Dart string.  Some call-sites (e.g. code
+    // executed via `-e` on the CLI or inside the test-bridge) end up with the
+    // constant coerced to a regular Dart `String`, which previously made us
+    // miss the fast-path and fall back to the LuaPattern engine (leading to
+    // duplicated matches for multi-byte characters).  We now recognise both
+    // representations.
+
+    final bool isUtf8CharPattern = (() {
+      if (patternValue is LuaString) {
+        return const ListEquality().equals(
+          patternValue.bytes,
+          UTF8Lib.charpattern.bytes,
+        );
+      }
+
+      if (patternValue is String) {
+        // Compare based on raw byte sequence to avoid issues with escape
+        // representations or different String instances.
+        return const ListEquality<int>().equals(
+          patternValue.codeUnits,
+          UTF8Lib.charpattern.bytes,
+        );
+      }
+
+      return false;
+    })();
+
+    if (isUtf8CharPattern) {
+      // Obtain raw bytes of the subject string.
+      final bytes = strValue is LuaString
+          ? strValue.bytes
+          : convert.utf8.encode(strValue.toString());
+
+      // Iterator state.
+      int pos = 0;
+
+      return Value((List<Object?> _) {
+        if (pos >= bytes.length) return Value(null);
+
+        // Decode next UTF-8 character (lax allows 5/6-byte sequences etc.)
+        final res = LuaStringParser.decodeUtf8Character(bytes, pos, lax: true);
+        int seqLen;
+        Uint8List slice;
+        if (res == null) {
+          // Invalid byte → treat as single-byte char.
+          seqLen = 1;
+          slice = Uint8List.fromList([bytes[pos]]);
+        } else {
+          seqLen = res.sequenceLength;
+          slice = Uint8List.sublistView(bytes, pos, pos + seqLen);
+        }
+        pos += seqLen;
+        return Value(LuaString(slice));
+      });
+    }
 
     final String str;
     final String pattern;

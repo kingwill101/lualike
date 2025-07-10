@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:lualike/lualike.dart';
 import 'package:path/path.dart' as path;
@@ -382,7 +383,7 @@ class FileManager {
       // This ensures that high bytes (like 225) are preserved as individual bytes
       // instead of being interpreted as UTF-8 sequences
       final bytes = file.readAsBytesSync();
-      return String.fromCharCodes(bytes);
+      return utf8.decode(bytes);
     } else {
       // Read as UTF-8 string (default behavior)
       // This properly handles UTF-8 characters like å, æ, ö

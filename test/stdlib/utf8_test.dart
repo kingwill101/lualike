@@ -6,13 +6,6 @@ void main() {
 
     setUp(() {
       bridge = LuaLike();
-      // Skip the problematic string function calls for now
-      // bridge.runCode('''
-      //   -- Test basic string functions to ensure the library is working
-      //   local upper = string.upper('test')
-      //   local find_result = string.find('hello', 'll')
-      //   local match_result = string.match('hello', 'll')
-      // ''');
     });
 
     test('utf8.char basic usage', () async {
@@ -614,20 +607,13 @@ void main() {
         expect(matchCount.unwrap(), equals(3)); // Should match 3 characters
         expect(char1.unwrap(), equals('a')); // First character
 
-        // NOTE: This test currently fails due to UTF-8 pattern matching corruption bug
-        // The implementation still corrupts UTF-8 characters during pattern matching
-        // Expected: '日', Actual: '' or corrupted bytes
-        // This bug needs to be fixed in lib/src/stdlib/lib_string.dart _StringGmatch
-        expect(char2.unwrap(), isNot(equals('日'))); // Currently corrupted
+        expect(char2.unwrap(), equals('日')); // Currently corrupted
         expect(char3.unwrap(), equals('b')); // Third character
       },
-      // skip: 'Pattern matching corruption bug not yet fully fixed',
     );
 
-    test(
-      'pattern matching works with mixed ASCII and UTF-8',
-      () async {
-        await bridge.runCode('''
+    test('pattern matching works with mixed ASCII and UTF-8', () async {
+      await bridge.runCode('''
         -- Test mixed ASCII and UTF-8 characters
         local mixed_string = "Hello世界123"
         local chars = {}
@@ -643,29 +629,21 @@ void main() {
         last_char = chars[#chars] -- 3
       ''');
 
-        var totalChars = bridge.getGlobal('total_chars') as Value;
-        var firstChar = bridge.getGlobal('first_char') as Value;
-        var sixthChar = bridge.getGlobal('sixth_char') as Value;
-        var seventhChar = bridge.getGlobal('seventh_char') as Value;
-        var lastChar = bridge.getGlobal('last_char') as Value;
+      var totalChars = bridge.getGlobal('total_chars') as Value;
+      var firstChar = bridge.getGlobal('first_char') as Value;
+      var sixthChar = bridge.getGlobal('sixth_char') as Value;
+      var seventhChar = bridge.getGlobal('seventh_char') as Value;
+      var lastChar = bridge.getGlobal('last_char') as Value;
 
-        // NOTE: These expectations are for when the bug is fixed
-        expect(
-          totalChars.unwrap(),
-          isNot(equals(10)),
-        ); // Currently corrupted count
-        expect(firstChar.unwrap(), equals('H'));
-        expect(sixthChar.unwrap(), isNot(equals('世'))); // Currently corrupted
-        expect(seventhChar.unwrap(), isNot(equals('界'))); // Currently corrupted
-        expect(lastChar.unwrap(), isNot(equals('3'))); // May be corrupted too
-      },
-      // skip: 'Pattern matching corruption bug not yet fully fixed',
-    );
+      expect(totalChars.unwrap(), equals(10));
+      expect(firstChar.unwrap(), equals('H'));
+      expect((sixthChar.raw as LuaString).toString(), equals('世'));
+      expect(seventhChar.unwrap(), equals('界'));
+      expect(lastChar.unwrap(), equals('3'));
+    });
 
-    test(
-      'pattern matching preserves emoji characters',
-      () async {
-        await bridge.runCode('''
+    test('pattern matching preserves emoji characters', () async {
+      await bridge.runCode('''
         -- Test emoji preservation in pattern matching
         local emoji_string = "🌍🌎🌏"
         local emojis = {}
@@ -683,13 +661,10 @@ void main() {
         first_length = #first_emoji  -- Should be 4 bytes for emoji
       ''');
 
-        var emojiCount = bridge.getGlobal('emoji_count') as Value;
+      var emojiCount = bridge.getGlobal('emoji_count') as Value;
 
-        // NOTE: Currently fails due to pattern matching corruption
-        expect(emojiCount.unwrap(), isNot(equals(3))); // Currently corrupted
-      },
-      // skip: 'Pattern matching corruption bug not yet fully fixed',
-    );
+      expect(emojiCount.unwrap(), equals(3));
+    });
 
     test('byte-level strings still work with LuaString objects', () async {
       await bridge.runCode('''
@@ -738,14 +713,9 @@ void main() {
         var originalLen = bridge.getGlobal('original_len') as Value;
         var reconstructedLen = bridge.getGlobal('reconstructed_len') as Value;
 
-        // NOTE: Currently fails due to pattern matching corruption
-        expect(stringsMatch.unwrap(), isFalse); // Currently corrupted
-        expect(
-          originalLen.unwrap(),
-          isNot(equals(reconstructedLen.unwrap())),
-        ); // Different due to corruption
+        expect(stringsMatch.unwrap(), isTrue);
+        expect(originalLen.unwrap(), equals(reconstructedLen.unwrap()));
       },
-      // skip: 'Pattern matching corruption bug not yet fully fixed',
     );
   });
 }

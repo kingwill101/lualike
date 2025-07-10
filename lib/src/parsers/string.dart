@@ -1,4 +1,4 @@
-import 'dart:convert';
+import 'dart:convert' as convert;
 import 'dart:typed_data';
 
 import 'package:petitparser/petitparser.dart';
@@ -127,7 +127,7 @@ class LuaStringParser {
                   !(codePoint >= 0xD800 && codePoint <= 0xDFFF)) {
                 // Valid Unicode code point - encode as UTF-8
                 final str = String.fromCharCode(codePoint);
-                return utf8.encode(str);
+                return convert.utf8.encode(str);
               } else {
                 // Invalid Unicode code point (including surrogates) - store as raw bytes
                 // This will be detected by UTF-8 functions as invalid
@@ -163,10 +163,18 @@ class LuaStringParser {
       fallbackEscape, // This should be last to catch unrecognized escapes
     ].toChoiceParser().cast<List<int>>();
 
-    // Regular character (not backslash)
-    final regularChar = pattern(
-      '^\\\\',
-    ).plus().flatten().map((chars) => chars.codeUnits).cast<List<int>>();
+    // Regular character (not backslash).  We MUST convert the character(s)
+    // to their UTF-8 byte representation, otherwise any non-ASCII character
+    // (e.g. emoji) is split into its UTF-16 code-units which later causes the
+    // UTF-8 aware standard-library functions (such as string.gmatch with
+    // utf8.charpattern) to mis-count characters.  This was the root cause of
+    // the duplicated emoji matches observed in the UTF-8 test-suite.
+
+    final regularChar = pattern('^\\\\')
+        .plus()
+        .flatten()
+        .map((chars) => convert.utf8.encode(chars))
+        .cast<List<int>>();
 
     // String content: sequence of escape sequences or regular characters
     final stringContent = (anyEscape | regularChar).star().map(
@@ -305,8 +313,9 @@ class LuaStringParser {
       if (sequenceLength == 5 && codePoint <= 0x1FFFFF) return null;
       if (sequenceLength == 6 && codePoint <= 0x3FFFFFF) return null;
       if (codePoint >= 0xD800 && codePoint <= 0xDFFF) return null; // surrogates
-      if (sequenceLength > 4)
+      if (sequenceLength > 4) {
         return null; // standard UTF-8 max 4 bytes in strict mode
+      }
       if (codePoint > 0x10FFFF) return null; // outside Unicode range
       if (codePoint > 0x7FFFFFFF) return null;
     }

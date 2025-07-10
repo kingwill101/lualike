@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:lualike/testing.dart';
@@ -27,7 +28,7 @@ abstract class BaseCommand extends Command {
         try {
           final sourceCode = await File(
             filename,
-          ).readAsBytes().then((bytes) => String.fromCharCodes(bytes));
+          ).readAsBytes().then((bytes) => utf8.decode(bytes));
           await bridge.runCode(sourceCode, scriptPath: filename);
         } catch (e) {
           safePrint('Error in LUA_INIT file: $e');

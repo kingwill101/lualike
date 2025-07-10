@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:lualike/src/testing/testing.dart';
@@ -216,9 +217,7 @@ Future<List<Value>> runFile(String path, {Map<String, dynamic>? env}) async {
   if (!await file.exists()) {
     throw Exception('File not found: $path');
   }
-  final code = await file.readAsBytes().then(
-    (bytes) => String.fromCharCodes(bytes),
-  );
+  final code = await file.readAsBytes().then((bytes) => utf8.decode(bytes));
 
   // Create a new environment if one wasn't provided
   env ??= {};
@@ -277,7 +276,7 @@ Future<Value> loadFile(String path) async {
       throw LuaError.typeError('File not found: $path');
     }
     final content = await file.readAsBytes().then(
-      (bytes) => String.fromCharCodes(bytes),
+      (bytes) => utf8.decode(bytes),
     );
     // runCode returns a list, loadFile should return the first result or nil
     final results = await runCode(content, filePath: path);

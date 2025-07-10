@@ -2,8 +2,6 @@ concurrency: 4
 timeout: 30s
 reporter: expanded
 
-paths:
-  - 'test'
 tags:
   # Tags for different test categories
   bytecode: {
