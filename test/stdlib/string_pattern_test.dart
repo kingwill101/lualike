@@ -129,7 +129,7 @@ void main() {
 
         expect((bridge.getGlobal('r1') as Value).raw, equals("xyz"));
         expect((bridge.getGlobal('r2') as Value).raw, equals(""));
-      }, skip: 'backtracking not yet implemented');
+      });
 
       test('end of string captures', () async {
         // From pm.lua:
@@ -281,7 +281,7 @@ void main() {
           (bridge.getGlobal('r17') as Value).raw,
           equals("\u0000efg\u0000\u0001e\u0001"),
         );
-      }, skip: 'backtracking not yet implemented');
+      });
     });
   });
 }
