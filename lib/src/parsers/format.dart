@@ -131,35 +131,20 @@ class FormatStringParser {
         final sequenceLength = _getValidUTF8SequenceLength(bytes, i);
         if (sequenceLength > 1 &&
             _isSafeUTF8Sequence(bytes, i, sequenceLength)) {
-          // Safe UTF-8 sequence that we know will round-trip correctly
+          // Valid UTF-8 sequence - preserve it as-is
           for (int j = 0; j < sequenceLength; j++) {
             buffer.writeCharCode(bytes[i + j]);
           }
           i += sequenceLength;
-        } else if (sequenceLength == 1) {
-          // Single byte in 128-255 range - check if it causes round-trip issues
-          // Only escape bytes that are known to cause problems during round-trip
-          if (code == 255 || code == 225 || code == 180) {
-            // Bytes that cause round-trip issues, escape them
-            if (i + 1 < bytes.length &&
-                bytes[i + 1] >= 48 &&
-                bytes[i + 1] <= 57) {
-              buffer.write('\\${code.toString().padLeft(3, '0')}');
-            } else {
-              buffer.write('\\$code');
-            }
-          } else {
-            // Other single bytes are safe Latin-1 characters
-            buffer.writeCharCode(code);
-          }
-          i++;
         } else {
-          // Invalid or potentially problematic byte, escape it
+          // Invalid UTF-8 or isolated high byte - escape it
           if (i + 1 < bytes.length &&
               bytes[i + 1] >= 48 &&
               bytes[i + 1] <= 57) {
+            // Next char is a digit, need 3-digit form to avoid ambiguity
             buffer.write('\\${code.toString().padLeft(3, '0')}');
           } else {
+            // Safe to use shortest form
             buffer.write('\\$code');
           }
           i++;
@@ -190,9 +175,6 @@ class FormatStringParser {
 
     final byte = bytes[i];
 
-    // Byte 255 always causes issues
-    if (byte == 255) return 1;
-
     // Check if this byte starts a valid UTF-8 sequence
     if (byte >= 0xC2 && byte <= 0xDF) {
       // 2-byte sequence - check if we have a valid continuation
@@ -219,44 +201,13 @@ class FormatStringParser {
       return 1; // Invalid sequence
     }
 
-    // Not a UTF-8 start byte, treat as single byte
-    return 1;
+    return 1; // Single byte or invalid start byte
   }
 
-  /// Check if a UTF-8 sequence is safe to preserve
-  static bool _isSafeUTF8Sequence(Uint8List bytes, int i, int length) {
-    // For our Lua implementation, we need to be conservative about what UTF-8
-    // sequences to preserve vs escape. We'll preserve sequences that represent
-    // common Latin-1 extended characters (like á, é, etc.) that are commonly
-    // used and likely to round-trip correctly.
-
-    if (length == 2) {
-      final byte1 = bytes[i];
-      final byte2 = bytes[i + 1];
-
-      // Latin-1 Supplement (U+0080 to U+00FF) encoded as UTF-8
-      // These are bytes 0xC2 0x80 through 0xC3 0xBF
-      if (byte1 == 0xC2 && byte2 >= 0x80 && byte2 <= 0xBF) {
-        return true; // Latin-1 supplement characters
-      }
-      if (byte1 == 0xC3 && byte2 >= 0x80 && byte2 <= 0xBF) {
-        return true; // Latin-1 supplement characters (including á, é, etc.)
-      }
-    }
-
-    if (length == 3) {
-      final byte1 = bytes[i];
-      final byte2 = bytes[i + 1];
-      final byte3 = bytes[i + 2];
-
-      // UTF-8 replacement character (U+FFFD) = 0xEF 0xBF 0xBD
-      if (byte1 == 0xEF && byte2 == 0xBF && byte3 == 0xBD) {
-        return true; // UTF-8 replacement character is safe
-      }
-    }
-
-    // For now, be conservative with other 3-byte and 4-byte sequences
-    // as they're more likely to cause round-trip issues
-    return false;
+  /// Check if a UTF-8 sequence is safe to include unescaped in %q format
+  static bool _isSafeUTF8Sequence(Uint8List bytes, int start, int length) {
+    // For now, allow all valid UTF-8 sequences
+    // We can be more restrictive here if needed for specific compatibility issues
+    return length > 1 && start + length <= bytes.length;
   }
 }

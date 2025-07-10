@@ -176,12 +176,10 @@ class LuaStringParser {
         if (char <= 0x7F) {
           // ASCII character - always single byte
           result.add(char);
-        } else if (char <= 0xFF) {
-          // High byte (128-255) - this could be from an escape sequence like \xBF
-          // Preserve as single Latin-1 byte (this is what Lua does)
-          result.add(char);
         } else {
-          // True Unicode character (> 255) - encode as UTF-8
+          // All non-ASCII characters should be properly UTF-8 encoded
+          // This includes characters in the 128-255 range that represent
+          // actual Unicode characters from the source file
           final utf8Bytes = convert.utf8.encode(String.fromCharCode(char));
           result.addAll(utf8Bytes);
         }
