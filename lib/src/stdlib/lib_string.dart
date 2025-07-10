@@ -270,7 +270,7 @@ Future<Object> _formatString(_FormatContext ctx) async {
       if (name != null &&
           name is Value &&
           (name.raw is String || name.raw is LuaString)) {
-        final str = '${name.raw}: ${value.raw.hashCode.toRadixString(16)}';
+        final str = '${name.raw}: ';
         if (ctx.precision.isNotEmpty) {
           final precValue = ctx.precisionValue;
           if (precValue < str.length) {
@@ -1391,9 +1391,36 @@ class _StringLower implements BuiltinFunction {
     }
 
     final value = args[0] as Value;
-    // For normal string operations, use Dart's string methods for better interop
-    final str = value.raw.toString();
-    return Value(str.toLowerCase());
+
+    // Handle LuaString specially to preserve byte representation
+    if (value.raw is LuaString) {
+      final luaStr = value.raw as LuaString;
+      final bytes = luaStr.bytes;
+      final resultBytes = <int>[];
+
+      // Apply lowercase transformation byte by byte
+      for (final byte in bytes) {
+        if (byte >= 65 && byte <= 90) {
+          // 'A' to 'Z'
+          resultBytes.add(byte + 32); // Convert to lowercase
+        } else {
+          resultBytes.add(byte); // Keep unchanged
+        }
+      }
+
+      // For better interop, return regular strings when they only contain ASCII
+      final isAsciiOnly = resultBytes.every((b) => b <= 127);
+      if (isAsciiOnly) {
+        final resultString = String.fromCharCodes(resultBytes);
+        return Value(resultString);
+      } else {
+        return Value(LuaString.fromBytes(Uint8List.fromList(resultBytes)));
+      }
+    } else {
+      // For normal string operations, use Dart's string methods for better interop
+      final str = value.raw.toString();
+      return Value(str.toLowerCase());
+    }
   }
 }
 
@@ -1457,38 +1484,85 @@ class _StringRep implements BuiltinFunction {
     final count = NumberUtils.toInt((args[1] as Value).raw);
     final separatorValue = args.length > 2 ? (args[2] as Value) : null;
 
-    final originalStr = value.raw.toString();
-    final separatorStr = separatorValue?.raw?.toString() ?? '';
-
     if (count <= 0) {
       return StringInterning.createStringValue('');
     }
 
-    final totalLength =
-        (BigInt.from(originalStr.length) * BigInt.from(count)) +
-        (BigInt.from(separatorStr.length) *
-            BigInt.from(math.max(0, count - 1)));
+    // Handle LuaString specially to preserve byte representation
+    if (value.raw is LuaString) {
+      final luaStr = value.raw as LuaString;
+      final separatorBytes = separatorValue?.raw is LuaString
+          ? (separatorValue!.raw as LuaString).bytes
+          : (separatorValue?.raw?.toString() ?? '').codeUnits
+                .map((c) => c & 0xFF)
+                .toList();
 
-    // Dart strings can be huge, but creating multi-gigabyte strings is risky.
-    // Let's cap it at something sane to prevent OOM errors, similar to Lua.
-    // (e.g., 2^30 bytes, ~1GB). Lua's limit is related to size_t.
-    if (totalLength > BigInt.from(1 << 30)) {
-      throw LuaError('too large');
-    }
+      final totalLength =
+          (BigInt.from(luaStr.length) * BigInt.from(count)) +
+          (BigInt.from(separatorBytes.length) *
+              BigInt.from(math.max(0, count - 1)));
 
-    if (count == 1) {
-      return StringInterning.createStringValue(originalStr);
-    }
-
-    final buffer = StringBuffer();
-    for (var i = 0; i < count; i++) {
-      buffer.write(originalStr);
-      if (separatorStr.isNotEmpty && i < count - 1) {
-        buffer.write(separatorStr);
+      if (totalLength > BigInt.from(1 << 30)) {
+        throw LuaError('too large');
       }
-    }
 
-    return StringInterning.createStringValue(buffer.toString());
+      if (count == 1) {
+        return value;
+      }
+
+      final resultBytes = <int>[];
+      for (var i = 0; i < count; i++) {
+        resultBytes.addAll(luaStr.bytes);
+        if (separatorBytes.isNotEmpty && i < count - 1) {
+          resultBytes.addAll(separatorBytes);
+        }
+      }
+
+      // For LuaString results, we need to handle interning carefully
+      // Check if the result contains only ASCII characters (safe for interning)
+      final isAsciiOnly = resultBytes.every((b) => b <= 127);
+
+      if (isAsciiOnly) {
+        // Safe to convert to regular string and intern
+        final resultString = String.fromCharCodes(resultBytes);
+        return StringInterning.createStringValue(resultString);
+      } else {
+        // Contains high bytes, preserve as LuaString
+        final resultLuaString = LuaString.fromBytes(resultBytes);
+
+        // For high-byte content, we cannot use StringInterning because it would
+        // UTF-8 encode the Latin-1 string, corrupting the bytes
+        // Instead, return the LuaString directly
+        return Value(resultLuaString);
+      }
+    } else {
+      // Handle regular strings
+      final originalStr = value.raw.toString();
+      final separatorStr = separatorValue?.raw?.toString() ?? '';
+
+      final totalLength =
+          (BigInt.from(originalStr.length) * BigInt.from(count)) +
+          (BigInt.from(separatorStr.length) *
+              BigInt.from(math.max(0, count - 1)));
+
+      if (totalLength > BigInt.from(1 << 30)) {
+        throw LuaError('too large');
+      }
+
+      if (count == 1) {
+        return StringInterning.createStringValue(originalStr);
+      }
+
+      final buffer = StringBuffer();
+      for (var i = 0; i < count; i++) {
+        buffer.write(originalStr);
+        if (separatorStr.isNotEmpty && i < count - 1) {
+          buffer.write(separatorStr);
+        }
+      }
+
+      return StringInterning.createStringValue(buffer.toString());
+    }
   }
 }
 
@@ -1734,9 +1808,36 @@ class _StringUpper implements BuiltinFunction {
     }
 
     final value = args[0] as Value;
-    // For normal string operations, use Dart's string methods for better interop
-    final str = value.raw.toString();
-    return Value(str.toUpperCase());
+
+    // Handle LuaString specially to preserve byte representation
+    if (value.raw is LuaString) {
+      final luaStr = value.raw as LuaString;
+      final bytes = luaStr.bytes;
+      final resultBytes = <int>[];
+
+      // Apply uppercase transformation byte by byte
+      for (final byte in bytes) {
+        if (byte >= 97 && byte <= 122) {
+          // 'a' to 'z'
+          resultBytes.add(byte - 32); // Convert to uppercase
+        } else {
+          resultBytes.add(byte); // Keep unchanged
+        }
+      }
+
+      // For better interop, return regular strings when they only contain ASCII
+      final isAsciiOnly = resultBytes.every((b) => b <= 127);
+      if (isAsciiOnly) {
+        final resultString = String.fromCharCodes(resultBytes);
+        return Value(resultString);
+      } else {
+        return Value(LuaString.fromBytes(Uint8List.fromList(resultBytes)));
+      }
+    } else {
+      // For normal string operations, use Dart's string methods for better interop
+      final str = value.raw.toString();
+      return Value(str.toUpperCase());
+    }
   }
 }
 

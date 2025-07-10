@@ -163,17 +163,15 @@ class LuaStringParser {
       fallbackEscape, // This should be last to catch unrecognized escapes
     ].toChoiceParser().cast<List<int>>();
 
-    // Regular character (not backslash).  We MUST convert the character(s)
-    // to their UTF-8 byte representation, otherwise any non-ASCII character
-    // (e.g. emoji) is split into its UTF-16 code-units which later causes the
-    // UTF-8 aware standard-library functions (such as string.gmatch with
-    // utf8.charpattern) to mis-count characters.  This was the root cause of
-    // the duplicated emoji matches observed in the UTF-8 test-suite.
+    // Regular character (not backslash). For string literals, we need to preserve
+    // the raw byte values to avoid double-encoding. When a string literal contains
+    // high bytes (128-255), they should be treated as Latin-1 characters, not
+    // re-encoded as UTF-8. This ensures round-trip compatibility for %q format.
 
     final regularChar = pattern('^\\\\')
         .plus()
         .flatten()
-        .map((chars) => convert.utf8.encode(chars))
+        .map((chars) => chars.codeUnits.map((c) => c & 0xFF).toList())
         .cast<List<int>>();
 
     // String content: sequence of escape sequences or regular characters

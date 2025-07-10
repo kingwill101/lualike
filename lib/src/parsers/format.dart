@@ -138,7 +138,8 @@ class FormatStringParser {
           i += sequenceLength;
         } else if (sequenceLength == 1) {
           // Single byte in 128-255 range - check if it causes round-trip issues
-          if (code == 255 || code == 225) {
+          // Only escape bytes that are known to cause problems during round-trip
+          if (code == 255 || code == 225 || code == 180) {
             // Bytes that cause round-trip issues, escape them
             if (i + 1 < bytes.length &&
                 bytes[i + 1] >= 48 &&
@@ -148,7 +149,7 @@ class FormatStringParser {
               buffer.write('\\$code');
             }
           } else {
-            // Other single bytes 128-254 (except 225) are safe Latin-1 characters
+            // Other single bytes are safe Latin-1 characters
             buffer.writeCharCode(code);
           }
           i++;
