@@ -163,16 +163,32 @@ class LuaStringParser {
       fallbackEscape, // This should be last to catch unrecognized escapes
     ].toChoiceParser().cast<List<int>>();
 
-    // Regular character (not backslash). For string literals, we need to preserve
-    // the raw byte values to avoid double-encoding. When a string literal contains
-    // high bytes (128-255), they should be treated as Latin-1 characters, not
-    // re-encoded as UTF-8. This ensures round-trip compatibility for %q format.
+    // Regular character (not backslash). We need to handle UTF-8 characters properly
+    // while preserving escape sequences. The key insight is that escape sequences
+    // should always produce their exact byte values, while real UTF-8 characters
+    // should be UTF-8 encoded.
 
-    final regularChar = pattern('^\\\\')
-        .plus()
-        .flatten()
-        .map((chars) => chars.codeUnits.map((c) => c & 0xFF).toList())
-        .cast<List<int>>();
+    final regularChar = pattern('^\\\\').plus().flatten().map((chars) {
+      final result = <int>[];
+
+      // Process each character individually to handle mixed content correctly
+      for (final char in chars.runes) {
+        if (char <= 0x7F) {
+          // ASCII character - always single byte
+          result.add(char);
+        } else if (char <= 0xFF) {
+          // High byte (128-255) - this could be from an escape sequence like \xBF
+          // Preserve as single Latin-1 byte (this is what Lua does)
+          result.add(char);
+        } else {
+          // True Unicode character (> 255) - encode as UTF-8
+          final utf8Bytes = convert.utf8.encode(String.fromCharCode(char));
+          result.addAll(utf8Bytes);
+        }
+      }
+
+      return result;
+    }).cast<List<int>>();
 
     // String content: sequence of escape sequences or regular characters
     final stringContent = (anyEscape | regularChar).star().map(
