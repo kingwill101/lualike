@@ -22,9 +22,42 @@ class LuaGrammarDefinition extends GrammarDefinition {
 
   // ---------- Helpers -------------------------------------------------------
 
-  /// Trims surrounding whitespace and comments for a [parser].
+  /// Wraps [parser] with optional whitespace/comment trimming.
+  ///
+  /// When [parser] is a [String] that represents a *keyword* (e.g. "and",
+  /// "or", "while"), we must ensure the match only succeeds when the keyword
+  /// is **not** directly followed by an identifier character. Otherwise a
+  /// word like "original_len" would be tokenised as the keyword "or" plus the
+  /// leftover "iginal_len", breaking the grammar.
+  ///
+  /// The heuristic: if the last character of the token is `[A-Za-z0-9_]`, we
+  /// require a negative look-ahead that asserts the next input character is
+  /// *not* another identifier character.  This keeps the behaviour for all
+  /// punctuation tokens ("+", "<=", etc.) unchanged while giving keywords
+  /// proper word-boundaries.
   Parser _token(Object parser) {
-    final Parser inner = parser is Parser ? parser : string(parser as String);
+    Parser inner;
+
+    if (parser is Parser) {
+      inner = parser;
+    } else {
+      final String lexeme = parser as String;
+      // Determine if the lexeme ends with an identifier character.
+      final bool endsWithIdentChar = RegExp(
+        r'[A-Za-z0-9_]',
+      ).hasMatch(lexeme.substring(lexeme.length - 1));
+
+      if (endsWithIdentChar) {
+        // Match the exact lexeme, *then* assert the next char is not another
+        // identifier char (negative look-ahead).  `pick(0)` keeps only the
+        // first parser’s result so that downstream code continues to receive
+        // the plain string, not a List.
+        inner = (string(lexeme) & pattern('A-Za-z0-9_').not()).pick(0);
+      } else {
+        inner = string(lexeme);
+      }
+    }
+
     // Attach the trim *after* the inner parser so that we keep the actual
     // matched lexeme intact for error reporting.
     return inner.trim(ref0(_whiteSpaceAndComments));
@@ -385,16 +418,45 @@ class LuaGrammarDefinition extends GrammarDefinition {
     return trueLit | falseLit;
   }
 
-  // Returnless expression statement (functioncall or generic expression)
-  Parser _returnlessExprStatement() =>
-      _span(ref0(_expression).map((expr) => ExpressionStatement(expr)));
+  // In Lua, an expression statement is only valid when the expression is
+  // a function call or a method call (or vararg “...” which we treat as
+  // invalid here). Accepting *any* expression would make the grammar
+  // ambiguous because a bare identifier on a new line could be parsed
+  // either as the start of a new assignment or as a (meaningless)
+  // standalone expression. This ambiguity surfaced when two assignment
+  // statements appear on consecutive lines without a semicolon, e.g.:
+  //   a = 1
+  //   b = 2   -- ERROR before this fix
+  // We therefore restrict the rule so that only function / method calls
+  // qualify as a ‘returnless expression statement’, mirroring Lua’s own
+  // grammar (§3.3.1).
+
+  Parser _returnlessExprStatement() {
+    // Lua allows an *expression statement* only when the expression is a
+    // function- or method-call (see Lua 5.4 §3.3.1).  We implement this by
+    // first performing a non-consuming look-ahead that succeeds **only** if
+    // the upcoming expression parses to a FunctionCall/MethodCall AST node.
+
+    // Positive look-ahead (does not consume input).
+    final callAhead = ref0(
+      _prefixExp,
+    ).where((n) => n is FunctionCall || n is MethodCall).and();
+
+    // Real statement: full expression → ExpressionStatement with span.
+    final callStmt = _span(
+      ref0(_expression).map((expr) => ExpressionStatement(expr)),
+    );
+
+    // Combine: require look-ahead, then parse the actual statement, keep it.
+    return (callAhead & callStmt).pick(1);
+  }
 
   // ----------------- Literals ---------------------------------------------
 
   // String literal parser that supports escape sequences (\" \')
   Parser _stringLiteral() {
     // Helper to build content parser for given quote char
-    Parser _contentParser(String quote) {
+    Parser contentParser(String quote) {
       final otherQuote = quote == '"' ? "'" : '"';
       // Either an escaped character (\\X) or any char except the closing quote
       return ((char('\\') & any()) | pattern('^$quote')).star().flatten();
@@ -402,10 +464,10 @@ class LuaGrammarDefinition extends GrammarDefinition {
 
     // Tag each alternative so we know if it's a long string.
     final long = _LongBracketParser().map((s) => ['long', s]);
-    final dq = (char('"') & _contentParser('"') & char('"')).flatten().map(
+    final dq = (char('"') & contentParser('"') & char('"')).flatten().map(
       (s) => ['dq', s],
     );
-    final sq = (char("'") & _contentParser("'") & char("'")).flatten().map(
+    final sq = (char("'") & contentParser("'") & char("'")).flatten().map(
       (s) => ['sq', s],
     );
 

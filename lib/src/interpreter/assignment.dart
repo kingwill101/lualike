@@ -465,7 +465,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         tableValue[indexValue] = wrappedValue;
 
         Logger.debug(
-          '_handleTableIndexAssignment: Assigned ${wrappedValue.raw} to index ${indexValue}',
+          '_handleTableIndexAssignment: Assigned ${wrappedValue.raw} to index $indexValue',
           category: 'Interpreter',
         );
         return wrappedValue;

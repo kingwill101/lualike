@@ -123,11 +123,20 @@ class _UTF8Codes implements BuiltinFunction {
       throw LuaError("utf8.codes requires a string argument");
     }
 
-    // Get the raw bytes for UTF-8 processing
+    // All string literals should be LuaString objects from the parser
     final value = (args[0] as Value).raw;
-    final bytes = value is LuaString
-        ? value.bytes
-        : convert.utf8.encode(value.toString());
+    if (value is! LuaString) {
+      if (value is String) {
+        throw LuaError(
+          "Internal error: Expected LuaString but got Dart String. "
+          "This indicates a bug in string literal processing.",
+        );
+      } else {
+        throw LuaError("utf8.codes requires a string argument");
+      }
+    }
+
+    final bytes = value.bytes;
 
     // Accept either (s [, lax]) or (s [, i [, j [, lax]]])
     int i = 1;
@@ -234,11 +243,20 @@ class _UTF8CodePoint implements BuiltinFunction {
       throw LuaError("utf8.codepoint requires a string argument");
     }
 
-    // Work with raw bytes to properly handle UTF-8
+    // All string literals should be LuaString objects from the parser
     final value = (args[0] as Value).raw;
-    final bytes = value is LuaString
-        ? value.bytes
-        : convert.utf8.encode(value.toString());
+    if (value is! LuaString) {
+      if (value is String) {
+        throw LuaError(
+          "Internal error: Expected LuaString but got Dart String. "
+          "This indicates a bug in string literal processing.",
+        );
+      } else {
+        throw LuaError("utf8.codepoint requires a string argument");
+      }
+    }
+
+    final bytes = value.bytes;
 
     // Handle both string and numeric parameters for i and j
     int i = 1;
@@ -337,11 +355,21 @@ class _UTF8Len implements BuiltinFunction {
       throw LuaError("utf8.len requires a string argument");
     }
 
-    // Work with raw bytes to properly detect invalid UTF-8
+    // All string literals should be LuaString objects from the parser.
+    // If we get a Dart String here, it indicates a bug in the string processing pipeline.
     final value = (args[0] as Value).raw;
-    final bytes = value is LuaString
-        ? value.bytes
-        : convert.utf8.encode(value.toString());
+    if (value is! LuaString) {
+      if (value is String) {
+        throw LuaError(
+          "Internal error: Expected LuaString but got Dart String. "
+          "This indicates a bug in string literal processing.",
+        );
+      } else {
+        throw LuaError("utf8.len requires a string argument");
+      }
+    }
+
+    final bytes = value.bytes;
 
     // Handle both string and numeric parameters for i and j
     int i = 1;
@@ -410,7 +438,9 @@ class _UTF8Len implements BuiltinFunction {
 
         if (result == null) {
           if (!lax) {
-            // Strict mode: error tuple (nil, pos)
+            // Strict mode: error tuple (nil, bytePosition)
+            // Lua expects the position in *bytes* (1-indexed) where the
+            // invalid UTF-8 sequence starts.
             return Value.multi([Value(null), Value(pos + 1)]);
           }
           // Lax mode: treat single byte as one character
@@ -422,7 +452,8 @@ class _UTF8Len implements BuiltinFunction {
         count++;
         pos += result.sequenceLength;
       } catch (e) {
-        // FormatException indicates invalid UTF-8 at current position
+        // FormatException indicates invalid UTF-8 at current position. We
+        // follow the same rule as above and report the *byte* index.
         return Value.multi([Value(null), Value(pos + 1)]);
       }
     }
@@ -438,11 +469,20 @@ class _UTF8Offset implements BuiltinFunction {
       throw LuaError("utf8.offset requires string and n arguments");
     }
 
-    // Work with raw bytes to properly handle UTF-8
+    // All string literals should be LuaString objects from the parser
     final value = (args[0] as Value).raw;
-    final bytes = value is LuaString
-        ? value.bytes
-        : convert.utf8.encode(value.toString());
+    if (value is! LuaString) {
+      if (value is String) {
+        throw LuaError(
+          "Internal error: Expected LuaString but got Dart String. "
+          "This indicates a bug in string literal processing.",
+        );
+      } else {
+        throw LuaError("utf8.offset requires a string argument");
+      }
+    }
+
+    final bytes = value.bytes;
 
     // Handle both string and numeric parameters for n
     final rawN = (args[1] as Value).raw;

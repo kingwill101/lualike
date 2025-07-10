@@ -319,7 +319,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       }).toList();
     }
     if (raw is LuaString) {
-      return (raw as LuaString).toLatin1String();
+      // Decode using UTF-8 so multi-byte characters (e.g. Chinese) are
+      // preserved when users call `.unwrap()`.
+      return (raw as LuaString).toString();
     }
     return raw is Value ? raw.completeUnwrap() : raw;
   }
@@ -330,7 +332,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       current = current.unwrap();
     }
     if (current is LuaString) {
-      return current.toLatin1String();
+      return (current).toString();
     }
     return current;
   }

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'base_command.dart';
 
@@ -33,7 +34,7 @@ class ScriptCommand extends BaseCommand {
       }
 
       final sourceCode = await file.readAsBytes().then(
-        (bytes) => String.fromCharCodes(bytes),
+        (bytes) => utf8.decode(bytes),
       );
       await bridge.runCode(sourceCode, scriptPath: scriptPath);
     } catch (e) {

@@ -195,14 +195,12 @@ class ConstChecker {
     }
 
     // Check else block
-    if (stmt.elseBlock != null) {
-      for (final s in stmt.elseBlock!) {
-        final error = _checkStatement(s);
-        if (error != null) {
-          _constVariables.clear();
-          _constVariables.addAll(savedConsts);
-          return error;
-        }
+    for (final s in stmt.elseBlock) {
+      final error = _checkStatement(s);
+      if (error != null) {
+        _constVariables.clear();
+        _constVariables.addAll(savedConsts);
+        return error;
       }
     }
 

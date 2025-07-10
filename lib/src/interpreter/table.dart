@@ -111,7 +111,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     final indexVal = Value(fieldKey);
 
     Logger.info(
-      'TableFieldAccess: ${tableVal.toString()}.${fieldKey}',
+      'TableFieldAccess: ${tableVal.toString()}.$fieldKey',
       category: 'TableAccess',
     );
 

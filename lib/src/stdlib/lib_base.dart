@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:lualike/lualike.dart';
@@ -602,7 +603,7 @@ class LoadFunction implements BuiltinFunction {
       } else if ((args[0] as Value).raw is List<int>) {
         // Load from binary chunk
         final bytes = (args[0] as Value).raw as List<int>;
-        source = String.fromCharCodes(bytes);
+        source = utf8.decode(bytes);
       } else {
         throw Exception(
           "load() first argument must be string, function or binary",
@@ -756,9 +757,9 @@ class LoadfileFunction implements BuiltinFunction {
           ? stdin.readLineSync() ??
                 "" // Read from stdin if no filename
           : () {
-              // Read as raw bytes and convert to preserve byte values
+              // Read as UTF-8 string to properly handle Unicode characters
               final bytes = File(filename).readAsBytesSync();
-              return String.fromCharCodes(bytes);
+              return utf8.decode(bytes);
             }();
 
       final ast = parse(source);
@@ -1497,9 +1498,7 @@ class RequireFunction implements BuiltinFunction {
           // Run the module code within the current interpreter
           result = await vm.run(ast.statements);
           // If the script didn't return anything, result will be null
-          if (result == null) {
-            result = Value(null);
-          }
+          result ??= Value(null);
         } on ReturnException catch (e) {
           // Handle explicit return from module
           result = e.value;
