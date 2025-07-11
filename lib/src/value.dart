@@ -475,8 +475,31 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   @override
   void operator []=(Object key, dynamic value) {
-    // Fire-and-forget assignment; metamethods may execute asynchronously.
-    setValueAsync(key, value);
+    var rawKey = key is Value ? key.raw : key;
+    if (rawKey is LuaString) {
+      rawKey = rawKey.toString();
+    }
+    if (rawKey == null) {
+      throw LuaError.typeError('table index is nil');
+    }
+    if (rawKey is num && rawKey.isNaN) {
+      throw LuaError.typeError('table index is NaN');
+    }
+
+    final newindexMeta = getMetamethod('__newindex');
+    if (newindexMeta != null) {
+      callMetamethod('__newindex', [
+        this,
+        key is Value ? key : Value(key),
+        value is Value ? value : Value(value),
+      ]);
+      return;
+    }
+    if (raw is Map) {
+      (raw as Map)[rawKey] = value is Value ? value : Value(value);
+      return;
+    }
+    throw LuaError.typeError('attempt to index a non-table value');
   }
 
   /// Assigns [value] to [key], awaiting any __newindex metamethod.
