@@ -248,7 +248,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           identifier = await target.index.accept(this);
         }
 
-        tableValue[identifier] = wrappedValue;
+        await tableValue.setValueAsync(identifier, wrappedValue);
 
         Logger.debug(
           '_handleTableAccessAssignment: Assigned ${wrappedValue.raw} to ${(target.index as Identifier).name}',
@@ -371,7 +371,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         }
 
         // No metamethod or key exists - do regular assignment
-        tableValue[fieldKey] = wrappedValue;
+        await tableValue.setValueAsync(fieldKey, wrappedValue);
 
         Logger.debug(
           '_handleTableFieldAssignment: Assigned ${wrappedValue.raw} to ${target.fieldName.name}',
@@ -432,7 +432,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         }
 
         // No metamethod or key exists - do regular assignment
-        tableValue[indexValue] = wrappedValue;
+        await tableValue.setValueAsync(indexValue, wrappedValue);
 
         Logger.debug(
           '_handleTableIndexAssignment: Assigned ${wrappedValue.raw} to index $indexValue',

@@ -16,4 +16,4 @@ B = false
 print("B After assignment: ", B)
 _ENV["B"] = undef
 print("B After  ENV assignment: ", B)
-assert(B == 30)
+assert(B == 30) 
