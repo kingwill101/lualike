@@ -191,7 +191,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           final table = await target.table.accept(this).toValue();
           if (!table.isNil) {
             final index = await target.index.accept(this).toValue();
-            table[index] = wrappedValue;
+            await table.setValueAsync(index, wrappedValue);
             return table;
           }
         }
@@ -266,7 +266,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           identifier = await target.index.accept(this);
         }
 
-        tableValue[identifier] = wrappedValue;
+        await tableValue.setValueAsync(identifier, wrappedValue);
 
         Logger.debug(
           '_handleTableAccessAssignment: Assigned ${wrappedValue.raw} to ${(target.index as Identifier).name}',
