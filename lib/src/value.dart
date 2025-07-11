@@ -455,7 +455,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           this,
           key is Value ? key : Value(key),
         ]);
-        print('DEBUG: callMetamethod result: $result (type: ${result.runtimeType})');
+
         return result is Value ? result : Value(result);
       }
 
@@ -498,7 +498,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       return;
     }
     if (raw is Map) {
-      (raw as Map)[rawKey] = value is Value ? value : Value(value);
+      final valueToSet = value is Value ? value : Value(value);
+      if (valueToSet.isNil) {
+        (raw as Map).remove(rawKey);
+      } else {
+        (raw as Map)[rawKey] = valueToSet;
+      }
       return;
     }
     throw LuaError.typeError('attempt to index a non-table value');
