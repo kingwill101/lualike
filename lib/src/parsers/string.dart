@@ -1,5 +1,4 @@
 import 'dart:convert' as convert;
-import 'dart:typed_data';
 
 import 'package:petitparser/petitparser.dart';
 

@@ -151,8 +151,8 @@ void main() {
   group('Value Error Handling', () {
     test('invalid table operations on non-table values', () {
       final nonTable = Value(42);
-      expect(() => nonTable['key'], throwsUnsupportedError);
-      expect(() => nonTable['key'] = 'value', throwsUnsupportedError);
+      expect(() => nonTable['key'], throwsA(isA<LuaError>()));
+      expect(() => nonTable['key'] = 'value', throwsA(isA<LuaError>()));
       expect(() => nonTable.addAll({'key': 'value'}), throwsUnsupportedError);
     });
   });

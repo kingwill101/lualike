@@ -234,8 +234,15 @@ class _SetMetatable implements BuiltinFunction {
     }
     final value = args[0] as Value;
     final meta = args[1] as Value;
-    value.setMetatable((meta.raw as Map).cast());
-    return Value(true);
+    if (meta.raw == null) {
+      value.metatable = null;
+      return Value(true);
+    }
+    if (meta.raw is Map) {
+      value.setMetatable((meta.raw as Map).cast());
+      return Value(true);
+    }
+    throw Exception("metatable must be a table or nil");
   }
 }
 

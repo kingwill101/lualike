@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
-
 import 'package:lualike/src/stdlib/metatables.dart';
+
 import 'package:lualike/src/upvalue.dart';
 
 /// Represents an asynchronous function that can be called with a list of arguments.
@@ -86,9 +86,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     _raw = raw;
     _isInitialized = true;
 
-    // In standard Lua, no values have default metatables
-    // Metatables are only applied when explicitly set via setmetatable
-    if (metatable != null) {
+    // If no metatable is provided, apply the default metatable for this type.
+    // This mirrors Lua's behavior where strings, numbers, etc. share
+    // common metatables giving them methods like string.find.
+    if (metatable == null) {
+      MetaTable().applyDefaultMetatable(this);
+    } else {
       this.metatable = metatable;
     }
   }
@@ -457,7 +460,15 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       // No metamethod and key not found, return nil
       return Value(null);
     } else {
-      // Not a table, can't index
+      // Not a table, but might have an __index metamethod
+      final indexMeta = getMetamethod('__index');
+      if (indexMeta != null) {
+        return callMetamethod('__index', [
+          this,
+          key is Value ? key : Value(key),
+        ]);
+      }
+      // No metamethod, cannot index
       throw LuaError.typeError('attempt to index a non-table value');
     }
   }
@@ -486,18 +497,11 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
     // If no newindex metamethod is set and raw is a Map, perform direct assignment
     if (raw is Map) {
-      // In Lua, setting a table key to nil removes the key entirely
-      final unwrappedValue = value is Value ? value.raw : value;
-      if (unwrappedValue == null) {
-        // Remove the key from the table
-        (raw as Map).remove(rawKey);
-      } else {
-        // Set the value
-        (raw as Map)[rawKey] = value is Value ? value : Value(value);
-      }
+      // Preserve explicit null assignments as Value(null) to mirror previous semantics
+      (raw as Map)[rawKey] = value is Value ? value : Value(value);
       return;
     }
-    throw UnsupportedError('Not a table');
+    throw LuaError.typeError('attempt to index a non-table value');
   }
 
   @override
