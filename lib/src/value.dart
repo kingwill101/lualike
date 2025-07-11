@@ -839,7 +839,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   /// Asynchronous version of callMetamethod for use in async contexts
   Future<Object?> callMetamethodAsync(String s, List<Value> list) async {
-    print('DEBUG: callMetamethodAsync called with $s, args: ${list.map((e) => e.raw)}');
+    print(
+      'DEBUG: callMetamethodAsync called with $s, args: ${list.map((e) => e.raw)}',
+    );
     final method = getMetamethod(s);
     if (method == null) {
       throw UnsupportedError("attempt to call a nil value");
@@ -859,8 +861,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       if (list.length >= 3) {
         final key = list[1];
         final value = list[2];
-        // Use the Value's assignment mechanism to handle potential metamethods
-        method[key] = value;
+        // Use the Value's async assignment mechanism to handle potential metamethods
+        await method.setValueAsync(key, value);
         return Value(null);
       }
     }
@@ -909,8 +911,6 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       throw UnsupportedError("attempt to call a nil value");
     }
 
-
-
     // Special handling for __index and __newindex when they are tables
     if (s == '__index' && method is Value && method.raw is Map) {
       // __index is a table, so do lookup through that table
@@ -955,7 +955,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         if (interpreter != null) {
           // Call the function directly using the interpreter
           final result = interpreter.callFunction(method, list);
-          
+
           // Note: This may return a Future, which should be handled by callers
           // For synchronous contexts, this will not work properly
           return result;
@@ -1270,6 +1270,7 @@ extension OperatorExtension on Value {
   }
 
   Value _arith(String op, Value other) {
+    print('DEBUG: _arith called with $op, $raw, ${other.raw}');
     final result = NumberUtils.performArithmetic(op, raw, other.raw);
     return Value(result);
   }

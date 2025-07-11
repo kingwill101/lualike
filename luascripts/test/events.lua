@@ -66,18 +66,22 @@ do    -- bug in Lua 5.3.2
   assert(mt[1] == 10)
 end
 
-
+print("--------------69------------------")
 local c = {}
 a = setmetatable({}, t)
+print("--------------72------------------")
 t.__newindex = c
+print("--------------75------------------")
 t.__index = c
 a[1] = 10; a[2] = 20; a[3] = 90;
 for i = 4, 20 do a[i] = i * 10 end
+print("--------------76------------------")
 assert(a[1] == 10 and a[2] == 20 and a[3] == 90)
 for i = 4, 20 do assert(a[i] == i * 10) end
+print("--------------80------------------")
 assert(next(a) == nil)
 
-
+print("--------------------------------")
 do
   local a;
   a = setmetatable({}, {__index = setmetatable({},

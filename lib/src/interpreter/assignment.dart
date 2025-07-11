@@ -355,7 +355,8 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         final fieldKey = target.fieldName.name;
 
         // If key doesn't exist in raw table, try __newindex metamethod
-        if (!tableValue.rawContainsKey(fieldKey)) {
+        final keyExists = tableValue.rawContainsKey(fieldKey);
+        if (!keyExists) {
           final newindex = tableValue.getMetamethod("__newindex");
           if (newindex != null) {
             Logger.debug(
@@ -371,7 +372,13 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         }
 
         // No metamethod or key exists - do regular assignment
-        await tableValue.setValueAsync(fieldKey, wrappedValue);
+        if (keyExists) {
+          // Key exists, do direct raw assignment without metamethods
+          tableValue[fieldKey] = wrappedValue;
+        } else {
+          // Key doesn't exist and no metamethod, use async assignment
+          await tableValue.setValueAsync(fieldKey, wrappedValue);
+        }
 
         Logger.debug(
           '_handleTableFieldAssignment: Assigned ${wrappedValue.raw} to ${target.fieldName.name}',
