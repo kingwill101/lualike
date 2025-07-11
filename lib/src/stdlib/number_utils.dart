@@ -1,9 +1,10 @@
 import 'dart:math' as math;
+
 import '../logger.dart';
 import '../lua_error.dart';
+import '../lua_string.dart';
 import '../number.dart';
 import '../value.dart';
-import '../lua_string.dart';
 
 /// Utility class for common number operations and conversions used throughout the stdlib
 class NumberUtils {
@@ -778,7 +779,7 @@ class NumberUtils {
         category: 'NumberUtils',
       );
       throw LuaError.typeError(
-        "attempt to perform arithmetic on non-number values",
+        "attempt to perform arithmetic on non-number values ${r1.runtimeType} and ${r2.runtimeType}",
       );
     }
 

@@ -186,42 +186,8 @@ class MetaTable {
 
         throw Exception("attempt to get length of non-table value");
       },
-      '__index': (List<Object?> args) {
-        final table = args[0] as Value;
-        final key = args[1] as Value;
-        Logger.debug(
-          'Table __index metamethod called for table:${table.hashCode}[${key.raw}]',
-          category: 'Metatables',
-        );
-        if (table.raw is Map) {
-          var rawKey = key.raw;
-          if (rawKey is LuaString) {
-            rawKey = rawKey.toString();
-          }
-          final value = (table.raw as Map)[rawKey];
-          Logger.debug('Table index result: $value', category: 'Metatables');
-          return value is Value ? value : Value(value);
-        }
-        throw Exception("attempt to index non-table value");
-      },
-      '__newindex': (List<Object?> args) {
-        final table = args[0] as Value;
-        final key = args[1] as Value;
-        final value = args[2] as Value;
-        Logger.debug(
-          'Table __newindex metamethod called for table:${table.hashCode}[${key.raw}] = ${value.raw}',
-          category: 'Metatables',
-        );
-        if (table.raw is Map) {
-          var rawKey = key.raw;
-          if (rawKey is LuaString) {
-            rawKey = rawKey.toString();
-          }
-          (table.raw as Map)[rawKey] = value;
-          return Value(null);
-        }
-        throw Exception("attempt to index non-table value");
-      },
+      // Removed '__index' and '__newindex' from default table metatable
+      // These should only be present when explicitly set by the user
       '__pairs': (List<Object?> args) {
         final table = args[0] as Value;
         Logger.debug(
@@ -508,6 +474,15 @@ class MetaTable {
     }
     final type = _determineType(value.raw);
     Logger.debug('Determined type for value: $type', category: 'Metatables');
+
+    // In Lua, tables don't have default metatables - they only get metatables when explicitly assigned
+    if (type == 'table') {
+      Logger.debug(
+        'Not applying default metatable to table - tables have no default metatable',
+        category: 'Metatables',
+      );
+      return;
+    }
 
     final metatable = getTypeMetatable(type);
     if (metatable != null) {

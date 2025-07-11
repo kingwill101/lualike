@@ -86,10 +86,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     _raw = raw;
     _isInitialized = true;
 
-    // If no metatable was provided, apply default metatable
-    if (metatable == null) {
-      MetaTable().applyDefaultMetatable(this);
-    } else {
+    // In standard Lua, no values have default metatables
+    // Metatables are only applied when explicitly set via setmetatable
+    if (metatable != null) {
       this.metatable = metatable;
     }
   }
@@ -431,21 +430,35 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   @override
   dynamic operator [](Object? key) {
-    if (raw is Map && getMetamethod('__index') == null) {
-      // If key is a Value, use its raw value, else key directly.
-      // Normalize LuaString keys to Dart strings so lookups succeed
-      // regardless of how the table was created (dot vs bracket).
+    if (raw is Map) {
+      // Normalize the key
       var rawKey = key is Value ? key.raw : key;
       if (rawKey is LuaString) {
         rawKey = rawKey.toString();
       }
-      var result = (raw as Map)[rawKey];
-      // If the result is not already wrapped, wrap it
-      if (result is! Value) result = Value(result);
-      return result;
+
+      // First check if the key exists in the table
+      if ((raw as Map).containsKey(rawKey)) {
+        var result = (raw as Map)[rawKey];
+        // If the result is not already wrapped, wrap it
+        if (result is! Value) result = Value(result);
+        return result;
+      }
+
+      // Key doesn't exist, check for __index metamethod
+      final indexMeta = getMetamethod('__index');
+      if (indexMeta != null) {
+        return callMetamethod('__index', [
+          this,
+          key is Value ? key : Value(key),
+        ]);
+      }
+
+      // No metamethod and key not found, return nil
+      return Value(null);
     } else {
-      // Use metamethod __index if defined
-      return callMetamethod('__index', [this, key is Value ? key : Value(key)]);
+      // Not a table, can't index
+      throw LuaError.typeError('attempt to index a non-table value');
     }
   }
 
@@ -473,7 +486,15 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
     // If no newindex metamethod is set and raw is a Map, perform direct assignment
     if (raw is Map) {
-      (raw as Map)[rawKey] = value is Value ? value : Value(value);
+      // In Lua, setting a table key to nil removes the key entirely
+      final unwrappedValue = value is Value ? value.raw : value;
+      if (unwrappedValue == null) {
+        // Remove the key from the table
+        (raw as Map).remove(rawKey);
+      } else {
+        // Set the value
+        (raw as Map)[rawKey] = value is Value ? value : Value(value);
+      }
       return;
     }
     throw UnsupportedError('Not a table');
@@ -499,13 +520,25 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   bool containsKey(Object? key) {
     if (raw is! Map) return false;
 
+    // Normalize the key the same way as operator[]
+    var rawKey = key is Value ? key.raw : key;
+    if (rawKey is LuaString) {
+      rawKey = rawKey.toString();
+    }
+
+    // First check if the key exists in the table directly
+    if ((raw as Map).containsKey(rawKey)) {
+      return true;
+    }
+
+    // Key doesn't exist, check if __index metamethod would return a non-nil value
     final indexMeta = getMetamethod('__index');
     if (indexMeta != null) {
       final result = callMetamethod('__index', [this, Value(key)]);
       return result != null && (result is Value ? result.raw != null : true);
     }
 
-    return (raw as Map).containsKey(key);
+    return false;
   }
 
   @override
@@ -552,6 +585,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
     if (raw is String) {
       return (raw as String).length;
+    }
+
+    if (raw is List) {
+      return (raw as List).length;
     }
 
     if (raw is! Map) {
@@ -747,6 +784,27 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     if (method == null) {
       throw UnsupportedError("attempt to call a nil value");
     }
+
+    // Special handling for __index and __newindex when they are tables
+    if (s == '__index' && method is Value && method.raw is Map) {
+      // __index is a table, so do lookup through that table
+      if (list.length >= 2) {
+        final key = list[1];
+        // Use the Value's indexing mechanism to handle potential metamethods
+        final result = method[key];
+        return result;
+      }
+    } else if (s == '__newindex' && method is Value && method.raw is Map) {
+      // __newindex is a table, so do assignment through that table
+      if (list.length >= 3) {
+        final key = list[1];
+        final value = list[2];
+        // Use the Value's assignment mechanism to handle potential metamethods
+        method[key] = value;
+        return Value(null);
+      }
+    }
+
     if (method is Function) {
       return method(list);
     } else if (method is BuiltinFunction) {
@@ -759,8 +817,29 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         return result;
       } else if (method.raw is BuiltinFunction) {
         return (method.raw as BuiltinFunction).call(list);
+      } else if (method.raw is FunctionDef ||
+          method.raw is FunctionLiteral ||
+          method.raw is FunctionBody) {
+        // This is a Lua function defined as an AST node
+        // We need to call it using the interpreter
+        final interpreter =
+            method.interpreter ?? Environment.current?.interpreter;
+        if (interpreter != null) {
+          // Call the function directly using the interpreter
+          return interpreter.callFunction(method, list);
+        }
+        throw UnsupportedError("No interpreter available to call function");
       }
+    } else if (method is FunctionDef) {
+      // Handle direct FunctionDef nodes
+      final interpreter = Environment.current?.interpreter;
+      if (interpreter != null) {
+        // Call the function directly using the interpreter
+        return interpreter.callFunction(Value(method), list);
+      }
+      throw UnsupportedError("No interpreter available to call function");
     }
+
     throw UnsupportedError(
       "attempt to call a non-function $s(${list.map((a) => a.unwrap()).join(', ')})",
     );

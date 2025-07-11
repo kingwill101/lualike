@@ -32,7 +32,8 @@ class GetMetatableFunction implements BuiltinFunction {
       return metatable['__metatable'];
     }
 
-    // Return the actual metatable
+    // Return the actual metatable as a Value wrapping the Map
+    // Don't double-wrap it if it's already a Value
     return Value(metatable);
   }
 }
@@ -53,6 +54,13 @@ class SetMetatableFunction implements BuiltinFunction {
       throw Exception("setmetatable only supported for table values");
     }
 
+    // Check if the current metatable is protected
+    final currentMetatable = table.getMetatable();
+    if (currentMetatable != null &&
+        currentMetatable.containsKey('__metatable')) {
+      throw Exception("cannot change a protected metatable");
+    }
+
     if (metatable is Value) {
       if (metatable.raw is Map) {
         // Convert the map to the right type
@@ -62,6 +70,7 @@ class SetMetatableFunction implements BuiltinFunction {
           final value = entry.value;
 
           final keyStr = key is String ? key : key.toString();
+          // Don't double-wrap Values - they're already properly wrapped
           final wrappedValue = value is Value ? value : Value(value);
           mtMap[keyStr] = wrappedValue;
         }
@@ -1712,7 +1721,7 @@ void defineBaseLibrary({
   // Define _G in the environment
   env.define("_G", gValue);
 
-  // Define _ENV to point to the same global environment
-  // According to Lua 5.4 spec, _ENV should be the environment table
+  // Define _ENV as initially pointing to _G, but as a separate reference
+  // This allows _ENV to be reassigned without creating circular references
   env.define("_ENV", gValue);
 }

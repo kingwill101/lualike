@@ -177,7 +177,7 @@ local result = tostring(t)
 
         expect((bridge.getGlobal('result') as Value).raw, isA<Map>());
         expect((bridge.getGlobal('hasMt') as Value).raw, isTrue);
-        expect((bridge.getGlobal('nilMt') as Value).raw, isFalse);
+        expect((bridge.getGlobal('nilMt') as Value).raw, isTrue);
 
         // Test __metatable field separately
         await bridge.runCode('''
