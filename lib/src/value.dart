@@ -451,10 +451,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       // Key doesn't exist, check for __index metamethod
       final indexMeta = getMetamethod('__index');
       if (indexMeta != null) {
-        return callMetamethod('__index', [
+        final result = callMetamethod('__index', [
           this,
           key is Value ? key : Value(key),
         ]);
+        print('DEBUG: callMetamethod result: $result (type: ${result.runtimeType})');
+        return result is Value ? result : Value(result);
       }
 
       // No metamethod and key not found, return nil
