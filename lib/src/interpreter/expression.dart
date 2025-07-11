@@ -40,6 +40,44 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       category: 'Expression',
     );
     dynamic leftResult = await node.left.accept(this);
+
+    // Short-circuit evaluation for logical operators
+    if (node.op == 'and' || node.op == 'or') {
+      // Normalize multi-value results from the left side
+      if (leftResult is Value && leftResult.isMulti) {
+        final multiValues = leftResult.raw as List;
+        leftResult = multiValues.isNotEmpty ? multiValues[0] : Value(null);
+      } else if (leftResult is List && leftResult.isNotEmpty) {
+        leftResult = leftResult[0];
+      }
+
+      final leftVal = leftResult is Value ? leftResult : Value(leftResult);
+
+      if (node.op == 'and') {
+        if (!leftVal.isTruthy()) {
+          return leftVal;
+        }
+      } else {
+        // 'or'
+        if (leftVal.isTruthy()) {
+          return leftVal;
+        }
+      }
+
+      // Need to evaluate the right side only when necessary
+      dynamic rightResult = await node.right.accept(this);
+
+      if (rightResult is Value && rightResult.isMulti) {
+        final multiValues = rightResult.raw as List;
+        rightResult = multiValues.isNotEmpty ? multiValues[0] : Value(null);
+      } else if (rightResult is List && rightResult.isNotEmpty) {
+        rightResult = rightResult[0];
+      }
+
+      final rightVal = rightResult is Value ? rightResult : Value(rightResult);
+      return rightVal;
+    }
+
     dynamic rightResult = await node.right.accept(this);
 
     // In a binary expression, if either operand is a function call returning multiple values,

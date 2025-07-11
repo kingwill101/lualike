@@ -51,7 +51,7 @@ class Environment extends GCObject {
   final bool isClosure;
 
   /// The interpreter associated with this environment.
-  final Interpreter? interpreter;
+  Interpreter? interpreter;
 
   /// Creates a new Environment.
   ///

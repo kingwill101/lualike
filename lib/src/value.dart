@@ -495,9 +495,37 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       ]);
       return;
     }
-    // If no newindex metamethod is set and raw is a Map, perform direct assignment
     if (raw is Map) {
-      // Preserve explicit null assignments as Value(null) to mirror previous semantics
+      (raw as Map)[rawKey] = value is Value ? value : Value(value);
+      return;
+    }
+    throw LuaError.typeError('attempt to index a non-table value');
+  }
+
+  /// Assigns [value] to [key], awaiting any __newindex metamethod.
+  Future<void> setValueAsync(Object key, dynamic value) async {
+    var rawKey = key is Value ? key.raw : key;
+    if (rawKey is LuaString) {
+      rawKey = rawKey.toString();
+    }
+    if (rawKey == null) {
+      throw LuaError.typeError('table index is nil');
+    }
+    if (rawKey is num && rawKey.isNaN) {
+      throw LuaError.typeError('table index is NaN');
+    }
+
+    final newindexMeta = getMetamethod('__newindex');
+    if (newindexMeta != null) {
+      final result = callMetamethod('__newindex', [
+        this,
+        key is Value ? key : Value(key),
+        value is Value ? value : Value(value),
+      ]);
+      if (result is Future) await result;
+      return;
+    }
+    if (raw is Map) {
       (raw as Map)[rawKey] = value is Value ? value : Value(value);
       return;
     }

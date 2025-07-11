@@ -191,7 +191,26 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           final table = await target.table.accept(this).toValue();
           if (!table.isNil) {
             final index = await target.index.accept(this).toValue();
-            table[index] = wrappedValue;
+
+            var rawKey = index.raw;
+            if (rawKey is LuaString) rawKey = rawKey.toString();
+
+            bool exists = (table.raw as Map).containsKey(rawKey);
+            if (!exists && rawKey is num) {
+              for (final k in (table.raw as Map).keys) {
+                if (k is num && k.toDouble() == rawKey.toDouble()) {
+                  rawKey = k;
+                  exists = true;
+                  break;
+                }
+              }
+            }
+
+            if (exists) {
+              (table.raw as Map)[rawKey] = wrappedValue;
+            } else {
+              await table.setValueAsync(index, wrappedValue);
+            }
             return table;
           }
         }
@@ -200,7 +219,9 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         // For table.field assignments, we should always use the field name as string key
 
         // If key doesn't exist, try __newindex metamethod
-        if (!tableValue.containsKey((target.index as Identifier).name)) {
+        if (!(tableValue.raw as Map).containsKey(
+          (target.index as Identifier).name,
+        )) {
           final newindex = tableValue.getMetamethod("__newindex");
           if (newindex != null) {
             Logger.debug(
@@ -264,7 +285,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           identifier = await target.index.accept(this);
         }
 
-        tableValue[identifier] = wrappedValue;
+        await tableValue.setValueAsync(identifier, wrappedValue);
 
         Logger.debug(
           '_handleTableAccessAssignment: Assigned ${wrappedValue.raw} to ${(target.index as Identifier).name}',
@@ -381,38 +402,11 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         // For field access, always use the field name as literal string key
         final fieldKey = target.fieldName.name;
 
-        // If key doesn't exist, try __newindex metamethod
-        if (!tableValue.containsKey(fieldKey)) {
-          final newindex = tableValue.getMetamethod("__newindex");
-          if (newindex != null) {
-            Logger.debug(
-              '_handleTableFieldAssignment: __newindex metamethod found',
-              category: 'Interpreter',
-            );
-            if (newindex is Function) {
-              final result = newindex([
-                tableValue,
-                Value(fieldKey),
-                wrappedValue,
-              ]);
-              return result is Future ? await result : result;
-            } else if (newindex is FunctionLiteral) {
-              return await newindex.accept(this);
-            } else if (newindex is Value) {
-              if (newindex.raw is Function) {
-                final func = newindex.raw as Function;
-                return await func([tableValue, Value(fieldKey), wrappedValue]);
-              } else if (newindex.raw is Map) {
-                final metamap = newindex.raw as Map;
-                metamap[fieldKey] = wrappedValue;
-                return wrappedValue;
-              }
-            }
-          }
+        if ((tableValue.raw as Map).containsKey(fieldKey)) {
+          tableValue[fieldKey] = wrappedValue;
+        } else {
+          await tableValue.setValueAsync(fieldKey, wrappedValue);
         }
-
-        // No metamethod or key exists - do regular assignment
-        tableValue[fieldKey] = wrappedValue;
 
         Logger.debug(
           '_handleTableFieldAssignment: Assigned ${wrappedValue.raw} to ${target.fieldName.name}',
@@ -449,45 +443,39 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       if (tableValue.raw is Map) {
         // For index access, always evaluate the index expression
         final indexResult = await target.index.accept(this);
-        final indexValue = indexResult is Value ? indexResult.raw : indexResult;
+        var indexValue = indexResult is Value ? indexResult.raw : indexResult;
 
         // Check for nil index - this should throw an error
         if (indexValue == null) {
           throw LuaError.typeError('table index is nil');
         }
 
-        // If key doesn't exist, try __newindex metamethod
-        if (!tableValue.containsKey(indexValue)) {
-          final newindex = tableValue.getMetamethod("__newindex");
-          if (newindex != null) {
-            Logger.debug(
-              '_handleTableIndexAssignment: __newindex metamethod found',
-              category: 'Interpreter',
-            );
-            if (newindex is Function) {
-              final result = newindex([
-                tableValue,
-                Value(indexValue),
-                wrappedValue,
-              ]);
-              return result is Future ? await result : result;
-            } else if (newindex is FunctionLiteral) {
-              return await newindex.accept(this);
-            } else if (newindex is Value) {
-              if (newindex.raw is Function) {
-                final func = newindex.raw as Function;
-                return await func([
-                  tableValue,
-                  Value(indexValue),
-                  wrappedValue,
-                ]);
-              } else if (newindex.raw is Map) {
-                final metamap = newindex.raw as Map;
-                metamap[indexValue] = wrappedValue;
-                return wrappedValue;
-              }
+        // Normalize numeric keys to match existing entries
+        if (indexValue is num) {
+          for (final k in (tableValue.raw as Map).keys) {
+            if (k is num && k.toDouble() == indexValue.toDouble()) {
+              indexValue = k;
+              break;
             }
           }
+        }
+
+        // Only trigger __newindex when the key does not already exist
+        bool exists = (tableValue.raw as Map).containsKey(indexValue);
+        if (!exists && indexValue is num) {
+          for (final k in (tableValue.raw as Map).keys) {
+            if (k is num && k.toDouble() == indexValue.toDouble()) {
+              exists = true;
+              indexValue = k;
+              break;
+            }
+          }
+        }
+
+        if (exists) {
+          tableValue[indexValue] = wrappedValue;
+        } else {
+          await tableValue.setValueAsync(indexValue, wrappedValue);
         }
 
         // Special handling when assigning through the active _ENV table
@@ -503,9 +491,6 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
             keyToRemove = keyToRemove.toString();
           }
           (envValue.raw as Map).remove(keyToRemove);
-        } else {
-          // No metamethod or key exists - do regular assignment
-          tableValue[indexValue] = wrappedValue;
         }
 
         Logger.debug(
@@ -813,10 +798,21 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       final map = targetValue.raw as Map;
 
       // Convert the index to the appropriate form
-      final key = indexValue is Value ? indexValue.raw : indexValue;
+      var key = indexValue is Value ? indexValue.raw : indexValue;
+
+      bool exists = map.containsKey(key);
+      if (!exists && key is num) {
+        for (final k in map.keys) {
+          if (k is num && k.toDouble() == key.toDouble()) {
+            key = k;
+            exists = true;
+            break;
+          }
+        }
+      }
 
       // Check for __newindex metamethod if key doesn't exist
-      if (!map.containsKey(key)) {
+      if (!exists) {
         final newindex = targetValue.getMetamethod("__newindex");
         if (newindex != null) {
           if (newindex is Function) {
