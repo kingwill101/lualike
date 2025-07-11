@@ -433,6 +433,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   @override
   dynamic operator [](Object? key) {
+    print('DEBUG: Value[] operator called with key: $key');
     if (raw is Map) {
       // Normalize the key
       var rawKey = key is Value ? key.raw : key;
@@ -583,6 +584,19 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
 
     return false;
+  }
+
+  /// Checks if the raw table contains the key (without metamethods)
+  bool rawContainsKey(Object? key) {
+    if (raw is! Map) return false;
+
+    // Normalize the key the same way as operator[]
+    var rawKey = key is Value ? key.raw : key;
+    if (rawKey is LuaString) {
+      rawKey = rawKey.toString();
+    }
+
+    return (raw as Map).containsKey(rawKey);
   }
 
   @override
@@ -825,6 +839,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   /// Asynchronous version of callMetamethod for use in async contexts
   Future<Object?> callMetamethodAsync(String s, List<Value> list) async {
+    print('DEBUG: callMetamethodAsync called with $s, args: ${list.map((e) => e.raw)}');
     final method = getMetamethod(s);
     if (method == null) {
       throw UnsupportedError("attempt to call a nil value");

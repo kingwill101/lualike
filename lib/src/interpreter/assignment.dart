@@ -202,8 +202,8 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         // Removed problematic logic that used global variable values as table keys
         // For table.field assignments, we should always use the field name as string key
 
-        // If key doesn't exist, try __newindex metamethod
-        if (!tableValue.containsKey((target.index as Identifier).name)) {
+        // If key doesn't exist in raw table, try __newindex metamethod
+        if (!tableValue.rawContainsKey((target.index as Identifier).name)) {
           final newindex = tableValue.getMetamethod("__newindex");
           if (newindex != null) {
             Logger.debug(
@@ -354,8 +354,8 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         // For field access, always use the field name as literal string key
         final fieldKey = target.fieldName.name;
 
-        // If key doesn't exist, try __newindex metamethod
-        if (!tableValue.containsKey(fieldKey)) {
+        // If key doesn't exist in raw table, try __newindex metamethod
+        if (!tableValue.rawContainsKey(fieldKey)) {
           final newindex = tableValue.getMetamethod("__newindex");
           if (newindex != null) {
             Logger.debug(
@@ -415,8 +415,8 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           throw LuaError.typeError('table index is nil');
         }
 
-        // If key doesn't exist, try __newindex metamethod
-        if (!tableValue.containsKey(indexValue)) {
+        // If key doesn't exist in raw table, try __newindex metamethod
+        if (!tableValue.rawContainsKey(indexValue)) {
           final newindex = tableValue.getMetamethod("__newindex");
           if (newindex != null) {
             Logger.debug(
