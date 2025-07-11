@@ -874,7 +874,17 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
             method.interpreter ?? Environment.current?.interpreter;
         if (interpreter != null) {
           // Call the function directly using the interpreter
-          return interpreter.callFunction(method, list);
+          final result = interpreter.callFunction(method, list);
+          
+          // HACK: For synchronous contexts like __index, we can't await Futures
+          // This is a major limitation that needs a proper fix
+          if (result is Future) {
+            // Try to get the value if it's already completed
+            // This is not ideal but may work for simple synchronous functions
+            throw UnsupportedError('Async metamethods not supported in synchronous __index context. Consider using table-based __index instead.');
+          }
+          
+          return result;
         }
         throw UnsupportedError("No interpreter available to call function");
       }
