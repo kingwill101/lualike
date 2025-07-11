@@ -64,18 +64,10 @@ class SetMetatableFunction implements BuiltinFunction {
     if (metatable is Value) {
       if (metatable.raw is Map) {
         // Convert the map to the right type
-        final Map<String, dynamic> mtMap = {};
-        for (final entry in (metatable.raw as Map).entries) {
-          final key = entry.key;
-          final value = entry.value;
-
-          final keyStr = key is String ? key : key.toString();
-          // Don't double-wrap Values - they're already properly wrapped
-          final wrappedValue = value is Value ? value : Value(value);
-          mtMap[keyStr] = wrappedValue;
-        }
-
-        table.metatable = mtMap;
+        // Keep a reference to the same metatable table so that later
+        // modifications are visible, matching Lua semantics.
+        final rawMeta = (metatable.raw as Map).cast<String, dynamic>();
+        table.metatable = rawMeta;
         return table;
       } else if (metatable.raw == null) {
         // Setting nil metatable removes the metatable
@@ -117,7 +109,10 @@ class RawSetFunction implements BuiltinFunction {
     final wrappedValue = value is Value ? value : Value(value);
 
     // Use raw key like normal table operations do
-    final rawKey = key.raw;
+    var rawKey = key.raw;
+    if (rawKey is LuaString) {
+      rawKey = rawKey.toString();
+    }
     (table.raw as Map)[rawKey] = wrappedValue;
     return table;
   }
@@ -1174,7 +1169,10 @@ class RawGetFunction implements BuiltinFunction {
     final map = table.raw as Map;
 
     // Use raw key like normal table operations and rawset do
-    final rawKey = key.raw;
+    var rawKey = key.raw;
+    if (rawKey is LuaString) {
+      rawKey = rawKey.toString();
+    }
     final value = map[rawKey];
     return value ?? Value(null);
   }

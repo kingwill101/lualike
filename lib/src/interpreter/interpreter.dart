@@ -247,6 +247,14 @@ class Interpreter extends AstVisitor<Object?>
     initializeCoroutines();
 
     initializeStandardLibrary(env: _currentEnv, astVm: this);
+
+    // Attach this interpreter to the root environment for later lookups
+    _currentEnv.interpreter = this;
+
+    // Ensure the static current environment is set so that utility
+    // methods like Value.callMetamethod can access the interpreter
+    // during script execution.
+    Environment.current = _currentEnv;
   }
 
   /// Records trace information for the current execution point.

@@ -200,7 +200,9 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         // For table.field assignments, we should always use the field name as string key
 
         // If key doesn't exist, try __newindex metamethod
-        if (!tableValue.containsKey((target.index as Identifier).name)) {
+        if (!(tableValue.raw as Map).containsKey(
+          (target.index as Identifier).name,
+        )) {
           final newindex = tableValue.getMetamethod("__newindex");
           if (newindex != null) {
             Logger.debug(
@@ -382,7 +384,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         final fieldKey = target.fieldName.name;
 
         // If key doesn't exist, try __newindex metamethod
-        if (!tableValue.containsKey(fieldKey)) {
+        if (!(tableValue.raw as Map).containsKey(fieldKey)) {
           final newindex = tableValue.getMetamethod("__newindex");
           if (newindex != null) {
             Logger.debug(
@@ -457,7 +459,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         }
 
         // If key doesn't exist, try __newindex metamethod
-        if (!tableValue.containsKey(indexValue)) {
+        if (!(tableValue.raw as Map).containsKey(indexValue)) {
           final newindex = tableValue.getMetamethod("__newindex");
           if (newindex != null) {
             Logger.debug(
