@@ -578,9 +578,9 @@ class MetaTable {
           );
           finalizer([obj]);
 
-          // Track finalized objects in the finalized table
-          final finalized = _interpreter!.globals.get('finalized') as Value;
-          if (finalized.raw is Map) {
+          // Track finalized objects if the 'finalized' table exists
+          final finalized = _interpreter!.globals.get('finalized');
+          if (finalized is Value && finalized.raw is Map) {
             Logger.debug(
               'Marking object ${obj.hashCode} as finalized',
               category: 'Metatables',
