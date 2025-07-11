@@ -191,7 +191,26 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           final table = await target.table.accept(this).toValue();
           if (!table.isNil) {
             final index = await target.index.accept(this).toValue();
-            await table.setValueAsync(index, wrappedValue);
+
+            var rawKey = index.raw;
+            if (rawKey is LuaString) rawKey = rawKey.toString();
+
+            bool exists = (table.raw as Map).containsKey(rawKey);
+            if (!exists && rawKey is num) {
+              for (final k in (table.raw as Map).keys) {
+                if (k is num && k.toDouble() == rawKey.toDouble()) {
+                  rawKey = k;
+                  exists = true;
+                  break;
+                }
+              }
+            }
+
+            if (exists) {
+              (table.raw as Map)[rawKey] = wrappedValue;
+            } else {
+              await table.setValueAsync(index, wrappedValue);
+            }
             return table;
           }
         }
@@ -815,10 +834,21 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       final map = targetValue.raw as Map;
 
       // Convert the index to the appropriate form
-      final key = indexValue is Value ? indexValue.raw : indexValue;
+      var key = indexValue is Value ? indexValue.raw : indexValue;
+
+      bool exists = map.containsKey(key);
+      if (!exists && key is num) {
+        for (final k in map.keys) {
+          if (k is num && k.toDouble() == key.toDouble()) {
+            key = k;
+            exists = true;
+            break;
+          }
+        }
+      }
 
       // Check for __newindex metamethod if key doesn't exist
-      if (!map.containsKey(key)) {
+      if (!exists) {
         final newindex = targetValue.getMetamethod("__newindex");
         if (newindex != null) {
           if (newindex is Function) {
