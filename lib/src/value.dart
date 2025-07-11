@@ -497,18 +497,11 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
     // If no newindex metamethod is set and raw is a Map, perform direct assignment
     if (raw is Map) {
-      // In Lua, setting a table key to nil removes the key entirely
-      final unwrappedValue = value is Value ? value.raw : value;
-      if (unwrappedValue == null) {
-        // Remove the key from the table
-        (raw as Map).remove(rawKey);
-      } else {
-        // Set the value
-        (raw as Map)[rawKey] = value is Value ? value : Value(value);
-      }
+      // Preserve explicit null assignments as Value(null) to mirror previous semantics
+      (raw as Map)[rawKey] = value is Value ? value : Value(value);
       return;
     }
-    throw UnsupportedError('Not a table');
+    throw LuaError.typeError('attempt to index a non-table value');
   }
 
   @override

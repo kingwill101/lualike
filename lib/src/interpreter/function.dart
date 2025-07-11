@@ -439,19 +439,21 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
     // Call the function
     if (func.raw is Function) {
+      final callArgs = node.implicitSelf ? args : [obj, ...args];
       Logger.debug(
-        '[MethodCall] Calling function with args: ${[obj, ...args]}',
+        '[MethodCall] Calling function with args: $callArgs',
         category: 'Interpreter',
       );
-      final result = await func.raw([obj, ...args]);
+      final result = await func.raw(callArgs);
       Logger.debug('[MethodCall] Result: $result', category: 'Interpreter');
       return result is Future ? await result : result;
     } else if (func.raw is BuiltinFunction) {
+      final callArgs = node.implicitSelf ? args : [obj, ...args];
       Logger.debug(
-        '[MethodCall] Calling builtin function with args: ${[obj, ...args]}',
+        '[MethodCall] Calling builtin function with args: $callArgs',
         category: 'Interpreter',
       );
-      final result = (func.raw as BuiltinFunction).call([obj, ...args]);
+      final result = (func.raw as BuiltinFunction).call(callArgs);
       Logger.debug('[MethodCall] Result: $result', category: 'Interpreter');
       return result is Future ? await result : result;
     } else {
