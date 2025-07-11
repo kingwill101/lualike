@@ -475,10 +475,11 @@ class MetaTable {
     final type = _determineType(value.raw);
     Logger.debug('Determined type for value: $type', category: 'Metatables');
 
-    // In Lua, tables don't have default metatables - they only get metatables when explicitly assigned
-    if (type == 'table') {
+    // In Lua, tables and numbers do not have default metatables. They only get
+    // metatables when explicitly assigned via setmetatable or debug APIs.
+    if (type == 'table' || type == 'number') {
       Logger.debug(
-        'Not applying default metatable to table - tables have no default metatable',
+        'Not applying default metatable to $type - defaults are nil',
         category: 'Metatables',
       );
       return;
