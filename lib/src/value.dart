@@ -526,7 +526,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       return;
     }
     if (raw is Map) {
-      (raw as Map)[rawKey] = value is Value ? value : Value(value);
+      final valueToSet = value is Value ? value : Value(value);
+      if (valueToSet.isNil) {
+        (raw as Map).remove(rawKey);
+      } else {
+        (raw as Map)[rawKey] = valueToSet;
+      }
       return;
     }
     throw LuaError.typeError('attempt to index a non-table value');
@@ -817,6 +822,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       throw UnsupportedError("attempt to call a nil value");
     }
 
+
+
     // Special handling for __index and __newindex when they are tables
     if (s == '__index' && method is Value && method.raw is Map) {
       // __index is a table, so do lookup through that table
@@ -824,6 +831,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         final key = list[1];
         // Use the Value's indexing mechanism to handle potential metamethods
         final result = method[key];
+
         return result;
       }
     } else if (s == '__newindex' && method is Value && method.raw is Map) {
@@ -833,6 +841,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         final value = list[2];
         // Use the Value's assignment mechanism to handle potential metamethods
         method[key] = value;
+
         return Value(null);
       }
     }

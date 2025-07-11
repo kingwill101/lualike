@@ -355,13 +355,9 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       );
 
       if (envValue.raw is Map) {
-        // Look up the variable in the _ENV table
+        // Look up the variable in the _ENV table (this will trigger __index if needed)
         final result = envValue[node.name];
-        if (result is Value && result.raw != null) {
-          return result;
-        }
-        // If not found in _ENV, it would have been looked up via __index already
-        return result ?? Value(null);
+        return result is Value ? result : Value(result);
       }
     }
 
