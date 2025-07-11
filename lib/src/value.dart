@@ -823,6 +823,71 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     );
   }
 
+  /// Asynchronous version of callMetamethod for use in async contexts
+  Future<Object?> callMetamethodAsync(String s, List<Value> list) async {
+    final method = getMetamethod(s);
+    if (method == null) {
+      throw UnsupportedError("attempt to call a nil value");
+    }
+
+    // Special handling for __index and __newindex when they are tables
+    if (s == '__index' && method is Value && method.raw is Map) {
+      // __index is a table, so do lookup through that table
+      if (list.length >= 2) {
+        final key = list[1];
+        // Use the Value's indexing mechanism to handle potential metamethods
+        final result = method[key];
+        return result;
+      }
+    } else if (s == '__newindex' && method is Value && method.raw is Map) {
+      // __newindex is a table, so do assignment through that table
+      if (list.length >= 3) {
+        final key = list[1];
+        final value = list[2];
+        // Use the Value's assignment mechanism to handle potential metamethods
+        method[key] = value;
+        return Value(null);
+      }
+    }
+
+    if (method is Function) {
+      return method(list);
+    } else if (method is BuiltinFunction) {
+      return method.call(list);
+    } else if (method is Value) {
+      if (method.raw is Function) {
+        final result = (method.raw as Function)(list);
+        return result;
+      } else if (method.raw is BuiltinFunction) {
+        return (method.raw as BuiltinFunction).call(list);
+      } else if (method.raw is FunctionDef ||
+          method.raw is FunctionLiteral ||
+          method.raw is FunctionBody) {
+        // This is a Lua function defined as an AST node
+        // We can await it here since this is an async method
+        final interpreter =
+            method.interpreter ?? Environment.current?.interpreter;
+        if (interpreter != null) {
+          final result = await interpreter.callFunction(method, list);
+          return result;
+        }
+        throw UnsupportedError("No interpreter available to call function");
+      }
+    } else if (method is FunctionDef) {
+      // Handle direct FunctionDef nodes
+      final interpreter = Environment.current?.interpreter;
+      if (interpreter != null) {
+        final result = await interpreter.callFunction(Value(method), list);
+        return result;
+      }
+      throw UnsupportedError("No interpreter available to call function");
+    }
+
+    throw UnsupportedError(
+      "attempt to call a non-function $s(${list.map((a) => a.unwrap()).join(', ')})",
+    );
+  }
+
   Object? callMetamethod(String s, List<Value> list) {
     final method = getMetamethod(s);
     if (method == null) {
@@ -876,14 +941,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           // Call the function directly using the interpreter
           final result = interpreter.callFunction(method, list);
           
-          // HACK: For synchronous contexts like __index, we can't await Futures
-          // This is a major limitation that needs a proper fix
-          if (result is Future) {
-            // Try to get the value if it's already completed
-            // This is not ideal but may work for simple synchronous functions
-            throw UnsupportedError('Async metamethods not supported in synchronous __index context. Consider using table-based __index instead.');
-          }
-          
+          // Note: This may return a Future, which should be handled by callers
+          // For synchronous contexts, this will not work properly
           return result;
         }
         throw UnsupportedError("No interpreter available to call function");

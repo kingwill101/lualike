@@ -124,9 +124,26 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       );
     }
 
-    final result = tableVal[indexVal];
-    Logger.debug('TableFieldAccess result: $result', category: 'Interpreter');
-    return result;
+    // Check if key exists in table first
+    if (tableVal.raw is Map && (tableVal.raw as Map).containsKey(indexVal.raw)) {
+      // Key exists, get it directly
+      final result = tableVal[indexVal];
+      Logger.debug('TableFieldAccess result: $result', category: 'Interpreter');
+      return result;
+    }
+    
+    // Key doesn't exist, check for __index metamethod
+    final indexMeta = tableVal.getMetamethod('__index');
+    if (indexMeta != null) {
+      // Call metamethod asynchronously
+      final result = await tableVal.callMetamethodAsync('__index', [tableVal, indexVal]);
+      Logger.debug('TableFieldAccess __index result: $result', category: 'Interpreter');
+      return result;
+    }
+    
+    // No metamethod, return nil
+    Logger.debug('TableFieldAccess result: nil (no metamethod)', category: 'Interpreter');
+    return Value(null);
   }
 
   /// Evaluates a table index access expression (table[expr]).
@@ -170,9 +187,26 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       );
     }
 
-    final result = tableVal[indexVal];
-    Logger.debug('TableIndexAccess result: $result', category: 'Interpreter');
-    return result;
+    // Check if key exists in table first
+    if (tableVal.raw is Map && (tableVal.raw as Map).containsKey(indexVal.raw)) {
+      // Key exists, get it directly
+      final result = tableVal[indexVal];
+      Logger.debug('TableIndexAccess result: $result', category: 'Interpreter');
+      return result;
+    }
+    
+    // Key doesn't exist, check for __index metamethod
+    final indexMeta = tableVal.getMetamethod('__index');
+    if (indexMeta != null) {
+      // Call metamethod asynchronously
+      final result = await tableVal.callMetamethodAsync('__index', [tableVal, indexVal]);
+      Logger.debug('TableIndexAccess __index result: $result', category: 'Interpreter');
+      return result;
+    }
+    
+    // No metamethod, return nil
+    Logger.debug('TableIndexAccess result: nil (no metamethod)', category: 'Interpreter');
+    return Value(null);
   }
 
   /// Evaluates a keyed table entry.
