@@ -295,7 +295,32 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     final name = target.name;
     Logger.debug('Assign $name = $wrappedValue', category: 'Interpreter');
 
-    // Use the current environment for assignment
+    // Check if this is an assignment to _ENV itself
+    if (name == '_ENV') {
+      // This is assigning to _ENV, so use the normal global assignment
+      globals.define(name, wrappedValue);
+      return wrappedValue;
+    }
+
+    // Check if there's a custom _ENV that is different from the initial _G
+    final envValue = globals.get('_ENV');
+    final gValue = globals.get('_G');
+
+    // If _ENV exists and is different from _G, use _ENV for assignments
+    if (envValue is Value && gValue is Value && envValue != gValue) {
+      Logger.debug(
+        'Using custom _ENV for assignment: $name = $wrappedValue',
+        category: 'Interpreter',
+      );
+
+      if (envValue.raw is Map) {
+        // Set the value directly in the _ENV table
+        envValue[name] = wrappedValue;
+        return wrappedValue;
+      }
+    }
+
+    // Use the current environment for assignment (default behavior)
     // The Environment class will handle propagating to parent environments if needed
     try {
       globals.define(name, wrappedValue);

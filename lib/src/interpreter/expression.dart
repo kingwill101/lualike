@@ -276,6 +276,48 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitIdentifier(Identifier node) async {
     Logger.debug('Visiting Identifier: ${node.name}', category: 'Expression');
+
+    // Special case: always look up _ENV and _G from the global environment directly
+    // to avoid infinite recursion
+    if (node.name == '_ENV' || node.name == '_G') {
+      final value = globals.get(node.name);
+      if (value == null) {
+        Logger.debug(
+          'Identifier ${node.name} not found, returning nil',
+          category: 'Expression',
+        );
+        return Value(null);
+      }
+      Logger.debug(
+        'Identifier ${node.name} resolved to: $value (type: ${value.runtimeType})',
+        category: 'Expression',
+      );
+      return value is Value ? value : Value(value);
+    }
+
+    // Check if there's a custom _ENV that is different from the initial _G
+    final envValue = globals.get('_ENV');
+    final gValue = globals.get('_G');
+
+    // If _ENV exists and is different from _G, use _ENV for variable lookups
+    if (envValue is Value && gValue is Value && envValue != gValue) {
+      Logger.debug(
+        'Using custom _ENV for variable lookup: ${node.name}',
+        category: 'Expression',
+      );
+
+      if (envValue.raw is Map) {
+        // Look up the variable in the _ENV table
+        final result = envValue[node.name];
+        if (result is Value && result.raw != null) {
+          return result;
+        }
+        // If not found in _ENV, it would have been looked up via __index already
+        return result ?? Value(null);
+      }
+    }
+
+    // Default behavior: look up in the current environment
     final value = globals.get(node.name);
     if (value == null) {
       Logger.debug(
