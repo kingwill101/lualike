@@ -314,8 +314,12 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       );
 
       if (envValue.raw is Map) {
-        // Set the value directly in the _ENV table
-        envValue[name] = wrappedValue;
+        // Set or remove the value directly in the _ENV table
+        if (wrappedValue.raw == null) {
+          (envValue.raw as Map).remove(name);
+        } else {
+          envValue[name] = wrappedValue;
+        }
         return wrappedValue;
       }
     }
@@ -486,8 +490,23 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           }
         }
 
-        // No metamethod or key exists - do regular assignment
-        tableValue[indexValue] = wrappedValue;
+        // Special handling when assigning through the active _ENV table
+        final envValue = globals.get('_ENV');
+        final gValue = globals.get('_G');
+        if (envValue is Value &&
+            gValue is Value &&
+            envValue != gValue &&
+            identical(envValue, tableValue) &&
+            wrappedValue.raw == null) {
+          var keyToRemove = indexValue;
+          if (keyToRemove is LuaString) {
+            keyToRemove = keyToRemove.toString();
+          }
+          (envValue.raw as Map).remove(keyToRemove);
+        } else {
+          // No metamethod or key exists - do regular assignment
+          tableValue[indexValue] = wrappedValue;
+        }
 
         Logger.debug(
           '_handleTableIndexAssignment: Assigned ${wrappedValue.raw} to index $indexValue',
