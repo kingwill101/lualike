@@ -155,8 +155,18 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         dynamic result;
         if (metamethod is Function) {
           result = await metamethod([leftVal, rightVal]);
-        } else if (metamethod is Value && metamethod.raw is Function) {
-          result = await metamethod.raw([leftVal, rightVal]);
+        } else if (metamethod is Value) {
+          if (metamethod.raw is Function) {
+            result = await metamethod.raw([leftVal, rightVal]);
+          } else if (metamethod.raw is FunctionDef ||
+              metamethod.raw is FunctionLiteral ||
+              metamethod.raw is FunctionBody) {
+            result = await metamethod.callFunction([leftVal, rightVal]);
+          } else {
+            throw LuaError.typeError(
+              "Metamethod $metamethodName exists but is not callable: $metamethod",
+            );
+          }
         } else {
           throw LuaError.typeError(
             "Metamethod $metamethodName exists but is not callable: $metamethod",

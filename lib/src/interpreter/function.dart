@@ -754,20 +754,27 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                 );
                 rethrow;
               }
-            } else if (callMeta is Value && callMeta.raw is Function) {
-              try {
-                final result = await callMeta.raw(callArgs);
-                Logger.debug(
-                  '>>> __call metamethod result: $result',
-                  category: 'Interpreter',
-                );
+            } else if (callMeta is Value) {
+              if (callMeta.raw is Function) {
+                try {
+                  final result = await callMeta.raw(callArgs);
+                  Logger.debug(
+                    '>>> __call metamethod result: $result',
+                    category: 'Interpreter',
+                  );
+                  return result;
+                } catch (e) {
+                  Logger.debug(
+                    '>>> Error in __call metamethod: $e',
+                    category: 'Interpreter',
+                  );
+                  rethrow;
+                }
+              } else if (callMeta.raw is FunctionDef ||
+                  callMeta.raw is FunctionLiteral ||
+                  callMeta.raw is FunctionBody) {
+                final result = await callMeta.callFunction(callArgs);
                 return result;
-              } catch (e) {
-                Logger.debug(
-                  '>>> Error in __call metamethod: $e',
-                  category: 'Interpreter',
-                );
-                rethrow;
               }
             }
           }

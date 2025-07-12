@@ -113,7 +113,11 @@ class RawSetFunction implements BuiltinFunction {
     if (rawKey is LuaString) {
       rawKey = rawKey.toString();
     }
-    (table.raw as Map)[rawKey] = wrappedValue;
+    if (wrappedValue.isNil) {
+      (table.raw as Map).remove(rawKey);
+    } else {
+      (table.raw as Map)[rawKey] = wrappedValue;
+    }
     return table;
   }
 }
