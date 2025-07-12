@@ -401,13 +401,16 @@ void main() {
       final tests = (bridge.getGlobal('tests') as Value).raw as Map;
       expect(tests['anchor1'], equals(Value("hell")));
       expect(tests['anchor2'], equals(Value("world")));
-      expect(tests['anchor3'], equals(Value(null)));
+      // Keys assigned nil should be removed entirely
+      expect(tests['anchor3'], isNull);
 
       expect(tests['rep1'], equals(Value("abbbc")));
       expect(tests['rep2'], equals(Value("ac")));
       expect(tests['rep3'], equals(Value("abbbc")));
-      expect(tests['rep4'], equals(Value(null)));
-      expect(tests['rep5'], equals(Value("abc")));
+      // Keys assigned nil should be removed entirely
+      expect(tests['rep4'], isNull);
+      // "ab?c" does not match "abbbc" in Lua, so the key is removed
+      expect(tests['rep5'], isNull);
 
       expect(tests['balanced1'], equals(Value("(hello (world))")));
       expect(tests['balanced2'], equals(Value("{hello [world]}")));
