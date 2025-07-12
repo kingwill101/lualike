@@ -200,6 +200,15 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
           );
         }
 
+        // Metamethods can return multiple values, but binary operations only use
+        // the first result. Normalize here to match Lua semantics.
+        if (result is Value && result.isMulti && result.raw is List) {
+          final values = result.raw as List;
+          result = values.isNotEmpty ? values.first : Value(null);
+        } else if (result is List) {
+          result = result.isNotEmpty ? result.first : Value(null);
+        }
+
         // For inequality operators that use __eq, negate the result
         if ((node.op == '~=' || node.op == '!=') && metamethodName == '__eq') {
           if (result is bool) {
@@ -332,6 +341,13 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
           throw LuaError.typeError(
             "Metamethod $metamethodName exists but is not callable: $metamethod",
           );
+        }
+
+        if (result is Value && result.isMulti && result.raw is List) {
+          final values = result.raw as List;
+          result = values.isNotEmpty ? values.first : Value(null);
+        } else if (result is List) {
+          result = result.isNotEmpty ? result.first : Value(null);
         }
 
         return result is Value ? result : Value(result);
