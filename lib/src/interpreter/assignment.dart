@@ -285,6 +285,17 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
     // If _ENV exists and is different from _G, use _ENV for variable assignments
     if (envValue is Value && gValue is Value && envValue != gValue) {
+      // Check if this is a local variable in the current scope
+      // Local variables should be updated in place, not redirected to _ENV
+      if (globals.values[name]?.isLocal == true) {
+        Logger.debug(
+          'Updating local variable: $name',
+          category: 'Assignment',
+        );
+        globals.define(name, wrappedValue);
+        return wrappedValue;
+      }
+
       Logger.debug(
         'Using custom _ENV for variable assignment: $name',
         category: 'Assignment',

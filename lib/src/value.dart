@@ -283,7 +283,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       value.forEach((key, val) {
         newMap[key] = wrap(val);
       });
-      return Value(newMap, metatable: {});
+      return Value(newMap);
     }
     return Value(value);
   }
@@ -886,6 +886,11 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
             method.interpreter ?? Environment.current?.interpreter;
         if (interpreter != null) {
           final result = await interpreter.callFunction(method, list);
+          // For __index metamethod, only return the first value if multiple values are returned
+          if (s == '__index' && result is Value && result.isMulti && result.raw is List) {
+            final values = result.raw as List;
+            return values.isNotEmpty ? values.first : Value(null);
+          }
           return result;
         }
         throw UnsupportedError("No interpreter available to call function");
