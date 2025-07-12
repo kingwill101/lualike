@@ -887,7 +887,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         if (interpreter != null) {
           final result = await interpreter.callFunction(method, list);
           // For __index metamethod, only return the first value if multiple values are returned
-          if (s == '__index' && result is Value && result.isMulti && result.raw is List) {
+          if (s == '__index' &&
+              result is Value &&
+              result.isMulti &&
+              result.raw is List) {
             final values = result.raw as List;
             return values.isNotEmpty ? values.first : Value(null);
           }

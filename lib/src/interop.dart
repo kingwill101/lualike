@@ -178,9 +178,18 @@ class LuaLike {
   /// [code] - The LuaLike code to run
   /// [scriptPath] - Optional path of the script being executed
   Future<Object?> runCode(String code, {String? scriptPath}) async {
-    // Just pass through to the interpreter's evaluate method
-    // Don't catch errors here - let them propagate up
-    return vm.evaluate(code, scriptPath: scriptPath);
+    // Execute the code using the interpreter
+    final result = await vm.evaluate(code, scriptPath: scriptPath);
+
+    // If a multi-value was returned, unwrap it into a Dart List so callers
+    // receive a simple List<Value> like the top-level runCode helper.
+    if (result is Value && result.isMulti && result.raw is List) {
+      return (result.raw as List)
+          .map((e) => e is Value ? e : Value(e))
+          .toList();
+    }
+
+    return result;
   }
 
   /// Get a value from LuaLike global environment

@@ -32,7 +32,7 @@ void main() {
       final results = bridge.getGlobal('results');
 
       final map = results.raw as Map;
-      final list = List.generate(map.length, (i) => map[i + 1]);
+      final list = List.generate(10, (i) => map[i + 1]);
 
       // Expected results according to Lua truthiness rules
       final expected = [
@@ -77,14 +77,20 @@ void main() {
       final results = bridge.getGlobal('results');
 
       final map = results.raw as Map;
-      final list = List.generate(map.length, (i) => map[i + 1]);
+      final list = List.generate(6, (i) => map[i + 1]);
 
-      expect(list[0].unwrap(), equals("yes")); // 0.001 and "yes"
-      expect(list[1].unwrap(), equals(false)); // false and "yes"
-      expect(list[2].unwrap(), equals(null)); // nil and "yes"
-      expect(list[3].unwrap(), equals(0.001)); // 0.001 or "no"
-      expect(list[4].unwrap(), equals("yes")); // false or "yes"
-      expect(list[5].unwrap(), equals("yes")); // nil or "yes"
+      Value? val0 = list[0];
+      Value? val1 = list[1];
+      Value? val2 = list[2];
+      Value? val3 = list[3];
+      Value? val4 = list[4];
+      Value? val5 = list[5];
+      expect(val0?.unwrap(), equals("yes")); // 0.001 and "yes"
+      expect(val1?.unwrap(), equals(false)); // false and "yes"
+      expect(val2?.unwrap(), equals(null)); // nil and "yes"
+      expect(val3?.unwrap(), equals(0.001)); // 0.001 or "no"
+      expect(val4?.unwrap(), equals("yes")); // false or "yes"
+      expect(val5?.unwrap(), equals("yes")); // nil or "yes"
     });
 
     test('eq function from incd.lua now works correctly', () async {

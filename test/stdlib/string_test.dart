@@ -325,7 +325,7 @@ void main() {
     // Pattern matching character classes
     test('pattern matching character classes', () async {
       final bridge = LuaLike();
-      await bridge.runCode('''
+      final result = await bridge.runCode('''
         local tests = {}
 
         -- %a (letters)
@@ -354,9 +354,10 @@ void main() {
         -- Character classes with negation
         tests.A1 = string.match("abc123", "%A+") -- not letters
         tests.D1 = string.match("abc123", "%D+") -- not digits
+        return tests
       ''');
 
-      final tests = (bridge.getGlobal('tests') as Value).raw as Map;
+      final tests = (result as Value).raw as Map;
       expect(tests['a1'], equals(Value("abc")));
       expect(tests['a2'], equals(Value("abc")));
       expect(tests['d1'], equals(Value("123")));
@@ -375,11 +376,11 @@ void main() {
     test('pattern matching special items', () async {
       final bridge = LuaLike();
       await bridge.runCode(r'''
-        local tests = {}
+        tests = {}
 
         -- Anchors
         tests.anchor1 = string.match("hello world", "^hell")
-        tests.anchor2 = string.match("hello world", "world\$")
+        tests.anchor2 = string.match("hello world", "world$")
         tests.anchor3 = string.match("hello world", "^world")
 
         -- Repetition
@@ -418,7 +419,7 @@ void main() {
       final bridge = LuaLike();
 
       // Basic format specifiers
-      await bridge.runCode('''
+      final result = await bridge.runCode('''
           local tests = {}
 
           -- Basic format specifiers
@@ -483,9 +484,10 @@ void main() {
 
           -- Pointer specifier
           tests.ptr1 = string.format("%p", "test")
+          return tests
         ''');
       // Multiple format specifiers
-      final tests = (bridge.getGlobal('tests') as Value).raw as Map;
+      final tests = (result as Value).raw as Map;
 
       expect(tests['basic1'], equals(Value('42')));
       expect(tests['basic2'], equals(Value('-42')));
