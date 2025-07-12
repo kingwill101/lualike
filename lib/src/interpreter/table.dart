@@ -124,7 +124,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       );
     }
 
-    print(
+    Logger.debug(
       'DEBUG: TableFieldAccess - key: ${indexVal.raw}, exists: ${(tableVal.raw as Map).containsKey(indexVal.raw)}',
     );
 
@@ -137,7 +137,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     // Check if key exists in table first
     if (tableVal.raw is Map && (tableVal.raw as Map).containsKey(rawKey)) {
       // Key exists, get it directly
-      print('DEBUG: Key exists, getting directly');
+      Logger.debug('DEBUG: Key exists, getting directly');
       final result = tableVal[indexVal];
       Logger.debug('TableFieldAccess result: $result', category: 'Interpreter');
       return result;
@@ -146,7 +146,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     // Key doesn't exist, check for __index metamethod
     final indexMeta = tableVal.getMetamethod('__index');
     if (indexMeta != null) {
-      print('DEBUG: Key not found, calling __index metamethod');
+      Logger.debug('DEBUG: Key not found, calling __index metamethod');
       // Call metamethod asynchronously
       final result = await tableVal.callMetamethodAsync('__index', [
         tableVal,
@@ -160,7 +160,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     }
 
     // No metamethod, return nil
-    print('DEBUG: No metamethod, returning nil');
+    Logger.debug('DEBUG: No metamethod, returning nil');
     Logger.debug(
       'TableFieldAccess result: nil (no metamethod)',
       category: 'Interpreter',

@@ -433,7 +433,6 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   @override
   dynamic operator [](Object? key) {
-    print('DEBUG: Value[] operator called with key: $key');
     if (raw is Map) {
       // Normalize the key
       var rawKey = key is Value ? key.raw : key;
@@ -839,8 +838,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   /// Asynchronous version of callMetamethod for use in async contexts
   Future<Object?> callMetamethodAsync(String s, List<Value> list) async {
-    print(
-      'DEBUG: callMetamethodAsync called with $s, args: ${list.map((e) => e.raw)}',
+    Logger.debug(
+      'callMetamethodAsync called with $s, args: ${list.map((e) => e.raw)}',
     );
     final method = getMetamethod(s);
     if (method == null) {
@@ -1278,7 +1277,6 @@ extension OperatorExtension on Value {
   }
 
   Value _arith(String op, Value other) {
-    print('DEBUG: _arith called with $op, $raw, ${other.raw}');
     final result = NumberUtils.performArithmetic(op, raw, other.raw);
     return Value(result);
   }

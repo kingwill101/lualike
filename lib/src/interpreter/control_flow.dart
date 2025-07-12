@@ -811,7 +811,6 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           error: e,
           node: node,
         );
-        print(s);
       }
       rethrow;
     }
