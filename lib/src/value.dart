@@ -652,7 +652,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       throw LuaError.typeError('attempt to get length of a ${raw.runtimeType}');
     }
 
-    return (raw as Map).length;
+    final map = raw as Map;
+    int n = 0;
+    while (map.containsKey(n + 1)) {
+      n++;
+    }
+    return n;
   }
 
   @override
