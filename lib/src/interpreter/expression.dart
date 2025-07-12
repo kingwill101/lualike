@@ -337,10 +337,14 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     // inside a function, the current environment will have a parent. Globals
     // live in the root environment (which has no parent). Locals should take
     // precedence over entries in `_ENV`.
-    if (globals.values.containsKey(node.name) &&
-        globals.values[node.name]!.isLocal) {
-      final value = globals.get(node.name);
-      return value is Value ? value : Value(value);
+    // Search up the environment chain for a local variable with this name
+    Environment? env = globals;
+    while (env != null) {
+      if (env.values.containsKey(node.name) && env.values[node.name]!.isLocal) {
+        final val = env.values[node.name]!.value;
+        return val is Value ? val : Value(val);
+      }
+      env = env.parent;
     }
 
     // Check if there's a custom _ENV that is different from the initial _G

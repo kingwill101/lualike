@@ -803,7 +803,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           setCurrentEnv(prevEnv);
         }
       }
-    } catch (e, s) {
+    } catch (e) {
       // Only log unhandled errors when not inside a protected call (pcall/xpcall).
       if (!(this is Interpreter && (this as Interpreter).isInProtectedCall)) {
         Logger.error(

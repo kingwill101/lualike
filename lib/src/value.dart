@@ -858,6 +858,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         } else if (result is Future) {
           result = await result;
         }
+        if (result is Value && result.isMulti && result.raw is List) {
+          final values = result.raw as List;
+          return values.isNotEmpty ? values.first : Value(null);
+        } else if (result is List && result.isNotEmpty) {
+          return result.first is Value ? result.first : Value(result.first);
+        }
         return result;
       }
     } else if (s == '__newindex' && method is Value && method.raw is Map) {
@@ -898,12 +904,13 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         if (interpreter != null) {
           final result = await interpreter.callFunction(method, list);
           // For __index metamethod, only return the first value if multiple values are returned
-          if (s == '__index' &&
-              result is Value &&
-              result.isMulti &&
-              result.raw is List) {
-            final values = result.raw as List;
-            return values.isNotEmpty ? values.first : Value(null);
+          if (s == '__index') {
+            if (result is Value && result.isMulti && result.raw is List) {
+              final values = result.raw as List;
+              return values.isNotEmpty ? values.first : Value(null);
+            } else if (result is List && result.isNotEmpty) {
+              return result.first is Value ? result.first : Value(result.first);
+            }
           }
           return result;
         }
