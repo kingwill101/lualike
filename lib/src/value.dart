@@ -1188,14 +1188,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   @override
   void free() {
-    final finalizer = getMetamethod('__gc');
-    if (finalizer != null) {
-      try {
-        callMetamethod('__gc', [this]);
-      } catch (e) {
-        Logger.error('Error in finalizer', category: 'Value', error: e);
-      }
-    }
+    // The GC manager now handles __gc metamethods.
+    // This method is for other resource cleanup if needed.
   }
 
   @override

@@ -69,9 +69,6 @@ class SetMetatableFunction implements BuiltinFunction {
           metatable.raw as Map,
         );
         table.metatable = rawMeta;
-        if (rawMeta.containsKey('__gc')) {
-          MetaTable().markForFinalization(table);
-        }
         return table;
       } else if (metatable.raw == null) {
         // Setting nil metatable removes the metatable
@@ -753,9 +750,6 @@ class SetmetaFunction implements BuiltinFunction {
         category: "Metatables",
       );
       table.setMetatable((meta.raw as Map).cast());
-      if ((meta.raw as Map).containsKey('__gc')) {
-        MetaTable().markForFinalization(table);
-      }
       Logger.debug(
         "Metatable set. New metatable: ${table.getMetatable()}",
         category: "Metatables",
@@ -1069,7 +1063,7 @@ class CollectGarbageFunction implements BuiltinFunction {
   CollectGarbageFunction(this.vm);
 
   @override
-  Object? call(List<Object?> args) {
+  Object? call(List<Object?> args) async {
     final option = args.isNotEmpty
         ? (args[0] as Value).raw.toString()
         : "collect";
@@ -1078,7 +1072,7 @@ class CollectGarbageFunction implements BuiltinFunction {
     switch (option) {
       case "collect":
         // "collect": Performs a full garbage-collection cycle
-        vm.gc.majorCollection(vm.getRoots());
+        await vm.gc.majorCollection(vm.getRoots());
         return Value(true);
 
       case "count":

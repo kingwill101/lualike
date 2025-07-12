@@ -12,7 +12,6 @@ class MetaTable {
 
   bool _initialized = false;
   final Map<String, ValueClass> _typeMetatables = {};
-  final List<Value> _finalizationList = [];
 
   factory MetaTable() {
     return _instance;
@@ -300,32 +299,6 @@ class MetaTable {
           Value(null),
         ]);
       },
-      '__gc': (List<Object?> args) {
-        final table = args[0] as Value;
-        Logger.debug(
-          'Table __gc metamethod called for table:${table.hashCode}',
-          category: 'Metatables',
-        );
-
-        // Track finalization in the finalized table
-        final finalized = _interpreter!.globals.get('finalized');
-        if (finalized == null) {
-          Logger.debug(
-            'Finalized table not found, skipping finalization',
-            category: 'Metatables',
-          );
-          _interpreter!.globals.define(
-            'finalized',
-            ValueClass.table({table.hashCode.toString(): Value(true)}),
-          );
-          return Value(null);
-        }
-        if (finalized is Value) {
-          finalized[Value(table.hashCode.toString())] = Value(true);
-        }
-
-        return Value(null);
-      },
     });
     Logger.debug('Table metatable initialized', category: 'Metatables');
 
@@ -489,118 +462,11 @@ class MetaTable {
     if (metatable != null) {
       Logger.debug('Setting metatable for $type value', category: 'Metatables');
       value.setMetatable(metatable.metamethods);
-
-      // Mark for finalization if it has a __gc metamethod
-      if (metatable.metamethods.containsKey('__gc')) {
-        Logger.debug(
-          'Found __gc metamethod for type $type, marking for finalization',
-          category: 'Metatables',
-        );
-        markForFinalization(value);
-      } else {
-        Logger.debug(
-          'No __gc metamethod found for type $type',
-          category: 'Metatables',
-        );
-      }
     } else {
       Logger.debug(
         'No default metatable found for type: $type',
         category: 'Metatables',
       );
     }
-  }
-
-  /// Marks an object for finalization if it has a __gc metamethod.
-  ///
-  /// This implements the behavior described in section 2.5.3 of the Lua reference manual:
-  /// "For an object (table or userdata) to be finalized when collected, you must
-  /// mark it for finalization. You mark an object for finalization when you set
-  /// its metatable and the metatable has a __gc metamethod."
-  ///
-  /// Objects marked for finalization are added to a list and their finalizers
-  /// will be called during the next garbage collection cycle.
-  void markForFinalization(Value value) {
-    Logger.debug(
-      'Checking if object ${value.hashCode} needs finalization',
-      category: 'Metatables',
-    );
-
-    if (value.metatable?.containsKey('__gc') ?? false) {
-      Logger.debug(
-        'Object ${value.hashCode} has __gc metamethod, marking for finalization',
-        category: 'Metatables',
-      );
-      _finalizationList.add(value);
-      Logger.debug(
-        'Added object ${value.hashCode} to finalization list (size: ${_finalizationList.length})',
-        category: 'Metatables',
-      );
-    } else {
-      Logger.debug(
-        'Object ${value.hashCode} has no __gc metamethod',
-        category: 'Metatables',
-      );
-    }
-  }
-
-  /// Runs finalizers for objects marked for finalization.
-  ///
-  /// This implements the behavior described in section 2.5.3 of the Lua reference manual:
-  /// "When a marked object becomes dead, it is not collected immediately by the garbage collector.
-  /// Instead, Lua puts it in a list. After the collection, Lua goes through that list. For each
-  /// object in the list, it checks the object's __gc metamethod: If it is present, Lua calls it
-  /// with the object as its single argument."
-  ///
-  /// The finalizers are called in reverse order of marking, as specified in the manual:
-  /// "At the end of each garbage-collection cycle, the finalizers are called in the reverse
-  /// order that the objects were marked for finalization, among those collected in that cycle."
-  void runFinalizers() {
-    Logger.debug(
-      'Running finalizers for ${_finalizationList.length} objects',
-      category: 'Metatables',
-    );
-
-    // Process finalizers in reverse order
-    for (var i = _finalizationList.length - 1; i >= 0; i--) {
-      final obj = _finalizationList[i];
-      Logger.debug(
-        'Processing finalizer for object ${obj.hashCode}',
-        category: 'Metatables',
-      );
-
-      final finalizer = obj.metatable?['__gc'];
-      if (finalizer != null) {
-        try {
-          Logger.debug(
-            'Running __gc metamethod for object ${obj.hashCode}',
-            category: 'Metatables',
-          );
-          finalizer([obj]);
-
-          // Track finalized objects if the 'finalized' table exists
-          final finalized = _interpreter!.globals.get('finalized');
-          if (finalized is Value && finalized.raw is Map) {
-            Logger.debug(
-              'Marking object ${obj.hashCode} as finalized',
-              category: 'Metatables',
-            );
-            (finalized.raw as Map)[obj.hashCode.toString()] = Value(true);
-          }
-        } catch (e, s) {
-          // As per section 2.5.3: "Any error while running a finalizer generates a warning;
-          // the error is not propagated."
-          Logger.error(
-            'Error in finalizer for object ${obj.hashCode}: $e',
-            error: e,
-            trace: s,
-            category: 'Metatables',
-          );
-        }
-      }
-    }
-
-    Logger.debug('Clearing finalization list', category: 'Metatables');
-    _finalizationList.clear();
   }
 }

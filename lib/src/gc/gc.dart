@@ -29,6 +29,7 @@ abstract class GCObject {
   /// Similar to Lua's finalizers, this method is called when an object
   /// is about to be collected, allowing it to release any external resources.
   void free() {
+    print('[GC] GCObject.free() called for ${runtimeType} ${hashCode}');
     // By default, nothing needs to be done.
   }
 }

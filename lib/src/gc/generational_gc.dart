@@ -1,6 +1,5 @@
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
-import 'package:lualike/src/stdlib/metatables.dart';
 
 /// Represents a generation of objects in the generational garbage collector.
 ///
@@ -94,6 +93,10 @@ class GenerationalGCManager {
   /// The old generation containing objects that have survived at least one collection.
   final Generation oldGen = Generation();
 
+  // New fields for finalization logic
+  final Set<GCObject> _toBeFinalized = {};
+  final Set<GCObject> _alreadyFinalized = {};
+
   /// Stops the garbage collector.
   ///
   /// This is equivalent to the Lua collectgarbage("stop") function.
@@ -131,7 +134,7 @@ class GenerationalGCManager {
   ///
   /// New objects are always placed in the young generation (nursery).
   void register(GCObject obj) {
-    // New objects go to young generation
+    print('[GC] Register: ${obj.runtimeType} ${obj.hashCode}');
     youngGen.add(obj);
     Logger.debug('Registered new object in young generation', category: 'GC');
   }
@@ -141,6 +144,7 @@ class GenerationalGCManager {
   /// This happens when an object survives a minor collection cycle,
   /// indicating it may have a longer lifetime.
   void promote(GCObject obj) {
+    print('[GC] Promote: ${obj.runtimeType} ${obj.hashCode}');
     youngGen.remove(obj);
     oldGen.add(obj);
     obj.isOld = true;
@@ -149,6 +153,7 @@ class GenerationalGCManager {
 
   /// Marks all live objects in a generation starting from the given roots.
   void _markGeneration(Generation gen, List<Object?> roots) {
+    print('[GC] Marking generation (${gen == youngGen ? 'young' : 'old'})');
     for (final root in roots) {
       _discover(root);
     }
@@ -164,6 +169,7 @@ class GenerationalGCManager {
     }
     if (obj is GCObject) {
       if (!obj.marked) {
+        print('[GC] Mark: ${obj.runtimeType} ${obj.hashCode}');
         obj.marked = true;
         for (final ref in obj.getReferences()) {
           _discover(ref);
@@ -187,24 +193,67 @@ class GenerationalGCManager {
     }
   }
 
-  /// Sweeps a generation, removing unmarked objects and clearing marks on survivors.
-  ///
-  /// This implements the sweep phase of the mark-and-sweep algorithm,
-  /// removing objects that were not marked during the mark phase.
-  void _sweepGeneration(Generation gen) {
+  /// Separates objects in a generation into survivors and dead.
+  /// Moves dead objects with finalizers to the _toBeFinalized list for later processing.
+  void _separate(Generation gen) {
+    print(
+      '[GC] Separate: ${gen == youngGen ? 'young' : 'old'} generation, ${gen.objects.length} objects',
+    );
     final survivors = <GCObject>[];
 
-    for (final obj in gen.objects) {
-      if (!obj.marked) {
-        obj.free();
-      } else {
-        obj.marked = false;
+    // Use toList() to create a copy, allowing modification of the original list.
+    for (final obj in gen.objects.toList()) {
+      if (obj.marked) {
+        // It's alive, keep it for the next cycle.
+        obj.marked = false; // Unmark for the next GC cycle.
         survivors.add(obj);
+      } else {
+        // It's dead (unreachable).
+        bool hasGc = false;
+        if (obj is Value) {
+          hasGc = obj.hasMetamethod('__gc');
+        }
+
+        if (hasGc && !_alreadyFinalized.contains(obj)) {
+          // It's finalizable and has not been finalized yet.
+          // Add to the finalization list and "resurrect" it for this cycle.
+          // It will be collected in the next GC cycle if still unreachable.
+          print('[GC] To be finalized: ${obj.runtimeType} ${obj.hashCode}');
+          _toBeFinalized.add(obj);
+          survivors.add(obj);
+        } else {
+          // It's truly dead (no finalizer or already finalized), so collect it.
+          print('[GC] Free: ${obj.runtimeType} ${obj.hashCode}');
+          obj.free();
+        }
       }
     }
 
+    // Update the generation with only the survivors (including resurrected objects).
     gen.objects.clear();
     gen.objects.addAll(survivors);
+  }
+
+  /// Calls finalizers for objects in the _toBeFinalized list.
+  Future<void> _callFinalizersAsync() async {
+    print('[GC] Calling finalizers for ${_toBeFinalized.length} objects');
+    // According to Lua spec, finalizers are called in an unspecified order.
+    // Iterating and clearing is sufficient.
+    for (final obj in _toBeFinalized) {
+      if (obj is Value) {
+        // Mark as finalized BEFORE calling __gc. This prevents re-finalization
+        // if the object is resurrected and then becomes dead again.
+        _alreadyFinalized.add(obj);
+        try {
+          print('[GC] Run finalizer: ${obj.runtimeType} ${obj.hashCode}');
+          await obj.callMetamethodAsync('__gc', [obj]);
+        } catch (e) {
+          // Errors in finalizers are reported but not propagated.
+          print('[GC] Error in finalizer: $e');
+        }
+      }
+    }
+    _toBeFinalized.clear();
   }
 
   /// Performs a minor collection, which only traverses the young generation.
@@ -215,23 +264,40 @@ class GenerationalGCManager {
   ///
   /// Objects that survive a minor collection are promoted to the old generation.
   void minorCollection(List<Object?> roots) {
-    Logger.debug('Starting minor collection', category: 'GC');
+    print('[GC] Minor collection start');
     _cycleComplete = false;
 
-    // Mark from roots
-    _markGeneration(youngGen, roots);
+    // In a real generational GC, we'd need a write barrier to track pointers
+    // from the old generation to the young generation. For now, we'll just
+    // consider all old-gen objects as roots for the minor collection mark phase.
+    final minorRoots = [...roots, ...oldGen.objects];
 
-    // Promote surviving objects to old generation
-    final survivors = youngGen.objects.where((obj) => obj.marked).toList();
+    // Mark from roots
+    _markGeneration(youngGen, minorRoots);
+
+    final survivors = <GCObject>[];
+    for (final obj in youngGen.objects) {
+      if (obj.marked) {
+        obj.marked = false; // unmark for next cycle
+        survivors.add(obj);
+      } else {
+        // In minor collection, we don't finalize.
+        // If it's dead, it's just dead.
+        print('[GC] Minor free: ${obj.runtimeType} ${obj.hashCode}');
+        obj.free();
+      }
+    }
+
+    // Promote all survivors of a minor collection to the old generation.
     for (final obj in survivors) {
       promote(obj);
     }
 
-    // Sweep young generation
-    _sweepGeneration(youngGen);
+    youngGen.objects.clear();
 
     _lastMinorBytes = estimateMemoryUse();
     _cycleComplete = true;
+    print('[GC] Minor collection end');
     Logger.debug('Minor collection complete', category: 'GC');
   }
 
@@ -242,26 +308,25 @@ class GenerationalGCManager {
   /// the collector does a stop-the-world major collection, which traverses all objects."
   ///
   /// During a major collection, finalizers are run for objects with __gc metamethods.
-  void majorCollection(List<Object?> roots) {
-    Logger.debug('Starting major collection', category: 'GC');
+  Future<void> majorCollection(List<Object?> roots) async {
+    print('[GC] Major collection start');
     _cycleComplete = false;
 
-    // Mark both generations
+    // Phase 1: Mark all reachable objects
     _markGeneration(youngGen, roots);
     _markGeneration(oldGen, roots);
 
-    // Run metatables finalizers
-    // This follows section 2.5.3 of the Lua reference manual:
-    // "When a marked object becomes dead, it is not collected immediately by the garbage collector.
-    // Instead, Lua puts it in a list. After the collection, Lua goes through that list."
-    MetaTable().runFinalizers();
+    // Phase 2: Separate survivors from dead, and identify finalizables
+    _separate(youngGen);
+    _separate(oldGen);
 
-    // Sweep both generations
-    _sweepGeneration(youngGen);
-    _sweepGeneration(oldGen);
+    // Phase 3: Run finalizers for objects collected in this cycle.
+    await _callFinalizersAsync();
 
     _lastMajorBytes = estimateMemoryUse();
-    _cycleComplete = true;
+    _cycleComplete =
+        true; // The full cycle (including finalization) is now complete
+    print('[GC] Major collection end');
     Logger.debug('Major collection complete', category: 'GC');
   }
 
@@ -277,12 +342,12 @@ class GenerationalGCManager {
   /// This method decides whether to perform a minor or major collection
   /// based on the current memory usage compared to the usage after the
   /// previous collections, using the minor and major multipliers.
-  void collect(List<Object?> roots) {
+  Future<void> collect(List<Object?> roots) async {
     final currentBytes = estimateMemoryUse();
 
     // Check if we need a major collection
     if (currentBytes > _lastMajorBytes * (1 + majorMultiplier / 100)) {
-      majorCollection(roots);
+      await majorCollection(roots);
     }
     // Check if we need a minor collection
     else if (currentBytes > _lastMinorBytes * (1 + minorMultiplier / 100)) {

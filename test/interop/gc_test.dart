@@ -31,6 +31,8 @@ void main() {
         -- Clear references and collect
         holder = nil
         collectgarbage("collect")
+        -- A second collection is often needed in Lua to collect finalized objects
+        collectgarbage("collect")
 
         local mem3 = collectgarbage("count")
         assert(mem3 < mem2, "Memory should decrease after collection")
@@ -62,16 +64,18 @@ void main() {
       Logger.setEnabled(false);
     });
 
-    test('oveerroide gc', () async {
+    test('override gc', () async {
       final bridge = LuaLike();
 
       await bridge.runCode('''
-local t = {}
-setmetatable(t, {
-  __gc = function() print("Finalizer ran!") end
-})
-t = nil  -- Allow t to be garbage collected
-collectgarbage()  -- Force a collection
+        local ran = false
+        local t = {}
+        setmetatable(t, {
+          __gc = function() ran = true end
+        })
+        t = nil  -- Allow t to be garbage collected
+        collectgarbage("collect")  -- First collection marks for finalization and runs __gc
+        assert(ran, "Finalizer should have run")
       ''');
 
       Logger.setEnabled(false);
