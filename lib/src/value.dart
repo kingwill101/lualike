@@ -852,7 +852,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       if (list.length >= 2) {
         final key = list[1];
         // Use the Value's indexing mechanism to handle potential metamethods
-        final result = method[key];
+        var result = method[key];
+        if (result is Value && result.raw is Future) {
+          result = await result.raw;
+        } else if (result is Future) {
+          result = await result;
+        }
         return result;
       }
     } else if (s == '__newindex' && method is Value && method.raw is Map) {
@@ -867,15 +872,22 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
 
     if (method is Function) {
-      return method(list);
+      var result = method(list);
+      if (result is Future) result = await result;
+      return result;
     } else if (method is BuiltinFunction) {
-      return method.call(list);
+      var result = method.call(list);
+      if (result is Future) result = await result;
+      return result;
     } else if (method is Value) {
       if (method.raw is Function) {
-        final result = (method.raw as Function)(list);
+        var result = (method.raw as Function)(list);
+        if (result is Future) result = await result;
         return result;
       } else if (method.raw is BuiltinFunction) {
-        return (method.raw as BuiltinFunction).call(list);
+        var result = (method.raw as BuiltinFunction).call(list);
+        if (result is Future) result = await result;
+        return result;
       } else if (method.raw is FunctionDef ||
           method.raw is FunctionLiteral ||
           method.raw is FunctionBody) {
