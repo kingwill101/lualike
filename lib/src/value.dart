@@ -652,7 +652,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       throw LuaError.typeError('attempt to get length of a ${raw.runtimeType}');
     }
 
-    return (raw as Map).length;
+    final map = raw as Map;
+    int n = 0;
+    while (map.containsKey(n + 1)) {
+      n++;
+    }
+    return n;
   }
 
   @override
@@ -852,7 +857,18 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       if (list.length >= 2) {
         final key = list[1];
         // Use the Value's indexing mechanism to handle potential metamethods
-        final result = method[key];
+        var result = method[key];
+        if (result is Value && result.raw is Future) {
+          result = await result.raw;
+        } else if (result is Future) {
+          result = await result;
+        }
+        if (result is Value && result.isMulti && result.raw is List) {
+          final values = result.raw as List;
+          return values.isNotEmpty ? values.first : Value(null);
+        } else if (result is List && result.isNotEmpty) {
+          return result.first is Value ? result.first : Value(result.first);
+        }
         return result;
       }
     } else if (s == '__newindex' && method is Value && method.raw is Map) {
@@ -867,15 +883,22 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
 
     if (method is Function) {
-      return method(list);
+      var result = method(list);
+      if (result is Future) result = await result;
+      return result;
     } else if (method is BuiltinFunction) {
-      return method.call(list);
+      var result = method.call(list);
+      if (result is Future) result = await result;
+      return result;
     } else if (method is Value) {
       if (method.raw is Function) {
-        final result = (method.raw as Function)(list);
+        var result = (method.raw as Function)(list);
+        if (result is Future) result = await result;
         return result;
       } else if (method.raw is BuiltinFunction) {
-        return (method.raw as BuiltinFunction).call(list);
+        var result = (method.raw as BuiltinFunction).call(list);
+        if (result is Future) result = await result;
+        return result;
       } else if (method.raw is FunctionDef ||
           method.raw is FunctionLiteral ||
           method.raw is FunctionBody) {
@@ -886,12 +909,13 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         if (interpreter != null) {
           final result = await interpreter.callFunction(method, list);
           // For __index metamethod, only return the first value if multiple values are returned
-          if (s == '__index' &&
-              result is Value &&
-              result.isMulti &&
-              result.raw is List) {
-            final values = result.raw as List;
-            return values.isNotEmpty ? values.first : Value(null);
+          if (s == '__index') {
+            if (result is Value && result.isMulti && result.raw is List) {
+              final values = result.raw as List;
+              return values.isNotEmpty ? values.first : Value(null);
+            } else if (result is List && result.isNotEmpty) {
+              return result.first is Value ? result.first : Value(result.first);
+            }
           }
           return result;
         }

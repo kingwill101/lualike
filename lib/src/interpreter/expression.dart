@@ -136,7 +136,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       '!=': '__eq', // Negated result
     };
 
-    final metamethodName = opMap[node.op];
+    String? metamethodName = opMap[node.op];
     if (metamethodName != null) {
       // Check left operand's metamethod
       var metamethod = leftVal.getMetamethod(metamethodName);
@@ -146,6 +146,32 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         metamethod = rightVal.getMetamethod(metamethodName);
       }
 
+      bool swapArgs = false;
+      bool invertResult = false;
+
+      if (metamethod == null && node.op == '>') {
+        metamethod = rightVal.getMetamethod('__lt');
+        if (metamethod != null) {
+          metamethodName = '__lt';
+          swapArgs = true;
+        }
+      } else if (metamethod == null && node.op == '>=') {
+        metamethod =
+            leftVal.getMetamethod('__le') ?? rightVal.getMetamethod('__le');
+        if (metamethod != null) {
+          metamethodName = '__le';
+          swapArgs = true;
+        } else {
+          metamethod =
+              rightVal.getMetamethod('__lt') ?? leftVal.getMetamethod('__lt');
+          if (metamethod != null) {
+            metamethodName = '__lt';
+            swapArgs = true;
+            invertResult = true;
+          }
+        }
+      }
+
       if (metamethod != null) {
         Logger.debug(
           'Using metamethod $metamethodName for operation ${node.op}',
@@ -153,14 +179,34 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         );
 
         dynamic result;
+        final callArgs = swapArgs ? [rightVal, leftVal] : [leftVal, rightVal];
         if (metamethod is Function) {
-          result = await metamethod([leftVal, rightVal]);
-        } else if (metamethod is Value && metamethod.raw is Function) {
-          result = await metamethod.raw([leftVal, rightVal]);
+          result = await metamethod(callArgs);
+        } else if (metamethod is Value) {
+          if (metamethod.raw is Function) {
+            result = await metamethod.raw(callArgs);
+          } else if (metamethod.raw is FunctionDef ||
+              metamethod.raw is FunctionLiteral ||
+              metamethod.raw is FunctionBody) {
+            result = await metamethod.callFunction(callArgs);
+          } else {
+            throw LuaError.typeError(
+              "Metamethod $metamethodName exists but is not callable: $metamethod",
+            );
+          }
         } else {
           throw LuaError.typeError(
             "Metamethod $metamethodName exists but is not callable: $metamethod",
           );
+        }
+
+        // Metamethods can return multiple values, but binary operations only use
+        // the first result. Normalize here to match Lua semantics.
+        if (result is Value && result.isMulti && result.raw is List) {
+          final values = result.raw as List;
+          result = values.isNotEmpty ? values.first : Value(null);
+        } else if (result is List) {
+          result = result.isNotEmpty ? result.first : Value(null);
         }
 
         // For inequality operators that use __eq, negate the result
@@ -169,6 +215,14 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
             return Value(!result);
           } else if (result is Value && result.raw is bool) {
             return Value(!result.raw);
+          }
+        }
+
+        if (invertResult) {
+          if (result is bool) {
+            result = !result;
+          } else if (result is Value && result.raw is bool) {
+            result = Value(!result.raw);
           }
         }
 
@@ -278,14 +332,22 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         );
 
         dynamic result;
+        final args = [operandWrapped, operandWrapped];
         if (metamethod is Function) {
-          result = await metamethod([operandWrapped]);
+          result = await metamethod(args);
         } else if (metamethod is Value && metamethod.raw is Function) {
-          result = await metamethod.raw([operandWrapped]);
+          result = await metamethod.raw(args);
         } else {
           throw LuaError.typeError(
             "Metamethod $metamethodName exists but is not callable: $metamethod",
           );
+        }
+
+        if (result is Value && result.isMulti && result.raw is List) {
+          final values = result.raw as List;
+          result = values.isNotEmpty ? values.first : Value(null);
+        } else if (result is List) {
+          result = result.isNotEmpty ? result.first : Value(null);
         }
 
         return result is Value ? result : Value(result);
@@ -337,10 +399,14 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     // inside a function, the current environment will have a parent. Globals
     // live in the root environment (which has no parent). Locals should take
     // precedence over entries in `_ENV`.
-    if (globals.values.containsKey(node.name) &&
-        globals.values[node.name]!.isLocal) {
-      final value = globals.get(node.name);
-      return value is Value ? value : Value(value);
+    // Search up the environment chain for a local variable with this name
+    Environment? env = globals;
+    while (env != null) {
+      if (env.values.containsKey(node.name) && env.values[node.name]!.isLocal) {
+        final val = env.values[node.name]!.value;
+        return val is Value ? val : Value(val);
+      }
+      env = env.parent;
     }
 
     // Check if there's a custom _ENV that is different from the initial _G

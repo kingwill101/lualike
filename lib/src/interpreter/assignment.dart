@@ -284,12 +284,19 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
     // If _ENV exists and is different from _G, use _ENV for variable assignments
     if (envValue is Value && gValue is Value && envValue != gValue) {
-      // Check if this is a local variable in the current scope
+      // Check if this is a local variable in the current or parent scopes
       // Local variables should be updated in place, not redirected to _ENV
-      if (globals.values[name]?.isLocal == true) {
-        Logger.debug('Updating local variable: $name', category: 'Assignment');
-        globals.define(name, wrappedValue);
-        return wrappedValue;
+      Environment? env = globals;
+      while (env != null) {
+        if (env.values.containsKey(name) && env.values[name]!.isLocal) {
+          Logger.debug(
+            'Updating local variable: $name',
+            category: 'Assignment',
+          );
+          env.define(name, wrappedValue);
+          return wrappedValue;
+        }
+        env = env.parent;
       }
 
       Logger.debug(
@@ -382,9 +389,13 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         // No metamethod or key exists - do regular assignment
         if (keyExists) {
           // Key exists, bypass metamethods and assign directly
-          (tableValue.raw as Map)[fieldKey] = wrappedValue is Value
-              ? wrappedValue
-              : Value(wrappedValue);
+          if (wrappedValue.isNil) {
+            (tableValue.raw as Map).remove(fieldKey);
+          } else {
+            (tableValue.raw as Map)[fieldKey] = wrappedValue is Value
+                ? wrappedValue
+                : Value(wrappedValue);
+          }
         } else {
           // Key doesn't exist and no metamethod, use async assignment
           await tableValue.setValueAsync(fieldKey, wrappedValue);
@@ -456,9 +467,13 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           if (mapKey is LuaString) {
             mapKey = mapKey.toString();
           }
-          (tableValue.raw as Map)[mapKey] = wrappedValue is Value
-              ? wrappedValue
-              : Value(wrappedValue);
+          if (wrappedValue.isNil) {
+            (tableValue.raw as Map).remove(mapKey);
+          } else {
+            (tableValue.raw as Map)[mapKey] = wrappedValue is Value
+                ? wrappedValue
+                : Value(wrappedValue);
+          }
         } else {
           await tableValue.setValueAsync(indexValue, wrappedValue);
         }

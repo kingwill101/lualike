@@ -7,6 +7,7 @@ import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/const_checker.dart';
 import 'package:lualike/src/coroutine.dart' show Coroutine;
 import 'package:lualike/src/stdlib/lib_io.dart';
+import 'metatables.dart';
 import 'package:path/path.dart' as path;
 
 /// Built-in function to retrieve the metatable of a value.
@@ -63,11 +64,14 @@ class SetMetatableFunction implements BuiltinFunction {
 
     if (metatable is Value) {
       if (metatable.raw is Map) {
-        // Convert the map to the right type
-        // Keep a reference to the same metatable table so that later
-        // modifications are visible, matching Lua semantics.
-        final rawMeta = (metatable.raw as Map).cast<String, dynamic>();
+        // Reuse the same map instance so identity comparisons work as expected.
+        final rawMeta = Map.castFrom<dynamic, dynamic, String, dynamic>(
+          metatable.raw as Map,
+        );
         table.metatable = rawMeta;
+        if (rawMeta.containsKey('__gc')) {
+          MetaTable().markForFinalization(table);
+        }
         return table;
       } else if (metatable.raw == null) {
         // Setting nil metatable removes the metatable
@@ -113,7 +117,11 @@ class RawSetFunction implements BuiltinFunction {
     if (rawKey is LuaString) {
       rawKey = rawKey.toString();
     }
-    (table.raw as Map)[rawKey] = wrappedValue;
+    if (wrappedValue.isNil) {
+      (table.raw as Map).remove(rawKey);
+    } else {
+      (table.raw as Map)[rawKey] = wrappedValue;
+    }
     return table;
   }
 }
@@ -745,6 +753,9 @@ class SetmetaFunction implements BuiltinFunction {
         category: "Metatables",
       );
       table.setMetatable((meta.raw as Map).cast());
+      if ((meta.raw as Map).containsKey('__gc')) {
+        MetaTable().markForFinalization(table);
+      }
       Logger.debug(
         "Metatable set. New metatable: ${table.getMetatable()}",
         category: "Metatables",
