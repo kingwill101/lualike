@@ -382,9 +382,13 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         // No metamethod or key exists - do regular assignment
         if (keyExists) {
           // Key exists, bypass metamethods and assign directly
-          (tableValue.raw as Map)[fieldKey] = wrappedValue is Value
-              ? wrappedValue
-              : Value(wrappedValue);
+          if (wrappedValue.isNil) {
+            (tableValue.raw as Map).remove(fieldKey);
+          } else {
+            (tableValue.raw as Map)[fieldKey] = wrappedValue is Value
+                ? wrappedValue
+                : Value(wrappedValue);
+          }
         } else {
           // Key doesn't exist and no metamethod, use async assignment
           await tableValue.setValueAsync(fieldKey, wrappedValue);
@@ -456,9 +460,13 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           if (mapKey is LuaString) {
             mapKey = mapKey.toString();
           }
-          (tableValue.raw as Map)[mapKey] = wrappedValue is Value
-              ? wrappedValue
-              : Value(wrappedValue);
+          if (wrappedValue.isNil) {
+            (tableValue.raw as Map).remove(mapKey);
+          } else {
+            (tableValue.raw as Map)[mapKey] = wrappedValue is Value
+                ? wrappedValue
+                : Value(wrappedValue);
+          }
         } else {
           await tableValue.setValueAsync(indexValue, wrappedValue);
         }
