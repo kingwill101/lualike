@@ -63,10 +63,10 @@ class SetMetatableFunction implements BuiltinFunction {
 
     if (metatable is Value) {
       if (metatable.raw is Map) {
-        // Convert the map to the right type
-        // Keep a reference to the same metatable table so that later
-        // modifications are visible, matching Lua semantics.
-        final rawMeta = (metatable.raw as Map).cast<String, dynamic>();
+        // Reuse the same map instance so identity comparisons work as expected.
+        final rawMeta = Map.castFrom<dynamic, dynamic, String, dynamic>(
+          metatable.raw as Map,
+        );
         table.metatable = rawMeta;
         return table;
       } else if (metatable.raw == null) {
