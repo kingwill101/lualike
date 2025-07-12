@@ -7,6 +7,7 @@ import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/const_checker.dart';
 import 'package:lualike/src/coroutine.dart' show Coroutine;
 import 'package:lualike/src/stdlib/lib_io.dart';
+import 'metatables.dart';
 import 'package:path/path.dart' as path;
 
 /// Built-in function to retrieve the metatable of a value.
@@ -68,6 +69,9 @@ class SetMetatableFunction implements BuiltinFunction {
           metatable.raw as Map,
         );
         table.metatable = rawMeta;
+        if (rawMeta.containsKey('__gc')) {
+          MetaTable().markForFinalization(table);
+        }
         return table;
       } else if (metatable.raw == null) {
         // Setting nil metatable removes the metatable
@@ -749,6 +753,9 @@ class SetmetaFunction implements BuiltinFunction {
         category: "Metatables",
       );
       table.setMetatable((meta.raw as Map).cast());
+      if ((meta.raw as Map).containsKey('__gc')) {
+        MetaTable().markForFinalization(table);
+      }
       Logger.debug(
         "Metatable set. New metatable: ${table.getMetatable()}",
         category: "Metatables",
