@@ -46,10 +46,12 @@ class GenerationalGCManager {
 
   /// Singleton instance of the garbage collector.
   static late GenerationalGCManager instance;
+  static bool isInitialized = false;
 
   /// Initializes the garbage collector with a reference to the interpreter.
   static void initialize(Interpreter interpreter) {
     instance = GenerationalGCManager._(interpreter);
+    isInitialized = true;
   }
 
   // Private constructor

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
+import 'package:lualike/src/gc/generational_gc.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
 
 import 'package:lualike/src/upvalue.dart';
@@ -93,6 +94,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       MetaTable().applyDefaultMetatable(this);
     } else {
       this.metatable = metatable;
+    }
+
+    if (GenerationalGCManager.isInitialized) {
+      GenerationalGCManager.instance.register(this);
     }
   }
 
