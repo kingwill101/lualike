@@ -124,30 +124,47 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       );
     }
 
-    print('DEBUG: TableFieldAccess - key: ${indexVal.raw}, exists: ${(tableVal.raw as Map).containsKey(indexVal.raw)}');
-    
+    print(
+      'DEBUG: TableFieldAccess - key: ${indexVal.raw}, exists: ${(tableVal.raw as Map).containsKey(indexVal.raw)}',
+    );
+
+    // Normalize the key when checking existence
+    var rawKey = indexVal.raw;
+    if (rawKey is LuaString) {
+      rawKey = rawKey.toString();
+    }
+
     // Check if key exists in table first
-    if (tableVal.raw is Map && (tableVal.raw as Map).containsKey(indexVal.raw)) {
+    if (tableVal.raw is Map && (tableVal.raw as Map).containsKey(rawKey)) {
       // Key exists, get it directly
       print('DEBUG: Key exists, getting directly');
       final result = tableVal[indexVal];
       Logger.debug('TableFieldAccess result: $result', category: 'Interpreter');
       return result;
     }
-    
+
     // Key doesn't exist, check for __index metamethod
     final indexMeta = tableVal.getMetamethod('__index');
     if (indexMeta != null) {
       print('DEBUG: Key not found, calling __index metamethod');
       // Call metamethod asynchronously
-      final result = await tableVal.callMetamethodAsync('__index', [tableVal, indexVal]);
-      Logger.debug('TableFieldAccess __index result: $result', category: 'Interpreter');
+      final result = await tableVal.callMetamethodAsync('__index', [
+        tableVal,
+        indexVal,
+      ]);
+      Logger.debug(
+        'TableFieldAccess __index result: $result',
+        category: 'Interpreter',
+      );
       return result;
     }
-    
+
     // No metamethod, return nil
     print('DEBUG: No metamethod, returning nil');
-    Logger.debug('TableFieldAccess result: nil (no metamethod)', category: 'Interpreter');
+    Logger.debug(
+      'TableFieldAccess result: nil (no metamethod)',
+      category: 'Interpreter',
+    );
     return Value(null);
   }
 
@@ -192,25 +209,40 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       );
     }
 
+    // Normalize the key when checking existence
+    var rawKey = indexVal.raw;
+    if (rawKey is LuaString) {
+      rawKey = rawKey.toString();
+    }
+
     // Check if key exists in table first
-    if (tableVal.raw is Map && (tableVal.raw as Map).containsKey(indexVal.raw)) {
+    if (tableVal.raw is Map && (tableVal.raw as Map).containsKey(rawKey)) {
       // Key exists, get it directly
       final result = tableVal[indexVal];
       Logger.debug('TableIndexAccess result: $result', category: 'Interpreter');
       return result;
     }
-    
+
     // Key doesn't exist, check for __index metamethod
     final indexMeta = tableVal.getMetamethod('__index');
     if (indexMeta != null) {
       // Call metamethod asynchronously
-      final result = await tableVal.callMetamethodAsync('__index', [tableVal, indexVal]);
-      Logger.debug('TableIndexAccess __index result: $result', category: 'Interpreter');
+      final result = await tableVal.callMetamethodAsync('__index', [
+        tableVal,
+        indexVal,
+      ]);
+      Logger.debug(
+        'TableIndexAccess __index result: $result',
+        category: 'Interpreter',
+      );
       return result;
     }
-    
+
     // No metamethod, return nil
-    Logger.debug('TableIndexAccess result: nil (no metamethod)', category: 'Interpreter');
+    Logger.debug(
+      'TableIndexAccess result: nil (no metamethod)',
+      category: 'Interpreter',
+    );
     return Value(null);
   }
 
