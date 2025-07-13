@@ -1,9 +1,9 @@
 import 'dart:io';
 
-import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/lualike.dart';
-import 'package:lualike/src/stdlib/metatables.dart';
+import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/coroutine.dart';
+import 'package:lualike/src/stdlib/metatables.dart';
 
 class DebugLib {
   static final Map<String, BuiltinFunction> functions = {
@@ -247,17 +247,18 @@ class _SetMetatable implements BuiltinFunction {
     final value = args[0] as Value;
     final meta = args[1] as Value;
     if (value.raw is! Map) {
+      final type = _typeOf(value.raw);
       if (meta.raw == null) {
-        MetaTable().registerDefaultMetatable(
-          _typeOf(value.raw),
-          ValueClass.create({}),
-        );
+        MetaTable().registerDefaultMetatable(type, null);
         return Value(true);
       }
       if (meta.raw is Map) {
         MetaTable().registerDefaultMetatable(
-          _typeOf(value.raw),
-          ValueClass.create((meta.raw as Map).cast()),
+          type,
+          ValueClass.create(
+            Map.castFrom<dynamic, dynamic, String, dynamic>(meta.raw as Map),
+          ),
+          meta,
         );
         return Value(true);
       }

@@ -12,6 +12,7 @@ class MetaTable {
 
   bool _initialized = false;
   final Map<String, ValueClass> _typeMetatables = {};
+  final Map<String, Value?> _typeMetatableRefs = {};
   bool _numberMetatableEnabled = false;
 
   factory MetaTable() {
@@ -383,13 +384,28 @@ class MetaTable {
     return _typeMetatables[type];
   }
 
-  /// Register a default metatable for a type
-  void registerDefaultMetatable(String type, ValueClass metatable) {
+  /// Register a default metatable for a type. If [metatable] is null, any
+  /// existing default metatable for the type will be removed.
+  void registerDefaultMetatable(
+    String type,
+    ValueClass? metatable, [
+    Value? original,
+  ]) {
     Logger.debug(
       'Registering default metatable for type: $type',
       category: 'Metatables',
     );
+    if (metatable == null) {
+      _typeMetatables.remove(type);
+      _typeMetatableRefs.remove(type);
+      if (type == 'number') {
+        _numberMetatableEnabled = false;
+      }
+      return;
+    }
+
     _typeMetatables[type] = metatable;
+    _typeMetatableRefs[type] = original;
     if (type == 'number') {
       _numberMetatableEnabled = true;
     }
@@ -443,6 +459,7 @@ class MetaTable {
     if (metatable != null) {
       Logger.debug('Setting metatable for $type value', category: 'Metatables');
       value.setMetatable(metatable.metamethods);
+      value.metatableRef = _typeMetatableRefs[type];
     } else {
       Logger.debug(
         'No default metatable found for type: $type',
