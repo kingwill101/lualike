@@ -74,26 +74,15 @@ extension VMInterop on Interpreter {
       if (path.isAbsolute(scriptPath)) {
         absolutePath = scriptPath;
       } else {
-        // If it's a relative path, try to make it absolute
+        // Resolve relative paths against the current working directory
         try {
-          // In product mode (compiled executable), don't use Platform.script
-          if (isProductMode) {
-            absolutePath = path.absolute(scriptPath);
-            Logger.debug(
-              "Running as compiled executable, using absolute path: $absolutePath",
-              category: 'Interpreter',
-            );
-          } else {
-            // Try to use Platform.script in development mode
-            final dartScriptDir = Platform.script.toFilePath() != ''
-                ? path.dirname(Platform.script.toFilePath())
-                : Directory.current.path;
-            absolutePath = path.normalize(path.join(dartScriptDir, scriptPath));
-            Logger.debug(
-              "Resolved relative script path '$scriptPath' to absolute path '$absolutePath' using Dart script path",
-              category: 'Interpreter',
-            );
-          }
+          absolutePath = path.normalize(
+            path.join(Directory.current.path, scriptPath),
+          );
+          Logger.debug(
+            "Resolved relative script path '$scriptPath' to absolute path '$absolutePath' using current directory",
+            category: 'Interpreter',
+          );
         } catch (e) {
           // Fallback to simple absolute path
           absolutePath = path.absolute(scriptPath);

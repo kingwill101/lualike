@@ -337,27 +337,17 @@ class NumberUtils {
       }
     }
 
-    final shift = toInt(shiftAmount);
+    final mask64 = BigInt.parse('FFFFFFFFFFFFFFFF', radix: 16);
+    final shiftBig = toBigInt(shiftAmount);
 
-    // If operating on BigInt, preserve BigInt type
-    if (a is BigInt) {
-      final bigA = a;
-
-      // Handle negative shift by reversing operation
-      if (shift < 0) {
-        return leftShift(a, -shift);
-      }
-
-      // Handle large shifts (>= sizeInBits bits)
-      if (shift >= sizeInBits) {
-        return bigA.isNegative ? BigInt.from(-1) : BigInt.zero;
-      }
-
-      return bigA >> shift;
+    if (shiftBig.abs() >= BigInt.from(sizeInBits)) {
+      return 0;
     }
 
-    // For regular int, apply wrap-around semantics
-    final bigA = toBigInt(a);
+    final shift = shiftBig.toInt();
+
+    final bigA = toBigInt(a) & mask64;
+    final useBigInt = a is BigInt || shiftAmount is BigInt;
 
     // Handle negative shift by reversing operation
     if (shift < 0) {
@@ -366,11 +356,14 @@ class NumberUtils {
 
     // Handle large shifts (>= sizeInBits bits)
     if (shift >= sizeInBits) {
-      return bigA.isNegative ? -1 : 0;
+      return 0;
     }
 
     final result = bigA >> shift;
-    return result.toInt();
+    if (useBigInt) {
+      return result;
+    }
+    return _wrapToInt64(result);
   }
 
   /// Perform left shift with proper 64-bit signed integer wrap-around semantics
@@ -403,7 +396,12 @@ class NumberUtils {
       }
     }
 
-    final shift = toInt(shiftAmount);
+    final shiftBig = toBigInt(shiftAmount);
+    if (shiftBig.abs() >= BigInt.from(sizeInBits)) {
+      return 0;
+    }
+    final shift = shiftBig.toInt();
+    final useBigInt = a is BigInt || shiftAmount is BigInt;
 
     // If operating on BigInt, preserve BigInt type
     if (a is BigInt) {
@@ -414,7 +412,7 @@ class NumberUtils {
         return rightShift(a, -shift);
       }
 
-      return bigA << shift;
+      return (bigA << shift) & BigInt.parse('FFFFFFFFFFFFFFFF', radix: 16);
     }
 
     // For regular int, apply wrap-around semantics
@@ -427,6 +425,9 @@ class NumberUtils {
 
     // Perform the shift with proper 64-bit wrap-around
     final result = bigA << shift;
+    if (useBigInt) {
+      return result & BigInt.parse('FFFFFFFFFFFFFFFF', radix: 16);
+    }
 
     // Apply 64-bit signed integer wrap-around by masking and converting
     final mask64 = BigInt.parse('FFFFFFFFFFFFFFFF', radix: 16); // 64-bit mask
