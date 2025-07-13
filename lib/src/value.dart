@@ -2,8 +2,9 @@ import 'dart:async';
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
-
+import 'package:lualike/src/gc/generational_gc.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
+
 import 'package:lualike/src/upvalue.dart';
 
 /// Represents an asynchronous function that can be called with a list of arguments.
@@ -20,6 +21,11 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   /// Optional metatable defining the value's behavior for various operations.
   Map<String, dynamic>? metatable;
+
+  /// Reference to the original metatable Value when set via `setmetatable`.
+  /// This allows `getmetatable` to return the same table object that was
+  /// provided, preserving identity semantics required by Lua tests.
+  Value? metatableRef;
 
   /// References to captured upvalues if this value represents a function/closure.
   List<Upvalue>? upvalues;
@@ -86,11 +92,17 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     _raw = raw;
     _isInitialized = true;
 
-    // If no metatable was provided, apply default metatable
+    // If no metatable is provided, apply the default metatable for this type.
+    // This mirrors Lua's behavior where strings, numbers, etc. share
+    // common metatables giving them methods like string.find.
     if (metatable == null) {
       MetaTable().applyDefaultMetatable(this);
     } else {
       this.metatable = metatable;
+    }
+
+    if (GenerationalGCManager.isInitialized) {
+      GenerationalGCManager.instance.register(this);
     }
   }
 
@@ -281,7 +293,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       value.forEach((key, val) {
         newMap[key] = wrap(val);
       });
-      return Value(newMap, metatable: {});
+      return Value(newMap);
     }
     return Value(value);
   }
@@ -431,21 +443,45 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   @override
   dynamic operator [](Object? key) {
-    if (raw is Map && getMetamethod('__index') == null) {
-      // If key is a Value, use its raw value, else key directly.
-      // Normalize LuaString keys to Dart strings so lookups succeed
-      // regardless of how the table was created (dot vs bracket).
+    if (raw is Map) {
+      // Normalize the key
       var rawKey = key is Value ? key.raw : key;
       if (rawKey is LuaString) {
         rawKey = rawKey.toString();
       }
-      var result = (raw as Map)[rawKey];
-      // If the result is not already wrapped, wrap it
-      if (result is! Value) result = Value(result);
-      return result;
+
+      // First check if the key exists in the table
+      if ((raw as Map).containsKey(rawKey)) {
+        var result = (raw as Map)[rawKey];
+        // If the result is not already wrapped, wrap it
+        if (result is! Value) result = Value(result);
+        return result;
+      }
+
+      // Key doesn't exist, check for __index metamethod
+      final indexMeta = getMetamethod('__index');
+      if (indexMeta != null) {
+        final result = callMetamethod('__index', [
+          this,
+          key is Value ? key : Value(key),
+        ]);
+
+        return result is Value ? result : Value(result);
+      }
+
+      // No metamethod and key not found, return nil
+      return Value(null);
     } else {
-      // Use metamethod __index if defined
-      return callMetamethod('__index', [this, key is Value ? key : Value(key)]);
+      // Not a table, but might have an __index metamethod
+      final indexMeta = getMetamethod('__index');
+      if (indexMeta != null) {
+        return callMetamethod('__index', [
+          this,
+          key is Value ? key : Value(key),
+        ]);
+      }
+      // No metamethod, cannot index
+      throw LuaError.typeError('attempt to index a non-table value');
     }
   }
 
@@ -471,12 +507,51 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       ]);
       return;
     }
-    // If no newindex metamethod is set and raw is a Map, perform direct assignment
     if (raw is Map) {
-      (raw as Map)[rawKey] = value is Value ? value : Value(value);
+      final valueToSet = value is Value ? value : Value(value);
+      if (valueToSet.isNil) {
+        (raw as Map).remove(rawKey);
+      } else {
+        (raw as Map)[rawKey] = valueToSet;
+      }
       return;
     }
-    throw UnsupportedError('Not a table');
+    throw LuaError.typeError('attempt to index a non-table value');
+  }
+
+  /// Assigns [value] to [key], awaiting any __newindex metamethod.
+  Future<void> setValueAsync(Object key, dynamic value) async {
+    var rawKey = key is Value ? key.raw : key;
+    if (rawKey is LuaString) {
+      rawKey = rawKey.toString();
+    }
+    if (rawKey == null) {
+      throw LuaError.typeError('table index is nil');
+    }
+    if (rawKey is num && rawKey.isNaN) {
+      throw LuaError.typeError('table index is NaN');
+    }
+
+    final newindexMeta = getMetamethod('__newindex');
+    if (newindexMeta != null) {
+      final result = callMetamethod('__newindex', [
+        this,
+        key is Value ? key : Value(key),
+        value is Value ? value : Value(value),
+      ]);
+      if (result is Future) await result;
+      return;
+    }
+    if (raw is Map) {
+      final valueToSet = value is Value ? value : Value(value);
+      if (valueToSet.isNil) {
+        (raw as Map).remove(rawKey);
+      } else {
+        (raw as Map)[rawKey] = valueToSet;
+      }
+      return;
+    }
+    throw LuaError.typeError('attempt to index a non-table value');
   }
 
   @override
@@ -499,13 +574,38 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   bool containsKey(Object? key) {
     if (raw is! Map) return false;
 
+    // Normalize the key the same way as operator[]
+    var rawKey = key is Value ? key.raw : key;
+    if (rawKey is LuaString) {
+      rawKey = rawKey.toString();
+    }
+
+    // First check if the key exists in the table directly
+    if ((raw as Map).containsKey(rawKey)) {
+      return true;
+    }
+
+    // Key doesn't exist, check if __index metamethod would return a non-nil value
     final indexMeta = getMetamethod('__index');
     if (indexMeta != null) {
       final result = callMetamethod('__index', [this, Value(key)]);
       return result != null && (result is Value ? result.raw != null : true);
     }
 
-    return (raw as Map).containsKey(key);
+    return false;
+  }
+
+  /// Checks if the raw table contains the key (without metamethods)
+  bool rawContainsKey(Object? key) {
+    if (raw is! Map) return false;
+
+    // Normalize the key the same way as operator[]
+    var rawKey = key is Value ? key.raw : key;
+    if (rawKey is LuaString) {
+      rawKey = rawKey.toString();
+    }
+
+    return (raw as Map).containsKey(rawKey);
   }
 
   @override
@@ -554,11 +654,20 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       return (raw as String).length;
     }
 
+    if (raw is List) {
+      return (raw as List).length;
+    }
+
     if (raw is! Map) {
       throw LuaError.typeError('attempt to get length of a ${raw.runtimeType}');
     }
 
-    return (raw as Map).length;
+    final map = raw as Map;
+    int n = 0;
+    while (map.containsKey(n + 1)) {
+      n++;
+    }
+    return n;
   }
 
   @override
@@ -742,11 +851,129 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     );
   }
 
+  /// Asynchronous version of callMetamethod for use in async contexts
+  Future<Object?> callMetamethodAsync(String s, List<Value> list) async {
+    Logger.debug(
+      'callMetamethodAsync called with $s, args: ${list.map((e) => e.raw)}',
+    );
+    final method = getMetamethod(s);
+    if (method == null) {
+      throw UnsupportedError("attempt to call a nil value");
+    }
+
+    // Special handling for __index and __newindex when they are tables
+    if (s == '__index' && method is Value && method.raw is Map) {
+      // __index is a table, so do lookup through that table
+      if (list.length >= 2) {
+        final key = list[1];
+        // Use the Value's indexing mechanism to handle potential metamethods
+        var result = method[key];
+        if (result is Value && result.raw is Future) {
+          result = await result.raw;
+        } else if (result is Future) {
+          result = await result;
+        }
+        if (result is Value && result.isMulti && result.raw is List) {
+          final values = result.raw as List;
+          return values.isNotEmpty ? values.first : Value(null);
+        } else if (result is List && result.isNotEmpty) {
+          return result.first is Value ? result.first : Value(result.first);
+        }
+        return result;
+      }
+    } else if (s == '__newindex' && method is Value && method.raw is Map) {
+      // __newindex is a table, so do assignment through that table
+      if (list.length >= 3) {
+        final key = list[1];
+        final value = list[2];
+        // Use the Value's async assignment mechanism to handle potential metamethods
+        await method.setValueAsync(key, value);
+        return Value(null);
+      }
+    }
+
+    if (method is Function) {
+      var result = method(list);
+      if (result is Future) result = await result;
+      return result;
+    } else if (method is BuiltinFunction) {
+      var result = method.call(list);
+      if (result is Future) result = await result;
+      return result;
+    } else if (method is Value) {
+      if (method.raw is Function) {
+        var result = (method.raw as Function)(list);
+        if (result is Future) result = await result;
+        return result;
+      } else if (method.raw is BuiltinFunction) {
+        var result = (method.raw as BuiltinFunction).call(list);
+        if (result is Future) result = await result;
+        return result;
+      } else if (method.raw is FunctionDef ||
+          method.raw is FunctionLiteral ||
+          method.raw is FunctionBody) {
+        // This is a Lua function defined as an AST node
+        // We can await it here since this is an async method
+        final interpreter =
+            method.interpreter ?? Environment.current?.interpreter;
+        if (interpreter != null) {
+          final result = await interpreter.callFunction(method, list);
+          // For __index metamethod, only return the first value if multiple values are returned
+          if (s == '__index') {
+            if (result is Value && result.isMulti && result.raw is List) {
+              final values = result.raw as List;
+              return values.isNotEmpty ? values.first : Value(null);
+            } else if (result is List && result.isNotEmpty) {
+              return result.first is Value ? result.first : Value(result.first);
+            }
+          }
+          return result;
+        }
+        throw UnsupportedError("No interpreter available to call function");
+      }
+    } else if (method is FunctionDef) {
+      // Handle direct FunctionDef nodes
+      final interpreter = Environment.current?.interpreter;
+      if (interpreter != null) {
+        final result = await interpreter.callFunction(Value(method), list);
+        return result;
+      }
+      throw UnsupportedError("No interpreter available to call function");
+    }
+
+    throw UnsupportedError(
+      "attempt to call a non-function $s(${list.map((a) => a.unwrap()).join(', ')})",
+    );
+  }
+
   Object? callMetamethod(String s, List<Value> list) {
     final method = getMetamethod(s);
     if (method == null) {
       throw UnsupportedError("attempt to call a nil value");
     }
+
+    // Special handling for __index and __newindex when they are tables
+    if (s == '__index' && method is Value && method.raw is Map) {
+      // __index is a table, so do lookup through that table
+      if (list.length >= 2) {
+        final key = list[1];
+        // Use the Value's indexing mechanism to handle potential metamethods
+        final result = method[key];
+
+        return result;
+      }
+    } else if (s == '__newindex' && method is Value && method.raw is Map) {
+      // __newindex is a table, so do assignment through that table
+      if (list.length >= 3) {
+        final key = list[1];
+        final value = list[2];
+        // Use the Value's assignment mechanism to handle potential metamethods
+        method[key] = value;
+
+        return Value(null);
+      }
+    }
+
     if (method is Function) {
       return method(list);
     } else if (method is BuiltinFunction) {
@@ -759,8 +986,33 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         return result;
       } else if (method.raw is BuiltinFunction) {
         return (method.raw as BuiltinFunction).call(list);
+      } else if (method.raw is FunctionDef ||
+          method.raw is FunctionLiteral ||
+          method.raw is FunctionBody) {
+        // This is a Lua function defined as an AST node
+        // We need to call it using the interpreter
+        final interpreter =
+            method.interpreter ?? Environment.current?.interpreter;
+        if (interpreter != null) {
+          // Call the function directly using the interpreter
+          final result = interpreter.callFunction(method, list);
+
+          // Note: This may return a Future, which should be handled by callers
+          // For synchronous contexts, this will not work properly
+          return result;
+        }
+        throw UnsupportedError("No interpreter available to call function");
       }
+    } else if (method is FunctionDef) {
+      // Handle direct FunctionDef nodes
+      final interpreter = Environment.current?.interpreter;
+      if (interpreter != null) {
+        // Call the function directly using the interpreter
+        return interpreter.callFunction(Value(method), list);
+      }
+      throw UnsupportedError("No interpreter available to call function");
     }
+
     throw UnsupportedError(
       "attempt to call a non-function $s(${list.map((a) => a.unwrap()).join(', ')})",
     );
@@ -946,14 +1198,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   @override
   void free() {
-    final finalizer = getMetamethod('__gc');
-    if (finalizer != null) {
-      try {
-        callMetamethod('__gc', [this]);
-      } catch (e) {
-        Logger.error('Error in finalizer', category: 'Value', error: e);
-      }
-    }
+    // The GC manager now handles __gc metamethods.
+    // This method is for other resource cleanup if needed.
   }
 
   @override
@@ -1611,16 +1857,9 @@ extension OperatorExtension on Value {
     }
 
     if (raw is Map && otherRaw is Map) {
-      final map1 = raw as Map;
-      final map2 = otherRaw;
-      if (map1.length != map2.length) return false;
-      if (map1.isEmpty && map2.isEmpty) return true;
-      return map1.entries.every((e) {
-        if (!map2.containsKey(e.key)) return false;
-        final v1 = e.value is Value ? e.value : Value(e.value);
-        final v2 = map2[e.key] is Value ? map2[e.key] : Value(map2[e.key]);
-        return v1 == v2;
-      });
+      // Tables compare by reference when no '__eq' metamethod is present.
+      // Using the default Dart equality here preserves this behavior.
+      return raw == otherRaw;
     }
     return raw == otherRaw;
   }

@@ -3,6 +3,9 @@ import '../lua_string.dart';
 import '../value.dart';
 import '../lua_error.dart';
 import '../stdlib/lib_string.dart';
+import '../builtin_function.dart';
+import '../environment.dart';
+import '../ast.dart';
 
 dynamic fromLuaValue(dynamic obj) {
   if (obj is Value) {
@@ -143,8 +146,19 @@ extension ValueExtension<T> on T {
   /// Returns the result, or throws if not callable
   Future<dynamic> callFunction(List<dynamic> args) async {
     if (raw is Function) {
-      final result = raw(args);
+      var result = raw(args);
       return result is Future ? await result : result;
+    } else if (raw is BuiltinFunction) {
+      var result = (raw as BuiltinFunction).call(args);
+      return result is Future ? await result : result;
+    } else if (raw is FunctionDef ||
+        raw is FunctionLiteral ||
+        raw is FunctionBody) {
+      final interpreter = value.interpreter ?? Environment.current?.interpreter;
+      if (interpreter != null) {
+        return await interpreter.callFunction(value, args);
+      }
+      throw UnsupportedError('No interpreter available to call function');
     } else if (value.hasMetamethod('__call')) {
       return value.callMetamethod('__call', [
         this as Value,

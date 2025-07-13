@@ -24,7 +24,7 @@ class ValueClass implements BuiltinFunction {
     return Value(null, metatable: initial ?? {});
   }
 
-  /// Creates a new table with default table metamethods
+  /// Creates a new table (without default metatable, as per Lua specification)
   static Value table([dynamic initial]) {
     dynamic table;
 
@@ -33,10 +33,7 @@ class ValueClass implements BuiltinFunction {
     } else {
       table = initial ?? <dynamic, dynamic>{};
     }
-    return Value(
-      table,
-      metatable: MetaTable().getTypeMetatable('table')?.metamethods,
-    );
+    return Value(table);
   }
 
   /// Creates a new string with default string metamethods

@@ -15,6 +15,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitAssignment(Assignment node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
+
     Logger.debug(
       'Visiting Assignment: ${node.targets} = ${node.exprs}',
       category: 'Interpreter',
@@ -199,38 +200,20 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         // Removed problematic logic that used global variable values as table keys
         // For table.field assignments, we should always use the field name as string key
 
-        // If key doesn't exist, try __newindex metamethod
-        if (!tableValue.containsKey((target.index as Identifier).name)) {
+        // If key doesn't exist in raw table, try __newindex metamethod
+        if (!tableValue.rawContainsKey((target.index as Identifier).name)) {
           final newindex = tableValue.getMetamethod("__newindex");
           if (newindex != null) {
             Logger.debug(
               '_handleTableAccessAssignment: __newindex metamethod found',
               category: 'Interpreter',
             );
-            if (newindex is Function) {
-              final result = newindex([
-                tableValue,
-                Value((target.index as Identifier).name),
-                wrappedValue,
-              ]);
-              return result is Future ? await result : result;
-            } else if (newindex is FunctionLiteral) {
-              return await newindex.accept(this);
-            } else if (newindex is Value) {
-              if (newindex.raw is Function) {
-                // Execute the function stored in the Value
-                final func = newindex.raw as Function;
-                return await func([
-                  tableValue,
-                  Value((target.index as Identifier).name),
-                  wrappedValue,
-                ]);
-              } else if (newindex.raw is Map) {
-                final metamap = newindex.raw as Map;
-                metamap[(target.index as Identifier).name] = wrappedValue;
-                return wrappedValue;
-              }
-            }
+            final result = tableValue.callMetamethod('__newindex', [
+              tableValue,
+              Value((target.index as Identifier).name),
+              wrappedValue,
+            ]);
+            return result is Future ? await result : result;
           }
         }
 
@@ -264,7 +247,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           identifier = await target.index.accept(this);
         }
 
-        tableValue[identifier] = wrappedValue;
+        await tableValue.setValueAsync(identifier, wrappedValue);
 
         Logger.debug(
           '_handleTableAccessAssignment: Assigned ${wrappedValue.raw} to ${(target.index as Identifier).name}',
@@ -294,6 +277,39 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     (this is Interpreter) ? (this as Interpreter).recordTrace(target) : null;
     final name = target.name;
     Logger.debug('Assign $name = $wrappedValue', category: 'Interpreter');
+
+    // Check if there's a custom _ENV that is different from the initial _G
+    final envValue = globals.get('_ENV');
+    final gValue = globals.get('_G');
+
+    // If _ENV exists and is different from _G, use _ENV for variable assignments
+    if (envValue is Value && gValue is Value && envValue != gValue) {
+      // Check if this is a local variable in the current or parent scopes
+      // Local variables should be updated in place, not redirected to _ENV
+      Environment? env = globals;
+      while (env != null) {
+        if (env.values.containsKey(name) && env.values[name]!.isLocal) {
+          Logger.debug(
+            'Updating local variable: $name',
+            category: 'Assignment',
+          );
+          env.define(name, wrappedValue);
+          return wrappedValue;
+        }
+        env = env.parent;
+      }
+
+      Logger.debug(
+        'Using custom _ENV for variable assignment: $name',
+        category: 'Assignment',
+      );
+
+      if (envValue.raw is Map) {
+        // Assign to the _ENV table
+        envValue[name] = wrappedValue;
+        return wrappedValue;
+      }
+    }
 
     // Use the current environment for assignment
     // The Environment class will handle propagating to parent environments if needed
@@ -352,38 +368,38 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         // For field access, always use the field name as literal string key
         final fieldKey = target.fieldName.name;
 
-        // If key doesn't exist, try __newindex metamethod
-        if (!tableValue.containsKey(fieldKey)) {
+        // If key doesn't exist in raw table, try __newindex metamethod
+        final keyExists = tableValue.rawContainsKey(fieldKey);
+        if (!keyExists) {
           final newindex = tableValue.getMetamethod("__newindex");
           if (newindex != null) {
             Logger.debug(
               '_handleTableFieldAssignment: __newindex metamethod found',
               category: 'Interpreter',
             );
-            if (newindex is Function) {
-              final result = newindex([
-                tableValue,
-                Value(fieldKey),
-                wrappedValue,
-              ]);
-              return result is Future ? await result : result;
-            } else if (newindex is FunctionLiteral) {
-              return await newindex.accept(this);
-            } else if (newindex is Value) {
-              if (newindex.raw is Function) {
-                final func = newindex.raw as Function;
-                return await func([tableValue, Value(fieldKey), wrappedValue]);
-              } else if (newindex.raw is Map) {
-                final metamap = newindex.raw as Map;
-                metamap[fieldKey] = wrappedValue;
-                return wrappedValue;
-              }
-            }
+            final result = tableValue.callMetamethod('__newindex', [
+              tableValue,
+              Value(fieldKey),
+              wrappedValue,
+            ]);
+            return result is Future ? await result : result;
           }
         }
 
         // No metamethod or key exists - do regular assignment
-        tableValue[fieldKey] = wrappedValue;
+        if (keyExists) {
+          // Key exists, bypass metamethods and assign directly
+          if (wrappedValue.isNil) {
+            (tableValue.raw as Map).remove(fieldKey);
+          } else {
+            (tableValue.raw as Map)[fieldKey] = wrappedValue is Value
+                ? wrappedValue
+                : Value(wrappedValue);
+          }
+        } else {
+          // Key doesn't exist and no metamethod, use async assignment
+          await tableValue.setValueAsync(fieldKey, wrappedValue);
+        }
 
         Logger.debug(
           '_handleTableFieldAssignment: Assigned ${wrappedValue.raw} to ${target.fieldName.name}',
@@ -427,42 +443,40 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           throw LuaError.typeError('table index is nil');
         }
 
-        // If key doesn't exist, try __newindex metamethod
-        if (!tableValue.containsKey(indexValue)) {
+        // If key doesn't exist in raw table, try __newindex metamethod
+        final keyExists = tableValue.rawContainsKey(indexValue);
+        if (!keyExists) {
           final newindex = tableValue.getMetamethod("__newindex");
           if (newindex != null) {
             Logger.debug(
               '_handleTableIndexAssignment: __newindex metamethod found',
               category: 'Interpreter',
             );
-            if (newindex is Function) {
-              final result = newindex([
-                tableValue,
-                Value(indexValue),
-                wrappedValue,
-              ]);
-              return result is Future ? await result : result;
-            } else if (newindex is FunctionLiteral) {
-              return await newindex.accept(this);
-            } else if (newindex is Value) {
-              if (newindex.raw is Function) {
-                final func = newindex.raw as Function;
-                return await func([
-                  tableValue,
-                  Value(indexValue),
-                  wrappedValue,
-                ]);
-              } else if (newindex.raw is Map) {
-                final metamap = newindex.raw as Map;
-                metamap[indexValue] = wrappedValue;
-                return wrappedValue;
-              }
-            }
+            final result = tableValue.callMetamethod('__newindex', [
+              tableValue,
+              Value(indexValue),
+              wrappedValue,
+            ]);
+            return result is Future ? await result : result;
           }
         }
 
         // No metamethod or key exists - do regular assignment
-        tableValue[indexValue] = wrappedValue;
+        if (keyExists) {
+          var mapKey = indexValue is Value ? indexValue.raw : indexValue;
+          if (mapKey is LuaString) {
+            mapKey = mapKey.toString();
+          }
+          if (wrappedValue.isNil) {
+            (tableValue.raw as Map).remove(mapKey);
+          } else {
+            (tableValue.raw as Map)[mapKey] = wrappedValue is Value
+                ? wrappedValue
+                : Value(wrappedValue);
+          }
+        } else {
+          await tableValue.setValueAsync(indexValue, wrappedValue);
+        }
 
         Logger.debug(
           '_handleTableIndexAssignment: Assigned ${wrappedValue.raw} to index $indexValue',

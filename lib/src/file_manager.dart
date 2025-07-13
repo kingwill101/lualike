@@ -126,7 +126,6 @@ class FileManager {
   /// Adds a resolved glob to the tracking list
   void _addResolvedGlob(String pattern, String resolvedPath) {
     _resolvedGlobs.add({'pattern': pattern, 'resolved': resolvedPath});
-    print("DEBUG: Resolved glob pattern '$pattern' to '$resolvedPath'");
   }
 
   /// Sets the interpreter reference.
@@ -425,7 +424,6 @@ class FileManager {
     for (final ext in extensions) {
       final name = moduleName + ext;
       if (_virtualFiles.containsKey(name)) {
-        print("DEBUG: Module '$moduleName' found in virtual files as '$name'");
         Logger.debug(
           "Module '$moduleName' found in virtual files as '$name'",
           category: 'FileManager',
@@ -441,10 +439,6 @@ class FileManager {
     );
     Logger.debug("Search paths: $_searchPaths", category: 'FileManager');
 
-    print(
-      "DEBUG: Module name with dots: ${moduleName.replaceAll('.', path.separator)}",
-    );
-
     // Get package.path if available
     String packagePath = '';
     try {
@@ -452,14 +446,12 @@ class FileManager {
       final packagePathValue = _getPackagePath();
       if (packagePathValue != null) {
         packagePath = packagePathValue;
-        print("DEBUG: Using package.path: $packagePath");
         Logger.debug(
           "Using package.path: $packagePath",
           category: 'FileManager',
         );
       }
     } catch (e) {
-      print("DEBUG: Error getting package.path: $e");
       Logger.debug("Error getting package.path: $e", category: 'FileManager');
     }
 
@@ -474,8 +466,6 @@ class FileManager {
       templates.add('./?.lua');
       templates.add('./?/init.lua');
     }
-
-    print("DEBUG: Using templates: $templates");
 
     // Add current working directory templates
     try {

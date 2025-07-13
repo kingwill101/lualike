@@ -32,7 +32,12 @@ class GetMetatableFunction implements BuiltinFunction {
       return metatable['__metatable'];
     }
 
-    // Return the actual metatable
+    // Return the original metatable value if available to preserve identity
+    if (value.metatableRef != null) {
+      return value.metatableRef;
+    }
+
+    // Otherwise wrap the map in a new Value
     return Value(metatable);
   }
 }
@@ -53,24 +58,27 @@ class SetMetatableFunction implements BuiltinFunction {
       throw Exception("setmetatable only supported for table values");
     }
 
+    // Check if the current metatable is protected
+    final currentMetatable = table.getMetatable();
+    if (currentMetatable != null &&
+        currentMetatable.containsKey('__metatable')) {
+      throw Exception("cannot change a protected metatable");
+    }
+
     if (metatable is Value) {
       if (metatable.raw is Map) {
-        // Convert the map to the right type
-        final Map<String, dynamic> mtMap = {};
-        for (final entry in (metatable.raw as Map).entries) {
-          final key = entry.key;
-          final value = entry.value;
-
-          final keyStr = key is String ? key : key.toString();
-          final wrappedValue = value is Value ? value : Value(value);
-          mtMap[keyStr] = wrappedValue;
-        }
-
-        table.metatable = mtMap;
+        // Preserve identity by keeping a reference to the original Value.
+        table.metatableRef = metatable;
+        // Reuse the same map instance so identity comparisons work as expected.
+        final rawMeta = Map.castFrom<dynamic, dynamic, String, dynamic>(
+          metatable.raw as Map,
+        );
+        table.metatable = rawMeta;
         return table;
       } else if (metatable.raw == null) {
         // Setting nil metatable removes the metatable
         table.metatable = null;
+        table.metatableRef = null;
         return table;
       }
     }
@@ -83,7 +91,7 @@ class SetMetatableFunction implements BuiltinFunction {
 class RawSetFunction implements BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
-    if (args.length != 3) {
+    if (args.length < 3) {
       throw Exception("rawset expects three arguments (table, key, value)");
     }
 
@@ -108,8 +116,15 @@ class RawSetFunction implements BuiltinFunction {
     final wrappedValue = value is Value ? value : Value(value);
 
     // Use raw key like normal table operations do
-    final rawKey = key.raw;
-    (table.raw as Map)[rawKey] = wrappedValue;
+    var rawKey = key.raw;
+    if (rawKey is LuaString) {
+      rawKey = rawKey.toString();
+    }
+    if (wrappedValue.isNil) {
+      (table.raw as Map).remove(rawKey);
+    } else {
+      (table.raw as Map)[rawKey] = wrappedValue;
+    }
     return table;
   }
 }
@@ -740,6 +755,7 @@ class SetmetaFunction implements BuiltinFunction {
         "setmetatable called on table with raw: ${table.raw} and meta: ${meta.raw}",
         category: "Metatables",
       );
+      table.metatableRef = meta;
       table.setMetatable((meta.raw as Map).cast());
       Logger.debug(
         "Metatable set. New metatable: ${table.getMetatable()}",
@@ -1054,7 +1070,7 @@ class CollectGarbageFunction implements BuiltinFunction {
   CollectGarbageFunction(this.vm);
 
   @override
-  Object? call(List<Object?> args) {
+  Object? call(List<Object?> args) async {
     final option = args.isNotEmpty
         ? (args[0] as Value).raw.toString()
         : "collect";
@@ -1063,7 +1079,7 @@ class CollectGarbageFunction implements BuiltinFunction {
     switch (option) {
       case "collect":
         // "collect": Performs a full garbage-collection cycle
-        vm.gc.majorCollection(vm.getRoots());
+        await vm.gc.majorCollection(vm.getRoots());
         return Value(true);
 
       case "count":
@@ -1165,7 +1181,10 @@ class RawGetFunction implements BuiltinFunction {
     final map = table.raw as Map;
 
     // Use raw key like normal table operations and rawset do
-    final rawKey = key.raw;
+    var rawKey = key.raw;
+    if (rawKey is LuaString) {
+      rawKey = rawKey.toString();
+    }
     final value = map[rawKey];
     return value ?? Value(null);
   }
@@ -1712,7 +1731,7 @@ void defineBaseLibrary({
   // Define _G in the environment
   env.define("_G", gValue);
 
-  // Define _ENV to point to the same global environment
-  // According to Lua 5.4 spec, _ENV should be the environment table
+  // Define _ENV as initially pointing to _G, but as a separate reference
+  // This allows _ENV to be reassigned without creating circular references
   env.define("_ENV", gValue);
 }

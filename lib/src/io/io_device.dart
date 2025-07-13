@@ -497,7 +497,8 @@ class StdoutDevice extends BaseIODevice {
 
   @override
   Future<void> close() async {
-    isClosed = true;
+    // Do not actually close stdout; keep it available for the entire
+    // interpreter lifecycle.
   }
 
   @override

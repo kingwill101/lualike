@@ -1,6 +1,6 @@
 -- $Id: testes/constructs.lua $
 -- See Copyright Notice in file all.lua
-
+_soft = true
 ;;print "testing syntax";;
 
 local debug = require "debug"

@@ -50,7 +50,9 @@ void initializeStandardLibrary({
   defineBaseLibrary(env: env, astVm: astVm, bytecodeVm: bytecodeVm);
   defineDebugLibrary(env: env, astVm: astVm, bytecodeVm: bytecodeVm);
 
-  MetaTable.initialize(astVm!);
+  if (astVm != null) {
+    MetaTable.initialize(astVm);
+  }
   defineStringLibrary(env: env, astVm: astVm, bytecodeVm: bytecodeVm);
   defineTableLibrary(env: env, astVm: astVm, bytecodeVm: bytecodeVm);
   defineMathLibrary(env: env, astVm: astVm, bytecodeVm: bytecodeVm);

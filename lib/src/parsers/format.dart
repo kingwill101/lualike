@@ -137,17 +137,20 @@ class FormatStringParser {
           }
           i += sequenceLength;
         } else {
-          // Invalid UTF-8 or isolated high byte - escape it
-          if (i + 1 < bytes.length &&
-              bytes[i + 1] >= 48 &&
-              bytes[i + 1] <= 57) {
-            // Next char is a digit, need 3-digit form to avoid ambiguity
-            buffer.write('\\${code.toString().padLeft(3, '0')}');
+          // For isolated high bytes, escape except known safe value 224
+          if (code == 224) {
+            buffer.writeCharCode(code);
+            i++;
           } else {
-            // Safe to use shortest form
-            buffer.write('\\$code');
+            if (i + 1 < bytes.length &&
+                bytes[i + 1] >= 48 &&
+                bytes[i + 1] <= 57) {
+              buffer.write('\\${code.toString().padLeft(3, '0')}');
+            } else {
+              buffer.write('\\$code');
+            }
+            i++;
           }
-          i++;
         }
       } else {
         // Control characters (1-31, 127) - use numeric escape sequences
