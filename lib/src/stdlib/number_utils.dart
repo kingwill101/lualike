@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:typed_data'; // Added for ByteData
 
 import '../logger.dart';
 import '../lua_error.dart';
@@ -865,5 +866,37 @@ class NumberUtils {
     throw LuaError.typeError(
       'Unary negation not supported for type ${value.runtimeType}',
     );
+  }
+
+  /// Pack a 32-bit float to bytes with endianness
+  static List<int> packFloat32(double value, Endian endian) {
+    final data = ByteData(4);
+    data.setFloat32(0, value, endian);
+    return [for (int i = 0; i < 4; i++) data.getUint8(i)];
+  }
+
+  /// Pack a 64-bit double to bytes with endianness
+  static List<int> packFloat64(double value, Endian endian) {
+    final data = ByteData(8);
+    data.setFloat64(0, value, endian);
+    return [for (int i = 0; i < 8; i++) data.getUint8(i)];
+  }
+
+  /// Unpack a 32-bit float from bytes with endianness
+  static double unpackFloat32(List<int> bytes, int offset, Endian endian) {
+    final data = ByteData(4);
+    for (int i = 0; i < 4; i++) {
+      data.setUint8(i, bytes[offset + i]);
+    }
+    return data.getFloat32(0, endian);
+  }
+
+  /// Unpack a 64-bit double from bytes with endianness
+  static double unpackFloat64(List<int> bytes, int offset, Endian endian) {
+    final data = ByteData(8);
+    for (int i = 0; i < 8; i++) {
+      data.setUint8(i, bytes[offset + i]);
+    }
+    return data.getFloat64(0, endian);
   }
 }
