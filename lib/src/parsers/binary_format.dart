@@ -38,7 +38,10 @@ class BinaryFormatParser {
           return BinaryFormatOption('!', raw: '!');
         } else {
           final n = int.parse(numStr);
-          if (n <= 0 || (n & (n - 1)) != 0) {
+          if (n < 1 || n > 16) {
+            throw LuaError("integral size ($n) out of limits [1,16]");
+          }
+          if ((n & (n - 1)) != 0) {
             throw LuaError("format asks for alignment not power of 2");
           }
           return BinaryFormatOption('!', align: n, raw: '!$numStr');
@@ -56,6 +59,11 @@ class BinaryFormatParser {
     return BinaryFormatOption('c', size: n, raw: 'c${v[1]}');
   });
 
+  /// bare 'c' without a size -> missing size error
+  static final Parser<BinaryFormatOption> cParserMissing = char(
+    'c',
+  ).map((_) => throw LuaError('missing size'));
+
   /// `iN`, `IN`, `jN`, `JN`, `sN` – integer / size-prefixed string with explicit width
   static final Parser<BinaryFormatOption> iIParserWithNum =
       (pattern('iIjJs') & signedDigits).map((v) {
@@ -64,7 +72,7 @@ class BinaryFormatParser {
 
         if ((t == 'i' || t == 'I' || t == 'j' || t == 'J') &&
             (n < 1 || n > 16)) {
-          throw LuaError("integral size $n out of limits (1-16)");
+          throw LuaError("integral size ($n) out of limits [1,16]");
         }
         if (t == 's' && n < 0) {
           throw LuaError("invalid size for format option 's'");
@@ -91,6 +99,7 @@ class BinaryFormatParser {
       (iIParserWithNum |
               sParserAlone |
               cParser |
+              cParserMissing |
               alignParser |
               endiannessParser |
               simpleParser |

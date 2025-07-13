@@ -1999,7 +1999,7 @@ class _StringPackSize implements BuiltinFunction {
             break;
           case 's':
           case 'z':
-            throw LuaError("string.packsize: variable length format");
+            throw LuaError('variable-length format');
           case 'x':
             offset += 1;
             break;
@@ -2075,7 +2075,7 @@ class _StringPackSize implements BuiltinFunction {
       return Value(offset);
     } catch (e) {
       if (e is LuaError) rethrow;
-      throw LuaError.typeError("Invalid format string: $e");
+      throw LuaError('invalid format');
     }
   }
 }
@@ -2232,23 +2232,38 @@ class _StringUnpack implements BuiltinFunction {
               results.add(Value(value));
             } else {
               // Integer types
-              if ((opt.type == 'i' || opt.type == 'I') &&
-                  size > BinaryTypeSize.j) {
-                throw LuaError('does not fit');
-              }
-
-              int value = _unpackInt(bytes, offset, size, endianness);
-              // For signed integer types, handle sign extension
-              if ((opt.type == 'b' ||
-                      opt.type == 'h' ||
-                      opt.type == 'l' ||
-                      opt.type == 'j' ||
-                      opt.type == 'i') &&
-                  size > 0) {
-                final signBit = 1 << ((size * 8) - 1);
-                final mask = (1 << (size * 8)) - 1;
-                if ((value & signBit) != 0) {
-                  value = value - (mask + 1);
+              int value;
+              if (size > BinaryTypeSize.j) {
+                var big = _unpackBigInt(bytes, offset, size, endianness);
+                final isSigned =
+                    opt.type == 'b' ||
+                    opt.type == 'h' ||
+                    opt.type == 'l' ||
+                    opt.type == 'j' ||
+                    opt.type == 'i';
+                if (isSigned) {
+                  big = big.toSigned(size * 8);
+                }
+                if (big.bitLength > 64) {
+                  throw LuaError(
+                    '$size-byte integer does not fit into Lua Integer',
+                  );
+                }
+                final signed = big.toSigned(64);
+                value = signed.toInt();
+              } else {
+                value = _unpackInt(bytes, offset, size, endianness);
+                if ((opt.type == 'b' ||
+                        opt.type == 'h' ||
+                        opt.type == 'l' ||
+                        opt.type == 'j' ||
+                        opt.type == 'i') &&
+                    size > 0) {
+                  final signBit = 1 << ((size * 8) - 1);
+                  final mask = (1 << (size * 8)) - 1;
+                  if ((value & signBit) != 0) {
+                    value = value - (mask + 1);
+                  }
                 }
               }
               // For unsigned types, no additional processing needed
@@ -2386,6 +2401,20 @@ int _unpackInt(List<int> bytes, int offset, int size, Endian endianness) {
   } else {
     for (var b = 0; b < size; b++) {
       value |= (bytes[offset + b] << (8 * (size - b - 1)));
+    }
+  }
+  return value;
+}
+
+BigInt _unpackBigInt(List<int> bytes, int offset, int size, Endian endianness) {
+  var value = BigInt.zero;
+  if (endianness == Endian.little) {
+    for (var b = size - 1; b >= 0; b--) {
+      value = (value << 8) | BigInt.from(bytes[offset + b]);
+    }
+  } else {
+    for (var b = 0; b < size; b++) {
+      value = (value << 8) | BigInt.from(bytes[offset + b]);
     }
   }
   return value;
