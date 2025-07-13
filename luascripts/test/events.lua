@@ -45,28 +45,19 @@ function f (t, i, e)
 end
 
 t.__index = f
-print("--------------48------------------")
+
 a.parent = {z=25, x=12, [4] = 24}
 assert(a[1] == 10 and a.z == 28 and a[4] == 27 and a.x == "10")
 
 collectgarbage()
-print("--------------53------------------")
-a = setmetatable({}, t)
-print("--------------55------------------")
-function f(t, i, v) rawset(t, i, v-3) end
-print("--------------57------------------")
-setmetatable(t, t)   -- causes a bug in 5.1 !
-print("--------------59------------------")
-t.__newindex = f
-print("--------------61------------------")
-print("a[1]", a[1])
-print("a.x", a.x)
-print("a[5]", a[5])
-a[1] = 30; a.x = "101"; a[5] = 200
-print("--------------66------------------")
 
+a = setmetatable({}, t)
+function f(t, i, v) rawset(t, i, v-3) end
+setmetatable(t, t)   -- causes a bug in 5.1 !
+t.__newindex = f
+a[1] = 30; a.x = "101"; a[5] = 200
 assert(a[1] == 27 and a.x == 98 and a[5] == 197)
-print("--------------69------------------")
+
 do    -- bug in Lua 5.3.2
   local mt = {}
   mt.__newindex = mt
@@ -74,24 +65,19 @@ do    -- bug in Lua 5.3.2
   t[1] = 10     -- will segfault on some machines
   assert(mt[1] == 10)
 end
-print("--------------77------------------")
+
+
 local c = {}
 a = setmetatable({}, t)
-print("--------------80------------------")
 t.__newindex = c
-print("--------------82------------------")
 t.__index = c
-print("--------------85------------------")
 a[1] = 10; a[2] = 20; a[3] = 90;
-print("--------------87------------------")
 for i = 4, 20 do a[i] = i * 10 end
-print("--------------89------------------")
 assert(a[1] == 10 and a[2] == 20 and a[3] == 90)
 for i = 4, 20 do assert(a[i] == i * 10) end
-print("--------------92------------------")
 assert(next(a) == nil)
 
-print("--------------------------------")
+
 do
   local a;
   a = setmetatable({}, {__index = setmetatable({},
