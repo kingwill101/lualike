@@ -1450,9 +1450,15 @@ class _StringMatch implements BuiltinFunction {
     }
 
     try {
+      bool isEscaped(int index) =>
+          index > 0 && pattern[index - 1] == '%' && !isEscaped(index - 1);
+      final anchoredStart = pattern.startsWith('^') && !isEscaped(0);
       final lp = lpc.LuaPattern.compile(pattern);
       final resultMatch = lp.firstMatch(str, init);
       if (resultMatch == null) {
+        return Value(null);
+      }
+      if (anchoredStart && resultMatch.start != init) {
         return Value(null);
       }
 

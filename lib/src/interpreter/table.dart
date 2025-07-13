@@ -116,6 +116,15 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     );
 
     if (tableVal.raw is! Map) {
+      final indexMeta = tableVal.getMetamethod('__index');
+      if (indexMeta != null) {
+        Logger.debug('DEBUG: Calling __index metamethod for non-table field');
+        final result = await tableVal.callMetamethodAsync('__index', [
+          tableVal,
+          indexVal,
+        ]);
+        return result;
+      }
       if (tableVal.raw == null) {
         throw LuaError.typeError('attempt to index a nil value');
       }
@@ -124,9 +133,48 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       );
     }
 
-    final result = tableVal[indexVal];
-    Logger.debug('TableFieldAccess result: $result', category: 'Interpreter');
-    return result;
+    Logger.debug(
+      'DEBUG: TableFieldAccess - key: ${indexVal.raw}, exists: ${(tableVal.raw as Map).containsKey(indexVal.raw)}',
+    );
+
+    // Normalize the key when checking existence
+    var rawKey = indexVal.raw;
+    if (rawKey is LuaString) {
+      rawKey = rawKey.toString();
+    }
+
+    // Check if key exists in table first
+    if (tableVal.raw is Map && (tableVal.raw as Map).containsKey(rawKey)) {
+      // Key exists, get it directly
+      Logger.debug('DEBUG: Key exists, getting directly');
+      final result = tableVal[indexVal];
+      Logger.debug('TableFieldAccess result: $result', category: 'Interpreter');
+      return result;
+    }
+
+    // Key doesn't exist, check for __index metamethod
+    final indexMeta = tableVal.getMetamethod('__index');
+    if (indexMeta != null) {
+      Logger.debug('DEBUG: Key not found, calling __index metamethod');
+      // Call metamethod asynchronously
+      final result = await tableVal.callMetamethodAsync('__index', [
+        tableVal,
+        indexVal,
+      ]);
+      Logger.debug(
+        'TableFieldAccess __index result: $result',
+        category: 'Interpreter',
+      );
+      return result;
+    }
+
+    // No metamethod, return nil
+    Logger.debug('DEBUG: No metamethod, returning nil');
+    Logger.debug(
+      'TableFieldAccess result: nil (no metamethod)',
+      category: 'Interpreter',
+    );
+    return Value(null);
   }
 
   /// Evaluates a table index access expression (table[expr]).
@@ -162,6 +210,14 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     );
 
     if (tableVal.raw is! Map) {
+      final indexMeta = tableVal.getMetamethod('__index');
+      if (indexMeta != null) {
+        final result = await tableVal.callMetamethodAsync('__index', [
+          tableVal,
+          indexVal,
+        ]);
+        return result;
+      }
       if (tableVal.raw == null) {
         throw LuaError.typeError('attempt to index a nil value');
       }
@@ -170,9 +226,41 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       );
     }
 
-    final result = tableVal[indexVal];
-    Logger.debug('TableIndexAccess result: $result', category: 'Interpreter');
-    return result;
+    // Normalize the key when checking existence
+    var rawKey = indexVal.raw;
+    if (rawKey is LuaString) {
+      rawKey = rawKey.toString();
+    }
+
+    // Check if key exists in table first
+    if (tableVal.raw is Map && (tableVal.raw as Map).containsKey(rawKey)) {
+      // Key exists, get it directly
+      final result = tableVal[indexVal];
+      Logger.debug('TableIndexAccess result: $result', category: 'Interpreter');
+      return result;
+    }
+
+    // Key doesn't exist, check for __index metamethod
+    final indexMeta = tableVal.getMetamethod('__index');
+    if (indexMeta != null) {
+      // Call metamethod asynchronously
+      final result = await tableVal.callMetamethodAsync('__index', [
+        tableVal,
+        indexVal,
+      ]);
+      Logger.debug(
+        'TableIndexAccess __index result: $result',
+        category: 'Interpreter',
+      );
+      return result;
+    }
+
+    // No metamethod, return nil
+    Logger.debug(
+      'TableIndexAccess result: nil (no metamethod)',
+      category: 'Interpreter',
+    );
+    return Value(null);
   }
 
   /// Evaluates a keyed table entry.

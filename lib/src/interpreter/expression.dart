@@ -40,6 +40,44 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       category: 'Expression',
     );
     dynamic leftResult = await node.left.accept(this);
+
+    // Short-circuit evaluation for logical operators
+    if (node.op == 'and' || node.op == 'or') {
+      // Normalize multi-value results from the left side
+      if (leftResult is Value && leftResult.isMulti) {
+        final multiValues = leftResult.raw as List;
+        leftResult = multiValues.isNotEmpty ? multiValues[0] : Value(null);
+      } else if (leftResult is List && leftResult.isNotEmpty) {
+        leftResult = leftResult[0];
+      }
+
+      final leftVal = leftResult is Value ? leftResult : Value(leftResult);
+
+      if (node.op == 'and') {
+        if (!leftVal.isTruthy()) {
+          return leftVal;
+        }
+      } else {
+        // 'or'
+        if (leftVal.isTruthy()) {
+          return leftVal;
+        }
+      }
+
+      // Need to evaluate the right side only when necessary
+      dynamic rightResult = await node.right.accept(this);
+
+      if (rightResult is Value && rightResult.isMulti) {
+        final multiValues = rightResult.raw as List;
+        rightResult = multiValues.isNotEmpty ? multiValues[0] : Value(null);
+      } else if (rightResult is List && rightResult.isNotEmpty) {
+        rightResult = rightResult[0];
+      }
+
+      final rightVal = rightResult is Value ? rightResult : Value(rightResult);
+      return rightVal;
+    }
+
     dynamic rightResult = await node.right.accept(this);
 
     // In a binary expression, if either operand is a function call returning multiple values,
@@ -98,14 +136,39 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       '!=': '__eq', // Negated result
     };
 
-    final metamethodName = opMap[node.op];
+    String? metamethodName = opMap[node.op];
     if (metamethodName != null) {
       // Check left operand's metamethod
       var metamethod = leftVal.getMetamethod(metamethodName);
 
-      // If not found in left, check right operand's metamethod
-      if (metamethod == null && metamethodName != '__eq') {
-        metamethod = rightVal.getMetamethod(metamethodName);
+      // If not found in left, check right operand's metamethod. For '__eq'
+      // Lua will look at both operands.
+      metamethod ??= rightVal.getMetamethod(metamethodName);
+
+      bool swapArgs = false;
+      bool invertResult = false;
+
+      if (metamethod == null && node.op == '>') {
+        metamethod = rightVal.getMetamethod('__lt');
+        if (metamethod != null) {
+          metamethodName = '__lt';
+          swapArgs = true;
+        }
+      } else if (metamethod == null && node.op == '>=') {
+        metamethod =
+            leftVal.getMetamethod('__le') ?? rightVal.getMetamethod('__le');
+        if (metamethod != null) {
+          metamethodName = '__le';
+          swapArgs = true;
+        } else {
+          metamethod =
+              rightVal.getMetamethod('__lt') ?? leftVal.getMetamethod('__lt');
+          if (metamethod != null) {
+            metamethodName = '__lt';
+            swapArgs = true;
+            invertResult = true;
+          }
+        }
       }
 
       if (metamethod != null) {
@@ -115,14 +178,34 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         );
 
         dynamic result;
+        final callArgs = swapArgs ? [rightVal, leftVal] : [leftVal, rightVal];
         if (metamethod is Function) {
-          result = await metamethod([leftVal, rightVal]);
-        } else if (metamethod is Value && metamethod.raw is Function) {
-          result = await metamethod.raw([leftVal, rightVal]);
+          result = await metamethod(callArgs);
+        } else if (metamethod is Value) {
+          if (metamethod.raw is Function) {
+            result = await metamethod.raw(callArgs);
+          } else if (metamethod.raw is FunctionDef ||
+              metamethod.raw is FunctionLiteral ||
+              metamethod.raw is FunctionBody) {
+            result = await metamethod.callFunction(callArgs);
+          } else {
+            throw LuaError.typeError(
+              "Metamethod $metamethodName exists but is not callable: $metamethod",
+            );
+          }
         } else {
           throw LuaError.typeError(
             "Metamethod $metamethodName exists but is not callable: $metamethod",
           );
+        }
+
+        // Metamethods can return multiple values, but binary operations only use
+        // the first result. Normalize here to match Lua semantics.
+        if (result is Value && result.isMulti && result.raw is List) {
+          final values = result.raw as List;
+          result = values.isNotEmpty ? values.first : Value(null);
+        } else if (result is List) {
+          result = result.isNotEmpty ? result.first : Value(null);
         }
 
         // For inequality operators that use __eq, negate the result
@@ -131,6 +214,14 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
             return Value(!result);
           } else if (result is Value && result.raw is bool) {
             return Value(!result.raw);
+          }
+        }
+
+        if (invertResult) {
+          if (result is bool) {
+            result = !result;
+          } else if (result is Value && result.raw is bool) {
+            result = Value(!result.raw);
           }
         }
 
@@ -240,14 +331,22 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         );
 
         dynamic result;
+        final args = [operandWrapped, operandWrapped];
         if (metamethod is Function) {
-          result = await metamethod([operandWrapped]);
+          result = await metamethod(args);
         } else if (metamethod is Value && metamethod.raw is Function) {
-          result = await metamethod.raw([operandWrapped]);
+          result = await metamethod.raw(args);
         } else {
           throw LuaError.typeError(
             "Metamethod $metamethodName exists but is not callable: $metamethod",
           );
+        }
+
+        if (result is Value && result.isMulti && result.raw is List) {
+          final values = result.raw as List;
+          result = values.isNotEmpty ? values.first : Value(null);
+        } else if (result is List) {
+          result = result.isNotEmpty ? result.first : Value(null);
         }
 
         return result is Value ? result : Value(result);
@@ -276,6 +375,58 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitIdentifier(Identifier node) async {
     Logger.debug('Visiting Identifier: ${node.name}', category: 'Expression');
+
+    // Special case: always look up _ENV and _G from the global environment directly
+    // to avoid infinite recursion
+    if (node.name == '_ENV' || node.name == '_G') {
+      final value = globals.get(node.name);
+      if (value == null) {
+        Logger.debug(
+          'Identifier ${node.name} not found, returning nil',
+          category: 'Expression',
+        );
+        return Value(null);
+      }
+      Logger.debug(
+        'Identifier ${node.name} resolved to: $value (type: ${value.runtimeType})',
+        category: 'Expression',
+      );
+      return value is Value ? value : Value(value);
+    }
+
+    // Check for a local variable in the current environment. When executing
+    // inside a function, the current environment will have a parent. Globals
+    // live in the root environment (which has no parent). Locals should take
+    // precedence over entries in `_ENV`.
+    // Search up the environment chain for a local variable with this name
+    Environment? env = globals;
+    while (env != null) {
+      if (env.values.containsKey(node.name) && env.values[node.name]!.isLocal) {
+        final val = env.values[node.name]!.value;
+        return val is Value ? val : Value(val);
+      }
+      env = env.parent;
+    }
+
+    // Check if there's a custom _ENV that is different from the initial _G
+    final envValue = globals.get('_ENV');
+    final gValue = globals.get('_G');
+
+    // If _ENV exists and is different from _G, use _ENV for variable lookups
+    if (envValue is Value && gValue is Value && envValue != gValue) {
+      Logger.debug(
+        'Using custom _ENV for variable lookup: ${node.name}',
+        category: 'Expression',
+      );
+
+      if (envValue.raw is Map) {
+        // Look up the variable in the _ENV table (this will trigger __index if needed)
+        final result = envValue[node.name];
+        return result is Value ? result : Value(result);
+      }
+    }
+
+    // Default behavior: look up in the current environment
     final value = globals.get(node.name);
     if (value == null) {
       Logger.debug(

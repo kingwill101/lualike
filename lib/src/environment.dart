@@ -8,8 +8,11 @@ class Box<T> extends GCObject {
   /// The wrapped value.
   T value;
 
+  /// Whether this binding represents a local variable.
+  final bool isLocal;
+
   /// Creates a new Box containing [value].
-  Box(this.value) {
+  Box(this.value, {this.isLocal = false}) {
     GenerationalGCManager.instance.register(this);
     Logger.debug(
       'Created new Box($value) and registered with GC',
@@ -48,7 +51,7 @@ class Environment extends GCObject {
   final bool isClosure;
 
   /// The interpreter associated with this environment.
-  final Interpreter? interpreter;
+  Interpreter? interpreter;
 
   /// Creates a new Environment.
   ///
@@ -248,7 +251,7 @@ class Environment extends GCObject {
     );
 
     // Create a fresh Box that shadows any previous binding
-    values[name] = Box(value);
+    values[name] = Box(value, isLocal: true);
 
     // Track to-be-closed variables
     if (value is Value && value.isToBeClose) {

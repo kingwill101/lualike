@@ -1,7 +1,9 @@
 import 'dart:io';
 
-import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/lualike.dart';
+import 'package:lualike/src/bytecode/vm.dart';
+import 'package:lualike/src/coroutine.dart';
+import 'package:lualike/src/stdlib/metatables.dart';
 
 class DebugLib {
   static final Map<String, BuiltinFunction> functions = {
@@ -166,7 +168,17 @@ class _GetMetatable implements BuiltinFunction {
   Object? call(List<Object?> args) {
     if (args.isEmpty) throw Exception("debug.getmetatable requires a value");
     final value = args[0] as Value;
-    return Value(value.getMetatable());
+    final meta = value.getMetatable();
+    if (meta == null) {
+      return Value(null);
+    }
+    if (meta.containsKey('__metatable')) {
+      return meta['__metatable'];
+    }
+    if (value.metatableRef != null) {
+      return value.metatableRef;
+    }
+    return Value(meta);
   }
 }
 
@@ -234,8 +246,46 @@ class _SetMetatable implements BuiltinFunction {
     }
     final value = args[0] as Value;
     final meta = args[1] as Value;
-    value.setMetatable((meta.raw as Map).cast());
-    return Value(true);
+    if (value.raw is! Map) {
+      final type = _typeOf(value.raw);
+      if (meta.raw == null) {
+        MetaTable().registerDefaultMetatable(type, null);
+        return Value(true);
+      }
+      if (meta.raw is Map) {
+        MetaTable().registerDefaultMetatable(
+          type,
+          ValueClass.create(
+            Map.castFrom<dynamic, dynamic, String, dynamic>(meta.raw as Map),
+          ),
+          meta,
+        );
+        return Value(true);
+      }
+    } else {
+      if (meta.raw == null) {
+        value.metatable = null;
+        value.metatableRef = null;
+        return Value(true);
+      }
+      if (meta.raw is Map) {
+        value.metatableRef = meta;
+        value.setMetatable((meta.raw as Map).cast());
+        return Value(true);
+      }
+    }
+    throw Exception("metatable must be a table or nil");
+  }
+
+  String _typeOf(Object? raw) {
+    if (raw == null) return 'nil';
+    if (raw is String || raw is LuaString) return 'string';
+    if (raw is num || raw is BigInt) return 'number';
+    if (raw is bool) return 'boolean';
+    if (raw is Function || raw is BuiltinFunction) return 'function';
+    if (raw is Map || raw is List) return 'table';
+    if (raw is Coroutine) return 'thread';
+    return 'userdata';
   }
 }
 

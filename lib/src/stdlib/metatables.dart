@@ -12,7 +12,8 @@ class MetaTable {
 
   bool _initialized = false;
   final Map<String, ValueClass> _typeMetatables = {};
-  final List<Value> _finalizationList = [];
+  final Map<String, Value?> _typeMetatableRefs = {};
+  bool _numberMetatableEnabled = false;
 
   factory MetaTable() {
     return _instance;
@@ -48,29 +49,6 @@ class MetaTable {
           return Value((str.raw as LuaString).length);
         }
         return Value(str.raw.toString().length);
-      },
-      '__concat': (List<Object?> args) {
-        final a = args[0] as Value;
-        final b = args[1] as Value;
-        Logger.debug(
-          'String __concat metamethod called: "${a.raw}" .. "${b.raw}"',
-          category: 'Metatables',
-        );
-
-        // For better interop, return Dart strings unless LuaString is needed
-        if (a.raw is LuaString || b.raw is LuaString) {
-          // If either operand is a LuaString, preserve byte-level operations
-          final aStr = a.raw is LuaString
-              ? (a.raw as LuaString)
-              : LuaString.fromDartString(a.raw.toString());
-          final bStr = b.raw is LuaString
-              ? (b.raw as LuaString)
-              : LuaString.fromDartString(b.raw.toString());
-          return Value(aStr + bStr);
-        } else {
-          // Both operands are normal types, return Dart string
-          return Value(a.raw.toString() + b.raw.toString());
-        }
       },
       '__index': (List<Object?> args) {
         final str = args[0] as Value;
@@ -186,42 +164,8 @@ class MetaTable {
 
         throw Exception("attempt to get length of non-table value");
       },
-      '__index': (List<Object?> args) {
-        final table = args[0] as Value;
-        final key = args[1] as Value;
-        Logger.debug(
-          'Table __index metamethod called for table:${table.hashCode}[${key.raw}]',
-          category: 'Metatables',
-        );
-        if (table.raw is Map) {
-          var rawKey = key.raw;
-          if (rawKey is LuaString) {
-            rawKey = rawKey.toString();
-          }
-          final value = (table.raw as Map)[rawKey];
-          Logger.debug('Table index result: $value', category: 'Metatables');
-          return value is Value ? value : Value(value);
-        }
-        throw Exception("attempt to index non-table value");
-      },
-      '__newindex': (List<Object?> args) {
-        final table = args[0] as Value;
-        final key = args[1] as Value;
-        final value = args[2] as Value;
-        Logger.debug(
-          'Table __newindex metamethod called for table:${table.hashCode}[${key.raw}] = ${value.raw}',
-          category: 'Metatables',
-        );
-        if (table.raw is Map) {
-          var rawKey = key.raw;
-          if (rawKey is LuaString) {
-            rawKey = rawKey.toString();
-          }
-          (table.raw as Map)[rawKey] = value;
-          return Value(null);
-        }
-        throw Exception("attempt to index non-table value");
-      },
+      // Removed '__index' and '__newindex' from default table metatable
+      // These should only be present when explicitly set by the user
       '__pairs': (List<Object?> args) {
         final table = args[0] as Value;
         Logger.debug(
@@ -334,32 +278,6 @@ class MetaTable {
           Value(null),
         ]);
       },
-      '__gc': (List<Object?> args) {
-        final table = args[0] as Value;
-        Logger.debug(
-          'Table __gc metamethod called for table:${table.hashCode}',
-          category: 'Metatables',
-        );
-
-        // Track finalization in the finalized table
-        final finalized = _interpreter!.globals.get('finalized');
-        if (finalized == null) {
-          Logger.debug(
-            'Finalized table not found, skipping finalization',
-            category: 'Metatables',
-          );
-          _interpreter!.globals.define(
-            'finalized',
-            ValueClass.table({table.hashCode.toString(): Value(true)}),
-          );
-          return Value(null);
-        }
-        if (finalized is Value) {
-          finalized[Value(table.hashCode.toString())] = Value(true);
-        }
-
-        return Value(null);
-      },
     });
     Logger.debug('Table metatable initialized', category: 'Metatables');
 
@@ -466,13 +384,31 @@ class MetaTable {
     return _typeMetatables[type];
   }
 
-  /// Register a default metatable for a type
-  void registerDefaultMetatable(String type, ValueClass metatable) {
+  /// Register a default metatable for a type. If [metatable] is null, any
+  /// existing default metatable for the type will be removed.
+  void registerDefaultMetatable(
+    String type,
+    ValueClass? metatable, [
+    Value? original,
+  ]) {
     Logger.debug(
       'Registering default metatable for type: $type',
       category: 'Metatables',
     );
+    if (metatable == null) {
+      _typeMetatables.remove(type);
+      _typeMetatableRefs.remove(type);
+      if (type == 'number') {
+        _numberMetatableEnabled = false;
+      }
+      return;
+    }
+
     _typeMetatables[type] = metatable;
+    _typeMetatableRefs[type] = original;
+    if (type == 'number') {
+      _numberMetatableEnabled = true;
+    }
   }
 
   String _determineType(Object? value) {
@@ -509,122 +445,26 @@ class MetaTable {
     final type = _determineType(value.raw);
     Logger.debug('Determined type for value: $type', category: 'Metatables');
 
+    // Tables do not receive a default metatable. Numbers only receive one
+    // after debug.setmetatable registers it.
+    if (type == 'table' || (type == 'number' && !_numberMetatableEnabled)) {
+      Logger.debug(
+        'Not applying default metatable to $type - defaults are nil',
+        category: 'Metatables',
+      );
+      return;
+    }
+
     final metatable = getTypeMetatable(type);
     if (metatable != null) {
       Logger.debug('Setting metatable for $type value', category: 'Metatables');
       value.setMetatable(metatable.metamethods);
-
-      // Mark for finalization if it has a __gc metamethod
-      if (metatable.metamethods.containsKey('__gc')) {
-        Logger.debug(
-          'Found __gc metamethod for type $type, marking for finalization',
-          category: 'Metatables',
-        );
-        markForFinalization(value);
-      } else {
-        Logger.debug(
-          'No __gc metamethod found for type $type',
-          category: 'Metatables',
-        );
-      }
+      value.metatableRef = _typeMetatableRefs[type];
     } else {
       Logger.debug(
         'No default metatable found for type: $type',
         category: 'Metatables',
       );
     }
-  }
-
-  /// Marks an object for finalization if it has a __gc metamethod.
-  ///
-  /// This implements the behavior described in section 2.5.3 of the Lua reference manual:
-  /// "For an object (table or userdata) to be finalized when collected, you must
-  /// mark it for finalization. You mark an object for finalization when you set
-  /// its metatable and the metatable has a __gc metamethod."
-  ///
-  /// Objects marked for finalization are added to a list and their finalizers
-  /// will be called during the next garbage collection cycle.
-  void markForFinalization(Value value) {
-    Logger.debug(
-      'Checking if object ${value.hashCode} needs finalization',
-      category: 'Metatables',
-    );
-
-    if (value.metatable?.containsKey('__gc') ?? false) {
-      Logger.debug(
-        'Object ${value.hashCode} has __gc metamethod, marking for finalization',
-        category: 'Metatables',
-      );
-      _finalizationList.add(value);
-      Logger.debug(
-        'Added object ${value.hashCode} to finalization list (size: ${_finalizationList.length})',
-        category: 'Metatables',
-      );
-    } else {
-      Logger.debug(
-        'Object ${value.hashCode} has no __gc metamethod',
-        category: 'Metatables',
-      );
-    }
-  }
-
-  /// Runs finalizers for objects marked for finalization.
-  ///
-  /// This implements the behavior described in section 2.5.3 of the Lua reference manual:
-  /// "When a marked object becomes dead, it is not collected immediately by the garbage collector.
-  /// Instead, Lua puts it in a list. After the collection, Lua goes through that list. For each
-  /// object in the list, it checks the object's __gc metamethod: If it is present, Lua calls it
-  /// with the object as its single argument."
-  ///
-  /// The finalizers are called in reverse order of marking, as specified in the manual:
-  /// "At the end of each garbage-collection cycle, the finalizers are called in the reverse
-  /// order that the objects were marked for finalization, among those collected in that cycle."
-  void runFinalizers() {
-    Logger.debug(
-      'Running finalizers for ${_finalizationList.length} objects',
-      category: 'Metatables',
-    );
-
-    // Process finalizers in reverse order
-    for (var i = _finalizationList.length - 1; i >= 0; i--) {
-      final obj = _finalizationList[i];
-      Logger.debug(
-        'Processing finalizer for object ${obj.hashCode}',
-        category: 'Metatables',
-      );
-
-      final finalizer = obj.metatable?['__gc'];
-      if (finalizer != null) {
-        try {
-          Logger.debug(
-            'Running __gc metamethod for object ${obj.hashCode}',
-            category: 'Metatables',
-          );
-          finalizer([obj]);
-
-          // Track finalized objects in the finalized table
-          final finalized = _interpreter!.globals.get('finalized') as Value;
-          if (finalized.raw is Map) {
-            Logger.debug(
-              'Marking object ${obj.hashCode} as finalized',
-              category: 'Metatables',
-            );
-            (finalized.raw as Map)[obj.hashCode.toString()] = Value(true);
-          }
-        } catch (e, s) {
-          // As per section 2.5.3: "Any error while running a finalizer generates a warning;
-          // the error is not propagated."
-          Logger.error(
-            'Error in finalizer for object ${obj.hashCode}: $e',
-            error: e,
-            trace: s,
-            category: 'Metatables',
-          );
-        }
-      }
-    }
-
-    Logger.debug('Clearing finalization list', category: 'Metatables');
-    _finalizationList.clear();
   }
 }
