@@ -217,7 +217,7 @@ class _LuaLoader implements BuiltinFunction {
           try {
             // Parse the module code
             print("DEBUG: Parsing module code");
-            final ast = parse(source);
+            final ast = parse(source, url: modulePath);
             print("DEBUG: Module code parsed successfully");
 
             // Create a new environment for the module
