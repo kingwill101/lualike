@@ -98,7 +98,7 @@ class Logger {
 
   /// Log an error message.
   ///
-  /// Error messages are always logged regardless of the enabled state.
+  /// Error messages are only logged if logging is enabled.
   ///
   /// @param message The error message to log.
   /// @param error Optional error object.
@@ -111,6 +111,7 @@ class Logger {
     AstNode? node,
     LuaStackTrace? luaStackTrace,
   }) {
+    if (!enabled) return;
     final errorDetails = error != null ? ' - $error' : '';
     if (error is LuaError) {
       final errorMessage = error.formatError();
@@ -209,6 +210,7 @@ class Logger {
     AstNode? node,
     LuaStackTrace? luaStackTrace,
   }) {
+    if (!enabled) return;
     String positionInfo = '';
     if (node != null && node.span != null) {
       final span = node.span!;

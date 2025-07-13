@@ -1,3 +1,5 @@
+import 'package:lualike/lualike.dart';
+
 /// Every object that lives in lualike's "heap" and that should be garbage‐collected
 /// must extend this GCObject.
 ///
@@ -29,7 +31,10 @@ abstract class GCObject {
   /// Similar to Lua's finalizers, this method is called when an object
   /// is about to be collected, allowing it to release any external resources.
   void free() {
-    print('[GC] GCObject.free() called for $runtimeType $hashCode');
+    Logger.debug(
+      'GCObject.free() called for $runtimeType $hashCode',
+      category: "GC",
+    );
     // By default, nothing needs to be done.
   }
 }

@@ -11,7 +11,7 @@ Lualike is a lua interpreter written in Dart. It is designed to be a drop-in rep
    Add useful debug output to make it easier to understand what's happening.
    Logger class has a Logger.setEnabled(false);
    - which works with --debug flag when using the interpreter (dart run bin/main.dart) Note it can be very noisy.
-   - you can  use the LOGGING_ENABED  environment to the vm example: "dart --define=LOGGING_ENABLED=true run test test/stdlib/base_test.dart" will show the debug output.
+   - You can use the `LOGGING_ENABLED` environment variable when running tests, e.g., `LOGGING_ENABLED=true dart test test/stdlib/base_test.dart`.
 
    Compare results with the reference lua interpreter when uncertain. our interpreter supports the same cli arguments as the reference lua interpreter.
 
@@ -37,7 +37,7 @@ Lualike is a lua interpreter written in Dart. It is designed to be a drop-in rep
 - `dart test` - Run all tests
 - `dart test test/path/specific_test.dart` - Run single test file
 - `dart test --name "test name"` - Run specific test by name
-- `dart --define=LOGGING_ENABLED=true run test test/path/test.dart` - Run test with debug logging
+- `LOGGING_ENABLED=true dart test test/path/test.dart` - Run test with debug logging
 - `dart format .` - Format all code
 - `dart fix --apply` - Apply automated fixes
 - `dart analyze` - Static analysis (uses package:lints/recommended.yaml)
@@ -72,7 +72,7 @@ The lualike CLI is a drop-in replacement for the Lua CLI, supporting similar arg
 - `--bytecode`    : Run using bytecode VM
 - `-e code`       : Execute string 'code' inline
 - `--debug`       : Enable debug mode (and set logging to FINE level for all categories)
-- `--level LEVEL` : Set log level (FINE, INFO, WARNING, SEVERE, etc)
+- `--level LEVEL` : Set log level. Valid levels: `ALL`, `FINEST`, `FINER`, `FINE`, `CONFIG`, `INFO`, `WARNING`, `SEVERE`, `SHOUT`, `OFF`. Invalid levels default to `WARNING`.
 - `--category CAT`: Set log category to filter (only logs for this category)
 - `--help`        : Show help message
 

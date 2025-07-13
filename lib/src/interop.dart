@@ -164,9 +164,7 @@ class LuaLike {
   factory LuaLike() => LuaLike._internal();
 
   /// Internal constructor
-  LuaLike._internal() : vm = Interpreter() {
-    Logger.setEnabled(loggingEnabled);
-  }
+  LuaLike._internal() : vm = Interpreter();
 
   /// Register a Dart function to be callable from LuaLike
   void expose(String name, Function function) {
