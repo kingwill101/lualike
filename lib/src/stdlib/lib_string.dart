@@ -1,5 +1,5 @@
-import 'dart:convert';
 import 'dart:convert' as convert;
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -7,6 +7,7 @@ import 'package:collection/collection.dart' show ListEquality;
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/parsers/pattern.dart' as lpc;
+import 'package:lualike/src/stdlib/binary_type_size.dart';
 import 'package:lualike/src/stdlib/lib_utf8.dart' show UTF8Lib;
 
 /// String interning cache for short strings (Lua-like behavior)
@@ -1644,56 +1645,267 @@ class _StringPack implements BuiltinFunction {
 
     final bytes = <int>[];
     var i = 0;
+    Endian endianness = Endian.host;
+    int maxAlign = 1;
 
-    for (var c in format.split('')) {
-      if (i >= values.length) break;
+    int alignTo(int offset, int align) {
+      if (align <= 1) return 0;
+      if ((align & (align - 1)) != 0) {
+        throw LuaError("format asks for alignment not power of 2");
+      }
+      final mod = offset % align;
+      return mod == 0 ? 0 : align - mod;
+    }
 
-      switch (c) {
-        case 'b': // signed byte
-          final value = NumberUtils.toInt((values[i] as Value).raw);
-          bytes.add(value & 0xFF);
-          i++;
+    final options = BinaryFormatParser.parse(format);
+    int offset = 0;
+    for (final opt in options) {
+      if (i >= values.length &&
+          opt.type != '<' &&
+          opt.type != '>' &&
+          opt.type != '=' &&
+          opt.type != '!' &&
+          opt.type != 'X') {
           break;
-        case 'B': // unsigned byte
-          final value = NumberUtils.toInt((values[i] as Value).raw);
-          bytes.add(value & 0xFF);
-          i++;
-          break;
-        case 'h': // signed short
-          var n = NumberUtils.toInt((values[i] as Value).raw);
-          // Little endian
-          bytes.add(n & 0xFF);
-          bytes.add((n >> 8) & 0xFF);
-          i++;
-          break;
-        case 'H': // unsigned short
-          var n = NumberUtils.toInt((values[i] as Value).raw);
-          // Little endian
-          bytes.add(n & 0xFF);
-          bytes.add((n >> 8) & 0xFF);
-          i++;
-          break;
-        case 'i': // signed int
-          var n = NumberUtils.toInt((values[i] as Value).raw);
-          // Little endian
-          bytes.add(n & 0xFF);
-          bytes.add((n >> 8) & 0xFF);
-          bytes.add((n >> 16) & 0xFF);
-          bytes.add((n >> 24) & 0xFF);
-          i++;
-          break;
-        case 's': // string
+      }
+      switch (opt.type) {
+        case '<':
+          endianness = Endian.little;
+          continue;
+        case '>':
+          endianness = Endian.big;
+          continue;
+        case '=':
+          endianness = Endian.host;
+          continue;
+        case '!':
+          if (opt.align == null) {
+            throw LuaError("missing number for format option '!' ");
+          }
+          maxAlign = opt.align!;
+          if ((maxAlign & (maxAlign - 1)) != 0) {
+            throw LuaError("format asks for alignment not power of 2");
+          }
+          continue;
+        case 'c': // char array of size N (never needs alignment)
+          final size = opt.size;
+          if (size == null) {
+            throw LuaError("missing size for format option 'c'");
+          }
           var s = (values[i] as Value).raw.toString();
-          bytes.addAll(utf8.encode(s));
-          bytes.add(0); // null terminator
+          final encoded = utf8.encode(s);
+          if (encoded.length > size) {
+            bytes.addAll(encoded.sublist(0, size));
+          } else {
+            bytes.addAll(encoded);
+            bytes.addAll(List.filled(size - encoded.length, 0));
+          }
           i++;
+          offset += size;
           break;
+        case 'b':
+        case 'B':
+        case 'h':
+        case 'H':
+        case 'l':
+        case 'L':
+        case 'j':
+        case 'J':
+        case 'T':
+        case 'f':
+        case 'd':
+        case 'n':
+        case 'i':
+        case 'I':
+          {
+            int size;
+            switch (opt.type) {
+              case 'b':
+                size = BinaryTypeSize.b;
+          break;
+              case 'B':
+                size = BinaryTypeSize.B;
+                break;
+              case 'h':
+                size = BinaryTypeSize.h;
+                break;
+              case 'H':
+                size = BinaryTypeSize.H;
+                break;
+              case 'l':
+                size = BinaryTypeSize.l;
+                break;
+              case 'L':
+                size = BinaryTypeSize.L;
+                break;
+              case 'j':
+                size = BinaryTypeSize.j;
+                break;
+              case 'J':
+                size = BinaryTypeSize.J;
+                break;
+              case 'T':
+                size = BinaryTypeSize.T;
+                break;
+              case 'f':
+                size = BinaryTypeSize.f;
+                break;
+              case 'd':
+                size = BinaryTypeSize.d;
+                break;
+              case 'n':
+                size = BinaryTypeSize.n;
+                break;
+              case 'i':
+                size = opt.size ?? BinaryTypeSize.i;
+                break;
+              case 'I':
+                size = opt.size ?? BinaryTypeSize.I;
+                break;
+              default:
+                size = 1;
+                break;
+            }
+            final align = size > maxAlign ? maxAlign : size;
+            final pad = alignTo(offset, align);
+            bytes.addAll(List.filled(pad, 0));
+            offset += pad;
+
+            // Handle float types differently from integer types
+            if (opt.type == 'f') {
+              final value = NumberUtils.toDouble((values[i] as Value).raw);
+              bytes.addAll(NumberUtils.packFloat32(value, endianness));
+            } else if (opt.type == 'd' || opt.type == 'n') {
+              final value = NumberUtils.toDouble((values[i] as Value).raw);
+              bytes.addAll(NumberUtils.packFloat64(value, endianness));
+            } else {
+              // Integer types
+          var n = NumberUtils.toInt((values[i] as Value).raw);
+              // For unsigned types, no special handling needed in Lua
+              // Lua treats all integers as signed, so we just pack the value as-is
+              final packed = _packInt(n, size, endianness);
+              bytes.addAll(packed);
+            }
+          i++;
+            offset += size;
+          break;
+          }
+        case 's': // size-prefixed string with native integer size
+          {
+            var s = (values[i] as Value).raw.toString();
+            final encoded = utf8.encode(s);
+            final size =
+                opt.size ?? BinaryTypeSize.j; // Use lua_Integer size as default
+
+            // Pack the length as an integer of the specified size
+            final lengthBytes = _packInt(encoded.length, size, endianness);
+            bytes.addAll(lengthBytes);
+            bytes.addAll(encoded);
+
+          i++;
+            offset += size + encoded.length;
+          break;
+          }
+        case 'X':
+          {
+            // Look ahead to next option
+            if (i + 1 >= values.length) {
+              throw LuaError("'X' cannot be last in format string");
+            }
+            final nextOpt = options[i + 1];
+            int size;
+            switch (nextOpt.type) {
+              case 'b':
+                size = BinaryTypeSize.b;
+                break;
+              case 'B':
+                size = BinaryTypeSize.B;
+                break;
+              case 'h':
+                size = BinaryTypeSize.h;
+                break;
+              case 'H':
+                size = BinaryTypeSize.H;
+                break;
+              case 'l':
+                size = BinaryTypeSize.l;
+                break;
+              case 'L':
+                size = BinaryTypeSize.L;
+                break;
+              case 'j':
+                size = BinaryTypeSize.j;
+                break;
+              case 'J':
+                size = BinaryTypeSize.J;
+                break;
+              case 'T':
+                size = BinaryTypeSize.T;
+                break;
+              case 'f':
+                size = BinaryTypeSize.f;
+                break;
+              case 'd':
+                size = BinaryTypeSize.d;
+                break;
+              case 'n':
+                size = BinaryTypeSize.n;
+                break;
+              case 'i':
+                size = nextOpt.size ?? BinaryTypeSize.i;
+                break;
+              case 'I':
+                size = nextOpt.size ?? BinaryTypeSize.I;
+                break;
+              default:
+                throw LuaError(
+                  "'X' cannot align to non-alignable type '${nextOpt.type}'",
+                );
+            }
+            final align = size > maxAlign ? maxAlign : size;
+            final pad = alignTo(offset, align);
+            offset += pad;
+            continue;
+          }
+        case 'x':
+          bytes.add(0);
+          offset += 1;
+          continue;
+        case 'z':
+          {
+          var s = (values[i] as Value).raw.toString();
+            final encoded = utf8.encode(s);
+            bytes.addAll(encoded);
+            bytes.add(0); // zero terminator
+          i++;
+            offset += encoded.length + 1;
+          break;
+          }
+
+        default:
+          throw LuaError(
+            "string.pack: option ' [${opt.type}] ' not implemented",
+          );
       }
     }
 
     final result = String.fromCharCodes(bytes);
     return Value(result);
   }
+}
+
+List<int> _packInt(int value, int size, Endian endianness) {
+  final bytes = List<int>.filled(size, 0);
+  if (endianness == Endian.little) {
+    for (var b = 0; b < size; b++) {
+      bytes[b] = (value >> (8 * b)) & 0xFF;
+    }
+  } else {
+    for (var b = 0; b < size; b++) {
+      bytes[size - b - 1] = (value >> (8 * b)) & 0xFF;
+    }
+  }
+  return bytes;
 }
 
 class _StringPackSize implements BuiltinFunction {
