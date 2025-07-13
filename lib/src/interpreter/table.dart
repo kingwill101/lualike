@@ -116,6 +116,15 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     );
 
     if (tableVal.raw is! Map) {
+      final indexMeta = tableVal.getMetamethod('__index');
+      if (indexMeta != null) {
+        Logger.debug('DEBUG: Calling __index metamethod for non-table field');
+        final result = await tableVal.callMetamethodAsync('__index', [
+          tableVal,
+          indexVal,
+        ]);
+        return result;
+      }
       if (tableVal.raw == null) {
         throw LuaError.typeError('attempt to index a nil value');
       }
@@ -201,6 +210,14 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     );
 
     if (tableVal.raw is! Map) {
+      final indexMeta = tableVal.getMetamethod('__index');
+      if (indexMeta != null) {
+        final result = await tableVal.callMetamethodAsync('__index', [
+          tableVal,
+          indexVal,
+        ]);
+        return result;
+      }
       if (tableVal.raw == null) {
         throw LuaError.typeError('attempt to index a nil value');
       }
