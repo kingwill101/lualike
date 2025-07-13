@@ -1581,8 +1581,13 @@ class _StringReverse implements BuiltinFunction {
     }
 
     final value = args[0] as Value;
-    final str = value.raw.toString();
 
+    if (value.raw is LuaString) {
+      final bytes = List<int>.from((value.raw as LuaString).bytes.reversed);
+      return Value(LuaString.fromBytes(bytes));
+    }
+
+    final str = value.raw.toString();
     return Value(str.split('').reversed.join(''));
   }
 }
@@ -1893,7 +1898,7 @@ class _StringPack implements BuiltinFunction {
       }
     }
 
-    final result = String.fromCharCodes(bytes);
+    final result = LuaString.fromBytes(bytes);
     return Value(result);
   }
 }
@@ -2084,12 +2089,14 @@ class _StringUnpack implements BuiltinFunction {
       );
     }
     final format = (args[0] as Value).raw.toString();
-    final binary = (args[1] as Value).raw.toString();
+    final binaryValue = args[1] as Value;
     final pos = args.length > 2 ? NumberUtils.toInt((args[2] as Value).raw) : 1;
 
     final results = <Value>[];
     var offset = pos - 1;
-    final bytes = binary.codeUnits;
+    final bytes = binaryValue.raw is LuaString
+        ? (binaryValue.raw as LuaString).bytes
+        : LuaString.fromDartString(binaryValue.raw.toString()).bytes;
     Endian endianness = Endian.host;
     int maxAlign = 1;
 
@@ -2225,6 +2232,11 @@ class _StringUnpack implements BuiltinFunction {
               results.add(Value(value));
             } else {
               // Integer types
+              if ((opt.type == 'i' || opt.type == 'I') &&
+                  size > BinaryTypeSize.j) {
+                throw LuaError('does not fit');
+              }
+
               int value = _unpackInt(bytes, offset, size, endianness);
               // For signed integer types, handle sign extension
               if ((opt.type == 'b' ||
