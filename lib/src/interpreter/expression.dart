@@ -141,10 +141,9 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       // Check left operand's metamethod
       var metamethod = leftVal.getMetamethod(metamethodName);
 
-      // If not found in left, check right operand's metamethod
-      if (metamethod == null && metamethodName != '__eq') {
-        metamethod = rightVal.getMetamethod(metamethodName);
-      }
+      // If not found in left, check right operand's metamethod. For '__eq'
+      // Lua will look at both operands.
+      metamethod ??= rightVal.getMetamethod(metamethodName);
 
       bool swapArgs = false;
       bool invertResult = false;

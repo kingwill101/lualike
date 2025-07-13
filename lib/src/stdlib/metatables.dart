@@ -12,6 +12,7 @@ class MetaTable {
 
   bool _initialized = false;
   final Map<String, ValueClass> _typeMetatables = {};
+  bool _numberMetatableEnabled = false;
 
   factory MetaTable() {
     return _instance;
@@ -47,29 +48,6 @@ class MetaTable {
           return Value((str.raw as LuaString).length);
         }
         return Value(str.raw.toString().length);
-      },
-      '__concat': (List<Object?> args) {
-        final a = args[0] as Value;
-        final b = args[1] as Value;
-        Logger.debug(
-          'String __concat metamethod called: "${a.raw}" .. "${b.raw}"',
-          category: 'Metatables',
-        );
-
-        // For better interop, return Dart strings unless LuaString is needed
-        if (a.raw is LuaString || b.raw is LuaString) {
-          // If either operand is a LuaString, preserve byte-level operations
-          final aStr = a.raw is LuaString
-              ? (a.raw as LuaString)
-              : LuaString.fromDartString(a.raw.toString());
-          final bStr = b.raw is LuaString
-              ? (b.raw as LuaString)
-              : LuaString.fromDartString(b.raw.toString());
-          return Value(aStr + bStr);
-        } else {
-          // Both operands are normal types, return Dart string
-          return Value(a.raw.toString() + b.raw.toString());
-        }
       },
       '__index': (List<Object?> args) {
         final str = args[0] as Value;
@@ -412,6 +390,9 @@ class MetaTable {
       category: 'Metatables',
     );
     _typeMetatables[type] = metatable;
+    if (type == 'number') {
+      _numberMetatableEnabled = true;
+    }
   }
 
   String _determineType(Object? value) {
@@ -448,9 +429,9 @@ class MetaTable {
     final type = _determineType(value.raw);
     Logger.debug('Determined type for value: $type', category: 'Metatables');
 
-    // In Lua, tables and numbers do not have default metatables. They only get
-    // metatables when explicitly assigned via setmetatable or debug APIs.
-    if (type == 'table' || type == 'number') {
+    // Tables do not receive a default metatable. Numbers only receive one
+    // after debug.setmetatable registers it.
+    if (type == 'table' || (type == 'number' && !_numberMetatableEnabled)) {
       Logger.debug(
         'Not applying default metatable to $type - defaults are nil',
         category: 'Metatables',

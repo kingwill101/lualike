@@ -32,8 +32,12 @@ class GetMetatableFunction implements BuiltinFunction {
       return metatable['__metatable'];
     }
 
-    // Return the actual metatable as a Value wrapping the Map
-    // Don't double-wrap it if it's already a Value
+    // Return the original metatable value if available to preserve identity
+    if (value.metatableRef != null) {
+      return value.metatableRef;
+    }
+
+    // Otherwise wrap the map in a new Value
     return Value(metatable);
   }
 }
@@ -63,6 +67,8 @@ class SetMetatableFunction implements BuiltinFunction {
 
     if (metatable is Value) {
       if (metatable.raw is Map) {
+        // Preserve identity by keeping a reference to the original Value.
+        table.metatableRef = metatable;
         // Reuse the same map instance so identity comparisons work as expected.
         final rawMeta = Map.castFrom<dynamic, dynamic, String, dynamic>(
           metatable.raw as Map,
@@ -72,6 +78,7 @@ class SetMetatableFunction implements BuiltinFunction {
       } else if (metatable.raw == null) {
         // Setting nil metatable removes the metatable
         table.metatable = null;
+        table.metatableRef = null;
         return table;
       }
     }
@@ -84,7 +91,7 @@ class SetMetatableFunction implements BuiltinFunction {
 class RawSetFunction implements BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
-    if (args.length != 3) {
+    if (args.length < 3) {
       throw Exception("rawset expects three arguments (table, key, value)");
     }
 
@@ -748,6 +755,7 @@ class SetmetaFunction implements BuiltinFunction {
         "setmetatable called on table with raw: ${table.raw} and meta: ${meta.raw}",
         category: "Metatables",
       );
+      table.metatableRef = meta;
       table.setMetatable((meta.raw as Map).cast());
       Logger.debug(
         "Metatable set. New metatable: ${table.getMetatable()}",
