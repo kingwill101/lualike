@@ -1058,7 +1058,7 @@ class _StringGmatch implements BuiltinFunction {
         (patternValue is LuaString && !isValidUtf8(patternValue));
 
     // Special-case utf8.charpattern: implement our own iterator that walks
-    // UTF-8 byte sequences using LuaStringParser so we don’t rely on the
+    // UTF-8 byte sequences using LuaStringParser so we don't rely on the
     // LuaPattern engine (which operates on code-units and caused corruption
     // when multi-byte characters were involved).
 
@@ -1666,7 +1666,7 @@ class _StringPack implements BuiltinFunction {
           opt.type != '=' &&
           opt.type != '!' &&
           opt.type != 'X') {
-          break;
+        break;
       }
       switch (opt.type) {
         case '<':
@@ -1722,7 +1722,7 @@ class _StringPack implements BuiltinFunction {
             switch (opt.type) {
               case 'b':
                 size = BinaryTypeSize.b;
-          break;
+                break;
               case 'B':
                 size = BinaryTypeSize.B;
                 break;
@@ -1780,15 +1780,15 @@ class _StringPack implements BuiltinFunction {
               bytes.addAll(NumberUtils.packFloat64(value, endianness));
             } else {
               // Integer types
-          var n = NumberUtils.toInt((values[i] as Value).raw);
+              var n = NumberUtils.toInt((values[i] as Value).raw);
               // For unsigned types, no special handling needed in Lua
               // Lua treats all integers as signed, so we just pack the value as-is
               final packed = _packInt(n, size, endianness);
               bytes.addAll(packed);
             }
-          i++;
+            i++;
             offset += size;
-          break;
+            break;
           }
         case 's': // size-prefixed string with native integer size
           {
@@ -1802,9 +1802,9 @@ class _StringPack implements BuiltinFunction {
             bytes.addAll(lengthBytes);
             bytes.addAll(encoded);
 
-          i++;
+            i++;
             offset += size + encoded.length;
-          break;
+            break;
           }
         case 'X':
           {
@@ -1873,13 +1873,13 @@ class _StringPack implements BuiltinFunction {
           continue;
         case 'z':
           {
-          var s = (values[i] as Value).raw.toString();
+            var s = (values[i] as Value).raw.toString();
             final encoded = utf8.encode(s);
             bytes.addAll(encoded);
             bytes.add(0); // zero terminator
-          i++;
+            i++;
             offset += encoded.length + 1;
-          break;
+            break;
           }
 
         default:
@@ -1916,30 +1916,79 @@ class _StringPackSize implements BuiltinFunction {
     }
     final format = (args[0] as Value).raw.toString();
 
-    var size = 0;
-    for (var c in format.split('')) {
-      switch (c) {
-        case 'b':
-        case 'B':
-          size += 1;
-          break;
-        case 'h':
-        case 'H':
-          size += 2;
-          break;
-        case 'i':
-        case 'I':
-          size += 4;
-          break;
-        case 'l':
-        case 'L':
-          size += 8;
-          break;
-        default:
-          throw LuaError.typeError("Invalid format option '$c'");
+    // Use the new parser instead of character-by-character parsing
+    try {
+      final options = BinaryFormatParser.parse(format);
+      var totalSize = 0;
+      int maxAlign = 1;
+
+      for (final opt in options) {
+        switch (opt.type) {
+          case '<':
+          case '>':
+          case '=':
+            continue; // Endianness doesn't affect size
+          case '!':
+            if (opt.align == null) {
+              throw LuaError("missing number for format option '!' ");
+            }
+            maxAlign = opt.align!;
+            continue;
+          case 'c':
+            if (opt.size == null) {
+              throw LuaError("missing size for format option 'c'");
+            }
+            totalSize += opt.size!;
+            break;
+          case 'b':
+          case 'B':
+            totalSize += BinaryTypeSize.b;
+            break;
+          case 'h':
+          case 'H':
+            totalSize += BinaryTypeSize.h;
+            break;
+          case 'l':
+          case 'L':
+            totalSize += BinaryTypeSize.l;
+            break;
+          case 'j':
+          case 'J':
+            totalSize += BinaryTypeSize.j;
+            break;
+          case 'T':
+            totalSize += BinaryTypeSize.T;
+            break;
+          case 'f':
+            totalSize += BinaryTypeSize.f;
+            break;
+          case 'd':
+          case 'n':
+            totalSize += BinaryTypeSize.d;
+            break;
+          case 'i':
+            totalSize += opt.size ?? BinaryTypeSize.i;
+            break;
+          case 'I':
+            totalSize += opt.size ?? BinaryTypeSize.I;
+            break;
+          case 's':
+          case 'z':
+            throw LuaError("string.packsize: variable length format");
+          case 'x':
+            totalSize += 1;
+            break;
+          case 'X':
+            throw LuaError("string.packsize: variable alignment format");
+          default:
+            throw LuaError.typeError("Invalid format option '${opt.type}'");
+        }
       }
+      return Value(totalSize);
+    } catch (e) {
+      if (e is LuaError) rethrow;
+      throw LuaError.typeError("Invalid format string: $e");
     }
-    return Value(size);
   }
 }
 
@@ -1958,64 +2007,291 @@ class _StringUnpack implements BuiltinFunction {
     final results = <Value>[];
     var offset = pos - 1;
     final bytes = binary.codeUnits;
+    Endian endianness = Endian.host;
+    int maxAlign = 1;
 
-    for (var c in format.split('')) {
-      switch (c) {
-        case 'b': // signed byte
+    int alignTo(int offset, int align) {
+      if (align <= 1) return 0;
+      if ((align & (align - 1)) != 0) {
+        throw LuaError("format asks for alignment not power of 2");
+      }
+      final mod = offset % align;
+      return mod == 0 ? 0 : align - mod;
+    }
+
+    final options = BinaryFormatParser.parse(format);
+    var i = 0;
+    for (final opt in options) {
+      switch (opt.type) {
+        case '<':
+          endianness = Endian.little;
+          continue;
+        case '>':
+          endianness = Endian.big;
+          continue;
+        case '=':
+          endianness = Endian.host;
+          continue;
+        case '!':
+          if (opt.align == null) {
+            throw LuaError("missing number for format option '!' ");
+          }
+          maxAlign = opt.align!;
+          if ((maxAlign & (maxAlign - 1)) != 0) {
+            throw LuaError("format asks for alignment not power of 2");
+          }
+          continue;
+        case 'c': // char array of size N (never needs alignment)
+          final size = opt.size;
+          if (size == null) {
+            throw LuaError("missing size for format option 'c'");
+          }
+          if (offset + size - 1 >= bytes.length) {
+            throw LuaError.typeError("unpack: out of bounds");
+          }
+          final strBytes = bytes.sublist(offset, offset + size);
+          final str = String.fromCharCodes(strBytes);
+          results.add(Value(str));
+          offset += size;
+          break;
+        case 'b':
+        case 'B':
+        case 'h':
+        case 'H':
+        case 'l':
+        case 'L':
+        case 'j':
+        case 'J':
+        case 'T':
+        case 'f':
+        case 'd':
+        case 'n':
+        case 'i':
+        case 'I':
+          {
+            int size;
+            switch (opt.type) {
+              case 'b':
+                size = BinaryTypeSize.b;
+                break;
+              case 'B':
+                size = BinaryTypeSize.B;
+                break;
+              case 'h':
+                size = BinaryTypeSize.h;
+                break;
+              case 'H':
+                size = BinaryTypeSize.H;
+                break;
+              case 'l':
+                size = BinaryTypeSize.l;
+                break;
+              case 'L':
+                size = BinaryTypeSize.L;
+                break;
+              case 'j':
+                size = BinaryTypeSize.j;
+                break;
+              case 'J':
+                size = BinaryTypeSize.J;
+                break;
+              case 'T':
+                size = BinaryTypeSize.T;
+                break;
+              case 'f':
+                size = BinaryTypeSize.f;
+                break;
+              case 'd':
+                size = BinaryTypeSize.d;
+                break;
+              case 'n':
+                size = BinaryTypeSize.n;
+                break;
+              case 'i':
+                size = opt.size ?? BinaryTypeSize.i;
+                break;
+              case 'I':
+                size = opt.size ?? BinaryTypeSize.I;
+                break;
+              default:
+                size = 1;
+                break;
+            }
+            final align = size > maxAlign ? maxAlign : size;
+            final pad = alignTo(offset, align);
+            offset += pad;
+            if (offset + size - 1 >= bytes.length) {
+              throw LuaError.typeError("unpack: out of bounds");
+            }
+
+            // Handle float types differently from integer types
+            if (opt.type == 'f') {
+              final value = NumberUtils.unpackFloat32(
+                bytes,
+                offset,
+                endianness,
+              );
+              results.add(Value(value));
+            } else if (opt.type == 'd' || opt.type == 'n') {
+              final value = NumberUtils.unpackFloat64(
+                bytes,
+                offset,
+                endianness,
+              );
+              results.add(Value(value));
+            } else {
+              // Integer types
+              int value = _unpackInt(bytes, offset, size, endianness);
+              // For signed integer types, handle sign extension
+              if ((opt.type == 'b' ||
+                      opt.type == 'h' ||
+                      opt.type == 'l' ||
+                      opt.type == 'j' ||
+                      opt.type == 'i') &&
+                  size > 0) {
+                final signBit = 1 << ((size * 8) - 1);
+                final mask = (1 << (size * 8)) - 1;
+                if ((value & signBit) != 0) {
+                  value = value - (mask + 1);
+                }
+              }
+              // For unsigned types, no additional processing needed
+              // Lua integers are always signed, so unsigned formats just affect packing, not unpacking
+              results.add(Value(value));
+            }
+            offset += size;
+            break;
+          }
+        case 's': // size-prefixed string with native integer size
+          {
+            final size =
+                opt.size ?? BinaryTypeSize.j; // Use lua_Integer size as default
+
+            if (offset + size - 1 >= bytes.length) {
+              throw LuaError.typeError("unpack: out of bounds");
+            }
+
+            // Read the length as an integer
+            final length = _unpackInt(bytes, offset, size, endianness);
+            offset += size;
+
+            if (offset + length - 1 >= bytes.length) {
+              throw LuaError.typeError("unpack: out of bounds");
+            }
+
+            final str = String.fromCharCodes(
+              bytes.sublist(offset, offset + length),
+            );
+            results.add(Value(str));
+            offset += length;
+            break;
+          }
+        case 'X':
+          {
+            // Look ahead to next option
+            if (i + 1 >= options.length) {
+              throw LuaError("'X' cannot be last in format string");
+            }
+            final nextOpt = options[i + 1];
+            int size;
+            switch (nextOpt.type) {
+              case 'b':
+                size = BinaryTypeSize.b;
+                break;
+              case 'B':
+                size = BinaryTypeSize.B;
+                break;
+              case 'h':
+                size = BinaryTypeSize.h;
+                break;
+              case 'H':
+                size = BinaryTypeSize.H;
+                break;
+              case 'l':
+                size = BinaryTypeSize.l;
+                break;
+              case 'L':
+                size = BinaryTypeSize.L;
+                break;
+              case 'j':
+                size = BinaryTypeSize.j;
+                break;
+              case 'J':
+                size = BinaryTypeSize.J;
+                break;
+              case 'T':
+                size = BinaryTypeSize.T;
+                break;
+              case 'f':
+                size = BinaryTypeSize.f;
+                break;
+              case 'd':
+                size = BinaryTypeSize.d;
+                break;
+              case 'n':
+                size = BinaryTypeSize.n;
+                break;
+              case 'i':
+                size = nextOpt.size ?? BinaryTypeSize.i;
+                break;
+              case 'I':
+                size = nextOpt.size ?? BinaryTypeSize.I;
+                break;
+              default:
+                throw LuaError(
+                  "'X' cannot align to non-alignable type '${nextOpt.type}'",
+                );
+            }
+            final align = size > maxAlign ? maxAlign : size;
+            final pad = alignTo(offset, align);
+            offset += pad;
+            continue;
+          }
+        case 'x':
           if (offset >= bytes.length) {
             throw LuaError.typeError("unpack: out of bounds");
           }
-          var value = bytes[offset];
-          // Handle sign extension for signed byte
-          if (value & 0x80 != 0) {
-            value = value - 256;
+          offset += 1;
+          continue;
+        case 'z':
+          {
+            var end = bytes.indexOf(0, offset);
+            if (end == -1) {
+              throw LuaError.typeError(
+                "unpack: unfinished string for format 'z'",
+              );
+            }
+            var str = String.fromCharCodes(bytes.sublist(offset, end));
+            results.add(Value(str));
+            offset = end + 1;
+            break;
           }
-          results.add(Value(value));
-          offset++;
-          break;
-        case 'h': // signed short
-          if (offset + 1 >= bytes.length) {
-            throw LuaError.typeError("unpack: out of bounds");
-          }
-          // Little endian
-          var value = bytes[offset] | (bytes[offset + 1] << 8);
-          // Handle sign extension for signed short
-          if (value & 0x8000 != 0) {
-            value = value - 65536;
-          }
-          results.add(Value(value));
-          offset += 2;
-          break;
-        case 'i': // signed int
-          if (offset + 3 >= bytes.length) {
-            throw LuaError.typeError("unpack: out of bounds");
-          }
-          // Little endian
-          var value =
-              bytes[offset] |
-              (bytes[offset + 1] << 8) |
-              (bytes[offset + 2] << 16) |
-              (bytes[offset + 3] << 24);
-          // Convert to signed 32-bit integer
-          if (value >= 0x80000000) {
-            value = value - 0x100000000;
-          }
-          results.add(Value(value));
-          offset += 4;
-          break;
-        case 's': // null-terminated string
-          var end = bytes.indexOf(0, offset);
-          if (end == -1) end = bytes.length;
-          var str = String.fromCharCodes(bytes.sublist(offset, end));
-          results.add(Value(str));
-          offset = end + 1;
-          break;
-      }
-    }
 
+        default:
+          // TODO: Implement all options
+          throw LuaError(
+            "string.unpack: option ' [${opt.type}] ' not implemented",
+          );
+      }
+      i++;
+    }
     results.add(Value(offset + 1)); // Next position after unpacking
     return results;
   }
+}
+
+int _unpackInt(List<int> bytes, int offset, int size, Endian endianness) {
+  int value = 0;
+  if (endianness == Endian.little) {
+    for (var b = 0; b < size; b++) {
+      value |= (bytes[offset + b] << (8 * b));
+    }
+  } else {
+    for (var b = 0; b < size; b++) {
+      value |= (bytes[offset + b] << (8 * (size - b - 1)));
+    }
+  }
+  return value;
 }
 
 class _StringUpper implements BuiltinFunction {
