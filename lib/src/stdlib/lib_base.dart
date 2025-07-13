@@ -91,7 +91,7 @@ class SetMetatableFunction implements BuiltinFunction {
 class RawSetFunction implements BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
-    if (args.length != 3) {
+    if (args.length < 3) {
       throw Exception("rawset expects three arguments (table, key, value)");
     }
 
