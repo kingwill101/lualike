@@ -31,8 +31,8 @@ void main() {
 
       final localA = (bridge.getGlobal('local_a') as Value).raw;
       final envARaw = (bridge.getGlobal('env_a_raw') as Value).raw;
-      expect(localA, equals(20));     // local a should be 20
-      expect(envARaw, equals(null));  // rawget(_ENV, "a") should be nil
+      expect(localA, equals(20)); // local a should be 20
+      expect(envARaw, equals(null)); // rawget(_ENV, "a") should be nil
     });
 
     test('global variable assignment when _ENV changed', () async {
@@ -46,7 +46,7 @@ void main() {
 
       final envX = (bridge.getGlobal('env_x') as Value).raw;
       final globalX = (bridge.getGlobal('global_x') as Value).raw;
-      expect(envX, equals(20));   // X (from _ENV) should be 20
+      expect(envX, equals(20)); // X (from _ENV) should be 20
       expect(globalX, equals(10)); // _G.X should remain 10
     });
 
@@ -71,13 +71,19 @@ void main() {
       ''');
 
       final resultA1 = (bridge.getGlobal('result_a1') as Value).raw;
-      final resultTostring = (bridge.getGlobal('result_tostring') as Value).raw as String;
-      expect(resultA1, equals(null));       // a[1] should be nil (empty table)
-      expect(resultTostring, contains('table:')); // tostring(a) should contain "table:"
+      final resultTostring =
+          (bridge.getGlobal('result_tostring') as Value).raw as String;
+      expect(resultA1, equals(null)); // a[1] should be nil (empty table)
+      expect(
+        resultTostring,
+        contains('table:'),
+      ); // tostring(a) should contain "table:"
     });
 
-    test('complex scenario with multiple local and global assignments', () async {
-      await bridge.runCode('''
+    test(
+      'complex scenario with multiple local and global assignments',
+      () async {
+        await bridge.runCode('''
         local a, b = 1, 2
         c = 3
         
@@ -99,26 +105,33 @@ void main() {
         _G.global_c = _G.c
       ''');
 
-      final localA = (bridge.getGlobal('local_a') as Value).raw;
-      final localB = (bridge.getGlobal('local_b') as Value).raw;
-      final envC = (bridge.getGlobal('env_c') as Value).raw;
-      final envD = (bridge.getGlobal('env_d') as Value).raw;
-      final envARaw = (bridge.getGlobal('env_a_raw') as Value).raw;
-      final envBRaw = (bridge.getGlobal('env_b_raw') as Value).raw;
-      final envCRaw = (bridge.getGlobal('env_c_raw') as Value).raw;
-      final envDRaw = (bridge.getGlobal('env_d_raw') as Value).raw;
-      final globalC = (bridge.getGlobal('global_c') as Value).raw;
-      
-      expect(localA, equals(10));     // local a = 10
-      expect(localB, equals(20));     // local b = 20
-      expect(envC, equals(30));       // _ENV.c = 30
-      expect(envD, equals(40));       // _ENV.d = 40
-      expect(envARaw, equals(null));  // rawget(_ENV, "a") = nil (local not in _ENV)
-      expect(envBRaw, equals(null));  // rawget(_ENV, "b") = nil (local not in _ENV)
-      expect(envCRaw, equals(30));    // rawget(_ENV, "c") = 30 (global in _ENV)
-      expect(envDRaw, equals(40));    // rawget(_ENV, "d") = 40 (global in _ENV)
-      expect(globalC, equals(3));     // _G.c = 3 (original unchanged)
-    });
+        final localA = (bridge.getGlobal('local_a') as Value).raw;
+        final localB = (bridge.getGlobal('local_b') as Value).raw;
+        final envC = (bridge.getGlobal('env_c') as Value).raw;
+        final envD = (bridge.getGlobal('env_d') as Value).raw;
+        final envARaw = (bridge.getGlobal('env_a_raw') as Value).raw;
+        final envBRaw = (bridge.getGlobal('env_b_raw') as Value).raw;
+        final envCRaw = (bridge.getGlobal('env_c_raw') as Value).raw;
+        final envDRaw = (bridge.getGlobal('env_d_raw') as Value).raw;
+        final globalC = (bridge.getGlobal('global_c') as Value).raw;
+
+        expect(localA, equals(10)); // local a = 10
+        expect(localB, equals(20)); // local b = 20
+        expect(envC, equals(30)); // _ENV.c = 30
+        expect(envD, equals(40)); // _ENV.d = 40
+        expect(
+          envARaw,
+          equals(null),
+        ); // rawget(_ENV, "a") = nil (local not in _ENV)
+        expect(
+          envBRaw,
+          equals(null),
+        ); // rawget(_ENV, "b") = nil (local not in _ENV)
+        expect(envCRaw, equals(30)); // rawget(_ENV, "c") = 30 (global in _ENV)
+        expect(envDRaw, equals(40)); // rawget(_ENV, "d") = 40 (global in _ENV)
+        expect(globalC, equals(3)); // _G.c = 3 (original unchanged)
+      },
+    );
 
     test('nested scope with _ENV change', () async {
       await bridge.runCode('''
@@ -141,10 +154,10 @@ void main() {
       final outerA = (bridge.getGlobal('outer_a') as Value).raw;
       final innerB = (bridge.getGlobal('inner_b') as Value).raw;
       final envC = (bridge.getGlobal('env_c') as Value).raw;
-      
-      expect(outerA, equals(10));     // outer local a = 10
-      expect(innerB, equals(20));     // inner local b = 20
-      expect(envC, equals(30));       // _ENV.c = 30
+
+      expect(outerA, equals(10)); // outer local a = 10
+      expect(innerB, equals(20)); // inner local b = 20
+      expect(envC, equals(30)); // _ENV.c = 30
     });
   });
 }
