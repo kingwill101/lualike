@@ -1680,11 +1680,12 @@ class _StringPack implements BuiltinFunction {
           continue;
         case '!':
           if (opt.align == null) {
-            throw LuaError("missing number for format option '!' ");
-          }
-          maxAlign = opt.align!;
-          if ((maxAlign & (maxAlign - 1)) != 0) {
-            throw LuaError("format asks for alignment not power of 2");
+            maxAlign = BinaryTypeSize.j; // reset to default alignment
+          } else {
+            maxAlign = opt.align!;
+            if ((maxAlign & (maxAlign - 1)) != 0) {
+              throw LuaError("format asks for alignment not power of 2");
+            }
           }
           continue;
         case 'c': // char array of size N (never needs alignment)
@@ -1808,59 +1809,62 @@ class _StringPack implements BuiltinFunction {
           }
         case 'X':
           {
-            // Look ahead to next option
-            if (i + 1 >= values.length) {
-              throw LuaError("'X' cannot be last in format string");
-            }
-            final nextOpt = options[i + 1];
             int size;
-            switch (nextOpt.type) {
-              case 'b':
-                size = BinaryTypeSize.b;
-                break;
-              case 'B':
-                size = BinaryTypeSize.B;
-                break;
-              case 'h':
-                size = BinaryTypeSize.h;
-                break;
-              case 'H':
-                size = BinaryTypeSize.H;
-                break;
-              case 'l':
-                size = BinaryTypeSize.l;
-                break;
-              case 'L':
-                size = BinaryTypeSize.L;
-                break;
-              case 'j':
-                size = BinaryTypeSize.j;
-                break;
-              case 'J':
-                size = BinaryTypeSize.J;
-                break;
-              case 'T':
-                size = BinaryTypeSize.T;
-                break;
-              case 'f':
-                size = BinaryTypeSize.f;
-                break;
-              case 'd':
-                size = BinaryTypeSize.d;
-                break;
-              case 'n':
-                size = BinaryTypeSize.n;
-                break;
-              case 'i':
-                size = nextOpt.size ?? BinaryTypeSize.i;
-                break;
-              case 'I':
-                size = nextOpt.size ?? BinaryTypeSize.I;
-                break;
-              default:
-                throw LuaError(
-                  "'X' cannot align to non-alignable type '${nextOpt.type}'",
-                );
+            if (opt.size != null) {
+              size = opt.size!;
+            } else {
+              if (i + 1 >= options.length) {
+                throw LuaError("'X' cannot be last in format string");
+              }
+              final nextOpt = options[i + 1];
+              switch (nextOpt.type) {
+                case 'b':
+                  size = BinaryTypeSize.b;
+                  break;
+                case 'B':
+                  size = BinaryTypeSize.B;
+                  break;
+                case 'h':
+                  size = BinaryTypeSize.h;
+                  break;
+                case 'H':
+                  size = BinaryTypeSize.H;
+                  break;
+                case 'l':
+                  size = BinaryTypeSize.l;
+                  break;
+                case 'L':
+                  size = BinaryTypeSize.L;
+                  break;
+                case 'j':
+                  size = BinaryTypeSize.j;
+                  break;
+                case 'J':
+                  size = BinaryTypeSize.J;
+                  break;
+                case 'T':
+                  size = BinaryTypeSize.T;
+                  break;
+                case 'f':
+                  size = BinaryTypeSize.f;
+                  break;
+                case 'd':
+                  size = BinaryTypeSize.d;
+                  break;
+                case 'n':
+                  size = BinaryTypeSize.n;
+                  break;
+                case 'i':
+                  size = nextOpt.size ?? BinaryTypeSize.i;
+                  break;
+                case 'I':
+                  size = nextOpt.size ?? BinaryTypeSize.I;
+                  break;
+                default:
+                  throw LuaError(
+                    "'X' cannot align to non-alignable type '${nextOpt.type}'",
+                  );
+              }
             }
             final align = size > maxAlign ? maxAlign : size;
             final pad = alignTo(offset, align);
@@ -1945,9 +1949,10 @@ class _StringPackSize implements BuiltinFunction {
             continue; // Endianness doesn't affect size
           case '!':
             if (opt.align == null) {
-              throw LuaError("missing number for format option '!' ");
+              maxAlign = BinaryTypeSize.j; // reset to default alignment
+            } else {
+              maxAlign = opt.align!;
             }
-            maxAlign = opt.align!;
             continue;
           case 'c':
             if (opt.size == null) {
@@ -1994,7 +1999,70 @@ class _StringPackSize implements BuiltinFunction {
             offset += 1;
             break;
           case 'X':
-            throw LuaError("string.packsize: variable alignment format");
+            {
+              int size;
+              if (opt.size != null) {
+                size = opt.size!;
+              } else {
+                final idx = options.indexOf(opt);
+                if (idx + 1 >= options.length) {
+                  throw LuaError("'X' cannot be last in format string");
+                }
+                final nextOpt = options[idx + 1];
+                switch (nextOpt.type) {
+                  case 'b':
+                    size = BinaryTypeSize.b;
+                    break;
+                  case 'B':
+                    size = BinaryTypeSize.B;
+                    break;
+                  case 'h':
+                    size = BinaryTypeSize.h;
+                    break;
+                  case 'H':
+                    size = BinaryTypeSize.H;
+                    break;
+                  case 'l':
+                    size = BinaryTypeSize.l;
+                    break;
+                  case 'L':
+                    size = BinaryTypeSize.L;
+                    break;
+                  case 'j':
+                    size = BinaryTypeSize.j;
+                    break;
+                  case 'J':
+                    size = BinaryTypeSize.J;
+                    break;
+                  case 'T':
+                    size = BinaryTypeSize.T;
+                    break;
+                  case 'f':
+                    size = BinaryTypeSize.f;
+                    break;
+                  case 'd':
+                    size = BinaryTypeSize.d;
+                    break;
+                  case 'n':
+                    size = BinaryTypeSize.n;
+                    break;
+                  case 'i':
+                    size = nextOpt.size ?? BinaryTypeSize.i;
+                    break;
+                  case 'I':
+                    size = nextOpt.size ?? BinaryTypeSize.I;
+                    break;
+                  default:
+                    throw LuaError(
+                      "'X' cannot align to non-alignable type '${nextOpt.type}'",
+                    );
+                }
+              }
+              final align = size > maxAlign ? maxAlign : size;
+              final pad = alignTo(offset, align);
+              offset += pad;
+              continue;
+            }
           default:
             throw LuaError.typeError("Invalid format option '${opt.type}'");
         }
@@ -2049,11 +2117,12 @@ class _StringUnpack implements BuiltinFunction {
           continue;
         case '!':
           if (opt.align == null) {
-            throw LuaError("missing number for format option '!' ");
-          }
-          maxAlign = opt.align!;
-          if ((maxAlign & (maxAlign - 1)) != 0) {
-            throw LuaError("format asks for alignment not power of 2");
+            maxAlign = BinaryTypeSize.j; // reset to default alignment
+          } else {
+            maxAlign = opt.align!;
+            if ((maxAlign & (maxAlign - 1)) != 0) {
+              throw LuaError("format asks for alignment not power of 2");
+            }
           }
           continue;
         case 'c': // char array of size N (never needs alignment)
@@ -2201,59 +2270,62 @@ class _StringUnpack implements BuiltinFunction {
           }
         case 'X':
           {
-            // Look ahead to next option
-            if (i + 1 >= options.length) {
-              throw LuaError("'X' cannot be last in format string");
-            }
-            final nextOpt = options[i + 1];
             int size;
-            switch (nextOpt.type) {
-              case 'b':
-                size = BinaryTypeSize.b;
-                break;
-              case 'B':
-                size = BinaryTypeSize.B;
-                break;
-              case 'h':
-                size = BinaryTypeSize.h;
-                break;
-              case 'H':
-                size = BinaryTypeSize.H;
-                break;
-              case 'l':
-                size = BinaryTypeSize.l;
-                break;
-              case 'L':
-                size = BinaryTypeSize.L;
-                break;
-              case 'j':
-                size = BinaryTypeSize.j;
-                break;
-              case 'J':
-                size = BinaryTypeSize.J;
-                break;
-              case 'T':
-                size = BinaryTypeSize.T;
-                break;
-              case 'f':
-                size = BinaryTypeSize.f;
-                break;
-              case 'd':
-                size = BinaryTypeSize.d;
-                break;
-              case 'n':
-                size = BinaryTypeSize.n;
-                break;
-              case 'i':
-                size = nextOpt.size ?? BinaryTypeSize.i;
-                break;
-              case 'I':
-                size = nextOpt.size ?? BinaryTypeSize.I;
-                break;
-              default:
-                throw LuaError(
-                  "'X' cannot align to non-alignable type '${nextOpt.type}'",
-                );
+            if (opt.size != null) {
+              size = opt.size!;
+            } else {
+              if (i + 1 >= options.length) {
+                throw LuaError("'X' cannot be last in format string");
+              }
+              final nextOpt = options[i + 1];
+              switch (nextOpt.type) {
+                case 'b':
+                  size = BinaryTypeSize.b;
+                  break;
+                case 'B':
+                  size = BinaryTypeSize.B;
+                  break;
+                case 'h':
+                  size = BinaryTypeSize.h;
+                  break;
+                case 'H':
+                  size = BinaryTypeSize.H;
+                  break;
+                case 'l':
+                  size = BinaryTypeSize.l;
+                  break;
+                case 'L':
+                  size = BinaryTypeSize.L;
+                  break;
+                case 'j':
+                  size = BinaryTypeSize.j;
+                  break;
+                case 'J':
+                  size = BinaryTypeSize.J;
+                  break;
+                case 'T':
+                  size = BinaryTypeSize.T;
+                  break;
+                case 'f':
+                  size = BinaryTypeSize.f;
+                  break;
+                case 'd':
+                  size = BinaryTypeSize.d;
+                  break;
+                case 'n':
+                  size = BinaryTypeSize.n;
+                  break;
+                case 'i':
+                  size = nextOpt.size ?? BinaryTypeSize.i;
+                  break;
+                case 'I':
+                  size = nextOpt.size ?? BinaryTypeSize.I;
+                  break;
+                default:
+                  throw LuaError(
+                    "'X' cannot align to non-alignable type '${nextOpt.type}'",
+                  );
+              }
             }
             final align = size > maxAlign ? maxAlign : size;
             final pad = alignTo(offset, align);

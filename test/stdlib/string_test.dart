@@ -720,6 +720,14 @@ void main() {
         ); // 1+3 pad+4 (no alignment for x)
       });
 
+      test('packsize default alignment', () async {
+        final bridge = LuaLike();
+
+        await bridge.runCode('size_default = string.packsize("!xXi16")');
+
+        expect((bridge.getGlobal('size_default') as Value).raw, equals(8));
+      });
+
       test('comprehensive mixed format', () async {
         final bridge = LuaLike();
 

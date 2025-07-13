@@ -1,5 +1,6 @@
 import 'package:petitparser/petitparser.dart';
 import 'package:lualike/src/lua_error.dart';
+import 'package:lualike/src/stdlib/binary_type_size.dart';
 
 /// Represents a single directive inside a Lua 5.4 `string.pack` format.
 class BinaryFormatOption {
@@ -28,14 +29,20 @@ class BinaryFormatParser {
     '<>=',
   ).map((c) => BinaryFormatOption(c, raw: c));
 
-  /// Alignment: `!n`  (n must be a power of two)
-  static final Parser<BinaryFormatOption> alignParser = (char('!') & digits)
-      .map((v) {
-        final n = int.parse(v[1]);
-        if (n <= 0 || (n & (n - 1)) != 0) {
-          throw LuaError("format asks for alignment not power of 2");
+  /// Alignment: `!n`  (n must be a power of two). A bare `!` resets to the
+  /// default alignment.
+  static final Parser<BinaryFormatOption> alignParser =
+      (char('!') & digits.optional()).map((v) {
+        final numStr = v[1] as String?;
+        if (numStr == null) {
+          return BinaryFormatOption('!', raw: '!');
+        } else {
+          final n = int.parse(numStr);
+          if (n <= 0 || (n & (n - 1)) != 0) {
+            throw LuaError("format asks for alignment not power of 2");
+          }
+          return BinaryFormatOption('!', align: n, raw: '!$numStr');
         }
-        return BinaryFormatOption('!', align: n, raw: '!${v[1]}');
       });
 
   /// `'cN'` – fixed-length char array, **size required**
@@ -103,7 +110,73 @@ class BinaryFormatParser {
   static List<BinaryFormatOption> parse(String input) {
     final result = formatParser.parse(input);
     if (result is Success) {
-      return List<BinaryFormatOption>.from(result.value);
+      final raw = List<BinaryFormatOption>.from(result.value);
+      final processed = <BinaryFormatOption>[];
+      for (var i = 0; i < raw.length; i++) {
+        final opt = raw[i];
+        if (opt.type == 'X') {
+          if (i + 1 >= raw.length) {
+            throw LuaError("invalid next option for option 'X'");
+          }
+          final next = raw[i + 1];
+          int size;
+          switch (next.type) {
+            case 'b':
+              size = BinaryTypeSize.b;
+              break;
+            case 'B':
+              size = BinaryTypeSize.B;
+              break;
+            case 'h':
+              size = BinaryTypeSize.h;
+              break;
+            case 'H':
+              size = BinaryTypeSize.H;
+              break;
+            case 'l':
+              size = BinaryTypeSize.l;
+              break;
+            case 'L':
+              size = BinaryTypeSize.L;
+              break;
+            case 'j':
+              size = BinaryTypeSize.j;
+              break;
+            case 'J':
+              size = BinaryTypeSize.J;
+              break;
+            case 'T':
+              size = BinaryTypeSize.T;
+              break;
+            case 'f':
+              size = BinaryTypeSize.f;
+              break;
+            case 'd':
+              size = BinaryTypeSize.d;
+              break;
+            case 'n':
+              size = BinaryTypeSize.n;
+              break;
+            case 'i':
+              size = next.size ?? BinaryTypeSize.i;
+              break;
+            case 'I':
+              size = next.size ?? BinaryTypeSize.I;
+              break;
+            default:
+              throw LuaError(
+                "'X' cannot align to non-alignable type '${next.type}'",
+              );
+          }
+          processed.add(
+            BinaryFormatOption('X', size: size, raw: opt.raw + next.raw),
+          );
+          i++; // skip next
+        } else {
+          processed.add(opt);
+        }
+      }
+      return processed;
     }
     // Failure – PetitParser tells us where it got stuck.
     throw LuaError.typeError(
