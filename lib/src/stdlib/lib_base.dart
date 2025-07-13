@@ -638,7 +638,7 @@ class LoadFunction implements BuiltinFunction {
     }
 
     try {
-      final ast = parse(source);
+      final ast = parse(source, url: chunkname);
 
       // Check for const variable assignment errors
       final constChecker = ConstChecker();
@@ -714,7 +714,7 @@ class DoFileFunction implements BuiltinFunction {
 
     try {
       // Parse content into AST
-      final ast = parse(source);
+      final ast = parse(source, url: filename);
 
       // Execute in current VM context
       final result = vm.run(ast.statements);
@@ -784,7 +784,7 @@ class LoadfileFunction implements BuiltinFunction {
               return utf8.decode(bytes);
             }();
 
-      final ast = parse(source);
+      final ast = parse(source, url: filename);
       return Value((List<Object?> callArgs) {
         final vm = Interpreter();
         try {
@@ -1479,7 +1479,7 @@ class RequireFunction implements BuiltinFunction {
           category: 'Require',
         );
         // Parse the module code
-        final ast = parse(source);
+        final ast = parse(source, url: modulePathStr);
 
         // Create a new environment for the module
         final moduleEnv = Environment(parent: vm.globals, interpreter: vm);

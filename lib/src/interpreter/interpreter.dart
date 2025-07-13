@@ -380,14 +380,8 @@ class Interpreter extends AstVisitor<Object?>
           }
 
           if (!isDuplicate) {
-            // Get the script path from the call stack
-            final scriptPath = callStack.scriptPath;
             recentTrace.add(
-              LuaStackFrame.fromNode(
-                frame.callNode!,
-                frame.functionName,
-                scriptPath: scriptPath,
-              ),
+              LuaStackFrame.fromNode(frame.callNode!, frame.functionName),
             );
           }
         }
@@ -504,6 +498,7 @@ class Interpreter extends AstVisitor<Object?>
     );
 
     // Set the script path in the call stack if available
+    final prevScriptPath = callStack.scriptPath;
     final scriptPathValue = globals.get('_SCRIPT_PATH');
     if (scriptPathValue is Value && scriptPathValue.raw != null) {
       String scriptPath = scriptPathValue.raw.toString();
@@ -536,6 +531,11 @@ class Interpreter extends AstVisitor<Object?>
     }
 
     Logger.info('Program finished', category: 'Interpreter');
+
+    // Restore previous script path
+    callStack.setScriptPath(prevScriptPath);
+    currentScriptPath = prevScriptPath;
+
     return evalStack.isEmpty ? null : evalStack.peek();
   }
 
