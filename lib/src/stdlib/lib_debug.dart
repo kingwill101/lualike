@@ -166,7 +166,17 @@ class _GetMetatable implements BuiltinFunction {
   Object? call(List<Object?> args) {
     if (args.isEmpty) throw Exception("debug.getmetatable requires a value");
     final value = args[0] as Value;
-    return Value(value.getMetatable());
+    final meta = value.getMetatable();
+    if (meta == null) {
+      return Value(null);
+    }
+    if (meta.containsKey('__metatable')) {
+      return meta['__metatable'];
+    }
+    if (value.metatableRef != null) {
+      return value.metatableRef;
+    }
+    return Value(meta);
   }
 }
 
@@ -236,9 +246,11 @@ class _SetMetatable implements BuiltinFunction {
     final meta = args[1] as Value;
     if (meta.raw == null) {
       value.metatable = null;
+      value.metatableRef = null;
       return Value(true);
     }
     if (meta.raw is Map) {
+      value.metatableRef = meta;
       value.setMetatable((meta.raw as Map).cast());
       return Value(true);
     }

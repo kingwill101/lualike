@@ -22,6 +22,11 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// Optional metatable defining the value's behavior for various operations.
   Map<String, dynamic>? metatable;
 
+  /// Reference to the original metatable Value when set via `setmetatable`.
+  /// This allows `getmetatable` to return the same table object that was
+  /// provided, preserving identity semantics required by Lua tests.
+  Value? metatableRef;
+
   /// References to captured upvalues if this value represents a function/closure.
   List<Upvalue>? upvalues;
 
@@ -1852,16 +1857,9 @@ extension OperatorExtension on Value {
     }
 
     if (raw is Map && otherRaw is Map) {
-      final map1 = raw as Map;
-      final map2 = otherRaw;
-      if (map1.length != map2.length) return false;
-      if (map1.isEmpty && map2.isEmpty) return true;
-      return map1.entries.every((e) {
-        if (!map2.containsKey(e.key)) return false;
-        final v1 = e.value is Value ? e.value : Value(e.value);
-        final v2 = map2[e.key] is Value ? map2[e.key] : Value(map2[e.key]);
-        return v1 == v2;
-      });
+      // Tables compare by reference when no '__eq' metamethod is present.
+      // Using the default Dart equality here preserves this behavior.
+      return raw == otherRaw;
     }
     return raw == otherRaw;
   }
