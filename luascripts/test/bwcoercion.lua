@@ -76,3 +76,4 @@ smt.__bnot = function (x)
   return y and ~x or x
 end
 
+print("bwcoercion checkpoint  line 79")

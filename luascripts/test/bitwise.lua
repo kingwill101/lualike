@@ -4,30 +4,36 @@
 print("testing bitwise operations")
 
 require "bwcoercion"
-
+print("checkpoint  line 7")
 local numbits = string.packsize('j') * 8
 
 assert(~0 == -1)
 
 assert((1 << (numbits - 1)) == math.mininteger)
-
+print("checkpoint  line 13")
 -- basic tests for bitwise operators;
 -- use variables to avoid constant folding
 local a, b, c, d
 a = 0xFFFFFFFFFFFFFFFF
 assert(a == -1 and a & -1 == a and a & 35 == 35)
+print("checkpoint  line 19")
 a = 0xF0F0F0F0F0F0F0F0
 assert(a | -1 == -1)
+print("checkpoint  line 22")
 assert(a ~ a == 0 and a ~ 0 == a and a ~ ~a == -1)
+print("checkpoint  line 25")
 assert(a >> 4 == ~a)
+print("checkpoint  line 27")
 a = 0xF0; b = 0xCC; c = 0xAA; d = 0xFD
+print("checkpoint  line 29")
 assert(a | b ~ c & d == 0xF4)
-
+print("checkpoint  line 30")
 a = 0xF0.0; b = 0xCC.0; c = "0xAA.0"; d = "0xFD.0"
 assert(a | b ~ c & d == 0xF4)
-
+print("checkpoint  line 28")
 a = 0xF0000000; b = 0xCC000000;
 c = 0xAA000000; d = 0xFD000000
+print("checkpoint  line 31")
 assert(a | b ~ c & d == 0xF4000000)
 assert(~~a == a and ~a == -1 ~ a and -d == ~d + 1)
 
