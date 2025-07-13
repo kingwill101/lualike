@@ -1,5 +1,6 @@
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/parsers/binary_format.dart';
+import 'package:lualike/src/stdlib/binary_type_size.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -38,8 +39,11 @@ void main() {
       expect(options[0].type, '!');
       expect(options[0].align, 4);
     });
-    test('alignment: ! (error)', () {
-      expect(() => BinaryFormatParser.parse('!'), throwsA(isA<LuaError>()));
+    test('alignment: ! (default)', () {
+      final options = BinaryFormatParser.parse('!');
+      expect(options.length, 1);
+      expect(options[0].type, '!');
+      expect(options[0].align, isNull);
     });
     test('alignment: !3 (not power of 2)', () {
       expect(() => BinaryFormatParser.parse('!3'), throwsA(isA<LuaError>()));
@@ -128,10 +132,16 @@ void main() {
     });
 
     test('parses all simple types', () {
-      final options = BinaryFormatParser.parse('bBhHlLjJTdnis8xXz');
-      expect(options.map((o) => o.type).join(), 'bBhHlLjJTdnisxXz');
+      final options = BinaryFormatParser.parse('bBhHlLjJTdnis8xXh');
+      expect(options.map((o) => o.type).join(), 'bBhHlLjJTdnisxX');
       expect(options[12].type, 's');
       expect(options[12].size, 8);
+      expect(options.last.type, 'X');
+      expect(options.last.size, BinaryTypeSize.h);
+    });
+
+    test('X with non-alignable type errors', () {
+      expect(() => BinaryFormatParser.parse('Xz'), throwsA(isA<LuaError>()));
     });
 
     test('ignores spaces', () {
@@ -144,10 +154,6 @@ void main() {
 
     test('throws on missing number for c', () {
       expect(() => BinaryFormatParser.parse('c'), throwsA(isA<LuaError>()));
-    });
-
-    test('throws on missing number for !', () {
-      expect(() => BinaryFormatParser.parse('!'), throwsA(isA<LuaError>()));
     });
 
     test('throws on number for b', () {
