@@ -352,12 +352,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       );
       return result;
     } on LuaError catch (e, s) {
-      (this as Interpreter).reportError(
-        e.message,
-        trace: s,
-        error: e,
-        node: node,
-      );
+      final interpreter = this as Interpreter;
+      if (!interpreter.isInProtectedCall) {
+        interpreter.reportError(e.message, trace: s, error: e, node: node);
+      }
       rethrow;
     }
   }

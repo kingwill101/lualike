@@ -216,6 +216,11 @@ class ErrorFunction implements BuiltinFunction {
     try {
       // If we have access to the VM, use its call stack for better error reporting
       if (vm != null) {
+        // Suppress stack traces when inside a protected call
+        if (vm!.isInProtectedCall) {
+          throw Exception(message);
+        }
+
         // Let the VM handle the error reporting with proper stack trace
         vm!.reportError(message);
         // This will never be reached, but needed for type safety
