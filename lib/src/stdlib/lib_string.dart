@@ -1919,8 +1919,23 @@ class _StringPackSize implements BuiltinFunction {
     // Use the new parser instead of character-by-character parsing
     try {
       final options = BinaryFormatParser.parse(format);
-      var totalSize = 0;
+      var offset = 0;
       int maxAlign = 1;
+
+      int alignTo(int offset, int align) {
+        if (align <= 1) return 0;
+        if ((align & (align - 1)) != 0) {
+          throw LuaError("format asks for alignment not power of 2");
+        }
+        final mod = offset % align;
+        return mod == 0 ? 0 : align - mod;
+      }
+
+      void addSized(int size) {
+        final align = size > maxAlign ? maxAlign : size;
+        offset += alignTo(offset, align);
+        offset += size;
+      }
 
       for (final opt in options) {
         switch (opt.type) {
@@ -1938,45 +1953,45 @@ class _StringPackSize implements BuiltinFunction {
             if (opt.size == null) {
               throw LuaError("missing size for format option 'c'");
             }
-            totalSize += opt.size!;
+            offset += opt.size!;
             break;
           case 'b':
           case 'B':
-            totalSize += BinaryTypeSize.b;
+            addSized(BinaryTypeSize.b);
             break;
           case 'h':
           case 'H':
-            totalSize += BinaryTypeSize.h;
+            addSized(BinaryTypeSize.h);
             break;
           case 'l':
           case 'L':
-            totalSize += BinaryTypeSize.l;
+            addSized(BinaryTypeSize.l);
             break;
           case 'j':
           case 'J':
-            totalSize += BinaryTypeSize.j;
+            addSized(BinaryTypeSize.j);
             break;
           case 'T':
-            totalSize += BinaryTypeSize.T;
+            addSized(BinaryTypeSize.T);
             break;
           case 'f':
-            totalSize += BinaryTypeSize.f;
+            addSized(BinaryTypeSize.f);
             break;
           case 'd':
           case 'n':
-            totalSize += BinaryTypeSize.d;
+            addSized(BinaryTypeSize.d);
             break;
           case 'i':
-            totalSize += opt.size ?? BinaryTypeSize.i;
+            addSized(opt.size ?? BinaryTypeSize.i);
             break;
           case 'I':
-            totalSize += opt.size ?? BinaryTypeSize.I;
+            addSized(opt.size ?? BinaryTypeSize.I);
             break;
           case 's':
           case 'z':
             throw LuaError("string.packsize: variable length format");
           case 'x':
-            totalSize += 1;
+            offset += 1;
             break;
           case 'X':
             throw LuaError("string.packsize: variable alignment format");
@@ -1984,7 +1999,7 @@ class _StringPackSize implements BuiltinFunction {
             throw LuaError.typeError("Invalid format option '${opt.type}'");
         }
       }
-      return Value(totalSize);
+      return Value(offset);
     } catch (e) {
       if (e is LuaError) rethrow;
       throw LuaError.typeError("Invalid format string: $e");
@@ -2050,7 +2065,7 @@ class _StringUnpack implements BuiltinFunction {
             throw LuaError.typeError("unpack: out of bounds");
           }
           final strBytes = bytes.sublist(offset, offset + size);
-          final str = String.fromCharCodes(strBytes);
+          final str = utf8.decode(strBytes);
           results.add(Value(str));
           offset += size;
           break;
@@ -2179,9 +2194,7 @@ class _StringUnpack implements BuiltinFunction {
               throw LuaError.typeError("unpack: out of bounds");
             }
 
-            final str = String.fromCharCodes(
-              bytes.sublist(offset, offset + length),
-            );
+            final str = utf8.decode(bytes.sublist(offset, offset + length));
             results.add(Value(str));
             offset += length;
             break;
@@ -2261,7 +2274,7 @@ class _StringUnpack implements BuiltinFunction {
                 "unpack: unfinished string for format 'z'",
               );
             }
-            var str = String.fromCharCodes(bytes.sublist(offset, end));
+            var str = utf8.decode(bytes.sublist(offset, end));
             results.add(Value(str));
             offset = end + 1;
             break;

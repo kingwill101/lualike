@@ -671,9 +671,9 @@ void main() {
             local a3, pos3 = string.unpack("c6", s3)
           ''');
 
-          expect((bridge.getGlobal('a1') as Value).raw, equals("hÃ©llo"));
-          expect((bridge.getGlobal('a2') as Value).raw, equals("ä¸ç"));
-          expect((bridge.getGlobal('a3') as Value).raw, equals("hÃ©llo"));
+          expect((bridge.getGlobal('a1') as Value).raw, equals("héllo"));
+          expect((bridge.getGlobal('a2') as Value).raw, equals("世界"));
+          expect((bridge.getGlobal('a3') as Value).raw, equals("héllo"));
         });
       });
 
@@ -716,7 +716,7 @@ void main() {
         ); // 1+3 pad+4
         expect(
           (bridge.getGlobal('size_padded') as Value).raw,
-          equals(5),
+          equals(8),
         ); // 1+3 pad+4 (no alignment for x)
       });
 
