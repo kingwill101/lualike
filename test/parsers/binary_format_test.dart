@@ -68,8 +68,11 @@ void main() {
     test('invalid option: Q', () {
       expect(() => BinaryFormatParser.parse('Q'), throwsA(isA<LuaError>()));
     });
-    test('I without number (error)', () {
-      expect(() => BinaryFormatParser.parse('I'), throwsA(isA<LuaError>()));
+    test('I without number', () {
+      final options = BinaryFormatParser.parse('I');
+      expect(options.length, 1);
+      expect(options[0].type, 'I');
+      expect(options[0].size, isNull);
     });
     test('multiple: I4c10z', () {
       final options = BinaryFormatParser.parse('I4c10z');
