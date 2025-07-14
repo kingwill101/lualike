@@ -117,6 +117,14 @@ class BinaryFormatParser {
 
   /// Parse [input] into a list of [BinaryFormatOption]s or throw [LuaError].
   static List<BinaryFormatOption> parse(String input) {
+    for (var i = 0; i < input.length; i++) {
+      if (input[i] == 'X') {
+        if (i + 1 >= input.length || input[i + 1].trim().isEmpty) {
+          throw LuaError("invalid next option for option 'X'");
+        }
+      }
+    }
+
     final result = formatParser.parse(input);
     if (result is Success) {
       final raw = List<BinaryFormatOption>.from(result.value);
@@ -173,9 +181,7 @@ class BinaryFormatParser {
               size = next.size ?? BinaryTypeSize.I;
               break;
             default:
-              throw LuaError(
-                "'X' cannot align to non-alignable type '${next.type}'",
-              );
+              throw LuaError("invalid next option for option 'X'");
           }
           processed.add(
             BinaryFormatOption('X', size: size, raw: opt.raw + next.raw),

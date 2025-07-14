@@ -1870,7 +1870,7 @@ class _StringPack implements BuiltinFunction {
               size = opt.size!;
             } else {
               if (i + 1 >= options.length) {
-                throw LuaError("'X' cannot be last in format string");
+                throw LuaError('invalid next option');
               }
               final nextOpt = options[i + 1];
               switch (nextOpt.type) {
@@ -1917,9 +1917,7 @@ class _StringPack implements BuiltinFunction {
                   size = nextOpt.size ?? BinaryTypeSize.I;
                   break;
                 default:
-                  throw LuaError(
-                    "'X' cannot align to non-alignable type '${nextOpt.type}'",
-                  );
+                  throw LuaError('invalid next option');
               }
             }
             final align = size > maxAlign ? maxAlign : size;
@@ -2091,7 +2089,7 @@ class _StringPackSize implements BuiltinFunction {
               } else {
                 final idx = options.indexOf(opt);
                 if (idx + 1 >= options.length) {
-                  throw LuaError("'X' cannot be last in format string");
+                  throw LuaError('invalid next option');
                 }
                 final nextOpt = options[idx + 1];
                 switch (nextOpt.type) {
@@ -2138,9 +2136,7 @@ class _StringPackSize implements BuiltinFunction {
                     size = nextOpt.size ?? BinaryTypeSize.I;
                     break;
                   default:
-                    throw LuaError(
-                      "'X' cannot align to non-alignable type '${nextOpt.type}'",
-                    );
+                    throw LuaError('invalid next option');
                 }
               }
               final align = size > maxAlign ? maxAlign : size;
@@ -2173,10 +2169,14 @@ class _StringUnpack implements BuiltinFunction {
     final pos = args.length > 2 ? NumberUtils.toInt((args[2] as Value).raw) : 1;
 
     final results = <Value>[];
-    var offset = pos - 1;
     final bytes = binaryValue.raw is LuaString
         ? (binaryValue.raw as LuaString).bytes
         : LuaString.fromDartString(binaryValue.raw.toString()).bytes;
+    var startPos = pos;
+    if (startPos < 0) {
+      startPos = bytes.length + startPos + 1;
+    }
+    var offset = startPos - 1;
     Endian endianness = Endian.host;
     int maxAlign = 1;
 
@@ -2217,17 +2217,20 @@ class _StringUnpack implements BuiltinFunction {
           if (size == null) {
             throw LuaError("missing size for format option 'c'");
           }
+          if (offset > bytes.length) {
+            throw LuaError.typeError('out of string');
+          }
           if (offset + size - 1 >= bytes.length) {
             throw LuaError.typeError('too short');
           }
           final strBytes = bytes.sublist(offset, offset + size);
-          String str;
           try {
-            str = utf8.decode(strBytes);
+            final str = utf8.decode(strBytes);
+            results.add(Value(str));
           } catch (_) {
-            str = String.fromCharCodes(strBytes);
+            final luaStr = LuaString.fromBytes(Uint8List.fromList(strBytes));
+            results.add(Value(luaStr));
           }
-          results.add(Value(str));
           offset += size;
           break;
         case 'b':
@@ -2375,8 +2378,14 @@ class _StringUnpack implements BuiltinFunction {
               throw LuaError.typeError('too short');
             }
 
-            final str = utf8.decode(bytes.sublist(offset, offset + length));
-            results.add(Value(str));
+            final segment = bytes.sublist(offset, offset + length);
+            try {
+              final str = utf8.decode(segment);
+              results.add(Value(str));
+            } catch (_) {
+              final luaStr = LuaString.fromBytes(Uint8List.fromList(segment));
+              results.add(Value(luaStr));
+            }
             offset += length;
             break;
           }
@@ -2387,7 +2396,7 @@ class _StringUnpack implements BuiltinFunction {
               size = opt.size!;
             } else {
               if (i + 1 >= options.length) {
-                throw LuaError("'X' cannot be last in format string");
+                throw LuaError('invalid next option');
               }
               final nextOpt = options[i + 1];
               switch (nextOpt.type) {
@@ -2434,9 +2443,7 @@ class _StringUnpack implements BuiltinFunction {
                   size = nextOpt.size ?? BinaryTypeSize.I;
                   break;
                 default:
-                  throw LuaError(
-                    "'X' cannot align to non-alignable type '${nextOpt.type}'",
-                  );
+                  throw LuaError('invalid next option');
               }
             }
             final align = size > maxAlign ? maxAlign : size;
@@ -2459,13 +2466,13 @@ class _StringUnpack implements BuiltinFunction {
               );
             }
             var strBytes = bytes.sublist(offset, end);
-            String str;
             try {
-              str = utf8.decode(strBytes);
+              final str = utf8.decode(strBytes);
+              results.add(Value(str));
             } catch (_) {
-              str = String.fromCharCodes(strBytes);
+              final luaStr = LuaString.fromBytes(Uint8List.fromList(strBytes));
+              results.add(Value(luaStr));
             }
-            results.add(Value(str));
             offset = end + 1;
             break;
           }
