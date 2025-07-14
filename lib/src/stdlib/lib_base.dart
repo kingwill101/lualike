@@ -671,17 +671,9 @@ class LoadFunction implements BuiltinFunction {
           final savedEnv = vm.getCurrentEnv();
 
           // Create a new environment for the loaded code that inherits from
-          // the current environment.  Each chunk gets its own local `_ENV`
-          // variable so changes do not leak out to the caller.
+          // the current environment. This ensures loaded code can access _ENV
+          // and other global variables properly
           final loadEnv = Environment(parent: savedEnv, interpreter: vm);
-
-          // copy the current value of `_ENV` into the new environment as a
-          // declared (local) variable
-          final envVal = savedEnv.get('_ENV');
-          // Always declare a local `_ENV` variable, even if the parent does not
-          // have one (or it is nil). This prevents assignments inside the loaded
-          // chunk from modifying the caller's environment.
-          loadEnv.declare('_ENV', envVal);
 
           // Set up varargs in the load environment
           loadEnv.declare("...", Value.multi(callArgs));
@@ -730,22 +722,11 @@ class DoFileFunction implements BuiltinFunction {
       // Parse content into AST
       final ast = parse(source, url: filename);
 
-      // Each script should run with its own `_ENV` so that assignments do not
-      // affect the caller's environment.
-      final savedEnv = vm.getCurrentEnv();
-      final chunkEnv = Environment(parent: savedEnv, interpreter: vm);
-      final envVal = savedEnv.get('_ENV');
-      // Always provide a local `_ENV` for the chunk, even if the caller
-      // currently has `_ENV` set to nil.
-      chunkEnv.declare('_ENV', envVal);
+      // Execute in current VM context
+      final result = vm.run(ast.statements);
 
-      vm.setCurrentEnv(chunkEnv);
-      try {
-        final result = vm.run(ast.statements);
-        return result;
-      } finally {
-        vm.setCurrentEnv(savedEnv);
-      }
+      // Return result or nil if no result
+      return result;
     } catch (e) {
       throw Exception("Error in dofile('$filename'): $e");
     }
@@ -1485,19 +1466,16 @@ class RequireFunction implements BuiltinFunction {
       vm.fileManager.printResolvedGlobs();
     }
 
-    if (modulePath == null) {
-      throw Exception("module '$moduleName' not found");
-    }
-
     final modulePathStr = modulePath;
 
-    Logger.debug(
-      "(REQUIRE) RequireFunction: Loading module '$moduleName' from path: $modulePathStr",
-      category: 'Require',
-    );
+    if (modulePathStr != null) {
+      Logger.debug(
+        "(REQUIRE) RequireFunction: Loading module '$moduleName' from path: $modulePathStr",
+        category: 'Require',
+      );
 
-    final source = vm.fileManager.loadSource(modulePathStr);
-    if (source != null) {
+      final source = vm.fileManager.loadSource(modulePathStr);
+      if (source != null) {
       try {
         Logger.debug(
           "REQUIRE: Module source loaded, parsing and executing",
@@ -1506,13 +1484,8 @@ class RequireFunction implements BuiltinFunction {
         // Parse the module code
         final ast = parse(source, url: modulePathStr);
 
-        // Create a new environment for the module. Each module gets its own
-        // local `_ENV` so assignments inside the module do not leak out.
+        // Create a new environment for the module
         final moduleEnv = Environment(parent: vm.globals, interpreter: vm);
-        final parentEnvVal = vm.globals.get('_ENV');
-        if (parentEnvVal != null) {
-          moduleEnv.declare('_ENV', parentEnvVal);
-        }
 
         // We'll execute the module code using the current interpreter to
         // ensure package.loaded is shared.
@@ -1590,6 +1563,7 @@ class RequireFunction implements BuiltinFunction {
         throw Exception("error loading module '$moduleName': $e");
       }
     }
+  }
 
     // Step 3: If direct loading failed, try the searchers
     if (!packageTable.containsKey("searchers") ||
