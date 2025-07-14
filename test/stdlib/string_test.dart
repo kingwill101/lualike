@@ -518,11 +518,10 @@ void main() {
           await bridge.runCode('''
             local s1 = string.pack("c5", "hello")
             local s2 = string.pack("c10", "hello")
-            local s3 = string.pack("c3", "hello")
+            ok3, err3 = pcall(string.pack, "c3", "hello")
 
             local a1, pos1 = string.unpack("c5", s1)
             local a2, pos2 = string.unpack("c10", s2)
-            local a3, pos3 = string.unpack("c3", s3)
           ''');
 
           expect((bridge.getGlobal('a1') as Value).raw, equals("hello"));
@@ -534,8 +533,11 @@ void main() {
           );
           expect((bridge.getGlobal('pos2') as Value).raw, equals(11)); // 10 + 1
 
-          expect((bridge.getGlobal('a3') as Value).raw, equals("hel"));
-          expect((bridge.getGlobal('pos3') as Value).raw, equals(4)); // 3 + 1
+          expect((bridge.getGlobal('ok3') as Value).raw, equals(false));
+          expect(
+            (bridge.getGlobal('err3') as Value).raw.toString(),
+            contains('longer'),
+          );
         });
 
         test('zero-terminated strings (z)', () async {

@@ -1698,17 +1698,18 @@ class _StringPack implements BuiltinFunction {
           if (size == null) {
             throw LuaError("missing size for format option 'c'");
           }
-          var s = getArg('string').raw.toString();
-          final encoded = utf8.encode(s);
+          final rawVal = getArg('string').raw;
+          final encoded = rawVal is LuaString
+              ? rawVal.bytes
+              : utf8.encode(rawVal.toString());
           if (offset + BigInt.from(size) > maxAllowed) {
             throw LuaError('too long');
           }
           if (encoded.length > size) {
-            bytes.addAll(encoded.sublist(0, size));
-          } else {
-            bytes.addAll(encoded);
-            bytes.addAll(List.filled(size - encoded.length, 0));
+            throw LuaError('longer than');
           }
+          bytes.addAll(encoded);
+          bytes.addAll(List.filled(size - encoded.length, 0));
           i++;
           offset += BigInt.from(size);
           break;
@@ -1791,10 +1792,34 @@ class _StringPack implements BuiltinFunction {
               final value = NumberUtils.toDouble(getArg().raw);
               bytes.addAll(NumberUtils.packFloat64(value, endianness));
             } else {
-              // Integer types
-              var n = NumberUtils.toInt(getArg().raw);
-              // For unsigned types, no special handling needed in Lua
-              // Lua treats all integers as signed, so we just pack the value as-is
+              // Integer types with overflow detection
+              final v = NumberUtils.toBigInt(getArg().raw);
+              final isUnsigned =
+                  opt.type == 'B' ||
+                  opt.type == 'H' ||
+                  opt.type == 'L' ||
+                  opt.type == 'I' ||
+                  opt.type == 'J' ||
+                  opt.type == 'T';
+              final signed = !isUnsigned;
+              BigInt n = v;
+              if (isUnsigned && v.isNegative) {
+                if (size < BinaryTypeSize.j) {
+                  throw LuaError('overflow');
+                }
+                final mask = (BigInt.one << (size * 8)) - BigInt.one;
+                n = v & mask;
+              } else {
+                final minVal = signed
+                    ? -(BigInt.one << (size * 8 - 1))
+                    : BigInt.zero;
+                final maxVal = signed
+                    ? (BigInt.one << (size * 8 - 1)) - BigInt.one
+                    : (BigInt.one << (size * 8)) - BigInt.one;
+                if (n < minVal || n > maxVal) {
+                  throw LuaError('overflow');
+                }
+              }
               final packed = _packInt(n, size, endianness);
               bytes.addAll(packed);
             }
@@ -1807,8 +1832,10 @@ class _StringPack implements BuiltinFunction {
           }
         case 's': // size-prefixed string with native integer size
           {
-            var s = getArg('string').raw.toString();
-            final encoded = utf8.encode(s);
+            final rawVal = getArg('string').raw;
+            final encoded = rawVal is LuaString
+                ? rawVal.bytes
+                : utf8.encode(rawVal.toString());
             final size =
                 opt.size ?? BinaryTypeSize.j; // Use lua_Integer size as default
 
@@ -1821,7 +1848,11 @@ class _StringPack implements BuiltinFunction {
             }
 
             // Pack the length as an integer of the specified size
-            final lengthBytes = _packInt(encoded.length, size, endianness);
+            final lengthBytes = _packInt(
+              BigInt.from(encoded.length),
+              size,
+              endianness,
+            );
             bytes.addAll(lengthBytes);
             bytes.addAll(encoded);
 
@@ -1896,6 +1927,7 @@ class _StringPack implements BuiltinFunction {
             if (offset + BigInt.from(pad) > maxAllowed) {
               throw LuaError('too long');
             }
+            bytes.addAll(List.filled(pad, 0));
             offset += BigInt.from(pad);
             continue;
           }
@@ -1908,8 +1940,10 @@ class _StringPack implements BuiltinFunction {
           continue;
         case 'z':
           {
-            var s = getArg('string').raw.toString();
-            final encoded = utf8.encode(s);
+            final rawVal = getArg('string').raw;
+            final encoded = rawVal is LuaString
+                ? rawVal.bytes
+                : utf8.encode(rawVal.toString());
             if (encoded.contains(0)) {
               throw LuaError('contains zeros');
             }
@@ -1935,15 +1969,17 @@ class _StringPack implements BuiltinFunction {
   }
 }
 
-List<int> _packInt(int value, int size, Endian endianness) {
+List<int> _packInt(BigInt value, int size, Endian endianness) {
+  final mask = (BigInt.one << (size * 8)) - BigInt.one;
+  var v = value & mask;
   final bytes = List<int>.filled(size, 0);
   if (endianness == Endian.little) {
     for (var b = 0; b < size; b++) {
-      bytes[b] = (value >> (8 * b)) & 0xFF;
+      bytes[b] = ((v >> (8 * b)) & BigInt.from(0xFF)).toInt();
     }
   } else {
     for (var b = 0; b < size; b++) {
-      bytes[size - b - 1] = (value >> (8 * b)) & 0xFF;
+      bytes[size - b - 1] = ((v >> (8 * b)) & BigInt.from(0xFF)).toInt();
     }
   }
   return bytes;
@@ -2185,7 +2221,12 @@ class _StringUnpack implements BuiltinFunction {
             throw LuaError.typeError('too short');
           }
           final strBytes = bytes.sublist(offset, offset + size);
-          final str = utf8.decode(strBytes);
+          String str;
+          try {
+            str = utf8.decode(strBytes);
+          } catch (_) {
+            str = String.fromCharCodes(strBytes);
+          }
           results.add(Value(str));
           offset += size;
           break;
@@ -2417,7 +2458,13 @@ class _StringUnpack implements BuiltinFunction {
                 "unpack: unfinished string for format 'z'",
               );
             }
-            var str = utf8.decode(bytes.sublist(offset, end));
+            var strBytes = bytes.sublist(offset, end);
+            String str;
+            try {
+              str = utf8.decode(strBytes);
+            } catch (_) {
+              str = String.fromCharCodes(strBytes);
+            }
             results.add(Value(str));
             offset = end + 1;
             break;
