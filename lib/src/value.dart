@@ -902,10 +902,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
     // Special handling for __index and __newindex when they are tables
     if (s == '__index' && method is Value && method.raw is Map) {
-      // __index is a table, so do lookup through that table
+      // __index is a table. Lua repeats the lookup on that table, allowing
+      // further metamethod processing.
       if (list.length >= 2) {
         final key = list[1];
-        // Use the Value's indexing mechanism to handle potential metamethods
         var result = method[key];
         if (result is Value && result.raw is Future) {
           result = await result.raw;
@@ -921,12 +921,15 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         return result;
       }
     } else if (s == '__newindex' && method is Value && method.raw is Map) {
-      // __newindex is a table, so do assignment through that table
+      // __newindex is a table.  Lua performs a raw assignment on that table
+      // without invoking further metamethods.
       if (list.length >= 3) {
-        final key = list[1];
-        final value = list[2];
-        // Use the Value's async assignment mechanism to handle potential metamethods
-        await method.setValueAsync(key, value);
+        dynamic rawKey = list[1];
+        dynamic rawValue = list[2];
+        rawKey = rawKey is Value ? rawKey.raw : rawKey;
+        if (rawKey is LuaString) rawKey = rawKey.toString();
+        rawValue = rawValue is Value ? rawValue : Value(rawValue);
+        (method.raw as Map<dynamic, dynamic>)[rawKey] = rawValue;
         return Value(null);
       }
     }
