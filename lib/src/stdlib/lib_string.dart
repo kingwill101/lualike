@@ -1652,27 +1652,27 @@ class _StringPack implements BuiltinFunction {
     var i = 0;
     Endian endianness = Endian.host;
     int maxAlign = 1;
+    final maxAllowed = (BinaryTypeSize.j <= BinaryTypeSize.T)
+        ? BigInt.from(NumberUtils.maxInteger)
+        : (BigInt.one << (BinaryTypeSize.T * 8));
 
-    int alignTo(int offset, int align) {
-      if (align <= 1) return 0;
+    BigInt alignTo(BigInt offset, int align) {
+      if (align <= 1) return BigInt.zero;
       if ((align & (align - 1)) != 0) {
         throw LuaError("format asks for alignment not power of 2");
       }
-      final mod = offset % align;
-      return mod == 0 ? 0 : align - mod;
+      final mod = offset % BigInt.from(align);
+      return mod == BigInt.zero ? BigInt.zero : BigInt.from(align) - mod;
     }
 
     final options = BinaryFormatParser.parse(format);
-    int offset = 0;
+    BigInt offset = BigInt.zero;
     for (final opt in options) {
-      if (i >= values.length &&
-          opt.type != '<' &&
-          opt.type != '>' &&
-          opt.type != '=' &&
-          opt.type != '!' &&
-          opt.type != 'X') {
-        break;
+      Value getArg([String kind = 'number']) {
+        if (i < values.length) return values[i] as Value;
+        return kind == 'string' ? Value('') : Value(0);
       }
+
       switch (opt.type) {
         case '<':
           endianness = Endian.little;
@@ -1698,8 +1698,11 @@ class _StringPack implements BuiltinFunction {
           if (size == null) {
             throw LuaError("missing size for format option 'c'");
           }
-          var s = (values[i] as Value).raw.toString();
+          var s = getArg('string').raw.toString();
           final encoded = utf8.encode(s);
+          if (offset + BigInt.from(size) > maxAllowed) {
+            throw LuaError('too long');
+          }
           if (encoded.length > size) {
             bytes.addAll(encoded.sublist(0, size));
           } else {
@@ -1707,7 +1710,7 @@ class _StringPack implements BuiltinFunction {
             bytes.addAll(List.filled(size - encoded.length, 0));
           }
           i++;
-          offset += size;
+          offset += BigInt.from(size);
           break;
         case 'b':
         case 'B':
@@ -1773,32 +1776,38 @@ class _StringPack implements BuiltinFunction {
                 break;
             }
             final align = size > maxAlign ? maxAlign : size;
-            final pad = alignTo(offset, align);
+            final pad = alignTo(offset, align).toInt();
+            if (offset + BigInt.from(pad) + BigInt.from(size) > maxAllowed) {
+              throw LuaError('too long');
+            }
             bytes.addAll(List.filled(pad, 0));
-            offset += pad;
+            offset += BigInt.from(pad);
 
             // Handle float types differently from integer types
             if (opt.type == 'f') {
-              final value = NumberUtils.toDouble((values[i] as Value).raw);
+              final value = NumberUtils.toDouble(getArg().raw);
               bytes.addAll(NumberUtils.packFloat32(value, endianness));
             } else if (opt.type == 'd' || opt.type == 'n') {
-              final value = NumberUtils.toDouble((values[i] as Value).raw);
+              final value = NumberUtils.toDouble(getArg().raw);
               bytes.addAll(NumberUtils.packFloat64(value, endianness));
             } else {
               // Integer types
-              var n = NumberUtils.toInt((values[i] as Value).raw);
+              var n = NumberUtils.toInt(getArg().raw);
               // For unsigned types, no special handling needed in Lua
               // Lua treats all integers as signed, so we just pack the value as-is
               final packed = _packInt(n, size, endianness);
               bytes.addAll(packed);
             }
             i++;
-            offset += size;
+            offset += BigInt.from(size);
+            if (offset > maxAllowed) {
+              throw LuaError('too long');
+            }
             break;
           }
         case 's': // size-prefixed string with native integer size
           {
-            var s = (values[i] as Value).raw.toString();
+            var s = getArg('string').raw.toString();
             final encoded = utf8.encode(s);
             final size =
                 opt.size ?? BinaryTypeSize.j; // Use lua_Integer size as default
@@ -1809,7 +1818,10 @@ class _StringPack implements BuiltinFunction {
             bytes.addAll(encoded);
 
             i++;
-            offset += size + encoded.length;
+            offset += BigInt.from(size + encoded.length);
+            if (offset > maxAllowed) {
+              throw LuaError('too long');
+            }
             break;
           }
         case 'X':
@@ -1872,22 +1884,31 @@ class _StringPack implements BuiltinFunction {
               }
             }
             final align = size > maxAlign ? maxAlign : size;
-            final pad = alignTo(offset, align);
-            offset += pad;
+            final pad = alignTo(offset, align).toInt();
+            if (offset + BigInt.from(pad) > maxAllowed) {
+              throw LuaError('too long');
+            }
+            offset += BigInt.from(pad);
             continue;
           }
         case 'x':
+          if (offset + BigInt.one > maxAllowed) {
+            throw LuaError('too long');
+          }
           bytes.add(0);
-          offset += 1;
+          offset += BigInt.one;
           continue;
         case 'z':
           {
-            var s = (values[i] as Value).raw.toString();
+            var s = getArg('string').raw.toString();
             final encoded = utf8.encode(s);
             bytes.addAll(encoded);
             bytes.add(0); // zero terminator
             i++;
-            offset += encoded.length + 1;
+            offset += BigInt.from(encoded.length + 1);
+            if (offset > maxAllowed) {
+              throw LuaError('too long');
+            }
             break;
           }
 
@@ -1928,22 +1949,28 @@ class _StringPackSize implements BuiltinFunction {
     // Use the new parser instead of character-by-character parsing
     try {
       final options = BinaryFormatParser.parse(format);
-      var offset = 0;
+      BigInt offset = BigInt.zero;
       int maxAlign = 1;
+      final maxAllowed = (BinaryTypeSize.j <= BinaryTypeSize.T)
+          ? BigInt.from(NumberUtils.maxInteger)
+          : (BigInt.one << (BinaryTypeSize.T * 8));
 
-      int alignTo(int offset, int align) {
-        if (align <= 1) return 0;
+      BigInt alignTo(BigInt offset, int align) {
+        if (align <= 1) return BigInt.zero;
         if ((align & (align - 1)) != 0) {
           throw LuaError("format asks for alignment not power of 2");
         }
-        final mod = offset % align;
-        return mod == 0 ? 0 : align - mod;
+        final mod = offset % BigInt.from(align);
+        return mod == BigInt.zero ? BigInt.zero : BigInt.from(align) - mod;
       }
 
       void addSized(int size) {
         final align = size > maxAlign ? maxAlign : size;
         offset += alignTo(offset, align);
-        offset += size;
+        offset += BigInt.from(size);
+        if (offset > maxAllowed) {
+          throw LuaError('too large');
+        }
       }
 
       for (final opt in options) {
@@ -1963,7 +1990,10 @@ class _StringPackSize implements BuiltinFunction {
             if (opt.size == null) {
               throw LuaError("missing size for format option 'c'");
             }
-            offset += opt.size!;
+            offset += BigInt.from(opt.size!);
+            if (offset > maxAllowed) {
+              throw LuaError('too large');
+            }
             break;
           case 'b':
           case 'B':
@@ -2001,7 +2031,10 @@ class _StringPackSize implements BuiltinFunction {
           case 'z':
             throw LuaError('variable-length format');
           case 'x':
-            offset += 1;
+            offset += BigInt.one;
+            if (offset > maxAllowed) {
+              throw LuaError('too large');
+            }
             break;
           case 'X':
             {
@@ -2072,7 +2105,7 @@ class _StringPackSize implements BuiltinFunction {
             throw LuaError.typeError("Invalid format option '${opt.type}'");
         }
       }
-      return Value(offset);
+      return Value(offset.toInt());
     } catch (e) {
       if (e is LuaError) rethrow;
       throw LuaError('invalid format');
