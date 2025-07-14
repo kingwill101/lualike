@@ -53,7 +53,7 @@ class BinaryFormatParser {
     v,
   ) {
     final n = int.parse(v[1]);
-    if (n <= 0) {
+    if (n < 0) {
       throw LuaError("invalid size for format option 'c'");
     }
     return BinaryFormatOption('c', size: n, raw: 'c${v[1]}');

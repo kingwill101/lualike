@@ -1812,6 +1812,14 @@ class _StringPack implements BuiltinFunction {
             final size =
                 opt.size ?? BinaryTypeSize.j; // Use lua_Integer size as default
 
+            if (opt.size != null && (size < 1 || size > 16)) {
+              throw LuaError('out of limits');
+            }
+            final maxVal = (BigInt.one << (size * 8)) - BigInt.one;
+            if (BigInt.from(encoded.length) > maxVal) {
+              throw LuaError('does not fit');
+            }
+
             // Pack the length as an integer of the specified size
             final lengthBytes = _packInt(encoded.length, size, endianness);
             bytes.addAll(lengthBytes);
@@ -1902,6 +1910,9 @@ class _StringPack implements BuiltinFunction {
           {
             var s = getArg('string').raw.toString();
             final encoded = utf8.encode(s);
+            if (encoded.contains(0)) {
+              throw LuaError('contains zeros');
+            }
             bytes.addAll(encoded);
             bytes.add(0); // zero terminator
             i++;
@@ -2171,7 +2182,7 @@ class _StringUnpack implements BuiltinFunction {
             throw LuaError("missing size for format option 'c'");
           }
           if (offset + size - 1 >= bytes.length) {
-            throw LuaError.typeError("unpack: out of bounds");
+            throw LuaError.typeError('too short');
           }
           final strBytes = bytes.sublist(offset, offset + size);
           final str = utf8.decode(strBytes);
@@ -2245,7 +2256,7 @@ class _StringUnpack implements BuiltinFunction {
             final pad = alignTo(offset, align);
             offset += pad;
             if (offset + size - 1 >= bytes.length) {
-              throw LuaError.typeError("unpack: out of bounds");
+              throw LuaError.typeError('too short');
             }
 
             // Handle float types differently from integer types
@@ -2312,7 +2323,7 @@ class _StringUnpack implements BuiltinFunction {
                 opt.size ?? BinaryTypeSize.j; // Use lua_Integer size as default
 
             if (offset + size - 1 >= bytes.length) {
-              throw LuaError.typeError("unpack: out of bounds");
+              throw LuaError.typeError('too short');
             }
 
             // Read the length as an integer
@@ -2320,7 +2331,7 @@ class _StringUnpack implements BuiltinFunction {
             offset += size;
 
             if (offset + length - 1 >= bytes.length) {
-              throw LuaError.typeError("unpack: out of bounds");
+              throw LuaError.typeError('too short');
             }
 
             final str = utf8.decode(bytes.sublist(offset, offset + length));
@@ -2394,7 +2405,7 @@ class _StringUnpack implements BuiltinFunction {
           }
         case 'x':
           if (offset >= bytes.length) {
-            throw LuaError.typeError("unpack: out of bounds");
+            throw LuaError.typeError('too short');
           }
           offset += 1;
           continue;
