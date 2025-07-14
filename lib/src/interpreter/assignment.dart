@@ -278,6 +278,18 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     final name = target.name;
     Logger.debug('Assign $name = $wrappedValue', category: 'Interpreter');
 
+    // Special handling for `_ENV`: if the current environment doesn't already
+    // have a local `_ENV` binding, create one instead of modifying a parent
+    // environment. This mirrors Lua's per-chunk `_ENV` semantics.
+    if (name == '_ENV') {
+      if (globals.values.containsKey('_ENV')) {
+        globals.define(name, wrappedValue);
+      } else {
+        globals.declare(name, wrappedValue);
+      }
+      return wrappedValue;
+    }
+
     // Check if there's a custom _ENV that is different from the initial _G
     final envValue = globals.get('_ENV');
     final gValue = globals.get('_G');
