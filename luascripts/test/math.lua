@@ -1,5 +1,6 @@
-_port = false
-_soft = false
+-- $Id: testes/math.lua $
+-- See Copyright Notice in file all.lua
+
 print("testing numbers and math lib")
 
 local minint <const> = math.mininteger
@@ -62,7 +63,6 @@ end
 
 -- equality with types
 local function eqT (a,b)
-  print(a, " type: ", math.type(a), " ", b, " type: ", math.type(b))
   return a == b and math.type(a) == math.type(b)
 end
 
@@ -636,7 +636,7 @@ if not _port then
 end
 
 
--- testing unsigned comparisonsf
+-- testing unsigned comparisons
 assert(math.ult(3, 4))
 assert(not math.ult(4, 4))
 assert(math.ult(-2, -1))
