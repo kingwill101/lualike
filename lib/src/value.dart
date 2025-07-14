@@ -485,6 +485,45 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
   }
 
+  /// Asynchronous version of [operator []] that awaits any `__index`
+  /// metamethod results. This is needed when metamethods are implemented as
+  /// Lua functions which return [Future]s.
+  Future<dynamic> getValueAsync(Object? key) async {
+    if (raw is Map) {
+      var rawKey = key is Value ? key.raw : key;
+      if (rawKey is LuaString) {
+        rawKey = rawKey.toString();
+      }
+
+      if ((raw as Map).containsKey(rawKey)) {
+        var result = (raw as Map)[rawKey];
+        if (result is! Value) result = Value(result);
+        return result;
+      }
+
+      final indexMeta = getMetamethod('__index');
+      if (indexMeta != null) {
+        var result = await callMetamethodAsync('__index', [
+          this,
+          key is Value ? key : Value(key),
+        ]);
+        return result is Value ? result : Value(result);
+      }
+
+      return Value(null);
+    } else {
+      final indexMeta = getMetamethod('__index');
+      if (indexMeta != null) {
+        var result = await callMetamethodAsync('__index', [
+          this,
+          key is Value ? key : Value(key),
+        ]);
+        return result;
+      }
+      throw LuaError.typeError('attempt to index a non-table value');
+    }
+  }
+
   @override
   void operator []=(Object key, dynamic value) {
     var rawKey = key is Value ? key.raw : key;
