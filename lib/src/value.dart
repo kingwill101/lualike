@@ -485,6 +485,45 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
   }
 
+  /// Asynchronous version of [operator []] that awaits any `__index`
+  /// metamethod results. This is needed when metamethods are implemented as
+  /// Lua functions which return [Future]s.
+  Future<dynamic> getValueAsync(Object? key) async {
+    if (raw is Map) {
+      var rawKey = key is Value ? key.raw : key;
+      if (rawKey is LuaString) {
+        rawKey = rawKey.toString();
+      }
+
+      if ((raw as Map).containsKey(rawKey)) {
+        var result = (raw as Map)[rawKey];
+        if (result is! Value) result = Value(result);
+        return result;
+      }
+
+      final indexMeta = getMetamethod('__index');
+      if (indexMeta != null) {
+        var result = await callMetamethodAsync('__index', [
+          this,
+          key is Value ? key : Value(key),
+        ]);
+        return result is Value ? result : Value(result);
+      }
+
+      return Value(null);
+    } else {
+      final indexMeta = getMetamethod('__index');
+      if (indexMeta != null) {
+        var result = await callMetamethodAsync('__index', [
+          this,
+          key is Value ? key : Value(key),
+        ]);
+        return result;
+      }
+      throw LuaError.typeError('attempt to index a non-table value');
+    }
+  }
+
   @override
   void operator []=(Object key, dynamic value) {
     var rawKey = key is Value ? key.raw : key;
@@ -520,7 +559,11 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   }
 
   /// Assigns [value] to [key], awaiting any __newindex metamethod.
-  Future<void> setValueAsync(Object key, dynamic value) async {
+  Future<void> setValueAsync(
+    Object key,
+    dynamic value, [
+    Set<Value>? visited,
+  ]) async {
     var rawKey = key is Value ? key.raw : key;
     if (rawKey is LuaString) {
       rawKey = rawKey.toString();
@@ -534,6 +577,17 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
     final newindexMeta = getMetamethod('__newindex');
     if (newindexMeta != null) {
+      visited ??= <Value>{};
+      if (visited.contains(this)) {
+        throw LuaError('loop in settable');
+      }
+      visited.add(this);
+
+      if (newindexMeta is Value && newindexMeta.raw is Map) {
+        await newindexMeta.setValueAsync(key, value, visited);
+        return;
+      }
+
       final result = callMetamethod('__newindex', [
         this,
         key is Value ? key : Value(key),
@@ -863,10 +917,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
     // Special handling for __index and __newindex when they are tables
     if (s == '__index' && method is Value && method.raw is Map) {
-      // __index is a table, so do lookup through that table
+      // __index is a table. Lua repeats the lookup on that table, allowing
+      // further metamethod processing.
       if (list.length >= 2) {
         final key = list[1];
-        // Use the Value's indexing mechanism to handle potential metamethods
         var result = method[key];
         if (result is Value && result.raw is Future) {
           result = await result.raw;
@@ -882,12 +936,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         return result;
       }
     } else if (s == '__newindex' && method is Value && method.raw is Map) {
-      // __newindex is a table, so do assignment through that table
+      // __newindex is a table, so repeat the assignment on that table. This
+      // allows the table's own metamethods to run, matching Lua semantics.
       if (list.length >= 3) {
         final key = list[1];
         final value = list[2];
-        // Use the Value's async assignment mechanism to handle potential metamethods
-        await method.setValueAsync(key, value);
+        await method.setValueAsync(key, value, <Value>{this});
         return Value(null);
       }
     }
@@ -963,14 +1017,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         return result;
       }
     } else if (s == '__newindex' && method is Value && method.raw is Map) {
-      // __newindex is a table, so do assignment through that table
+      // __newindex is a table, so repeat the assignment on that table and
+      // propagate any asynchronous result up to the caller.
       if (list.length >= 3) {
         final key = list[1];
         final value = list[2];
-        // Use the Value's assignment mechanism to handle potential metamethods
-        method[key] = value;
-
-        return Value(null);
+        return method.setValueAsync(key, value, <Value>{this});
       }
     }
 
