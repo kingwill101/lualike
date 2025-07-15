@@ -105,6 +105,48 @@ void main() {
     });
   });
 
+  group('BinaryFormatParser Enhanced Validation', () {
+    test('throws on excessive digits in format options', () {
+      // Test the specific failing case: "c1" + "0".repeat(40)
+      final format = "c1" + "0" * 40;
+      expect(() => BinaryFormatParser.parse(format), throwsA(isA<LuaError>()));
+    });
+
+    test('throws on format complexity validation', () {
+      // Test very long format string
+      final format = "c1" * 1001; // Exceeds MAX_FORMAT_COMPLEXITY
+      expect(() => BinaryFormatParser.parse(format), throwsA(isA<LuaError>()));
+    });
+
+    test('validates numeric suffixes during parsing', () {
+      // Test excessive digits in different format types
+      expect(
+        () => BinaryFormatParser.parse("i12345678901"),
+        throwsA(isA<LuaError>()),
+      );
+      expect(
+        () => BinaryFormatParser.parse("!12345678901"),
+        throwsA(isA<LuaError>()),
+      );
+    });
+
+    test('cumulative size tracking works', () {
+      // This should work - small sizes
+      expect(() => BinaryFormatParser.parse("c10c20c30"), returnsNormally);
+
+      // This should fail - would cause overflow during parsing
+      // Note: This is tested more thoroughly in the string pack tests
+    });
+
+    test('format option validation works', () {
+      // Test various validation rules
+      expect(() => BinaryFormatParser.parse("i0"), throwsA(isA<LuaError>()));
+      expect(() => BinaryFormatParser.parse("i17"), throwsA(isA<LuaError>()));
+      expect(() => BinaryFormatParser.parse("!3"), throwsA(isA<LuaError>()));
+      expect(() => BinaryFormatParser.parse("!17"), throwsA(isA<LuaError>()));
+    });
+  });
+
   group('BinaryFormatParser', () {
     test('parses simple valid format', () {
       final options = BinaryFormatParser.parse('i4c10z');
