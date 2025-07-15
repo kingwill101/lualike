@@ -670,8 +670,9 @@ class LoadFunction implements BuiltinFunction {
           // Save the current environment
           final savedEnv = vm.getCurrentEnv();
 
-          // Create a new environment for the loaded code that inherits from current environment
-          // This ensures loaded code can access _ENV and other global variables properly
+          // Create a new environment for the loaded code that inherits from
+          // the current environment. This ensures loaded code can access _ENV
+          // and other global variables properly
           final loadEnv = Environment(parent: savedEnv, interpreter: vm);
 
           // Set up varargs in the load environment
@@ -1465,19 +1466,16 @@ class RequireFunction implements BuiltinFunction {
       vm.fileManager.printResolvedGlobs();
     }
 
-    if (modulePath == null) {
-      throw Exception("module '$moduleName' not found");
-    }
-
     final modulePathStr = modulePath;
 
-    Logger.debug(
-      "(REQUIRE) RequireFunction: Loading module '$moduleName' from path: $modulePathStr",
-      category: 'Require',
-    );
+    if (modulePathStr != null) {
+      Logger.debug(
+        "(REQUIRE) RequireFunction: Loading module '$moduleName' from path: $modulePathStr",
+        category: 'Require',
+      );
 
-    final source = vm.fileManager.loadSource(modulePathStr);
-    if (source != null) {
+      final source = vm.fileManager.loadSource(modulePathStr);
+      if (source != null) {
       try {
         Logger.debug(
           "REQUIRE: Module source loaded, parsing and executing",
@@ -1565,6 +1563,7 @@ class RequireFunction implements BuiltinFunction {
         throw Exception("error loading module '$moduleName': $e");
       }
     }
+  }
 
     // Step 3: If direct loading failed, try the searchers
     if (!packageTable.containsKey("searchers") ||

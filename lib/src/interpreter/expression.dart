@@ -420,8 +420,9 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       );
 
       if (envValue.raw is Map) {
-        // Look up the variable in the _ENV table (this will trigger __index if needed)
-        final result = envValue[node.name];
+        // Look up the variable in the custom _ENV table and await any
+        // asynchronous __index metamethods.
+        final result = await envValue.getValueAsync(node.name);
         return result is Value ? result : Value(result);
       }
     }
