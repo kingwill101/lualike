@@ -1,5 +1,4 @@
 import 'package:lualike/testing.dart';
-import 'package:test/test.dart';
 
 void main() {
   group('String Pack/Unpack Fixes', () {
@@ -54,7 +53,7 @@ void main() {
         'format with excessive digits should throw "invalid format"',
         () async {
           // This is the failing test: packsize("c1" + "0".repeat(40))
-          final format = "c1" + "0" * 40;
+          final format = "c1${"0" * 40}";
 
           await expectLater(
             () async => await lua.runCode('string.packsize("$format")'),
@@ -122,7 +121,7 @@ void main() {
 
       group('Invalid Format Strings', () {
         final invalidFormats = [
-          "c1" + "0" * 40, // Too many digits
+          "c1${"0" * 40}", // Too many digits
           "i0", // Size out of range
           "i17", // Size out of range
           "!17", // Alignment out of range

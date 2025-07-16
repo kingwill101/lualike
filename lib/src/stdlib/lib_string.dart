@@ -7,7 +7,6 @@ import 'package:collection/collection.dart' show ListEquality;
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/parsers/pattern.dart' as lpc;
-import 'package:lualike/src/parsers/binary_format.dart';
 import 'package:lualike/src/stdlib/binary_type_size.dart';
 import 'package:lualike/src/stdlib/pack_size_calculator.dart';
 import 'package:lualike/src/stdlib/pack_error_handling.dart';

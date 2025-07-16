@@ -108,14 +108,14 @@ void main() {
   group('BinaryFormatParser Enhanced Validation', () {
     test('throws on excessive digits in format options', () {
       // Test the specific failing case: "c1" + "0".repeat(40)
-      final format = "c1" + "0" * 40;
+      final format = "c1${"0" * 40}";
       expect(() => BinaryFormatParser.parse(format), throwsA(isA<LuaError>()));
     });
 
-    test('throws on format complexity validation', () {
-      // Test very long format string
-      final format = "c1" * 1001; // Exceeds MAX_FORMAT_COMPLEXITY
-      expect(() => BinaryFormatParser.parse(format), throwsA(isA<LuaError>()));
+    test('very long format strings parse successfully', () {
+      // Lua accepts long format strings; our parser should too
+      final format = "c1" * 1001;
+      expect(() => BinaryFormatParser.parse(format), returnsNormally);
     });
 
     test('validates numeric suffixes during parsing', () {

@@ -335,13 +335,18 @@ void main() {
           for (final format in testFormats) {
             final code =
                 '''
-              -- Create valid binary data for the format
-              local data = string.pack("$format", 1, 2, "hello12345")
+                -- Create valid binary data for the format
+                local data
+                if "$format" == "bBhHlLjJT" then
+                  data = string.pack("$format", 1,2,3,4,5,6,7,8,9)
+                else
+                  data = string.pack("$format", 1, 2, "hello12345")
+                end
 
-              -- Unpack should work with same format
-              local values = {string.unpack("$format", data)}
-              assert(#values >= 3, "Should unpack at least 3 values")
-            ''';
+                -- Unpack should work with same format
+                local values = {string.unpack("$format", data)}
+                assert(#values >= 3, "Should unpack at least 3 values")
+              ''';
             print(code);
             await lua.runCode(code);
           }
