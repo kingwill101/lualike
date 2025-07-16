@@ -267,14 +267,13 @@ void main() {
           local s = string.pack("s", "hello")
           local str, pos = string.unpack("s", s)
           assert(str == "hello")
-          assert(pos == 6)
+          assert(pos == 14)
         ''');
 
         await lua.runCode('''
           local s = string.pack("z", "hello")
           local str, pos = string.unpack("z", s)
           assert(str == "hello")
-          -- Don't assert on pos for z format as behavior may vary
         ''');
       });
     });
@@ -334,14 +333,17 @@ void main() {
           final testFormats = ['i4hc10', 'bBhHlLjJT', '!4i4!8d'];
 
           for (final format in testFormats) {
-            await lua.runCode('''
+            final code =
+                '''
               -- Create valid binary data for the format
               local data = string.pack("$format", 1, 2, "hello12345")
 
               -- Unpack should work with same format
               local values = {string.unpack("$format", data)}
               assert(#values >= 3, "Should unpack at least 3 values")
-            ''');
+            ''';
+            print(code);
+            await lua.runCode(code);
           }
         });
 
