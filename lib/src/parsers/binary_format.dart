@@ -89,7 +89,12 @@ class BinaryFormatParser {
       10; // Reasonable limit for numeric suffixes
 
   static final Parser<String> space = char(' ');
-  static final Parser<String> digits = digit().repeat(1, 9).flatten();
+  // Match one or more digits without limiting the length. The actual
+  // length validation is performed by `_validateNumericSuffix`, which
+  // mirrors Lua's behavior of accepting long digit sequences and then
+  // rejecting them with an "invalid format" error when they exceed
+  // allowed limits.
+  static final Parser<String> digits = digit().plus().flatten();
   static final Parser<String> signedDigits = (char('-').optional() & digits)
       .flatten();
 
@@ -137,7 +142,12 @@ class BinaryFormatParser {
     // Note: Numeric suffix validation removed to match Lua's behavior
     // Lua limits digit parsing naturally and treats excess as separate options
 
-    final n = int.parse(numStr);
+    int n;
+    try {
+      n = int.parse(numStr);
+    } on FormatException {
+      throw PackErrorHandling.invalidFormatError();
+    }
     if (n < 0) {
       throw PackErrorHandling.invalidSizeForOptionError(
         optionType: 'c',
@@ -161,7 +171,12 @@ class BinaryFormatParser {
         // Validate numeric suffix length before parsing
         _validateNumericSuffix(numStr, t, formatString: null);
 
-        final n = int.parse(numStr);
+        int n;
+        try {
+          n = int.parse(numStr);
+        } on FormatException {
+          throw PackErrorHandling.invalidFormatError();
+        }
 
         if ((t == 'i' || t == 'I' || t == 'j' || t == 'J') &&
             (n < 1 || n > 16)) {
@@ -201,7 +216,12 @@ class BinaryFormatParser {
           // Validate numeric suffix length before parsing
           _validateNumericSuffix(numStr, 'X', formatString: null);
 
-          final n = int.parse(numStr);
+          int n;
+          try {
+            n = int.parse(numStr);
+          } on FormatException {
+            throw PackErrorHandling.invalidFormatError();
+          }
           final context = PackErrorHandling.packsizeContext(optionType: 'X');
           final issue = PackErrorHandling.validateIntegerSize(
             size: n,
