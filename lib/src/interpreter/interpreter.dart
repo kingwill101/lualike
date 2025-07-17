@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/call_stack.dart';
@@ -13,8 +11,10 @@ import 'package:lualike/src/lua_stack_trace.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/stack.dart';
 import 'package:lualike/src/stdlib/init.dart' show initializeStandardLibrary;
+import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:lualike/src/value.dart';
 import 'package:lualike/src/value_class.dart';
+import 'package:lualike/src/utils/file_system_utils.dart' as fs;
 
 import '../exceptions.dart';
 import '../extensions/extensions.dart';
@@ -414,7 +414,7 @@ class Interpreter extends AstVisitor<Object?>
 
           // Try to make the path relative to the current directory
           try {
-            final currentDir = Directory.current.path;
+            final currentDir = fs.getCurrentDirectory() ?? "";
             if (filepath.startsWith(currentDir)) {
               filepath = filepath.substring(currentDir.length);
               // Remove leading slash if present
@@ -437,7 +437,7 @@ class Interpreter extends AstVisitor<Object?>
         // Try to make the script path relative
         String filepath = scriptPath;
         try {
-          final currentDir = Directory.current.path;
+          final currentDir = fs.getCurrentDirectory() ?? "";
           if (filepath.startsWith(currentDir)) {
             filepath = filepath.substring(currentDir.length);
             // Remove leading slash if present
@@ -456,12 +456,7 @@ class Interpreter extends AstVisitor<Object?>
       }
 
       // Get the executable name (lualike or lua)
-      String executableName = "lualike";
-      try {
-        executableName = Platform.executable.split('/').last;
-      } catch (e) {
-        // If we can't get the executable name, use a default
-      }
+      String executableName = platform.executableName;
 
       // Print error in Lua style with executable name prefix
       print("$executableName: $errorMsg");

@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:lualike/src/testing/testing.dart';
+import 'package:lualike/src/utils/file_system_utils.dart' as fs;
 import 'package:path/path.dart' as path;
 
 /// Wrapper for Dart functions to make them callable from LuaLike.
@@ -76,9 +76,12 @@ extension VMInterop on Interpreter {
       } else {
         // Resolve relative paths against the current working directory
         try {
-          absolutePath = path.normalize(
-            path.join(Directory.current.path, scriptPath),
-          );
+          final currentDir = fs.getCurrentDirectory();
+          if (currentDir != null) {
+            absolutePath = path.normalize(path.join(currentDir, scriptPath));
+          } else {
+            absolutePath = path.absolute(scriptPath);
+          }
           Logger.debug(
             "Resolved relative script path '$scriptPath' to absolute path '$absolutePath' using current directory",
             category: 'Interpreter',
@@ -209,11 +212,14 @@ class LuaLike {
 
 /// Runs a Lua file with the given path.
 Future<List<Value>> runFile(String path, {Map<String, dynamic>? env}) async {
-  final file = File(path);
-  if (!await file.exists()) {
+  if (!await fs.fileExists(path)) {
     throw Exception('File not found: $path');
   }
-  final code = await file.readAsBytes().then((bytes) => utf8.decode(bytes));
+  final bytes = await fs.readFileAsBytes(path);
+  if (bytes == null) {
+    throw Exception('Could not read file: $path');
+  }
+  final code = utf8.decode(bytes);
 
   // Create a new environment if one wasn't provided
   env ??= {};
@@ -267,13 +273,14 @@ Future<List<Value>> runCode(
 /// Loads a Lua script from a file.
 Future<Value> loadFile(String path) async {
   try {
-    final file = File(path);
-    if (!await file.exists()) {
+    if (!await fs.fileExists(path)) {
       throw LuaError.typeError('File not found: $path');
     }
-    final content = await file.readAsBytes().then(
-      (bytes) => utf8.decode(bytes),
-    );
+    final bytes = await fs.readFileAsBytes(path);
+    if (bytes == null) {
+      throw LuaError.typeError('Could not read file: $path');
+    }
+    final content = utf8.decode(bytes);
     // runCode returns a list, loadFile should return the first result or nil
     final results = await runCode(content, filePath: path);
     return results.isNotEmpty ? results[0] : Value(null);

@@ -1,7 +1,6 @@
-import 'dart:io';
-
 import 'package:logging/logging.dart' as pkg_logging;
 import 'package:lualike/src/logger.dart';
+import 'package:lualike/src/utils/platform_utils.dart' as platform;
 
 export 'package:logging/logging.dart' show Level;
 export 'package:lualike/src/logger.dart';
@@ -23,13 +22,14 @@ void setLualikeLogging({
   pkg_logging.Level? level,
   String? category,
 }) {
-  final String envValue = (Platform.environment['LOGGING_ENABLED'] ?? '')
-      .trim()
-      .toLowerCase();
+  final String envValue =
+      (platform.getEnvironmentVariable('LOGGING_ENABLED') ?? '')
+          .trim()
+          .toLowerCase();
   final envEnabled = envValue == 'true' || envValue == '1';
 
-  final envLevel = Platform.environment['LOGGING_LEVEL'];
-  final envCategory = Platform.environment['LOGGING_CATEGORY'];
+  final envLevel = platform.getEnvironmentVariable('LOGGING_LEVEL');
+  final envCategory = platform.getEnvironmentVariable('LOGGING_CATEGORY');
 
   final bool useEnabled = (enabled ?? false) || envEnabled;
 

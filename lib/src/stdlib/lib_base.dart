@@ -1,12 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/const_checker.dart';
 import 'package:lualike/src/coroutine.dart' show Coroutine;
 import 'package:lualike/src/stdlib/lib_io.dart';
+import 'package:lualike/src/utils/file_system_utils.dart';
 import 'package:path/path.dart' as path;
 
 /// Built-in function to retrieve the metatable of a value.
@@ -708,12 +708,12 @@ class DoFileFunction implements BuiltinFunction {
   DoFileFunction(this.vm);
 
   @override
-  Object? call(List<Object?> args) {
+  Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) throw Exception("dofile requires a filename");
     final filename = (args[0] as Value).raw.toString();
 
     // Load source using FileManager
-    final source = vm.fileManager.loadSource(filename);
+    final source = await vm.fileManager.loadSource(filename);
     if (source == null) {
       throw Exception("Cannot open file '$filename'");
     }
@@ -775,22 +775,29 @@ class SetmetaFunction implements BuiltinFunction {
 
 class LoadfileFunction implements BuiltinFunction {
   @override
-  Object? call(List<Object?> args) {
+  Future<Object?> call(List<Object?> args) async {
     final filename = args.isNotEmpty ? (args[0] as Value).raw.toString() : null;
     //mode
     final _ = args.length > 1 ? (args[1] as Value).raw.toString() : 'bt';
 
     try {
       final source = filename == null
-          ? stdin.readLineSync() ??
-                "" // Read from stdin if no filename
-          : () {
-              // Read as UTF-8 string to properly handle Unicode characters
-              final bytes = File(filename).readAsBytesSync();
-              return utf8.decode(bytes);
+          ? () async {
+              // Read from default input instead of stdin
+              final result = await IOLib.defaultInput.read('a'); // Read all
+              return result[0]?.toString() ?? "";
+            }()
+          : () async {
+              // Use FileManager to read files properly
+              final vm = Environment.current?.interpreter ?? Interpreter();
+              return vm.fileManager.loadSource(filename!);
             }();
 
-      final ast = parse(source, url: filename);
+      final sourceCode = await source;
+      if (sourceCode == null) {
+        return Value(null);
+      }
+      final ast = parse(sourceCode, url: filename ?? 'stdin');
       return Value((List<Object?> callArgs) {
         final vm = Interpreter();
         try {
@@ -944,8 +951,9 @@ class WarnFunction implements BuiltinFunction {
           })
           .join("\t");
 
-      stderr.writeln("Lua warning: $messages");
-      stderr.flush();
+      // Use IOLib default output for warnings instead of stderr
+      IOLib.defaultOutput.write("Lua warning: $messages\n");
+      IOLib.defaultOutput.flush();
     }
 
     return Value(null);
@@ -1452,7 +1460,7 @@ class RequireFunction implements BuiltinFunction {
         "DEBUG: Trying direct path in script directory: $directPath",
       );
 
-      if (File(directPath).existsSync()) {
+      if (await fileExists(directPath)) {
         Logger.debug("DEBUG: Module found in script directory: $directPath");
         modulePath = directPath;
       }
@@ -1460,7 +1468,7 @@ class RequireFunction implements BuiltinFunction {
 
     // If not found in the script directory, use the regular resolution
     if (modulePath == null) {
-      modulePath = vm.fileManager.resolveModulePath(moduleName);
+      modulePath = await vm.fileManager.resolveModulePath(moduleName);
 
       // Print the resolved globs for debugging
       vm.fileManager.printResolvedGlobs();
@@ -1474,7 +1482,7 @@ class RequireFunction implements BuiltinFunction {
         category: 'Require',
       );
 
-      final source = vm.fileManager.loadSource(modulePathStr);
+      final source = await vm.fileManager.loadSource(modulePathStr);
       if (source != null) {
         try {
           Logger.debug(

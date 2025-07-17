@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/lualike.dart';
-import 'package:xrandom/xrandom.dart';
+import 'random_native.dart' if (dart.library.js_interop) 'random_web.dart';
 
 // Base class for math functions to handle common number validation
 abstract class _MathFunction implements BuiltinFunction {
