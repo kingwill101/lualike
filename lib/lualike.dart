@@ -8,13 +8,7 @@ export 'src/config.dart';
 export 'src/environment.dart';
 export 'src/error_utils.dart';
 export 'src/exceptions.dart';
-export 'src/executor.dart'
-    show
-        executeCode,
-        ExecutionMode,
-        compileToBytecode,
-        executeBytecodeChunk,
-        executeAst;
+export 'src/executor.dart' show executeCode;
 export 'src/extensions/extensions.dart';
 export 'src/file_manager.dart';
 export 'src/interop.dart';

@@ -16,7 +16,6 @@ class InteractiveCommandWrapper extends BaseCommand {
   @override
   Future<void> run() async {
     final interactive = InteractiveMode(
-      executionMode: executionMode,
       bridge: bridge, // Use the shared bridge
       debugMode: debugMode,
     );

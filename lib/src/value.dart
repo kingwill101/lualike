@@ -4,7 +4,6 @@ import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
 import 'package:lualike/src/gc/generational_gc.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
-
 import 'package:lualike/src/upvalue.dart';
 
 /// Represents an asynchronous function that can be called with a list of arguments.
@@ -106,7 +105,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
   }
 
-  isA<T>() {
+  bool isA<T>() {
     return raw is T;
   }
 
@@ -217,7 +216,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   ///
   /// [event] - The name of the metamethod to check for.
   /// Returns `true` if the metamethod exists, `false` otherwise.
-  hasMetamethod(String event) =>
+  bool hasMetamethod(String event) =>
       metatable != null && metatable!.containsKey(event);
 
   /// Checks if this value is callable (is a function or has __call metamethod)
@@ -338,7 +337,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     return raw is Value ? raw.completeUnwrap() : raw;
   }
 
-  completeUnwrap() {
+  dynamic completeUnwrap() {
     var current = raw;
     while (current is Value) {
       current = current.unwrap();
@@ -1456,7 +1455,7 @@ extension OperatorExtension on Value {
     );
   }
 
-  operator >(Object other) {
+  dynamic operator >(Object other) {
     final otherRaw = other is Value ? other.raw : other;
     // Lua: NaN > anything is always false
     if ((raw is num && (raw as num).isNaN) ||
@@ -1549,7 +1548,7 @@ extension OperatorExtension on Value {
     );
   }
 
-  operator <(Object other) {
+  dynamic operator <(Object other) {
     final otherRaw = other is Value ? other.raw : other;
     // Lua: NaN < anything is always false
     if ((raw is num && (raw as num).isNaN) ||
@@ -1631,7 +1630,7 @@ extension OperatorExtension on Value {
     );
   }
 
-  operator >=(Object other) {
+  dynamic operator >=(Object other) {
     final otherRaw = other is Value ? other.raw : other;
     // Lua: NaN >= anything is always false
     if ((raw is num && (raw as num).isNaN) ||
@@ -1711,7 +1710,7 @@ extension OperatorExtension on Value {
     );
   }
 
-  operator <=(Object other) {
+  dynamic operator <=(Object other) {
     final otherRaw = other is Value ? other.raw : other;
     // Lua: NaN <= anything is always false
     if ((raw is num && (raw as num).isNaN) ||

@@ -9,7 +9,7 @@ import 'package:path/path.dart' as p;
 
 class TestRunner {
   final String testSuitePath;
-  final ExecutionMode mode;
+  // final ExecutionMode mode;
   final bool useInternalTests;
   final String logDirPath;
   final bool verbose;
@@ -23,7 +23,7 @@ class TestRunner {
 
   TestRunner({
     required this.testSuitePath,
-    required this.mode,
+    // required this.mode,
     this.useInternalTests = false,
     this.logDirPath = 'test-logs',
     this.verbose = false,
@@ -36,7 +36,7 @@ class TestRunner {
 
   Future<void> runTestSuite() async {
     try {
-      print('Running LuaLike test suite in $mode mode...');
+      // print('Running LuaLike test suite in $mode mode...');
       print("Files in test suite: $testSuitePath");
       final testDir = Directory(testSuitePath);
       if (!testDir.existsSync()) {
@@ -115,7 +115,7 @@ class TestRunner {
           final logBuffer = StringBuffer();
           logBuffer.writeln('=== Test: $relativePath ===');
           logBuffer.writeln('Start time: $testStartTime');
-          logBuffer.writeln('Mode: $mode');
+          // logBuffer.writeln('Mode: $mode');
           logBuffer.writeln(
             'Category: ${_getCategoryForTest(relativePath) ?? "uncategorized"}',
           );
@@ -128,7 +128,7 @@ class TestRunner {
 
             final _ = await executeCode(
               sourceCode,
-              mode,
+              // mode,
               onInterpreterSetup: (interpreter) {
                 if (useInternalTests) {
                   _injectInternalTestFunctions(interpreter.globals);
@@ -198,7 +198,7 @@ class TestRunner {
       final reportBuffer = StringBuffer();
       reportBuffer.writeln('=== LuaLike Test Suite Summary ===');
       reportBuffer.writeln('Date: $suiteStartTime');
-      reportBuffer.writeln('Mode: $mode');
+      // reportBuffer.writeln('Mode: $mode');
       reportBuffer.writeln('Total tests: ${testFiles.length}');
       reportBuffer.writeln('Passed: $passedCount');
       reportBuffer.writeln('Failed: $failedCount');
@@ -240,7 +240,7 @@ class TestRunner {
       // Write JSON report for programmatic consumption
       final jsonReport = {
         'timestamp': suiteStartTime.toIso8601String(),
-        'mode': mode.toString(),
+        // 'mode': mode.toString(),
         'totalTests': testFiles.length,
         'passed': passedCount,
         'failed': failedCount,
@@ -322,7 +322,7 @@ class TestRunner {
       final logBuffer = StringBuffer();
       logBuffer.writeln('=== Test: $relativePath ===');
       logBuffer.writeln('Start time: $testStartTime');
-      logBuffer.writeln('Mode: $mode');
+      // logBuffer.writeln('Mode: $mode');
       logBuffer.writeln(
         'Category: ${_getCategoryForTest(relativePath) ?? "uncategorized"}',
       );
@@ -336,7 +336,7 @@ class TestRunner {
 
         final _ = await executeCode(
           sourceCode,
-          mode,
+          // mode,
           onInterpreterSetup: (interpreter) {
             if (useInternalTests) {
               _injectInternalTestFunctions(interpreter.globals);

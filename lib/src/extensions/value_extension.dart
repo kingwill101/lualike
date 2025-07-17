@@ -1,11 +1,11 @@
-import '../logger.dart';
-import '../lua_string.dart';
-import '../value.dart';
-import '../lua_error.dart';
-import '../stdlib/lib_string.dart';
+import '../ast.dart';
 import '../builtin_function.dart';
 import '../environment.dart';
-import '../ast.dart';
+import '../logger.dart';
+import '../lua_error.dart';
+import '../lua_string.dart';
+import '../stdlib/lib_string.dart';
+import '../value.dart';
 
 dynamic fromLuaValue(dynamic obj) {
   if (obj is Value) {
@@ -90,9 +90,9 @@ Value toLuaValue(dynamic dy) {
 
 /// Extension methods for the Value class to simplify common operations
 extension ValueExtension<T> on T {
-  get raw => this is Value ? (this as Value).raw : this;
+  dynamic get raw => this is Value ? (this as Value).raw : this;
 
-  get isValue => this is Value;
+  bool get isValue => this is Value;
 
   Value get value => this is Value ? this as Value : Value(this);
 

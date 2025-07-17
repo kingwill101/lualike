@@ -1476,94 +1476,94 @@ class RequireFunction implements BuiltinFunction {
 
       final source = vm.fileManager.loadSource(modulePathStr);
       if (source != null) {
-      try {
-        Logger.debug(
-          "REQUIRE: Module source loaded, parsing and executing",
-          category: 'Require',
-        );
-        // Parse the module code
-        final ast = parse(source, url: modulePathStr);
-
-        // Create a new environment for the module
-        final moduleEnv = Environment(parent: vm.globals, interpreter: vm);
-
-        // We'll execute the module code using the current interpreter to
-        // ensure package.loaded is shared.
-
-        // Resolve the absolute path for the module
-        String absoluteModulePath;
-        if (path.isAbsolute(modulePathStr)) {
-          absoluteModulePath = modulePathStr;
-        } else {
-          absoluteModulePath = vm.fileManager.resolveAbsoluteModulePath(
-            modulePathStr,
-          );
-        }
-
-        // Get the directory part of the script path
-        final moduleDir = path.dirname(absoluteModulePath);
-
-        // Temporarily switch to the module environment
-        final prevEnv = vm.getCurrentEnv();
-        final prevPath = vm.currentScriptPath;
-        vm.setCurrentEnv(moduleEnv);
-        vm.currentScriptPath = absoluteModulePath;
-
-        // Store the script path in the module environment
-        moduleEnv.define('_SCRIPT_PATH', Value(absoluteModulePath));
-        moduleEnv.define('_SCRIPT_DIR', Value(moduleDir));
-
-        // Also set _MODULE_NAME global
-        moduleEnv.define('_MODULE_NAME', Value(moduleName));
-        moduleEnv.define('_MAIN_CHUNK', Value(false));
-
-        Logger.debug(
-          "DEBUG: Module environment set up with _SCRIPT_PATH=$absoluteModulePath, _SCRIPT_DIR=$moduleDir, _MODULE_NAME=$moduleName",
-        );
-
-        Object? result;
         try {
-          // Run the module code within the current interpreter
-          result = await vm.run(ast.statements);
-          // If the script didn't return anything, result will be null
-          result ??= Value(null);
-        } on ReturnException catch (e) {
-          // Handle explicit return from module
-          result = e.value;
-        } finally {
-          // Restore previous environment and script path
-          vm.setCurrentEnv(prevEnv);
-          vm.currentScriptPath = prevPath;
+          Logger.debug(
+            "REQUIRE: Module source loaded, parsing and executing",
+            category: 'Require',
+          );
+          // Parse the module code
+          final ast = parse(source, url: modulePathStr);
+
+          // Create a new environment for the module
+          final moduleEnv = Environment(parent: vm.globals, interpreter: vm);
+
+          // We'll execute the module code using the current interpreter to
+          // ensure package.loaded is shared.
+
+          // Resolve the absolute path for the module
+          String absoluteModulePath;
+          if (path.isAbsolute(modulePathStr)) {
+            absoluteModulePath = modulePathStr;
+          } else {
+            absoluteModulePath = vm.fileManager.resolveAbsoluteModulePath(
+              modulePathStr,
+            );
+          }
+
+          // Get the directory part of the script path
+          final moduleDir = path.dirname(absoluteModulePath);
+
+          // Temporarily switch to the module environment
+          final prevEnv = vm.getCurrentEnv();
+          final prevPath = vm.currentScriptPath;
+          vm.setCurrentEnv(moduleEnv);
+          vm.currentScriptPath = absoluteModulePath;
+
+          // Store the script path in the module environment
+          moduleEnv.define('_SCRIPT_PATH', Value(absoluteModulePath));
+          moduleEnv.define('_SCRIPT_DIR', Value(moduleDir));
+
+          // Also set _MODULE_NAME global
+          moduleEnv.define('_MODULE_NAME', Value(moduleName));
+          moduleEnv.define('_MAIN_CHUNK', Value(false));
+
+          Logger.debug(
+            "DEBUG: Module environment set up with _SCRIPT_PATH=$absoluteModulePath, _SCRIPT_DIR=$moduleDir, _MODULE_NAME=$moduleName",
+          );
+
+          Object? result;
+          try {
+            // Run the module code within the current interpreter
+            result = await vm.run(ast.statements);
+            // If the script didn't return anything, result will be null
+            result ??= Value(null);
+          } on ReturnException catch (e) {
+            // Handle explicit return from module
+            result = e.value;
+          } finally {
+            // Restore previous environment and script path
+            vm.setCurrentEnv(prevEnv);
+            vm.currentScriptPath = prevPath;
+          }
+
+          // If the module didn't return anything, return an empty table
+          if ((result is Value && result.raw == null)) {
+            result = Value({});
+          }
+
+          Logger.debug(
+            "(REQUIRE) RequireFunction: Module '$moduleName' loaded successfully",
+            category: 'Require',
+          );
+
+          // Store the result in package.loaded
+          loaded[moduleName] = result;
+          Logger.debug(
+            "Module '$moduleName' stored in package.loaded",
+            category: 'Require',
+          );
+          Logger.debug(
+            "Loaded table now contains: ${loaded.keys.join(",")}",
+            category: 'Require',
+          );
+
+          // Return the loaded module
+          return result;
+        } catch (e) {
+          throw Exception("error loading module '$moduleName': $e");
         }
-
-        // If the module didn't return anything, return an empty table
-        if ((result is Value && result.raw == null)) {
-          result = Value({});
-        }
-
-        Logger.debug(
-          "(REQUIRE) RequireFunction: Module '$moduleName' loaded successfully",
-          category: 'Require',
-        );
-
-        // Store the result in package.loaded
-        loaded[moduleName] = result;
-        Logger.debug(
-          "Module '$moduleName' stored in package.loaded",
-          category: 'Require',
-        );
-        Logger.debug(
-          "Loaded table now contains: ${loaded.keys.join(",")}",
-          category: 'Require',
-        );
-
-        // Return the loaded module
-        return result;
-      } catch (e) {
-        throw Exception("error loading module '$moduleName': $e");
       }
     }
-  }
 
     // Step 3: If direct loading failed, try the searchers
     if (!packageTable.containsKey("searchers") ||

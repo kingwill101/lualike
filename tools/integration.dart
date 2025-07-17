@@ -1,7 +1,7 @@
-import 'dart:io';
 import 'dart:async';
-import 'package:lualike/integration.dart';
+import 'dart:io';
 
+import 'package:lualike/integration.dart';
 import 'package:yaml/yaml.dart';
 
 // Configuration file constants
@@ -18,7 +18,6 @@ int parallelJobs = 4;
 String? filterPattern;
 List<String> categories = [];
 bool keepOnlyLatest = false;
-ExecutionMode mode = ExecutionMode.astInterpreter;
 bool useInternalTests = true;
 
 // Skip list for known failing tests
@@ -83,12 +82,6 @@ Future<void> main(List<String> arguments) async {
       case '--config':
         // Already handled before the main argument parsing
         if (i + 1 < arguments.length) i++;
-        break;
-      case '--ast':
-        mode = ExecutionMode.astInterpreter;
-        break;
-      case '--bytecode':
-        mode = ExecutionMode.bytecodeVM;
         break;
       case '--internal':
         useInternalTests = true;
@@ -183,7 +176,6 @@ Future<void> main(List<String> arguments) async {
 
   final runner = TestRunner(
     testSuitePath: testSuitePath,
-    mode: mode,
     useInternalTests: true,
     logDirPath: logDirPath,
     verbose: verbose,
@@ -231,14 +223,7 @@ Future<void> _loadConfigFile(String configPath) async {
     // Load execution settings
     if (yaml.containsKey('execution')) {
       final execution = yaml['execution'] as YamlMap;
-      if (execution.containsKey('mode')) {
-        final modeStr = execution['mode'].toString().toLowerCase();
-        if (modeStr == 'bytecode') {
-          mode = ExecutionMode.bytecodeVM;
-        } else {
-          mode = ExecutionMode.astInterpreter;
-        }
-      }
+
       if (execution.containsKey('use_internal_tests')) {
         useInternalTests = execution['use_internal_tests'] == true;
       }
