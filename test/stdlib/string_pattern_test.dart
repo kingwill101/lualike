@@ -17,7 +17,7 @@ void main() {
         // assert(string.match("aaab", ".*b") == "aaab")
         // assert(string.match("aaa", ".*a") == "aaa")
         // assert(string.match("b", ".*b") == "b")
-        await bridge.runCode('''
+        await bridge.execute('''
           local r1 = string.match("aaab", ".*b")
           local r2 = string.match("aaa", ".*a")
           local r3 = string.match("b", ".*b")
@@ -33,7 +33,7 @@ void main() {
         // assert(string.match("aaab", ".+b") == "aaab")
         // assert(string.match("aaa", ".+a") == "aaa")
         // assert(not string.match("b", ".+b"))
-        await bridge.runCode('''
+        await bridge.execute('''
           local r1 = string.match("aaab", ".+b")
           local r2 = string.match("aaa", ".+a")
           local r3 = string.match("b", ".+b")
@@ -49,7 +49,7 @@ void main() {
         // assert(string.match("aaab", ".?b") == "ab")
         // assert(string.match("aaa", ".?a") == "aa")
         // assert(string.match("b", ".?b") == "b")
-        await bridge.runCode('''
+        await bridge.execute('''
           local r1 = string.match("aaab", ".?b")
           local r2 = string.match("aaa", ".?a")
           local r3 = string.match("b", ".?b")
@@ -61,7 +61,7 @@ void main() {
       });
 
       test('non-greedy patterns', () async {
-        await bridge.runCode('''
+        await bridge.execute('''
           local r1 = string.match("aaab", ".-b")
           local r2 = string.match("aaa", ".-a")
           local r3 = string.match("aaabc", "a.-c")
@@ -75,7 +75,7 @@ void main() {
 
     group('character classes', () {
       test('basic character classes', () async {
-        await bridge.runCode('''
+        await bridge.execute('''
           local r1 = string.match("abc123", "%a+")
           local r2 = string.match("abc123", "%d+")
           local r3 = string.match("abc123", "%w+")
@@ -89,7 +89,7 @@ void main() {
       });
 
       test('negated character classes', () async {
-        await bridge.runCode('''
+        await bridge.execute('''
           local r1 = string.match("abc123", "%A+")
           local r2 = string.match("abc123", "%D+")
           local r3 = string.match("abc123", "%W+")
@@ -103,7 +103,7 @@ void main() {
       });
 
       test('custom character classes', () async {
-        await bridge.runCode('''
+        await bridge.execute('''
           local r1 = string.match("abc123", "[a-z]+")
           local r2 = string.match("abc123", "[0-9]+")
           local r3 = string.match("abc123", "[^a-z]+")
@@ -122,7 +122,7 @@ void main() {
         // From pm.lua:
         // assert(string.match("alo xyzK", "(%w+)K") == "xyz")
         // assert(string.match("254 K", "(%d*)K") == "")
-        await bridge.runCode('''
+        await bridge.execute('''
           local r1 = string.match("alo xyzK", "(%w+)K")
           local r2 = string.match("254 K", "(%d*)K")
         ''');
@@ -135,7 +135,7 @@ void main() {
         // From pm.lua:
         // assert(string.match("alo ", "(%w*)$") == "")
         // assert(not string.match("alo ", "(%w+)$"))
-        await bridge.runCode(r'''
+        await bridge.execute(r'''
           local r1 = string.match("alo ", "(%w*)$")
           local r2 = string.match("alo ", "(%w+)$")
         ''');
@@ -145,7 +145,7 @@ void main() {
       });
 
       test('basic captures', () async {
-        await bridge.runCode('''
+        await bridge.execute('''
           local r1 = string.match("abc123", "(%a+)(%d+)")
           local r2 = string.match("name = value", "(%w+)%s*=%s*(%w+)")
         ''');
@@ -155,7 +155,7 @@ void main() {
       });
 
       test('multiple captures', () async {
-        await bridge.runCode('''
+        await bridge.execute('''
           local a, b = string.match("abc123", "(%a+)(%d+)")
           local c, d = string.match("name = value", "(%w+)%s*=%s*(%w+)")
         ''');
@@ -167,7 +167,7 @@ void main() {
       });
 
       test('nested captures', () async {
-        await bridge.runCode('''
+        await bridge.execute('''
           local a, b, c = string.match("abc123", "((%a+)(%d+))")
         ''');
 
@@ -181,7 +181,7 @@ void main() {
       test('frontier patterns', () async {
         // From pm.lua:
         // local k = string.match(" alo aalo allo", "%f[%S](.-%f[%s].-%f[%S])")
-        await bridge.runCode('''
+        await bridge.execute('''
           local k = string.match(" alo aalo allo", "%f[%S](.-%f[%s].-%f[%S])")
         ''');
 
@@ -192,7 +192,7 @@ void main() {
         // From pm.lua:
         // assert(string.match("abc\\0\\1\\2c", "[\\0-\\2]+") == "\\0\\1\\2")
         // assert(string.match("abc\\0\\0\\0", "%\\0+") == "\\0\\0\\0")
-        await bridge.runCode('''
+        await bridge.execute('''
           local r1 = string.match("abc\\0\\1\\2c", "[\\0-\\2]+")
           local r2 = string.match("abc\\0\\0\\0", "%\\0+")
         ''');
@@ -210,7 +210,7 @@ void main() {
       test('balanced patterns', () async {
         // From pm.lua:
         // assert(string.match("abc\\0efg\\0\\1e\\1g", "%b\\0\\1") == "\\0efg\\0\\1e\\1")
-        await bridge.runCode('''
+        await bridge.execute('''
           local r = string.match("abc\\0efg\\0\\1e\\1g", "%b\\0\\1")
         ''');
 
@@ -221,7 +221,7 @@ void main() {
       });
 
       test('anchors', () async {
-        await bridge.runCode(r'''
+        await bridge.execute(r'''
           local r1 = string.match("hello world", "^%a+")
           local r2 = string.match("hello world", "%a+$")
           local r3 = string.match("hello", "^%a+$")
@@ -235,7 +235,7 @@ void main() {
 
     group('from Lua test suite', () {
       test('pm.lua examples', () async {
-        await bridge.runCode(r'''
+        await bridge.execute(r'''
           local r1 = string.match("aaab", ".*b")
           local r2 = string.match("aaa", ".*a")
           local r3 = string.match("b", ".*b")

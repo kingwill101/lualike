@@ -19,7 +19,7 @@ class ExecuteCommand extends BaseCommand {
       // Setup arg table for -e mode
       setupArgTable(originalArgs: originalArgs, codeStrings: [code]);
 
-      await bridge.runCode(code);
+      await bridge.execute(code);
     } catch (e) {
       safePrint('Error executing code: $e');
       rethrow;

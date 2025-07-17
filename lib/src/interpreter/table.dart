@@ -597,9 +597,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
           final values = ye.values;
           final yieldTable = ValueClass.table();
           for (var j = 0; j < values.length; j++) {
-            yieldTable[Value(j + 1)] = values[j] is Value
-                ? values[j]
-                : Value(values[j]);
+            yieldTable[Value(j + 1)] = values[j];
           }
           return yieldTable;
         }

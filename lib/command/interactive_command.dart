@@ -182,7 +182,7 @@ class InteractiveMode {
         // Execute the code
         Object? result;
         try {
-          result = await bridge.runCode(codeToExecute);
+          result = await bridge.execute(codeToExecute);
         } on ReturnException catch (e) {
           result = e.value;
         } catch (e) {

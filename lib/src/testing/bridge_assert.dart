@@ -26,7 +26,7 @@ class BridgeAssert {
   /// Asserts that a local variable exists and has the expected value.
   BridgeAssert local(String name, Object? expected) {
     // First make sure the local is exposed as a global for testing
-    _bridge.runCode('_test_value = $name');
+    _bridge.execute('_test_value = $name');
     final value = _bridge.getGlobal('_test_value');
     if (expected is Value) {
       expect(value, equals(expected));
@@ -34,7 +34,7 @@ class BridgeAssert {
       expect((value as Value).raw, equals(expected));
     }
     // Clean up
-    _bridge.runCode('_test_value = nil');
+    _bridge.execute('_test_value = nil');
     return this;
   }
 
@@ -45,7 +45,7 @@ class BridgeAssert {
     Object? expected,
   ) {
     // Get the table field
-    _bridge.runCode('_test_value = $tableName.$fieldName');
+    _bridge.execute('_test_value = $tableName.$fieldName');
     final value = _bridge.getGlobal('_test_value');
     if (expected is Value) {
       expect(value, equals(expected));
@@ -53,7 +53,7 @@ class BridgeAssert {
       expect((value as Value).raw, equals(expected));
     }
     // Clean up
-    _bridge.runCode('_test_value = nil');
+    _bridge.execute('_test_value = nil');
     return this;
   }
 
@@ -61,7 +61,7 @@ class BridgeAssert {
   BridgeAssert tableIndex(String tableName, Object index, Object? expected) {
     // Get the table indexed value
     final indexStr = index is String ? '"$index"' : index;
-    _bridge.runCode('_test_value = $tableName[$indexStr]');
+    _bridge.execute('_test_value = $tableName[$indexStr]');
     final value = _bridge.getGlobal('_test_value');
     if (expected is Value) {
       expect(value, equals(expected));
@@ -69,7 +69,7 @@ class BridgeAssert {
       expect((value as Value).raw, equals(expected));
     }
     // Clean up
-    _bridge.runCode('_test_value = nil');
+    _bridge.execute('_test_value = nil');
     return this;
   }
 
@@ -83,7 +83,7 @@ class BridgeAssert {
     expected = toLuaValue(expected);
 
     try {
-      actual = await _bridge.runCode(code);
+      actual = await _bridge.execute(code);
     } on ReturnException catch (e) {
       actual = e.value;
     } finally {
@@ -100,7 +100,7 @@ class BridgeAssert {
   /// Asserts that running the code throws an error.
   Future<BridgeAssert> throws(String code, {String? containing}) async {
     try {
-      await _bridge.runCode(code);
+      await _bridge.execute(code);
       fail('Expected code to throw an error but it succeeded.');
     } catch (e) {
       if (containing != null) {
@@ -112,7 +112,7 @@ class BridgeAssert {
 
   /// Executes code without assertions, useful for setup steps.
   Future<BridgeAssert> setup(String code) async {
-    await _bridge.runCode(code);
+    await _bridge.execute(code);
     return this;
   }
 }

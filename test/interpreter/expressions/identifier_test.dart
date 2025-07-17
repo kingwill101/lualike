@@ -7,7 +7,7 @@ void main() {
   group('Identifier evaluation for undefined variables', () {
     test('undefined global resolves to nil', () async {
       final bridge = LuaLike();
-      await bridge.runCode('result = undef');
+      await bridge.execute('result = undef');
       final result = bridge.getGlobal('result') as Value;
       expect(result.raw, isNull);
     });
@@ -15,7 +15,7 @@ void main() {
     test('indexing undefined global throws', () async {
       final bridge = LuaLike();
       expect(
-        () async => await bridge.runCode('return undef.x'),
+        () async => await bridge.execute('return undef.x'),
         throwsA(
           predicate(
             (e) => e.toString().contains('attempt to index a nil value'),

@@ -9,7 +9,7 @@ void main() {
     });
 
     test('utf8.char basic usage', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         local str1 = utf8.char(65, 66, 67)
         local str2 = utf8.char(0x1F600)
         local str3 = utf8.char(0x0041, 0x00A9)
@@ -48,14 +48,14 @@ void main() {
 
     test('utf8.char error handling', () async {
       expect(() async {
-        await bridge.runCode('''
+        await bridge.execute('''
           local invalid = utf8.char(0x80000000) -- Too large (beyond 0x7FFFFFFF)
         ''');
       }, throwsA(isA<Exception>()));
     });
 
     test('utf8.codes iteration', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         -- Construct string with UTF-8 characters using proper byte sequences
         -- "ABC" + 👋 (U+1F44B) + 🌍 (U+1F30D)
         local s = "ABC" .. string.char(240, 159, 145, 139) .. string.char(240, 159, 140, 141)
@@ -120,7 +120,7 @@ void main() {
     */
 
     test('utf8.len string length', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         local s1 = "Hello"
         -- Construct "Hello🌍" using proper UTF-8 bytes for 🌍
         local s2 = "Hello" .. string.char(240, 159, 140, 141)
@@ -144,7 +144,7 @@ void main() {
     });
 
     test('utf8.offset position calculation', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         -- Construct "Hello🌍World" using proper UTF-8 bytes
         local s = "Hello" .. string.char(240, 159, 140, 141) .. "World"
         local pos1 = utf8.offset(s, 1)
@@ -168,7 +168,7 @@ void main() {
     });
 
     test('utf8.charpattern exists', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         -- Just check that charpattern is a string
         local pattern_type = type(utf8.charpattern)
       ''');
@@ -178,7 +178,7 @@ void main() {
     });
 
     test('string library basic functions', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         -- Test basic string functions
         local upper_result = string.upper('test')
         local find_start, find_end = string.find('hello', 'll')
@@ -208,7 +208,7 @@ void main() {
     });
 
     test('pcall catches utf8.codes errors on invalid UTF-8', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         -- Test pcall with invalid UTF-8
         local invalid_utf8 = string.char(0xFF, 0xFE)  -- Invalid UTF-8 sequence
 
@@ -239,7 +239,7 @@ void main() {
     });
 
     test('pcall catches utf8.codes errors with strict mode', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         -- Test strict mode validation in pcall
         local five_byte_sequence = string.char(0xF8, 0x88, 0x80, 0x80, 0x80)
 
@@ -267,7 +267,7 @@ void main() {
     });
 
     test('pcall does not catch utf8.codes errors in lax mode', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         -- Test lax mode allows extended sequences
         local five_byte_sequence = string.char(0xF8, 0x88, 0x80, 0x80, 0x80)
 
@@ -297,7 +297,7 @@ void main() {
     test(
       'utf8.len returns nil, position for invalid UTF-8 (does not error)',
       () async {
-        await bridge.runCode('''
+        await bridge.execute('''
         -- Test that utf8.len returns nil, position for invalid UTF-8 (reference Lua behavior)
         local invalid_utf8 = string.char(0xFF, 0xFE)
 
@@ -327,7 +327,7 @@ void main() {
     );
 
     test('normal utf8 operations work without pcall', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         -- Test that valid UTF-8 works normally
         local valid_utf8 = "Hello 世界"
         local count = 0
@@ -356,7 +356,7 @@ void main() {
     });
 
     test('5-byte sequences return nil, position in strict mode', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         -- 5-byte UTF-8 sequence (invalid in strict mode)
         local five_byte = string.char(0xF8, 0x88, 0x80, 0x80, 0x80)
 
@@ -385,7 +385,7 @@ void main() {
     });
 
     test('6-byte sequences return nil, position in strict mode', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         -- 6-byte UTF-8 sequence (invalid in strict mode)
         local six_byte = string.char(0xFC, 0x84, 0x80, 0x80, 0x80, 0x80)
 
@@ -414,7 +414,7 @@ void main() {
     });
 
     test('5-byte sequences allowed in lax mode', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         -- 5-byte UTF-8 sequence should work in lax mode
         local five_byte = string.char(0xF8, 0x88, 0x80, 0x80, 0x80)
 
@@ -434,7 +434,7 @@ void main() {
     });
 
     test('6-byte sequences allowed in lax mode', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         -- 6-byte UTF-8 sequence should work in lax mode
         local six_byte = string.char(0xFC, 0x84, 0x80, 0x80, 0x80, 0x80)
 
@@ -454,7 +454,7 @@ void main() {
     });
 
     test('utf8.codes respects strict mode for 5-byte sequences', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         -- Test utf8.codes with 5-byte sequence in strict mode
         local five_byte = string.char(0xF8, 0x88, 0x80, 0x80, 0x80)
 
@@ -481,7 +481,7 @@ void main() {
     });
 
     test('utf8.codes respects lax mode for 5-byte sequences', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         -- Test utf8.codes with 5-byte sequence in lax mode
         local five_byte = string.char(0xF8, 0x88, 0x80, 0x80, 0x80)
         local codes = {}
@@ -510,7 +510,7 @@ void main() {
     });
 
     test('utf8.codepoint respects strict mode', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         -- Test utf8.codepoint with 5-byte sequence in strict mode
         local five_byte = string.char(0xF8, 0x88, 0x80, 0x80, 0x80)
 
@@ -524,7 +524,7 @@ void main() {
       ''');
 
       var success = bridge.getGlobal('codepoint_success') as Value;
-      var result = bridge.getGlobal('codepoint_result') as Value;
+      var _ = bridge.getGlobal('codepoint_result') as Value;
       var resultIsNil = bridge.getGlobal('result_is_nil') as Value;
 
       expect(
@@ -536,7 +536,7 @@ void main() {
     });
 
     test('standard 4-byte UTF-8 works in both modes', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         -- Test standard 4-byte UTF-8 (U+1F600, 😀)
         local four_byte = string.char(0xF0, 0x9F, 0x98, 0x80)
 
@@ -576,7 +576,7 @@ void main() {
     test(
       'string.gmatch with utf8.charpattern preserves UTF-8 characters',
       () async {
-        await bridge.runCode('''
+        await bridge.execute('''
         -- Test that UTF-8 characters are not corrupted during pattern matching
         local test_string = "a日b"
         local matches = {}
@@ -613,7 +613,7 @@ void main() {
     );
 
     test('pattern matching works with mixed ASCII and UTF-8', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         -- Test mixed ASCII and UTF-8 characters
         local mixed_string = "Hello世界123"
         local chars = {}
@@ -643,7 +643,7 @@ void main() {
     });
 
     test('pattern matching preserves emoji characters', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         -- Test emoji preservation in pattern matching
         local emoji_string = "🌍🌎🌏"
         local emojis = {}
@@ -667,7 +667,7 @@ void main() {
     });
 
     test('byte-level strings still work with LuaString objects', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         -- Test that LuaString objects (raw bytes) still work correctly
         -- This would typically involve binary data, but we'll simulate with ASCII
         local binary_like = "abcd"  -- Simple ASCII for testing
@@ -695,7 +695,7 @@ void main() {
     test(
       'no corruption in string concatenation after pattern matching',
       () async {
-        await bridge.runCode('''
+        await bridge.execute('''
         -- Test that UTF-8 characters remain uncorrupted after pattern operations
         local original = "Test日本語"
         local reconstructed = ""

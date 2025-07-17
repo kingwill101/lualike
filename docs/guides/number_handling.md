@@ -60,7 +60,7 @@ class NumberUtils {
 ### Integer vs Float Selection
 
 ```dart
-await lua.runCode('''
+await lua.execute('''
   local a = 42        -- integer
   local b = 42.0      -- float
   local c = 10 / 2    -- 5.0 (float - division produces float)
@@ -84,7 +84,7 @@ const maxInteger = 9223372036854775807;   //  2^63-1
 ### Automatic Coercion
 
 ```dart
-await lua.runCode('''
+await lua.execute('''
   -- String to number in arithmetic
   local result1 = "42" + 8     -- 50
   local result2 = "3.14" * 2   -- 6.28
@@ -139,7 +139,7 @@ final isInt = NumberUtils.isInteger(value);        // Type checking
 ### String Conversion
 
 ```dart
-await lua.runCode('''
+await lua.execute('''
   local num = 42
   local str1 = tostring(num)     -- "42"
   local str2 = string.format("%d", num)  -- "42"
@@ -150,7 +150,7 @@ await lua.runCode('''
 ### Format Specifiers
 
 ```dart
-await lua.runCode('''
+await lua.execute('''
   local n = 255
 
   -- Integer formats
@@ -171,7 +171,7 @@ await lua.runCode('''
 ### Integer Overflow
 
 ```dart
-await lua.runCode('''
+await lua.execute('''
   local max_int = 9223372036854775807
   local overflow = max_int + 1  -- Becomes float: 9.223372036854776e+18
 
@@ -194,7 +194,7 @@ final fitsInInt = NumberUtils.tryToInteger(bigInt) != null;
 ## Bitwise Operations
 
 ```dart
-await lua.runCode('''
+await lua.execute('''
   local a = 0xFF
   local b = 0x0F
 
@@ -223,7 +223,7 @@ lua.expose('bitwiseAnd', (List<Object?> args) {
 ### Infinity and NaN
 
 ```dart
-await lua.runCode('''
+await lua.execute('''
   local inf = 1/0          -- Infinity
   local neg_inf = -1/0     -- -Infinity
   local nan = 0/0          -- NaN

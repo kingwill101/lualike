@@ -8,7 +8,7 @@ void main() {
     'dart.string.bytes.toBytes and dart.string.bytes.fromBytes roundtrip',
     () async {
       final bridge = LuaLike();
-      await bridge.runCode('''
+      await bridge.execute('''
       bytes_result = dart.string.bytes.toBytes("hello")
       str_result = dart.string.bytes.fromBytes(bytes_result)
     ''');
@@ -26,7 +26,7 @@ void main() {
   test('dart.string.bytes.fromBytes throws error on invalid input', () {
     final bridge = LuaLike();
     expectLater(
-      bridge.runCode('''
+      bridge.execute('''
         dart.string.bytes.fromBytes("not a Uint8List")
       '''),
       throwsA(isA<LuaError>()),
@@ -35,7 +35,7 @@ void main() {
 
   test('dart.string.bytes.toBytes with empty string', () async {
     final bridge = LuaLike();
-    await bridge.runCode('''
+    await bridge.execute('''
       bytes_result = dart.string.bytes.toBytes("")
     ''');
     final bytesResult = bridge.getGlobal('bytes_result')!;
@@ -45,7 +45,7 @@ void main() {
 
   test('dart.string.bytes.toBytes with unicode characters', () async {
     final bridge = LuaLike();
-    await bridge.runCode('''
+    await bridge.execute('''
       -- Construct UTF-8 string for "你好" using proper byte sequence
       local utf8_string = string.char(228, 189, 160, 229, 165, 189)
       local bytes = dart.string.bytes.toBytes(utf8_string)
@@ -67,7 +67,7 @@ void main() {
   test('dart.string.bytes.toBytes throws error with no arguments', () {
     final bridge = LuaLike();
     expectLater(
-      bridge.runCode('dart.string.bytes.toBytes()'),
+      bridge.execute('dart.string.bytes.toBytes()'),
       throwsA(isA<LuaError>()),
     );
   });
@@ -75,14 +75,14 @@ void main() {
   test('dart.string.bytes.fromBytes throws error with no arguments', () {
     final bridge = LuaLike();
     expectLater(
-      bridge.runCode('dart.string.bytes.fromBytes()'),
+      bridge.execute('dart.string.bytes.fromBytes()'),
       throwsA(isA<LuaError>()),
     );
   });
 
   test('dart.string.bytes.fromBytes with a table of integers', () async {
     final bridge = LuaLike();
-    await bridge.runCode('''
+    await bridge.execute('''
       local bytes = {104, 101, 108, 108, 111}
       str_result = dart.string.bytes.fromBytes(bytes)
     ''');

@@ -457,7 +457,7 @@ class LuaGrammarDefinition extends GrammarDefinition {
   Parser _stringLiteral() {
     // Helper to build content parser for given quote char
     Parser contentParser(String quote) {
-      final otherQuote = quote == '"' ? "'" : '"';
+      final _ = quote == '"' ? "'" : '"';
       // Either an escaped character (\\X) or any char except the closing quote
       return ((char('\\') & any()) | pattern('^$quote')).star().flatten();
     }

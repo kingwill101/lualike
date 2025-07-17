@@ -6,7 +6,7 @@ void main() {
       final bridge = LuaLike();
 
       // Execute the test code
-      final result = await bridge.runCode('''
+      final result = await bridge.execute('''
         local t = {}
         local called = false
         function f(t, i, v)
@@ -32,7 +32,7 @@ void main() {
     test('should handle string keys with __newindex', () async {
       final bridge = LuaLike();
 
-      final result = await bridge.runCode('''
+      final result = await bridge.execute('''
         local t = {}
         function f(t, i, v)
           rawset(t, i, v-3)
@@ -52,7 +52,7 @@ void main() {
     test('should handle mixed assignments', () async {
       final bridge = LuaLike();
 
-      final result = await bridge.runCode('''
+      final result = await bridge.execute('''
         local t = {}
         function f(t, i, v)
           rawset(t, i, v-3)
@@ -80,7 +80,7 @@ void main() {
     test('should not call __newindex when key exists', () async {
       final bridge = LuaLike();
 
-      final result = await bridge.runCode('''
+      final result = await bridge.execute('''
         local t = {}
         local called = false
         function f(t, i, v)

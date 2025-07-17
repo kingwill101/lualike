@@ -28,7 +28,7 @@ abstract class BaseCommand extends Command {
           final sourceCode = await File(
             filename,
           ).readAsBytes().then((bytes) => utf8.decode(bytes));
-          await bridge.runCode(sourceCode, scriptPath: filename);
+          await bridge.execute(sourceCode, scriptPath: filename);
         } catch (e) {
           safePrint('Error in LUA_INIT file: $e');
           exit(1);
@@ -36,7 +36,7 @@ abstract class BaseCommand extends Command {
       } else {
         // Execute string
         try {
-          await bridge.runCode(luaInit);
+          await bridge.execute(luaInit);
         } catch (e) {
           safePrint('Error in LUA_INIT: $e');
           exit(1);

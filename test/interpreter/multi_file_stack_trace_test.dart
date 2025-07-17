@@ -28,7 +28,7 @@ run()
       await runZoned(
         () async {
           try {
-            await bridge.runCode(mainSource, scriptPath: 'main.lua');
+            await bridge.execute(mainSource, scriptPath: 'main.lua');
             fail('expected error');
           } catch (_) {}
         },

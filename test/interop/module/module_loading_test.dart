@@ -23,7 +23,7 @@ void main() {
       ''');
 
       // Load the module and use its functions
-      await bridge.runCode('''
+      await bridge.execute('''
         local module = require("simple_module")
         local initial = module.getValue()
         module.setValue(100)
@@ -57,7 +57,7 @@ void main() {
       ''');
 
       // Load the module multiple times and check that it's cached
-      await bridge.runCode('''
+      await bridge.execute('''
         local m1 = require("counter_module")
         local m2 = require("counter_module")
 
@@ -100,7 +100,7 @@ void main() {
       ''');
 
       // Test module functionality with alternative syntax
-      await bridge.runCode('''
+      await bridge.execute('''
         local tracegc = require"tracegc"
         tracegc.start()
         local propResult = tracegc.property"status"
@@ -140,7 +140,7 @@ void main() {
       ''');
 
       // Test method chaining with workaround (separate calls)
-      await bridge.runCode('''
+      await bridge.execute('''
         local calc = require("chainable")
         calc.add(5)
         calc.multiply(2)

@@ -5,7 +5,7 @@ void main() {
     test('object lifecycle', () async {
       final bridge = LuaLike();
 
-      await bridge.runCode('''
+      await bridge.execute('''
         -- Create and abandon objects
         local function createObjects()
           local t1 = {value = "test1"}
@@ -44,7 +44,7 @@ void main() {
     test('finalizers', () async {
       final bridge = LuaLike();
 
-      await bridge.runCode('''
+      await bridge.execute('''
         local finalized = {}
 
         -- Create object with finalizer
@@ -67,7 +67,7 @@ void main() {
     test('override gc', () async {
       final bridge = LuaLike();
 
-      await bridge.runCode('''
+      await bridge.execute('''
         local ran = false
         local t = {}
         setmetatable(t, {

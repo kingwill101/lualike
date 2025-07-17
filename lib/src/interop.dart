@@ -164,7 +164,7 @@ class LuaLike {
   ///
   /// [code] - The LuaLike code to run
   /// [scriptPath] - Optional path of the script being executed
-  Future<Object?> runCode(String code, {String? scriptPath}) async {
+  Future<Object?> execute(String code, {String? scriptPath}) async {
     // Execute the code using the interpreter
     final result = await vm.evaluate(code, scriptPath: scriptPath);
 

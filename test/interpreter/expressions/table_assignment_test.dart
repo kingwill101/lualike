@@ -7,7 +7,7 @@ void main() {
   group('Table assignments with undefined identifier keys', () {
     test('dot syntax uses field name when identifier is undefined', () async {
       final bridge = LuaLike();
-      await bridge.runCode('''
+      await bridge.execute('''
         t = {}
         t.undef = 42
       ''');
@@ -21,7 +21,7 @@ void main() {
       () async {
         final bridge = LuaLike();
         expect(
-          () async => await bridge.runCode('''
+          () async => await bridge.execute('''
             t = {}
             t[undef] = 99
           '''),

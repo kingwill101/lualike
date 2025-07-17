@@ -8,7 +8,7 @@ void main() {
     // Basic string operations
     test('string.len', () async {
       final bridge = LuaLike();
-      await bridge.runCode('''
+      await bridge.execute('''
         local a = string.len("hello")
         local b = string.len("")
         local c = string.len("hello\\0world") -- embedded zeros are counted
@@ -21,7 +21,7 @@ void main() {
 
     test('string.byte', () async {
       final bridge = LuaLike();
-      await bridge.runCode('''
+      await bridge.execute('''
         local a = string.byte("ABCDE", 1)
         local b,c,d = string.byte("ABCDE", 2, 4)
         local e = string.byte("ABCDE", -1) -- negative index
@@ -40,7 +40,7 @@ void main() {
 
     test('string.char', () async {
       final bridge = LuaLike();
-      await bridge.runCode('''
+      await bridge.execute('''
         local a = string.char(65, 66, 67, 68, 69)
         local b = string.char()
       ''');
@@ -51,7 +51,7 @@ void main() {
 
     test('string.sub', () async {
       final bridge = LuaLike();
-      await bridge.runCode('''
+      await bridge.execute('''
         local s = "abcdefghijklm"
         local a = string.sub(s, 3, 5)    -- "cde"
         local b = string.sub(s, 3)       -- "cdefghijklm"
@@ -74,7 +74,7 @@ void main() {
 
     test('string.upper and string.lower', () async {
       final bridge = LuaLike();
-      await bridge.runCode('''
+      await bridge.execute('''
         local a = string.upper("Hello, World!")
         local b = string.lower("Hello, World!")
       ''');
@@ -91,7 +91,7 @@ void main() {
 
     test('string.reverse', () async {
       final bridge = LuaLike();
-      await bridge.runCode('''
+      await bridge.execute('''
         local a = string.reverse("hello")
         local b = string.reverse("")
       ''');
@@ -102,7 +102,7 @@ void main() {
 
     test('string.rep', () async {
       final bridge = LuaLike();
-      await bridge.runCode('''
+      await bridge.execute('''
         local a = string.rep("abc", 3)
         local b = string.rep("abc", 3, "-")
         local c = string.rep("abc", 0)
@@ -122,7 +122,7 @@ void main() {
     // Pattern matching
     test('string.find basic', () async {
       final bridge = LuaLike();
-      await bridge.runCode('''
+      await bridge.execute('''
         local s = "hello world"
         local i, j = string.find(s, "world")
         local k, l = string.find(s, "bye")
@@ -144,7 +144,7 @@ void main() {
 
     test('string.find with captures', () async {
       final bridge = LuaLike();
-      await bridge.runCode('''
+      await bridge.execute('''
         local s = "hello world from lua"
         local i, j, first = string.find(s, "(%w+)%s+(%w+)")
         local _, _, second = string.find(s, "%w+%s+(%w+)")
@@ -158,7 +158,7 @@ void main() {
 
     test('string.match', () async {
       final bridge = LuaLike();
-      await bridge.runCode('''
+      await bridge.execute('''
         local s = "hello world from lua"
         local word = string.match(s, "%w+")
         local w1, w2 = string.match(s, "(%w+)%s+(%w+)")
@@ -173,7 +173,7 @@ void main() {
 
     test('string.gsub', () async {
       final bridge = LuaLike();
-      await bridge.runCode('''
+      await bridge.execute('''
         local s = "hello world from lua"
         local r1, n1 = string.gsub(s, "l", "L")
         local r2, n2 = string.gsub(s, "l", "L", 2) -- replace only 2 occurrences
@@ -196,7 +196,7 @@ void main() {
 
     test('string.gsub zero-length pattern', () async {
       final bridge = LuaLike();
-      await bridge.runCode('''
+      await bridge.execute('''
         local s, n = string.gsub("abc", "", "-")
       ''');
       expect((bridge.getGlobal('s') as Value).unwrap(), equals("-a-b-c-"));
@@ -205,7 +205,7 @@ void main() {
 
     test('string.gmatch', () async {
       final bridge = LuaLike();
-      await bridge.runCode('''
+      await bridge.execute('''
         local s = "hello world from lua"
         local words = {}
         local i = 1
@@ -222,7 +222,7 @@ void main() {
       expect((words[3] as Value).raw, equals("from"));
       expect((words[4] as Value).raw, equals("lua"));
 
-      await bridge.runCode('''
+      await bridge.execute('''
         local pairs = {}
         i = 1
         local s2 = "key1=value1 key2=value2"
@@ -245,7 +245,7 @@ void main() {
 
     test('string.gmatch zero-length pattern', () async {
       final bridge = LuaLike();
-      await bridge.runCode('''
+      await bridge.execute('''
         local t = {}
         for w in string.gmatch("abc", "") do
           table.insert(t, w or "")
@@ -260,7 +260,7 @@ void main() {
       test('basic integer types roundtrip', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           local s = string.pack("bhi", 100, 30000, -50000)
           local b, h, i, pos = string.unpack("bhi", s)
         ''');
@@ -279,7 +279,7 @@ void main() {
       test('long types (l, L)', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           local s = string.pack("lL", -1000, 1000)
           local a, b, pos = string.unpack("lL", s)
         ''');
@@ -296,7 +296,7 @@ void main() {
       test('lua_Integer types (j, J)', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           local s = string.pack("jJ", -2000, 2000)
           local a, b, pos = string.unpack("jJ", s)
         ''');
@@ -313,7 +313,7 @@ void main() {
       test('size_t type (T)', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           local s = string.pack("T", 42)
           local a, pos = string.unpack("T", s)
         ''');
@@ -328,7 +328,7 @@ void main() {
       test('float types (f, d, n)', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           local s = string.pack("fdn", 3.14, 2.71, 1.41)
           local a, b, c, pos = string.unpack("fdn", s)
         ''');
@@ -347,7 +347,7 @@ void main() {
       test('unsigned handling', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           local s = string.pack("L", -1)
           local a, pos = string.unpack("L", s)
         ''');
@@ -363,7 +363,7 @@ void main() {
       test('explicit integer sizes', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           local s1 = string.pack("i1i2i4i8", 127, 32767, 2147483647, 9223372036854775807)
           local a, b, c, d, pos = string.unpack("i1i2i4i8", s1)
 
@@ -414,7 +414,7 @@ void main() {
       test('endianness support', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           local s_little = string.pack("<I4", 0x12345678)
           local s_big = string.pack(">I4", 0x12345678)
           local s_host = string.pack("=I4", 0x12345678)
@@ -435,7 +435,7 @@ void main() {
       test('alignment support', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           local s1 = string.pack("!1bI4", 1, 0x12345678)
           local s2 = string.pack("!2bI4", 1, 0x12345678)
           local s4 = string.pack("!4bI4", 1, 0x12345678)
@@ -479,7 +479,7 @@ void main() {
       test('padding bytes (x, X)', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           local s1 = string.pack("bxI4", 1, 0x12345678)
           local s2 = string.pack("bxxI4", 1, 0x12345678)
           local s3 = string.pack("bxxxI4", 1, 0x12345678)
@@ -515,7 +515,7 @@ void main() {
         test('fixed-length strings (c)', () async {
           final bridge = LuaLike();
 
-          await bridge.runCode('''
+          await bridge.execute('''
             local s1 = string.pack("c5", "hello")
             local s2 = string.pack("c10", "hello")
             ok3, err3 = pcall(string.pack, "c3", "hello")
@@ -543,7 +543,7 @@ void main() {
         test('zero-terminated strings (z)', () async {
           final bridge = LuaLike();
 
-          await bridge.runCode('''
+          await bridge.execute('''
             local s1 = string.pack("z", "hello")
             local s2 = string.pack("z", "")
             local s3 = string.pack("zz", "hello", "world")
@@ -576,7 +576,7 @@ void main() {
         test('size-prefixed strings (s)', () async {
           final bridge = LuaLike();
 
-          await bridge.runCode('''
+          await bridge.execute('''
             local s1 = string.pack("s", "hello")
             local s2 = string.pack("s1", "hello")
             local s3 = string.pack("s2", "hello")
@@ -623,7 +623,7 @@ void main() {
         test('empty and special strings', () async {
           final bridge = LuaLike();
 
-          await bridge.runCode('''
+          await bridge.execute('''
              local s1 = string.pack("s", "")
              local s2 = string.pack("z", "")
              local s3 = string.pack("c1", "")
@@ -663,7 +663,7 @@ void main() {
         test('unicode and binary strings', () async {
           final bridge = LuaLike();
 
-          await bridge.runCode('''
+          await bridge.execute('''
             local s1 = string.pack("s", "héllo")
             local s2 = string.pack("z", "世界")
             local s3 = string.pack("c6", "héllo")
@@ -682,7 +682,7 @@ void main() {
       test('packsize calculations', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           local size_basic = string.packsize("bBhH")
           local size_long = string.packsize("lLjJT")
           local size_float = string.packsize("fdn")
@@ -725,7 +725,7 @@ void main() {
       test('packsize default alignment', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('size_default = string.packsize("!xXi16")');
+        await bridge.execute('size_default = string.packsize("!xXi16")');
 
         expect((bridge.getGlobal('size_default') as Value).raw, equals(8));
       });
@@ -733,7 +733,7 @@ void main() {
       test('comprehensive mixed format', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           local s = string.pack("bBhHlLjJTfdn", 127, 255, -1000, 1000, -2000, 2000, -3000, 3000, 42, 3.14, 2.71, 1.41)
           local a,b,c,d,e,f,g,h,i,j,k,l,pos = string.unpack("bBhHlLjJTfdn", s)
         ''');
@@ -761,19 +761,19 @@ void main() {
 
         // Test invalid format
         await expectLater(
-          () async => await bridge.runCode('string.pack("q", 1)'),
+          () async => await bridge.execute('string.pack("q", 1)'),
           throwsA(isA<LuaError>()),
         );
 
         // Test missing size for c
         await expectLater(
-          () async => await bridge.runCode('string.pack("c", "hello")'),
+          () async => await bridge.execute('string.pack("c", "hello")'),
           throwsA(isA<LuaError>()),
         );
 
         // Test unpack out of bounds
         await expectLater(
-          () async => await bridge.runCode('''
+          () async => await bridge.execute('''
             local s = string.pack("i", 42)
             string.unpack("ii", s)
           '''),
@@ -782,12 +782,12 @@ void main() {
 
         // Test packsize with variable length
         await expectLater(
-          () async => await bridge.runCode('string.packsize("s")'),
+          () async => await bridge.execute('string.packsize("s")'),
           throwsA(isA<LuaError>()),
         );
 
         await expectLater(
-          () async => await bridge.runCode('string.packsize("z")'),
+          () async => await bridge.execute('string.packsize("z")'),
           throwsA(isA<LuaError>()),
         );
       });
@@ -796,7 +796,7 @@ void main() {
     test('string.dump basic functionality', () async {
       final bridge = LuaLike();
 
-      await bridge.runCode('''
+      await bridge.execute('''
         local f = function(x) return x * 2 end
         local s = string.dump(f)
       ''');
@@ -809,7 +809,7 @@ void main() {
     // Object-oriented style tests
     test('string methods in OO style', () async {
       final bridge = LuaLike();
-      await bridge.runCode('''
+      await bridge.execute('''
         local s = "Hello World"
         local len = s:len()
         local upper = s:upper()
@@ -829,7 +829,7 @@ void main() {
     // Pattern matching character classes
     test('pattern matching character classes', () async {
       final bridge = LuaLike();
-      final result = await bridge.runCode('''
+      final result = await bridge.execute('''
         local tests = {}
 
         -- %a (letters)
@@ -879,7 +879,7 @@ void main() {
     // Pattern matching special items
     test('pattern matching special items', () async {
       final bridge = LuaLike();
-      await bridge.runCode(r'''
+      await bridge.execute(r'''
         tests = {}
 
         -- Anchors
@@ -926,7 +926,7 @@ void main() {
       final bridge = LuaLike();
 
       // Basic format specifiers
-      final result = await bridge.runCode('''
+      final result = await bridge.execute('''
           local tests = {}
 
           -- Basic format specifiers
@@ -1053,7 +1053,7 @@ void main() {
         local x = '"\225lo"\n\\'
         result = string.format('%q%s', x, x)
       ''';
-      await bridge.runCode(script);
+      await bridge.execute(script);
       final result = (bridge.getGlobal('result') as Value).raw.toString();
       // The expected string matches Lua's actual behavior: %q shows byte 225 as \225 (escaped),
       // and %s shows byte 225 as replacement character � when converted to string
@@ -1067,7 +1067,7 @@ void main() {
       final script = r'''
         result = string.format('%q', "\0")
       ''';
-      await bridge.runCode(script);
+      await bridge.execute(script);
       final result = (bridge.getGlobal('result') as Value).unwrap();
       expect(result, equals('"\\0"'));
     });
@@ -1077,7 +1077,7 @@ void main() {
       final script = r'''
         result = string.format('')
       ''';
-      await bridge.runCode(script);
+      await bridge.execute(script);
       final result = (bridge.getGlobal('result') as Value).unwrap();
       expect(result, equals(''));
     });
@@ -1088,7 +1088,7 @@ void main() {
         result = string.format("%c",34)..string.format("%c",48)..string.format("%c",90)..string.format("%c",100)
         expected = string.format("%1c%-c%-1c%c", 34, 48, 90, 100)
       ''';
-      await bridge.runCode(script);
+      await bridge.execute(script);
       final result = (bridge.getGlobal('result') as Value).unwrap();
       final expected = (bridge.getGlobal('expected') as Value).unwrap();
       expect(result, equals(expected));
@@ -1099,7 +1099,7 @@ void main() {
       final script = r'''
         result = string.format("%s\0 is not \0%s", 'not be', 'be')
       ''';
-      await bridge.runCode(script);
+      await bridge.execute(script);
       final result = (bridge.getGlobal('result') as Value).unwrap();
       expect(result, equals('not be\x00 is not \x00be'));
     });
@@ -1109,7 +1109,7 @@ void main() {
       final script = r'''
         result = string.format("%%%d %010d", 10, 23)
       ''';
-      await bridge.runCode(script);
+      await bridge.execute(script);
       final result = (bridge.getGlobal('result') as Value).unwrap();
       expect(result, equals('%10 0000000023'));
     });
@@ -1119,7 +1119,7 @@ void main() {
       final script = r'''
         result = string.format("%f", 10.3)
       ''';
-      await bridge.runCode(script);
+      await bridge.execute(script);
       final result = (bridge.getGlobal('result') as Value).unwrap();
       expect(double.parse(result), closeTo(10.3, 1e-6));
     });
@@ -1129,7 +1129,7 @@ void main() {
       final script = r'''
         result = string.format('"%-50s"', 'a')
       ''';
-      await bridge.runCode(script);
+      await bridge.execute(script);
       final result = (bridge.getGlobal('result') as Value).unwrap();
       expect(result, equals('"a${' ' * 49}"'));
     });
@@ -1139,7 +1139,7 @@ void main() {
       final script = r'''
         result = string.format("-%.20s.20s", string.rep("%", 2000))
       ''';
-      await bridge.runCode(script);
+      await bridge.execute(script);
       final result = (bridge.getGlobal('result') as Value).unwrap();
       expect(result, equals('-${'%' * 20}.20s'));
     });
@@ -1150,7 +1150,7 @@ void main() {
         result = string.format('"-%20s.20s"', string.rep("%", 2000))
         expected = string.format("%q", "-"..string.rep("%", 2000)..".20s")
       ''';
-      await bridge.runCode(script);
+      await bridge.execute(script);
       final result = (bridge.getGlobal('result') as Value).unwrap();
       final expected = (bridge.getGlobal('expected') as Value).unwrap();
       expect(result, equals(expected));
@@ -1161,7 +1161,7 @@ void main() {
       final script = r'''
         result = string.format("%s %s", nil, true)
       ''';
-      await bridge.runCode(script);
+      await bridge.execute(script);
       final result = (bridge.getGlobal('result') as Value).unwrap();
       expect(result, equals('nil true'));
     });
@@ -1171,7 +1171,7 @@ void main() {
       final script = r'''
         result = string.format("%s %.4s", false, true)
       ''';
-      await bridge.runCode(script);
+      await bridge.execute(script);
       final result = (bridge.getGlobal('result') as Value).unwrap();
       expect(result, equals('false true'));
     });
@@ -1181,7 +1181,7 @@ void main() {
       final script = r'''
         result = string.format("%.3s %.3s", false, true)
       ''';
-      await bridge.runCode(script);
+      await bridge.execute(script);
       final result = (bridge.getGlobal('result') as Value).unwrap();
       expect(result, equals('fal tru'));
     });
@@ -1192,7 +1192,7 @@ void main() {
         local m = setmetatable({}, {__tostring = function () return "hello" end, __name = "hi"})
         result = string.format("%s %.10s", m, m)
       ''';
-      await bridge.runCode(script);
+      await bridge.execute(script);
       final result = (bridge.getGlobal('result') as Value).unwrap();
       expect(result, equals('hello hello'));
     });
@@ -1204,7 +1204,7 @@ void main() {
         getmetatable(m).__tostring = nil
         result = string.format("%.4s", m)
       ''';
-      await bridge.runCode(script);
+      await bridge.execute(script);
       final result = (bridge.getGlobal('result') as Value).unwrap();
       expect(result, equals('hi: '));
     });
@@ -1216,7 +1216,7 @@ void main() {
         local ok, err = pcall(function() string.format('%t', 10) end)
         result = err
       ''';
-      await bridge.runCode(script);
+      await bridge.execute(script);
       final result = (bridge.getGlobal('result') as Value).unwrap();
       expect(result, contains('invalid conversion'));
     });
@@ -1228,7 +1228,7 @@ void main() {
         local ok, err = pcall(function() string.format('%1'..aux..'d', 10) end)
         result = err
       ''';
-      await bridge.runCode(script);
+      await bridge.execute(script);
       final result = (bridge.getGlobal('result') as Value).unwrap();
       expect(result, contains('too long'));
     });
@@ -1239,7 +1239,7 @@ void main() {
         local ok, err = pcall(function() string.format('%d %d', 10) end)
         result = err
       ''';
-      await bridge.runCode(script);
+      await bridge.execute(script);
       final result = (bridge.getGlobal('result') as Value).unwrap();
       expect(result, contains('no value'));
     });
@@ -1250,7 +1250,7 @@ void main() {
         local ok, err = pcall(function() string.format('%10q', 'foo') end)
         result = err
       ''';
-      await bridge.runCode(script);
+      await bridge.execute(script);
       final result = (bridge.getGlobal('result') as Value).unwrap();
       expect(result, contains('cannot have modifiers'));
     });

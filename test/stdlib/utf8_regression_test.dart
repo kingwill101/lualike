@@ -1,5 +1,5 @@
-import 'package:test/test.dart';
 import 'package:lualike/lualike.dart';
+import 'package:test/test.dart';
 
 void main() {
   group('UTF-8 Regression Tests', () {
@@ -11,7 +11,7 @@ void main() {
 
     group('String Type Compatibility', () {
       test('utf8 functions work with regular Dart Strings', () async {
-        await lua.runCode('''
+        await lua.execute('''
           local s = "hello"
           local s2 = string.upper(s)  -- This returns a regular Dart String
 
@@ -52,7 +52,7 @@ void main() {
       });
 
       test('utf8 functions work with LuaString objects', () async {
-        await lua.runCode(r'''
+        await lua.execute(r'''
           -- Create strings with high bytes that should be LuaString objects
           local s = "\xC2\x80"  -- UTF-8 for U+0080
 
@@ -78,7 +78,7 @@ void main() {
 
     group('Error Handling', () {
       test('utf8.codes throws error on invalid UTF-8', () async {
-        await lua.runCode(r'''
+        await lua.execute(r'''
           function test_invalid_utf8(s)
             local success, err = pcall(function()
               for c in utf8.codes(s) do
@@ -114,7 +114,7 @@ void main() {
       });
 
       test('utf8.len returns error position for invalid UTF-8', () async {
-        await lua.runCode(r'''
+        await lua.execute(r'''
           -- Test error position reporting
           len1, pos1 = utf8.len("abc\xFF")     -- Invalid at position 4
           len2, pos2 = utf8.len("\x80hello")   -- Invalid at position 1
@@ -133,7 +133,7 @@ void main() {
       });
 
       test('utf8.offset throws error for continuation bytes', () async {
-        await lua.runCode(r'''
+        await lua.execute(r'''
           function test_continuation_error(s, n, i)
             local success, err = pcall(utf8.offset, s, n, i)
             return success, err
@@ -155,7 +155,7 @@ void main() {
       });
 
       test('utf8 functions throw error for out of bounds', () async {
-        await lua.runCode(r'''
+        await lua.execute(r'''
           function test_bounds_error(func, ...)
             local success, err = pcall(func, ...)
             return success, err
@@ -199,7 +199,7 @@ void main() {
 
     group('UTF-8 Character Processing', () {
       test('utf8.char creates valid UTF-8 sequences', () async {
-        await lua.runCode('''
+        await lua.execute('''
           -- Test basic ASCII
           s1 = utf8.char(65, 66, 67)  -- "ABC"
           len1 = utf8.len(s1)
@@ -235,7 +235,7 @@ void main() {
       });
 
       test('utf8.char throws error for invalid codepoints', () async {
-        await lua.runCode('''
+        await lua.execute('''
           function test_char_error(cp)
             local success, err = pcall(utf8.char, cp)
             return success, err
@@ -259,7 +259,7 @@ void main() {
 
     group('UTF-8 Pattern Matching', () {
       test('utf8.charpattern matches UTF-8 characters', () async {
-        await lua.runCode(r'''
+        await lua.execute(r'''
           -- Test ASCII characters
           count1 = 0
           for c in string.gmatch("hello", utf8.charpattern) do
@@ -296,7 +296,7 @@ void main() {
 
     group('Edge Cases', () {
       test('utf8 functions handle empty strings', () async {
-        await lua.runCode('''
+        await lua.execute('''
           s = ""
           len = utf8.len(s)
 
@@ -324,7 +324,7 @@ void main() {
       });
 
       test('utf8.offset handles special cases', () async {
-        await lua.runCode(r'''
+        await lua.execute(r'''
           s = "\xC2\x80\xC2\x81"  -- Two 2-byte UTF-8 characters
 
           -- Test n=0 (find character start)

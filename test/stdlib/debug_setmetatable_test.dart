@@ -9,7 +9,7 @@ void main() {
     });
 
     test('number metatable registration and removal', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         mt = {__index = function(a,b) return a+b end}
         debug.setmetatable(10, mt)
         check1 = getmetatable(-2) == mt

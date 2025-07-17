@@ -6,7 +6,7 @@ void main() {
       final bridge = LuaLike();
 
       // Create a table with numeric indices
-      await bridge.runCode('''
+      await bridge.execute('''
         words = {}
         for i = 1, 5 do
           words[i] = "word" .. i
@@ -14,7 +14,7 @@ void main() {
       ''');
 
       // Test direct assignment to indexed element
-      await bridge.runCode('''
+      await bridge.execute('''
         words[3] = 11
       ''');
 
@@ -31,7 +31,7 @@ void main() {
       final bridge = LuaLike();
 
       // Create a table with numeric indices (without using for loop)
-      await bridge.runCode('''
+      await bridge.execute('''
         words = {}
         words[1] = "word1"
         words[2] = "word2"
@@ -41,7 +41,7 @@ void main() {
       ''');
 
       // Test direct assignment to indexed element
-      await bridge.runCode('''
+      await bridge.execute('''
         words[3] = 11
       ''');
 
@@ -58,7 +58,7 @@ void main() {
       final bridge = LuaLike();
 
       // Create a nested table structure
-      await bridge.runCode('''
+      await bridge.execute('''
         words = {}
         words.something = {}
         words.something.value = {}
@@ -71,7 +71,7 @@ void main() {
       ''');
 
       // Test assignment to deeply nested indexed element
-      await bridge.runCode('''
+      await bridge.execute('''
         words.something.value[3] = 11
       ''');
 
@@ -90,7 +90,7 @@ void main() {
       final bridge = LuaLike();
 
       // Create a nested table structure (without using for loop)
-      await bridge.runCode('''
+      await bridge.execute('''
         words = {}
         words.something = {}
         words.something.value = {}
@@ -102,7 +102,7 @@ void main() {
       ''');
 
       // Test assignment to deeply nested indexed element
-      await bridge.runCode('''
+      await bridge.execute('''
         words.something.value[3] = 11
       ''');
 
@@ -139,7 +139,7 @@ void main() {
       // FIXME: Our parser doesn't support method chaining on require results
       // Error: FormatException: line 1, column 42: Expected: '"', '#', ''', '(', etc.
       // This is valid Lua syntax and should be supported
-      await bridge.runCode('''
+      await bridge.execute('''
         local result = require("tracegc").start()
       ''');
 
@@ -166,7 +166,7 @@ void main() {
       ''');
 
       // Test require functionality (using workaround)
-      await bridge.runCode('''
+      await bridge.execute('''
         local tracegc = require("tracegc")
         local result = tracegc.start()
       ''');
@@ -179,7 +179,7 @@ void main() {
       final bridge = LuaLike();
 
       // Register a custom table library extension
-      await bridge.runCode('''
+      await bridge.execute('''
         -- Extend table library with a property function
         table.property = function(propName)
           return "Property: " .. propName
@@ -197,7 +197,7 @@ void main() {
       final bridge = LuaLike();
 
       // Register a custom table library extension
-      await bridge.runCode('''
+      await bridge.execute('''
         -- Extend table library with a property function
         table.property = function(propName)
           return "Property: " .. propName
@@ -219,7 +219,7 @@ void main() {
         final bridge = LuaLike();
 
         // Register a custom table library extension
-        await bridge.runCode('''
+        await bridge.execute('''
         -- Extend table library with a property function
         table.property = function(propName)
           return "Property: " .. propName
@@ -255,7 +255,7 @@ void main() {
       // Test require functionality with alternative call syntax
       // FIXME: Our parser should support function calls without parentheses
       // This is valid Lua syntax and should be supported
-      await bridge.runCode('''
+      await bridge.execute('''
         local result = require"tracegc".start()
       ''');
 
@@ -282,7 +282,7 @@ void main() {
       ''');
 
       // Test require functionality with standard call syntax
-      await bridge.runCode('''
+      await bridge.execute('''
         local tracegc = require("tracegc")
         local result = tracegc.start()
       ''');
@@ -313,7 +313,7 @@ void main() {
         return M
       ''');
 
-      await bridge.runCode('''
+      await bridge.execute('''
         local m = require("tracegc")
         m.start()
         local propResult = m.property("status")
@@ -350,7 +350,7 @@ void main() {
       ''');
 
       // Test combined require and property syntax (using workaround)
-      await bridge.runCode('''
+      await bridge.execute('''
         local tracegc = require("tracegc")
         tracegc.start()
         local propResult = tracegc.property("status")
@@ -390,7 +390,7 @@ void main() {
       // FIXME: Our parser should support function calls without parentheses
       // and method chaining on require results
       // This is valid Lua syntax and should be supported
-      await bridge.runCode('''
+      await bridge.execute('''
         local tracegc = require"tracegc"
         tracegc.start()
         local propResult = tracegc.property"status"
@@ -427,7 +427,7 @@ void main() {
       ''');
 
       // Test with standard call syntax
-      await bridge.runCode('''
+      await bridge.execute('''
         local tracegc = require("tracegc")
         tracegc.start()
         local propResult = tracegc.property("status")
