@@ -53,7 +53,7 @@ end
   print(doc);
 }
 
-keyassignment1() {
+void keyassignment1() {
   final source = '''
   words[i] = 11
   ''';
@@ -62,7 +62,7 @@ keyassignment1() {
   print(res);
 }
 
-keyassignment2() {
+void keyassignment2() {
   final source = '''
   words[i] = 11
   words.something.value[i] = 11
@@ -72,7 +72,7 @@ keyassignment2() {
   print(res);
 }
 
-function() {
+void function() {
   final source = r'''
   print("Hello, World!")
  require"tracegc".start()

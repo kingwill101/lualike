@@ -12,7 +12,7 @@ void main() async {
     local x = 10
     local y = 20
     return x + y
-  ''', ExecutionMode.astInterpreter);
+  ''');
 
   print('\nResult: $result');
 
@@ -27,7 +27,7 @@ void main() async {
     local x = 10
     local y = 20
     return x + y
-  ''', ExecutionMode.astInterpreter);
+  ''');
 
   print('\nResult: $result2');
 }

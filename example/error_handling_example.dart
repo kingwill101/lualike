@@ -40,7 +40,7 @@ void main() async {
   });
 
   print("=== Basic pcall Example ===");
-  await bridge.runCode('''
+  await bridge.execute('''
     -- Successful call
     local status, result = pcall(function() return "success" end)
     print("Success status:", status, "Result:", result)
@@ -55,7 +55,7 @@ void main() async {
   ''');
 
   print("\n=== Basic xpcall Example ===");
-  await bridge.runCode('''
+  await bridge.execute('''
     -- Successful call with xpcall
     local status, result = xpcall(
       function() return "success" end,
@@ -72,7 +72,7 @@ void main() async {
   ''');
 
   print("\n=== Calling Dart Functions with Error Handling ===");
-  await bridge.runCode('''
+  await bridge.execute('''
     -- Successful call to Dart function
     local status, result = pcall(function() return dart_function(10) end)
     print("Dart function success status:", status, "Result:", result)
@@ -83,7 +83,7 @@ void main() async {
   ''');
 
   print("\n=== Calling Asynchronous Dart Functions with Error Handling ===");
-  await bridge.runCode('''
+  await bridge.execute('''
     -- Successful call to async Dart function
     local status, result = pcall(function() return async_dart_function(10) end)
     print("Async Dart function success status:", status, "Result:", result)
@@ -94,7 +94,7 @@ void main() async {
   ''');
 
   print("\n=== Nested Protected Calls ===");
-  await bridge.runCode('''
+  await bridge.execute('''
     local status, result = pcall(function()
       -- Outer protected call
 
@@ -116,7 +116,7 @@ void main() async {
   ''');
 
   print("\n=== Error Handling in Loops ===");
-  await bridge.runCode('''
+  await bridge.execute('''
     local data = {1, 2, "not a number", 4, "another string", 6}
     local results = {}
 

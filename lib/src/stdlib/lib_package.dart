@@ -49,12 +49,12 @@ class PackageLib {
   }
 
   static String _getConfig() {
-    final isWindows = Platform.isWindows;
+    final isWindowsPlatform = Platform.isWindows;
     return [
-      isWindows ? '\\' : '/', // Directory separator
+      isWindowsPlatform ? '\\' : '/', // Directory separator
       ';', // Path separator
       '?', // Template marker
-      isWindows ? '!' : '', // Executable directory marker
+      isWindowsPlatform ? '!' : '', // Executable directory marker
       '-', // Native module ignore mark
     ].join('\n');
   }

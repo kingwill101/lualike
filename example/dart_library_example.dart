@@ -31,7 +31,7 @@ Future<void> basicUsageExample() async {
   final lua = LuaLike();
 
   // Execute simple Lua code
-  await lua.runCode('''
+  await lua.execute('''
     local message = "Hello from Lua!"
     result = message:upper() .. " (processed by Lua)"
   ''');
@@ -66,7 +66,7 @@ Future<void> valueExchangeExample() async {
   lua.setGlobal('dartMap', dartMap);
 
   // Process them in Lua
-  await lua.runCode('''
+  await lua.execute('''
     -- Work with Dart values
     local doubled = dartNumber * 2
     local greeting = dartString .. " and Hello from Lua!"
@@ -110,7 +110,7 @@ Future<void> errorHandlingExample() async {
 
   // Syntax error
   try {
-    await lua.runCode('if true then'); // Missing 'end'
+    await lua.execute('if true then'); // Missing 'end'
   } on LuaError catch (e) {
     print('Caught Lua syntax error: ${e.message}');
   } catch (e) {
@@ -119,7 +119,7 @@ Future<void> errorHandlingExample() async {
 
   // Runtime error
   try {
-    await lua.runCode('error("This is a custom error")');
+    await lua.execute('error("This is a custom error")');
   } on LuaError catch (e) {
     print('Caught Lua runtime error: ${e.message}');
   } catch (e) {
@@ -128,7 +128,7 @@ Future<void> errorHandlingExample() async {
 
   // Type error
   try {
-    await lua.runCode('local x = "string"; print(x + 5)');
+    await lua.execute('local x = "string"; print(x + 5)');
   } on LuaError catch (e) {
     print('Caught Lua type error: ${e.message}');
   } catch (e) {
@@ -214,7 +214,7 @@ Future<void> customFunctionExample() async {
     });
   });
 
-  await lua.runCode('''
+  await lua.execute('''
     log("Starting custom function demo")
 
     local currentTime = getCurrentTime()
@@ -249,7 +249,7 @@ Future<void> tableExample() async {
 
   final lua = LuaLike();
 
-  await lua.runCode('''
+  await lua.execute('''
     -- Create a complex table structure
     local inventory = {
       weapons = {
@@ -345,7 +345,7 @@ Future<void> moduleExample() async {
   ''');
 
   // Use the module
-  await lua.runCode('''
+  await lua.execute('''
     local mathutils = require('mathutils')
 
     local fact5 = mathutils.factorial(5)
@@ -384,7 +384,7 @@ Future<void> configurationExample() async {
   final lua = LuaLike();
 
   // Simulate loading a configuration file
-  await lua.runCode('''
+  await lua.execute('''
     -- Application configuration
     config = {
       app = {

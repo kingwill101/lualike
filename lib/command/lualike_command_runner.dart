@@ -1,14 +1,16 @@
 import 'dart:io';
+
 import 'package:args/command_runner.dart';
 import 'package:logging/logging.dart' as pkg_logging;
+import 'package:lualike/command/version_command.dart';
 import 'package:lualike/src/testing/testing.dart';
-import 'interactive_command_wrapper.dart';
+
+import 'base_command.dart';
 import 'execute_command.dart';
+import 'interactive_command_wrapper.dart';
 import 'require_command.dart';
 import 'script_command.dart';
-import 'version_command.dart';
 import 'stdin_command.dart';
-import 'base_command.dart';
 
 /// Main command runner for LuaLike following Lua CLI specification
 class LuaLikeCommandRunner extends CommandRunner {

@@ -20,7 +20,7 @@ class IOLib {
   // Get singleton instances
   static StdinDevice get stdinDevice => _stdinDevice ??= StdinDevice();
   static StdoutDevice get stdoutDevice =>
-      _stdoutDevice ??= StdoutDevice(stdout, allowFlush: false);
+      _stdoutDevice ??= StdoutDevice(stdout, false);
   static StdoutDevice get stderrDevice =>
       _stderrDevice ??= StdoutDevice(stderr);
 

@@ -23,9 +23,8 @@ class LuaNumberParser {
   LuaNumberParser._();
 
   /// 64-bit signed limits (native Dart `int` range).
-  static final BigInt _min64 =
-      BigInt.from(-0x7FFFFFFFFFFFFFFF) - BigInt.one; // -2^63
-  static final BigInt _max64 = BigInt.from(0x7FFFFFFFFFFFFFFF); //  2^63-1
+  static final BigInt _min64 = BigInt.parse('-9223372036854775808'); // -2^63
+  static final BigInt _max64 = BigInt.parse('9223372036854775807'); //  2^63-1
 
   /// Parse [literal] and return `int`, `double`, or `BigInt`.
   static dynamic /* int | double | BigInt */ parse(String literal) {

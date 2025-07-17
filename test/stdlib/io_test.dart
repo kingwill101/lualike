@@ -53,7 +53,7 @@ void main() {
       });
 
       test('StdoutDevice operations', () async {
-        final device = StdoutDevice(stdout, allowFlush: false);
+        final device = StdoutDevice(stdout, false);
 
         // Cannot read from stdout
         var readResult = await device.read();

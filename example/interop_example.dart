@@ -10,7 +10,7 @@ void main() async {
   lualike.expose('getCurrentTime', () => DateTime.now().toString());
 
   // Run some LuaLike code that uses Dart functions
-  await lualike.runCode('''
+  await lualike.execute('''
     print("Hello from LuaLike!")
     local result = pow(2, 8)
     print("2^8 =", result)
@@ -18,7 +18,7 @@ void main() async {
   ''');
 
   // Define a LuaLike function and call it from Dart
-  await lualike.runCode('''
+  await lualike.execute('''
     function greet(name)
       return "Hello, " .. name .. "!"
     end
@@ -34,7 +34,7 @@ void main() async {
     'timeout': 1000,
   });
 
-  await lualike.runCode('''
+  await lualike.execute('''
     if config.debug then
       print("Debug mode is enabled")
       print("Max retries:", config.maxRetries)
