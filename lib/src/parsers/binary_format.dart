@@ -1,6 +1,7 @@
 import 'package:petitparser/petitparser.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/stdlib/binary_type_size.dart';
+import 'package:lualike/src/stdlib/number_utils.dart';
 
 /// Represents a single directive inside a Lua 5.4 `string.pack` format.
 class BinaryFormatOption {
@@ -52,11 +53,15 @@ class BinaryFormatParser {
   static final Parser<BinaryFormatOption> cParser = (char('c') & digits).map((
     v,
   ) {
-    final n = int.parse(v[1]);
-    if (n < 0) {
+    final numStr = v[1] as String;
+    final bigN = BigInt.parse(numStr);
+    if (bigN < BigInt.zero) {
       throw LuaError("invalid size for format option 'c'");
     }
-    return BinaryFormatOption('c', size: n, raw: 'c${v[1]}');
+    if (bigN > BigInt.from(NumberUtils.maxInteger)) {
+      throw LuaError('invalid format');
+    }
+    return BinaryFormatOption('c', size: bigN.toInt(), raw: 'c$numStr');
   });
 
   /// bare 'c' without a size -> missing size error
@@ -68,7 +73,13 @@ class BinaryFormatParser {
   static final Parser<BinaryFormatOption> iIParserWithNum =
       (pattern('iIjJs') & signedDigits).map((v) {
         final t = v[0] as String;
-        final n = int.parse(v[1]);
+        final numStr = v[1] as String;
+        final bigN = BigInt.parse(numStr);
+        if (bigN > BigInt.from(NumberUtils.maxInteger) ||
+            bigN < BigInt.from(NumberUtils.minInteger)) {
+          throw LuaError('invalid format');
+        }
+        final n = bigN.toInt();
 
         if ((t == 'i' || t == 'I' || t == 'j' || t == 'J') &&
             (n < 1 || n > 16)) {
