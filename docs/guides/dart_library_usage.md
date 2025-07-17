@@ -47,7 +47,7 @@ void main() async {
   final lua = LuaLike();
 
   // Execute some Lua code
-  await lua.runCode('''
+  await lua.execute('''
     local greeting = "Hello from Lua!"
     result = greeting:upper()
   ''');
@@ -76,14 +76,14 @@ final lua2 = LuaLike(); // Independent from lua
 
 ```dart
 // Execute code from a string
-await lua.runCode('x = 10 + 5');
+await lua.execute('x = 10 + 5');
 
 // Execute code from a file
 await lua.runFile('path/to/script.lua');
 
 // Execute code with error handling
 try {
-  await lua.runCode('invalid lua syntax here');
+  await lua.execute('invalid lua syntax here');
 } catch (e) {
   print('Lua error: $e');
 }
@@ -99,7 +99,7 @@ lua.setGlobal('dartList', [1, 2, 3]);
 lua.setGlobal('dartMap', {'key': 'value'});
 
 // Get values from Lua
-await lua.runCode('luaResult = dartNumber * 2');
+await lua.execute('luaResult = dartNumber * 2');
 final result = lua.getGlobal('luaResult');
 print(result?.unwrap()); // Prints: 84
 ```
@@ -141,7 +141,7 @@ lua.setGlobal('nothing', null); // Becomes nil in Lua
 ### Extracting Values
 
 ```dart
-await lua.runCode('''
+await lua.execute('''
   person = {
     name = "Alice",
     age = 25,
@@ -189,7 +189,7 @@ LuaLike provides comprehensive error handling for various scenarios:
 import 'package:lualike/lualike.dart';
 
 try {
-  await lua.runCode('''
+  await lua.execute('''
     -- This will cause a runtime error
     local x = nil
     print(x.someProperty)
@@ -207,21 +207,21 @@ try {
 ```dart
 // Syntax errors
 try {
-  await lua.runCode('if true then'); // Missing 'end'
+  await lua.execute('if true then'); // Missing 'end'
 } on LuaError catch (e) {
   // Handle syntax error
 }
 
 // Runtime errors
 try {
-  await lua.runCode('error("Custom error message")');
+  await lua.execute('error("Custom error message")');
 } on LuaError catch (e) {
   // Handle runtime error
 }
 
 // Type errors
 try {
-  await lua.runCode('local x = "string"; print(x + 5)');
+  await lua.execute('local x = "string"; print(x + 5)');
 } on LuaError catch (e) {
   // Handle type mismatch
 }
@@ -260,7 +260,7 @@ lua.expose('divmod', (List<Object?> args) {
 });
 
 // Use the functions in Lua
-await lua.runCode('''
+await lua.execute('''
   local greeting = greet("World")
   print(greeting) -- Prints: Hello, World!
 
@@ -380,7 +380,7 @@ lua.expose('createNumber', (List<Object?> args) {
 ### Working with Lua Functions
 
 ```dart
-await lua.runCode('''
+await lua.execute('''
   function multiply(a, b)
     return a * b
   end
@@ -390,9 +390,9 @@ await lua.runCode('''
   end
 ''');
 
-// Call Lua functions through runCode
-await lua.runCode('result1 = multiply(6, 7)');
-await lua.runCode('result2 = greet("World")');
+// Call Lua functions through execute
+await lua.execute('result1 = multiply(6, 7)');
+await lua.execute('result2 = greet("World")');
 
 print(lua.getGlobal('result1')?.unwrap()); // 42
 print(lua.getGlobal('result2')?.unwrap()); // Hello, World!
@@ -405,7 +405,7 @@ print(lua.getGlobal('result2')?.unwrap()); // Hello, World!
 LuaLike includes many standard Lua libraries:
 
 ```dart
-await lua.runCode('''
+await lua.execute('''
   -- String library
   local text = "hello world"
   local upper = string.upper(text)
@@ -465,7 +465,7 @@ You can then use it in your Dart application like this:
 
 ```dart
 // Use the module
-await lua.runCode('''
+await lua.execute('''
   local mymod = require('mymodule')
   sum = mymod.add(10, 20)
   greeting = mymod.greet("Lua")
@@ -486,7 +486,7 @@ class LuaManager {
 
   Future<void> initialize() async {
     // Set up your Lua environment
-    await _lua.runCode('''
+    await _lua.execute('''
       -- Initialize your Lua state
     ''');
   }
@@ -513,7 +513,7 @@ Future<T?> safeLuaCall<T>(Future<void> Function() luaCode, String variableName) 
 
 // Usage
 final result = await safeLuaCall<String>(
-  () => lua.runCode('result = "Hello " .. "World"'),
+  () => lua.execute('result = "Hello " .. "World"'),
   'result'
 );
 ```
@@ -537,7 +537,7 @@ final age = lua.getGlobal('userAge').asNumber() ?? 0;
 
 ```dart
 // Batch operations when possible
-await lua.runCode('''
+await lua.execute('''
   -- Do multiple operations in one call
   local results = {}
   for i = 1, 1000 do
@@ -548,7 +548,7 @@ await lua.runCode('''
 
 // Instead of:
 // for (int i = 1; i <= 1000; i++) {
-//   await lua.runCode('result = math.sqrt($i)');
+//   await lua.execute('result = math.sqrt($i)');
 // }
 ```
 
@@ -602,7 +602,7 @@ class LuaTemplate {
 
   LuaTemplate() {
     // Set up template functions
-    _lua.runCode('''
+    _lua.execute('''
       function render_template(template, data)
         -- Simple template rendering
         local result = template
@@ -618,7 +618,7 @@ class LuaTemplate {
     _lua.setGlobal('template', template);
     _lua.setGlobal('data', data);
 
-    await _lua.runCode('result = render_template(template, data)');
+    await _lua.execute('result = render_template(template, data)');
 
     return _lua.getGlobal('result')?.unwrap() as String? ?? '';
   }
@@ -652,7 +652,7 @@ class GameLuaScript {
 
   Future<void> callFunction(String functionName, [List<dynamic>? args]) async {
     final argsList = args?.map((arg) => '"$arg"').join(', ') ?? '';
-    await _lua.runCode('$functionName($argsList)');
+    await _lua.execute('$functionName($argsList)');
   }
 }
 
@@ -675,14 +675,14 @@ await gameScript.callFunction('onPlayerJoin', ['player123']);
 
 1. **Value Conversion**: Remember that Lua uses 1-based indexing for tables
 2. **String Encoding**: LuaLike handles UTF-8 properly, but be aware of byte vs character differences
-3. **Function Calls**: Complex function calls are better done through `runCode` than direct invocation
+3. **Function Calls**: Complex function calls are better done through `execute` than direct invocation
 4. **Memory**: Each LuaLike instance maintains its own state; create new instances as needed
 
 ### Debug Tips
 
 ```dart
 // Enable debug logging
-await lua.runCode('''
+await lua.execute('''
   function debug_print(value)
     print("DEBUG: " .. tostring(value))
     return value

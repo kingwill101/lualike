@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+
 import 'base_command.dart';
 
 /// Command to execute script files
@@ -36,7 +37,7 @@ class ScriptCommand extends BaseCommand {
       final sourceCode = await file.readAsBytes().then(
         (bytes) => utf8.decode(bytes),
       );
-      await bridge.runCode(sourceCode, scriptPath: scriptPath);
+      await bridge.execute(sourceCode, scriptPath: scriptPath);
     } catch (e) {
       safePrint('Error executing script "$scriptPath": $e');
       rethrow;

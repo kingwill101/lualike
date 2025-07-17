@@ -1,5 +1,5 @@
-import 'package:test/test.dart';
 import 'package:lualike/lualike.dart';
+import 'package:test/test.dart';
 
 void main() {
   group('String Literal Parsing Regression Tests', () {
@@ -11,7 +11,7 @@ void main() {
 
     group('High-Byte Character Preservation', () {
       test('single high-byte character (253)', () async {
-        await lua.runCode(r'''
+        await lua.execute(r'''
           local str = "\xFD"  -- This should be byte 253
           byte_value = string.byte(str)
         ''');
@@ -24,7 +24,7 @@ void main() {
       });
 
       test('multiple high-byte characters', () async {
-        await lua.runCode(r'''
+        await lua.execute(r'''
           local str = "\xFD\xFE\xFF"  -- bytes 253, 254, 255
           b1, b2, b3 = string.byte(str, 1, 3)
         ''');
@@ -42,7 +42,7 @@ void main() {
       });
 
       test('high bytes mixed with ASCII', () async {
-        await lua.runCode(r'''
+        await lua.execute(r'''
           local str = "a\xFDb\xFEc"  -- ASCII mixed with high bytes
           b1, b2, b3, b4, b5 = string.byte(str, 1, 5)
         ''');
@@ -64,7 +64,7 @@ void main() {
 
     group('Escape Sequence Handling', () {
       test('hex escape sequences with high values', () async {
-        await lua.runCode(r'''
+        await lua.execute(r'''
           local str = "\xFD\xFE\xFF"
           b1, b2, b3 = string.byte(str, 1, 3)
         ''');
@@ -82,7 +82,7 @@ void main() {
       });
 
       test('decimal escape sequences with high values', () async {
-        await lua.runCode(r'''
+        await lua.execute(r'''
           local str = "\253\254\255"
           b1, b2, b3 = string.byte(str, 1, 3)
         ''');
@@ -100,7 +100,7 @@ void main() {
       });
 
       test('mixed escape sequences and literals', () async {
-        await lua.runCode(r'''
+        await lua.execute(r'''
           local str = "a\xFDb\254c\xFD"  -- Mix of literal, hex, decimal, and high-byte char
           b1, b2, b3, b4, b5, b6 = string.byte(str, 1, 6)
         ''');
@@ -123,7 +123,7 @@ void main() {
 
     group('Null Byte Handling', () {
       test('null bytes in string literals', () async {
-        await lua.runCode(r'''
+        await lua.execute(r'''
           local str = "a\0b\0c"
           length = #str
           b1, b2, b3, b4, b5 = string.byte(str, 1, 5)
@@ -150,7 +150,7 @@ void main() {
       });
 
       test('null bytes with high bytes', () async {
-        await lua.runCode(r'''
+        await lua.execute(r'''
           local str = "\xFD\0\xFE\0"  -- High bytes with null bytes
           length = #str
           b1, b2, b3, b4 = string.byte(str, 1, 4)
@@ -174,7 +174,7 @@ void main() {
 
     group('String Format Round-Trip Tests', () {
       test('string.format %q round-trip with high bytes', () async {
-        await lua.runCode(r'''
+        await lua.execute(r'''
           local original = '"\xFDlo"\n\\'  -- The specific failing case with high byte
           local formatted = string.format('%q', original)
           local loaded = load('return ' .. formatted)()
@@ -196,7 +196,7 @@ void main() {
       });
 
       test('string.format %q with various special characters', () async {
-        await lua.runCode(r'''
+        await lua.execute(r'''
           local test_strings = {
             "simple",
             "with\nnewline",
@@ -240,7 +240,7 @@ void main() {
 
     group('LuaString vs String Consistency', () {
       test('string operations return consistent types', () async {
-        await lua.runCode(r'''
+        await lua.execute(r'''
           local str = "test\xFDstring"  -- Contains high byte
           local upper = string.upper(str)
           local lower = string.lower(str)
@@ -273,7 +273,7 @@ void main() {
       });
 
       test('string concatenation preserves bytes', () async {
-        await lua.runCode(r'''
+        await lua.execute(r'''
           local a = "hello"
           local b = "\xFDworld"  -- Contains high byte
           local c = a .. b
@@ -309,7 +309,7 @@ void main() {
 
     group('Edge Cases and Error Conditions', () {
       test('very long strings with high bytes', () async {
-        await lua.runCode(r'''
+        await lua.execute(r'''
           local base = string.rep("\xFD", 100)  -- 100 high bytes
           local doubled = string.rep(base, 2)
           length = #doubled
@@ -347,7 +347,7 @@ void main() {
       });
 
       test('empty string operations', () async {
-        await lua.runCode(r'''
+        await lua.execute(r'''
           local empty = ""
           local rep_empty = string.rep(empty, 10)
           local concat_empty = empty .. "\xFDtest"

@@ -6,7 +6,7 @@ void main() {
       final bridge = LuaLike();
 
       try {
-        await bridge.runCode('''
+        await bridge.execute('''
           local t = {1, 2, 3}
           table.insert(t, 2, 4)
           return t[1], t[2], t[3], t[4]
@@ -24,7 +24,7 @@ void main() {
       final bridge = LuaLike();
 
       try {
-        await bridge.runCode('''
+        await bridge.execute('''
           local t = {1, 2, 3}
           table.insert(t, 4)
           return t[1], t[2], t[3], t[4]
@@ -42,7 +42,7 @@ void main() {
       final bridge = LuaLike();
 
       try {
-        await bridge.runCode('''
+        await bridge.execute('''
           local t = {1, 2, 3}
           local removed = table.remove(t, 2)
           return t[1], t[2], removed
@@ -59,7 +59,7 @@ void main() {
       final bridge = LuaLike();
 
       try {
-        await bridge.runCode('''
+        await bridge.execute('''
           local t = {1, 2, 3}
           local removed = table.remove(t)
           return t[1], t[2], t[3], removed
@@ -77,7 +77,7 @@ void main() {
       final bridge = LuaLike();
 
       try {
-        await bridge.runCode('''
+        await bridge.execute('''
           local t = {"hello", "world", "from", "Lua"}
           local str = table.concat(t, " ")
           return str
@@ -92,7 +92,7 @@ void main() {
       final bridge = LuaLike();
 
       try {
-        await bridge.runCode('''
+        await bridge.execute('''
           local t = {"hello", "world", "from", "Lua"}
           local str1 = table.concat(t, "-", 2, 3)
           local str2 = table.concat(t, "", 1, 2)
@@ -109,7 +109,7 @@ void main() {
       final bridge = LuaLike();
 
       try {
-        await bridge.runCode('''
+        await bridge.execute('''
           local empty = {}
           local str1 = table.concat(empty)
           local str2 = table.concat({1, 2, 3}, "", 5, 3) -- i > j
@@ -126,7 +126,7 @@ void main() {
       final bridge = LuaLike();
 
       try {
-        await bridge.runCode('''
+        await bridge.execute('''
           local t1 = {1, 2, 3, 4, 5}
           local t2 = {}
           table.move(t1, 2, 4, 1, t2)
@@ -145,7 +145,7 @@ void main() {
       final bridge = LuaLike();
 
       try {
-        await bridge.runCode('''
+        await bridge.execute('''
           local t = {1, 2, 3, 4, 5}
           table.move(t, 1, 3, 3)
           return t[1], t[2], t[3], t[4], t[5]
@@ -164,7 +164,7 @@ void main() {
       final bridge = LuaLike();
 
       try {
-        await bridge.runCode('''
+        await bridge.execute('''
           local t = table.pack(10, 20, 30)
           return t[1], t[2], t[3], t.n
         ''');
@@ -181,7 +181,7 @@ void main() {
       final bridge = LuaLike();
 
       try {
-        await bridge.runCode('''
+        await bridge.execute('''
           local function get_nil() return nil end
           local t = table.pack(10, get_nil(), 30)
           return t[1], t[2], t[3], t.n
@@ -199,7 +199,7 @@ void main() {
       final bridge = LuaLike();
 
       try {
-        await bridge.runCode('''
+        await bridge.execute('''
           local t = {3, 1, 4, 2, 5}
           table.sort(t)
           return t[1], t[2], t[3], t[4], t[5]
@@ -218,7 +218,7 @@ void main() {
       final bridge = LuaLike();
 
       try {
-        await bridge.runCode('''
+        await bridge.execute('''
           local t = {3, 1, 4, 2, 5}
           -- In Lua, the comparator returns true when a should come before b
           -- So for descending order, we return true when a > b
@@ -242,7 +242,7 @@ void main() {
       final bridge = LuaLike();
 
       try {
-        await bridge.runCode('''
+        await bridge.execute('''
           local t = {10, 20, 30, 40, 50}
           local a, b, c = table.unpack(t, 2, 4)
           return a, b, c
@@ -259,7 +259,7 @@ void main() {
       final bridge = LuaLike();
 
       try {
-        await bridge.runCode('''
+        await bridge.execute('''
           local t = {10, 20, 30}
           local a, b, c = table.unpack(t)
           return a, b, c

@@ -9,7 +9,7 @@ void main() {
     });
 
     test('local variable assignment when _ENV unchanged', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         local a = 10
         a = 20
         _G.result = a
@@ -21,7 +21,7 @@ void main() {
 
     test('local variable assignment when _ENV changed', () async {
       // This is the critical bug we fixed
-      await bridge.runCode('''
+      await bridge.execute('''
         local a = 10
         _ENV = setmetatable({}, {__index=_G})
         a = 20  -- Should update local 'a', not create _ENV.a
@@ -36,7 +36,7 @@ void main() {
     });
 
     test('global variable assignment when _ENV changed', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         X = 10
         _ENV = setmetatable({}, {__index=_G})
         X = 20  -- Should create _ENV.X, not update _G.X
@@ -52,7 +52,7 @@ void main() {
 
     test('setmetatable assignment bug from events.lua', () async {
       // This reproduces the specific bug from events.lua
-      await bridge.runCode('''
+      await bridge.execute('''
         local a, t = {10, x="10"}, {}
         
         function f(table, key)
@@ -83,7 +83,7 @@ void main() {
     test(
       'complex scenario with multiple local and global assignments',
       () async {
-        await bridge.runCode('''
+        await bridge.execute('''
         local a, b = 1, 2
         c = 3
         
@@ -134,7 +134,7 @@ void main() {
     );
 
     test('nested scope with _ENV change', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         local a = 1
         
         do

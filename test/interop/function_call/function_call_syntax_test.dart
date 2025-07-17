@@ -9,7 +9,7 @@ void main() {
       final bridge = LuaLike();
 
       // Register a function
-      await bridge.runCode('''
+      await bridge.execute('''
         function greet(name)
           return "Hello, " .. name
         end
@@ -25,7 +25,7 @@ void main() {
       final bridge = LuaLike();
 
       // Register a function
-      await bridge.runCode('''
+      await bridge.execute('''
         function greet(name)
           return "Hello, " .. name
         end
@@ -41,7 +41,7 @@ void main() {
       final bridge = LuaLike();
 
       // Create a table with a method
-      await bridge.runCode('''
+      await bridge.execute('''
         local t = {}
         function t.method(param)
           return "Method called with: " .. param
@@ -58,7 +58,7 @@ void main() {
       final bridge = LuaLike();
 
       // Create a table with a method
-      await bridge.runCode('''
+      await bridge.execute('''
         local t = {}
         function t.method(param)
           return "Method called with: " .. param
@@ -75,7 +75,7 @@ void main() {
       final bridge = LuaLike();
 
       // Test string.upper without parentheses
-      await bridge.runCode('''
+      await bridge.execute('''
         local result = string.upper"hello"
       ''');
 
@@ -94,7 +94,7 @@ void main() {
       ''');
 
       // Test standard require syntax
-      await bridge.runCode('''
+      await bridge.execute('''
         local module = require("test_module")
         local result = module.test()
       ''');
@@ -114,7 +114,7 @@ void main() {
       ''');
 
       // Test alternative require syntax without parentheses
-      await bridge.runCode('''
+      await bridge.execute('''
         local module = require"test_module"
         local result = module.test()
       ''');
@@ -129,7 +129,7 @@ void main() {
       final bridge = LuaLike();
 
       // Create a table with methods that return the table for chaining
-      await bridge.runCode('''
+      await bridge.execute('''
         local t = {value = 0}
 
         function t.increment(n)
@@ -170,7 +170,7 @@ void main() {
       // Error: FormatException: Expected: '"', '#', ''', '(', etc.
       // This is valid Lua syntax and should be supported
 
-      await bridge.runCode('''
+      await bridge.execute('''
           local result = require("test_module").test()
         ''');
       final result = bridge.getGlobal('result');
@@ -188,7 +188,7 @@ void main() {
       ''');
 
       // Test combined alternative syntax with workaround
-      await bridge.runCode('''
+      await bridge.execute('''
         local module = require"test_module"
         local result = module.test"param"
       ''');
@@ -201,7 +201,7 @@ void main() {
   group('Implicit Self Method Call', () {
     test('colon method definition and call', () async {
       final bridge = LuaLike();
-      await bridge.runCode('''
+      await bridge.execute('''
         local obj = {x = 42}
         function obj:foo(...)
           return self.x, select('#', ...), ...
@@ -221,7 +221,7 @@ void main() {
 
     test('self field assignment and access', () async {
       final bridge = LuaLike();
-      await bridge.runCode('''
+      await bridge.execute('''
         local obj = {count = 0}
         function obj:inc()
           self.count = self.count + 1
@@ -242,7 +242,7 @@ void main() {
     test('method chaining with self', () async {
       final bridge = LuaLike();
 
-      await bridge.runCode('''
+      await bridge.execute('''
         local obj = {val = 1}
 
         function obj:inc(n)
@@ -262,7 +262,7 @@ void main() {
 
     test('dot method definition and call', () async {
       final bridge = LuaLike();
-      await bridge.runCode('''
+      await bridge.execute('''
         local obj = {x = 99}
         function obj.foo(...)
           return obj.x, select('#', ...), ...
@@ -284,7 +284,7 @@ void main() {
       () async {
         final bridge = LuaLike();
         await expectLater(
-          bridge.runCode('''
+          bridge.execute('''
             local obj = {x = 5}
             function obj:bar(x, ...)
               return self and self.x or -1, x, select('#', ...), ...
@@ -300,7 +300,7 @@ void main() {
       'calling dot method with colon syntax (should get self as first arg)',
       () async {
         final bridge = LuaLike();
-        await bridge.runCode('''
+        await bridge.execute('''
         local obj = {y = 7}
         function obj.baz(x, ...)
           return x and x.y or -1, select('#', ...), ...
@@ -323,7 +323,7 @@ void main() {
 
     test('colon method returns self only', () async {
       final bridge = LuaLike();
-      await bridge.runCode('''
+      await bridge.execute('''
         local obj = {id = 123}
         function obj:whoami()
           return self
@@ -338,7 +338,7 @@ void main() {
 
     test('colon method returns self and argument', () async {
       final bridge = LuaLike();
-      await bridge.runCode('''
+      await bridge.execute('''
         local obj = {name = 'A'}
         function obj:echo(x)
           return self, x
@@ -354,7 +354,7 @@ void main() {
 
     test('colon method returns just argument', () async {
       final bridge = LuaLike();
-      await bridge.runCode('''
+      await bridge.execute('''
 local obj = {y = 42}
 function obj:val( x)
   return self.y + x
@@ -367,7 +367,7 @@ local result = obj:val(99)
 
     test('colon method returns constant', () async {
       final bridge = LuaLike();
-      await bridge.runCode('''
+      await bridge.execute('''
         local obj = {}
         function obj:const()
           return 7
@@ -380,7 +380,7 @@ local result = obj:val(99)
 
     test('colon method returns self.x', () async {
       final bridge = LuaLike();
-      await bridge.runCode('''
+      await bridge.execute('''
         local obj = {x = 55}
         function obj:readx()
           return self.x

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+
 import 'base_command.dart';
 
 /// Command to execute code from stdin
@@ -32,7 +33,7 @@ class StdinCommand extends BaseCommand {
         lines.add(line);
       }
       final code = lines.join('\n');
-      await bridge.runCode(code);
+      await bridge.execute(code);
     } catch (e) {
       safePrint('Error executing stdin: $e');
       rethrow;

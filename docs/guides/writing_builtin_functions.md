@@ -99,7 +99,7 @@ final lualike = LuaLike();
 lualike.env.define("my_native_add", Value(MyNativeAdd()));
 
 // Now you can call it from a script
-await lualike.runCode('''
+await lualike.execute('''
   local result = my_native_add(10, 20)
   print(result) -- Prints: 30
 ''');
@@ -136,7 +136,7 @@ void main() async {
   final lualike = LuaLike();
   lualike.env.define("native_add", Value(NativeAdd()));
 
-  await lualike.runCode('''
+  await lualike.execute('''
     local sum = native_add(5, 12)
     print("The sum is: " .. sum) -- Prints: The sum is: 17
   ''');

@@ -11,7 +11,7 @@ void main() {
 
     test('table.unpack with nil as third argument', () async {
       // Test that table.unpack(args, 1, nil) works same as table.unpack(args, 1)
-      await lua.runCode('''
+      await lua.execute('''
         local args = {1, 2, 3}
         a, b, c = table.unpack(args, 1, nil)
       ''');
@@ -23,7 +23,7 @@ void main() {
 
     test('table.unpack with args.n being nil', () async {
       // Test the specific case that was failing in vararg.lua
-      await lua.runCode('''
+      await lua.execute('''
         local function call(f, args)
           return f(table.unpack(args, 1, args.n))
         end
@@ -42,7 +42,7 @@ void main() {
 
     test('table indexing with varargs uses first value only', () async {
       // Test that t[...] uses only the first value from varargs
-      await lua.runCode('''
+      await lua.execute('''
         local t = {10, 20, 30}
 
         function test(...)
@@ -57,7 +57,7 @@ void main() {
 
     test('method call with varargs arithmetic', () async {
       // Test the specific method call that was failing
-      await lua.runCode('''
+      await lua.execute('''
         local t = {1, 10}
         function t:f (...)
           local arg = {...}
@@ -74,7 +74,7 @@ void main() {
 
     test('varargs in table constructor', () async {
       // Test varargs expansion in table constructors
-      await lua.runCode('''
+      await lua.execute('''
         function test(...)
           return {...}
         end
@@ -92,7 +92,7 @@ void main() {
 
     test('select function with varargs', () async {
       // Test select function behavior
-      await lua.runCode('''
+      await lua.execute('''
         function test(...)
           local n = select('#', ...)
           local first = select(1, ...)
@@ -110,7 +110,7 @@ void main() {
 
     test('table.unpack with custom range', () async {
       // Test table.unpack with start and end indices
-      await lua.runCode('''
+      await lua.execute('''
         local t = {10, 20, 30, 40, 50}
         a, b, c = table.unpack(t, 2, 4)
       ''');
@@ -122,7 +122,7 @@ void main() {
 
     test('table.pack creates table with n field', () async {
       // Test table.pack functionality
-      await lua.runCode('''
+      await lua.execute('''
         local t = table.pack(1, 2, nil, 4)
         a, b, c, d, n = t[1], t[2], t[3], t[4], t.n
       ''');
@@ -136,7 +136,7 @@ void main() {
 
     test('function redefinition scope', () async {
       // Test that global function definitions override local ones
-      await lua.runCode('''
+      await lua.execute('''
         local function f(x)
           return x * 2  -- local version
         end
@@ -156,7 +156,7 @@ void main() {
 
     test('complex varargs with function calls', () async {
       // Test complex varargs scenarios
-      await lua.runCode('''
+      await lua.execute('''
         local function vararg(...)
           return {n = select('#', ...), ...}
         end

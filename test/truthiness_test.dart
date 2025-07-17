@@ -28,7 +28,7 @@ void main() {
         results[10] = not limit   -- should be false
       ''';
 
-      await bridge.runCode(code);
+      await bridge.execute(code);
       final results = bridge.getGlobal('results');
 
       final map = results.raw as Map;
@@ -73,7 +73,7 @@ void main() {
         results[6] = nil or "yes"         -- should be "yes"
       ''';
 
-      await bridge.runCode(code);
+      await bridge.execute(code);
       final results = bridge.getGlobal('results');
 
       final map = results.raw as Map;
@@ -111,7 +111,7 @@ void main() {
         combined = result1 and result2
       ''';
 
-      await bridge.runCode(code);
+      await bridge.execute(code);
 
       final result1 = bridge.getGlobal('result1');
       final result2 = bridge.getGlobal('result2');

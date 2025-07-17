@@ -53,7 +53,7 @@ lua.setGlobal('text', Value(luaString));
 ### From Lua to Dart
 
 ```dart
-await lua.runCode('result = "Hello 世界"');
+await lua.execute('result = "Hello 世界"');
 final value = lua.getGlobal('result') as Value;
 
 // Access raw LuaString
@@ -81,7 +81,7 @@ print(binaryString.toLatin1String());  // Shows raw bytes as Latin-1
 ### String Length Semantics
 
 ```dart
-await lua.runCode('''
+await lua.execute('''
   local ascii = "hello"
   local utf8 = "café"
 
@@ -96,14 +96,14 @@ await lua.runCode('''
 
 ```dart
 // string.byte - get byte values
-await lua.runCode('''
+await lua.execute('''
   local s = "café"
   b1, b2, b3, b4, b5 = string.byte(s, 1, -1)
 ''');
 // b1=99, b2=97, b3=102, b4=195, b5=169 (UTF-8 bytes for "café")
 
 // string.char - create from byte values
-await lua.runCode('''
+await lua.execute('''
   local s = string.char(195, 169)  -- UTF-8 for "é"
 ''');
 ```
@@ -113,7 +113,7 @@ await lua.runCode('''
 The `string.format` function handles different types correctly:
 
 ```dart
-await lua.runCode('''
+await lua.execute('''
   -- %q preserves byte sequences
   local bytes = "\\225"  -- Single byte 225
   local quoted = string.format("%q", bytes)  -- "\\225"
@@ -133,7 +133,7 @@ final binaryData = LuaString.fromBytes([0x00, 0x01, 0xFF, 0xFE]);
 lua.setGlobal('binary', Value(binaryData));
 
 // From Lua
-await lua.runCode('''
+await lua.execute('''
   local binary = string.char(0, 1, 255, 254)
   local packed = string.pack("bbbb", 0, 1, 255, 254)
 ''');
@@ -142,7 +142,7 @@ await lua.runCode('''
 ### Handling Null Bytes
 
 ```dart
-await lua.runCode('''
+await lua.execute('''
   local with_null = "hello\\0world"
   local length = #with_null  -- 11 (null bytes count)
   local sub = string.sub(with_null, 1, 5)  -- "hello"
@@ -194,42 +194,3 @@ final long1 = StringInterning.intern("a" * 50);
 final long2 = StringInterning.intern("a" * 50);
 // long1 and long2 are different objects
 ```
-
-## Common Patterns
-
-### Safe String Conversion
-
-```dart
-String safeToString(Value value) {
-  final raw = value.raw;
-  if (raw is LuaString) {
-    return raw.toString();  // UTF-8 decode
-  }
-  return raw.toString();
-}
-```
-
-### Preserving Byte Integrity
-
-```dart
-// When you need exact byte preservation
-lua.expose('preserveBytes', (List<Object?> args) {
-  final input = args[0] as Value;
-  if (input.raw is LuaString) {
-    final luaStr = input.raw as LuaString;
-    // Work directly with bytes to preserve exact content
-    return Value(LuaString.fromBytes(luaStr.bytes));
-  }
-  return input;
-});
-```
-
-## Key Differences from Standard Strings
-
-1. **Length**: `#string` returns byte count, not character count
-2. **Indexing**: `string.sub(s, i, j)` works on byte positions
-3. **Comparison**: Byte-by-byte comparison, not Unicode collation
-4. **Concatenation**: Joins byte sequences directly
-5. **Pattern matching**: Operates on byte patterns, not character classes
-
-This is the core of string handling in LuaLike - understanding that strings are byte sequences managed by the `LuaString` class, with proper encoding/decoding when interfacing with Dart code.

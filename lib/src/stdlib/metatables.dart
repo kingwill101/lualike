@@ -8,7 +8,6 @@ import 'lib_string.dart';
 /// Handles default metatables and metamethods for built-in types
 class MetaTable {
   static final MetaTable _instance = MetaTable._internal();
-  static Interpreter? _interpreter;
 
   bool _initialized = false;
   final Map<String, ValueClass> _typeMetatables = {};
@@ -22,7 +21,6 @@ class MetaTable {
   MetaTable._internal();
 
   static void initialize(Interpreter interpreter) {
-    _interpreter = interpreter;
     _instance._initialize();
   }
 
@@ -69,7 +67,7 @@ class MetaTable {
             // Return a function that will be called later
             return Value((callArgs) {
               Logger.debug(
-                'String method ${key.raw} called with ${callArgs.length} arguments',
+                'String method ${key.raw} cal led with ${callArgs.length} arguments',
                 category: 'Metatables',
               );
 

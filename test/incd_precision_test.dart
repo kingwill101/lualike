@@ -19,7 +19,7 @@ void main() {
         result = floatbits
       ''';
 
-      await bridge.runCode(code);
+      await bridge.execute(code);
       final result = bridge.getGlobal('result');
 
       expect(result.raw, equals(53));
@@ -52,7 +52,7 @@ void main() {
         success_rate = count / 50
       ''';
 
-      await bridge.runCode(code);
+      await bridge.execute(code);
       final results = bridge.getGlobal('results');
       final successRate = bridge.getGlobal('success_rate');
 
@@ -116,7 +116,7 @@ void main() {
         total_attempts = attempts
       ''';
 
-      await bridge.runCode(code);
+      await bridge.execute(code);
       final results = bridge.getGlobal('results');
       final validCount = bridge.getGlobal('valid_count');
       final totalAttempts = bridge.getGlobal('total_attempts');

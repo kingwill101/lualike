@@ -12,7 +12,7 @@ void main() {
       'math.random should produce values close to 0 and 1',
       timeout: Timeout(Duration(seconds: 30)),
       () async {
-        await bridge.runCode('''
+        await bridge.execute('''
         math.randomseed(1007)  -- Use same seed as the original test
         
         local min_val = 1.0
@@ -76,7 +76,7 @@ void main() {
       'math.random distribution test simplified',
       timeout: Timeout(Duration(seconds: 10)),
       () async {
-        await bridge.runCode('''
+        await bridge.execute('''
         math.randomseed(1007)
         
         -- Simple test: count how many values are in lower vs upper half
@@ -144,7 +144,7 @@ void main() {
       'math.random basic range test',
       timeout: Timeout(Duration(seconds: 10)),
       () async {
-        await bridge.runCode('''
+        await bridge.execute('''
         math.randomseed(42)
         
         local all_in_range = true

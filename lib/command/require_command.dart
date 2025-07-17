@@ -20,7 +20,7 @@ class RequireCommand extends BaseCommand {
       setupArgTable(originalArgs: originalArgs);
 
       // Load the module
-      await bridge.runCode('require("$moduleName")');
+      await bridge.execute('require("$moduleName")');
     } catch (e) {
       safePrint('Error requiring module "$moduleName": $e');
       rethrow;

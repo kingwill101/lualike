@@ -5,7 +5,7 @@ void main() {
     test('closure writes to outer local variable', () async {
       final bridge = LuaLike();
 
-      final result = await bridge.runCode('''
+      final result = await bridge.execute('''
         _ENV = setmetatable({}, {__index=_G})
         local foi
         local a = {}

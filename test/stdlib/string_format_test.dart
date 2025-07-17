@@ -17,7 +17,7 @@ void main() {
       ''';
       print('Script being executed:');
       print(script);
-      await bridge.runCode(script);
+      await bridge.execute(script);
       final result = (bridge.getGlobal('result') as Value).raw.toString();
       final expected = '"\\"\\225lo\\"\\\n\\\\""�lo"\n\\';
 
@@ -34,7 +34,7 @@ void main() {
       final script = r'''
         result = string.format('%q', 'a "b" c')
       ''';
-      await bridge.runCode(script);
+      await bridge.execute(script);
       final result = latin1.decode(
         (bridge.getGlobal('result') as Value).raw.bytes,
       );
@@ -48,7 +48,7 @@ void main() {
       final script = r'''
         result = string.format('%q', 'a\\b')
       ''';
-      await bridge.runCode(script);
+      await bridge.execute(script);
       final result = latin1.decode(
         (bridge.getGlobal('result') as Value).raw.bytes,
       );
@@ -62,7 +62,7 @@ void main() {
       final script = r'''
         result = string.format('%q', 'a\nb')
       ''';
-      await bridge.runCode(script);
+      await bridge.execute(script);
       final result = latin1.decode(
         (bridge.getGlobal('result') as Value).raw.bytes,
       );

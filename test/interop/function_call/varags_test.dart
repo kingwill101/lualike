@@ -8,7 +8,7 @@ void main() {
     test('simple vararg function', () async {
       final bridge = LuaLike();
 
-      await bridge.runCode('''
+      await bridge.execute('''
         function sum(...)
           local result = 0
           for _, v in ipairs({...}) do
@@ -27,7 +27,7 @@ void main() {
     test('vararg with named parameters', () async {
       final bridge = LuaLike();
 
-      await bridge.runCode('''
+      await bridge.execute('''
         function greet(name, ...)
           local greeting = "Hello, " .. name
           local extras = {...}
@@ -56,7 +56,7 @@ void main() {
       test('empty parameter list', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           function noParams()
             return "no parameters"
           end
@@ -71,7 +71,7 @@ void main() {
       test('vararg only parameter list', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           function varargsOnly(...)
             local args = {...}
             return #args
@@ -91,7 +91,7 @@ void main() {
       test('named parameters with comma before vararg', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           function withComma(a, b, ...)
             local extras = {...}
             return a + b + #extras
@@ -113,7 +113,7 @@ void main() {
 
         // Test that invalid syntax is rejected (missing comma before ...)
         expect(() async {
-          await bridge.runCode('''
+          await bridge.execute('''
             function withoutComma(a, b ...)
               local extras = {...}
               return a * b + #extras
@@ -125,7 +125,7 @@ void main() {
       test('single named parameter with vararg', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           function singleNamed(first, ...)
             local extras = {...}
             return first .. " " .. #extras
@@ -145,7 +145,7 @@ void main() {
       test('multiple named parameters with vararg', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           function multipleNamed(a, b, c, ...)
             local extras = {...}
             local sum = a + b + c
@@ -171,7 +171,7 @@ void main() {
       test('local function with vararg only', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           local function localVararg(...)
             return select("#", ...)
           end
@@ -186,7 +186,7 @@ void main() {
       test('local function with named params and vararg', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           local function localMixed(prefix, ...)
             local args = {...}
             local result = prefix
@@ -211,7 +211,7 @@ void main() {
     test('passing varargs to another function', () async {
       final bridge = LuaLike();
 
-      await bridge.runCode('''
+      await bridge.execute('''
         function format(template, ...)
           print("format", #...)
           return string.format(template, ...)
@@ -232,7 +232,7 @@ void main() {
     test('vararg in local function', () async {
       final bridge = LuaLike();
 
-      await bridge.runCode('''
+      await bridge.execute('''
         local function process(...)
           local args = {...}
           local result = {}
@@ -260,7 +260,7 @@ void main() {
     test('empty varargs handling', () async {
       final bridge = LuaLike();
 
-      await bridge.runCode('''
+      await bridge.execute('''
         function countArgs(...)
           local args = {...}
           return #args
@@ -282,7 +282,7 @@ void main() {
       test('expanding varargs in table constructor', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           function getValues(...)
             return {...}
           end
@@ -308,7 +308,7 @@ void main() {
       test('mixed values and varargs in table constructor', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           function getTable(...)
             return {10, 20, ..., 30, 40}
           end
@@ -343,7 +343,7 @@ void main() {
       test('function returns in table constructor', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           function getMultiple()
             return "x", "y", "z"
           end
@@ -385,7 +385,7 @@ void main() {
       test('empty varargs in table constructor', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           function makeTable(...)
             return {1, 2, ..., 3}
           end
@@ -410,7 +410,7 @@ void main() {
       test('nested table with varargs', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           function getNestedTable(...)
             return {
               outer = 1,
@@ -445,7 +445,7 @@ void main() {
       test('function with only whitespace before vararg', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           function spacedVararg( ... )
             return select("#", ...)
           end
@@ -460,7 +460,7 @@ void main() {
       test('function with whitespace around comma and vararg', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           function spacedCommaVararg(a , ... )
             return a + select("#", ...)
           end
@@ -475,7 +475,7 @@ void main() {
       test('nested function calls with different parameter patterns', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           function outer(...)
             local function inner(a, b, ...)
               return a + b + select("#", ...)
@@ -498,7 +498,7 @@ void main() {
       test('function assignment with different parameter patterns', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           local f1 = function(...) return select("#", ...) end
           local f2 = function(a, ...) return a + select("#", ...) end
           local f3 = function(a, b, c, ...) return a + b + c + select("#", ...) end
@@ -520,7 +520,7 @@ void main() {
       test('method definition with varargs', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           local obj = {}
 
           function obj:method1(...)
@@ -545,7 +545,7 @@ void main() {
       test('complex nested vararg scenarios', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           function level1(...)
             local function level2(prefix, ...)
               local function level3(...)
@@ -576,7 +576,7 @@ void main() {
       test('vararg with nil values', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           function handleNils(...)
             local args = {...}
             local count = 0
@@ -612,7 +612,7 @@ void main() {
       test('large number of varargs', () async {
         final bridge = LuaLike();
 
-        await bridge.runCode('''
+        await bridge.execute('''
           function manyArgs(...)
             return select("#", ...)
           end

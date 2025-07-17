@@ -11,7 +11,7 @@ void main() {
     });
 
     test('basic arithmetic functions', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         local abs = math.abs(-5)
         local ceil = math.ceil(3.4)
         local floor = math.floor(3.7)
@@ -36,7 +36,7 @@ void main() {
     });
 
     test('trigonometric functions', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         local pi = math.pi
         local sin = math.sin(pi/2)
         local cos = math.cos(pi)
@@ -62,7 +62,7 @@ void main() {
     });
 
     test('exponential and logarithmic functions', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         local exp = math.exp(1)
         local log = math.log(math.exp(1))
         local log10 = math.log(100, 10)
@@ -81,7 +81,7 @@ void main() {
     });
 
     test('random number generation', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         math.randomseed(12345)
         local r1 = math.random()
         local r2 = math.random(10)
@@ -106,7 +106,7 @@ void main() {
     });
 
     test('xoshiro deterministic integer', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         math.randomseed(1007)
         result = math.random(0)
       ''');
@@ -116,7 +116,7 @@ void main() {
     });
 
     test('angle conversion', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         local deg = math.deg(math.pi)
         local rad = math.rad(180)
       ''');
@@ -129,7 +129,7 @@ void main() {
     });
 
     test('math type checking', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         local t1 = math.type(3)
         local t2 = math.type(3.14)
         local t3 = math.type("not a number")
@@ -145,7 +145,7 @@ void main() {
     });
 
     test('modf function', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         local i, f = math.modf(3.14)
       ''');
 
@@ -157,7 +157,7 @@ void main() {
     });
 
     test('constants', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         local pi = math.pi
         local huge = math.huge
       ''');
@@ -170,7 +170,7 @@ void main() {
     });
 
     test('indirect usage through metatables', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         local x = -5
         local y = math.abs(x)
         local sum = 2 + 3

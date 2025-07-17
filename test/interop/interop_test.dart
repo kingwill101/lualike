@@ -23,7 +23,7 @@ void main() {
       final bridge = LuaLike();
 
       // Define a LuaLike function
-      await bridge.runCode('''
+      await bridge.execute('''
         function add(a, b)
           return a + b
         end
@@ -41,7 +41,7 @@ void main() {
       bridge.setGlobal('x', 100);
 
       // Modify in LuaLike
-      await bridge.runCode('x = x * 2');
+      await bridge.execute('x = x * 2');
       final result = bridge.getGlobal('x');
       // Read back in Dart
       expect(result, equals(Value(200)));
@@ -57,7 +57,7 @@ void main() {
         return Value({'name': Value(name), 'age': Value(age)});
       });
       // Call from LuaLike and manipulate the result
-      await bridge.runCode('''
+      await bridge.execute('''
         local person = createPerson("Alice", 30)
         person.score = 95
       ''');
@@ -73,7 +73,7 @@ void main() {
     final bridge = LuaLike();
 
     // Create a table with __newindex metamethod
-    await bridge.runCode('''
+    await bridge.execute('''
       local t = {}
       setmetatable(t, {
         __newindex = function(table, key, value)

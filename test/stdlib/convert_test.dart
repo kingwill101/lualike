@@ -4,7 +4,7 @@ void main() {
   group('convert', () {
     test('jsonEncode and jsonDecode roundtrip', () async {
       final bridge = LuaLike();
-      await bridge.runCode(r'''
+      await bridge.execute(r'''
         json_encoded = convert.jsonEncode({
           name = "lualike",
           awesome = true,
@@ -27,7 +27,7 @@ void main() {
 
     test('base64Encode and base64Decode roundtrip', () async {
       final bridge = LuaLike();
-      await bridge.runCode('''
+      await bridge.execute('''
         local bytes = dart.string.bytes.toBytes("hello lualike")
         base64_encoded = convert.base64Encode(bytes)
         local base64_decoded_bytes = convert.base64Decode(base64_encoded)
@@ -39,7 +39,7 @@ void main() {
 
     test('base64UrlEncode works', () async {
       final bridge = LuaLike();
-      await bridge.runCode('''
+      await bridge.execute('''
         local bytes = dart.string.bytes.toBytes("??lualike??")
         base64url_encoded = convert.base64UrlEncode(bytes)
       ''');
@@ -49,7 +49,7 @@ void main() {
 
     test('asciiEncode and asciiDecode roundtrip', () async {
       final bridge = LuaLike();
-      await bridge.runCode(r'''
+      await bridge.execute(r'''
         ascii_encoded = convert.asciiEncode("hello lualike")
         ascii_decoded = convert.asciiDecode(ascii_encoded)
       ''');
@@ -59,7 +59,7 @@ void main() {
 
     test('latin1Encode and latin1Decode roundtrip', () async {
       final bridge = LuaLike();
-      await bridge.runCode(r'''
+      await bridge.execute(r'''
         -- Use a string with Latin-1 characters (byte values 128-255)
         -- Create the string using string.char to ensure proper byte values
         local test_str = string.char(98, 108, 229, 98, 230, 114, 103, 114, 246, 100) -- "bl" + å + "b" + æ + "rgr" + ö + "d"

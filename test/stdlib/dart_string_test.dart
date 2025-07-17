@@ -12,7 +12,7 @@ void main() {
         bridge.setGlobal('arg$i', Value(args[i]));
       }
       final argString = List.generate(args.length, (i) => 'arg$i').join(',');
-      await bridge.runCode('result = dart.string.$funcName($argString)');
+      await bridge.execute('result = dart.string.$funcName($argString)');
       final result = bridge.getGlobal('result');
       if (expected is List) {
         expect((result! as Value).unwrap(), isA<List>());

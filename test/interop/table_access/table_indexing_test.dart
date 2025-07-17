@@ -6,7 +6,7 @@ void main() {
       final bridge = LuaLike();
 
       // Create a table with numeric indices (without using for loop)
-      await bridge.runCode('''
+      await bridge.execute('''
         words = {}
         words[1] = "word1"
         words[2] = "word2"
@@ -16,7 +16,7 @@ void main() {
       ''');
 
       // Test direct assignment to indexed element
-      await bridge.runCode('''
+      await bridge.execute('''
         words[3] = 11
       ''');
 
@@ -32,7 +32,7 @@ void main() {
     test('for loop table indexing', () async {
       final bridge = LuaLike();
 
-      await bridge.runCode('''
+      await bridge.execute('''
           words = {}
           for i = 1, 5 do
             words[i] = "word" .. i
@@ -53,7 +53,7 @@ void main() {
       final bridge = LuaLike();
 
       // Create a nested table structure (without using for loop)
-      await bridge.runCode('''
+      await bridge.execute('''
         words = {}
         words.something = {}
         words.something.value = {}
@@ -65,7 +65,7 @@ void main() {
       ''');
 
       // Test assignment to deeply nested indexed element
-      await bridge.runCode('''
+      await bridge.execute('''
         words.something.value[3] = 11
       ''');
 
@@ -83,7 +83,7 @@ void main() {
     test('deeply nested table with for loop (expected to fail)', () async {
       final bridge = LuaLike();
 
-      await bridge.runCode('''
+      await bridge.execute('''
           words = {}
           words.something = {}
           words.something.value = {}

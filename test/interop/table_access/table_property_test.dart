@@ -6,7 +6,7 @@ void main() {
       final bridge = LuaLike();
 
       // Create a table with properties
-      await bridge.runCode('''
+      await bridge.execute('''
         person = {}
         person.name = "Alice"
         person.age = 30
@@ -14,7 +14,7 @@ void main() {
       ''');
 
       // Access properties
-      await bridge.runCode('''
+      await bridge.execute('''
         local name = person.name
         local age = person.age
         local greeting = person.greet()
@@ -34,20 +34,20 @@ void main() {
       final bridge = LuaLike();
 
       // Create a table with properties
-      await bridge.runCode('''
+      await bridge.execute('''
         person = {}
         person["name"] = "Bob"
         person["age"] = 25
       ''');
 
       // Access properties
-      await bridge.runCode('''
+      await bridge.execute('''
         local name = person["name"]
         local age = person["age"]
       ''');
 
       // Create a function separately
-      await bridge.runCode('''
+      await bridge.execute('''
         person.greet = function() return "Hello, I'm " .. person["name"] end
         local greeting = person.greet()
       ''');
@@ -66,7 +66,7 @@ void main() {
       final bridge = LuaLike();
 
       // Create a table with properties using mixed notation
-      await bridge.runCode('''
+      await bridge.execute('''
         person = {}
         person.name = "Charlie"
         person["age"] = 35
@@ -74,7 +74,7 @@ void main() {
       ''');
 
       // Set nested properties directly
-      await bridge.runCode('''
+      await bridge.execute('''
         person["contact"] = {
           email = "charlie@example.com",
           phone = "555-1234"
@@ -82,7 +82,7 @@ void main() {
       ''');
 
       // Access properties using mixed notation
-      await bridge.runCode('''
+      await bridge.execute('''
         local name = person.name
         local age = person["age"]
         local email = person["contact"].email
@@ -105,7 +105,7 @@ void main() {
       final bridge = LuaLike();
 
       // Create a table with properties
-      await bridge.runCode('''
+      await bridge.execute('''
         local t = {}
         t[1] = "one"
         t[2] = "two"
@@ -113,7 +113,7 @@ void main() {
       ''');
 
       // Access with computed key
-      await bridge.runCode('''
+      await bridge.execute('''
         local key = "key3"
         local result = t[key]
       ''');
@@ -126,7 +126,7 @@ void main() {
       final bridge = LuaLike();
 
       // Register a custom table library extension
-      await bridge.runCode('''
+      await bridge.execute('''
         -- Extend table library with a property function
         table.property = function(propName)
           return "Property: " .. propName

@@ -9,7 +9,7 @@ void main() {
       final bridge = LuaLike();
 
       // Define a function that returns another function
-      await bridge.runCode('''
+      await bridge.execute('''
         function createGreeter(prefix)
           return function(name)
             return prefix .. ", " .. name
@@ -27,7 +27,7 @@ void main() {
       final bridge = LuaLike();
 
       // Define functions that return other functions
-      await bridge.runCode('''
+      await bridge.execute('''
         function level1()
           return function()
             return function()
@@ -47,7 +47,7 @@ void main() {
       final bridge = LuaLike();
 
       // Define more complex nested functions
-      await bridge.runCode('''
+      await bridge.execute('''
         function adder(a)
           return function(b)
             return a + b
@@ -65,7 +65,7 @@ void main() {
       final bridge = LuaLike();
 
       // Test function chaining in assignment
-      await bridge.runCode('''
+      await bridge.execute('''
         function makeCounter(start)
           return function()
             start = start + 1
@@ -89,7 +89,7 @@ void main() {
       final bridge = LuaLike();
 
       // Define functions that return tables with functions
-      await bridge.runCode('''
+      await bridge.execute('''
         function makeLib()
           local lib = {}
           

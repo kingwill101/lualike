@@ -11,7 +11,7 @@ void main() {
     test(
       'negative zero and positive zero as table keys - direct assignment',
       () async {
-        await bridge.runCode('''
+        await bridge.execute('''
         local mz = -0.0
         local z = 0.0
         local t = {}
@@ -31,7 +31,7 @@ void main() {
     test(
       'negative zero and positive zero as table keys - constructor syntax',
       () async {
-        await bridge.runCode('''
+        await bridge.execute('''
         local mz = -0.0
         local z = 0.0
         local t = {[mz] = 42}
@@ -51,7 +51,7 @@ void main() {
     test(
       'positive zero and negative zero as table keys - constructor syntax',
       () async {
-        await bridge.runCode('''
+        await bridge.execute('''
         local mz = -0.0
         local z = 0.0
         local t = {[z] = 100}
@@ -69,7 +69,7 @@ void main() {
     );
 
     test('zero variants equality in Lua', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         local mz = -0.0
         local z = 0.0
         result = mz == z
@@ -80,7 +80,7 @@ void main() {
     });
 
     test('math.lua specific assertion test', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         local mz = -0.0
         local z = 0.0
         local a = {[mz] = 1}
@@ -96,7 +96,7 @@ void main() {
     });
 
     test('table key debugging - what keys exist', () async {
-      await bridge.runCode('''
+      await bridge.execute('''
         local mz = -0.0
         local z = 0.0
         local a = {[mz] = 1}

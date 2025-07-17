@@ -9,7 +9,7 @@ void main() {
       dynamic expected, {
       bool isNaN = false,
     }) async {
-      await lualike.runCode('result = $lua');
+      await lualike.execute('result = $lua');
       final result = lualike.getGlobal('result');
       var value = result is Value ? result.unwrap() : result;
       if (value is List && value.isNotEmpty) value = value.first;

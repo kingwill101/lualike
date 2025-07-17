@@ -32,7 +32,7 @@ void main() {
         end
       ''';
 
-      await bridge.runCode(code);
+      await bridge.execute(code);
 
       final multValue = bridge.getGlobal('mult_value');
       final results = bridge.getGlobal('results');
@@ -99,7 +99,7 @@ void main() {
         zero_ratio = zero_count / total_count
       ''';
 
-      await bridge.runCode(code);
+      await bridge.execute(code);
 
       final results = bridge.getGlobal('results');
       final zeroRatio = bridge.getGlobal('zero_ratio');

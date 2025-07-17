@@ -22,7 +22,7 @@ void main() {
         end
       ''';
 
-      await bridge.runCode(code);
+      await bridge.execute(code);
       final result = bridge.getGlobal('results');
       final map = result.raw as Map;
       final list = List.generate(map.length, (i) => map[i + 1]);
@@ -63,7 +63,7 @@ void main() {
         end
       ''';
 
-      await bridge.runCode(code);
+      await bridge.execute(code);
       final result = bridge.getGlobal('results');
       final map = result.raw as Map;
       final list = List.generate(map.length, (i) => map[i + 1]);
@@ -109,7 +109,7 @@ void main() {
         end
       ''';
 
-      await bridge.runCode(code);
+      await bridge.execute(code);
       final result = bridge.getGlobal('results');
       final map = result.raw as Map;
       final list = List.generate(map.length, (i) => map[i + 1]);
@@ -154,7 +154,7 @@ void main() {
         end
       ''';
 
-      await bridge.runCode(code);
+      await bridge.execute(code);
       final result = bridge.getGlobal('results');
       final map = result.raw as Map;
       final list = List.generate(map.length, (i) => map[i + 1]);

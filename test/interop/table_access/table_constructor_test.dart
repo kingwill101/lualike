@@ -8,7 +8,7 @@ void main() {
     test('table constructor with string keys', () async {
       final bridge = LuaLike();
 
-      await bridge.runCode('''
+      await bridge.execute('''
         local files = {
           ["names.lua"] = "do return {...} end\\n",
           ["err.lua"] = "B = 15; a = a + 1;",
@@ -44,7 +44,7 @@ void main() {
     test('mixed table constructor with string and identifier keys', () async {
       final bridge = LuaLike();
 
-      await bridge.runCode('''
+      await bridge.execute('''
         local mixed = {
           ["string.key"] = "string key value",
           normal_key = "normal key value",
@@ -64,7 +64,7 @@ void main() {
     test('nested table constructors with string keys', () async {
       final bridge = LuaLike();
 
-      await bridge.runCode('''
+      await bridge.execute('''
         nested = {
           ["outer.key"] = {
             ["inner.key"] = "inner value",
@@ -92,7 +92,7 @@ void main() {
     test('varargs at the start', () async {
       final bridge = LuaLike();
 
-      await bridge.runCode('''
+      await bridge.execute('''
 local function func()
     return 3, 4
 end
