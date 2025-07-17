@@ -1,4 +1,5 @@
-import 'dart:io';
+import 'src/utils/file_system_utils.dart' as fs;
+import 'src/utils/platform_utils.dart' as platform;
 
 class ReplHistory {
   final List<String> _history = [];
@@ -8,7 +9,7 @@ class ReplHistory {
   ReplHistory({String? historyFilePath})
     : _historyFilePath =
           historyFilePath ??
-          '${Platform.environment['HOME'] ?? ''}/.lualike_history';
+          '${platform.getEnvironmentVariable('HOME') ?? ''}/.lualike_history';
 
   int get length => _history.length;
 
@@ -36,27 +37,28 @@ class ReplHistory {
     return _currentIndex < _history.length ? _history[_currentIndex] : "";
   }
 
-  void loadFromFile() {
-    final file = File(_historyFilePath);
-    if (file.existsSync()) {
+  void loadFromFile() async {
+    if (await fs.fileExists(_historyFilePath)) {
       try {
-        final lines = file.readAsLinesSync();
-        _history.addAll(lines.where((line) => line.trim().isNotEmpty));
-        _currentIndex = _history.length;
+        final content = await fs.readFileAsString(_historyFilePath);
+        if (content != null) {
+          final lines = content.split('\n');
+          _history.addAll(lines.where((line) => line.trim().isNotEmpty));
+          _currentIndex = _history.length;
+        }
       } catch (e) {
         print('Failed to load history: $e');
       }
     }
   }
 
-  void saveToFile() {
+  void saveToFile() async {
     try {
-      final file = File(_historyFilePath);
       // Limit history to last 1000 commands
       final historyToSave = _history.length > 1000
           ? _history.sublist(_history.length - 1000)
           : _history;
-      file.writeAsStringSync(historyToSave.join('\n'));
+      await fs.writeFile(_historyFilePath, historyToSave.join('\n'));
     } catch (e) {
       print('Failed to save history: $e');
     }

@@ -1,7 +1,7 @@
-import 'dart:io';
-
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
+import 'package:lualike/src/utils/file_system_utils.dart';
+import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:path/path.dart' as path;
 
 class PackageLib {
@@ -49,7 +49,7 @@ class PackageLib {
   }
 
   static String _getConfig() {
-    final isWindowsPlatform = Platform.isWindows;
+    final isWindowsPlatform = platform.isWindows;
     return [
       isWindowsPlatform ? '\\' : '/', // Directory separator
       ';', // Path separator
@@ -95,7 +95,7 @@ class PackageLib {
 
 class _LoadLib implements BuiltinFunction {
   @override
-  Object? call(List<Object?> args) {
+  Future<Object?> call(List<Object?> args) async {
     if (args.length < 2) {
       throw Exception("loadlib requires library path and function name");
     }
@@ -106,7 +106,7 @@ class _LoadLib implements BuiltinFunction {
     // We don't actually load C libraries, just simulate the interface
     if (funcname == "*") {
       // Just checking if library exists
-      if (!File(libpath).existsSync()) {
+      if (!await fileExists(libpath)) {
         return [Value(null), Value("cannot load $libpath")];
       }
       return Value(true);
@@ -169,7 +169,7 @@ class _LuaLoader implements BuiltinFunction {
       final directPath = path.join(scriptDir, '$name.lua');
       print("DEBUG: Trying direct path in script directory: $directPath");
 
-      if (File(directPath).existsSync()) {
+      if (await fileExists(directPath)) {
         print("DEBUG: Module found in script directory: $directPath");
         modulePath = directPath;
       }
@@ -179,7 +179,7 @@ class _LuaLoader implements BuiltinFunction {
     if (modulePath == null) {
       // Try to find the module file
       print("DEBUG: Attempting to resolve module path for: $name");
-      modulePath = fileManager.resolveModulePath(name);
+      modulePath = await fileManager.resolveModulePath(name);
 
       // Print the resolved globs for debugging
       fileManager.printResolvedGlobs();
@@ -204,7 +204,7 @@ class _LuaLoader implements BuiltinFunction {
         try {
           // Load the source code
           print("DEBUG: Attempting to load source from: $modulePath");
-          final source = fileManager.loadSource(modulePath);
+          final source = await fileManager.loadSource(modulePath);
           if (source == null) {
             print(
               "DEBUG: Source not found for module: $name at path: $modulePath",

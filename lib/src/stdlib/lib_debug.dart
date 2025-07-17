@@ -1,8 +1,7 @@
-import 'dart:io';
-
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/coroutine.dart';
+import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
 
 class DebugLib {
@@ -29,13 +28,14 @@ class DebugLib {
 /// Interactive debug console
 class _DebugInteractive implements BuiltinFunction {
   @override
-  dynamic call(List<dynamic> args) {
+  dynamic call(List<dynamic> args) async {
     // Simple REPL-like debug console
     Logger.debug("Debug Console: Enter 'cont' to continue", category: 'Debug');
 
     while (true) {
-      stdout.write('debug> ');
-      final input = stdin.readLineSync();
+      await IOLib.defaultOutput.write('debug> ');
+      final result = await IOLib.defaultInput.read('l');
+      final input = result[0]?.toString();
 
       if (input == 'cont') break;
 

@@ -1,9 +1,6 @@
-import 'dart:io';
-import 'dart:math';
-
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart' show BytecodeVM;
-import 'package:path/path.dart' as path;
+import 'package:lualike/src/utils/io_abstractions.dart' as io_abs;
 
 import '../io/io_device.dart';
 import '../io/lua_file.dart';
@@ -20,9 +17,9 @@ class IOLib {
   // Get singleton instances
   static StdinDevice get stdinDevice => _stdinDevice ??= StdinDevice();
   static StdoutDevice get stdoutDevice =>
-      _stdoutDevice ??= StdoutDevice(stdout, false);
+      _stdoutDevice ??= StdoutDevice(io_abs.stdout, false);
   static StdoutDevice get stderrDevice =>
-      _stderrDevice ??= StdoutDevice(stderr);
+      _stderrDevice ??= StdoutDevice(io_abs.stderr);
 
   static LuaFile get defaultInput {
     Logger.debug('Getting default input');
@@ -297,14 +294,10 @@ class IOTmpfile implements BuiltinFunction {
   Future<Object?> call(List<Object?> args) async {
     Logger.debug('Executing IO tmpfile', category: 'IO');
     try {
-      final tempDir = Directory.systemTemp;
-      final random = Random();
-      final tempFile = File(
-        path.join(tempDir.path, 'lua_temp_${random.nextInt(1000000)}.tmp'),
-      );
-      Logger.debug('Creating temporary file: ${tempFile.path}', category: 'IO');
+      final tempFilePath = io_abs.createTempFilePath('lua_temp');
+      Logger.debug('Creating temporary file: $tempFilePath', category: 'IO');
 
-      final device = await FileIODevice.open(tempFile.path, "w+");
+      final device = await FileIODevice.open(tempFilePath, "w+");
       final file = LuaFile(device);
       return Value(file, metatable: IOLib.fileClass.metamethods);
     } catch (e) {

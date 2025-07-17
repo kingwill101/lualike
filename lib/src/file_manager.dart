@@ -1,7 +1,8 @@
 import 'dart:convert';
-import 'dart:io';
+import 'package:lualike/src/utils/file_system_utils.dart' as fs;
 
 import 'package:lualike/lualike.dart';
+import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:path/path.dart' as path;
 
 /// Manages source file loading and virtual file system for the VM.
@@ -37,8 +38,8 @@ class FileManager {
 
     // Add the current working directory to search paths
     try {
-      final currentDir = Directory.current.path;
-      if (!_searchPaths.contains(currentDir)) {
+      final currentDir = fs.getCurrentDirectory();
+      if (currentDir != null && !_searchPaths.contains(currentDir)) {
         _searchPaths.add(currentDir);
         Logger.debug(
           "Added current working directory to search paths: $currentDir",
@@ -58,7 +59,7 @@ class FileManager {
         // Try to get the script path
         String? dartScriptPath;
         try {
-          dartScriptPath = Platform.script.toFilePath();
+          dartScriptPath = platform.scriptPath;
         } catch (e) {
           Logger.debug(
             "Platform.script not available: $e",
@@ -191,7 +192,10 @@ class FileManager {
   /// [filePath] - The path of the file to load
   /// [preserveRawBytes] - If true, read as raw bytes to preserve high byte values
   /// Returns the file contents if found, null otherwise
-  String? loadSource(String filePath, {bool preserveRawBytes = false}) {
+  Future<String?> loadSource(
+    String filePath, {
+    bool preserveRawBytes = false,
+  }) async {
     final extensions = ['', '.lua'];
 
     // Check if we have a current script path and add its directory to search paths
@@ -208,8 +212,8 @@ class FileManager {
 
     // Add current working directory to search paths
     try {
-      final currentDir = Directory.current.path;
-      if (!_searchPaths.contains(currentDir)) {
+      final currentDir = fs.getCurrentDirectory();
+      if (currentDir != null && !_searchPaths.contains(currentDir)) {
         _searchPaths.add(currentDir);
         Logger.debug(
           "Added current working directory to search paths: $currentDir",
@@ -226,7 +230,10 @@ class FileManager {
     // Add Dart script directory to search paths if available and not in product mode
     if (!isProductMode) {
       try {
-        final dartScriptPath = Platform.script.toFilePath();
+        final dartScriptPath = platform.scriptPath;
+        if (dartScriptPath == null) {
+          throw Exception("Dart script path is null");
+        }
         final dartScriptDir = path.dirname(dartScriptPath);
         if (!_searchPaths.contains(dartScriptDir)) {
           _searchPaths.add(dartScriptDir);
@@ -253,7 +260,7 @@ class FileManager {
         ];
 
         for (final dir in specialDirs) {
-          if (!_searchPaths.contains(dir) && Directory(dir).existsSync()) {
+          if (!_searchPaths.contains(dir) && (await fs.directoryExists(dir))) {
             _searchPaths.add(dir);
             Logger.debug(
               "Added special directory to search paths: $dir",
@@ -294,9 +301,9 @@ class FileManager {
         }
 
         // Try physical file
-        final file = File(fullPath);
-        if (file.existsSync()) {
-          return _readFileWithStrategy(file, preserveRawBytes);
+        final file = await fs.fileExists(fullPath);
+        if (file) {
+          return await _readFileWithStrategy(fullPath, preserveRawBytes);
         }
       }
     }
@@ -304,7 +311,10 @@ class FileManager {
     // If the path is relative, try resolving it relative to the current working directory
     if (!path.isAbsolute(filePath)) {
       try {
-        final currentDir = Directory.current.path;
+        final currentDir = fs.getCurrentDirectory();
+        if (currentDir == null) {
+          throw Exception("Current directory is null");
+        }
 
         for (final ext in extensions) {
           final fullPath = path.join(currentDir, filePath + ext);
@@ -315,9 +325,9 @@ class FileManager {
           }
 
           // Try physical file
-          final file = File(fullPath);
-          if (file.existsSync()) {
-            return _readFileWithStrategy(file, preserveRawBytes);
+          final file = await fs.fileExists(fullPath);
+          if (file) {
+            return await _readFileWithStrategy(fullPath, preserveRawBytes);
           }
         }
       } catch (e) {
@@ -331,7 +341,10 @@ class FileManager {
     // If the path is relative, try resolving it relative to the Dart script path
     if (!path.isAbsolute(filePath)) {
       try {
-        final dartScriptPath = Platform.script.toFilePath();
+        final dartScriptPath = platform.scriptPath;
+        if (dartScriptPath == null) {
+          throw Exception("Dart script path is null");
+        }
         final dartScriptDir = path.dirname(dartScriptPath);
 
         for (final ext in extensions) {
@@ -343,9 +356,9 @@ class FileManager {
           }
 
           // Try physical file
-          final file = File(fullPath);
-          if (file.existsSync()) {
-            return _readFileWithStrategy(file, preserveRawBytes);
+          final file = await fs.fileExists(fullPath);
+          if (file) {
+            return await _readFileWithStrategy(fullPath, preserveRawBytes);
           }
         }
 
@@ -360,9 +373,9 @@ class FileManager {
           }
 
           // Try physical file
-          final file = File(fullPath);
-          if (file.existsSync()) {
-            return _readFileWithStrategy(file, preserveRawBytes);
+          final file = await fs.fileExists(fullPath);
+          if (file) {
+            return await _readFileWithStrategy(fullPath, preserveRawBytes);
           }
         }
       } catch (e) {
@@ -377,17 +390,23 @@ class FileManager {
   }
 
   /// Reads a file using the appropriate strategy based on the preserveRawBytes flag
-  String _readFileWithStrategy(File file, bool preserveRawBytes) {
+  Future<String?> _readFileWithStrategy(
+    String file,
+    bool preserveRawBytes,
+  ) async {
     if (preserveRawBytes) {
       // Read as raw bytes and convert to Latin-1 string to preserve byte values
       // This ensures that high bytes (like 225) are preserved as individual bytes
       // instead of being interpreted as UTF-8 sequences
-      final bytes = file.readAsBytesSync();
+      final bytes = await fs.readFileAsBytes(file);
+      if (bytes == null) {
+        return null;
+      }
       return utf8.decode(bytes);
     } else {
       // Read as UTF-8 string (default behavior)
       // This properly handles UTF-8 characters like å, æ, ö
-      return file.readAsStringSync();
+      return await fs.readFileAsString(file);
     }
   }
 
@@ -412,7 +431,7 @@ class FileManager {
   ///
   /// [moduleName] - The name of the module to resolve
   /// Returns the resolved path if found, null otherwise
-  String? resolveModulePath(String moduleName) {
+  Future<String?> resolveModulePath(String moduleName) async {
     final extensions = ['', '.lua'];
 
     // Clear previous resolved globs for this resolution
@@ -470,7 +489,10 @@ class FileManager {
 
     // Add current working directory templates
     try {
-      final currentDir = Directory.current.path;
+      final currentDir = fs.getCurrentDirectory();
+      if (currentDir == null) {
+        throw Exception("Current directory is null");
+      }
       print("DEBUG: Using current working directory: $currentDir");
       Logger.debug(
         "Using current working directory: $currentDir",
@@ -494,7 +516,7 @@ class FileManager {
       if (!isProductMode) {
         try {
           final projectRoot = path.dirname(
-            path.dirname(Platform.script.toFilePath()),
+            path.dirname(platform.scriptPath ?? ''),
           );
           if (projectRoot != currentDir &&
               !templates.contains('$projectRoot/?.lua')) {
@@ -551,7 +573,10 @@ class FileManager {
     // Add Dart script directory templates if available and not in product mode
     if (!isProductMode) {
       try {
-        final dartScriptPath = Platform.script.toFilePath();
+        final dartScriptPath = platform.scriptPath;
+        if (dartScriptPath == null) {
+          throw Exception("Dart script path is null");
+        }
         final dartScriptDir = path.dirname(dartScriptPath);
         print("DEBUG: Using Dart script directory: $dartScriptDir");
         Logger.debug(
@@ -608,8 +633,8 @@ class FileManager {
       }
 
       // Check physical files
-      final file = File(fileName);
-      if (file.existsSync()) {
+      final file = await fs.fileExists(fileName);
+      if (file) {
         print("DEBUG: Module found in physical files as '$fileName'");
         Logger.debug(
           "Module found in physical files as '$fileName'",
@@ -628,33 +653,33 @@ class FileManager {
         );
 
         // Check if directory exists before trying to list it
-        final dir = Directory(directory);
-        if (dir.existsSync()) {
+        final dir = await fs.directoryExists(directory);
+        if (dir) {
           print("DEBUG: Directory exists, listing files:");
-          final entities = dir.listSync();
+          final entities = await fs.listDirectory(directory);
           print(
             "DEBUG: Found ${entities.length} files/directories in $directory",
           );
 
           for (final entity in entities) {
-            print("DEBUG: Checking entity: ${entity.path}");
-            if (entity is File) {
-              final basename = path.basename(entity.path);
+            print("DEBUG: Checking entity: $entity");
+            if (await fs.fileExists(entity)) {
+              final basename = path.basename(entity);
               print(
                 "DEBUG: Checking if file '$basename' matches pattern '$pattern'",
               );
               if (_matchesGlobPattern(basename, pattern)) {
-                print("DEBUG: Module found via glob as '${entity.path}'");
+                print("DEBUG: Module found via glob as '$entity'");
                 Logger.debug(
-                  "Module found via glob as '${entity.path}'",
+                  "Module found via glob as '$entity'",
                   category: 'FileManager',
                 );
 
                 // Track the resolved glob
-                final absolutePath = path.absolute(entity.path);
+                final absolutePath = path.absolute(entity);
                 _addResolvedGlob(path.join(directory, pattern), absolutePath);
 
-                return entity.path;
+                return entity;
               }
             }
           }
@@ -696,8 +721,8 @@ class FileManager {
             return fullPath;
           }
 
-          final file = File(fullPath);
-          if (file.existsSync()) {
+          final file = await fs.fileExists(fullPath);
+          if (file) {
             print(
               "DEBUG: Module found in physical files with search path as '$fullPath'",
             );
@@ -718,38 +743,38 @@ class FileManager {
             );
 
             // Check if directory exists before trying to list it
-            final dir = Directory(directory);
-            if (dir.existsSync()) {
+            final dir = await fs.directoryExists(directory);
+            if (dir) {
               print("DEBUG: Directory exists, listing files:");
-              final entities = dir.listSync();
+              final entities = await fs.listDirectory(directory);
               print(
                 "DEBUG: Found ${entities.length} files/directories in $directory",
               );
 
               for (final entity in entities) {
-                print("DEBUG: Checking entity: ${entity.path}");
-                if (entity is File) {
-                  final basename = path.basename(entity.path);
+                print("DEBUG: Checking entity: $entity");
+                if (await fs.fileExists(entity)) {
+                  final basename = path.basename(entity);
                   print(
                     "DEBUG: Checking if file '$basename' matches pattern '$pattern'",
                   );
                   if (_matchesGlobPattern(basename, pattern)) {
                     print(
-                      "DEBUG: Module found via glob with search path as '${entity.path}'",
+                      "DEBUG: Module found via glob with search path as '$entity'",
                     );
                     Logger.debug(
-                      "Module found via glob with search path as '${entity.path}'",
+                      "Module found via glob with search path as '$entity'",
                       category: 'FileManager',
                     );
 
                     // Track the resolved glob
-                    final absolutePath = path.absolute(entity.path);
+                    final absolutePath = path.absolute(entity);
                     _addResolvedGlob(
                       path.join(directory, pattern),
                       absolutePath,
                     );
 
-                    return entity.path;
+                    return entity;
                   }
                 }
               }
@@ -772,16 +797,16 @@ class FileManager {
     // Try special directories that might contain modules
     final specialDirs = [
       // Current directory and its subdirectories
-      Directory.current.path,
-      path.join(Directory.current.path, 'test'),
-      path.join(Directory.current.path, '.lua-tests'),
+      fs.getCurrentDirectory(),
+      path.join(fs.getCurrentDirectory() ?? '', 'test'),
+      path.join(fs.getCurrentDirectory() ?? '', '.lua-tests'),
     ];
 
     // Add project root directories if not in product mode
     if (!isProductMode) {
       try {
         final projectRoot = path.dirname(
-          path.dirname(Platform.script.toFilePath()),
+          path.dirname(platform.scriptPath ?? ''),
         );
         specialDirs.addAll([
           // Project root and its subdirectories
@@ -800,21 +825,21 @@ class FileManager {
 
     for (final dir in specialDirs) {
       try {
-        final directory = Directory(dir);
-        if (directory.existsSync()) {
+        final directory = await fs.directoryExists(dir ?? '');
+        if (directory) {
           // Try with dots converted to separators
           final modNameWithSep = moduleName.replaceAll('.', path.separator);
 
           for (final ext in extensions) {
             final paths = [
-              path.join(dir, moduleName + ext),
-              path.join(dir, modNameWithSep + ext),
+              path.join(dir ?? '', moduleName + ext),
+              path.join(dir ?? '', modNameWithSep + ext),
             ];
 
             for (final fullPath in paths) {
               print("DEBUG: Trying special directory path: $fullPath");
-              final file = File(fullPath);
-              if (file.existsSync()) {
+              final file = await fs.fileExists(fullPath);
+              if (file) {
                 print(
                   "DEBUG: Module found in special directory as '$fullPath'",
                 );
@@ -931,7 +956,10 @@ class FileManager {
 
       // Then try relative to the current working directory
       try {
-        final currentDir = Directory.current.path;
+        final currentDir = fs.getCurrentDirectory();
+        if (currentDir == null) {
+          throw Exception("Current directory is null");
+        }
         final resolvedPath = path.normalize(path.join(currentDir, modulePath));
         Logger.debug(
           "Resolved module path relative to current directory: $resolvedPath",
@@ -943,7 +971,10 @@ class FileManager {
         try {
           // Only use Platform.script if not in product mode
           if (!isProductMode) {
-            final dartScriptPath = Platform.script.toFilePath();
+            final dartScriptPath = platform.scriptPath;
+            if (dartScriptPath == null) {
+              throw Exception("Dart script path is null");
+            }
             final dartScriptDir = path.dirname(dartScriptPath);
             final resolvedPath = path.normalize(
               path.join(dartScriptDir, modulePath),

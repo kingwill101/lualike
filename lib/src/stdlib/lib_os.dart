@@ -1,6 +1,8 @@
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
-import 'dart:io' as io;
+import 'package:lualike/src/utils/file_system_utils.dart';
+import 'package:lualike/src/utils/io_abstractions.dart';
+import 'package:lualike/src/utils/platform_utils.dart' as platform;
 
 class OSLibrary {
   static final Map<String, BuiltinFunction> _functions = {
@@ -129,16 +131,14 @@ class _OSExecute implements BuiltinFunction {
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       // Check if shell is available
-      return Value(
-        io.Platform.isWindows || io.Platform.isLinux || io.Platform.isMacOS,
-      );
+      return Value(platform.isWindows || platform.isLinux || platform.isMacOS);
     }
 
     final command = (args[0] as Value).raw.toString();
     try {
-      final result = io.Process.runSync(
-        io.Platform.isWindows ? 'cmd' : 'sh',
-        io.Platform.isWindows ? ['/c', command] : ['-c', command],
+      final result = runProcessSync(
+        platform.isWindows ? 'cmd' : 'sh',
+        platform.isWindows ? ['/c', command] : ['-c', command],
       );
 
       if (result.exitCode == 0) {
@@ -156,7 +156,7 @@ class _OSExit implements BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     final code = args.isNotEmpty ? (args[0] as Value).raw as int : 0;
-    io.exit(code);
+    exitProcess(code);
   }
 }
 
@@ -168,7 +168,7 @@ class _OSGetEnv implements BuiltinFunction {
     }
 
     final name = (args[0] as Value).raw.toString();
-    final value = io.Platform.environment[name];
+    final value = platform.getEnvironmentVariable(name);
 
     return Value(value);
   }
@@ -176,7 +176,7 @@ class _OSGetEnv implements BuiltinFunction {
 
 class _OSRemove implements BuiltinFunction {
   @override
-  Object? call(List<Object?> args) {
+  Object? call(List<Object?> args) async {
     if (args.isEmpty) {
       throw LuaError.typeError("os.remove requires a filename");
     }
@@ -184,9 +184,8 @@ class _OSRemove implements BuiltinFunction {
     final filename = (args[0] as Value).raw.toString();
 
     try {
-      final file = io.File(filename);
-      if (file.existsSync()) {
-        file.deleteSync();
+      if (await fileExists(filename)) {
+        await deleteFile(filename);
         return Value.multi([Value(true)]);
       } else {
         return Value.multi([Value(null), Value("No such file or directory")]);
@@ -199,7 +198,7 @@ class _OSRemove implements BuiltinFunction {
 
 class _OSRename implements BuiltinFunction {
   @override
-  Object? call(List<Object?> args) {
+  Object? call(List<Object?> args) async {
     if (args.length < 2) {
       throw LuaError.typeError("os.rename requires old and new names");
     }
@@ -208,9 +207,8 @@ class _OSRename implements BuiltinFunction {
     final newName = (args[1] as Value).raw.toString();
 
     try {
-      final file = io.File(oldName);
-      if (file.existsSync()) {
-        file.renameSync(newName);
+      if (await fileExists(oldName)) {
+        await renameFile(oldName, newName);
         return Value.multi([Value(true)]);
       } else {
         return Value.multi([Value(null), Value("No such file or directory")]);
@@ -273,10 +271,10 @@ class _OSTmpName implements BuiltinFunction {
 
   @override
   Object? call(List<Object?> args) {
-    final tmpdir = io.Directory.systemTemp;
+    final tmpdir = getSystemTempDirectory();
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     _counter++;
-    return Value('${tmpdir.path}/lua_${timestamp}_$_counter.tmp');
+    return Value('$tmpdir/lua_${timestamp}_$_counter.tmp');
   }
 }
 

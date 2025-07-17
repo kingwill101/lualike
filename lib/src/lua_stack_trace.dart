@@ -1,6 +1,6 @@
 import 'package:source_span/source_span.dart';
 import 'ast.dart';
-import 'dart:io';
+import 'utils/file_system_utils.dart' as fs;
 
 /// Represents a stack frame in a Lua call stack.
 class LuaStackFrame {
@@ -63,8 +63,8 @@ class LuaStackFrame {
 
         // Try to make the path relative
         try {
-          final currentDir = Directory.current.path;
-          if (filepath.startsWith(currentDir)) {
+          final currentDir = fs.getCurrentDirectory();
+          if (currentDir != null && filepath.startsWith(currentDir)) {
             filepath = filepath.substring(currentDir.length);
             // Remove leading slash if present
             if (filepath.startsWith('/')) {
