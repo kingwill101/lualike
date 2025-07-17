@@ -1,10 +1,10 @@
 import 'package:dart_console/dart_console.dart';
 import 'package:lualike/history.dart';
+import 'package:lualike/src/io/io_device.dart';
 import 'package:lualike/src/io/lua_file.dart';
 import 'package:lualike/src/io/virtual_io_device.dart';
 import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:lualike/testing.dart';
-import 'package:lualike/src/io/io_device.dart';
 
 // ConsoleOutputDevice implements IODevice for Console output
 class ConsoleOutputDevice implements IODevice {
@@ -61,15 +61,10 @@ class InteractiveMode {
   static const String lualikeVersion = '0.0.1';
   static const String luaCompatVersion = '5.4';
 
-  final ExecutionMode executionMode;
   final LuaLike bridge;
   final bool debugMode;
 
-  InteractiveMode({
-    required this.executionMode,
-    required this.bridge,
-    this.debugMode = false,
-  });
+  InteractiveMode({required this.bridge, this.debugMode = false});
 
   Future<void> run() async {
     // Disable flushing in the Lua print function to avoid stream conflicts
@@ -105,7 +100,7 @@ class InteractiveMode {
 
     // Print welcome message
     customPrint(
-      'LuaLike $lualikeVersion (Lua $luaCompatVersion compatible) ${executionMode == ExecutionMode.astInterpreter ? 'AST' : 'Bytecode'} mode',
+      'LuaLike $lualikeVersion (Lua $luaCompatVersion compatible)  AST mode',
     );
     customPrint('Type "exit" to quit');
 

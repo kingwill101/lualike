@@ -197,7 +197,7 @@ class LuaLike {
     return vm.callFunction(Value(functionName), args);
   }
 
-  throwError([String? message]) {
+  void throwError([String? message]) {
     vm.reportError(
       message ?? "thrown",
       trace: StackTrace.current,

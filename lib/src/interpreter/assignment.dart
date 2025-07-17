@@ -404,9 +404,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           if (wrappedValue.isNil) {
             (tableValue.raw as Map).remove(fieldKey);
           } else {
-            (tableValue.raw as Map)[fieldKey] = wrappedValue is Value
-                ? wrappedValue
-                : Value(wrappedValue);
+            (tableValue.raw as Map)[fieldKey] = wrappedValue;
           }
         } else {
           // Key doesn't exist and no metamethod, use async assignment
@@ -482,9 +480,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           if (wrappedValue.isNil) {
             (tableValue.raw as Map).remove(mapKey);
           } else {
-            (tableValue.raw as Map)[mapKey] = wrappedValue is Value
-                ? wrappedValue
-                : Value(wrappedValue);
+            (tableValue.raw as Map)[mapKey] = wrappedValue;
           }
         } else {
           await tableValue.setValueAsync(indexValue, wrappedValue);

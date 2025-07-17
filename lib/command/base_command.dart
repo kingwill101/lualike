@@ -1,12 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:args/command_runner.dart';
 import 'package:lualike/testing.dart';
 
 /// Base class for all LuaLike commands providing common functionality
 abstract class BaseCommand extends Command {
-  ExecutionMode get executionMode => ExecutionMode.astInterpreter;
-
   // Use a single global bridge instance for consistency
   static final LuaLike _globalBridge = LuaLike();
 

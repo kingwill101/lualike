@@ -1,7 +1,7 @@
-import 'value.dart';
 import 'builtin_function.dart';
-import 'stdlib/metatables.dart';
 import 'lua_string.dart';
+import 'stdlib/metatables.dart';
+import 'value.dart';
 
 /// Example usage:
 /// ```dart
@@ -79,5 +79,5 @@ class ValueClass implements BuiltinFunction {
     return ValueClass(metamethods);
   }
 
-  get metamethods => _metatable;
+  Map<String, dynamic> get metamethods => _metatable;
 }
