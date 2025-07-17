@@ -1,21 +1,21 @@
-import 'dart:io' show Directory, Platform;
+import 'dart:io';
 
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/call_stack.dart';
+import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/file_manager.dart';
 import 'package:lualike/src/gc/generational_gc.dart' show GenerationalGCManager;
 import 'package:lualike/src/logger.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_stack_trace.dart';
+import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/stack.dart';
 import 'package:lualike/src/stdlib/init.dart' show initializeStandardLibrary;
 import 'package:lualike/src/value.dart';
 import 'package:lualike/src/value_class.dart';
-import 'package:lualike/src/lua_string.dart';
 
-import '../coroutine.dart';
 import '../exceptions.dart';
 import '../extensions/extensions.dart';
 

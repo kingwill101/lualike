@@ -1,6 +1,5 @@
-import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/lualike.dart';
-
+import 'package:lualike/src/bytecode/vm.dart';
 import 'dart:io' as io;
 
 class OSLibrary {
