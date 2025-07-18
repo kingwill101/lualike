@@ -95,7 +95,7 @@ class IOClose implements BuiltinFunction {
     if (args.isEmpty) {
       Logger.debug('Closing default output', category: 'IO');
       final result = await IOLib.defaultOutput.close();
-      IOLib._defaultOutput = null;
+      IOLib._defaultOutput = null; // Reset to stdout on next access
       return Value.multi(result);
     }
 
@@ -106,7 +106,12 @@ class IOClose implements BuiltinFunction {
     }
 
     Logger.debug('Closing file', category: 'IO');
-    final result = await (file.raw as LuaFile).close();
+    final luaFile = file.raw as LuaFile;
+    final result = await luaFile.close();
+    if (luaFile == IOLib._defaultOutput) {
+      // When closing the current output file, revert to stdout
+      IOLib._defaultOutput = null;
+    }
     return Value.multi(result);
   }
 }

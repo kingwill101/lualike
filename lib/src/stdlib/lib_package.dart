@@ -104,18 +104,25 @@ class _LoadLib implements BuiltinFunction {
     final funcname = (args[1] as Value).raw.toString();
 
     // We don't actually load C libraries, just simulate the interface
-    if (funcname == "*") {
-      // Just checking if library exists
+    if (funcname == '*') {
+      // Check whether the library exists
       if (!await fileExists(libpath)) {
-        return [Value(null), Value("cannot load $libpath")];
+        // In Lua, a missing library returns nil plus an error message and the
+        // string 'absent'.
+        return [Value(null), Value('cannot load $libpath'), Value('absent')];
       }
+      // Library found; return a true value like Lua does
       return Value(true);
     }
 
-    // Return dummy function for named symbols
-    return Value((List<Object?> args) {
-      throw Exception("C functions not supported");
-    });
+    // When trying to load a specific symbol, we simply fail as we do not
+    // support dynamic libraries.  Lua would normally return nil, an error
+    // message and the string 'init'.
+    return [
+      Value(null),
+      Value('dynamic libraries not supported'),
+      Value('init'),
+    ];
   }
 }
 
@@ -137,7 +144,8 @@ class _SearchPath implements BuiltinFunction {
         ? (args[3] as Value).raw.toString()
         : path_lib.separator;
 
-    final replacedName = name.replaceAll(sep, rep);
+    // Avoid Dart's replaceAll behavior with empty pattern
+    final replacedName = sep.isEmpty ? name : name.replaceAll(sep, rep);
     final templates = searchPath.split(';');
     final tried = <String>[];
 
@@ -192,11 +200,6 @@ class _LuaLoader implements BuiltinFunction {
       fileManager.printResolvedGlobs();
     }
 
-    if (modulePath == null) {
-      print("DEBUG: No file found for module: $name");
-      return Value("\n\tno file '$name.lua'");
-    }
-
     print("DEBUG: Module path resolved to: $modulePath");
 
     // Return a loader function that will load and execute the module
@@ -230,6 +233,12 @@ class _LuaLoader implements BuiltinFunction {
             // Create a new environment for the module
             print("DEBUG: Creating new environment for module");
             final moduleEnv = Environment(parent: vm.globals, interpreter: vm);
+
+            // Pass arguments like Lua's loader function (...)
+            moduleEnv.declare(
+              '...',
+              Value.multi([Value(name), Value(modulePath)]),
+            );
 
             // Execute the module code in the new environment
             print("DEBUG: Creating interpreter for module");
@@ -298,7 +307,7 @@ class _LuaLoader implements BuiltinFunction {
             }
 
             // If the module didn't return anything, return an empty table
-            if (result == null || (result is Value && result.raw == null)) {
+            if ((result is Value && result.raw == null)) {
               print("DEBUG: Module returned nil, defaulting to empty table");
               result = Value({});
             } else {

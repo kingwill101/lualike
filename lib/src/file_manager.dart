@@ -804,14 +804,15 @@ class FileManager {
       if (packageTable is Value && packageTable.raw is Map) {
         final path = (packageTable.raw as Map)['path'];
         if (path is Value) {
-          // Check if path is a string
-          if (path.raw is String) {
-            return path.raw.toString();
+          // Check if path is a string or LuaString
+          final rawPath = path.raw;
+          if (rawPath is String || rawPath is LuaString) {
+            return rawPath.toString();
           } else {
             // If path is not a string, return default path instead of throwing an error
             // This matches Lua's behavior when package.path is set to a non-string value
             Logger.debug(
-              "package.path is not a string (${path.raw.runtimeType}), using default path",
+              "package.path is not a string (${rawPath.runtimeType}), using default path",
               category: 'FileManager',
             );
             return "./?.lua;./?/init.lua";
