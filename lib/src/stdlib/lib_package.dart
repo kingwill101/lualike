@@ -139,9 +139,7 @@ class _SearchPath implements BuiltinFunction {
     );
     // Let FileManager handle path resolution
     final resolvedPath = fileManager.resolveModulePath(name);
-    if (resolvedPath != null) {
-      return Value(resolvedPath);
-    }
+    return Value(resolvedPath);
 
     // Not found - return error message
     return [Value(null), Value("module '$name' not found in path '$path'")];
@@ -370,16 +368,14 @@ void definePackageLibrary({
           final source = packageLib.fileManager.loadSource(
             filename.raw.toString(),
           );
-          if (source != null) {
-            // Return loader function
-            return [
-              Value((loaderArgs) {
-                // Module loading will be handled by require
-                return Value(source);
-              }),
-              Value(filename.raw),
-            ];
-          }
+          // Return loader function
+          return [
+            Value((loaderArgs) {
+              // Module loading will be handled by require
+              return Value(source);
+            }),
+            Value(filename.raw),
+          ];
         }
       } catch (e) {
         return [Value(null), Value(e.toString())];

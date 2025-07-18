@@ -790,7 +790,7 @@ class LoadfileFunction implements BuiltinFunction {
           : () async {
               // Use FileManager to read files properly
               final vm = Environment.current?.interpreter ?? Interpreter();
-              return vm.fileManager.loadSource(filename!);
+              return vm.fileManager.loadSource(filename);
             }();
 
       final sourceCode = await source;

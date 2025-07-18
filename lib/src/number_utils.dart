@@ -1,20 +1,17 @@
 import 'dart:math' as math;
 import 'dart:typed_data'; // Added for ByteData
 
-import '../logger.dart';
-import '../lua_error.dart';
-import '../lua_string.dart';
-import '../number.dart';
-import '../value.dart';
+import 'logger.dart';
+import 'lua_error.dart';
+import 'lua_string.dart';
+import 'number.dart';
 
 /// Utility class for common number operations and conversions used throughout the stdlib
+import 'number_limits.dart';
+import 'value.dart';
+
 class NumberUtils {
   NumberUtils._(); // Prevent instantiation
-
-  /// 64-bit signed integer limits
-  static const int maxInteger = (1 << 63) - 1; // 9223372036854775807
-  static const int minInteger = -(1 << 63); // -9223372036854775808
-  static const int sizeInBits = 64;
 
   /// Get type name for error messages
   static String typeName(dynamic value) {
@@ -123,11 +120,12 @@ class NumberUtils {
   static bool isInIntegerRange(dynamic number) {
     if (number is int) return true; // Dart ints are always in range
     if (number is BigInt) {
-      return number >= BigInt.from(minInteger) &&
-          number <= BigInt.from(maxInteger);
+      return number >= BigInt.from(NumberLimits.minInteger) &&
+          number <= BigInt.from(NumberLimits.maxInteger);
     }
     if (number is double) {
-      return number >= minInteger.toDouble() && number <= maxInteger.toDouble();
+      return number >= NumberLimits.minInteger.toDouble() &&
+          number <= NumberLimits.maxInteger.toDouble();
     }
     return false;
   }
@@ -145,8 +143,8 @@ class NumberUtils {
     if (value is int) {
       return value;
     } else if (value is BigInt) {
-      if (value <= BigInt.from(maxInteger) &&
-          value >= BigInt.from(minInteger)) {
+      if (value <= BigInt.from(NumberLimits.maxInteger) &&
+          value >= BigInt.from(NumberLimits.minInteger)) {
         return value.toInt();
       }
       return null;
@@ -179,8 +177,8 @@ class NumberUtils {
       // Try to convert to BigInt to avoid floating point precision issues
       final bigIntRes = doubleToBigInt(result);
       // Check if it fits in int64 range
-      if (bigIntRes >= BigInt.from(minInteger) &&
-          bigIntRes <= BigInt.from(maxInteger)) {
+      if (bigIntRes >= BigInt.from(NumberLimits.minInteger) &&
+          bigIntRes <= BigInt.from(NumberLimits.maxInteger)) {
         final intRes = bigIntRes.toInt();
         // Verify the conversion is exact
         if (intRes.toDouble() == result) {
@@ -206,7 +204,7 @@ class NumberUtils {
     BigInt mb = m is BigInt ? m : BigInt.from(m as int);
     BigInt nb = n is BigInt ? n : BigInt.from(n as int);
 
-    final BigInt mod = BigInt.one << sizeInBits;
+    final BigInt mod = BigInt.one << NumberLimits.sizeInBits;
     if (mb.isNegative) mb += mod;
     if (nb.isNegative) nb += mod;
 
@@ -273,12 +271,13 @@ class NumberUtils {
 
       // Special case: preserve large positive numbers ONLY for specific range calculations
       // like maxint - (minint + 1), not for basic cases like 0 - minint
-      if (result > BigInt.from(maxInteger) &&
+      if (result > BigInt.from(NumberLimits.maxInteger) &&
           result <= BigInt.parse('FFFFFFFFFFFFFFFF', radix: 16)) {
         // Only preserve if it looks like a legitimate range calculation:
         // - The first operand should be near maxint
         // - The second operand should be near minint
-        if (a >= (maxInteger ~/ 2) && b <= (minInteger ~/ 2)) {
+        if (a >= (NumberLimits.maxInteger ~/ 2) &&
+            b <= (NumberLimits.minInteger ~/ 2)) {
           return result;
         }
       }
@@ -298,9 +297,9 @@ class NumberUtils {
     final masked = value & mask64;
 
     // Convert to signed 64-bit representation
-    if (masked > BigInt.from(maxInteger)) {
-      // If result is > maxInt64, subtract 2^sizeInBits to get the wrapped negative value
-      final wrapped = masked - (BigInt.one << sizeInBits);
+    if (masked > BigInt.from(NumberLimits.maxInteger)) {
+      // If result is > maxInt64, subtract 2^NumberLimits.sizeInBits to get the wrapped negative value
+      final wrapped = masked - (BigInt.one << NumberLimits.sizeInBits);
       return wrapped.toInt();
     }
 
@@ -340,7 +339,7 @@ class NumberUtils {
     final mask64 = BigInt.parse('FFFFFFFFFFFFFFFF', radix: 16);
     final shiftBig = toBigInt(shiftAmount);
 
-    if (shiftBig.abs() >= BigInt.from(sizeInBits)) {
+    if (shiftBig.abs() >= BigInt.from(NumberLimits.sizeInBits)) {
       return 0;
     }
 
@@ -354,8 +353,8 @@ class NumberUtils {
       return leftShift(a, -shift);
     }
 
-    // Handle large shifts (>= sizeInBits bits)
-    if (shift >= sizeInBits) {
+    // Handle large shifts (>= NumberLimits.sizeInBits bits)
+    if (shift >= NumberLimits.sizeInBits) {
       return 0;
     }
 
@@ -397,7 +396,7 @@ class NumberUtils {
     }
 
     final shiftBig = toBigInt(shiftAmount);
-    if (shiftBig.abs() >= BigInt.from(sizeInBits)) {
+    if (shiftBig.abs() >= BigInt.from(NumberLimits.sizeInBits)) {
       return 0;
     }
     final shift = shiftBig.toInt();
@@ -434,9 +433,9 @@ class NumberUtils {
     final masked = result & mask64;
 
     // Convert to signed 64-bit representation
-    if (masked > BigInt.from(maxInteger)) {
-      // If result is > maxInt64, subtract 2^sizeInBits to get the wrapped negative value
-      final wrapped = masked - (BigInt.one << sizeInBits);
+    if (masked > BigInt.from(NumberLimits.maxInteger)) {
+      // If result is > maxInt64, subtract 2^NumberLimits.sizeInBits to get the wrapped negative value
+      final wrapped = masked - (BigInt.one << NumberLimits.sizeInBits);
       return wrapped.toInt();
     }
 
@@ -614,8 +613,8 @@ class NumberUtils {
     if (value >= 0) {
       return BigInt.from(value);
     }
-    // For negative values, add 2^sizeInBits to get the unsigned representation
-    return (BigInt.one << sizeInBits) + BigInt.from(value);
+    // For negative values, add 2^NumberLimits.sizeInBits to get the unsigned representation
+    return (BigInt.one << NumberLimits.sizeInBits) + BigInt.from(value);
   }
 
   /// Perform bitwise AND with integer validation
@@ -627,8 +626,8 @@ class NumberUtils {
 
     // Return appropriate type
     if ((a is int && b is int) &&
-        result >= BigInt.from(minInteger) &&
-        result <= BigInt.from(maxInteger)) {
+        result >= BigInt.from(NumberLimits.minInteger) &&
+        result <= BigInt.from(NumberLimits.maxInteger)) {
       return result.toInt();
     }
     return result;
@@ -643,8 +642,8 @@ class NumberUtils {
 
     // Return appropriate type
     if ((a is int && b is int) &&
-        result >= BigInt.from(minInteger) &&
-        result <= BigInt.from(maxInteger)) {
+        result >= BigInt.from(NumberLimits.minInteger) &&
+        result <= BigInt.from(NumberLimits.maxInteger)) {
       return result.toInt();
     }
     return result;
@@ -659,8 +658,8 @@ class NumberUtils {
 
     // Return appropriate type
     if ((a is int && b is int) &&
-        result >= BigInt.from(minInteger) &&
-        result <= BigInt.from(maxInteger)) {
+        result >= BigInt.from(NumberLimits.minInteger) &&
+        result <= BigInt.from(NumberLimits.maxInteger)) {
       return result.toInt();
     }
     return result;
@@ -684,8 +683,8 @@ class NumberUtils {
 
     // Return appropriate type
     if (a is int &&
-        result >= BigInt.from(minInteger) &&
-        result <= BigInt.from(maxInteger)) {
+        result >= BigInt.from(NumberLimits.minInteger) &&
+        result <= BigInt.from(NumberLimits.maxInteger)) {
       return result.toInt();
     }
     return result;
@@ -713,7 +712,8 @@ class NumberUtils {
         throw LuaError('number has no integer representation');
       }
       final bi = BigInt.parse(value.toStringAsFixed(0));
-      if (bi < BigInt.from(minInteger) || bi > BigInt.from(maxInteger)) {
+      if (bi < BigInt.from(NumberLimits.minInteger) ||
+          bi > BigInt.from(NumberLimits.maxInteger)) {
         throw LuaError('number has no integer representation');
       }
       return bi;

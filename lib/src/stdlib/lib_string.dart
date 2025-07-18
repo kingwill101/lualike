@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:collection/collection.dart' show ListEquality;
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
+import 'package:lualike/src/number_limits.dart';
 import 'package:lualike/src/parsers/pattern.dart' as lpc;
 import 'package:lualike/src/stdlib/binary_type_size.dart';
 import 'package:lualike/src/stdlib/lib_utf8.dart' show UTF8Lib;
@@ -805,7 +806,7 @@ LuaString _formatQuoted(_FormatContext ctx) {
     final intValue = rawValue is BigInt
         ? rawValue
         : (rawValue is int ? rawValue : rawValue.toInt());
-    if (intValue == NumberUtils.minInteger) {
+    if (intValue == NumberLimits.minInteger) {
       return LuaString.fromDartString('0x8000000000000000');
     }
 
@@ -1653,7 +1654,7 @@ class _StringPack implements BuiltinFunction {
     Endian endianness = Endian.host;
     int maxAlign = 1;
     final maxAllowed = (BinaryTypeSize.j <= BinaryTypeSize.T)
-        ? BigInt.from(NumberUtils.maxInteger)
+        ? BigInt.from(NumberLimits.maxInteger)
         : (BigInt.one << (BinaryTypeSize.T * 8));
 
     BigInt alignTo(BigInt offset, int align) {
@@ -1997,7 +1998,7 @@ class _StringPackSize implements BuiltinFunction {
       BigInt offset = BigInt.zero;
       int maxAlign = 1;
       final maxAllowed = (BinaryTypeSize.j <= BinaryTypeSize.T)
-          ? BigInt.from(NumberUtils.maxInteger)
+          ? BigInt.from(NumberLimits.maxInteger)
           : (BigInt.one << (BinaryTypeSize.T * 8));
 
       BigInt alignTo(BigInt offset, int align) {

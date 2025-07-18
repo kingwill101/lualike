@@ -157,6 +157,7 @@ class _OSExit implements BuiltinFunction {
   Object? call(List<Object?> args) {
     final code = args.isNotEmpty ? (args[0] as Value).raw as int : 0;
     exitProcess(code);
+    return null;
   }
 }
 
