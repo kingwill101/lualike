@@ -215,9 +215,7 @@ class InteractiveMode {
         }
 
         // Print the result
-        if (result != null) {
-          customPrint('= ${_formatValue(result)}');
-        }
+        customPrint('= ${_formatValue(result)}');
       } catch (e, stack) {
         customPrint('Error: $e');
         if (debugMode) {

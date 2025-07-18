@@ -191,7 +191,12 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         if (target.index is! Identifier) {
           final table = await target.table.accept(this).toValue();
           if (!table.isNil) {
-            final index = await target.index.accept(this).toValue();
+            dynamic index = await target.index.accept(this);
+            if (index is Value && index.isMulti && index.raw is List) {
+              final values = index.raw as List;
+              index = values.isNotEmpty ? values[0] : Value(null);
+            }
+            index = index is Value ? index : Value(index);
             table[index] = wrappedValue;
             return table;
           }
@@ -245,6 +250,12 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         } else {
           // For table[expr] assignments, evaluate the expression to get the key
           identifier = await target.index.accept(this);
+          if (identifier is Value &&
+              identifier.isMulti &&
+              identifier.raw is List) {
+            final values = identifier.raw as List;
+            identifier = values.isNotEmpty ? values[0] : Value(null);
+          }
         }
 
         await tableValue.setValueAsync(identifier, wrappedValue);
@@ -445,7 +456,13 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     if (tableValue is Value) {
       if (tableValue.raw is Map) {
         // For index access, always evaluate the index expression
-        final indexResult = await target.index.accept(this);
+        var indexResult = await target.index.accept(this);
+        if (indexResult is Value &&
+            indexResult.isMulti &&
+            indexResult.raw is List) {
+          final values = indexResult.raw as List;
+          indexResult = values.isNotEmpty ? values[0] : Value(null);
+        }
         final indexValue = indexResult is Value ? indexResult.raw : indexResult;
 
         // Check for nil index - this should throw an error
