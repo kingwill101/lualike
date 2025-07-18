@@ -1570,7 +1570,10 @@ class RequireFunction implements BuiltinFunction {
           moduleEnv.define('_MODULE_NAME', Value(moduleName));
           moduleEnv.define('_MAIN_CHUNK', Value(false));
 
-          // Provide varargs with module name and path
+          // Preserve existing varargs and provide new ones with module name and path
+          final oldVarargs = moduleEnv.contains('...')
+              ? moduleEnv.get('...') as Value
+              : null;
           moduleEnv.declare(
             '...',
             Value.multi([Value(moduleName), Value(modulePathStr)]),
@@ -1593,11 +1596,18 @@ class RequireFunction implements BuiltinFunction {
             // Restore previous environment and script path
             vm.setCurrentEnv(prevEnv);
             vm.currentScriptPath = prevPath;
+
+            // Restore previous varargs
+            if (oldVarargs != null) {
+              moduleEnv.declare('...', oldVarargs);
+            } else {
+              moduleEnv.declare('...', Value(null));
+            }
           }
 
-          // If the module didn't return anything, return an empty table
-          if ((result is Value && result.raw == null)) {
-            result = Value({});
+          // If the module didn't return anything, Lua stores 'true'
+          if (result is Value && result.raw == null) {
+            result = Value(true);
           }
 
           Logger.debug(
@@ -1606,10 +1616,19 @@ class RequireFunction implements BuiltinFunction {
           );
 
           // If the module modified package.loaded, respect that value
-          if (loaded.containsKey(moduleName) &&
-              loaded[moduleName] != false &&
-              loaded[moduleName] != null) {
-            result = loaded[moduleName];
+          if (loaded.containsKey(moduleName)) {
+            final loadedVal = loaded[moduleName];
+            if (loadedVal is Value &&
+                loadedVal.raw != false &&
+                loadedVal.raw != null) {
+              result = loadedVal;
+            } else {
+              loaded[moduleName] = result;
+              Logger.debug(
+                "Module '$moduleName' stored in package.loaded",
+                category: 'Require',
+              );
+            }
           } else {
             loaded[moduleName] = result;
             Logger.debug(
@@ -1687,8 +1706,12 @@ class RequireFunction implements BuiltinFunction {
             loaded[moduleName] = Value(true);
           }
 
-          // Return the loaded module
-          return loaded[moduleName];
+          // Return the loaded module and the loader data (e.g. path)
+          final ret = loaded[moduleName];
+          if (loaderData is Value && loaderData.raw != null) {
+            return [ret, loaderData];
+          }
+          return ret;
         } else if (result is String) {
           // If the searcher returns an error message
           errors.add(result);

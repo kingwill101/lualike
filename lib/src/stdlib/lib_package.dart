@@ -104,18 +104,25 @@ class _LoadLib implements BuiltinFunction {
     final funcname = (args[1] as Value).raw.toString();
 
     // We don't actually load C libraries, just simulate the interface
-    if (funcname == "*") {
-      // Just checking if library exists
+    if (funcname == '*') {
+      // Check whether the library exists
       if (!await fileExists(libpath)) {
-        return [Value(null), Value("cannot load $libpath")];
+        // In Lua, a missing library returns nil plus an error message and the
+        // string 'absent'.
+        return [Value(null), Value('cannot load $libpath'), Value('absent')];
       }
+      // Library found; return a true value like Lua does
       return Value(true);
     }
 
-    // Return dummy function for named symbols
-    return Value((List<Object?> args) {
-      throw Exception("C functions not supported");
-    });
+    // When trying to load a specific symbol, we simply fail as we do not
+    // support dynamic libraries.  Lua would normally return nil, an error
+    // message and the string 'init'.
+    return [
+      Value(null),
+      Value('dynamic libraries not supported'),
+      Value('init'),
+    ];
   }
 }
 
