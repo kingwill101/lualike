@@ -13,6 +13,13 @@ and the Flutter guide for
 
 # LuaLike
 
+[![GitHub release](https://img.shields.io/github/release/kingwill101/lualike?include_prereleases=&sort=semver&color=blue)](https://github.com/kingwill101/lualike/releases/)
+[![Pub Version](https://img.shields.io/pub/v/lualike)](https://pub.dev/packages/lualike)
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/kingwill101/lualike/.github%2Fworkflows%2Fdart.yml)
+[![License](https://img.shields.io/badge/License-MIT-blue)](#license)
+[![issues - lualike](https://img.shields.io/github/issues/kingwill101/lualike)](https://github.com/kingwill101/lualike/issues)
+
+
 A Lua-like language interpreter implemented in Dart, focusing on a clean, easy-to-use AST-based interpreter.
 
 ## Features
@@ -72,19 +79,19 @@ void main() async {
   lualike.expose('dart_print', print);
 
   // 2. Define a Lua function that uses the exposed Dart function
-  await lualike.runCode('''
+  await lualike.execute('''
     function greet_from_lua(name)
       dart_print("Hello, " .. name .. " from a Dart function!")
     end
   ''');
 
   // 3. Call the Lua function from Dart
-  await lualike.call('greet_from_lua', [Value("World")]);
+  await lualike.callFunction('greet_from_lua', [Value("World")]);
 
   // 4. Share data from Dart to Lua
   lualike.setGlobal('config', {'debug': true, 'maxRetries': 3});
 
-  await lualike.runCode('''
+  await lualike.execute('''
     if config.debug then
       dart_print("Max retries: " .. config.maxRetries)
     end
@@ -103,7 +110,7 @@ void main() async {
   final lualike = LuaLike();
 
   // Execute code with error handling
-  await lualike.runCode('''
+  await lualike.execute('''
     -- Try to execute a function that might throw an error
     local status, result = pcall(function()
       -- This will succeed
