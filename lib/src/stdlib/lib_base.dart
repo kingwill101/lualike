@@ -1428,6 +1428,17 @@ class RequireFunction implements BuiltinFunction {
     // Get the raw Map from the package table
     final packageTable = packageVal;
 
+    // Validate 'package.path' is a string or LuaString
+    if (packageTable.containsKey('path')) {
+      final pathField = packageTable['path'];
+      if (pathField is Value) {
+        final rawPath = pathField.raw;
+        if (rawPath is! String && rawPath is! LuaString) {
+          throw Exception('package.path must be a string');
+        }
+      }
+    }
+
     // Ensure package.loaded exists
     if (!packageTable.containsKey("loaded")) {
       packageTable["loaded"] = Value({});
@@ -1510,7 +1521,6 @@ class RequireFunction implements BuiltinFunction {
     }
 
     final modulePathStr = modulePath;
-
     if (modulePathStr != null) {
       Logger.debug(
         "(REQUIRE) RequireFunction: Loading module '$moduleName' from path: $modulePathStr",
@@ -1527,8 +1537,8 @@ class RequireFunction implements BuiltinFunction {
           // Parse the module code
           final ast = parse(source, url: modulePathStr);
 
-          // Create a new environment for the module
-          final moduleEnv = Environment(parent: vm.globals, interpreter: vm);
+          // Execute module code directly in the global environment to mimic Lua
+          final moduleEnv = vm.globals;
 
           // We'll execute the module code using the current interpreter to
           // ensure package.loaded is shared.
@@ -1560,6 +1570,12 @@ class RequireFunction implements BuiltinFunction {
           moduleEnv.define('_MODULE_NAME', Value(moduleName));
           moduleEnv.define('_MAIN_CHUNK', Value(false));
 
+          // Provide varargs with module name and path
+          moduleEnv.declare(
+            '...',
+            Value.multi([Value(moduleName), Value(modulePathStr)]),
+          );
+
           Logger.debug(
             "DEBUG: Module environment set up with _SCRIPT_PATH=$absoluteModulePath, _SCRIPT_DIR=$moduleDir, _MODULE_NAME=$moduleName",
           );
@@ -1589,12 +1605,18 @@ class RequireFunction implements BuiltinFunction {
             category: 'Require',
           );
 
-          // Store the result in package.loaded
-          loaded[moduleName] = result;
-          Logger.debug(
-            "Module '$moduleName' stored in package.loaded",
-            category: 'Require',
-          );
+          // If the module modified package.loaded, respect that value
+          if (loaded.containsKey(moduleName) &&
+              loaded[moduleName] != false &&
+              loaded[moduleName] != null) {
+            result = loaded[moduleName];
+          } else {
+            loaded[moduleName] = result;
+            Logger.debug(
+              "Module '$moduleName' stored in package.loaded",
+              category: 'Require',
+            );
+          }
           Logger.debug(
             "Loaded table now contains: ${loaded.keys.join(",")}",
             category: 'Require',
@@ -1687,14 +1709,15 @@ class RequireFunction implements BuiltinFunction {
 
     // Add path errors
     // We already have packageVal from earlier in the function
-    if (packageVal is Value && packageVal.raw is Map) {
+    if (packageVal.raw is Map) {
       final packageTable = packageVal.raw as Map;
 
       // Add Lua path errors
       if (packageTable.containsKey("path") && packageTable["path"] is Value) {
         final pathValue = packageTable["path"] as Value;
-        if (pathValue.raw is String) {
-          final templates = (pathValue.raw as String).split(";");
+        final rawPath = pathValue.raw;
+        if (rawPath is String || rawPath is LuaString) {
+          final templates = rawPath.toString().split(";");
           for (final template in templates) {
             if (template.isEmpty) continue;
             final filename = template.replaceAll("?", moduleName);
@@ -1706,8 +1729,9 @@ class RequireFunction implements BuiltinFunction {
       // Add C path errors
       if (packageTable.containsKey("cpath") && packageTable["cpath"] is Value) {
         final cpathValue = packageTable["cpath"] as Value;
-        if (cpathValue.raw is String) {
-          final templates = (cpathValue.raw as String).split(";");
+        final rawCPath = cpathValue.raw;
+        if (rawCPath is String || rawCPath is LuaString) {
+          final templates = rawCPath.toString().split(";");
           for (final template in templates) {
             if (template.isEmpty) continue;
             final filename = template.replaceAll("?", moduleName);
