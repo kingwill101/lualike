@@ -18,15 +18,15 @@ library;
 
 import 'dart:math' as math;
 
-import 'stdlib/number_utils.dart';
+import 'number_limits/number_limits_native.dart';
 
 /// Prevent instantiation – this is a pure utility class.
 class LuaNumberParser {
   LuaNumberParser._();
 
   /// 64-bit signed limits (native Dart `int` range).
-  static final BigInt _min64 = BigInt.from(NumberUtils.minInteger);
-  static final BigInt _max64 = BigInt.from(NumberUtils.maxInteger);
+  static final BigInt _min64 = BigInt.from(NumberLimits.minInteger);
+  static final BigInt _max64 = BigInt.from(NumberLimits.maxInteger);
 
   /// Parse [literal] and return `int`, `double`, or `BigInt`.
   static dynamic /* int | double | BigInt */ parse(String literal) {

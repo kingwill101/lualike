@@ -1,7 +1,8 @@
-import 'package:petitparser/petitparser.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/stdlib/binary_type_size.dart';
-import 'package:lualike/src/stdlib/number_utils.dart';
+import 'package:petitparser/petitparser.dart';
+
+import '../number_limits.dart';
 
 /// Represents a single directive inside a Lua 5.4 `string.pack` format.
 class BinaryFormatOption {
@@ -58,7 +59,7 @@ class BinaryFormatParser {
     if (bigN < BigInt.zero) {
       throw LuaError("invalid size for format option 'c'");
     }
-    if (bigN > BigInt.from(NumberUtils.maxInteger)) {
+    if (bigN > BigInt.from(NumberLimits.maxInteger)) {
       throw LuaError('invalid format');
     }
     return BinaryFormatOption('c', size: bigN.toInt(), raw: 'c$numStr');
@@ -75,8 +76,8 @@ class BinaryFormatParser {
         final t = v[0] as String;
         final numStr = v[1] as String;
         final bigN = BigInt.parse(numStr);
-        if (bigN > BigInt.from(NumberUtils.maxInteger) ||
-            bigN < BigInt.from(NumberUtils.minInteger)) {
+        if (bigN > BigInt.from(NumberLimits.maxInteger) ||
+            bigN < BigInt.from(NumberLimits.minInteger)) {
           throw LuaError('invalid format');
         }
         final n = bigN.toInt();

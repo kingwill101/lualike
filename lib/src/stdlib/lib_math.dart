@@ -1,6 +1,9 @@
 import 'dart:math' as math;
-import 'package:lualike/src/bytecode/vm.dart';
+
 import 'package:lualike/lualike.dart';
+import 'package:lualike/src/bytecode/vm.dart';
+
+import '../number_limits.dart' as limits;
 import 'random_native.dart' if (dart.library.js_interop) 'random_web.dart';
 
 // Base class for math functions to handle common number validation
@@ -310,8 +313,8 @@ class _MathRandom extends _MathFunction {
       final finalResult = bigM + bigResult;
 
       // Ensure result fits in int64 range
-      if (finalResult < NumberUtils.toBigInt(NumberUtils.minInteger) ||
-          finalResult > NumberUtils.toBigInt(NumberUtils.maxInteger)) {
+      if (finalResult < NumberUtils.toBigInt(limits.NumberLimits.minInteger) ||
+          finalResult > NumberUtils.toBigInt(limits.NumberLimits.maxInteger)) {
         throw LuaError.typeError("random result overflow");
       }
 
@@ -443,9 +446,9 @@ class _MathUlt extends _MathFunction {
 }
 
 class MathLib {
-  // Use constants from NumberUtils
-  static int get maxInteger => NumberUtils.maxInteger;
-  static int get minInteger => NumberUtils.minInteger;
+  // Use constants from NumberLimits
+  static int get maxInteger => limits.NumberLimits.maxInteger;
+  static int get minInteger => limits.NumberLimits.minInteger;
 
   static void logIntegerLimits() {
     print(

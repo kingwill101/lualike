@@ -1,5 +1,7 @@
-import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/lualike.dart';
+import 'package:lualike/src/bytecode/vm.dart';
+
+import '../number_limits.dart';
 
 class TableLib {
   static final ValueClass tableClass = ValueClass.create({
@@ -122,7 +124,7 @@ class _TableConcat implements BuiltinFunction {
       buffer.write(rawValue.toString());
 
       // Prevent integer overflow when i == max integer
-      if (i == NumberUtils.maxInteger) break;
+      if (i == NumberLimits.maxInteger) break;
     }
 
     return Value(buffer.toString());
