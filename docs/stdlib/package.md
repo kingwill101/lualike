@@ -14,7 +14,7 @@ Searches for a `name` in a `path`.
 -   `path`: A string specifying the search path.
 -   `sep` (optional): The separator for the path elements. Defaults to ".".
 -   `rep` (optional): The replacement for the separator in the module name. Defaults to the system's directory separator.
--   **Returns**: The path where the module was found, or `nil` plus an error message.
+-   **Returns**: The path where the module was found. If no file is located, it returns `nil` followed by an error string listing each file it tried.
 
 ## `package.preload`
 

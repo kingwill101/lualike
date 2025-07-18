@@ -1,7 +1,6 @@
 /// Native IO implementation of file system utilities
 library;
 
-import 'dart:convert';
 import 'dart:io';
 
 /// Platform-safe way to check if a file exists
