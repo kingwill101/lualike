@@ -150,7 +150,8 @@ class IOInput implements BuiltinFunction {
         result = Value(newFile, metatable: IOLib.fileClass.metamethods);
       } catch (e) {
         Logger.debug('Error opening file: $e', category: 'IO');
-        return Value.multi([null, e.toString()]);
+        // Match Lua's behavior: throw an error instead of returning error values
+        throw LuaError("cannot open file '$filename' ($e)");
       }
     }
 
@@ -243,9 +244,11 @@ class IOOutput implements BuiltinFunction {
         final device = await FileIODevice.open(filename, "w");
         newFile = LuaFile(device);
         result = Value(newFile, metatable: IOLib.fileClass.metamethods);
-      } catch (e) {
-        Logger.debug('Error opening file: $e', category: 'IO');
-        return Value.multi([null, e.toString()]);
+      } catch (e, s) {
+        throw LuaError(
+          "cannot open file '$filename' (No such file or directory)",
+          stackTrace: s,
+        );
       }
     }
 
