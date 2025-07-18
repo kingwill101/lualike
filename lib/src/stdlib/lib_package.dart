@@ -2,7 +2,7 @@ import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/utils/file_system_utils.dart';
 import 'package:lualike/src/utils/platform_utils.dart' as platform;
-import 'package:path/path.dart' as path;
+import 'package:path/path.dart' as path_lib;
 
 class PackageLib {
   final Interpreter vm;
@@ -125,24 +125,33 @@ class _SearchPath implements BuiltinFunction {
   _SearchPath(this.fileManager);
 
   @override
-  Object? call(List<Object?> args) {
+  Future<Object?> call(List<Object?> args) async {
     if (args.length < 2) {
-      throw Exception("searchpath requires name and path");
+      throw Exception('searchpath requires name and path');
     }
 
     final name = (args[0] as Value).raw.toString();
-    final path = (args[1] as Value).raw.toString();
-    final sep = args.length > 2 ? (args[2] as Value).raw.toString() : ".";
+    final searchPath = (args[1] as Value).raw.toString();
+    final sep = args.length > 2 ? (args[2] as Value).raw.toString() : '.';
+    final rep = args.length > 3
+        ? (args[3] as Value).raw.toString()
+        : path_lib.separator;
 
-    fileManager.setSearchPaths(
-      path.split(sep)..addAll(fileManager.searchPaths),
-    );
-    // Let FileManager handle path resolution
-    final resolvedPath = fileManager.resolveModulePath(name);
-    return Value(resolvedPath);
+    final replacedName = name.replaceAll(sep, rep);
+    final templates = searchPath.split(';');
+    final tried = <String>[];
 
-    // Not found - return error message
-    return [Value(null), Value("module '$name' not found in path '$path'")];
+    for (final template in templates) {
+      if (template.isEmpty) continue;
+      final filename = template.replaceAll('?', replacedName);
+      tried.add(filename);
+      if (await fileExists(filename)) {
+        return Value(filename);
+      }
+    }
+
+    final err = tried.map((f) => "\n\tno file '$f'").join();
+    return [Value(null), Value(err)];
   }
 }
 
@@ -163,8 +172,8 @@ class _LuaLoader implements BuiltinFunction {
     if (!name.contains('.') &&
         !name.contains('/') &&
         vm.currentScriptPath != null) {
-      final scriptDir = path.dirname(vm.currentScriptPath!);
-      final directPath = path.join(scriptDir, '$name.lua');
+      final scriptDir = path_lib.dirname(vm.currentScriptPath!);
+      final directPath = path_lib.join(scriptDir, '$name.lua');
       print("DEBUG: Trying direct path in script directory: $directPath");
 
       if (await fileExists(directPath)) {
@@ -231,7 +240,7 @@ class _LuaLoader implements BuiltinFunction {
 
             // Get the absolute path of the module
             String absoluteModulePath;
-            if (path.isAbsolute(modulePath)) {
+            if (path_lib.isAbsolute(modulePath)) {
               absoluteModulePath = modulePath;
             } else {
               // Use the FileManager to resolve the absolute path instead of duplicating logic
@@ -251,7 +260,7 @@ class _LuaLoader implements BuiltinFunction {
             moduleEnv.define('_SCRIPT_PATH', Value(absoluteModulePath));
 
             // Get the directory part of the script path
-            final moduleDir = path.dirname(absoluteModulePath);
+            final moduleDir = path_lib.dirname(absoluteModulePath);
             moduleEnv.define('_SCRIPT_DIR', Value(moduleDir));
 
             // Also set _MODULE_NAME global
