@@ -39,7 +39,7 @@ class FileIODevice extends BaseIODevice {
         break;
       default:
         Logger.debug('Invalid file mode: $mode', category: 'IO');
-        throw Exception("Invalid file mode: $mode");
+        throw LuaError("Invalid file mode: $mode");
     }
 
     try {
@@ -47,9 +47,9 @@ class FileIODevice extends BaseIODevice {
       final file = await File(path).open(mode: fileMode);
       Logger.debug('Successfully opened file: $path', category: 'IO');
       return FileIODevice._(file, mode);
-    } catch (e) {
+    } catch (e, s) {
       Logger.debug('Failed to open file: $path, error: $e', category: 'IO');
-      throw Exception("Could not open file: $e");
+      throw LuaError("Could not open file: $e", stackTrace: s);
     }
   }
 
