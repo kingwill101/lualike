@@ -66,9 +66,69 @@ void initializeStandardLibrary({
   // Define a minimal coroutine stub to prevent strings test failures
   _defineCoroutineStub(env: env);
 
-  // Define other standard libraries
+  // Get the package.loaded table to store standard library references
   final packageTable = env.get("package");
-  final preloadTable = packageTable?["preload"];
+  if (packageTable != null &&
+      packageTable is Value &&
+      packageTable.raw is Map) {
+    final packageMap = packageTable.raw as Map;
+
+    // Ensure package.loaded exists
+    if (!packageMap.containsKey("loaded")) {
+      packageMap["loaded"] = Value({});
+    }
+
+    final loadedTable = packageMap["loaded"];
+    if (loadedTable is Value && loadedTable.raw is Map) {
+      final loadedMap = loadedTable.raw as Map;
+
+      // Store references to the global standard library tables in package.loaded
+      // This ensures require("string") returns the same instance as the global string table
+      final stringTable = env.get("string");
+      if (stringTable != null) {
+        loadedMap["string"] = stringTable;
+      }
+
+      final tableTable = env.get("table");
+      if (tableTable != null) {
+        loadedMap["table"] = tableTable;
+      }
+
+      final mathTable = env.get("math");
+      if (mathTable != null) {
+        loadedMap["math"] = mathTable;
+      }
+
+      final ioTable = env.get("io");
+      if (ioTable != null) {
+        loadedMap["io"] = ioTable;
+      }
+
+      final osTable = env.get("os");
+      if (osTable != null) {
+        loadedMap["os"] = osTable;
+      }
+
+      final debugTable = env.get("debug");
+      if (debugTable != null) {
+        loadedMap["debug"] = debugTable;
+      }
+
+      final utf8Table = env.get("utf8");
+      if (utf8Table != null) {
+        loadedMap["utf8"] = utf8Table;
+      }
+
+      final coroutineTable = env.get("coroutine");
+      if (coroutineTable != null) {
+        loadedMap["coroutine"] = coroutineTable;
+      }
+    }
+  }
+
+  // Define preload functions for standard libraries as a fallback
+  final packageTable2 = env.get("package");
+  final preloadTable = packageTable2?["preload"];
 
   if (preloadTable != null) {
     // Register standard libraries in package.preload
