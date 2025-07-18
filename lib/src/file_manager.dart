@@ -1,7 +1,7 @@
 import 'dart:convert';
-import 'package:lualike/src/utils/file_system_utils.dart' as fs;
 
 import 'package:lualike/lualike.dart';
+import 'package:lualike/src/utils/file_system_utils.dart' as fs;
 import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:path/path.dart' as path;
 
@@ -473,6 +473,8 @@ class FileManager {
       }
     } catch (e) {
       Logger.debug("Error getting package.path: $e", category: 'FileManager');
+      // Don't rethrow the exception, just continue with default paths
+      // This allows the require function to handle the error
     }
 
     // Parse package.path into templates
@@ -493,7 +495,6 @@ class FileManager {
       if (currentDir == null) {
         throw Exception("Current directory is null");
       }
-      print("DEBUG: Using current working directory: $currentDir");
       Logger.debug(
         "Using current working directory: $currentDir",
         category: 'FileManager',
@@ -503,9 +504,6 @@ class FileManager {
       if (!templates.contains('$currentDir/?.lua')) {
         templates.insert(0, '$currentDir/?/init.lua');
         templates.insert(0, '$currentDir/?.lua');
-        print(
-          "DEBUG: Added current directory templates: $currentDir/?.lua, $currentDir/?/init.lua",
-        );
         Logger.debug(
           "Added current directory templates to beginning of search path",
           category: 'FileManager',
@@ -522,16 +520,12 @@ class FileManager {
               !templates.contains('$projectRoot/?.lua')) {
             templates.insert(0, '$projectRoot/?/init.lua');
             templates.insert(0, '$projectRoot/?.lua');
-            print(
-              "DEBUG: Added project root templates: $projectRoot/?.lua, $projectRoot/?/init.lua",
-            );
             Logger.debug(
               "Added project root templates to beginning of search path",
               category: 'FileManager',
             );
           }
         } catch (e) {
-          print("DEBUG: Error getting project root: $e");
           Logger.debug(
             "Error getting project root: $e",
             category: 'FileManager',
@@ -539,7 +533,6 @@ class FileManager {
         }
       }
     } catch (e) {
-      print("DEBUG: Error getting current working directory: $e");
       Logger.debug(
         "Error getting current working directory: $e",
         category: 'FileManager',
@@ -550,7 +543,6 @@ class FileManager {
     String? scriptDir;
     if (_interpreter?.currentScriptPath != null) {
       scriptDir = path.dirname(_interpreter!.currentScriptPath!);
-      print("DEBUG: Using script directory: $scriptDir");
       Logger.debug(
         "Using script directory: $scriptDir",
         category: 'FileManager',
@@ -560,9 +552,6 @@ class FileManager {
       if (!templates.contains('$scriptDir/?.lua')) {
         templates.insert(0, '$scriptDir/?/init.lua');
         templates.insert(0, '$scriptDir/?.lua');
-        print(
-          "DEBUG: Added script directory templates: $scriptDir/?.lua, $scriptDir/?/init.lua",
-        );
         Logger.debug(
           "Added script directory templates to beginning of search path",
           category: 'FileManager',
@@ -578,7 +567,6 @@ class FileManager {
           throw Exception("Dart script path is null");
         }
         final dartScriptDir = path.dirname(dartScriptPath);
-        print("DEBUG: Using Dart script directory: $dartScriptDir");
         Logger.debug(
           "Using Dart script directory: $dartScriptDir",
           category: 'FileManager',
@@ -588,16 +576,12 @@ class FileManager {
         if (!templates.contains('$dartScriptDir/?.lua')) {
           templates.insert(0, '$dartScriptDir/?/init.lua');
           templates.insert(0, '$dartScriptDir/?.lua');
-          print(
-            "DEBUG: Added Dart script directory templates: $dartScriptDir/?.lua, $dartScriptDir/?/init.lua",
-          );
           Logger.debug(
             "Added Dart script directory templates to beginning of search path",
             category: 'FileManager',
           );
         }
       } catch (e) {
-        print("DEBUG: Error getting Dart script directory: $e");
         Logger.debug(
           "Error getting Dart script directory: $e",
           category: 'FileManager',
@@ -616,7 +600,6 @@ class FileManager {
       final modNameWithSep = moduleName.replaceAll('.', path.separator);
       final fileName = template.replaceAll('?', modNameWithSep);
 
-      print("DEBUG: Trying template: $template -> $fileName");
       Logger.debug(
         "Trying template: $template -> $fileName",
         category: 'FileManager',
@@ -624,7 +607,6 @@ class FileManager {
 
       // Check virtual files
       if (_virtualFiles.containsKey(fileName)) {
-        print("DEBUG: Module found in virtual files as '$fileName'");
         Logger.debug(
           "Module found in virtual files as '$fileName'",
           category: 'FileManager',
@@ -635,7 +617,6 @@ class FileManager {
       // Check physical files
       final file = await fs.fileExists(fileName);
       if (file) {
-        print("DEBUG: Module found in physical files as '$fileName'");
         Logger.debug(
           "Module found in physical files as '$fileName'",
           category: 'FileManager',
@@ -648,28 +629,15 @@ class FileManager {
         final directory = path.dirname(fileName);
         final pattern = path.basename(fileName);
 
-        print(
-          "DEBUG: Trying glob pattern in directory: $directory with pattern: $pattern",
-        );
-
         // Check if directory exists before trying to list it
         final dir = await fs.directoryExists(directory);
         if (dir) {
-          print("DEBUG: Directory exists, listing files:");
           final entities = await fs.listDirectory(directory);
-          print(
-            "DEBUG: Found ${entities.length} files/directories in $directory",
-          );
 
           for (final entity in entities) {
-            print("DEBUG: Checking entity: $entity");
             if (await fs.fileExists(entity)) {
               final basename = path.basename(entity);
-              print(
-                "DEBUG: Checking if file '$basename' matches pattern '$pattern'",
-              );
               if (_matchesGlobPattern(basename, pattern)) {
-                print("DEBUG: Module found via glob as '$entity'");
                 Logger.debug(
                   "Module found via glob as '$entity'",
                   category: 'FileManager',
@@ -683,13 +651,13 @@ class FileManager {
               }
             }
           }
-          print("DEBUG: No matching files found in directory $directory");
         } else {
-          print("DEBUG: Directory $directory does not exist");
+          Logger.debug(
+            "DEBUG: Directory $directory does not exist",
+            category: "FileManager",
+          );
         }
       } catch (e) {
-        // If directory doesn't exist or can't be accessed, just continue
-        print("DEBUG: Error with glob pattern '$fileName': $e");
         Logger.debug(
           "Error with glob pattern '$fileName': $e",
           category: 'FileManager',
@@ -709,11 +677,7 @@ class FileManager {
         ];
 
         for (final fullPath in paths) {
-          print("DEBUG: Trying path: $fullPath");
           if (_virtualFiles.containsKey(fullPath)) {
-            print(
-              "DEBUG: Module found in virtual files with search path as '$fullPath'",
-            );
             Logger.debug(
               "Module found in virtual files with search path as '$fullPath'",
               category: 'FileManager',
@@ -723,9 +687,6 @@ class FileManager {
 
           final file = await fs.fileExists(fullPath);
           if (file) {
-            print(
-              "DEBUG: Module found in physical files with search path as '$fullPath'",
-            );
             Logger.debug(
               "Module found in physical files with search path as '$fullPath'",
               category: 'FileManager',
@@ -738,30 +699,19 @@ class FileManager {
             final directory = path.dirname(fullPath);
             final pattern = path.basename(fullPath);
 
-            print(
-              "DEBUG: Trying glob pattern in directory: $directory with pattern: $pattern",
-            );
-
             // Check if directory exists before trying to list it
             final dir = await fs.directoryExists(directory);
             if (dir) {
-              print("DEBUG: Directory exists, listing files:");
               final entities = await fs.listDirectory(directory);
-              print(
+              Logger.debug(
+                category: "FileManager",
                 "DEBUG: Found ${entities.length} files/directories in $directory",
               );
 
               for (final entity in entities) {
-                print("DEBUG: Checking entity: $entity");
                 if (await fs.fileExists(entity)) {
                   final basename = path.basename(entity);
-                  print(
-                    "DEBUG: Checking if file '$basename' matches pattern '$pattern'",
-                  );
                   if (_matchesGlobPattern(basename, pattern)) {
-                    print(
-                      "DEBUG: Module found via glob with search path as '$entity'",
-                    );
                     Logger.debug(
                       "Module found via glob with search path as '$entity'",
                       category: 'FileManager',
@@ -778,13 +728,9 @@ class FileManager {
                   }
                 }
               }
-              print("DEBUG: No matching files found in directory $directory");
-            } else {
-              print("DEBUG: Directory $directory does not exist");
             }
           } catch (e) {
             // If directory doesn't exist or can't be accessed, just continue
-            print("DEBUG: Error with glob pattern '$fullPath': $e");
             Logger.debug(
               "Error with glob pattern '$fullPath': $e",
               category: 'FileManager',
@@ -815,7 +761,6 @@ class FileManager {
           path.join(projectRoot, '.lua-tests'),
         ]);
       } catch (e) {
-        print("DEBUG: Error adding project root special directories: $e");
         Logger.debug(
           "Error adding project root special directories: $e",
           category: 'FileManager',
@@ -837,23 +782,16 @@ class FileManager {
             ];
 
             for (final fullPath in paths) {
-              print("DEBUG: Trying special directory path: $fullPath");
               final file = await fs.fileExists(fullPath);
               if (file) {
-                print(
-                  "DEBUG: Module found in special directory as '$fullPath'",
-                );
                 return fullPath;
               }
             }
           }
         }
-      } catch (e) {
-        print("DEBUG: Error checking special directory $dir: $e");
-      }
+      } catch (e) {}
     }
 
-    print("DEBUG: Module '$moduleName' not found after trying all paths");
     Logger.debug("Module '$moduleName' not found", category: 'FileManager');
     return null;
   }
@@ -866,7 +804,18 @@ class FileManager {
       if (packageTable is Value && packageTable.raw is Map) {
         final path = (packageTable.raw as Map)['path'];
         if (path is Value) {
-          return path.raw.toString();
+          // Check if path is a string
+          if (path.raw is String) {
+            return path.raw.toString();
+          } else {
+            // If path is not a string, return default path instead of throwing an error
+            // This matches Lua's behavior when package.path is set to a non-string value
+            Logger.debug(
+              "package.path is not a string (${path.raw.runtimeType}), using default path",
+              category: 'FileManager',
+            );
+            return "./?.lua;./?/init.lua";
+          }
         }
       }
     }
@@ -875,7 +824,6 @@ class FileManager {
 
   // Helper method to match a filename against a glob pattern
   bool _matchesGlobPattern(String filename, String pattern) {
-    print("DEBUG: Matching filename '$filename' against pattern '$pattern'");
     // Convert glob pattern to RegExp
     // Replace * with .* and ? with .
     // Escape other special regex characters
@@ -886,15 +834,12 @@ class FileManager {
 
     // Anchor the pattern to match the whole string
     regexPattern = '^$regexPattern\$';
-    print("DEBUG: Converted to regex pattern: '$regexPattern'");
 
     try {
       final regex = RegExp(regexPattern);
       final matches = regex.hasMatch(filename);
-      print("DEBUG: Match result: $matches");
       return matches;
     } catch (e) {
-      print("DEBUG: Error creating regex from pattern '$pattern': $e");
       Logger.debug(
         "Error creating regex from pattern '$pattern': $e",
         category: 'FileManager',

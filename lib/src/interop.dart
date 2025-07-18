@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:lualike/src/const_checker.dart';
 import 'package:lualike/src/testing/testing.dart';
 import 'package:lualike/src/utils/file_system_utils.dart' as fs;
 import 'package:path/path.dart' as path;
@@ -65,6 +66,13 @@ extension VMInterop on Interpreter {
   /// Returns the result of the evaluation
   Future<Object?> evaluate(String code, {String? scriptPath}) async {
     final ast = parse(code, url: scriptPath); // Assuming parse() is available
+
+    // Check for const variable assignment errors
+    final constChecker = ConstChecker();
+    final constError = constChecker.checkConstViolations(ast);
+    if (constError != null) {
+      throw Exception(constError);
+    }
 
     // Store the script path in the interpreter
     if (scriptPath != null) {

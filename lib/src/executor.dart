@@ -1,3 +1,4 @@
+import 'const_checker.dart';
 import 'exceptions.dart';
 import 'file_manager.dart';
 import 'interpreter/interpreter.dart';
@@ -24,6 +25,14 @@ Future<Object?> executeCode(
     onInterpreterSetup(interpreter);
   }
   final program = parse(sourceCode);
+
+  // Check for const variable assignment errors
+  final constChecker = ConstChecker();
+  final constError = constChecker.checkConstViolations(program);
+  if (constError != null) {
+    throw Exception(constError);
+  }
+
   try {
     return await interpreter.run(program.statements);
   } on ReturnException catch (e) {
