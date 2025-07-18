@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="scaffolded-by" content="https://github.com/dart-lang/sdk">
+    <title>LuaLike Web REPL</title>
+    <link rel="stylesheet" href="styles.css">
+    <script defer src="main.dart.js"></script>
+</head>
+
+<body>
+<div class="container">
+    <header>
+        <h1>🌙 LuaLike Web REPL</h1>
+        <p>A Lua 5.4 compatible interpreter running in your browser!</p>
+    </header>
+
+    <div class="main-content">
+        <div class="editor-section">
+            <div class="editor-header">
+                <h3>Lua Code Editor</h3>
+                <div class="editor-controls">
+                    <select id="examples">
+                        <option value="">Choose an example...</option>
+                        <option value="hello">Hello World</option>
+                        <option value="fibonacci">Fibonacci Sequence</option>
+                        <option value="table">Table Operations</option>
+                        <option value="functions">Functions & Closures</option>
+                        <option value="coroutines">Coroutines</option>
+                        <option value="metatable">Metatables</option>
+                        <option value="string">String Manipulation</option>
+                        <option value="math">Math Operations</option>
+                    </select>
+                    <button id="clear">Clear</button>
+                    <button id="run" class="run-button">▶ Run Code</button>
+                </div>
+            </div>
+            <textarea id="sourceCode" placeholder="-- Enter your Lua code here
+print('Hello from LuaLike!')
+
+-- Try some examples from the dropdown above
+-- or write your own Lua code!"></textarea>
+        </div>
+
+        <div class="output-section">
+            <div class="output-header">
+                <h3>Output</h3>
+                <button id="clearOutput">Clear Output</button>
+            </div>
+            <div id="output" class="output-content"></div>
+        </div>
+    </div>
+
+    <footer>
+        <p>Built with Dart and compiled to JavaScript. LuaLike interpreter running natively in the browser.</p>
+        <p><a href="https://github.com/kingwill101/lualike" target="_blank">View on GitHub</a></p>
+    </footer>
+</div>
+</body>
+
+</html>

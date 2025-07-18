@@ -48,7 +48,7 @@ void main() async {
     local x = 10
     local y = 20
     return x + y
-  ''', ExecutionMode.astInterpreter);
+  ''');
 
   print('Result: $result');
 }
@@ -151,38 +151,10 @@ When logging is enabled, you'll see detailed information about the execution pro
 - Conditional evaluations
 - And more
 
-## Debugging
-
-The `debug` standard library provides functions for inspecting running code. It allows you to get information about functions, check metatables, and generate a stack traceback.
-
-```lua
--- Get information about a function
-local info = debug.getinfo(my_function)
-print(info.source)
-
--- Get the metatable of a value
-local mt = debug.getmetatable({})
-print(mt)
-
--- Get a stack traceback
-local tb = debug.traceback()
-print(tb)
-```
-Note that some functions in the `debug` library are not yet fully implemented. For more details, see the [debug library documentation](./docs/stdlib/debug.md).
-
 ## Testing
 
 This project includes a suite of integration tests. To run them, use the following command:
 
-```sh
-dart run tools/integration.dart
-```
-
-You can configure the tests by editing `tools/integration.yaml` or by passing command-line arguments. For more options, run:
-
-```sh
-dart run tools/integration.dart --help
-```
 
 ## Documentation
 
