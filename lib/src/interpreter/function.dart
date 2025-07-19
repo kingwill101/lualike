@@ -99,6 +99,21 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     final envVal = globals.get('_ENV');
     final gVal = globals.get('_G');
 
+    // Check if there is an existing local variable with this name
+    Environment? localEnv = globals;
+    while (localEnv != null) {
+      if (localEnv.values.containsKey(node.name.first.name) &&
+          localEnv.values[node.name.first.name]!.isLocal) {
+        Logger.debug(
+          'Updating existing local function ${node.name.first.name}',
+          category: 'Interpreter',
+        );
+        localEnv.define(node.name.first.name, closure);
+        return closure;
+      }
+      localEnv = localEnv.parent;
+    }
+
     if (envVal is Value && gVal is Value && envVal != gVal) {
       Logger.debug(
         'Defining function ${node.name.first.name} in custom _ENV table',
