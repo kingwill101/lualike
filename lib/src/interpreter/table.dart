@@ -16,7 +16,13 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       'Accessing table: ${node.table} with key: ${node.index}',
       category: 'TableAccess',
     );
-    final table = await node.table.accept(this);
+    var table = await node.table.accept(this);
+    if (table is Value && table.isMulti) {
+      final values = table.raw as List;
+      table = values.isNotEmpty ? values.first : Value(null);
+    } else if (table is List && table.isNotEmpty) {
+      table = table.first;
+    }
     Object? indexResult;
 
     if (node.index is Identifier) {
@@ -101,7 +107,13 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       'Accessing table field: ${node.table}.${node.fieldName.name}',
       category: 'TableAccess',
     );
-    final table = await node.table.accept(this);
+    var table = await node.table.accept(this);
+    if (table is Value && table.isMulti) {
+      final values = table.raw as List;
+      table = values.isNotEmpty ? values.first : Value(null);
+    } else if (table is List && table.isNotEmpty) {
+      table = table.first;
+    }
 
     // For field access, always use the field name as a literal string key
     final fieldKey = node.fieldName.name;
@@ -416,6 +428,13 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
           rawKey = keyResult is Value ? keyResult.raw : keyResult;
         }
 
+        if (rawKey == null) {
+          throw LuaError.typeError('table index is nil');
+        }
+        if (rawKey is num && rawKey.isNaN) {
+          throw LuaError.typeError('table index is NaN');
+        }
+
         var valueResult = await entry.value.accept(this);
 
         // Keyed entries always use only the first return value
@@ -448,6 +467,13 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
         }
         if (rawKey is LuaString) {
           rawKey = rawKey.toString();
+        }
+
+        if (rawKey == null) {
+          throw LuaError.typeError('table index is nil');
+        }
+        if (rawKey is num && rawKey.isNaN) {
+          throw LuaError.typeError('table index is NaN');
         }
 
         var valueResult = await entry.value.accept(this);
