@@ -359,7 +359,9 @@ class PrintFunction implements BuiltinFunction {
   Future<Object?> call(List<Object?> args) async {
     final outputs = <String>[];
 
-    for (final arg in args) {
+    for (int i = 0; i < args.length; i++) {
+      final arg = args[i];
+
       if (arg == null) {
         outputs.add("nil");
         continue;
@@ -370,34 +372,28 @@ class PrintFunction implements BuiltinFunction {
       // Check for __tostring metamethod first
       final tostring = value.getMetamethod("__tostring");
       if (tostring != null) {
-        try {
-          final result = value.callMetamethod('__tostring', [value]);
-          // Handle both sync and async results
-          final awaitedResult = result is Future ? await result : result;
-          final stringResult = awaitedResult is Value
-              ? awaitedResult.raw.toString()
-              : awaitedResult.toString();
-          outputs.add(stringResult);
-          continue;
-        } catch (e) {
-          // If metamethod call fails, fall back to default behavior
+        final result = await tostring.call([value]);
+        if (result is Value) {
+          final awaitedResult = result.raw is Future
+              ? await result.raw
+              : result.raw;
+          outputs.add(awaitedResult.toString());
+        } else {
+          outputs.add(result.toString());
         }
+        continue;
       }
 
-      // Handle basic types
-      if (value.raw == null) {
-        outputs.add("nil");
-      } else if (value.raw is bool) {
-        outputs.add(value.raw.toString());
-      } else if (value.raw is num) {
+      // Handle different types
+      if (value.raw is num || value.raw is BigInt) {
         // Use proper number formatting
-        outputs.add(
-          value.raw is int
-              ? value.raw.toString()
-              : (value.raw as double).toString(),
-        );
+        outputs.add(value.raw.toString());
       } else if (value.raw is String || value.raw is LuaString) {
         outputs.add(value.raw.toString());
+      } else if (value.raw is bool) {
+        outputs.add(value.raw.toString());
+      } else if (value.raw == null) {
+        outputs.add("nil");
       } else if (value.raw is Map) {
         outputs.add("table: ${value.raw.hashCode}");
       } else if (value.raw is Function || value.raw is BuiltinFunction) {
@@ -405,19 +401,13 @@ class PrintFunction implements BuiltinFunction {
       } else if (value.raw is Future) {
         outputs.add("list: ${value.raw.hashCode}");
       } else {
-        outputs.add(value.raw.toString());
+        outputs.add(value.toString());
       }
     }
 
-    // Use IOLib's defaultOutput instead of direct stdout access
-    final outputStr = "${outputs.join("\t")}\n";
-
-    IOLib.defaultOutput.write(outputStr);
-
-    // Use our LuaFile abstraction for writing
-    // Logger.outputSink?.call(outputStr);
-
-    return Value(null);
+    final output = outputs.join("\t");
+    await IOLib.defaultOutput.write("$output\n");
+    return null;
   }
 }
 

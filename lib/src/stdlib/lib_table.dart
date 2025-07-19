@@ -3,6 +3,151 @@ import 'package:lualike/src/bytecode/vm.dart';
 
 import '../number_limits.dart';
 
+class TablePermission {
+  static const int read = 1;
+  static const int write = 2;
+  static const int length = 4;
+}
+
+/// Check that 'table' either is a table or can behave like one (that is,
+/// has a metatable with the required metamethods)
+void checktab(Value table, int what) {
+  if (table.raw is! Map) {
+    /* is it not a table? */
+    if (table.metatable != null) {
+      /* must have metatable */
+      bool hasRequired = true;
+
+      if ((what & TablePermission.read) != 0) {
+        hasRequired = hasRequired && table.metatable!['__index'] != null;
+      }
+      if ((what & TablePermission.write) != 0) {
+        hasRequired = hasRequired && table.metatable!['__newindex'] != null;
+      }
+      if ((what & TablePermission.length) != 0) {
+        hasRequired = hasRequired && table.metatable!['__len'] != null;
+      }
+
+      if (!hasRequired) {
+        throw LuaError.typeError("table expected");
+      }
+    } else {
+      throw LuaError.typeError("table expected");
+    }
+  }
+}
+
+/// Get the length of a table, respecting the __len metamethod
+/// This corresponds to luaL_len in the C implementation
+int getTableLength(Value table) {
+  // Check if table has a __len metamethod
+  if (table.metatable != null) {
+    final lenMetamethod = table.metatable!['__len'];
+    if (lenMetamethod != null) {
+      try {
+        final lenResult = lenMetamethod.call([table]);
+        if (lenResult is Value) {
+          final lenValue = lenResult.raw;
+          if (lenValue is! int && lenValue is! BigInt) {
+            throw LuaError("object length is not an integer");
+          }
+          return NumberUtils.toInt(lenValue);
+        } else if (lenResult is int || lenResult is BigInt) {
+          return NumberUtils.toInt(lenResult);
+        } else {
+          throw LuaError("object length is not an integer");
+        }
+      } catch (e) {
+        // If the metamethod throws an error, we should propagate it
+        rethrow;
+      }
+    }
+  }
+
+  // No __len metamethod, use regular table length calculation
+  if (table.raw is Map) {
+    return _getTableLength(table.raw as Map);
+  }
+
+  throw LuaError.typeError("table expected");
+}
+
+/// Helper method to calculate table length using Lua semantics
+/// This finds the largest integer key n such that t[n] is not nil
+/// and t[n+1] is nil
+int _getTableLength(Map map) {
+  Logger.debug("_getTableLength: Starting with ${map.length} keys");
+  dynamic length = 0;
+  for (var key in map.keys) {
+    Logger.debug("_getTableLength: Processing key: $key (${key.runtimeType})");
+    if (key is int && key > 0) {
+      Logger.debug("_getTableLength: Key is positive int: $key");
+      final value = map[key];
+      if (value != null && !(value is Value && value.raw == null)) {
+        Logger.debug(
+          "_getTableLength: Key has non-nil value, comparing with length: $length",
+        );
+        if (NumberUtils.compare(key, length) > 0) {
+          Logger.debug(
+            "_getTableLength: Key > length, checking if key > 10000",
+          );
+          // For very large keys (> 10000), skip gap checking entirely to avoid infinite loops
+          if (NumberUtils.compare(key, 10000) > 0) {
+            Logger.debug("_getTableLength: Key > 10000, skipping gap check");
+            // Skip this key entirely - it's too large to check gaps
+            continue;
+          }
+
+          Logger.debug("_getTableLength: Doing gap check for key: $key");
+          // For reasonable keys, do minimal gap checking
+          bool hasGap = false;
+          final maxGapCheck = 100; // Very small limit to prevent any issues
+          final startCheck = NumberUtils.add(length, 1);
+          final diff = NumberUtils.subtract(key, startCheck);
+          final endCheck = (NumberUtils.compare(diff, maxGapCheck) > 0)
+              ? NumberUtils.add(startCheck, maxGapCheck)
+              : key;
+
+          Logger.debug(
+            "_getTableLength: Gap check range: $startCheck to $endCheck",
+          );
+          var i = startCheck;
+          while (NumberUtils.compare(i, endCheck) < 0) {
+            final intermediate = map[i];
+            if (intermediate == null ||
+                (intermediate is Value && intermediate.raw == null)) {
+              Logger.debug("_getTableLength: Found gap at index: $i");
+              hasGap = true;
+              break;
+            }
+            i = NumberUtils.add(i, 1);
+          }
+
+          if (!hasGap) {
+            Logger.debug(
+              "_getTableLength: No gap found, updating length to: $key",
+            );
+            length = key;
+          } else {
+            Logger.debug(
+              "_getTableLength: Gap found, keeping length at: $length",
+            );
+          }
+        } else {
+          Logger.debug("_getTableLength: Key <= length, skipping");
+        }
+      } else {
+        Logger.debug("_getTableLength: Key has nil value, skipping");
+      }
+    } else {
+      Logger.debug("_getTableLength: Key is not positive int, skipping");
+    }
+  }
+  final result = NumberUtils.toInt(length);
+  Logger.debug("_getTableLength: Final result: $result");
+  return result;
+}
+
 class TableLib {
   static final ValueClass tableClass = ValueClass.create({
     "__len": (List<Object?> args) {
@@ -28,25 +173,64 @@ class TableLib {
 class _TableInsert implements BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
-    if (args.length < 2 || args.length > 3) {
+    // Lua: table.insert(table, [pos,] value)
+    final nArgs = args.length;
+    if (nArgs != 2 && nArgs != 3) {
       throw LuaError("wrong number of arguments to 'insert'");
     }
-    final table = args[0] as Value;
-    if (table.raw is! Map) {
-      throw LuaError.typeError(
-        "table.insert requires a table as first argument",
-      );
+    final table = args[0] is Value ? args[0] as Value : Value(args[0]);
+    checktab(
+      table,
+      TablePermission.read | TablePermission.write | TablePermission.length,
+    );
+    final map = table.raw as Map;
+
+    // Check if table has a __len metamethod that returns non-integer
+    if (table.metatable != null) {
+      final lenMetamethod = table.metatable!['__len'];
+      if (lenMetamethod != null) {
+        try {
+          final lenResult = lenMetamethod.call([table]);
+          if (lenResult is Value) {
+            final lenValue = lenResult.raw;
+            if (lenValue is! int && lenValue is! BigInt) {
+              throw LuaError("object length is not an integer");
+            }
+          } else if (lenResult is! int && lenResult is! BigInt) {
+            throw LuaError("object length is not an integer");
+          }
+        } catch (e) {
+          // If the metamethod throws an error, we should propagate it
+          rethrow;
+        }
+      }
     }
 
-    final map = table.raw as Map;
-    final pos = args.length == 3
-        ? (args[1] as Value).raw as int
-        : map.length + 1;
-    final value = args[args.length == 3 ? 2 : 1];
+    // Find the array length (aux_getn)
+    int e = 0;
+    while (map.containsKey(e + 1)) {
+      e++;
+    }
+    final int firstEmpty = e + 1;
 
-    // Shift existing elements
-    for (var i = map.length + 1; i > pos; i--) {
-      map[i] = map[i - 1];
+    int pos;
+    Object? value;
+    if (nArgs == 2) {
+      // Only table, value: insert at end
+      pos = firstEmpty;
+      value = args[1];
+    } else {
+      // table, pos, value
+      pos = (args[1] as Value).raw as int;
+      value = args[2];
+      // Check bounds: 1 <= pos <= firstEmpty
+      if (pos < 1 || pos > firstEmpty) {
+        throw LuaError("position out of bounds");
+      }
+      // Move up elements: for (i = firstEmpty; i > pos; i--) t[i] = t[i-1]
+      for (var i = firstEmpty; i > pos; i--) {
+        map[i] = map[i - 1];
+      }
     }
     map[pos] = value;
     return Value(null);
@@ -59,12 +243,8 @@ class _TableRemove implements BuiltinFunction {
     if (args.isEmpty) {
       throw LuaError.typeError("table.remove requires a table argument");
     }
-    final table = args[0] as Value;
-    if (table.raw is! Map) {
-      throw LuaError.typeError(
-        "table.remove requires a table as first argument",
-      );
-    }
+    final table = args[0] is Value ? args[0] as Value : Value(args[0]);
+    checktab(table, TablePermission.read | TablePermission.write);
 
     final map = table.raw as Map;
     final pos = args.length > 1 ? (args[1] as Value).raw as int : map.length;
@@ -91,10 +271,8 @@ class _TableConcat implements BuiltinFunction {
     if (args.isEmpty) {
       throw LuaError.typeError("table expected");
     }
-    final table = args[0] as Value;
-    if (table.raw is! Map) {
-      throw LuaError.typeError("table expected");
-    }
+    final table = args[0] is Value ? args[0] as Value : Value(args[0]);
+    checktab(table, TablePermission.read);
 
     final map = table.raw as Map;
     final sep = args.length > 1 ? (args[1] as Value).raw.toString() : "";
@@ -137,97 +315,88 @@ class _TableConcat implements BuiltinFunction {
 
 class _TableMove implements BuiltinFunction {
   @override
-  Object? call(List<Object?> args) {
+  Future<Object?> call(List<Object?> args) async {
+    Logger.debug("_TableMove: Starting with ${args.length} args");
+
     if (args.length < 4) {
       throw LuaError.typeError("table.move requires at least 4 arguments");
     }
 
-    final a1 = args[0] as Value;
-    final f = (args[1] as Value).raw as int;
-    final e = (args[2] as Value).raw as int;
-    final t = (args[3] as Value).raw as int;
-    final a2 = args.length > 4 ? args[4] as Value : a1;
+    // Ensure all arguments are Value objects
+    final a1 = args[0] is Value ? args[0] as Value : Value(args[0]);
+    Logger.debug("_TableMove: a1 = $a1, type = ${a1.raw.runtimeType}");
 
-    if (a1.raw is! Map || a2.raw is! Map) {
-      throw LuaError.typeError("table.move requires table arguments");
-    }
-
-    final srcTable = a1.raw as Map;
-    final destTable = a2.raw as Map;
-
-    if (f > e) {
-      return a2; // Nothing to move
-    }
-
-    // Check for "too many elements to move" (from C implementation)
-    // Use NumberUtils for safe arithmetic operations
-    if (f <= 0 && e > 0) {
-      final maxAllowed = NumberUtils.add(NumberLimits.maxInteger, f);
-      if (NumberUtils.compare(e, maxAllowed) > 0) {
-        throw LuaError("too many elements to move");
-      }
-    }
-
-    // Calculate n = e - f + 1 using NumberUtils to handle overflow
-    final n = NumberUtils.add(NumberUtils.subtract(e, f), 1);
-
-    // Check for "destination wrap around" (from C implementation)
-    // luaL_argcheck(L, t <= LUA_MAXINTEGER - n + 1, 4, "destination wrap around");
-    final maxDest = NumberUtils.add(
-      NumberLimits.maxInteger,
-      NumberUtils.subtract(1, n),
+    final f = NumberUtils.toInt(
+      (args[1] is Value ? args[1] as Value : Value(args[1])).raw,
     );
-    if (NumberUtils.compare(t, maxDest) > 0) {
-      throw LuaError("destination wrap around");
-    }
+    final e = NumberUtils.toInt(
+      (args[2] is Value ? args[2] as Value : Value(args[2])).raw,
+    );
+    final t = NumberUtils.toInt(
+      (args[3] is Value ? args[3] as Value : Value(args[3])).raw,
+    );
+    final a2 = args.length > 4
+        ? (args[4] is Value ? args[4] as Value : Value(args[4]))
+        : a1;
 
-    // For extremely large ranges (like 1 to maxI), fail early after first access
-    // This matches the Lua reference implementation behavior
-    if (NumberUtils.compare(e, f) > NumberLimits.maxInt32) {
-      // Just access the first element to trigger metamethods, then fail
-      final value = srcTable[f];
-      final destIndex = t;
-      destTable[destIndex] = value;
-      throw LuaError("too many elements to move");
-    }
+    Logger.debug("_TableMove: f=$f, e=$e, t=$t, a2=$a2");
 
-    // Calculate the direction of movement to avoid overwriting values
-    // when source and destination tables are the same
-    if (a1 == a2 && NumberUtils.compare(t, f) > 0) {
-      // Move from right to left (highest index first)
-      var i = e;
-      while (NumberUtils.compare(i, f) >= 0) {
-        final value = srcTable[i];
-        final destIndex = NumberUtils.add(t, NumberUtils.subtract(i, f));
-        destTable[destIndex] = value;
+    checktab(a1, TablePermission.read);
+    checktab(a2, TablePermission.write);
 
-        // Check for integer overflow to prevent infinite loops
-        if (i == NumberLimits.minInteger) {
-          break; // Can't decrement further
+    if (e >= f) {
+      /* otherwise, nothing to move */
+      // Check for "too many elements to move"
+      if (f <= 0 && e > 0) {
+        final maxAllowed = NumberUtils.add(NumberLimits.maxInteger, f);
+        if (NumberUtils.compare(e, maxAllowed) > 0) {
+          throw LuaError("too many elements to move");
         }
-
-        // Use NumberUtils for safe decrement
-        i = NumberUtils.subtract(i, 1);
       }
-    } else {
-      // Move from left to right (lowest index first)
-      var i = f;
-      while (NumberUtils.compare(i, e) <= 0) {
-        final value = srcTable[i];
-        final destIndex = NumberUtils.add(t, NumberUtils.subtract(i, f));
-        destTable[destIndex] = value;
 
-        // Check for integer overflow to prevent infinite loops
-        if (i == NumberLimits.maxInteger) {
-          break; // Can't increment further
+      // Calculate n = e - f + 1
+      final n = NumberUtils.add(NumberUtils.subtract(e, f), 1);
+
+      // Check for "destination wrap around"
+      final maxDest = NumberUtils.add(
+        NumberLimits.maxInteger,
+        NumberUtils.subtract(1, n),
+      );
+      if (NumberUtils.compare(t, maxDest) > 0) {
+        throw LuaError("destination wrap around");
+      }
+
+      // Determine direction of movement
+      if (t > e || t <= f || (a1 != a2)) {
+        // Move in increasing order (left to right)
+        for (var i = 0; NumberUtils.compare(i, n) < 0; i++) {
+          final srcIndex = NumberUtils.add(f, i);
+          final destIndex = NumberUtils.add(t, i);
+          // Use proper table access that respects metamethods and awaits Future results
+          var value = await a1.getValueAsync(Value(srcIndex));
+          // Handle null values properly - convert to Value(null)
+          final valueToStore = value is Value ? value : Value(value);
+          (a2.raw as Map)[destIndex] = valueToStore;
         }
-
-        // Use NumberUtils for safe increment
-        i = NumberUtils.add(i, 1);
+      } else {
+        // Move in decreasing order (right to left) to avoid overwriting
+        for (
+          var i = NumberUtils.subtract(n, 1);
+          NumberUtils.compare(i, 0) >= 0;
+          i--
+        ) {
+          final srcIndex = NumberUtils.add(f, i);
+          final destIndex = NumberUtils.add(t, i);
+          // Use proper table access that respects metamethods and awaits Future results
+          var value = await a1.getValueAsync(Value(srcIndex));
+          // Handle null values properly - convert to Value(null)
+          final valueToStore = value is Value ? value : Value(value);
+          (a2.raw as Map)[destIndex] = valueToStore;
+        }
       }
     }
 
-    return a2;
+    return a2; /* return destination table */
   }
 }
 
@@ -238,10 +407,8 @@ class _TableSort implements BuiltinFunction {
       throw LuaError.typeError("table.sort requires a table argument");
     }
 
-    final table = args[0] as Value;
-    if (table.raw is! Map) {
-      throw LuaError.typeError("table.sort requires a table as first argument");
-    }
+    final table = args[0] is Value ? args[0] as Value : Value(args[0]);
+    checktab(table, TablePermission.read | TablePermission.write);
 
     final map = table.raw as Map;
     final comp = args.length > 1 ? args[1] : null;
@@ -369,21 +536,25 @@ class _TablePack implements BuiltinFunction {
 class _TableUnpack implements BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
+    Logger.debug("_TableUnpack: Starting unpack with ${args.length} args");
+
     if (args.isEmpty) {
       throw LuaError.typeError("table.unpack requires a table argument");
     }
 
-    final table = args[0] as Value;
-    if (table.raw is! Map) {
-      throw LuaError.typeError("table.unpack requires a table argument");
-    }
+    final table = args[0] is Value ? args[0] as Value : Value(args[0]);
+    checktab(table, TablePermission.read);
     final map = table.raw as Map;
+    Logger.debug("_TableUnpack: Got table with ${map.length} entries");
 
     int i, j;
 
     // Handle start index (default to 1)
     if (args.length > 1) {
       final startArg = args[1] as Value;
+      Logger.debug(
+        "_TableUnpack: Start arg raw value: ${startArg.raw}, type: ${startArg.raw.runtimeType}",
+      );
       if (startArg.raw == null) {
         throw LuaError.typeError(
           "bad argument #2 to 'unpack' (number expected, got nil)",
@@ -391,55 +562,89 @@ class _TableUnpack implements BuiltinFunction {
       }
       try {
         i = NumberUtils.toInt(startArg.raw);
+        Logger.debug(
+          "_TableUnpack: Converted start index to: $i, type: ${i.runtimeType}",
+        );
       } catch (e) {
+        Logger.debug("_TableUnpack: Error converting start index: $e");
         throw LuaError.typeError(
           "bad argument #2 to 'unpack' (number expected)",
         );
       }
     } else {
       i = 1;
+      Logger.debug("_TableUnpack: Using default start index: $i");
     }
 
     // Handle end index (default to table length using Lua semantics)
     if (args.length > 2) {
       final endArg = args[2] as Value;
+      Logger.debug(
+        "_TableUnpack: End arg raw value: ${endArg.raw}, type: ${endArg.raw.runtimeType}",
+      );
       if (endArg.raw == null) {
         // nil means use table length (same as not providing the argument)
-        j = _getTableLength(map);
+        Logger.debug("_TableUnpack: End arg is nil, getting table length");
+        j = getTableLength(table);
       } else {
         try {
           j = NumberUtils.toInt(endArg.raw);
+          Logger.debug(
+            "_TableUnpack: Converted end index to: $j, type: ${j.runtimeType}",
+          );
         } catch (e) {
+          Logger.debug("_TableUnpack: Error converting end index: $e");
           throw LuaError.typeError(
             "bad argument #3 to 'unpack' (number expected)",
           );
         }
       }
     } else {
-      j = _getTableLength(map);
+      Logger.debug("_TableUnpack: No end arg, getting table length");
+      j = getTableLength(table);
     }
+
+    Logger.debug(
+      "_TableUnpack: i=$i (${i.runtimeType}), j=$j (${j.runtimeType})",
+    );
 
     // Check for empty range
     if (i > j) {
-      return Value.multi([]);
+      Logger.debug("_TableUnpack: Empty range (i > j), returning nil");
+      return Value(null);
     }
 
     // Check for "too many results to unpack"
     // Use NumberUtils for safe arithmetic operations
+    Logger.debug("_TableUnpack: Calculating n = j - i + 1");
 
     // Calculate n = j - i + 1 using NumberUtils to handle overflow
-    final n = NumberUtils.add(NumberUtils.subtract(j, i), 1);
+    // Ensure consistent types by converting constants to BigInt when needed
+    final diff = NumberUtils.subtract(j, i);
+    Logger.debug("_TableUnpack: diff = $diff (${diff.runtimeType})");
+    final n = NumberUtils.add(diff, 1);
+    Logger.debug("_TableUnpack: n = $n (${n.runtimeType})");
 
     // Check if n is valid (positive and not too large)
-    if (n < 0 || n >= NumberLimits.maxInt32) {
+    Logger.debug("_TableUnpack: Checking if n is valid");
+    final nCompare0 = NumberUtils.compare(n, 0);
+    Logger.debug("_TableUnpack: n compare 0: $nCompare0");
+    final nCompareMax = NumberUtils.compare(n, NumberLimits.maxInt32);
+    Logger.debug("_TableUnpack: n compare maxInt32: $nCompareMax");
+
+    if (nCompare0 < 0 || nCompareMax >= 0) {
+      Logger.debug("_TableUnpack: n is invalid, throwing error");
       throw LuaError("too many results to unpack");
     }
 
+    Logger.debug("_TableUnpack: n is valid, starting loop");
     final result = <Value>[];
 
     // Use NumberUtils for safe loop iteration
     var k = i;
+    Logger.debug("_TableUnpack: Starting loop with k=$k (${k.runtimeType})");
     while (NumberUtils.compare(k, j) <= 0) {
+      Logger.debug("_TableUnpack: Loop iteration, k=$k, j=$j");
       final v = map[k];
       if (v == null || (v is Value && v.raw == null)) {
         result.add(Value(null));
@@ -449,57 +654,16 @@ class _TableUnpack implements BuiltinFunction {
 
       // Use NumberUtils for safe increment
       if (k == NumberLimits.maxInteger) {
+        Logger.debug("_TableUnpack: k reached maxInteger, breaking");
         break; // Can't increment further
       }
       k = NumberUtils.add(k, 1);
+      Logger.debug("_TableUnpack: Incremented k to: $k (${k.runtimeType})");
     }
 
     if (result.isEmpty) return Value.multi([]);
     if (result.length == 1) return result[0];
     return Value.multi(result);
-  }
-
-  // Helper method to calculate table length using Lua semantics
-  // This finds the largest integer key n such that t[n] is not nil
-  // and t[n+1] is nil
-  int _getTableLength(Map map) {
-    int length = 0;
-    for (var key in map.keys) {
-      if (key is int && key > 0) {
-        final value = map[key];
-        if (value != null && !(value is Value && value.raw == null)) {
-          if (key > length) {
-            // For very large keys (> 10000), skip gap checking entirely to avoid infinite loops
-            if (key > 10000) {
-              // Skip this key entirely - it's too large to check gaps
-              continue;
-            }
-
-            // For reasonable keys, do minimal gap checking
-            bool hasGap = false;
-            final maxGapCheck = 100; // Very small limit to prevent any issues
-            final startCheck = length + 1;
-            final endCheck = (key - startCheck > maxGapCheck)
-                ? startCheck + maxGapCheck
-                : key;
-
-            for (var i = startCheck; i < endCheck; i++) {
-              final intermediate = map[i];
-              if (intermediate == null ||
-                  (intermediate is Value && intermediate.raw == null)) {
-                hasGap = true;
-                break;
-              }
-            }
-
-            if (!hasGap) {
-              length = key;
-            }
-          }
-        }
-      }
-    }
-    return length;
   }
 }
 

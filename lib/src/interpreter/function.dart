@@ -622,13 +622,16 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
               result = await result;
             }
 
+            Logger.debug(
+              '>>> Builtin function call completed, result = $result',
+              category: 'Interpreter',
+            );
             return result;
           } catch (e, s) {
             Logger.debug(
-              '>>> Error in builtin function: $e',
+              '>>> Builtin function call failed: $e',
               category: 'Interpreter',
             );
-            Logger.debug('>>> Stack trace: $s', category: 'Interpreter');
             rethrow;
           }
         } else if (func.raw is FunctionDef) {
@@ -957,24 +960,19 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     }
 
     if (result is Value) {
-      // Value is already properly wrapped
       return result;
     }
 
     if (result is List) {
-      // For lists, check if it's meant to be multi-return values
       if (result.isEmpty) {
         return Value(null);
       } else if (result.length == 1) {
-        // Single return value
         return result[0] is Value ? result[0] : Value(result[0]);
       } else {
-        // Multiple return values
         return Value.multi(result);
       }
     }
 
-    // Regular return value
     return Value(result);
   }
 }
