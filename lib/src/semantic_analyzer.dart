@@ -101,6 +101,19 @@ class SemanticAnalyzer implements AstVisitor<void> {
   }
 
   @override
+  Future<void> visitGlobalDeclaration(GlobalDeclaration node) async {
+    for (var i = 0; i < node.names.length; i++) {
+      final name = node.names[i].name;
+      final attribute = i < node.attributes.length ? node.attributes[i] : '';
+      final isConst = attribute == 'const';
+      _declareVariable(name, isConst: isConst);
+    }
+    for (final expr in node.exprs) {
+      await expr.accept(this);
+    }
+  }
+
+  @override
   Future<void> visitAssignment(Assignment node) async {
     print(
       "DEBUG: visitAssignment called with targets: ${node.targets.map((t) => t.runtimeType)}",

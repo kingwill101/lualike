@@ -793,6 +793,61 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     return null;
   }
 
+  @override
+  Future<Object?> visitGlobalDeclaration(GlobalDeclaration node) async {
+    Logger.debug(
+      'Visiting GlobalDeclaration: ${node.names}',
+      category: 'Interpreter',
+    );
+
+    final values = <Object?>[];
+    for (final expr in node.exprs) {
+      var value = await expr.accept(this);
+      if (value is Future) {
+        value = await value;
+      } else if (value is Value && value.raw is Future) {
+        value = Value(await value.raw);
+      }
+
+      if (value is List) {
+        values.addAll(value);
+      } else if (value is Value && value.isMulti) {
+        values.addAll(value.raw);
+      } else {
+        values.add(value is Value ? value : Value(value));
+      }
+    }
+
+    for (var i = 0; i < node.names.length; i++) {
+      final name = node.names[i].name;
+      final attribute = node.attributes.length > i ? node.attributes[i] : null;
+      final rawValue = i < values.length ? values[i] : Value(null);
+
+      Value valueWithAttributes;
+      if (attribute == 'const') {
+        valueWithAttributes = rawValue is Value
+            ? Value(rawValue.raw, metatable: rawValue.metatable, isConst: true)
+            : Value(rawValue, isConst: true);
+      } else if (attribute == 'close') {
+        valueWithAttributes = rawValue is Value
+            ? Value(
+                rawValue.raw,
+                metatable: rawValue.metatable,
+                isToBeClose: true,
+              )
+            : Value(rawValue, isToBeClose: true);
+      } else {
+        valueWithAttributes = rawValue is Value
+            ? Value(rawValue.raw, metatable: rawValue.metatable)
+            : Value(rawValue);
+      }
+
+      globals.define(name, valueWithAttributes);
+    }
+
+    return null;
+  }
+
   /// Handles assignment to a table index.
   ///
   /// Evaluates the target table, index, and value expressions, then assigns

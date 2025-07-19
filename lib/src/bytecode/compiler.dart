@@ -149,6 +149,19 @@ class Compiler implements AstVisitor<void> {
   }
 
   @override
+  Future<void> visitGlobalDeclaration(GlobalDeclaration node) async {
+    // Global declarations are not yet compiled to bytecode.
+    // Treat them as simple assignments for now.
+    for (final expr in node.exprs) {
+      await expr.accept(this);
+    }
+    for (final name in node.names) {
+      final reg = getOrCreateRegister(name.name);
+      instructions.add(Instruction(OpCode.STORE_LOCAL, [reg]));
+    }
+  }
+
+  @override
   Future<void> visitNumberLiteral(NumberLiteral node) async {
     final constIndex = addConstant(node.value);
     instructions.add(Instruction(OpCode.LOAD_CONST, [constIndex]));

@@ -213,6 +213,7 @@ class LuaGrammarDefinition extends GrammarDefinition {
       ref0(_localFunctionDefStat) |
       ref0(_functionDefStat) |
       ref0(_localDeclaration) |
+      ref0(_globalDeclaration) |
       ref0(_forNumericStat) |
       ref0(_forGenericStat) |
       ref0(_doBlockStat) |
@@ -717,6 +718,27 @@ class LuaGrammarDefinition extends GrammarDefinition {
 
       return LocalDeclaration(names, attributes, exprs);
     }),
+  );
+
+  // ----------------- Global Declaration -----------------------------------
+
+  Parser _globalDeclaration() => _span(
+    (_token('global') & _attNameList() & (_token('=') & _explist()).optional())
+        .map((vals) {
+          final pairList = vals[1] as List<List>;
+          final names = <Identifier>[];
+          final attributes = <String>[];
+          for (final pair in pairList) {
+            names.add(pair[0] as Identifier);
+            attributes.add(pair[1] as String);
+          }
+
+          final exprs = vals[2] == null
+              ? <AstNode>[]
+              : (vals[2] as List)[1] as List<AstNode>;
+
+          return GlobalDeclaration(names, attributes, exprs);
+        }),
   );
 
   Parser _attNameList() =>

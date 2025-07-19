@@ -26,6 +26,8 @@ abstract class AstVisitor<T> {
 
   Future<T> visitLocalDeclaration(LocalDeclaration node);
 
+  Future<T> visitGlobalDeclaration(GlobalDeclaration node);
+
   Future<T> visitIfStatement(IfStatement node);
 
   Future<T> visitWhileStatement(WhileStatement node);
@@ -240,6 +242,34 @@ class LocalDeclaration extends AstNode {
     }
     final exprsStr = exprs.map((e) => e.toSource()).join(", ");
     return "local $nameAttribPairs = $exprsStr";
+  }
+}
+
+/// global x = expr
+class GlobalDeclaration extends AstNode {
+  final List<Identifier> names;
+  final List<String> attributes; // "const", "close", or empty string
+  final List<AstNode> exprs;
+
+  GlobalDeclaration(this.names, this.attributes, this.exprs);
+
+  @override
+  Future<T> accept<T>(AstVisitor<T> visitor) =>
+      visitor.visitGlobalDeclaration(this);
+
+  @override
+  String toSource() {
+    final nameAttribPairs = List.generate(names.length, (i) {
+      final name = names[i].toSource();
+      final attribute = attributes[i];
+      return attribute.isNotEmpty ? "$name <$attribute>" : name;
+    }).join(', ');
+
+    if (exprs.isEmpty) {
+      return "global $nameAttribPairs";
+    }
+    final exprsStr = exprs.map((e) => e.toSource()).join(', ');
+    return "global $nameAttribPairs = $exprsStr";
   }
 }
 
