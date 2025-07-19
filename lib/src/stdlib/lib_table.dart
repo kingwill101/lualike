@@ -39,21 +39,56 @@ void checktab(Value table, int what) {
 
 /// Get the length of a table, respecting the __len metamethod
 /// This corresponds to luaL_len in the C implementation
-int getTableLength(Value table) {
+Future<int> getTableLength(Value table, {String? context}) async {
   // Check if table has a __len metamethod
   if (table.metatable != null) {
     final lenMetamethod = table.metatable!['__len'];
     if (lenMetamethod != null) {
       try {
-        final lenResult = lenMetamethod.call([table]);
+        final lenResult = await lenMetamethod.call([table]);
+        Logger.debug(
+          "getTableLength: lenResult = $lenResult, type = ${lenResult.runtimeType}",
+        );
         if (lenResult is Value) {
           final lenValue = lenResult.raw;
           if (lenValue is! int && lenValue is! BigInt) {
             throw LuaError("object length is not an integer");
           }
-          return NumberUtils.toInt(lenValue);
+          // Try to convert to int, but catch conversion errors
+          try {
+            return NumberUtils.toInt(lenValue);
+          } catch (e) {
+            // If conversion fails due to size, handle based on context
+            if (lenValue is BigInt &&
+                lenValue >= BigInt.from(NumberLimits.maxInt32)) {
+              if (context == "table.sort") {
+                throw LuaError(
+                  "bad argument #1 to 'table.sort' (array too big)",
+                );
+              } else {
+                throw LuaError("object length is not an integer");
+              }
+            }
+            rethrow;
+          }
         } else if (lenResult is int || lenResult is BigInt) {
-          return NumberUtils.toInt(lenResult);
+          // Try to convert to int, but catch conversion errors
+          try {
+            return NumberUtils.toInt(lenResult);
+          } catch (e) {
+            // If conversion fails due to size, handle based on context
+            if (lenResult is BigInt &&
+                lenResult >= BigInt.from(NumberLimits.maxInt32)) {
+              if (context == "table.sort") {
+                throw LuaError(
+                  "bad argument #1 to 'table.sort' (array too big)",
+                );
+              } else {
+                throw LuaError("object length is not an integer");
+              }
+            }
+            rethrow;
+          }
         } else {
           throw LuaError("object length is not an integer");
         }
@@ -193,6 +228,9 @@ class _TableInsert implements BuiltinFunction {
           final lenResult = lenMetamethod.call([table]);
           if (lenResult is Value) {
             final lenValue = lenResult.raw;
+            Logger.debug(
+              "getTableLength: lenValue = $lenValue, type = ${lenValue.runtimeType}",
+            );
             if (lenValue is! int && lenValue is! BigInt) {
               throw LuaError("object length is not an integer");
             }
@@ -429,6 +467,50 @@ class _TableSort implements BuiltinFunction {
     final map = table.raw as Map;
     final comp = args.length > 1 ? args[1] : null;
 
+    // Check for "array too big" (from C implementation)
+    // luaL_argcheck(L, n < INT_MAX, 1, "array too big");
+    // First check the table length using __len metamethod if available
+    try {
+      final tableLength = await getTableLength(table, context: "table.sort");
+      if (tableLength >= NumberLimits.maxInt32) {
+        throw LuaError("bad argument #1 to 'table.sort' (array too big)");
+      }
+    } catch (e) {
+      // If getTableLength throws an error (like "object length is not an integer"),
+      // we should check if it's because the length is too large
+      if (e is LuaError &&
+          e.message.contains("object length is not an integer")) {
+        // Check if the table has a __len metamethod that returns a large value
+        if (table.metatable != null) {
+          final lenMetamethod = table.metatable!['__len'];
+          if (lenMetamethod != null) {
+            try {
+              final lenResult = lenMetamethod.call([table]);
+              if (lenResult is Value) {
+                final lenValue = lenResult.raw;
+                if (lenValue is BigInt &&
+                    lenValue >= BigInt.from(NumberLimits.maxInt32)) {
+                  throw LuaError(
+                    "bad argument #1 to 'table.sort' (array too big)",
+                  );
+                }
+              } else if (lenResult is BigInt &&
+                  lenResult >= BigInt.from(NumberLimits.maxInt32)) {
+                throw LuaError(
+                  "bad argument #1 to 'table.sort' (array too big)",
+                );
+              }
+            } catch (_) {
+              // If the metamethod call fails, rethrow the original error
+              rethrow;
+            }
+          }
+        }
+      }
+      // Rethrow the original error
+      rethrow;
+    }
+
     // Get the array part of the table (numeric indices)
     final keys = map.keys.where((k) => k is int && k >= 1).toList()..sort();
     if (keys.isEmpty) {
@@ -437,12 +519,6 @@ class _TableSort implements BuiltinFunction {
 
     // Get the maximum array index
     final maxIndex = keys.last as int;
-
-    // Check for "array too big" (from C implementation)
-    // luaL_argcheck(L, n < INT_MAX, 1, "array too big");
-    if (maxIndex >= NumberLimits.maxInt32) {
-      throw LuaError("bad argument #1 to 'table.sort' (array too big)");
-    }
 
     // Create a list of values to sort
     final values = <dynamic>[];
@@ -551,7 +627,7 @@ class _TablePack implements BuiltinFunction {
 
 class _TableUnpack implements BuiltinFunction {
   @override
-  Object? call(List<Object?> args) {
+  Object? call(List<Object?> args) async {
     Logger.debug("_TableUnpack: Starting unpack with ${args.length} args");
 
     if (args.isEmpty) {
@@ -601,7 +677,7 @@ class _TableUnpack implements BuiltinFunction {
       if (endArg.raw == null) {
         // nil means use table length (same as not providing the argument)
         Logger.debug("_TableUnpack: End arg is nil, getting table length");
-        j = getTableLength(table);
+        j = await getTableLength(table, context: null);
       } else {
         try {
           j = NumberUtils.toInt(endArg.raw);
@@ -617,7 +693,7 @@ class _TableUnpack implements BuiltinFunction {
       }
     } else {
       Logger.debug("_TableUnpack: No end arg, getting table length");
-      j = getTableLength(table);
+      j = await getTableLength(table, context: null);
     }
 
     Logger.debug(

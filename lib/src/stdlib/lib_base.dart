@@ -686,7 +686,7 @@ class LoadFunction implements BuiltinFunction {
           // provide values to the caller, not unwind the interpreter
           return e.value;
         } catch (e) {
-          throw Exception("Error executing loaded chunk '$chunkname': $e");
+          throw LuaError("Error executing loaded chunk '$chunkname': $e");
         }
       });
     } catch (e) {
