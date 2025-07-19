@@ -289,8 +289,8 @@ end
 
 
 do print("coroutines closing itself")
-  global <const> coroutine, string, os
-  global <const> assert, error, pcall
+  -- global <const> coroutine, string, os
+  -- global <const> assert, error, pcall
 
   local X = nil
 

@@ -213,19 +213,10 @@ class Coroutine extends GCObject {
         'Coroutine.resume: Finally block executed',
         category: 'Coroutine',
       );
-      // Restore the previous coroutine and environment
-      if (interpreter != null) {
-        interpreter.setCurrentCoroutine(previousCoroutine);
-        if (previousEnv != null) {
-          interpreter.setCurrentEnv(previousEnv);
-        }
-
-        // If the previous coroutine exists, update its status
-        if (previousCoroutine != null && previousCoroutine != this) {
-          if (previousCoroutine.status == CoroutineStatus.normal) {
-            previousCoroutine.status = CoroutineStatus.running;
-          }
-        }
+      // Restore the previous environment; the wrapper manages the
+      // current coroutine to avoid race conditions while resuming.
+      if (interpreter != null && previousEnv != null) {
+        interpreter.setCurrentEnv(previousEnv);
       }
     }
   }
@@ -282,6 +273,7 @@ class Coroutine extends GCObject {
     throw YieldException(
       values.cast<Value>(), // Cast to List<Value>
       completer!.future, // The future to await on next resume
+      this,
     );
   }
 
