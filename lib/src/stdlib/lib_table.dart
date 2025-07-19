@@ -340,18 +340,26 @@ class _TableMove implements BuiltinFunction {
         : a1;
 
     Logger.debug("_TableMove: f=$f, e=$e, t=$t, a2=$a2");
+    Logger.debug(
+      "_TableMove: maxI=${NumberLimits.maxInteger}, minI=${NumberLimits.minInteger}",
+    );
 
+    Logger.debug("_TableMove: About to checktab a1");
     checktab(a1, TablePermission.read);
+    Logger.debug("_TableMove: About to checktab a2");
     checktab(a2, TablePermission.write);
+    Logger.debug("_TableMove: checktab completed");
 
     if (e >= f) {
       /* otherwise, nothing to move */
-      // Check for "too many elements to move"
-      if (f <= 0 && e > 0) {
-        final maxAllowed = NumberUtils.add(NumberLimits.maxInteger, f);
-        if (NumberUtils.compare(e, maxAllowed) > 0) {
-          throw LuaError("too many elements to move");
-        }
+      // Check for "too many elements to move" (Lua C implementation logic)
+      // luaL_argcheck(L, f > 0 || e < LUA_MAXINTEGER + f, 3, "too many elements to move");
+      if (NumberUtils.compare(f, 0) <= 0 &&
+          NumberUtils.compare(e, NumberUtils.add(NumberLimits.maxInteger, f)) >=
+              0) {
+        throw LuaError(
+          "bad argument #3 to 'table.move' (too many elements to move)",
+        );
       }
 
       // Calculate n = e - f + 1
@@ -372,11 +380,18 @@ class _TableMove implements BuiltinFunction {
         for (var i = 0; NumberUtils.compare(i, n) < 0; i++) {
           final srcIndex = NumberUtils.add(f, i);
           final destIndex = NumberUtils.add(t, i);
+          Logger.debug(
+            "_TableMove: i=$i, srcIndex=$srcIndex, destIndex=$destIndex",
+          );
           // Use proper table access that respects metamethods and awaits Future results
           var value = await a1.getValueAsync(Value(srcIndex));
           // Handle null values properly - convert to Value(null)
           final valueToStore = value is Value ? value : Value(value);
-          (a2.raw as Map)[destIndex] = valueToStore;
+          Logger.debug(
+            "_TableMove: writing value=$valueToStore to destIndex=$destIndex",
+          );
+          // Use proper table assignment that respects __newindex metamethod and awaits Future results
+          await a2.setValueAsync(Value(destIndex), valueToStore);
         }
       } else {
         // Move in decreasing order (right to left) to avoid overwriting
@@ -391,7 +406,8 @@ class _TableMove implements BuiltinFunction {
           var value = await a1.getValueAsync(Value(srcIndex));
           // Handle null values properly - convert to Value(null)
           final valueToStore = value is Value ? value : Value(value);
-          (a2.raw as Map)[destIndex] = valueToStore;
+          // Use proper table assignment that respects __newindex metamethod and awaits Future results
+          await a2.setValueAsync(Value(destIndex), valueToStore);
         }
       }
     }
@@ -425,7 +441,7 @@ class _TableSort implements BuiltinFunction {
     // Check for "array too big" (from C implementation)
     // luaL_argcheck(L, n < INT_MAX, 1, "array too big");
     if (maxIndex >= NumberLimits.maxInt32) {
-      throw LuaError("array too big");
+      throw LuaError("bad argument #1 to 'table.sort' (array too big)");
     }
 
     // Create a list of values to sort
