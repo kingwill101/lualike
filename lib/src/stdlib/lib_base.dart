@@ -1485,7 +1485,10 @@ class RequireFunction implements BuiltinFunction {
 
         if (loader is Value && loader.isCallable()) {
           try {
-            final result = await (loader.raw as Function)([]);
+            final result = await (loader.raw as Function)([
+              Value(moduleName),
+              Value(':preload:'),
+            ]);
             loaded[moduleName] = result;
             return Value.multi([result, Value(':preload:')]);
           } catch (e) {
