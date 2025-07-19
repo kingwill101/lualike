@@ -99,6 +99,6 @@ void main() {
     ]).accept(vm);
 
     // No return value, but function should execute without error
-    expect(result, equals(Value(null)));
+    expect(result, isNull);
   });
 }
