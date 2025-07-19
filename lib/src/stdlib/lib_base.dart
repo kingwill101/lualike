@@ -1543,8 +1543,9 @@ class RequireFunction implements BuiltinFunction {
           // Parse the module code
           final ast = parse(source, url: modulePathStr);
 
-          // Execute module code directly in the global environment to mimic Lua
-          final moduleEnv = vm.globals;
+          // Execute module code in a fresh environment to avoid polluting _ENV
+          final moduleEnv = Environment.createModuleEnvironment(vm.globals)
+            ..interpreter = vm;
 
           // We'll execute the module code using the current interpreter to
           // ensure package.loaded is shared.
@@ -1658,7 +1659,7 @@ class RequireFunction implements BuiltinFunction {
     // Step 3: If direct loading failed, try the searchers
     if (!packageTable.containsKey("searchers") ||
         packageTable["searchers"] is! Value) {
-      throw Exception("package.searchers is not a table");
+      throw Exception("package.searchers must be a table");
     }
     final searchersVal = packageTable["searchers"] as Value;
     if (searchersVal.raw is! List) {
