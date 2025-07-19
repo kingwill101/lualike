@@ -180,7 +180,11 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       '_handleTableAccessAssignment: Assigning $wrappedValue to $target',
       category: 'Interpreter',
     );
-    final tableValue = await target.table.accept(this);
+    var tableValue = await target.table.accept(this);
+    if (tableValue is Value && tableValue.isMulti && tableValue.raw is List) {
+      final values = tableValue.raw as List;
+      tableValue = values.isNotEmpty ? values[0] : Value(null);
+    }
     Logger.debug(
       '_handleTableAccessAssignment: tableValue: $tableValue',
       category: 'Interpreter',
@@ -384,7 +388,11 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       '_handleTableFieldAssignment: Assigning $wrappedValue to ${target.table}.${target.fieldName.name}',
       category: 'Interpreter',
     );
-    final tableValue = await target.table.accept(this);
+    var tableValue = await target.table.accept(this);
+    if (tableValue is Value && tableValue.isMulti && tableValue.raw is List) {
+      final values = tableValue.raw as List;
+      tableValue = values.isNotEmpty ? values[0] : Value(null);
+    }
 
     if (tableValue is Value) {
       if (tableValue.raw is Map) {
@@ -451,7 +459,11 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       '_handleTableIndexAssignment: Assigning $wrappedValue to ${target.table}[${target.index}]',
       category: 'Interpreter',
     );
-    final tableValue = await target.table.accept(this);
+    var tableValue = await target.table.accept(this);
+    if (tableValue is Value && tableValue.isMulti && tableValue.raw is List) {
+      final values = tableValue.raw as List;
+      tableValue = values.isNotEmpty ? values[0] : Value(null);
+    }
 
     if (tableValue is Value) {
       if (tableValue.raw is Map) {

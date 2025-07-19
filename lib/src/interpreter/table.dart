@@ -428,6 +428,13 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
           rawKey = keyResult is Value ? keyResult.raw : keyResult;
         }
 
+        if (rawKey == null) {
+          throw LuaError.typeError('table index is nil');
+        }
+        if (rawKey is num && rawKey.isNaN) {
+          throw LuaError.typeError('table index is NaN');
+        }
+
         var valueResult = await entry.value.accept(this);
 
         // Keyed entries always use only the first return value
@@ -460,6 +467,13 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
         }
         if (rawKey is LuaString) {
           rawKey = rawKey.toString();
+        }
+
+        if (rawKey == null) {
+          throw LuaError.typeError('table index is nil');
+        }
+        if (rawKey is num && rawKey.isNaN) {
+          throw LuaError.typeError('table index is NaN');
         }
 
         var valueResult = await entry.value.accept(this);
