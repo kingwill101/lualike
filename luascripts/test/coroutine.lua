@@ -289,15 +289,15 @@ end
 
 
 do print("coroutines closing itself")
-  global <const> coroutine, string, os
-  global <const> assert, error, pcall
+  -- global <const> coroutine, string, os
+  -- global <const> assert, error, pcall
 
   local X = nil
 
   local function new ()
     return coroutine.create(function (what)
 
-      local <close>var = func2close(function (t, err)
+      local var <close> = func2close(function (t, err)
         if what == "yield" then
           coroutine.yield()
         elseif what == "error" then
