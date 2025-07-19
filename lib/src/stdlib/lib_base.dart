@@ -1386,11 +1386,14 @@ class RequireFunction implements BuiltinFunction {
         if (loadedValueEarly.raw is Map) {
           final loadedEarly = loadedValueEarly.raw as Map;
           if (loadedEarly.containsKey(moduleName)) {
-            Logger.debug(
-              "Found module '$moduleName' in package.loaded",
-              category: 'Require',
-            );
-            return loadedEarly[moduleName];
+            final val = loadedEarly[moduleName];
+            if (val is Value && val.raw != false) {
+              Logger.debug(
+                "Found module '$moduleName' in package.loaded",
+                category: 'Require',
+              );
+              return val;
+            }
           }
         }
       }
@@ -1455,12 +1458,15 @@ class RequireFunction implements BuiltinFunction {
     );
 
     // Step 1: Check if module is already loaded
-    if (loaded.containsKey(moduleName) && loaded[moduleName] != false) {
-      Logger.debug(
-        "Module '$moduleName' already loaded: ${loaded[moduleName]}",
-        category: 'Require',
-      );
-      return loaded[moduleName];
+    if (loaded.containsKey(moduleName)) {
+      final loadedVal = loaded[moduleName];
+      if (loadedVal is Value && loadedVal.raw != false) {
+        Logger.debug(
+          "Module '$moduleName' already loaded: $loadedVal",
+          category: 'Require',
+        );
+        return loadedVal;
+      }
     }
 
     // Mark module as being loaded to handle circular requires
@@ -1483,7 +1489,7 @@ class RequireFunction implements BuiltinFunction {
           try {
             final result = await (loader.raw as Function)([]);
             loaded[moduleName] = result;
-            return result;
+            return Value.multi([result, Value(':preload:')]);
           } catch (e) {
             throw Exception(
               "error loading module '$moduleName' from preload: $e",
@@ -1641,8 +1647,8 @@ class RequireFunction implements BuiltinFunction {
             category: 'Require',
           );
 
-          // Return the loaded module
-          return result;
+          // Return the loaded module and the path where it was found
+          return Value.multi([result, Value(modulePathStr)]);
         } catch (e) {
           throw Exception("error loading module '$moduleName': $e");
         }
