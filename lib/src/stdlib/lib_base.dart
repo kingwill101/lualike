@@ -1367,8 +1367,9 @@ class PairsFunction implements BuiltinFunction {
 
 class RequireFunction implements BuiltinFunction {
   final Interpreter vm;
+  final Value packageTable;
 
-  RequireFunction(this.vm);
+  RequireFunction(this.vm, this.packageTable);
 
   @override
   Future<Object?> call(List<Object?> args) async {
@@ -1378,9 +1379,8 @@ class RequireFunction implements BuiltinFunction {
     Logger.debug("Looking for module '$moduleName'", category: 'Require');
 
     // Get package.loaded table first to check for standard library modules
-    final packageValEarly = vm.globals.get("package");
-    if (packageValEarly is Value && packageValEarly.raw is Map) {
-      final packageTableEarly = packageValEarly.raw as Map;
+    if (packageTable.raw is Map) {
+      final packageTableEarly = packageTable.raw as Map;
       if (packageTableEarly.containsKey("loaded")) {
         final loadedValueEarly = packageTableEarly["loaded"] as Value;
         if (loadedValueEarly.raw is Map) {
@@ -1422,14 +1422,12 @@ class RequireFunction implements BuiltinFunction {
       }
     }
 
-    final packageVal = vm.globals.get("package");
     // Get package.loaded table
-    if (packageVal is! Value || packageVal.raw is! Map) {
+    if (packageTable.raw is! Map) {
       throw Exception("package is not a table");
     }
 
-    // Get the raw Map from the package table
-    final packageTable = packageVal;
+    // Use the stored package table
 
     // Validate 'package.path' is a string or LuaString
     if (packageTable.containsKey('path')) {
@@ -1663,7 +1661,7 @@ class RequireFunction implements BuiltinFunction {
     }
     final searchersVal = packageTable["searchers"] as Value;
     if (searchersVal.raw is! List) {
-      throw Exception("package.searchers is not a list");
+      throw Exception("package.searchers must be a table");
     }
     final searchers = searchersVal.raw as List;
 
@@ -1738,13 +1736,12 @@ class RequireFunction implements BuiltinFunction {
     errorLines.add("no field package.preload['$moduleName']");
 
     // Add path errors
-    // We already have packageVal from earlier in the function
-    if (packageVal.raw is Map) {
-      final packageTable = packageVal.raw as Map;
+    if (packageTable.raw is Map) {
+      final pkgTable = packageTable.raw as Map;
 
       // Add Lua path errors
-      if (packageTable.containsKey("path") && packageTable["path"] is Value) {
-        final pathValue = packageTable["path"] as Value;
+      if (pkgTable.containsKey("path") && pkgTable["path"] is Value) {
+        final pathValue = pkgTable["path"] as Value;
         final rawPath = pathValue.raw;
         if (rawPath is String || rawPath is LuaString) {
           final templates = rawPath.toString().split(";");
@@ -1757,8 +1754,8 @@ class RequireFunction implements BuiltinFunction {
       }
 
       // Add C path errors
-      if (packageTable.containsKey("cpath") && packageTable["cpath"] is Value) {
-        final cpathValue = packageTable["cpath"] as Value;
+      if (pkgTable.containsKey("cpath") && pkgTable["cpath"] is Value) {
+        final cpathValue = pkgTable["cpath"] as Value;
         final rawCPath = cpathValue.raw;
         if (rawCPath is String || rawCPath is LuaString) {
           final templates = rawCPath.toString().split(";");
@@ -1793,6 +1790,7 @@ void defineBaseLibrary({
   BytecodeVM? bytecodeVm,
 }) {
   final vm = astVm ?? Interpreter();
+  final packageVal = env.get('package') as Value;
 
   // Create a map of all functions and variables
   final baseLib = {
@@ -1813,7 +1811,7 @@ void defineBaseLibrary({
     "dofile": Value(DoFileFunction(vm)),
     "load": Value(LoadFunction(vm)),
     "loadfile": Value(LoadfileFunction()),
-    "require": Value(RequireFunction(vm)),
+    "require": Value(RequireFunction(vm, packageVal)),
 
     // Table operations
     "next": Value(NextFunction()),
