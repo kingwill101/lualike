@@ -134,6 +134,11 @@ class Coroutine extends GCObject {
           'Coroutine.resume: _executionTask completed (initial)',
           category: 'Coroutine',
         );
+        // Yield returns do not include the success flag, so prepend true when
+        // the coroutine is still suspended after awaiting the result.
+        if (status == CoroutineStatus.suspended) {
+          return Value.multi([Value(true), ...result]);
+        }
         return Value.multi(result);
       } else if (status == CoroutineStatus.suspended) {
         // Resuming from a yield point
@@ -166,6 +171,9 @@ class Coroutine extends GCObject {
           'Coroutine.resume: Next yield or completion received',
           category: 'Coroutine',
         );
+        if (status == CoroutineStatus.suspended) {
+          return Value.multi([Value(true), ...result]);
+        }
         return Value.multi(result);
       } else {
         // This shouldn't happen, but just in case

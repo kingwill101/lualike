@@ -56,7 +56,7 @@ void main() {
         second[1],
         equals(30),
       ); // Second element is the return value (10+20)
-    }, skip: 'TODO');
+    });
 
     test('Coroutine status', () async {
       await bridge.execute('''

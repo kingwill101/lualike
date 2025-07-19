@@ -75,19 +75,14 @@ void initializeCoroutineLibrary(Interpreter interpreter) {
       final resumeArgs = args.length > 1 ? args.sublist(1) : [];
       final result = await co.resume(resumeArgs);
 
-      // Check if the result is a multi-value and flatten it if it is
-      final multiResult = Value.multi(
-        result.raw is List ? result.raw as List<Object?> : [result.raw],
-      );
-
       // Log for debugging
       Logger.debug(
-        'Coroutine.resume result: \\$multiResult',
+        'Coroutine.resume result: \\$result',
         category: 'CoroutineLib',
       );
 
-      // Return the result as-is
-      return multiResult;
+      // Return the result list directly (first value is success flag)
+      return result;
     } finally {
       // Restore the previous coroutine
       interpreter.setCurrentCoroutine(previousCoroutine);
@@ -327,48 +322,9 @@ void initializeCoroutineLibrary(Interpreter interpreter) {
           category: 'Coroutine',
         );
 
-        // Check for errors (first value is false)
-        if ((result.raw as List<Object?>)[0] is Value &&
-            ((result.raw as List<Object?>)[0] as Value).raw == false) {
-          // Propagate the error, closing the coroutine
-          Logger.debug(
-            '>>> Error detected in coroutine result, closing coroutine',
-            category: 'Coroutine',
-          );
-
-          await coroutine.close();
-          throw LuaError.typeError((result.raw as List<Object?>)[1].toString());
-        }
-
-        // Return all values except the first (success indicator)
-        if ((result.raw as List<Object?>).length == 2) {
-          Logger.debug(
-            '>>> Wrapped coroutine returning single value: \\${(result.raw as List<Object?>)[1]}',
-            category: 'Coroutine',
-          );
-          print(
-            '[LUALIKE] Wrapped coroutine returning single value: \\${(result.raw as List<Object?>)[1]}',
-          );
-
-          return (result.raw as List<Object?>)[1]
-              as Value; // Return single value directly
-        } else if ((result.raw as List<Object?>).length > 2) {
-          // Access the raw list before calling sublist
-          final rawResult = result.raw as List<Object?>;
-          Logger.debug(
-            '>>> Wrapped coroutine returning multiple values: \\${rawResult.sublist(1)}',
-            category: 'CoroutineLib',
-          );
-          return Value.multi(rawResult.sublist(1)); // Return multiple values
-        }
-
-        Logger.debug(
-          '>>> Wrapped coroutine returning nil',
-          category: 'Coroutine',
-        );
-        print('[LUALIKE] Wrapped coroutine returning nil');
-
-        return Value(null); // Return nil if no values
+        // Simply return the result list from the coroutine, which already
+        // includes the success flag as the first element.
+        return result;
       } finally {
         // Restore the previous coroutine and environment
         interpreter.setCurrentCoroutine(previousCoroutine);
