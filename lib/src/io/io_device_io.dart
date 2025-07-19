@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:path/path.dart' as path_lib;
 
 import 'package:lualike/lualike.dart';
 
@@ -44,6 +45,16 @@ class FileIODevice extends BaseIODevice {
 
     try {
       Logger.debug('Attempting to open file: $path', category: 'IO');
+      // Ensure the directory exists when writing
+      if (fileMode == FileMode.write ||
+          fileMode == FileMode.writeOnly ||
+          fileMode == FileMode.writeOnlyAppend ||
+          fileMode == FileMode.append) {
+        final dir = Directory(path_lib.dirname(path));
+        if (!await dir.exists()) {
+          await dir.create(recursive: true);
+        }
+      }
       final file = await File(path).open(mode: fileMode);
       Logger.debug('Successfully opened file: $path', category: 'IO');
       return FileIODevice._(file, mode);

@@ -91,12 +91,46 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     }
 
     // Regular function definition
-    globals.define(node.name.first.name, node);
+    final closure = await node.body.accept(this);
+    if (closure is Value) {
+      closure.functionName = node.name.first.name;
+    }
+
+    final envVal = globals.get('_ENV');
+    final gVal = globals.get('_G');
+
+    // Check if there is an existing local variable with this name
+    Environment? localEnv = globals;
+    while (localEnv != null) {
+      if (localEnv.values.containsKey(node.name.first.name) &&
+          localEnv.values[node.name.first.name]!.isLocal) {
+        Logger.debug(
+          'Updating existing local function ${node.name.first.name}',
+          category: 'Interpreter',
+        );
+        localEnv.define(node.name.first.name, closure);
+        return closure;
+      }
+      localEnv = localEnv.parent;
+    }
+
+    if (envVal is Value && gVal is Value && envVal != gVal) {
+      Logger.debug(
+        'Defining function ${node.name.first.name} in custom _ENV table',
+        category: 'Interpreter',
+      );
+      if (envVal.raw is Map) {
+        (envVal.raw as Map)[node.name.first.name] = closure;
+        return closure;
+      }
+    }
+
+    globals.define(node.name.first.name, closure);
     Logger.debug(
       'Defined function ${node.name.first.name}',
       category: 'Interpreter',
     );
-    return node;
+    return closure;
   }
 
   /// Defines a local function.
