@@ -132,6 +132,37 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     // For multiple targets, value should be a list or multi-value
     List<Object?> values = expressions;
 
+    // Pre-evaluate table and index expressions for targets
+    final preTables = <Value?>[];
+    final preIndices = <Object?>[];
+    for (final t in node.targets) {
+      if (t is TableFieldAccess) {
+        var tableVal = await t.table.accept(this);
+        if (tableVal is Value && tableVal.isMulti && tableVal.raw is List) {
+          final vals = tableVal.raw as List;
+          tableVal = vals.isNotEmpty ? vals[0] : Value(null);
+        }
+        preTables.add(tableVal as Value?);
+        preIndices.add(t.fieldName.name);
+      } else if (t is TableIndexAccess) {
+        var tableVal = await t.table.accept(this);
+        if (tableVal is Value && tableVal.isMulti && tableVal.raw is List) {
+          final vals = tableVal.raw as List;
+          tableVal = vals.isNotEmpty ? vals[0] : Value(null);
+        }
+        var indexVal = await t.index.accept(this);
+        if (indexVal is Value && indexVal.isMulti && indexVal.raw is List) {
+          final vals = indexVal.raw as List;
+          indexVal = vals.isNotEmpty ? vals[0] : Value(null);
+        }
+        preTables.add(tableVal as Value?);
+        preIndices.add(indexVal);
+      } else {
+        preTables.add(null);
+        preIndices.add(null);
+      }
+    }
+
     // Assign each value to corresponding target
     for (var i = 0; i < node.targets.length; i++) {
       final target = node.targets[i];
@@ -152,9 +183,18 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       } else if (target is FunctionLiteral || target is Function) {
         await _handleFunctionAssignment(target, wrappedValue);
       } else if (target is TableFieldAccess) {
-        await _handleTableFieldAssignment(target, wrappedValue);
+        await _handleTableFieldAssignment(
+          target,
+          wrappedValue,
+          preTable: preTables[i],
+        );
       } else if (target is TableIndexAccess) {
-        await _handleTableIndexAssignment(target, wrappedValue);
+        await _handleTableIndexAssignment(
+          target,
+          wrappedValue,
+          preTable: preTables[i],
+          preIndex: preIndices[i],
+        );
       } else {
         throw Exception("Invalid assignment target");
       }
@@ -331,11 +371,8 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         category: 'Assignment',
       );
 
-      if (envValue.raw is Map) {
-        // Assign to the _ENV table
-        envValue[name] = wrappedValue;
-        return wrappedValue;
-      }
+      await envValue.setValueAsync(name, wrappedValue);
+      return wrappedValue;
     }
 
     // Use the current environment for assignment
@@ -381,14 +418,15 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
   /// Returns the assigned value.
   Future<Object?> _handleTableFieldAssignment(
     TableFieldAccess target,
-    Value wrappedValue,
-  ) async {
+    Value wrappedValue, {
+    Value? preTable,
+  }) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(target) : null;
     Logger.debug(
       '_handleTableFieldAssignment: Assigning $wrappedValue to ${target.table}.${target.fieldName.name}',
       category: 'Interpreter',
     );
-    var tableValue = await target.table.accept(this);
+    var tableValue = preTable ?? await target.table.accept<Object?>(this);
     if (tableValue is Value && tableValue.isMulti && tableValue.raw is List) {
       final values = tableValue.raw as List;
       tableValue = values.isNotEmpty ? values[0] : Value(null);
@@ -452,14 +490,16 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
   /// Returns the assigned value.
   Future<Object?> _handleTableIndexAssignment(
     TableIndexAccess target,
-    Value wrappedValue,
-  ) async {
+    Value wrappedValue, {
+    Value? preTable,
+    Object? preIndex,
+  }) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(target) : null;
     Logger.debug(
       '_handleTableIndexAssignment: Assigning $wrappedValue to ${target.table}[${target.index}]',
       category: 'Interpreter',
     );
-    var tableValue = await target.table.accept(this);
+    var tableValue = preTable ?? await target.table.accept<Object?>(this);
     if (tableValue is Value && tableValue.isMulti && tableValue.raw is List) {
       final values = tableValue.raw as List;
       tableValue = values.isNotEmpty ? values[0] : Value(null);
@@ -468,7 +508,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     if (tableValue is Value) {
       if (tableValue.raw is Map) {
         // For index access, always evaluate the index expression
-        var indexResult = await target.index.accept(this);
+        var indexResult = preIndex ?? await target.index.accept<Object?>(this);
         if (indexResult is Value &&
             indexResult.isMulti &&
             indexResult.raw is List) {
