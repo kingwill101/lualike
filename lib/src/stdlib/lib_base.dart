@@ -191,7 +191,10 @@ class ErrorFunction implements BuiltinFunction {
 
   @override
   Object? call(List<Object?> args) {
-    if (args.isEmpty) throw Exception("error requires a message");
+    // If no arguments, throw nil as the error object (Lua behavior)
+    if (args.isEmpty) {
+      throw Value(null);
+    }
 
     // Get the error value
     final errorValue = args[0] as Value;
@@ -862,24 +865,28 @@ class PCAllFunction implements BuiltinFunction {
       Object? callResult;
       if (func.raw is BuiltinFunction) {
         callResult = (func.raw as BuiltinFunction).call(callArgs);
+        // BuiltinFunction.call() can return a Future, so we need to await it
+        if (callResult is Future) {
+          callResult = await callResult;
+        }
       } else {
         callResult = func.raw(callArgs);
       }
 
-      if (callResult is Future) {
-        final awaitedResult = await callResult;
-        return Value.multi([
-          true,
-          awaitedResult is Value ? awaitedResult.raw : awaitedResult,
-        ]);
-      } else {
-        return Value.multi([
-          true,
-          callResult is Value ? callResult.raw : callResult,
-        ]);
-      }
+      return Value.multi([
+        true,
+        callResult is Value ? callResult.raw : callResult,
+      ]);
     } catch (e) {
-      return Value.multi([false, e.toString()]);
+      // If the error is a Value object, return its raw value
+      // If it's a LuaError, return just the message
+      // Otherwise, convert to string
+      final errorValue = e is Value
+          ? e.raw
+          : e is LuaError
+          ? e.message
+          : e.toString();
+      return Value.multi([false, errorValue]);
     } finally {
       // Exit protected call context
       interpreter.exitProtectedCall();
