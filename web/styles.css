@@ -122,21 +122,96 @@ header p {
   background: #c0392b;
 }
 
-#sourceCode {
-  width: 100%;
+/* Code Editor Container */
+.code-editor-container {
+  position: relative;
   height: 400px;
+  background: #2d3748;
+  border-radius: 0 0 10px 10px;
+  overflow: hidden;
+}
+
+/* Code Editor */
+.code-editor {
+  width: 100%;
+  height: 100%;
   padding: 20px;
   border: none;
   font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
   font-size: 14px;
-  line-height: 1.5;
-  resize: vertical;
-  background: #f8f9fa;
+  line-height: 1.6;
+  background: #2d3748;
+  color: #e2e8f0;
   outline: none;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  resize: vertical;
+  min-height: 400px;
 }
 
-#sourceCode:focus {
-  background: #fff;
+.code-editor:empty::before {
+  content: attr(data-placeholder);
+  color: #718096;
+  font-style: italic;
+  pointer-events: none;
+}
+
+.code-editor:focus {
+  background: #2d3748;
+}
+
+/* Prism.js overrides for better integration */
+.code-editor .token.comment {
+  color: #68d391;
+  font-style: italic;
+}
+
+.code-editor .token.string {
+  color: #fbb6ce;
+}
+
+.code-editor .token.number {
+  color: #f6ad55;
+}
+
+.code-editor .token.keyword {
+  color: #90cdf4;
+  font-weight: bold;
+}
+
+.code-editor .token.function {
+  color: #f6e05e;
+}
+
+.code-editor .token.operator {
+  color: #e2e8f0;
+}
+
+.code-editor .token.punctuation {
+  color: #a0aec0;
+}
+
+.code-editor .token.variable {
+  color: #e2e8f0;
+}
+
+/* Scrollbar styling for code editor */
+.code-editor::-webkit-scrollbar {
+  width: 8px;
+}
+
+.code-editor::-webkit-scrollbar-track {
+  background: #2d3748;
+}
+
+.code-editor::-webkit-scrollbar-thumb {
+  background: #4a5568;
+  border-radius: 4px;
+}
+
+.code-editor::-webkit-scrollbar-thumb:hover {
+  background: #718096;
 }
 
 /* Output Section */
