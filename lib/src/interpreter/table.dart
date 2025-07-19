@@ -402,6 +402,39 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       return ValueClass.table();
     }
 
+    // Special case: single entry that is a function call
+    // Handle cases like {table.unpack(t)} where the return values should be
+    // expanded directly into the table.
+    if (node.entries.length == 1) {
+      final entry = node.entries[0];
+      if (entry is TableEntryLiteral &&
+          (entry.expr is FunctionCall || entry.expr is MethodCall)) {
+        final result = await entry.expr.accept(this);
+        if (result is Value && result.isMulti) {
+          final values = result.raw as List;
+          final expandedTable = ValueClass.table();
+          for (var j = 0; j < values.length; j++) {
+            expandedTable[Value(j + 1)] = values[j] is Value
+                ? values[j]
+                : Value(values[j]);
+          }
+          return expandedTable;
+        } else if (result is List) {
+          final expandedTable = ValueClass.table();
+          for (var j = 0; j < result.length; j++) {
+            expandedTable[Value(j + 1)] = result[j] is Value
+                ? result[j]
+                : Value(result[j]);
+          }
+          return expandedTable;
+        }
+        // Single value result
+        final expandedTable = ValueClass.table();
+        expandedTable[Value(1)] = result is Value ? result : Value(result);
+        return expandedTable;
+      }
+    }
+
     final Map<Object?, Value> tableMap = {};
     int arrayIndex = 1; // For array-like entries
 
@@ -586,46 +619,6 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
           final value = await entry.expr.accept(this);
           final valueVal = value is Value ? value : Value(value);
           tableMap[arrayIndex++] = valueVal;
-        }
-      }
-    }
-
-    // Special case: single entry that is a function call
-    // This handles cases like {table.unpack(t)} where the entire result should be expanded
-    if (node.entries.length == 1) {
-      final entry = node.entries[0];
-      if (entry is TableEntryLiteral &&
-          (entry.expr is FunctionCall || entry.expr is MethodCall)) {
-        try {
-          final result = await entry.expr.accept(this);
-          if (result is Value && result.isMulti) {
-            final values = result.raw as List;
-            // Return the expanded values directly if they form a proper table
-            final expandedTable = ValueClass.table();
-            for (var j = 0; j < values.length; j++) {
-              expandedTable[Value(j + 1)] = values[j] is Value
-                  ? values[j]
-                  : Value(values[j]);
-            }
-            return expandedTable;
-          } else if (result is List) {
-            // Direct list of values - expand into table
-            final expandedTable = ValueClass.table();
-            for (var j = 0; j < result.length; j++) {
-              expandedTable[Value(j + 1)] = result[j] is Value
-                  ? result[j]
-                  : Value(result[j]);
-            }
-            return expandedTable;
-          }
-        } on YieldException catch (ye) {
-          // After resumption, insert yielded values as array elements
-          final values = ye.values;
-          final yieldTable = ValueClass.table();
-          for (var j = 0; j < values.length; j++) {
-            yieldTable[Value(j + 1)] = values[j];
-          }
-          return yieldTable;
         }
       }
     }

@@ -661,7 +661,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
               category: 'Interpreter',
             );
             return result;
-          } catch (e, s) {
+          } catch (e) {
             Logger.debug(
               '>>> Builtin function call failed: $e',
               category: 'Interpreter',

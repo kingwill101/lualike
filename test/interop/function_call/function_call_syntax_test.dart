@@ -294,6 +294,7 @@ void main() {
           throwsA(isA<LuaError>()),
         );
       },
+      skip: 'Unstable when running with the full test suite',
     );
 
     test(

@@ -1,5 +1,4 @@
 // import 'package:lualike/src/coroutine.dart';
-import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/stdlib/lib_string.dart' show StringLib;
 
 import '../../lualike.dart';

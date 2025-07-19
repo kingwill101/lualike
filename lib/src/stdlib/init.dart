@@ -3,7 +3,7 @@ import 'package:lualike/src/interpreter/interpreter.dart' show Interpreter;
 import '../environment.dart';
 import '../io/lua_file.dart';
 import '../value.dart' show Value;
-import '../builtin_function.dart' show BuiltinFunction;
+import 'lib_coroutine.dart';
 import 'lib_base.dart';
 import 'lib_string.dart';
 import 'lib_table.dart';
@@ -63,8 +63,7 @@ void initializeStandardLibrary({
   defineConvertLibrary(env: env, astVm: astVm, bytecodeVm: bytecodeVm);
   defineCryptoLibrary(env: env, astVm: astVm, bytecodeVm: bytecodeVm);
 
-  // Define a minimal coroutine stub to prevent strings test failures
-  _defineCoroutineStub(env: env);
+  initializeCoroutineLibrary(astVm!);
 
   // Get the package.loaded table to store standard library references
   final packageTable = env.get("package");
@@ -191,72 +190,4 @@ void initializeStandardLibrary({
       return Value(UTF8Lib.functions, metatable: UTF8Lib.utf8Class.metamethods);
     });
   }
-}
-
-/// Define a minimal coroutine stub library to prevent test failures
-void _defineCoroutineStub({required Environment env}) {
-  final coroutineTable = <String, dynamic>{
-    // coroutine.running() - returns the main thread and true (indicating it's the main thread)
-    "running": Value((List<Object?> args) {
-      // Return a dummy coroutine object and true to indicate it's the main thread
-      return Value.multi([Value("main"), Value(true)]);
-    }),
-
-    // coroutine.status() - returns status of a coroutine
-    "status": Value((List<Object?> args) {
-      if (args.isEmpty) {
-        throw Exception("coroutine.status requires a coroutine argument");
-      }
-      return Value("running");
-    }),
-
-    // coroutine.create() - creates a new coroutine
-    "create": Value((List<Object?> args) {
-      throw Exception("coroutine.create not implemented");
-    }),
-
-    // coroutine.resume() - resumes a coroutine
-    "resume": Value((List<Object?> args) {
-      throw Exception("coroutine.resume not implemented");
-    }),
-
-    // coroutine.yield() - yields from a coroutine
-    "yield": Value((List<Object?> args) {
-      throw Exception("coroutine.yield not implemented");
-    }),
-
-    // coroutine.wrap() - creates a wrapped coroutine function (minimal implementation)
-    "wrap": Value((List<Object?> args) {
-      if (args.isEmpty) {
-        throw Exception("coroutine.wrap requires a function argument");
-      }
-      final func = args[0] as Value;
-      if (func.raw is! Function && func.raw is! BuiltinFunction) {
-        throw Exception("coroutine.wrap requires a function argument");
-      }
-
-      // Return a function that just calls the original function
-      // This is not a real coroutine but will make simple tests pass
-      return Value((List<Object?> callArgs) {
-        if (func.raw is Function) {
-          return (func.raw as Function)(callArgs);
-        } else if (func.raw is BuiltinFunction) {
-          return (func.raw as BuiltinFunction).call(callArgs);
-        }
-        throw Exception("Invalid function type");
-      });
-    }),
-
-    // coroutine.close() - closes a coroutine
-    "close": Value((List<Object?> args) {
-      throw Exception("coroutine.close not implemented");
-    }),
-
-    // coroutine.isyieldable() - checks if current context is yieldable
-    "isyieldable": Value((List<Object?> args) {
-      return Value(false); // Main thread is not yieldable
-    }),
-  };
-
-  env.define("coroutine", Value(coroutineTable));
 }

@@ -26,3 +26,4 @@ export 'src/stack.dart';
 export 'src/utils/platform_utils.dart';
 export 'src/value.dart';
 export 'src/value_class.dart';
+export 'src/coroutine.dart';

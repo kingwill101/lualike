@@ -4,7 +4,6 @@ import 'dart:convert';
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/const_checker.dart';
-import 'package:lualike/src/coroutine.dart' show Coroutine;
 import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:lualike/src/utils/file_system_utils.dart';
 import 'package:path/path.dart' as path;
@@ -1517,116 +1516,108 @@ class RequireFunction implements BuiltinFunction {
       // vm.fileManager.printResolvedGlobs();
     }
 
-    final modulePathStr = modulePath;
-    if (modulePathStr != null) {
-      Logger.debug(
-        "(REQUIRE) RequireFunction: Loading module '$moduleName' from path: $modulePathStr",
-        category: 'Require',
-      );
+    final modulePathStr = modulePath!;
+    Logger.debug(
+      "(REQUIRE) RequireFunction: Loading module '$moduleName' from path: $modulePathStr",
+      category: 'Require',
+    );
 
-      final source = await vm.fileManager.loadSource(modulePathStr);
-      if (source != null) {
+    final source = await vm.fileManager.loadSource(modulePathStr);
+    if (source != null) {
+      try {
+        Logger.debug(
+          "REQUIRE: Module source loaded, parsing and executing",
+          category: 'Require',
+        );
+        // Parse the module code
+        final ast = parse(source, url: modulePathStr);
+
+        // Execute module code in a fresh environment to avoid polluting _ENV
+        final moduleEnv = Environment.createModuleEnvironment(vm.globals)
+          ..interpreter = vm;
+
+        // We'll execute the module code using the current interpreter to
+        // ensure package.loaded is shared.
+
+        // Resolve the absolute path for the module
+        String absoluteModulePath;
+        if (path.isAbsolute(modulePathStr)) {
+          absoluteModulePath = modulePathStr;
+        } else {
+          absoluteModulePath = vm.fileManager.resolveAbsoluteModulePath(
+            modulePathStr,
+          );
+        }
+
+        // Get the directory part of the script path
+        final moduleDir = path.dirname(absoluteModulePath);
+
+        // Temporarily switch to the module environment
+        final prevEnv = vm.getCurrentEnv();
+        final prevPath = vm.currentScriptPath;
+        vm.setCurrentEnv(moduleEnv);
+        vm.currentScriptPath = absoluteModulePath;
+
+        // Store the script path in the module environment
+        moduleEnv.define('_SCRIPT_PATH', Value(absoluteModulePath));
+        moduleEnv.define('_SCRIPT_DIR', Value(moduleDir));
+
+        // Also set _MODULE_NAME global
+        moduleEnv.define('_MODULE_NAME', Value(moduleName));
+        moduleEnv.define('_MAIN_CHUNK', Value(false));
+
+        // Preserve existing varargs and provide new ones with module name and path
+        final oldVarargs = moduleEnv.contains('...')
+            ? moduleEnv.get('...') as Value
+            : null;
+        moduleEnv.declare(
+          '...',
+          Value.multi([Value(moduleName), Value(modulePathStr)]),
+        );
+
+        Logger.debug(
+          "DEBUG: Module environment set up with _SCRIPT_PATH=$absoluteModulePath, _SCRIPT_DIR=$moduleDir, _MODULE_NAME=$moduleName",
+        );
+
+        Object? result;
         try {
-          Logger.debug(
-            "REQUIRE: Module source loaded, parsing and executing",
-            category: 'Require',
-          );
-          // Parse the module code
-          final ast = parse(source, url: modulePathStr);
+          // Run the module code within the current interpreter
+          result = await vm.run(ast.statements);
+          // If the script didn't return anything, result will be null
+          result ??= Value(null);
+        } on ReturnException catch (e) {
+          // Handle explicit return from module
+          result = e.value;
+        } finally {
+          // Restore previous environment and script path
+          vm.setCurrentEnv(prevEnv);
+          vm.currentScriptPath = prevPath;
 
-          // Execute module code in a fresh environment to avoid polluting _ENV
-          final moduleEnv = Environment.createModuleEnvironment(vm.globals)
-            ..interpreter = vm;
-
-          // We'll execute the module code using the current interpreter to
-          // ensure package.loaded is shared.
-
-          // Resolve the absolute path for the module
-          String absoluteModulePath;
-          if (path.isAbsolute(modulePathStr)) {
-            absoluteModulePath = modulePathStr;
+          // Restore previous varargs
+          if (oldVarargs != null) {
+            moduleEnv.declare('...', oldVarargs);
           } else {
-            absoluteModulePath = vm.fileManager.resolveAbsoluteModulePath(
-              modulePathStr,
-            );
+            moduleEnv.declare('...', Value(null));
           }
+        }
 
-          // Get the directory part of the script path
-          final moduleDir = path.dirname(absoluteModulePath);
+        // If the module didn't return anything, Lua stores 'true'
+        if (result is Value && result.raw == null) {
+          result = Value(true);
+        }
 
-          // Temporarily switch to the module environment
-          final prevEnv = vm.getCurrentEnv();
-          final prevPath = vm.currentScriptPath;
-          vm.setCurrentEnv(moduleEnv);
-          vm.currentScriptPath = absoluteModulePath;
+        Logger.debug(
+          "(REQUIRE) RequireFunction: Module '$moduleName' loaded successfully",
+          category: 'Require',
+        );
 
-          // Store the script path in the module environment
-          moduleEnv.define('_SCRIPT_PATH', Value(absoluteModulePath));
-          moduleEnv.define('_SCRIPT_DIR', Value(moduleDir));
-
-          // Also set _MODULE_NAME global
-          moduleEnv.define('_MODULE_NAME', Value(moduleName));
-          moduleEnv.define('_MAIN_CHUNK', Value(false));
-
-          // Preserve existing varargs and provide new ones with module name and path
-          final oldVarargs = moduleEnv.contains('...')
-              ? moduleEnv.get('...') as Value
-              : null;
-          moduleEnv.declare(
-            '...',
-            Value.multi([Value(moduleName), Value(modulePathStr)]),
-          );
-
-          Logger.debug(
-            "DEBUG: Module environment set up with _SCRIPT_PATH=$absoluteModulePath, _SCRIPT_DIR=$moduleDir, _MODULE_NAME=$moduleName",
-          );
-
-          Object? result;
-          try {
-            // Run the module code within the current interpreter
-            result = await vm.run(ast.statements);
-            // If the script didn't return anything, result will be null
-            result ??= Value(null);
-          } on ReturnException catch (e) {
-            // Handle explicit return from module
-            result = e.value;
-          } finally {
-            // Restore previous environment and script path
-            vm.setCurrentEnv(prevEnv);
-            vm.currentScriptPath = prevPath;
-
-            // Restore previous varargs
-            if (oldVarargs != null) {
-              moduleEnv.declare('...', oldVarargs);
-            } else {
-              moduleEnv.declare('...', Value(null));
-            }
-          }
-
-          // If the module didn't return anything, Lua stores 'true'
-          if (result is Value && result.raw == null) {
-            result = Value(true);
-          }
-
-          Logger.debug(
-            "(REQUIRE) RequireFunction: Module '$moduleName' loaded successfully",
-            category: 'Require',
-          );
-
-          // If the module modified package.loaded, respect that value
-          if (loaded.containsKey(moduleName)) {
-            final loadedVal = loaded[moduleName];
-            if (loadedVal is Value &&
-                loadedVal.raw != false &&
-                loadedVal.raw != null) {
-              result = loadedVal;
-            } else {
-              loaded[moduleName] = result;
-              Logger.debug(
-                "Module '$moduleName' stored in package.loaded",
-                category: 'Require',
-              );
-            }
+        // If the module modified package.loaded, respect that value
+        if (loaded.containsKey(moduleName)) {
+          final loadedVal = loaded[moduleName];
+          if (loadedVal is Value &&
+              loadedVal.raw != false &&
+              loadedVal.raw != null) {
+            result = loadedVal;
           } else {
             loaded[moduleName] = result;
             Logger.debug(
@@ -1634,16 +1625,22 @@ class RequireFunction implements BuiltinFunction {
               category: 'Require',
             );
           }
+        } else {
+          loaded[moduleName] = result;
           Logger.debug(
-            "Loaded table now contains: ${loaded.keys.join(",")}",
+            "Module '$moduleName' stored in package.loaded",
             category: 'Require',
           );
-
-          // Return the loaded module and the path where it was found
-          return Value.multi([result, Value(modulePathStr)]);
-        } catch (e) {
-          throw Exception("error loading module '$moduleName': $e");
         }
+        Logger.debug(
+          "Loaded table now contains: ${loaded.keys.join(",")}",
+          category: 'Require',
+        );
+
+        // Return the loaded module and the path where it was found
+        return Value.multi([result, Value(modulePathStr)]);
+      } catch (e) {
+        throw Exception("error loading module '$moduleName': $e");
       }
     }
 
