@@ -961,7 +961,14 @@ class _LongBracketParser extends Parser<String> {
       return context.failure('unterminated long string');
     }
     // Extract inner content only (without delimiters).
-    final content = buffer.substring(contentStart, closeIdx);
+    var content = buffer.substring(contentStart, closeIdx);
+    // If the long string starts with a newline, that newline is skipped
+    // according to Lua's lexical rules (Lua 5.4 manual 3.1).
+    if (content.startsWith('\r\n')) {
+      content = content.substring(2);
+    } else if (content.startsWith('\n') || content.startsWith('\r')) {
+      content = content.substring(1);
+    }
     return context.success(content, closeIdx + closing.length);
   }
 
