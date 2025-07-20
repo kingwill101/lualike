@@ -238,6 +238,23 @@ void main() {
       }
     });
 
+    test('table.sort with invalid order function', () async {
+      final bridge = LuaLike();
+
+      try {
+        await bridge.execute('''
+          local function f(a, b)
+            assert(a and b)
+            return true
+          end
+          table.sort({1, 2, 3, 4}, f)
+        ''');
+        fail('Expected error for invalid order function');
+      } on LuaError catch (e) {
+        expect(e.message, contains('invalid order function for sorting'));
+      }
+    });
+
     test('table.unpack', () async {
       final bridge = LuaLike();
 

@@ -551,35 +551,79 @@ class _TableSort implements BuiltinFunction {
 
     // Sort the values
     if (comp != null) {
+      // Validate that comp is a function (matching C implementation)
+      if (comp is! Value || comp.raw is! Function) {
+        throw LuaError("invalid order function");
+      }
+
+      // Use a simple validation approach to detect invalid comparison functions
+      // We'll try to sort with a small subset first to detect obvious issues
+      if (values.length >= 2) {
+        final func = comp.raw as Function;
+        final a = values[0];
+        final b = values[1];
+
+        try {
+          final result1 = await func([a, b]);
+          final result2 = await func([b, a]);
+
+          // Check for consistency: if a < b and b < a both return true, that's invalid
+          bool aLessThanB = false;
+          bool bLessThanA = false;
+
+          if (result1 is Value) {
+            aLessThanB = result1.raw == true;
+          } else {
+            aLessThanB = result1 == true;
+          }
+
+          if (result2 is Value) {
+            bLessThanA = result2.raw == true;
+          } else {
+            bLessThanA = result2 == true;
+          }
+
+          // If both comparisons return true, the order function is invalid
+          if (aLessThanB && bLessThanA) {
+            throw LuaError("invalid order function for sorting");
+          }
+        } catch (e) {
+          if (e is YieldException) {
+            // Let yield propagate up
+            rethrow;
+          }
+          if (e is LuaError && e.message.contains("invalid order function")) {
+            rethrow;
+          }
+          throw LuaError("invalid order function for sorting");
+        }
+      }
+
       // Use bubble sort since we need to handle yields during comparisons
       try {
         var i = 0;
         while (i < values.length) {
           var j = 0;
           while (j < values.length - i - 1) {
-            if (comp is Value && comp.raw is Function) {
-              final func = comp.raw as Function;
-              final a = values[j];
-              final b = values[j + 1];
+            final func = comp.raw as Function;
+            final a = values[j];
+            final b = values[j + 1];
 
-              // Call comparator - this might yield
-              final result = await func([a, b]);
+            // Call comparator - this might yield
+            final result = await func([a, b]);
 
-              // Handle result after potential yield
-              bool shouldSwap = false;
-              if (result is Value) {
-                shouldSwap = result.raw != true;
-              } else {
-                shouldSwap = result != true;
-              }
-
-              if (shouldSwap) {
-                final temp = values[j];
-                values[j] = values[j + 1];
-                values[j + 1] = temp;
-              }
+            // Handle result after potential yield
+            bool shouldSwap = false;
+            if (result is Value) {
+              shouldSwap = result.raw != true;
             } else {
-              throw LuaError.typeError("invalid order function for sorting");
+              shouldSwap = result != true;
+            }
+
+            if (shouldSwap) {
+              final temp = values[j];
+              values[j] = values[j + 1];
+              values[j + 1] = temp;
             }
             j++;
           }
@@ -590,7 +634,10 @@ class _TableSort implements BuiltinFunction {
           // Let yield propagate up
           rethrow;
         }
-        throw LuaError.typeError("invalid order function for sorting: $e");
+        if (e is LuaError && e.message.contains("invalid order function")) {
+          rethrow;
+        }
+        throw LuaError("invalid order function for sorting");
       }
     } else {
       // Default comparison without yields
