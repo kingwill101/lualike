@@ -299,14 +299,18 @@ class Environment extends GCObject {
         try {
           final result = await value.close(error);
           Logger.debug("Successfully closed variable '$name'", category: 'Env');
-          if (result != null && error == null) {
+          if (result != null) {
             error = result;
           }
         } catch (e) {
           Logger.debug("Error closing variable '$name': $e", category: 'Env');
-          error ??= e;
+          error = e;
         }
       }
+
+      // Clear the variable after closing
+      values.remove(name);
+      toBeClosedVars.removeAt(i);
     }
     return error;
   }

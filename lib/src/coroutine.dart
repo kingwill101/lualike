@@ -517,8 +517,13 @@ class Coroutine extends GCObject {
       // Set status to dead
       status = CoroutineStatus.dead;
 
-      // Propagate the error if provided
+      // Propagate any error from closing variables or the coroutine itself
       if (closeErr != null) {
+        if (closeErr is LuaError) {
+          return [Value(false), Value(closeErr.message)];
+        } else if (closeErr is Value) {
+          return [Value(false), closeErr.raw];
+        }
         return [Value(false), Value(closeErr.toString())];
       }
 
