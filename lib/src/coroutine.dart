@@ -134,6 +134,13 @@ class Coroutine extends GCObject {
           'Coroutine.resume: _executionTask completed (initial)',
           category: 'Coroutine',
         );
+        // Restore previous state before returning
+        if (interpreter != null) {
+          if (previousEnv != null) {
+            interpreter.setCurrentEnv(previousEnv);
+          }
+          interpreter.setCurrentCoroutine(previousCoroutine);
+        }
         // Yield returns do not include the success flag, so prepend true when
         // the coroutine is still suspended after awaiting the result.
         if (status == CoroutineStatus.suspended) {
@@ -171,6 +178,12 @@ class Coroutine extends GCObject {
           'Coroutine.resume: Next yield or completion received',
           category: 'Coroutine',
         );
+        if (interpreter != null) {
+          if (previousEnv != null) {
+            interpreter.setCurrentEnv(previousEnv);
+          }
+          interpreter.setCurrentCoroutine(previousCoroutine);
+        }
         if (status == CoroutineStatus.suspended) {
           return Value.multi([Value(true), ...result]);
         }
