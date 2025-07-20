@@ -136,30 +136,53 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   /// Closes the value by calling its __close metamethod if it exists
   /// [error] - The error that caused the scope to exit, or null if normal exit
-  void close([dynamic error]) {
+  Future<dynamic> close([dynamic error]) async {
     if (!isToBeClose || raw == null || raw == false) {
-      return; // Only close to-be-closed variables with non-false values
+      return null; // Only close to-be-closed variables with non-false values
     }
 
     final closeMeta = getMetamethod('__close');
     if (closeMeta != null) {
       try {
+        dynamic result;
         if (closeMeta is Function) {
-          closeMeta([this, error is Value ? error : Value(error)]);
+          result = closeMeta([this, error is Value ? error : Value(error)]);
         } else if (closeMeta is Value && closeMeta.raw is Function) {
-          closeMeta.raw([this, error is Value ? error : Value(error)]);
+          result = closeMeta.raw([this, error is Value ? error : Value(error)]);
+        }
+
+        if (result is Future) {
+          result = await result;
+        }
+
+        // Normalize multi-value returns and unwrap Value wrappers
+        if (result is Value) {
+          if (result.isMulti &&
+              result.raw is List &&
+              (result.raw as List).isNotEmpty) {
+            result = (result.raw as List).first;
+          } else {
+            result = result.raw;
+          }
+        }
+        if (result is List && result.isNotEmpty) {
+          result = result.first;
+        }
+
+        // Treat any non-nil/false return as an error object
+        if (result != null && result != false) {
+          return result;
         }
       } catch (e) {
-        // Log the error but continue closing other variables
         Logger.error(
           'Error in __close metamethod',
           category: 'Value',
           error: e,
         );
-        // Re-throw the error after closing
-        rethrow;
+        return e;
       }
     }
+    return null;
   }
 
   /// Creates a deep copy of this Value and its metatable.

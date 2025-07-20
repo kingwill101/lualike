@@ -501,19 +501,15 @@ class Coroutine extends GCObject {
         category: 'Coroutine',
       );
 
-      // If there's an active execution task, complete its completer with an error
-      // so that the awaited future in resume() will throw
+      // If there's an active execution task, complete its completer so any
+      // pending resume call can finish gracefully without throwing to the
+      // event loop.
       if (completer != null && !completer!.isCompleted) {
-        if (error != null) {
-          completer!.completeError(error);
-        } else {
-          // If no error, complete normally but signal termination
-          completer!.complete([]); // Signal normal termination for yield future
-        }
+        completer!.complete([]);
       }
 
       // Close any to-be-closed variables in the coroutine environment
-      final closeErr = _executionEnvironment.closeVariables(error);
+      final closeErr = await _executionEnvironment.closeVariables(error);
 
       // Set status to dead
       status = CoroutineStatus.dead;
