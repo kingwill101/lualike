@@ -78,6 +78,10 @@ class Interpreter extends AstVisitor<Object?>
   @override
   final CallStack callStack = CallStack();
 
+  /// The last AST node executed. Used for debug information like
+  /// `debug.getinfo` current line tracking.
+  AstNode? currentNode;
+
   /// Gets the currently running coroutine
   @override
   Coroutine? getCurrentCoroutine() {
@@ -267,6 +271,9 @@ class Interpreter extends AstVisitor<Object?>
         node is BooleanLiteral) {
       return;
     }
+
+    // Track the last executed node for debugging purposes
+    currentNode = node;
 
     // Try to get a better function name if possible
     String actualFunctionName = functionName;

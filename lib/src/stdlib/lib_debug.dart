@@ -101,7 +101,11 @@ class _GetInfo implements BuiltinFunction {
             debugInfo['lastlinedefined'] = Value(-1);
           }
           if (what.contains('l')) {
-            debugInfo['currentline'] = Value(-1);
+            int line = -1;
+            if (vm != null && vm!.currentNode?.span != null) {
+              line = vm!.currentNode!.span!.start.line + 1;
+            }
+            debugInfo['currentline'] = Value(line);
           }
           if (what.contains('t')) {
             debugInfo['istailcall'] = Value(false);
@@ -135,7 +139,11 @@ class _GetInfo implements BuiltinFunction {
       debugInfo['lastlinedefined'] = Value(-1);
     }
     if (what.contains('l')) {
-      debugInfo['currentline'] = Value(-1);
+      int line = -1;
+      if (vm != null && vm!.currentNode?.span != null) {
+        line = vm!.currentNode!.span!.start.line + 1;
+      }
+      debugInfo['currentline'] = Value(line);
     }
     if (what.contains('t')) {
       debugInfo['istailcall'] = Value(false);
