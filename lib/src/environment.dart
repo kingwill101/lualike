@@ -50,6 +50,11 @@ class Environment extends GCObject {
   /// traversing the parent chain.
   final bool isClosure;
 
+  /// When true, assignments to undefined variables will be
+  /// delegated to the parent environment. Useful for loaded
+  /// chunks that should update globals of their caller.
+  final bool delegateUndefinedToParent;
+
   /// The interpreter associated with this environment.
   Interpreter? interpreter;
 
@@ -57,7 +62,12 @@ class Environment extends GCObject {
   ///
   /// If [parent] is provided, this environment will be chained to it.
   /// If [isClosure] is true, this environment will be treated as a closure scope.
-  Environment({this.parent, this.interpreter, this.isClosure = false}) {
+  Environment({
+    this.parent,
+    this.interpreter,
+    this.isClosure = false,
+    this.delegateUndefinedToParent = false,
+  }) {
     Logger.debug(
       "Environment($hashCode) created. Parent: ${parent?.hashCode}",
       category: 'Env',
@@ -221,7 +231,13 @@ class Environment extends GCObject {
       current = current.parent;
     }
 
-    // If not found anywhere, create new binding in current scope
+    // If not found anywhere, optionally delegate to parent
+    if (delegateUndefinedToParent && parent != null) {
+      parent!.define(name, value);
+      return;
+    }
+
+    // Otherwise create new binding in current scope
     values[name] = Box(value);
     Logger.debug(
       "Created new binding for '$name' = $value in env ($hashCode)",
@@ -360,6 +376,8 @@ class Environment extends GCObject {
     final cloned = Environment(
       parent: parent,
       interpreter: interpreter ?? this.interpreter,
+      delegateUndefinedToParent: delegateUndefinedToParent,
+      isClosure: isClosure,
     );
 
     // Copy all values

@@ -655,9 +655,13 @@ class LoadFunction implements BuiltinFunction {
           final savedEnv = vm.getCurrentEnv();
 
           // Create a new environment for the loaded code that inherits from
-          // the current environment. This ensures loaded code can access _ENV
-          // and other global variables properly
-          final loadEnv = Environment(parent: savedEnv, interpreter: vm);
+          // the current environment. Assignments to previously undefined
+          // variables are delegated to the parent so globals are updated.
+          final loadEnv = Environment(
+            parent: savedEnv,
+            interpreter: vm,
+            delegateUndefinedToParent: true,
+          );
 
           // Set up varargs in the load environment
           loadEnv.declare("...", Value.multi(callArgs));
