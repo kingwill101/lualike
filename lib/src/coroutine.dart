@@ -147,13 +147,17 @@ class Coroutine extends GCObject {
           }
           interpreter.setCurrentCoroutine(previousCoroutine);
         }
-        // Yield returns do not include the success flag, so prepend true when
-        // the coroutine is still suspended after awaiting the result.
-        if (status == CoroutineStatus.suspended ||
-            status == CoroutineStatus.dead) {
-          return Value.multi([Value(true), ...result]);
+        // On initial completion, [result] contains return values from the
+        // coroutine. If the first value is a boolean, the completer already
+        // prefixed the success flag.
+        if (result.isNotEmpty &&
+            result.first is Value &&
+            ((result.first as Value).raw is bool)) {
+          return Value.multi(result);
         }
-        return Value.multi(result);
+        // Otherwise the coroutine produced values from a return with no
+        // explicit flag. Prepend `true` to signal success.
+        return Value.multi([Value(true), ...result]);
       } else if (status == CoroutineStatus.suspended) {
         // Resuming from a yield point
         Logger.debug(
@@ -191,11 +195,12 @@ class Coroutine extends GCObject {
           }
           interpreter.setCurrentCoroutine(previousCoroutine);
         }
-        if (status == CoroutineStatus.suspended ||
-            status == CoroutineStatus.dead) {
-          return Value.multi([Value(true), ...result]);
+        if (result.isNotEmpty &&
+            result.first is Value &&
+            ((result.first as Value).raw is bool)) {
+          return Value.multi(result);
         }
-        return Value.multi(result);
+        return Value.multi([Value(true), ...result]);
       } else {
         // This shouldn't happen, but just in case
         Logger.debug(
@@ -554,5 +559,36 @@ class Coroutine extends GCObject {
     _programCounter = 0; // Reset program counter
     // _executionEnvironment should be re-initialized from closureEnvironment
     // or explicitly cleared if not reused directly.
+  }
+}
+
+/// Coroutine that wraps a builtin Dart function. It bypasses the AST execution
+/// pipeline and simply invokes the underlying function when resumed.
+class NativeCoroutine extends Coroutine {
+  NativeCoroutine(Value func, Environment env)
+    : super(func, FunctionBody([], [], true), env);
+
+  @override
+  Future<Value> resume(List<Object?> args) async {
+    if (status == CoroutineStatus.dead) {
+      return Value.multi([Value(false), Value('cannot resume dead coroutine')]);
+    }
+    status = CoroutineStatus.running;
+    try {
+      final processedArgs = _normalizeValues(args);
+      var result = await functionValue.raw(processedArgs);
+      status = CoroutineStatus.dead;
+      if (result is Value && result.isMulti) {
+        return Value.multi([Value(true), ...(result.raw as List<Object?>)]);
+      }
+      if (result is Value) {
+        return Value.multi([Value(true), result]);
+      }
+      if (result == null) return Value.multi([Value(true)]);
+      return Value.multi([Value(true), Value(result)]);
+    } catch (e) {
+      status = CoroutineStatus.dead;
+      return Value.multi([Value(false), Value(e.toString())]);
+    }
   }
 }

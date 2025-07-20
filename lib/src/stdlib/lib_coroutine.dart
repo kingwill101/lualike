@@ -16,12 +16,18 @@ void initializeCoroutineLibrary(Interpreter interpreter) {
       );
     }
     final func = args.first;
-    if (func is! Value || !func.isCallable() || func.functionBody == null) {
+    if (func is! Value || !func.isCallable()) {
       throw LuaError.typeError(
         'bad argument #1 to "create" (function expected)',
       );
     }
-    final co = Coroutine(func, func.functionBody!, interpreter.getCurrentEnv());
+    final env = interpreter.getCurrentEnv();
+    Coroutine co;
+    if (func.functionBody == null) {
+      co = NativeCoroutine(func, env);
+    } else {
+      co = Coroutine(func, func.functionBody!, env);
+    }
     interpreter.registerCoroutine(co);
     return Value(co);
   });
