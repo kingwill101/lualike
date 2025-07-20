@@ -7,6 +7,7 @@ import 'package:dart_console/dart_console.dart';
 
 /// List of Lua test files to run
 final testFiles = [
+  'attrib.lua',
   'bitwise.lua',
   'constructs.lua',
   'events.lua',
