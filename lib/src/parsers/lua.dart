@@ -723,19 +723,32 @@ class LuaGrammarDefinition extends GrammarDefinition {
   // ----------------- Global Declaration -----------------------------------
 
   Parser _globalDeclaration() => _span(
-    (_token('global') & _attNameList() & (_token('=') & _explist()).optional())
+    (_token('global') &
+            _attrib().optional() &
+            (_identifierWithAttrib() &
+                (_token(',') & _identifierWithAttrib()).star()) &
+            (_token('=') & _explist()).optional())
         .map((vals) {
-          final pairList = vals[1] as List<List>;
+          final defaultAttr = vals[1] as String? ?? '';
+          final firstPair = vals[2] as List;
+          final rest = vals[3] as List;
+
+          final pairList = <List>[firstPair];
+          for (final p in rest) {
+            pairList.add(p[1] as List);
+          }
+
           final names = <Identifier>[];
           final attributes = <String>[];
           for (final pair in pairList) {
             names.add(pair[0] as Identifier);
-            attributes.add(pair[1] as String);
+            final attr = pair[1] as String;
+            attributes.add(attr.isNotEmpty ? attr : defaultAttr);
           }
 
-          final exprs = vals[2] == null
+          final exprs = vals[4] == null
               ? <AstNode>[]
-              : (vals[2] as List)[1] as List<AstNode>;
+              : (vals[4] as List)[1] as List<AstNode>;
 
           return GlobalDeclaration(names, attributes, exprs);
         }),
