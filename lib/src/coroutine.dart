@@ -125,10 +125,12 @@ class Coroutine extends GCObject {
         );
         status = CoroutineStatus.running;
 
+        // Create the completer before starting execution so the coroutine can
+        // immediately complete it even if it returns without yielding.
+        completer = Completer<List<Object?>>();
+
         // Start the coroutine function with initial arguments
         _executionTask = _executeCoroutine(args);
-
-        completer = Completer<List<Object?>>();
         Logger.debug(
           'Coroutine.resume: Waiting for _executionTask completion (initial)',
           category: 'Coroutine',
@@ -147,7 +149,8 @@ class Coroutine extends GCObject {
         }
         // Yield returns do not include the success flag, so prepend true when
         // the coroutine is still suspended after awaiting the result.
-        if (status == CoroutineStatus.suspended) {
+        if (status == CoroutineStatus.suspended ||
+            status == CoroutineStatus.dead) {
           return Value.multi([Value(true), ...result]);
         }
         return Value.multi(result);
@@ -188,7 +191,8 @@ class Coroutine extends GCObject {
           }
           interpreter.setCurrentCoroutine(previousCoroutine);
         }
-        if (status == CoroutineStatus.suspended) {
+        if (status == CoroutineStatus.suspended ||
+            status == CoroutineStatus.dead) {
           return Value.multi([Value(true), ...result]);
         }
         return Value.multi(result);
@@ -353,9 +357,11 @@ class Coroutine extends GCObject {
     for (var i = 0; i < regularParamCount; i++) {
       final paramName = (functionBody.parameters![i]).name;
       if (i < processedArgs.length) {
-        _executionEnvironment.define(paramName, processedArgs[i]);
+        // Use declare to create a fresh binding for parameters so they do not
+        // overwrite variables in outer environments.
+        _executionEnvironment.declare(paramName, processedArgs[i]);
       } else {
-        _executionEnvironment.define(paramName, Value(null));
+        _executionEnvironment.declare(paramName, Value(null));
       }
     }
 
@@ -364,7 +370,7 @@ class Coroutine extends GCObject {
       List<Object?> varargs = processedArgs.length > regularParamCount
           ? processedArgs.sublist(regularParamCount)
           : [];
-      _executionEnvironment.define("...", Value.multi(varargs));
+      _executionEnvironment.declare("...", Value.multi(varargs));
     }
 
     try {
