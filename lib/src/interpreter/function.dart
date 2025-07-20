@@ -950,36 +950,32 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         category: 'Coroutine',
       );
 
-      // Save the previous coroutine
+      // Save the coroutine that was running prior to this call
       final interpreter = this as Interpreter;
       final prevCoroutine = interpreter.getCurrentCoroutine();
-      // Set the current coroutine to the yielding coroutine when available
-      if (ye.coroutine != null) {
-        interpreter.setCurrentCoroutine(ye.coroutine);
+
+      // When a coroutine yields, control returns to its caller.  Restore
+      // the previous coroutine while we wait for a resume.
+      if (prevCoroutine != null) {
+        interpreter.setCurrentCoroutine(prevCoroutine);
       }
 
-      // Wait for the coroutine to be resumed
       Logger.debug(
         '>>> YieldException: waiting for resumeFuture...',
         category: 'Coroutine',
       );
+
+      // Wait until the coroutine is resumed
       final resumeArgs = await ye.resumeFuture;
       Logger.debug(
         '>>> YieldException: resumeFuture completed with: \\$resumeArgs',
         category: 'Coroutine',
       );
 
-      // Ensure coroutine status is suspended after yield
+      // After resuming, continue execution in the yielded coroutine
       if (ye.coroutine != null) {
-        Logger.debug(
-          '>>> Forcing coroutine status to suspended after yield (interpreter)',
-          category: 'Coroutine',
-        );
-        ye.coroutine!.status = CoroutineStatus.suspended;
+        interpreter.setCurrentCoroutine(ye.coroutine);
       }
-
-      // Restore the previous coroutine (main thread or previous)
-      interpreter.setCurrentCoroutine(prevCoroutine);
 
       // Return the resume arguments as the result of this function call
       return _normalizeReturnValue(resumeArgs);
