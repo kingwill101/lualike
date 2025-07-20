@@ -488,12 +488,15 @@ class Coroutine extends GCObject {
 
     _isClosing = true;
     try {
-      if (status == CoroutineStatus.dead) {
+      final errObj = error ?? this.error;
+      if (status == CoroutineStatus.dead &&
+          _executionEnvironment.toBeClosedVars.isEmpty &&
+          errObj == null) {
         Logger.debug(
           'Coroutine already dead, nothing to close',
           category: 'Coroutine',
         );
-        return [Value(true)]; // Already dead, consider it successful close
+        return [Value(true)];
       }
 
       Logger.debug(
@@ -509,7 +512,7 @@ class Coroutine extends GCObject {
       }
 
       // Close any to-be-closed variables in the coroutine environment
-      final closeErr = await _executionEnvironment.closeVariables(error);
+      final closeErr = await _executionEnvironment.closeVariables(errObj);
 
       // Set status to dead
       status = CoroutineStatus.dead;
@@ -519,17 +522,20 @@ class Coroutine extends GCObject {
         return [Value(false), Value(closeErr.toString())];
       }
 
-      if (error != null) {
-        if (error is LuaError) {
-          return [Value(false), Value(error.message)];
+      if (errObj != null) {
+        if (errObj is LuaError) {
+          return [Value(false), Value(errObj.message)];
+        } else if (errObj is Value) {
+          return [Value(false), errObj.raw];
         } else {
-          return [Value(false), Value(error.toString())];
+          return [Value(false), Value(errObj.toString())];
         }
       }
 
       return [Value(true)]; // Successful close
     } finally {
       _isClosing = false;
+      this.error = null;
     }
   }
 
@@ -612,6 +618,12 @@ class NativeCoroutine extends Coroutine {
       return Value.multi([Value(true), Value(result)]);
     } catch (e) {
       status = CoroutineStatus.dead;
+      this.error = e;
+      if (e is Value) {
+        return Value.multi([Value(false), e]);
+      } else if (e is LuaError) {
+        return Value.multi([Value(false), Value(e.message)]);
+      }
       return Value.multi([Value(false), Value(e.toString())]);
     }
   }

@@ -190,75 +190,17 @@ class ErrorFunction implements BuiltinFunction {
 
   @override
   Object? call(List<Object?> args) {
-    if (args.isEmpty) throw Exception("error requires a message");
+    if (args.isEmpty) {
+      throw LuaError('error requires a message');
+    }
 
-    // Get the error value
     final errorValue = args[0] as Value;
 
-    // If the error value is a table, preserve it
-    if (errorValue.raw is Map) {
-      throw errorValue; // Throw the Value directly instead of converting to Exception
+    if (vm != null && !vm!.isInProtectedCall) {
+      vm!.reportError(errorValue.raw.toString());
     }
 
-    final message = errorValue.raw.toString();
-    final level = args.length > 1 ? (args[1] as Value).raw as int : 1;
-
-    // If we're already reporting an error, just throw the exception
-    // without calling reportError again
-    if (_errorReporting) {
-      throw Exception(message);
-    }
-
-    // Set the flag to indicate we're reporting an error
-    _errorReporting = true;
-
-    try {
-      // If we have access to the VM, use its call stack for better error reporting
-      if (vm != null) {
-        // Suppress stack traces when inside a protected call
-        if (vm!.isInProtectedCall) {
-          throw Exception(message);
-        }
-
-        // Let the VM handle the error reporting with proper stack trace
-        vm!.reportError(message);
-        // This will never be reached, but needed for type safety
-        throw Exception(message);
-      } else {
-        // Get the current script path if available
-        String scriptPath = "unknown";
-        if (vm != null) {
-          // Try to get the script path from the environment first
-          final scriptPathValue = vm!.globals.get('_SCRIPT_PATH');
-          if (scriptPathValue is Value && scriptPathValue.raw != null) {
-            scriptPath = scriptPathValue.raw.toString();
-          } else if (vm!.currentScriptPath != null) {
-            scriptPath = vm!.currentScriptPath!;
-          }
-
-          // Extract just the filename for display, like Lua does
-          scriptPath = scriptPath.split('/').last;
-        }
-
-        // Format error message like Lua CLI
-        final errorMsg = "$scriptPath: $message";
-
-        // Generate a simple stack trace based on level
-        final trace = StringBuffer(errorMsg);
-        if (level > 0) {
-          trace.writeln();
-          trace.writeln("stack traceback:");
-          for (var i = 0; i < level; i++) {
-            trace.writeln("\t$scriptPath:${i + 1}: in function '?'");
-          }
-        }
-
-        throw Exception(trace.toString());
-      }
-    } finally {
-      // Reset the flag
-      _errorReporting = false;
-    }
+    throw errorValue;
   }
 }
 
@@ -878,7 +820,8 @@ class PCAllFunction implements BuiltinFunction {
         ]);
       }
     } catch (e) {
-      return Value.multi([false, e.toString()]);
+      final errValue = e is Value ? e : Value(e.toString());
+      return Value.multi([Value(false), errValue]);
     } finally {
       // Exit protected call context
       interpreter.exitProtectedCall();
