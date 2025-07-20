@@ -1,5 +1,6 @@
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
+import 'package:lualike/src/utils/type.dart';
 
 import '../number_limits.dart';
 
@@ -491,7 +492,7 @@ class _TableSort implements BuiltinFunction {
     // Validate comparison function if provided
     if (comp != null && comp is! Value) {
       throw LuaError(
-        "bad argument #2 to 'sort' (function expected, got ${comp.runtimeType})",
+        "bad argument #2 to 'sort' (function expected, got ${getLuaType(comp)})",
       );
     }
     if (comp is Value &&
@@ -499,7 +500,7 @@ class _TableSort implements BuiltinFunction {
         comp.raw is! Function &&
         comp.raw is! BuiltinFunction) {
       throw LuaError(
-        "bad argument #2 to 'sort' (function expected, got ${comp.raw.runtimeType})",
+        "bad argument #2 to 'sort' (function expected, got ${getLuaType(comp)})",
       );
     }
 
