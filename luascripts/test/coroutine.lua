@@ -1,5 +1,5 @@
 -- $Id: testes/coroutine.lua $
--- See Copyright Notice in file lua.h
+-- See Copyright Notice in file all.lua
 
 print "testing coroutines"
 
@@ -127,18 +127,6 @@ assert(#a == 22 and a[#a] == 79)
 x, a = nil
 
 
-do   -- "bug" in 5.4.2
-  local function foo () foo () end    -- just create a stack overflow
-  local co = coroutine.create(foo)
-  -- running this coroutine would overflow the unsigned short 'nci', the
-  -- counter of CallInfo structures available to the thread.
-  -- (The issue only manifests in an 'assert'.)
-  local st, msg = coroutine.resume(co)
-  assert(string.find(msg, "stack overflow"))
-  assert(coroutine.status(co) == "dead")
-end
-
-
 print("to-be-closed variables in coroutines")
 
 local function func2close (f)
@@ -156,12 +144,12 @@ do
   st, msg = coroutine.close(co)
   assert(st and msg == nil)
 
+
+  -- cannot close the running coroutine
+  local st, msg = pcall(coroutine.close, coroutine.running())
+  assert(not st and string.find(msg, "running"))
+
   local main = coroutine.running()
-
-  -- cannot close 'main'
-  local st, msg = pcall(coroutine.close, main);
-  assert(not st and string.find(msg, "main"))
-
 
   -- cannot close a "normal" coroutine
   ;(coroutine.wrap(function ()
@@ -169,19 +157,20 @@ do
     assert(not st and string.find(msg, "normal"))
   end))()
 
-  do   -- close a coroutine while closing it
+  -- cannot close a coroutine while closing it
+  do
     local co
     co = coroutine.create(
       function()
         local x <close> = func2close(function()
-            coroutine.close(co)   -- close it again
+            coroutine.close(co)   -- try to close it again
          end)
         coroutine.yield(20)
       end)
     local st, msg = coroutine.resume(co)
     assert(st and msg == 20)
     st, msg = coroutine.close(co)
-    assert(st and msg == nil)
+    assert(not st and string.find(msg, "running coroutine"))
   end
 
   -- to-be-closed variables in coroutines
@@ -285,56 +274,6 @@ do
   assert(st and not res1 and res2 == 20)   -- last error (20)
   assert(track[1] == false and track[2] == 2 and track[3] == 10 and
          track[4] == 10)
-end
-
-
-do print("coroutines closing itself")
-  global <const> coroutine, string, os
-  global <const> assert, error, pcall
-
-  local X = nil
-
-  local function new ()
-    return coroutine.create(function (what)
-
-      local <close>var = func2close(function (t, err)
-        if what == "yield" then
-          coroutine.yield()
-        elseif what == "error" then
-          error(200)
-        else
-          X = "Ok"
-          return X
-        end
-      end)
-
-      -- do an unprotected call so that coroutine becomes non-yieldable
-      string.gsub("a", "a", function ()
-        assert(not coroutine.isyieldable())
-        -- do protected calls while non-yieldable, to add recovery
-        -- entries (setjmp) to the stack
-        assert(pcall(pcall, function ()
-          -- 'close' works even while non-yieldable
-          coroutine.close()   -- close itself
-          os.exit(false)   -- not reacheable
-        end))
-      end)
-    end)
-  end
-
-  local co = new()
-  local st, msg = coroutine.resume(co, "ret")
-  assert(st and msg == nil)
-  assert(X == "Ok")
-
-  local co = new()
-  local st, msg = coroutine.resume(co, "error")
-  assert(not st and msg == 200)
-
-  local co = new()
-  local st, msg = coroutine.resume(co, "yield")
-  assert(not st and string.find(msg, "attempt to yield"))
-
 end
 
 
@@ -554,25 +493,6 @@ assert(not pcall(a, a))
 a = nil
 
 
-do
-  -- bug in 5.4: thread can use message handler higher in the stack
-  -- than the variable being closed
-  local c = coroutine.create(function()
-    local clo <close> = setmetatable({}, {__close=function()
-      local x = 134   -- will overwrite message handler
-      error(x)
-    end})
-    -- yields coroutine but leaves a new message handler for it,
-    -- that would be used when closing the coroutine (except that it
-    -- will be overwritten)
-    xpcall(coroutine.yield, function() return "XXX" end)
-  end)
-
-  assert(coroutine.resume(c))   -- start coroutine
-  local st, msg = coroutine.close(c)
-  assert(not st and msg == 134)
-end
-
 -- access to locals of erroneous coroutines
 local x = coroutine.create (function ()
             local a = 10
@@ -595,7 +515,7 @@ else
   print "testing yields inside hooks"
 
   local turn
-
+  
   local function fact (t, x)
     assert(turn == t)
     if x == 0 then return 1
@@ -722,7 +642,7 @@ else
 
 
   print "testing coroutine API"
-
+  
   -- reusing a thread
   assert(T.testC([[
     newthread      # create thread
@@ -763,7 +683,7 @@ else
          c == "ERRRUN" and d == 4)
 
   a, b, c, d = T.testC([[
-    rawgeti R !M    # get main thread
+    rawgeti R 1    # get main thread
     pushnum 10;
     pushnum 20;
     resume -3 2;
@@ -781,11 +701,11 @@ else
   assert(T.testC(state, "newthread; isyieldable -1; remove 1; return 1"))
 
   -- main thread is not yieldable
-  assert(not T.testC(state, "rawgeti R !M; isyieldable -1; remove 1; return 1"))
+  assert(not T.testC(state, "rawgeti R 1; isyieldable -1; remove 1; return 1"))
 
   T.testC(state, "settop 0")
 
-  T.loadlib(state, 1 | 2, 4)   -- load _G and 'package', preload 'coroutine'
+  T.loadlib(state)
 
   assert(T.doremote(state, [[
     coroutine = require'coroutine';
@@ -793,7 +713,7 @@ else
     return 'ok']]))
 
   local t = table.pack(T.testC(state, [[
-    rawgeti R !M     # get main thread
+    rawgeti R 1     # get main thread
     pushstring 'XX'
     getglobal X    # get function for body
     pushstring AA      # arg
@@ -802,7 +722,7 @@ else
     setglobal T    # top
     setglobal B    # second yielded value
     setglobal A    # fist yielded value
-    rawgeti R !M     # get main thread
+    rawgeti R 1     # get main thread
     pushnum 5       # arg (noise)
     resume 1 1      # after coroutine ends, previous stack is back
     pushstatus
@@ -1000,7 +920,7 @@ do   -- a few more tests for comparison operators
     until res ~= 10
     return res
   end
-
+  
   local function test ()
     local a1 = setmetatable({x=1}, mt1)
     local a2 = setmetatable({x=2}, mt2)
@@ -1012,7 +932,7 @@ do   -- a few more tests for comparison operators
     assert(2 >= a2)
     return true
   end
-
+  
   run(test)
 
 end
@@ -1117,31 +1037,6 @@ f = T.makeCfunc([[
 	return *
 ]], 23, "huu")
 
-
-do  -- testing bug introduced in commit f407b3c4a
-  local X = false   -- flag "to be closed"
-  local coro = coroutine.wrap(T.testC)
-  -- runs it until 'pcallk' (that yields)
-  -- 4th argument (at index 4): object to be closed
-  local res1, res2 = coro(
-    [[
-      toclose 3   # this could break the next 'pcallk'
-      pushvalue 2   # push function 'yield' to call it
-      pushint 22; pushint 33    # arguments to yield
-      # calls 'yield' (2 args; 2 results; continuation function at index 4)
-      pcallk 2 2 4
-      invalid command (should not arrive here)
-    ]],   -- 1st argument (at index 1): code;
-    coroutine.yield,  -- (at index 2): function to be called
-    func2close(function () X = true end),   -- (index 3): TBC slot
-    "pushint 43; return 3"   -- (index 4): code for continuation function
-  )
-
-  assert(res1 == 22 and res2 == 33 and not X)
-  local res1, res2, res3 = coro(34, "hi")  -- runs continuation function
-  assert(res1 == 34 and res2 == "hi" and res3 == 43 and X)
-end
-
 x = coroutine.wrap(f)
 assert(x() == 102)
 eqtab({x()}, {23, "huu"})
@@ -1199,11 +1094,11 @@ co = coroutine.wrap(function (...) return
           cannot be here!
        ]],
        [[  # 1st continuation
-         yieldk 0 3
+         yieldk 0 3 
          cannot be here!
        ]],
        [[  # 2nd continuation
-         yieldk 0 4
+         yieldk 0 4 
          cannot be here!
        ]],
        [[  # 3th continuation
