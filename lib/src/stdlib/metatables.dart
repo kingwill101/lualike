@@ -1,6 +1,7 @@
 // import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/stdlib/lib_string.dart' show StringLib;
+import 'package:lualike/src/utils/type.dart';
 
 import '../../lualike.dart';
 import 'lib_string.dart';
@@ -409,23 +410,6 @@ class MetaTable {
     }
   }
 
-  String _determineType(Object? value) {
-    return switch (value) {
-      null => 'nil',
-      String() => 'string',
-      LuaString() => 'string',
-      num() => 'number',
-      BigInt() => 'number',
-      bool() => 'boolean',
-      Function() => 'function',
-      BuiltinFunction() => 'function',
-      Map() => 'table',
-      List() => 'table',
-      Coroutine() => 'thread',
-      _ => 'userdata',
-    };
-  }
-
   /// Applies the default metatable for a value based on its type.
   ///
   /// This method determines the appropriate metatable for a value based on its type
@@ -440,7 +424,7 @@ class MetaTable {
     if (!_initialized) {
       _initialize();
     }
-    final type = _determineType(value.raw);
+    final type = getLuaType(value);
     Logger.debug('Determined type for value: $type', category: 'Metatables');
 
     // Tables do not receive a default metatable. Numbers only receive one
