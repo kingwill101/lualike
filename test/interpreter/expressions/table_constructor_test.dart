@@ -20,5 +20,22 @@ void main() {
 
       expect(result, equals(Value({"a": Value(42), "b": Value("hello")})));
     });
+
+    test('throws on nil key in constructor', () async {
+      var entry = IndexedTableEntry(NilValue(), NumberLiteral(1));
+      var tableConstructor = TableConstructor([entry]);
+      var vm = Interpreter();
+
+      expect(
+        () async => await tableConstructor.accept(vm),
+        throwsA(
+          isA<LuaError>().having(
+            (e) => e.message,
+            'message',
+            contains('table index is nil'),
+          ),
+        ),
+      );
+    });
   });
 }

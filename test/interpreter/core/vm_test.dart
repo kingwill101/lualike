@@ -178,13 +178,11 @@ void main() {
         result3 = counter2()
       ''');
 
-      // Should share state because require caches modules
-      var result1 = vm.globals.get('result1') as Value;
-      expect(result1.raw, equals(1));
-      var result2 = vm.globals.get('result2') as Value;
-      expect(result2.raw, equals(2));
-      var result3 = vm.globals.get('result3') as Value;
-      expect(result3.raw, equals(3));
+      final res = await vm.evaluate('return result1, result2, result3');
+      final values = (res as Value).unwrap();
+      expect(values[0], equals(1));
+      expect(values[1], equals(2));
+      expect(values[2], equals(3));
     });
   });
 
