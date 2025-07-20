@@ -213,10 +213,13 @@ class Coroutine extends GCObject {
         'Coroutine.resume: Finally block executed',
         category: 'Coroutine',
       );
-      // Restore the previous environment; the wrapper manages the
-      // current coroutine to avoid race conditions while resuming.
-      if (interpreter != null && previousEnv != null) {
-        interpreter.setCurrentEnv(previousEnv);
+      // Restore previous environment and active coroutine
+      if (interpreter != null) {
+        if (previousEnv != null) {
+          interpreter.setCurrentEnv(previousEnv);
+        }
+        // Reset to the coroutine that was running prior to this resume call
+        interpreter.setCurrentCoroutine(previousCoroutine);
       }
     }
   }
