@@ -1,6 +1,5 @@
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
-import 'package:lualike/src/builtin_function.dart';
 
 import '../number_limits.dart';
 
@@ -665,16 +664,13 @@ class _TableSort implements BuiltinFunction {
   Future<void> _insertionSort(Map map, int lo, int up, Object? comp) async {
     for (int i = lo + 1; i <= up; i++) {
       for (int j = i; j > lo && await _sortComp(map, j, j - 1, comp); j--) {
+        Logger.debug(
+          "_insertionSort: should swap? j=$j, result=true",
+          category: 'TableSort',
+        );
         _set2(map, j, j - 1);
       }
     }
-  }
-
-  // Choose an element in the middle (2nd-3th quarters) of [lo,up]
-  int _choosePivot(int lo, int up, int rnd) {
-    int r4 = (up - lo) ~/ 4; // range/4
-    int p = (rnd ^ lo ^ up) % (r4 * 2) + (lo + r4);
-    return p;
   }
 
   // Return true iff value at index 'a' is less than the value at index 'b'
@@ -682,20 +678,35 @@ class _TableSort implements BuiltinFunction {
     final valA = map[a];
     final valB = map[b];
 
+    Logger.debug(
+      "_sortComp: comparing indices a=$a (${valA.runtimeType}) with b=$b (${valB.runtimeType})",
+      category: 'TableSort',
+    );
+
+    // If either value is nil, raise an error (Lua behavior)
+    if (valA == null ||
+        (valA is Value && valA.raw == null) ||
+        valB == null ||
+        (valB is Value && valB.raw == null)) {
+      throw LuaError.typeError("attempt to compare nil value");
+    }
+
     if (comp == null || (comp is Value && comp.raw == null)) {
       // no function?
-      return _compareValues(valA, valB) < 0; // a < b
+      final result = await _compareValues(valA, valB) < 0; // a < b
+      Logger.debug("_sortComp: result = $result", category: 'TableSort');
+      return result;
     } else {
       // function
       if (comp is Value &&
           (comp.raw is Function || comp.raw is BuiltinFunction)) {
         final func = comp.raw;
         final result = await func([valA, valB]);
-        if (result is Value) {
-          return result.raw == true;
-        } else {
-          return result == true;
-        }
+        final boolResult = result is Value
+            ? result.raw == true
+            : result == true;
+        Logger.debug("_sortComp: result = $boolResult", category: 'TableSort');
+        return boolResult;
       } else {
         throw LuaError("invalid order function");
       }
@@ -759,62 +770,133 @@ class _TableSort implements BuiltinFunction {
   }
 
   // Compare two values using Lua semantics
-  int _compareValues(dynamic a, dynamic b) {
-    // Handle nil values
-    if (a == null || (a is Value && a.raw == null)) return 1;
-    if (b == null || (b is Value && b.raw == null)) return -1;
+  Future<int> _compareValues(dynamic a, dynamic b) async {
+    // Handle nil values - this should prevent metamethods from being called with nil
+    if (a == null || (a is Value && a.raw == null)) {
+      throw LuaError.typeError("attempt to compare nil value");
+    }
+    if (b == null || (b is Value && b.raw == null)) {
+      throw LuaError.typeError("attempt to compare nil value");
+    }
 
     final aVal = a is Value ? a.raw : a;
     final bVal = b is Value ? b.raw : b;
 
+    // Additional nil check after unwrapping
+    if (aVal == null || bVal == null) {
+      throw LuaError.typeError("attempt to compare nil value");
+    }
+
+    // Debug logging
+    Logger.debug(
+      "_compareValues: comparing a=$a (${a.runtimeType}) with b=$b (${b.runtimeType})",
+      category: 'TableSort',
+    );
+
     if (aVal is num && bVal is num) {
       return aVal.compareTo(bVal);
-    } else if (aVal is String && bVal is String) {
-      return aVal.compareTo(bVal);
-    } else if (aVal is LuaString && bVal is LuaString) {
-      return aVal < bVal ? -1 : (aVal > bVal ? 1 : 0);
+    } else if ((aVal is String || aVal is LuaString) &&
+        (bVal is String || bVal is LuaString)) {
+      // Convert both to strings for comparison
+      final aStr = aVal.toString();
+      final bStr = bVal.toString();
+      return aStr.compareTo(bStr);
     } else {
+      // Check for metamethods
+      final aValue = a is Value ? a : Value(a);
+      final bValue = b is Value ? b : Value(b);
+
+      // Try to use __lt metamethod from a
+      if (aValue.metatable != null) {
+        final ltMetamethod = aValue.metatable!.raw['__lt'];
+        if (ltMetamethod != null) {
+          try {
+            final result = await ltMetamethod.call([aValue, bValue]);
+            Logger.debug(
+              "_compareValues: __lt metamethod result: $result (${result.runtimeType})",
+              category: 'TableSort',
+            );
+            if (result is Value) {
+              final boolResult = result.raw == true ? -1 : 1;
+              Logger.debug(
+                "_compareValues: returning $boolResult (Value case)",
+                category: 'TableSort',
+              );
+              return boolResult;
+            } else {
+              final boolResult = result == true ? -1 : 1;
+              Logger.debug(
+                "_compareValues: returning $boolResult (direct case)",
+                category: 'TableSort',
+              );
+              return boolResult;
+            }
+          } catch (e) {
+            Logger.debug(
+              "_compareValues: __lt metamethod failed for a: $e",
+              category: 'TableSort',
+            );
+            // If __lt metamethod fails, try the reverse
+            if (bValue.metatable != null) {
+              final bLtMetamethod = bValue.metatable!.raw['__lt'];
+              if (bLtMetamethod != null) {
+                try {
+                  final result = await bLtMetamethod.call([bValue, aValue]);
+                  if (result is Value) {
+                    return result.raw == true ? 1 : -1;
+                  } else {
+                    return result == true ? 1 : -1;
+                  }
+                } catch (e) {
+                  Logger.debug(
+                    "_compareValues: __lt metamethod failed for b: $e",
+                    category: 'TableSort',
+                  );
+                  // Both metamethods failed
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Try to use __lt metamethod from b
+      if (bValue.metatable != null) {
+        final ltMetamethod = bValue.metatable!.raw['__lt'];
+        if (ltMetamethod != null) {
+          try {
+            final result = await ltMetamethod.call([bValue, aValue]);
+            if (result is Value) {
+              return result.raw == true ? 1 : -1;
+            } else {
+              return result == true ? 1 : -1;
+            }
+          } catch (e) {
+            Logger.debug(
+              "_compareValues: __lt metamethod failed for b (second attempt): $e",
+              category: 'TableSort',
+            );
+            // Metamethod failed
+          }
+        }
+      }
+
       throw LuaError.typeError("attempt to compare incompatible types");
     }
   }
 
   // Swap two elements in the map
   void _set2(Map map, int i, int j) {
+    Logger.debug(
+      "_set2: swapping elements at indices $i and $j",
+      category: 'TableSort',
+    );
     final temp = map[i];
     map[i] = map[j];
     map[j] = temp;
   }
 
   // Partition function (similar to C implementation)
-  Future<int> _partition(Map map, int lo, int up, Object? comp) async {
-    int i = lo; // will be incremented before first use
-    int j = up - 1; // will be decremented before first use
-    // loop invariant: a[lo .. i] <= P <= a[j .. up]
-
-    for (;;) {
-      // next loop: repeat ++i while a[i] < P
-      while (++i < up - 1) {
-        if (!(await _sortComp(map, i, up - 1, comp))) break;
-      }
-
-      // after the loop, a[i] >= P and a[lo .. i - 1] < P
-      // next loop: repeat --j while P < a[j]
-      while (--j >= i) {
-        if (!(await _sortComp(map, up - 1, j, comp))) break;
-      }
-
-      // after the loop, a[j] <= P and a[j + 1 .. up] >= P
-      if (j < i) {
-        // no elements out of place?
-        // a[lo .. i - 1] <= P <= a[j + 1 .. i .. up]
-        // swap pivot (a[up - 1]) with a[i] to satisfy pos-condition
-        _set2(map, up - 1, i);
-        return i;
-      }
-      // otherwise, swap a[i] - a[j] to restore invariant and repeat
-      _set2(map, i, j);
-    }
-  }
 }
 
 class _TablePack implements BuiltinFunction {
