@@ -558,10 +558,52 @@ class _TableSort implements BuiltinFunction {
 
   // Simple in-place quicksort implementation
   Future<void> _auxSort(Map map, int lo, int up, Object? comp, int rnd) async {
-    if (lo >= up) return; // base case
+    Logger.debug("_auxSort: lo=$lo, up=$up", category: 'TableSort');
+
+    if (lo >= up) {
+      Logger.debug("_auxSort: base case reached", category: 'TableSort');
+      return; // base case
+    }
+
+    // Quick check for degenerate case: if comparison function always returns false/nil
+    // and we have more than a few elements, use a fast path
+    if (up - lo > 5 && comp != null && comp is Value && comp.raw != null) {
+      bool alwaysFalse = true;
+      // Test a few comparisons to see if they all return false
+      for (int i = 0; i < 3 && alwaysFalse; i++) {
+        final testResult = await _sortComp(map, lo + i, lo + i + 1, comp);
+        if (testResult) {
+          alwaysFalse = false;
+        }
+      }
+      if (alwaysFalse) {
+        Logger.debug(
+          "_auxSort: degenerate case - all comparisons return false, using fast path",
+          category: 'TableSort',
+        );
+        // For degenerate cases, just run a minimal sort to maintain compatibility
+        // but use insertion sort which is efficient for this case
+        await _insertionSort(map, lo, up, comp);
+        return;
+      }
+    }
+
+    // For small arrays or degenerate cases, use insertion sort
+    if (up - lo < 10) {
+      Logger.debug(
+        "_auxSort: using insertion sort for small array",
+        category: 'TableSort',
+      );
+      await _insertionSort(map, lo, up, comp);
+      return;
+    }
 
     // Choose pivot (middle element)
     int pivot = (lo + up) ~/ 2;
+    Logger.debug(
+      "_auxSort: chosen pivot at index $pivot",
+      category: 'TableSort',
+    );
 
     // Move pivot to end
     _set2(map, pivot, up);
@@ -569,19 +611,63 @@ class _TableSort implements BuiltinFunction {
     // Partition
     int i = lo - 1;
     for (int j = lo; j < up; j++) {
-      if (await _sortComp(map, j, up, comp)) {
+      final compResult = await _sortComp(map, j, up, comp);
+      Logger.debug(
+        "_auxSort: comparing indices $j and $up, result=$compResult",
+        category: 'TableSort',
+      );
+      if (compResult) {
         i++;
         _set2(map, i, j);
+        Logger.debug(
+          "_auxSort: swapped elements at indices $i and $j",
+          category: 'TableSort',
+        );
       }
     }
 
     // Move pivot to correct position
     _set2(map, i + 1, up);
     pivot = i + 1;
+    Logger.debug(
+      "_auxSort: pivot moved to position $pivot",
+      category: 'TableSort',
+    );
 
-    // Recursively sort left and right parts
-    await _auxSort(map, lo, pivot - 1, comp, rnd);
-    await _auxSort(map, pivot + 1, up, comp, rnd);
+    // Handle degenerate case: if pivot is at the beginning or end,
+    // we need to ensure progress to avoid infinite recursion
+    if (pivot <= lo) {
+      Logger.debug(
+        "_auxSort: degenerate case - pivot at beginning, sorting rest",
+        category: 'TableSort',
+      );
+      // Pivot is at the beginning, sort the rest
+      await _auxSort(map, lo + 1, up, comp, rnd);
+    } else if (pivot >= up) {
+      Logger.debug(
+        "_auxSort: degenerate case - pivot at end, sorting rest",
+        category: 'TableSort',
+      );
+      // Pivot is at the end, sort the rest
+      await _auxSort(map, lo, up - 1, comp, rnd);
+    } else {
+      Logger.debug(
+        "_auxSort: normal case - sorting left and right parts",
+        category: 'TableSort',
+      );
+      // Normal case: recursively sort left and right parts
+      await _auxSort(map, lo, pivot - 1, comp, rnd);
+      await _auxSort(map, pivot + 1, up, comp, rnd);
+    }
+  }
+
+  // Insertion sort for small arrays or degenerate cases
+  Future<void> _insertionSort(Map map, int lo, int up, Object? comp) async {
+    for (int i = lo + 1; i <= up; i++) {
+      for (int j = i; j > lo && await _sortComp(map, j, j - 1, comp); j--) {
+        _set2(map, j, j - 1);
+      }
+    }
   }
 
   // Choose an element in the middle (2nd-3th quarters) of [lo,up]
