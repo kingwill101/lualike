@@ -266,6 +266,12 @@ class Coroutine extends GCObject {
       throw Exception("attempt to yield from outside a coroutine");
     }
 
+    Logger.debug(
+      'Coroutine.yield_: status before suspend: '
+      '$status',
+      category: 'Coroutine',
+    );
+
     // Save the current execution environment before yielding
     final interpreter = closureEnvironment.interpreter;
     if (interpreter != null) {
@@ -278,6 +284,10 @@ class Coroutine extends GCObject {
 
     // Set status to suspended
     status = CoroutineStatus.suspended;
+    Logger.debug(
+      'Coroutine.yield_: status set to suspended',
+      category: 'Coroutine',
+    );
 
     // Complete the current completer with the yielded values
     final currentCompleter = completer;
@@ -366,12 +376,22 @@ class Coroutine extends GCObject {
           '_executeCoroutine: Executing statement $_programCounter: ${stmt.runtimeType}',
           category: 'Coroutine',
         );
-        // Ensure the interpreter's environment is set to this coroutine's execution environment
+        // Ensure the interpreter's environment and active coroutine are set
+        // to this coroutine before executing the next statement. This is
+        // necessary because `resume` restores the caller's coroutine while the
+        // yielded coroutine awaits resumption.
         if (interpreter != null) {
+          interpreter.setCurrentCoroutine(this);
           interpreter.setCurrentEnv(_executionEnvironment);
         }
 
         await stmt.accept(interpreter!); // Execute the statement
+
+        // After executing (and possibly resuming from a yield), restore the
+        // coroutine context to this coroutine so that subsequent statements
+        // see the correct running coroutine and environment.
+        interpreter.setCurrentCoroutine(this);
+        interpreter.setCurrentEnv(_executionEnvironment);
         Logger.debug(
           '_executeCoroutine: Statement $_programCounter executed. Current PC: $_programCounter',
           category: 'Coroutine',

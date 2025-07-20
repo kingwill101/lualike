@@ -950,9 +950,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         category: 'Coroutine',
       );
 
-      // Save the previous coroutine
       final interpreter = this as Interpreter;
-      final prevCoroutine = interpreter.getCurrentCoroutine();
       // Set the current coroutine to the yielding coroutine when available
       if (ye.coroutine != null) {
         interpreter.setCurrentCoroutine(ye.coroutine);
@@ -969,17 +967,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         category: 'Coroutine',
       );
 
-      // Ensure coroutine status is suspended after yield
-      if (ye.coroutine != null) {
-        Logger.debug(
-          '>>> Forcing coroutine status to suspended after yield (interpreter)',
-          category: 'Coroutine',
-        );
-        ye.coroutine!.status = CoroutineStatus.suspended;
-      }
-
-      // Restore the previous coroutine (main thread or previous)
-      interpreter.setCurrentCoroutine(prevCoroutine);
+      // After resumption, continue executing in the resumed coroutine
+      interpreter.setCurrentCoroutine(ye.coroutine);
 
       // Return the resume arguments as the result of this function call
       return _normalizeReturnValue(resumeArgs);
