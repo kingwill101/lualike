@@ -3,6 +3,7 @@ import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/value.dart';
 import 'package:lualike/src/value_class.dart';
+import 'package:lualike/src/logger.dart';
 
 /// Initialize the coroutine library and add it to the global environment.
 void initializeCoroutineLibrary(Interpreter interpreter) {
@@ -46,6 +47,10 @@ void initializeCoroutineLibrary(Interpreter interpreter) {
 
   lib[Value('yield')] = Value((List<Object?> args) async {
     final co = interpreter.getCurrentCoroutine();
+    Logger.info(
+      'coroutine.yield called, current=${co.hashCode}',
+      category: 'Coroutine',
+    );
     if (co == null || co == interpreter.getMainThread()) {
       throw LuaError('attempt to yield from outside a coroutine');
     }

@@ -60,9 +60,10 @@ class Coroutine extends GCObject {
 
   /// Constructor
   Coroutine(this.functionValue, this.functionBody, this.closureEnvironment)
-    : _executionEnvironment = closureEnvironment.clone(
+    : _executionEnvironment = Environment(
+        parent: closureEnvironment,
         interpreter: closureEnvironment.interpreter,
-      ), // Clone closureEnv for execution
+      ), // New env with shared globals
       super() {
     // Register with garbage collector
     GenerationalGCManager.instance.register(this);
