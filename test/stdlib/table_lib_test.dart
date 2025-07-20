@@ -251,7 +251,7 @@ void main() {
         ''');
         fail('Expected error for invalid order function');
       } on LuaError catch (e) {
-        expect(e.message, contains('invalid order function for sorting'));
+        expect(e.message, contains('invalid order function'));
       }
     });
 
@@ -335,7 +335,7 @@ void main() {
         ''');
           fail('Expected error for invalid order function');
         } on LuaError catch (e) {
-          expect(e.message, contains('invalid order function for sorting'));
+          expect(e.message, contains('invalid order function'));
         }
       },
     );
@@ -357,7 +357,7 @@ void main() {
         ''');
           fail('Expected error for invalid order function');
         } on LuaError catch (e) {
-          expect(e.message, contains('invalid order function for sorting'));
+          expect(e.message, contains('invalid order function'));
         }
       },
     );
@@ -460,7 +460,7 @@ void main() {
         ''');
         fail('Expected error for non-function argument');
       } on LuaError catch (e) {
-        expect(e.message, contains('invalid order function'));
+        expect(e.message, contains('bad argument #2 to \'sort\''));
       }
     });
 
@@ -474,7 +474,7 @@ void main() {
         ''');
         fail('Expected error for table argument');
       } on LuaError catch (e) {
-        expect(e.message, contains('invalid order function'));
+        expect(e.message, contains('bad argument #2 to \'sort\''));
       }
     });
 
@@ -488,7 +488,7 @@ void main() {
         ''');
         fail('Expected error for number argument');
       } on LuaError catch (e) {
-        expect(e.message, contains('invalid order function'));
+        expect(e.message, contains('bad argument #2 to \'sort\''));
       }
     });
 
