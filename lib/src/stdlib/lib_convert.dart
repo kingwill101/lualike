@@ -54,7 +54,10 @@ class JsonEncode implements BuiltinFunction {
     if (args.isEmpty) {
       throw LuaError('dart.convert.jsonEncode requires 1 argument');
     }
-    final object = args[0] as Value;
+    final object = args[0];
+    if (object is! Value) {
+      throw LuaError('dart.convert.jsonEncode requires a Value argument');
+    }
     try {
       final encodable = fromLuaValue(object);
       return Value(json.encode(encodable));
@@ -70,7 +73,11 @@ class JsonDecode implements BuiltinFunction {
     if (args.isEmpty) {
       throw LuaError('dart.convert.jsonDecode requires 1 argument');
     }
-    final str = (args[0] as Value).raw.toString();
+    final arg = args[0];
+    if (arg is! Value) {
+      throw LuaError('dart.convert.jsonDecode requires a Value argument');
+    }
+    final str = arg.raw.toString();
     try {
       return toLuaValue(json.decode(str));
     } catch (e) {
@@ -85,7 +92,11 @@ class Base64Encode implements BuiltinFunction {
     if (args.isEmpty) {
       throw LuaError('dart.convert.base64Encode requires 1 argument');
     }
-    final bytes = _toListInt(args[0] as Value);
+    final arg = args[0];
+    if (arg is! Value) {
+      throw LuaError('dart.convert.base64Encode requires a Value argument');
+    }
+    final bytes = _toListInt(arg);
     return Value(base64.encode(bytes));
   }
 }
@@ -96,7 +107,11 @@ class Base64Decode implements BuiltinFunction {
     if (args.isEmpty) {
       throw LuaError('dart.convert.base64Decode requires 1 argument');
     }
-    final str = (args[0] as Value).raw.toString();
+    final arg = args[0];
+    if (arg is! Value) {
+      throw LuaError('dart.convert.base64Decode requires a Value argument');
+    }
+    final str = arg.raw.toString();
     try {
       return Value(base64.decode(str));
     } catch (e) {
@@ -111,7 +126,11 @@ class Base64UrlEncode implements BuiltinFunction {
     if (args.isEmpty) {
       throw LuaError('dart.convert.base64UrlEncode requires 1 argument');
     }
-    final bytes = _toListInt(args[0] as Value);
+    final arg = args[0];
+    if (arg is! Value) {
+      throw LuaError('dart.convert.base64UrlEncode requires a Value argument');
+    }
+    final bytes = _toListInt(arg);
     return Value(base64Url.encode(bytes));
   }
 }
@@ -122,7 +141,11 @@ class AsciiEncode implements BuiltinFunction {
     if (args.isEmpty) {
       throw LuaError('dart.convert.asciiEncode requires 1 argument');
     }
-    final str = (args[0] as Value).raw.toString();
+    final arg = args[0];
+    if (arg is! Value) {
+      throw LuaError('dart.convert.asciiEncode requires a Value argument');
+    }
+    final str = arg.raw.toString();
     try {
       return Value(ascii.encode(str));
     } catch (e) {
@@ -137,7 +160,11 @@ class AsciiDecode implements BuiltinFunction {
     if (args.isEmpty) {
       throw LuaError('dart.convert.asciiDecode requires 1 argument');
     }
-    final bytes = _toListInt(args[0] as Value);
+    final arg = args[0];
+    if (arg is! Value) {
+      throw LuaError('dart.convert.asciiDecode requires a Value argument');
+    }
+    final bytes = _toListInt(arg);
     return Value(ascii.decode(bytes));
   }
 }
@@ -148,7 +175,10 @@ class Latin1Encode implements BuiltinFunction {
     if (args.isEmpty) {
       throw LuaError('dart.convert.latin1Encode requires 1 argument');
     }
-    final value = args[0] as Value;
+    final value = args[0];
+    if (value is! Value) {
+      throw LuaError('dart.convert.latin1Encode requires a Value argument');
+    }
     try {
       // For LuaString, use the raw bytes directly
       if (value.raw is LuaString) {
@@ -180,7 +210,11 @@ class Latin1Decode implements BuiltinFunction {
     if (args.isEmpty) {
       throw LuaError('dart.convert.latin1Decode requires 1 argument');
     }
-    final bytes = _toListInt(args[0] as Value);
+    final arg = args[0];
+    if (arg is! Value) {
+      throw LuaError('dart.convert.latin1Decode requires a Value argument');
+    }
+    final bytes = _toListInt(arg);
     // For Lua compatibility, return a LuaString with the raw bytes
     // instead of converting to UTF-8 string
     return Value(LuaString(Uint8List.fromList(bytes)));

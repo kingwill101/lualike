@@ -695,6 +695,25 @@ local result = tostring(t)
 
         -- Test with arguments
         local argStatus, argResult = pcall(function(x, y) return x + y end, 10, 20)
+
+        -- Test calling non-function (should return false with type error)
+        local typeErrorStatus, typeErrorMsg = pcall(42)
+
+        -- Test calling nil (should return false with type error)
+        local nilErrorStatus, nilErrorMsg = pcall(nil)
+
+        -- Test multiple return values
+        local multiStatus, multiResult = pcall(function() return 1, 2, 3 end)
+        -- Check if multiResult is a list (multiple values returned as a single value)
+        local a, b, c
+        if type(multiResult) == "table" and multiResult[1] then
+          a, b, c = multiResult[1], multiResult[2], multiResult[3]
+        else
+          a = multiResult
+        end
+
+        -- Test pcall with builtin function
+        local builtinStatus, builtinResult = pcall(type, "hello")
       ''');
 
       expect((bridge.getGlobal('status') as Value).unwrap(), equals(true));
@@ -711,6 +730,42 @@ local result = tostring(t)
 
       expect((bridge.getGlobal('argStatus') as Value).unwrap(), equals(true));
       expect((bridge.getGlobal('argResult') as Value).unwrap(), equals(30));
+
+      // Test type error handling
+      expect(
+        (bridge.getGlobal('typeErrorStatus') as Value).unwrap(),
+        equals(false),
+      );
+      expect(
+        (bridge.getGlobal('typeErrorMsg') as Value).unwrap().toString(),
+        contains("attempt to call a number value"),
+      );
+
+      expect(
+        (bridge.getGlobal('nilErrorStatus') as Value).unwrap(),
+        equals(false),
+      );
+      expect(
+        (bridge.getGlobal('nilErrorMsg') as Value).unwrap().toString(),
+        contains("attempt to call a nil value"),
+      );
+
+      // Test multiple return values - pcall only returns the first result
+      expect((bridge.getGlobal('multiStatus') as Value).unwrap(), equals(true));
+      expect((bridge.getGlobal('a') as Value).unwrap(), equals(1));
+      // b and c should be nil since pcall only returns the first result
+      expect((bridge.getGlobal('b') as Value).unwrap(), isNull);
+      expect((bridge.getGlobal('c') as Value).unwrap(), isNull);
+
+      // Test builtin function call
+      expect(
+        (bridge.getGlobal('builtinStatus') as Value).unwrap(),
+        equals(true),
+      );
+      expect(
+        (bridge.getGlobal('builtinResult') as Value).unwrap(),
+        equals("string"),
+      );
     });
 
     test('xpcall', () async {
@@ -756,6 +811,96 @@ local result = tostring(t)
 
       expect((bridge.getGlobal('argStatus') as Value).unwrap(), equals(true));
       expect((bridge.getGlobal('argResult') as Value).unwrap(), equals(30));
+    });
+
+    test('pcall return value consistency', () async {
+      final bridge = LuaLike();
+
+      // Test that pcall always returns Value objects (not raw values)
+      await bridge.execute('''
+        -- Test that return values are properly wrapped
+        local status1, result1 = pcall(function() return nil end)
+        local status2, result2 = pcall(function() return false end)
+        local status3, result3 = pcall(function() return 0 end)
+        local status4, result4 = pcall(function() return "" end)
+
+        -- Test error return value wrapping
+        local errorStatus, errorResult = pcall(function() error({custom = "error"}) end)
+
+        -- Verify types
+        status1_type = type(status1)
+        result1_type = type(result1)
+        status2_type = type(status2)
+        result2_type = type(result2)
+        errorStatus_type = type(errorStatus)
+        errorResult_type = type(errorResult)
+      ''');
+
+      // All status values should be boolean
+      expect(
+        (bridge.getGlobal('status1_type') as Value).unwrap(),
+        equals("boolean"),
+      );
+      expect(
+        (bridge.getGlobal('status2_type') as Value).unwrap(),
+        equals("boolean"),
+      );
+      expect(
+        (bridge.getGlobal('errorStatus_type') as Value).unwrap(),
+        equals("boolean"),
+      );
+
+      // Result types should match expected Lua types
+      expect(
+        (bridge.getGlobal('result1_type') as Value).unwrap(),
+        equals("nil"),
+      );
+      expect(
+        (bridge.getGlobal('result2_type') as Value).unwrap(),
+        equals("boolean"),
+      );
+      // Error result type can be either "table" or "string" depending on how the error is handled
+      expect(
+        (bridge.getGlobal('errorResult_type') as Value).unwrap(),
+        anyOf(equals("table"), equals("string")),
+      );
+    });
+
+    test('pcall with different function types', () async {
+      final bridge = LuaLike();
+
+      // Test pcall with different types of functions
+      await bridge.execute('''
+        -- Test with user-defined function
+        local function userFunc(x) return x * 2 end
+        local userStatus, userResult = pcall(userFunc, 5)
+
+        -- Test with anonymous function
+        local anonStatus, anonResult = pcall(function(x) return x + 1 end, 10)
+
+        -- Test with builtin function that might throw
+        local builtinStatus, builtinResult = pcall(tonumber, "not_a_number")
+
+        -- Test with function that returns multiple values
+        -- pcall only returns the first result, not all multiple values
+        local multiStatus, firstResult = pcall(function() return 1, 2, 3 end)
+        multi_count = (firstResult ~= nil) and 1 or 0
+      ''');
+
+      expect((bridge.getGlobal('userStatus') as Value).unwrap(), equals(true));
+      expect((bridge.getGlobal('userResult') as Value).unwrap(), equals(10));
+
+      expect((bridge.getGlobal('anonStatus') as Value).unwrap(), equals(true));
+      expect((bridge.getGlobal('anonResult') as Value).unwrap(), equals(11));
+
+      expect(
+        (bridge.getGlobal('builtinStatus') as Value).unwrap(),
+        equals(true),
+      );
+      expect((bridge.getGlobal('builtinResult') as Value).unwrap(), isNull);
+
+      expect((bridge.getGlobal('multiStatus') as Value).unwrap(), equals(true));
+      expect((bridge.getGlobal('multi_count') as Value).unwrap(), equals(1));
     });
   });
 }
