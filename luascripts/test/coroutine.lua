@@ -297,7 +297,7 @@ do print("coroutines closing itself")
   local function new ()
     return coroutine.create(function (what)
 
-      local var <close> = func2close(function (t, err)
+      local <close>var = func2close(function (t, err)
         if what == "yield" then
           coroutine.yield()
         elseif what == "error" then
