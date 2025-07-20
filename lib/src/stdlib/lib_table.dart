@@ -552,13 +552,19 @@ class _TableSort implements BuiltinFunction {
     // Sort the values
     if (comp != null) {
       // Validate that comp is a function (matching C implementation)
-      if (comp is! Value || comp.raw is! Function) {
-        throw LuaError("invalid order function");
+      // If comp is a Value object, its raw value must be a Function
+      if (comp is Value) {
+        // Allow nil values (raw == null) as valid
+        if (comp.raw != null && comp.raw is! Function) {
+          throw LuaError("invalid order function");
+        }
       }
+      // If comp is not a Value object, it must be null (nil)
+      // Any other type is invalid
 
       // Use a simple validation approach to detect invalid comparison functions
       // We'll try to sort with a small subset first to detect obvious issues
-      if (values.length >= 2) {
+      if (values.length >= 2 && comp.raw != null) {
         final func = comp.raw as Function;
         final a = values[0];
         final b = values[1];
@@ -600,44 +606,47 @@ class _TableSort implements BuiltinFunction {
       }
 
       // Use bubble sort since we need to handle yields during comparisons
-      try {
-        var i = 0;
-        while (i < values.length) {
-          var j = 0;
-          while (j < values.length - i - 1) {
-            final func = comp.raw as Function;
-            final a = values[j];
-            final b = values[j + 1];
+      // Only do this if comp.raw is not null (i.e., we have a valid function)
+      if (comp.raw != null) {
+        try {
+          var i = 0;
+          while (i < values.length) {
+            var j = 0;
+            while (j < values.length - i - 1) {
+              final func = comp.raw as Function;
+              final a = values[j];
+              final b = values[j + 1];
 
-            // Call comparator - this might yield
-            final result = await func([a, b]);
+              // Call comparator - this might yield
+              final result = await func([a, b]);
 
-            // Handle result after potential yield
-            bool shouldSwap = false;
-            if (result is Value) {
-              shouldSwap = result.raw != true;
-            } else {
-              shouldSwap = result != true;
+              // Handle result after potential yield
+              bool shouldSwap = false;
+              if (result is Value) {
+                shouldSwap = result.raw != true;
+              } else {
+                shouldSwap = result != true;
+              }
+
+              if (shouldSwap) {
+                final temp = values[j];
+                values[j] = values[j + 1];
+                values[j + 1] = temp;
+              }
+              j++;
             }
-
-            if (shouldSwap) {
-              final temp = values[j];
-              values[j] = values[j + 1];
-              values[j + 1] = temp;
-            }
-            j++;
+            i++;
           }
-          i++;
+        } catch (e) {
+          if (e is YieldException) {
+            // Let yield propagate up
+            rethrow;
+          }
+          if (e is LuaError && e.message.contains("invalid order function")) {
+            rethrow;
+          }
+          throw LuaError("invalid order function for sorting");
         }
-      } catch (e) {
-        if (e is YieldException) {
-          // Let yield propagate up
-          rethrow;
-        }
-        if (e is LuaError && e.message.contains("invalid order function")) {
-          rethrow;
-        }
-        throw LuaError("invalid order function for sorting");
       }
     } else {
       // Default comparison without yields
@@ -654,9 +663,12 @@ class _TableSort implements BuiltinFunction {
             return aVal.compareTo(bVal);
           }
 
-          // Both strings
+          // Both strings (including LuaString)
           if (aVal is String && bVal is String) {
             return aVal.compareTo(bVal);
+          }
+          if (aVal is LuaString && bVal is LuaString) {
+            return aVal < bVal ? -1 : (aVal > bVal ? 1 : 0);
           }
 
           // Mixed types or unsupported types
@@ -665,6 +677,8 @@ class _TableSort implements BuiltinFunction {
           return a.compareTo(b);
         } else if (a is String && b is String) {
           return a.compareTo(b);
+        } else if (a is LuaString && b is LuaString) {
+          return a < b ? -1 : (a > b ? 1 : 0);
         } else {
           throw LuaError.typeError("attempt to compare incompatible types");
         }
