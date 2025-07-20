@@ -1,5 +1,6 @@
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
+import 'package:lualike/src/builtin_function.dart';
 
 import '../number_limits.dart';
 
@@ -481,26 +482,37 @@ class _TableSort implements BuiltinFunction {
       throw LuaError.typeError("table.sort requires a table argument");
     }
 
-    final table = args[0] is Value ? args[0] as Value : Value(args[0]);
+    final arg0 = args[0];
+    final table = arg0 is Value ? arg0 : Value(arg0);
     checktab(table, TablePermission.read | TablePermission.write);
 
     final map = table.raw as Map;
     final comp = args.length > 1 ? args[1] : null;
 
+    // Validate comparison function if provided
+    if (comp != null && comp is! Value) {
+      throw LuaError(
+        "bad argument #2 to 'sort' (function expected, got ${comp.runtimeType})",
+      );
+    }
+    if (comp is Value &&
+        comp.raw != null &&
+        comp.raw is! Function &&
+        comp.raw is! BuiltinFunction) {
+      throw LuaError(
+        "bad argument #2 to 'sort' (function expected, got ${comp.raw.runtimeType})",
+      );
+    }
+
     // Check for "array too big" (from C implementation)
-    // luaL_argcheck(L, n < INT_MAX, 1, "array too big");
-    // First check the table length using __len metamethod if available
     try {
       final tableLength = await getTableLength(table, context: "table.sort");
       if (tableLength >= NumberLimits.maxInt32) {
         throw LuaError("bad argument #1 to 'table.sort' (array too big)");
       }
     } catch (e) {
-      // If getTableLength throws an error (like "object length is not an integer"),
-      // we should check if it's because the length is too large
       if (e is LuaError &&
           e.message.contains("object length is not an integer")) {
-        // Check if the table has a __len metamethod that returns a large value
         if (table.metatable != null) {
           final lenMetamethod = table.metatable!['__len'];
           if (lenMetamethod != null) {
@@ -521,176 +533,201 @@ class _TableSort implements BuiltinFunction {
                 );
               }
             } catch (_) {
-              // If the metamethod call fails, rethrow the original error
               rethrow;
             }
           }
         }
       }
-      // Rethrow the original error
       rethrow;
     }
 
-    // Get the array part of the table (numeric indices)
-    final keys = map.keys.where((k) => k is int && k >= 1).toList()..sort();
-    if (keys.isEmpty) {
+    // Get the array length using Lua semantics
+    final n = _getTableLength(map);
+    if (n == 0) {
       return Value(null);
     }
 
-    // Get the maximum array index
-    final maxIndex = keys.last as int;
+    // Validate the order function if provided
+    await _validateOrderFunction(map, n, comp);
 
-    // Create a list of values to sort
-    final values = <dynamic>[];
-    for (var i = 1; i <= maxIndex; i++) {
-      final value = map[i];
-      if (value != null) {
-        values.add(value);
-      }
-    }
-
-    // Sort the values
-    if (comp != null) {
-      // Validate that comp is a function (matching C implementation)
-      // If comp is a Value object, its raw value must be a Function
-      if (comp is Value) {
-        // Allow nil values (raw == null) as valid
-        if (comp.raw != null && comp.raw is! Function) {
-          throw LuaError("invalid order function");
-        }
-      }
-      // If comp is not a Value object, it must be null (nil)
-      // Any other type is invalid
-
-      // Use a simple validation approach to detect invalid comparison functions
-      // We'll try to sort with a small subset first to detect obvious issues
-      if (values.length >= 2 && comp.raw != null) {
-        final func = comp.raw as Function;
-        final a = values[0];
-        final b = values[1];
-
-        try {
-          final result1 = await func([a, b]);
-          final result2 = await func([b, a]);
-
-          // Check for consistency: if a < b and b < a both return true, that's invalid
-          bool aLessThanB = false;
-          bool bLessThanA = false;
-
-          if (result1 is Value) {
-            aLessThanB = result1.raw == true;
-          } else {
-            aLessThanB = result1 == true;
-          }
-
-          if (result2 is Value) {
-            bLessThanA = result2.raw == true;
-          } else {
-            bLessThanA = result2 == true;
-          }
-
-          // If both comparisons return true, the order function is invalid
-          if (aLessThanB && bLessThanA) {
-            throw LuaError("invalid order function for sorting");
-          }
-        } catch (e) {
-          if (e is YieldException) {
-            // Let yield propagate up
-            rethrow;
-          }
-          if (e is LuaError && e.message.contains("invalid order function")) {
-            rethrow;
-          }
-          throw LuaError("invalid order function for sorting");
-        }
-      }
-
-      // Use bubble sort since we need to handle yields during comparisons
-      // Only do this if comp.raw is not null (i.e., we have a valid function)
-      if (comp.raw != null) {
-        try {
-          var i = 0;
-          while (i < values.length) {
-            var j = 0;
-            while (j < values.length - i - 1) {
-              final func = comp.raw as Function;
-              final a = values[j];
-              final b = values[j + 1];
-
-              // Call comparator - this might yield
-              final result = await func([a, b]);
-
-              // Handle result after potential yield
-              bool shouldSwap = false;
-              if (result is Value) {
-                shouldSwap = result.raw != true;
-              } else {
-                shouldSwap = result != true;
-              }
-
-              if (shouldSwap) {
-                final temp = values[j];
-                values[j] = values[j + 1];
-                values[j + 1] = temp;
-              }
-              j++;
-            }
-            i++;
-          }
-        } catch (e) {
-          if (e is YieldException) {
-            // Let yield propagate up
-            rethrow;
-          }
-          if (e is LuaError && e.message.contains("invalid order function")) {
-            rethrow;
-          }
-          throw LuaError("invalid order function for sorting");
-        }
-      }
-    } else {
-      // Default comparison without yields
-      values.sort((a, b) {
-        if (a == null) return 1;
-        if (b == null) return -1;
-
-        if (a is Value && b is Value) {
-          final aVal = a.raw;
-          final bVal = b.raw;
-
-          // Both numbers
-          if (aVal is num && bVal is num) {
-            return aVal.compareTo(bVal);
-          }
-
-          // Both strings (including LuaString)
-          if (aVal is String && bVal is String) {
-            return aVal.compareTo(bVal);
-          }
-          if (aVal is LuaString && bVal is LuaString) {
-            return aVal < bVal ? -1 : (aVal > bVal ? 1 : 0);
-          }
-
-          // Mixed types or unsupported types
-          throw LuaError.typeError("attempt to compare incompatible types");
-        } else if (a is num && b is num) {
-          return a.compareTo(b);
-        } else if (a is String && b is String) {
-          return a.compareTo(b);
-        } else if (a is LuaString && b is LuaString) {
-          return a < b ? -1 : (a > b ? 1 : 0);
-        } else {
-          throw LuaError.typeError("attempt to compare incompatible types");
-        }
-      });
-    }
-
-    // Update the table with sorted values
-    for (var i = 0; i < values.length; i++) {
-      map[i + 1] = values[i];
-    }
+    // Perform in-place quicksort using Lua's algorithm
+    await _auxSort(map, 1, n, comp, 0);
 
     return Value(null);
+  }
+
+  // Simple in-place quicksort implementation
+  Future<void> _auxSort(Map map, int lo, int up, Object? comp, int rnd) async {
+    if (lo >= up) return; // base case
+
+    // Choose pivot (middle element)
+    int pivot = (lo + up) ~/ 2;
+
+    // Move pivot to end
+    _set2(map, pivot, up);
+
+    // Partition
+    int i = lo - 1;
+    for (int j = lo; j < up; j++) {
+      if (await _sortComp(map, j, up, comp)) {
+        i++;
+        _set2(map, i, j);
+      }
+    }
+
+    // Move pivot to correct position
+    _set2(map, i + 1, up);
+    pivot = i + 1;
+
+    // Recursively sort left and right parts
+    await _auxSort(map, lo, pivot - 1, comp, rnd);
+    await _auxSort(map, pivot + 1, up, comp, rnd);
+  }
+
+  // Choose an element in the middle (2nd-3th quarters) of [lo,up]
+  int _choosePivot(int lo, int up, int rnd) {
+    int r4 = (up - lo) ~/ 4; // range/4
+    int p = (rnd ^ lo ^ up) % (r4 * 2) + (lo + r4);
+    return p;
+  }
+
+  // Return true iff value at index 'a' is less than the value at index 'b'
+  Future<bool> _sortComp(Map map, int a, int b, Object? comp) async {
+    final valA = map[a];
+    final valB = map[b];
+
+    if (comp == null || (comp is Value && comp.raw == null)) {
+      // no function?
+      return _compareValues(valA, valB) < 0; // a < b
+    } else {
+      // function
+      if (comp is Value &&
+          (comp.raw is Function || comp.raw is BuiltinFunction)) {
+        final func = comp.raw;
+        final result = await func([valA, valB]);
+        if (result is Value) {
+          return result.raw == true;
+        } else {
+          return result == true;
+        }
+      } else {
+        throw LuaError("invalid order function");
+      }
+    }
+  }
+
+  // Validate that the comparison function provides a consistent ordering
+  Future<void> _validateOrderFunction(Map map, int n, Object? comp) async {
+    if (comp == null || n < 2) return;
+
+    if (comp is Value &&
+        (comp.raw is Function || comp.raw is BuiltinFunction)) {
+      final func = comp.raw;
+
+      // Test the function with a few pairs to detect obvious issues
+      bool? firstResult;
+      int testCount = 0;
+      final maxTests = n < 10 ? n : 10; // Test up to 10 pairs or all if n < 10
+
+      for (int i = 1; i < maxTests; i++) {
+        final valA = map[i];
+        final valB = map[i + 1];
+
+        if (valA != null && valB != null) {
+          final result = await func([valA, valB]);
+          final boolResult = result is Value
+              ? result.raw == true
+              : result == true;
+
+          if (firstResult == null) {
+            firstResult = boolResult;
+          } else if (boolResult != firstResult) {
+            // Function returns different values, so it's not always the same
+            return;
+          }
+
+          testCount++;
+        }
+      }
+
+      // Only reject if the function always returns true (which would make all elements equal)
+      // Functions that always return false or nil are valid (they just don't change the order)
+      if (testCount >= 2 && firstResult == true) {
+        // Test one more pair in reverse order to confirm
+        final valA = map[2];
+        final valB = map[1];
+
+        if (valA != null && valB != null) {
+          final result = await func([valA, valB]);
+          final boolResult = result is Value
+              ? result.raw == true
+              : result == true;
+
+          if (boolResult == true) {
+            // Function always returns true regardless of order
+            throw LuaError("invalid order function");
+          }
+        }
+      }
+    }
+  }
+
+  // Compare two values using Lua semantics
+  int _compareValues(dynamic a, dynamic b) {
+    // Handle nil values
+    if (a == null || (a is Value && a.raw == null)) return 1;
+    if (b == null || (b is Value && b.raw == null)) return -1;
+
+    final aVal = a is Value ? a.raw : a;
+    final bVal = b is Value ? b.raw : b;
+
+    if (aVal is num && bVal is num) {
+      return aVal.compareTo(bVal);
+    } else if (aVal is String && bVal is String) {
+      return aVal.compareTo(bVal);
+    } else if (aVal is LuaString && bVal is LuaString) {
+      return aVal < bVal ? -1 : (aVal > bVal ? 1 : 0);
+    } else {
+      throw LuaError.typeError("attempt to compare incompatible types");
+    }
+  }
+
+  // Swap two elements in the map
+  void _set2(Map map, int i, int j) {
+    final temp = map[i];
+    map[i] = map[j];
+    map[j] = temp;
+  }
+
+  // Partition function (similar to C implementation)
+  Future<int> _partition(Map map, int lo, int up, Object? comp) async {
+    int i = lo; // will be incremented before first use
+    int j = up - 1; // will be decremented before first use
+    // loop invariant: a[lo .. i] <= P <= a[j .. up]
+
+    for (;;) {
+      // next loop: repeat ++i while a[i] < P
+      while (++i < up - 1) {
+        if (!(await _sortComp(map, i, up - 1, comp))) break;
+      }
+
+      // after the loop, a[i] >= P and a[lo .. i - 1] < P
+      // next loop: repeat --j while P < a[j]
+      while (--j >= i) {
+        if (!(await _sortComp(map, up - 1, j, comp))) break;
+      }
+
+      // after the loop, a[j] <= P and a[j + 1 .. up] >= P
+      if (j < i) {
+        // no elements out of place?
+        // a[lo .. i - 1] <= P <= a[j + 1 .. i .. up]
+        // swap pivot (a[up - 1]) with a[i] to satisfy pos-condition
+        _set2(map, up - 1, i);
+        return i;
+      }
+      // otherwise, swap a[i] - a[j] to restore invariant and repeat
+      _set2(map, i, j);
+    }
   }
 }
 
