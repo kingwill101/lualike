@@ -43,6 +43,9 @@ class Coroutine extends GCObject {
   /// This environment is preserved across yields.
   Environment _executionEnvironment;
 
+  /// Expose the execution environment for interpreter bookkeeping
+  Environment get executionEnvironment => _executionEnvironment;
+
   /// Program counter: the index of the next statement to execute in functionBody.body.
   int _programCounter = 0;
 

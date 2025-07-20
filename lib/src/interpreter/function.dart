@@ -568,6 +568,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     List<Object?> args, [
     String? callerFunctionName,
   ]) async {
+    final interpreter = this as Interpreter;
+    final prevCoroutine = interpreter.getCurrentCoroutine();
+    final prevEnv = interpreter.getCurrentEnv();
     Logger.debug(
       '>>> _callFunction called with function: [36m${func.hashCode}[0m, args: $args',
       category: 'Interpreter',
@@ -950,15 +953,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         category: 'Coroutine',
       );
 
-      // Save the coroutine that was running prior to this call
-      final interpreter = this as Interpreter;
-      final prevCoroutine = interpreter.getCurrentCoroutine();
-
-      // When a coroutine yields, control returns to its caller.  Restore
-      // the previous coroutine while we wait for a resume.
+      // When a coroutine yields, control returns to its caller. Restore
+      // the previous coroutine and environment while we wait for resume.
       if (prevCoroutine != null) {
         interpreter.setCurrentCoroutine(prevCoroutine);
       }
+      interpreter.setCurrentEnv(prevEnv);
 
       Logger.debug(
         '>>> YieldException: waiting for resumeFuture...',
@@ -975,11 +975,16 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       // After resuming, continue execution in the yielded coroutine
       if (ye.coroutine != null) {
         interpreter.setCurrentCoroutine(ye.coroutine);
+        interpreter.setCurrentEnv(ye.coroutine!.executionEnvironment);
       }
 
       // Return the resume arguments as the result of this function call
       return _normalizeReturnValue(resumeArgs);
     } finally {
+      // Restore previous coroutine and environment
+      interpreter.setCurrentCoroutine(prevCoroutine);
+      interpreter.setCurrentEnv(prevEnv);
+
       // Pop function from call stack
       callStack.pop();
     }
