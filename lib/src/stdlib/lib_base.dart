@@ -865,10 +865,9 @@ class PCAllFunction implements BuiltinFunction {
       if (callResult is Future) {
         final awaitedResult = await callResult;
         if (awaitedResult is Value && awaitedResult.isMulti) {
-          // Extract first value from multi-value result
+          // Return all values from multi-value result
           final multiValues = awaitedResult.raw as List;
-          final firstValue = multiValues.isNotEmpty ? multiValues.first : null;
-          return Value.multi([true, firstValue]);
+          return Value.multi([true, ...multiValues]);
         } else {
           return Value.multi([
             true,
@@ -877,10 +876,9 @@ class PCAllFunction implements BuiltinFunction {
         }
       } else {
         if (callResult is Value && callResult.isMulti) {
-          // Extract first value from multi-value result
+          // Return all values from multi-value result
           final multiValues = callResult.raw as List;
-          final firstValue = multiValues.isNotEmpty ? multiValues.first : null;
-          return Value.multi([true, firstValue]);
+          return Value.multi([true, ...multiValues]);
         } else {
           return Value.multi([
             true,
