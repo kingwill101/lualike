@@ -420,17 +420,7 @@ class TypeFunction implements BuiltinFunction {
     if (args.isEmpty) throw Exception("type requires an argument");
     final value = args[0] as Value;
 
-    if (value.raw == null) return Value("nil");
-    if (value.raw is bool) return Value("boolean");
-    if (value.raw is num || value.raw is BigInt) return Value("number");
-    if (value.raw is String || value.raw is LuaString) return Value("string");
-    if (value.raw is Coroutine) return Value("thread");
-    if (value.raw is Map) return Value("table");
-    if (value.raw is Function || value.raw is BuiltinFunction) {
-      return Value("function");
-    }
-
-    return Value("userdata"); // Default for other types
+    return getLuaType(value);
   }
 }
 
