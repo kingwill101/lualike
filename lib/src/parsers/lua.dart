@@ -17,6 +17,9 @@ import '../number.dart';
 class LuaGrammarDefinition extends GrammarDefinition {
   LuaGrammarDefinition(this._sourceFile);
 
+  /// Expose whitespace/comments parser for testing
+  Parser whiteSpaceAndCommentsForTest() => _whiteSpaceAndComments();
+
   /// Source file used for span annotations.
   final SourceFile _sourceFile;
 
@@ -70,12 +73,15 @@ class LuaGrammarDefinition extends GrammarDefinition {
   // `PossessiveRepeatingParser` assertion. Therefore we use `plus()` here
   // instead of `star()`.
   Parser _whiteSpaceAndComments() =>
-      (whitespace() | ref0(_lineComment) | ref0(_longComment)).plus();
+      (whitespace() | ref0(_longComment) | ref0(_lineComment)).plus();
 
-  Parser _lineComment() => string('--') & pattern('\n').neg().star();
+  Parser _lineComment() =>
+      (string('--') & pattern('\n').neg().star() & pattern('\n').optional())
+          .flatten();
 
   // Long comment --[=[ ... ]=] with optional = depth
-  Parser _longComment() => (string('--') & _LongBracketParser()).flatten();
+  Parser _longComment() =>
+      (string('--') & _LongCommentBracketParser()).flatten();
 
   // ---------- Lexical tokens ------------------------------------------------
   // Lua identifiers cannot be reserved keywords. Filter them out so that
@@ -188,7 +194,8 @@ class LuaGrammarDefinition extends GrammarDefinition {
     final leading = _whiteSpaceAndComments().star();
     // Do not require .end() so trailing trivia is allowed, matching Lua.
     // Require complete consumption of input (besides allowed trailing trivia).
-    return (leading & ref0(_chunk) & leading).map((vals) => vals[1]).end();
+    return ((leading & ref0(_chunk) & leading).map((vals) => vals[1]).end())
+        .trim(ref0(_whiteSpaceAndComments));
   }
 
   // chunk ::= block
@@ -197,15 +204,17 @@ class LuaGrammarDefinition extends GrammarDefinition {
 
   // block ::= {stat} [retstat]
   Parser _block() =>
-      (ref0(_stat).star() & ref0(_retstat).optional()).map((values) {
-        final stats = values[0] as List;
-        final list = <AstNode>[];
-        for (final s in stats) {
-          if (s != null) list.add(s as AstNode);
-        }
-        if (values[1] != null) list.add(values[1] as AstNode);
-        return list;
-      });
+      (ref0(_stat).trim(ref0(_whiteSpaceAndComments)).star() &
+              ref0(_retstat).optional())
+          .map((values) {
+            final stats = values[0] as List;
+            final list = <AstNode>[];
+            for (final s in stats) {
+              if (s != null) list.add(s as AstNode);
+            }
+            if (values[1] != null) list.add(values[1] as AstNode);
+            return list;
+          });
 
   // stat ::= empty ';' or assignment or expression statement
   Parser _stat() =>
@@ -380,15 +389,15 @@ class LuaGrammarDefinition extends GrammarDefinition {
 
   // ---------- Primary expressions -----------------------------------------
   Parser _primaryExpression() =>
-      ref0(_functionLiteral) |
-      ref0(_prefixExp) |
-      ref0(_numberLiteral) |
-      ref0(_booleanLiteral) |
-      ref0(_nilLiteral) |
-      ref0(_vararg) |
-      ref0(_stringLiteral) |
-      ref0(_tableConstructor) |
-      ref0(_groupedExpression);
+      ref0(_functionLiteral).trim(ref0(_whiteSpaceAndComments)) |
+      ref0(_prefixExp).trim(ref0(_whiteSpaceAndComments)) |
+      ref0(_numberLiteral).trim(ref0(_whiteSpaceAndComments)) |
+      ref0(_booleanLiteral).trim(ref0(_whiteSpaceAndComments)) |
+      ref0(_nilLiteral).trim(ref0(_whiteSpaceAndComments)) |
+      ref0(_vararg).trim(ref0(_whiteSpaceAndComments)) |
+      ref0(_stringLiteral).trim(ref0(_whiteSpaceAndComments)) |
+      ref0(_tableConstructor).trim(ref0(_whiteSpaceAndComments)) |
+      ref0(_groupedExpression).trim(ref0(_whiteSpaceAndComments));
 
   Parser _groupedExpression() => (_token('(') & ref0(_expression) & _token(')'))
       .map((values) => GroupedExpression(values[1] as AstNode));
@@ -965,6 +974,45 @@ class _LongBracketParser extends Parser<String> {
 
   @override
   _LongBracketParser copy() => _LongBracketParser();
+}
+
+class _LongCommentBracketParser extends Parser<String> {
+  _LongCommentBracketParser();
+
+  @override
+  Result<String> parseOn(Context context) {
+    final buffer = context.buffer;
+    final start = context.position;
+    if (start >= buffer.length || buffer.codeUnitAt(start) != 0x5B /* '[' */ ) {
+      return context.failure('long comment expected');
+    }
+    var idx = start + 1;
+    while (idx < buffer.length && buffer.codeUnitAt(idx) == 0x3D /* '=' */ ) {
+      idx++;
+    }
+    if (idx >= buffer.length || buffer.codeUnitAt(idx) != 0x5B) {
+      return context.failure('long comment start delimiter not found');
+    }
+    final eqCount = idx - start - 1;
+    final contentStart = idx + 1;
+    final closing = ']${'=' * eqCount}]';
+    final closeIdx = buffer.indexOf(closing, contentStart);
+    if (closeIdx == -1) {
+      return context.failure('unfinished long comment');
+    }
+    // Skip the content, return success at the end of the comment
+    return context.success('', closeIdx + closing.length);
+  }
+
+  @override
+  int fastParseOn(String buffer, int position) {
+    final ctx = Context(buffer, position);
+    final res = parseOn(ctx);
+    return res is Failure ? -1 : res.position;
+  }
+
+  @override
+  _LongCommentBracketParser copy() => _LongCommentBracketParser();
 }
 
 /// Parse [source] into an [AST] using the **new PetitParser** implementation.
