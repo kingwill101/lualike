@@ -279,7 +279,7 @@ class Environment extends GCObject {
   /// Closes all to-be-closed variables in this environment in reverse order of declaration.
   ///
   /// [error] - Optional error that caused the scope to exit.
-  void closeVariables([dynamic error]) {
+  dynamic closeVariables([dynamic error]) {
     Logger.debug(
       "Closing variables in env ($hashCode). To be closed: ${toBeClosedVars.join(', ')}",
       category: 'Env',
@@ -305,6 +305,7 @@ class Environment extends GCObject {
         }
       }
     }
+    return error;
   }
 
   /// Creates a new module environment.

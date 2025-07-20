@@ -1516,13 +1516,13 @@ class RequireFunction implements BuiltinFunction {
       // vm.fileManager.printResolvedGlobs();
     }
 
-    final modulePathStr = modulePath!;
+    final modulePathStr = modulePath;
     Logger.debug(
       "(REQUIRE) RequireFunction: Loading module '$moduleName' from path: $modulePathStr",
       category: 'Require',
     );
 
-    final source = await vm.fileManager.loadSource(modulePathStr);
+    final source = await vm.fileManager.loadSource(modulePathStr!);
     if (source != null) {
       try {
         Logger.debug(

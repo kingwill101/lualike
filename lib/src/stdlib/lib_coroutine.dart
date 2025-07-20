@@ -150,6 +150,9 @@ void initializeCoroutineLibrary(Interpreter interpreter) {
     if (co.status == CoroutineStatus.running) {
       throw LuaError('cannot close a running coroutine');
     }
+    if (co.status == CoroutineStatus.normal) {
+      throw LuaError('cannot close a normal coroutine');
+    }
     final result = await co.close();
     return Value.multi(result);
   });

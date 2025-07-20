@@ -61,6 +61,9 @@ class Coroutine extends GCObject {
   /// Whether the coroutine is being finalized
   final bool beingFinalized = false;
 
+  /// Whether the coroutine is currently executing a close operation.
+  bool _isClosing = false;
+
   /// Constructor
   Coroutine(this.functionValue, this.functionBody, this.closureEnvironment)
     : _executionEnvironment = Environment(
@@ -101,6 +104,11 @@ class Coroutine extends GCObject {
     final interpreter = closureEnvironment.interpreter;
     final previousCoroutine = interpreter?.getCurrentCoroutine();
     final previousEnv = interpreter?.getCurrentEnv();
+
+    if (previousCoroutine != null &&
+        previousCoroutine.status == CoroutineStatus.running) {
+      previousCoroutine.status = CoroutineStatus.normal;
+    }
 
     try {
       // Set this coroutine as the current one
@@ -243,6 +251,10 @@ class Coroutine extends GCObject {
       if (interpreter != null) {
         if (previousEnv != null) {
           interpreter.setCurrentEnv(previousEnv);
+        }
+        if (previousCoroutine != null &&
+            previousCoroutine.status != CoroutineStatus.dead) {
+          previousCoroutine.status = CoroutineStatus.running;
         }
         // Reset to the coroutine that was running prior to this resume call
         interpreter.setCurrentCoroutine(previousCoroutine);
@@ -470,43 +482,59 @@ class Coroutine extends GCObject {
 
   /// Called to close the coroutine
   Future<List<Object?>> close([dynamic error]) async {
-    if (status == CoroutineStatus.dead) {
+    if (_isClosing) {
+      throw LuaError('cannot close a running coroutine');
+    }
+
+    _isClosing = true;
+    try {
+      if (status == CoroutineStatus.dead) {
+        Logger.debug(
+          'Coroutine already dead, nothing to close',
+          category: 'Coroutine',
+        );
+        return [Value(true)]; // Already dead, consider it successful close
+      }
+
       Logger.debug(
-        'Coroutine already dead, nothing to close',
+        'Closing coroutine with status: $status',
         category: 'Coroutine',
       );
-      return [Value(true)]; // Already dead, consider it successful close
-    }
 
-    Logger.debug(
-      'Closing coroutine with status: $status',
-      category: 'Coroutine',
-    );
+      // If there's an active execution task, complete its completer with an error
+      // so that the awaited future in resume() will throw
+      if (completer != null && !completer!.isCompleted) {
+        if (error != null) {
+          completer!.completeError(error);
+        } else {
+          // If no error, complete normally but signal termination
+          completer!.complete([]); // Signal normal termination for yield future
+        }
+      }
 
-    // If there's an active execution task, complete its completer with an error
-    // so that the awaited future in resume() will throw
-    if (completer != null && !completer!.isCompleted) {
+      // Close any to-be-closed variables in the coroutine environment
+      final closeErr = _executionEnvironment.closeVariables(error);
+
+      // Set status to dead
+      status = CoroutineStatus.dead;
+
+      // Propagate the error if provided
+      if (closeErr != null) {
+        return [Value(false), Value(closeErr.toString())];
+      }
+
       if (error != null) {
-        completer!.completeError(error);
-      } else {
-        // If no error, complete normally but signal termination
-        completer!.complete([]); // Signal normal termination for yield future
+        if (error is LuaError) {
+          return [Value(false), Value(error.message)];
+        } else {
+          return [Value(false), Value(error.toString())];
+        }
       }
+
+      return [Value(true)]; // Successful close
+    } finally {
+      _isClosing = false;
     }
-
-    // Set status to dead
-    status = CoroutineStatus.dead;
-
-    // Propagate the error if provided
-    if (error != null) {
-      if (error is LuaError) {
-        return [Value(false), Value(error.message)];
-      } else {
-        return [Value(false), Value(error.toString())];
-      }
-    }
-
-    return [Value(true)]; // Successful close
   }
 
   /// Mark the coroutine as dead and release resources
