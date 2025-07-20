@@ -201,6 +201,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         parent: closureEnv,
         interpreter: this as Interpreter,
         isClosure: false, // Don't mark as closure by default
+        delegateUndefinedToParent: true,
       );
 
       // if (node.implicitSelf) {
@@ -310,12 +311,22 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     // Record trace information
     this is Interpreter ? (this as Interpreter).recordTrace(node) : null;
 
-    // Evaluate the function
-    final func = await node.name.accept(this);
+    // Evaluate the function expression
+    var func = await node.name.accept(this);
     Logger.debug(
       'Function evaluated to: $func (${func.runtimeType})',
       category: 'Interpreter',
     );
+
+    // If the function expression returned multiple values, use only the first
+    if (func is Value && func.isMulti) {
+      final values = func.raw as List<Object?>;
+      func = values.isNotEmpty ? values.first : Value(null);
+      Logger.debug(
+        'Function value after unwrapping multi: $func',
+        category: 'Interpreter',
+      );
+    }
 
     // Evaluate the arguments with proper multi-value handling
     final args = <Object?>[];
