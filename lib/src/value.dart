@@ -169,6 +169,11 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           result = result.first;
         }
 
+        // Ignore returned values when closing because of an existing error
+        if (error != null) {
+          return null;
+        }
+
         // Treat any non-nil/false return as an error object
         if (result != null && result != false) {
           return result;

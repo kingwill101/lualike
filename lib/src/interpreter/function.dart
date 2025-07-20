@@ -249,6 +249,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       final savedEnv = (this as Interpreter).getCurrentEnv();
 
       Object? result;
+      Object? error;
       try {
         // Set the environment to the execution environment
         (this as Interpreter).setCurrentEnv(execEnv);
@@ -267,7 +268,13 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         }
       } on ReturnException catch (e) {
         result = e.value;
+      } catch (e) {
+        error = e;
+        rethrow;
       } finally {
+        // Close all to-be-closed variables in this function scope
+        await execEnv.closeVariables(error);
+
         // Restore the previous environment
         (this as Interpreter).setCurrentEnv(savedEnv);
       }
