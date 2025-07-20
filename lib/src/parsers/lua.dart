@@ -730,8 +730,9 @@ class LuaGrammarDefinition extends GrammarDefinition {
             (_token('=') & _explist()).optional())
         .map((vals) {
           final defaultAttr = vals[1] as String? ?? '';
-          final firstPair = vals[2] as List;
-          final rest = vals[3] as List;
+          final pairInfo = vals[2] as List;
+          final firstPair = pairInfo[0] as List;
+          final rest = pairInfo[1] as List;
 
           final pairList = <List>[firstPair];
           for (final p in rest) {
@@ -746,9 +747,9 @@ class LuaGrammarDefinition extends GrammarDefinition {
             attributes.add(attr.isNotEmpty ? attr : defaultAttr);
           }
 
-          final exprs = vals[4] == null
+          final exprs = vals[3] == null
               ? <AstNode>[]
-              : (vals[4] as List)[1] as List<AstNode>;
+              : (vals[3] as List)[1] as List<AstNode>;
 
           return GlobalDeclaration(names, attributes, exprs);
         }),
