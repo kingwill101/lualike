@@ -44,19 +44,28 @@ class IOLib {
   static final ValueClass fileClass = ValueClass.create({
     "__gc": (List<Object?> args) async {
       Logger.debug('Garbage collecting file', category: 'IO');
-      final file = args[0] as Value;
+      final file = args[0];
+      if (file is! Value) {
+        throw LuaError.typeError("file expected");
+      }
       await (file.raw as LuaFile).close();
       return Value(null);
     },
     "__close": (List<Object?> args) async {
       Logger.debug('Closing file', category: 'IO');
-      final file = args[0] as Value;
+      final file = args[0];
+      if (file is! Value) {
+        throw LuaError.typeError("file expected");
+      }
       final result = await (file.raw as LuaFile).close();
       return Value.multi(result);
     },
     "__tostring": (List<Object?> args) {
       Logger.debug('Converting file to string', category: 'IO');
-      final file = args[0] as Value;
+      final file = args[0];
+      if (file is! Value) {
+        throw LuaError.typeError("file expected");
+      }
       return Value((file.raw as LuaFile).toString());
     },
   });
@@ -99,7 +108,10 @@ class IOClose implements BuiltinFunction {
       return Value.multi(result);
     }
 
-    final file = args[0] as Value;
+    final file = args[0];
+    if (file is! Value) {
+      throw LuaError.typeError("file expected");
+    }
     if (file.raw is! LuaFile) {
       Logger.debug('Attempt to close non-file object', category: 'IO');
       return Value.multi([null, "attempt to close a non-file object"]);

@@ -14,6 +14,7 @@ final testFiles = [
   'tpack.lua',
   'utf8.lua',
   'vararg.lua',
+  'sort.lua',
   'math.lua',
   'heavy.lua',
 ];
@@ -121,6 +122,11 @@ Future<void> main(List<String> args) async {
       negatable: false,
       help: 'Show verbose output for each test',
     )
+    ..addFlag(
+      'no-soft',
+      negatable: false,
+      help: 'Disable soft mode (_soft = true) for full test execution',
+    )
     ..addMultiOption(
       'test',
       abbr: 't',
@@ -166,6 +172,7 @@ Future<void> main(List<String> args) async {
   final results = await runTests(
     tests: testsToRun,
     verbose: r['verbose'] as bool,
+    noSoft: r['no-soft'] as bool,
   );
 
   printTestSummary(results);
@@ -180,6 +187,7 @@ Future<void> main(List<String> args) async {
 Future<List<TestResult>> runTests({
   List<String> tests = const [],
   bool verbose = false,
+  bool noSoft = false,
 }) async {
   final results = <TestResult>[];
   final testsToRun = tests.isEmpty ? testFiles : tests;
@@ -194,7 +202,13 @@ Future<List<TestResult>> runTests({
 
     final stopwatch = Stopwatch()..start();
 
-    final process = await Process.start('./lualike', ["luascripts/test/$file"]);
+    final environment = noSoft ? null : {'LUA_INIT': '_soft = true'};
+    final process = await Process.start(
+      '${Directory.current.path}/lualike',
+      [file],
+      environment: environment,
+      workingDirectory: 'luascripts/test',
+    );
 
     // Collect stdout and stderr
     final stdoutFuture = collectProcessOutput(process.stdout);

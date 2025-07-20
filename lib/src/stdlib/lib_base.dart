@@ -4,10 +4,11 @@ import 'dart:convert';
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/const_checker.dart';
-import 'package:lualike/src/coroutine.dart' show Coroutine;
-import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:lualike/src/utils/file_system_utils.dart';
+import 'package:lualike/src/utils/type.dart';
 import 'package:path/path.dart' as path;
+
+import 'lib_io.dart';
 
 /// Built-in function to retrieve the metatable of a value.
 class GetMetatableFunction implements BuiltinFunction {
@@ -191,10 +192,18 @@ class ErrorFunction implements BuiltinFunction {
 
   @override
   Object? call(List<Object?> args) {
-    if (args.isEmpty) throw Exception("error requires a message");
+    // If no arguments, throw nil as the error object (Lua behavior)
+    if (args.isEmpty) {
+      throw Value(null);
+    }
 
     // Get the error value
     final errorValue = args[0] as Value;
+
+    // If we're in a protected call (pcall/xpcall), always throw the Value directly
+    if (vm != null && vm!.isInProtectedCall) {
+      throw errorValue;
+    }
 
     // If the error value is a table, preserve it
     if (errorValue.raw is Map) {
@@ -216,11 +225,6 @@ class ErrorFunction implements BuiltinFunction {
     try {
       // If we have access to the VM, use its call stack for better error reporting
       if (vm != null) {
-        // Suppress stack traces when inside a protected call
-        if (vm!.isInProtectedCall) {
-          throw Exception(message);
-        }
-
         // Let the VM handle the error reporting with proper stack trace
         vm!.reportError(message);
         // This will never be reached, but needed for type safety
@@ -417,17 +421,7 @@ class TypeFunction implements BuiltinFunction {
     if (args.isEmpty) throw Exception("type requires an argument");
     final value = args[0] as Value;
 
-    if (value.raw == null) return Value("nil");
-    if (value.raw is bool) return Value("boolean");
-    if (value.raw is num || value.raw is BigInt) return Value("number");
-    if (value.raw is String || value.raw is LuaString) return Value("string");
-    if (value.raw is Coroutine) return Value("thread");
-    if (value.raw is Map) return Value("table");
-    if (value.raw is Function || value.raw is BuiltinFunction) {
-      return Value("function");
-    }
-
-    return Value("userdata"); // Default for other types
+    return getLuaType(value);
   }
 }
 
@@ -683,7 +677,7 @@ class LoadFunction implements BuiltinFunction {
           // provide values to the caller, not unwind the interpreter
           return e.value;
         } catch (e) {
-          throw Exception("Error executing loaded chunk '$chunkname': $e");
+          throw LuaError("Error executing loaded chunk '$chunkname': $e");
         }
       });
     } catch (e) {
@@ -862,24 +856,48 @@ class PCAllFunction implements BuiltinFunction {
       Object? callResult;
       if (func.raw is BuiltinFunction) {
         callResult = (func.raw as BuiltinFunction).call(callArgs);
-      } else {
+      } else if (func.raw is Function) {
         callResult = func.raw(callArgs);
+      } else {
+        throw LuaError.typeError("attempt to call a ${getLuaType(func)} value");
       }
 
       if (callResult is Future) {
         final awaitedResult = await callResult;
-        return Value.multi([
-          true,
-          awaitedResult is Value ? awaitedResult.raw : awaitedResult,
-        ]);
+        if (awaitedResult is Value && awaitedResult.isMulti) {
+          // Extract first value from multi-value result
+          final multiValues = awaitedResult.raw as List;
+          final firstValue = multiValues.isNotEmpty ? multiValues.first : null;
+          return Value.multi([true, firstValue]);
+        } else {
+          return Value.multi([
+            true,
+            awaitedResult is Value ? awaitedResult.raw : awaitedResult,
+          ]);
+        }
       } else {
-        return Value.multi([
-          true,
-          callResult is Value ? callResult.raw : callResult,
-        ]);
+        if (callResult is Value && callResult.isMulti) {
+          // Extract first value from multi-value result
+          final multiValues = callResult.raw as List;
+          final firstValue = multiValues.isNotEmpty ? multiValues.first : null;
+          return Value.multi([true, firstValue]);
+        } else {
+          return Value.multi([
+            true,
+            callResult is Value ? callResult.raw : callResult,
+          ]);
+        }
       }
     } catch (e) {
-      return Value.multi([false, e.toString()]);
+      // If the error is a Value object, return its raw value
+      // If it's a LuaError, return just the message
+      // Otherwise, convert to string
+      final errorValue = e is Value
+          ? e.raw
+          : e is LuaError
+          ? e.message
+          : e.toString();
+      return Value.multi([false, errorValue]);
     } finally {
       // Exit protected call context
       interpreter.exitProtectedCall();

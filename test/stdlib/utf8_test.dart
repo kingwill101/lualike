@@ -54,6 +54,143 @@ void main() {
       }, throwsA(isA<Exception>()));
     });
 
+    test('utf8.char with empty table unpack', () async {
+      await bridge.execute('''
+        local t = {}
+        local result = utf8.char(table.unpack(t))
+        local result_length = #result
+        local is_empty = result == ""
+      ''');
+
+      var result = bridge.getGlobal('result');
+      var resultLength = bridge.getGlobal('result_length');
+      var isEmpty = bridge.getGlobal('is_empty');
+
+      expect((result as Value).unwrap(), equals(''));
+      expect((resultLength as Value).unwrap(), equals(0));
+      expect((isEmpty as Value).unwrap(), equals(true));
+    });
+
+    test('utf8.char with nil values', () async {
+      await bridge.execute('''
+        local result1 = utf8.char(nil)
+        local result2 = utf8.char(nil, 65)
+        local result3 = utf8.char(65, nil, 66)
+        local result4 = utf8.char(nil, 65, nil, 66, nil)
+
+        local len1 = #result1
+        local len2 = #result2
+        local len3 = #result3
+        local len4 = #result4
+      ''');
+
+      var result1 = bridge.getGlobal('result1');
+      var result2 = bridge.getGlobal('result2');
+      var result3 = bridge.getGlobal('result3');
+      var result4 = bridge.getGlobal('result4');
+      var len1 = bridge.getGlobal('len1');
+      var len2 = bridge.getGlobal('len2');
+      var len3 = bridge.getGlobal('len3');
+      var len4 = bridge.getGlobal('len4');
+
+      // nil values should be skipped, not treated as codepoint 0
+      expect((result1 as Value).unwrap(), equals(''));
+      expect((result2 as Value).unwrap(), equals('A'));
+      expect((result3 as Value).unwrap(), equals('AB'));
+      expect((result4 as Value).unwrap(), equals('AB'));
+
+      expect((len1 as Value).unwrap(), equals(0));
+      expect((len2 as Value).unwrap(), equals(1));
+      expect((len3 as Value).unwrap(), equals(2));
+      expect((len4 as Value).unwrap(), equals(2));
+    });
+
+    test('utf8.char with mixed nil and valid values', () async {
+      await bridge.execute('''
+        local t = {65, nil, 66, nil, 67}
+        local result = utf8.char(table.unpack(t))
+        local expected = utf8.char(65, 66, 67)
+        local matches = result == expected
+      ''');
+
+      var result = bridge.getGlobal('result');
+      var expected = bridge.getGlobal('expected');
+      var matches = bridge.getGlobal('matches');
+
+      expect((result as Value).unwrap(), equals('ABC'));
+      expect((expected as Value).unwrap(), equals('ABC'));
+      expect((matches as Value).unwrap(), equals(true));
+    });
+
+    test(
+      'utf8.char with nil values in table.unpack (standard Lua behavior)',
+      () async {
+        await bridge.execute('''
+        -- Test that our implementation matches standard Lua behavior
+        -- Standard Lua: table.unpack({65, nil, 66}) returns 65, nil, 66
+        -- But utf8.char(65, nil, 66) throws an error in standard Lua
+        -- Our implementation is more permissive and skips nil values
+
+        local t = {65, nil, 66, nil, 67}
+        local a, b, c, d, e = table.unpack(t)
+
+        -- Verify table.unpack returns all values including nil
+        local unpack_results = {a, b, c, d, e}
+        local nil_count = 0
+        for i = 1, #unpack_results do
+          if unpack_results[i] == nil then
+            nil_count = nil_count + 1
+          end
+        end
+      ''');
+
+        var nilCount = bridge.getGlobal('nil_count');
+        expect(
+          (nilCount as Value).unwrap(),
+          equals(2),
+        ); // Should have 2 nil values
+      },
+    );
+
+    test('utf8.char regression test from utf8.lua', () async {
+      await bridge.execute('''
+        -- This is the exact test case that was failing in utf8.lua
+        local function check (s, t, nonstrict)
+          local l = utf8.len(s, 1, -1, nonstrict)
+          assert(#t == l)
+          assert(utf8.char(table.unpack(t)) == s)
+        end
+
+        -- Test with empty string and empty table
+        check("", {})
+
+        -- Test with single character
+        check("A", {65})
+
+        -- Test with multiple characters
+        check("ABC", {65, 66, 67})
+      ''');
+
+      // If we get here without exceptions, the test passed
+      expect(true, isTrue);
+    });
+
+    test('utf8.char with table containing nil values', () async {
+      await bridge.execute('''
+        -- Test that utf8.char correctly handles tables with nil values
+        local t = {65, nil, 66, nil, 67}
+        local result = utf8.char(table.unpack(t))
+        local expected = utf8.char(65, 66, 67)
+
+        -- Our implementation skips nil values, so this should work
+        assert(result == expected)
+        assert(#result == 3)
+      ''');
+
+      // If we get here without exceptions, the test passed
+      expect(true, isTrue);
+    });
+
     test('utf8.codes iteration', () async {
       await bridge.execute('''
         -- Construct string with UTF-8 characters using proper byte sequences
@@ -317,12 +454,9 @@ void main() {
         expect(success.unwrap(), isTrue); // success should be true (no error)
         expect(
           result.unwrap(),
-          equals([null, 1]),
-        ); // result should be [nil, position]
-        expect(
-          resultType.unwrap(),
-          equals('userdata'),
-        ); // multi-value result is userdata
+          equals(null),
+        ); // result should be nil (first value of multi-value)
+        expect(resultType.unwrap(), equals('nil')); // type should be nil
       },
     );
 
@@ -376,12 +510,9 @@ void main() {
       expect(success.unwrap(), isTrue); // success should be true (no error)
       expect(
         result.unwrap(),
-        equals([null, 1]),
-      ); // result should be [nil, position]
-      expect(
-        resultType.unwrap(),
-        equals('userdata'),
-      ); // multi-value result is userdata
+        equals(null),
+      ); // result should be nil (first value of multi-value)
+      expect(resultType.unwrap(), equals('nil')); // type should be nil
     });
 
     test('6-byte sequences return nil, position in strict mode', () async {
@@ -405,12 +536,9 @@ void main() {
       expect(success.unwrap(), isTrue); // success should be true (no error)
       expect(
         result.unwrap(),
-        equals([null, 1]),
-      ); // result should be [nil, position]
-      expect(
-        resultType.unwrap(),
-        equals('userdata'),
-      ); // multi-value result is userdata
+        equals(null),
+      ); // result should be nil (first value of multi-value)
+      expect(resultType.unwrap(), equals('nil')); // type should be nil
     });
 
     test('5-byte sequences allowed in lax mode', () async {

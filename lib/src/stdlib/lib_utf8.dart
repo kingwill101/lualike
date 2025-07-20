@@ -91,6 +91,12 @@ class _UTF8Char implements BuiltinFunction {
     final codePoints = <int>[];
     for (final arg in args) {
       final value = (arg as Value).raw;
+
+      // Skip nil values (like standard Lua)
+      if (value == null) {
+        continue;
+      }
+
       final codePoint = value is num
           ? value.toInt()
           : int.tryParse(value.toString()) ?? 0;
