@@ -115,9 +115,12 @@ class _LoadLib implements BuiltinFunction {
       return Value(true);
     }
 
-    // When trying to load a specific symbol, we simply fail as we do not
-    // support dynamic libraries.  Lua would normally return nil, an error
-    // message and the string 'init'.
+    // For specific symbols, check if the library exists first
+    if (!await fileExists(libpath)) {
+      return [Value(null), Value('cannot load $libpath'), Value('absent')];
+    }
+
+    // Library exists but symbol loading is not supported
     return [
       Value(null),
       Value('dynamic libraries not supported'),

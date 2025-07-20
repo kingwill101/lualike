@@ -324,7 +324,7 @@ class Environment extends GCObject {
 
     final proxyHandler = <String, Function>{
       '__index': (List<Object?> args) {
-        final key = args[0] as Value;
+        final key = args[1] as Value;
         final keyStr = key.raw.toString();
         Logger.debug(
           "Module env __index: looking up '$keyStr'",
@@ -333,8 +333,8 @@ class Environment extends GCObject {
         return moduleEnv.get(keyStr);
       },
       '__newindex': (List<Object?> args) {
-        final key = args[0] as Value;
-        final value = args[1] as Value;
+        final key = args[1] as Value;
+        final value = args[2] as Value;
         final keyStr = key.raw.toString();
         Logger.debug(
           "Module env __newindex: setting '$keyStr' to $value",

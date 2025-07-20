@@ -412,19 +412,15 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     final envValue = globals.get('_ENV');
     final gValue = globals.get('_G');
 
-    // If _ENV exists and is different from _G, use _ENV for variable lookups
+    // If _ENV exists and is different from _G, look up the variable in _ENV.
     if (envValue is Value && gValue is Value && envValue != gValue) {
       Logger.debug(
         'Using custom _ENV for variable lookup: ${node.name}',
         category: 'Expression',
       );
 
-      if (envValue.raw is Map) {
-        // Look up the variable in the custom _ENV table and await any
-        // asynchronous __index metamethods.
-        final result = await envValue.getValueAsync(node.name);
-        return result is Value ? result : Value(result);
-      }
+      final result = await envValue.getValueAsync(Value(node.name));
+      return result is Value ? result : Value(result);
     }
 
     // Default behavior: look up in the current environment

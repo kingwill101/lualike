@@ -480,7 +480,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         ]);
       }
       // No metamethod, cannot index
-      throw LuaError.typeError('attempt to index a non-table value');
+      final tname = NumberUtils.typeName(raw);
+      throw LuaError.typeError('attempt to index a $tname value');
     }
   }
 
@@ -519,7 +520,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         ]);
         return result;
       }
-      throw LuaError.typeError('attempt to index a non-table value');
+      final tname = NumberUtils.typeName(raw);
+      throw LuaError.typeError('attempt to index a $tname value');
     }
   }
 
@@ -554,7 +556,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       }
       return;
     }
-    throw LuaError.typeError('attempt to index a non-table value');
+    final tname = NumberUtils.typeName(raw);
+    throw LuaError.typeError('attempt to index a $tname value');
   }
 
   /// Assigns [value] to [key], awaiting any __newindex metamethod.
@@ -604,7 +607,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       }
       return;
     }
-    throw LuaError.typeError('attempt to index a non-table value');
+    final tname = NumberUtils.typeName(raw);
+    throw LuaError.typeError('attempt to index a $tname value');
   }
 
   @override
