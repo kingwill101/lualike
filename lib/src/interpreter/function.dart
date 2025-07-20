@@ -951,10 +951,15 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       );
 
       final interpreter = this as Interpreter;
-      // Set the current coroutine to the yielding coroutine when available
+      // Save current coroutine, switch to yielded coroutine for consistency,
+      // then immediately restore so the caller sees the previous coroutine.
+      final prevCoroutine = interpreter.getCurrentCoroutine();
       if (ye.coroutine != null) {
         interpreter.setCurrentCoroutine(ye.coroutine);
       }
+      // Immediately restore to the previous coroutine so coroutine.status
+      // reports "suspended" after resume returns.
+      interpreter.setCurrentCoroutine(prevCoroutine);
 
       // Wait for the coroutine to be resumed
       Logger.debug(
