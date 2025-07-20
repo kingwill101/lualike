@@ -962,6 +962,7 @@ class _LongBracketParser extends Parser<String> {
     }
     // Extract inner content only (without delimiters).
     var content = buffer.substring(contentStart, closeIdx);
+
     // If the long string starts with a newline, that newline is skipped
     // according to Lua's lexical rules (Lua 5.4 manual 3.1).
     if (content.startsWith('\r\n')) {
@@ -969,6 +970,12 @@ class _LongBracketParser extends Parser<String> {
     } else if (content.startsWith('\n') || content.startsWith('\r')) {
       content = content.substring(1);
     }
+
+    // Lua normalises all end-of-line sequences inside long strings to '\n'.
+    content = content.replaceAll('\r\n', '\n');
+    content = content.replaceAll('\n\r', '\n');
+    content = content.replaceAll('\r', '\n');
+
     return context.success(content, closeIdx + closing.length);
   }
 
