@@ -21,11 +21,7 @@ void initializeCoroutineLibrary(Interpreter interpreter) {
         'bad argument #1 to "create" (function expected)',
       );
     }
-    final co = Coroutine(
-      func,
-      func.functionBody!,
-      interpreter.getCurrentEnv().clone(interpreter: interpreter),
-    );
+    final co = Coroutine(func, func.functionBody!, interpreter.getCurrentEnv());
     interpreter.registerCoroutine(co);
     return Value(co);
   });
@@ -68,7 +64,7 @@ void initializeCoroutineLibrary(Interpreter interpreter) {
     if (func is! Value || !func.isCallable() || func.functionBody == null) {
       throw LuaError.typeError('bad argument #1 to "wrap" (function expected)');
     }
-    final env = interpreter.getCurrentEnv().clone(interpreter: interpreter);
+    final env = interpreter.getCurrentEnv();
     final co = Coroutine(func, func.functionBody!, env);
     interpreter.registerCoroutine(co);
     return Value((List<Object?> wrapArgs) async {

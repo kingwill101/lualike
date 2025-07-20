@@ -568,9 +568,6 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     List<Object?> args, [
     String? callerFunctionName,
   ]) async {
-    final interpreter = this as Interpreter;
-    final prevCoroutine = interpreter.getCurrentCoroutine();
-    final prevEnv = interpreter.getCurrentEnv();
     Logger.debug(
       '>>> _callFunction called with function: [36m${func.hashCode}[0m, args: $args',
       category: 'Interpreter',
@@ -953,38 +950,40 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         category: 'Coroutine',
       );
 
-      // When a coroutine yields, control returns to its caller. Restore
-      // the previous coroutine and environment while we wait for resume.
-      if (prevCoroutine != null) {
-        interpreter.setCurrentCoroutine(prevCoroutine);
+      // Save the previous coroutine
+      final interpreter = this as Interpreter;
+      final prevCoroutine = interpreter.getCurrentCoroutine();
+      // Set the current coroutine to the yielding coroutine when available
+      if (ye.coroutine != null) {
+        interpreter.setCurrentCoroutine(ye.coroutine);
       }
-      interpreter.setCurrentEnv(prevEnv);
 
+      // Wait for the coroutine to be resumed
       Logger.debug(
         '>>> YieldException: waiting for resumeFuture...',
         category: 'Coroutine',
       );
-
-      // Wait until the coroutine is resumed
       final resumeArgs = await ye.resumeFuture;
       Logger.debug(
         '>>> YieldException: resumeFuture completed with: \\$resumeArgs',
         category: 'Coroutine',
       );
 
-      // After resuming, continue execution in the yielded coroutine
+      // Ensure coroutine status is suspended after yield
       if (ye.coroutine != null) {
-        interpreter.setCurrentCoroutine(ye.coroutine);
-        interpreter.setCurrentEnv(ye.coroutine!.executionEnvironment);
+        Logger.debug(
+          '>>> Forcing coroutine status to suspended after yield (interpreter)',
+          category: 'Coroutine',
+        );
+        ye.coroutine!.status = CoroutineStatus.suspended;
       }
+
+      // Restore the previous coroutine (main thread or previous)
+      interpreter.setCurrentCoroutine(prevCoroutine);
 
       // Return the resume arguments as the result of this function call
       return _normalizeReturnValue(resumeArgs);
     } finally {
-      // Restore previous coroutine and environment
-      interpreter.setCurrentCoroutine(prevCoroutine);
-      interpreter.setCurrentEnv(prevEnv);
-
       // Pop function from call stack
       callStack.pop();
     }
