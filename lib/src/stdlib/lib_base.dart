@@ -4,10 +4,11 @@ import 'dart:convert';
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/const_checker.dart';
-import 'package:lualike/src/coroutine.dart' show Coroutine;
-import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:lualike/src/utils/file_system_utils.dart';
+import 'package:lualike/src/utils/type.dart';
 import 'package:path/path.dart' as path;
+
+import 'lib_io.dart';
 
 /// Built-in function to retrieve the metatable of a value.
 class GetMetatableFunction implements BuiltinFunction {
@@ -199,6 +200,11 @@ class ErrorFunction implements BuiltinFunction {
     // Get the error value
     final errorValue = args[0] as Value;
 
+    // If we're in a protected call (pcall/xpcall), always throw the Value directly
+    if (vm != null && vm!.isInProtectedCall) {
+      throw errorValue;
+    }
+
     // If the error value is a table, preserve it
     if (errorValue.raw is Map) {
       throw errorValue; // Throw the Value directly instead of converting to Exception
@@ -219,11 +225,6 @@ class ErrorFunction implements BuiltinFunction {
     try {
       // If we have access to the VM, use its call stack for better error reporting
       if (vm != null) {
-        // Suppress stack traces when inside a protected call
-        if (vm!.isInProtectedCall) {
-          throw Exception(message);
-        }
-
         // Let the VM handle the error reporting with proper stack trace
         vm!.reportError(message);
         // This will never be reached, but needed for type safety
@@ -855,18 +856,38 @@ class PCAllFunction implements BuiltinFunction {
       Object? callResult;
       if (func.raw is BuiltinFunction) {
         callResult = (func.raw as BuiltinFunction).call(callArgs);
-        // BuiltinFunction.call() can return a Future, so we need to await it
-        if (callResult is Future) {
-          callResult = await callResult;
-        }
-      } else {
+      } else if (func.raw is Function) {
         callResult = func.raw(callArgs);
+      } else {
+        throw LuaError.typeError("attempt to call a ${getLuaType(func)} value");
       }
 
-      return Value.multi([
-        true,
-        callResult is Value ? callResult.raw : callResult,
-      ]);
+      if (callResult is Future) {
+        final awaitedResult = await callResult;
+        if (awaitedResult is Value && awaitedResult.isMulti) {
+          // Extract first value from multi-value result
+          final multiValues = awaitedResult.raw as List;
+          final firstValue = multiValues.isNotEmpty ? multiValues.first : null;
+          return Value.multi([true, firstValue]);
+        } else {
+          return Value.multi([
+            true,
+            awaitedResult is Value ? awaitedResult.raw : awaitedResult,
+          ]);
+        }
+      } else {
+        if (callResult is Value && callResult.isMulti) {
+          // Extract first value from multi-value result
+          final multiValues = callResult.raw as List;
+          final firstValue = multiValues.isNotEmpty ? multiValues.first : null;
+          return Value.multi([true, firstValue]);
+        } else {
+          return Value.multi([
+            true,
+            callResult is Value ? callResult.raw : callResult,
+          ]);
+        }
+      }
     } catch (e) {
       // If the error is a Value object, return its raw value
       // If it's a LuaError, return just the message
