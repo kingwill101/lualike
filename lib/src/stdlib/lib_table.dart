@@ -111,75 +111,95 @@ Future<int> getTableLength(Value table, {String? context}) async {
 /// This finds the largest integer key n such that t[n] is not nil
 /// and t[n+1] is nil
 int _getTableLength(Map map) {
-  Logger.debug("_getTableLength: Starting with ${map.length} keys");
+  Logger.debug(
+    "_getTableLength: Starting with ${map.length} keys",
+    category: 'Table',
+  );
   dynamic length = 0;
+
+  // Find the largest integer key with a non-nil value
   for (var key in map.keys) {
-    Logger.debug("_getTableLength: Processing key: $key (${key.runtimeType})");
+    Logger.debug(
+      "_getTableLength: Processing key: $key (${key.runtimeType})",
+      category: 'Table',
+    );
     if (key is int && key > 0) {
-      Logger.debug("_getTableLength: Key is positive int: $key");
+      Logger.debug(
+        "_getTableLength: Key is positive int: $key",
+        category: 'Table',
+      );
       final value = map[key];
       if (value != null && !(value is Value && value.raw == null)) {
         Logger.debug(
           "_getTableLength: Key has non-nil value, comparing with length: $length",
+          category: 'Table',
         );
         if (NumberUtils.compare(key, length) > 0) {
-          Logger.debug(
-            "_getTableLength: Key > length, checking if key > 10000",
-          );
-          // For very large keys (> 10000), skip gap checking entirely to avoid infinite loops
-          if (NumberUtils.compare(key, 10000) > 0) {
-            Logger.debug("_getTableLength: Key > 10000, skipping gap check");
-            // Skip this key entirely - it's too large to check gaps
-            continue;
-          }
-
-          Logger.debug("_getTableLength: Doing gap check for key: $key");
-          // For reasonable keys, do minimal gap checking
-          bool hasGap = false;
-          final maxGapCheck = 100; // Very small limit to prevent any issues
-          final startCheck = NumberUtils.add(length, 1);
-          final diff = NumberUtils.subtract(key, startCheck);
-          final endCheck = (NumberUtils.compare(diff, maxGapCheck) > 0)
-              ? NumberUtils.add(startCheck, maxGapCheck)
-              : key;
-
-          Logger.debug(
-            "_getTableLength: Gap check range: $startCheck to $endCheck",
-          );
-          var i = startCheck;
-          while (NumberUtils.compare(i, endCheck) < 0) {
-            final intermediate = map[i];
-            if (intermediate == null ||
-                (intermediate is Value && intermediate.raw == null)) {
-              Logger.debug("_getTableLength: Found gap at index: $i");
-              hasGap = true;
-              break;
-            }
-            i = NumberUtils.add(i, 1);
-          }
-
-          if (!hasGap) {
-            Logger.debug(
-              "_getTableLength: No gap found, updating length to: $key",
-            );
-            length = key;
-          } else {
-            Logger.debug(
-              "_getTableLength: Gap found, keeping length at: $length",
-            );
-          }
-        } else {
-          Logger.debug("_getTableLength: Key <= length, skipping");
+          length = key;
+          Logger.debug("_getTableLength: Updated length to: $length");
         }
       } else {
-        Logger.debug("_getTableLength: Key has nil value, skipping");
+        Logger.debug(
+          "_getTableLength: Key has nil value, skipping",
+          category: 'Table',
+        );
       }
     } else {
-      Logger.debug("_getTableLength: Key is not positive int, skipping");
+      Logger.debug(
+        "_getTableLength: Key is not positive int, skipping",
+        category: 'Table',
+      );
     }
   }
+
+  // Now check if t[length+1] is nil to confirm the boundary
+  final nextKey = NumberUtils.add(length, 1);
+  final nextValue = map[nextKey];
+  final nextIsNil =
+      nextValue == null || (nextValue is Value && nextValue.raw == null);
+
+  Logger.debug(
+    "_getTableLength: Checking boundary at $nextKey, is nil: $nextIsNil",
+    category: 'Table',
+  );
+
+  // If t[length+1] is not nil, we need to find the actual boundary
+  if (!nextIsNil) {
+    Logger.debug(
+      "_getTableLength: Boundary check failed, finding actual boundary",
+      category: 'Table',
+    );
+    // Find the actual boundary by checking consecutive keys
+    var boundary = length;
+    var checkKey = NumberUtils.add(boundary, 1);
+
+    // Limit the search to prevent infinite loops
+    final maxSearch = 1000;
+    var searchCount = 0;
+
+    while (searchCount < maxSearch) {
+      final checkValue = map[checkKey];
+      final checkIsNil =
+          checkValue == null || (checkValue is Value && checkValue.raw == null);
+
+      if (checkIsNil) {
+        Logger.debug(
+          "_getTableLength: Found boundary at $boundary",
+          category: 'Table',
+        );
+        break;
+      }
+
+      boundary = checkKey;
+      checkKey = NumberUtils.add(checkKey, 1);
+      searchCount++;
+    }
+
+    length = boundary;
+  }
+
   final result = NumberUtils.toInt(length);
-  Logger.debug("_getTableLength: Final result: $result");
+  Logger.debug("_getTableLength: Final result: $result", category: 'Table');
   return result;
 }
 
