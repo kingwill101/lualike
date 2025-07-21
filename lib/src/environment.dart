@@ -288,7 +288,12 @@ class Environment extends GCObject {
     // Close variables in reverse order of declaration
     for (var i = toBeClosedVars.length - 1; i >= 0; i--) {
       final name = toBeClosedVars[i];
-      final value = values[name]?.value;
+      // Remove the variable from the environment before invoking __close.
+      // This prevents recursive close calls from attempting to close the same
+      // variable again, which can lead to deadlocks.
+      final box = values.remove(name);
+      final value = box?.value;
+      toBeClosedVars.removeAt(i);
 
       Logger.debug(
         "Attempting to close variable '$name' = $value",
@@ -310,10 +315,6 @@ class Environment extends GCObject {
           interpreter?.exitProtectedCall();
         }
       }
-
-      // Clear the variable after closing
-      values.remove(name);
-      toBeClosedVars.removeAt(i);
     }
     return error;
   }
