@@ -1,12 +1,13 @@
 import 'dart:convert' as convert;
 
 import 'package:petitparser/petitparser.dart';
+import '../lua_error.dart';
 
 /// Internal helper result for UTF-8 decode routines.
-class _Utf8DecodeResult {
+class Utf8DecodeResult {
   final int codePoint;
   final int sequenceLength;
-  const _Utf8DecodeResult(this.codePoint, this.sequenceLength);
+  const Utf8DecodeResult(this.codePoint, this.sequenceLength);
 }
 
 /// A PetitParser-based parser for Lua string literals that handles escape sequences correctly
@@ -93,9 +94,7 @@ class LuaStringParser {
               final digits = parts[1] as String;
               final value = int.parse(digits);
               if (value > 255) {
-                throw FormatException(
-                  "invalid escape sequence near '\\$digits'",
-                );
+                throw LuaError("decimal escape too large near '\\$digits'");
               }
               return value;
             });
@@ -108,7 +107,7 @@ class LuaStringParser {
           final first = parts[2] as String? ?? '';
           final second = parts[3] as String? ?? '';
           final near = '\\x$first$second';
-          throw FormatException("invalid escape sequence near '$near'");
+          throw LuaError("hexadecimal digit expected near '$near'");
         });
 
     // Hexadecimal escape sequence: \xXX (exactly 2 hex digits)
@@ -136,12 +135,15 @@ class LuaStringParser {
               // which correspond to code points as large as 0x7FFFFFFF.
               // Values beyond that are treated as errors.
               if (codePoint > 0x7FFFFFFF) {
-                throw FormatException("UTF-8 value too large near '\\u{$hex}'");
+                throw LuaError("UTF-8 value too large near '\\u{$hex}'");
               }
-              if (codePoint >= 0xD800 && codePoint <= 0xDFFF) {
-                throw FormatException(
-                  "invalid escape sequence near '\\u{$hex}'",
-                );
+
+              // For surrogate code points and other invalid code points,
+              // use the special encoding method that produces the expected
+              // byte sequences that Lua generates
+              if (codePoint >= 0xD800 && codePoint <= 0xDFFF ||
+                  codePoint > 0x10FFFF) {
+                return _encodeInvalidCodePoint(codePoint);
               }
 
               // Encode the code point directly. `String.fromCharCode` only
@@ -152,10 +154,24 @@ class LuaStringParser {
 
     final unicodeMissingOpen =
         (unicodeStart & char('{').not() & any().optional()).map((parts) {
-          final next = parts[2] as String? ?? '';
+          final next = parts[2] is String ? parts[2] as String : '';
           final near = '\\u$next';
-          throw FormatException("missing '{' near '$near'");
-        });
+          throw LuaError("missing '{' near '$near'");
+        }).cast<List<int>>();
+
+    // Unicode escape with { but no hex digits like \u{r
+    final unicodeInvalidHex =
+        (unicodeStart &
+                char('{') &
+                pattern('0-9a-fA-F').not() &
+                any().optional())
+            .map((parts) {
+              final invalid = parts[3] is String ? parts[3] as String : '';
+              final next = parts[4] is String ? parts[4] as String : '';
+              final near = '\\u{$invalid$next';
+              throw LuaError("hexadecimal digit expected near '$near'");
+            })
+            .cast<List<int>>();
 
     final unicodeMissingClose =
         (unicodeStart &
@@ -163,11 +179,12 @@ class LuaStringParser {
                 pattern('0-9a-fA-F').plus().flatten() &
                 any().optional())
             .map((parts) {
-              final hex = parts[2] as String;
-              final next = parts[3] as String? ?? '';
+              final hex = parts[3] as String;
+              final next = parts[4] is String ? parts[4] as String : '';
               final near = '\\u{$hex$next';
-              throw FormatException("missing '}' near '$near'");
-            });
+              throw LuaError("missing '}' near '$near'");
+            })
+            .cast<List<int>>();
 
     // Line continuation: \z (skip following whitespace)
     // This should consume ALL whitespace including spaces, tabs, newlines, etc.
@@ -179,7 +196,7 @@ class LuaStringParser {
     // Any other escape sequence is invalid
     final fallbackEscape = (escapeChar & any()).map((parts) {
       final char = parts[1] as String;
-      throw FormatException("invalid escape sequence near '\\$char'");
+      throw LuaError("invalid escape sequence near '\\$char'");
     }).cast<List<int>>();
 
     // Any escape sequence
@@ -191,6 +208,7 @@ class LuaStringParser {
       decimalEscape.map((byte) => [byte]),
       unicodeEscape,
       unicodeMissingOpen,
+      unicodeInvalidHex, // must come before unicodeMissingClose
       unicodeMissingClose,
       lineContinuation,
       fallbackEscape, // This should be last to catch unrecognized escapes
@@ -237,7 +255,7 @@ class LuaStringParser {
     if (result is Success) {
       return result.value;
     } else {
-      throw FormatException('Failed to parse Lua string: ${result.toString()}');
+      throw LuaError('Failed to parse Lua string: ${result.toString()}');
     }
   }
 
@@ -297,7 +315,7 @@ class LuaStringParser {
 
   /// Decodes one UTF-8 character starting at byte position [start].
   /// Returns `null` if the sequence is invalid (unless [lax] is true).
-  static _Utf8DecodeResult? decodeUtf8Character(
+  static Utf8DecodeResult? decodeUtf8Character(
     List<int> bytes,
     int start, {
     bool lax = false,
@@ -308,7 +326,7 @@ class LuaStringParser {
 
     // Single-byte (ASCII)
     if (first <= 0x7F) {
-      return _Utf8DecodeResult(first, 1);
+      return Utf8DecodeResult(first, 1);
     }
 
     // Helper to validate continuation bytes
@@ -365,6 +383,6 @@ class LuaStringParser {
       if (codePoint > 0x7FFFFFFF) return null;
     }
 
-    return _Utf8DecodeResult(codePoint, sequenceLength);
+    return Utf8DecodeResult(codePoint, sequenceLength);
   }
 }

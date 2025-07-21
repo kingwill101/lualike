@@ -1,5 +1,6 @@
 import 'package:test/test.dart';
 import 'package:lualike/src/parse.dart';
+import 'package:lualike/src/lua_error.dart';
 
 void main() {
   group('Invalid escape sequences', () {
@@ -24,7 +25,10 @@ void main() {
 
     for (final lit in literals) {
       test('fails for $lit', () {
-        expect(() => parse('return $lit'), throwsA(isA<FormatException>()));
+        expect(
+          () => parse('return $lit'),
+          throwsA(anyOf(isA<LuaError>(), isA<FormatException>())),
+        );
       });
     }
   });
