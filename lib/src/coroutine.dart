@@ -483,7 +483,7 @@ class Coroutine extends GCObject {
   /// Called to close the coroutine
   Future<List<Object?>> close([dynamic error]) async {
     if (_isClosing) {
-      throw LuaError('cannot close a running coroutine');
+      return [Value(false), Value('cannot close a running coroutine')];
     }
 
     _isClosing = true;
