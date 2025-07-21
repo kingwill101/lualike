@@ -132,7 +132,10 @@ class LuaStringParser {
               final hex = parts[3] as String;
               final codePoint = int.parse(hex, radix: 16);
 
-              if (codePoint > 0x10FFFF) {
+              // Lua accepts historical UTF-8 encodings up to six bytes long,
+              // which correspond to code points as large as 0x7FFFFFFF.
+              // Values beyond that are treated as errors.
+              if (codePoint > 0x7FFFFFFF) {
                 throw FormatException("UTF-8 value too large near '\\u{$hex}'");
               }
               if (codePoint >= 0xD800 && codePoint <= 0xDFFF) {
@@ -141,8 +144,9 @@ class LuaStringParser {
                 );
               }
 
-              final str = String.fromCharCode(codePoint);
-              return convert.utf8.encode(str);
+              // Encode the code point directly. `String.fromCharCode` only
+              // supports values up to 0x10FFFF.
+              return encodeCodePoint(codePoint);
             })
             .cast<List<int>>();
 
