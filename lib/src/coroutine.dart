@@ -623,7 +623,7 @@ class NativeCoroutine extends Coroutine {
       return Value.multi([Value(true), Value(result)]);
     } catch (e) {
       status = CoroutineStatus.dead;
-      this.error = e;
+      error = e;
       if (e is Value) {
         return Value.multi([Value(false), e]);
       } else if (e is LuaError) {
