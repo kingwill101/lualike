@@ -3,12 +3,6 @@
 
 print "testing coroutines"
 
--- print executed line numbers to help debugging
-debug.sethook(function ()
-  local info = debug.getinfo(2, 'Sl')
-  print('line', info.currentline)
-end, 'l', 0)
-
 local debug = require'debug'
 
 local f
