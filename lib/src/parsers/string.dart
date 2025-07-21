@@ -145,7 +145,11 @@ class LuaStringParser {
     // Fallback for unrecognized escape sequences: treat as literal backslash + character
     final fallbackEscape = (escapeChar & any()).map((parts) {
       final char = parts[1] as String;
-      // Return literal backslash (92) followed by the character's bytes
+
+      if (char == 'x' || char == 'u') {
+        throw FormatException("invalid escape sequence near '\\$char'");
+      }
+
       final result = <int>[92]; // backslash
       result.addAll(char.codeUnits);
       return result;
