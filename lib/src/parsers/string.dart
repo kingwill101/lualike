@@ -94,11 +94,22 @@ class LuaStringParser {
               final value = int.parse(digits);
               if (value > 255) {
                 throw FormatException(
-                  'Decimal escape \\$digits out of range (0-255)',
+                  "invalid escape sequence near '\\$digits'",
                 );
               }
               return value;
             });
+
+    // Invalid hexadecimal escapes like \x or \xG
+    final invalidHexEscape =
+        (escapeChar & char('x') & any().optional() & any().optional()).map((
+          parts,
+        ) {
+          final first = parts[2] as String? ?? '';
+          final second = parts[3] as String? ?? '';
+          final near = '\\x$first$second';
+          throw FormatException("invalid escape sequence near '$near'");
+        });
 
     // Hexadecimal escape sequence: \xXX (exactly 2 hex digits)
     final hexEscape =
@@ -109,10 +120,11 @@ class LuaStringParser {
           return int.parse(hex, radix: 16);
         });
 
+    final unicodeStart = escapeChar & char('u');
+
     // Unicode escape sequence: \u{XXX} (1+ hex digits in braces)
     final unicodeEscape =
-        (escapeChar &
-                char('u') &
+        (unicodeStart &
                 char('{') &
                 pattern('0-9a-fA-F').plus().flatten() &
                 char('}'))
@@ -120,20 +132,38 @@ class LuaStringParser {
               final hex = parts[3] as String;
               final codePoint = int.parse(hex, radix: 16);
 
-              // Allow invalid Unicode code points in string literals
-              // The UTF-8 library functions will handle validation
-              if (codePoint <= 0x10FFFF &&
-                  !(codePoint >= 0xD800 && codePoint <= 0xDFFF)) {
-                // Valid Unicode code point - encode as UTF-8
-                final str = String.fromCharCode(codePoint);
-                return convert.utf8.encode(str);
-              } else {
-                // Invalid Unicode code point (including surrogates) - store as raw bytes
-                // This will be detected by UTF-8 functions as invalid
-                return _encodeInvalidCodePoint(codePoint);
+              if (codePoint > 0x10FFFF) {
+                throw FormatException("UTF-8 value too large near '\\u{$hex}'");
               }
+              if (codePoint >= 0xD800 && codePoint <= 0xDFFF) {
+                throw FormatException(
+                  "invalid escape sequence near '\\u{$hex}'",
+                );
+              }
+
+              final str = String.fromCharCode(codePoint);
+              return convert.utf8.encode(str);
             })
             .cast<List<int>>();
+
+    final unicodeMissingOpen =
+        (unicodeStart & char('{').not() & any().optional()).map((parts) {
+          final next = parts[2] as String? ?? '';
+          final near = '\\u$next';
+          throw FormatException("missing '{' near '$near'");
+        });
+
+    final unicodeMissingClose =
+        (unicodeStart &
+                char('{') &
+                pattern('0-9a-fA-F').plus().flatten() &
+                any().optional())
+            .map((parts) {
+              final hex = parts[2] as String;
+              final next = parts[3] as String? ?? '';
+              final near = '\\u{$hex$next';
+              throw FormatException("missing '}' near '$near'");
+            });
 
     // Line continuation: \z (skip following whitespace)
     // This should consume ALL whitespace including spaces, tabs, newlines, etc.
@@ -142,17 +172,10 @@ class LuaStringParser {
           (_) => <int>[],
         ); // Returns empty list of bytes
 
-    // Fallback for unrecognized escape sequences: treat as literal backslash + character
+    // Any other escape sequence is invalid
     final fallbackEscape = (escapeChar & any()).map((parts) {
       final char = parts[1] as String;
-
-      if (char == 'x' || char == 'u') {
-        throw FormatException("invalid escape sequence near '\\$char'");
-      }
-
-      final result = <int>[92]; // backslash
-      result.addAll(char.codeUnits);
-      return result;
+      throw FormatException("invalid escape sequence near '\\$char'");
     }).cast<List<int>>();
 
     // Any escape sequence
@@ -160,8 +183,11 @@ class LuaStringParser {
       backslashNewline.map((byte) => [byte]), // Handle \<newline> first
       basicEscape.map((byte) => [byte]),
       hexEscape.map((byte) => [byte]),
+      invalidHexEscape, // must come after valid hex escape
       decimalEscape.map((byte) => [byte]),
       unicodeEscape,
+      unicodeMissingOpen,
+      unicodeMissingClose,
       lineContinuation,
       fallbackEscape, // This should be last to catch unrecognized escapes
     ].toChoiceParser().cast<List<int>>();
