@@ -297,6 +297,7 @@ class Environment extends GCObject {
 
       if (value is Value) {
         try {
+          interpreter?.enterProtectedCall();
           final result = await value.close(error);
           Logger.debug("Successfully closed variable '$name'", category: 'Env');
           if (result != null) {
@@ -305,6 +306,8 @@ class Environment extends GCObject {
         } catch (e) {
           Logger.debug("Error closing variable '$name': $e", category: 'Env');
           error = e;
+        } finally {
+          interpreter?.exitProtectedCall();
         }
       }
 

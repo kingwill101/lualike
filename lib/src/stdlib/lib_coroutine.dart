@@ -41,10 +41,15 @@ void initializeCoroutineLibrary(Interpreter interpreter) {
       );
     }
     final co = (args.first as Value).raw as Coroutine;
-    final result = await co.resume(
-      args.length > 1 ? args.sublist(1) : const [],
-    );
-    return result;
+    interpreter.enterProtectedCall();
+    try {
+      final result = await co.resume(
+        args.length > 1 ? args.sublist(1) : const [],
+      );
+      return result;
+    } finally {
+      interpreter.exitProtectedCall();
+    }
   });
 
   lib[Value('yield')] = Value((List<Object?> args) async {
