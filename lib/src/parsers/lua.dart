@@ -490,16 +490,19 @@ class LuaGrammarDefinition extends GrammarDefinition {
 
     // Handle unclosed strings (for escape sequence error reporting)
     // For unclosed strings, we need to capture all content including incomplete escape sequences
-    final dqUnclosed = (char('"') & pattern('^"').star().flatten())
-        .flatten()
-        .map(
-          (s) => ['dq', s, false], // false = unclosed
-        );
-    final sqUnclosed = (char("'") & pattern("^'").star().flatten())
-        .flatten()
-        .map(
-          (s) => ['sq', s, false], // false = unclosed
-        );
+    // But we should not process escape sequences that would make the string appear complete
+    final dqUnclosed =
+        (char('"') & ((char('\\') & any()) | pattern('^"')).star().flatten())
+            .flatten()
+            .map(
+              (s) => ['dq', s, false], // false = unclosed
+            );
+    final sqUnclosed =
+        (char("'") & ((char('\\') & any()) | pattern("^'")).star().flatten())
+            .flatten()
+            .map(
+              (s) => ['sq', s, false], // false = unclosed
+            );
 
     final literalBody =
         (long | incompleteLong | dq | sq | dqUnclosed | sqUnclosed);
@@ -1136,38 +1139,46 @@ Program parse(String source, {Uri? url}) {
 
   final definition = LuaGrammarDefinition(sourceFile);
   final parser = definition.build();
-  final result = parser.parse(source);
 
-  if (result is Success) {
-    return result.value as Program;
+  try {
+    final result = parser.parse(source);
+
+    if (result is Success) {
+      return result.value as Program;
+    }
+
+    final failure = result as Failure;
+    final pos = failure.position;
+
+    // Clamp end so that we don't exceed length (especially when at EOF).
+    final end = pos < source.length ? pos + 1 : pos;
+    final span = sourceFile.span(pos, end);
+
+    String unexpected;
+    if (pos >= source.length) {
+      unexpected = 'end of input';
+    } else {
+      final ch = source[pos];
+      unexpected = ch == '\n' ? 'newline' : "'$ch'";
+    }
+
+    // Basic heuristic: if we see an identifier followed by whitespace and '...' but no comma,
+    // suggest the missing comma (common Lua gotcha).
+    String suggestion = '';
+
+    // Capitalize first letter of petitparser failure message to ensure it contains 'Expected'
+    final baseMsg =
+        'Parse error: Expected ${failure.message}. Unexpected $unexpected.';
+
+    final formatted = span.message(baseMsg + suggestion, color: false);
+
+    // Include raw position as well for completeness.
+    throw LuaError(formatted);
+  } catch (e) {
+    if (e is FormatException) {
+      // Convert FormatException to LuaError for consistency
+      throw LuaError(e.message);
+    }
+    rethrow;
   }
-
-  final failure = result as Failure;
-  final pos = failure.position;
-
-  // Clamp end so that we don't exceed length (especially when at EOF).
-  final end = pos < source.length ? pos + 1 : pos;
-  final span = sourceFile.span(pos, end);
-
-  String unexpected;
-  if (pos >= source.length) {
-    unexpected = 'end of input';
-  } else {
-    final ch = source[pos];
-    unexpected = ch == '\n' ? 'newline' : "'$ch'";
-  }
-
-  // Basic heuristic: if we see an identifier followed by whitespace and '...' but no comma,
-  // suggest the missing comma (common Lua gotcha).
-  String suggestion = '';
-  final startWindow = pos >= 30 ? pos - 30 : 0;
-
-  // Capitalize first letter of petitparser failure message to ensure it contains 'Expected'
-  final baseMsg =
-      'Parse error: Expected ${failure.message}. Unexpected $unexpected.';
-
-  final formatted = span.message(baseMsg + suggestion, color: false);
-
-  // Include raw position as well for completeness.
-  throw FormatException(formatted);
 }
