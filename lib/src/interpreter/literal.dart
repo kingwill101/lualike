@@ -56,7 +56,8 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
 
     // Use StringInterning to ensure proper string interning behavior
     // This matches Lua's behavior where identical string literals share the same memory address
-    // Decode the bytes to get the actual string content for proper interning
+    // For string literals, we need to use the processed content (after escape sequences)
+    // but ensure we're interning based on the final content, not the raw content
     final decodedString = utf8.decode(node.bytes, allowMalformed: true);
     return StringInterning.createStringValue(decodedString);
   }

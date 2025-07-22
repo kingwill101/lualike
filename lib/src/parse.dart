@@ -43,6 +43,11 @@ Program parse(String source, {Object? url}) {
       uri = Uri.file(url.toString());
     }
   }
-  final normalized = _normalizeLongStrings(source);
+  // Normalize line endings in the entire source code
+  final normalizedSource = source
+      .replaceAll('\r\n', '\n')
+      .replaceAll('\n\r', '\n')
+      .replaceAll('\r', '\n');
+  final normalized = _normalizeLongStrings(normalizedSource);
   return lua.parse(normalized, url: uri);
 }
