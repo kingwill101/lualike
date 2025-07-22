@@ -691,7 +691,15 @@ class LoadFunction implements BuiltinFunction {
         }
       });
     } catch (e) {
-      return [Value(null), Value("Error parsing source code: $e")];
+      // Format error message like Lua: [string "chunkname"]:line: message
+      String errorMsg = e.toString();
+      if (errorMsg.contains('near ')) {
+        // For parsing errors, format like Lua
+        errorMsg = '[string "$chunkname"]:1: $errorMsg';
+      } else {
+        errorMsg = "Error parsing source code: $errorMsg";
+      }
+      return [Value(null), Value(errorMsg)];
     }
   }
 }

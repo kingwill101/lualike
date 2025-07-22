@@ -10,6 +10,114 @@ class Utf8DecodeResult {
   const Utf8DecodeResult(this.codePoint, this.sequenceLength);
 }
 
+/// Error context information for string parsing errors
+class _ErrorContext {
+  final String fullLexeme;
+  final int errorPosition;
+  final String errorSequence;
+
+  const _ErrorContext(this.fullLexeme, this.errorPosition, this.errorSequence);
+
+  /// Find the opening quote position in the full lexeme
+  int? get openingQuotePosition {
+    final doubleQuotePos = fullLexeme.indexOf('"');
+    final singleQuotePos = fullLexeme.indexOf("'");
+
+    if (doubleQuotePos == -1 && singleQuotePos == -1) return null;
+    if (doubleQuotePos == -1) return singleQuotePos;
+    if (singleQuotePos == -1) return doubleQuotePos;
+
+    return doubleQuotePos < singleQuotePos ? doubleQuotePos : singleQuotePos;
+  }
+
+  /// Find the closing quote position in the full lexeme
+  int? get closingQuotePosition {
+    final openingPos = openingQuotePosition;
+    if (openingPos == null) return null;
+
+    final quote = fullLexeme[openingPos];
+    final closingPos = fullLexeme.indexOf(quote, openingPos + 1);
+    return closingPos == -1 ? null : closingPos;
+  }
+
+  /// Format error context for "near" portion of error message
+  String formatNearContext({
+    bool includeOpeningQuote = true,
+    bool includeClosingQuote = false,
+    bool onlyEscapeSequence = false,
+  }) {
+    final openingPos = openingQuotePosition;
+
+    if (openingPos == null || onlyEscapeSequence) {
+      // No quotes found or only want escape sequence, return the error sequence
+      return errorSequence;
+    }
+
+    // Determine start position
+    int startPos;
+    if (includeOpeningQuote) {
+      startPos = openingPos;
+    } else {
+      // Start after the opening quote
+      startPos = openingPos + 1;
+    }
+
+    int endPos = errorPosition + errorSequence.length;
+
+    // Include closing quote if requested and present
+    if (includeClosingQuote) {
+      final closingPos = closingQuotePosition;
+      if (closingPos != null && closingPos >= endPos) {
+        endPos = closingPos + 1;
+      }
+    }
+
+    // Ensure we don't go beyond the lexeme bounds
+    endPos = endPos.clamp(0, fullLexeme.length);
+    startPos = startPos.clamp(0, fullLexeme.length);
+
+    return fullLexeme.substring(startPos, endPos);
+  }
+}
+
+/// Helper functions for error context extraction
+class _StringErrorHelper {
+  /// Find the position of an escape sequence in the full lexeme
+  static int findEscapePosition(String fullLexeme, String escapeSequence) {
+    return fullLexeme.indexOf(escapeSequence);
+  }
+
+  /// Create error context for escape sequence errors
+  static _ErrorContext createEscapeContext(
+    String? fullLexeme,
+    String escapeSequence,
+  ) {
+    if (fullLexeme == null) {
+      return _ErrorContext(escapeSequence, 0, escapeSequence);
+    }
+
+    final position = findEscapePosition(fullLexeme, escapeSequence);
+    if (position == -1) {
+      // Fallback if sequence not found
+      return _ErrorContext(fullLexeme, fullLexeme.length, escapeSequence);
+    }
+
+    return _ErrorContext(fullLexeme, position, escapeSequence);
+  }
+
+  /// Format error message with proper context
+  static String formatErrorMessage(
+    String message,
+    _ErrorContext context, {
+    bool includeClosingQuote = false,
+  }) {
+    final nearContext = context.formatNearContext(
+      includeClosingQuote: includeClosingQuote,
+    );
+    return "$message near '$nearContext'";
+  }
+}
+
 /// A PetitParser-based parser for Lua string literals that handles escape sequences correctly
 class LuaStringParser {
   /// Encode an invalid Unicode code point as raw bytes that will be detected as invalid UTF-8
@@ -61,7 +169,7 @@ class LuaStringParser {
     }
   }
 
-  static Parser<List<int>> build() {
+  static Parser<List<int>> build({String? fullLexeme}) {
     // Helper parsers for different escape sequences
     final escapeChar = char('\\');
 
@@ -94,21 +202,76 @@ class LuaStringParser {
               final digits = parts[1] as String;
               final value = int.parse(digits);
               if (value > 255) {
-                throw LuaError("decimal escape too large near '\\$digits'");
+                final escapeSequence = '\\$digits';
+                final context = _StringErrorHelper.createEscapeContext(
+                  fullLexeme,
+                  escapeSequence,
+                );
+                final nearContext = context.formatNearContext(
+                  includeClosingQuote: true,
+                );
+                throw LuaError("decimal escape too large near '$nearContext'");
               }
               return value;
             });
 
-    // Invalid hexadecimal escapes like \x or \xG
-    final invalidHexEscape =
-        (escapeChar & char('x') & any().optional() & any().optional()).map((
-          parts,
-        ) {
-          final first = parts[2] as String? ?? '';
-          final second = parts[3] as String? ?? '';
-          final near = '\\x$first$second';
-          throw LuaError("hexadecimal digit expected near '$near'");
-        });
+    // Invalid hexadecimal escapes like \xG or incomplete like \x5 (but not \x at end)
+    final invalidHexEscape = (escapeChar & char('x') & any() & any().optional()).map((
+      parts,
+    ) {
+      final first = parts[2] as String;
+      final second = parts[3] as String? ?? '';
+
+      // Check if both characters are valid hex digits
+      final firstIsHex = '0123456789abcdefABCDEF'.contains(first);
+      final secondIsHex =
+          second.isEmpty || '0123456789abcdefABCDEF'.contains(second);
+
+      final escapeSequence = '\\x$first$second';
+      final context = _StringErrorHelper.createEscapeContext(
+        fullLexeme,
+        escapeSequence,
+      );
+
+      // For hex escape errors, determine context based on the type of error
+      String nearContext;
+      if (firstIsHex && second.isEmpty) {
+        // Incomplete hex sequence like \x5 at end of string - include closing quote
+        if (fullLexeme != null && context.closingQuotePosition != null) {
+          nearContext =
+              '\\x$first' + fullLexeme![context.closingQuotePosition!];
+        } else {
+          nearContext = '\\x$first';
+        }
+      } else if (firstIsHex && !secondIsHex && second.isNotEmpty) {
+        // First char is hex, second is not hex (like \x5g) - show only the sequence
+        nearContext = '\\x$first$second';
+      } else {
+        // Invalid hex character (like \xr) - show only the escape sequence
+        nearContext = escapeSequence;
+      }
+
+      throw LuaError("hexadecimal digit expected near '$nearContext'");
+    });
+
+    // Hex escape at end of string (no hex digits after \x)
+    final hexEscapeAtEnd = (escapeChar & char('x')).map((_) {
+      final escapeSequence = '\\x';
+      final context = _StringErrorHelper.createEscapeContext(
+        fullLexeme,
+        escapeSequence,
+      );
+
+      // For hex escape at end, include closing quote if present
+      String nearContext;
+      if (fullLexeme != null && context.closingQuotePosition != null) {
+        nearContext =
+            escapeSequence + fullLexeme![context.closingQuotePosition!];
+      } else {
+        nearContext = escapeSequence;
+      }
+      throw LuaError("hexadecimal digit expected near '$nearContext'");
+    }).cast<List<int>>();
 
     // Hexadecimal escape sequence: \xXX (exactly 2 hex digits)
     final hexEscape =
@@ -135,7 +298,15 @@ class LuaStringParser {
               // which correspond to code points as large as 0x7FFFFFFF.
               // Values beyond that are treated as errors.
               if (codePoint > 0x7FFFFFFF) {
-                throw LuaError("UTF-8 value too large near '\\u{$hex}'");
+                final escapeSequence = '\\u{$hex';
+                final context = _StringErrorHelper.createEscapeContext(
+                  fullLexeme,
+                  escapeSequence,
+                );
+                final nearContext = context.formatNearContext(
+                  includeOpeningQuote: true,
+                );
+                throw LuaError("UTF-8 value too large near '$nearContext'");
               }
 
               // For surrogate code points and other invalid code points,
@@ -154,9 +325,20 @@ class LuaStringParser {
 
     final unicodeMissingOpen =
         (unicodeStart & char('{').not() & any().optional()).map((parts) {
-          final next = parts[2] is String ? parts[2] as String : '';
-          final near = '\\u$next';
-          throw LuaError("missing '{' near '$near'");
+          final firstChar = parts[3] is String ? parts[3] as String : '';
+          // For missing '{' errors, we need to show context up to the error point
+          final actualSequence = '\\u$firstChar';
+
+          // Use standard context formatting
+          final context = _StringErrorHelper.createEscapeContext(
+            fullLexeme,
+            actualSequence,
+          );
+          final nearContext = context.formatNearContext(
+            includeOpeningQuote: true,
+            includeClosingQuote: firstChar.isEmpty,
+          );
+          throw LuaError("missing '{' near '$nearContext'");
         }).cast<List<int>>();
 
     // Unicode escape with { but no hex digits like \u{r
@@ -166,10 +348,17 @@ class LuaStringParser {
                 pattern('0-9a-fA-F').not() &
                 any().optional())
             .map((parts) {
-              final invalid = parts[3] is String ? parts[3] as String : '';
-              final next = parts[4] is String ? parts[4] as String : '';
-              final near = '\\u{$invalid$next';
-              throw LuaError("hexadecimal digit expected near '$near'");
+              final invalid = parts[2] is String ? parts[2] as String : '';
+              final next = parts[3] is String ? parts[3] as String : '';
+              final escapeSequence = '\\u{$invalid$next';
+              final context = _StringErrorHelper.createEscapeContext(
+                fullLexeme,
+                escapeSequence,
+              );
+              final nearContext = context.formatNearContext(
+                includeOpeningQuote: true,
+              );
+              throw LuaError("hexadecimal digit expected near '$nearContext'");
             })
             .cast<List<int>>();
 
@@ -179,10 +368,36 @@ class LuaStringParser {
                 pattern('0-9a-fA-F').plus().flatten() &
                 any().optional())
             .map((parts) {
-              final hex = parts[3] as String;
-              final next = parts[4] is String ? parts[4] as String : '';
-              final near = '\\u{$hex$next';
-              throw LuaError("missing '}' near '$near'");
+              final hex = parts[2] as String;
+              final next = parts[3] is String ? parts[3] as String : '';
+              // For missing closing brace, include the next character in the sequence
+              final escapeSequence = '\\u{$hex$next';
+              final context = _StringErrorHelper.createEscapeContext(
+                fullLexeme,
+                escapeSequence,
+              );
+              // Manually construct the context to match Lua's format
+              final openingPos = context.openingQuotePosition;
+              if (openingPos != null) {
+                final startPos =
+                    openingPos + 1; // Skip the opening quote for the pattern
+                final endPos = context.errorPosition + escapeSequence.length;
+                // For missing closing brace, exclude the closing quote if it's not part of the pattern
+                final closingPos = context.closingQuotePosition;
+                final actualEndPos = closingPos != null && closingPos < endPos
+                    ? closingPos // Stop before the closing quote
+                    : endPos.clamp(0, fullLexeme!.length);
+                final nearContext = fullLexeme!.substring(
+                  startPos,
+                  actualEndPos,
+                );
+                throw LuaError("missing '}' near '$nearContext'");
+              } else {
+                final nearContext = context.formatNearContext(
+                  includeOpeningQuote: true,
+                );
+                throw LuaError("missing '}' near '$nearContext'");
+              }
             })
             .cast<List<int>>();
 
@@ -196,7 +411,13 @@ class LuaStringParser {
     // Any other escape sequence is invalid
     final fallbackEscape = (escapeChar & any()).map((parts) {
       final char = parts[1] as String;
-      throw LuaError("invalid escape sequence near '\\$char'");
+      final escapeSequence = '\\$char';
+      final context = _StringErrorHelper.createEscapeContext(
+        fullLexeme,
+        escapeSequence,
+      );
+      final nearContext = context.formatNearContext(onlyEscapeSequence: true);
+      throw LuaError("invalid escape sequence near '$nearContext'");
     }).cast<List<int>>();
 
     // Any escape sequence
@@ -205,6 +426,7 @@ class LuaStringParser {
       basicEscape.map((byte) => [byte]),
       hexEscape.map((byte) => [byte]),
       invalidHexEscape, // must come after valid hex escape
+      hexEscapeAtEnd, // must come after invalidHexEscape
       decimalEscape.map((byte) => [byte]),
       unicodeEscape,
       unicodeMissingOpen,
@@ -248,8 +470,8 @@ class LuaStringParser {
   }
 
   /// Parse a Lua string literal content and return the resulting bytes
-  static List<int> parseStringContent(String content) {
-    final parser = build();
+  static List<int> parseStringContent(String content, {String? fullLexeme}) {
+    final parser = build(fullLexeme: fullLexeme);
     final result = parser.parse(content);
 
     if (result is Success) {

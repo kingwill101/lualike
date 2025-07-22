@@ -2,7 +2,9 @@ import 'package:petitparser/petitparser.dart';
 import 'package:source_span/source_span.dart';
 
 import '../ast.dart';
+import '../lua_error.dart';
 import '../number.dart';
+import 'string.dart';
 
 /// A **work-in-progress** PetitParser grammar for LuaLike.  The goal is to
 /// replicate the existing PEG-generated parser (in `grammar_parser.dart`) but
@@ -468,19 +470,33 @@ class LuaGrammarDefinition extends GrammarDefinition {
     Parser contentParser(String quote) {
       final _ = quote == '"' ? "'" : '"';
       // Either an escaped character (\\X) or any char except the closing quote
+      // For unclosed strings, we need to capture incomplete escape sequences too
       return ((char('\\') & any()) | pattern('^$quote')).star().flatten();
     }
 
     // Tag each alternative so we know if it's a long string.
     final long = _LongBracketParser().map((s) => ['long', s]);
     final dq = (char('"') & contentParser('"') & char('"')).flatten().map(
-      (s) => ['dq', s],
+      (s) => ['dq', s, true], // true = closed
     );
     final sq = (char("'") & contentParser("'") & char("'")).flatten().map(
-      (s) => ['sq', s],
+      (s) => ['sq', s, true], // true = closed
     );
 
-    final literalBody = (long | dq | sq);
+    // Handle unclosed strings (for escape sequence error reporting)
+    // For unclosed strings, we need to capture all content including incomplete escape sequences
+    final dqUnclosed = (char('"') & pattern('^"').star().flatten())
+        .flatten()
+        .map(
+          (s) => ['dq', s, false], // false = unclosed
+        );
+    final sqUnclosed = (char("'") & pattern("^'").star().flatten())
+        .flatten()
+        .map(
+          (s) => ['sq', s, false], // false = unclosed
+        );
+
+    final literalBody = (long | dq | sq | dqUnclosed | sqUnclosed);
 
     return position()
         .seq(literalBody)
@@ -491,6 +507,7 @@ class LuaGrammarDefinition extends GrammarDefinition {
           final tagged = vals[1] as List;
           final tag = tagged[0] as String;
           final lexeme = tagged[1] as String;
+          final isClosed = tagged.length > 2 ? tagged[2] as bool : true;
           final end = vals[2] as int;
 
           if (tag == 'long') {
@@ -502,8 +519,35 @@ class LuaGrammarDefinition extends GrammarDefinition {
             );
           } else {
             // Remove surrounding quotes.
-            final content = lexeme.substring(1, lexeme.length - 1);
-            return _annotate(StringLiteral(content), start, end);
+            final content = isClosed
+                ? lexeme.substring(1, lexeme.length - 1)
+                : lexeme.substring(
+                    1,
+                  ); // Only remove the opening quote for unclosed
+
+            // For unclosed strings, we need to process escape sequences first
+            // to catch any escape sequence errors, then throw an unfinished string error
+            if (!isClosed) {
+              // Try to process the content to catch escape sequence errors
+              try {
+                LuaStringParser.parseStringContent(content, fullLexeme: lexeme);
+              } catch (e) {
+                // Re-throw escape sequence errors
+                rethrow;
+              }
+              // If no escape sequence errors, throw unfinished string error
+              // Remove the opening quote from the lexeme for the error message
+              final near = lexeme.startsWith('"')
+                  ? lexeme.substring(1)
+                  : lexeme;
+              throw LuaError("unfinished string near $near");
+            }
+
+            return _annotate(
+              StringLiteral(content, fullLexeme: lexeme),
+              start,
+              end,
+            );
           }
         });
   }
