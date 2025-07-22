@@ -43,6 +43,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     final blockEnv = Environment(
       parent: globals,
       interpreter: this as Interpreter,
+      delegateUndefinedToParent: true,
     );
     final prevEnv = globals;
 
@@ -200,6 +201,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       final loopEnv = Environment(
         parent: globals,
         interpreter: this as Interpreter,
+        delegateUndefinedToParent: true,
       );
       final prevEnv = globals;
 
@@ -308,6 +310,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         final loopEnv = Environment(
           parent: globals, // globals represents the current environment
           interpreter: this as Interpreter,
+          delegateUndefinedToParent: true,
         );
         final prevEnv = globals;
 
@@ -395,6 +398,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       final loopEnv = Environment(
         parent: globals,
         interpreter: this as Interpreter,
+        delegateUndefinedToParent: true,
       );
       final prevEnv = globals;
 
@@ -523,6 +527,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           final loopEnv = Environment(
             parent: globals,
             interpreter: this as Interpreter,
+            delegateUndefinedToParent: true,
           );
           final prevEnv = globals;
 
@@ -738,6 +743,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         final loopEnv = Environment(
           parent: globals,
           interpreter: this as Interpreter,
+          delegateUndefinedToParent: true,
         );
         final prevEnv = globals;
 
@@ -950,6 +956,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       final blockEnv = Environment(
         parent: globals,
         interpreter: this as Interpreter,
+        delegateUndefinedToParent: true,
       );
       final prevEnv = globals;
 

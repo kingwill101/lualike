@@ -1,20 +1,62 @@
 import 'dart:typed_data';
 import 'dart:convert';
 import 'package:collection/collection.dart';
+import 'value.dart';
+
+/// String interning cache for short strings (Lua-like behavior)
+/// In Lua, short strings are typically internalized while long strings are not
+class StringInterning {
+  static const int shortStringThreshold = 40; // Lua 5.4 uses 40 characters
+  static final Map<String, LuaString> _internCache = <String, LuaString>{};
+  static final Map<String, LuaString> _byteInternCache = <String, LuaString>{};
+
+  /// Creates or retrieves an interned LuaString
+  static LuaString intern(String content) {
+    // Only intern short strings (Lua 5.4 behavior)
+    if (content.length <= shortStringThreshold) {
+      return _internCache.putIfAbsent(
+        content,
+        () => LuaString._internal(Uint8List.fromList(utf8.encode(content))),
+      );
+    } else {
+      // For long strings, don't intern - create a new instance
+      return LuaString._internal(Uint8List.fromList(utf8.encode(content)));
+    }
+  }
+
+  /// Creates a Value with proper string interning
+  static Value createStringValue(String content) {
+    return Value(intern(content));
+  }
+
+  /// Interns a LuaString from bytes based on byte content
+  /// This is used for string literals to ensure proper interning behavior
+  /// String literals are always interned, regardless of length
+  static LuaString internFromBytes(List<int> bytes) {
+    // String literals are always interned, regardless of length
+    // This matches Lua's behavior where string literals are interned even if long
+    final key = String.fromCharCodes(bytes);
+    return _byteInternCache.putIfAbsent(
+      key,
+      () => LuaString._internal(Uint8List.fromList(bytes)),
+    );
+  }
+}
 
 class LuaString {
   final Uint8List bytes;
 
-  LuaString(this.bytes);
+  LuaString._internal(this.bytes);
 
-  factory LuaString.fromDartString(String s) {
-    // Use UTF-8 for all strings to avoid decoding issues when characters are
-    // outside the Latin-1 range. This ensures `toString()` always produces the
-    // original Dart string regardless of content.
-    return LuaString(Uint8List.fromList(utf8.encode(s)));
+  factory LuaString(Uint8List bytes) {
+    // For internal use only - doesn't intern
+    return LuaString._internal(bytes);
   }
 
-  factory LuaString.fromBytes(List<int> b) => LuaString(Uint8List.fromList(b));
+  factory LuaString.fromDartString(String s) {
+    // Use StringInterning for proper interning behavior
+    return StringInterning.intern(s);
+  }
 
   @override
   String toString() {
@@ -35,11 +77,16 @@ class LuaString {
 
   int operator [](int index) => bytes[index];
 
-  LuaString slice(int start, [int? end]) =>
-      LuaString(bytes.sublist(start, end));
+  LuaString slice(int start, [int? end]) {
+    final newBytes = bytes.sublist(start, end);
+    return LuaString(Uint8List.fromList(newBytes));
+  }
 
-  LuaString operator +(LuaString other) =>
-      LuaString(Uint8List.fromList([...bytes, ...other.bytes]));
+  LuaString operator +(LuaString other) {
+    final newBytes = [...bytes, ...other.bytes];
+    // Don't intern concatenated strings - only string literals should be interned
+    return LuaString._internal(Uint8List.fromList(newBytes));
+  }
 
   @override
   bool operator ==(Object other) {
@@ -47,8 +94,13 @@ class LuaString {
     if (other is LuaString) {
       return const ListEquality().equals(bytes, other.bytes);
     } else if (other is String) {
-      // Allow comparison with Dart strings by converting LuaString to Dart string
-      return toString() == other;
+      // Compare as Latin-1/code units, not UTF-8
+      final otherBytes = other.codeUnits;
+      if (otherBytes.length != bytes.length) return false;
+      for (int i = 0; i < bytes.length; i++) {
+        if (bytes[i] != otherBytes[i]) return false;
+      }
+      return true;
     }
     return false;
   }

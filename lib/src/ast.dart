@@ -1,6 +1,7 @@
 import 'package:source_span/source_span.dart';
 
 import 'parsers/string.dart';
+import 'lua_string.dart';
 
 /// Base class for all ASFuture`<T>` nodes.
 abstract class AstNode {
@@ -731,22 +732,35 @@ class NumberLiteral extends AstNode {
 class StringLiteral extends AstNode {
   final String value;
   final bool isLongString;
+  final String?
+  fullLexeme; // Store the full lexeme including quotes for error messages
 
   // Cache the parsed bytes for efficient access
   late final List<int> _bytes;
 
-  StringLiteral(String raw, {this.isLongString = false}) : value = raw {
+  // Cache the interned LuaString for string literals (parse-time interning)
+  late final LuaString? _internedString;
+
+  StringLiteral(String raw, {this.isLongString = false, this.fullLexeme})
+    : value = raw {
     if (isLongString) {
       // Long strings don't process escape sequences - use raw bytes
       _bytes = raw.codeUnits;
+      // Long strings are not interned (they're processed differently)
+      _internedString = null;
     } else {
       // Regular strings process escape sequences
-      _bytes = LuaStringParser.parseStringContent(raw);
+      _bytes = LuaStringParser.parseStringContent(raw, fullLexeme: fullLexeme);
+      // Intern string literals at parse time (matches Lua's compile-time interning)
+      _internedString = StringInterning.internFromBytes(_bytes);
     }
   }
 
   /// Get the byte representation of this string literal
   List<int> get bytes => _bytes;
+
+  /// Get the interned LuaString for this literal (if available)
+  LuaString? get internedString => _internedString;
 
   @override
   Future<T> accept<T>(AstVisitor<T> visitor) =>

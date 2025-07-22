@@ -14,6 +14,7 @@ final testFiles = [
   'strings.lua',
   'tpack.lua',
   'utf8.lua',
+  'literals.lua',
   'vararg.lua',
   'events.lua',
   'sort.lua',

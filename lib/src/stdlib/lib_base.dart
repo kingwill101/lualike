@@ -173,12 +173,15 @@ class AssertFunction implements BuiltinFunction {
     }
 
     Logger.debug(
-      'AssertFunction: Assertion passed, returning ${args.length > 1 ? args : args[0]}',
+      'AssertFunction: Assertion passed, returning ${args.length > 1 ? 'multi' : 'single'} value',
       category: 'Base',
     );
 
-    // Return all arguments passed to assert
-    return args.length > 1 ? args : args[0];
+    // Return all arguments individually when more than one is provided
+    if (args.length == 1) {
+      return args[0];
+    }
+    return Value.multi(args);
   }
 }
 
@@ -657,8 +660,11 @@ class LoadFunction implements BuiltinFunction {
           // Create a new environment for the loaded code that inherits from
           // the current environment. Assignments to previously undefined
           // variables are delegated to the parent so globals are updated.
+          // Use the parent environment if available to avoid capturing
+          // local variables from the calling function when executing the
+          // loaded chunk.
           final loadEnv = Environment(
-            parent: savedEnv,
+            parent: savedEnv.parent ?? savedEnv,
             interpreter: vm,
             delegateUndefinedToParent: true,
           );
@@ -685,7 +691,15 @@ class LoadFunction implements BuiltinFunction {
         }
       });
     } catch (e) {
-      return [Value(null), Value("Error parsing source code: $e")];
+      // Format error message like Lua: [string "chunkname"]:line: message
+      String errorMsg = e.toString();
+      if (errorMsg.contains('near ')) {
+        // For parsing errors, format like Lua
+        errorMsg = '[string "$chunkname"]:1: $errorMsg';
+      } else {
+        errorMsg = "Error parsing source code: $errorMsg";
+      }
+      return [Value(null), Value(errorMsg)];
     }
   }
 }

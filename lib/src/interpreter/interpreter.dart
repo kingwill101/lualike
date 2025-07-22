@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/call_stack.dart';
@@ -11,6 +13,7 @@ import 'package:lualike/src/lua_stack_trace.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/stack.dart';
 import 'package:lualike/src/stdlib/init.dart' show initializeStandardLibrary;
+
 import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:lualike/src/value.dart';
 import 'package:lualike/src/value_class.dart';
@@ -77,6 +80,10 @@ class Interpreter extends AstVisitor<Object?>
   /// Call stack for function calls.
   @override
   final CallStack callStack = CallStack();
+
+  /// The last AST node executed. Used for debug information like
+  /// `debug.getinfo` current line tracking.
+  AstNode? currentNode;
 
   /// Gets the currently running coroutine
   @override
@@ -267,6 +274,9 @@ class Interpreter extends AstVisitor<Object?>
         node is BooleanLiteral) {
       return;
     }
+
+    // Track the last executed node for debugging purposes
+    currentNode = node;
 
     // Try to get a better function name if possible
     String actualFunctionName = functionName;

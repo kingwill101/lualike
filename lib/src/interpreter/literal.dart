@@ -54,9 +54,13 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
     Logger.debug('Visiting StringLiteral: ${node.value}', category: 'Literal');
 
-    // Always use LuaString for proper byte-level string handling
-    // This ensures Lua's string semantics are preserved
-    final bytes = node.bytes;
-    return Value(LuaString.fromBytes(bytes));
+    // Use the pre-interned string from parse time (matches Lua's compile-time interning)
+    if (node.internedString != null) {
+      return Value(node.internedString!);
+    } else {
+      // For long strings or other cases where interning didn't happen, create normally
+      final luaString = LuaString(Uint8List.fromList(node.bytes));
+      return Value(luaString);
+    }
   }
 }

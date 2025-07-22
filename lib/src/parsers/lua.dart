@@ -2,7 +2,9 @@ import 'package:petitparser/petitparser.dart';
 import 'package:source_span/source_span.dart';
 
 import '../ast.dart';
+import '../lua_error.dart';
 import '../number.dart';
+import 'string.dart';
 
 /// A **work-in-progress** PetitParser grammar for LuaLike.  The goal is to
 /// replicate the existing PEG-generated parser (in `grammar_parser.dart`) but
@@ -468,19 +470,42 @@ class LuaGrammarDefinition extends GrammarDefinition {
     Parser contentParser(String quote) {
       final _ = quote == '"' ? "'" : '"';
       // Either an escaped character (\\X) or any char except the closing quote
+      // For unclosed strings, we need to capture incomplete escape sequences too
       return ((char('\\') & any()) | pattern('^$quote')).star().flatten();
     }
 
     // Tag each alternative so we know if it's a long string.
     final long = _LongBracketParser().map((s) => ['long', s]);
+
+    // Handle incomplete long strings
+    final incompleteLong = _IncompleteLongBracketParser().map(
+      (s) => ['incomplete_long', s],
+    );
     final dq = (char('"') & contentParser('"') & char('"')).flatten().map(
-      (s) => ['dq', s],
+      (s) => ['dq', s, true], // true = closed
     );
     final sq = (char("'") & contentParser("'") & char("'")).flatten().map(
-      (s) => ['sq', s],
+      (s) => ['sq', s, true], // true = closed
     );
 
-    final literalBody = (long | dq | sq);
+    // Handle unclosed strings (for escape sequence error reporting)
+    // For unclosed strings, we need to capture all content including incomplete escape sequences
+    // But we should not process escape sequences that would make the string appear complete
+    final dqUnclosed =
+        (char('"') & ((char('\\') & any()) | pattern('^"')).star().flatten())
+            .flatten()
+            .map(
+              (s) => ['dq', s, false], // false = unclosed
+            );
+    final sqUnclosed =
+        (char("'") & ((char('\\') & any()) | pattern("^'")).star().flatten())
+            .flatten()
+            .map(
+              (s) => ['sq', s, false], // false = unclosed
+            );
+
+    final literalBody =
+        (long | incompleteLong | dq | sq | dqUnclosed | sqUnclosed);
 
     return position()
         .seq(literalBody)
@@ -491,6 +516,7 @@ class LuaGrammarDefinition extends GrammarDefinition {
           final tagged = vals[1] as List;
           final tag = tagged[0] as String;
           final lexeme = tagged[1] as String;
+          final isClosed = tagged.length > 2 ? tagged[2] as bool : true;
           final end = vals[2] as int;
 
           if (tag == 'long') {
@@ -500,10 +526,37 @@ class LuaGrammarDefinition extends GrammarDefinition {
               start,
               end,
             );
+          } else if (tag == 'incomplete_long') {
+            // This should never happen as _IncompleteLongBracketParser throws an error
+            throw LuaError("unfinished string near '<eof>'");
           } else {
             // Remove surrounding quotes.
-            final content = lexeme.substring(1, lexeme.length - 1);
-            return _annotate(StringLiteral(content), start, end);
+            final content = isClosed
+                ? lexeme.substring(1, lexeme.length - 1)
+                : lexeme.substring(
+                    1,
+                  ); // Only remove the opening quote for unclosed
+
+            // For unclosed strings, we need to process escape sequences first
+            // to catch any escape sequence errors, then throw an unfinished string error
+            if (!isClosed) {
+              // Try to process the content to catch escape sequence errors
+              try {
+                LuaStringParser.parseStringContent(content, fullLexeme: lexeme);
+              } catch (e) {
+                // Re-throw escape sequence errors
+                rethrow;
+              }
+              // If no escape sequence errors, throw unfinished string error
+              // For incomplete strings, use '<eof>' as expected by the test suite
+              throw LuaError("unfinished string near '<eof>'");
+            }
+
+            return _annotate(
+              StringLiteral(content, fullLexeme: lexeme),
+              start,
+              end,
+            );
           }
         });
   }
@@ -961,7 +1014,21 @@ class _LongBracketParser extends Parser<String> {
       return context.failure('unterminated long string');
     }
     // Extract inner content only (without delimiters).
-    final content = buffer.substring(contentStart, closeIdx);
+    var content = buffer.substring(contentStart, closeIdx);
+
+    // If the long string starts with a newline, that newline is skipped
+    // according to Lua's lexical rules (Lua 5.4 manual 3.1).
+    if (content.startsWith('\r\n')) {
+      content = content.substring(2);
+    } else if (content.startsWith('\n') || content.startsWith('\r')) {
+      content = content.substring(1);
+    }
+
+    // Lua normalises all end-of-line sequences inside long strings to '\n'.
+    content = content.replaceAll('\r\n', '\n');
+    content = content.replaceAll('\n\r', '\n');
+    content = content.replaceAll('\r', '\n');
+
     return context.success(content, closeIdx + closing.length);
   }
 
@@ -974,6 +1041,54 @@ class _LongBracketParser extends Parser<String> {
 
   @override
   _LongBracketParser copy() => _LongBracketParser();
+}
+
+class _IncompleteLongBracketParser extends Parser<String> {
+  _IncompleteLongBracketParser();
+
+  @override
+  Result<String> parseOn(Context context) {
+    final buffer = context.buffer;
+    final start = context.position;
+    // Quick check: must start with '['
+    if (start >= buffer.length || buffer.codeUnitAt(start) != 0x5B /* '[' */ ) {
+      return context.failure('incomplete long string expected');
+    }
+    var idx = start + 1;
+    // Count '=' run
+    while (idx < buffer.length && buffer.codeUnitAt(idx) == 0x3D /* '=' */ ) {
+      idx++;
+    }
+    // Next char must be another '['
+    if (idx >= buffer.length || buffer.codeUnitAt(idx) != 0x5B) {
+      return context.failure(
+        'incomplete long string start delimiter not found',
+      );
+    }
+    final eqCount = idx - start - 1;
+    final contentStart = idx + 1;
+
+    // Build closing delimiter
+    final closing = ']${'=' * eqCount}]';
+    final closeIdx = buffer.indexOf(closing, contentStart);
+    if (closeIdx == -1) {
+      // This is an incomplete long string - return the content up to the end
+      final content = buffer.substring(contentStart);
+      throw LuaError("unfinished string near '<eof>'");
+    }
+    // If we find a complete long string, this parser should not match
+    return context.failure('complete long string found');
+  }
+
+  @override
+  int fastParseOn(String buffer, int position) {
+    final ctx = Context(buffer, position);
+    final res = parseOn(ctx);
+    return res is Failure ? -1 : res.position;
+  }
+
+  @override
+  _IncompleteLongBracketParser copy() => _IncompleteLongBracketParser();
 }
 
 class _LongCommentBracketParser extends Parser<String> {
@@ -1024,38 +1139,46 @@ Program parse(String source, {Uri? url}) {
 
   final definition = LuaGrammarDefinition(sourceFile);
   final parser = definition.build();
-  final result = parser.parse(source);
 
-  if (result is Success) {
-    return result.value as Program;
+  try {
+    final result = parser.parse(source);
+
+    if (result is Success) {
+      return result.value as Program;
+    }
+
+    final failure = result as Failure;
+    final pos = failure.position;
+
+    // Clamp end so that we don't exceed length (especially when at EOF).
+    final end = pos < source.length ? pos + 1 : pos;
+    final span = sourceFile.span(pos, end);
+
+    String unexpected;
+    if (pos >= source.length) {
+      unexpected = 'end of input';
+    } else {
+      final ch = source[pos];
+      unexpected = ch == '\n' ? 'newline' : "'$ch'";
+    }
+
+    // Basic heuristic: if we see an identifier followed by whitespace and '...' but no comma,
+    // suggest the missing comma (common Lua gotcha).
+    String suggestion = '';
+
+    // Capitalize first letter of petitparser failure message to ensure it contains 'Expected'
+    final baseMsg =
+        'Parse error: Expected ${failure.message}. Unexpected $unexpected.';
+
+    final formatted = span.message(baseMsg + suggestion, color: false);
+
+    // Include raw position as well for completeness.
+    throw LuaError(formatted);
+  } catch (e) {
+    if (e is FormatException) {
+      // Convert FormatException to LuaError for consistency
+      throw LuaError(e.message);
+    }
+    rethrow;
   }
-
-  final failure = result as Failure;
-  final pos = failure.position;
-
-  // Clamp end so that we don't exceed length (especially when at EOF).
-  final end = pos < source.length ? pos + 1 : pos;
-  final span = sourceFile.span(pos, end);
-
-  String unexpected;
-  if (pos >= source.length) {
-    unexpected = 'end of input';
-  } else {
-    final ch = source[pos];
-    unexpected = ch == '\n' ? 'newline' : "'$ch'";
-  }
-
-  // Basic heuristic: if we see an identifier followed by whitespace and '...' but no comma,
-  // suggest the missing comma (common Lua gotcha).
-  String suggestion = '';
-  final startWindow = pos >= 30 ? pos - 30 : 0;
-
-  // Capitalize first letter of petitparser failure message to ensure it contains 'Expected'
-  final baseMsg =
-      'Parse error: Expected ${failure.message}. Unexpected $unexpected.';
-
-  final formatted = span.message(baseMsg + suggestion, color: false);
-
-  // Include raw position as well for completeness.
-  throw FormatException(formatted);
 }
