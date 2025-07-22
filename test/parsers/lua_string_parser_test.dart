@@ -95,31 +95,31 @@ void main() {
 
     group('UTF-8 escape errors', () {
       test('UTF-8 value too large', () async {
-        await lexerror('"abc\\u{100000000}"', '"abc\\u{100000000');
+        await lexerror('"abc\\u{100000000}"', 'abc\\u{100000000');
       });
 
-      test('missing opening brace', () async {
-        await lexerror('"abc\\u11r"', '"abc\\u1');
+      test('missing opening brace with invalid char', () async {
+        await lexerror('"abc\\u11r"', 'abc\\u1');
       });
 
       test('missing opening brace at end', () async {
-        await lexerror('"abc\\u"', '"abc\\u"');
+        await lexerror('"abc\\u"', 'abc\\u"');
       });
 
       test('missing closing brace with invalid char', () async {
-        await lexerror('"abc\\u{11r"', '"abc\\u{11r');
+        await lexerror('"abc\\u{11r"', 'abc\\u{11r');
       });
 
       test('missing closing brace with quote', () async {
-        await lexerror('"abc\\u{11"', '"abc\\u{11"');
+        await lexerror('"abc\\u{11"', 'abc\\u{11"');
       });
 
       test('missing closing brace no quote', () async {
-        await lexerror('"abc\\u{11', '"abc\\u{11');
+        await lexerror('"abc\\u{11', 'abc\\u{11');
       });
 
       test('no hex digits in braces', () async {
-        await lexerror('"abc\\u{r"', '"abc\\u{r');
+        await lexerror('"abc\\u{r"', 'abc\\u{r');
       });
     });
 

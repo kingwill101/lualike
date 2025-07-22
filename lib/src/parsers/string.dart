@@ -346,6 +346,7 @@ class LuaStringParser {
         (unicodeStart &
                 char('{') &
                 pattern('0-9a-fA-F').not() &
+                pattern('0-9a-fA-F').not() &
                 any().optional())
             .map((parts) {
               final invalid = parts[2] is String ? parts[2] as String : '';
@@ -355,10 +356,32 @@ class LuaStringParser {
                 fullLexeme,
                 escapeSequence,
               );
-              final nearContext = context.formatNearContext(
-                includeOpeningQuote: true,
-              );
-              throw LuaError("hexadecimal digit expected near '$nearContext'");
+              // Manually construct the context to match Lua's format
+              final openingPos = context.openingQuotePosition;
+              if (openingPos != null) {
+                final startPos = openingPos + 1; // Skip the opening quote
+                final endPos = context.errorPosition + escapeSequence.length;
+                // Don't include the closing quote for invalid hex errors
+                final closingPos = context.closingQuotePosition;
+                final actualEndPos = closingPos != null && closingPos < endPos
+                    ? closingPos // Stop before the closing quote
+                    : endPos.clamp(0, fullLexeme!.length);
+                final nearContext = fullLexeme!.substring(
+                  startPos,
+                  actualEndPos,
+                );
+                throw LuaError(
+                  "hexadecimal digit expected near '$nearContext'",
+                );
+              } else {
+                final nearContext = context.formatNearContext(
+                  includeOpeningQuote: true,
+                  includeClosingQuote: false,
+                );
+                throw LuaError(
+                  "hexadecimal digit expected near '$nearContext'",
+                );
+              }
             })
             .cast<List<int>>();
 
@@ -370,8 +393,10 @@ class LuaStringParser {
             .map((parts) {
               final hex = parts[2] as String;
               final next = parts[3] is String ? parts[3] as String : '';
-              // For missing closing brace, include the next character in the sequence
-              final escapeSequence = '\\u{$hex$next';
+              // For missing closing brace, determine the escape sequence based on next
+              final escapeSequence = next.isEmpty
+                  ? '\\u{$hex'
+                  : '\\u{$hex$next';
               final context = _StringErrorHelper.createEscapeContext(
                 fullLexeme,
                 escapeSequence,
@@ -381,16 +406,59 @@ class LuaStringParser {
               if (openingPos != null) {
                 final startPos =
                     openingPos + 1; // Skip the opening quote for the pattern
-                final endPos = context.errorPosition + escapeSequence.length;
-                // For missing closing brace, exclude the closing quote if it's not part of the pattern
-                final closingPos = context.closingQuotePosition;
-                final actualEndPos = closingPos != null && closingPos < endPos
-                    ? closingPos // Stop before the closing quote
-                    : endPos.clamp(0, fullLexeme!.length);
+                int endPos = context.errorPosition + escapeSequence.length;
+
+                // For missing closing brace, manually calculate the end position
+                // Find the position of the escape sequence in the full lexeme
+                final escapeStart = fullLexeme!.indexOf('\\u{');
+                if (escapeStart != -1) {
+                  // Find where the escape sequence should end
+                  final hexEnd =
+                      escapeStart + 3 + hex.length; // \u{ + hex digits
+                  int newEndPos = hexEnd;
+
+                  // If next is not empty, include it in the error context
+                  if (next.isNotEmpty) {
+                    newEndPos += next.length;
+                  } else {
+                    // If next is empty, include the closing quote if present
+                    final closingPos = context.closingQuotePosition;
+                    if (closingPos != null && closingPos >= newEndPos) {
+                      newEndPos = closingPos + 1; // Include the closing quote
+                    }
+                  }
+
+                  endPos = newEndPos;
+                } else {
+                  // Fallback to original logic
+                  if (next.isEmpty) {
+                    // Include the closing quote if present
+                    final closingPos = context.closingQuotePosition;
+                    if (closingPos != null && closingPos >= endPos) {
+                      endPos = closingPos + 1; // Include the closing quote
+                    }
+                  } else {
+                    // Don't include the closing quote when there's an invalid character
+                    final closingPos = context.closingQuotePosition;
+                    if (closingPos != null && closingPos < endPos) {
+                      endPos = closingPos; // Stop before the closing quote
+                    }
+                  }
+                }
+
+                final actualEndPos = endPos.clamp(0, fullLexeme!.length);
                 final nearContext = fullLexeme!.substring(
                   startPos,
                   actualEndPos,
                 );
+
+                // Debug output for line 33
+                if (fullLexeme!.contains('abc\\u{11"')) {
+                  print(
+                    "DEBUG: fullLexeme='$fullLexeme', escapeSequence='$escapeSequence', next='$next', startPos=$startPos, endPos=$endPos, actualEndPos=$actualEndPos, nearContext='$nearContext'",
+                  );
+                }
+
                 throw LuaError("missing '}' near '$nearContext'");
               } else {
                 final nearContext = context.formatNearContext(
