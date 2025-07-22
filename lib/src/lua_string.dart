@@ -11,11 +11,16 @@ class StringInterning {
 
   /// Creates or retrieves an interned LuaString
   static LuaString intern(String content) {
-    // Intern all string literals (Lua interns string literals regardless of length)
-    return _internCache.putIfAbsent(
-      content,
-      () => LuaString._internal(Uint8List.fromList(utf8.encode(content))),
-    );
+    // Only intern short strings (Lua 5.4 behavior)
+    if (content.length <= shortStringThreshold) {
+      return _internCache.putIfAbsent(
+        content,
+        () => LuaString._internal(Uint8List.fromList(utf8.encode(content))),
+      );
+    } else {
+      // For long strings, don't intern - create a new instance
+      return LuaString._internal(Uint8List.fromList(utf8.encode(content)));
+    }
   }
 
   /// Creates a Value with proper string interning
@@ -39,12 +44,6 @@ class LuaString {
     return StringInterning.intern(s);
   }
 
-  factory LuaString.fromBytes(List<int> b) {
-    // Convert bytes to string for interning lookup
-    final s = utf8.decode(b, allowMalformed: true);
-    return LuaString.fromDartString(s);
-  }
-
   @override
   String toString() {
     try {
@@ -66,7 +65,7 @@ class LuaString {
 
   LuaString slice(int start, [int? end]) {
     final newBytes = bytes.sublist(start, end);
-    return LuaString.fromBytes(newBytes);
+    return LuaString(Uint8List.fromList(newBytes));
   }
 
   LuaString operator +(LuaString other) {
@@ -81,8 +80,13 @@ class LuaString {
     if (other is LuaString) {
       return const ListEquality().equals(bytes, other.bytes);
     } else if (other is String) {
-      // Allow comparison with Dart strings by converting LuaString to Dart string
-      return toString() == other;
+      // Compare as Latin-1/code units, not UTF-8
+      final otherBytes = other.codeUnits;
+      if (otherBytes.length != bytes.length) return false;
+      for (int i = 0; i < bytes.length; i++) {
+        if (bytes[i] != otherBytes[i]) return false;
+      }
+      return true;
     }
     return false;
   }

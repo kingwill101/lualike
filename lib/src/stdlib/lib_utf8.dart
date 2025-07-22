@@ -52,7 +52,7 @@ class UTF8Lib {
     bytes.add(0x2A); // *
 
     // Create a LuaString directly from the raw bytes
-    return LuaString.fromBytes(bytes);
+    return LuaString(Uint8List.fromList(bytes));
   }();
 
   static final ValueClass utf8Class = ValueClass.create({
@@ -85,7 +85,7 @@ class _UTF8Char implements BuiltinFunction {
   Object? call(List<Object?> args) {
     // Return empty string when no arguments provided (like standard Lua)
     if (args.isEmpty) {
-      return Value(LuaString.fromBytes(Uint8List(0)));
+      return Value(LuaString(Uint8List(0)));
     }
 
     final codePoints = <int>[];
@@ -115,7 +115,7 @@ class _UTF8Char implements BuiltinFunction {
         final encoded = LuaStringParser.encodeCodePoint(codePoint);
         bytes.addAll(encoded);
       }
-      return Value(LuaString.fromBytes(Uint8List.fromList(bytes)));
+      return Value(LuaString(Uint8List.fromList(bytes)));
     } catch (e) {
       throw LuaError("value out of range");
     }

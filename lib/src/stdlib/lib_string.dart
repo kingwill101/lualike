@@ -97,10 +97,15 @@ class _StringChar implements BuiltinFunction {
       }
       bytes.add(code);
     }
-    // Instead of creating a Dart String and potentially losing byte integrity,
-    // create a LuaString directly from the bytes.
-    final luaString = LuaString.fromBytes(Uint8List.fromList(bytes));
-    return Value(luaString);
+    // Try to decode as UTF-8 and intern if possible, else preserve as raw bytes
+    try {
+      final decodedString = utf8.decode(bytes, allowMalformed: false);
+      return StringInterning.createStringValue(decodedString);
+    } catch (_) {
+      // If not valid UTF-8, preserve as raw bytes
+      final luaString = LuaString(Uint8List.fromList(bytes));
+      return Value(luaString);
+    }
   }
 }
 
@@ -318,16 +323,16 @@ LuaString _formatCharacter(_FormatContext ctx) {
   final charCode = NumberUtils.toInt(rawValue);
 
   // For %c format, we need to return the raw byte, not a UTF-8 encoded character
-  // Create a LuaString with the single byte
-  final luaString = LuaString.fromBytes([charCode]);
+  // Create a LuaString with the single byte directly
+  final luaString = LuaString(Uint8List.fromList([charCode]));
 
   // For padding, we need to work at the byte level
   if (ctx.widthValue > 0 && luaString.length < ctx.widthValue) {
     final padding = List.filled(ctx.widthValue - luaString.length, 32); // space
     if (ctx.leftAlign) {
-      return LuaString.fromBytes([...luaString.bytes, ...padding]);
+      return LuaString(Uint8List.fromList([...luaString.bytes, ...padding]));
     } else {
-      return LuaString.fromBytes([...padding, ...luaString.bytes]);
+      return LuaString(Uint8List.fromList([...padding, ...luaString.bytes]));
     }
   }
 
@@ -1134,7 +1139,7 @@ class _StringGmatch implements BuiltinFunction {
             final matchBytes = match.match.codeUnits
                 .map((c) => c & 0xFF)
                 .toList();
-            return Value(LuaString.fromBytes(Uint8List.fromList(matchBytes)));
+            return Value(LuaString(Uint8List.fromList(matchBytes)));
           } else {
             return Value(match.match);
           }
@@ -1167,9 +1172,7 @@ class _StringGmatch implements BuiltinFunction {
             final captureBytes = cap.codeUnits
                 .map((code) => code & 0xFF)
                 .toList();
-            captures.add(
-              Value(LuaString.fromBytes(Uint8List.fromList(captureBytes))),
-            );
+            captures.add(Value(LuaString(Uint8List.fromList(captureBytes))));
           } else {
             captures.add(Value(cap));
           }
@@ -1330,8 +1333,10 @@ class _StringGsub implements BuiltinFunction {
       // Preserve byte representation for LuaString inputs, use regular String for String inputs
       final resultValue = strValue is LuaString
           ? Value(
-              LuaString.fromBytes(
-                result.codeUnits.map((c) => c & 0xFF).toList(),
+              LuaString(
+                Uint8List.fromList(
+                  result.codeUnits.map((c) => c & 0xFF).toList(),
+                ),
               ),
             )
           : Value(result);
@@ -1390,7 +1395,7 @@ class _StringLower implements BuiltinFunction {
         final resultString = String.fromCharCodes(resultBytes);
         return Value(resultString);
       } else {
-        return Value(LuaString.fromBytes(Uint8List.fromList(resultBytes)));
+        return Value(LuaString(Uint8List.fromList(resultBytes)));
       }
     } else {
       // For normal string operations, use Dart's string methods for better interop
@@ -1510,7 +1515,7 @@ class _StringRep implements BuiltinFunction {
         return StringInterning.createStringValue(resultString);
       } else {
         // Contains high bytes, preserve as LuaString
-        final resultLuaString = LuaString.fromBytes(resultBytes);
+        final resultLuaString = LuaString(Uint8List.fromList(resultBytes));
 
         // For high-byte content, we cannot use StringInterning because it would
         // UTF-8 encode the Latin-1 string, corrupting the bytes
@@ -1559,7 +1564,7 @@ class _StringReverse implements BuiltinFunction {
 
     if (value.raw is LuaString) {
       final bytes = List<int>.from((value.raw as LuaString).bytes.reversed);
-      return Value(LuaString.fromBytes(bytes));
+      return Value(LuaString(Uint8List.fromList(bytes)));
     }
 
     final str = value.raw.toString();
@@ -1609,7 +1614,7 @@ class _StringSub implements BuiltinFunction {
     } else {
       // Return as LuaString to preserve byte sequence integrity for non-ASCII
       final bytes = result.codeUnits.map((c) => c & 0xFF).toList();
-      return Value(LuaString.fromBytes(Uint8List.fromList(bytes)));
+      return Value(LuaString(Uint8List.fromList(bytes)));
     }
   }
 }
@@ -1937,7 +1942,7 @@ class _StringPack implements BuiltinFunction {
       }
     }
 
-    final result = LuaString.fromBytes(bytes);
+    final result = LuaString(Uint8List.fromList(bytes));
     return Value(result);
   }
 }
@@ -2203,7 +2208,7 @@ class _StringUnpack implements BuiltinFunction {
             final str = utf8.decode(strBytes);
             results.add(Value(str));
           } catch (_) {
-            final luaStr = LuaString.fromBytes(Uint8List.fromList(strBytes));
+            final luaStr = LuaString(Uint8List.fromList(strBytes));
             results.add(Value(luaStr));
           }
           offset += size;
@@ -2358,7 +2363,7 @@ class _StringUnpack implements BuiltinFunction {
               final str = utf8.decode(segment);
               results.add(Value(str));
             } catch (_) {
-              final luaStr = LuaString.fromBytes(Uint8List.fromList(segment));
+              final luaStr = LuaString(Uint8List.fromList(segment));
               results.add(Value(luaStr));
             }
             offset += length;
@@ -2445,7 +2450,7 @@ class _StringUnpack implements BuiltinFunction {
               final str = utf8.decode(strBytes);
               results.add(Value(str));
             } catch (_) {
-              final luaStr = LuaString.fromBytes(Uint8List.fromList(strBytes));
+              final luaStr = LuaString(Uint8List.fromList(strBytes));
               results.add(Value(luaStr));
             }
             offset = end + 1;
@@ -2524,7 +2529,7 @@ class _StringUpper implements BuiltinFunction {
         final resultString = String.fromCharCodes(resultBytes);
         return Value(resultString);
       } else {
-        return Value(LuaString.fromBytes(Uint8List.fromList(resultBytes)));
+        return Value(LuaString(Uint8List.fromList(resultBytes)));
       }
     } else {
       // For normal string operations, use Dart's string methods for better interop
