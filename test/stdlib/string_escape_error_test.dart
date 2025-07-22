@@ -89,31 +89,31 @@ void main() {
       }, throwsA(isA<LuaError>()));
     });
 
-    test('unfinished strings throw FormatException', () async {
+    test('unfinished strings throw LuaError', () async {
       // Test unfinished string literals
       expect(() async {
         await bridge.execute('local x = [=[alo]]');
-      }, throwsA(isA<FormatException>()));
+      }, throwsA(isA<LuaError>()));
 
       expect(() async {
         await bridge.execute('local x = [=[alo]="');
-      }, throwsA(isA<FormatException>()));
+      }, throwsA(isA<LuaError>()));
 
       expect(() async {
         await bridge.execute('local x = [=[alo]"');
-      }, throwsA(isA<FormatException>()));
+      }, throwsA(isA<LuaError>()));
 
       expect(() async {
         await bridge.execute("local x = 'alo");
-      }, throwsA(isA<FormatException>()));
+      }, throwsA(isA<LuaError>()));
 
       expect(() async {
         await bridge.execute("local x = 'alo \\z");
-      }, throwsA(isA<FormatException>()));
+      }, throwsA(isA<LuaError>()));
 
       expect(() async {
         await bridge.execute("local x = 'alo \\98");
-      }, throwsA(isA<FormatException>()));
+      }, throwsA(isA<LuaError>()));
     });
 
     test('error message format consistency', () async {
@@ -141,9 +141,9 @@ void main() {
 
       try {
         await bridge.execute("local x = 'alo");
-        fail('Expected FormatException');
+        fail('Expected LuaError');
       } catch (e) {
-        expect(e.toString(), contains('Parse error'));
+        expect(e.toString(), contains('unfinished string'));
       }
     });
 

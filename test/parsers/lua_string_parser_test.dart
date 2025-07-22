@@ -123,6 +123,51 @@ void main() {
       });
     });
 
+    group('Unfinished string errors', () {
+      test('incomplete long bracket string level 0', () async {
+        await lexerror('[=[alo]]', '<eof>');
+      });
+
+      test('incomplete long bracket string with equals', () async {
+        await lexerror('[=[alo]=', '<eof>');
+      });
+
+      test('incomplete long bracket string no closing', () async {
+        await lexerror('[=[alo]', '<eof>');
+      });
+
+      test('incomplete single quoted string', () async {
+        await lexerror("'alo", '<eof>');
+      });
+
+      test('incomplete single quoted string with line continuation', () async {
+        await lexerror("'alo \\z  \n\n", '<eof>');
+      });
+
+      test(
+        'incomplete single quoted string with line continuation only',
+        () async {
+          await lexerror("'alo \\z", '<eof>');
+        },
+      );
+
+      test('incomplete single quoted string with decimal escape', () async {
+        await lexerror("'alo \\98", '<eof>');
+      });
+
+      test('incomplete double quoted string', () async {
+        await lexerror('"alo', '<eof>');
+      });
+
+      test('incomplete double quoted string with escape', () async {
+        await lexerror('"alo\\', '<eof>');
+      });
+
+      test('incomplete double quoted string with partial escape', () async {
+        await lexerror('"alo\\n', '<eof>');
+      });
+    });
+
     group('String parsing success cases', () {
       test('valid hex escapes', () async {
         await lua.execute('local s = "\\x41\\x42"');
@@ -141,6 +186,19 @@ void main() {
 
       test('basic escape sequences', () async {
         await lua.execute('local s = "\\n\\t\\r\\\\\\""');
+        // Should not throw
+      });
+
+      test('complete long bracket strings', () async {
+        await lua.execute('local s = [[hello world]]');
+        await lua.execute('local s = [=[nested]=]');
+        await lua.execute('local s = [==[deep]==]');
+        // Should not throw
+      });
+
+      test('complete quoted strings', () async {
+        await lua.execute('local s = "hello world"');
+        await lua.execute("local s = 'hello world'");
         // Should not throw
       });
     });
