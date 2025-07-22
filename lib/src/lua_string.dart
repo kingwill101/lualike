@@ -1,20 +1,49 @@
 import 'dart:typed_data';
 import 'dart:convert';
 import 'package:collection/collection.dart';
+import 'value.dart';
+
+/// String interning cache for short strings (Lua-like behavior)
+/// In Lua, short strings are typically internalized while long strings are not
+class StringInterning {
+  static const int shortStringThreshold = 40; // Lua 5.4 uses 40 characters
+  static final Map<String, LuaString> _internCache = <String, LuaString>{};
+
+  /// Creates or retrieves an interned LuaString
+  static LuaString intern(String content) {
+    // Intern all string literals (Lua interns string literals regardless of length)
+    return _internCache.putIfAbsent(
+      content,
+      () => LuaString._internal(Uint8List.fromList(utf8.encode(content))),
+    );
+  }
+
+  /// Creates a Value with proper string interning
+  static Value createStringValue(String content) {
+    return Value(intern(content));
+  }
+}
 
 class LuaString {
   final Uint8List bytes;
 
-  LuaString(this.bytes);
+  LuaString._internal(this.bytes);
 
-  factory LuaString.fromDartString(String s) {
-    // Use UTF-8 for all strings to avoid decoding issues when characters are
-    // outside the Latin-1 range. This ensures `toString()` always produces the
-    // original Dart string regardless of content.
-    return LuaString(Uint8List.fromList(utf8.encode(s)));
+  factory LuaString(Uint8List bytes) {
+    // For internal use only - doesn't intern
+    return LuaString._internal(bytes);
   }
 
-  factory LuaString.fromBytes(List<int> b) => LuaString(Uint8List.fromList(b));
+  factory LuaString.fromDartString(String s) {
+    // Use StringInterning for proper interning behavior
+    return StringInterning.intern(s);
+  }
+
+  factory LuaString.fromBytes(List<int> b) {
+    // Convert bytes to string for interning lookup
+    final s = utf8.decode(b, allowMalformed: true);
+    return LuaString.fromDartString(s);
+  }
 
   @override
   String toString() {
@@ -35,11 +64,16 @@ class LuaString {
 
   int operator [](int index) => bytes[index];
 
-  LuaString slice(int start, [int? end]) =>
-      LuaString(bytes.sublist(start, end));
+  LuaString slice(int start, [int? end]) {
+    final newBytes = bytes.sublist(start, end);
+    return LuaString.fromBytes(newBytes);
+  }
 
-  LuaString operator +(LuaString other) =>
-      LuaString(Uint8List.fromList([...bytes, ...other.bytes]));
+  LuaString operator +(LuaString other) {
+    final newBytes = [...bytes, ...other.bytes];
+    // Don't intern concatenated strings - only string literals should be interned
+    return LuaString._internal(Uint8List.fromList(newBytes));
+  }
 
   @override
   bool operator ==(Object other) {
