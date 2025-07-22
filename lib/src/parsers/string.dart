@@ -238,8 +238,7 @@ class LuaStringParser {
       if (firstIsHex && second.isEmpty) {
         // Incomplete hex sequence like \x5 at end of string - include closing quote
         if (fullLexeme != null && context.closingQuotePosition != null) {
-          nearContext =
-              '\\x$first' + fullLexeme![context.closingQuotePosition!];
+          nearContext = '\\x$first${fullLexeme[context.closingQuotePosition!]}';
         } else {
           nearContext = '\\x$first';
         }
@@ -266,7 +265,7 @@ class LuaStringParser {
       String nearContext;
       if (fullLexeme != null && context.closingQuotePosition != null) {
         nearContext =
-            escapeSequence + fullLexeme![context.closingQuotePosition!];
+            escapeSequence + fullLexeme[context.closingQuotePosition!];
       } else {
         nearContext = escapeSequence;
       }
@@ -446,14 +445,14 @@ class LuaStringParser {
                   }
                 }
 
-                final actualEndPos = endPos.clamp(0, fullLexeme!.length);
-                final nearContext = fullLexeme!.substring(
+                final actualEndPos = endPos.clamp(0, fullLexeme.length);
+                final nearContext = fullLexeme.substring(
                   startPos,
                   actualEndPos,
                 );
 
                 // Debug output for line 33
-                if (fullLexeme!.contains('abc\\u{11"')) {
+                if (fullLexeme.contains('abc\\u{11"')) {
                   print(
                     "DEBUG: fullLexeme='$fullLexeme', escapeSequence='$escapeSequence', next='$next', startPos=$startPos, endPos=$endPos, actualEndPos=$actualEndPos, nearContext='$nearContext'",
                   );
@@ -509,7 +508,10 @@ class LuaStringParser {
     // should always produce their exact byte values, while real UTF-8 characters
     // should be UTF-8 encoded.
 
-    final regularChar = pattern('^\\\\').plus().flatten().map((chars) {
+    // Regular characters excluding backslash and newlines. Raw newlines are not
+    // allowed inside quoted strings and should trigger an unfinished string
+    // error.
+    final regularChar = pattern('^\\\n\r').plus().flatten().map((chars) {
       final result = <int>[];
 
       // Process each character individually to handle mixed content correctly
@@ -542,11 +544,21 @@ class LuaStringParser {
     final parser = build(fullLexeme: fullLexeme);
     final result = parser.parse(content);
 
-    if (result is Success) {
+    if (result is Success && result.position == content.length) {
       return result.value;
-    } else {
-      throw LuaError('Failed to parse Lua string: ${result.toString()}');
     }
+
+    if (result is Failure) {
+      final pos = result.position;
+      if (pos < content.length) {
+        final ch = content.codeUnitAt(pos);
+        if (ch == 10 || ch == 13) {
+          throw LuaError("unfinished string near '<eof>'");
+        }
+      }
+    }
+
+    throw LuaError('Failed to parse Lua string: ${result.toString()}');
   }
 
   // ************************************************************

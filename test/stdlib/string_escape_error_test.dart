@@ -1,5 +1,4 @@
 import 'package:lualike/testing.dart';
-import 'package:lualike/src/lua_error.dart';
 
 void main() {
   group('String Escape Error Cases', () {

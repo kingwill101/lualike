@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:typed_data';
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/builtin_function.dart';
