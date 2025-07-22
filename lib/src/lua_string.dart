@@ -8,6 +8,7 @@ import 'value.dart';
 class StringInterning {
   static const int shortStringThreshold = 40; // Lua 5.4 uses 40 characters
   static final Map<String, LuaString> _internCache = <String, LuaString>{};
+  static final Map<String, LuaString> _byteInternCache = <String, LuaString>{};
 
   /// Creates or retrieves an interned LuaString
   static LuaString intern(String content) {
@@ -26,6 +27,19 @@ class StringInterning {
   /// Creates a Value with proper string interning
   static Value createStringValue(String content) {
     return Value(intern(content));
+  }
+
+  /// Interns a LuaString from bytes based on byte content
+  /// This is used for string literals to ensure proper interning behavior
+  /// String literals are always interned, regardless of length
+  static LuaString internFromBytes(List<int> bytes) {
+    // String literals are always interned, regardless of length
+    // This matches Lua's behavior where string literals are interned even if long
+    final key = String.fromCharCodes(bytes);
+    return _byteInternCache.putIfAbsent(
+      key,
+      () => LuaString._internal(Uint8List.fromList(bytes)),
+    );
   }
 }
 

@@ -54,9 +54,9 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
     Logger.debug('Visiting StringLiteral: ${node.value}', category: 'Literal');
 
-    // Create LuaString directly from the processed bytes to preserve exact byte values
-    // This ensures that string literals like "\0\255\0" maintain their byte integrity
-    final luaString = LuaString(Uint8List.fromList(node.bytes));
+    // Use StringInterning to ensure proper interning behavior for string literals
+    // This preserves exact byte values while enabling interning for short strings
+    final luaString = StringInterning.internFromBytes(node.bytes);
     return Value(luaString);
   }
 }
