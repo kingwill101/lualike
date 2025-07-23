@@ -29,7 +29,7 @@ assert('\0\0\0alo' == '\0' .. '\0\0' .. 'alo')
 assert(010 .. 020 .. -030 == "1020-30")
 
 -- hexadecimal escapes
-assert("\x00\x05\x10\x1f\x3C\xfF\xe8" == "\0\5\16\31\60\255\232")
+assert("\x00\x05\x10\x1f\x3C\xfF\xe8" == "\0\5\16\31\60\255\232")went bacl tp 
 
 local function lexstring (x, y, n)
   local f = assert(load('return ' .. x ..
@@ -278,6 +278,7 @@ error error]=]===]
 
 -- generate all strings of four of these chars
 --[[ COROUTINE SUPPORT NOT YET IMPLEMENTED
+
 local x = {"=", "[", "]", "\n"}
 local len = 4
 local function gen (c, n)
