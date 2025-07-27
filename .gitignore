@@ -13,3 +13,6 @@ lua
 debug_*.lua
 test_*.lua
 *_test.lua
+.cursor
+.idea
+.vscode
