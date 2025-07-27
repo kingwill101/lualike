@@ -19,3 +19,4 @@ test_*.lua
 build/
 .kiro/
 .DS_Store.kiro/
+.lua-tests/
