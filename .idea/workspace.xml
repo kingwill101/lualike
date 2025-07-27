@@ -1,0 +1,337 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="243a4ec7-ad41-428a-bbd5-d52f2e575192" name="Changes" comment="add literals.lua from test suite" />
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="ChangesViewManager">
+    <option name="groupingKeys">
+      <option value="directory" />
+      <option value="repository" />
+    </option>
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Dart File" />
+      </list>
+    </option>
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_BRANCH_BY_REPOSITORY">
+      <map>
+        <entry key="$PROJECT_DIR$" value="continue-debugging-events.lua" />
+      </map>
+    </option>
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;history&quot;: [
+    {
+      &quot;label&quot;: &quot;codex&quot;
+    },
+    {
+      &quot;state&quot;: &quot;OPEN&quot;
+    }
+  ],
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;
+  }
+}</component>
+  <component name="GitHubPullRequestState">{
+  &quot;prStates&quot;: [
+    {
+      &quot;id&quot;: {
+        &quot;id&quot;: &quot;PR_kwDOPDSRi86erllP&quot;,
+        &quot;number&quot;: 32
+      },
+      &quot;lastSeen&quot;: 1752406400583
+    },
+    {
+      &quot;id&quot;: {
+        &quot;id&quot;: &quot;PR_kwDOPDSRi86ecWQa&quot;,
+        &quot;number&quot;: 26
+      },
+      &quot;lastSeen&quot;: 1752406760843
+    }
+  ]
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;git@github.com:kingwill101/lualike.git&quot;,
+    &quot;accountId&quot;: &quot;9d008a2a-a201-4bb5-b326-8595300a2e73&quot;
+  }
+}</component>
+  <component name="ProblemsViewState">
+    <option name="selectedTabId" value="CurrentFile" />
+  </component>
+  <component name="ProjectColorInfo">{
+  &quot;customColor&quot;: &quot;&quot;,
+  &quot;associatedIndex&quot;: 4
+}</component>
+  <component name="ProjectId" id="2zXV85MdmqiJpTipPZia4Y55YmC" />
+  <component name="ProjectViewState">
+    <option name="flattenModules" value="true" />
+    <option name="flattenPackages" value="true" />
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+    <option name="showMembers" value="true" />
+    <option name="showVisibilityIcons" value="true" />
+    <option name="sortByType" value="true" />
+    <option name="sortKey" value="BY_TYPE" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "Dart Command Line App.Unnamed.executor": "Run",
+    "Dart Command Line App.logger_example.dart.executor": "Run",
+    "Dart Command Line App.main.dart.executor": "Run",
+    "Dart Command Line App.pp_error_multiline.dart.executor": "Run",
+    "Dart Command Line App.test.dart.executor": "Debug",
+    "Dart Command Line App.test_parse_unfinished_string.dart.executor": "Run",
+    "Dart Test.Function with print statement works in local_anonymous_function_test.dart.executor": "Run",
+    "Dart Test.Tests in binary_format_test.dart.executor": "Run",
+    "Dart Test.Tests in coroutine2_test.dart.executor": "Run",
+    "Dart Test.Tests in coroutine_test.dart.executor": "Run",
+    "Dart Test.Tests in debug_setmetatable_test.dart.executor": "Run",
+    "Dart Test.Tests in lualike.executor": "Run",
+    "Dart Test.Tests in lualike/test.executor": "Run",
+    "Dart Test.Tests in varags_test.dart.executor": "Run",
+    "Dart Test.UTF8 Library in utf8_test.dart.executor": "Run",
+    "Dart Test.bracket syntax throws error when using undefined variable as index in table_assignment_test.dart.executor": "Run",
+    "Dart Test.bracket syntax uses identifier name when variable is undefined in table_assignment_test.dart.executor": "Run",
+    "Dart Test.finalizers in gc_test.dart.executor": "Run",
+    "Dart Test.from Lua test suite in string_pattern_test.dart.executor": "Run",
+    "Dart Test.invalid table operations on non-table values in value_test.dart.executor": "Debug",
+    "Dart Test.method chaining with self in function_call_syntax_test.dart.executor": "Debug",
+    "Dart Test.named parameters without comma before vararg in varags_test.dart.executor": "Run",
+    "Dart Test.no corruption in string concatenation after pattern matching in utf8_test.dart.executor": "Run",
+    "Dart Test.parses all simple types in binary_format_test.dart.executor": "Run",
+    "Dart Test.pattern matching preserves emoji characters in utf8_test.dart.executor": "Run",
+    "Dart Test.pattern matching works with mixed ASCII and UTF-8 in utf8_test.dart.executor": "Run",
+    "Dart Test.pcall in base_test.dart.executor": "Run",
+    "Dart Test.reports correct file names in multi_file_stack_trace_test.dart.executor": "Debug",
+    "Dart Test.returns error spans with message in state_error_test.dart.executor": "Debug",
+    "Dart Test.should work with nested functions in debug_getupvalue_test.dart.executor": "Debug",
+    "Dart Test.string.find with captures in string_test.dart.executor": "Run",
+    "Dart Test.string.gmatch with utf8.charpattern preserves UTF-8 characters in utf8_test.dart.executor": "Run",
+    "Dart Test.unpack should use same format validation in string_pack_validation_test.dart.executor": "Run",
+    "Dart Test.word captures in string_pattern_test.dart.executor": "Run",
+    "RunOnceActivity.ChatTagsLlmMigration": "true",
+    "RunOnceActivity.ClientConfigCleanupMigration": "true",
+    "RunOnceActivity.CodyAccountHistoryMigration": "true",
+    "RunOnceActivity.CodyAccountsIdsRefresh": "true",
+    "RunOnceActivity.CodyAssignOrphanedChatsToActiveAccount": "true",
+    "RunOnceActivity.CodyConvertUrlToCodebaseName": "true",
+    "RunOnceActivity.CodyHistoryLlmMigration": "true",
+    "RunOnceActivity.CodyMigrateChatHistory-v2": "true",
+    "RunOnceActivity.CodyProjectSettingsMigration": "true",
+    "RunOnceActivity.DeprecatedChatLlmMigration": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager": "true",
+    "RunOnceActivity.ToggleCodyToolWindowAfterMigration": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "dart.analysis.tool.window.visible": "false",
+    "git-widget-placeholder": "master",
+    "junie.onboarding.icon.badge.shown": "true",
+    "kotlin-language-version-configured": "true",
+    "last_opened_file_path": "/run/media/kingwill101/disk2/code/code/dart_packages/lualike/luascripts/test",
+    "node.js.detected.package.eslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "settings.editor.selected.configurable": "preferences.fileTypes",
+    "show.migrate.to.gradle.popup": "false",
+    "vcs.patch.to.clipboard": "true"
+  }
+}]]></component>
+  <component name="RecentsManager">
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/luascripts/test" />
+      <recent name="$PROJECT_DIR$" />
+      <recent name="$PROJECT_DIR$/.github/workflows" />
+    </key>
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/luascripts/test" />
+      <recent name="$PROJECT_DIR$/lib/src" />
+      <recent name="$PROJECT_DIR$/lib/src/parsers" />
+    </key>
+  </component>
+  <component name="RunManager" selected="Dart Command Line App.test.dart">
+    <configuration name="Unnamed" type="DartCommandLineRunConfigurationType" factoryName="Dart Command Line Application" nameIsGenerated="true">
+      <option name="arguments" value="luascripts/test/math.lua" />
+      <option name="filePath" value="$PROJECT_DIR$/bin/main.dart" />
+      <option name="workingDirectory" value="$PROJECT_DIR$" />
+      <method v="2" />
+    </configuration>
+    <configuration name="test.dart" type="DartCommandLineRunConfigurationType" factoryName="Dart Command Line Application" nameIsGenerated="true">
+      <option name="arguments" value="--help" />
+      <option name="filePath" value="$PROJECT_DIR$/tools/test.dart" />
+      <option name="workingDirectory" value="$PROJECT_DIR$" />
+      <method v="2" />
+    </configuration>
+    <configuration name="test_parse_unfinished_string.dart" type="DartCommandLineRunConfigurationType" factoryName="Dart Command Line Application" temporary="true" nameIsGenerated="true">
+      <option name="filePath" value="$PROJECT_DIR$/test_parse_unfinished_string.dart" />
+      <option name="workingDirectory" value="$PROJECT_DIR$" />
+      <method v="2" />
+    </configuration>
+    <configuration name="Tests in coroutine2_test.dart" type="DartTestRunConfigurationType" factoryName="Dart Test" temporary="true" nameIsGenerated="true">
+      <option name="filePath" value="$PROJECT_DIR$/test/stdlib/coroutine2_test.dart" />
+      <option name="testName" value="coroutine2_test.dart" />
+      <method v="2" />
+    </configuration>
+    <configuration name="Tests in coroutine_test.dart" type="DartTestRunConfigurationType" factoryName="Dart Test" temporary="true" nameIsGenerated="true">
+      <option name="filePath" value="$PROJECT_DIR$/test/stdlib/coroutine_test.dart" />
+      <option name="testName" value="coroutine_test.dart" />
+      <method v="2" />
+    </configuration>
+    <configuration name="named parameters without comma before vararg in varags_test.dart" type="DartTestRunConfigurationType" factoryName="Dart Test" temporary="true" nameIsGenerated="true">
+      <option name="filePath" value="$PROJECT_DIR$/test/interop/function_call/varags_test.dart" />
+      <option name="scope" value="GROUP_OR_TEST_BY_NAME" />
+      <option name="testName" value="named parameters without comma before vararg" />
+      <method v="2" />
+    </configuration>
+    <configuration name="returns error spans with message in state_error_test.dart" type="DartTestRunConfigurationType" factoryName="Dart Test" temporary="true" nameIsGenerated="true">
+      <option name="filePath" value="$PROJECT_DIR$/test/interpreter/core/state_error_test.dart" />
+      <option name="scope" value="GROUP_OR_TEST_BY_NAME" />
+      <option name="testName" value="returns error spans with message" />
+      <method v="2" />
+    </configuration>
+    <list>
+      <item itemvalue="Dart Command Line App.test.dart" />
+      <item itemvalue="Dart Command Line App.Unnamed" />
+      <item itemvalue="Dart Command Line App.test_parse_unfinished_string.dart" />
+      <item itemvalue="Dart Test.named parameters without comma before vararg in varags_test.dart" />
+      <item itemvalue="Dart Test.returns error spans with message in state_error_test.dart" />
+      <item itemvalue="Dart Test.Tests in coroutine2_test.dart" />
+      <item itemvalue="Dart Test.Tests in coroutine_test.dart" />
+    </list>
+    <recent_temporary>
+      <list>
+        <item itemvalue="Dart Test.returns error spans with message in state_error_test.dart" />
+        <item itemvalue="Dart Test.named parameters without comma before vararg in varags_test.dart" />
+        <item itemvalue="Dart Command Line App.test_parse_unfinished_string.dart" />
+        <item itemvalue="Dart Test.Tests in coroutine2_test.dart" />
+        <item itemvalue="Dart Test.Tests in coroutine_test.dart" />
+      </list>
+    </recent_temporary>
+  </component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-jdk-9823dce3aa75-fbdcb00ec9e3-intellij.indexing.shared.core-IU-251.26927.53" />
+        <option value="bundled-js-predefined-d6986cc7102b-09060db00ec0-JavaScript-IU-251.26927.53" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="SwiftWorkspaceSettings">
+    <option name="detectedToolchain" value="true" />
+    <option name="toolchainPathValue" value="/usr/lib/swift" />
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="243a4ec7-ad41-428a-bbd5-d52f2e575192" name="Changes" comment="" />
+      <created>1751877244514</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1751877244514</updated>
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State>
+              <option name="FILTERS">
+                <map>
+                  <entry key="branch">
+                    <value>
+                      <list>
+                        <option value="HEAD" />
+                      </list>
+                    </value>
+                  </entry>
+                </map>
+              </option>
+            </State>
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="introduce new lua parser based on petitparser" />
+    <MESSAGE value="drop peg grammar" />
+    <MESSAGE value="Refactor imports and clean up UTF-8 library&#10;&#10;- Reordered and organized imports in `lib_utf8.dart` for clarity.&#10;- Removed unused `_UTF8Helper` class to streamline the code.&#10;- Added missing imports in various test files to ensure proper functionality.&#10;- Introduced `library;` directive in test files for better organization." />
+    <MESSAGE value="add examples" />
+    <MESSAGE value="Check if this is a local variable in the current scope&#10; Local variables should be updated in place, not redirected to _ENV" />
+    <MESSAGE value="gc changes" />
+    <MESSAGE value="format" />
+    <MESSAGE value="remove logging from events.lua test file" />
+    <MESSAGE value="add lua script to run the already completed lua  lua test files" />
+    <MESSAGE value="correct test case" />
+    <MESSAGE value="add heavy.lua test case" />
+    <MESSAGE value="add test runner tool" />
+    <MESSAGE value="pubspec bump" />
+    <MESSAGE value="no longer expose bytecode compiler + cleanup" />
+    <MESSAGE value="add missing io fs utils abstraction" />
+    <MESSAGE value="handle min/max integer sizes per platform" />
+    <MESSAGE value="use NumberLimits everywhere" />
+    <MESSAGE value="add web example" />
+    <MESSAGE value="add attrib.lua test file" />
+    <MESSAGE value="const and package equality test cases" />
+    <MESSAGE value="lua test suite workflow" />
+    <MESSAGE value="drop extra utf8 test" />
+    <MESSAGE value="fix expectation" />
+    <MESSAGE value="add attrib.lua to test tool" />
+    <MESSAGE value="add literals.lua from test suite" />
+    <option name="LAST_COMMIT_MESSAGE" value="add literals.lua from test suite" />
+  </component>
+  <component name="XDebuggerManager">
+    <breakpoint-manager>
+      <breakpoints>
+        <line-breakpoint enabled="true" type="Dart">
+          <url>file://$PROJECT_DIR$/lib/src/value.dart</url>
+          <line>757</line>
+          <option name="timeStamp" value="1" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="Dart">
+          <url>file://$PROJECT_DIR$/lib/src/number_utils.dart</url>
+          <line>782</line>
+          <option name="timeStamp" value="2" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="Dart">
+          <url>file://$PROJECT_DIR$/test/interpreter/multi_file_stack_trace_test.dart</url>
+          <line>42</line>
+          <option name="timeStamp" value="3" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="Dart">
+          <url>file://$PROJECT_DIR$/lib/src/stdlib/lib_table.dart</url>
+          <line>423</line>
+          <option name="timeStamp" value="5" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="Dart">
+          <url>file://$PROJECT_DIR$/lib/src/parse.dart</url>
+          <line>13</line>
+          <option name="timeStamp" value="6" />
+        </line-breakpoint>
+      </breakpoints>
+      <default-breakpoints>
+        <breakpoint enabled="true" type="dart-exception">
+          <properties>
+            <option name="breakOnAllExceptions" value="true" />
+          </properties>
+        </breakpoint>
+      </default-breakpoints>
+    </breakpoint-manager>
+  </component>
+</project>
