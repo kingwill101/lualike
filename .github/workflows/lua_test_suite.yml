@@ -1,11 +1,13 @@
-name: Dart
+name: Lua Test Suite
 
 on:
   push:
     branches: [ "master" ]
   pull_request:
     branches: [ "master" ]
-
+defaults:
+  run:
+    working-directory: pkgs/lualike
 jobs:
   test:
     runs-on: ${{ matrix.os }}

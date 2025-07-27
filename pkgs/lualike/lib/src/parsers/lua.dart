@@ -1048,7 +1048,7 @@ Program parse(String source, {Uri? url}) {
   // Basic heuristic: if we see an identifier followed by whitespace and '...' but no comma,
   // suggest the missing comma (common Lua gotcha).
   String suggestion = '';
-  final startWindow = pos >= 30 ? pos - 30 : 0;
+  final _ = pos >= 30 ? pos - 30 : 0;
 
   // Capitalize first letter of petitparser failure message to ensure it contains 'Expected'
   final baseMsg =

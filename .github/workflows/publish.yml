@@ -4,8 +4,10 @@ name: Publish to pub.dev
 on:
   push:
     tags:
-    - 'v[0-9]+.[0-9]+.[0-9]+*' # tag pattern on pub.dev: 'v{{version}'
-
+    - 'v[0-9]+.[0-9]+.[0-9]+*' # tag pattern on pub.dev: 'v{{version}}'
+defaults:
+  run:
+    working-directory: pkgs/lualike
 # Publish using custom workflow
 jobs:
   publish:
@@ -13,7 +15,7 @@ jobs:
       id-token: write # Required for authentication using OIDC
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: dart-lang/setup-dart@v1
       - name: Install dependencies
         run: dart pub get

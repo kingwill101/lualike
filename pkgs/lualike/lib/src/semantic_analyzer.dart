@@ -7,7 +7,7 @@ class SemanticAnalyzer implements AstVisitor<void> {
   final List<String> _errors = [];
 
   /// Current scope depth
-  int get _currentScopeDepth => _scopes.length - 1;
+  // int get _currentScopeDepth => _scopes.length - 1;
 
   /// Analyze a program and return any semantic errors found
   List<String> analyze(Program program) {
@@ -307,12 +307,6 @@ class SemanticAnalyzer implements AstVisitor<void> {
     for (final arg in node.args) {
       await arg.accept(this);
     }
-  }
-
-  @override
-  Future<void> visitTableAccessExpr(TableAccessExpr node) async {
-    await node.table.accept(this);
-    await node.index.accept(this);
   }
 
   @override

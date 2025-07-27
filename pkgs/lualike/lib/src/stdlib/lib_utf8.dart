@@ -493,9 +493,9 @@ class _UTF8Offset implements BuiltinFunction {
       }
     }
 
-    final lax = args.length > 3
-        ? ((args[3] as Value).raw as bool? ?? false)
-        : false;
+    // final lax = args.length > 3
+    //     ? ((args[3] as Value).raw as bool? ?? false)
+    //     : false;
 
     // Handle negative i relative to byte length
     if (i < 0) {

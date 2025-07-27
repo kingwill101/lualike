@@ -1,6 +1,4 @@
 import 'package:lualike/lualike.dart';
-import 'package:lualike/src/lua_error.dart';
-import 'package:lualike/src/value.dart';
 
 /// Represents a reference to a variable in an outer scope (an "upvalue").
 ///

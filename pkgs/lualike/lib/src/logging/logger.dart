@@ -10,7 +10,6 @@ import '../lua_error.dart';
 import '../lua_stack_trace.dart';
 import 'package:logging/logging.dart' as pkg_logging;
 
-
 class Logger {
   /// Whether debug logging is enabled.
   static bool enabled = false;

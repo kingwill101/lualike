@@ -14,9 +14,12 @@ permissions:
 concurrency:
   group: "pages"
   cancel-in-progress: false
-
+defaults:
+  run:
+    working-directory: pkgs/lualike
 jobs:
   deploy:
+  
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
