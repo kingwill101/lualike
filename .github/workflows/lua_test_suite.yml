@@ -23,4 +23,4 @@ jobs:
         run: dart pub get
       
       - name: Run lua test suite
-        run: dart run tool/test.dart
+        run: dart run tools/test.dart
