@@ -20,3 +20,4 @@ build/
 .kiro/
 .DS_Store.kiro/
 .lua-tests/
+.dart_tool/
