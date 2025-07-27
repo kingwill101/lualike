@@ -1,6 +1,4 @@
-## 1.0.0
+## 0.0.1
 
 - Initial version.
 
-## Unreleased
-- Fix handling of very large sizes in string.packsize parser
