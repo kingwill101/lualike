@@ -5,19 +5,15 @@ on:
     branches: [ "master" ]
   pull_request:
     branches: [ "master" ]
-
 jobs:
-  test:
-    strategy:
-      matrix:
-        os: [ubuntu-latest]
-        sdk: [stable]
+  ghpage:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dart-lang/setup-dart@v1
 
       - name: Install dependencies
-        run: |
+        run: |1
           dart pub get
           dart pub global activate webdev
 
