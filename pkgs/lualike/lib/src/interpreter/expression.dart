@@ -187,7 +187,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
           } else if (metamethod.raw is FunctionDef ||
               metamethod.raw is FunctionLiteral ||
               metamethod.raw is FunctionBody) {
-            result = await metamethod.callFunction(callArgs);
+            result = await metamethod.call(callArgs);
           } else {
             throw LuaError.typeError(
               "Metamethod $metamethodName exists but is not callable: $metamethod",

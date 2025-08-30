@@ -808,7 +808,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
               } else if (callMeta.raw is FunctionDef ||
                   callMeta.raw is FunctionLiteral ||
                   callMeta.raw is FunctionBody) {
-                final result = await callMeta.callFunction(callArgs);
+                final result = await callMeta.call(callArgs);
                 return result;
               }
             }

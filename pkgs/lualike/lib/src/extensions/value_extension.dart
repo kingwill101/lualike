@@ -1,6 +1,3 @@
-import '../ast.dart';
-import '../builtin_function.dart';
-import '../environment.dart';
 import '../logging/logger.dart';
 import '../lua_error.dart';
 import '../lua_string.dart';
@@ -140,63 +137,6 @@ extension ValueExtension<T> on T {
   bool isLuaTruthy() {
     if (raw == null || raw == false) return false;
     return true;
-  }
-
-  /// Safely calls this Value as a function with given arguments
-  /// Returns the result, or throws if not callable
-  Future<dynamic> callFunction(List<dynamic> args) async {
-    if (raw is Function) {
-      var result = raw(args);
-      return result is Future ? await result : result;
-    } else if (raw is BuiltinFunction) {
-      var result = (raw as BuiltinFunction).call(args);
-      return result is Future ? await result : result;
-    } else if (raw is FunctionDef ||
-        raw is FunctionLiteral ||
-        raw is FunctionBody) {
-      final interpreter = value.interpreter ?? Environment.current?.interpreter;
-      if (interpreter != null) {
-        return await interpreter.callFunction(value, args);
-      }
-      throw UnsupportedError('No interpreter available to call function');
-    } else if (value.hasMetamethod('__call')) {
-      return value.callMetamethod('__call', [
-        this as Value,
-        ...args.map((a) => a is Value ? a : Value(a)),
-      ]);
-    }
-    throw UnsupportedError('Value is not callable: $this');
-  }
-
-  /// Apply a binary metamethod with proper error handling
-  Value applyBinaryMetamethod(String metamethodName, dynamic other) {
-    final wrappedOther = other is Value ? other : Value(other);
-    var metamethod =
-        value.getMetamethod(metamethodName) ??
-        wrappedOther.getMetamethod(metamethodName);
-
-    if (metamethod != null) {
-      try {
-        dynamic result;
-        if (metamethod is Function) {
-          result = metamethod([this, wrappedOther]);
-        } else if (metamethod is Value && metamethod.raw is Function) {
-          result = metamethod.raw([this, wrappedOther]);
-        } else {
-          throw UnsupportedError(
-            "Metamethod $metamethodName exists but is not callable: $metamethod",
-          );
-        }
-        return result is Value ? result : Value(result);
-      } catch (e) {
-        Logger.error('Error invoking metamethod $metamethodName: $e', error: e);
-        rethrow;
-      }
-    }
-
-    throw UnsupportedError(
-      "Operation not supported for these types: ${raw.runtimeType} and ${wrappedOther.raw.runtimeType}",
-    );
   }
 
   /// Check if a value has any of the specified metamethods
