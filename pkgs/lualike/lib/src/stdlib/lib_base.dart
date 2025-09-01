@@ -161,7 +161,7 @@ class AssertFunction implements BuiltinFunction {
     if (!isTrue) {
       final message = args.length > 1
           ? (args[1] as Value).raw.toString()
-          : "assertion failed! condition: ${condition.raw}";
+          : "assertion failed! condition: ${condition is Value ? condition.raw : condition}";
       Logger.debug(
         'AssertFunction: Assertion failed with message: $message',
         category: 'Base',
@@ -173,12 +173,17 @@ class AssertFunction implements BuiltinFunction {
     }
 
     Logger.debug(
-      'AssertFunction: Assertion passed, returning ${args.length > 1 ? args : args[0]}',
+      'AssertFunction: Assertion passed, returning original arguments',
       category: 'Base',
     );
 
-    // Return all arguments passed to assert
-    return args.length > 1 ? args : args[0];
+    // Lua returns all its arguments on success. The caller will use only the
+    // first return value in callee position when writing patterns like
+    // assert(load(x), "")().
+    if (args.length <= 1) {
+      return args.isEmpty ? Value(null) : args[0];
+    }
+    return Value.multi(args);
   }
 }
 
@@ -627,6 +632,7 @@ class LoadFunction implements BuiltinFunction {
     }
 
     try {
+      // Centralized normalization happens in parse(); just pass source through.
       final ast = parse(source, url: chunkname);
 
       // Check for const variable assignment errors
@@ -655,9 +661,9 @@ class LoadFunction implements BuiltinFunction {
           final savedEnv = vm.getCurrentEnv();
 
           // Create a new environment for the loaded code that inherits from
-          // the current environment. This ensures loaded code can access _ENV
-          // and other global variables properly
-          final loadEnv = Environment(parent: savedEnv, interpreter: vm);
+          // the root environment. This ensures loaded code can access globals
+          // but not the caller's local variables
+          final loadEnv = Environment(parent: savedEnv.root, interpreter: vm);
 
           // Set up varargs in the load environment
           loadEnv.declare("...", Value.multi(callArgs));

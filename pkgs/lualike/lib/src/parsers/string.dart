@@ -136,9 +136,9 @@ class LuaStringParser {
             .cast<List<int>>();
 
     // Line continuation: \z (skip following whitespace)
-    // This should consume ALL whitespace including spaces, tabs, newlines, etc.
+    // This should consume ALL whitespace including spaces, tabs, newlines, form feed, vertical tab, etc.
     final lineContinuation =
-        (escapeChar & char('z') & pattern(' \t\r\n').star()).map(
+        (escapeChar & char('z') & pattern(' \t\r\n\f\v').star()).map(
           (_) => <int>[],
         ); // Returns empty list of bytes
 

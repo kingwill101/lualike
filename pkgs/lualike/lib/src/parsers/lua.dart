@@ -961,7 +961,28 @@ class _LongBracketParser extends Parser<String> {
       return context.failure('unterminated long string');
     }
     // Extract inner content only (without delimiters).
-    final content = buffer.substring(contentStart, closeIdx);
+    var content = buffer.substring(contentStart, closeIdx);
+
+    // Lua semantics: drop exactly one leading newline immediately after the
+    // opening delimiter. Treat CRLF/LFCR/LF/CR as newline.
+    if (content.isNotEmpty) {
+      if (content.startsWith('\r\n') || content.startsWith('\n\r')) {
+        content = content.substring(2);
+      } else if (content.codeUnitAt(0) == 0x0A /* \n */ ||
+          content.codeUnitAt(0) == 0x0D /* \r */) {
+        content = content.substring(1);
+      }
+    }
+
+    // Normalize all end-of-line sequences inside long strings to '\n'
+    // - Replace CRLF and LFCR pairs with a single '\n'
+    // - Replace solitary CR with '\n'
+    if (content.isNotEmpty) {
+      content = content.replaceAll('\r\n', '\n');
+      content = content.replaceAll('\n\r', '\n');
+      content = content.replaceAll('\r', '\n');
+    }
+
     return context.success(content, closeIdx + closing.length);
   }
 

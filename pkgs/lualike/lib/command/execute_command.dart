@@ -19,7 +19,12 @@ class ExecuteCommand extends BaseCommand {
       // Setup arg table for -e mode
       setupArgTable(originalArgs: originalArgs, codeStrings: [code]);
 
-      await bridge.execute(code);
+      // Use a special script path name for code executed via -e
+      // This allows debug.getinfo to report something meaningful for -e code
+      const scriptPath = '<command line>';
+      
+      // Execute with script path for proper line tracking
+      await bridge.execute(code, scriptPath: scriptPath);
     } catch (e) {
       safePrint('Error executing code: $e');
       rethrow;

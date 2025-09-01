@@ -59,6 +59,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   /// Get the raw value
   dynamic get raw => _raw;
+  
+  /// Whether this value represents a table
+  bool get isTable => _raw is Map;
 
   /// Set the raw value with attribute enforcement
   set raw(dynamic value) {

@@ -1,6 +1,10 @@
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/coroutine.dart';
+import 'package:lualike/src/environment.dart';
+import 'package:lualike/src/interpreter/interpreter.dart';
+import 'package:lualike/src/logging/logger.dart';
+import 'package:lualike/src/stdlib/debug_getinfo.dart';
 import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
 
@@ -69,39 +73,67 @@ class _GetInfo implements BuiltinFunction {
     String? what = args.length > 1
         ? (args[1] as Value).raw.toString()
         : "flnStu";
+        
+    // Log that debug.getinfo was called to help with troubleshooting
+    Logger.debug(
+      'debug.getinfo called with args: $firstArg, what: $what, vm: ${vm != null}',
+      category: 'DebugLib'
+    );
+
+    // If we don't have a VM instance, try to get one
+    final interpreter = vm ?? _findInterpreter();
+    if (interpreter == null) {
+      Logger.warning('No interpreter instance available for debug.getinfo', category: 'DebugLib');
+    }
 
     // Handle level-based lookup (when first arg is a number)
     if (firstArg.raw is num) {
       final level = (firstArg.raw as num).toInt();
+      final actualLevel = level + 1; // skip getinfo's own frame
 
-      // Get function info from call stack at the specified level
-      // We need to add 1 to the level to account for debug.getinfo's own call frame
-      final actualLevel = level + 1;
-      if (vm != null && vm!.callStack.depth >= actualLevel) {
-        final frame = vm!.callStack.getFrameAtLevel(actualLevel);
+      if (interpreter != null) {
+        // Get the frame from the call stack, fallback to top frame if level is out of bounds
+        final frame = interpreter.callStack.getFrameAtLevel(actualLevel) ?? 
+                       interpreter.callStack.top;
+                       
         if (frame != null) {
+          Logger.debug(
+            'Found frame for level $level: name=${frame.functionName}, line=${frame.currentLine}',
+            category: 'DebugLib'
+          );
+          
           String? functionName = frame.functionName;
           if (functionName == "unknown" || functionName == "function") {
             functionName = null;
           }
 
-          // Create debug info table with actual function name
-          Map<String, Value> debugInfo = {};
+          final debugInfo = <String, Value>{};
 
-          // Add fields based on what parameter
           if (what.contains('n')) {
             debugInfo['name'] = Value(functionName);
             debugInfo['namewhat'] = Value(functionName != null ? "local" : "");
           }
           if (what.contains('S')) {
             debugInfo['what'] = Value("Lua");
-            debugInfo['source'] = Value("=[C]");
-            debugInfo['short_src'] = Value("[C]");
+            final scriptPath = frame.scriptPath;
+            debugInfo['source'] = Value(scriptPath != null ? "@$scriptPath" : "=[C]");
+            debugInfo['short_src'] = Value(scriptPath != null ? scriptPath : "[C]");
             debugInfo['linedefined'] = Value(-1);
             debugInfo['lastlinedefined'] = Value(-1);
           }
           if (what.contains('l')) {
-            debugInfo['currentline'] = Value(-1);
+            // Get the current line from the frame and ensure it's valid
+            final line = frame.currentLine;
+            if (line <= 0) {
+              // Fall back to a default value of 1 if line info is missing
+              Logger.warning(
+                'Invalid line number in frame: $line, using 1 instead',
+                category: 'DebugLib'
+              );
+              debugInfo['currentline'] = Value(1);
+            } else {
+              debugInfo['currentline'] = Value(line);
+            }
           }
           if (what.contains('t')) {
             debugInfo['istailcall'] = Value(false);
@@ -110,9 +142,6 @@ class _GetInfo implements BuiltinFunction {
             debugInfo['nups'] = Value(0);
             debugInfo['nparams'] = Value(0);
             debugInfo['isvararg'] = Value(false);
-          }
-          if (what.contains('f')) {
-            // Would return the function itself, but we don't have access to it here
           }
 
           return Value(debugInfo);
@@ -147,6 +176,35 @@ class _GetInfo implements BuiltinFunction {
     }
 
     return Value(debugInfo);
+  }
+
+  /// Attempts to find an interpreter instance from the global environment
+  ///
+  /// This is a fallback mechanism when the VM wasn't explicitly passed to the debug library
+  Interpreter? _findInterpreter() {
+    try {
+      // Try to get the current environment
+      final env = Environment.current;
+      if (env != null && env.interpreter != null) {
+        Logger.debug(
+          'Found interpreter via Environment.current',
+          category: 'DebugLib'
+        );
+        return env.interpreter;
+      }
+      
+      Logger.error(
+        'Could not find interpreter for debug.getinfo',
+        category: 'DebugLib'
+      );
+      return null;
+    } catch (e) {
+      Logger.error(
+        'Error finding interpreter: $e',
+        category: 'DebugLib'
+      );
+      return null;
+    }
   }
 }
 
@@ -354,10 +412,29 @@ class _UpvalueJoin implements BuiltinFunction {
 
 /// Creates debug library functions with the given interpreter instance
 Map<String, BuiltinFunction> createDebugLib(Interpreter? astVm) {
+  // Ensure we have a valid VM instance for debug functions
+  if (astVm == null) {
+    Logger.warning(
+      "No VM instance provided to debug library, line tracking might not work correctly", 
+      category: "Debug"
+    );
+    
+    // Try to get interpreter from current environment as a fallback
+    final env = Environment.current;
+    if (env != null && env.interpreter != null) {
+      astVm = env.interpreter;
+      Logger.info(
+        "Found interpreter from Environment.current for debug library",
+        category: "Debug"
+      );
+    }
+  }
+  
+  // Create debug functions with interpreter reference
   return {
     'debug': _DebugInteractive(),
     'gethook': _GetHook(),
-    'getinfo': _GetInfo(astVm), // Pass the interpreter instance
+    'getinfo': createGetInfoFunction(astVm), // Use new optimized implementation
     'getlocal': _GetLocal(),
     'getmetatable': _GetMetatable(),
     'getregistry': _GetRegistry(),
@@ -374,10 +451,32 @@ Map<String, BuiltinFunction> createDebugLib(Interpreter? astVm) {
   };
 }
 
+/// Initialize the debug library with the interpreter instance
+///
+/// This ensures the debug.getinfo function can access line information
+/// [env] - The environment to define the debug table in
+/// [astVm] - The interpreter instance to use for call stack access
+/// [bytecodeVm] - Optional bytecode VM for bytecode mode
 void defineDebugLibrary({
   required Environment env,
   Interpreter? astVm,
   BytecodeVM? bytecodeVm,
 }) {
-  env.define("debug", createDebugLib(astVm));
+  // Store interpreter reference in environment for later access
+  if (astVm != null) {
+    env.interpreter = astVm;
+    Logger.debug(
+      'Setting interpreter reference in environment for debug library',
+      category: 'Debug'
+    );
+  }
+  
+  // Create and define the debug table
+  final debugLib = createDebugLib(astVm);
+  env.define("debug", Value(debugLib));
+  
+  Logger.debug(
+    'Debug library initialized with interpreter: ${astVm != null}',
+    category: 'Debug'
+  );
 }

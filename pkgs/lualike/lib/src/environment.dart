@@ -221,18 +221,20 @@ class Environment extends GCObject {
       current = current.parent;
     }
 
-    // If not found anywhere, create new binding in current scope
-    values[name] = Box(value);
+    // If not found anywhere, create new binding in root environment
+    // This ensures that global assignments from loaded code persist
+    final rootEnv = root;
+    rootEnv.values[name] = Box(value);
     Logger.debug(
-      "Created new binding for '$name' = $value in env ($hashCode)",
+      "Created new binding for '$name' = $value in root env (${rootEnv.hashCode})",
       category: 'Env',
     );
 
     // Track to-be-closed variables
     if (value is Value && value.isToBeClose) {
-      toBeClosedVars.add(name);
+      rootEnv.toBeClosedVars.add(name);
       Logger.debug(
-        "Added '$name' to to-be-closed variables list",
+        "Added '$name' to to-be-closed variables list in root env",
         category: 'Env',
       );
     }
@@ -371,6 +373,15 @@ class Environment extends GCObject {
     cloned.toBeClosedVars.addAll(toBeClosedVars);
 
     return cloned;
+  }
+
+  /// Gets the root environment (the one with no parent).
+  Environment get root {
+    Environment current = this;
+    while (current.parent != null) {
+      current = current.parent!;
+    }
+    return current;
   }
 
   static Environment? current;
