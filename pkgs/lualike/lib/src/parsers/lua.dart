@@ -1067,7 +1067,7 @@ class _LongBracketParser extends Parser<String> {
     if (closeIdx == -1) {
       // This is an unfinished long string - throw FormatException directly 
       // to bypass normal parser failure handling
-      throw const FormatException('unfinished long string (starting at line 1) near <eof>');
+      return context.failure('unfinished long string (starting at line 1) near <eof>');
     }
     
     // Extract inner content only (without delimiters).
@@ -1130,7 +1130,7 @@ class _LongCommentBracketParser extends Parser<String> {
     final closeIdx = buffer.indexOf(closing, contentStart);
     if (closeIdx == -1) {
       // This is an unfinished long comment - throw FormatException directly
-      throw const FormatException('unfinished long comment near <eof>');
+      return context.failure('unfinished long comment near <eof>');
     }
     // Skip the content, return success at the end of the comment
     return context.success('', closeIdx + closing.length);

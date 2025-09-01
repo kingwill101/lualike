@@ -147,23 +147,9 @@ class LuaStringParser {
               final hex = parts[3] as String;
               final codePoint = int.parse(hex, radix: 16);
 
-              // Check for values that are too large (Lua's limit)
-              if (codePoint > 0x10FFFF) {
-                throw FormatException('UTF-8 value too large');
-              }
-
-              // Allow invalid Unicode code points in string literals
-              // The UTF-8 library functions will handle validation
-              if (codePoint <= 0x10FFFF &&
-                  !(codePoint >= 0xD800 && codePoint <= 0xDFFF)) {
-                // Valid Unicode code point - encode as UTF-8
-                final str = String.fromCharCode(codePoint);
-                return convert.utf8.encode(str);
-              } else {
-                // Invalid Unicode code point (including surrogates) - store as raw bytes
-                // This will be detected by UTF-8 functions as invalid
-                return _encodeInvalidCodePoint(codePoint);
-              }
+              // Use the extended UTF-8 encoding that supports Lua's historical sequences
+              // This includes 5-byte and 6-byte sequences for code points up to 0x7FFFFFFF
+              return encodeCodePoint(codePoint);
             })
             .cast<List<int>>();
 
