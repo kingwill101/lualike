@@ -94,7 +94,7 @@ class LuaStringParser {
               final value = int.parse(digits);
               if (value > 255) {
                 throw FormatException(
-                  'Decimal escape \\$digits out of range (0-255)',
+                  'decimal escape too large',
                 );
               }
               return value;
@@ -147,6 +147,11 @@ class LuaStringParser {
               final hex = parts[3] as String;
               final codePoint = int.parse(hex, radix: 16);
 
+              // Check for values that are too large (Lua's limit)
+              if (codePoint > 0x10FFFF) {
+                throw FormatException('UTF-8 value too large');
+              }
+
               // Allow invalid Unicode code points in string literals
               // The UTF-8 library functions will handle validation
               if (codePoint <= 0x10FFFF &&
@@ -175,9 +180,11 @@ class LuaStringParser {
       return [0xFE, char.codeUnitAt(0)]; // Special marker for invalid escape: 0xFE + char
     });
 
-    // Fallback for unrecognized escape sequences  
-    final fallbackEscape = (escapeChar & any())
-        .map<List<int>>((parts) => [0x5C, (parts[1] as String).codeUnitAt(0)]);     // Any escape sequence
+    // Fallback for unrecognized escape sequences - also invalid
+    final fallbackEscape = (escapeChar & any()).map<List<int>>((parts) {
+      final char = parts[1] as String;
+      return [0xFE, char.codeUnitAt(0)]; // Special marker for invalid escape: 0xFE + char
+    });
     final anyEscape = [
       backslashNewline.map((byte) => [byte]), // Handle \<newline> first
       basicEscape.map((byte) => [byte]),

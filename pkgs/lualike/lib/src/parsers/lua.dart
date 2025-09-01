@@ -593,6 +593,16 @@ class LuaGrammarDefinition extends GrammarDefinition {
                   final quotedString = '"$content'; // No closing quote for invalid escapes
                   errorMessage =
                       "[string \"\"]:1: invalid escape sequence near '$quotedString'";
+                } else if (errorMessage.contains('decimal escape too large')) {
+                  // For decimal escape sequences that are out of range
+                  final quotedString = '"$content"';
+                  errorMessage =
+                      "[string \"\"]:1: decimal escape too large near '$quotedString'";
+                } else if (errorMessage.contains('UTF-8 value too large')) {
+                  // For Unicode escape sequences with values that are too large
+                  final quotedString = '"$content';
+                  errorMessage =
+                      "[string \"\"]:1: UTF-8 value too large near '$quotedString'";
                 }
                 throw FormatException(errorMessage);
               }
@@ -1055,7 +1065,9 @@ class _LongBracketParser extends Parser<String> {
     final closing = ']${'=' * eqCount}]';
     final closeIdx = buffer.indexOf(closing, contentStart);
     if (closeIdx == -1) {
-      return context.failure('unterminated long string');
+      // This is an unfinished long string - throw FormatException directly 
+      // to bypass normal parser failure handling
+      throw const FormatException('unfinished long string (starting at line 1) near <eof>');
     }
     
     // Extract inner content only (without delimiters).
@@ -1117,7 +1129,8 @@ class _LongCommentBracketParser extends Parser<String> {
     final closing = ']${'=' * eqCount}]';
     final closeIdx = buffer.indexOf(closing, contentStart);
     if (closeIdx == -1) {
-      return context.failure('unfinished long comment');
+      // This is an unfinished long comment - throw FormatException directly
+      throw const FormatException('unfinished long comment near <eof>');
     }
     // Skip the content, return success at the end of the comment
     return context.success('', closeIdx + closing.length);
