@@ -3,6 +3,7 @@ import 'package:source_span/source_span.dart';
 
 import '../ast.dart';
 import '../number.dart';
+import 'string.dart';
 
 /// A **work-in-progress** PetitParser grammar for LuaLike.  The goal is to
 /// replicate the existing PEG-generated parser (in `grammar_parser.dart`) but
@@ -503,6 +504,44 @@ class LuaGrammarDefinition extends GrammarDefinition {
           } else {
             // Remove surrounding quotes.
             final content = lexeme.substring(1, lexeme.length - 1);
+            
+            // Pre-validate string content for escape sequence errors
+            try {
+              LuaStringParser.parseStringContent(content);
+            } catch (e) {
+              if (e is FormatException) {
+                // Convert detailed error message for escape sequence errors
+                String errorMessage = e.message;
+                if (errorMessage.contains('hexadecimal digit expected')) {
+                  if (errorMessage.contains('|invalid')) {
+                    errorMessage = errorMessage.replaceAll('|invalid', '');
+                    final quotedString = '"$content';
+                    errorMessage = '[string ""]:1: $errorMessage near \'$quotedString\'';
+                  } else if (errorMessage.contains('|incomplete')) {
+                    errorMessage = errorMessage.replaceAll('|incomplete', '');
+                    final quotedString = '"$content"';
+                    errorMessage = '[string ""]:1: $errorMessage near \'$quotedString\'';
+                  } else {
+                    final quotedString = '"$content"';
+                    errorMessage = '[string ""]:1: hexadecimal digit expected near \'$quotedString\'';
+                  }
+                } else if (errorMessage.contains('invalid escape sequence')) {
+                  // For general invalid escape sequences like \g
+                  final quotedString = '"$content';  // No closing quote for invalid escapes
+                  // Extract the escape sequence from the error message
+                  final match = RegExp(r'near "\\(.)"').firstMatch(errorMessage);
+                  if (match != null) {
+                    errorMessage = '[string ""]:1: invalid escape sequence near \'$quotedString\'';
+                  } else {
+                    errorMessage = '[string ""]:1: invalid escape sequence near \'$quotedString\'';
+                  }
+                }
+                throw FormatException(errorMessage);
+              }
+              rethrow;
+            }
+            
+            // Since we pre-validated, we can disable StringLiteral's own validation
             return _annotate(StringLiteral(content), start, end);
           }
         });
@@ -1053,6 +1092,39 @@ Program parse(String source, {Uri? url}) {
 
   final failure = result as Failure;
   final pos = failure.position;
+
+  // Check for unfinished string with potential escape sequence errors
+  if (pos < source.length) {
+    // Look for patterns like: return "abc\x (unfinished string)
+    final unfinishedStringPattern = RegExp(r'return\s+"([^"\\]|\\.)*$');
+    final match = unfinishedStringPattern.firstMatch(source);
+    if (match != null) {
+      final stringStart = match.group(0)!.indexOf('"');
+      final stringContent = match.group(0)!.substring(stringStart + 1);
+      // Check if the unfinished string contains hex escape sequences
+      if (stringContent.contains(r'\x')) {
+        // Check for hex escape at end of string
+        if (stringContent.endsWith(r'\x')) {
+          final fullString = '"$stringContent';
+          throw FormatException('[string ""]:1: hexadecimal digit expected near \'$fullString\'');
+        }
+        // Check for hex escape with 1 digit at end
+        final hexEscape1Pattern = RegExp(r'\\x([0-9a-fA-F])$');
+        final hex1Match = hexEscape1Pattern.firstMatch(stringContent);
+        if (hex1Match != null) {
+          final fullString = '"$stringContent';
+          throw FormatException('[string ""]:1: hexadecimal digit expected near \'$fullString\'');
+        }
+        // Check for hex escape with invalid character
+        final hexEscapeInvalidPattern = RegExp(r'\\x([0-9a-fA-F]*[^0-9a-fA-F])');
+        final hexInvalidMatch = hexEscapeInvalidPattern.firstMatch(stringContent);
+        if (hexInvalidMatch != null) {
+          final fullString = '"$stringContent';
+          throw FormatException('[string ""]:1: hexadecimal digit expected near \'$fullString\'');
+        }
+      }
+    }
+  }
 
   // Clamp end so that we don't exceed length (especially when at EOF).
   final end = pos < source.length ? pos + 1 : pos;

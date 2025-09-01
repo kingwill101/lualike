@@ -101,13 +101,40 @@ class LuaStringParser {
             });
 
     // Hexadecimal escape sequence: \xXX (exactly 2 hex digits)
-    final hexEscape =
-        (escapeChar & char('x') & pattern('0-9a-fA-F').times(2).flatten()).map((
-          parts,
-        ) {
-          final hex = parts[2] as String;
-          return int.parse(hex, radix: 16);
-        });
+    final hexEscape = (escapeChar & char('x') & pattern('0-9a-fA-F').times(2).flatten()).map((parts) {
+      final hex = parts[2] as String;
+      return int.parse(hex, radix: 16);
+    });
+    
+    // Incomplete hexadecimal escape: \x with exactly 0 or 1 hex digits followed by non-hex or end
+    final incompleteHexEscape = (escapeChar & char('x') & 
+        (pattern('0-9a-fA-F').times(1).flatten() & endOfInput())).map<List<int>>((parts) {
+      throw FormatException('hexadecimal digit expected|incomplete');
+    });
+    
+    // Invalid hex escape with 0 digits: \x followed immediately by non-hex character  
+    final invalidHexEscape0 = (escapeChar & char('x') & 
+        pattern('^0-9a-fA-F')).map<List<int>>((parts) {
+      throw FormatException('hexadecimal digit expected|invalid');
+    });
+    
+    // Invalid hex escape with 1 digit: \x followed by 1 hex digit and 1 non-hex character
+    final invalidHexEscape1 = (escapeChar & char('x') & 
+        pattern('0-9a-fA-F').times(1).flatten() & 
+        pattern('^0-9a-fA-F')).map<List<int>>((parts) {
+      throw FormatException('hexadecimal digit expected|invalid');
+    });
+    
+    // Incomplete hex escape at end: \x with exactly 1 hex digit at end of input
+    final incompleteHexEscapeEnd = (escapeChar & char('x') &
+        pattern('0-9a-fA-F').times(1).flatten() & endOfInput()).map<List<int>>((parts) {
+      throw FormatException('hexadecimal digit expected|incomplete');
+    });
+    
+    // Incomplete hex escape with no digits at end: \x at end of input
+    final incompleteHexEscapeNoDigits = (escapeChar & char('x') & endOfInput()).map<List<int>>((parts) {
+      throw FormatException('hexadecimal digit expected|incomplete');
+    });
 
     // Unicode escape sequence: \u{XXX} (1+ hex digits in braces)
     final unicodeEscape =
@@ -142,27 +169,30 @@ class LuaStringParser {
           (_) => <int>[],
         ); // Returns empty list of bytes
 
-    // Fallback for unrecognized escape sequences: treat as literal backslash + character
-    final fallbackEscape = (escapeChar & any()).map((parts) {
+    // Invalid escape sequences for letters that are not valid escape characters
+    final invalidEscape = (escapeChar & pattern('cdeghijklmopqswyCDEFGHIJKLMOPQSWY')).map<List<int>>((parts) {
       final char = parts[1] as String;
-      // Return literal backslash (92) followed by the character's bytes
-      final result = <int>[92]; // backslash
-      result.addAll(char.codeUnits);
-      return result;
-    }).cast<List<int>>();
+      return [0xFE, char.codeUnitAt(0)]; // Special marker for invalid escape: 0xFE + char
+    });
 
-    // Any escape sequence
+    // Fallback for unrecognized escape sequences  
+    final fallbackEscape = (escapeChar & any())
+        .map<List<int>>((parts) => [0x5C, (parts[1] as String).codeUnitAt(0)]);     // Any escape sequence
     final anyEscape = [
       backslashNewline.map((byte) => [byte]), // Handle \<newline> first
       basicEscape.map((byte) => [byte]),
-      hexEscape.map((byte) => [byte]),
+      hexEscape.map((byte) => [byte]), // Try valid hex escape first
+      invalidHexEscape1.map((byte) => [byte]), // Invalid hex with 1 digit + non-hex
+      invalidHexEscape0.map((byte) => [byte]), // Invalid hex with 0 digits + non-hex
+      incompleteHexEscapeEnd.map((byte) => [byte]), // Incomplete hex with 1 digit at end
+      incompleteHexEscapeNoDigits.map((byte) => [byte]), // Incomplete hex with 0 digits at end
+      incompleteHexEscape.map((byte) => [byte]), // General incomplete case
       decimalEscape.map((byte) => [byte]),
       unicodeEscape,
       lineContinuation,
+      invalidEscape, // Handle specific invalid escapes with proper error messages
       fallbackEscape, // This should be last to catch unrecognized escapes
-    ].toChoiceParser().cast<List<int>>();
-
-    // Regular character (not backslash). We need to handle UTF-8 characters properly
+    ].toChoiceParser().cast<List<int>>();     // Regular character (not backslash). We need to handle UTF-8 characters properly
     // while preserving escape sequences. The key insight is that escape sequences
     // should always produce their exact byte values, while real UTF-8 characters
     // should be UTF-8 encoded.
@@ -201,7 +231,17 @@ class LuaStringParser {
     final result = parser.parse(content);
 
     if (result is Success) {
-      return result.value;
+      final bytes = result.value;
+      
+      // Check for invalid escape marker (0xFE followed by character code)
+      for (int i = 0; i < bytes.length - 1; i++) {
+        if (bytes[i] == 0xFE) {
+          final char = String.fromCharCode(bytes[i + 1]);
+          throw FormatException('invalid escape sequence near "\\$char"');
+        }
+      }
+      
+      return bytes;
     } else {
       throw FormatException('Failed to parse Lua string: ${result.toString()}');
     }
