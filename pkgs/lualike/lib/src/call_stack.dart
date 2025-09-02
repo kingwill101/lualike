@@ -16,7 +16,12 @@ class CallFrame {
   int currentLine;
 
   /// Creates a new call frame with the given function name and call node.
-  CallFrame(this.functionName, {this.callNode, this.scriptPath, this.currentLine = -1});
+  CallFrame(
+    this.functionName, {
+    this.callNode,
+    this.scriptPath,
+    this.currentLine = -1,
+  });
 
   /// Creates a LuaStackFrame from this call frame.
   LuaStackFrame toLuaStackFrame() {

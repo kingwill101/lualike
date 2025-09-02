@@ -189,7 +189,7 @@ class LuaLike {
       // Set the interpreter reference in the environment
       // This ensures debug.getinfo can access the interpreter for line info
       vm.globals.interpreter = vm;
-      
+
       // Ensure the debug library has a reference to the interpreter
       final debugLib = vm.globals.get('debug');
       if (debugLib != null && debugLib.isTable) {
@@ -197,10 +197,10 @@ class LuaLike {
         defineDebugLibrary(env: vm.globals, astVm: vm);
         Logger.debug(
           'Updated debug library with interpreter reference',
-          category: 'LineTracking'
+          category: 'LineTracking',
         );
       }
-      
+
       // Use our evaluate method to handle line tracking correctly
       final result = await evaluate(code, scriptPath: scriptPath);
 
@@ -228,13 +228,13 @@ class LuaLike {
     try {
       // Parse the code to generate AST with line information
       final program = parse(code, url: scriptPath);
-      
+
       // Set script path in environment if provided
       if (scriptPath != null) {
         vm.globals.define('_SCRIPT_PATH', Value(scriptPath));
         vm.callStack.setScriptPath(scriptPath);
       }
-      
+
       // Run the program statements with line tracking
       return await vm.run(program.statements);
     } catch (e) {

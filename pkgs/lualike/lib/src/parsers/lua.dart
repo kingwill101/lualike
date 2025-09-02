@@ -245,7 +245,7 @@ class LuaGrammarDefinition extends GrammarDefinition {
           // For regular strings, try to reconstruct with quotes
           errorText = '"${literal.value}"';
         }
-        
+
         throw FormatException('unexpected symbol near \'$errorText\'');
       });
 
@@ -498,121 +498,204 @@ class LuaGrammarDefinition extends GrammarDefinition {
     );
 
     // Unterminated short strings: start quote + content, but NOT followed by a closing quote
-    final dqUnclosed =
-        (char('"') & contentParser('"') & char('"').not()).flatten().map(
-      (s) => ['dq_unclosed', s],
-    );
-    final sqUnclosed =
-        (char("'") & contentParser("'") & char("'").not()).flatten().map(
-      (s) => ['sq_unclosed', s],
-    );
+    final dqUnclosed = (char('"') & contentParser('"') & char('"').not())
+        .flatten()
+        .map((s) => ['dq_unclosed', s]);
+    final sqUnclosed = (char("'") & contentParser("'") & char("'").not())
+        .flatten()
+        .map((s) => ['sq_unclosed', s]);
 
     final literalBody = (long | dq | sq | dqUnclosed | sqUnclosed);
 
-    return position()
-        .seq(literalBody)
-        .seq(position())
-        .trim(ref0(_whiteSpaceAndComments))
-        .map((vals) {
-          final start = vals[0] as int;
-          final tagged = vals[1] as List;
-          final tag = tagged[0] as String;
-          final lexeme = tagged[1] as String;
-          final end = vals[2] as int;
+    return position().seq(literalBody).seq(position()).trim(ref0(_whiteSpaceAndComments)).map((
+      vals,
+    ) {
+      final start = vals[0] as int;
+      final tagged = vals[1] as List;
+      final tag = tagged[0] as String;
+      final lexeme = tagged[1] as String;
+      final end = vals[2] as int;
 
-          if (tag == 'long') {
-            // lexeme is already the raw content.
-            return _annotate(
-              StringLiteral(lexeme, isLongString: true),
-              start,
-              end,
-            );
-          } else if (tag == 'dq_unclosed' || tag == 'sq_unclosed') {
-            // Remove the starting quote only; there is no closing quote.
-            final content = lexeme.substring(1);
+      if (tag == 'long') {
+        // lexeme is already the raw content.
+        return _annotate(StringLiteral(lexeme, isLongString: true), start, end);
+      } else if (tag == 'dq_unclosed' || tag == 'sq_unclosed') {
+        // Remove the starting quote only; there is no closing quote.
+        final content = lexeme.substring(1);
 
-            // Pre-validate content to surface escape-sequence errors before EOF
-            try {
-              LuaStringParser.parseStringContent(content);
-              // If validation passes, it's an unfinished string
-              throw const FormatException(
-                  "[string \"\"]:1: unfinished string near '<eof>'");
-            } catch (e) {
-              if (e is FormatException) {
-                // Convert detailed error message for escape sequence errors
-                String errorMessage = e.message;
-                if (errorMessage.contains('hexadecimal digit expected')) {
-                  // Prefer no closing quote in the preview for unfinished strings
-                  final quotedString = '"$content';
-                  errorMessage =
-                      "[string \"\"]:1: hexadecimal digit expected near '$quotedString'";
-                } else if (errorMessage.contains('invalid escape sequence')) {
-                  final quotedString = '"$content'; // No closing quote
-                  errorMessage =
-                      "[string \"\"]:1: invalid escape sequence near '$quotedString'";
-                } else if (errorMessage.startsWith('[string')) {
-                  // Already formatted upstream
-                } else {
-                  // Fallback to unfinished string
-                  errorMessage =
-                      "[string \"\"]:1: unfinished string near '<eof>'";
-                }
-                throw FormatException(errorMessage);
-              }
-              rethrow;
+        // Pre-validate content to surface escape-sequence errors before EOF
+        try {
+          LuaStringParser.parseStringContent(content);
+          // If validation passes, it's an unfinished string
+          throw const FormatException(
+            "[string \"\"]:1: unfinished string near '<eof>'",
+          );
+        } catch (e) {
+          if (e is FormatException) {
+            // Convert detailed error message for escape sequence errors
+            String errorMessage = e.message;
+            if (errorMessage.contains('hexadecimal digit expected')) {
+              // Prefer no closing quote in the preview for unfinished strings
+              final quotedString = '"$content';
+              errorMessage =
+                  "[string \"\"]:1: hexadecimal digit expected near '$quotedString'";
+            } else if (errorMessage.contains('invalid escape sequence')) {
+              final quotedString = '"$content'; // No closing quote
+              errorMessage =
+                  "[string \"\"]:1: invalid escape sequence near '$quotedString'";
+            } else if (errorMessage.contains('missing \'}\' near|context:')) {
+              // Unclosed string due to missing closing brace in \u{...}
+              // Reconstruct snippet from actual content without assuming a prefix.
+              final contextStart = errorMessage.indexOf('context:') + 8;
+              final rawContext = errorMessage.substring(contextStart);
+              final hasTrailingQuote = rawContext.endsWith('"');
+              final ctxCore = hasTrailingQuote
+                  ? rawContext.substring(0, rawContext.length - 1)
+                  : rawContext;
+              final needle = '\\' + ctxCore;
+              final idx = content.indexOf(needle);
+              final snippet = (idx >= 0)
+                  ? (content.substring(0, idx) + needle)
+                  : ('\\' + ctxCore);
+              errorMessage =
+                  "[string \"\"]:1: missing '}' near '" + snippet + "'";
+            } else if (errorMessage.startsWith('[string')) {
+              // Already formatted upstream
+            } else {
+              // Fallback to unfinished string
+              errorMessage = "[string \"\"]:1: unfinished string near '<eof>'";
             }
-          } else {
-            // Closed short strings
-            final content = lexeme.substring(1, lexeme.length - 1);
-
-            // Pre-validate string content for escape sequence errors
-            try {
-              LuaStringParser.parseStringContent(content);
-            } catch (e) {
-              if (e is FormatException) {
-                // Convert detailed error message for escape sequence errors
-                String errorMessage = e.message;
-                if (errorMessage.contains('hexadecimal digit expected')) {
-                  if (errorMessage.contains('|invalid')) {
-                    errorMessage = errorMessage.replaceAll('|invalid', '');
-                    final quotedString = '"$content';
-                    errorMessage =
-                        "[string \"\"]:1: $errorMessage near '$quotedString'";
-                  } else if (errorMessage.contains('|incomplete')) {
-                    errorMessage = errorMessage.replaceAll('|incomplete', '');
-                    final quotedString = '"$content"';
-                    errorMessage =
-                        "[string \"\"]:1: $errorMessage near '$quotedString'";
-                  } else {
-                    final quotedString = '"$content"';
-                    errorMessage =
-                        "[string \"\"]:1: hexadecimal digit expected near '$quotedString'";
-                  }
-                } else if (errorMessage.contains('invalid escape sequence')) {
-                  // For general invalid escape sequences like \g
-                  final quotedString = '"$content'; // No closing quote for invalid escapes
-                  errorMessage =
-                      "[string \"\"]:1: invalid escape sequence near '$quotedString'";
-                } else if (errorMessage.contains('decimal escape too large')) {
-                  // For decimal escape sequences that are out of range
-                  final quotedString = '"$content"';
-                  errorMessage =
-                      "[string \"\"]:1: decimal escape too large near '$quotedString'";
-                } else if (errorMessage.contains('UTF-8 value too large')) {
-                  // For Unicode escape sequences with values that are too large
-                  final quotedString = '"$content';
-                  errorMessage =
-                      "[string \"\"]:1: UTF-8 value too large near '$quotedString'";
-                }
-                throw FormatException(errorMessage);
-              }
-              rethrow;
-            }
-
-            // Since we pre-validated, we can disable StringLiteral's own validation
-            return _annotate(StringLiteral(content), start, end);
+            throw FormatException(errorMessage);
           }
-        });
+          rethrow;
+        }
+      } else {
+        // Closed short strings
+        final content = lexeme.substring(1, lexeme.length - 1);
+
+        // Pre-validate string content for escape sequence errors
+        try {
+          LuaStringParser.parseStringContent(content);
+        } catch (e) {
+          if (e is FormatException) {
+            // Convert detailed error message for escape sequence errors
+            String errorMessage = e.message;
+            if (errorMessage.contains('hexadecimal digit expected')) {
+              if (errorMessage.contains('|invalid')) {
+                errorMessage = errorMessage.replaceAll('|invalid', '');
+                final quotedString = '"$content';
+                errorMessage =
+                    "[string \"\"]:1: $errorMessage near '$quotedString'";
+              } else if (errorMessage.contains('|incomplete')) {
+                errorMessage = errorMessage.replaceAll('|incomplete', '');
+                final quotedString = '"$content"';
+                errorMessage =
+                    "[string \"\"]:1: $errorMessage near '$quotedString'";
+              } else {
+                final quotedString = '"$content"';
+                errorMessage =
+                    "[string \"\"]:1: hexadecimal digit expected near '$quotedString'";
+              }
+            } else if (errorMessage.contains('invalid escape sequence')) {
+              // For general invalid escape sequences like \g
+              final quotedString =
+                  '"$content'; // No closing quote for invalid escapes
+              errorMessage =
+                  "[string \"\"]:1: invalid escape sequence near '$quotedString'";
+            } else if (errorMessage.contains('decimal escape too large')) {
+              // For decimal escape sequences that are out of range
+              final quotedString = '"$content"';
+              errorMessage =
+                  "[string \"\"]:1: decimal escape too large near '$quotedString'";
+            } else if (errorMessage.contains(
+              'UTF-8 value too large|context:',
+            )) {
+              // Use provided context to reconstruct snippet without the
+              // closing '}'. This matches Lua's CLI output.
+              final contextStart = errorMessage.indexOf('context:') + 8;
+              final ctx = errorMessage.substring(
+                contextStart,
+              ); // e.g. u{100000000
+              final needle = '\\' + ctx;
+              final idx = content.indexOf(needle);
+              final snippet = (idx >= 0)
+                  ? (content.substring(0, idx) + needle)
+                  : ('\\' + ctx);
+              errorMessage =
+                  "[string \"\"]:1: UTF-8 value too large near '" +
+                  snippet +
+                  "'";
+            } else if (errorMessage.contains('UTF-8 value too large')) {
+              // Generic too-large case
+              errorMessage =
+                  "[string \"\"]:1: UTF-8 value too large near '" +
+                  content +
+                  "'";
+            } else if (errorMessage.contains('missing \'{\' near|context:')) {
+              // For \u escape sequences missing opening brace
+              final contextStart = errorMessage.indexOf('context:') + 8;
+              final rawContext = errorMessage.substring(contextStart);
+              final hasTrailingQuote = rawContext.endsWith('"');
+              final ctxCore = hasTrailingQuote
+                  ? rawContext.substring(0, rawContext.length - 1)
+                  : rawContext;
+              final needle = '\\' + ctxCore;
+              final idx = content.indexOf(needle);
+              final snippet = (idx >= 0)
+                  ? (content.substring(0, idx) +
+                        needle +
+                        (hasTrailingQuote ? '"' : ''))
+                  : ('\\' + rawContext);
+              errorMessage =
+                  "[string \"\"]:1: missing '{' near '" + snippet + "'";
+            } else if (errorMessage.contains('missing \'}\' near|context:')) {
+              // For \u{ escape sequences missing closing brace
+              final contextStart = errorMessage.indexOf('context:') + 8;
+              final rawContext = errorMessage.substring(contextStart);
+              final hasTrailingQuote = rawContext.endsWith('"');
+              final ctxCore = hasTrailingQuote
+                  ? rawContext.substring(0, rawContext.length - 1)
+                  : rawContext;
+              final needle = '\\' + ctxCore;
+              final idx = content.indexOf(needle);
+              final snippet = (idx >= 0)
+                  ? (content.substring(0, idx) +
+                        needle +
+                        (hasTrailingQuote ? '"' : ''))
+                  : ('\\' + rawContext);
+              errorMessage =
+                  "[string \"\"]:1: missing '}' near '" + snippet + "'";
+            } else if (errorMessage.contains(
+              'hexadecimal digit expected near|context:',
+            )) {
+              // For \u{ escape sequences with no hex digits
+              final contextStart = errorMessage.indexOf('context:') + 8;
+              final rawContext = errorMessage.substring(contextStart);
+              final hasTrailingQuote = rawContext.endsWith('"');
+              final ctxCore = hasTrailingQuote
+                  ? rawContext.substring(0, rawContext.length - 1)
+                  : rawContext;
+              final needle = '\\' + ctxCore;
+              final idx = content.indexOf(needle);
+              final snippet = (idx >= 0)
+                  ? (content.substring(0, idx) +
+                        needle +
+                        (hasTrailingQuote ? '"' : ''))
+                  : ('\\' + rawContext);
+              errorMessage =
+                  "[string \"\"]:1: hexadecimal digit expected near '" +
+                  snippet +
+                  "'";
+            }
+            throw FormatException(errorMessage);
+          }
+          rethrow;
+        }
+
+        // Since we pre-validated, we can disable StringLiteral's own validation
+        return _annotate(StringLiteral(content), start, end);
+      }
+    });
   }
 
   // vararg '...'
@@ -1065,11 +1148,13 @@ class _LongBracketParser extends Parser<String> {
     final closing = ']${'=' * eqCount}]';
     final closeIdx = buffer.indexOf(closing, contentStart);
     if (closeIdx == -1) {
-      // This is an unfinished long string - throw FormatException directly 
-      // to bypass normal parser failure handling
-      return context.failure('unfinished long string (starting at line 1) near <eof>');
+      // Unfinished long string: throw a Lua-style error to bypass the
+      // generic parser failure wrapper and match CLI expectations.
+      throw const FormatException(
+        "[string \"\"]:1: unfinished string near '<eof>'",
+      );
     }
-    
+
     // Extract inner content only (without delimiters).
     var content = buffer.substring(contentStart, closeIdx);
 
@@ -1079,7 +1164,7 @@ class _LongBracketParser extends Parser<String> {
       if (content.startsWith('\r\n') || content.startsWith('\n\r')) {
         content = content.substring(2);
       } else if (content.codeUnitAt(0) == 0x0A /* \n */ ||
-          content.codeUnitAt(0) == 0x0D /* \r */) {
+          content.codeUnitAt(0) == 0x0D /* \r */ ) {
         content = content.substring(1);
       }
     }
@@ -1129,8 +1214,10 @@ class _LongCommentBracketParser extends Parser<String> {
     final closing = ']${'=' * eqCount}]';
     final closeIdx = buffer.indexOf(closing, contentStart);
     if (closeIdx == -1) {
-      // This is an unfinished long comment - throw FormatException directly
-      return context.failure('unfinished long comment near <eof>');
+      // Unfinished long comment: surface a Lua-style error message.
+      throw const FormatException(
+        "[string \"\"]:1: unfinished comment near '<eof>'",
+      );
     }
     // Skip the content, return success at the end of the comment
     return context.success('', closeIdx + closing.length);
@@ -1165,8 +1252,6 @@ Program parse(String source, {Uri? url}) {
   final failure = result as Failure;
   final pos = failure.position;
 
-
-
   // Clamp end so that we don't exceed length (especially when at EOF).
   final end = pos < source.length ? pos + 1 : pos;
   final span = sourceFile.span(pos, end);
@@ -1183,6 +1268,19 @@ Program parse(String source, {Uri? url}) {
   // suggest the missing comma (common Lua gotcha).
   String suggestion = '';
   final _ = pos >= 30 ? pos - 30 : 0;
+
+  // Special cases: surface Lua-like errors for unfinished long strings/comments
+  final failMsg = failure.message ?? '';
+  if (failMsg.contains('unfinished long string')) {
+    throw const FormatException(
+      "[string \"\"]:1: unfinished string near '<eof>'",
+    );
+  }
+  if (failMsg.contains('unfinished long comment')) {
+    throw const FormatException(
+      "[string \"\"]:1: unfinished comment near '<eof>'",
+    );
+  }
 
   // Capitalize first letter of petitparser failure message to ensure it contains 'Expected'
   final baseMsg =

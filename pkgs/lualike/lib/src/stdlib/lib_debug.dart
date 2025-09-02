@@ -73,17 +73,20 @@ class _GetInfo implements BuiltinFunction {
     String? what = args.length > 1
         ? (args[1] as Value).raw.toString()
         : "flnStu";
-        
+
     // Log that debug.getinfo was called to help with troubleshooting
     Logger.debug(
       'debug.getinfo called with args: $firstArg, what: $what, vm: ${vm != null}',
-      category: 'DebugLib'
+      category: 'DebugLib',
     );
 
     // If we don't have a VM instance, try to get one
     final interpreter = vm ?? _findInterpreter();
     if (interpreter == null) {
-      Logger.warning('No interpreter instance available for debug.getinfo', category: 'DebugLib');
+      Logger.warning(
+        'No interpreter instance available for debug.getinfo',
+        category: 'DebugLib',
+      );
     }
 
     // Handle level-based lookup (when first arg is a number)
@@ -93,15 +96,16 @@ class _GetInfo implements BuiltinFunction {
 
       if (interpreter != null) {
         // Get the frame from the call stack, fallback to top frame if level is out of bounds
-        final frame = interpreter.callStack.getFrameAtLevel(actualLevel) ?? 
-                       interpreter.callStack.top;
-                       
+        final frame =
+            interpreter.callStack.getFrameAtLevel(actualLevel) ??
+            interpreter.callStack.top;
+
         if (frame != null) {
           Logger.debug(
             'Found frame for level $level: name=${frame.functionName}, line=${frame.currentLine}',
-            category: 'DebugLib'
+            category: 'DebugLib',
           );
-          
+
           String? functionName = frame.functionName;
           if (functionName == "unknown" || functionName == "function") {
             functionName = null;
@@ -116,8 +120,12 @@ class _GetInfo implements BuiltinFunction {
           if (what.contains('S')) {
             debugInfo['what'] = Value("Lua");
             final scriptPath = frame.scriptPath;
-            debugInfo['source'] = Value(scriptPath != null ? "@$scriptPath" : "=[C]");
-            debugInfo['short_src'] = Value(scriptPath != null ? scriptPath : "[C]");
+            debugInfo['source'] = Value(
+              scriptPath != null ? "@$scriptPath" : "=[C]",
+            );
+            debugInfo['short_src'] = Value(
+              scriptPath != null ? scriptPath : "[C]",
+            );
             debugInfo['linedefined'] = Value(-1);
             debugInfo['lastlinedefined'] = Value(-1);
           }
@@ -128,7 +136,7 @@ class _GetInfo implements BuiltinFunction {
               // Fall back to a default value of 1 if line info is missing
               Logger.warning(
                 'Invalid line number in frame: $line, using 1 instead',
-                category: 'DebugLib'
+                category: 'DebugLib',
               );
               debugInfo['currentline'] = Value(1);
             } else {
@@ -188,21 +196,18 @@ class _GetInfo implements BuiltinFunction {
       if (env != null && env.interpreter != null) {
         Logger.debug(
           'Found interpreter via Environment.current',
-          category: 'DebugLib'
+          category: 'DebugLib',
         );
         return env.interpreter;
       }
-      
+
       Logger.error(
         'Could not find interpreter for debug.getinfo',
-        category: 'DebugLib'
+        category: 'DebugLib',
       );
       return null;
     } catch (e) {
-      Logger.error(
-        'Error finding interpreter: $e',
-        category: 'DebugLib'
-      );
+      Logger.error('Error finding interpreter: $e', category: 'DebugLib');
       return null;
     }
   }
@@ -415,21 +420,21 @@ Map<String, BuiltinFunction> createDebugLib(Interpreter? astVm) {
   // Ensure we have a valid VM instance for debug functions
   if (astVm == null) {
     Logger.warning(
-      "No VM instance provided to debug library, line tracking might not work correctly", 
-      category: "Debug"
+      "No VM instance provided to debug library, line tracking might not work correctly",
+      category: "Debug",
     );
-    
+
     // Try to get interpreter from current environment as a fallback
     final env = Environment.current;
     if (env != null && env.interpreter != null) {
       astVm = env.interpreter;
       Logger.info(
         "Found interpreter from Environment.current for debug library",
-        category: "Debug"
+        category: "Debug",
       );
     }
   }
-  
+
   // Create debug functions with interpreter reference
   return {
     'debug': _DebugInteractive(),
@@ -467,16 +472,16 @@ void defineDebugLibrary({
     env.interpreter = astVm;
     Logger.debug(
       'Setting interpreter reference in environment for debug library',
-      category: 'Debug'
+      category: 'Debug',
     );
   }
-  
+
   // Create and define the debug table
   final debugLib = createDebugLib(astVm);
   env.define("debug", Value(debugLib));
-  
+
   Logger.debug(
     'Debug library initialized with interpreter: ${astVm != null}',
-    category: 'Debug'
+    category: 'Debug',
   );
 }

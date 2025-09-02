@@ -93,48 +93,60 @@ class LuaStringParser {
               final digits = parts[1] as String;
               final value = int.parse(digits);
               if (value > 255) {
-                throw FormatException(
-                  'decimal escape too large',
-                );
+                throw FormatException('decimal escape too large');
               }
               return value;
             });
 
     // Hexadecimal escape sequence: \xXX (exactly 2 hex digits)
-    final hexEscape = (escapeChar & char('x') & pattern('0-9a-fA-F').times(2).flatten()).map((parts) {
-      final hex = parts[2] as String;
-      return int.parse(hex, radix: 16);
-    });
-    
+    final hexEscape =
+        (escapeChar & char('x') & pattern('0-9a-fA-F').times(2).flatten()).map((
+          parts,
+        ) {
+          final hex = parts[2] as String;
+          return int.parse(hex, radix: 16);
+        });
+
     // Incomplete hexadecimal escape: \x with exactly 0 or 1 hex digits followed by non-hex or end
-    final incompleteHexEscape = (escapeChar & char('x') & 
-        (pattern('0-9a-fA-F').times(1).flatten() & endOfInput())).map<List<int>>((parts) {
-      throw FormatException('hexadecimal digit expected|incomplete');
-    });
-    
-    // Invalid hex escape with 0 digits: \x followed immediately by non-hex character  
-    final invalidHexEscape0 = (escapeChar & char('x') & 
-        pattern('^0-9a-fA-F')).map<List<int>>((parts) {
-      throw FormatException('hexadecimal digit expected|invalid');
-    });
-    
+    final incompleteHexEscape =
+        (escapeChar &
+                char('x') &
+                (pattern('0-9a-fA-F').times(1).flatten() & endOfInput()))
+            .map<List<int>>((parts) {
+              throw FormatException('hexadecimal digit expected|incomplete');
+            });
+
+    // Invalid hex escape with 0 digits: \x followed immediately by non-hex character
+    final invalidHexEscape0 = (escapeChar & char('x') & pattern('^0-9a-fA-F'))
+        .map<List<int>>((parts) {
+          throw FormatException('hexadecimal digit expected|invalid');
+        });
+
     // Invalid hex escape with 1 digit: \x followed by 1 hex digit and 1 non-hex character
-    final invalidHexEscape1 = (escapeChar & char('x') & 
-        pattern('0-9a-fA-F').times(1).flatten() & 
-        pattern('^0-9a-fA-F')).map<List<int>>((parts) {
-      throw FormatException('hexadecimal digit expected|invalid');
-    });
-    
+    final invalidHexEscape1 =
+        (escapeChar &
+                char('x') &
+                pattern('0-9a-fA-F').times(1).flatten() &
+                pattern('^0-9a-fA-F'))
+            .map<List<int>>((parts) {
+              throw FormatException('hexadecimal digit expected|invalid');
+            });
+
     // Incomplete hex escape at end: \x with exactly 1 hex digit at end of input
-    final incompleteHexEscapeEnd = (escapeChar & char('x') &
-        pattern('0-9a-fA-F').times(1).flatten() & endOfInput()).map<List<int>>((parts) {
-      throw FormatException('hexadecimal digit expected|incomplete');
-    });
-    
+    final incompleteHexEscapeEnd =
+        (escapeChar &
+                char('x') &
+                pattern('0-9a-fA-F').times(1).flatten() &
+                endOfInput())
+            .map<List<int>>((parts) {
+              throw FormatException('hexadecimal digit expected|incomplete');
+            });
+
     // Incomplete hex escape with no digits at end: \x at end of input
-    final incompleteHexEscapeNoDigits = (escapeChar & char('x') & endOfInput()).map<List<int>>((parts) {
-      throw FormatException('hexadecimal digit expected|incomplete');
-    });
+    final incompleteHexEscapeNoDigits = (escapeChar & char('x') & endOfInput())
+        .map<List<int>>((parts) {
+          throw FormatException('hexadecimal digit expected|incomplete');
+        });
 
     // Unicode escape sequence: \u{XXX} (1+ hex digits in braces)
     final unicodeEscape =
@@ -146,6 +158,13 @@ class LuaStringParser {
             .map((parts) {
               final hex = parts[3] as String;
               final codePoint = int.parse(hex, radix: 16);
+
+              // Check if the code point is too large even for Lua's extended UTF-8
+              if (codePoint > 0x7FFFFFFF) {
+                // Include the hex digits for error context
+                final context = 'u{$hex';
+                throw FormatException('UTF-8 value too large|context:$context');
+              }
 
               // Use the extended UTF-8 encoding that supports Lua's historical sequences
               // This includes 5-byte and 6-byte sequences for code points up to 0x7FFFFFFF
@@ -161,31 +180,131 @@ class LuaStringParser {
         ); // Returns empty list of bytes
 
     // Invalid escape sequences for letters that are not valid escape characters
-    final invalidEscape = (escapeChar & pattern('cdeghijklmopqswyCDEFGHIJKLMOPQSWY')).map<List<int>>((parts) {
-      final char = parts[1] as String;
-      return [0xFE, char.codeUnitAt(0)]; // Special marker for invalid escape: 0xFE + char
-    });
+    // Remove 'u' from this pattern since we handle \u separately
+    final invalidEscape =
+        (escapeChar & pattern('cdeghijklmopqswyCDEFGHIJKLMOPQSWY'))
+            .map<List<int>>((parts) {
+              final char = parts[1] as String;
+              return [
+                0xFE,
+                char.codeUnitAt(0),
+              ]; // Special marker for invalid escape: 0xFE + char
+            });
+
+    // Invalid \u escape sequences - these need to come before invalidEscape
+    // \u followed by hex digits but no opening brace: \u11r -> missing '{'
+    final invalidUnicodeNoOpenBrace =
+        (escapeChar & char('u') & pattern('0-9a-fA-F').plus().flatten())
+            .map<List<int>>((parts) {
+              final hex = parts[2] as String;
+              // Truncate to just the first digit to match Lua's behavior
+              final firstDigit = hex.isNotEmpty ? hex[0] : '';
+              final context = 'u$firstDigit';
+              throw FormatException('missing \'{\' near|context:$context');
+            });
+
+    // Invalid \u escape sequence - just \u followed by non-hex/non-brace
+    final invalidUnicodeNoBrace =
+        (escapeChar & char('u') & pattern('^{0-9a-fA-F').plus().flatten())
+            .map<List<int>>((parts) {
+              final following = parts[2] as String;
+              final context = 'u$following';
+              throw FormatException('missing \'{\' near|context:$context');
+            });
+
+    // Invalid \u escape sequence - just \u at end
+    final invalidUnicodeAtEnd = (escapeChar & char('u') & endOfInput())
+        .map<List<int>>((parts) {
+          final context = 'u"';
+          throw FormatException('missing \'{\' near|context:$context');
+        });
+
+    // Invalid \u{ escape sequences - missing closing brace with non-hex content
+    final invalidUnicodeNoCloseBraceNonHex =
+        (escapeChar &
+                char('u') &
+                char('{') &
+                (pattern('0-9a-fA-F').star() & pattern('^}0-9a-fA-F').plus())
+                    .flatten())
+            .map<List<int>>((parts) {
+              final content = parts[3] as String;
+              final context = 'u{$content';
+              throw FormatException('missing \'}\' near|context:$context');
+            });
+
+    // Invalid \u{ escape sequences - missing closing brace at end of input
+    final invalidUnicodeNoCloseBraceEnd =
+        (escapeChar &
+                char('u') &
+                char('{') &
+                pattern('0-9a-fA-F').star().flatten() &
+                endOfInput())
+            .map<List<int>>((parts) {
+              final content = parts[3] as String;
+              final context =
+                  'u{$content"'; // Include the full context with quote
+              throw FormatException('missing \'}\' near|context:$context');
+            });
+
+    // Invalid \u{ escape sequences - no hex digits, just non-hex
+    final invalidUnicodeNoDigits =
+        (escapeChar &
+                char('u') &
+                char('{') &
+                pattern('^}0-9a-fA-F').plus().flatten())
+            .map<List<int>>((parts) {
+              final content = parts[3] as String;
+              final context = 'u{$content';
+              throw FormatException(
+                'hexadecimal digit expected near|context:$context',
+              );
+            });
 
     // Fallback for unrecognized escape sequences - also invalid
     final fallbackEscape = (escapeChar & any()).map<List<int>>((parts) {
       final char = parts[1] as String;
-      return [0xFE, char.codeUnitAt(0)]; // Special marker for invalid escape: 0xFE + char
+      return [
+        0xFE,
+        char.codeUnitAt(0),
+      ]; // Special marker for invalid escape: 0xFE + char
     });
-    final anyEscape = [
-      backslashNewline.map((byte) => [byte]), // Handle \<newline> first
-      basicEscape.map((byte) => [byte]),
-      hexEscape.map((byte) => [byte]), // Try valid hex escape first
-      invalidHexEscape1.map((byte) => [byte]), // Invalid hex with 1 digit + non-hex
-      invalidHexEscape0.map((byte) => [byte]), // Invalid hex with 0 digits + non-hex
-      incompleteHexEscapeEnd.map((byte) => [byte]), // Incomplete hex with 1 digit at end
-      incompleteHexEscapeNoDigits.map((byte) => [byte]), // Incomplete hex with 0 digits at end
-      incompleteHexEscape.map((byte) => [byte]), // General incomplete case
-      decimalEscape.map((byte) => [byte]),
-      unicodeEscape,
-      lineContinuation,
-      invalidEscape, // Handle specific invalid escapes with proper error messages
-      fallbackEscape, // This should be last to catch unrecognized escapes
-    ].toChoiceParser().cast<List<int>>();     // Regular character (not backslash). We need to handle UTF-8 characters properly
+    final anyEscape =
+        [
+              backslashNewline.map((byte) => [byte]), // Handle \<newline> first
+              basicEscape.map((byte) => [byte]),
+              hexEscape.map((byte) => [byte]), // Try valid hex escape first
+              invalidHexEscape1.map(
+                (byte) => [byte],
+              ), // Invalid hex with 1 digit + non-hex
+              invalidHexEscape0.map(
+                (byte) => [byte],
+              ), // Invalid hex with 0 digits + non-hex
+              incompleteHexEscapeEnd.map(
+                (byte) => [byte],
+              ), // Incomplete hex with 1 digit at end
+              incompleteHexEscapeNoDigits.map(
+                (byte) => [byte],
+              ), // Incomplete hex with 0 digits at end
+              incompleteHexEscape.map(
+                (byte) => [byte],
+              ), // General incomplete case
+              decimalEscape.map((byte) => [byte]),
+              unicodeEscape, // Valid \u{...} sequences
+              lineContinuation,
+              // Invalid \u sequences - these must come before invalidEscape
+              invalidUnicodeNoOpenBrace, // \u followed by hex digits but no {
+              invalidUnicodeNoBrace, // \u followed by non-hex/non-brace
+              invalidUnicodeAtEnd, // \u at end of input
+              invalidUnicodeNoCloseBraceNonHex, // \u{ with content but missing }
+              invalidUnicodeNoCloseBraceEnd, // \u{ at end of input
+              invalidUnicodeNoDigits, // \u{ with no hex digits
+              invalidEscape, // Handle other invalid escapes
+              fallbackEscape, // This should be last to catch unrecognized escapes
+            ]
+            .toChoiceParser()
+            .cast<
+              List<int>
+            >(); // Regular character (not backslash). We need to handle UTF-8 characters properly
     // while preserving escape sequences. The key insight is that escape sequences
     // should always produce their exact byte values, while real UTF-8 characters
     // should be UTF-8 encoded.
@@ -225,7 +344,7 @@ class LuaStringParser {
 
     if (result is Success) {
       final bytes = result.value;
-      
+
       // Check for invalid escape marker (0xFE followed by character code)
       for (int i = 0; i < bytes.length - 1; i++) {
         if (bytes[i] == 0xFE) {
@@ -233,7 +352,7 @@ class LuaStringParser {
           throw FormatException('invalid escape sequence near "\\$char"');
         }
       }
-      
+
       return bytes;
     } else {
       throw FormatException('Failed to parse Lua string: ${result.toString()}');

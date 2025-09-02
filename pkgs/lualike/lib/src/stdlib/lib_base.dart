@@ -687,6 +687,11 @@ class LoadFunction implements BuiltinFunction {
         }
       });
     } catch (e) {
+      // For FormatException, return just the message without prefix
+      // to match Lua's error format
+      if (e is FormatException) {
+        return [Value(null), Value(e.message)];
+      }
       return [Value(null), Value("Error parsing source code: $e")];
     }
   }

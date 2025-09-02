@@ -265,7 +265,8 @@ class Interpreter extends AstVisitor<Object?>
   /// [node] - The AST node to record
   /// [functionName] - Optional function name to use instead of node's function name
   void recordTrace(AstNode node, {String? functionName}) {
-    final actualFunctionName = functionName ??
+    final actualFunctionName =
+        functionName ??
         (node is FunctionCall
             ? node.name.toString()
             : node.runtimeType.toString());
