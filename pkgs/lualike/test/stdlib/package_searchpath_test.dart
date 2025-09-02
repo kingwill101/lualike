@@ -4,7 +4,7 @@ void main() {
   group('package.searchpath', () {
     test('returns detailed error on failure', () async {
       final bridge = LuaLike();
-      await bridge.execute('''
+      await bridge.execute(r'''
         local max = 20
         local t = {}
         for i = 1, max do

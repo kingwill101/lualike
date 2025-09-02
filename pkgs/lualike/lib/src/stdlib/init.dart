@@ -204,7 +204,7 @@ void initializeStandardLibrary({
     });
 
     preloadTable["debug"] = Value((List<Object?> args) {
-      return Value(createDebugLib(astVm));
+      return Value(DebugLib.functions);
     });
 
     preloadTable["utf8"] = Value((List<Object?> args) {

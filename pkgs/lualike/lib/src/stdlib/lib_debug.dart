@@ -6,24 +6,7 @@ import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
 
 class DebugLib {
-  static final Map<String, BuiltinFunction> functions = {
-    'debug': _DebugInteractive(),
-    'gethook': _GetHook(),
-    'getinfo': _GetInfo(),
-    'getlocal': _GetLocal(),
-    'getmetatable': _GetMetatable(),
-    'getregistry': _GetRegistry(),
-    'getupvalue': _GetUpvalue(),
-    'getuservalue': _GetUserValue(),
-    'sethook': _SetHook(),
-    'setlocal': _SetLocal(),
-    'setmetatable': _SetMetatable(),
-    'setupvalue': _SetUpvalue(),
-    'setuservalue': _SetUserValue(),
-    'traceback': _Traceback(),
-    'upvalueid': _UpvalueId(),
-    'upvaluejoin': _UpvalueJoin(),
-  };
+  static Map<String, BuiltinFunction> functions = {};
 }
 
 /// Interactive debug console
@@ -120,9 +103,7 @@ class _GetInfo implements BuiltinFunction {
             debugInfo['source'] = Value(
               scriptPath != null ? "@$scriptPath" : "=[C]",
             );
-            debugInfo['short_src'] = Value(
-              scriptPath ?? "[C]",
-            );
+            debugInfo['short_src'] = Value(scriptPath ?? "[C]");
             debugInfo['linedefined'] = Value(-1);
             debugInfo['lastlinedefined'] = Value(-1);
           }
@@ -474,8 +455,33 @@ void defineDebugLibrary({
   }
 
   // Create and define the debug table
-  final debugLib = createDebugLib(astVm);
-  env.define("debug", Value(debugLib));
+  DebugLib.functions = createDebugLib(astVm);
+  final debugTable = Value(DebugLib.functions);
+  env.define("debug", debugTable);
+
+  // Ensure the same object is stored in package.loaded for require() equality
+  final packageTable = env.get("package");
+  if (packageTable != null &&
+      packageTable is Value &&
+      packageTable.raw is Map) {
+    final packageMap = packageTable.raw as Map;
+
+    // Ensure package.loaded exists
+    if (!packageMap.containsKey("loaded")) {
+      packageMap["loaded"] = Value({});
+    }
+
+    final loadedTable = packageMap["loaded"];
+    if (loadedTable is Value && loadedTable.raw is Map) {
+      final loadedMap = loadedTable.raw as Map;
+      // Store the same debug table object to ensure require("debug") == debug
+      loadedMap["debug"] = debugTable;
+      Logger.debug(
+        'Debug table stored in package.loaded for require() equality',
+        category: 'Debug',
+      );
+    }
+  }
 
   Logger.debug(
     'Debug library initialized with interpreter: ${astVm != null}',
