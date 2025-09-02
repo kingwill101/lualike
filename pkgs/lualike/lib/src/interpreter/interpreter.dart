@@ -275,10 +275,15 @@ class Interpreter extends AstVisitor<Object?>
     // The call stack should only contain actual function calls, not every AST node
     final frame = CallFrame(actualFunctionName, callNode: node);
 
-    // Capture the current line number from the node's span (1-based end line)
+    // Capture the current line number from the node's span.
+    // Use the start line for return statements (to avoid off-by-one when a
+    // trailing newline moves the end position to the next line), otherwise
+    // use the end line as before.
     int? currentLine;
     if (node.span != null) {
-      currentLine = node.span!.end.line + 1;
+      final useStartLine = node is ReturnStatement;
+      currentLine =
+          (useStartLine ? node.span!.start.line : node.span!.end.line) + 1;
       frame.currentLine = currentLine;
 
       // Update the active call frame, keeping line numbers non-decreasing
@@ -488,6 +493,9 @@ class Interpreter extends AstVisitor<Object?>
       Logger.info('evalStack.pop()', category: 'Interpreter');
     }
 
+    // Push a top-level frame to track currentline via AST spans
+    callStack.push(currentScriptPath ?? 'chunk');
+
     try {
       await _executeStatements(program);
     } on ReturnException catch (e) {
@@ -511,6 +519,9 @@ class Interpreter extends AstVisitor<Object?>
     // Restore previous script path
     callStack.setScriptPath(prevScriptPath);
     currentScriptPath = prevScriptPath;
+
+    // Pop the top-level frame
+    callStack.pop();
 
     return evalStack.isEmpty ? null : evalStack.peek();
   }
