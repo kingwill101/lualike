@@ -310,8 +310,15 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     // Record trace information
     this is Interpreter ? (this as Interpreter).recordTrace(node) : null;
 
-    // Evaluate the function
-    final func = await node.name.accept(this);
+    // Evaluate the function (callee). If it yields multiple values, use only
+    // the first value as the function to call (Lua semantics).
+    dynamic func = await node.name.accept(this);
+    if (func is Value && func.isMulti) {
+      final multi = func.raw as List;
+      func = multi.isNotEmpty ? multi.first : Value(null);
+    } else if (func is List && func.isNotEmpty) {
+      func = func.first;
+    }
     Logger.debug(
       'Function evaluated to: $func (${func.runtimeType})',
       category: 'Interpreter',
@@ -505,7 +512,6 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
   /// Returns null (never actually returns).
   @override
   Future<Object?> visitReturnStatement(ReturnStatement node) async {
-    (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
     Logger.debug('Visiting ReturnStatement', category: 'Interpreter');
 
     if (node.expr.isEmpty) {

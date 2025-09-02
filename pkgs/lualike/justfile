@@ -16,6 +16,9 @@ compile:
 repl: compile
     ./lualike
 
+tool-test *ARG='':
+    dart run tools/test.dart {{ARG}}
+
 # Run integration tests with default options
 integrate *ARG='':
     dart run tools/integration.dart {{ARG}}

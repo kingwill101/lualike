@@ -12,8 +12,16 @@ class CallFrame {
   /// The script path, if known
   final String? scriptPath;
 
+  /// The most recent line number executed within this frame (1-based). -1 when unknown.
+  int currentLine;
+
   /// Creates a new call frame with the given function name and call node.
-  CallFrame(this.functionName, {this.callNode, this.scriptPath});
+  CallFrame(
+    this.functionName, {
+    this.callNode,
+    this.scriptPath,
+    this.currentLine = -1,
+  });
 
   /// Creates a LuaStackFrame from this call frame.
   LuaStackFrame toLuaStackFrame() {

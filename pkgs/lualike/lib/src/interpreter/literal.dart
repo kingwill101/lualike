@@ -1,5 +1,11 @@
 part of 'interpreter.dart';
 
+// Intern pool for string literals only.
+// This ensures identical literal strings in the same chunk share identity
+// (e.g., for string.format("%p", s)), while runtime-created strings via
+// concatenation or library functions remain distinct objects.
+final Map<String, LuaString> _literalStringInternPool = <String, LuaString>{};
+
 mixin InterpreterLiteralMixin on AstVisitor<Object?> {
   // Required getters that must be implemented by the class using this mixin
   Environment get globals;
@@ -54,9 +60,16 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
     Logger.debug('Visiting StringLiteral: ${node.value}', category: 'Literal');
 
-    // Always use LuaString for proper byte-level string handling
-    // This ensures Lua's string semantics are preserved
+    // Always use LuaString for proper byte-level string handling, but
+    // intern the object for literals so identical literals share identity.
     final bytes = node.bytes;
-    return Value(LuaString.fromBytes(bytes));
+    final key = bytes.join(',');
+    final cached = _literalStringInternPool[key];
+    if (cached != null) {
+      return Value(cached);
+    }
+    final luaStr = LuaString.fromBytes(bytes);
+    _literalStringInternPool[key] = luaStr;
+    return Value(luaStr);
   }
 }

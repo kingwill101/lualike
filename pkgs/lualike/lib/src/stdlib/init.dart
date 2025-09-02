@@ -1,23 +1,45 @@
 import 'package:lualike/src/bytecode/vm.dart' show BytecodeVM;
 import 'package:lualike/src/interpreter/interpreter.dart' show Interpreter;
+
+import '../builtin_function.dart' show BuiltinFunction;
 import '../environment.dart';
 import '../io/lua_file.dart';
 import '../value.dart' show Value;
-import '../builtin_function.dart' show BuiltinFunction;
 import 'lib_base.dart';
-import 'lib_string.dart';
-import 'lib_table.dart';
-import 'lib_math.dart';
-import 'lib_io.dart';
-import 'lib_os.dart';
-import 'lib_debug.dart';
-import 'lib_utf8.dart';
-import 'lib_package.dart';
-import 'metatables.dart';
-import 'lib_dart_string.dart';
 import 'lib_convert.dart';
 import 'lib_crypto.dart';
+import 'lib_dart_string.dart';
+import 'lib_debug.dart';
+import 'lib_io.dart';
+import 'lib_math.dart';
+import 'lib_os.dart';
+import 'lib_package.dart';
+import 'lib_string.dart';
+import 'lib_table.dart';
+import 'lib_utf8.dart';
+import 'metatables.dart';
 // import 'lib_convert.dart';
+
+// Minimal coroutine stub state to support coroutine.wrap/yield pre-collection
+class _CoroutineStubState {
+  static final List<List<Value>> _collectorStack = <List<Value>>[];
+  static Value Function(List<Object?> args)? yieldOverride;
+
+  // ignore: unused_element
+  static void pushCollector(List<Value> collector) {
+    _collectorStack.add(collector);
+  }
+
+  static List<Value>? get currentCollector =>
+      _collectorStack.isNotEmpty ? _collectorStack.last : null;
+
+  // ignore: unused_element
+  static void popCollector() {
+    if (_collectorStack.isNotEmpty) {
+      _collectorStack.removeLast();
+    }
+  }
+}
 
 // Define a function signature for the library definition callback
 typedef LibraryDefinitionCallback =
@@ -184,7 +206,7 @@ void initializeStandardLibrary({
     });
 
     preloadTable["debug"] = Value((List<Object?> args) {
-      return Value(createDebugLib(astVm));
+      return Value(DebugLib.functions);
     });
 
     preloadTable["utf8"] = Value((List<Object?> args) {
@@ -195,6 +217,7 @@ void initializeStandardLibrary({
 
 /// Define a minimal coroutine stub library to prevent test failures
 void _defineCoroutineStub({required Environment env}) {
+  // Use top-level _CoroutineStubState declared above
   final coroutineTable = <String, dynamic>{
     // coroutine.running() - returns the main thread and true (indicating it's the main thread)
     "running": Value((List<Object?> args) {
@@ -222,7 +245,23 @@ void _defineCoroutineStub({required Environment env}) {
 
     // coroutine.yield() - yields from a coroutine
     "yield": Value((List<Object?> args) {
-      throw Exception("coroutine.yield not implemented");
+      if (_CoroutineStubState.yieldOverride != null) {
+        return _CoroutineStubState.yieldOverride!(args);
+      }
+      final collector = _CoroutineStubState.currentCollector;
+      if (collector == null) {
+        throw Exception("attempt to yield from outside a coroutine");
+      }
+      if (args.isEmpty) {
+        collector.add(Value(null));
+      } else if (args.length == 1) {
+        final v = args[0];
+        collector.add(v is Value ? v : Value(v));
+      } else {
+        final list = args.map((e) => e is Value ? e : Value(e)).toList();
+        collector.add(Value.multi(list));
+      }
+      return Value(null);
     }),
 
     // coroutine.wrap() - creates a wrapped coroutine function (minimal implementation)
@@ -235,15 +274,70 @@ void _defineCoroutineStub({required Environment env}) {
         throw Exception("coroutine.wrap requires a function argument");
       }
 
-      // Return a function that just calls the original function
-      // This is not a real coroutine but will make simple tests pass
-      return Value((List<Object?> callArgs) {
-        if (func.raw is Function) {
-          return (func.raw as Function)(callArgs);
-        } else if (func.raw is BuiltinFunction) {
-          return (func.raw as BuiltinFunction).call(callArgs);
+      // Defer running until first call; supports two scenarios:
+      // 1) Functions that use coroutine.yield: we pre-collect all yields.
+      // 2) Plain iterator-like functions (e.g., from string.gmatch):
+      //    call the function per invocation until it returns nil.
+      final collected = <Value>[];
+      var started = false;
+      var idx = 0;
+
+      return Value((List<Object?> _) async {
+        final prevOverride = _CoroutineStubState.yieldOverride;
+        _CoroutineStubState.yieldOverride = (List<Object?> yargs) {
+          if (yargs.isEmpty) {
+            collected.add(Value(null));
+          } else if (yargs.length == 1) {
+            final v = yargs[0];
+            collected.add(v is Value ? v : Value(v));
+          } else {
+            final list = yargs.map((e) => e is Value ? e : Value(e)).toList();
+            collected.add(Value.multi(list));
+          }
+          return Value(null);
+        };
+        try {
+          if (!started) {
+            started = true;
+            Value? first;
+            if (func.raw is Function) {
+              final out = await (func.raw as Function)(<Object?>[]);
+              first = out is Value
+                  ? out
+                  : (out == null ? Value(null) : Value(out));
+            } else if (func.raw is BuiltinFunction) {
+              final out = (func.raw as BuiltinFunction).call(<Object?>[]);
+              first = out is Value
+                  ? out
+                  : (out == null ? Value(null) : Value(out));
+            }
+            // Prefer yielded values if any; otherwise return the direct result
+            if (collected.isNotEmpty) {
+              idx = 1;
+              return collected.first;
+            }
+            return first ?? Value(null);
+          }
+
+          if (idx < collected.length) {
+            return collected[idx++];
+          }
+          // Plain function path: call per invocation until nil
+          if (func.raw is Function) {
+            final out = await (func.raw as Function)(<Object?>[]);
+            return out is Value
+                ? out
+                : (out == null ? Value(null) : Value(out));
+          } else if (func.raw is BuiltinFunction) {
+            final out = (func.raw as BuiltinFunction).call(<Object?>[]);
+            return out is Value
+                ? out
+                : (out == null ? Value(null) : Value(out));
+          }
+          return Value(null);
+        } finally {
+          _CoroutineStubState.yieldOverride = prevOverride;
         }
-        throw Exception("Invalid function type");
       });
     }),
 

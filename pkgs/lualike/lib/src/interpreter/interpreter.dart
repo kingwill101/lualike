@@ -257,56 +257,42 @@ class Interpreter extends AstVisitor<Object?>
     Environment.current = _currentEnv;
   }
 
-  /// Records trace information for the current execution point.
+  /// Records a trace frame for the specified AST node.
   ///
-  /// This is used for error reporting and debugging.
-  void recordTrace(AstNode node, [String functionName = 'unknown']) {
-    // Skip recording trace for certain node types
-    if (node is StringLiteral ||
-        node is NumberLiteral ||
-        node is BooleanLiteral) {
-      return;
-    }
-
-    // Try to get a better function name if possible
-    String actualFunctionName = functionName;
-
-    // Check if this is the main chunk
-    final isMainChunk = globals.get('_MAIN_CHUNK') != null;
-
-    if (isMainChunk) {
-      actualFunctionName = '_MAIN_CHUNK';
-    } else if (functionName == 'unknown') {
-      // Try to determine a better function name based on the node type
-      if (node is FunctionCall) {
-        if (node.name is Identifier) {
-          actualFunctionName = (node.name as Identifier).name;
-        } else if (node.name is TableAccessExpr) {
-          final tableAccess = node.name as TableAccessExpr;
-          if (tableAccess.index is Identifier) {
-            actualFunctionName = (tableAccess.index as Identifier).name;
-          } else {
-            actualFunctionName = 'method';
-          }
-        }
-      } else if (node is FunctionDef) {
-        actualFunctionName = node.name.first.name;
-      } else if (node is LocalFunctionDef) {
-        actualFunctionName = node.name.name;
-      } else if (node is MethodCall) {
-        if (node.methodName is Identifier) {
-          actualFunctionName = (node.methodName as Identifier).name;
-        } else {
-          actualFunctionName = 'method';
-        }
-      } else if (node is FunctionLiteral) {
-        actualFunctionName = 'function';
-      }
-    }
+  /// Used for debug output, error reporting, and the trace buffer.
+  /// Does not affect the actual call stack.
+  ///
+  /// [node] - The AST node to record
+  /// [functionName] - Optional function name to use instead of node's function name
+  void recordTrace(AstNode node, {String? functionName}) {
+    final actualFunctionName =
+        functionName ??
+        (node is FunctionCall
+            ? node.name.toString()
+            : node.runtimeType.toString());
 
     // Don't add to call stack - only add to the trace buffer for error reporting
     // The call stack should only contain actual function calls, not every AST node
     final frame = CallFrame(actualFunctionName, callNode: node);
+
+    // Capture the current line number from the node's span.
+    // Use the start line for return statements (to avoid off-by-one when a
+    // trailing newline moves the end position to the next line), otherwise
+    // use the end line as before.
+    int? currentLine;
+    if (node.span != null) {
+      final useStartLine = node is ReturnStatement;
+      currentLine =
+          (useStartLine ? node.span!.start.line : node.span!.end.line) + 1;
+      frame.currentLine = currentLine;
+
+      // Update the active call frame, keeping line numbers non-decreasing
+      final top = callStack.top;
+      if (top != null && top.currentLine < currentLine) {
+        top.currentLine = currentLine;
+      }
+    }
+
     _traceBuffer[_traceIndex] = frame;
     _traceIndex = (_traceIndex + 1) % _maxTraceFrames;
   }
@@ -507,6 +493,9 @@ class Interpreter extends AstVisitor<Object?>
       Logger.info('evalStack.pop()', category: 'Interpreter');
     }
 
+    // Push a top-level frame to track currentline via AST spans
+    callStack.push(currentScriptPath ?? 'chunk');
+
     try {
       await _executeStatements(program);
     } on ReturnException catch (e) {
@@ -530,6 +519,9 @@ class Interpreter extends AstVisitor<Object?>
     // Restore previous script path
     callStack.setScriptPath(prevScriptPath);
     currentScriptPath = prevScriptPath;
+
+    // Pop the top-level frame
+    callStack.pop();
 
     return evalStack.isEmpty ? null : evalStack.peek();
   }

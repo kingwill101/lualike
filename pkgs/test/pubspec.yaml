@@ -13,7 +13,7 @@ dependencies:
   meta: ^1.17.0
   lualike:
     path: ../lualike
+  test: ^1.26.3
 
 dev_dependencies:
   lints: ^6.0.0
-  test: ^1.26.3

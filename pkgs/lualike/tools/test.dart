@@ -12,6 +12,7 @@ final testFiles = [
   'constructs.lua',
   'events.lua',
   'strings.lua',
+  'literals.lua',
   'tpack.lua',
   'utf8.lua',
   'vararg.lua',
