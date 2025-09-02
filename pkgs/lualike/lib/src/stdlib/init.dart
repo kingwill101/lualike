@@ -22,6 +22,7 @@ import 'lib_crypto.dart';
 // Minimal coroutine stub state to support coroutine.wrap/yield pre-collection
 class _CoroutineStubState {
   static final List<List<Value>> _collectorStack = <List<Value>>[];
+  static Value Function(List<Object?> args)? yieldOverride;
 
   static void pushCollector(List<Value> collector) {
     _collectorStack.add(collector);
@@ -241,6 +242,9 @@ void _defineCoroutineStub({required Environment env}) {
 
     // coroutine.yield() - yields from a coroutine
     "yield": Value((List<Object?> args) {
+      if (_CoroutineStubState.yieldOverride != null) {
+        return _CoroutineStubState.yieldOverride!(args);
+      }
       final collector = _CoroutineStubState.currentCollector;
       if (collector == null) {
         throw Exception("attempt to yield from outside a coroutine");
@@ -258,7 +262,7 @@ void _defineCoroutineStub({required Environment env}) {
     }),
 
     // coroutine.wrap() - creates a wrapped coroutine function (minimal implementation)
-    "wrap": Value((List<Object?> args) async {
+    "wrap": Value((List<Object?> args) {
       if (args.isEmpty) {
         throw Exception("coroutine.wrap requires a function argument");
       }
@@ -267,27 +271,65 @@ void _defineCoroutineStub({required Environment env}) {
         throw Exception("coroutine.wrap requires a function argument");
       }
 
-      // Pre-collect all yielded items by running the function once while
-      // intercepting coroutine.yield calls.
+      // Defer running until first call; supports two scenarios:
+      // 1) Functions that use coroutine.yield: we pre-collect all yields.
+      // 2) Plain iterator-like functions (e.g., from string.gmatch):
+      //    call the function per invocation until it returns nil.
       final collected = <Value>[];
-      _CoroutineStubState.pushCollector(collected);
-      try {
-        if (func.raw is Function) {
-          final result = (func.raw as Function)(<Object?>[]);
-          if (result is Future) await result;
-        } else if (func.raw is BuiltinFunction) {
-          final res = (func.raw as BuiltinFunction).call(<Object?>[]);
-          if (res is Future) await res;
-        }
-      } finally {
-        _CoroutineStubState.popCollector();
-      }
+      var started = false;
+      var finished = false;
+      var idx = 0;
 
-      // Iterator that returns one collected value per call
-      int idx = 0;
-      return Value((List<Object?> __) {
-        if (idx >= collected.length) return Value(null);
-        return collected[idx++];
+      return Value((List<Object?> __) async {
+        print('wrap invoked');
+        final prevOverride = _CoroutineStubState.yieldOverride;
+        _CoroutineStubState.yieldOverride = (List<Object?> yargs) {
+          if (yargs.isEmpty) {
+            collected.add(Value(null));
+          } else if (yargs.length == 1) {
+            final v = yargs[0];
+            collected.add(v is Value ? v : Value(v));
+          } else {
+            final list = yargs.map((e) => e is Value ? e : Value(e)).toList();
+            collected.add(Value.multi(list));
+          }
+          return Value(null);
+        };
+        try {
+          if (!started) {
+          started = true;
+          Value? first;
+          if (func.raw is Function) {
+            final out = await (func.raw as Function)(<Object?>[]);
+            first = out is Value ? out : (out == null ? Value(null) : Value(out));
+          } else if (func.raw is BuiltinFunction) {
+            final out = (func.raw as BuiltinFunction).call(<Object?>[]);
+            first = out is Value ? out : (out == null ? Value(null) : Value(out));
+          }
+          finished = true;
+          // Prefer yielded values if any; otherwise return the direct result
+          if (collected.isNotEmpty) {
+            idx = 1;
+            return collected.first;
+          }
+          return first ?? Value(null);
+          }
+
+          if (idx < collected.length) {
+            return collected[idx++];
+          }
+          // Plain function path: call per invocation until nil
+          if (func.raw is Function) {
+            final out = await (func.raw as Function)(<Object?>[]);
+            return out is Value ? out : (out == null ? Value(null) : Value(out));
+          } else if (func.raw is BuiltinFunction) {
+            final out = (func.raw as BuiltinFunction).call(<Object?>[]);
+            return out is Value ? out : (out == null ? Value(null) : Value(out));
+          }
+          return Value(null);
+        } finally {
+          _CoroutineStubState.yieldOverride = prevOverride;
+        }
       });
     }),
 
