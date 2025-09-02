@@ -277,11 +277,9 @@ void _defineCoroutineStub({required Environment env}) {
       //    call the function per invocation until it returns nil.
       final collected = <Value>[];
       var started = false;
-      var finished = false;
       var idx = 0;
 
       return Value((List<Object?> __) async {
-        print('wrap invoked');
         final prevOverride = _CoroutineStubState.yieldOverride;
         _CoroutineStubState.yieldOverride = (List<Object?> yargs) {
           if (yargs.isEmpty) {
@@ -306,7 +304,6 @@ void _defineCoroutineStub({required Environment env}) {
             final out = (func.raw as BuiltinFunction).call(<Object?>[]);
             first = out is Value ? out : (out == null ? Value(null) : Value(out));
           }
-          finished = true;
           // Prefer yielded values if any; otherwise return the direct result
           if (collected.isNotEmpty) {
             idx = 1;
