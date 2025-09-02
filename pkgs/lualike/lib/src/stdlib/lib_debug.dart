@@ -58,7 +58,7 @@ class _GetHook implements BuiltinFunction {
 class _GetInfo implements BuiltinFunction {
   final Interpreter? vm;
 
-  _GetInfo();
+  _GetInfo([this.vm]);
 
   @override
   Object? call(List<Object?> args) {
