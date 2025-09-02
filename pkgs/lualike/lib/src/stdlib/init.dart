@@ -19,6 +19,24 @@ import 'lib_convert.dart';
 import 'lib_crypto.dart';
 // import 'lib_convert.dart';
 
+// Minimal coroutine stub state to support coroutine.wrap/yield pre-collection
+class _CoroutineStubState {
+  static final List<List<Value>> _collectorStack = <List<Value>>[];
+
+  static void pushCollector(List<Value> collector) {
+    _collectorStack.add(collector);
+  }
+
+  static List<Value>? get currentCollector =>
+      _collectorStack.isNotEmpty ? _collectorStack.last : null;
+
+  static void popCollector() {
+    if (_collectorStack.isNotEmpty) {
+      _collectorStack.removeLast();
+    }
+  }
+}
+
 // Define a function signature for the library definition callback
 typedef LibraryDefinitionCallback =
     void Function({
@@ -195,6 +213,7 @@ void initializeStandardLibrary({
 
 /// Define a minimal coroutine stub library to prevent test failures
 void _defineCoroutineStub({required Environment env}) {
+  // Use top-level _CoroutineStubState declared above
   final coroutineTable = <String, dynamic>{
     // coroutine.running() - returns the main thread and true (indicating it's the main thread)
     "running": Value((List<Object?> args) {
@@ -222,11 +241,24 @@ void _defineCoroutineStub({required Environment env}) {
 
     // coroutine.yield() - yields from a coroutine
     "yield": Value((List<Object?> args) {
-      throw Exception("coroutine.yield not implemented");
+      final collector = _CoroutineStubState.currentCollector;
+      if (collector == null) {
+        throw Exception("attempt to yield from outside a coroutine");
+      }
+      if (args.isEmpty) {
+        collector.add(Value(null));
+      } else if (args.length == 1) {
+        final v = args[0];
+        collector.add(v is Value ? v : Value(v));
+      } else {
+        final list = args.map((e) => e is Value ? e : Value(e)).toList();
+        collector.add(Value.multi(list));
+      }
+      return Value(null);
     }),
 
     // coroutine.wrap() - creates a wrapped coroutine function (minimal implementation)
-    "wrap": Value((List<Object?> args) {
+    "wrap": Value((List<Object?> args) async {
       if (args.isEmpty) {
         throw Exception("coroutine.wrap requires a function argument");
       }
@@ -235,15 +267,27 @@ void _defineCoroutineStub({required Environment env}) {
         throw Exception("coroutine.wrap requires a function argument");
       }
 
-      // Return a function that just calls the original function
-      // This is not a real coroutine but will make simple tests pass
-      return Value((List<Object?> callArgs) {
+      // Pre-collect all yielded items by running the function once while
+      // intercepting coroutine.yield calls.
+      final collected = <Value>[];
+      _CoroutineStubState.pushCollector(collected);
+      try {
         if (func.raw is Function) {
-          return (func.raw as Function)(callArgs);
+          final result = (func.raw as Function)(<Object?>[]);
+          if (result is Future) await result;
         } else if (func.raw is BuiltinFunction) {
-          return (func.raw as BuiltinFunction).call(callArgs);
+          final res = (func.raw as BuiltinFunction).call(<Object?>[]);
+          if (res is Future) await res;
         }
-        throw Exception("Invalid function type");
+      } finally {
+        _CoroutineStubState.popCollector();
+      }
+
+      // Iterator that returns one collected value per call
+      int idx = 0;
+      return Value((List<Object?> __) {
+        if (idx >= collected.length) return Value(null);
+        return collected[idx++];
       });
     }),
 
