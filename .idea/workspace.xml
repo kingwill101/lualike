@@ -4,7 +4,11 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="243a4ec7-ad41-428a-bbd5-d52f2e575192" name="Changes" comment="add literals.lua from test suite" />
+    <list default="true" id="243a4ec7-ad41-428a-bbd5-d52f2e575192" name="Changes" comment="remove unused helpers">
+      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/pkgs/lualike/lib/src/parsers/lua.dart" beforeDir="false" afterPath="$PROJECT_DIR$/pkgs/lualike/lib/src/parsers/lua.dart" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -24,43 +28,13 @@
     </option>
   </component>
   <component name="Git.Settings">
-    <option name="RECENT_BRANCH_BY_REPOSITORY">
-      <map>
-        <entry key="$PROJECT_DIR$" value="continue-debugging-events.lua" />
-      </map>
-    </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
   <component name="GitHubPullRequestSearchHistory">{
-  &quot;history&quot;: [
-    {
-      &quot;label&quot;: &quot;codex&quot;
-    },
-    {
-      &quot;state&quot;: &quot;OPEN&quot;
-    }
-  ],
   &quot;lastFilter&quot;: {
-    &quot;state&quot;: &quot;OPEN&quot;
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;kingwill101&quot;
   }
-}</component>
-  <component name="GitHubPullRequestState">{
-  &quot;prStates&quot;: [
-    {
-      &quot;id&quot;: {
-        &quot;id&quot;: &quot;PR_kwDOPDSRi86erllP&quot;,
-        &quot;number&quot;: 32
-      },
-      &quot;lastSeen&quot;: 1752406400583
-    },
-    {
-      &quot;id&quot;: {
-        &quot;id&quot;: &quot;PR_kwDOPDSRi86ecWQa&quot;,
-        &quot;number&quot;: 26
-      },
-      &quot;lastSeen&quot;: 1752406760843
-    }
-  ]
 }</component>
   <component name="GithubPullRequestsUISettings">{
   &quot;selectedUrlAndAccountId&quot;: {
@@ -68,14 +42,10 @@
     &quot;accountId&quot;: &quot;9d008a2a-a201-4bb5-b326-8595300a2e73&quot;
   }
 }</component>
-  <component name="ProblemsViewState">
-    <option name="selectedTabId" value="CurrentFile" />
-  </component>
   <component name="ProjectColorInfo">{
-  &quot;customColor&quot;: &quot;&quot;,
   &quot;associatedIndex&quot;: 4
 }</component>
-  <component name="ProjectId" id="2zXV85MdmqiJpTipPZia4Y55YmC" />
+  <component name="ProjectId" id="30T5sX2oKGf3EO30zYkr8IHefqA" />
   <component name="ProjectViewState">
     <option name="flattenModules" value="true" />
     <option name="flattenPackages" value="true" />
@@ -137,7 +107,7 @@
     "RunOnceActivity.ToggleCodyToolWindowAfterMigration": "true",
     "RunOnceActivity.git.unshallow": "true",
     "dart.analysis.tool.window.visible": "false",
-    "git-widget-placeholder": "master",
+    "git-widget-placeholder": "literals",
     "junie.onboarding.icon.badge.shown": "true",
     "kotlin-language-version-configured": "true",
     "last_opened_file_path": "/run/media/kingwill101/disk2/code/code/dart_packages/lualike/luascripts/test",
@@ -150,18 +120,11 @@
   }
 }]]></component>
   <component name="RecentsManager">
-    <key name="CopyFile.RECENT_KEYS">
-      <recent name="$PROJECT_DIR$/luascripts/test" />
-      <recent name="$PROJECT_DIR$" />
-      <recent name="$PROJECT_DIR$/.github/workflows" />
-    </key>
     <key name="MoveFile.RECENT_KEYS">
-      <recent name="$PROJECT_DIR$/luascripts/test" />
-      <recent name="$PROJECT_DIR$/lib/src" />
-      <recent name="$PROJECT_DIR$/lib/src/parsers" />
+      <recent name="$PROJECT_DIR$/pkgs/game_engine/lib/game_engine/scriptable" />
     </key>
   </component>
-  <component name="RunManager" selected="Dart Command Line App.test.dart">
+  <component name="RunManager" selected="Dart Test.Tests in lualike">
     <configuration name="Unnamed" type="DartCommandLineRunConfigurationType" factoryName="Dart Command Line Application" nameIsGenerated="true">
       <option name="arguments" value="luascripts/test/math.lua" />
       <option name="filePath" value="$PROJECT_DIR$/bin/main.dart" />
@@ -184,9 +147,9 @@
       <option name="testName" value="coroutine2_test.dart" />
       <method v="2" />
     </configuration>
-    <configuration name="Tests in coroutine_test.dart" type="DartTestRunConfigurationType" factoryName="Dart Test" temporary="true" nameIsGenerated="true">
-      <option name="filePath" value="$PROJECT_DIR$/test/stdlib/coroutine_test.dart" />
-      <option name="testName" value="coroutine_test.dart" />
+    <configuration name="Tests in lualike" type="DartTestRunConfigurationType" factoryName="Dart Test" temporary="true" nameIsGenerated="true">
+      <option name="filePath" value="$PROJECT_DIR$/pkgs/lualike" />
+      <option name="scope" value="FOLDER" />
       <method v="2" />
     </configuration>
     <configuration name="named parameters without comma before vararg in varags_test.dart" type="DartTestRunConfigurationType" factoryName="Dart Test" temporary="true" nameIsGenerated="true">
@@ -205,26 +168,26 @@
       <item itemvalue="Dart Command Line App.test.dart" />
       <item itemvalue="Dart Command Line App.Unnamed" />
       <item itemvalue="Dart Command Line App.test_parse_unfinished_string.dart" />
+      <item itemvalue="Dart Test.Tests in lualike" />
       <item itemvalue="Dart Test.named parameters without comma before vararg in varags_test.dart" />
       <item itemvalue="Dart Test.returns error spans with message in state_error_test.dart" />
       <item itemvalue="Dart Test.Tests in coroutine2_test.dart" />
-      <item itemvalue="Dart Test.Tests in coroutine_test.dart" />
     </list>
     <recent_temporary>
       <list>
+        <item itemvalue="Dart Test.Tests in lualike" />
         <item itemvalue="Dart Test.returns error spans with message in state_error_test.dart" />
         <item itemvalue="Dart Test.named parameters without comma before vararg in varags_test.dart" />
         <item itemvalue="Dart Command Line App.test_parse_unfinished_string.dart" />
         <item itemvalue="Dart Test.Tests in coroutine2_test.dart" />
-        <item itemvalue="Dart Test.Tests in coroutine_test.dart" />
       </list>
     </recent_temporary>
   </component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-jdk-9823dce3aa75-fbdcb00ec9e3-intellij.indexing.shared.core-IU-251.26927.53" />
-        <option value="bundled-js-predefined-d6986cc7102b-09060db00ec0-JavaScript-IU-251.26927.53" />
+        <option value="bundled-jdk-9823dce3aa75-fbdcb00ec9e3-intellij.indexing.shared.core-IU-251.27812.49" />
+        <option value="bundled-js-predefined-d6986cc7102b-09060db00ec0-JavaScript-IU-251.27812.49" />
       </set>
     </attachedChunks>
   </component>
@@ -269,8 +232,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="introduce new lua parser based on petitparser" />
-    <MESSAGE value="drop peg grammar" />
     <MESSAGE value="Refactor imports and clean up UTF-8 library&#10;&#10;- Reordered and organized imports in `lib_utf8.dart` for clarity.&#10;- Removed unused `_UTF8Helper` class to streamline the code.&#10;- Added missing imports in various test files to ensure proper functionality.&#10;- Introduced `library;` directive in test files for better organization." />
     <MESSAGE value="add examples" />
     <MESSAGE value="Check if this is a local variable in the current scope&#10; Local variables should be updated in place, not redirected to _ENV" />
@@ -294,7 +255,9 @@
     <MESSAGE value="fix expectation" />
     <MESSAGE value="add attrib.lua to test tool" />
     <MESSAGE value="add literals.lua from test suite" />
-    <option name="LAST_COMMIT_MESSAGE" value="add literals.lua from test suite" />
+    <MESSAGE value="delete build dir" />
+    <MESSAGE value="remove unused helpers" />
+    <option name="LAST_COMMIT_MESSAGE" value="remove unused helpers" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

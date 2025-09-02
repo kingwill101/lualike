@@ -8,6 +8,7 @@ import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/parse.dart';
+import 'package:lualike/src/stdlib/lib_debug.dart';
 import 'package:lualike/src/value.dart';
 import 'package:lualike/src/utils/file_system_utils.dart' as fs;
 import 'package:path/path.dart' as path;
@@ -181,19 +182,65 @@ class LuaLike {
   ///
   /// [code] - The LuaLike code to run
   /// [scriptPath] - Optional path of the script being executed
+  /// This method ensures proper line tracking by setting the script path
+  /// and ensuring the debug library has access to the interpreter
   Future<Object?> execute(String code, {String? scriptPath}) async {
-    // Execute the code using the interpreter
-    final result = await vm.evaluate(code, scriptPath: scriptPath);
+    try {
+      // Set the interpreter reference in the environment
+      // This ensures debug.getinfo can access the interpreter for line info
+      vm.globals.interpreter = vm;
 
-    // If a multi-value was returned, unwrap it into a Dart List so callers
-    // receive a simple List<Value> like the top-level runCode helper.
-    if (result is Value && result.isMulti && result.raw is List) {
-      return (result.raw as List)
-          .map((e) => e is Value ? e : Value(e))
-          .toList();
+      // Ensure the debug library has a reference to the interpreter
+      final debugLib = vm.globals.get('debug');
+      if (debugLib != null && debugLib.isTable) {
+        // Reinitialize debug library with the interpreter reference
+        defineDebugLibrary(env: vm.globals, astVm: vm);
+        Logger.debug(
+          'Updated debug library with interpreter reference',
+          category: 'LineTracking',
+        );
+      }
+
+      // Use our evaluate method to handle line tracking correctly
+      final result = await evaluate(code, scriptPath: scriptPath);
+
+      // If a multi-value was returned, unwrap it into a Dart List so callers
+      // receive a simple List<Value> like the top-level runCode helper.
+      if (result is Value && result.isMulti && result.raw is List) {
+        return (result.raw as List)
+            .map((e) => e is Value ? e : Value(e))
+            .toList();
+      }
+
+      return result;
+    } catch (e) {
+      // Log the error and rethrow
+      Logger.error("Error executing code: $e");
+      rethrow;
     }
+  }
 
-    return result;
+  /// Evaluate LuaLike code and handle line information correctly
+  ///
+  /// This method is used internally by execute to parse and evaluate the code
+  /// while ensuring line information is correctly set
+  Future<Object?> evaluate(String code, {String? scriptPath}) async {
+    try {
+      // Parse the code to generate AST with line information
+      final program = parse(code, url: scriptPath);
+
+      // Set script path in environment if provided
+      if (scriptPath != null) {
+        vm.globals.define('_SCRIPT_PATH', Value(scriptPath));
+        vm.callStack.setScriptPath(scriptPath);
+      }
+
+      // Run the program statements with line tracking
+      return await vm.run(program.statements);
+    } catch (e) {
+      Logger.error("Error evaluating code: $e");
+      rethrow;
+    }
   }
 
   /// Get a value from LuaLike global environment

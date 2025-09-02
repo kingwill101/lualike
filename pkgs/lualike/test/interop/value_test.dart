@@ -257,7 +257,6 @@ void main() {
       // Positive infinity comparisons
       expect(pInf > zero, isTrue, reason: '+inf > 0 should be true');
       expect(zero < pInf, isTrue, reason: '0 < +inf should be true');
-      //TODO verify these comparisons they are currently failing
       expect(pInf >= zero, isTrue, reason: '+inf >= 0 should be true');
       expect(zero <= pInf, isTrue, reason: '0 <= +inf should be true');
 
