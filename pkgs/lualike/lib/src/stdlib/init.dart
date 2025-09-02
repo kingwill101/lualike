@@ -25,7 +25,6 @@ class _CoroutineStubState {
   static final List<List<Value>> _collectorStack = <List<Value>>[];
   static Value Function(List<Object?> args)? yieldOverride;
 
-
   // ignore: unused_element
   static void pushCollector(List<Value> collector) {
     _collectorStack.add(collector);
