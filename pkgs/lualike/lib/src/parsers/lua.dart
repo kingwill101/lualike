@@ -1,7 +1,9 @@
+import 'package:lualike/src/lua_error.dart' show LuaError;
 import 'package:petitparser/petitparser.dart';
 import 'package:source_span/source_span.dart';
 
 import '../ast.dart';
+import '../lua_error.dart';
 import '../number.dart';
 import 'string.dart';
 
@@ -114,6 +116,25 @@ class LuaGrammarDefinition extends GrammarDefinition {
     'while',
   };
 
+  /// Creates a positioned ParserException with accurate source location
+  ParserException _createPositionedException(
+    dynamic nodeOrPosition,
+    String message,
+  ) {
+    int position;
+    if (nodeOrPosition is AstNode && nodeOrPosition.span != null) {
+      position = nodeOrPosition.span!.start.offset;
+    } else if (nodeOrPosition is int) {
+      position = nodeOrPosition;
+    } else {
+      position = 0; // Fallback position if we can't determine it
+    }
+
+    return ParserException(
+      Failure(_sourceFile.url?.toString() ?? '', position, message),
+    );
+  }
+
   Parser _span(Parser inner) => (position() & inner & position()).map((vals) {
     final start = vals[0] as int;
     final node = vals[1] as AstNode;
@@ -134,6 +155,7 @@ class LuaGrammarDefinition extends GrammarDefinition {
           final text = vals[1] as String;
           final end = vals[2] as int;
           final id = Identifier(text);
+
           id.setSpan(_sourceFile.span(start, end));
           return id;
         })
@@ -246,7 +268,10 @@ class LuaGrammarDefinition extends GrammarDefinition {
           errorText = '"${literal.value}"';
         }
 
-        throw FormatException('unexpected symbol near \'$errorText\'');
+        throw _createPositionedException(
+          literal,
+          'unexpected symbol near \'$errorText\'',
+        );
       });
 
   // retstat ::= return [explist] [';']
@@ -526,8 +551,9 @@ class LuaGrammarDefinition extends GrammarDefinition {
         try {
           LuaStringParser.parseStringContent(content);
           // If validation passes, it's an unfinished string
-          throw const FormatException(
-            "[string \"\"]:1: unfinished string near '<eof>'",
+          throw _createPositionedException(
+            start,
+            "unfinished string near '<eof>'",
           );
         } catch (e) {
           if (e is FormatException) {
@@ -556,35 +582,35 @@ class LuaGrammarDefinition extends GrammarDefinition {
               final snippet = (idx >= 0)
                   ? (content.substring(0, idx) + needle)
                   : ('\\$ctxCore');
-              errorMessage =
-                  "[string \"\"]:1: missing '}' near '$snippet'";
+              errorMessage = "[string \"\"]:1: missing '}' near '$snippet'";
             } else if (errorMessage.startsWith('[string')) {
               // Already formatted upstream
             } else {
               // Fallback to unfinished string
               errorMessage = "[string \"\"]:1: unfinished string near '<eof>'";
             }
-            throw FormatException(errorMessage);
+            throw _createPositionedException(start, errorMessage);
           }
           rethrow;
         }
       } else {
         // Closed short strings
-            final content = lexeme.substring(1, lexeme.length - 1);
-            // Normalize \xHH to decimal escapes to work around parser
-            // differences while preserving exact byte values.
-            String normalizeHexEscapes(String s) {
-              final re = RegExp(r'\\x([0-9A-Fa-f]{2})');
-              return s.replaceAllMapped(re, (m) {
-                final value = int.parse(m.group(1)!, radix: 16);
-                return '\\$value';
-              });
-            }
-            final normalized = normalizeHexEscapes(content);
+        final content = lexeme.substring(1, lexeme.length - 1);
+        // Normalize \xHH to decimal escapes to work around parser
+        // differences while preserving exact byte values.
+        String normalizeHexEscapes(String s) {
+          final re = RegExp(r'\\x([0-9A-Fa-f]{2})');
+          return s.replaceAllMapped(re, (m) {
+            final value = int.parse(m.group(1)!, radix: 16);
+            return '\\$value';
+          });
+        }
+
+        final normalized = normalizeHexEscapes(content);
 
         // Pre-validate string content for escape sequence errors
         try {
-              LuaStringParser.parseStringContent(normalized);
+          LuaStringParser.parseStringContent(normalized);
         } catch (e) {
           if (e is FormatException) {
             // Convert detailed error message for escape sequence errors
@@ -592,12 +618,12 @@ class LuaGrammarDefinition extends GrammarDefinition {
             if (errorMessage.contains('hexadecimal digit expected')) {
               if (errorMessage.contains('|invalid')) {
                 errorMessage = errorMessage.replaceAll('|invalid', '');
-                  final quotedString = '"$content';
+                final quotedString = '"$content';
                 errorMessage =
                     "[string \"\"]:1: $errorMessage near '$quotedString'";
               } else if (errorMessage.contains('|incomplete')) {
                 errorMessage = errorMessage.replaceAll('|incomplete', '');
-                  final quotedString = '"$content"';
+                final quotedString = '"$content"';
                 errorMessage =
                     "[string \"\"]:1: $errorMessage near '$quotedString'";
               } else {
@@ -609,8 +635,8 @@ class LuaGrammarDefinition extends GrammarDefinition {
               // For general invalid escape sequences like \g
               final quotedString =
                   '"$content'; // No closing quote for invalid escapes
-                  errorMessage =
-                      "[string \"\"]:1: invalid escape sequence near '$quotedString'";
+              errorMessage =
+                  "[string \"\"]:1: invalid escape sequence near '$quotedString'";
             } else if (errorMessage.contains('decimal escape too large')) {
               // For decimal escape sequences that are out of range
               final quotedString = '"$content"';
@@ -651,8 +677,7 @@ class LuaGrammarDefinition extends GrammarDefinition {
                         needle +
                         (hasTrailingQuote ? '"' : ''))
                   : ('\\$rawContext');
-              errorMessage =
-                  "[string \"\"]:1: missing '{' near '$snippet'";
+              errorMessage = "[string \"\"]:1: missing '{' near '$snippet'";
             } else if (errorMessage.contains('missing \'}\' near|context:')) {
               // For \u{ escape sequences missing closing brace
               final contextStart = errorMessage.indexOf('context:') + 8;
@@ -668,8 +693,7 @@ class LuaGrammarDefinition extends GrammarDefinition {
                         needle +
                         (hasTrailingQuote ? '"' : ''))
                   : ('\\$rawContext');
-              errorMessage =
-                  "[string \"\"]:1: missing '}' near '$snippet'";
+              errorMessage = "[string \"\"]:1: missing '}' near '$snippet'";
             } else if (errorMessage.contains(
               'hexadecimal digit expected near|context:',
             )) {
@@ -690,13 +714,13 @@ class LuaGrammarDefinition extends GrammarDefinition {
               errorMessage =
                   "[string \"\"]:1: hexadecimal digit expected near '$snippet'";
             }
-            throw FormatException(errorMessage);
+            throw _createPositionedException(start, errorMessage);
           }
           rethrow;
         }
 
-            // Use normalized content so downstream parsing yields correct bytes
-            return _annotate(StringLiteral(normalized), start, end);
+        // Use normalized content so downstream parsing yields correct bytes
+        return _annotate(StringLiteral(normalized), start, end);
       }
     });
   }
@@ -942,9 +966,18 @@ class LuaGrammarDefinition extends GrammarDefinition {
     (vals) => [vals[0], vals[1] as String? ?? ''],
   );
 
-  Parser _attrib() => (_token('<') & _identifier() & _token('>')).map(
-    (vals) => (vals[1] as Identifier).name,
-  );
+  Parser _attrib() => (_token('<') & _identifier() & _token('>')).map((vals) {
+    final id = vals[1] as Identifier;
+    final attributeName = id.name;
+    // Only "const" and "close" are valid attributes in Lua 5.4
+    if (attributeName != 'const' && attributeName != 'close') {
+      throw _createPositionedException(
+        id,
+        "unknown attribute '$attributeName'",
+      );
+    }
+    return attributeName;
+  });
 
   // ----------------- For Loops -------------------------------------------
 
@@ -1153,8 +1186,9 @@ class _LongBracketParser extends Parser<String> {
     if (closeIdx == -1) {
       // Unfinished long string: throw a Lua-style error to bypass the
       // generic parser failure wrapper and match CLI expectations.
-      throw const FormatException(
-        "[string \"\"]:1: unfinished string near '<eof>'",
+      // We can't use _createPositionedException here as we're outside the LuaGrammarDefinition class
+      throw ParserException(
+        Failure(buffer, context.position, "unfinished string near '<eof>'"),
       );
     }
 
@@ -1218,8 +1252,9 @@ class _LongCommentBracketParser extends Parser<String> {
     final closeIdx = buffer.indexOf(closing, contentStart);
     if (closeIdx == -1) {
       // Unfinished long comment: surface a Lua-style error message.
-      throw const FormatException(
-        "[string \"\"]:1: unfinished comment near '<eof>'",
+      // We can't use _createPositionedException here as we're outside the LuaGrammarDefinition class
+      throw ParserException(
+        Failure(buffer, context.position, "unfinished comment near '<eof>'"),
       );
     }
     // Skip the content, return success at the end of the comment
@@ -1246,7 +1281,26 @@ Program parse(String source, {Uri? url}) {
 
   final definition = LuaGrammarDefinition(sourceFile);
   final parser = definition.build();
-  final result = parser.parse(source);
+
+  Result result;
+  try {
+    result = parser.parse(source);
+  } catch (e) {
+    // If an exception is thrown inside a combinator (e.g., .map()), try to extract position
+    int pos = 0;
+    String message = e.toString();
+
+    if (e is ParserException) {
+      pos = e.failure.position;
+      message = e.failure.message;
+    } else if (e is Failure) {
+      pos = e.position;
+      message = e.message;
+    }
+
+    final span = sourceFile.span(pos, pos < source.length ? pos + 1 : pos);
+    throw LuaError(message, span: span, cause: e);
+  }
 
   if (result is Success) {
     return result.value as Program;
