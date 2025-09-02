@@ -551,13 +551,13 @@ class LuaGrammarDefinition extends GrammarDefinition {
               final ctxCore = hasTrailingQuote
                   ? rawContext.substring(0, rawContext.length - 1)
                   : rawContext;
-              final needle = '\\' + ctxCore;
+              final needle = '\\$ctxCore';
               final idx = content.indexOf(needle);
               final snippet = (idx >= 0)
                   ? (content.substring(0, idx) + needle)
-                  : ('\\' + ctxCore);
+                  : ('\\$ctxCore');
               errorMessage =
-                  "[string \"\"]:1: missing '}' near '" + snippet + "'";
+                  "[string \"\"]:1: missing '}' near '$snippet'";
             } else if (errorMessage.startsWith('[string')) {
               // Already formatted upstream
             } else {
@@ -615,21 +615,17 @@ class LuaGrammarDefinition extends GrammarDefinition {
               final ctx = errorMessage.substring(
                 contextStart,
               ); // e.g. u{100000000
-              final needle = '\\' + ctx;
+              final needle = '\\$ctx';
               final idx = content.indexOf(needle);
               final snippet = (idx >= 0)
                   ? (content.substring(0, idx) + needle)
-                  : ('\\' + ctx);
+                  : ('\\$ctx');
               errorMessage =
-                  "[string \"\"]:1: UTF-8 value too large near '" +
-                  snippet +
-                  "'";
+                  "[string \"\"]:1: UTF-8 value too large near '$snippet'";
             } else if (errorMessage.contains('UTF-8 value too large')) {
               // Generic too-large case
               errorMessage =
-                  "[string \"\"]:1: UTF-8 value too large near '" +
-                  content +
-                  "'";
+                  "[string \"\"]:1: UTF-8 value too large near '$content'";
             } else if (errorMessage.contains('missing \'{\' near|context:')) {
               // For \u escape sequences missing opening brace
               final contextStart = errorMessage.indexOf('context:') + 8;
@@ -638,15 +634,15 @@ class LuaGrammarDefinition extends GrammarDefinition {
               final ctxCore = hasTrailingQuote
                   ? rawContext.substring(0, rawContext.length - 1)
                   : rawContext;
-              final needle = '\\' + ctxCore;
+              final needle = '\\$ctxCore';
               final idx = content.indexOf(needle);
               final snippet = (idx >= 0)
                   ? (content.substring(0, idx) +
                         needle +
                         (hasTrailingQuote ? '"' : ''))
-                  : ('\\' + rawContext);
+                  : ('\\$rawContext');
               errorMessage =
-                  "[string \"\"]:1: missing '{' near '" + snippet + "'";
+                  "[string \"\"]:1: missing '{' near '$snippet'";
             } else if (errorMessage.contains('missing \'}\' near|context:')) {
               // For \u{ escape sequences missing closing brace
               final contextStart = errorMessage.indexOf('context:') + 8;
@@ -655,15 +651,15 @@ class LuaGrammarDefinition extends GrammarDefinition {
               final ctxCore = hasTrailingQuote
                   ? rawContext.substring(0, rawContext.length - 1)
                   : rawContext;
-              final needle = '\\' + ctxCore;
+              final needle = '\\$ctxCore';
               final idx = content.indexOf(needle);
               final snippet = (idx >= 0)
                   ? (content.substring(0, idx) +
                         needle +
                         (hasTrailingQuote ? '"' : ''))
-                  : ('\\' + rawContext);
+                  : ('\\$rawContext');
               errorMessage =
-                  "[string \"\"]:1: missing '}' near '" + snippet + "'";
+                  "[string \"\"]:1: missing '}' near '$snippet'";
             } else if (errorMessage.contains(
               'hexadecimal digit expected near|context:',
             )) {
@@ -674,17 +670,15 @@ class LuaGrammarDefinition extends GrammarDefinition {
               final ctxCore = hasTrailingQuote
                   ? rawContext.substring(0, rawContext.length - 1)
                   : rawContext;
-              final needle = '\\' + ctxCore;
+              final needle = '\\$ctxCore';
               final idx = content.indexOf(needle);
               final snippet = (idx >= 0)
                   ? (content.substring(0, idx) +
                         needle +
                         (hasTrailingQuote ? '"' : ''))
-                  : ('\\' + rawContext);
+                  : ('\\$rawContext');
               errorMessage =
-                  "[string \"\"]:1: hexadecimal digit expected near '" +
-                  snippet +
-                  "'";
+                  "[string \"\"]:1: hexadecimal digit expected near '$snippet'";
             }
             throw FormatException(errorMessage);
           }
@@ -1264,8 +1258,8 @@ Program parse(String source, {Uri? url}) {
       if (numberLike.hasMatch(after)) {
         // When the numeric literal ends with a dangling sign (e.g. 0xe-),
         // Lua reports 'near <eof>'. Reproduce that behavior.
-        final endsWithDanglingSign = after.trimRight().endsWith('-') ||
-            after.trimRight().endsWith('+');
+        final endsWithDanglingSign =
+            after.trimRight().endsWith('-') || after.trimRight().endsWith('+');
         if (pos >= source.length || endsWithDanglingSign) {
           throw const FormatException(
             "[string \"\"]:1: malformed number near <eof>",

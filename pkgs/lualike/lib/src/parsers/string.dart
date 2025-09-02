@@ -361,7 +361,9 @@ class LuaStringParser {
       // this is most likely an unfinished short string. Report it in
       // Lua style so higher layers can surface the right message.
       if (content.contains('\n') || content.contains('\r')) {
-        throw const FormatException("[string \"\"]:1: unfinished string near '<eof>'");
+        throw const FormatException(
+          "[string \"\"]:1: unfinished string near '<eof>'",
+        );
       }
       throw FormatException('Failed to parse Lua string: ${result.toString()}');
     }

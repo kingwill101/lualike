@@ -1,9 +1,6 @@
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/coroutine.dart';
-import 'package:lualike/src/environment.dart';
-import 'package:lualike/src/interpreter/interpreter.dart';
-import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/stdlib/debug_getinfo.dart';
 import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
@@ -61,7 +58,7 @@ class _GetHook implements BuiltinFunction {
 class _GetInfo implements BuiltinFunction {
   final Interpreter? vm;
 
-  _GetInfo([this.vm]);
+  _GetInfo();
 
   @override
   Object? call(List<Object?> args) {
@@ -124,7 +121,7 @@ class _GetInfo implements BuiltinFunction {
               scriptPath != null ? "@$scriptPath" : "=[C]",
             );
             debugInfo['short_src'] = Value(
-              scriptPath != null ? scriptPath : "[C]",
+              scriptPath ?? "[C]",
             );
             debugInfo['linedefined'] = Value(-1);
             debugInfo['lastlinedefined'] = Value(-1);

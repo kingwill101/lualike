@@ -295,21 +295,25 @@ void _defineCoroutineStub({required Environment env}) {
         };
         try {
           if (!started) {
-          started = true;
-          Value? first;
-          if (func.raw is Function) {
-            final out = await (func.raw as Function)(<Object?>[]);
-            first = out is Value ? out : (out == null ? Value(null) : Value(out));
-          } else if (func.raw is BuiltinFunction) {
-            final out = (func.raw as BuiltinFunction).call(<Object?>[]);
-            first = out is Value ? out : (out == null ? Value(null) : Value(out));
-          }
-          // Prefer yielded values if any; otherwise return the direct result
-          if (collected.isNotEmpty) {
-            idx = 1;
-            return collected.first;
-          }
-          return first ?? Value(null);
+            started = true;
+            Value? first;
+            if (func.raw is Function) {
+              final out = await (func.raw as Function)(<Object?>[]);
+              first = out is Value
+                  ? out
+                  : (out == null ? Value(null) : Value(out));
+            } else if (func.raw is BuiltinFunction) {
+              final out = (func.raw as BuiltinFunction).call(<Object?>[]);
+              first = out is Value
+                  ? out
+                  : (out == null ? Value(null) : Value(out));
+            }
+            // Prefer yielded values if any; otherwise return the direct result
+            if (collected.isNotEmpty) {
+              idx = 1;
+              return collected.first;
+            }
+            return first ?? Value(null);
           }
 
           if (idx < collected.length) {
@@ -318,10 +322,14 @@ void _defineCoroutineStub({required Environment env}) {
           // Plain function path: call per invocation until nil
           if (func.raw is Function) {
             final out = await (func.raw as Function)(<Object?>[]);
-            return out is Value ? out : (out == null ? Value(null) : Value(out));
+            return out is Value
+                ? out
+                : (out == null ? Value(null) : Value(out));
           } else if (func.raw is BuiltinFunction) {
             final out = (func.raw as BuiltinFunction).call(<Object?>[]);
-            return out is Value ? out : (out == null ? Value(null) : Value(out));
+            return out is Value
+                ? out
+                : (out == null ? Value(null) : Value(out));
           }
           return Value(null);
         } finally {
