@@ -180,7 +180,8 @@ class Environment extends GCObject {
         "Found existing value in closure scope: '$name' = $currentValue",
         category: 'Env',
       );
-      if (currentValue is Value && currentValue.isConst) {
+      if (currentValue is Value &&
+          (currentValue.isConst) | currentValue.isToBeClose) {
         Logger.debug(
           "Attempt to modify const variable '$name'",
           category: 'Env',
@@ -204,7 +205,8 @@ class Environment extends GCObject {
           "Found existing value in env (${current.hashCode}): '$name' = $currentValue",
           category: 'Env',
         );
-        if (currentValue is Value && currentValue.isConst) {
+        if (currentValue is Value &&
+            (currentValue.isConst | currentValue.isToBeClose)) {
           Logger.debug(
             "Attempt to modify const variable '$name'",
             category: 'Env',
