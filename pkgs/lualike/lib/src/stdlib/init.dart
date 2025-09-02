@@ -25,6 +25,8 @@ class _CoroutineStubState {
   static final List<List<Value>> _collectorStack = <List<Value>>[];
   static Value Function(List<Object?> args)? yieldOverride;
 
+
+  // ignore: unused_element
   static void pushCollector(List<Value> collector) {
     _collectorStack.add(collector);
   }
@@ -32,6 +34,7 @@ class _CoroutineStubState {
   static List<Value>? get currentCollector =>
       _collectorStack.isNotEmpty ? _collectorStack.last : null;
 
+  // ignore: unused_element
   static void popCollector() {
     if (_collectorStack.isNotEmpty) {
       _collectorStack.removeLast();
