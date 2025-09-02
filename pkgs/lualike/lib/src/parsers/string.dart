@@ -6,6 +6,7 @@ import 'package:petitparser/petitparser.dart';
 class Utf8DecodeResult {
   final int codePoint;
   final int sequenceLength;
+
   const Utf8DecodeResult(this.codePoint, this.sequenceLength);
 }
 
@@ -185,10 +186,7 @@ class LuaStringParser {
         (escapeChar & pattern('cdeghijklmopqswyCDEFGHIJKLMOPQSWY'))
             .map<List<int>>((parts) {
               final char = parts[1] as String;
-              return [
-                0xFE,
-                char.codeUnitAt(0),
-              ]; // Special marker for invalid escape: 0xFE + char
+              throw FormatException('invalid escape sequence near "\\$char"');
             });
 
     // Invalid \u escape sequences - these need to come before invalidEscape
@@ -263,11 +261,9 @@ class LuaStringParser {
     // Fallback for unrecognized escape sequences - also invalid
     final fallbackEscape = (escapeChar & any()).map<List<int>>((parts) {
       final char = parts[1] as String;
-      return [
-        0xFE,
-        char.codeUnitAt(0),
-      ]; // Special marker for invalid escape: 0xFE + char
+      throw FormatException('invalid escape sequence near "\\$char"');
     });
+
     final anyEscape =
         [
               backslashNewline.map((byte) => [byte]), // Handle \<newline> first
@@ -353,17 +349,7 @@ class LuaStringParser {
     final result = build().end().parse(normalized);
 
     if (result is Success) {
-      final bytes = result.value;
-
-      // Check for invalid escape marker (0xFE followed by character code)
-      for (int i = 0; i < bytes.length - 1; i++) {
-        if (bytes[i] == 0xFE) {
-          final char = String.fromCharCode(bytes[i + 1]);
-          throw FormatException('invalid escape sequence near "\\$char"');
-        }
-      }
-
-      return bytes;
+      return result.value;
     } else {
       // If the raw content contains a newline and we failed to parse,
       // this is most likely an unfinished short string. Report it in
