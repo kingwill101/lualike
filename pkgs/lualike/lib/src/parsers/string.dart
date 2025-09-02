@@ -309,7 +309,10 @@ class LuaStringParser {
     // should always produce their exact byte values, while real UTF-8 characters
     // should be UTF-8 encoded.
 
-    final regularChar = pattern('^\\\\').plus().flatten().map((chars) {
+    // Regular character that is not a backslash and not a raw newline.
+    // Raw newlines inside short strings are not allowed in Lua; they must be
+    // consumed by an escape (e.g., \\\n or via \\z continuation).
+    final regularChar = pattern('^\\\\\r\n').plus().flatten().map((chars) {
       final result = <int>[];
 
       // Process each character individually to handle mixed content correctly
@@ -339,8 +342,7 @@ class LuaStringParser {
 
   /// Parse a Lua string literal content and return the resulting bytes
   static List<int> parseStringContent(String content) {
-    final parser = build();
-    final result = parser.parse(content);
+    final result = build().end().parse(content);
 
     if (result is Success) {
       final bytes = result.value;
@@ -355,6 +357,12 @@ class LuaStringParser {
 
       return bytes;
     } else {
+      // If the raw content contains a newline and we failed to parse,
+      // this is most likely an unfinished short string. Report it in
+      // Lua style so higher layers can surface the right message.
+      if (content.contains('\n') || content.contains('\r')) {
+        throw const FormatException("[string \"\"]:1: unfinished string near '<eof>'");
+      }
       throw FormatException('Failed to parse Lua string: ${result.toString()}');
     }
   }
