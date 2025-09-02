@@ -5,9 +5,9 @@ library;
 
 import 'package:meta/meta.dart';
 import 'package:lualike/lualike.dart';
-export 'package:lualike/lualike.dart';
 import 'package:test/test.dart';
 export 'package:test/test.dart';
+export 'package:lualike/lualike.dart';
 
 @visibleForTesting
 /// A fluent API for testing LuaLike execution results.
