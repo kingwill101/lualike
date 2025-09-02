@@ -342,7 +342,15 @@ class LuaStringParser {
 
   /// Parse a Lua string literal content and return the resulting bytes
   static List<int> parseStringContent(String content) {
-    final result = build().end().parse(content);
+    // Normalize \xHH (hex escapes) to decimal escapes (\ddd) so that
+    // downstream parsing always sees a single uniform form for byte escapes.
+    final hexRe = RegExp(r'\\x([0-9A-Fa-f]{2})');
+    final normalized = content.replaceAllMapped(hexRe, (m) {
+      final v = int.parse(m.group(1)!, radix: 16);
+      return '\\$v';
+    });
+
+    final result = build().end().parse(normalized);
 
     if (result is Success) {
       final bytes = result.value;

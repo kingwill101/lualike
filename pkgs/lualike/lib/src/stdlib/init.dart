@@ -1,22 +1,23 @@
 import 'package:lualike/src/bytecode/vm.dart' show BytecodeVM;
 import 'package:lualike/src/interpreter/interpreter.dart' show Interpreter;
+
+import '../builtin_function.dart' show BuiltinFunction;
 import '../environment.dart';
 import '../io/lua_file.dart';
 import '../value.dart' show Value;
-import '../builtin_function.dart' show BuiltinFunction;
 import 'lib_base.dart';
-import 'lib_string.dart';
-import 'lib_table.dart';
-import 'lib_math.dart';
-import 'lib_io.dart';
-import 'lib_os.dart';
-import 'lib_debug.dart';
-import 'lib_utf8.dart';
-import 'lib_package.dart';
-import 'metatables.dart';
-import 'lib_dart_string.dart';
 import 'lib_convert.dart';
 import 'lib_crypto.dart';
+import 'lib_dart_string.dart';
+import 'lib_debug.dart';
+import 'lib_io.dart';
+import 'lib_math.dart';
+import 'lib_os.dart';
+import 'lib_package.dart';
+import 'lib_string.dart';
+import 'lib_table.dart';
+import 'lib_utf8.dart';
+import 'metatables.dart';
 // import 'lib_convert.dart';
 
 // Minimal coroutine stub state to support coroutine.wrap/yield pre-collection
@@ -279,7 +280,7 @@ void _defineCoroutineStub({required Environment env}) {
       var started = false;
       var idx = 0;
 
-      return Value((List<Object?> __) async {
+      return Value((List<Object?> _) async {
         final prevOverride = _CoroutineStubState.yieldOverride;
         _CoroutineStubState.yieldOverride = (List<Object?> yargs) {
           if (yargs.isEmpty) {

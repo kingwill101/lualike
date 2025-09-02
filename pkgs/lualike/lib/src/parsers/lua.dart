@@ -570,11 +570,21 @@ class LuaGrammarDefinition extends GrammarDefinition {
         }
       } else {
         // Closed short strings
-        final content = lexeme.substring(1, lexeme.length - 1);
+            final content = lexeme.substring(1, lexeme.length - 1);
+            // Normalize \xHH to decimal escapes to work around parser
+            // differences while preserving exact byte values.
+            String normalizeHexEscapes(String s) {
+              final re = RegExp(r'\\x([0-9A-Fa-f]{2})');
+              return s.replaceAllMapped(re, (m) {
+                final value = int.parse(m.group(1)!, radix: 16);
+                return '\\$value';
+              });
+            }
+            final normalized = normalizeHexEscapes(content);
 
         // Pre-validate string content for escape sequence errors
         try {
-          LuaStringParser.parseStringContent(content);
+              LuaStringParser.parseStringContent(normalized);
         } catch (e) {
           if (e is FormatException) {
             // Convert detailed error message for escape sequence errors
@@ -582,12 +592,12 @@ class LuaGrammarDefinition extends GrammarDefinition {
             if (errorMessage.contains('hexadecimal digit expected')) {
               if (errorMessage.contains('|invalid')) {
                 errorMessage = errorMessage.replaceAll('|invalid', '');
-                final quotedString = '"$content';
+                  final quotedString = '"$content';
                 errorMessage =
                     "[string \"\"]:1: $errorMessage near '$quotedString'";
               } else if (errorMessage.contains('|incomplete')) {
                 errorMessage = errorMessage.replaceAll('|incomplete', '');
-                final quotedString = '"$content"';
+                  final quotedString = '"$content"';
                 errorMessage =
                     "[string \"\"]:1: $errorMessage near '$quotedString'";
               } else {
@@ -599,8 +609,8 @@ class LuaGrammarDefinition extends GrammarDefinition {
               // For general invalid escape sequences like \g
               final quotedString =
                   '"$content'; // No closing quote for invalid escapes
-              errorMessage =
-                  "[string \"\"]:1: invalid escape sequence near '$quotedString'";
+                  errorMessage =
+                      "[string \"\"]:1: invalid escape sequence near '$quotedString'";
             } else if (errorMessage.contains('decimal escape too large')) {
               // For decimal escape sequences that are out of range
               final quotedString = '"$content"';
@@ -685,8 +695,8 @@ class LuaGrammarDefinition extends GrammarDefinition {
           rethrow;
         }
 
-        // Since we pre-validated, we can disable StringLiteral's own validation
-        return _annotate(StringLiteral(content), start, end);
+            // Use normalized content so downstream parsing yields correct bytes
+            return _annotate(StringLiteral(normalized), start, end);
       }
     });
   }
@@ -1288,7 +1298,7 @@ Program parse(String source, {Uri? url}) {
   final _ = pos >= 30 ? pos - 30 : 0;
 
   // Special cases: surface Lua-like errors for unfinished long strings/comments
-  final failMsg = failure.message ?? '';
+  final failMsg = failure.message;
   if (failMsg.contains('unfinished long string')) {
     throw const FormatException(
       "[string \"\"]:1: unfinished string near '<eof>'",
