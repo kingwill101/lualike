@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:args/args.dart';
 import 'package:dart_console/dart_console.dart';
+import 'package:path/path.dart' as path;
 
 /// List of Lua test files to run
 final testFiles = [
@@ -68,7 +69,7 @@ Future<void> compile() async {
     'exe',
     '--output',
     'lualike',
-    'bin/main.dart',
+    path.join('bin', 'main.dart'),
   ]);
 
   // Handle process output
@@ -206,11 +207,15 @@ Future<List<TestResult>> runTests({
     final stopwatch = Stopwatch()..start();
 
     final environment = noSoft ? null : {'LUA_INIT': '_soft = true'};
+    final lualikeBinary = 'lualike';
+    final binaryPath = path.join(Directory.current.path, lualikeBinary);
+    final workingDir = path.join('luascripts', 'test');
+
     final process = await Process.start(
-      '${Directory.current.path}/lualike',
+      binaryPath,
       [file],
       environment: environment,
-      workingDirectory: 'luascripts/test',
+      workingDirectory: workingDir,
     );
 
     // Collect stdout and stderr

@@ -113,15 +113,23 @@ extension VMInterop on Interpreter {
 
       currentScriptPath = absolutePath;
 
+      // Normalize using path library: split (handles \ or /) and rejoin with URL-style forward slashes
+      final normalizedAbsolutePath = path.url.joinAll(
+        path.split(path.normalize(absolutePath)),
+      );
+
       // Also store it in the global environment as _SCRIPT_PATH and _SCRIPT_DIR
-      globals.define('_SCRIPT_PATH', Value(absolutePath));
+      globals.define('_SCRIPT_PATH', Value(normalizedAbsolutePath));
 
       // Get the directory part of the script path
       final scriptDir = path.dirname(absolutePath);
-      globals.define('_SCRIPT_DIR', Value(scriptDir));
+      final normalizedScriptDir = path.url.joinAll(
+        path.split(path.normalize(scriptDir)),
+      );
+      globals.define('_SCRIPT_DIR', Value(normalizedScriptDir));
 
       Logger.debug(
-        "Set script path globals: _SCRIPT_PATH=$absolutePath, _SCRIPT_DIR=$scriptDir",
+        "Set script path globals: _SCRIPT_PATH(norm)=$normalizedAbsolutePath, _SCRIPT_DIR(norm)=$normalizedScriptDir | originals: path=$absolutePath, dir=$scriptDir",
         category: 'Interpreter',
       );
 
@@ -231,8 +239,16 @@ class LuaLike {
 
       // Set script path in environment if provided
       if (scriptPath != null) {
-        vm.globals.define('_SCRIPT_PATH', Value(scriptPath));
-        vm.callStack.setScriptPath(scriptPath);
+        // Normalize using path library so code and tests see a consistent path format
+        final normalized = path.url.joinAll(
+          path.split(path.normalize(scriptPath)),
+        );
+        Logger.debug(
+          'LuaLike.evaluate: setting _SCRIPT_PATH (norm)=$normalized | original=$scriptPath',
+          category: 'Interpreter',
+        );
+        vm.globals.define('_SCRIPT_PATH', Value(normalized));
+        vm.callStack.setScriptPath(normalized);
       }
 
       // Run the program statements with line tracking
@@ -272,26 +288,33 @@ class LuaLike {
 }
 
 /// Runs a Lua file with the given path.
-Future<List<Value>> runFile(String path, {Map<String, dynamic>? env}) async {
-  if (!await fs.fileExists(path)) {
-    throw Exception('File not found: $path');
+Future<List<Value>> runFile(String pathStr, {Map<String, dynamic>? env}) async {
+  if (!await fs.fileExists(pathStr)) {
+    throw Exception('File not found: $pathStr');
   }
-  final bytes = await fs.readFileAsBytes(path);
+  final bytes = await fs.readFileAsBytes(pathStr);
   if (bytes == null) {
-    throw Exception('Could not read file: $path');
+    throw Exception('Could not read file: $pathStr');
   }
   final code = utf8.decode(bytes);
 
   // Create a new environment if one wasn't provided
   env ??= {};
 
-  // Set the script path in the environment
-  env['_SCRIPT_PATH'] = path;
+  // Set the script path in the environment (normalized)
+  final normalizedEnvPath = path.url.joinAll(
+    path.split(path.normalize(pathStr)),
+  );
+  Logger.debug(
+    'runFile: setting _SCRIPT_PATH (norm)=$normalizedEnvPath | original=$pathStr',
+    category: 'Interpreter',
+  );
+  env['_SCRIPT_PATH'] = normalizedEnvPath;
 
   // Mark this as the main chunk
   env['_MAIN_CHUNK'] = true;
 
-  return runCode(code, filePath: path, env: env);
+  return runCode(code, filePath: pathStr, env: env);
 }
 
 /// Runs Lua code with the given environment.
@@ -307,7 +330,14 @@ Future<List<Value>> runCode(
 
   // Set the script path in the environment if provided
   if (filePath != null) {
-    env['_SCRIPT_PATH'] = filePath;
+    final normalizedEnvPath = path.url.joinAll(
+      path.split(path.normalize(filePath)),
+    );
+    Logger.debug(
+      'runCode: setting _SCRIPT_PATH (norm)=$normalizedEnvPath | original=$filePath',
+      category: 'Interpreter',
+    );
+    env['_SCRIPT_PATH'] = normalizedEnvPath;
   }
 
   // Mark this as the main chunk if it's being run directly
