@@ -1,9 +1,8 @@
-# Simple workflow for deploying a Dart web app to GitHub Pages
 name: Deploy Dart Web App to Pages
 
 on:
   workflow_run:
-    workflows: ["Dart", "Lua Test Suite"]
+    workflows: ["Lua Test Suite"]   # <-- depend on Lua Test Suite only
     types: [completed]
     branches: ["master"]
   workflow_dispatch:
@@ -16,40 +15,28 @@ permissions:
 concurrency:
   group: "pages"
   cancel-in-progress: false
-defaults:
-  run:
-    working-directory: pkgs/lualike
+
 jobs:
   deploy:
+    # Run only when Lua Test Suite succeeded, or when manually dispatched
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-
+    defaults:
+      run:
+        working-directory: pkgs/lualike
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Dart SDK
-        uses: dart-lang/setup-dart@v1
-
-      - name: Install dependencies
-        run: |
-          dart pub get
-          dart pub global activate webdev
-
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+      - run: dart pub global activate webdev
+      - run: dart pub get
       - name: Build web app
         run: webdev build
-
       - name: Setup Pages
         uses: actions/configure-pages@v5
-
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: pkgs/lualike/build/ # Only upload compiled web files
-
+          path: pkgs/lualike/build/
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
