@@ -1,6 +1,7 @@
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/io/lua_file.dart';
 import 'package:lualike/src/io/virtual_io_device.dart';
+import 'package:lualike/src/io/memory_io_device.dart';
 import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:web/web.dart' as web;
 
@@ -30,6 +31,12 @@ class LuaLikeWebApp {
   void initialize() {
     // Initialize LuaLike interpreter
     luaLike = LuaLike();
+
+    // Set up in-memory file system for web (so file I/O works properly)
+    IOLib.fileSystemProvider.setIODeviceFactory(
+      createInMemoryIODevice,
+      providerName: 'WebInMemoryFileSystem',
+    );
 
     // Set up virtual devices for web I/O (similar to interactive REPL)
     final stdinDevice = VirtualIODevice();
