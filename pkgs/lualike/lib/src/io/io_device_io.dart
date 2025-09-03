@@ -17,7 +17,12 @@ class FileIODevice extends BaseIODevice {
   }
 
   static Future<FileIODevice> open(String path, String mode) async {
-    Logger.debug('Opening file: $path with mode: $mode', category: 'IO');
+    // Normalize the path to handle mixed separators, ".." segments, etc.
+    final normalizedPath = path_lib.normalize(path);
+    Logger.debug(
+      'Opening file: $normalizedPath with mode: $mode',
+      category: 'IO',
+    );
     FileMode fileMode;
     switch (mode) {
       case "r":
@@ -44,22 +49,25 @@ class FileIODevice extends BaseIODevice {
     }
 
     try {
-      Logger.debug('Attempting to open file: $path', category: 'IO');
+      Logger.debug('Attempting to open file: $normalizedPath', category: 'IO');
       // Ensure the directory exists when writing
       if (fileMode == FileMode.write ||
           fileMode == FileMode.writeOnly ||
           fileMode == FileMode.writeOnlyAppend ||
           fileMode == FileMode.append) {
-        final dir = Directory(path_lib.dirname(path));
+        final dir = Directory(path_lib.dirname(normalizedPath));
         if (!await dir.exists()) {
           await dir.create(recursive: true);
         }
       }
-      final file = await File(path).open(mode: fileMode);
-      Logger.debug('Successfully opened file: $path', category: 'IO');
+      final file = await File(normalizedPath).open(mode: fileMode);
+      Logger.debug('Successfully opened file: $normalizedPath', category: 'IO');
       return FileIODevice._(file, mode);
     } catch (e, s) {
-      Logger.debug('Failed to open file: $path, error: $e', category: 'IO');
+      Logger.debug(
+        'Failed to open file: $normalizedPath, error: $e',
+        category: 'IO',
+      );
       throw LuaError("Could not open file: $e", stackTrace: s);
     }
   }
