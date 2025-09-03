@@ -139,11 +139,19 @@ abstract class BaseIODevice implements IODevice {
   /// Helper to validate read format
   void validateReadFormat(String format) {
     Logger.debug("Validating read format: $format", category: "IO");
-    if (!RegExp(r'^(n|a|l|L|\d+)$').hasMatch(format)) {
+    if (!RegExp(r'^(\*?n|\*?a|\*?l|\*?L|\d+)$').hasMatch(format)) {
       Logger.debug("Invalid format: $format", category: "IO");
       throw LuaError("invalid format: $format");
     }
     Logger.debug("Format $format is valid", category: "IO");
+  }
+
+  /// Helper to normalize read format by removing * prefix
+  String normalizeReadFormat(String format) {
+    if (format.startsWith('*')) {
+      return format.substring(1);
+    }
+    return format;
   }
 }
 

@@ -99,8 +99,10 @@ class FileIODevice extends BaseIODevice {
     checkOpen();
     validateReadFormat(format);
 
+    final normalizedFormat = normalizeReadFormat(format);
+
     try {
-      if (format == "a") {
+      if (normalizedFormat == "a") {
         // Read entire file
         Logger.debug('Reading entire file', category: 'IO');
         final length = await _file!.length();
@@ -110,7 +112,7 @@ class FileIODevice extends BaseIODevice {
         final result = utf8.decode(bytes);
         Logger.debug('Decoded ${result.length} characters', category: 'IO');
         return ReadResult(result);
-      } else if (format == "l" || format == "L") {
+      } else if (normalizedFormat == "l" || normalizedFormat == "L") {
         // Read line
         Logger.debug('Reading line from file', category: 'IO');
         final buffer = <int>[];
@@ -119,7 +121,7 @@ class FileIODevice extends BaseIODevice {
           if (byte == 10) {
             // \n
             Logger.debug('Found newline character', category: 'IO');
-            if (format == "L") buffer.add(byte);
+            if (normalizedFormat == "L") buffer.add(byte);
             break;
           }
           buffer.add(byte);
@@ -132,7 +134,7 @@ class FileIODevice extends BaseIODevice {
         final result = utf8.decode(buffer);
         Logger.debug('Decoded line: "$result"', category: 'IO');
         return ReadResult(result);
-      } else if (format == "n") {
+      } else if (normalizedFormat == "n") {
         // Read number
         Logger.debug('Reading number from file', category: 'IO');
         final line = await read("l");
@@ -150,7 +152,7 @@ class FileIODevice extends BaseIODevice {
         return ReadResult(number);
       } else {
         // Read n bytes
-        final n = int.parse(format);
+        final n = int.parse(normalizedFormat);
         Logger.debug('Reading $n bytes from file', category: 'IO');
         final bytes = await _file!.read(n);
         Logger.debug('Read ${bytes.length} bytes', category: 'IO');

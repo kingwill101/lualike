@@ -2,6 +2,7 @@ import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart' show BytecodeVM;
 import 'package:lualike/src/utils/io_abstractions.dart' as io_abs;
 
+import '../io/filesystem_provider.dart';
 import '../io/io_device.dart';
 import '../io/lua_file.dart';
 
@@ -11,15 +12,40 @@ class IOLib {
   static StdoutDevice? _stdoutDevice;
   static StdoutDevice? _stderrDevice;
 
+  // File system provider - defaults to local file system
+  static FileSystemProvider? _fileSystemProvider;
+
   static LuaFile? _defaultInput;
   static LuaFile? _defaultOutput;
 
   // Get singleton instances
   static StdinDevice get stdinDevice => _stdinDevice ??= StdinDevice();
+
   static StdoutDevice get stdoutDevice =>
       _stdoutDevice ??= StdoutDevice(io_abs.stdout, false);
+
   static StdoutDevice get stderrDevice =>
       _stderrDevice ??= StdoutDevice(io_abs.stderr);
+
+  // File system provider factory
+  static FileSystemProvider get fileSystemProvider =>
+      _fileSystemProvider ??= FileSystemProvider();
+
+  /// Set a custom file system provider
+  static set fileSystemProvider(FileSystemProvider provider) {
+    Logger.debug(
+      'Setting file system provider to: ${provider.providerName}',
+      category: 'FileSystem',
+    );
+    _fileSystemProvider = provider;
+  }
+
+  // Setters to allow custom devices (similar to what you mentioned exists for stdio)
+  static set stdinDevice(StdinDevice device) => _stdinDevice = device;
+
+  static set stdoutDevice(StdoutDevice device) => _stdoutDevice = device;
+
+  static set stderrDevice(StdoutDevice device) => _stderrDevice = device;
 
   static LuaFile get defaultInput {
     Logger.debug('Getting default input');
@@ -40,6 +66,16 @@ class IOLib {
   static set defaultOutput(LuaFile? file) {
     _defaultOutput = file;
   }
+
+  // File methods that operate on LuaFile objects
+  static final Map<String, BuiltinFunction> fileMethods = {
+    "close": FileClose(),
+    "flush": FileFlush(),
+    "read": FileRead(),
+    "write": FileWrite(),
+    "seek": FileSeek(),
+    "lines": FileLines(),
+  };
 
   static final ValueClass fileClass = ValueClass.create({
     "__gc": (List<Object?> args) async {
@@ -67,6 +103,39 @@ class IOLib {
         throw LuaError.typeError("file expected");
       }
       return Value((file.raw as LuaFile).toString());
+    },
+    "__index": (List<Object?> args) {
+      final file = args[0] as Value;
+      final key = args[1] as Value;
+      Logger.debug(
+        'File __index metamethod called for ${key.raw}',
+        category: 'IO',
+      );
+
+      if (key.raw is String) {
+        final method = fileMethods[key.raw];
+        if (method != null) {
+          Logger.debug('Found file method: ${key.raw}', category: 'IO');
+
+          // Return a function that will be called later
+          return Value((callArgs) {
+            Logger.debug(
+              'File method ${key.raw} called with ${callArgs.length} arguments',
+              category: 'IO',
+            );
+
+            // Include the file object as the first argument if not already present
+            if (callArgs.isNotEmpty && callArgs.first == file) {
+              return method.call(callArgs);
+            }
+
+            return method.call([file, ...callArgs]);
+          });
+        }
+      }
+
+      Logger.debug('File method not found: ${key.raw}', category: 'IO');
+      return Value(null);
     },
   });
 
@@ -157,7 +226,7 @@ class IOInput implements BuiltinFunction {
       final filename = (args[0] as Value).raw.toString();
       Logger.debug('Opening file for input: $filename', category: 'IO');
       try {
-        final device = await FileIODevice.open(filename, "r");
+        final device = await IOLib.fileSystemProvider.openFile(filename, "r");
         newFile = LuaFile(device);
         result = Value(newFile, metatable: IOLib.fileClass.metamethods);
       } catch (e) {
@@ -194,7 +263,7 @@ class IOLines implements BuiltinFunction {
       Logger.debug('Opening new file for lines', category: 'IO');
       final filename = (args[0] as Value).raw.toString();
       try {
-        final device = await FileIODevice.open(filename, "r");
+        final device = await IOLib.fileSystemProvider.openFile(filename, "r");
         file = LuaFile(device);
         formats = args.skip(1).map((e) => (e as Value).raw.toString()).toList();
       } catch (e) {
@@ -223,7 +292,7 @@ class IOOpen implements BuiltinFunction {
     Logger.debug('Opening file: $filename with mode: $mode', category: 'IO');
 
     try {
-      final device = await FileIODevice.open(filename, mode);
+      final device = await IOLib.fileSystemProvider.openFile(filename, mode);
       final file = LuaFile(device);
       return Value(file, metatable: IOLib.fileClass.metamethods);
     } catch (e) {
@@ -253,7 +322,7 @@ class IOOutput implements BuiltinFunction {
       final filename = (args[0] as Value).raw.toString();
       Logger.debug('Opening file for output: $filename', category: 'IO');
       try {
-        final device = await FileIODevice.open(filename, "w");
+        final device = await IOLib.fileSystemProvider.openFile(filename, "w");
         newFile = LuaFile(device);
         result = Value(newFile, metatable: IOLib.fileClass.metamethods);
       } catch (e, s) {
@@ -314,10 +383,7 @@ class IOTmpfile implements BuiltinFunction {
   Future<Object?> call(List<Object?> args) async {
     Logger.debug('Executing IO tmpfile', category: 'IO');
     try {
-      final tempFilePath = io_abs.createTempFilePath('lua_temp');
-      Logger.debug('Creating temporary file: $tempFilePath', category: 'IO');
-
-      final device = await FileIODevice.open(tempFilePath, "w+");
+      final device = await IOLib.fileSystemProvider.createTempFile('lua_temp');
       final file = LuaFile(device);
       return Value(file, metatable: IOLib.fileClass.metamethods);
     } catch (e) {
@@ -363,6 +429,134 @@ class IOWrite implements BuiltinFunction {
     }
 
     return Value.multi([true]);
+  }
+}
+
+// File method implementations that work on LuaFile objects
+class FileClose implements BuiltinFunction {
+  @override
+  Future<Object?> call(List<Object?> args) async {
+    Logger.debug('File method: close', category: 'IO');
+    final file = args[0];
+    if (file is! Value || file.raw is! LuaFile) {
+      throw LuaError.typeError("file expected");
+    }
+    final result = await (file.raw as LuaFile).close();
+    return Value.multi(result);
+  }
+}
+
+class FileFlush implements BuiltinFunction {
+  @override
+  Future<Object?> call(List<Object?> args) async {
+    Logger.debug('File method: flush', category: 'IO');
+    final file = args[0];
+    if (file is! Value || file.raw is! LuaFile) {
+      throw LuaError.typeError("file expected");
+    }
+    final result = await (file.raw as LuaFile).flush();
+    return Value.multi(result);
+  }
+}
+
+class FileRead implements BuiltinFunction {
+  @override
+  Future<Object?> call(List<Object?> args) async {
+    Logger.debug('File method: read', category: 'IO');
+    final file = args[0];
+    if (file is! Value || file.raw is! LuaFile) {
+      throw LuaError.typeError("file expected");
+    }
+
+    // Skip the self parameter
+    final actualArgs = args.skip(1).toList();
+    final formats = actualArgs.isNotEmpty
+        ? actualArgs.map((e) => (e as Value).raw.toString()).toList()
+        : ["l"];
+
+    final luaFile = file.raw as LuaFile;
+    final results = <Object?>[];
+
+    for (final format in formats) {
+      final result = await luaFile.read(format);
+      if (result[0] == null && result.length > 1 && result[1] != null) {
+        return Value.multi(result);
+      }
+      results.add(result[0]);
+    }
+
+    return Value.multi(results);
+  }
+}
+
+class FileWrite implements BuiltinFunction {
+  @override
+  Future<Object?> call(List<Object?> args) async {
+    Logger.debug('File method: write', category: 'IO');
+    final file = args[0];
+    if (file is! Value || file.raw is! LuaFile) {
+      throw LuaError.typeError("file expected");
+    }
+
+    // Skip the self parameter
+    final actualArgs = args.skip(1).toList();
+    if (actualArgs.isEmpty) {
+      return Value.multi([true]);
+    }
+
+    final luaFile = file.raw as LuaFile;
+    for (final arg in actualArgs) {
+      final str = (arg as Value).raw.toString();
+      final result = await luaFile.write(str);
+      if (result[0] == null) {
+        return Value.multi(result);
+      }
+    }
+
+    return Value.multi([true]);
+  }
+}
+
+class FileSeek implements BuiltinFunction {
+  @override
+  Future<Object?> call(List<Object?> args) async {
+    Logger.debug('File method: seek', category: 'IO');
+    final file = args[0];
+    if (file is! Value || file.raw is! LuaFile) {
+      throw LuaError.typeError("file expected");
+    }
+
+    // Skip the self parameter
+    final actualArgs = args.skip(1).toList();
+    final whence = actualArgs.isNotEmpty
+        ? (actualArgs[0] as Value).raw.toString()
+        : "cur";
+    final offset = actualArgs.length > 1
+        ? (actualArgs[1] as Value).raw as int
+        : 0;
+
+    final result = await (file.raw as LuaFile).seek(whence, offset);
+    return Value.multi(result);
+  }
+}
+
+class FileLines implements BuiltinFunction {
+  @override
+  Future<Object?> call(List<Object?> args) async {
+    Logger.debug('File method: lines', category: 'IO');
+    final file = args[0];
+    if (file is! Value || file.raw is! LuaFile) {
+      throw LuaError.typeError("file expected");
+    }
+
+    // Skip the self parameter
+    final actualArgs = args.skip(1).toList();
+    final formats = actualArgs.isNotEmpty
+        ? actualArgs.map((e) => (e as Value).raw.toString()).toList()
+        : ["l"];
+
+    final result = await (file.raw as LuaFile).lines(formats);
+    return result;
   }
 }
 
