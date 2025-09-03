@@ -3,6 +3,7 @@ library;
 
 import 'dart:io' as io;
 import 'dart:math';
+import 'package:path/path.dart' as path;
 import 'io_abstractions.dart' show ProcessResult;
 
 /// Platform-safe way to get stdout stream
@@ -21,7 +22,7 @@ String getSystemTempDirectory() => io.Directory.systemTemp.path;
 String createTempFilePath(String prefix) {
   final random = Random();
   final tempDir = io.Directory.systemTemp.path;
-  return '$tempDir/${prefix}_${random.nextInt(1000000)}.tmp';
+  return path.join(tempDir, '${prefix}_${random.nextInt(1000000)}.tmp');
 }
 
 /// Platform-safe way to exit the process

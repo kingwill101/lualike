@@ -181,7 +181,10 @@ class FileManager {
   ///
   /// [searchPath] - The directory path to add to the search paths
   void addSearchPath(String searchPath) {
-    _searchPaths.add(searchPath);
+    final normalized = path.normalize(searchPath);
+    if (!_searchPaths.contains(normalized)) {
+      _searchPaths.add(normalized);
+    }
   }
 
   /// Loads source code from a file or virtual file.
@@ -197,6 +200,7 @@ class FileManager {
     bool preserveRawBytes = false,
   }) async {
     final extensions = ['', '.lua'];
+    final normalizedFilePath = path.normalize(filePath);
 
     // Check if we have a current script path and add its directory to search paths
     if (_interpreter?.currentScriptPath != null) {
@@ -283,7 +287,7 @@ class FileManager {
 
     // Try exact name first
     for (final ext in extensions) {
-      final name = filePath + ext;
+      final name = path.normalize(normalizedFilePath + ext);
       // Check virtual files
       if (_virtualFiles.containsKey(name)) {
         return _virtualFiles[name];
@@ -293,7 +297,9 @@ class FileManager {
     // Try with search paths
     for (final searchPath in _searchPaths) {
       for (final ext in extensions) {
-        final fullPath = path.join(searchPath, filePath + ext);
+        final fullPath = path.normalize(
+          path.join(searchPath, normalizedFilePath + ext),
+        );
 
         // Check virtual files again with full path
         if (_virtualFiles.containsKey(fullPath)) {
@@ -309,7 +315,7 @@ class FileManager {
     }
 
     // If the path is relative, try resolving it relative to the current working directory
-    if (!path.isAbsolute(filePath)) {
+    if (!path.isAbsolute(normalizedFilePath)) {
       try {
         final currentDir = fs.getCurrentDirectory();
         if (currentDir == null) {
@@ -317,7 +323,9 @@ class FileManager {
         }
 
         for (final ext in extensions) {
-          final fullPath = path.join(currentDir, filePath + ext);
+          final fullPath = path.normalize(
+            path.join(currentDir, normalizedFilePath + ext),
+          );
 
           // Check virtual files with this path
           if (_virtualFiles.containsKey(fullPath)) {
@@ -339,7 +347,7 @@ class FileManager {
     }
 
     // If the path is relative, try resolving it relative to the Dart script path
-    if (!path.isAbsolute(filePath)) {
+    if (!path.isAbsolute(normalizedFilePath)) {
       try {
         final dartScriptPath = platform.scriptPath;
         if (dartScriptPath == null) {
@@ -348,7 +356,9 @@ class FileManager {
         final dartScriptDir = path.dirname(dartScriptPath);
 
         for (final ext in extensions) {
-          final fullPath = path.join(dartScriptDir, filePath + ext);
+          final fullPath = path.normalize(
+            path.join(dartScriptDir, normalizedFilePath + ext),
+          );
 
           // Check virtual files with this path
           if (_virtualFiles.containsKey(fullPath)) {
@@ -365,7 +375,9 @@ class FileManager {
         // Try project root
         final projectRoot = path.dirname(path.dirname(dartScriptPath));
         for (final ext in extensions) {
-          final fullPath = path.join(projectRoot, filePath + ext);
+          final fullPath = path.normalize(
+            path.join(projectRoot, normalizedFilePath + ext),
+          );
 
           // Check virtual files with this path
           if (_virtualFiles.containsKey(fullPath)) {
@@ -421,7 +433,7 @@ class FileManager {
   void setSearchPaths(List<String> paths) {
     _searchPaths
       ..clear()
-      ..addAll(paths);
+      ..addAll(paths.map((p) => path.normalize(p)));
   }
 
   /// Gets the full path for a module name.
@@ -433,6 +445,7 @@ class FileManager {
   /// Returns the resolved path if found, null otherwise
   Future<String?> resolveModulePath(String moduleName) async {
     final extensions = ['', '.lua'];
+    final normalizedModuleName = path.normalize(moduleName);
 
     // Clear previous resolved globs for this resolution
     clearResolvedGlobs();
@@ -442,7 +455,7 @@ class FileManager {
 
     // Try exact module name first
     for (final ext in extensions) {
-      final name = moduleName + ext;
+      final name = path.normalize(normalizedModuleName + ext);
       if (_virtualFiles.containsKey(name)) {
         Logger.debug(
           "Module '$moduleName' found in virtual files as '$name'",
@@ -597,8 +610,11 @@ class FileManager {
     // Try each template
     for (final template in templates) {
       // Replace ? with module name (with dots converted to path separators)
-      final modNameWithSep = moduleName.replaceAll('.', path.separator);
-      final fileName = template.replaceAll('?', modNameWithSep);
+      final modNameWithSep = normalizedModuleName.replaceAll(
+        '.',
+        path.separator,
+      );
+      final fileName = path.normalize(template.replaceAll('?', modNameWithSep));
 
       Logger.debug(
         "Trying template: $template -> $fileName",
@@ -644,8 +660,11 @@ class FileManager {
                 );
 
                 // Track the resolved glob
-                final absolutePath = path.absolute(entity);
-                _addResolvedGlob(path.join(directory, pattern), absolutePath);
+                final absolutePath = path.normalize(path.absolute(entity));
+                _addResolvedGlob(
+                  path.normalize(path.join(directory, pattern)),
+                  absolutePath,
+                );
 
                 return entity;
               }
@@ -668,12 +687,15 @@ class FileManager {
     // Try with search paths and extensions as a fallback
     for (final searchPath in _searchPaths) {
       // First try with dots converted to separators
-      final modNameWithSep = moduleName.replaceAll('.', path.separator);
+      final modNameWithSep = normalizedModuleName.replaceAll(
+        '.',
+        path.separator,
+      );
 
       for (final ext in extensions) {
         final paths = [
-          path.join(searchPath, moduleName + ext),
-          path.join(searchPath, modNameWithSep + ext),
+          path.normalize(path.join(searchPath, normalizedModuleName + ext)),
+          path.normalize(path.join(searchPath, modNameWithSep + ext)),
         ];
 
         for (final fullPath in paths) {
@@ -718,9 +740,9 @@ class FileManager {
                     );
 
                     // Track the resolved glob
-                    final absolutePath = path.absolute(entity);
+                    final absolutePath = path.normalize(path.absolute(entity));
                     _addResolvedGlob(
-                      path.join(directory, pattern),
+                      path.normalize(path.join(directory, pattern)),
                       absolutePath,
                     );
 
@@ -773,12 +795,15 @@ class FileManager {
         final directory = await fs.directoryExists(dir ?? '');
         if (directory) {
           // Try with dots converted to separators
-          final modNameWithSep = moduleName.replaceAll('.', path.separator);
+          final modNameWithSep = normalizedModuleName.replaceAll(
+            '.',
+            path.separator,
+          );
 
           for (final ext in extensions) {
             final paths = [
-              path.join(dir ?? '', moduleName + ext),
-              path.join(dir ?? '', modNameWithSep + ext),
+              path.normalize(path.join(dir ?? '', normalizedModuleName + ext)),
+              path.normalize(path.join(dir ?? '', modNameWithSep + ext)),
             ];
 
             for (final fullPath in paths) {
@@ -880,13 +905,15 @@ class FileManager {
   /// [modulePath] - The module path to resolve
   /// Returns the resolved absolute path
   String resolveAbsoluteModulePath(String modulePath) {
+    final normalizedModulePath = path.normalize(modulePath);
+
     // If the path is already absolute, return it as is
-    if (path.isAbsolute(modulePath)) {
+    if (path.isAbsolute(normalizedModulePath)) {
       Logger.debug(
-        "Module path is already absolute: $modulePath",
+        "Module path is already absolute: $normalizedModulePath",
         category: 'FileManager',
       );
-      return modulePath;
+      return normalizedModulePath;
     }
 
     // Try different strategies to resolve the path
@@ -894,7 +921,9 @@ class FileManager {
       // First try relative to the current script path if available
       if (_interpreter?.currentScriptPath != null) {
         final scriptDir = path.dirname(_interpreter!.currentScriptPath!);
-        final resolvedPath = path.normalize(path.join(scriptDir, modulePath));
+        final resolvedPath = path.normalize(
+          path.join(scriptDir, normalizedModulePath),
+        );
         Logger.debug(
           "Resolved module path relative to current script: $resolvedPath",
           category: 'FileManager',
@@ -908,7 +937,9 @@ class FileManager {
         if (currentDir == null) {
           throw Exception("Current directory is null");
         }
-        final resolvedPath = path.normalize(path.join(currentDir, modulePath));
+        final resolvedPath = path.normalize(
+          path.join(currentDir, normalizedModulePath),
+        );
         Logger.debug(
           "Resolved module path relative to current directory: $resolvedPath",
           category: 'FileManager',
@@ -925,7 +956,7 @@ class FileManager {
             }
             final dartScriptDir = path.dirname(dartScriptPath);
             final resolvedPath = path.normalize(
-              path.join(dartScriptDir, modulePath),
+              path.join(dartScriptDir, normalizedModulePath),
             );
             Logger.debug(
               "Resolved module path relative to Dart script: $resolvedPath",
@@ -938,7 +969,9 @@ class FileManager {
               category: 'FileManager',
             );
             // In product mode, skip Platform.script and use simple absolute path
-            final resolvedPath = path.absolute(modulePath);
+            final resolvedPath = path.normalize(
+              path.absolute(normalizedModulePath),
+            );
             Logger.debug(
               "Using simple absolute path in product mode: $resolvedPath",
               category: 'FileManager',
@@ -947,7 +980,9 @@ class FileManager {
           }
         } catch (e2) {
           // Fallback to simple absolute path
-          final resolvedPath = path.absolute(modulePath);
+          final resolvedPath = path.normalize(
+            path.absolute(normalizedModulePath),
+          );
           Logger.debug(
             "Error resolving module path, using simple absolute path: $resolvedPath",
             category: 'FileManager',
@@ -957,7 +992,7 @@ class FileManager {
       }
     } catch (e) {
       // Fallback to simple absolute path
-      final resolvedPath = path.absolute(modulePath);
+      final resolvedPath = path.normalize(path.absolute(normalizedModulePath));
       Logger.debug(
         "Error resolving module path: $e, using simple absolute path: $resolvedPath",
         category: 'FileManager',

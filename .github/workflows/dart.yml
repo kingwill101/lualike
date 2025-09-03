@@ -7,14 +7,13 @@ name: Dart
 
 on:
   push:
-    branches: [ "master" ]
+    branches: ["master"]
   pull_request:
-    branches: [ "master" ]
 defaults:
   run:
     working-directory: pkgs/lualike
 jobs:
-  test:
+  dart-test:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -28,9 +27,9 @@ jobs:
 
       - name: Install dependencies
         run: dart pub get
-      
+
       - run: dart format --output=none --set-exit-if-changed .
-      
+
       - run: dart analyze
 
       - name: Run tests

@@ -3,6 +3,7 @@ import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/utils/file_system_utils.dart';
 import 'package:lualike/src/utils/io_abstractions.dart';
 import 'package:lualike/src/utils/platform_utils.dart' as platform;
+import 'package:path/path.dart' as path_lib;
 
 class OSLibrary {
   static final Map<String, BuiltinFunction> _functions = {
@@ -182,7 +183,7 @@ class _OSRemove implements BuiltinFunction {
       throw LuaError.typeError("os.remove requires a filename");
     }
 
-    final filename = (args[0] as Value).raw.toString();
+    final filename = path_lib.normalize((args[0] as Value).raw.toString());
 
     try {
       if (await fileExists(filename)) {
@@ -204,8 +205,8 @@ class _OSRename implements BuiltinFunction {
       throw LuaError.typeError("os.rename requires old and new names");
     }
 
-    final oldName = (args[0] as Value).raw.toString();
-    final newName = (args[1] as Value).raw.toString();
+    final oldName = path_lib.normalize((args[0] as Value).raw.toString());
+    final newName = path_lib.normalize((args[1] as Value).raw.toString());
 
     try {
       if (await fileExists(oldName)) {

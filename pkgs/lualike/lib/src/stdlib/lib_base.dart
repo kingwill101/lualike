@@ -1517,6 +1517,17 @@ class RequireFunction implements BuiltinFunction {
       }
     }
 
+    // Validate 'package.searchers' before attempting any direct module resolution.
+    // Lua requires require() to use package.searchers; if it is not a table,
+    // require must error out (attrib.lua test expects this).
+    {
+      final rawPkg = packageTable.raw as Map;
+      final searchersEntry = rawPkg['searchers'];
+      if (searchersEntry is! Value || searchersEntry.raw is! List) {
+        throw LuaError("package.searchers must be a table");
+      }
+    }
+
     // Special case: If the current script is in a special directory like .lua-tests,
     // and the module name doesn't contain a path separator, try to load it from the same directory first
     String? modulePath;
@@ -1561,7 +1572,8 @@ class RequireFunction implements BuiltinFunction {
           // Parse the module code
           final ast = parse(source, url: modulePathStr);
 
-          // Execute module code in a fresh environment to avoid polluting _ENV
+          // Execute module code in an isolated module environment.
+          // After execution, propagate specific globals expected by tests.
           final moduleEnv = Environment.createModuleEnvironment(vm.globals)
             ..interpreter = vm;
 
@@ -1580,6 +1592,12 @@ class RequireFunction implements BuiltinFunction {
 
           // Get the directory part of the script path
           final moduleDir = path.dirname(absoluteModulePath);
+          final normalizedModulePath = path.url.joinAll(
+            path.split(path.normalize(absoluteModulePath)),
+          );
+          final normalizedModuleDir = path.url.joinAll(
+            path.split(path.normalize(moduleDir)),
+          );
 
           // Temporarily switch to the module environment
           final prevEnv = vm.getCurrentEnv();
@@ -1587,9 +1605,12 @@ class RequireFunction implements BuiltinFunction {
           vm.setCurrentEnv(moduleEnv);
           vm.currentScriptPath = absoluteModulePath;
 
-          // Store the script path in the module environment
-          moduleEnv.define('_SCRIPT_PATH', Value(absoluteModulePath));
-          moduleEnv.define('_SCRIPT_DIR', Value(moduleDir));
+          // Store the script path in the module environment (normalized)
+          Logger.debug(
+            'Require: setting module env paths _SCRIPT_PATH(norm)=$normalizedModulePath, _SCRIPT_DIR(norm)=$normalizedModuleDir | originals: path=$absoluteModulePath, dir=$moduleDir',
+          );
+          moduleEnv.define('_SCRIPT_PATH', Value(normalizedModulePath));
+          moduleEnv.define('_SCRIPT_DIR', Value(normalizedModuleDir));
 
           // Also set _MODULE_NAME global
           moduleEnv.define('_MODULE_NAME', Value(moduleName));
@@ -1666,8 +1687,11 @@ class RequireFunction implements BuiltinFunction {
             category: 'Require',
           );
 
-          // Return the loaded module and the path where it was found
-          return Value.multi([result, Value(modulePathStr)]);
+          // Return the loaded module and the path where it was found.
+          // Normalize path separators to forward slashes to keep test
+          // expectations consistent across platforms (e.g., 'libs/B.lua').
+          final normalizedPath = modulePathStr.replaceAll('\\', '/');
+          return Value.multi([result, Value(normalizedPath)]);
         } catch (e) {
           throw Exception("error loading module '$moduleName': $e");
         }
@@ -1675,15 +1699,24 @@ class RequireFunction implements BuiltinFunction {
     }
 
     // Step 3: If direct loading failed, try the searchers
-    if (!packageTable.containsKey("searchers") ||
-        packageTable["searchers"] is! Value) {
+    {
+      final rawPkg = packageTable.raw as Map;
+      final searchersAny = rawPkg['searchers'];
+      final typeName = searchersAny == null
+          ? 'null'
+          : searchersAny.runtimeType.toString();
+      print("DEBUG(require): package.searchers typeof=$typeName");
+    }
+    final pkgMapForSearchers = packageTable.raw as Map;
+    final searchersEntry = pkgMapForSearchers['searchers'];
+    if (searchersEntry is! Value) {
       throw Exception("package.searchers must be a table");
     }
-    final searchersVal = packageTable["searchers"] as Value;
-    if (searchersVal.raw is! List) {
+    final searchersRaw = searchersEntry.raw;
+    if (searchersRaw is! List) {
       throw Exception("package.searchers must be a table");
     }
-    final searchers = searchersVal.raw as List;
+    final searchers = searchersRaw;
 
     // Try each searcher in order
     final errors = <String>[];
@@ -1734,6 +1767,13 @@ class RequireFunction implements BuiltinFunction {
           // Return the loaded module and the loader data (e.g. path)
           final ret = loaded[moduleName];
           if (loaderData is Value && loaderData.raw != null) {
+            // Normalize path to use forward slashes consistently (Lua convention)
+            if (loaderData.raw is String) {
+              final normalizedLoaderData = Value(
+                path.normalize(loaderData.raw as String),
+              );
+              return [ret, normalizedLoaderData];
+            }
             return [ret, loaderData];
           }
           return ret;

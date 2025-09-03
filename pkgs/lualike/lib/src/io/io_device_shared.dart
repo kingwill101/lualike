@@ -110,7 +110,7 @@ abstract class BaseIODevice implements IODevice {
   BufferMode bufferMode = BufferMode.full;
   int bufferSize = 8192;
 
-  BaseIODevice(this.mode) {
+  BaseIODevice([this.mode = 'r']) {
     Logger.debug('Created BaseIODevice with mode: $mode', category: 'IO');
   }
 
