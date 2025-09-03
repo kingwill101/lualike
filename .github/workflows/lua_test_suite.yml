@@ -1,15 +1,19 @@
 name: Lua Test Suite
 
 on:
-  push:
-    branches: [ "master" ]
+  workflow_run:
+    workflows: ["Dart"]
+    types: [completed]
+    branches: ["master"]
   pull_request:
-    branches: [ "master" ]
+
 defaults:
   run:
     working-directory: pkgs/lualike
+
 jobs:
-  test:
+  lua-test:
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'pull_request' }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -23,6 +27,6 @@ jobs:
 
       - name: Install dependencies
         run: dart pub get
-      
+
       - name: Run lua test suite
-        run: dart run tools/test.dart
+        run: dart run tools/test.dart --verbose

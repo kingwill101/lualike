@@ -2,7 +2,9 @@
 name: Deploy Dart Web App to Pages
 
 on:
-  push:
+  workflow_run:
+    workflows: ["Dart", "Lua Test Suite"]
+    types: [completed]
     branches: ["master"]
   workflow_dispatch:
 
@@ -19,7 +21,7 @@ defaults:
     working-directory: pkgs/lualike
 jobs:
   deploy:
-  
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -46,7 +48,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: build/  # Only upload compiled web files
+          path: pkgs/lualike/build/ # Only upload compiled web files
 
       - name: Deploy to GitHub Pages
         id: deployment
