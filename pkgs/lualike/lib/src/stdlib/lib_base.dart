@@ -1667,7 +1667,9 @@ class RequireFunction implements BuiltinFunction {
           );
 
           // Return the loaded module and the path where it was found
-          return Value.multi([result, Value(modulePathStr)]);
+          // Normalize path to use forward slashes consistently (Lua convention)
+          final normalizedPath = path.normalize(modulePathStr);
+          return Value.multi([result, Value(normalizedPath)]);
         } catch (e) {
           throw Exception("error loading module '$moduleName': $e");
         }
@@ -1734,6 +1736,13 @@ class RequireFunction implements BuiltinFunction {
           // Return the loaded module and the loader data (e.g. path)
           final ret = loaded[moduleName];
           if (loaderData is Value && loaderData.raw != null) {
+            // Normalize path to use forward slashes consistently (Lua convention)
+            if (loaderData.raw is String) {
+              final normalizedLoaderData = Value(
+                path.normalize(loaderData.raw as String),
+              );
+              return [ret, normalizedLoaderData];
+            }
             return [ret, loaderData];
           }
           return ret;

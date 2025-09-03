@@ -346,7 +346,7 @@ class _LuaLoader implements BuiltinFunction {
           throw Exception("error loading module '$name': $e");
         }
       }),
-      Value(modulePath),
+      Value(path_lib.normalize(modulePath ?? '')),
     ];
   }
 }
@@ -395,7 +395,11 @@ void definePackageLibrary({
               // Module loading will be handled by require
               return Value(source);
             }),
-            Value(filename.raw),
+            Value(
+              path_lib.normalize(
+                filename.raw.toString(),
+              ),
+            ),
           ];
         }
       } catch (e) {
