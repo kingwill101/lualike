@@ -111,23 +111,25 @@ extension VMInterop on Interpreter {
         }
       }
 
-    currentScriptPath = absolutePath;
+      currentScriptPath = absolutePath;
 
-    // Normalize using path library: split (handles \ or /) and rejoin with URL-style forward slashes
-    final normalizedAbsolutePath =
-      path.url.joinAll(path.split(path.normalize(absolutePath)));
+      // Normalize using path library: split (handles \ or /) and rejoin with URL-style forward slashes
+      final normalizedAbsolutePath = path.url.joinAll(
+        path.split(path.normalize(absolutePath)),
+      );
 
-    // Also store it in the global environment as _SCRIPT_PATH and _SCRIPT_DIR
-    globals.define('_SCRIPT_PATH', Value(normalizedAbsolutePath));
+      // Also store it in the global environment as _SCRIPT_PATH and _SCRIPT_DIR
+      globals.define('_SCRIPT_PATH', Value(normalizedAbsolutePath));
 
-    // Get the directory part of the script path
-    final scriptDir = path.dirname(absolutePath);
-    final normalizedScriptDir =
-      path.url.joinAll(path.split(path.normalize(scriptDir)));
-    globals.define('_SCRIPT_DIR', Value(normalizedScriptDir));
+      // Get the directory part of the script path
+      final scriptDir = path.dirname(absolutePath);
+      final normalizedScriptDir = path.url.joinAll(
+        path.split(path.normalize(scriptDir)),
+      );
+      globals.define('_SCRIPT_DIR', Value(normalizedScriptDir));
 
       Logger.debug(
-  "Set script path globals: _SCRIPT_PATH(norm)=$normalizedAbsolutePath, _SCRIPT_DIR(norm)=$normalizedScriptDir | originals: path=$absolutePath, dir=$scriptDir",
+        "Set script path globals: _SCRIPT_PATH(norm)=$normalizedAbsolutePath, _SCRIPT_DIR(norm)=$normalizedScriptDir | originals: path=$absolutePath, dir=$scriptDir",
         category: 'Interpreter',
       );
 
@@ -238,8 +240,9 @@ class LuaLike {
       // Set script path in environment if provided
       if (scriptPath != null) {
         // Normalize using path library so code and tests see a consistent path format
-        final normalized =
-            path.url.joinAll(path.split(path.normalize(scriptPath)));
+        final normalized = path.url.joinAll(
+          path.split(path.normalize(scriptPath)),
+        );
         Logger.debug(
           'LuaLike.evaluate: setting _SCRIPT_PATH (norm)=$normalized | original=$scriptPath',
           category: 'Interpreter',
@@ -299,8 +302,9 @@ Future<List<Value>> runFile(String pathStr, {Map<String, dynamic>? env}) async {
   env ??= {};
 
   // Set the script path in the environment (normalized)
-  final normalizedEnvPath =
-      path.url.joinAll(path.split(path.normalize(pathStr)));
+  final normalizedEnvPath = path.url.joinAll(
+    path.split(path.normalize(pathStr)),
+  );
   Logger.debug(
     'runFile: setting _SCRIPT_PATH (norm)=$normalizedEnvPath | original=$pathStr',
     category: 'Interpreter',
@@ -326,8 +330,9 @@ Future<List<Value>> runCode(
 
   // Set the script path in the environment if provided
   if (filePath != null) {
-    final normalizedEnvPath =
-        path.url.joinAll(path.split(path.normalize(filePath)));
+    final normalizedEnvPath = path.url.joinAll(
+      path.split(path.normalize(filePath)),
+    );
     Logger.debug(
       'runCode: setting _SCRIPT_PATH (norm)=$normalizedEnvPath | original=$filePath',
       category: 'Interpreter',

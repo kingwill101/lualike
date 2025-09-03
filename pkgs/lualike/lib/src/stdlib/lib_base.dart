@@ -1705,7 +1705,7 @@ class RequireFunction implements BuiltinFunction {
       final typeName = searchersAny == null
           ? 'null'
           : searchersAny.runtimeType.toString();
-      print("DEBUG(require): package.searchers typeof=" + typeName);
+      print("DEBUG(require): package.searchers typeof=$typeName");
     }
     final pkgMapForSearchers = packageTable.raw as Map;
     final searchersEntry = pkgMapForSearchers['searchers'];

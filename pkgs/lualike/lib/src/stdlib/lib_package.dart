@@ -268,14 +268,16 @@ class _LuaLoader implements BuiltinFunction {
             print("DEBUG: Setting script path to: $absoluteModulePath");
             interpreter.currentScriptPath = absoluteModulePath;
 
-      // Store the script path in the module environment (normalized)
-      final normalizedModulePath =
-        path_lib.url.joinAll(path_lib.split(path_lib.normalize(absoluteModulePath)));
-      final moduleDir = path_lib.dirname(absoluteModulePath);
-      final normalizedModuleDir =
-        path_lib.url.joinAll(path_lib.split(path_lib.normalize(moduleDir)));
-      moduleEnv.define('_SCRIPT_PATH', Value(normalizedModulePath));
-      moduleEnv.define('_SCRIPT_DIR', Value(normalizedModuleDir));
+            // Store the script path in the module environment (normalized)
+            final normalizedModulePath = path_lib.url.joinAll(
+              path_lib.split(path_lib.normalize(absoluteModulePath)),
+            );
+            final moduleDir = path_lib.dirname(absoluteModulePath);
+            final normalizedModuleDir = path_lib.url.joinAll(
+              path_lib.split(path_lib.normalize(moduleDir)),
+            );
+            moduleEnv.define('_SCRIPT_PATH', Value(normalizedModulePath));
+            moduleEnv.define('_SCRIPT_DIR', Value(normalizedModuleDir));
 
             // Also set _MODULE_NAME global
             moduleEnv.define('_MODULE_NAME', Value(name));

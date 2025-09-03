@@ -356,7 +356,6 @@ class Compiler implements AstVisitor<void> {
     // Note: We assume our SETTABLE opcode pops the key and value and then pushes the table
     // back onto the stack so that successive SETTABLE operations can update the same table.
     for (final entry in node.entries) {
-      //FIXME: can be identifier/literal
       if (entry is KeyedTableEntry) {
         // If the key is an Identifier, load its name as a constant.
         dynamic keyName;
