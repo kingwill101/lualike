@@ -395,11 +395,7 @@ void definePackageLibrary({
               // Module loading will be handled by require
               return Value(source);
             }),
-            Value(
-              path_lib.normalize(
-                filename.raw.toString(),
-              ),
-            ),
+            Value(path_lib.normalize(filename.raw.toString())),
           ];
         }
       } catch (e) {
