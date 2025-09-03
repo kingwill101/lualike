@@ -268,12 +268,14 @@ class _LuaLoader implements BuiltinFunction {
             print("DEBUG: Setting script path to: $absoluteModulePath");
             interpreter.currentScriptPath = absoluteModulePath;
 
-            // Store the script path in the module environment
-            moduleEnv.define('_SCRIPT_PATH', Value(absoluteModulePath));
-
-            // Get the directory part of the script path
-            final moduleDir = path_lib.dirname(absoluteModulePath);
-            moduleEnv.define('_SCRIPT_DIR', Value(moduleDir));
+      // Store the script path in the module environment (normalized)
+      final normalizedModulePath =
+        path_lib.url.joinAll(path_lib.split(path_lib.normalize(absoluteModulePath)));
+      final moduleDir = path_lib.dirname(absoluteModulePath);
+      final normalizedModuleDir =
+        path_lib.url.joinAll(path_lib.split(path_lib.normalize(moduleDir)));
+      moduleEnv.define('_SCRIPT_PATH', Value(normalizedModulePath));
+      moduleEnv.define('_SCRIPT_DIR', Value(normalizedModuleDir));
 
             // Also set _MODULE_NAME global
             moduleEnv.define('_MODULE_NAME', Value(name));
@@ -282,13 +284,13 @@ class _LuaLoader implements BuiltinFunction {
               "DEBUG: Module environment set up with _SCRIPT_PATH=$absoluteModulePath, _SCRIPT_DIR=$moduleDir, _MODULE_NAME=$name",
             );
             Logger.debug(
-              "Module environment set up with _SCRIPT_PATH=$absoluteModulePath, _SCRIPT_DIR=$moduleDir, _MODULE_NAME=$name",
+              "Module environment set up with _SCRIPT_PATH(norm)=$normalizedModulePath, _SCRIPT_DIR(norm)=$normalizedModuleDir | originals: path=$absoluteModulePath, dir=$moduleDir, _MODULE_NAME=$name",
               category: 'Package',
             );
 
             // Set the globals in the module environment
-            vm.globals.define('_SCRIPT_PATH', Value(absoluteModulePath));
-            vm.globals.define('_SCRIPT_DIR', Value(moduleDir));
+            vm.globals.define('_SCRIPT_PATH', Value(normalizedModulePath));
+            vm.globals.define('_SCRIPT_DIR', Value(normalizedModuleDir));
             vm.globals.define('_MODULE_NAME', Value(name));
 
             print(
