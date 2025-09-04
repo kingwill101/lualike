@@ -20,7 +20,10 @@ class LuaFile {
 
   /// Close the file
   Future<List<Object?>> close() async {
-    Logger.debug("Closing file", category: 'LuaFile');
+    Logger.debug(
+      "Closing file: $this (device: ${_device.runtimeType})",
+      category: 'LuaFile',
+    );
     try {
       await _device.close();
       Logger.debug("File closed successfully", category: 'LuaFile');
@@ -33,7 +36,7 @@ class LuaFile {
 
   /// Flush any buffered output
   Future<List<Object?>> flush() async {
-    Logger.debug("Flushing file buffer", category: 'LuaFile');
+    Logger.debug("Flushing file buffer: $this", category: 'LuaFile');
     try {
       await _device.flush();
       Logger.debug("File buffer flushed successfully", category: 'LuaFile');
@@ -47,7 +50,7 @@ class LuaFile {
   /// Read from the file according to the given format
   Future<List<Object?>> read([String format = "l"]) async {
     Logger.debug(
-      "Reading from file with format '$format'",
+      "Reading from file $this with format '$format'",
       category: 'LuaFile',
     );
     final result = await _device.read(format);
@@ -62,7 +65,7 @@ class LuaFile {
   /// Write data to the file
   Future<List<Object?>> write(String data) async {
     Logger.debug(
-      "Writing to file: ${data.length} characters",
+      "Writing to file $this: ${data.length} characters",
       category: 'LuaFile',
     );
     final result = await _device.write(data);
@@ -84,7 +87,7 @@ class LuaFile {
   /// - "end": from end of file
   Future<List<Object?>> seek(String whence, [int offset = 0]) async {
     Logger.debug(
-      "Seeking in file: whence=$whence, offset=$offset",
+      "Seeking in file $this: whence=$whence, offset=$offset",
       category: 'LuaFile',
     );
     try {
@@ -116,7 +119,7 @@ class LuaFile {
   /// - "line": line buffering
   Future<List<Object?>> setvbuf(String mode, [int? size]) async {
     Logger.debug(
-      "Setting buffer mode: mode=$mode, size=$size",
+      "Setting buffer mode for $this: mode=$mode, size=$size",
       category: 'LuaFile',
     );
     try {
@@ -140,37 +143,69 @@ class LuaFile {
   /// Create an iterator that reads lines from the file
   Future<Value> lines([List<String> formats = const ["l"]]) async {
     Logger.debug(
-      "Creating file line iterator with formats: $formats",
-      category: 'LuaFile',
+      "Creating file line iterator for $this with formats: $formats",
+      category: 'IO',
     );
+
+    // Check if file was opened for reading - return error function instead of throwing
+    if (mode == "w" || mode == "a") {
+      Logger.debug(
+        'Cannot create lines iterator for write-only file $this with mode: $mode',
+        category: 'IO',
+      );
+      return Value((List<Object?> args) async {
+        throw LuaError("Cannot read from write-only file");
+      });
+    }
+
     bool hasBeenClosed = false;
+    int iterationCount = 0;
 
     return Value((List<Object?> args) async {
+      iterationCount++;
+      Logger.debug(
+        "Line iterator call #$iterationCount for $this",
+        category: 'IO',
+      );
+
       if (hasBeenClosed) {
         Logger.debug(
-          "Line iterator called after file was closed",
-          category: 'LuaFile',
+          "Line iterator called after file $this was closed (iteration #$iterationCount)",
+          category: 'IO',
         );
         throw LuaError("file is already closed");
       }
 
       if (isClosed) {
         Logger.debug(
-          "Line iterator called but file is closed",
-          category: 'LuaFile',
+          "Line iterator called but file $this is closed (iteration #$iterationCount)",
+          category: 'IO',
         );
         hasBeenClosed = true;
         throw LuaError("file is already closed");
       }
 
-      Logger.debug("Line iterator checking EOF", category: 'LuaFile');
-      if (await _device.isEOF()) {
+      Logger.debug(
+        "Line iterator checking EOF for $this (iteration #$iterationCount)",
+        category: 'IO',
+      );
+      final isAtEOF = await _device.isEOF();
+      Logger.debug(
+        "EOF check result: $isAtEOF for $this (iteration #$iterationCount)",
+        category: 'IO',
+      );
+
+      if (isAtEOF) {
         Logger.debug(
-          "Reached EOF in line iterator, closing file",
-          category: 'LuaFile',
+          "Reached EOF in line iterator for $this, closing file (iteration #$iterationCount)",
+          category: 'IO',
         );
         await close();
         hasBeenClosed = true;
+        Logger.debug(
+          "File closed, returning null to end iteration (iteration #$iterationCount)",
+          category: 'IO',
+        );
         return Value(null);
       }
 
@@ -178,18 +213,27 @@ class LuaFile {
       final results = <Object?>[];
       for (final format in formats) {
         Logger.debug(
-          "Line iterator reading format: $format",
-          category: 'LuaFile',
+          "Line iterator reading format: $format from $this (iteration #$iterationCount)",
+          category: 'IO',
         );
 
         final result = await _device.read(format);
+        Logger.debug(
+          "Read result: success=${result.isSuccess}, value=${result.value}, error=${result.error} (iteration #$iterationCount)",
+          category: 'IO',
+        );
+
         if (!result.isSuccess || result.value == null) {
           Logger.debug(
-            "Line iterator read unsuccessful, closing file",
-            category: 'LuaFile',
+            "Line iterator read unsuccessful for $this, closing file (iteration #$iterationCount)",
+            category: 'IO',
           );
           await close();
           hasBeenClosed = true;
+          Logger.debug(
+            "File closed, returning null to end iteration (iteration #$iterationCount)",
+            category: 'LuaFile',
+          );
           return Value(null);
         }
 
@@ -197,9 +241,22 @@ class LuaFile {
       }
 
       Logger.debug(
-        "Line iterator read successful: ${results.length} values",
-        category: 'LuaFile',
+        "Line iterator read successful for $this: ${results.length} values (iteration #$iterationCount)",
+        category: 'IO',
       );
+
+      // Log what we're about to return
+      if (results.length == 1) {
+        Logger.debug(
+          "Returning single value: ${results[0]} (iteration #$iterationCount)",
+          category: 'IO',
+        );
+      } else {
+        Logger.debug(
+          "Returning multi values: $results (iteration #$iterationCount)",
+          category: 'IO',
+        );
+      }
 
       // Return multiple values if there are multiple formats
       if (results.length == 1) {
