@@ -24,7 +24,20 @@ class FileIODevice extends BaseIODevice {
       category: 'IO',
     );
     FileMode fileMode;
-    switch (mode) {
+    // Handle binary mode properly - 'b' can only appear at the end or after '+'
+    String effectiveMode = mode;
+    if (mode.endsWith('b')) {
+      effectiveMode = mode.substring(0, mode.length - 1);
+    } else if (mode.contains('+b')) {
+      effectiveMode = mode.replaceAll('+b', '+');
+    } else if (mode.contains('b') &&
+        !mode.endsWith('b') &&
+        !mode.contains('+b')) {
+      // Invalid: 'b' in wrong position (like 'rb+')
+      Logger.debug('Invalid file mode: $mode', category: 'IO');
+      throw LuaError("invalid mode");
+    }
+    switch (effectiveMode) {
       case "r":
         fileMode = FileMode.read;
         break;
@@ -45,7 +58,7 @@ class FileIODevice extends BaseIODevice {
         break;
       default:
         Logger.debug('Invalid file mode: $mode', category: 'IO');
-        throw LuaError("Invalid file mode: $mode");
+        throw LuaError("invalid mode");
     }
 
     try {
