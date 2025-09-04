@@ -149,7 +149,7 @@ void main() {
         // Write to file
         final writeFunc = IOLib.functions['write'] as IOWrite;
         var result = await writeFunc.call([Value('Hello, World!\n')]);
-        expect((result as Value).raw[0], true);
+        expect((result as Value).raw, isA<LuaFile>());
 
         // Close file
         final closeFunc = IOLib.functions['close'] as IOClose;
@@ -180,7 +180,7 @@ void main() {
         // Write to temp file (now the default output)
         final writeFunc = IOLib.functions['write'] as IOWrite;
         var result = await writeFunc.call([Value('Hello, World!\n')]);
-        expect((result as Value).raw[0], true);
+        expect((result as Value).raw, isA<LuaFile>());
 
         // Close temp file
         final closeFunc = IOLib.functions['close'] as IOClose;

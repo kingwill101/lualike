@@ -295,8 +295,8 @@ void main() {
           providerName: 'TestFileSystem',
         );
 
-        final ioOpen = IOLib.functions['open']!;
-        final result = ioOpen.call([Value('test.txt'), Value('w')]);
+        final ioOpen = IOLib.functions['open']! as IOOpen;
+        final result = await ioOpen.call([Value('test.txt'), Value('w')]);
 
         expect(result, isA<Value>());
         final value = result as Value;
@@ -312,8 +312,8 @@ void main() {
           providerName: 'TestFileSystem',
         );
 
-        final ioTmpfile = IOLib.functions['tmpfile']!;
-        final result = ioTmpfile.call([]);
+        final ioTmpfile = IOLib.functions['tmpfile']! as IOTmpfile;
+        final result = await ioTmpfile.call([]);
 
         expect(result, isA<Value>());
         final value = result as Value;
@@ -527,8 +527,6 @@ void main() {
       test(
         'should work transparently with Lua scripts using IOLib functions',
         () async {
-          final interpreter = Interpreter();
-
           // Set up in-memory file system
           IOLib.fileSystemProvider.setIODeviceFactory(
             createInMemoryIODevice,
@@ -536,25 +534,25 @@ void main() {
           );
 
           // Use IOLib functions directly instead of Lua script
-          final ioOpen = IOLib.functions['open']!;
-          final ioWrite = IOLib.functions['write']!;
-          final ioClose = IOLib.functions['close']!;
+          final ioOpen = IOLib.functions['open']! as IOOpen;
+          final ioWrite = IOLib.functions['write']! as IOWrite;
+          final ioClose = IOLib.functions['close']! as IOClose;
 
           // Open file for writing
-          final openResult = ioOpen.call([Value('test.txt'), Value('w')]);
+          final openResult = await ioOpen.call([Value('test.txt'), Value('w')]);
           expect(openResult, isA<Value>());
 
           final luaFile = (openResult as Value).raw as LuaFile;
           IOLib.defaultOutput = luaFile;
 
           // Write content
-          ioWrite.call([Value('Hello from IOLib!')]);
+          await ioWrite.call([Value('Hello from IOLib!')]);
 
           // Close file
-          ioClose.call([]);
+          await ioClose.call([]);
 
           // Open for reading
-          final readOpenResult = ioOpen.call([
+          final readOpenResult = await ioOpen.call([
             Value('test.txt'),
             Value('r'),
           ]);
@@ -575,32 +573,31 @@ void main() {
           providerName: 'InMemoryFileSystem',
         );
 
-        // Try to open non-existent file for reading
-        final ioOpen = IOLib.functions['open']!;
-
         // io.open should return error values, not throw for missing files
         try {
-          final result = ioOpen.call([
-            Value('nonexistent.txt'),
+          // Try to open non-existent file
+          final result = await (IOLib.functions['open']! as IOOpen).call([
+            Value('nonexistent_file.txt'),
             Value('r'),
           ]);
           // Should get here - io.open returns error tuple instead of throwing
-          if (result is Value && result.raw is List) {
-            final resultList = result.raw as List;
-            expect(
-              resultList[0],
-              isNull,
-            ); // First element should be null for error
-            expect(
-              resultList.length,
-              greaterThan(1),
-            ); // Should have error message
-          } else if (result is List) {
-            expect(result[0], isNull); // First element should be null for error
-            expect(result.length, greaterThan(1)); // Should have error message
-          } else {
-            fail('Expected error tuple from io.open');
-          }
+          // IOOpen returns Value.multi([null, error_message]) for errors
+          expect(result, isA<Value>());
+          final value = result as Value;
+          expect(value.raw, isA<List>());
+          final resultList = value.raw as List;
+          expect(
+            resultList[0],
+            isNull,
+          ); // First element should be null for error
+          expect(
+            resultList.length,
+            greaterThan(1),
+          ); // Should have error message
+          expect(
+            resultList[1],
+            isA<String>(),
+          ); // Error message should be a string
         } catch (e) {
           // If it does throw, that's also acceptable behavior
           expect(e, isA<LuaError>());
