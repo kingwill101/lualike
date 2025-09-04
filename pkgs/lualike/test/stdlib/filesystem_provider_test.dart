@@ -543,7 +543,10 @@ void main() {
           expect(openResult, isA<Value>());
 
           final luaFile = (openResult as Value).raw as LuaFile;
-          IOLib.defaultOutput = luaFile;
+          IOLib.defaultOutput = Value(
+            luaFile,
+            metatable: IOLib.fileClass.metamethods,
+          );
 
           // Write content
           await ioWrite.call([Value('Hello from IOLib!')]);
