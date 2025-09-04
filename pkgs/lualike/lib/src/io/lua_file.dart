@@ -143,7 +143,6 @@ class LuaFile {
       "Creating file line iterator with formats: $formats",
       category: 'LuaFile',
     );
-    int index = 0;
     bool hasBeenClosed = false;
 
     return Value((List<Object?> args) async {
@@ -175,29 +174,39 @@ class LuaFile {
         return Value(null);
       }
 
-      final format = formats[index % formats.length];
-      Logger.debug(
-        "Line iterator reading format: $format (iteration $index)",
-        category: 'LuaFile',
-      );
-
-      final result = await _device.read(format);
-      if (!result.isSuccess || result.value == null) {
+      // Read all formats in a single call and return multiple values
+      final results = <Object?>[];
+      for (final format in formats) {
         Logger.debug(
-          "Line iterator read unsuccessful, closing file",
+          "Line iterator reading format: $format",
           category: 'LuaFile',
         );
-        await close();
-        hasBeenClosed = true;
-        return Value(null);
+
+        final result = await _device.read(format);
+        if (!result.isSuccess || result.value == null) {
+          Logger.debug(
+            "Line iterator read unsuccessful, closing file",
+            category: 'LuaFile',
+          );
+          await close();
+          hasBeenClosed = true;
+          return Value(null);
+        }
+
+        results.add(result.value);
       }
 
       Logger.debug(
-        "Line iterator read successful: ${result.value}",
+        "Line iterator read successful: ${results.length} values",
         category: 'LuaFile',
       );
-      index++;
-      return Value(result.value);
+
+      // Return multiple values if there are multiple formats
+      if (results.length == 1) {
+        return Value(results[0]);
+      } else {
+        return Value.multi(results);
+      }
     });
   }
 
