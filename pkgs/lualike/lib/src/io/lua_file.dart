@@ -104,7 +104,8 @@ class LuaFile {
       return [position];
     } catch (e) {
       Logger.error("Error during seek operation: $e", error: 'LuaFile $e');
-      return [null, e.toString()];
+      // Return 3-value error tuple as expected by Lua: (nil, message, code)
+      return [null, e.toString(), 0];
     }
   }
 
@@ -143,19 +144,34 @@ class LuaFile {
       category: 'LuaFile',
     );
     int index = 0;
+    bool hasBeenClosed = false;
 
     return Value((List<Object?> args) async {
+      if (hasBeenClosed) {
+        Logger.debug(
+          "Line iterator called after file was closed",
+          category: 'LuaFile',
+        );
+        throw LuaError("file is already closed");
+      }
+
       if (isClosed) {
         Logger.debug(
           "Line iterator called but file is closed",
           category: 'LuaFile',
         );
-        return Value(null);
+        hasBeenClosed = true;
+        throw LuaError("file is already closed");
       }
 
       Logger.debug("Line iterator checking EOF", category: 'LuaFile');
       if (await _device.isEOF()) {
-        Logger.debug("Reached EOF in line iterator", category: 'LuaFile');
+        Logger.debug(
+          "Reached EOF in line iterator, closing file",
+          category: 'LuaFile',
+        );
+        await close();
+        hasBeenClosed = true;
         return Value(null);
       }
 
@@ -167,7 +183,12 @@ class LuaFile {
 
       final result = await _device.read(format);
       if (!result.isSuccess || result.value == null) {
-        Logger.debug("Line iterator read unsuccessful", category: 'LuaFile');
+        Logger.debug(
+          "Line iterator read unsuccessful, closing file",
+          category: 'LuaFile',
+        );
+        await close();
+        hasBeenClosed = true;
         return Value(null);
       }
 
