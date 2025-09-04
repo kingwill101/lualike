@@ -10,6 +10,7 @@ import 'io_device.dart';
 /// Implementation for real files using dart:io
 class FileIODevice extends BaseIODevice {
   RandomAccessFile? _file;
+  int _eofCallCount = 0;
 
   FileIODevice._(RandomAccessFile file, String mode) : super(mode) {
     _file = file;
@@ -111,6 +112,15 @@ class FileIODevice extends BaseIODevice {
     Logger.debug('Reading file with format: $format', category: 'IO');
     checkOpen();
     validateReadFormat(format);
+
+    // Check if file was opened for reading
+    if (mode == "w" || mode == "a") {
+      Logger.debug(
+        'Cannot read from write-only file with mode: $mode',
+        category: 'IO',
+      );
+      return ReadResult(null, "Cannot read from write-only file", 9);
+    }
 
     final normalizedFormat = normalizeReadFormat(format);
 
@@ -399,15 +409,47 @@ class FileIODevice extends BaseIODevice {
 
   @override
   Future<bool> isEOF() async {
-    Logger.debug('Checking if at EOF', category: 'IO');
     checkOpen();
     final currentPos = await _file!.position();
     final length = await _file!.length();
     final isEof = currentPos >= length;
-    Logger.debug(
-      'EOF check: pos=$currentPos, length=$length, EOF=$isEof',
-      category: 'IO',
-    );
+
+    // Log every 100th call to avoid spam
+
+    _eofCallCount++;
+    if (_eofCallCount % 100 == 1) {
+      Logger.debug(
+        'EOF check #$_eofCallCount: pos=$currentPos, length=$length, EOF=$isEof',
+        category: 'IO',
+      );
+    }
+
+    // Additional check - try to peek at next byte
+    if (!isEof) {
+      try {
+        final savedPos = currentPos;
+        final peekByte = await _file!.readByte();
+        await _file!.setPosition(savedPos);
+        if (_eofCallCount % 100 == 1) {
+          Logger.debug(
+            'Peek byte check #$_eofCallCount: peekByte=$peekByte, actualEOF=${peekByte == -1}',
+            category: 'IO',
+          );
+        }
+        if (peekByte == -1) {
+          Logger.debug(
+            'Peek byte indicates EOF despite position check at call #$_eofCallCount',
+            category: 'IO',
+          );
+          return true;
+        }
+      } catch (e) {
+        if (_eofCallCount % 100 == 1) {
+          Logger.debug('Error during peek byte check: $e', category: 'IO');
+        }
+      }
+    }
+
     return isEof;
   }
 
