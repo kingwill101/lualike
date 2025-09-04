@@ -18,6 +18,7 @@ class IOLib {
 
   static LuaFile? _defaultInput;
   static LuaFile? _defaultOutput;
+  static bool _defaultOutputExplicitlyClosed = false;
 
   // Get singleton instances
   static StdinDevice get stdinDevice => _stdinDevice ??= StdinDevice();
@@ -172,6 +173,7 @@ class IOLib {
       await _defaultOutput?.close();
     }
     _defaultOutput = null;
+    _defaultOutputExplicitlyClosed = false;
   }
 }
 
@@ -182,6 +184,11 @@ class IOClose implements BuiltinFunction {
     if (args.isEmpty) {
       Logger.debug('Closing default output', category: 'IO');
       final result = await IOLib.defaultOutput.close();
+      IOLib._defaultOutputExplicitlyClosed = true;
+      Logger.debug(
+        'Set _defaultOutputExplicitlyClosed to true',
+        category: 'IO',
+      );
       IOLib._defaultOutput = null; // Reset to stdout on next access
       return Value.multi(result);
     }
@@ -207,7 +214,20 @@ class IOClose implements BuiltinFunction {
     // Check if file is already closed
     if (luaFile.isClosed) {
       Logger.debug('File is already closed', category: 'IO');
-      throw LuaError("attempt to use a closed file");
+
+      // Special handling for default input/output files
+      // If this is the default input or output file that was closed (e.g., by GC),
+      // we should return success rather than throwing an error
+      if (luaFile == IOLib._defaultInput || luaFile == IOLib._defaultOutput) {
+        Logger.debug(
+          'Default input/output file already closed, returning success',
+          category: 'IO',
+        );
+        return Value.multi([true]);
+      }
+
+      // For other files, throw an error as expected
+      throw LuaError("closed file");
     }
 
     final result = await luaFile.close();
@@ -404,6 +424,12 @@ class IOOutput implements BuiltinFunction {
 
     Logger.debug('Setting new default output', category: 'IO');
     IOLib._defaultOutput = newFile;
+    IOLib._defaultOutputExplicitlyClosed =
+        false; // Reset the flag when setting new output
+    Logger.debug(
+      'Reset _defaultOutputExplicitlyClosed to false',
+      category: 'IO',
+    );
     Logger.debug('IOOutput.call() completed', category: 'IO');
     return result;
   }
@@ -513,6 +539,20 @@ class IOWrite implements BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debug('Executing IO write', category: 'IO');
+
+    // Check if default output was explicitly closed
+    Logger.debug(
+      'Checking _defaultOutputExplicitlyClosed: ${IOLib._defaultOutputExplicitlyClosed}',
+      category: 'IO',
+    );
+    if (IOLib._defaultOutputExplicitlyClosed) {
+      Logger.debug(
+        'Default output was explicitly closed, throwing error',
+        category: 'IO',
+      );
+      throw LuaError(" output file is closed");
+    }
+
     if (args.isEmpty) {
       Logger.debug('No arguments to write', category: 'IO');
       return Value.multi([true]);
@@ -521,10 +561,29 @@ class IOWrite implements BuiltinFunction {
     for (final arg in args) {
       final str = (arg as Value).raw.toString();
       Logger.debug('Writing string: $str', category: 'IO');
-      final result = await IOLib.defaultOutput.write(str);
-      if (result[0] == null) {
-        Logger.debug('Error writing: ${result[1]}', category: 'IO');
-        return Value.multi(result);
+
+      try {
+        final result = await IOLib.defaultOutput.write(str);
+        if (result[0] == null) {
+          Logger.debug('Error writing: ${result[1]}', category: 'IO');
+          return Value.multi(result);
+        }
+      } catch (e) {
+        // Catch device-level errors and convert to expected error message
+        Logger.debug(
+          'IOWrite caught exception: ${e.toString()}',
+          category: 'IO',
+        );
+        if (e.toString().contains("attempt to use a closed file")) {
+          Logger.debug(
+            'Converting closed file error to output file closed',
+            category: 'IO',
+          );
+          throw LuaError(" output file is closed");
+        }
+        // Re-throw other errors as-is
+        Logger.debug('Re-throwing exception as-is', category: 'IO');
+        rethrow;
       }
     }
 
