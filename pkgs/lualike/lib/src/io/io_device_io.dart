@@ -313,15 +313,17 @@ class StdinDevice extends BaseIODevice {
           );
           return line;
         }
-        final inputStr = line.value as String;
+        final inputStr = (line.value as String).trim();
         Logger.debug('Parsing "$inputStr" as number', category: 'IO');
-        final number = num.tryParse(inputStr);
-        if (number == null) {
-          Logger.debug('Failed to parse as number', category: 'IO');
-        } else {
+
+        try {
+          final number = LuaNumberParser.parse(inputStr);
           Logger.debug('Parsed number: $number', category: 'IO');
+          return ReadResult(number);
+        } catch (e) {
+          Logger.debug('Failed to parse as number: $e', category: 'IO');
+          return ReadResult(null);
         }
-        return ReadResult(number);
       } else {
         throw LuaError("Unsupported format for stdin: $format");
       }
