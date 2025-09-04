@@ -17,11 +17,20 @@ class IOLib {
   static FileSystemProvider? _fileSystemProvider;
 
   static LuaFile? _defaultInput;
-  static LuaFile? _defaultOutput;
+  static Value? _defaultOutput;
   static bool _defaultOutputExplicitlyClosed = false;
 
   // Get singleton instances
-  static StdinDevice get stdinDevice => _stdinDevice ??= StdinDevice();
+  static StdinDevice get stdinDevice {
+    Logger.debug('Getting stdinDevice', category: 'IO');
+    Logger.debug('Current _stdinDevice: $_stdinDevice', category: 'IO');
+    if (_stdinDevice == null) {
+      Logger.debug('Creating new StdinDevice', category: 'IO');
+      _stdinDevice = StdinDevice();
+      Logger.debug('Created StdinDevice: $_stdinDevice', category: 'IO');
+    }
+    return _stdinDevice!;
+  }
 
   static StdoutDevice get stdoutDevice =>
       _stdoutDevice ??= StdoutDevice(io_abs.stdout, false);
@@ -50,8 +59,21 @@ class IOLib {
   static set stderrDevice(StdoutDevice device) => _stderrDevice = device;
 
   static LuaFile get defaultInput {
-    Logger.debug('Getting default input');
-    _defaultInput ??= LuaFile(stdinDevice);
+    Logger.debug('Getting default input', category: 'IO');
+    Logger.debug('Current _defaultInput: $_defaultInput', category: 'IO');
+    if (_defaultInput == null) {
+      Logger.debug(
+        'Creating new default input with stdinDevice',
+        category: 'IO',
+      );
+      _defaultInput = LuaFile(stdinDevice);
+      Logger.debug('Created default input: $_defaultInput', category: 'IO');
+    } else {
+      Logger.debug(
+        'Using existing default input: $_defaultInput',
+        category: 'IO',
+      );
+    }
     return _defaultInput!;
   }
 
@@ -61,11 +83,14 @@ class IOLib {
 
   static LuaFile get defaultOutput {
     Logger.debug('Getting default output');
-    _defaultOutput ??= LuaFile(stdoutDevice);
-    return _defaultOutput!;
+    if (_defaultOutput == null) {
+      final stdoutFile = LuaFile(stdoutDevice);
+      _defaultOutput = Value(stdoutFile, metatable: fileClass.metamethods);
+    }
+    return _defaultOutput!.raw as LuaFile;
   }
 
-  static set defaultOutput(LuaFile? file) {
+  static set defaultOutput(Value? file) {
     _defaultOutput = file;
   }
 
@@ -87,7 +112,53 @@ class IOLib {
       if (file is! Value) {
         throw LuaError.typeError("file expected");
       }
-      await (file.raw as LuaFile).close();
+      final luaFile = file.raw as LuaFile;
+      Logger.debug(
+        'GC: About to close file: ${luaFile.toString()}, isClosed: ${luaFile.isClosed}',
+        category: 'IO',
+      );
+
+      // Check if this is a default file before closing
+      final isDefaultOutput = IOLib._defaultOutput?.raw == luaFile;
+      final isDefaultInput = luaFile == IOLib._defaultInput;
+
+      Logger.debug(
+        'GC: Is this the default output? $isDefaultOutput',
+        category: 'IO',
+      );
+      Logger.debug(
+        'GC: Is this the default input? $isDefaultInput',
+        category: 'IO',
+      );
+
+      // Don't close if already closed
+      if (luaFile.isClosed) {
+        Logger.debug('GC: File already closed, skipping', category: 'IO');
+        return Value(null);
+      }
+
+      // For default files that are being GC'd, we need to be more careful
+      if (isDefaultOutput || isDefaultInput) {
+        // Check if this is a standard file that should never be closed
+        if (luaFile.device == IOLib.stdoutDevice ||
+            luaFile.device == IOLib.stderrDevice ||
+            luaFile.device == IOLib.stdinDevice) {
+          Logger.debug('GC: Skipping close of standard device', category: 'IO');
+          return Value(null);
+        }
+
+        // For non-standard default files, reset the default but don't close yet
+        // The file will be closed when explicitly closed or when a new default is set
+        Logger.debug(
+          'GC: Default file being collected, but keeping it alive',
+          category: 'IO',
+        );
+        return Value(null);
+      }
+
+      // Not a default file and not closed, safe to close
+      await luaFile.close();
+      Logger.debug('GC: File closed successfully', category: 'IO');
       return Value(null);
     },
     "__close": (List<Object?> args) async {
@@ -169,8 +240,9 @@ class IOLib {
     }
     _defaultInput = null;
 
-    if (_defaultOutput?.device is! StdoutDevice) {
-      await _defaultOutput?.close();
+    if (_defaultOutput?.raw is LuaFile &&
+        (_defaultOutput!.raw as LuaFile).device is! StdoutDevice) {
+      await (_defaultOutput!.raw as LuaFile).close();
     }
     _defaultOutput = null;
     _defaultOutputExplicitlyClosed = false;
@@ -218,7 +290,8 @@ class IOClose implements BuiltinFunction {
       // Special handling for default input/output files
       // If this is the default input or output file that was closed (e.g., by GC),
       // we should return success rather than throwing an error
-      if (luaFile == IOLib._defaultInput || luaFile == IOLib._defaultOutput) {
+      if (luaFile == IOLib._defaultInput ||
+          luaFile == IOLib._defaultOutput?.raw) {
         Logger.debug(
           'Default input/output file already closed, returning success',
           category: 'IO',
@@ -231,7 +304,7 @@ class IOClose implements BuiltinFunction {
     }
 
     final result = await luaFile.close();
-    if (luaFile == IOLib._defaultOutput) {
+    if (IOLib._defaultOutput?.raw == luaFile) {
       // When closing the current output file, revert to stdout
       Logger.debug('Resetting default output to stdout', category: 'IO');
       IOLib._defaultOutput = null;
@@ -300,7 +373,16 @@ class IOInput implements BuiltinFunction {
 class IOLines implements BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
-    Logger.debug('Executing IO lines', category: 'IO');
+    Logger.debug('Executing IO lines with ${args.length} args', category: 'IO');
+
+    // Log the arguments
+    for (int i = 0; i < args.length; i++) {
+      final arg = args[i] as Value;
+      Logger.debug(
+        'Arg $i: ${arg.raw} (type: ${arg.raw.runtimeType})',
+        category: 'IO',
+      );
+    }
 
     // Check for too many arguments (Lua limit is around 251)
     if (args.length > 251) {
@@ -311,9 +393,12 @@ class IOLines implements BuiltinFunction {
     List<String> formats;
 
     if (args.isEmpty) {
-      Logger.debug('Using default input for lines', category: 'IO');
+      Logger.debug('Using default input for lines (no args)', category: 'IO');
+      Logger.debug('About to get defaultInput...', category: 'IO');
       file = IOLib.defaultInput;
+      Logger.debug('Got defaultInput: $file', category: 'IO');
       formats = ["l"];
+      Logger.debug('About to call file.lines()...', category: 'IO');
       return await file.lines(formats);
     } else if (args[0] is Value && (args[0] as Value).raw is LuaFile) {
       Logger.debug('Using provided file for lines', category: 'IO');
@@ -321,7 +406,7 @@ class IOLines implements BuiltinFunction {
       formats = args.skip(1).map((e) => (e as Value).raw.toString()).toList();
       if (formats.isEmpty) formats = ["l"];
       return await file.lines(formats);
-    } else {
+    } else if (args[0] is Value && (args[0] as Value).raw != null) {
       Logger.debug('Opening new file for lines', category: 'IO');
       final filename = (args[0] as Value).raw.toString();
       try {
@@ -330,11 +415,27 @@ class IOLines implements BuiltinFunction {
         formats = args.skip(1).map((e) => (e as Value).raw.toString()).toList();
         if (formats.isEmpty) formats = ["l"];
         final iterator = await file.lines(formats);
-        return Value.multi([iterator, Value(null), Value(null), Value(file)]);
+        return iterator;
       } catch (e) {
         Logger.debug('Error opening file: $e', category: 'IO');
         throw LuaError(e.toString());
       }
+    } else {
+      // First argument is nil, use default input
+      Logger.debug(
+        'Using default input for lines (nil argument)',
+        category: 'IO',
+      );
+      Logger.debug('About to get defaultInput for nil case...', category: 'IO');
+      file = IOLib.defaultInput;
+      Logger.debug('Got defaultInput for nil case: $file', category: 'IO');
+      formats = args.skip(1).map((e) => (e as Value).raw.toString()).toList();
+      if (formats.isEmpty) formats = ["l"];
+      Logger.debug(
+        'About to call file.lines() for nil case with formats: $formats...',
+        category: 'IO',
+      );
+      return await file.lines(formats);
     }
   }
 }
@@ -407,23 +508,21 @@ class IOOutput implements BuiltinFunction {
         Logger.debug('File opening complete', category: 'IO');
       } catch (e, s) {
         Logger.debug('File opening failed: $e', category: 'IO');
-        throw LuaError(
-          "cannot open file '$filename' (No such file or directory)",
-          stackTrace: s,
-        );
+        rethrow;
       }
     }
 
     Logger.debug('About to handle current default output', category: 'IO');
     // Avoid hanging - just set the new output without closing problematic files
-    if (IOLib._defaultOutput?.device is! StdoutDevice) {
+    if (IOLib._defaultOutput?.raw is LuaFile &&
+        (IOLib._defaultOutput!.raw as LuaFile).device is! StdoutDevice) {
       Logger.debug('Current output is not stdout - replacing', category: 'IO');
       // Don't attempt to close - just replace the reference
       IOLib._defaultOutput = null;
     }
 
     Logger.debug('Setting new default output', category: 'IO');
-    IOLib._defaultOutput = newFile;
+    IOLib._defaultOutput = result;
     IOLib._defaultOutputExplicitlyClosed =
         false; // Reset the flag when setting new output
     Logger.debug(
@@ -587,7 +686,8 @@ class IOWrite implements BuiltinFunction {
       }
     }
 
-    return Value(IOLib.defaultOutput, metatable: IOLib.fileClass.metamethods);
+    return IOLib._defaultOutput ??
+        Value(IOLib.defaultOutput, metatable: IOLib.fileClass.metamethods);
   }
 }
 
@@ -615,6 +715,26 @@ class FileClose implements BuiltinFunction {
     }
 
     final result = await luaFile.close();
+
+    // If this file was the current default output, reset it to stdout
+    if (IOLib._defaultOutput?.raw == luaFile) {
+      Logger.debug(
+        'Resetting default output to stdout after file close',
+        category: 'IO',
+      );
+      IOLib._defaultOutput = null;
+      IOLib._defaultOutputExplicitlyClosed = false; // Reset the flag
+    }
+
+    // Similarly for default input
+    if (luaFile == IOLib._defaultInput) {
+      Logger.debug(
+        'Resetting default input to stdin after file close',
+        category: 'IO',
+      );
+      IOLib._defaultInput = null;
+    }
+
     return Value.multi(result);
   }
 }
