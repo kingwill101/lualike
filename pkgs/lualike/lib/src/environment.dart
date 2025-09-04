@@ -283,7 +283,7 @@ class Environment extends GCObject {
   /// Closes all to-be-closed variables in this environment in reverse order of declaration.
   ///
   /// [error] - Optional error that caused the scope to exit.
-  void closeVariables([dynamic error]) {
+  Future<void> closeVariables([dynamic error]) async {
     Logger.debug(
       "Closing variables in env ($hashCode). To be closed: ${toBeClosedVars.join(', ')}",
       category: 'Env',
@@ -301,7 +301,7 @@ class Environment extends GCObject {
 
       if (value is Value) {
         try {
-          value.close(error);
+          await value.close(error);
           Logger.debug("Successfully closed variable '$name'", category: 'Env');
         } catch (e) {
           Logger.debug("Error closing variable '$name': $e", category: 'Env');

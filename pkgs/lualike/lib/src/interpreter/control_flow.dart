@@ -118,27 +118,27 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       }
     } on BreakException {
       // Close variables before re-throwing
-      blockEnv.closeVariables();
+      await blockEnv.closeVariables();
       // Re-throw BreakException to be caught by the enclosing loop
       rethrow;
     } on GotoException {
       // Close variables before re-throwing
-      blockEnv.closeVariables();
+      await blockEnv.closeVariables();
       // Re-throw GotoException to be handled by the enclosing scope
       rethrow;
     } on ReturnException {
       // Close variables before re-throwing
-      blockEnv.closeVariables();
+      await blockEnv.closeVariables();
       // Re-throw ReturnException to be handled by the function
       rethrow;
     } catch (e) {
       // Close variables with the error
-      blockEnv.closeVariables(e);
+      await blockEnv.closeVariables(e);
       // Re-throw the error
       rethrow;
     } finally {
       // Close variables in normal block termination
-      blockEnv.closeVariables();
+      await blockEnv.closeVariables();
 
       // Restore the previous environment
       setCurrentEnv(prevEnv);
@@ -217,7 +217,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         }
       } on BreakException {
         // Close variables before breaking
-        loopEnv.closeVariables();
+        await loopEnv.closeVariables();
         // Restore the previous environment
         setCurrentEnv(prevEnv);
         // Exit the while loop when a break statement is encountered
@@ -228,28 +228,28 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         break;
       } on ReturnException {
         // Close variables before re-throwing
-        loopEnv.closeVariables();
+        await loopEnv.closeVariables();
         // Restore the previous environment
         setCurrentEnv(prevEnv);
         // Re-throw ReturnException to be handled by the function
         rethrow;
       } on GotoException {
         // Close variables before re-throwing
-        loopEnv.closeVariables();
+        await loopEnv.closeVariables();
         // Restore the previous environment
         setCurrentEnv(prevEnv);
         // Re-throw GotoException to be handled by the enclosing scope
         rethrow;
       } catch (e) {
         // Close variables with the error
-        loopEnv.closeVariables(e);
+        await loopEnv.closeVariables(e);
         // Restore the previous environment
         setCurrentEnv(prevEnv);
         // Re-throw the error
         rethrow;
       } finally {
         // Close variables in normal loop iteration termination
-        loopEnv.closeVariables();
+        await loopEnv.closeVariables();
 
         // Restore the previous environment
         setCurrentEnv(prevEnv);
@@ -328,7 +328,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           }
         } on BreakException {
           // Close variables before breaking
-          loopEnv.closeVariables();
+          await loopEnv.closeVariables();
           // Restore the previous environment
           setCurrentEnv(prevEnv);
           // Exit the for loop when a break statement is encountered
@@ -339,28 +339,28 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           break;
         } on ReturnException {
           // Close variables before re-throwing
-          loopEnv.closeVariables();
+          await loopEnv.closeVariables();
           // Restore the previous environment
           setCurrentEnv(prevEnv);
           // Re-throw ReturnException to be handled by the function
           rethrow;
         } on GotoException {
           // Close variables before re-throwing
-          loopEnv.closeVariables();
+          await loopEnv.closeVariables();
           // Restore the previous environment
           setCurrentEnv(prevEnv);
           // Re-throw GotoException to be handled by the enclosing scope
           rethrow;
         } catch (e) {
           // Close variables with the error
-          loopEnv.closeVariables(e);
+          await loopEnv.closeVariables(e);
           // Restore the previous environment
           setCurrentEnv(prevEnv);
           // Re-throw the error
           rethrow;
         } finally {
           // Close variables in normal loop iteration termination
-          loopEnv.closeVariables();
+          await loopEnv.closeVariables();
 
           // Restore the previous environment
           setCurrentEnv(prevEnv);
@@ -436,7 +436,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         }
       } on BreakException {
         // Close variables before breaking
-        loopEnv.closeVariables();
+        await loopEnv.closeVariables();
         // Restore the previous environment
         setCurrentEnv(prevEnv);
         // Exit the repeat-until loop when a break statement is encountered
@@ -447,28 +447,28 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         return null; // Exit the loop completely
       } on ReturnException {
         // Close variables before re-throwing
-        loopEnv.closeVariables();
+        await loopEnv.closeVariables();
         // Restore the previous environment
         setCurrentEnv(prevEnv);
         // Re-throw ReturnException to be handled by the function
         rethrow;
       } on GotoException {
         // Close variables before re-throwing
-        loopEnv.closeVariables();
+        await loopEnv.closeVariables();
         // Restore the previous environment
         setCurrentEnv(prevEnv);
         // Re-throw GotoException to be handled by the enclosing scope
         rethrow;
       } catch (e) {
         // Close variables with the error
-        loopEnv.closeVariables(e);
+        await loopEnv.closeVariables(e);
         // Restore the previous environment
         setCurrentEnv(prevEnv);
         // Re-throw the error
         rethrow;
       } finally {
         // Close variables in normal loop iteration termination
-        loopEnv.closeVariables();
+        await loopEnv.closeVariables();
 
         // Restore the previous environment
         setCurrentEnv(prevEnv);
@@ -548,7 +548,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
             }
           } on BreakException {
             // Close variables before breaking
-            loopEnv.closeVariables();
+            await loopEnv.closeVariables();
             // Restore the previous environment
             setCurrentEnv(prevEnv);
             // Exit the for loop when a break statement is encountered
@@ -559,28 +559,28 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
             return null; // Exit the loop completely
           } on ReturnException {
             // Close variables before re-throwing
-            loopEnv.closeVariables();
+            await loopEnv.closeVariables();
             // Restore the previous environment
             setCurrentEnv(prevEnv);
             // Re-throw ReturnException to be handled by the function
             rethrow;
           } on GotoException {
             // Close variables before re-throwing
-            loopEnv.closeVariables();
+            await loopEnv.closeVariables();
             // Restore the previous environment
             setCurrentEnv(prevEnv);
             // Re-throw GotoException to be handled by the enclosing scope
             rethrow;
           } catch (e) {
             // Close variables with the error
-            loopEnv.closeVariables(e);
+            await loopEnv.closeVariables(e);
             // Restore the previous environment
             setCurrentEnv(prevEnv);
             // Re-throw the error
             rethrow;
           } finally {
             // Close variables in normal loop iteration termination
-            loopEnv.closeVariables();
+            await loopEnv.closeVariables();
 
             // Restore the previous environment
             setCurrentEnv(prevEnv);
@@ -766,7 +766,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           }
         } on BreakException {
           // Close variables before breaking
-          loopEnv.closeVariables();
+          await loopEnv.closeVariables();
           // Restore the previous environment
           setCurrentEnv(prevEnv);
           Logger.debug(
@@ -776,28 +776,28 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           return null; // Exit the loop completely
         } on ReturnException {
           // Close variables before re-throwing
-          loopEnv.closeVariables();
+          await loopEnv.closeVariables();
           // Restore the previous environment
           setCurrentEnv(prevEnv);
           // Re-throw ReturnException to be handled by the function
           rethrow;
         } on GotoException {
           // Close variables before re-throwing
-          loopEnv.closeVariables();
+          await loopEnv.closeVariables();
           // Restore the previous environment
           setCurrentEnv(prevEnv);
           // Re-throw GotoException to be handled by the enclosing scope
           rethrow;
         } catch (e) {
           // Close variables with the error
-          loopEnv.closeVariables(e);
+          await loopEnv.closeVariables(e);
           // Restore the previous environment
           setCurrentEnv(prevEnv);
           // Re-throw the error
           rethrow;
         } finally {
           // Close variables in normal loop iteration termination
-          loopEnv.closeVariables();
+          await loopEnv.closeVariables();
 
           // Restore the previous environment
           setCurrentEnv(prevEnv);
@@ -887,27 +887,27 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       }
     } on BreakException {
       // Close variables before re-throwing
-      blockEnv.closeVariables();
+      await blockEnv.closeVariables();
       // Re-throw BreakException to be caught by the enclosing loop
       rethrow;
     } on GotoException {
       // Close variables before re-throwing
-      blockEnv.closeVariables();
+      await blockEnv.closeVariables();
       // Re-throw GotoException to be handled by the enclosing scope
       rethrow;
     } on ReturnException {
       // Close variables before re-throwing
-      blockEnv.closeVariables();
+      await blockEnv.closeVariables();
       // Re-throw ReturnException to be handled by the function
       rethrow;
     } catch (e) {
       // Close variables with the error
-      blockEnv.closeVariables(e);
+      await blockEnv.closeVariables(e);
       // Re-throw the error
       rethrow;
     } finally {
       // Close variables in normal block termination
-      blockEnv.closeVariables();
+      await blockEnv.closeVariables();
 
       // Restore the previous environment
       setCurrentEnv(prevEnv);
@@ -974,27 +974,27 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         }
       } on BreakException {
         // Close variables before re-throwing
-        blockEnv.closeVariables();
+        await blockEnv.closeVariables();
         // Re-throw BreakException to be caught by the enclosing loop
         rethrow;
       } on GotoException {
         // Close variables before re-throwing
-        blockEnv.closeVariables();
+        await blockEnv.closeVariables();
         // Re-throw GotoException to be handled by the enclosing scope
         rethrow;
       } on ReturnException {
         // Close variables before re-throwing
-        blockEnv.closeVariables();
+        await blockEnv.closeVariables();
         // Re-throw ReturnException to be handled by the function
         rethrow;
       } catch (e) {
         // Close variables with the error
-        blockEnv.closeVariables(e);
+        await blockEnv.closeVariables(e);
         // Re-throw the error
         rethrow;
       } finally {
         // Close variables in normal block termination
-        blockEnv.closeVariables();
+        await blockEnv.closeVariables();
 
         // Restore the previous environment
         setCurrentEnv(prevEnv);
