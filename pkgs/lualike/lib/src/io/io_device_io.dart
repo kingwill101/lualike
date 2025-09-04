@@ -347,7 +347,7 @@ class StdinDevice extends BaseIODevice {
 
   @override
   Future<WriteResult> write(String data) async {
-    return WriteResult(false, "Cannot write to stdin");
+    return WriteResult(false, "Cannot write to stdin", 9);
   }
 
   @override
