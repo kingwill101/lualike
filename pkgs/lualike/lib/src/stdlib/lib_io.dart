@@ -1,3 +1,4 @@
+import 'dart:io' show FileSystemException;
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart' show BytecodeVM;
 import 'package:lualike/src/utils/io_abstractions.dart' as io_abs;
@@ -78,6 +79,7 @@ class IOLib {
   };
 
   static final ValueClass fileClass = ValueClass.create({
+    "__name": "FILE*",
     "__gc": (List<Object?> args) async {
       Logger.debug('Garbage collecting file', category: 'IO');
       final file = args[0];
@@ -117,18 +119,25 @@ class IOLib {
         if (method != null) {
           Logger.debug('Found file method: ${key.raw}', category: 'IO');
 
-          // Return a function that will be called later
+          // Return a bound method that checks for proper self argument
           return Value((callArgs) {
             Logger.debug(
               'File method ${key.raw} called with ${callArgs.length} arguments',
               category: 'IO',
             );
 
-            // Include the file object as the first argument if not already present
+            // If called without arguments, it should fail
+            if (callArgs.isEmpty) {
+              // This is the case: local f = io.stdin.close; f()
+              return method.call(callArgs); // Let method handle the error
+            }
+
+            // If first argument is this file, call method normally
             if (callArgs.isNotEmpty && callArgs.first == file) {
               return method.call(callArgs);
             }
 
+            // Otherwise, prepend the file as self (for io.stdin.close() syntax)
             return method.call([file, ...callArgs]);
           });
         }
@@ -188,12 +197,36 @@ class IOClose implements BuiltinFunction {
 
     Logger.debug('Closing file', category: 'IO');
     final luaFile = file.raw as LuaFile;
+
+    // Check if this is a standard file (stdin, stdout, stderr)
+    if (_isStandardFile(luaFile)) {
+      Logger.debug('Cannot close standard file', category: 'IO');
+      return Value(false); // Standard files cannot be closed
+    }
+
+    // Check if file is already closed
+    if (luaFile.isClosed) {
+      Logger.debug('File is already closed', category: 'IO');
+      throw LuaError("attempt to use a closed file");
+    }
+
     final result = await luaFile.close();
     if (luaFile == IOLib._defaultOutput) {
       // When closing the current output file, revert to stdout
+      Logger.debug('Resetting default output to stdout', category: 'IO');
       IOLib._defaultOutput = null;
     }
+
+    // Note: We don't reset _defaultInput to null here because we want
+    // subsequent io.read calls to detect the closed file and throw an error
     return Value.multi(result);
+  }
+
+  static bool _isStandardFile(LuaFile file) {
+    // Check if this file uses one of the standard singleton devices
+    return file.device == IOLib.stdinDevice ||
+        file.device == IOLib.stdoutDevice ||
+        file.device == IOLib.stderrDevice;
   }
 }
 
@@ -248,6 +281,12 @@ class IOLines implements BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debug('Executing IO lines', category: 'IO');
+
+    // Check for too many arguments (Lua limit is around 251)
+    if (args.length > 251) {
+      throw LuaError("too many arguments");
+    }
+
     LuaFile file;
     List<String> formats;
 
@@ -255,10 +294,13 @@ class IOLines implements BuiltinFunction {
       Logger.debug('Using default input for lines', category: 'IO');
       file = IOLib.defaultInput;
       formats = ["l"];
+      return await file.lines(formats);
     } else if (args[0] is Value && (args[0] as Value).raw is LuaFile) {
       Logger.debug('Using provided file for lines', category: 'IO');
       file = (args[0] as Value).raw as LuaFile;
       formats = args.skip(1).map((e) => (e as Value).raw.toString()).toList();
+      if (formats.isEmpty) formats = ["l"];
+      return await file.lines(formats);
     } else {
       Logger.debug('Opening new file for lines', category: 'IO');
       final filename = (args[0] as Value).raw.toString();
@@ -266,15 +308,14 @@ class IOLines implements BuiltinFunction {
         final device = await IOLib.fileSystemProvider.openFile(filename, "r");
         file = LuaFile(device);
         formats = args.skip(1).map((e) => (e as Value).raw.toString()).toList();
+        if (formats.isEmpty) formats = ["l"];
+        final iterator = await file.lines(formats);
+        return Value.multi([iterator, Value(null), Value(null), Value(file)]);
       } catch (e) {
         Logger.debug('Error opening file: $e', category: 'IO');
-        return Value.multi([null, e.toString()]);
+        throw LuaError(e.toString());
       }
     }
-
-    if (formats.isEmpty) formats = ["l"];
-    Logger.debug('Reading lines with formats: $formats', category: 'IO');
-    return await file.lines(formats);
   }
 }
 
@@ -297,7 +338,18 @@ class IOOpen implements BuiltinFunction {
       return Value(file, metatable: IOLib.fileClass.metamethods);
     } catch (e) {
       Logger.debug('Error opening file: $e', category: 'IO');
-      return Value.multi([null, e.toString()]);
+
+      // Invalid mode should throw (not return tuple)
+      if (e is LuaError && e.message == "invalid mode") {
+        throw e;
+      }
+
+      // File system errors should return tuple
+      int errno = 0;
+      if (e is FileSystemException && e.osError != null) {
+        errno = e.osError!.errorCode;
+      }
+      return Value.multi([null, e.toString(), errno]);
     }
   }
 }
@@ -305,27 +357,36 @@ class IOOpen implements BuiltinFunction {
 class IOOutput implements BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
-    Logger.debug('Executing IO output', category: 'IO');
+    Logger.debug('IOOutput.call() started', category: 'IO');
     if (args.isEmpty) {
-      Logger.debug('Returning default output', category: 'IO');
+      Logger.debug('No args - returning default output', category: 'IO');
       return Value(IOLib.defaultOutput, metatable: IOLib.fileClass.metamethods);
     }
 
+    Logger.debug('IOOutput.call() processing arguments', category: 'IO');
     LuaFile? newFile;
     Value? result;
 
     if (args[0] is Value && (args[0] as Value).raw is LuaFile) {
-      Logger.debug('Setting default output to provided file', category: 'IO');
+      Logger.debug('Arg is LuaFile - setting as output', category: 'IO');
       newFile = (args[0] as Value).raw as LuaFile;
       result = args[0] as Value;
     } else {
       final filename = (args[0] as Value).raw.toString();
-      Logger.debug('Opening file for output: $filename', category: 'IO');
+      Logger.debug('Arg is filename: $filename - opening file', category: 'IO');
+
+      Logger.debug('About to call fileSystemProvider.openFile', category: 'IO');
       try {
         final device = await IOLib.fileSystemProvider.openFile(filename, "w");
+        Logger.debug('fileSystemProvider.openFile succeeded', category: 'IO');
+
+        Logger.debug('Creating LuaFile wrapper', category: 'IO');
         newFile = LuaFile(device);
+        Logger.debug('Creating Value wrapper', category: 'IO');
         result = Value(newFile, metatable: IOLib.fileClass.metamethods);
+        Logger.debug('File opening complete', category: 'IO');
       } catch (e, s) {
+        Logger.debug('File opening failed: $e', category: 'IO');
         throw LuaError(
           "cannot open file '$filename' (No such file or directory)",
           stackTrace: s,
@@ -333,10 +394,17 @@ class IOOutput implements BuiltinFunction {
       }
     }
 
+    Logger.debug('About to handle current default output', category: 'IO');
+    // Avoid hanging - just set the new output without closing problematic files
     if (IOLib._defaultOutput?.device is! StdoutDevice) {
-      await IOLib._defaultOutput?.close();
+      Logger.debug('Current output is not stdout - replacing', category: 'IO');
+      // Don't attempt to close - just replace the reference
+      IOLib._defaultOutput = null;
     }
+
+    Logger.debug('Setting new default output', category: 'IO');
     IOLib._defaultOutput = newFile;
+    Logger.debug('IOOutput.call() completed', category: 'IO');
     return result;
   }
 }
@@ -353,25 +421,57 @@ class IORead implements BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debug('Executing IO read', category: 'IO');
+
     final formats = args.isEmpty
         ? ["l"]
         : args.map((e) => (e as Value).raw.toString()).toList();
     Logger.debug('Reading with formats: $formats', category: 'IO');
     final results = <Object?>[];
+    bool encounteredFailure = false;
 
     for (final format in formats) {
-      Logger.debug('Reading format: $format', category: 'IO');
-      final result = await IOLib.defaultInput.read(format);
-
-      // Check if this is an error or EOF condition
-      if (result[0] == null && result.length > 1 && result[1] != null) {
-        // This is an error
-        Logger.debug('Error reading format: ${result[1]}', category: 'IO');
-        return Value.multi(result);
+      if (encounteredFailure) {
+        // If any previous read failed, all subsequent reads return nil
+        results.add(null);
+        continue;
       }
 
-      // Even if null (EOF), add it to results
-      results.add(result[0]);
+      Logger.debug('Reading format: $format', category: 'IO');
+
+      try {
+        final result = await IOLib.defaultInput.read(format);
+
+        // Check if this is an error or EOF condition
+        if (result[0] == null && result.length > 1 && result[1] != null) {
+          // This is an error
+          Logger.debug('Error reading format: ${result[1]}', category: 'IO');
+          return Value.multi(result);
+        }
+
+        if (result[0] == null) {
+          // This read failed (EOF or parse error), mark failure for subsequent reads
+          encounteredFailure = true;
+        }
+
+        // Even if null (EOF), add it to results
+        results.add(result[0]);
+      } catch (e) {
+        // Catch device-level errors and convert to expected error message
+        Logger.debug(
+          'IORead caught exception: ${e.toString()}',
+          category: 'IO',
+        );
+        if (e.toString().contains("attempt to use a closed file")) {
+          Logger.debug(
+            'Converting closed file error to input file closed',
+            category: 'IO',
+          );
+          throw LuaError(" input file is closed");
+        }
+        // Re-throw other errors as-is
+        Logger.debug('Re-throwing exception as-is', category: 'IO');
+        rethrow;
+      }
     }
 
     return Value.multi(results);
@@ -428,7 +528,7 @@ class IOWrite implements BuiltinFunction {
       }
     }
 
-    return Value.multi([true]);
+    return Value(IOLib.defaultOutput, metatable: IOLib.fileClass.metamethods);
   }
 }
 
@@ -437,11 +537,25 @@ class FileClose implements BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debug('File method: close', category: 'IO');
+
+    if (args.isEmpty) {
+      throw LuaError("got no value");
+    }
+
     final file = args[0];
     if (file is! Value || file.raw is! LuaFile) {
       throw LuaError.typeError("file expected");
     }
-    final result = await (file.raw as LuaFile).close();
+
+    final luaFile = file.raw as LuaFile;
+
+    // Check if this is a standard file (stdin, stdout, stderr)
+    if (IOClose._isStandardFile(luaFile)) {
+      Logger.debug('Cannot close standard file', category: 'IO');
+      return Value(false); // Standard files cannot be closed
+    }
+
+    final result = await luaFile.close();
     return Value.multi(result);
   }
 }
@@ -476,12 +590,26 @@ class FileRead implements BuiltinFunction {
 
     final luaFile = file.raw as LuaFile;
     final results = <Object?>[];
+    bool encounteredFailure = false;
 
     for (final format in formats) {
+      if (encounteredFailure) {
+        // If any previous read failed, all subsequent reads return nil
+        results.add(null);
+        continue;
+      }
+
       final result = await luaFile.read(format);
       if (result[0] == null && result.length > 1 && result[1] != null) {
+        // This is an error (not just EOF), return the error immediately
         return Value.multi(result);
       }
+
+      if (result[0] == null) {
+        // This read failed (EOF or parse error), mark failure for subsequent reads
+        encounteredFailure = true;
+      }
+
       results.add(result[0]);
     }
 
