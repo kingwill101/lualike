@@ -1,12 +1,12 @@
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/io/lua_file.dart';
-import 'package:lualike/src/io/virtual_io_device.dart';
 import 'package:lualike/src/io/memory_io_device.dart';
+import 'package:lualike/src/io/virtual_io_device.dart';
 import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:web/web.dart' as web;
 
-import 'output_device.dart';
 import 'examples.dart';
+import 'output_device.dart';
 
 void main() {
   final app = LuaLikeWebApp();
@@ -42,7 +42,10 @@ class LuaLikeWebApp {
     final stdinDevice = VirtualIODevice();
     final stdoutDevice = WebOutputDevice(output);
     IOLib.defaultInput = LuaFile(stdinDevice);
-    IOLib.defaultOutput = LuaFile(stdoutDevice);
+    IOLib.defaultOutput = Value(
+      LuaFile(stdoutDevice),
+      metatable: IOLib.fileClass.metamethods,
+    );
 
     // Populate examples dropdown
     populateExamplesDropdown();

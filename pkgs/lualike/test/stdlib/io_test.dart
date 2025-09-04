@@ -261,7 +261,7 @@ void main() {
         end
       ''';
 
-          final result = await executeCode(code);
+          await executeCode(code);
 
           // Verify that files are actually stored in memory
           final memoryFiles = InMemoryIODevice.getMemoryStorage();
@@ -296,7 +296,7 @@ void main() {
         return content1, content2
       ''';
 
-        final result = await executeCode(code);
+        await executeCode(code);
 
         // Verify both files exist in memory
         final memoryFiles = InMemoryIODevice.getMemoryStorage();
@@ -326,7 +326,7 @@ void main() {
         return content
       ''';
 
-        final result = await executeCode(code);
+        final _ = await executeCode(code);
 
         final memoryFiles = InMemoryIODevice.getMemoryStorage();
         expect(
@@ -361,7 +361,7 @@ void main() {
         return line1, allContent
       ''';
 
-        final result = await executeCode(code);
+        final _ = await executeCode(code);
 
         // Verify the file operations worked correctly
         final memoryFiles = InMemoryIODevice.getMemoryStorage();
@@ -377,7 +377,7 @@ void main() {
       ''');
 
         // Second script: read the file created by first script
-        final result = await executeCode('''
+        final _ = await executeCode('''
         local file = io.open("persistent.txt", "r")
         if file then
             local content = file:read("*a")
@@ -430,7 +430,7 @@ void main() {
         return content
       ''';
 
-        final result = await executeCode(code);
+        final _ = await executeCode(code);
 
         final memoryFiles = InMemoryIODevice.getMemoryStorage();
         expect(memoryFiles['output.txt'], equals('Hello World!'));
@@ -478,7 +478,7 @@ stringFile:close()
       ''';
 
         // Execute the user's code
-        final result = await executeCode(userCode);
+        final _ = await executeCode(userCode);
 
         // Verify that the files were created correctly in memory
         final memoryFiles = InMemoryIODevice.getMemoryStorage();
@@ -554,7 +554,7 @@ stringFile:close()
         return lineCount
       ''';
 
-        final result = await executeCode(code);
+        final _ = await executeCode(code);
 
         // Verify the file content
         final memoryFiles = InMemoryIODevice.getMemoryStorage();

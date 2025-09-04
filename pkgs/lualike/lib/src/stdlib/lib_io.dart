@@ -1,4 +1,5 @@
 import 'dart:io' show FileSystemException;
+
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart' show BytecodeVM;
 import 'package:lualike/src/utils/io_abstractions.dart' as io_abs;
@@ -462,7 +463,7 @@ class IOOpen implements BuiltinFunction {
 
       // Invalid mode should throw (not return tuple)
       if (e is LuaError && e.message == "invalid mode") {
-        throw e;
+        rethrow;
       }
 
       // File system errors should return tuple
@@ -506,7 +507,7 @@ class IOOutput implements BuiltinFunction {
         Logger.debug('Creating Value wrapper', category: 'IO');
         result = Value(newFile, metatable: IOLib.fileClass.metamethods);
         Logger.debug('File opening complete', category: 'IO');
-      } catch (e, s) {
+      } catch (e) {
         Logger.debug('File opening failed: $e', category: 'IO');
         rethrow;
       }
