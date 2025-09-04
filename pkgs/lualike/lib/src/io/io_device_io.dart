@@ -130,45 +130,193 @@ class FileIODevice extends BaseIODevice {
         Logger.debug('Reading line from file', category: 'IO');
         final buffer = <int>[];
         int byte;
+        bool foundContent = false;
+
         while ((byte = await _file!.readByte()) != -1) {
           if (byte == 10) {
-            // \n
+            // \n - newline character
             Logger.debug('Found newline character', category: 'IO');
-            if (normalizedFormat == "L") buffer.add(byte);
-            break;
+            if (foundContent) {
+              // We have content, this newline ends the line
+              if (normalizedFormat == "L") buffer.add(byte);
+              break;
+            } else {
+              // This is an empty line, return empty string
+              if (normalizedFormat == "L") buffer.add(byte);
+              break;
+            }
           }
+          foundContent = true;
           buffer.add(byte);
         }
+
         Logger.debug('Read ${buffer.length} bytes for line', category: 'IO');
-        if (buffer.isEmpty) {
+        if (buffer.isEmpty && byte == -1) {
           Logger.debug('Read empty line (EOF)', category: 'IO');
           return ReadResult(null);
         }
         final result = utf8.decode(buffer);
-        Logger.debug('Decoded line: "$result"', category: 'IO');
+        Logger.debug(
+          'Decoded line: ${result.length} characters',
+          category: 'IO',
+        );
         return ReadResult(result);
       } else if (normalizedFormat == "n") {
-        // Read number
+        // Read number - following Lua's C implementation algorithm
         Logger.debug('Reading number from file', category: 'IO');
-        final line = await read("l");
-        if (!line.isSuccess || line.value == null) {
-          Logger.debug('Failed to read line for number', category: 'IO');
-          return line;
+
+        final buffer = <int>[];
+        int count = 0;
+        bool hex = false;
+        const maxLenNum = 200; // L_MAXLENNUM from Lua's C implementation
+
+        // Skip leading whitespace
+        int lookAhead;
+        do {
+          lookAhead = await _file!.readByte();
+        } while (lookAhead != -1 && _isWhitespace(lookAhead));
+
+        if (lookAhead == -1) {
+          Logger.debug('No number found (EOF)', category: 'IO');
+          return ReadResult(null);
         }
-        Logger.debug('Parsing "${line.value}" as number', category: 'IO');
-        final number = num.tryParse(line.value as String);
-        if (number == null) {
-          Logger.debug('Failed to parse as number', category: 'IO');
-        } else {
+
+        // Helper function to add character with length check
+        bool addChar(int byte) {
+          if (buffer.length >= maxLenNum) {
+            // Buffer overflow - invalidate result
+            buffer.clear();
+            return false;
+          }
+          buffer.add(byte);
+          return true;
+        }
+
+        // Optional sign
+        if (lookAhead == 45 || lookAhead == 43) {
+          // '-' or '+'
+          if (!addChar(lookAhead)) return ReadResult(null);
+          lookAhead = await _file!.readByte();
+        }
+
+        // Check for hex prefix
+        if (lookAhead == 48) {
+          // '0'
+          if (!addChar(lookAhead)) return ReadResult(null);
+          lookAhead = await _file!.readByte();
+          if (lookAhead == 120 || lookAhead == 88) {
+            // 'x' or 'X'
+            if (!addChar(lookAhead)) return ReadResult(null);
+            lookAhead = await _file!.readByte();
+            hex = true;
+          } else {
+            count = 1; // count initial '0' as valid digit
+          }
+        }
+
+        // Read integral part
+        while (lookAhead != -1 &&
+            (hex ? _isHexDigit(lookAhead) : _isDigit(lookAhead))) {
+          if (!addChar(lookAhead)) return ReadResult(null);
+          lookAhead = await _file!.readByte();
+          count++;
+        }
+
+        // Decimal point?
+        if (lookAhead == 46) {
+          // '.'
+          if (!addChar(lookAhead)) return ReadResult(null);
+          lookAhead = await _file!.readByte();
+          // Read fractional part
+          while (lookAhead != -1 &&
+              (hex ? _isHexDigit(lookAhead) : _isDigit(lookAhead))) {
+            if (!addChar(lookAhead)) return ReadResult(null);
+            lookAhead = await _file!.readByte();
+            count++;
+          }
+        }
+
+        // Exponent mark?
+        if (count > 0 &&
+            (hex
+                ? (lookAhead == 112 || lookAhead == 80)
+                : (lookAhead == 101 || lookAhead == 69))) {
+          // 'pP' for hex, 'eE' for decimal
+          if (!addChar(lookAhead)) return ReadResult(null);
+          lookAhead = await _file!.readByte();
+          // Optional exponent sign
+          if (lookAhead == 45 || lookAhead == 43) {
+            // '-' or '+'
+            if (!addChar(lookAhead)) return ReadResult(null);
+            lookAhead = await _file!.readByte();
+          }
+          // Read exponent digits (always decimal)
+          while (lookAhead != -1 && _isDigit(lookAhead)) {
+            if (!addChar(lookAhead)) return ReadResult(null);
+            lookAhead = await _file!.readByte();
+          }
+        }
+
+        // Put back the lookahead character
+        if (lookAhead != -1) {
+          final currentPos = await _file!.position();
+          await _file!.setPosition(currentPos - 1);
+        }
+
+        if (buffer.isEmpty) {
+          Logger.debug('No valid number found', category: 'IO');
+          return ReadResult(null);
+        }
+
+        final numberStr = utf8.decode(buffer);
+        Logger.debug(
+          'Parsing number with ${numberStr.length} characters',
+          category: 'IO',
+        );
+
+        try {
+          final number = LuaNumberParser.parse(numberStr);
           Logger.debug('Parsed number: $number', category: 'IO');
+          return ReadResult(number);
+        } catch (e) {
+          Logger.debug('Failed to parse as number: $e', category: 'IO');
+          return ReadResult(null);
         }
-        return ReadResult(number);
       } else {
         // Read n bytes
         final n = int.parse(normalizedFormat);
         Logger.debug('Reading $n bytes from file', category: 'IO');
+        if (n == 0) {
+          final currentPos = await _file!.position();
+          final length = await _file!.length();
+          final atEof = currentPos >= length;
+          Logger.debug(
+            'Zero-byte read: pos=$currentPos, length=$length, atEOF=$atEof',
+            category: 'IO',
+          );
+          return atEof ? ReadResult(null) : ReadResult("");
+        }
+
+        // Check for EOF before reading n bytes
+        final currentPos = await _file!.position();
+        final length = await _file!.length();
+        if (currentPos >= length) {
+          Logger.debug('At EOF, returning nil for n-byte read', category: 'IO');
+          return ReadResult(null);
+        }
+
         final bytes = await _file!.read(n);
         Logger.debug('Read ${bytes.length} bytes', category: 'IO');
+
+        // If we read 0 bytes but expected more, we hit EOF
+        if (bytes.isEmpty) {
+          Logger.debug(
+            'Read 0 bytes when expecting $n, at EOF',
+            category: 'IO',
+          );
+          return ReadResult(null);
+        }
+
         final result = utf8.decode(bytes);
         Logger.debug('Decoded ${result.length} characters', category: 'IO');
         return ReadResult(result);
@@ -194,7 +342,11 @@ class FileIODevice extends BaseIODevice {
       return WriteResult(true);
     } catch (e) {
       Logger.debug('Error writing to file: $e', category: 'IO');
-      return WriteResult(false, e.toString());
+      int errorCode = 0;
+      if (e is FileSystemException && e.osError != null) {
+        errorCode = e.osError!.errorCode;
+      }
+      return WriteResult(false, e.toString(), errorCode);
     }
   }
 
@@ -257,6 +409,24 @@ class FileIODevice extends BaseIODevice {
       category: 'IO',
     );
     return isEof;
+  }
+
+  // Helper methods for number parsing
+  static bool _isWhitespace(int byte) {
+    return byte == 32 ||
+        byte == 9 ||
+        byte == 10 ||
+        byte == 13; // space, tab, newline, cr
+  }
+
+  static bool _isDigit(int byte) {
+    return byte >= 48 && byte <= 57; // 0-9
+  }
+
+  static bool _isHexDigit(int byte) {
+    return (byte >= 48 && byte <= 57) || // 0-9
+        (byte >= 65 && byte <= 70) || // A-F
+        (byte >= 97 && byte <= 102); // a-f
   }
 }
 
