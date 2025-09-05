@@ -817,8 +817,10 @@ class FileWrite implements BuiltinFunction {
 
     // Skip the self parameter
     final actualArgs = args.skip(1).toList();
+    // In Lua, file:write returns the file handle on success to allow chaining.
+    // Even when called with no arguments, it should return the file itself.
     if (actualArgs.isEmpty) {
-      return Value.multi([true]);
+      return file;
     }
 
     final luaFile = file.raw as LuaFile;
@@ -826,11 +828,12 @@ class FileWrite implements BuiltinFunction {
       final str = (arg as Value).raw.toString();
       final result = await luaFile.write(str);
       if (result[0] == null) {
+        // On failure, propagate the (nil, errmsg[, errno]) tuple.
         return Value.multi(result);
       }
     }
-
-    return Value.multi([true]);
+    // Success: return the file handle (self) for chaining.
+    return file;
   }
 }
 
