@@ -584,13 +584,19 @@ class LoadFunction implements BuiltinFunction {
   LoadFunction(this.vm);
 
   @override
-  Object? call(List<Object?> args) {
+  Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
       throw Exception("load() requires a string or function argument");
     }
 
     String source;
     String chunkname;
+    Object? env;
+
+    // Handle environment parameter (4th argument)
+    if (args.length > 3) {
+      env = (args[3] as Value).raw;
+    }
 
     if (args[0] is Value) {
       if ((args[0] as Value).raw is String) {
@@ -610,9 +616,17 @@ class LoadFunction implements BuiltinFunction {
         final chunks = <String>[];
         final reader = (args[0] as Value).raw as Function;
         while (true) {
-          final chunk = reader([]);
+          final result = reader([]);
+          final chunk = result is Future ? await result : result;
           if (chunk == null || (chunk is Value && chunk.raw == null)) break;
-          chunks.add(chunk.toString());
+
+          // Extract string from Value objects
+          if (chunk is Value) {
+            if (chunk.raw == null) break;
+            chunks.add(chunk.raw.toString());
+          } else {
+            chunks.add(chunk.toString());
+          }
         }
         source = chunks.join();
       } else if ((args[0] as Value).raw is List<int>) {
@@ -660,10 +674,41 @@ class LoadFunction implements BuiltinFunction {
           // Save the current environment
           final savedEnv = vm.getCurrentEnv();
 
-          // Create a new environment for the loaded code that inherits from
-          // the root environment. This ensures loaded code can access globals
-          // but not the caller's local variables
-          final loadEnv = Environment(parent: savedEnv.root, interpreter: vm);
+          // Create a new environment for the loaded code
+          final Environment loadEnv;
+          if (env != null) {
+            // If an environment was provided, create completely isolated environment
+            // This prevents access to local variables from calling scope
+            loadEnv = Environment(
+              parent: null,
+              interpreter: vm,
+              isLoadIsolated: true,
+            );
+
+            // Set up the custom environment table with proper metatable for built-in access
+            final gValue =
+                savedEnv.get('_G') ?? savedEnv.root.get('_G') ?? Value({});
+
+            // Set up metatable for the custom environment to fall back to _G
+            if (env is Map<String, dynamic>) {
+              if (!env.containsKey('__metatable')) {
+                env['__index'] = (gValue as Value).raw;
+              }
+            } else if (env is Map) {
+              // Handle generic Map type
+              final envMap = env as Map;
+              if (!envMap.containsKey('__metatable')) {
+                envMap['__index'] = (gValue as Value).raw;
+              }
+            }
+
+            final envValue = Value(env);
+            loadEnv.declare("_ENV", envValue);
+            loadEnv.declare("_G", gValue);
+          } else {
+            // Default: inherit from the root environment
+            loadEnv = Environment(parent: savedEnv.root, interpreter: vm);
+          }
 
           // Set up varargs in the load environment
           loadEnv.declare("...", Value.multi(callArgs));
@@ -718,7 +763,7 @@ class DoFileFunction implements BuiltinFunction {
       final ast = parse(source, url: filename);
 
       // Execute in current VM context
-      final result = vm.run(ast.statements);
+      final result = await vm.run(ast.statements);
 
       // Return result or nil if no result
       return result;
@@ -774,6 +819,8 @@ class LoadfileFunction implements BuiltinFunction {
     final filename = args.isNotEmpty ? (args[0] as Value).raw.toString() : null;
     //mode
     final _ = args.length > 1 ? (args[1] as Value).raw.toString() : 'bt';
+    // env parameter (3rd argument)
+    final env = args.length > 2 ? (args[2] as Value).raw : null;
 
     try {
       final source = filename == null
@@ -793,10 +840,33 @@ class LoadfileFunction implements BuiltinFunction {
         return Value(null);
       }
       final ast = parse(sourceCode, url: filename ?? 'stdin');
-      return Value((List<Object?> callArgs) {
-        final vm = Interpreter();
+      return Value((List<Object?> callArgs) async {
+        // Use the current interpreter context, not a new one
+        final currentVm = Environment.current?.interpreter;
+        if (currentVm == null) {
+          throw Exception("No interpreter context available");
+        }
+
         try {
-          return vm.run(ast.statements);
+          // Set up environment like the load function does
+          if (env != null) {
+            final savedEnv = currentVm.getCurrentEnv();
+            final loadEnv = Environment(
+              parent: savedEnv.root,
+              interpreter: currentVm,
+            );
+            loadEnv.declare("_ENV", Value(env));
+            loadEnv.declare("...", Value.multi(callArgs));
+            currentVm.setCurrentEnv(loadEnv);
+
+            try {
+              return await currentVm.run(ast.statements);
+            } finally {
+              currentVm.setCurrentEnv(savedEnv);
+            }
+          } else {
+            return await currentVm.run(ast.statements);
+          }
         } catch (e) {
           throw Exception("Error executing loaded chunk: $e");
         }
