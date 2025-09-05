@@ -348,24 +348,23 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     // Check if there's a custom _ENV that is different from the initial _G
     final envValue = globals.get('_ENV');
     final gValue = globals.get('_G');
+    Logger.debug(
+      "ENV assign context: name=$name, _ENV=$envValue (rawType: \\${envValue is Value ? envValue.raw.runtimeType : envValue?.runtimeType}), _G=$gValue (rawType: \\${gValue is Value ? gValue.raw.runtimeType : gValue?.runtimeType})",
+      category: 'Assignment',
+    );
 
-    // If _ENV exists and is different from _G, use _ENV for variable assignments
-
+    // If there is a custom _ENV in effect (different from _G), then assignments to
+    // undeclared identifiers must go through `_ENV[name] = value`, regardless of
+    // whether _ENV is a table or not (non-table must raise an indexing error).
     if (envValue is Value && gValue is Value && envValue != gValue) {
-      // Check if this is an isolated environment created by load() with custom env
-      // In isolated environments, don't access parent scope locals
+      // In isolated environments (load with custom env), skip local lookup to avoid
+      // touching parent locals. Otherwise, prefer updating an existing local.
       final isIsolatedEnvironment = globals.isLoadIsolated;
-
       if (!isIsolatedEnvironment) {
-        // Check if this is a local variable in the current or parent scopes
-        // Local variables should be updated in place, not redirected to _ENV
         Environment? env = globals;
         while (env != null) {
           if (env.values.containsKey(name) && env.values[name]!.isLocal) {
-            Logger.debug(
-              'Updating local variable: $name',
-              category: 'Assignment',
-            );
+            Logger.debug('Updating local variable: $name', category: 'Assignment');
             env.define(name, wrappedValue);
             return wrappedValue;
           }
@@ -373,15 +372,13 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         }
       }
 
-      Logger.debug(
-        'Using custom _ENV for variable assignment: $name',
-        category: 'Assignment',
-      );
-
+      Logger.debug('Using custom _ENV for variable assignment: $name',
+          category: 'Assignment');
       Logger.debug(
         'Assignment: About to call setValueAsync on _ENV for $name = $wrappedValue',
         category: 'Assignment',
       );
+      // This will correctly handle tables, metamethods, or throw for non-tables
       await envValue.setValueAsync(name, wrappedValue);
       Logger.debug(
         'Assignment: setValueAsync completed for $name',

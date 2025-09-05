@@ -21,7 +21,14 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
 
     this is Interpreter ? (this as Interpreter).recordTrace(node) : null;
 
-    final condition = await node.cond.accept(this);
+    dynamic condition = await node.cond.accept(this);
+    // In expression context, varargs/functions returning multiple values collapse
+    // to their first value. Apply that here so 'if (...) then' is falsey when
+    // no arguments are provided.
+    if (condition is Value && condition.isMulti) {
+      final vals = condition.raw as List;
+      condition = vals.isNotEmpty ? vals.first : Value(null);
+    }
     Logger.debug(
       'If condition evaluated to $condition',
       category: 'ControlFlow',
@@ -68,7 +75,11 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
             (this as Interpreter).recordTrace(elseIf.cond);
           }
 
-          final elseIfCond = await elseIf.cond.accept(this);
+          dynamic elseIfCond = await elseIf.cond.accept(this);
+          if (elseIfCond is Value && elseIfCond.isMulti) {
+            final vals = elseIfCond.raw as List;
+            elseIfCond = vals.isNotEmpty ? vals.first : Value(null);
+          }
           bool elseIfCondValue = false;
 
           if (elseIfCond is bool) {

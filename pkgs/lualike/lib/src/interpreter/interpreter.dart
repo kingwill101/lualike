@@ -12,6 +12,7 @@ import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/stack.dart';
 import 'package:lualike/src/stdlib/init.dart' show initializeStandardLibrary;
 import 'package:lualike/src/utils/platform_utils.dart' as platform;
+import 'package:lualike/src/utils/type.dart';
 import 'package:lualike/src/value.dart';
 import 'package:lualike/src/value_class.dart';
 import 'package:lualike/src/utils/file_system_utils.dart' as fs;

@@ -418,9 +418,13 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         'Using custom _ENV for variable lookup: ${node.name}',
         category: 'Expression',
       );
-
-      final result = await envValue.getValueAsync(Value(node.name));
-      return result is Value ? result : Value(result);
+      if (envValue.raw is Map) {
+        final result = await envValue.getValueAsync(Value(node.name));
+        return result is Value ? result : Value(result);
+      }
+      // Non-table _ENV: any variable lookup is an index on that value -> error
+      final tname = getLuaType(envValue.raw);
+      throw LuaError.typeError('attempt to index a $tname value');
     }
 
     // Default behavior: look up in the current environment
