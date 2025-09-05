@@ -1,5 +1,7 @@
 import 'ast.dart';
 import 'lua_stack_trace.dart';
+import 'environment.dart';
+import 'value.dart';
 
 /// Represents a call frame in the interpreter's call stack.
 class CallFrame {
@@ -15,13 +17,22 @@ class CallFrame {
   /// The most recent line number executed within this frame (1-based). -1 when unknown.
   int currentLine;
 
+  /// The environment active for this frame (if any)
+  final Environment? env;
+
+  /// Debug locals for this frame, in enumeration order (1-based for Lua)
+  /// Each entry stores the visible name and the underlying Value
+  final List<MapEntry<String, Value>> debugLocals;
+
   /// Creates a new call frame with the given function name and call node.
   CallFrame(
     this.functionName, {
     this.callNode,
     this.scriptPath,
     this.currentLine = -1,
-  });
+    this.env,
+    List<MapEntry<String, Value>>? debugLocals,
+  }) : debugLocals = debugLocals ?? <MapEntry<String, Value>>[];
 
   /// Creates a LuaStackFrame from this call frame.
   LuaStackFrame toLuaStackFrame() {
@@ -51,9 +62,14 @@ class CallStack {
   String? get scriptPath => _scriptPath;
 
   /// Pushes a new frame onto the call stack.
-  void push(String functionName, {AstNode? callNode}) {
+  void push(String functionName, {AstNode? callNode, Environment? env}) {
     _frames.add(
-      CallFrame(functionName, callNode: callNode, scriptPath: _scriptPath),
+      CallFrame(
+        functionName,
+        callNode: callNode,
+        scriptPath: _scriptPath,
+        env: env,
+      ),
     );
   }
 
