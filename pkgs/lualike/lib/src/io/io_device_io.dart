@@ -11,6 +11,7 @@ import 'io_device.dart';
 class FileIODevice extends BaseIODevice {
   RandomAccessFile? _file;
   int _eofCallCount = 0;
+  final List<int> _writeBuffer = <int>[];
 
   FileIODevice._(RandomAccessFile file, String mode) : super(mode) {
     _file = file;
@@ -27,14 +28,10 @@ class FileIODevice extends BaseIODevice {
     FileMode fileMode;
     // Handle binary mode properly - 'b' can only appear at the end or after '+'
     String effectiveMode = mode;
-    if (mode.endsWith('b')) {
-      effectiveMode = mode.substring(0, mode.length - 1);
-    } else if (mode.contains('+b')) {
-      effectiveMode = mode.replaceAll('+b', '+');
-    } else if (mode.contains('b') &&
-        !mode.endsWith('b') &&
-        !mode.contains('+b')) {
-      // Invalid: 'b' in wrong position (like 'rb+')
+    if (effectiveMode.endsWith('b')) {
+      effectiveMode = effectiveMode.substring(0, effectiveMode.length - 1);
+    } else if (effectiveMode.contains('b')) {
+      // Any 'b' not at the end (e.g., 'rb+') is invalid
       Logger.debug('Invalid file mode: $mode', category: 'IO');
       throw LuaError("invalid mode");
     }
@@ -95,6 +92,11 @@ class FileIODevice extends BaseIODevice {
   Future<void> close() async {
     Logger.debug('Closing file', category: 'IO');
     if (!isClosed && _file != null) {
+      // Flush any pending buffered data before closing
+      if (_writeBuffer.isNotEmpty) {
+        await _file!.writeFrom(_writeBuffer);
+        _writeBuffer.clear();
+      }
       await _file!.close();
       _file = null;
       isClosed = true;
@@ -108,6 +110,11 @@ class FileIODevice extends BaseIODevice {
   Future<void> flush() async {
     Logger.debug('Flushing file', category: 'IO');
     checkOpen();
+    // Write any buffered data first according to buffering mode
+    if (_writeBuffer.isNotEmpty) {
+      await _file!.writeFrom(_writeBuffer);
+      _writeBuffer.clear();
+    }
     await _file?.flush();
     Logger.debug('File flushed successfully', category: 'IO');
   }
@@ -341,10 +348,13 @@ class FileIODevice extends BaseIODevice {
     );
     checkOpen();
     try {
+      // Disallow writes in read-only modes
+      if (!(mode.contains('w') || mode.contains('a') || mode.contains('+'))) {
+        return WriteResult(false, "Cannot write to read-only file", 9);
+      }
       final bytes = utf8.encode(data);
       Logger.debug('Encoded ${bytes.length} bytes to write', category: 'IO');
-      await _file!.writeFrom(bytes);
-      Logger.debug('Successfully wrote ${bytes.length} bytes', category: 'IO');
+      await _bufferedWrite(bytes);
       return WriteResult(true);
     } catch (e) {
       Logger.debug('Error writing to file: $e', category: 'IO');
@@ -356,6 +366,35 @@ class FileIODevice extends BaseIODevice {
     }
   }
 
+  Future<void> _bufferedWrite(List<int> bytes) async {
+    switch (bufferMode) {
+      case BufferMode.none:
+        await _file!.writeFrom(bytes);
+        break;
+      case BufferMode.full:
+        _writeBuffer.addAll(bytes);
+        // Optionally flush if exceeds bufferSize
+        if (_writeBuffer.length >= bufferSize) {
+          await _file!.writeFrom(_writeBuffer);
+          _writeBuffer.clear();
+        }
+        break;
+      case BufferMode.line:
+        _writeBuffer.addAll(bytes);
+        // Flush up to and including the last newline
+        final idx = _writeBuffer.lastIndexOf(10); // '\n'
+        if (idx != -1) {
+          final toFlush = _writeBuffer.sublist(0, idx + 1);
+          await _file!.writeFrom(toFlush);
+          final remaining = _writeBuffer.sublist(idx + 1);
+          _writeBuffer
+            ..clear()
+            ..addAll(remaining);
+        }
+        break;
+    }
+  }
+
   @override
   Future<WriteResult> writeBytes(List<int> bytes) async {
     Logger.debug(
@@ -364,8 +403,11 @@ class FileIODevice extends BaseIODevice {
     );
     checkOpen();
     try {
-      await _file!.writeFrom(bytes);
-      Logger.debug('Successfully wrote ${bytes.length} raw bytes', category: 'IO');
+      if (!(mode.contains('w') || mode.contains('a') || mode.contains('+'))) {
+        return WriteResult(false, "Cannot write to read-only file", 9);
+      }
+      await _bufferedWrite(bytes);
+      Logger.debug('Buffered/ wrote ${bytes.length} raw bytes', category: 'IO');
       return WriteResult(true);
     } catch (e) {
       Logger.debug('Error writing raw bytes to file: $e', category: 'IO');
@@ -384,6 +426,12 @@ class FileIODevice extends BaseIODevice {
       category: 'IO',
     );
     checkOpen();
+    // For write buffering modes, flush pending data before seeking to
+    // ensure consistent position semantics (like C stdio).
+    if (bufferMode != BufferMode.none && _writeBuffer.isNotEmpty) {
+      await _file!.writeFrom(_writeBuffer);
+      _writeBuffer.clear();
+    }
     switch (whence) {
       case SeekWhence.set:
         Logger.debug('Seeking to absolute position: $offset', category: 'IO');
@@ -419,7 +467,11 @@ class FileIODevice extends BaseIODevice {
   Future<int> getPosition() async {
     Logger.debug('Getting file position', category: 'IO');
     checkOpen();
-    final pos = await _file!.position();
+    var pos = await _file!.position();
+    // Include buffered bytes in current position for full/line buffering
+    if (bufferMode != BufferMode.none && _writeBuffer.isNotEmpty) {
+      pos += _writeBuffer.length;
+    }
     Logger.debug('Current position: $pos', category: 'IO');
     return pos;
   }

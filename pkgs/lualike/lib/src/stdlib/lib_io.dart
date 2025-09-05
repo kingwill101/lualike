@@ -103,6 +103,7 @@ class IOLib {
     "write": FileWrite(),
     "seek": FileSeek(),
     "lines": FileLines(),
+    "setvbuf": FileSetvbuf(),
   };
 
   static final ValueClass fileClass = ValueClass.create({
@@ -844,8 +845,16 @@ class FileWrite implements BuiltinFunction {
 
     final luaFile = file.raw as LuaFile;
     for (final arg in actualArgs) {
-      final str = (arg as Value).raw.toString();
-      final result = await luaFile.write(str);
+      final val = arg as Value;
+      List<Object?> result;
+      if (val.raw is LuaString) {
+        final bytes = (val.raw as LuaString).bytes;
+        Logger.debug('File:write raw ${bytes.length} bytes', category: 'IO');
+        result = await luaFile.writeBytes(bytes);
+      } else {
+        final str = val.raw.toString();
+        result = await luaFile.write(str);
+      }
       if (result[0] == null) {
         // On failure, propagate the (nil, errmsg[, errno]) tuple.
         return Value.multi(result);
@@ -896,6 +905,30 @@ class FileLines implements BuiltinFunction {
 
     final result = await (file.raw as LuaFile).lines(formats);
     return result;
+  }
+}
+
+class FileSetvbuf implements BuiltinFunction {
+  @override
+  Future<Object?> call(List<Object?> args) async {
+    Logger.debug('File method: setvbuf', category: 'IO');
+    if (args.isEmpty) {
+      throw LuaError("got no value");
+    }
+    final file = args[0];
+    if (file is! Value || file.raw is! LuaFile) {
+      throw LuaError.typeError("file expected");
+    }
+
+    // Skip self parameter
+    final actualArgs = args.skip(1).toList();
+    final mode = actualArgs.isNotEmpty ? (actualArgs[0] as Value).raw.toString() : 'full';
+    final size = actualArgs.length > 1
+        ? NumberUtils.toInt((actualArgs[1] as Value).raw)
+        : null;
+
+    final result = await (file.raw as LuaFile).setvbuf(mode, size);
+    return Value.multi(result);
   }
 }
 

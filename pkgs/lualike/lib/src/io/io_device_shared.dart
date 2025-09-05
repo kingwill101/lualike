@@ -157,7 +157,7 @@ abstract class BaseIODevice implements IODevice {
   /// Helper to validate read format
   void validateReadFormat(String format) {
     Logger.debug("Validating read format: $format", category: "IO");
-    if (!RegExp(r'^(\*?n|\*?a|\*?l|\*?L|\d+)$').hasMatch(format)) {
+    if (!RegExp(r'^(\*?n|\*?a|\*?all|\*?l|\*?L|\d+)$').hasMatch(format)) {
       Logger.debug("Invalid format: $format", category: "IO");
       throw LuaError("invalid format: $format");
     }
@@ -169,7 +169,8 @@ abstract class BaseIODevice implements IODevice {
     if (format.startsWith('*')) {
       return format.substring(1);
     }
-    return format;
+    // Accept 'all' as an alias for 'a' (used in Lua test suite)
+    return format == 'all' ? 'a' : format;
   }
 }
 
