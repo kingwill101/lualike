@@ -78,6 +78,10 @@ class LuaGrammarDefinition extends GrammarDefinition {
   Parser _whiteSpaceAndComments() =>
       (whitespace() | ref0(_longComment) | ref0(_lineComment)).plus();
 
+  Parser _shebang() =>
+      (string('#!') & pattern('\n').neg().star() & pattern('\n').optional())
+          .flatten();
+
   Parser _lineComment() =>
       (string('--') & pattern('\n').neg().star() & pattern('\n').optional())
           .flatten();
@@ -215,9 +219,10 @@ class LuaGrammarDefinition extends GrammarDefinition {
   @override
   Parser start() {
     final leading = _whiteSpaceAndComments().star();
+    final shebang = ref0(_shebang).optional();
     // Do not require .end() so trailing trivia is allowed, matching Lua.
     // Require complete consumption of input (besides allowed trailing trivia).
-    return ((leading & ref0(_chunk) & leading).map((vals) => vals[1]).end())
+    return ((shebang & leading & ref0(_chunk) & leading).map((vals) => vals[2]).end())
         .trim(ref0(_whiteSpaceAndComments));
   }
 
