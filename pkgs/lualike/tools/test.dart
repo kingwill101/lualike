@@ -16,6 +16,7 @@ final testFiles = [
   'literals.lua',
   'tpack.lua',
   'utf8.lua',
+  'files.lua',
   'vararg.lua',
   'events.lua',
   'sort.lua',
@@ -129,7 +130,12 @@ Future<void> main(List<String> args) async {
     ..addFlag(
       'no-soft',
       negatable: false,
-      help: 'Disable soft mode (_soft = true) for full test execution',
+      help: 'Disable soft mode (_soft = true). By default, tests run in soft mode (smaller/faster).',
+    )
+    ..addFlag(
+      'port',
+      negatable: false,
+      help: 'Enable portability mode (_port = true). Some tests will skip or alter platform-specific logic.',
     )
     ..addMultiOption(
       'test',
@@ -177,6 +183,7 @@ Future<void> main(List<String> args) async {
     tests: testsToRun,
     verbose: r['verbose'] as bool,
     noSoft: r['no-soft'] as bool,
+    port: r['port'] as bool,
   );
 
   printTestSummary(results);
@@ -192,6 +199,7 @@ Future<List<TestResult>> runTests({
   List<String> tests = const [],
   bool verbose = false,
   bool noSoft = false,
+  bool port = false,
 }) async {
   final results = <TestResult>[];
   final testsToRun = tests.isEmpty ? testFiles : tests;
@@ -206,7 +214,13 @@ Future<List<TestResult>> runTests({
 
     final stopwatch = Stopwatch()..start();
 
-    final environment = noSoft ? null : {'LUA_INIT': '_soft = true'};
+    String? luaInit;
+    if (port) {
+      luaInit = '_port = true';
+    } else if (!noSoft) {
+      luaInit = '_soft = true';
+    }
+    final environment = luaInit != null ? {'LUA_INIT': luaInit} : null;
     final lualikeBinary = 'lualike';
     final binaryPath = path.join(Directory.current.path, lualikeBinary);
     final workingDir = path.join('luascripts', 'test');
