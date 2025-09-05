@@ -850,14 +850,9 @@ class LoadfileFunction implements BuiltinFunction {
             if (sourceCode == null) {
               return Value(null);
             }
+            // No shebang handling here; parser takes care of file shebangs.
           } else {
-            // Handle first-line hash comment for binary files: skip until LF
-            int start = 0;
-            if (bytes.isNotEmpty && bytes[0] == 35 /* '#' */) {
-              final nl = bytes.indexOf(10); // '\n'
-              if (nl != -1) start = nl + 1;
-            }
-            final isBinary = (bytes.length > start) && bytes[start] == 0x1B;
+            final isBinary = bytes.isNotEmpty && bytes[0] == 0x1B;
             if (isBinary && !allowBinary) {
               return Value.multi([Value(null), Value("a binary chunk")]);
             }
@@ -867,7 +862,7 @@ class LoadfileFunction implements BuiltinFunction {
 
             // If binary, interpret the rest as a textual chunk payload
             if (isBinary) {
-              sourceCode = utf8.decode(bytes.sublist(start + 1), allowMalformed: true);
+              sourceCode = utf8.decode(bytes.sublist(1), allowMalformed: true);
             } else {
               sourceCode = utf8.decode(bytes, allowMalformed: true);
             }

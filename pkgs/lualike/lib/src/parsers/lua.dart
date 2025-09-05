@@ -78,11 +78,18 @@ class LuaGrammarDefinition extends GrammarDefinition {
   Parser _whiteSpaceAndComments() =>
       (whitespace() | ref0(_longComment) | ref0(_lineComment)).plus();
 
-  /// Lua skips an initial line starting with '#' (Unix hash-bang or a shell
-  /// comment). This applies only to the very first line of the chunk.
+  /// Recognize a leading hash-line ('#...\n') used as an initial comment in
+  /// file-based chunks (Lua skips the first line if it starts with '#'). This
+  /// is consumed only for file chunks inside `start()` (not for load() on
+  /// raw strings).
   Parser _shebang() =>
       (string('#') & pattern('\n').neg().star() & pattern('\n').optional())
           .flatten();
+
+  /// Optional ESC (0x1B) marker used by our pseudo-binary chunks. Accepting it
+  /// here allows loader code to uniformly pass decoded text to the parser even
+  /// when a chunk starts with ESC.
+  Parser _escMarker() => (pattern('\u001B')).flatten();
 
   /// Optional UTF-8 BOM at the very start of a file. When present, it is
   /// ignored by the grammar so users can load files that begin with a BOM
@@ -227,11 +234,21 @@ class LuaGrammarDefinition extends GrammarDefinition {
   Parser start() {
     final leading = _whiteSpaceAndComments().star();
     final bom = ref0(_bom).optional();
-    final shebang = ref0(_shebang).optional();
+
+    // Accept shebang only for file-based chunks: when a non-empty URL is
+    // provided (loadfile/require). For load() on raw strings the URL is
+    // typically empty or '=(load)', and we must not skip a leading '#'.
+    final urlStr = _sourceFile.url?.toString() ?? '';
+    final isFileChunk = urlStr.isNotEmpty && urlStr != '=(load)';
+    final maybeShebang = isFileChunk ? ref0(_shebang).optional() : epsilon();
+
+    // Accept optional ESC marker after BOM/shebang for pseudo-binary chunks.
+    final maybeEsc = ref0(_escMarker).optional();
+
     // Do not require .end() so trailing trivia is allowed, matching Lua.
     // Require complete consumption of input (besides allowed trailing trivia).
-    return ((bom & shebang & leading & ref0(_chunk) & leading)
-            .map((vals) => vals[3])
+    return ((bom & maybeShebang & maybeEsc & leading & ref0(_chunk) & leading)
+            .map((vals) => vals[4])
             .end())
         .trim(ref0(_whiteSpaceAndComments));
   }
