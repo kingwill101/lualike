@@ -11,56 +11,56 @@ void main() {
 
     test('require("string") == string', () async {
       await lua.execute('''
-        local result = require("string") == string
+        result = require("string") == string
       ''');
       expect(lua.getGlobal("result").unwrap(), equals(true));
     });
 
     test('require("table") == table', () async {
       await lua.execute('''
-        local result = require("table") == table
+        result = require("table") == table
       ''');
       expect(lua.getGlobal("result").unwrap(), equals(true));
     });
 
     test('require("math") == math', () async {
       await lua.execute('''
-        local result = require("math") == math
+        result = require("math") == math
       ''');
       expect(lua.getGlobal("result").unwrap(), equals(true));
     });
 
     test('require("io") == io', () async {
       await lua.execute('''
-        local result = require("io") == io
+        result = require("io") == io
       ''');
       expect(lua.getGlobal("result").unwrap(), equals(true));
     });
 
     test('require("os") == os', () async {
       await lua.execute('''
-        local result = require("os") == os
+        result = require("os") == os
       ''');
       expect(lua.getGlobal("result").unwrap(), equals(true));
     });
 
     test('require("coroutine") == coroutine', () async {
       await lua.execute('''
-        local result = require("coroutine") == coroutine
+        result = require("coroutine") == coroutine
       ''');
       expect(lua.getGlobal("result").unwrap(), equals(true));
     });
 
     test('require("debug") == debug', () async {
       await lua.execute('''
-        local result = require("debug") == debug
+        result = require("debug") == debug
       ''');
       expect(lua.getGlobal("result").unwrap(), equals(true));
     });
 
     test('require("utf8") == utf8', () async {
       await lua.execute('''
-        local result = require("utf8") == utf8
+        result = require("utf8") == utf8
       ''');
       expect(lua.getGlobal("result").unwrap(), equals(true));
     });
@@ -71,11 +71,11 @@ void main() {
         string.custom = function(s) return "custom: " .. s end
 
         -- Get the module through require
-        local str = require("string")
+        str = require("string")
 
         -- Check if the custom function is available through both references
-        local result1 = string.custom("test")
-        local result2 = str.custom("test")
+        result1 = string.custom("test")
+        result2 = str.custom("test")
 
         result = result1 == result2 and result1 == "custom: test"
       ''');
@@ -84,7 +84,7 @@ void main() {
 
     test('package.loaded contains standard library modules', () async {
       await lua.execute('''
-        local result = true
+        result = true
         result = result and (package.loaded["string"] == string)
         result = result and (package.loaded["table"] == table)
         result = result and (package.loaded["math"] == math)
@@ -99,9 +99,9 @@ void main() {
 
     test('require returns same instance on multiple calls', () async {
       await lua.execute('''
-        local str1 = require("string")
-        local str2 = require("string")
-        local str3 = require("string")
+        str1 = require("string")
+        str2 = require("string")
+        str3 = require("string")
 
         result = (str1 == str2) and (str2 == str3) and (str1 == string)
       ''');
@@ -112,7 +112,7 @@ void main() {
       await lua.execute('''
         -- Check that standard library modules are already in package.loaded
         -- before we call require
-        local result = true
+        result = true
         for _, name in ipairs({"string", "table", "math", "io", "os", "coroutine", "debug", "utf8"}) do
           if package.loaded[name] == nil then
             result = false

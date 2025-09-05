@@ -24,11 +24,14 @@ void main() {
     group('IODevice', () {
       test('FileIODevice basic operations', () async {
         final filePath = '$tempPath/test.txt';
-        final device = await FileIODevice.open(filePath, 'w');
+        final device = await FileIODevice.open(filePath, 'r+');
 
         // Write test
         var result = await device.write('Hello, World!\n');
         expect(result.success, true);
+
+        // Flush to ensure data is written
+        await device.flush();
 
         // Seek to beginning
         await device.seek(SeekWhence.set, 0);
@@ -70,12 +73,15 @@ void main() {
     group('LuaFile', () {
       test('Basic file operations', () async {
         final filePath = '$tempPath/test.txt';
-        final device = await FileIODevice.open(filePath, 'w');
+        final device = await FileIODevice.open(filePath, 'r+');
         final file = LuaFile(device);
 
         // Write test
         var result = await file.write('Hello, World!\n');
         expect(result[0], true);
+
+        // Flush to ensure data is written
+        await file.flush();
 
         // Seek to beginning
         result = await file.seek('set', 0);
@@ -93,11 +99,14 @@ void main() {
 
       test('Lines iterator', () async {
         final filePath = '$tempPath/test.txt';
-        final device = await FileIODevice.open(filePath, 'w');
+        final device = await FileIODevice.open(filePath, 'r+');
         final file = LuaFile(device);
 
         // Write some lines
         await file.write('Line 1\nLine 2\nLine 3\n');
+
+        // Flush to ensure data is written
+        await file.flush();
         await file.seek('set', 0);
 
         // Get lines iterator
@@ -238,7 +247,7 @@ void main() {
         () async {
           final code = '''
         -- Write to a file
-        local file = io.open("test.txt", "w")
+        file = io.open("test.txt", "w")
         if file then
             file:write("Hello from LuaLike!\\n")
             file:write("This is a test file.\\n")
@@ -276,21 +285,21 @@ void main() {
       test('should handle multiple files in memory', () async {
         final code = '''
         -- Create multiple files
-        local file1 = io.open("file1.txt", "w")
+        file1 = io.open("file1.txt", "w")
         file1:write("Content of file 1")
         file1:close()
 
-        local file2 = io.open("file2.txt", "w")
+        file2 = io.open("file2.txt", "w")
         file2:write("Content of file 2")
         file2:close()
 
         -- Read them back
-        local f1 = io.open("file1.txt", "r")
-        local content1 = f1:read("*a")
+        f1 = io.open("file1.txt", "r")
+        content1 = f1:read("*a")
         f1:close()
 
-        local f2 = io.open("file2.txt", "r")
-        local content2 = f2:read("*a")
+        f2 = io.open("file2.txt", "r")
+        content2 = f2:read("*a")
         f2:close()
 
         return content1, content2
@@ -309,7 +318,7 @@ void main() {
       test('should support file append operations', () async {
         final code = '''
         -- Create initial file
-        local file = io.open("append.txt", "w")
+        file = io.open("append.txt", "w")
         file:write("Initial content\\n")
         file:close()
 
@@ -320,7 +329,7 @@ void main() {
 
         -- Read final content
         file = io.open("append.txt", "r")
-        local content = file:read("*a")
+        content = file:read("*a")
         file:close()
 
         return content
@@ -338,7 +347,7 @@ void main() {
       test('should handle file seek operations', () async {
         final code = '''
         -- Create file with multiple lines
-        local file = io.open("seektest.txt", "w")
+        file = io.open("seektest.txt", "w")
         file:write("Line 1\\n")
         file:write("Line 2\\n")
         file:write("Line 3\\n")
@@ -348,13 +357,13 @@ void main() {
         file = io.open("seektest.txt", "r+")
 
         -- Read first line
-        local line1 = file:read("l")
+        line1 = file:read("l")
 
         -- Seek to beginning
         file:seek("set", 0)
 
         -- Read all content
-        local allContent = file:read("*a")
+        allContent = file:read("*a")
 
         file:close()
 
@@ -371,16 +380,16 @@ void main() {
       test('should persist files across multiple script executions', () async {
         // First script: create a file
         await executeCode('''
-        local file = io.open("persistent.txt", "w")
+        file = io.open("persistent.txt", "w")
         file:write("This should persist")
         file:close()
       ''');
 
         // Second script: read the file created by first script
         final _ = await executeCode('''
-        local file = io.open("persistent.txt", "r")
+        file = io.open("persistent.txt", "r")
         if file then
-            local content = file:read("*a")
+            content = file:read("*a")
             file:close()
             return content
         else
@@ -397,7 +406,7 @@ void main() {
       test('should handle file errors gracefully', () async {
         final code = '''
         -- Try to read non-existent file
-        local file = io.open("nonexistent.txt", "r")
+        file = io.open("nonexistent.txt", "r")
         if file then
             return "Should not reach here"
         else
@@ -412,7 +421,7 @@ void main() {
       test('should work with io.write and io.read functions', () async {
         final code = '''
         -- Set output to a file
-        local file = io.open("output.txt", "w")
+        file = io.open("output.txt", "w")
         io.output(file)
 
         -- Write using io.write (goes to current output file)
@@ -424,7 +433,7 @@ void main() {
 
         -- Read it back
         file = io.open("output.txt", "r")
-        local content = file:read("*a")
+        content = file:read("*a")
         file:close()
 
         return content
@@ -441,7 +450,7 @@ void main() {
         final userCode = '''
 -- File I/O Operations
 -- Write to a file
-local file = io.open("test.txt", "w")
+file = io.open("test.txt", "w")
 if file then
     file:write("Hello from LuaLike!\\n")
     file:write("This is a test file.\\n")
@@ -464,8 +473,8 @@ else
 end
 
 -- Working with strings as files
-local data = "line1\\nline2\\nline3"
-local stringFile = io.open("data", "w")
+data = "line1\\nline2\\nline3"
+stringFile = io.open("data", "w")
 stringFile:write(data)
 stringFile:close()
 
@@ -503,11 +512,11 @@ stringFile:close()
       test('should demonstrate file persistence between operations', () async {
         // First operation: create files
         await executeCode('''
-        local file1 = io.open("persistent1.txt", "w")
+        file1 = io.open("persistent1.txt", "w")
         file1:write("First file content")
         file1:close()
 
-        local file2 = io.open("persistent2.txt", "w")
+        file2 = io.open("persistent2.txt", "w")
         file2:write("Second file content")
         file2:close()
 
@@ -516,12 +525,12 @@ stringFile:close()
 
         // Second operation: read files
         await executeCode('''
-        local file1 = io.open("persistent1.txt", "r")
-        local content1 = file1:read("*a")
+        file1 = io.open("persistent1.txt", "r")
+        content1 = file1:read("*a")
         file1:close()
 
-        local file2 = io.open("persistent2.txt", "r")
-        local content2 = file2:read("*a")
+        file2 = io.open("persistent2.txt", "r")
+        content2 = file2:read("*a")
         file2:close()
 
         print("File 1: " .. content1)
@@ -536,7 +545,7 @@ stringFile:close()
 
       test('should handle file operations with proper line endings', () async {
         final code = '''
-        local file = io.open("lines.txt", "w")
+        file = io.open("lines.txt", "w")
         file:write("Line 1\\n")
         file:write("Line 2\\n")
         file:write("Line 3")
@@ -544,7 +553,7 @@ stringFile:close()
 
         file = io.open("lines.txt", "r")
         print("Reading lines:")
-        local lineCount = 0
+        lineCount = 0
         for line in file:lines() do
             lineCount = lineCount + 1
             print("Line " .. lineCount .. ": " .. line)
@@ -564,7 +573,7 @@ stringFile:close()
       test('should work with different file modes', () async {
         final code = '''
         -- Test write mode
-        local file = io.open("modes.txt", "w")
+        file = io.open("modes.txt", "w")
         file:write("Original content")
         file:close()
 
@@ -575,7 +584,7 @@ stringFile:close()
 
         -- Test read mode
         file = io.open("modes.txt", "r")
-        local content = file:read("*a")
+        content = file:read("*a")
         file:close()
 
         print("Final content:")
@@ -599,7 +608,7 @@ stringFile:close()
           // This test specifically addresses the issue the user encountered
           final code = '''
         -- Create a file with specific content
-        local file = io.open("debug.txt", "w")
+        file = io.open("debug.txt", "w")
         file:write("CORRECT CONTENT\\n")
         file:write("Second line\\n")
         file:close()
@@ -609,14 +618,14 @@ stringFile:close()
         file = io.open("debug.txt", "r")
         print("✓ File opened for reading")
 
-        local allContent = file:read("*a")
+        allContent = file:read("*a")
         print("Raw content: [" .. (allContent or "nil") .. "]")
 
         -- Reset file pointer and read line by line
         file:close()
         file = io.open("debug.txt", "r")
 
-        local lineNum = 0
+        lineNum = 0
         for line in file:lines() do
             lineNum = lineNum + 1
             print("Line " .. lineNum .. ": [" .. line .. "]")

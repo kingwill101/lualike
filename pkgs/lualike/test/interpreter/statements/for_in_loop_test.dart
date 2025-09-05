@@ -5,7 +5,7 @@ void main() {
     test('iterates over a list and sums values', () async {
       // Environment: local variable "sum" is updated in loop.
       // ForInLoop: for x in {1, 2, 3} do sum = sum + x end
-      var init = LocalDeclaration([Identifier("sum")], [], [NumberLiteral(0)]);
+      var init = Assignment([Identifier("sum")], [NumberLiteral(0)]);
       // ForInLoop: loop var x over a list [1,2,3]
       // Here, we simulate the iterator as a list literal.
       var loop = ForInLoop(

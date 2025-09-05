@@ -12,7 +12,7 @@ void main() {
       // This is the failing test case from .lua-tests/strings.lua
       // Note: The character � in the original file is byte 225.
       final script = r'''
-        local x = '"\225lo"\n\\'
+        x = '"\225lo"\n\\'
         result = string.format('%q%s', x, x)
       ''';
       print('Script being executed:');

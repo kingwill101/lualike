@@ -16,7 +16,7 @@ void main() {
           end
         end
 
-        local result = createGreeter("Hello")("World")
+        result = createGreeter("Hello")("World")
       ''');
 
       var result = bridge.getGlobal('result');
@@ -36,7 +36,7 @@ void main() {
           end
         end
 
-        local result = level1()()()
+        result = level1()()()
       ''');
 
       var result = bridge.getGlobal('result');
@@ -54,7 +54,7 @@ void main() {
           end
         end
 
-        local result = adder(5)(10)
+        result = adder(5)(10)
       ''');
 
       var result = bridge.getGlobal('result');
@@ -92,7 +92,7 @@ void main() {
       await bridge.execute('''
         function makeLib()
           local lib = {}
-          
+
           lib.create = function(name)
             local obj = {}
             obj.name = name
@@ -101,11 +101,11 @@ void main() {
             end
             return obj
           end
-          
+
           return lib
         end
 
-        local result = makeLib().create("MyLib").greet()
+        result = makeLib().create("MyLib").greet()
       ''');
 
       var result = bridge.getGlobal('result');

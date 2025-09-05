@@ -7,22 +7,17 @@ void main() {
       () async {
         // local a = 0; then repeat { a = 1 } until true; a should be 1 afterward
 
-        var localDeclaration = LocalDeclaration(
-          [Identifier('a')],
-          [],
-          [NumberLiteral(0)],
-        );
+        var assignment = Assignment([Identifier('a')], [NumberLiteral(0)]);
         var assignOne = Assignment([Identifier('a')], [NumberLiteral(1)]);
 
         // The condition is always true, so the loop should execute exactly once.
         var repeatUntil = RepeatUntilLoop([assignOne], BooleanLiteral(true));
 
         var vm = Interpreter();
-        await vm.run([localDeclaration, repeatUntil]);
+        await vm.run([assignment, repeatUntil]);
 
         // a should be updated to 1.
-        var result = await Identifier('a').accept(vm);
-        expect(result, equals(Value(1)));
+        expect(vm.globals.get('a'), equals(Value(1)));
       },
     );
   });

@@ -7,9 +7,8 @@ void main() {
 
       // Create a table with a __newindex metamethod
       await vm.run([
-        LocalDeclaration(
+        Assignment(
           [Identifier("t")],
-          [],
           [TableConstructor([])], // empty table
         ),
         // Set metatable with __newindex

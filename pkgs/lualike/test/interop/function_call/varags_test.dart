@@ -17,7 +17,7 @@ void main() {
           return result
         end
 
-        local result = sum(1, 2, 3, 4, 5)
+        result = sum(1, 2, 3, 4, 5)
       ''');
 
       var result = bridge.getGlobal('result');
@@ -37,8 +37,8 @@ void main() {
           return greeting
         end
 
-        local result1 = greet("Alice")
-        local result2 = greet("Alice", "Bob", "Charlie")
+        result1 = greet("Alice")
+        result2 = greet("Alice", "Bob", "Charlie")
       ''');
 
       var result1 = bridge.getGlobal('result1');
@@ -61,7 +61,7 @@ void main() {
             return "no parameters"
           end
 
-          local result = noParams()
+          result = noParams()
         ''');
 
         var result = bridge.getGlobal('result');
@@ -77,8 +77,8 @@ void main() {
             return #args
           end
 
-          local result1 = varargsOnly()
-          local result2 = varargsOnly(1, 2, 3)
+          result1 = varargsOnly()
+          result2 = varargsOnly(1, 2, 3)
         ''');
 
         var result1 = bridge.getGlobal('result1');
@@ -97,8 +97,8 @@ void main() {
             return a + b + #extras
           end
 
-          local result1 = withComma(10, 20)
-          local result2 = withComma(10, 20, 1, 2, 3)
+          result1 = withComma(10, 20)
+          result2 = withComma(10, 20, 1, 2, 3)
         ''');
 
         var result1 = bridge.getGlobal('result1');
@@ -131,8 +131,8 @@ void main() {
             return first .. " " .. #extras
           end
 
-          local result1 = singleNamed("hello")
-          local result2 = singleNamed("hello", "world", "!")
+          result1 = singleNamed("hello")
+          result2 = singleNamed("hello", "world", "!")
         ''');
 
         var result1 = bridge.getGlobal('result1');
@@ -155,8 +155,8 @@ void main() {
             return sum
           end
 
-          local result1 = multipleNamed(1, 2, 3)
-          local result2 = multipleNamed(1, 2, 3, 10, 20)
+          result1 = multipleNamed(1, 2, 3)
+          result2 = multipleNamed(1, 2, 3, 10, 20)
         ''');
 
         var result1 = bridge.getGlobal('result1');
@@ -176,7 +176,7 @@ void main() {
             return select("#", ...)
           end
 
-          local result = localVararg("a", "b", "c")
+          result = localVararg("a", "b", "c")
         ''');
 
         var result = bridge.getGlobal('result');
@@ -196,8 +196,8 @@ void main() {
             return result
           end
 
-          local result1 = localMixed("start")
-          local result2 = localMixed("start", "middle", "end")
+          result1 = localMixed("start")
+          result2 = localMixed("start", "middle", "end")
         ''');
 
         var result1 = bridge.getGlobal('result1');
@@ -222,7 +222,7 @@ void main() {
           return format("Count: %d, First: %s", select("#", ...), select(1, ...))
         end
 
-        local result = printAll("A", "B", "C")
+        result = printAll("A", "B", "C")
       ''');
 
       var result = bridge.getGlobal('result');
@@ -242,10 +242,10 @@ void main() {
           return result
         end
 
-        local values = process(10, 20, 30)
-        local first = values[1]
-        local second = values[2]
-        local third = values[3]
+        values = process(10, 20, 30)
+        first = values[1]
+        second = values[2]
+        third = values[3]
       ''');
 
       var first = bridge.getGlobal('first');
@@ -266,8 +266,8 @@ void main() {
           return #args
         end
 
-        local empty = countArgs()
-        local nonempty = countArgs(1, 2, 3)
+        empty = countArgs()
+        nonempty = countArgs(1, 2, 3)
       ''');
 
       var empty = bridge.getGlobal('empty');
@@ -287,11 +287,11 @@ void main() {
             return {...}
           end
 
-          local t = getValues(1, 2, 3)
-          local count = #t
-          local first = t[1]
-          local second = t[2]
-          local third = t[3]
+          t = getValues(1, 2, 3)
+          count = #t
+          first = t[1]
+          second = t[2]
+          third = t[3]
         ''');
 
         var count = bridge.getGlobal('count');
@@ -313,9 +313,9 @@ void main() {
             return {10, 20, ..., 30, 40}
           end
 
-          local t = getTable("a", "b", "c")
-          local len = #t
-          local values = {}
+          t = getTable("a", "b", "c")
+          len = #t
+          values = {}
           for i=1,len do
             values[i] = t[i]
           end
@@ -348,19 +348,19 @@ void main() {
             return "x", "y", "z"
           end
 
-          local t1 = {getMultiple()} -- Only first value used in table
-          local first = t1[1]
-          local size = #t1
+          t1 = {getMultiple()} -- Only first value used in table
+          first = t1[1]
+          size = #t1
 
           function getVarargs(...)
             return {...}
           end
 
-          local t2 = getVarargs(getMultiple()) -- All values passed through varargs
-          local x = t2[1]
-          local y = t2[2]
-          local z = t2[3]
-          local count = #t2
+          t2 = getVarargs(getMultiple()) -- All values passed through varargs
+          x = t2[1]
+          y = t2[2]
+          z = t2[3]
+          count = #t2
         ''');
 
         var first = bridge.getGlobal('first') as Value;
@@ -390,11 +390,11 @@ void main() {
             return {1, 2, ..., 3}
           end
 
-          local t1 = makeTable() -- No varargs
-          local size1 = #t1
+          t1 = makeTable() -- No varargs
+          size1 = #t1
 
-          local t2 = makeTable("a", "b") -- With varargs
-          local size2 = #t2
+          t2 = makeTable("a", "b") -- With varargs
+          size2 = #t2
         ''');
 
         var size1 = bridge.getGlobal('size1') as Value;
@@ -418,12 +418,12 @@ void main() {
             }
           end
 
-          local t = getNestedTable("a", "b", "c")
-          local outer = t.outer
-          local innerCount = #t.inner
-          local first = t.inner[1]
-          local second = t.inner[2]
-          local third = t.inner[3]
+          t = getNestedTable("a", "b", "c")
+          outer = t.outer
+          innerCount = #t.inner
+          first = t.inner[1]
+          second = t.inner[2]
+          third = t.inner[3]
         ''');
 
         var outer = bridge.getGlobal('outer') as Value;
@@ -450,7 +450,7 @@ void main() {
             return select("#", ...)
           end
 
-          local result = spacedVararg(1, 2, 3)
+          result = spacedVararg(1, 2, 3)
         ''');
 
         var result = bridge.getGlobal('result');
@@ -465,7 +465,7 @@ void main() {
             return a + select("#", ...)
           end
 
-          local result = spacedCommaVararg(10, "x", "y")
+          result = spacedCommaVararg(10, "x", "y")
         ''');
 
         var result = bridge.getGlobal('result');
@@ -488,7 +488,7 @@ void main() {
             return inner(1, 2, ...) + justVararg(...)
           end
 
-          local result = outer("x", "y", "z")
+          result = outer("x", "y", "z")
         ''');
 
         var result = bridge.getGlobal('result');
@@ -503,9 +503,9 @@ void main() {
           local f2 = function(a, ...) return a + select("#", ...) end
           local f3 = function(a, b, c, ...) return a + b + c + select("#", ...) end
 
-          local result1 = f1(1, 2, 3)
-          local result2 = f2(10, 4, 5)
-          local result3 = f3(1, 2, 3, 4, 5, 6)
+          result1 = f1(1, 2, 3)
+          result2 = f2(10, 4, 5)
+          result3 = f3(1, 2, 3, 4, 5, 6)
         ''');
 
         var result1 = bridge.getGlobal('result1');
@@ -531,8 +531,8 @@ void main() {
             return a .. select("#", ...)
           end
 
-          local result1 = obj:method1("x", "y")
-          local result2 = obj:method2("hello", "world", "!")
+          result1 = obj:method1("x", "y")
+          result2 = obj:method2("hello", "world", "!")
         ''');
 
         var result1 = bridge.getGlobal('result1');
@@ -556,9 +556,9 @@ void main() {
             return level2("nested", ...)
           end
 
-          local prefix, nested = level1("a", "b", "c")
-          local count = #nested
-          local first = nested[1]
+          prefix, nested = level1("a", "b", "c")
+          count = #nested
+          first = nested[1]
         ''');
 
         var prefix = bridge.getGlobal('prefix');
@@ -589,11 +589,11 @@ void main() {
             return count, args
           end
 
-          local count, args = handleNils("a", nil, "b", nil)
-          local first = args[1]
-          local second = args[2]
-          local third = args[3]
-          local fourth = args[4]
+          count, args = handleNils("a", nil, "b", nil)
+          first = args[1]
+          second = args[2]
+          third = args[3]
+          fourth = args[4]
         ''');
 
         var count = bridge.getGlobal('count');
@@ -623,7 +623,7 @@ void main() {
             args[i] = i
           end
 
-          local result = manyArgs(table.unpack(args))
+          result = manyArgs(table.unpack(args))
         ''');
 
         var result = bridge.getGlobal('result');
