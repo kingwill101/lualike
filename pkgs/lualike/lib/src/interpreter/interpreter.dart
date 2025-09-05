@@ -493,14 +493,14 @@ class Interpreter extends AstVisitor<Object?>
       Logger.info('evalStack.pop()', category: 'Interpreter');
     }
 
-    // Push a top-level frame to track currentline via AST spans
-    callStack.push(currentScriptPath ?? 'chunk');
-
     // Create a script environment for main script execution
     // This ensures local variables in the main script don't affect globals
     final savedEnv = _currentEnv;
     final scriptEnv = Environment(parent: savedEnv, interpreter: this);
     _currentEnv = scriptEnv;
+
+    // Push a top-level frame to track currentline via AST spans, bound to script env
+    callStack.push(currentScriptPath ?? 'chunk', env: _currentEnv);
 
     try {
       await _executeStatements(program);
