@@ -415,7 +415,7 @@ class IOLines implements BuiltinFunction {
         file = LuaFile(device);
         formats = args.skip(1).map((e) => (e as Value).raw.toString()).toList();
         if (formats.isEmpty) formats = ["l"];
-        final iterator = await file.lines(formats);
+        final iterator = await file.lines(formats, true); // closeOnEof = true for io.lines(filename)
         return iterator;
       } catch (e) {
         Logger.debug('Error opening file: $e', category: 'IO');

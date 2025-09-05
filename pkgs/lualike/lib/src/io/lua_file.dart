@@ -141,7 +141,8 @@ class LuaFile {
   }
 
   /// Create an iterator that reads lines from the file
-  Future<Value> lines([List<String> formats = const ["l"]]) async {
+  /// [closeOnEof] - whether to close the file when EOF is reached (default: false)
+  Future<Value> lines([List<String> formats = const ["l"], bool closeOnEof = false]) async {
     Logger.debug(
       "Creating file line iterator for $this with formats: $formats",
       category: 'IO',
@@ -197,15 +198,22 @@ class LuaFile {
 
       if (isAtEOF) {
         Logger.debug(
-          "Reached EOF in line iterator for $this, closing file (iteration #$iterationCount)",
+          "Reached EOF in line iterator for $this, closeOnEof=$closeOnEof (iteration #$iterationCount)",
           category: 'IO',
         );
-        await close();
-        hasBeenClosed = true;
-        Logger.debug(
-          "File closed, returning null to end iteration (iteration #$iterationCount)",
-          category: 'IO',
-        );
+        if (closeOnEof) {
+          await close();
+          hasBeenClosed = true;
+          Logger.debug(
+            "File closed due to closeOnEof=true, returning null to end iteration (iteration #$iterationCount)",
+            category: 'IO',
+          );
+        } else {
+          Logger.debug(
+            "EOF reached but closeOnEof=false, returning null to end iteration without closing (iteration #$iterationCount)",
+            category: 'IO',
+          );
+        }
         return Value(null);
       }
 
