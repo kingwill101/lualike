@@ -415,8 +415,17 @@ class IOLines implements BuiltinFunction {
         file = LuaFile(device);
         formats = args.skip(1).map((e) => (e as Value).raw.toString()).toList();
         if (formats.isEmpty) formats = ["l"];
-        final iterator = await file.lines(formats, true); // closeOnEof = true for io.lines(filename)
-        return iterator;
+        final iterator = await file.lines(
+          formats,
+          true,
+        ); // closeOnEof = true for io.lines(filename)
+
+        // Return iterator, dummy state/control (nil), and a to-be-closed variable
+        final toClose = Value.toBeClose(
+          file,
+          metatable: IOLib.fileClass.metamethods,
+        );
+        return Value.multi([iterator, Value(null), Value(null), toClose]);
       } catch (e) {
         Logger.debug('Error opening file: $e', category: 'IO');
         throw LuaError(e.toString());
