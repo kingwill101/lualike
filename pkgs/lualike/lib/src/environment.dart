@@ -34,6 +34,51 @@ class Box<T> extends GCObject {
 /// An Environment maintains a mapping of variable names to their values and can be
 /// chained to parent environments to implement lexical scoping. It supports
 /// variable definition, assignment, and lookup through the scope chain.
+///
+/// ## Variable Management Methods Overview
+///
+/// This class provides four main methods for variable operations, each serving
+/// specific use cases to correctly implement Lua's variable scoping semantics:
+///
+/// ### 1. `get(name)` - Variable Lookup
+/// - **Purpose**: Read variable values
+/// - **Behavior**: Searches environment chain from current to root
+/// - **Usage**: `x` in expressions like `print(x)` or `y = x + 1`
+///
+/// ### 2. `declare(name, value)` - Local Variable Declaration
+/// - **Purpose**: Create new local variables (`local x = value`)
+/// - **Behavior**: Always creates new binding with `isLocal: true`, shadows existing variables
+/// - **Usage**: Local variable declarations in Lua code
+///
+/// ### 3. `updateLocal(name, value)` - Local Variable Assignment
+/// - **Purpose**: Update existing local variables only
+/// - **Behavior**: Searches for `isLocal: true` variables, updates first match
+/// - **Returns**: `true` if local found and updated, `false` otherwise
+/// - **Usage**: Assignments when local variable should take precedence
+/// - **Why needed**: Prevents accidental global creation when local exists
+///
+/// ### 4. `defineGlobal(name, value)` - Global Variable Assignment
+/// - **Purpose**: Create/update global variables specifically
+/// - **Behavior**: Always operates on root environment, ignores local variables
+/// - **Usage**: When assignment should target global environment
+/// - **Why needed**: Ensures globals can be created even when locals exist
+///
+/// ### 5. `define(name, value)` - Legacy General Assignment
+/// - **Purpose**: Original assignment method (has scoping issues)
+/// - **Behavior**: Searches chain, updates first match, creates in root if none found
+/// - **Status**: Still used but being phased out in favor of precise methods
+///
+/// ## Design Rationale
+///
+/// The multiple methods exist because Lua has complex variable scoping rules:
+/// - Local variables shadow globals with the same name
+/// - Assignments to existing locals should update the local, not create globals
+/// - Assignments when no local exists should create/update globals
+/// - Environment isolation (like `load()` with custom env) needs special handling
+///
+/// The original `define()` method couldn't distinguish these cases correctly,
+/// leading to bugs where local variables in main scripts affected globals.
+/// The newer methods provide precise control over each scenario.
 class Environment extends GCObject {
   /// Storage for variable bindings in this scope.
   final Map<String, Box<dynamic>> values = {};
@@ -140,8 +185,14 @@ class Environment extends GCObject {
 
   /// Looks up the value of a variable named [name] in this environment.
   ///
-  /// Searches through the environment chain until the variable is found.
-  /// Returns null if the variable is not found in any environment.
+  /// Searches through the environment chain starting from this environment
+  /// and moving up to parent environments until the variable is found.
+  /// This method is used for variable access (reading variables).
+  ///
+  /// Returns the value if found, null if the variable doesn't exist anywhere
+  /// in the environment chain.
+  ///
+  /// **Usage**: Variable lookups in expressions like `print(x)` or `y = x + 1`.
   dynamic get(String name) {
     Logger.debug("Looking for '$name' in env ($hashCode)}", category: 'Env');
     Logger.debug(
@@ -175,10 +226,20 @@ class Environment extends GCObject {
 
   /// Defines or updates a variable named [name] with [value].
   ///
-  /// - For closures, checks current scope first
+  /// This method implements Lua's assignment semantics by searching the
+  /// environment chain for existing variables and updating them, or creating
+  /// new global variables if none exist.
+  ///
+  /// **Behavior**:
+  /// - For closures: checks current scope first before searching parents
   /// - Searches up the environment chain for existing bindings
-  /// - Creates a new binding in current scope if not found
+  /// - Updates the first matching variable found (respects local variable precedence)
+  /// - If no existing variable found, creates new binding in root environment
   /// - Handles const variables and to-be-closed tracking
+  ///
+  /// **Usage**: General variable assignments in regular environments.
+  /// **Note**: This is the original method that had scoping issues. New methods
+  /// `updateLocal()` and `defineGlobal()` provide more precise control.
   void define(String name, dynamic value) {
     Logger.debug(
       "Defining/updating '$name' = $value (type: ${value.runtimeType}) in env ($hashCode)",
@@ -254,12 +315,27 @@ class Environment extends GCObject {
     }
   }
 
-  /// Declares a new variable in the current environment, always creating a
-  /// fresh binding even if a variable with the same [name] already exists.
+  /// Declares a new local variable in the current environment.
   ///
-  /// This is used for Lua's `local` declarations which shadow any previous
-  /// variable of the same name in the scope. Existing bindings remain valid for
-  /// any closures that captured them.
+  /// Always creates a fresh binding even if a variable with the same [name]
+  /// already exists in this or parent environments. This implements Lua's
+  /// `local` declaration semantics where local variables shadow any previous
+  /// variables of the same name.
+  ///
+  /// **Key Properties**:
+  /// - Creates new binding with `isLocal: true`
+  /// - Shadows any existing variables (local or global) with same name
+  /// - Existing bindings remain valid for closures that captured them
+  /// - New binding exists only in current environment scope
+  ///
+  /// **Usage**: `local x = value` statements in Lua code.
+  ///
+  /// **Example**:
+  /// ```lua
+  /// x = "global"     -- Creates global variable
+  /// local x = "local" -- Shadows global, creates local variable
+  /// print(x)         -- Prints "local"
+  /// ```
   void declare(String name, dynamic value) {
     Logger.debug(
       "Declaring new '$name' = $value (type: ${value.runtimeType}) in env ($hashCode)",
@@ -279,9 +355,148 @@ class Environment extends GCObject {
     }
   }
 
+  /// Updates only local variables in the current scope chain.
+  ///
+  /// This method provides precise control for local variable assignments by
+  /// searching only for variables marked with `isLocal: true` and updating
+  /// the first one found in the environment chain.
+  ///
+  /// **Behavior**:
+  /// - Searches from current environment up to parent environments
+  /// - Only considers variables where `isLocal == true`
+  /// - Updates the first matching local variable found
+  /// - Does NOT create new variables
+  /// - Does NOT update global variables
+  /// - Respects const variable restrictions
+  ///
+  /// **Returns**: `true` if a local variable was found and updated, `false` otherwise.
+  ///
+  /// **Usage**: Local variable assignments when we need to ensure we're not
+  /// accidentally creating globals or updating globals when a local exists.
+  ///
+  /// **Why needed**: The original `define()` method would find ANY variable
+  /// (local or global) and update it, which caused scoping issues. This method
+  /// ensures we only update local variables.
+  ///
+  /// **Example scenario**:
+  /// ```lua
+  /// local x = 1    -- declare() creates local variable
+  /// x = 2          -- updateLocal() should update the local, not create global
+  /// ```
+  bool updateLocal(String name, dynamic value) {
+    Logger.debug(
+      "Attempting to update local variable '$name' = $value",
+      category: 'Env',
+    );
+
+    Environment? current = this;
+    while (current != null) {
+      if (current.values.containsKey(name) && current.values[name]!.isLocal) {
+        final currentValue = current.values[name]!.value;
+        Logger.debug(
+          "Found local variable '$name' in env (${current.hashCode})",
+          category: 'Env',
+        );
+
+        if (currentValue is Value && currentValue.isConst) {
+          Logger.debug(
+            "Attempt to modify const local variable '$name'",
+            category: 'Env',
+          );
+          throw UnsupportedError("attempt to assign to const variable '$name'");
+        }
+
+        current.values[name]!.value = value;
+        Logger.debug(
+          "Updated local variable '$name' to $value in env (${current.hashCode})",
+          category: 'Env',
+        );
+        return true;
+      }
+      current = current.parent;
+    }
+
+    Logger.debug(
+      "No local variable '$name' found in environment chain",
+      category: 'Env',
+    );
+    return false;
+  }
+
+  /// Defines or updates a global variable in the root environment.
+  ///
+  /// This method provides precise control for global variable assignments by
+  /// always operating on the root (global) environment, completely ignoring
+  /// any local variables with the same name in the current scope chain.
+  ///
+  /// **Behavior**:
+  /// - Always operates on the root environment (`root`)
+  /// - Updates existing global variable if it exists
+  /// - Creates new global variable if it doesn't exist
+  /// - Completely ignores local variables with same name
+  /// - Respects const variable restrictions for globals
+  /// - Handles to-be-closed variable tracking in root environment
+  ///
+  /// **Usage**: When we specifically want to create or update a global variable,
+  /// regardless of whether local variables with the same name exist.
+  ///
+  /// **Why needed**: The original `define()` method would find local variables
+  /// first and update them instead of creating/updating globals. This method
+  /// ensures we can always target the global environment specifically.
+  ///
+  /// **Example scenario**:
+  /// ```lua
+  /// local x = 1      -- Local variable exists
+  /// _G.x = 2         -- defineGlobal() should update global, not local
+  /// ```
+  ///
+  /// **Note**: This is used when assignment logic determines that a global
+  /// assignment is intended (e.g., no local variable exists to update).
+  void defineGlobal(String name, dynamic value) {
+    Logger.debug("Defining global variable '$name' = $value", category: 'Env');
+
+    final rootEnv = root;
+
+    // Check if global variable already exists
+    if (rootEnv.values.containsKey(name)) {
+      final currentValue = rootEnv.values[name]!.value;
+      if (currentValue is Value && currentValue.isConst) {
+        Logger.debug(
+          "Attempt to modify const global variable '$name'",
+          category: 'Env',
+        );
+        throw UnsupportedError("attempt to assign to const variable '$name'");
+      }
+      rootEnv.values[name]!.value = value;
+      Logger.debug(
+        "Updated global variable '$name' to $value in root env (${rootEnv.hashCode})",
+        category: 'Env',
+      );
+    } else {
+      // Create new global variable
+      rootEnv.values[name] = Box(value);
+      Logger.debug(
+        "Created new global variable '$name' = $value in root env (${rootEnv.hashCode})",
+        category: 'Env',
+      );
+    }
+
+    // Track to-be-closed variables in root environment
+    if (value is Value && value.isToBeClose) {
+      rootEnv.toBeClosedVars.add(name);
+      Logger.debug(
+        "Added '$name' to to-be-closed variables list in root env",
+        category: 'Env',
+      );
+    }
+  }
+
   /// Defines multiple variables in the current environment.
   ///
-  /// Takes a map of variable names to values and defines each in this environment.
+  /// Takes a map of variable names to values and defines each in this environment
+  /// using the `define()` method. This is a convenience method for bulk operations.
+  ///
+  /// **Usage**: Bulk variable initialization, typically during environment setup.
   void defineAll(Map<String, dynamic> values) {
     Logger.debug(
       "Defining multiple values in env ($hashCode): ${values.keys.join(', ')}",
