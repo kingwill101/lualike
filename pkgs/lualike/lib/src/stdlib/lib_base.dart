@@ -819,8 +819,11 @@ class LoadfileFunction implements BuiltinFunction {
     final filename = args.isNotEmpty ? (args[0] as Value).raw.toString() : null;
     // mode: 'b', 't', or 'bt' (default)
     final modeStr = args.length > 1 ? (args[1] as Value).raw.toString() : 'bt';
-    // env parameter (3rd argument)
-    final env = args.length > 2 ? (args[2] as Value).raw : null;
+    // env parameter (3rd argument). Important: even when explicitly passed as
+    // nil, Lua considers the environment "provided" and sets _ENV to nil for
+    // the loaded function. Distinguish between not-provided and provided-nil.
+    final bool envProvided = args.length > 2;
+    final env = envProvided ? (args[2] as Value).raw : null;
     // If a filename is provided and it does not exist, follow Lua semantics: return nil
     if (filename != null && !(await fileExists(filename))) {
       return Value(null);
@@ -851,6 +854,16 @@ class LoadfileFunction implements BuiltinFunction {
               return Value(null);
             }
             // No shebang handling here; parser takes care of file shebangs.
+            // Enforce mode on textual source too: if the chunk begins with ESC,
+            // consider it binary; otherwise, text.
+            final startsEsc =
+                sourceCode.isNotEmpty && sourceCode.codeUnitAt(0) == 0x1B;
+            if (startsEsc && !allowBinary) {
+              return Value.multi([Value(null), Value("a binary chunk")]);
+            }
+            if (!startsEsc && !allowText) {
+              return Value.multi([Value(null), Value("a text chunk")]);
+            }
           } else {
             final isBinary = bytes.isNotEmpty && bytes[0] == 0x1B;
             if (isBinary && !allowBinary) {
@@ -885,8 +898,10 @@ class LoadfileFunction implements BuiltinFunction {
         );
         final ast = parse(sourceCode, url: filename ?? 'stdin');
 
-        // Set up environment like the load function does
-        if (env != null) {
+        // Set up environment like the load function does. If an environment
+        // is provided (even if nil), bind _ENV to that value for the loaded
+        // function; otherwise, run in the current environment.
+        if (envProvided) {
           final savedEnv = currentVm.getCurrentEnv();
           final loadEnv = Environment(
             parent: savedEnv.root,
