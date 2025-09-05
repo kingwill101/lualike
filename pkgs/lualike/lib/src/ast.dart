@@ -1,6 +1,7 @@
 import 'package:source_span/source_span.dart';
 
 import 'parsers/string.dart';
+import 'ast_dump.dart';
 
 /// Base class for all ASFuture`<T>` nodes.
 abstract class AstNode {
@@ -186,7 +187,7 @@ class Goto extends AstNode {
 }
 
 /// Represents the top-level program.
-class Program extends AstNode {
+class Program extends AstNode with Dumpable {
   final List<AstNode> statements;
 
   Program(this.statements);
@@ -196,6 +197,21 @@ class Program extends AstNode {
 
   @override
   String toSource() => statements.map((s) => s.toSource()).join("\n");
+
+  @override
+  Map<String, dynamic> dump() => {
+        'type': 'Program',
+        'statements': statements
+            .map((s) => s is Dumpable ? (s as Dumpable).dump() : {'type': 'Unknown'})
+            .toList(),
+      };
+
+  static Program fromDump(Map<String, dynamic> data) {
+    final stmtsData = (data['statements'] as List? ?? const <dynamic>[])
+        .map((e) => undumpAst(Map<String, dynamic>.from(e)))
+        .toList();
+    return Program(stmtsData);
+  }
 }
 
 /// x = expr or k, v = next(t)
@@ -406,7 +422,7 @@ class LocalFunctionDef extends AstNode {
       "local function ${name.toSource()} ${funcBody.toSource()}";
 }
 
-class FunctionBody extends AstNode {
+class FunctionBody extends AstNode with Dumpable {
   List<Identifier>? parameters;
   final bool isVararg;
   final List<AstNode> body;
@@ -428,9 +444,30 @@ class FunctionBody extends AstNode {
     final bodySrc = body.map((s) => s.toSource()).join("\n");
     return "function ($paramsSrc)\n$bodySrc\nend";
   }
+
+  @override
+  Map<String, dynamic> dump() => {
+        'type': 'FunctionBody',
+        'params': (parameters ?? const <Identifier>[]).map((p) => p.name).toList(),
+        'vararg': isVararg,
+        'body': body
+            .map((s) => s is Dumpable ? (s as Dumpable).dump() : {'type': 'Unknown'})
+            .toList(),
+      };
+
+  static FunctionBody fromDump(Map<String, dynamic> data) {
+    final params = (data['params'] as List? ?? const <dynamic>[]) 
+        .map((n) => Identifier(n as String))
+        .toList();
+    final bodyNodes = (data['body'] as List? ?? const <dynamic>[]) 
+        .map((e) => undumpAst(Map<String, dynamic>.from(e)))
+        .toList();
+    final isVararg = data['vararg'] as bool? ?? false;
+    return FunctionBody(params, bodyNodes, isVararg);
+  }
 }
 
-class FunctionLiteral extends AstNode {
+class FunctionLiteral extends AstNode with Dumpable {
   final FunctionBody funcBody;
 
   FunctionLiteral(this.funcBody);
@@ -441,10 +478,21 @@ class FunctionLiteral extends AstNode {
 
   @override
   String toSource() => "function ${funcBody.toSource()}";
+
+  @override
+  Map<String, dynamic> dump() => {
+        'type': 'FunctionLiteral',
+        'body': funcBody.dump(),
+      };
+
+  static FunctionLiteral fromDump(Map<String, dynamic> data) {
+    final fb = FunctionBody.fromDump(Map<String, dynamic>.from(data['body']));
+    return FunctionLiteral(fb);
+  }
 }
 
 /// return expr
-class ReturnStatement extends AstNode {
+class ReturnStatement extends AstNode with Dumpable {
   final List<AstNode> expr;
 
   ReturnStatement(this.expr);
@@ -455,6 +503,21 @@ class ReturnStatement extends AstNode {
 
   @override
   String toSource() => "return ${expr.map((e) => e.toSource()).join(", ")}";
+
+  @override
+  Map<String, dynamic> dump() => {
+        'type': 'ReturnStatement',
+        'expr': expr
+            .map((e) => e is Dumpable ? (e as Dumpable).dump() : {'type': 'Unknown'})
+            .toList(),
+      };
+
+  static ReturnStatement fromDump(Map<String, dynamic> data) {
+    final exprs = (data['expr'] as List? ?? const <dynamic>[]) 
+        .map((e) => undumpAst(Map<String, dynamic>.from(e)))
+        .toList();
+    return ReturnStatement(exprs);
+  }
 }
 
 /// yield expr
@@ -714,7 +777,7 @@ class NilValue extends AstNode {
 }
 
 /// Numeric literal.
-class NumberLiteral extends AstNode {
+class NumberLiteral extends AstNode with Dumpable {
   final dynamic value;
 
   NumberLiteral(this.value) : assert(value is num || value is BigInt);
@@ -725,10 +788,21 @@ class NumberLiteral extends AstNode {
 
   @override
   String toSource() => value.toString();
+
+  @override
+  Map<String, dynamic> dump() => {
+        'type': 'NumberLiteral',
+        'value': value,
+      };
+
+  static NumberLiteral fromDump(Map<String, dynamic> data) {
+    final v = data['value'];
+    return NumberLiteral(v is int ? v : (v is double ? v : (v as num)));
+  }
 }
 
 /// String literal.
-class StringLiteral extends AstNode {
+class StringLiteral extends AstNode with Dumpable {
   final String value;
   final bool isLongString;
 
@@ -754,10 +828,24 @@ class StringLiteral extends AstNode {
 
   @override
   String toSource() => "\"$value\"";
+
+  @override
+  Map<String, dynamic> dump() => {
+        'type': 'StringLiteral',
+        'value': value,
+        'isLongString': isLongString,
+      };
+
+  static StringLiteral fromDump(Map<String, dynamic> data) {
+    return StringLiteral(
+      data['value'] as String,
+      isLongString: data['isLongString'] as bool? ?? false,
+    );
+  }
 }
 
 /// Boolean literal.
-class BooleanLiteral extends AstNode {
+class BooleanLiteral extends AstNode with Dumpable {
   final bool value;
 
   BooleanLiteral(this.value);
@@ -768,10 +856,20 @@ class BooleanLiteral extends AstNode {
 
   @override
   String toSource() => value ? "true" : "false";
+
+  @override
+  Map<String, dynamic> dump() => {
+        'type': 'BooleanLiteral',
+        'value': value,
+      };
+
+  static BooleanLiteral fromDump(Map<String, dynamic> data) {
+    return BooleanLiteral(data['value'] as bool);
+  }
 }
 
 /// Identifier.
-class Identifier extends AstNode {
+class Identifier extends AstNode with Dumpable {
   final String name;
 
   Identifier(this.name);
@@ -784,4 +882,14 @@ class Identifier extends AstNode {
 
   @override
   String toString() => name;
+
+  @override
+  Map<String, dynamic> dump() => {
+        'type': 'Identifier',
+        'name': name,
+      };
+
+  static Identifier fromDump(Map<String, dynamic> data) {
+    return Identifier(data['name'] as String);
+  }
 }

@@ -133,6 +133,18 @@ class _StringChar implements BuiltinFunction {
 class _StringDump implements BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
+    // TODO(lualike): string.dump is a minimal, test-oriented implementation.
+    // - Not a true bytecode dump; we synthesize a textual chunk prefixed with
+    //   ESC (0x1B) so loadfile recognizes it as "binary" in mode checks.
+    // - Only supports literal-only return functions (no upvalues, no complex body).
+    // - The optional 'strip' flag is not handled; debug info stripping is not implemented.
+    // - Functions with upvalues should serialize only the upvalue count and, upon
+    //   load, receive fresh nil upvalues; we currently do not implement that.
+    // - On unsupported functions, Lua raises "unable to dump given function";
+    //   we should align error behavior (raise LuaError) instead of returning stubs.
+    // Consider reworking this to leverage Dumpable on AST nodes and/or add a
+    // proper bytecode path once a VM serialization format is available.
+
     if (args.isEmpty) {
       throw LuaError.typeError("string.dump requires a function argument");
     }
@@ -252,7 +264,12 @@ class _StringDump implements BuiltinFunction {
     final chunk = 'return $body';
     Logger.debug('string.dump synthesized chunk: $chunk', category: 'String');
     // Return as a LuaString so that byte-for-byte write preserves content
-    final luaString = LuaString.fromBytes(Uint8List.fromList(utf8.encode(chunk)));
+    // Prefix with 0x1B to mark as a "binary" chunk for loadfile() mode checks.
+    final payload = utf8.encode(chunk);
+    final bytes = Uint8List(payload.length + 1);
+    bytes[0] = 0x1B; // ESC
+    bytes.setRange(1, bytes.length, payload);
+    final luaString = LuaString.fromBytes(bytes);
     return Value(luaString);
   }
 }

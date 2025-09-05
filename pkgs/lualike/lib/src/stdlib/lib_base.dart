@@ -817,8 +817,8 @@ class LoadfileFunction implements BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
     final filename = args.isNotEmpty ? (args[0] as Value).raw.toString() : null;
-    //mode
-    final _ = args.length > 1 ? (args[1] as Value).raw.toString() : 'bt';
+    // mode: 'b', 't', or 'bt' (default)
+    final modeStr = args.length > 1 ? (args[1] as Value).raw.toString() : 'bt';
     // env parameter (3rd argument)
     final env = args.length > 2 ? (args[2] as Value).raw : null;
     // If a filename is provided and it does not exist, follow Lua semantics: return nil
@@ -835,21 +835,41 @@ class LoadfileFunction implements BuiltinFunction {
 
       try {
         String? sourceCode;
+        // Binary/text mode flags
+        final allowText = modeStr.contains('t');
+        final allowBinary = modeStr.contains('b');
         if (filename == null) {
           final result = await IOLib.defaultInput.read('a');
           sourceCode = result[0]?.toString() ?? '';
         } else {
-          sourceCode = await currentVm.fileManager.loadSource(filename);
-          Logger.debug(
-            'loadfile: (deferred) loadSource returned ${sourceCode == null ? 'null' : 'len=' + sourceCode.length.toString()}',
-            category: 'Load',
-          );
-          if (sourceCode == null) {
-            // If the file exists but is empty, treat as empty chunk
-            if (await fileExists(filename)) {
-              sourceCode = '';
-            } else {
+          // Inspect raw bytes to decide text/binary
+          final bytes = await readFileAsBytes(filename);
+          if (bytes == null) {
+            // Fall back to text loader
+            sourceCode = await currentVm.fileManager.loadSource(filename);
+            if (sourceCode == null) {
               return Value(null);
+            }
+          } else {
+            // Handle first-line hash comment for binary files: skip until LF
+            int start = 0;
+            if (bytes.isNotEmpty && bytes[0] == 35 /* '#' */) {
+              final nl = bytes.indexOf(10); // '\n'
+              if (nl != -1) start = nl + 1;
+            }
+            final isBinary = (bytes.length > start) && bytes[start] == 0x1B;
+            if (isBinary && !allowBinary) {
+              return Value.multi([Value(null), Value("a binary chunk")]);
+            }
+            if (!isBinary && !allowText) {
+              return Value.multi([Value(null), Value("a text chunk")]);
+            }
+
+            // If binary, interpret the rest as a textual chunk payload
+            if (isBinary) {
+              sourceCode = utf8.decode(bytes.sublist(start + 1), allowMalformed: true);
+            } else {
+              sourceCode = utf8.decode(bytes, allowMalformed: true);
             }
           }
         }
