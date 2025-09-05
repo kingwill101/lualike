@@ -2038,6 +2038,7 @@ void defineBaseLibrary({
   // Define all functions and variables at once
   env.defineAll(baseLib);
 
+
   // Create a special _G table that directly references the environment
   final gTable = <dynamic, dynamic>{};
 

@@ -54,7 +54,7 @@ class FileIODevice extends BaseIODevice {
         fileMode = FileMode.read;
         break;
       case "w+":
-        fileMode = FileMode.writeOnly;
+        fileMode = FileMode.write; // allow read/write, truncate
         break;
       case "a+":
         fileMode = FileMode.append;
