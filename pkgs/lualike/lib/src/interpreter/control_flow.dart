@@ -628,6 +628,29 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     var state = components.length > 1 ? components[1] : null;
     var control = components.length > 2 ? components[2] : Value(null);
 
+    // Optional 4th component: a to-be-closed variable (Lua 5.4 semantics)
+    // Used by io.lines(filename) to close the file when the loop ends.
+    Value? toCloseVar;
+    if (components.length > 3 && components[3] is Value) {
+      final v = components[3] as Value;
+      if (v.isToBeClose || v.hasMetamethod('__close')) {
+        toCloseVar = v;
+      }
+    }
+
+    // Record “(for state)” locals for debug.getlocal enumeration
+    final frame = (this as Interpreter).callStack.top;
+    if (frame != null) {
+      frame.debugLocals
+        ..clear()
+        ..add(MapEntry('(for state)', iterFunc is Value ? iterFunc : Value(iterFunc)))
+        ..add(MapEntry('(for state)', state is Value ? state : Value(state)))
+        ..add(MapEntry('(for state)', control is Value ? control : Value(control)));
+      if (toCloseVar != null) {
+        frame.debugLocals.add(MapEntry('(for state)', toCloseVar));
+      }
+    }
+
     Logger.debug(
       'ForInLoop: iterFunc: $iterFunc, state: $state, control: $control',
       category: 'ControlFlow',
@@ -686,6 +709,12 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
             'ForInLoop: Iterator returned null/empty, breaking loop',
             category: 'ControlFlow',
           );
+          // Normal loop termination; close to-be-closed variable if present
+          if (toCloseVar != null) {
+            try {
+              await toCloseVar.close();
+            } catch (_) {}
+          }
           break;
         }
 
@@ -725,12 +754,24 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           'ForInLoop: Updated control to: $control',
           category: 'ControlFlow',
         );
+        // Keep debug locals in sync (3rd state is control)
+        if (frame != null && frame.debugLocals.length >= 3) {
+          frame.debugLocals[2] = MapEntry(
+            '(for state)',
+            control is Value ? control : Value(control),
+          );
+        }
 
         if ((control is Value) && control.raw == null) {
           Logger.debug(
             'ForInLoop: Control is null, breaking loop',
             category: 'ControlFlow',
           );
+          if (toCloseVar != null) {
+            try {
+              await toCloseVar.close();
+            } catch (_) {}
+          }
           break;
         }
 
@@ -773,6 +814,12 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
             'ForInLoop: Break encountered, exiting loop',
             category: 'ControlFlow',
           );
+          // Close to-be-closed variable when breaking early
+          if (toCloseVar != null) {
+            try {
+              await toCloseVar.close();
+            } catch (_) {}
+          }
           return null; // Exit the loop completely
         } on ReturnException {
           // Close variables before re-throwing
@@ -804,6 +851,12 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         }
       }
     } catch (e) {
+      // Ensure resource is closed on unexpected errors leaving the loop
+      if (toCloseVar != null) {
+        try {
+          await toCloseVar.close(e);
+        } catch (_) {}
+      }
       // Only log unhandled errors when not inside a protected call (pcall/xpcall).
       if (!(this is Interpreter && (this as Interpreter).isInProtectedCall)) {
         Logger.error(

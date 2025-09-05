@@ -78,9 +78,16 @@ class LuaGrammarDefinition extends GrammarDefinition {
   Parser _whiteSpaceAndComments() =>
       (whitespace() | ref0(_longComment) | ref0(_lineComment)).plus();
 
+  /// Lua skips an initial line starting with '#' (Unix hash-bang or a shell
+  /// comment). This applies only to the very first line of the chunk.
   Parser _shebang() =>
-      (string('#!') & pattern('\n').neg().star() & pattern('\n').optional())
+      (string('#') & pattern('\n').neg().star() & pattern('\n').optional())
           .flatten();
+
+  /// Optional UTF-8 BOM at the very start of a file. When present, it is
+  /// ignored by the grammar so users can load files that begin with a BOM
+  /// without needing special handling in callers.
+  Parser _bom() => string('\uFEFF');
 
   Parser _lineComment() =>
       (string('--') & pattern('\n').neg().star() & pattern('\n').optional())
@@ -219,10 +226,13 @@ class LuaGrammarDefinition extends GrammarDefinition {
   @override
   Parser start() {
     final leading = _whiteSpaceAndComments().star();
+    final bom = ref0(_bom).optional();
     final shebang = ref0(_shebang).optional();
     // Do not require .end() so trailing trivia is allowed, matching Lua.
     // Require complete consumption of input (besides allowed trailing trivia).
-    return ((shebang & leading & ref0(_chunk) & leading).map((vals) => vals[2]).end())
+    return ((bom & shebang & leading & ref0(_chunk) & leading)
+            .map((vals) => vals[3])
+            .end())
         .trim(ref0(_whiteSpaceAndComments));
   }
 

@@ -821,59 +821,91 @@ class LoadfileFunction implements BuiltinFunction {
     final _ = args.length > 1 ? (args[1] as Value).raw.toString() : 'bt';
     // env parameter (3rd argument)
     final env = args.length > 2 ? (args[2] as Value).raw : null;
-
-    try {
-      final source = filename == null
-          ? () async {
-              // Read from default input instead of stdin
-              final result = await IOLib.defaultInput.read('a'); // Read all
-              return result[0]?.toString() ?? "";
-            }()
-          : () async {
-              // Use FileManager to read files properly
-              final vm = Environment.current?.interpreter ?? Interpreter();
-              return vm.fileManager.loadSource(filename);
-            }();
-
-      final sourceCode = await source;
-      if (sourceCode == null) {
-        return Value(null);
-      }
-      final ast = parse(sourceCode, url: filename ?? 'stdin');
-      return Value((List<Object?> callArgs) async {
-        // Use the current interpreter context, not a new one
-        final currentVm = Environment.current?.interpreter;
-        if (currentVm == null) {
-          throw Exception("No interpreter context available");
-        }
-
-        try {
-          // Set up environment like the load function does
-          if (env != null) {
-            final savedEnv = currentVm.getCurrentEnv();
-            final loadEnv = Environment(
-              parent: savedEnv.root,
-              interpreter: currentVm,
-            );
-            loadEnv.declare("_ENV", Value(env));
-            loadEnv.declare("...", Value.multi(callArgs));
-            currentVm.setCurrentEnv(loadEnv);
-
-            try {
-              return await currentVm.run(ast.statements);
-            } finally {
-              currentVm.setCurrentEnv(savedEnv);
-            }
-          } else {
-            return await currentVm.run(ast.statements);
-          }
-        } catch (e) {
-          throw Exception("Error executing loaded chunk: $e");
-        }
-      });
-    } catch (e) {
+    // If a filename is provided and it does not exist, follow Lua semantics: return nil
+    if (filename != null && !(await fileExists(filename))) {
       return Value(null);
     }
+
+    // Return a loader function that reads and parses at call time.
+    return Value((List<Object?> callArgs) async {
+      final currentVm = Environment.current?.interpreter;
+      if (currentVm == null) {
+        throw Exception("No interpreter context available");
+      }
+
+      try {
+        String? sourceCode;
+        if (filename == null) {
+          final result = await IOLib.defaultInput.read('a');
+          sourceCode = result[0]?.toString() ?? '';
+        } else {
+          sourceCode = await currentVm.fileManager.loadSource(filename);
+          Logger.debug(
+            'loadfile: (deferred) loadSource returned ${sourceCode == null ? 'null' : 'len=' + sourceCode.length.toString()}',
+            category: 'Load',
+          );
+          if (sourceCode == null) {
+            // If the file exists but is empty, treat as empty chunk
+            if (await fileExists(filename)) {
+              sourceCode = '';
+            } else {
+              return Value(null);
+            }
+          }
+        }
+
+        // No manual BOM/shebang stripping here; the parser accepts an optional
+        // BOM and shebang at the start of the chunk.
+
+        if (sourceCode.trim().isEmpty) {
+          return Value(null);
+        }
+
+        Logger.debug(
+          'loadfile: source head: ' +
+              (sourceCode.length > 80
+                  ? sourceCode.substring(0, 80)
+                  : sourceCode),
+          category: 'Load',
+        );
+        final ast = parse(sourceCode, url: filename ?? 'stdin');
+
+        // Set up environment like the load function does
+        if (env != null) {
+          final savedEnv = currentVm.getCurrentEnv();
+          final loadEnv = Environment(
+            parent: savedEnv.root,
+            interpreter: currentVm,
+          );
+          loadEnv.declare("_ENV", Value(env));
+          loadEnv.declare("...", Value.multi(callArgs));
+          final prevPath = currentVm.currentScriptPath;
+          currentVm.setCurrentEnv(loadEnv);
+          currentVm.currentScriptPath = filename;
+
+          try {
+            final r = await currentVm.run(ast.statements);
+            Logger.debug('loadfile: executed chunk, result=$r', category: 'Load');
+            return r;
+          } finally {
+            currentVm.setCurrentEnv(savedEnv);
+            currentVm.currentScriptPath = prevPath;
+          }
+        } else {
+          final prevPath = currentVm.currentScriptPath;
+          currentVm.currentScriptPath = filename;
+          try {
+            final r = await currentVm.run(ast.statements);
+            Logger.debug('loadfile: executed chunk, result=$r', category: 'Load');
+            return r;
+          } finally {
+            currentVm.currentScriptPath = prevPath;
+          }
+        }
+      } catch (e) {
+        throw Exception("Error executing loaded chunk: $e");
+      }
+    });
   }
 }
 

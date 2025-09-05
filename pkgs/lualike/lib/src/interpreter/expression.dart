@@ -473,12 +473,28 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
 
     final result = await node.expr.accept(this);
 
-    // In Lua, parentheses don't change the semantics of function call results
-    // A function that returns multiple values still returns multiple values
-    // when wrapped in parentheses
+    // Lua semantics: parentheses around an expression force it to a single
+    // value in contexts like function arguments and operators. If the inner
+    // expression produces multiple results, only the first is preserved.
+    if (result is Value && result.isMulti) {
+      final values = result.raw as List;
+      final first = values.isNotEmpty ? values.first : Value(null);
+      Logger.debug(
+        'GroupedExpression: collapsing multi to first: $first',
+        category: 'Expression',
+      );
+      return first is Value ? first : Value(first);
+    }
+    if (result is List) {
+      final first = result.isNotEmpty ? result.first : Value(null);
+      Logger.debug(
+        'GroupedExpression: collapsing list to first: $first',
+        category: 'Expression',
+      );
+      return first is Value ? first : Value(first);
+    }
 
     Logger.debug('GroupedExpression result: $result', category: 'Expression');
-
     return result;
   }
 }

@@ -142,9 +142,118 @@ class _StringDump implements BuiltinFunction {
       throw LuaError.typeError("string.dump requires a function argument");
     }
 
-    // In a real implementation, this would serialize the function
-    // For now, we'll just return a placeholder
-    return Value("function bytecode");
+    // Heuristic dump without executing the function: inspect the captured
+    // function body. If it is a simple function with a literal-only return
+    // statement, synthesize a chunk "return <literals>". This mirrors the
+    // behavior of loading a precompiled function that returns those values
+    // when executed.
+    List<Object?> retValues = [];
+    final fb = func.functionBody;
+    if (fb != null) {
+      // Find the first ReturnStatement in the body
+      ReturnStatement? ret;
+      for (final s in fb.body) {
+        if (s is ReturnStatement) {
+          ret = s;
+          break;
+        }
+      }
+      if (ret != null) {
+        bool allLiterals = true;
+        for (final e in ret.expr) {
+          if (e is NumberLiteral) {
+            retValues.add(Value(e.value));
+          } else if (e is StringLiteral) {
+            retValues.add(Value(LuaString.fromBytes(Uint8List.fromList(e.bytes))));
+          } else if (e is BooleanLiteral) {
+            retValues.add(Value(e.value));
+          } else if (e is NilValue) {
+            retValues.add(Value(null));
+          } else {
+            allLiterals = false;
+            break;
+          }
+        }
+        if (!allLiterals) {
+          // Fallback: do not attempt to dump complex functions
+          return Value("-- dump unsupported (complex function)");
+        }
+      } else {
+        return Value("-- dump unsupported (no return)");
+      }
+    } else {
+      return Value("-- dump unsupported (no body)");
+    }
+
+    String _quoteStringFromBytes(Uint8List bytes) {
+      final sb = StringBuffer();
+      sb.write('"');
+      for (final b in bytes) {
+        switch (b) {
+          case 34: // '"'
+            sb.write('\\"');
+            break;
+          case 92: // '\\'
+            sb.write('\\\\');
+            break;
+          case 10: // '\n'
+            sb.write('\\n');
+            break;
+          case 13: // '\r'
+            sb.write('\\r');
+            break;
+          case 9: // '\t'
+            sb.write('\\t');
+            break;
+          default:
+            if (b >= 32 && b <= 126) {
+              sb.write(String.fromCharCode(b));
+            } else {
+              // Use 3-digit decimal escapes \ddd
+              final d = b.toString().padLeft(3, '0');
+              sb.write('\\$d');
+            }
+        }
+      }
+      sb.write('"');
+      return sb.toString();
+    }
+
+    String _toLuaLiteral(Value v) {
+      final raw = v.raw;
+      if (raw == null) return 'nil';
+      if (raw is bool) return raw ? 'true' : 'false';
+      if (raw is BigInt) return raw.toString();
+      if (raw is num) {
+        if (raw.isNaN) return '(0/0)';
+        if (raw == double.infinity) return '(1/0)';
+        if (raw == double.negativeInfinity) return '(-1/0)';
+        return raw.toString();
+      }
+      if (raw is LuaString) {
+        return _quoteStringFromBytes(raw.bytes);
+      }
+      if (raw is String) {
+        // Encode to bytes to preserve non-ASCII in decimal escapes
+        final bytes = Uint8List.fromList(utf8.encode(raw));
+        return _quoteStringFromBytes(bytes);
+      }
+      // Unsupported types in this heuristic
+      return 'nil';
+    }
+
+    final parts = <String>[];
+    for (final val in retValues) {
+      final vv = val is Value ? val : Value(val);
+      parts.add(_toLuaLiteral(vv));
+    }
+    final body = parts.isEmpty ? '' : parts.join(', ');
+    // Produce a chunk that, when executed, returns the captured values.
+    final chunk = 'return $body';
+    Logger.debug('string.dump synthesized chunk: $chunk', category: 'String');
+    // Return as a LuaString so that byte-for-byte write preserves content
+    final luaString = LuaString.fromBytes(Uint8List.fromList(utf8.encode(chunk)));
+    return Value(luaString);
   }
 }
 
