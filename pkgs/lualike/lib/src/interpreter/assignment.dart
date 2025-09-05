@@ -350,20 +350,27 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     final gValue = globals.get('_G');
 
     // If _ENV exists and is different from _G, use _ENV for variable assignments
+
     if (envValue is Value && gValue is Value && envValue != gValue) {
-      // Check if this is a local variable in the current or parent scopes
-      // Local variables should be updated in place, not redirected to _ENV
-      Environment? env = globals;
-      while (env != null) {
-        if (env.values.containsKey(name) && env.values[name]!.isLocal) {
-          Logger.debug(
-            'Updating local variable: $name',
-            category: 'Assignment',
-          );
-          env.define(name, wrappedValue);
-          return wrappedValue;
+      // Check if this is an isolated environment created by load() with custom env
+      // In isolated environments, don't access parent scope locals
+      final isIsolatedEnvironment = globals.isLoadIsolated;
+
+      if (!isIsolatedEnvironment) {
+        // Check if this is a local variable in the current or parent scopes
+        // Local variables should be updated in place, not redirected to _ENV
+        Environment? env = globals;
+        while (env != null) {
+          if (env.values.containsKey(name) && env.values[name]!.isLocal) {
+            Logger.debug(
+              'Updating local variable: $name',
+              category: 'Assignment',
+            );
+            env.define(name, wrappedValue);
+            return wrappedValue;
+          }
+          env = env.parent;
         }
-        env = env.parent;
       }
 
       Logger.debug(
@@ -371,7 +378,15 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         category: 'Assignment',
       );
 
+      Logger.debug(
+        'Assignment: About to call setValueAsync on _ENV for $name = $wrappedValue',
+        category: 'Assignment',
+      );
       await envValue.setValueAsync(name, wrappedValue);
+      Logger.debug(
+        'Assignment: setValueAsync completed for $name',
+        category: 'Assignment',
+      );
       return wrappedValue;
     }
 

@@ -50,6 +50,12 @@ class Environment extends GCObject {
   /// traversing the parent chain.
   final bool isClosure;
 
+  /// Whether this environment was created by load() with a custom environment.
+  ///
+  /// When true, assignments should not access local variables in parent scopes,
+  /// but still allow access to global built-ins through the parent chain.
+  bool isLoadIsolated;
+
   /// The interpreter associated with this environment.
   Interpreter? interpreter;
 
@@ -57,7 +63,13 @@ class Environment extends GCObject {
   ///
   /// If [parent] is provided, this environment will be chained to it.
   /// If [isClosure] is true, this environment will be treated as a closure scope.
-  Environment({this.parent, this.interpreter, this.isClosure = false}) {
+  /// If [isLoadIsolated] is true, this environment is isolated from parent scope locals.
+  Environment({
+    this.parent,
+    this.interpreter,
+    this.isClosure = false,
+    this.isLoadIsolated = false,
+  }) {
     Logger.debug(
       "Environment($hashCode) created. Parent: ${parent?.hashCode}",
       category: 'Env',
