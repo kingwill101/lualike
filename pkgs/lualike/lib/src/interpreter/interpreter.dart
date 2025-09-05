@@ -496,6 +496,12 @@ class Interpreter extends AstVisitor<Object?>
     // Push a top-level frame to track currentline via AST spans
     callStack.push(currentScriptPath ?? 'chunk');
 
+    // Create a script environment for main script execution
+    // This ensures local variables in the main script don't affect globals
+    final savedEnv = _currentEnv;
+    final scriptEnv = Environment(parent: savedEnv, interpreter: this);
+    _currentEnv = scriptEnv;
+
     try {
       await _executeStatements(program);
     } on ReturnException catch (e) {
@@ -512,6 +518,9 @@ class Interpreter extends AstVisitor<Object?>
       // Report undefined label with helpful message
       Logger.warning('Undefined label: ${e.label}', category: 'Interpreter');
       throw GotoException('Undefined label: ${e.label}');
+    } finally {
+      // Restore the original environment
+      _currentEnv = savedEnv;
     }
 
     Logger.info('Program finished', category: 'Interpreter');

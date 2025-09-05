@@ -390,10 +390,34 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       return wrappedValue;
     }
 
-    // Use the current environment for assignment
-    // The Environment class will handle propagating to parent environments if needed
+    // Assignment Strategy for Local vs Global Variables:
+    //
+    // In Lua, the assignment `x = value` has specific semantics:
+    // 1. If a local variable `x` exists in current scope chain, update it
+    // 2. If no local variable exists, create/update global variable `x`
+    // 3. Local variables always take precedence over global variables
+    //
+    // This two-step approach fixes the original scoping bug where local
+    // variables in the main script were incorrectly affecting globals.
+
+    // Step 1: Check if this is a local variable assignment
+    // updateLocal() searches only for variables with isLocal=true and updates
+    // the first one found. Returns true if a local was updated.
+    if (globals.updateLocal(name, wrappedValue)) {
+      Logger.debug('Updated local variable: $name', category: 'Assignment');
+      return wrappedValue;
+    }
+
+    // Step 2: No local variable found, this is a global assignment
+    // defineGlobal() always operates on the root environment, creating or
+    // updating global variables while ignoring any local variables with
+    // the same name in the current scope chain.
     try {
-      globals.define(name, wrappedValue);
+      globals.defineGlobal(name, wrappedValue);
+      Logger.debug(
+        'Assigned to global variable: $name',
+        category: 'Assignment',
+      );
     } catch (e) {
       throw LuaError(
         'Assignment to constant variable: $name',
@@ -801,6 +825,9 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           'Local declare $name = $valueWithAttributes (attribute: $attribute)',
           category: 'Interpreter',
         );
+        // Use declare() for local variable declarations
+        // declare() creates a new local variable with isLocal=true that
+        // shadows any existing variables with the same name
         globals.declare(name, valueWithAttributes);
       }
     }
