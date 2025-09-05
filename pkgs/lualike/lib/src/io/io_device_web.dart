@@ -89,6 +89,23 @@ class StdoutDevice extends BaseIODevice {
   }
 
   @override
+  Future<WriteResult> writeBytes(List<int> bytes) async {
+    checkOpen();
+    try {
+      final str = String.fromCharCodes(bytes);
+      Logger.debug(
+        'Writing raw bytes to stdout (web): ${bytes.length}',
+        category: 'StdoutDevice',
+      );
+      print(str);
+      return WriteResult(true);
+    } catch (e) {
+      Logger.error('Raw write failed (web): $e', error: 'LuaFile');
+      return WriteResult(false, e.toString());
+    }
+  }
+
+  @override
   Future<int> seek(SeekWhence whence, int offset) async {
     Logger.debug('Seeking in stdout (ignored) - web', category: 'StdoutDevice');
     throw UnsupportedError("Cannot seek in stdout");

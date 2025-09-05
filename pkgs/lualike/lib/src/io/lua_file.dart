@@ -80,6 +80,24 @@ class LuaFile {
     return result.toLua();
   }
 
+  /// Write raw bytes to the file without encoding
+  Future<List<Object?>> writeBytes(List<int> bytes) async {
+    Logger.debug(
+      "Writing raw bytes to file $this: ${bytes.length} bytes",
+      category: 'LuaFile',
+    );
+    final result = await _device.writeBytes(bytes);
+    if (result.success) {
+      Logger.debug("Raw write successful", category: 'LuaFile');
+    } else {
+      Logger.error(
+        "Raw write failed: ${result.error} code: ${result.errorCode}",
+        error: 'LuaFile',
+      );
+    }
+    return result.toLua();
+  }
+
   /// Seek to a position in the file
   /// whence can be:
   /// - "set": from start of file

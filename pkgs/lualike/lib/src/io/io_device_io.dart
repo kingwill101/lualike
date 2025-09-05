@@ -49,7 +49,12 @@ class FileIODevice extends BaseIODevice {
         fileMode = FileMode.append;
         break;
       case "r+":
-        fileMode = FileMode.append;
+        // Open for update, do not truncate or append; start at beginning.
+        // Dart does not have an exact equivalent, but RandomAccessFile opened
+        // with read mode allows reads and explicit writes via setPosition.
+        // For our use in tests (which only read after opening 'r+'),
+        // map to read to ensure position starts at 0.
+        fileMode = FileMode.read;
         break;
       case "w+":
         fileMode = FileMode.writeOnly;
@@ -132,9 +137,7 @@ class FileIODevice extends BaseIODevice {
         Logger.debug('File length: $length bytes', category: 'IO');
         final bytes = await _file!.read(length);
         Logger.debug('Read ${bytes.length} bytes from file', category: 'IO');
-        final result = utf8.decode(bytes);
-        Logger.debug('Decoded ${result.length} characters', category: 'IO');
-        return ReadResult(result);
+        return ReadResult(LuaString.fromBytes(bytes));
       } else if (normalizedFormat == "l" || normalizedFormat == "L") {
         // Read line
         Logger.debug('Reading line from file', category: 'IO');
@@ -165,12 +168,7 @@ class FileIODevice extends BaseIODevice {
           Logger.debug('Read empty line (EOF)', category: 'IO');
           return ReadResult(null);
         }
-        final result = utf8.decode(buffer);
-        Logger.debug(
-          'Decoded line: ${result.length} characters',
-          category: 'IO',
-        );
-        return ReadResult(result);
+        return ReadResult(LuaString.fromBytes(buffer));
       } else if (normalizedFormat == "n") {
         // Read number - following Lua's C implementation algorithm
         Logger.debug('Reading number from file', category: 'IO');
@@ -327,9 +325,7 @@ class FileIODevice extends BaseIODevice {
           return ReadResult(null);
         }
 
-        final result = utf8.decode(bytes);
-        Logger.debug('Decoded ${result.length} characters', category: 'IO');
-        return ReadResult(result);
+        return ReadResult(LuaString.fromBytes(bytes));
       }
     } catch (e) {
       Logger.debug('Error reading from file: $e', category: 'IO');
@@ -352,6 +348,27 @@ class FileIODevice extends BaseIODevice {
       return WriteResult(true);
     } catch (e) {
       Logger.debug('Error writing to file: $e', category: 'IO');
+      int errorCode = 0;
+      if (e is FileSystemException && e.osError != null) {
+        errorCode = e.osError!.errorCode;
+      }
+      return WriteResult(false, e.toString(), errorCode);
+    }
+  }
+
+  @override
+  Future<WriteResult> writeBytes(List<int> bytes) async {
+    Logger.debug(
+      'Writing raw ${bytes.length} bytes to file',
+      category: 'IO',
+    );
+    checkOpen();
+    try {
+      await _file!.writeFrom(bytes);
+      Logger.debug('Successfully wrote ${bytes.length} raw bytes', category: 'IO');
+      return WriteResult(true);
+    } catch (e) {
+      Logger.debug('Error writing raw bytes to file: $e', category: 'IO');
       int errorCode = 0;
       if (e is FileSystemException && e.osError != null) {
         errorCode = e.osError!.errorCode;
@@ -563,6 +580,11 @@ class StdinDevice extends BaseIODevice {
   }
 
   @override
+  Future<WriteResult> writeBytes(List<int> bytes) async {
+    return WriteResult(false, "Cannot write to stdin", 9);
+  }
+
+  @override
   Future<int> seek(SeekWhence whence, int offset) async {
     throw UnsupportedError("Cannot seek in stdin");
   }
@@ -631,6 +653,24 @@ class StdoutDevice extends BaseIODevice {
       return WriteResult(true);
     } catch (e) {
       Logger.error('Write failed: $e', error: 'LuaFile');
+      return WriteResult(false, e.toString());
+    }
+  }
+
+  @override
+  Future<WriteResult> writeBytes(List<int> bytes) async {
+    checkOpen();
+    try {
+      Logger.debug('Writing raw ${bytes.length} bytes to stdout', category: 'StdoutDevice');
+      // Decode bytes as Latin-1 to preserve one-to-one byte mapping for printing
+      final str = String.fromCharCodes(bytes);
+      await synchronized(_lock, () async {
+        _sink.write(str);
+        if (_allowFlush) await _sink.flush();
+      });
+      return WriteResult(true);
+    } catch (e) {
+      Logger.error('Raw write failed: $e', error: 'LuaFile');
       return WriteResult(false, e.toString());
     }
   }

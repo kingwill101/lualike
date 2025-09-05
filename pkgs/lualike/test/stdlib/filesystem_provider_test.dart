@@ -82,6 +82,14 @@ class MockIODevice extends BaseIODevice {
   }
 
   @override
+  Future<WriteResult> writeBytes(List<int> bytes) async {
+    _operations.add('writeBytes($_path, ${bytes.length} bytes)');
+    if (_shouldFail) return WriteResult(false, 'Mock write failure');
+    _content += String.fromCharCodes(bytes);
+    return WriteResult(true);
+  }
+
+  @override
   Future<int> seek(SeekWhence whence, int offset) async {
     _operations.add('seek($_path, $whence, $offset)');
     if (_shouldFail) throw Exception('Mock seek failure');
@@ -148,6 +156,14 @@ class ROT13IODevice extends BaseIODevice {
     checkOpen();
     final existing = _storage[_path] ?? '';
     _storage[_path] = existing + _rot13(data);
+    return WriteResult(true);
+  }
+
+  @override
+  Future<WriteResult> writeBytes(List<int> bytes) async {
+    checkOpen();
+    final existing = _storage[_path] ?? '';
+    _storage[_path] = existing + _rot13(String.fromCharCodes(bytes));
     return WriteResult(true);
   }
 

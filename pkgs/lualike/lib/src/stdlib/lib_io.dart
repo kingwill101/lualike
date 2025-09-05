@@ -363,10 +363,11 @@ class IOInput implements BuiltinFunction {
       }
     }
 
-    if (IOLib._defaultInput?.device is! StdinDevice) {
-      await IOLib._defaultInput?.close();
+    // Do not auto-close the previous default input (matches Lua semantics).
+    // Simply switch the handle; if it's the same handle, keep it as-is.
+    if (!identical(IOLib._defaultInput, newFile)) {
+      IOLib._defaultInput = newFile;
     }
-    IOLib._defaultInput = newFile;
     return result;
   }
 }
@@ -575,6 +576,14 @@ class IORead implements BuiltinFunction {
 
       try {
         final result = await IOLib.defaultInput.read(format);
+        if (format == '1') {
+          final v = result.isNotEmpty ? result[0] : null;
+          if (v is LuaString) {
+            Logger.debug('IORead(1): byte=${v.bytes.isNotEmpty ? v.bytes[0] : 'nil'}', category: 'IO');
+          } else {
+            Logger.debug('IORead(1): non-LuaString value=$v', category: 'IO');
+          }
+        }
 
         // Check if this is an error or EOF condition
         if (result[0] == null && result.length > 1 && result[1] != null) {
@@ -668,14 +677,24 @@ class IOWrite implements BuiltinFunction {
     }
 
     for (final arg in args) {
-      final str = (arg as Value).raw.toString();
-      Logger.debug('Writing string: $str', category: 'IO');
-
+      final val = arg as Value;
       try {
-        final result = await IOLib.defaultOutput.write(str);
-        if (result[0] == null) {
-          Logger.debug('Error writing: ${result[1]}', category: 'IO');
-          return Value.multi(result);
+        if (val.raw is LuaString) {
+          final bytes = (val.raw as LuaString).bytes;
+          Logger.debug('Writing ${bytes.length} raw bytes', category: 'IO');
+          final result = await IOLib.defaultOutput.writeBytes(bytes);
+          if (result[0] == null) {
+            Logger.debug('Error writing raw bytes: ${result[1]}', category: 'IO');
+            return Value.multi(result);
+          }
+        } else {
+          final str = val.raw.toString();
+          Logger.debug('Writing string: $str', category: 'IO');
+          final result = await IOLib.defaultOutput.write(str);
+          if (result[0] == null) {
+            Logger.debug('Error writing: ${result[1]}', category: 'IO');
+            return Value.multi(result);
+          }
         }
       } catch (e) {
         // Catch device-level errors and convert to expected error message

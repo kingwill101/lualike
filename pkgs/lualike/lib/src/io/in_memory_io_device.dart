@@ -151,6 +151,18 @@ class InMemoryIODevice extends BaseIODevice {
   }
 
   @override
+  Future<WriteResult> writeBytes(List<int> bytes) async {
+    checkOpen();
+    try {
+      // Preserve raw bytes mapping using Latin-1 char codes
+      _writeBuffer.write(String.fromCharCodes(bytes));
+      return WriteResult(true);
+    } catch (e) {
+      return WriteResult(false, e.toString());
+    }
+  }
+
+  @override
   Future<int> seek(SeekWhence whence, int offset) async {
     checkOpen();
     final contentLength = _currentContent.length;

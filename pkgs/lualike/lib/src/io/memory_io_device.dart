@@ -131,6 +131,20 @@ class InMemoryIODevice extends BaseIODevice {
   }
 
   @override
+  Future<WriteResult> writeBytes(List<int> bytes) async {
+    checkOpen();
+    if (!mode.contains('w') && !mode.contains('a') && !mode.contains('+')) {
+      return WriteResult(false, "File not open for writing");
+    }
+    try {
+      _writeBuffer.write(String.fromCharCodes(bytes));
+      return WriteResult(true);
+    } catch (e) {
+      return WriteResult(false, e.toString());
+    }
+  }
+
+  @override
   Future<int> seek(SeekWhence whence, int offset) async {
     checkOpen();
     final content = _fileSystem[_path] ?? '';

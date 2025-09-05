@@ -42,6 +42,16 @@ class ConsoleOutputDevice implements IODevice {
   }
 
   @override
+  Future<WriteResult> writeBytes(List<int> bytes) async {
+    if (_isClosed) {
+      return WriteResult(false, "Device is closed");
+    }
+    // For console, interpret bytes as Latin-1 to preserve mapping
+    console.write(String.fromCharCodes(bytes));
+    return WriteResult(true);
+  }
+
+  @override
   Future<int> seek(SeekWhence whence, int offset) async {
     throw UnimplementedError("ConsoleOutputDevice does not support seek");
   }

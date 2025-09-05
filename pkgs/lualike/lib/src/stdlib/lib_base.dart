@@ -824,118 +824,127 @@ class LoadfileFunction implements BuiltinFunction {
     // the loaded function. Distinguish between not-provided and provided-nil.
     final bool envProvided = args.length > 2;
     final env = envProvided ? (args[2] as Value).raw : null;
+
     // If a filename is provided and it does not exist, follow Lua semantics: return nil
     if (filename != null && !(await fileExists(filename))) {
       return Value(null);
     }
 
-    // Return a loader function that reads and parses at call time.
-    return Value((List<Object?> callArgs) async {
-      final currentVm = Environment.current?.interpreter;
-      if (currentVm == null) {
-        throw Exception("No interpreter context available");
+    // Decide text/binary and get source now (Lua compiles at load time).
+    final allowText = modeStr.contains('t');
+    final allowBinary = modeStr.contains('b');
+    String sourceCode;
+
+    try {
+      if (filename == null) {
+        // Read all from default input
+        final result = await IOLib.defaultInput.read('a');
+        sourceCode = result[0]?.toString() ?? '';
+        // Enforce mode on textual source too: if begins with ESC -> binary
+        final startsEsc =
+            sourceCode.isNotEmpty && sourceCode.codeUnitAt(0) == 0x1B;
+        if (startsEsc && !allowBinary) {
+          return [Value(null), Value("a binary chunk")];
+        }
+        if (!startsEsc && !allowText) {
+          return [Value(null), Value("a text chunk")];
+        }
+      } else {
+        // Inspect raw bytes to decide text/binary
+        final bytes = await readFileAsBytes(filename);
+        if (bytes == null) {
+          // Fall back to text loader
+          final src = await Environment.current?.interpreter?.fileManager
+              .loadSource(filename);
+          if (src == null) {
+            return Value(null);
+          }
+          final startsEsc = src.isNotEmpty && src.codeUnitAt(0) == 0x1B;
+          if (startsEsc && !allowBinary) {
+            return [Value(null), Value("a binary chunk")];
+          }
+          if (!startsEsc && !allowText) {
+            return [Value(null), Value("a text chunk")];
+          }
+          sourceCode = src;
+        } else {
+          final isBinary = bytes.isNotEmpty && bytes[0] == 0x1B;
+          if (isBinary && !allowBinary) {
+            return [Value(null), Value("a binary chunk")];
+          }
+          if (!isBinary && !allowText) {
+            return [Value(null), Value("a text chunk")];
+          }
+          // If binary, interpret the rest as textual payload
+          sourceCode = isBinary
+              ? utf8.decode(bytes.sublist(1), allowMalformed: true)
+              : utf8.decode(bytes, allowMalformed: true);
+        }
       }
 
-      try {
-        String? sourceCode;
-        // Binary/text mode flags
-        final allowText = modeStr.contains('t');
-        final allowBinary = modeStr.contains('b');
-        if (filename == null) {
-          final result = await IOLib.defaultInput.read('a');
-          sourceCode = result[0]?.toString() ?? '';
-        } else {
-          // Inspect raw bytes to decide text/binary
-          final bytes = await readFileAsBytes(filename);
-          if (bytes == null) {
-            // Fall back to text loader
-            sourceCode = await currentVm.fileManager.loadSource(filename);
-            if (sourceCode == null) {
-              return Value(null);
-            }
-            // No shebang handling here; parser takes care of file shebangs.
-            // Enforce mode on textual source too: if the chunk begins with ESC,
-            // consider it binary; otherwise, text.
-            final startsEsc =
-                sourceCode.isNotEmpty && sourceCode.codeUnitAt(0) == 0x1B;
-            if (startsEsc && !allowBinary) {
-              return Value.multi([Value(null), Value("a binary chunk")]);
-            }
-            if (!startsEsc && !allowText) {
-              return Value.multi([Value(null), Value("a text chunk")]);
+      // Empty chunk yields function that returns nil
+      if (sourceCode.trim().isEmpty) {
+        return Value((List<Object?> _) async => Value(null));
+      }
+
+      Logger.debug(
+        'loadfile: source head: ' +
+            (sourceCode.length > 80
+                ? sourceCode.substring(0, 80)
+                : sourceCode),
+        category: 'Load',
+      );
+      final ast = parse(sourceCode, url: filename ?? 'stdin');
+
+      // Build the callable chunk that runs the parsed AST under the right env
+      return Value((List<Object?> callArgs) async {
+        final currentVm = Environment.current?.interpreter;
+        if (currentVm == null) {
+          throw Exception("No interpreter context available");
+        }
+        try {
+          if (envProvided) {
+            final savedEnv = currentVm.getCurrentEnv();
+            final loadEnv = Environment(
+              parent: savedEnv.root,
+              interpreter: currentVm,
+            );
+            loadEnv.declare("_ENV", Value(env));
+            loadEnv.declare("...", Value.multi(callArgs));
+            final prevPath = currentVm.currentScriptPath;
+            currentVm.setCurrentEnv(loadEnv);
+            currentVm.currentScriptPath = filename;
+            try {
+              final r = await currentVm.run(ast.statements);
+              Logger.debug('loadfile: executed chunk, result=$r',
+                  category: 'Load');
+              return r;
+            } finally {
+              currentVm.setCurrentEnv(savedEnv);
+              currentVm.currentScriptPath = prevPath;
             }
           } else {
-            final isBinary = bytes.isNotEmpty && bytes[0] == 0x1B;
-            if (isBinary && !allowBinary) {
-              return Value.multi([Value(null), Value("a binary chunk")]);
-            }
-            if (!isBinary && !allowText) {
-              return Value.multi([Value(null), Value("a text chunk")]);
-            }
-
-            // If binary, interpret the rest as a textual chunk payload
-            if (isBinary) {
-              sourceCode = utf8.decode(bytes.sublist(1), allowMalformed: true);
-            } else {
-              sourceCode = utf8.decode(bytes, allowMalformed: true);
+            final prevPath = currentVm.currentScriptPath;
+            currentVm.currentScriptPath = filename;
+            try {
+              final r = await currentVm.run(ast.statements);
+              Logger.debug('loadfile: executed chunk, result=$r',
+                  category: 'Load');
+              return r;
+            } finally {
+              currentVm.currentScriptPath = prevPath;
             }
           }
+        } catch (e) {
+          throw Exception("Error executing loaded chunk: $e");
         }
-
-        // No manual BOM/shebang stripping here; the parser accepts an optional
-        // BOM and shebang at the start of the chunk.
-
-        if (sourceCode.trim().isEmpty) {
-          return Value(null);
-        }
-
-        Logger.debug(
-          'loadfile: source head: ' +
-              (sourceCode.length > 80
-                  ? sourceCode.substring(0, 80)
-                  : sourceCode),
-          category: 'Load',
-        );
-        final ast = parse(sourceCode, url: filename ?? 'stdin');
-
-        // Set up environment like the load function does. If an environment
-        // is provided (even if nil), bind _ENV to that value for the loaded
-        // function; otherwise, run in the current environment.
-        if (envProvided) {
-          final savedEnv = currentVm.getCurrentEnv();
-          final loadEnv = Environment(
-            parent: savedEnv.root,
-            interpreter: currentVm,
-          );
-          loadEnv.declare("_ENV", Value(env));
-          loadEnv.declare("...", Value.multi(callArgs));
-          final prevPath = currentVm.currentScriptPath;
-          currentVm.setCurrentEnv(loadEnv);
-          currentVm.currentScriptPath = filename;
-
-          try {
-            final r = await currentVm.run(ast.statements);
-            Logger.debug('loadfile: executed chunk, result=$r', category: 'Load');
-            return r;
-          } finally {
-            currentVm.setCurrentEnv(savedEnv);
-            currentVm.currentScriptPath = prevPath;
-          }
-        } else {
-          final prevPath = currentVm.currentScriptPath;
-          currentVm.currentScriptPath = filename;
-          try {
-            final r = await currentVm.run(ast.statements);
-            Logger.debug('loadfile: executed chunk, result=$r', category: 'Load');
-            return r;
-          } finally {
-            currentVm.currentScriptPath = prevPath;
-          }
-        }
-      } catch (e) {
-        throw Exception("Error executing loaded chunk: $e");
+      });
+    } catch (e) {
+      if (e is FormatException) {
+        return [Value(null), Value(e.message)];
       }
-    });
+      return [Value(null), Value("Error parsing source code: $e")];
+    }
   }
 }
 

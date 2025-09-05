@@ -100,6 +100,9 @@ abstract class IODevice {
   /// Write data to the device
   Future<WriteResult> write(String data);
 
+  /// Write raw bytes to the device without any encoding.
+  Future<WriteResult> writeBytes(List<int> bytes);
+
   /// Seek to a position in the device
   /// Returns the new position
   Future<int> seek(SeekWhence whence, int offset);
