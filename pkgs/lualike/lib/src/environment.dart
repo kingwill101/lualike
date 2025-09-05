@@ -254,12 +254,12 @@ class Environment extends GCObject {
         category: 'Env',
       );
       if (currentValue is Value &&
-          (currentValue.isConst) | currentValue.isToBeClose) {
+          (currentValue.isConst || currentValue.isToBeClose)) {
         Logger.debug(
           "Attempt to modify const variable '$name'",
           category: 'Env',
         );
-        throw UnsupportedError("attempt to assign to const variable '$name'");
+        throw LuaError("attempt to assign to const variable '$name'");
       }
       values[name]!.value = value;
       Logger.debug(
@@ -279,12 +279,12 @@ class Environment extends GCObject {
           category: 'Env',
         );
         if (currentValue is Value &&
-            (currentValue.isConst | currentValue.isToBeClose)) {
+            (currentValue.isConst || currentValue.isToBeClose)) {
           Logger.debug(
             "Attempt to modify const variable '$name'",
             category: 'Env',
           );
-          throw UnsupportedError("attempt to assign to const variable '$name'");
+          throw LuaError("attempt to assign to const variable '$name'");
         }
         current.values[name]!.value = value;
         Logger.debug(
@@ -398,12 +398,13 @@ class Environment extends GCObject {
           category: 'Env',
         );
 
-        if (currentValue is Value && currentValue.isConst) {
+        if (currentValue is Value &&
+            (currentValue.isConst || currentValue.isToBeClose)) {
           Logger.debug(
-            "Attempt to modify const local variable '$name'",
+            "Attempt to modify const variable '$name'",
             category: 'Env',
           );
-          throw UnsupportedError("attempt to assign to const variable '$name'");
+          throw LuaError("attempt to assign to const variable '$name'");
         }
 
         current.values[name]!.value = value;
@@ -465,7 +466,7 @@ class Environment extends GCObject {
           "Attempt to modify const global variable '$name'",
           category: 'Env',
         );
-        throw UnsupportedError("attempt to assign to const variable '$name'");
+        throw LuaError("attempt to assign to const variable '$name'");
       }
       rootEnv.values[name]!.value = value;
       Logger.debug(
