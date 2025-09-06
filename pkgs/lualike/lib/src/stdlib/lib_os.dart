@@ -285,8 +285,21 @@ String _maybePrefixLocalLualike(String command) {
   final re = RegExp(r'(^\s*)"?lualike"?');
   final m = re.firstMatch(command);
   if (m != null) {
-    final prefix = m.group(1) ?? '';
-    return command.replaceRange(m.start, m.end, '$prefix"./lualike"');
+    final configured = platform.getEnvironmentVariable('LUALIKE_BIN');
+    if (configured != null && configured.isNotEmpty) {
+      final prefix = m.group(1) ?? '';
+      final quoted = '"$configured"';
+      return command.replaceRange(m.start, m.end, prefix + quoted);
+    }
+    // Fallback to current executable when compiled
+    if (platform.isProductMode) {
+      final exe = platform.resolvedExecutablePath;
+      if (exe.isNotEmpty) {
+        final prefix = m.group(1) ?? '';
+        final quoted = '"' + exe + '"';
+        return command.replaceRange(m.start, m.end, prefix + quoted);
+      }
+    }
   }
   return command;
 }

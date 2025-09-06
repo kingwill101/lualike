@@ -791,8 +791,19 @@ class ProcessIODevice extends BaseIODevice {
       final re = RegExp(r'(^\s*)"?lualike"?');
       final m = re.firstMatch(command);
       if (m != null) {
-        final prefix = m.group(1) ?? '';
-        command = command.replaceRange(m.start, m.end, '$prefix"./lualike"');
+        final bin = platform.getEnvironmentVariable('LUALIKE_BIN');
+        if (bin != null && bin.isNotEmpty) {
+          final prefix = m.group(1) ?? '';
+          final quoted = '"$bin"';
+          command = command.replaceRange(m.start, m.end, prefix + quoted);
+        } else if (platform.isProductMode) {
+          final exe = platform.resolvedExecutablePath;
+          if (exe.isNotEmpty) {
+            final prefix = m.group(1) ?? '';
+            final quoted = '"$exe"';
+            command = command.replaceRange(m.start, m.end, prefix + quoted);
+          }
+        }
       }
     }
     final executable = platform.isWindows ? 'cmd' : 'sh';
