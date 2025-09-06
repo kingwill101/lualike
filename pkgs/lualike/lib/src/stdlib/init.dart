@@ -4,6 +4,7 @@ import 'package:lualike/src/interpreter/interpreter.dart' show Interpreter;
 import '../builtin_function.dart' show BuiltinFunction;
 import '../environment.dart';
 import '../io/lua_file.dart';
+import '../exceptions.dart';
 import '../value.dart' show Value;
 import 'lib_base.dart';
 import 'lib_convert.dart';
@@ -300,16 +301,30 @@ void _defineCoroutineStub({required Environment env}) {
           if (!started) {
             started = true;
             Value? first;
-            if (func.raw is Function) {
-              final out = await (func.raw as Function)(args);
-              first = out is Value
-                  ? out
-                  : (out == null ? Value(null) : Value(out));
-            } else if (func.raw is BuiltinFunction) {
-              final out = (func.raw as BuiltinFunction).call(args);
-              first = out is Value
-                  ? out
-                  : (out == null ? Value(null) : Value(out));
+            try {
+              if (func.raw is Function) {
+                final out = await (func.raw as Function)(args);
+                first = out is Value
+                    ? out
+                    : (out == null ? Value(null) : Value(out));
+              } else if (func.raw is BuiltinFunction) {
+                final out = (func.raw as BuiltinFunction).call(args);
+                first = out is Value
+                    ? out
+                    : (out == null ? Value(null) : Value(out));
+              }
+            } on TailCallException catch (t) {
+              final currentVm = Environment.current?.interpreter;
+              if (currentVm == null) {
+                rethrow;
+              }
+              final callee = t.functionValue is Value
+                  ? t.functionValue as Value
+                  : Value(t.functionValue);
+              final normalizedArgs =
+                  t.args.map((a) => a is Value ? a : Value(a)).toList();
+              final out = await currentVm.callFunction(callee, normalizedArgs);
+              first = out is Value ? out : (out == null ? Value(null) : Value(out));
             }
             // Prefer yielded values if any; otherwise return the direct result
             if (collected.isNotEmpty) {
@@ -323,16 +338,30 @@ void _defineCoroutineStub({required Environment env}) {
             return collected[idx++];
           }
           // Plain function path: call per invocation until nil
-          if (func.raw is Function) {
-            final out = await (func.raw as Function)(args);
-            return out is Value
-                ? out
-                : (out == null ? Value(null) : Value(out));
-          } else if (func.raw is BuiltinFunction) {
-            final out = (func.raw as BuiltinFunction).call(args);
-            return out is Value
-                ? out
-                : (out == null ? Value(null) : Value(out));
+          try {
+            if (func.raw is Function) {
+              final out = await (func.raw as Function)(args);
+              return out is Value
+                  ? out
+                  : (out == null ? Value(null) : Value(out));
+            } else if (func.raw is BuiltinFunction) {
+              final out = (func.raw as BuiltinFunction).call(args);
+              return out is Value
+                  ? out
+                  : (out == null ? Value(null) : Value(out));
+            }
+          } on TailCallException catch (t) {
+            final currentVm = Environment.current?.interpreter;
+            if (currentVm == null) {
+              rethrow;
+            }
+            final callee = t.functionValue is Value
+                ? t.functionValue as Value
+                : Value(t.functionValue);
+            final normalizedArgs =
+                t.args.map((a) => a is Value ? a : Value(a)).toList();
+            final out = await currentVm.callFunction(callee, normalizedArgs);
+            return out is Value ? out : (out == null ? Value(null) : Value(out));
           }
           return Value(null);
         } finally {
