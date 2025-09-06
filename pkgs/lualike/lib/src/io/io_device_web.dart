@@ -94,7 +94,9 @@ class StdinDevice extends BaseIODevice {
 
 /// Stub stdout/stderr device for web. Writes are accepted and ignored.
 class StdoutDevice extends BaseIODevice {
+  // ignore: unused_field
   final dynamic _sink; // ignored on web
+  // ignore: unused_field
   final bool _allowFlush; // ignored on web
 
   StdoutDevice([this._sink, bool? allowFlush])

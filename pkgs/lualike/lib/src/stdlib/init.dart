@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:lualike/src/bytecode/vm.dart' show BytecodeVM;
 import 'package:lualike/src/interpreter/interpreter.dart' show Interpreter;
 
@@ -40,50 +39,6 @@ class _CoroutineStubState {
       _collectorStack.removeLast();
     }
   }
-}
-
-// Helper function for coroutine execution with yield handling
-void _executeWithYieldHandling(
-  Value func,
-  List<Object?> args,
-  Value Function(List<Object?> args)? prevOverride,
-  Completer<Value> completer,
-  List<Value> yieldQueue,
-) {
-  Future<void> execute() async {
-    try {
-      Value? result;
-      if (func.raw is Function) {
-        final out = await (func.raw as Function)(args);
-        result = out is Value ? out : (out == null ? Value(null) : Value(out));
-      } else if (func.raw is BuiltinFunction) {
-        final out = (func.raw as BuiltinFunction).call(args);
-        result = out is Value ? out : (out == null ? Value(null) : Value(out));
-      }
-
-      if (!completer.isCompleted) {
-        completer.complete(result ?? Value(null));
-      }
-    } catch (e) {
-      if (!completer.isCompleted) {
-        completer.completeError(e);
-      }
-    } finally {
-      _CoroutineStubState.yieldOverride = prevOverride;
-    }
-  }
-
-  execute();
-}
-
-// Helper to convert resume args to Value
-Value _convertToValue(List<Object?> args) {
-  if (args.isEmpty) return Value(null);
-  if (args.length == 1) {
-    final arg = args[0];
-    return arg is Value ? arg : Value(arg);
-  }
-  return Value.multi(args.map((e) => e is Value ? e : Value(e)).toList());
 }
 
 // Define a function signature for the library definition callback

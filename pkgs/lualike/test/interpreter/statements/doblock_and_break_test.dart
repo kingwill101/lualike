@@ -38,7 +38,6 @@ void main() {
         IfStatement(condition, [], [Break()], []),
       ]);
       // After loop, read count.
-      var read = Identifier("count");
       var vm = Interpreter();
       await vm.run([declare, whileLoop]);
       var result = vm.globals.get("count");

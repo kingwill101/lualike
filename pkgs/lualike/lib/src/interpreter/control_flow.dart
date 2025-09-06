@@ -780,7 +780,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           );
         }
 
-        if ((control is Value) && control.raw == null) {
+        if (control.raw == null) {
           Logger.debug(
             'ForInLoop: Control is null, breaking loop',
             category: 'ControlFlow',
