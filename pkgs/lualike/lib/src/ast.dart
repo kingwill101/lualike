@@ -202,9 +202,7 @@ class Program extends AstNode with Dumpable {
   Map<String, dynamic> dump() => {
     'type': 'Program',
     'statements': statements
-        .map(
-          (s) => s is Dumpable ? (s).dump() : {'type': 'Unknown'},
-        )
+        .map((s) => s is Dumpable ? (s).dump() : {'type': 'Unknown'})
         .toList(),
   };
 
@@ -453,9 +451,7 @@ class FunctionBody extends AstNode with Dumpable {
     'params': (parameters ?? const <Identifier>[]).map((p) => p.name).toList(),
     'vararg': isVararg,
     'body': body
-        .map(
-          (s) => s is Dumpable ? (s).dump() : {'type': 'Unknown'},
-        )
+        .map((s) => s is Dumpable ? (s).dump() : {'type': 'Unknown'})
         .toList(),
   };
 
@@ -512,9 +508,7 @@ class ReturnStatement extends AstNode with Dumpable {
   Map<String, dynamic> dump() => {
     'type': 'ReturnStatement',
     'expr': expr
-        .map(
-          (e) => e is Dumpable ? (e).dump() : {'type': 'Unknown'},
-        )
+        .map((e) => e is Dumpable ? (e).dump() : {'type': 'Unknown'})
         .toList(),
   };
 

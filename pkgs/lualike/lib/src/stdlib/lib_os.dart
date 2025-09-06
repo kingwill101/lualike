@@ -88,7 +88,11 @@ class _OSDate implements BuiltinFunction {
       setField("hour", time.hour, 0);
       setField("min", time.minute, 0);
       setField("sec", time.second, 0);
-      setField("yday", _OSDate._getDayOfYear(time) - 1, 1); // yday = tm_yday + 1
+      setField(
+        "yday",
+        _OSDate._getDayOfYear(time) - 1,
+        1,
+      ); // yday = tm_yday + 1
       setField("wday", (time.weekday % 7), 1); // wday = tm_wday + 1
       table["isdst"] = Value(false); // No DST info
 
@@ -296,7 +300,7 @@ String _maybePrefixLocalLualike(String command) {
       final exe = platform.resolvedExecutablePath;
       if (exe.isNotEmpty) {
         final prefix = m.group(1) ?? '';
-        final quoted = '"' + exe + '"';
+        final quoted = '"$exe"';
         return command.replaceRange(m.start, m.end, prefix + quoted);
       }
     }

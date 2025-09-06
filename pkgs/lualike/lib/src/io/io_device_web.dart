@@ -100,8 +100,8 @@ class StdoutDevice extends BaseIODevice {
   final bool _allowFlush; // ignored on web
 
   StdoutDevice([this._sink, bool? allowFlush])
-      : _allowFlush = allowFlush ?? true,
-        super('w');
+    : _allowFlush = allowFlush ?? true,
+      super('w');
 
   @override
   Future<void> close() async {}

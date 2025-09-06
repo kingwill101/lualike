@@ -774,10 +774,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         );
         // Keep debug locals in sync (3rd state is control)
         if (frame != null && frame.debugLocals.length >= 3) {
-          frame.debugLocals[2] = MapEntry(
-            '(for state)',
-            control,
-          );
+          frame.debugLocals[2] = MapEntry('(for state)', control);
         }
 
         if (control.raw == null) {
