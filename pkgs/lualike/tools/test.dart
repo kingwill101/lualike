@@ -211,7 +211,36 @@ Future<void> main(List<String> args) async {
   final t1 = (r['test'] as List<String>?) ?? const <String>[];
   final t2 = (r['tests'] as List<String>?) ?? const <String>[];
   final combinedTests = <String>[...t1, ...t2];
-  final testsToRun = combinedTests.isNotEmpty ? combinedTests : testFiles;
+  var testsToRun = combinedTests.isNotEmpty ? combinedTests : List<String>.from(testFiles);
+
+  // Auto-skip known heavy tests on CI unless explicitly requested
+  final isCI = (Platform.environment['CI']?.toLowerCase() == 'true') ||
+      (Platform.environment['GITHUB_ACTIONS']?.toLowerCase() == 'true');
+  const heavyTests = {'heavy.lua'};
+  if (combinedTests.isEmpty && isCI) {
+    final skipped = testsToRun.where((t) => heavyTests.contains(t)).toList();
+    if (skipped.isNotEmpty) {
+      testsToRun = testsToRun.where((t) => !heavyTests.contains(t)).toList();
+
+      console.setForegroundColor(ConsoleColor.yellow);
+      console.setTextStyle(bold: true);
+      console.write('Auto-skip');
+      console.resetColorAttributes();
+      console.write(' on CI: ');
+      console.setForegroundColor(ConsoleColor.yellow);
+      console.write(skipped.join(', '));
+      console.resetColorAttributes();
+      console.writeLine();
+
+      console.setForegroundColor(ConsoleColor.cyan);
+      console.write('Tip: run explicitly with ');
+      console.setTextStyle(bold: true);
+      console.write("--test=${skipped.first}");
+      console.resetColorAttributes();
+      console.write(' to include it.');
+      console.writeLine();
+    }
+  }
 
   final results = await runTests(
     tests: testsToRun,
