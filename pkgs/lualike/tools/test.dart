@@ -125,17 +125,21 @@ Future<void> main(List<String> args) async {
       'verbose',
       abbr: 'v',
       negatable: false,
-      help: 'Show verbose output for each test',
+      help: 'Show verbose output for each test.',
     )
     ..addFlag(
-      'no-soft',
-      negatable: false,
-      help: 'Disable soft mode (_soft = true). By default, tests run in soft mode (smaller/faster).',
+      'soft',
+      negatable: true,
+      defaultsTo: true,
+      help:
+          'Enable soft mode (sets _soft = true). Enabled by default; use --no-soft to disable.',
     )
     ..addFlag(
       'port',
-      negatable: false,
-      help: 'Enable portability mode (_port = true). Some tests will skip or alter platform-specific logic.',
+      negatable: true,
+      defaultsTo: true,
+      help:
+          'Enable portability mode (sets _port = true). Enabled by default; use --no-port to disable.',
     )
     ..addMultiOption(
       'test',
@@ -144,7 +148,31 @@ Future<void> main(List<String> args) async {
       splitCommas: true,
     );
 
-  final r = parser.parse(args);
+  ArgResults r;
+  try {
+    r = parser.parse(args);
+  } on FormatException catch (e) {
+    // Provide a friendlier error message for CLI parsing issues
+    console.setForegroundColor(ConsoleColor.red);
+    console.setTextStyle(bold: true);
+
+    final msg = e.message;
+    console.writeLine();
+    console.write('Argument error');
+    console.resetColorAttributes();
+    console.writeLine();
+    console.writeLine();
+
+    console.writeLine("   $msg");
+    console.writeLine();
+    console.setForegroundColor(ConsoleColor.cyan);
+    console.setTextStyle(bold: true);
+    console.write('Usage');
+    console.resetColorAttributes();
+    console.writeLine();
+    console.writeLine(parser.usage);
+    exit(64); // EX_USAGE
+  }
 
   if (r['help'] as bool) {
     console.setForegroundColor(ConsoleColor.cyan);
@@ -175,15 +203,16 @@ Future<void> main(List<String> args) async {
   console.resetColorAttributes();
   console.writeLine();
 
-  final testsToRun = (r['test'] as List<String>).isNotEmpty
-      ? (r['test'] as List<String>)
-      : testFiles;
+  final t1 = (r['test'] as List<String>?) ?? const <String>[];
+  final t2 = (r['tests'] as List<String>?) ?? const <String>[];
+  final combinedTests = <String>[...t1, ...t2];
+  final testsToRun = combinedTests.isNotEmpty ? combinedTests : testFiles;
 
   final results = await runTests(
     tests: testsToRun,
     verbose: r['verbose'] as bool,
-    noSoft: r['no-soft'] as bool,
-    port: r['port'] as bool,
+    soft: r['soft'] as bool, // default true  => _soft = true
+    port: r['port'] as bool, // default true  => _port = true
   );
 
   printTestSummary(results);
@@ -198,8 +227,8 @@ Future<void> main(List<String> args) async {
 Future<List<TestResult>> runTests({
   List<String> tests = const [],
   bool verbose = false,
-  bool noSoft = false,
-  bool port = false,
+  bool soft = true,
+  bool port = true,
 }) async {
   final results = <TestResult>[];
   final testsToRun = tests.isEmpty ? testFiles : tests;
@@ -214,15 +243,21 @@ Future<List<TestResult>> runTests({
 
     final stopwatch = Stopwatch()..start();
 
-    String? luaInit;
-    if (port) {
-      luaInit = '_port = true';
-    } else if (!noSoft) {
-      luaInit = '_soft = true';
-    }
-    final environment = luaInit != null ? {'LUA_INIT': luaInit} : null;
+    // Build LUA_INIT to set flags in the Lua environment
+    final initParts = <String>[];
+    initParts.add(port ? '_port = true' : '_port = false');
+    initParts.add(soft ? '_soft = true' : '_soft = false');
+    final luaInit = initParts.join('; ');
+
+    // Provide absolute path to compiled binary so child can resolve 'lualike'
     final lualikeBinary = 'lualike';
     final binaryPath = path.join(Directory.current.path, lualikeBinary);
+
+    final environment = {
+      'LUA_INIT': luaInit,
+      'LUALIKE_BIN': binaryPath,
+      ...Platform.environment,
+    };
     final workingDir = path.join('luascripts', 'test');
 
     final process = await Process.start(
