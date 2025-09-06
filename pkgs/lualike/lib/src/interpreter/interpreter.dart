@@ -79,6 +79,10 @@ class Interpreter extends AstVisitor<Object?>
   @override
   final CallStack callStack = CallStack();
 
+  /// Maximum call depth for non-tail calls to simulate Lua's C stack limits.
+  /// Tail calls do not grow the stack thanks to tail-call optimization.
+  static const int maxCallDepth = 2048;
+
   /// Gets the currently running coroutine
   @override
   Coroutine? getCurrentCoroutine() {
@@ -514,6 +518,35 @@ class Interpreter extends AstVisitor<Object?>
       // Push the return value to eval stack so it can be retrieved
       if (e.value != null) {
         evalStack.push(e.value);
+      }
+    } on TailCallException catch (t) {
+      // Handle top-level tail return: execute callee and use its result
+      Logger.debug(
+        'Top-level tail return detected; invoking callee with ${t.args.length} args',
+        category: 'Interpreter',
+      );
+      final callee = t.functionValue is Value
+          ? t.functionValue as Value
+          : Value(t.functionValue);
+      final normalizedArgs = t.args
+          .map((a) => a is Value ? a : Value(a))
+          .toList();
+      final callResult = await callFunction(callee, normalizedArgs);
+      if (callResult != null) {
+        if (callResult is Value) {
+          evalStack.push(callResult);
+        } else if (callResult is List) {
+          if (callResult.isEmpty) {
+            evalStack.push(Value(null));
+          } else if (callResult.length == 1) {
+            final v = callResult[0];
+            evalStack.push(v is Value ? v : Value(v));
+          } else {
+            evalStack.push(Value.multi(callResult));
+          }
+        } else {
+          evalStack.push(Value(callResult));
+        }
       }
     } on GotoException catch (e) {
       // Report undefined label with helpful message
