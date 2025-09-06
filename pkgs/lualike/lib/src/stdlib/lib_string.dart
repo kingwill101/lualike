@@ -176,7 +176,9 @@ class _StringDump implements BuiltinFunction {
           if (e is NumberLiteral) {
             retValues.add(Value(e.value));
           } else if (e is StringLiteral) {
-            retValues.add(Value(LuaString.fromBytes(Uint8List.fromList(e.bytes))));
+            retValues.add(
+              Value(LuaString.fromBytes(Uint8List.fromList(e.bytes))),
+            );
           } else if (e is BooleanLiteral) {
             retValues.add(Value(e.value));
           } else if (e is NilValue) {
@@ -197,7 +199,7 @@ class _StringDump implements BuiltinFunction {
       return Value("-- dump unsupported (no body)");
     }
 
-    String _quoteStringFromBytes(Uint8List bytes) {
+    String quoteStringFromBytes(Uint8List bytes) {
       final sb = StringBuffer();
       sb.write('"');
       for (final b in bytes) {
@@ -231,7 +233,7 @@ class _StringDump implements BuiltinFunction {
       return sb.toString();
     }
 
-    String _toLuaLiteral(Value v) {
+    String toLuaLiteral(Value v) {
       final raw = v.raw;
       if (raw == null) return 'nil';
       if (raw is bool) return raw ? 'true' : 'false';
@@ -243,12 +245,12 @@ class _StringDump implements BuiltinFunction {
         return raw.toString();
       }
       if (raw is LuaString) {
-        return _quoteStringFromBytes(raw.bytes);
+        return quoteStringFromBytes(raw.bytes);
       }
       if (raw is String) {
         // Encode to bytes to preserve non-ASCII in decimal escapes
         final bytes = Uint8List.fromList(utf8.encode(raw));
-        return _quoteStringFromBytes(bytes);
+        return quoteStringFromBytes(bytes);
       }
       // Unsupported types in this heuristic
       return 'nil';
@@ -257,7 +259,7 @@ class _StringDump implements BuiltinFunction {
     final parts = <String>[];
     for (final val in retValues) {
       final vv = val is Value ? val : Value(val);
-      parts.add(_toLuaLiteral(vv));
+      parts.add(toLuaLiteral(vv));
     }
     final body = parts.isEmpty ? '' : parts.join(', ');
     // Produce a chunk that, when executed, returns the captured values.

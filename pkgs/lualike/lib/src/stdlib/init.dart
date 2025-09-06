@@ -43,7 +43,13 @@ class _CoroutineStubState {
 }
 
 // Helper function for coroutine execution with yield handling
-void _executeWithYieldHandling(Value func, List<Object?> args, Value Function(List<Object?> args)? prevOverride, Completer<Value> completer, List<Value> yieldQueue) {
+void _executeWithYieldHandling(
+  Value func,
+  List<Object?> args,
+  Value Function(List<Object?> args)? prevOverride,
+  Completer<Value> completer,
+  List<Value> yieldQueue,
+) {
   Future<void> execute() async {
     try {
       Value? result;
@@ -51,10 +57,10 @@ void _executeWithYieldHandling(Value func, List<Object?> args, Value Function(Li
         final out = await (func.raw as Function)(args);
         result = out is Value ? out : (out == null ? Value(null) : Value(out));
       } else if (func.raw is BuiltinFunction) {
-        final out = await (func.raw as BuiltinFunction).call(args);
+        final out = (func.raw as BuiltinFunction).call(args);
         result = out is Value ? out : (out == null ? Value(null) : Value(out));
       }
-      
+
       if (!completer.isCompleted) {
         completer.complete(result ?? Value(null));
       }
@@ -66,7 +72,7 @@ void _executeWithYieldHandling(Value func, List<Object?> args, Value Function(Li
       _CoroutineStubState.yieldOverride = prevOverride;
     }
   }
-  
+
   execute();
 }
 
@@ -282,7 +288,7 @@ void _defineCoroutineStub({required Environment env}) {
       throw Exception("coroutine.resume not implemented");
     }),
 
-    // coroutine.yield() - yields from a coroutine 
+    // coroutine.yield() - yields from a coroutine
     "yield": Value((List<Object?> args) {
       if (_CoroutineStubState.yieldOverride != null) {
         return _CoroutineStubState.yieldOverride!(args);
@@ -345,7 +351,7 @@ void _defineCoroutineStub({required Environment env}) {
                   ? out
                   : (out == null ? Value(null) : Value(out));
             } else if (func.raw is BuiltinFunction) {
-              final out = await (func.raw as BuiltinFunction).call(args);
+              final out = (func.raw as BuiltinFunction).call(args);
               first = out is Value
                   ? out
                   : (out == null ? Value(null) : Value(out));
@@ -368,7 +374,7 @@ void _defineCoroutineStub({required Environment env}) {
                 ? out
                 : (out == null ? Value(null) : Value(out));
           } else if (func.raw is BuiltinFunction) {
-            final out = await (func.raw as BuiltinFunction).call(args);
+            final out = (func.raw as BuiltinFunction).call(args);
             return out is Value
                 ? out
                 : (out == null ? Value(null) : Value(out));

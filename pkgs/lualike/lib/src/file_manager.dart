@@ -205,7 +205,10 @@ class FileManager {
     // Fast path: if the given path exists as-is (absolute or relative), read it directly
     try {
       if (await fs.fileExists(normalizedFilePath)) {
-        return await _readFileWithStrategy(normalizedFilePath, preserveRawBytes);
+        return await _readFileWithStrategy(
+          normalizedFilePath,
+          preserveRawBytes,
+        );
       }
     } catch (_) {
       // Ignore and fall back to search paths

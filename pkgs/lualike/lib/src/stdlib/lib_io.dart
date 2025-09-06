@@ -549,8 +549,30 @@ class IOOutput implements BuiltinFunction {
 class IOPopen implements BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
-    Logger.debug('Executing IO popen (not supported)', category: 'IO');
-    return Value.multi([null, "popen not supported"]);
+    Logger.debug('Executing IO popen', category: 'IO');
+    if (args.isEmpty) {
+      throw LuaError.typeError("io.popen requires a command string");
+    }
+
+    final cmd = (args[0] as Value).raw.toString();
+    var mode = args.length > 1 ? (args[1] as Value).raw.toString() : 'r';
+
+    // Only 'r' or 'w' (optionally with trailing 'b') are valid for popen
+    if (mode.endsWith('b')) {
+      mode = mode.substring(0, mode.length - 1);
+    }
+    if (mode != 'r' && mode != 'w') {
+      throw LuaError('invalid mode');
+    }
+
+    try {
+      final device = await ProcessIODevice.start(cmd, mode);
+      final file = PopenLuaFile(device);
+      return Value(file, metatable: IOLib.fileClass.metamethods);
+    } catch (e) {
+      Logger.debug('Error starting popen process: $e', category: 'IO');
+      return Value.multi([null, e.toString()]);
+    }
   }
 }
 
@@ -580,7 +602,10 @@ class IORead implements BuiltinFunction {
         if (format == '1') {
           final v = result.isNotEmpty ? result[0] : null;
           if (v is LuaString) {
-            Logger.debug('IORead(1): byte=${v.bytes.isNotEmpty ? v.bytes[0] : 'nil'}', category: 'IO');
+            Logger.debug(
+              'IORead(1): byte=${v.bytes.isNotEmpty ? v.bytes[0] : 'nil'}',
+              category: 'IO',
+            );
           } else {
             Logger.debug('IORead(1): non-LuaString value=$v', category: 'IO');
           }
@@ -685,7 +710,10 @@ class IOWrite implements BuiltinFunction {
           Logger.debug('Writing ${bytes.length} raw bytes', category: 'IO');
           final result = await IOLib.defaultOutput.writeBytes(bytes);
           if (result[0] == null) {
-            Logger.debug('Error writing raw bytes: ${result[1]}', category: 'IO');
+            Logger.debug(
+              'Error writing raw bytes: ${result[1]}',
+              category: 'IO',
+            );
             return Value.multi(result);
           }
         } else {
@@ -922,7 +950,9 @@ class FileSetvbuf implements BuiltinFunction {
 
     // Skip self parameter
     final actualArgs = args.skip(1).toList();
-    final mode = actualArgs.isNotEmpty ? (actualArgs[0] as Value).raw.toString() : 'full';
+    final mode = actualArgs.isNotEmpty
+        ? (actualArgs[0] as Value).raw.toString()
+        : 'full';
     final size = actualArgs.length > 1
         ? NumberUtils.toInt((actualArgs[1] as Value).raw)
         : null;

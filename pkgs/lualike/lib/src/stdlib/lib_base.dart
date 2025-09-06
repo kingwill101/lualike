@@ -696,7 +696,7 @@ class LoadFunction implements BuiltinFunction {
               }
             } else if (env is Map) {
               // Handle generic Map type
-              final envMap = env as Map;
+              final envMap = env;
               if (!envMap.containsKey('__metatable')) {
                 envMap['__index'] = (gValue as Value).raw;
               }
@@ -888,10 +888,7 @@ class LoadfileFunction implements BuiltinFunction {
       }
 
       Logger.debug(
-        'loadfile: source head: ' +
-            (sourceCode.length > 80
-                ? sourceCode.substring(0, 80)
-                : sourceCode),
+        'loadfile: source head: ${sourceCode.length > 80 ? sourceCode.substring(0, 80) : sourceCode}',
         category: 'Load',
       );
       final ast = parse(sourceCode, url: filename ?? 'stdin');
@@ -916,8 +913,10 @@ class LoadfileFunction implements BuiltinFunction {
             currentVm.currentScriptPath = filename;
             try {
               final r = await currentVm.run(ast.statements);
-              Logger.debug('loadfile: executed chunk, result=$r',
-                  category: 'Load');
+              Logger.debug(
+                'loadfile: executed chunk, result=$r',
+                category: 'Load',
+              );
               return r;
             } finally {
               currentVm.setCurrentEnv(savedEnv);
@@ -928,8 +927,10 @@ class LoadfileFunction implements BuiltinFunction {
             currentVm.currentScriptPath = filename;
             try {
               final r = await currentVm.run(ast.statements);
-              Logger.debug('loadfile: executed chunk, result=$r',
-                  category: 'Load');
+              Logger.debug(
+                'loadfile: executed chunk, result=$r',
+                category: 'Load',
+              );
               return r;
             } finally {
               currentVm.currentScriptPath = prevPath;
@@ -2037,7 +2038,6 @@ void defineBaseLibrary({
 
   // Define all functions and variables at once
   env.defineAll(baseLib);
-
 
   // Create a special _G table that directly references the environment
   final gTable = <dynamic, dynamic>{};

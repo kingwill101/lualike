@@ -200,11 +200,13 @@ class Program extends AstNode with Dumpable {
 
   @override
   Map<String, dynamic> dump() => {
-        'type': 'Program',
-        'statements': statements
-            .map((s) => s is Dumpable ? (s as Dumpable).dump() : {'type': 'Unknown'})
-            .toList(),
-      };
+    'type': 'Program',
+    'statements': statements
+        .map(
+          (s) => s is Dumpable ? (s).dump() : {'type': 'Unknown'},
+        )
+        .toList(),
+  };
 
   static Program fromDump(Map<String, dynamic> data) {
     final stmtsData = (data['statements'] as List? ?? const <dynamic>[])
@@ -447,19 +449,21 @@ class FunctionBody extends AstNode with Dumpable {
 
   @override
   Map<String, dynamic> dump() => {
-        'type': 'FunctionBody',
-        'params': (parameters ?? const <Identifier>[]).map((p) => p.name).toList(),
-        'vararg': isVararg,
-        'body': body
-            .map((s) => s is Dumpable ? (s as Dumpable).dump() : {'type': 'Unknown'})
-            .toList(),
-      };
+    'type': 'FunctionBody',
+    'params': (parameters ?? const <Identifier>[]).map((p) => p.name).toList(),
+    'vararg': isVararg,
+    'body': body
+        .map(
+          (s) => s is Dumpable ? (s).dump() : {'type': 'Unknown'},
+        )
+        .toList(),
+  };
 
   static FunctionBody fromDump(Map<String, dynamic> data) {
-    final params = (data['params'] as List? ?? const <dynamic>[]) 
+    final params = (data['params'] as List? ?? const <dynamic>[])
         .map((n) => Identifier(n as String))
         .toList();
-    final bodyNodes = (data['body'] as List? ?? const <dynamic>[]) 
+    final bodyNodes = (data['body'] as List? ?? const <dynamic>[])
         .map((e) => undumpAst(Map<String, dynamic>.from(e)))
         .toList();
     final isVararg = data['vararg'] as bool? ?? false;
@@ -481,9 +485,9 @@ class FunctionLiteral extends AstNode with Dumpable {
 
   @override
   Map<String, dynamic> dump() => {
-        'type': 'FunctionLiteral',
-        'body': funcBody.dump(),
-      };
+    'type': 'FunctionLiteral',
+    'body': funcBody.dump(),
+  };
 
   static FunctionLiteral fromDump(Map<String, dynamic> data) {
     final fb = FunctionBody.fromDump(Map<String, dynamic>.from(data['body']));
@@ -506,14 +510,16 @@ class ReturnStatement extends AstNode with Dumpable {
 
   @override
   Map<String, dynamic> dump() => {
-        'type': 'ReturnStatement',
-        'expr': expr
-            .map((e) => e is Dumpable ? (e as Dumpable).dump() : {'type': 'Unknown'})
-            .toList(),
-      };
+    'type': 'ReturnStatement',
+    'expr': expr
+        .map(
+          (e) => e is Dumpable ? (e).dump() : {'type': 'Unknown'},
+        )
+        .toList(),
+  };
 
   static ReturnStatement fromDump(Map<String, dynamic> data) {
-    final exprs = (data['expr'] as List? ?? const <dynamic>[]) 
+    final exprs = (data['expr'] as List? ?? const <dynamic>[])
         .map((e) => undumpAst(Map<String, dynamic>.from(e)))
         .toList();
     return ReturnStatement(exprs);
@@ -790,10 +796,7 @@ class NumberLiteral extends AstNode with Dumpable {
   String toSource() => value.toString();
 
   @override
-  Map<String, dynamic> dump() => {
-        'type': 'NumberLiteral',
-        'value': value,
-      };
+  Map<String, dynamic> dump() => {'type': 'NumberLiteral', 'value': value};
 
   static NumberLiteral fromDump(Map<String, dynamic> data) {
     final v = data['value'];
@@ -831,10 +834,10 @@ class StringLiteral extends AstNode with Dumpable {
 
   @override
   Map<String, dynamic> dump() => {
-        'type': 'StringLiteral',
-        'value': value,
-        'isLongString': isLongString,
-      };
+    'type': 'StringLiteral',
+    'value': value,
+    'isLongString': isLongString,
+  };
 
   static StringLiteral fromDump(Map<String, dynamic> data) {
     return StringLiteral(
@@ -858,10 +861,7 @@ class BooleanLiteral extends AstNode with Dumpable {
   String toSource() => value ? "true" : "false";
 
   @override
-  Map<String, dynamic> dump() => {
-        'type': 'BooleanLiteral',
-        'value': value,
-      };
+  Map<String, dynamic> dump() => {'type': 'BooleanLiteral', 'value': value};
 
   static BooleanLiteral fromDump(Map<String, dynamic> data) {
     return BooleanLiteral(data['value'] as bool);
@@ -884,10 +884,7 @@ class Identifier extends AstNode with Dumpable {
   String toString() => name;
 
   @override
-  Map<String, dynamic> dump() => {
-        'type': 'Identifier',
-        'name': name,
-      };
+  Map<String, dynamic> dump() => {'type': 'Identifier', 'name': name};
 
   static Identifier fromDump(Map<String, dynamic> data) {
     return Identifier(data['name'] as String);

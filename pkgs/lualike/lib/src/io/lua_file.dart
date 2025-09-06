@@ -160,7 +160,10 @@ class LuaFile {
 
   /// Create an iterator that reads lines from the file
   /// [closeOnEof] - whether to close the file when EOF is reached (default: false)
-  Future<Value> lines([List<String> formats = const ["l"], bool closeOnEof = false]) async {
+  Future<Value> lines([
+    List<String> formats = const ["l"],
+    bool closeOnEof = false,
+  ]) async {
     Logger.debug(
       "Creating file line iterator for $this with formats: $formats",
       category: 'IO',

@@ -3,9 +3,6 @@
 
 local debug = require "debug"
 
--- Skip non-portable sections for this test run
-_port = true
-
 local maxint = math.maxinteger
 
 assert(type(os.getenv"PATH") == "string")

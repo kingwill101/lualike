@@ -364,7 +364,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         Environment? env = globals;
         while (env != null) {
           if (env.values.containsKey(name) && env.values[name]!.isLocal) {
-            Logger.debug('Updating local variable: $name', category: 'Assignment');
+            Logger.debug(
+              'Updating local variable: $name',
+              category: 'Assignment',
+            );
             env.define(name, wrappedValue);
             return wrappedValue;
           }
@@ -372,8 +375,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         }
       }
 
-      Logger.debug('Using custom _ENV for variable assignment: $name',
-          category: 'Assignment');
+      Logger.debug(
+        'Using custom _ENV for variable assignment: $name',
+        category: 'Assignment',
+      );
       Logger.debug(
         'Assignment: About to call setValueAsync on _ENV for $name = $wrappedValue',
         category: 'Assignment',

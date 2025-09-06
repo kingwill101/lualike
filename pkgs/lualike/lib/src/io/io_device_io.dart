@@ -6,6 +6,8 @@ import 'package:path/path.dart' as path_lib;
 import 'package:lualike/lualike.dart';
 
 import 'io_device.dart';
+import 'lua_file.dart';
+import 'package:lualike/src/utils/platform_utils.dart' as platform;
 
 /// Implementation for real files using dart:io
 class FileIODevice extends BaseIODevice {
@@ -397,10 +399,7 @@ class FileIODevice extends BaseIODevice {
 
   @override
   Future<WriteResult> writeBytes(List<int> bytes) async {
-    Logger.debug(
-      'Writing raw ${bytes.length} bytes to file',
-      category: 'IO',
-    );
+    Logger.debug('Writing raw ${bytes.length} bytes to file', category: 'IO');
     checkOpen();
     try {
       if (!(mode.contains('w') || mode.contains('a') || mode.contains('+'))) {
@@ -713,7 +712,10 @@ class StdoutDevice extends BaseIODevice {
   Future<WriteResult> writeBytes(List<int> bytes) async {
     checkOpen();
     try {
-      Logger.debug('Writing raw ${bytes.length} bytes to stdout', category: 'StdoutDevice');
+      Logger.debug(
+        'Writing raw ${bytes.length} bytes to stdout',
+        category: 'StdoutDevice',
+      );
       // Decode bytes as Latin-1 to preserve one-to-one byte mapping for printing
       final str = String.fromCharCodes(bytes);
       await synchronized(_lock, () async {
@@ -749,5 +751,422 @@ class StdoutDevice extends BaseIODevice {
       category: 'StdoutDevice',
     );
     return false;
+  }
+}
+
+/// IO device that wraps a spawned process for io.popen
+class ProcessIODevice extends BaseIODevice {
+  final Process _process;
+  final String _popenMode; // 'r' or 'w'
+  final List<int> _buffer = <int>[]; // stdout buffer for 'r'
+  final List<int> _writeBuffer =
+      <int>[]; // pending bytes for 'w' with buffering
+  bool _stdoutDone = false;
+  bool _stdinClosed = false;
+  int _readCursor = 0;
+
+  final String _command;
+
+  ProcessIODevice._(this._process, this._popenMode, this._command)
+    : super(_popenMode) {
+    if (_popenMode == 'r') {
+      _process.stdout.listen(
+        (chunk) {
+          _buffer.addAll(chunk);
+        },
+        onDone: () {
+          _stdoutDone = true;
+        },
+      );
+    }
+  }
+
+  static Future<ProcessIODevice> start(String command, String mode) async {
+    Logger.debug(
+      'ProcessIODevice.start cmd: $command, mode: $mode',
+      category: 'IO',
+    );
+    // Convenience: allow invoking local compiled binary "lualike" without path
+    {
+      final re = RegExp(r'(^\s*)"?lualike"?');
+      final m = re.firstMatch(command);
+      if (m != null) {
+        final prefix = m.group(1) ?? '';
+        command = command.replaceRange(m.start, m.end, '$prefix"./lualike"');
+      }
+    }
+    final executable = platform.isWindows ? 'cmd' : 'sh';
+    final args = platform.isWindows ? ['/c', command] : ['-c', command];
+    final proc = await Process.start(
+      executable,
+      args,
+      mode: ProcessStartMode.normal,
+      runInShell: false,
+    );
+    return ProcessIODevice._(proc, mode, command);
+  }
+
+  Future<List<Object?>> _statusTriple() async {
+    try {
+      final code = await _process.exitCode;
+      if (code == 0) {
+        return [true, 'exit', 0];
+      }
+      if (!platform.isWindows && code < 0) {
+        final isWrappedKill = RegExp(
+          r"^\s*sh\s+-c\s+'kill\s+-s\s+[^']+\s+\$\$'\s*",
+        ).hasMatch(_command);
+        if (!isWrappedKill) {
+          return [false, 'signal', -code];
+        }
+        return [false, 'exit', -code];
+      }
+      return [false, 'exit', code];
+    } catch (e) {
+      return [false, 'error', e.toString()];
+    }
+  }
+
+  @override
+  Future<void> close() async {
+    if (isClosed) return;
+    try {
+      if (_popenMode == 'w' && !_stdinClosed) {
+        if (_writeBuffer.isNotEmpty) {
+          _process.stdin.add(_writeBuffer);
+          _writeBuffer.clear();
+        }
+        await _process.stdin.close();
+        _stdinClosed = true;
+      }
+    } catch (_) {}
+    isClosed = true;
+  }
+
+  @override
+  Future<void> flush() async {
+    checkOpen();
+    if (_popenMode == 'w') {
+      if (_writeBuffer.isNotEmpty) {
+        _process.stdin.add(_writeBuffer);
+        _writeBuffer.clear();
+      }
+      await _process.stdin.flush();
+    }
+  }
+
+  String _decode(List<int> bytes) => utf8.decode(bytes, allowMalformed: true);
+
+  Future<void> _waitForMoreData([int minBytes = 1]) async {
+    // Busy-wait by yielding until either enough data arrives or stdout is done
+    while (!_stdoutDone && (_buffer.length - _readCursor) < minBytes) {
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+    }
+  }
+
+  @override
+  Future<ReadResult> read([String format = "l"]) async {
+    Logger.debug('ProcessIODevice.read format=$format', category: 'IO');
+    checkOpen();
+    if (_popenMode != 'r') {
+      return ReadResult(null, "Cannot read from write-only pipe");
+    }
+    validateReadFormat(format);
+    final normalizedFormat = normalizeReadFormat(format);
+
+    try {
+      if (normalizedFormat == 'a') {
+        // Read everything until EOF
+        await _waitForMoreData(1);
+        while (!_stdoutDone) {
+          await _waitForMoreData(1);
+        }
+        final bytes = _buffer.sublist(_readCursor);
+        _readCursor = _buffer.length;
+        return ReadResult(_decode(bytes));
+      }
+
+      if (normalizedFormat == 'l' || normalizedFormat == 'L') {
+        // Find next newline
+        while (true) {
+          final idx = _buffer.indexOf(10, _readCursor); // '\n'
+          if (idx != -1) {
+            final end = normalizedFormat == 'L' ? idx + 1 : idx;
+            final bytes = _buffer.sublist(_readCursor, end);
+            _readCursor = idx + 1;
+            return ReadResult(_decode(bytes));
+          }
+          if (_stdoutDone) {
+            // EOF
+            if (_readCursor >= _buffer.length) {
+              return ReadResult(null);
+            } else {
+              final bytes = _buffer.sublist(_readCursor);
+              _readCursor = _buffer.length;
+              return ReadResult(_decode(bytes));
+            }
+          }
+          await _waitForMoreData(1);
+        }
+      }
+
+      if (normalizedFormat == 'n') {
+        // Parse number from current cursor
+        // Simple approach: accumulate until token boundary or EOF
+        await _waitForMoreData(1);
+        if (_readCursor >= _buffer.length && _stdoutDone) {
+          return ReadResult(null);
+        }
+
+        // Skip leading whitespace
+        while (_readCursor < _buffer.length && _buffer[_readCursor] <= 32) {
+          _readCursor++;
+          if (_readCursor >= _buffer.length && !_stdoutDone) {
+            await _waitForMoreData(1);
+          }
+        }
+
+        if (_readCursor >= _buffer.length && _stdoutDone) {
+          return ReadResult(null);
+        }
+
+        final start = _readCursor;
+        bool hex = false;
+
+        // optional sign
+        if (_readCursor < _buffer.length &&
+            (_buffer[_readCursor] == 45 || _buffer[_readCursor] == 43)) {
+          _readCursor++;
+        }
+
+        // 0x prefix
+        Future<void> ensure(int n) async {
+          if ((_buffer.length - _readCursor) < n && !_stdoutDone) {
+            await _waitForMoreData(n - (_buffer.length - _readCursor));
+          }
+        }
+
+        await ensure(2);
+        if (_readCursor + 1 < _buffer.length &&
+            _buffer[_readCursor] == 48 && // '0'
+            (_buffer[_readCursor + 1] == 120 ||
+                _buffer[_readCursor + 1] == 88)) {
+          _readCursor += 2;
+          hex = true;
+        }
+
+        bool isHexDigit(int c) =>
+            (c >= 48 && c <= 57) || // 0-9
+            (c >= 65 && c <= 70) || // A-F
+            (c >= 97 && c <= 102); // a-f
+        bool isDigit(int c) => c >= 48 && c <= 57;
+
+        // integral part
+        while (true) {
+          if (_readCursor >= _buffer.length) {
+            if (_stdoutDone) break;
+            await _waitForMoreData(1);
+            continue;
+          }
+          final c = _buffer[_readCursor];
+          if (hex ? isHexDigit(c) : isDigit(c)) {
+            _readCursor++;
+          } else {
+            break;
+          }
+        }
+
+        // decimal point
+        if (_readCursor < _buffer.length && _buffer[_readCursor] == 46) {
+          _readCursor++;
+          while (true) {
+            if (_readCursor >= _buffer.length) {
+              if (_stdoutDone) break;
+              await _waitForMoreData(1);
+              continue;
+            }
+            final c = _buffer[_readCursor];
+            if (hex ? isHexDigit(c) : isDigit(c)) {
+              _readCursor++;
+            } else {
+              break;
+            }
+          }
+        }
+
+        // exponent
+        if (_readCursor < _buffer.length) {
+          final c = _buffer[_readCursor];
+          final isExp = hex ? (c == 112 || c == 80) : (c == 101 || c == 69);
+          if (isExp) {
+            _readCursor++;
+            if (_readCursor < _buffer.length &&
+                (_buffer[_readCursor] == 45 || _buffer[_readCursor] == 43)) {
+              _readCursor++;
+            }
+            while (true) {
+              if (_readCursor >= _buffer.length) {
+                if (_stdoutDone) break;
+                await _waitForMoreData(1);
+                continue;
+              }
+              final d = _buffer[_readCursor];
+              if (isDigit(d)) {
+                _readCursor++;
+              } else {
+                break;
+              }
+            }
+          }
+        }
+
+        if (_readCursor <= start) {
+          return ReadResult(null);
+        }
+        final s = _decode(_buffer.sublist(start, _readCursor));
+        try {
+          final num = LuaNumberParser.parse(s);
+          return ReadResult(num);
+        } catch (_) {
+          return ReadResult(null);
+        }
+      }
+
+      // numeric format: n bytes
+      final n = int.parse(normalizedFormat);
+      if (n == 0) {
+        if (_readCursor >= _buffer.length) {
+          if (_stdoutDone) return ReadResult(null);
+          return ReadResult("");
+        }
+        return ReadResult("");
+      }
+
+      while ((_buffer.length - _readCursor) == 0 && !_stdoutDone) {
+        await _waitForMoreData(1);
+      }
+      if (_readCursor >= _buffer.length && _stdoutDone) {
+        return ReadResult(null);
+      }
+      final end = (_readCursor + n) <= _buffer.length
+          ? _readCursor + n
+          : _buffer.length;
+      final bytes = _buffer.sublist(_readCursor, end);
+      _readCursor = end;
+      if (bytes.isEmpty) return ReadResult(null);
+      return ReadResult(LuaString.fromBytes(bytes));
+    } catch (e) {
+      return ReadResult(null, e.toString());
+    }
+  }
+
+  @override
+  Future<WriteResult> write(String data) async {
+    checkOpen();
+    if (_popenMode != 'w') {
+      return WriteResult(false, "Cannot write to read-only pipe", 9);
+    }
+    try {
+      final bytes = utf8.encode(data);
+      switch (bufferMode) {
+        case BufferMode.none:
+          _process.stdin.add(bytes);
+          break;
+        case BufferMode.full:
+          _writeBuffer.addAll(bytes);
+          if (_writeBuffer.length >= bufferSize) {
+            _process.stdin.add(_writeBuffer);
+            _writeBuffer.clear();
+          }
+          break;
+        case BufferMode.line:
+          _writeBuffer.addAll(bytes);
+          final idx = _writeBuffer.lastIndexOf(10);
+          if (idx != -1) {
+            _process.stdin.add(_writeBuffer.sublist(0, idx + 1));
+            final rest = _writeBuffer.sublist(idx + 1);
+            _writeBuffer
+              ..clear()
+              ..addAll(rest);
+          }
+          break;
+      }
+      return WriteResult(true);
+    } catch (e) {
+      return WriteResult(false, e.toString());
+    }
+  }
+
+  @override
+  Future<WriteResult> writeBytes(List<int> bytes) async {
+    checkOpen();
+    if (_popenMode != 'w') {
+      return WriteResult(false, "Cannot write to read-only pipe", 9);
+    }
+    try {
+      switch (bufferMode) {
+        case BufferMode.none:
+          _process.stdin.add(bytes);
+          break;
+        case BufferMode.full:
+          _writeBuffer.addAll(bytes);
+          if (_writeBuffer.length >= bufferSize) {
+            _process.stdin.add(_writeBuffer);
+            _writeBuffer.clear();
+          }
+          break;
+        case BufferMode.line:
+          _writeBuffer.addAll(bytes);
+          final idx = _writeBuffer.lastIndexOf(10);
+          if (idx != -1) {
+            _process.stdin.add(_writeBuffer.sublist(0, idx + 1));
+            final rest = _writeBuffer.sublist(idx + 1);
+            _writeBuffer
+              ..clear()
+              ..addAll(rest);
+          }
+          break;
+      }
+      return WriteResult(true);
+    } catch (e) {
+      return WriteResult(false, e.toString());
+    }
+  }
+
+  @override
+  Future<int> seek(SeekWhence whence, int offset) async {
+    throw UnsupportedError("Cannot seek in a pipe");
+  }
+
+  @override
+  Future<int> getPosition() async {
+    // For pipes, report current read cursor for 'r', otherwise 0
+    return _popenMode == 'r' ? _readCursor : 0;
+  }
+
+  @override
+  Future<bool> isEOF() async {
+    if (_popenMode != 'r') return false;
+    return _stdoutDone && _readCursor >= _buffer.length;
+  }
+
+  // Expose status triple to LuaFile override
+  Future<List<Object?>> finalizeStatus() async => await _statusTriple();
+}
+
+/// LuaFile specialization for popen that returns process status on close
+class PopenLuaFile extends LuaFile {
+  PopenLuaFile(ProcessIODevice super.device);
+
+  @override
+  Future<List<Object?>> close() async {
+    Logger.debug('PopenLuaFile.close()', category: 'IO');
+    final dev = device as ProcessIODevice;
+    try {
+      await dev.close();
+    } catch (_) {}
+    // Wait for process termination and return os.execute-like triple
+    final triple = await dev.finalizeStatus();
+    return triple;
   }
 }
