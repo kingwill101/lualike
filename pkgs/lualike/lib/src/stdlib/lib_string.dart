@@ -1387,9 +1387,21 @@ class _StringGsub implements BuiltinFunction {
             }
           }
 
-          var replacement = replFunc(captures);
-          if (replacement is Future) {
-            replacement = await replacement;
+          dynamic replacement;
+          try {
+            replacement = replFunc(captures);
+            if (replacement is Future) {
+              replacement = await replacement;
+            }
+          } on TailCallException catch (t) {
+            final vm = Environment.current?.interpreter;
+            if (vm == null) rethrow;
+            final callee = t.functionValue is Value
+                ? t.functionValue as Value
+                : Value(t.functionValue);
+            final normalizedArgs =
+                t.args.map((a) => a is Value ? a : Value(a)).toList();
+            replacement = await vm.callFunction(callee, normalizedArgs);
           }
 
           if (replacement == null ||
