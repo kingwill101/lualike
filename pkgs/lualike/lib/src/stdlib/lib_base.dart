@@ -7,6 +7,7 @@ import 'package:lualike/src/const_checker.dart';
 import 'package:lualike/src/utils/file_system_utils.dart';
 import 'package:lualike/src/utils/type.dart';
 import 'package:path/path.dart' as path;
+import 'package:source_span/source_span.dart';
 
 import 'lib_io.dart';
 
@@ -614,10 +615,9 @@ class LoadFunction implements BuiltinFunction {
       } else if ((args[0] as Value).raw is Function) {
         // Load from reader function
         final chunks = <String>[];
-        final reader = (args[0] as Value).raw as Function;
+        final readerVal = args[0] as Value;
         while (true) {
-          final result = reader([]);
-          final chunk = result is Future ? await result : result;
+          final chunk = await readerVal.invoke(const []);
           if (chunk == null || (chunk is Value && chunk.raw == null)) break;
 
           // Extract string from Value objects
@@ -669,6 +669,16 @@ class LoadFunction implements BuiltinFunction {
         return [Value(null), Value(adjustedError)];
       }
 
+      // Create a synthetic function body with source info for debug.getinfo
+      final sourceFile = path.url.joinAll(path.split(path.normalize(chunkname)));
+      final syntheticBody = FunctionBody([], [], false);
+      try {
+        final file = SourceFile.fromString(source, url: sourceFile);
+        syntheticBody.setSpan(file.span(0, source.length));
+      } catch (_) {
+        // If we cannot create a SourceFile, leave span null
+      }
+
       return Value((List<Object?> callArgs) async {
         try {
           // Save the current environment
@@ -716,21 +726,39 @@ class LoadFunction implements BuiltinFunction {
           // Switch to the load environment to execute the loaded code
           vm.setCurrentEnv(loadEnv);
 
+          // Set script path for debug.getinfo and error reporting
+          final prevPath = vm.currentScriptPath;
+          final normalizedChunk = chunkname;
+          vm.currentScriptPath = normalizedChunk;
+          vm.callStack.setScriptPath(normalizedChunk);
+          loadEnv.declare('_SCRIPT_PATH', Value(normalizedChunk));
+
           try {
             final result = await vm.run(ast.statements);
             return result;
           } finally {
             // Restore the previous environment
             vm.setCurrentEnv(savedEnv);
+            vm.currentScriptPath = prevPath;
           }
         } on ReturnException catch (e) {
           // return statements inside the loaded chunk should just
           // provide values to the caller, not unwind the interpreter
           return e.value;
+        } on TailCallException catch (t) {
+          // Proper tail call from inside loaded chunk: invoke callee here
+          // without growing the call stack at the Lua level.
+          final callee = t.functionValue is Value
+              ? t.functionValue as Value
+              : Value(t.functionValue);
+          final normalizedArgs = t.args
+              .map((a) => a is Value ? a : Value(a))
+              .toList();
+          return await vm.callFunction(callee, normalizedArgs);
         } catch (e) {
           throw LuaError("Error executing loaded chunk '$chunkname': $e");
         }
-      });
+      }, functionBody: syntheticBody);
     } catch (e) {
       // For FormatException, return just the message without prefix
       // to match Lua's error format
@@ -767,6 +795,15 @@ class DoFileFunction implements BuiltinFunction {
 
       // Return result or nil if no result
       return result;
+    } on ReturnException catch (e) {
+      return e.value;
+    } on TailCallException catch (t) {
+      final callee = t.functionValue is Value
+          ? t.functionValue as Value
+          : Value(t.functionValue);
+      final normalizedArgs =
+          t.args.map((a) => a is Value ? a : Value(a)).toList();
+      return await vm.callFunction(callee, normalizedArgs);
     } catch (e) {
       throw Exception("Error in dofile('$filename'): $e");
     }
@@ -936,6 +973,15 @@ class LoadfileFunction implements BuiltinFunction {
               currentVm.currentScriptPath = prevPath;
             }
           }
+        } on ReturnException catch (e) {
+          return e.value;
+        } on TailCallException catch (t) {
+          final callee = t.functionValue is Value
+              ? t.functionValue as Value
+              : Value(t.functionValue);
+          final normalizedArgs =
+              t.args.map((a) => a is Value ? a : Value(a)).toList();
+          return await currentVm.callFunction(callee, normalizedArgs);
         } catch (e) {
           throw Exception("Error executing loaded chunk: $e");
         }
@@ -1039,6 +1085,23 @@ class PCAllFunction implements BuiltinFunction {
           ]);
         }
       }
+    } on TailCallException catch (t) {
+      // Perform the tail call using the interpreter and return as success
+      final callee = t.functionValue is Value
+          ? t.functionValue as Value
+          : Value(t.functionValue);
+      final normalizedArgs =
+          t.args.map((a) => a is Value ? a : Value(a)).toList();
+      final awaitedResult = await interpreter.callFunction(callee, normalizedArgs);
+      if (awaitedResult is Value && awaitedResult.isMulti) {
+        final multiValues = awaitedResult.raw as List;
+        return Value.multi([true, ...multiValues]);
+      } else {
+        return Value.multi([
+          true,
+          awaitedResult is Value ? awaitedResult.raw : awaitedResult,
+        ]);
+      }
     } catch (e) {
       // If the error is a Value object, return its raw value
       // If it's a LuaError, return just the message
@@ -1120,6 +1183,10 @@ class WarnFunction implements BuiltinFunction {
 }
 
 class XPCallFunction implements BuiltinFunction {
+  final Interpreter interpreter;
+
+  XPCallFunction(this.interpreter);
+
   @override
   Object? call(List<Object?> args) async {
     if (args.length < 2) {
@@ -1129,109 +1196,75 @@ class XPCallFunction implements BuiltinFunction {
     final msgh = args[1] as Value;
     final callArgs = args.sublist(2);
 
-    if (func.raw is! Function) {
+    if (func.raw is! Function && func.raw is! BuiltinFunction) {
       throw LuaError.typeError(
         "xpcall requires a function as its first argument",
       );
     }
 
-    if (msgh.raw is! Function) {
+    if (msgh.raw is! Function && msgh.raw is! BuiltinFunction) {
       throw LuaError.typeError(
         "xpcall requires a function as its second argument",
       );
     }
 
+    // Set protected-call flags similar to pcall
+    final previousYieldable = interpreter.isYieldable;
+    interpreter.isYieldable = false;
+    interpreter.enterProtectedCall();
+
     try {
-      final result = func.raw as Function;
-      final callResult = result(callArgs);
+      // Execute the function via interpreter to honor tail calls/yields
+      final callResult = await interpreter.callFunction(func, callArgs);
 
-      // Handle both synchronous and asynchronous results
-      if (callResult is Future) {
-        try {
-          final awaitedResult = await callResult;
-          // Return true (success) followed by the result
-          if (awaitedResult is List && awaitedResult.isNotEmpty) {
-            return [Value(true), ...awaitedResult];
-          } else {
-            return [
-              Value(true),
-              awaitedResult is Value ? awaitedResult : Value(awaitedResult),
-            ];
-          }
-        } catch (e) {
-          // Call the message handler with the error
-          try {
-            final errorHandler = msgh.raw as Function;
-            // Unwrap double-wrapped Values before passing to error handler
-            final errorValue = e is Value
-                ? (e.raw is Value ? e.raw : e)
-                : Value(e.toString());
-            final handlerResult = errorHandler([errorValue]);
-
-            if (handlerResult is Future) {
-              try {
-                final awaitedHandlerResult = await handlerResult;
-                return [
-                  Value(false),
-                  awaitedHandlerResult is Value
-                      ? awaitedHandlerResult
-                      : Value(awaitedHandlerResult),
-                ];
-              } catch (e2) {
-                return [Value(false), Value("Error in error handler: $e2")];
-              }
-            } else {
-              return [
-                Value(false),
-                handlerResult is Value ? handlerResult : Value(handlerResult),
-              ];
-            }
-          } catch (e2) {
-            return [Value(false), Value("Error in error handler: $e2")];
-          }
-        }
-      } else {
-        // Handle synchronous result
-        if (callResult is List && callResult.isNotEmpty) {
-          return [Value(true), ...callResult];
-        } else {
-          return [
-            Value(true),
-            callResult is Value ? callResult : Value(callResult),
-          ];
-        }
+      // Normalize return for success: true + results
+      if (callResult is Value && callResult.isMulti) {
+        final multiValues = callResult.raw as List;
+        return Value.multi([Value(true), ...multiValues]);
       }
+      return Value.multi([
+        Value(true),
+        callResult is Value ? callResult.raw : callResult,
+      ]);
+    } on TailCallException catch (t) {
+      // Complete the tail call and still report success
+      final callee = t.functionValue is Value
+          ? t.functionValue as Value
+          : Value(t.functionValue);
+      final normalizedArgs =
+          t.args.map((a) => a is Value ? a : Value(a)).toList();
+      final awaitedResult = await interpreter.callFunction(callee, normalizedArgs);
+      if (awaitedResult is Value && awaitedResult.isMulti) {
+        final multiValues = awaitedResult.raw as List;
+        return Value.multi([Value(true), ...multiValues]);
+      }
+      return Value.multi([
+        Value(true),
+        awaitedResult is Value ? awaitedResult.raw : awaitedResult,
+      ]);
     } catch (e) {
-      // Call the message handler with the error
+      // Call the message handler with the error (protected)
       try {
-        final errorHandler = msgh.raw as Function;
-        // Unwrap double-wrapped Values before passing to error handler
         final errorValue = e is Value
             ? (e.raw is Value ? e.raw : e)
             : Value(e.toString());
-        final handlerResult = errorHandler([errorValue]);
+        final handlerResult = await interpreter.callFunction(msgh, [errorValue]);
 
-        if (handlerResult is Future) {
-          try {
-            final awaitedHandlerResult = await handlerResult;
-            return [
-              Value(false),
-              awaitedHandlerResult is Value
-                  ? awaitedHandlerResult
-                  : Value(awaitedHandlerResult),
-            ];
-          } catch (e2) {
-            return [Value(false), Value("Error in error handler: $e2")];
-          }
-        } else {
-          return [
-            Value(false),
-            handlerResult is Value ? handlerResult : Value(handlerResult),
-          ];
+        if (handlerResult is Value && handlerResult.isMulti) {
+          final multiValues = handlerResult.raw as List;
+          return Value.multi([Value(false), ...multiValues]);
         }
+        return Value.multi([
+          Value(false),
+          handlerResult is Value ? handlerResult : Value(handlerResult),
+        ]);
       } catch (e2) {
-        return [Value(false), Value("Error in error handler: $e2")];
+        return Value.multi([Value(false), Value("Error in error handler: $e2")]);
       }
+    } finally {
+      // Exit protected-call context and restore state
+      interpreter.exitProtectedCall();
+      interpreter.isYieldable = previousYieldable;
     }
   }
 }
@@ -1780,6 +1813,13 @@ class RequireFunction implements BuiltinFunction {
           } on ReturnException catch (e) {
             // Handle explicit return from module
             result = e.value;
+          } on TailCallException catch (t) {
+            final callee = t.functionValue is Value
+                ? t.functionValue as Value
+                : Value(t.functionValue);
+            final normalizedArgs =
+                t.args.map((a) => a is Value ? a : Value(a)).toList();
+            result = await vm.callFunction(callee, normalizedArgs);
           } finally {
             // Restore previous environment and script path
             vm.setCurrentEnv(prevEnv);
@@ -2023,7 +2063,7 @@ void defineBaseLibrary({
 
     // Protected calls
     "pcall": Value(PCAllFunction(vm)),
-    "xpcall": Value(XPCallFunction()),
+    "xpcall": Value(XPCallFunction(vm)),
 
     // Metatables
     "getmetatable": Value(GetMetatableFunction()),
