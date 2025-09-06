@@ -49,7 +49,7 @@ void main() {
           return 10, 20, 30
         end
 
-        local a, b, c = f()
+        a, b, c = f()
       ''');
 
       bridge.asserts.global('a', 10);
@@ -63,7 +63,7 @@ void main() {
           return 10, 20, 30
         end
 
-        local a, b, c = (f())
+        a, b, c = (f())
       ''');
 
       bridge.asserts.global('a', 10);

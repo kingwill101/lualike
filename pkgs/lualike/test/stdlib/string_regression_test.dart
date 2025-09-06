@@ -13,9 +13,9 @@ void main() {
       test('string.rep preserves high bytes (253) correctly', () async {
         // This was the specific failing case from strings.lua
         await lua.execute(r'''
-          local input = 't\xFDs\00t\xFD'
-          local result = string.rep(input, 2)
-          local expected = 't\xFDs\0t\xFDt\xFDs\000t\xFD'
+          input = 't\xFDs\00t\xFD'
+          result = string.rep(input, 2)
+          expected = 't\xFDs\0t\xFDt\xFDs\000t\xFD'
           equal = result == expected
           length = #result
           b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12 = string.byte(result, 1, -1)
@@ -70,8 +70,8 @@ void main() {
 
       test('string.rep with high bytes and separator', () async {
         await lua.execute(r'''
-          local input = 'a\xFDb'
-          local result = string.rep(input, 3, ',')
+          input = 'a\xFDb'
+          result = string.rep(input, 3, ',')
           b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11 = string.byte(result, 1, -1)
         ''');
 
@@ -95,8 +95,8 @@ void main() {
 
       test('string.rep with count 1 preserves original', () async {
         await lua.execute(r'''
-          local input = 't\xFDs\00t\xFD'
-          local result = string.rep(input, 1)
+          input = 't\xFDs\00t\xFD'
+          result = string.rep(input, 1)
           equal = input == result
           b1, b2, b3, b4, b5, b6 = string.byte(result, 1, -1)
         ''');
@@ -121,8 +121,8 @@ void main() {
 
       test('string.rep with count 0 returns empty string', () async {
         await lua.execute(r'''
-          local input = 't\xFDs\00t\xFD'
-          local result = string.rep(input, 0)
+          input = 't\xFDs\00t\xFD'
+          result = string.rep(input, 0)
           is_empty = result == ''
           length = #result
         ''');
@@ -136,7 +136,7 @@ void main() {
       test('string literal parsing preserves raw bytes', () async {
         await lua.execute(r'''
           -- Test that string literals with high bytes are parsed correctly
-          local str = "\xFD"  -- byte 253
+          str = "\xFD"  -- byte 253
           byte_value = string.byte(str)
         ''');
 
@@ -149,10 +149,10 @@ void main() {
 
       test('string.format %q preserves high bytes', () async {
         await lua.execute(r'''
-          local x = '"\xFDlo"\n\\'
-          local formatted = string.format('%q', x)
+          x = '"\xFDlo"\n\\'
+          formatted = string.format('%q', x)
           -- Load the formatted string back and verify it matches
-          local loaded = load('return ' .. formatted)()
+          loaded = load('return ' .. formatted)()
           equal = x == loaded
           orig_byte = string.byte(x, 2)
           loaded_byte = string.byte(loaded, 2)
@@ -172,9 +172,9 @@ void main() {
 
       test('string operations preserve byte representation', () async {
         await lua.execute(r'''
-          local str = '\xFD\xFE\xFF'  -- High bytes 253, 254, 255
-          local upper = string.upper(str)
-          local lower = string.lower(str)
+          str = '\xFD\xFE\xFF'  -- High bytes 253, 254, 255
+          upper = string.upper(str)
+          lower = string.lower(str)
           o1, o2, o3 = string.byte(str, 1, 3)
           u1, u2, u3 = string.byte(upper, 1, 3)
           l1, l2, l3 = string.byte(lower, 1, 3)
@@ -213,8 +213,8 @@ void main() {
     group('String Interning with High Bytes', () {
       test('string interning works with ASCII content', () async {
         await lua.execute(r'''
-          local str1 = string.rep("a", 10)
-          local str2 = string.rep("aa", 5)
+          str1 = string.rep("a", 10)
+          str2 = string.rep("aa", 5)
           -- In Lua, these should be the same string object (interned)
           equal = str1 == str2
           len1 = #str1
@@ -232,8 +232,8 @@ void main() {
 
       test('string interning preserves high-byte content', () async {
         await lua.execute(r'''
-          local str1 = string.rep("\xFD", 5)  -- byte 253 repeated
-          local str2 = string.rep("\xFD\xFD", 2) .. "\xFD"  -- same content different construction
+          str1 = string.rep("\xFD", 5)  -- byte 253 repeated
+          str2 = string.rep("\xFD\xFD", 2) .. "\xFD"  -- same content different construction
           equal = str1 == str2
           b1_1, b1_2, b1_3, b1_4, b1_5 = string.byte(str1, 1, 5)
           b2_1, b2_2, b2_3, b2_4, b2_5 = string.byte(str2, 1, 5)
@@ -271,9 +271,9 @@ void main() {
     group('Metamethod Fallback Behavior', () {
       test('__name metamethod fallback without hash', () async {
         await lua.execute(r'''
-          local mt = {__name = "CustomType"}
-          local obj = setmetatable({}, mt)
-          local formatted = string.format("%s", obj)
+          mt = {__name = "CustomType"}
+          obj = setmetatable({}, mt)
+          formatted = string.format("%s", obj)
           -- Should be "CustomType: " without hash code
           matches = formatted:match("^CustomType: $") ~= nil
         ''');
@@ -292,11 +292,11 @@ void main() {
 
       test('__tostring takes precedence over __name', () async {
         await lua.execute(r'''
-          local mt = {
+          mt = {
             __name = "CustomType",
             __tostring = function() return "custom string" end
           }
-          local obj = setmetatable({}, mt)
+          obj = setmetatable({}, mt)
           formatted = string.format("%s", obj)
         ''');
 
@@ -309,11 +309,11 @@ void main() {
 
       test('nil __tostring falls back to __name', () async {
         await lua.execute(r'''
-          local mt = {
+          mt = {
             __name = "TestType",
             __tostring = nil
           }
-          local obj = setmetatable({}, mt)
+          obj = setmetatable({}, mt)
           formatted = string.format("%s", obj)
         ''');
 
@@ -328,7 +328,7 @@ void main() {
     group('String Literal Edge Cases', () {
       test('null bytes in string literals', () async {
         await lua.execute(r'''
-          local str = "a\0b\0c"
+          str = "a\0b\0c"
           length = #str
           b1, b2, b3, b4, b5 = string.byte(str, 1, 5)
         ''');
@@ -355,7 +355,7 @@ void main() {
 
       test('mixed ASCII and high bytes', () async {
         await lua.execute(r'''
-          local str = "Hello\xFD\xFE\xFFWorld"
+          str = "Hello\xFD\xFE\xFFWorld"
           length = #str
           b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12, b13 = string.byte(str, 1, -1)
         ''');
@@ -401,7 +401,7 @@ void main() {
 
       test('escape sequences in string literals', () async {
         await lua.execute('''
-          local str = "\\n\\t\\r\\\\"
+          str = "\\n\\t\\r\\\\"
           length = #str
           b1, b2, b3, b4 = string.byte(str, 1, 4)
         ''');
@@ -429,7 +429,7 @@ void main() {
     group('Large String Operations', () {
       test('string.rep with large count error handling', () async {
         await lua.execute(r'''
-          local success, err = pcall(string.rep, 'aa', (1 << 30))
+          success, err = pcall(string.rep, 'aa', (1 << 30))
           has_error = not success
           has_too_large = err and err:find("too large") ~= nil
         ''');
@@ -448,7 +448,7 @@ void main() {
 
       test('string.rep with separator and large count', () async {
         await lua.execute(r'''
-          local success, err = pcall(string.rep, 'a', (1 << 30), ',')
+          success, err = pcall(string.rep, 'a', (1 << 30), ',')
           has_error = not success
           has_too_large = err and err:find("too large") ~= nil
         ''');

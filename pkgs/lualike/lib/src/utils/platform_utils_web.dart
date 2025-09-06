@@ -24,3 +24,6 @@ String get executableName => 'lualike-web';
 
 /// Platform-safe way to get the script path - null on web
 String? get scriptPath => null;
+
+/// On the web, there is no executable path; return empty string.
+String get resolvedExecutablePath => '';

@@ -8,8 +8,11 @@ class ReadResult {
   final int? errorCode;
 
   ReadResult(this.value, [this.error, this.errorCode]) {
+    final valueStr = value is String && (value as String).length > 100
+        ? '${(value as String).length} characters'
+        : value?.toString() ?? "null";
     Logger.debug(
-      'ReadResult created: value=${value?.toString() ?? "null"}, error=${error ?? "null"}, errorCode=${errorCode ?? "null"}',
+      'ReadResult created: value=$valueStr, error=${error ?? "null"}, errorCode=${errorCode ?? "null"}',
       category: 'IO',
     );
   }
@@ -19,7 +22,13 @@ class ReadResult {
   /// Convert to Lua-style error tuple
   List<Object?> toLua() {
     final result = error != null ? [null, error, errorCode] : [value];
-    Logger.debug('ReadResult toLua: $result', category: 'IO');
+    final resultStr =
+        result.isNotEmpty &&
+            result[0] is String &&
+            (result[0] as String).length > 100
+        ? '[String of ${(result[0] as String).length} characters, ...]'
+        : '$result';
+    Logger.debug('ReadResult toLua: $resultStr', category: 'IO');
     return result;
   }
 }
@@ -40,7 +49,13 @@ class WriteResult {
   /// Convert to Lua-style error tuple
   List<Object?> toLua() {
     final result = success ? [true] : [null, error, errorCode];
-    Logger.debug('WriteResult toLua: $result', category: 'IO');
+    final resultStr =
+        result.length > 1 &&
+            result[1] is String &&
+            (result[1] as String).length > 100
+        ? '[null, String of ${(result[1] as String).length} characters, ...]'
+        : '$result';
+    Logger.debug('WriteResult toLua: $resultStr', category: 'IO');
     return result;
   }
 }
@@ -84,6 +99,9 @@ abstract class IODevice {
 
   /// Write data to the device
   Future<WriteResult> write(String data);
+
+  /// Write raw bytes to the device without any encoding.
+  Future<WriteResult> writeBytes(List<int> bytes);
 
   /// Seek to a position in the device
   /// Returns the new position
@@ -139,11 +157,20 @@ abstract class BaseIODevice implements IODevice {
   /// Helper to validate read format
   void validateReadFormat(String format) {
     Logger.debug("Validating read format: $format", category: "IO");
-    if (!RegExp(r'^(n|a|l|L|\d+)$').hasMatch(format)) {
+    if (!RegExp(r'^(\*?n|\*?a|\*?all|\*?l|\*?L|\d+)$').hasMatch(format)) {
       Logger.debug("Invalid format: $format", category: "IO");
       throw LuaError("invalid format: $format");
     }
     Logger.debug("Format $format is valid", category: "IO");
+  }
+
+  /// Helper to normalize read format by removing * prefix
+  String normalizeReadFormat(String format) {
+    if (format.startsWith('*')) {
+      return format.substring(1);
+    }
+    // Accept 'all' as an alias for 'a' (used in Lua test suite)
+    return format == 'all' ? 'a' : format;
   }
 }
 

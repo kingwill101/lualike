@@ -47,7 +47,7 @@ void main() {
     test('hash function works with bytes from dart.string.bytes', () async {
       final bridge = LuaLike();
       await bridge.execute(r'''
-        local bytes = dart.string.bytes.toBytes("hello lualike")
+        bytes = dart.string.bytes.toBytes("hello lualike")
         hash = crypto.sha256(bytes)
       ''');
       final hash = bridge.getGlobal('hash')!;
@@ -72,12 +72,12 @@ void main() {
     test('aesEncrypt and aesDecrypt roundtrip', () async {
       final bridge = LuaLike();
       await bridge.execute(r'''
-        local key = crypto.randomBytes(16)
-        local iv = crypto.randomBytes(16)
-        local plaintext = "this is a super secret message"
+        key = crypto.randomBytes(16)
+        iv = crypto.randomBytes(16)
+        plaintext = "this is a super secret message"
 
-        local encrypted = crypto.aesEncrypt(key, iv, plaintext)
-        local decrypted_bytes = crypto.aesDecrypt(key, iv, encrypted)
+        encrypted = crypto.aesEncrypt(key, iv, plaintext)
+        decrypted_bytes = crypto.aesDecrypt(key, iv, encrypted)
 
         decrypted_text = dart.string.bytes.fromBytes(decrypted_bytes)
       ''');

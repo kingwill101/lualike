@@ -24,10 +24,10 @@ void main() {
 
       // Load the module and use its functions
       await bridge.execute('''
-        local module = require("simple_module")
-        local initial = module.getValue()
+        module = require("simple_module")
+        initial = module.getValue()
         module.setValue(100)
-        local updated = module.getValue()
+        updated = module.getValue()
       ''');
 
       var initial = bridge.getGlobal('initial');
@@ -58,11 +58,11 @@ void main() {
 
       // Load the module multiple times and check that it's cached
       await bridge.execute('''
-        local m1 = require("counter_module")
-        local m2 = require("counter_module")
+        m1 = require("counter_module")
+        m2 = require("counter_module")
 
-        local count1 = m1.increment()
-        local count2 = m2.increment()
+        count1 = m1.increment()
+        count2 = m2.increment()
       ''');
 
       var count1 = bridge.getGlobal('count1');
@@ -101,10 +101,10 @@ void main() {
 
       // Test module functionality with alternative syntax
       await bridge.execute('''
-        local tracegc = require"tracegc"
+        tracegc = require"tracegc"
         tracegc.start()
-        local propResult = tracegc.property"status"
-        local status = tracegc.status
+        propResult = tracegc.property"status"
+        status = tracegc.status
       ''');
 
       var propResult = bridge.getGlobal('propResult');
@@ -141,10 +141,10 @@ void main() {
 
       // Test method chaining with workaround (separate calls)
       await bridge.execute('''
-        local calc = require("chainable")
+        calc = require("chainable")
         calc.add(5)
         calc.multiply(2)
-        local result = calc.getValue()
+        result = calc.getValue()
       ''');
 
       var result = bridge.getGlobal('result');

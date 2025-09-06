@@ -18,11 +18,7 @@ void main() {
   group('Break Statement in While Loop', () {
     test('break exits the loop early', () async {
       // Define: local count = 0; while true do count = count + 1; if count > 3 then break; end; end;
-      var declare = LocalDeclaration(
-        [Identifier("count")],
-        [],
-        [NumberLiteral(0)],
-      );
+      var declare = Assignment([Identifier("count")], [NumberLiteral(0)]);
       var assign = Assignment(
         [Identifier("count")],
         [BinaryExpression(Identifier("count"), "+", NumberLiteral(1))],
@@ -42,10 +38,9 @@ void main() {
         IfStatement(condition, [], [Break()], []),
       ]);
       // After loop, read count.
-      var read = Identifier("count");
       var vm = Interpreter();
       await vm.run([declare, whileLoop]);
-      var result = await read.accept(vm);
+      var result = vm.globals.get("count");
       // The loop should break once count > 3, so expected count is 4.
       expect(result, equals(Value(4)));
     });

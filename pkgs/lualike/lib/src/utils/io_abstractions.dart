@@ -36,3 +36,7 @@ class ProcessResult {
 /// Platform-safe way to run a process synchronously
 ProcessResult runProcessSync(String executable, List<String> arguments) =>
     io_impl.runProcessSync(executable, arguments);
+
+/// Platform-safe way to extract an OS error code from an exception
+/// Returns 0 if not available on the current platform or exception type.
+int extractOsErrorCode(Object e) => io_impl.extractOsErrorCode(e);

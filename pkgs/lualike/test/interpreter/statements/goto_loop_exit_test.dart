@@ -4,7 +4,7 @@ void main() {
   group('Goto with loops', () {
     test('goto exits a for loop to outer label', () async {
       var program = <AstNode>[
-        LocalDeclaration([Identifier('i')], [], [NumberLiteral(0)]),
+        Assignment([Identifier('i')], [NumberLiteral(0)]),
         Label(Identifier('again')),
         ForLoop(
           Identifier('j'),

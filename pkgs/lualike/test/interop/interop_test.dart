@@ -58,7 +58,7 @@ void main() {
       });
       // Call from LuaLike and manipulate the result
       await bridge.execute('''
-        local person = createPerson("Alice", 30)
+        person = createPerson("Alice", 30)
         person.score = 95
       ''');
       var person = bridge.getGlobal('person') as Value;
@@ -74,7 +74,7 @@ void main() {
 
     // Create a table with __newindex metamethod
     await bridge.execute('''
-      local t = {}
+      t = {}
       setmetatable(t, {
         __newindex = function(table, key, value)
           rawset(table, key.."_modified", value * 2)

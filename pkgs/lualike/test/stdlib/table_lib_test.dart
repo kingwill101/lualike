@@ -7,7 +7,7 @@ void main() {
 
       try {
         await bridge.execute('''
-          local t = {1, 2, 3}
+          t = {1, 2, 3}
           table.insert(t, 2, 4)
           return t[1], t[2], t[3], t[4]
         ''');
@@ -25,7 +25,7 @@ void main() {
 
       try {
         await bridge.execute('''
-          local t = {1, 2, 3}
+          t = {1, 2, 3}
           table.insert(t, 4)
           return t[1], t[2], t[3], t[4]
         ''');
@@ -43,8 +43,8 @@ void main() {
 
       try {
         await bridge.execute('''
-          local t = {1, 2, 3}
-          local removed = table.remove(t, 2)
+          t = {1, 2, 3}
+          removed = table.remove(t, 2)
           return t[1], t[2], removed
         ''');
       } on ReturnException catch (e) {
@@ -60,8 +60,8 @@ void main() {
 
       try {
         await bridge.execute('''
-          local t = {1, 2, 3}
-          local removed = table.remove(t)
+          t = {1, 2, 3}
+          removed = table.remove(t)
           return t[1], t[2], t[3], removed
         ''');
       } on ReturnException catch (e) {
@@ -78,8 +78,8 @@ void main() {
 
       try {
         await bridge.execute('''
-          local t = {"hello", "world", "from", "Lua"}
-          local str = table.concat(t, " ")
+          t = {"hello", "world", "from", "Lua"}
+          str = table.concat(t, " ")
           return str
         ''');
       } on ReturnException catch (e) {
@@ -93,9 +93,9 @@ void main() {
 
       try {
         await bridge.execute('''
-          local t = {"hello", "world", "from", "Lua"}
-          local str1 = table.concat(t, "-", 2, 3)
-          local str2 = table.concat(t, "", 1, 2)
+          t = {"hello", "world", "from", "Lua"}
+          str1 = table.concat(t, "-", 2, 3)
+          str2 = table.concat(t, "", 1, 2)
           return str1, str2
         ''');
       } on ReturnException catch (e) {
@@ -110,9 +110,9 @@ void main() {
 
       try {
         await bridge.execute('''
-          local empty = {}
-          local str1 = table.concat(empty)
-          local str2 = table.concat({1, 2, 3}, "", 5, 3) -- i > j
+          empty = {}
+          str1 = table.concat(empty)
+          str2 = table.concat({1, 2, 3}, "", 5, 3) -- i > j
           return str1, str2
         ''');
       } on ReturnException catch (e) {
@@ -127,8 +127,8 @@ void main() {
 
       try {
         await bridge.execute('''
-          local t1 = {1, 2, 3, 4, 5}
-          local t2 = {}
+          t1 = {1, 2, 3, 4, 5}
+          t2 = {}
           table.move(t1, 2, 4, 1, t2)
           return t2[1], t2[2], t2[3], t1[2] -- t1 should be unchanged
         ''');
@@ -146,7 +146,7 @@ void main() {
 
       try {
         await bridge.execute('''
-          local t = {1, 2, 3, 4, 5}
+          t = {1, 2, 3, 4, 5}
           table.move(t, 1, 3, 3)
           return t[1], t[2], t[3], t[4], t[5]
         ''');
@@ -165,7 +165,7 @@ void main() {
 
       try {
         await bridge.execute('''
-          local t = table.pack(10, 20, 30)
+          t = table.pack(10, 20, 30)
           return t[1], t[2], t[3], t.n
         ''');
       } on ReturnException catch (e) {
@@ -182,8 +182,8 @@ void main() {
 
       try {
         await bridge.execute('''
-          local function get_nil() return nil end
-          local t = table.pack(10, get_nil(), 30)
+          function get_nil() return nil end
+          t = table.pack(10, get_nil(), 30)
           return t[1], t[2], t[3], t.n
         ''');
       } on ReturnException catch (e) {
@@ -200,7 +200,7 @@ void main() {
 
       try {
         await bridge.execute('''
-          local t = {3, 1, 4, 2, 5}
+          t = {3, 1, 4, 2, 5}
           table.sort(t)
           return t[1], t[2], t[3], t[4], t[5]
         ''');
@@ -219,7 +219,7 @@ void main() {
 
       try {
         await bridge.execute('''
-          local t = {3, 1, 4, 2, 5}
+          t = {3, 1, 4, 2, 5}
           -- In Lua, the comparator returns true when a should come before b
           -- So for descending order, we return true when a > b
           table.sort(t, function(a, b) return a > b end)
@@ -243,7 +243,7 @@ void main() {
 
       try {
         await bridge.execute('''
-          local function f(a, b)
+          function f(a, b)
             assert(a and b)
             return true
           end
@@ -260,7 +260,7 @@ void main() {
 
       try {
         await bridge.execute('''
-          local a = {'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'}
+          a = {'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'}
           table.sort(a)
           return table.concat(a, ', ')
         ''');
@@ -278,7 +278,7 @@ void main() {
 
       try {
         await bridge.execute('''
-          local t = {3, 1, 4, 2, 5}
+          t = {3, 1, 4, 2, 5}
           table.sort(t, nil)  -- Should use default comparison
           return t[1], t[2], t[3], t[4], t[5]
         ''');
@@ -297,7 +297,7 @@ void main() {
 
       try {
         await bridge.execute('''
-          local t = {'zebra', 'apple', 'banana', 'cat'}
+          t = {'zebra', 'apple', 'banana', 'cat'}
           table.sort(t)
           return table.concat(t, ', ')
         ''');
@@ -312,7 +312,7 @@ void main() {
 
       try {
         await bridge.execute('''
-          local t = {1, 'hello', 3, 'world'}
+          t = {1, 'hello', 3, 'world'}
           table.sort(t)
         ''');
         fail('Expected error for incompatible types');
@@ -328,7 +328,7 @@ void main() {
 
         try {
           await bridge.execute('''
-          local function always_true(a, b)
+          function always_true(a, b)
             return true
           end
           table.sort({1, 2, 3}, always_true)
@@ -347,7 +347,7 @@ void main() {
 
         try {
           await bridge.execute('''
-          local function inconsistent(a, b)
+          function inconsistent(a, b)
             -- This function violates strict weak ordering
             if a == 1 and b == 2 then return true end
             if a == 2 and b == 1 then return true end
@@ -367,7 +367,7 @@ void main() {
 
       try {
         await bridge.execute('''
-          local t = {}
+          t = {}
           table.sort(t)
           return #t
         ''');
@@ -382,7 +382,7 @@ void main() {
 
       try {
         await bridge.execute('''
-          local t = {42}
+          t = {42}
           table.sort(t)
           return t[1]
         ''');
@@ -397,7 +397,7 @@ void main() {
 
       try {
         await bridge.execute('''
-          local t = {3, 1, 3, 2, 1, 2}
+          t = {3, 1, 3, 2, 1, 2}
           table.sort(t)
           return t[1], t[2], t[3], t[4], t[5], t[6]
         ''');
@@ -417,7 +417,7 @@ void main() {
 
       try {
         await bridge.execute('''
-          local t = {'cat', 'dog', 'bird', 'fish'}
+          t = {'cat', 'dog', 'bird', 'fish'}
           -- Sort by string length (ascending)
           table.sort(t, function(a, b) return #a < #b end)
           return table.concat(t, ', ')
@@ -435,7 +435,7 @@ void main() {
 
         try {
           await bridge.execute('''
-          local t = {1, 5, 3, 2, 4}
+          t = {1, 5, 3, 2, 4}
           table.sort(t, function(a, b) return a > b end)
           return t[1], t[2], t[3], t[4], t[5]
         ''');
@@ -455,7 +455,7 @@ void main() {
 
       try {
         await bridge.execute('''
-          local t = {1, 2, 3}
+          t = {1, 2, 3}
           table.sort(t, "not a function")
         ''');
         fail('Expected error for non-function argument');
@@ -469,7 +469,7 @@ void main() {
 
       try {
         await bridge.execute('''
-          local t = {1, 2, 3}
+          t = {1, 2, 3}
           table.sort(t, {})
         ''');
         fail('Expected error for table argument');
@@ -483,7 +483,7 @@ void main() {
 
       try {
         await bridge.execute('''
-          local t = {1, 2, 3}
+          t = {1, 2, 3}
           table.sort(t, 42)
         ''');
         fail('Expected error for number argument');
@@ -497,8 +497,8 @@ void main() {
 
       try {
         await bridge.execute('''
-          local t = {10, 20, 30, 40, 50}
-          local a, b, c = table.unpack(t, 2, 4)
+          t = {10, 20, 30, 40, 50}
+          a, b, c = table.unpack(t, 2, 4)
           return a, b, c
         ''');
       } on ReturnException catch (e) {
@@ -514,8 +514,8 @@ void main() {
 
       try {
         await bridge.execute('''
-          local t = {10, 20, 30}
-          local a, b, c = table.unpack(t)
+          t = {10, 20, 30}
+          a, b, c = table.unpack(t)
           return a, b, c
         ''');
       } on ReturnException catch (e) {

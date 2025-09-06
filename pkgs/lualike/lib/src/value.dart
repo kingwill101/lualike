@@ -139,7 +139,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   /// Closes the value by calling its __close metamethod if it exists
   /// [error] - The error that caused the scope to exit, or null if normal exit
-  void close([dynamic error]) {
+  Future<void> close([dynamic error]) async {
     if (!isToBeClose || raw == null || raw == false) {
       return; // Only close to-be-closed variables with non-false values
     }
@@ -147,10 +147,16 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     final closeMeta = getMetamethod('__close');
     if (closeMeta != null) {
       try {
+        dynamic result;
         if (closeMeta is Function) {
-          closeMeta([this, error is Value ? error : Value(error)]);
+          result = closeMeta([this, error is Value ? error : Value(error)]);
         } else if (closeMeta is Value && closeMeta.raw is Function) {
-          closeMeta.raw([this, error is Value ? error : Value(error)]);
+          result = closeMeta.raw([this, error is Value ? error : Value(error)]);
+        }
+
+        // If the result is a Future, await it
+        if (result is Future) {
+          await result;
         }
       } catch (e) {
         // Log the error but continue closing other variables

@@ -47,8 +47,8 @@ void main() {
     final bridge = LuaLike();
     await bridge.execute('''
       -- Construct UTF-8 string for "你好" using proper byte sequence
-      local utf8_string = string.char(228, 189, 160, 229, 165, 189)
-      local bytes = dart.string.bytes.toBytes(utf8_string)
+      utf8_string = string.char(228, 189, 160, 229, 165, 189)
+      bytes = dart.string.bytes.toBytes(utf8_string)
       str_result = dart.string.bytes.fromBytes(bytes)
     ''');
     final strResult = bridge.getGlobal('str_result')!;
@@ -83,7 +83,7 @@ void main() {
   test('dart.string.bytes.fromBytes with a table of integers', () async {
     final bridge = LuaLike();
     await bridge.execute('''
-      local bytes = {104, 101, 108, 108, 111}
+      bytes = {104, 101, 108, 108, 111}
       str_result = dart.string.bytes.fromBytes(bytes)
     ''');
     final strResult = bridge.getGlobal('str_result')!;

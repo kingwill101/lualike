@@ -1,0 +1,47 @@
+name: Web Build
+
+on:
+  push:
+    paths:
+      - 'pkgs/lualike/**'
+      - '.github/workflows/web_build.yml'
+  pull_request:
+    paths:
+      - 'pkgs/lualike/**'
+      - '.github/workflows/web_build.yml'
+  workflow_run:
+    workflows: ["Dart", "Lua Test Suite"]
+    types: [completed]
+    branches: ["master"]
+  workflow_dispatch:
+
+jobs:
+  build-web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: pkgs/lualike
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Dart SDK
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Install dependencies
+        run: dart pub get
+
+      - name: Activate webdev
+        run: dart pub global activate webdev
+
+      - name: Build (webdev)
+        run: dart pub global run webdev build
+
+      - name: Upload web build artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lualike-web-build
+          path: pkgs/lualike/build/

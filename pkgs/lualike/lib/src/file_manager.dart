@@ -202,6 +202,18 @@ class FileManager {
     final extensions = ['', '.lua'];
     final normalizedFilePath = path.normalize(filePath);
 
+    // Fast path: if the given path exists as-is (absolute or relative), read it directly
+    try {
+      if (await fs.fileExists(normalizedFilePath)) {
+        return await _readFileWithStrategy(
+          normalizedFilePath,
+          preserveRawBytes,
+        );
+      }
+    } catch (_) {
+      // Ignore and fall back to search paths
+    }
+
     // Check if we have a current script path and add its directory to search paths
     if (_interpreter?.currentScriptPath != null) {
       final scriptDir = path.dirname(_interpreter!.currentScriptPath!);
