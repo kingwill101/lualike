@@ -730,7 +730,13 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
     final map = raw as Map;
     int n = 0;
-    while (map.containsKey(n + 1)) {
+    while (true) {
+      final nextKey = n + 1;
+      if (!map.containsKey(nextKey)) break;
+      final v = map[nextKey];
+      // Only count non-nil values
+      final isNil = v == null || (v is Value && v.raw == null);
+      if (isNil) break;
       n++;
     }
     return n;
@@ -1229,8 +1235,18 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
       if (callMethod is Function) {
         return await callMethod(callArgs);
-      } else if (callMethod is Value && callMethod.raw is Function) {
-        return await callMethod.raw(callArgs);
+      } else if (callMethod is Value) {
+        // If the metamethod is a Value, it may be:
+        // - a direct Dart function (raw is Function)
+        // - a Lua function (FunctionDef/FunctionBody/Literal)
+        // - a table with its own __call chain
+        if (callMethod.raw is Function) {
+          return await callMethod.raw(callArgs);
+        }
+        final interpreter = Environment.current?.interpreter;
+        if (interpreter != null) {
+          return await interpreter.callFunction(callMethod, callArgs);
+        }
       }
     } else if (raw is FunctionDef ||
         raw is FunctionLiteral ||
