@@ -1,5 +1,3 @@
-import 'dart:io' show FileSystemException;
-
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart' show BytecodeVM;
 import 'package:lualike/src/utils/io_abstractions.dart' as io_abs;
@@ -478,10 +476,7 @@ class IOOpen implements BuiltinFunction {
       }
 
       // File system errors should return tuple
-      int errno = 0;
-      if (e is FileSystemException && e.osError != null) {
-        errno = e.osError!.errorCode;
-      }
+      final errno = io_abs.extractOsErrorCode(e);
       return Value.multi([null, e.toString(), errno]);
     }
   }

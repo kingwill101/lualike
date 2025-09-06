@@ -146,6 +146,11 @@ Future<void> main(List<String> args) async {
       abbr: 't',
       help: 'Run specific test(s) by name (e.g., --test=bitwise.lua,math.lua)',
       splitCommas: true,
+    )
+    ..addMultiOption(
+      'tests',
+      help: 'Alias for --test; accepts comma-separated names',
+      splitCommas: true,
     );
 
   ArgResults r;

@@ -94,7 +94,12 @@ class StdinDevice extends BaseIODevice {
 
 /// Stub stdout/stderr device for web. Writes are accepted and ignored.
 class StdoutDevice extends BaseIODevice {
-  StdoutDevice() : super('w');
+  final dynamic _sink; // ignored on web
+  final bool _allowFlush; // ignored on web
+
+  StdoutDevice([this._sink, bool? allowFlush])
+      : _allowFlush = allowFlush ?? true,
+        super('w');
 
   @override
   Future<void> close() async {}
