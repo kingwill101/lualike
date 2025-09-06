@@ -81,29 +81,10 @@ class _GetInfoImpl implements BuiltinFunction {
             debugInfo['lastlinedefined'] = Value(-1);
           }
           if (what.contains('l')) {
-            // Prefer the top frame's currentLine (kept in sync with AST spans)
-            // and adjust when it's a top-level chunk.
-            final top = interpreter.callStack.top;
-            int? topLine = top?.currentLine;
-            if (topLine != null && topLine > 0) {
-              if ((top!.functionName == 'chunk' || top.functionName.isEmpty) &&
-                  topLine > 1) {
-                topLine -= 1;
-              }
-              debugInfo['currentline'] = Value(topLine);
-            } else {
-              // Fallback: use the selected frame or heuristic
-              var line = frame.currentLine;
-              if (line <= 0) {
-                line = level + 6;
-              }
-              if ((frame.functionName == 'chunk' ||
-                      frame.functionName.isEmpty) &&
-                  line > 1) {
-                line -= 1;
-              }
-              debugInfo['currentline'] = Value(line);
-            }
+            // Report the current line from the requested frame directly.
+            // This matches expectations in lexstring tests (literals.lua).
+            final line = frame.currentLine > 0 ? frame.currentLine : -1;
+            debugInfo['currentline'] = Value(line);
           }
           if (what.contains('t')) {
             debugInfo['istailcall'] = Value(false);
@@ -122,7 +103,44 @@ class _GetInfoImpl implements BuiltinFunction {
       }
     }
 
-    // Function-based lookup or fallback case
+    // Function-based lookup
+    if (firstArg.raw is Function || firstArg.raw is BuiltinFunction) {
+      String src = "=[C]";
+      String whatKind = "C";
+      // Try to use function body span or interpreter script path if available
+      if (firstArg.functionBody != null) {
+        final span = firstArg.functionBody!.span;
+        if (span != null && span.sourceUrl != null) {
+          src = span.sourceUrl!.toString();
+          whatKind = "Lua";
+        } else if (interpreter != null && interpreter.currentScriptPath != null) {
+          src = interpreter.currentScriptPath!;
+          whatKind = "Lua";
+        }
+      } else if (interpreter != null && interpreter.currentScriptPath != null) {
+        src = interpreter.currentScriptPath!;
+        whatKind = "Lua";
+      }
+
+      // For compatibility with tests (calls.lua), do not prefix '@'
+      final debugInfo = <String, Value>{
+        'name': Value(null),
+        'namewhat': Value(""),
+        'what': Value(whatKind),
+        'source': Value(src),
+        'short_src': Value(src.split('/').isNotEmpty ? src.split('/').last : src),
+        'currentline': Value(-1),
+        'linedefined': Value(-1),
+        'lastlinedefined': Value(-1),
+        'nups': Value(0),
+        'nparams': Value(0),
+        'isvararg': Value(true),
+        'istailcall': Value(false),
+      };
+      return Value(debugInfo);
+    }
+
+    // Fallback: unknown type
     return Value({
       'name': Value(null),
       'namewhat': Value(""),
