@@ -22,6 +22,22 @@ class ReturnException extends ControlFlowException {
   String toString() => "ReturnException: $value";
 }
 
+/// Exception used to implement proper tail calls.
+///
+/// When a function executes `return f(args)` in tail position, the interpreter
+/// throws this exception carrying the callee and its arguments. The call site
+/// then performs the invocation without growing the call stack (reusing the
+/// current frame), satisfying Lua's tail-call semantics.
+class TailCallException extends ControlFlowException {
+  final dynamic functionValue; // Value | Function* variants | BuiltinFunction
+  final List<Object?> args; // Already normalized argument list
+
+  TailCallException(this.functionValue, this.args);
+
+  @override
+  String toString() => "TailCallException(${functionValue.runtimeType}, ${args.length} args)";
+}
+
 /// Exception thrown for 'break' statements.
 class BreakException extends ControlFlowException {}
 
