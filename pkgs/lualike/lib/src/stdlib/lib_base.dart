@@ -592,11 +592,15 @@ class LoadFunction implements BuiltinFunction {
 
     String source;
     String chunkname;
-    Object? env;
+    String mode;
+    Value? providedEnv;
 
-    // Handle environment parameter (4th argument)
+    // Handle mode parameter (3rd argument)
+    mode = args.length > 2 ? (args[2] as Value).raw.toString() : 'bt';
+
+    // Handle environment parameter (4th argument). Keep as Value to preserve metatable/proxy
     if (args.length > 3) {
-      env = (args[3] as Value).raw;
+      providedEnv = args[3] as Value;
     }
 
     if (args[0] is Value) {
@@ -616,19 +620,61 @@ class LoadFunction implements BuiltinFunction {
         // Load from reader function
         final chunks = <String>[];
         final readerVal = args[0] as Value;
+        int readCount = 0;
         while (true) {
-          final chunk = await readerVal.invoke(const []);
-          if (chunk == null || (chunk is Value && chunk.raw == null)) break;
-
-          // Extract string from Value objects
+          final chunk = await vm.callFunction(readerVal, const []);
+          // End of input on nil or empty string
+          if (chunk == null) break;
           if (chunk is Value) {
             if (chunk.raw == null) break;
-            chunks.add(chunk.raw.toString());
+            // Accept both String and LuaString; empty string signals end
+            if (chunk.raw is LuaString) {
+              final s = (chunk.raw as LuaString).toLatin1String();
+              if (s.isEmpty) break;
+              readCount++;
+              if (Logger.enabled) {
+                final prev = s.length > 10 ? s.substring(0, 10) : s;
+                Logger.debug(
+                  "load(reader): chunk #$readCount (LuaString) len=${s.length} head='${prev.replaceAll('\n', '\\n')}'",
+                  category: 'Load',
+                );
+              }
+              chunks.add(s);
+            } else {
+              final s = chunk.raw.toString();
+              if (s.isEmpty) break;
+              readCount++;
+              if (Logger.enabled) {
+                final prev = s.length > 10 ? s.substring(0, 10) : s;
+                Logger.debug(
+                  "load(reader): chunk #$readCount (String) len=${s.length} head='${prev.replaceAll('\n', '\\n')}'",
+                  category: 'Load',
+                );
+              }
+              chunks.add(s);
+            }
           } else {
-            chunks.add(chunk.toString());
+            final s = chunk.toString();
+            if (s.isEmpty) break;
+            readCount++;
+            if (Logger.enabled) {
+              final prev = s.length > 10 ? s.substring(0, 10) : s;
+              Logger.debug(
+                "load(reader): chunk #$readCount (dynamic) len=${s.length} head='${prev.replaceAll('\n', '\\n')}'",
+                category: 'Load',
+              );
+            }
+            chunks.add(s);
           }
         }
         source = chunks.join();
+        if (Logger.enabled) {
+          final prev = source.length > 40 ? source.substring(0, 40) : source;
+          Logger.debug(
+            "load(reader): total chunks=$readCount, source len=${source.length}, head='${prev.replaceAll('\n', '\\n')}'",
+            category: 'Load',
+          );
+        }
       } else if ((args[0] as Value).raw is List<int>) {
         // Load from binary chunk
         final bytes = (args[0] as Value).raw as List<int>;
@@ -643,6 +689,15 @@ class LoadFunction implements BuiltinFunction {
           : "=(load)";
     } else {
       throw Exception("load() first argument must be a string");
+    }
+
+    // Check if mode allows text chunks
+    if (mode.contains('b') && !mode.contains('t')) {
+      // Binary mode only - reject text chunks
+      return [
+        Value(null),
+        Value("attempt to load a text chunk (mode is '$mode')"),
+      ];
     }
 
     try {
@@ -670,7 +725,9 @@ class LoadFunction implements BuiltinFunction {
       }
 
       // Create a synthetic function body with source info for debug.getinfo
-      final sourceFile = path.url.joinAll(path.split(path.normalize(chunkname)));
+      final sourceFile = path.url.joinAll(
+        path.split(path.normalize(chunkname)),
+      );
       final syntheticBody = FunctionBody([], [], false);
       try {
         final file = SourceFile.fromString(source, url: sourceFile);
@@ -686,7 +743,7 @@ class LoadFunction implements BuiltinFunction {
 
           // Create a new environment for the loaded code
           final Environment loadEnv;
-          if (env != null) {
+          if (providedEnv != null) {
             // If an environment was provided, create completely isolated environment
             // This prevents access to local variables from calling scope
             loadEnv = Environment(
@@ -694,37 +751,45 @@ class LoadFunction implements BuiltinFunction {
               interpreter: vm,
               isLoadIsolated: true,
             );
+            Logger.debug(
+              "LoadFunction: Created isolated environment ${loadEnv.hashCode} with isLoadIsolated=${loadEnv.isLoadIsolated}",
+              category: 'Load',
+            );
 
-            // Set up the custom environment table with proper metatable for built-in access
+            // Use the provided environment Value directly to preserve proxy/metatable
             final gValue =
                 savedEnv.get('_G') ?? savedEnv.root.get('_G') ?? Value({});
-
-            // Set up metatable for the custom environment to fall back to _G
-            if (env is Map<String, dynamic>) {
-              if (!env.containsKey('__metatable')) {
-                env['__index'] = (gValue as Value).raw;
-              }
-            } else if (env is Map) {
-              // Handle generic Map type
-              final envMap = env;
-              if (!envMap.containsKey('__metatable')) {
-                envMap['__index'] = (gValue as Value).raw;
-              }
-            }
-
-            final envValue = Value(env);
-            loadEnv.declare("_ENV", envValue);
-            loadEnv.declare("_G", gValue);
+            final envValue = providedEnv;
+            loadEnv.declare('_ENV', envValue);
+            loadEnv.declare('_G', gValue);
+            Logger.debug(
+              "LoadFunction: Declared _ENV and _G in isolated environment",
+              category: 'Load',
+            );
           } else {
             // Default: inherit from the root environment
             loadEnv = Environment(parent: savedEnv.root, interpreter: vm);
+
+            // Ensure chunks resolve globals via _ENV (defaulting to _G)
+            final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G');
+            if (gValue is Value) {
+              loadEnv.declare('_ENV', gValue);
+            }
           }
 
           // Set up varargs in the load environment
           loadEnv.declare("...", Value.multi(callArgs));
 
           // Switch to the load environment to execute the loaded code
+          Logger.debug(
+            "LoadFunction: Switching to load environment ${loadEnv.hashCode}",
+            category: 'Load',
+          );
           vm.setCurrentEnv(loadEnv);
+          Logger.debug(
+            "LoadFunction: Environment switched, current env is now ${vm.getCurrentEnv().hashCode}",
+            category: 'Load',
+          );
 
           // Set script path for debug.getinfo and error reporting
           final prevPath = vm.currentScriptPath;
@@ -734,10 +799,22 @@ class LoadFunction implements BuiltinFunction {
           loadEnv.declare('_SCRIPT_PATH', Value(normalizedChunk));
 
           try {
+            Logger.debug(
+              "LoadFunction: About to execute code in environment ${vm.getCurrentEnv().hashCode}",
+              category: 'Load',
+            );
             final result = await vm.run(ast.statements);
+            Logger.debug(
+              "LoadFunction: Code execution completed in environment ${vm.getCurrentEnv().hashCode}",
+              category: 'Load',
+            );
             return result;
           } finally {
             // Restore the previous environment
+            Logger.debug(
+              "LoadFunction: Restoring previous environment ${savedEnv.hashCode}",
+              category: 'Load',
+            );
             vm.setCurrentEnv(savedEnv);
             vm.currentScriptPath = prevPath;
           }
@@ -801,8 +878,9 @@ class DoFileFunction implements BuiltinFunction {
       final callee = t.functionValue is Value
           ? t.functionValue as Value
           : Value(t.functionValue);
-      final normalizedArgs =
-          t.args.map((a) => a is Value ? a : Value(a)).toList();
+      final normalizedArgs = t.args
+          .map((a) => a is Value ? a : Value(a))
+          .toList();
       return await vm.callFunction(callee, normalizedArgs);
     } catch (e) {
       throw Exception("Error in dofile('$filename'): $e");
@@ -979,8 +1057,9 @@ class LoadfileFunction implements BuiltinFunction {
           final callee = t.functionValue is Value
               ? t.functionValue as Value
               : Value(t.functionValue);
-          final normalizedArgs =
-              t.args.map((a) => a is Value ? a : Value(a)).toList();
+          final normalizedArgs = t.args
+              .map((a) => a is Value ? a : Value(a))
+              .toList();
           return await currentVm.callFunction(callee, normalizedArgs);
         } catch (e) {
           throw Exception("Error executing loaded chunk: $e");
@@ -1052,47 +1131,39 @@ class PCAllFunction implements BuiltinFunction {
     interpreter.enterProtectedCall();
 
     try {
-      Object? callResult;
-      if (func.raw is BuiltinFunction) {
-        callResult = (func.raw as BuiltinFunction).call(callArgs);
-      } else if (func.raw is Function) {
-        callResult = func.raw(callArgs);
-      } else {
+      // Delegate invocation to the interpreter so that all callable
+      // forms are supported (BuiltinFunction, Dart Function, FunctionBody,
+      // FunctionDef, and values with __call).
+      if (!(func.isCallable() ||
+          func.raw is BuiltinFunction ||
+          func.raw is Function ||
+          func.raw is FunctionBody ||
+          func.raw is FunctionDef)) {
         throw LuaError.typeError("attempt to call a ${getLuaType(func)} value");
       }
 
-      if (callResult is Future) {
-        final awaitedResult = await callResult;
-        if (awaitedResult is Value && awaitedResult.isMulti) {
-          // Return all values from multi-value result
-          final multiValues = awaitedResult.raw as List;
-          return Value.multi([true, ...multiValues]);
-        } else {
-          return Value.multi([
-            true,
-            awaitedResult is Value ? awaitedResult.raw : awaitedResult,
-          ]);
-        }
-      } else {
-        if (callResult is Value && callResult.isMulti) {
-          // Return all values from multi-value result
-          final multiValues = callResult.raw as List;
-          return Value.multi([true, ...multiValues]);
-        } else {
-          return Value.multi([
-            true,
-            callResult is Value ? callResult.raw : callResult,
-          ]);
-        }
+      final callResult = await interpreter.callFunction(func, callArgs);
+
+      if (callResult is Value && callResult.isMulti) {
+        final multiValues = callResult.raw as List;
+        return Value.multi([true, ...multiValues]);
       }
+      return Value.multi([
+        true,
+        callResult is Value ? callResult.raw : callResult,
+      ]);
     } on TailCallException catch (t) {
       // Perform the tail call using the interpreter and return as success
       final callee = t.functionValue is Value
           ? t.functionValue as Value
           : Value(t.functionValue);
-      final normalizedArgs =
-          t.args.map((a) => a is Value ? a : Value(a)).toList();
-      final awaitedResult = await interpreter.callFunction(callee, normalizedArgs);
+      final normalizedArgs = t.args
+          .map((a) => a is Value ? a : Value(a))
+          .toList();
+      final awaitedResult = await interpreter.callFunction(
+        callee,
+        normalizedArgs,
+      );
       if (awaitedResult is Value && awaitedResult.isMulti) {
         final multiValues = awaitedResult.raw as List;
         return Value.multi([true, ...multiValues]);
@@ -1231,9 +1302,13 @@ class XPCallFunction implements BuiltinFunction {
       final callee = t.functionValue is Value
           ? t.functionValue as Value
           : Value(t.functionValue);
-      final normalizedArgs =
-          t.args.map((a) => a is Value ? a : Value(a)).toList();
-      final awaitedResult = await interpreter.callFunction(callee, normalizedArgs);
+      final normalizedArgs = t.args
+          .map((a) => a is Value ? a : Value(a))
+          .toList();
+      final awaitedResult = await interpreter.callFunction(
+        callee,
+        normalizedArgs,
+      );
       if (awaitedResult is Value && awaitedResult.isMulti) {
         final multiValues = awaitedResult.raw as List;
         return Value.multi([Value(true), ...multiValues]);
@@ -1248,7 +1323,9 @@ class XPCallFunction implements BuiltinFunction {
         final errorValue = e is Value
             ? (e.raw is Value ? e.raw : e)
             : Value(e.toString());
-        final handlerResult = await interpreter.callFunction(msgh, [errorValue]);
+        final handlerResult = await interpreter.callFunction(msgh, [
+          errorValue,
+        ]);
 
         if (handlerResult is Value && handlerResult.isMulti) {
           final multiValues = handlerResult.raw as List;
@@ -1259,7 +1336,10 @@ class XPCallFunction implements BuiltinFunction {
           handlerResult is Value ? handlerResult : Value(handlerResult),
         ]);
       } catch (e2) {
-        return Value.multi([Value(false), Value("Error in error handler: $e2")]);
+        return Value.multi([
+          Value(false),
+          Value("Error in error handler: $e2"),
+        ]);
       }
     } finally {
       // Exit protected-call context and restore state
@@ -1817,8 +1897,9 @@ class RequireFunction implements BuiltinFunction {
             final callee = t.functionValue is Value
                 ? t.functionValue as Value
                 : Value(t.functionValue);
-            final normalizedArgs =
-                t.args.map((a) => a is Value ? a : Value(a)).toList();
+            final normalizedArgs = t.args
+                .map((a) => a is Value ? a : Value(a))
+                .toList();
             result = await vm.callFunction(callee, normalizedArgs);
           } finally {
             // Restore previous environment and script path
@@ -2094,16 +2175,32 @@ void defineBaseLibrary({
       return value ?? Value(null);
     },
     '__newindex': (List<Object?> args) {
-      final _ = args[0] as Value;
+      final self = args[0] as Value; // _G table Value
       final key = args[1] as Value;
       final value = args[2] as Value;
       final keyStr = key.raw.toString();
 
       // Set the value in the environment
       try {
+        // Update global environment
         env.define(keyStr, value);
+        // Also update the underlying _G table so reads via _G[k] see it directly
+        if (self.raw is Map) {
+          if (value.isNil) {
+            (self.raw as Map).remove(keyStr);
+          } else {
+            (self.raw as Map)[keyStr] = value;
+          }
+        }
       } catch (_) {
         env.define(keyStr, value);
+        if (self.raw is Map) {
+          if (value.isNil) {
+            (self.raw as Map).remove(keyStr);
+          } else {
+            (self.raw as Map)[keyStr] = value;
+          }
+        }
       }
 
       return Value(null);

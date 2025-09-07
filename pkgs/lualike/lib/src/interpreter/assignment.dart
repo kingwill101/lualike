@@ -352,11 +352,33 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       "ENV assign context: name=$name, _ENV=$envValue (rawType: \\${envValue is Value ? envValue.raw.runtimeType : envValue?.runtimeType}), _G=$gValue (rawType: \\${gValue is Value ? gValue.raw.runtimeType : gValue?.runtimeType})",
       category: 'Assignment',
     );
+    Logger.debug(
+      "Assignment: globals.hashCode=${globals.hashCode}, globals.isLoadIsolated=${globals.isLoadIsolated}",
+      category: 'Assignment',
+    );
 
-    // If there is a custom _ENV in effect (different from _G), then assignments to
-    // undeclared identifiers must go through `_ENV[name] = value`, regardless of
-    // whether _ENV is a table or not (non-table must raise an indexing error).
-    if (envValue is Value && gValue is Value && envValue != gValue) {
+    // If executing in a load-isolated environment (load with custom env), or
+    // if there is a custom _ENV different from _G, route undeclared identifiers
+    // through `_ENV[name] = value`. This mirrors Lua's behavior for loaded chunks.
+    // Check the entire environment chain for isLoadIsolated flag
+    bool isInLoadIsolatedContext = false;
+    Environment? envChain = globals;
+    while (envChain != null) {
+      if (envChain.isLoadIsolated) {
+        isInLoadIsolatedContext = true;
+        break;
+      }
+      envChain = envChain.parent;
+    }
+
+    final bool useCustomEnv =
+        (isInLoadIsolatedContext && envValue is Value) ||
+        (envValue is Value && gValue is Value && envValue != gValue);
+    Logger.debug(
+      "Assignment: isLoadIsolated=${globals.isLoadIsolated}, isInLoadIsolatedContext=$isInLoadIsolatedContext, envValue is Value=${envValue is Value}, gValue is Value=${gValue is Value}, envValue != gValue=${envValue is Value && gValue is Value ? envValue != gValue : 'N/A'}, useCustomEnv=$useCustomEnv",
+      category: 'Assignment',
+    );
+    if (useCustomEnv) {
       // In isolated environments (load with custom env), skip local lookup to avoid
       // touching parent locals. Otherwise, prefer updating an existing local.
       final isIsolatedEnvironment = globals.isLoadIsolated;

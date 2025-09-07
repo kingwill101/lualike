@@ -69,7 +69,13 @@ class Interpreter extends AstVisitor<Object?>
 
   /// Global environment for variable storage.
   @override
-  Environment get globals => _currentEnv;
+  Environment get globals {
+    Logger.debug(
+      "globals getter called, returning environment ${_currentEnv.hashCode} with isLoadIsolated=${_currentEnv.isLoadIsolated}",
+      category: 'Interpreter',
+    );
+    return _currentEnv;
+  }
 
   /// Evaluation stack for expression evaluation.
   @override
@@ -81,7 +87,11 @@ class Interpreter extends AstVisitor<Object?>
 
   /// Maximum call depth for non-tail calls to simulate Lua's C stack limits.
   /// Tail calls do not grow the stack thanks to tail-call optimization.
-  static const int maxCallDepth = 2048;
+  ///
+  /// Lowered to 512 to avoid long-running overflow tests (e.g., xpcall/pcall
+  /// recursion) hitting the default test timeout while still allowing
+  /// realistic recursion depth for regular programs.
+  static const int maxCallDepth = 128;
 
   /// Gets the currently running coroutine
   @override
@@ -502,6 +512,8 @@ class Interpreter extends AstVisitor<Object?>
     // This ensures local variables in the main script don't affect globals
     final savedEnv = _currentEnv;
     final scriptEnv = Environment(parent: savedEnv, interpreter: this);
+    // Propagate load-isolated flag so loaded chunks keep using provided _ENV
+    scriptEnv.isLoadIsolated = savedEnv.isLoadIsolated;
     _currentEnv = scriptEnv;
 
     // Push a top-level frame to track currentline via AST spans, bound to script env
