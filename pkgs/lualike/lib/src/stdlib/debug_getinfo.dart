@@ -113,7 +113,8 @@ class _GetInfoImpl implements BuiltinFunction {
         if (span != null && span.sourceUrl != null) {
           src = span.sourceUrl!.toString();
           whatKind = "Lua";
-        } else if (interpreter != null && interpreter.currentScriptPath != null) {
+        } else if (interpreter != null &&
+            interpreter.currentScriptPath != null) {
           src = interpreter.currentScriptPath!;
           whatKind = "Lua";
         }
@@ -128,7 +129,9 @@ class _GetInfoImpl implements BuiltinFunction {
         'namewhat': Value(""),
         'what': Value(whatKind),
         'source': Value(src),
-        'short_src': Value(src.split('/').isNotEmpty ? src.split('/').last : src),
+        'short_src': Value(
+          src.split('/').isNotEmpty ? src.split('/').last : src,
+        ),
         'currentline': Value(-1),
         'linedefined': Value(-1),
         'lastlinedefined': Value(-1),

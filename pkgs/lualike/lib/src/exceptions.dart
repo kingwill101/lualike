@@ -35,7 +35,8 @@ class TailCallException extends ControlFlowException {
   TailCallException(this.functionValue, this.args);
 
   @override
-  String toString() => "TailCallException(${functionValue.runtimeType}, ${args.length} args)";
+  String toString() =>
+      "TailCallException(${functionValue.runtimeType}, ${args.length} args)";
 }
 
 /// Exception thrown for 'break' statements.

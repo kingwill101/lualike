@@ -321,10 +321,13 @@ void _defineCoroutineStub({required Environment env}) {
               final callee = t.functionValue is Value
                   ? t.functionValue as Value
                   : Value(t.functionValue);
-              final normalizedArgs =
-                  t.args.map((a) => a is Value ? a : Value(a)).toList();
+              final normalizedArgs = t.args
+                  .map((a) => a is Value ? a : Value(a))
+                  .toList();
               final out = await currentVm.callFunction(callee, normalizedArgs);
-              first = out is Value ? out : (out == null ? Value(null) : Value(out));
+              first = out is Value
+                  ? out
+                  : (out == null ? Value(null) : Value(out));
             }
             // Prefer yielded values if any; otherwise return the direct result
             if (collected.isNotEmpty) {
@@ -358,10 +361,13 @@ void _defineCoroutineStub({required Environment env}) {
             final callee = t.functionValue is Value
                 ? t.functionValue as Value
                 : Value(t.functionValue);
-            final normalizedArgs =
-                t.args.map((a) => a is Value ? a : Value(a)).toList();
+            final normalizedArgs = t.args
+                .map((a) => a is Value ? a : Value(a))
+                .toList();
             final out = await currentVm.callFunction(callee, normalizedArgs);
-            return out is Value ? out : (out == null ? Value(null) : Value(out));
+            return out is Value
+                ? out
+                : (out == null ? Value(null) : Value(out));
           }
           return Value(null);
         } finally {

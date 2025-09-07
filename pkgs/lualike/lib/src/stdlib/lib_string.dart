@@ -1399,8 +1399,9 @@ class _StringGsub implements BuiltinFunction {
             final callee = t.functionValue is Value
                 ? t.functionValue as Value
                 : Value(t.functionValue);
-            final normalizedArgs =
-                t.args.map((a) => a is Value ? a : Value(a)).toList();
+            final normalizedArgs = t.args
+                .map((a) => a is Value ? a : Value(a))
+                .toList();
             replacement = await vm.callFunction(callee, normalizedArgs);
           }
 
