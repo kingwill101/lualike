@@ -668,7 +668,18 @@ class LoadFunction implements BuiltinFunction {
         final readerVal = args[0] as Value;
         int readCount = 0;
         while (true) {
-          final chunk = await vm.callFunction(readerVal, const []);
+          Object? chunk;
+          try {
+            chunk = await vm.callFunction(readerVal, const []);
+          } catch (e) {
+            // If reader function throws an error, return it as load error
+            String errorMsg = e.toString();
+            // Clean up error message format - remove "Exception: " prefix
+            if (errorMsg.startsWith('Exception: ')) {
+              errorMsg = errorMsg.substring('Exception: '.length);
+            }
+            return [Value(null), Value(errorMsg)];
+          }
           // End of input on nil or empty string
           if (chunk == null) break;
           if (chunk is Value) {

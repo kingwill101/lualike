@@ -1414,12 +1414,24 @@ Program parse(String source, {Uri? url}) {
     );
   }
 
-  // Capitalize first letter of petitparser failure message to ensure it contains 'Expected'
-  final baseMsg =
-      'Parse error: Expected ${failure.message}. Unexpected $unexpected.';
+  // Generate Lua-compatible error messages
+  String luaErrorMsg;
 
-  final formatted = span.message(baseMsg + suggestion, color: false);
+  if (pos >= normalizedSource.length) {
+    luaErrorMsg = "unexpected symbol near <eof>";
+  } else {
+    final ch = normalizedSource[pos];
+    luaErrorMsg = "unexpected symbol near '$ch'";
+  }
 
-  // Include raw position as well for completeness.
+  // For load() calls, return simple error message without location
+  if (url != null && url.toString().contains('=(load)')) {
+    throw FormatException(luaErrorMsg);
+  }
+
+  // For files and other contexts, include location info
+  final line = span.start.line + 1;
+  final chunkName = url?.toString() ?? "string";
+  final formatted = "$chunkName:$line: $luaErrorMsg";
   throw FormatException(formatted);
 }
