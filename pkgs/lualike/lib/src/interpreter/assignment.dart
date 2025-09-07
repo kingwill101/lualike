@@ -345,21 +345,6 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       return wrappedValue;
     }
 
-    // NEW: Try upvalue assignment first
-    final currentFunc = (this as Interpreter).getCurrentFunction();
-    final upvalueAssigned = UpvalueAssignmentHandler.tryAssignToUpvalue(
-      name, 
-      wrappedValue, 
-      currentFunc
-    );
-    
-    if (upvalueAssigned) {
-      Logger.debug(
-        'Assignment: $name updated via upvalue',
-        category: 'Assignment',
-      );
-      return wrappedValue;
-    }
 
     // Check if there's a custom _ENV that is different from the initial _G
     final envValue = globals.get('_ENV');
@@ -448,7 +433,24 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       return wrappedValue;
     }
 
-    // Step 2: No local variable found, this is a global assignment
+    // Step 2: Check if this is an upvalue assignment
+    // Only check upvalues after local variables have been ruled out
+    final currentFunc = (this as Interpreter).getCurrentFunction();
+    final upvalueAssigned = UpvalueAssignmentHandler.tryAssignToUpvalue(
+      name, 
+      wrappedValue, 
+      currentFunc
+    );
+    
+    if (upvalueAssigned) {
+      Logger.debug(
+        'Assignment: $name updated via upvalue',
+        category: 'Assignment',
+      );
+      return wrappedValue;
+    }
+
+    // Step 3: No local variable or upvalue found, this is a global assignment
     // defineGlobal() always operates on the root environment, creating or
     // updating global variables while ignoring any local variables with
     // the same name in the current scope chain.
