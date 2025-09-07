@@ -729,17 +729,25 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
 
     final map = raw as Map;
-    int n = 0;
-    while (true) {
-      final nextKey = n + 1;
-      if (!map.containsKey(nextKey)) break;
-      final v = map[nextKey];
-      // Only count non-nil values
-      final isNil = v == null || (v is Value && v.raw == null);
-      if (isNil) break;
-      n++;
-    }
-    return n;
+    // Lua's length is undefined for tables with holes; adopt a practical rule:
+    // use the highest positive integer index whose value is non-nil. This
+    // lets callers iterate 1..#t across sparse results (e.g., unpack) while
+    // ignoring trailing stored-nil slots like those from table.pack(...).
+    int maxIndex = 0;
+    map.forEach((k, v) {
+      var key = k;
+      if (key is Value) key = key.raw;
+      // Only consider non-nil values
+      final nonNil = !(v == null || (v is Value && v.raw == null));
+      if (!nonNil) return;
+      if (key is int && key > maxIndex) {
+        maxIndex = key;
+      } else if (key is num && key == key.floorToDouble()) {
+        final asInt = key.toInt();
+        if (asInt > maxIndex) maxIndex = asInt;
+      }
+    });
+    return maxIndex;
   }
 
   @override

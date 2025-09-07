@@ -82,9 +82,11 @@ class LuaGrammarDefinition extends GrammarDefinition {
   /// file-based chunks (Lua skips the first line if it starts with '#'). This
   /// is consumed only for file chunks inside `start()` (not for load() on
   /// raw strings).
-  Parser _shebang() =>
-      (string('#') & pattern('\n').neg().star() & pattern('\n').optional())
-          .flatten();
+  Parser _shebang() {
+    final eol = string('\r\n') | string('\n\r') | char('\n') | char('\r');
+    return (string('#') & pattern('\r\n').neg().star() & eol.optional())
+        .flatten();
+  }
 
   /// Optional ESC (0x1B) marker used by our pseudo-binary chunks. Accepting it
   /// here allows loader code to uniformly pass decoded text to the parser even
@@ -96,9 +98,11 @@ class LuaGrammarDefinition extends GrammarDefinition {
   /// without needing special handling in callers.
   Parser _bom() => string('\uFEFF');
 
-  Parser _lineComment() =>
-      (string('--') & pattern('\n').neg().star() & pattern('\n').optional())
-          .flatten();
+  Parser _lineComment() {
+    final eol = string('\r\n') | string('\n\r') | char('\n') | char('\r');
+    return (string('--') & pattern('\r\n').neg().star() & eol.optional())
+        .flatten();
+  }
 
   // Long comment --[=[ ... ]=] with optional = depth
   Parser _longComment() =>
@@ -1308,15 +1312,24 @@ class _LongCommentBracketParser extends Parser<String> {
 ///
 /// This will eventually replace the old `parse()` from `grammar_parser.dart`.
 Program parse(String source, {Uri? url}) {
+  // Normalize all line endings to '\n' so the grammar and span calculations
+  // behave consistently across inputs using CR, LFCR, or CRLF.
+  // This mirrors Lua's tolerance for platform-specific newlines while keeping
+  // line counts stable for debug.getinfo and error reporting.
+  final normalizedSource = source
+      .replaceAll('\r\n', '\n')
+      .replaceAll('\n\r', '\n')
+      .replaceAll('\r', '\n');
+
   // Build a SourceFile so we can provide detailed spans on errors.
-  final sourceFile = SourceFile.fromString(source, url: url);
+  final sourceFile = SourceFile.fromString(normalizedSource, url: url);
 
   final definition = LuaGrammarDefinition(sourceFile);
   final parser = definition.build();
 
   Result result;
   try {
-    result = parser.parse(source);
+    result = parser.parse(normalizedSource);
   } catch (e) {
     // If an exception is thrown inside a combinator (e.g., .map()), try to extract position
     int pos = 0;
@@ -1330,7 +1343,10 @@ Program parse(String source, {Uri? url}) {
       message = e.message;
     }
 
-    final span = sourceFile.span(pos, pos < source.length ? pos + 1 : pos);
+    final span = sourceFile.span(
+      pos,
+      pos < normalizedSource.length ? pos + 1 : pos,
+    );
     throw LuaError(message, span: span, cause: e);
   }
 
@@ -1345,18 +1361,20 @@ Program parse(String source, {Uri? url}) {
   // the parser fails, report a Lua-like numeric error instead of a generic
   // combinator failure. This makes tests that check for 'malformed number'
   // or 'near <eof>' pass while still keeping other errors untouched.
-  final trimmed = source.trimLeft();
+  final trimmed = normalizedSource.trimLeft();
   if (trimmed.startsWith('return ')) {
-    final idx = source.indexOf('return ');
+    final idx = normalizedSource.indexOf('return ');
     if (idx != -1) {
-      final after = source.substring(idx + 'return '.length).trimLeft();
+      final after = normalizedSource
+          .substring(idx + 'return '.length)
+          .trimLeft();
       final numberLike = RegExp(r'^(?:0[xX][0-9A-Fa-f]*|[0-9]|\.)');
       if (numberLike.hasMatch(after)) {
         // When the numeric literal ends with a dangling sign (e.g. 0xe-),
         // Lua reports 'near <eof>'. Reproduce that behavior.
         final endsWithDanglingSign =
             after.trimRight().endsWith('-') || after.trimRight().endsWith('+');
-        if (pos >= source.length || endsWithDanglingSign) {
+        if (pos >= normalizedSource.length || endsWithDanglingSign) {
           throw const FormatException(
             "[string \"\"]:1: malformed number near <eof>",
           );
@@ -1367,14 +1385,14 @@ Program parse(String source, {Uri? url}) {
   }
 
   // Clamp end so that we don't exceed length (especially when at EOF).
-  final end = pos < source.length ? pos + 1 : pos;
+  final end = pos < normalizedSource.length ? pos + 1 : pos;
   final span = sourceFile.span(pos, end);
 
   String unexpected;
-  if (pos >= source.length) {
+  if (pos >= normalizedSource.length) {
     unexpected = 'end of input';
   } else {
-    final ch = source[pos];
+    final ch = normalizedSource[pos];
     unexpected = ch == '\n' ? 'newline' : "'$ch'";
   }
 
