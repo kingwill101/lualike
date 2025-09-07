@@ -1,3 +1,4 @@
+import '../ast.dart';
 import '../builtin_function.dart';
 import '../environment.dart';
 import '../interpreter/interpreter.dart';
@@ -71,12 +72,90 @@ class _GetInfoImpl implements BuiltinFunction {
           }
           if (what.contains('S')) {
             debugInfo['what'] = Value("Lua");
+
+            // Check if we can get source from current function first
+            String sourceValue = "=[C]";
+            String shortSrc = "[C]";
+
+            // First, check script path for explicit chunk names (string chunks)
             final scriptPath =
                 frame.scriptPath ?? interpreter.callStack.scriptPath;
-            debugInfo['source'] = Value(
-              scriptPath != null ? "@$scriptPath" : "=[C]",
+            Logger.debug(
+              'debug.getinfo: frame.scriptPath=${frame.scriptPath}, callStack.scriptPath=${interpreter.callStack.scriptPath}',
+              category: 'DebugLib',
             );
-            debugInfo['short_src'] = Value(scriptPath ?? "[C]");
+
+            if (scriptPath != null) {
+              // For string chunks, use script path directly
+              if (scriptPath.startsWith('@') ||
+                  scriptPath.startsWith('=') ||
+                  scriptPath.startsWith('[')) {
+                sourceValue = scriptPath;
+                shortSrc = scriptPath.startsWith('@')
+                    ? scriptPath.substring(1)
+                    : scriptPath;
+                Logger.debug(
+                  'debug.getinfo: using scriptPath as-is: $sourceValue',
+                  category: 'DebugLib',
+                );
+              } else {
+                // For script paths without prefix, check if it's a binary chunk
+                final currentFunction = interpreter.getCurrentFunction();
+                bool isBinaryChunk = false;
+
+                if (currentFunction != null &&
+                    currentFunction.functionBody != null) {
+                  final span = currentFunction.functionBody!.span;
+                  Logger.debug(
+                    'debug.getinfo: currentFunction has functionBody, span=$span, sourceUrl=${span?.sourceUrl}',
+                    category: 'DebugLib',
+                  );
+
+                  if (span != null && span.sourceUrl != null) {
+                    // Use the original function's source location (binary chunk)
+                    final rawSource = span.sourceUrl!.toString();
+                    sourceValue = _formatSourceForLua(rawSource);
+                    shortSrc = sourceValue.startsWith('@')
+                        ? sourceValue.substring(1)
+                        : sourceValue;
+                    isBinaryChunk = true;
+                    Logger.debug(
+                      'debug.getinfo: using current function source: $sourceValue',
+                      category: 'DebugLib',
+                    );
+                  } else {
+                    // Try to extract source from child nodes (binary chunk)
+                    String? childSource = _extractSourceFromChildren(
+                      currentFunction.functionBody!,
+                    );
+                    if (childSource != null) {
+                      sourceValue = _formatSourceForLua(childSource);
+                      shortSrc = sourceValue.startsWith('@')
+                          ? sourceValue.substring(1)
+                          : sourceValue;
+                      isBinaryChunk = true;
+                      Logger.debug(
+                        'debug.getinfo: using source from child nodes: $sourceValue',
+                        category: 'DebugLib',
+                      );
+                    }
+                  }
+                }
+
+                // If not a binary chunk, use script path as string chunk name
+                if (!isBinaryChunk) {
+                  sourceValue = scriptPath;
+                  shortSrc = scriptPath;
+                  Logger.debug(
+                    'debug.getinfo: using script path as string chunk: $sourceValue',
+                    category: 'DebugLib',
+                  );
+                }
+              }
+            }
+
+            debugInfo['source'] = Value(sourceValue);
+            debugInfo['short_src'] = Value(shortSrc);
             debugInfo['linedefined'] = Value(-1);
             debugInfo['lastlinedefined'] = Value(-1);
           }
@@ -183,4 +262,83 @@ Interpreter? _findInterpreter() {
     Logger.error('Error finding interpreter: $e', category: 'DebugLib');
     return null;
   }
+}
+
+/// Helper method to extract source URL from child AST nodes
+String? _extractSourceFromChildren(dynamic node) {
+  Logger.debug(
+    'AST: _extractSourceFromChildren called with node type: ${node.runtimeType}',
+    category: 'DebugLib',
+  );
+
+  if (node == null) return null;
+
+  // If this node has a span, return its source URL
+  if (node is AstNode && node.span?.sourceUrl != null) {
+    final sourceUrl = node.span!.sourceUrl!.toString();
+    Logger.debug(
+      'AST: Found span with sourceUrl: $sourceUrl',
+      category: 'DebugLib',
+    );
+    return sourceUrl;
+  }
+
+  // Recursively search child nodes
+  if (node is FunctionBody) {
+    Logger.debug(
+      'AST: Searching FunctionBody with ${node.parameters?.length ?? 0} params and ${node.body.length} body statements',
+      category: 'DebugLib',
+    );
+
+    // Check parameters
+    if (node.parameters != null) {
+      for (final param in node.parameters!) {
+        final source = _extractSourceFromChildren(param);
+        if (source != null) return source;
+      }
+    }
+
+    // Check body statements
+    for (final stmt in node.body) {
+      final source = _extractSourceFromChildren(stmt);
+      if (source != null) return source;
+    }
+  } else if (node is List) {
+    Logger.debug(
+      'AST: Searching List with ${node.length} items',
+      category: 'DebugLib',
+    );
+    for (final item in node) {
+      final source = _extractSourceFromChildren(item);
+      if (source != null) return source;
+    }
+  }
+
+  Logger.debug(
+    'AST: No source found in node type: ${node.runtimeType}',
+    category: 'DebugLib',
+  );
+  return null;
+}
+
+/// Formats source URL to match Lua's format
+String _formatSourceForLua(String rawSource) {
+  // Handle file URLs
+  if (rawSource.startsWith('file:///')) {
+    final uri = Uri.parse(rawSource);
+    final fileName = uri.pathSegments.isNotEmpty
+        ? uri.pathSegments.last
+        : rawSource;
+    return '@$fileName';
+  }
+
+  // Handle already prefixed sources
+  if (rawSource.startsWith('@') ||
+      rawSource.startsWith('=') ||
+      rawSource.startsWith('[')) {
+    return rawSource;
+  }
+
+  // Default: add @ prefix for file-like sources
+  return '@$rawSource';
 }

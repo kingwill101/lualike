@@ -6,6 +6,7 @@ import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/const_checker.dart';
 import 'package:lualike/src/upvalue.dart';
+import 'package:lualike/src/interpreter/upvalue_analyzer.dart';
 import 'package:lualike/src/utils/file_system_utils.dart';
 import 'package:lualike/src/utils/type.dart';
 import 'package:path/path.dart' as path;
@@ -891,6 +892,7 @@ class LoadFunction implements BuiltinFunction {
       // Check if this was a string.dump function and use direct AST evaluation if available
       bool hasDirectAST = false;
       AstNode? directASTNode;
+      List<String>? originalUpvalueNames;
 
       // For binary chunks, check if we have a direct AST node
       if (isBinaryChunk) {
@@ -900,6 +902,7 @@ class LoadFunction implements BuiltinFunction {
           if (chunkInfo.originalFunctionBody != null) {
             hasDirectAST = true;
             directASTNode = chunkInfo.originalFunctionBody;
+            originalUpvalueNames = chunkInfo.upvalueNames;
           }
         } else if (originalSource is LuaString) {
           final binaryString = String.fromCharCodes(originalSource.bytes);
@@ -907,6 +910,7 @@ class LoadFunction implements BuiltinFunction {
           if (chunkInfo.originalFunctionBody != null) {
             hasDirectAST = true;
             directASTNode = chunkInfo.originalFunctionBody;
+            originalUpvalueNames = chunkInfo.upvalueNames;
           }
         }
       }
@@ -916,6 +920,7 @@ class LoadFunction implements BuiltinFunction {
           readerChunkInfo!.originalFunctionBody != null) {
         hasDirectAST = true;
         directASTNode = readerChunkInfo!.originalFunctionBody;
+        originalUpvalueNames = readerChunkInfo!.upvalueNames;
       }
 
       // Create a function body with the actual AST
@@ -968,7 +973,7 @@ class LoadFunction implements BuiltinFunction {
               try {
                 // For string.dump functions, we want to execute the function and return its results
                 if (directASTNode is FunctionBody) {
-                  // Create a function value from the AST and call it
+                  // Create a function value from the AST that will inherit upvalues
                   final funcValue = await directASTNode.accept(vm) as Value;
                   if (funcValue.raw is Function) {
                     return await vm.callFunction(funcValue, callArgs);
@@ -1001,6 +1006,51 @@ class LoadFunction implements BuiltinFunction {
               ? directASTNode as FunctionBody
               : actualBody,
         );
+
+        // For string.dump functions, return the function created from the AST directly
+        // This ensures upvalues can be set on the actual function that gets executed
+        if (hasDirectAST && directASTNode is FunctionBody) {
+          // Create and return the function directly from the AST
+          final savedEnv = vm.getCurrentEnv();
+          final loadEnv = Environment(parent: savedEnv.root, interpreter: vm);
+
+          vm.setCurrentEnv(loadEnv);
+          try {
+            final functionBody = directASTNode as FunctionBody;
+            final directFunction = await functionBody.accept(vm) as Value;
+
+            // Initialize upvalues for this function using original upvalue names
+            directFunction.upvalues = [];
+
+            // Use upvalue names from ChunkInfo if available, otherwise analyze
+            if (originalUpvalueNames != null &&
+                originalUpvalueNames.isNotEmpty) {
+              // Use the original upvalue structure
+              for (final upvalueName in originalUpvalueNames) {
+                final box = Box<dynamic>(null);
+                directFunction.upvalues!.add(
+                  Upvalue(valueBox: box, name: upvalueName),
+                );
+              }
+            } else {
+              // Fallback to analysis if no upvalue names stored
+              final analyzedUpvalues = await UpvalueAnalyzer.analyzeFunction(
+                functionBody,
+                loadEnv,
+              );
+              for (final upvalue in analyzedUpvalues) {
+                final box = Box<dynamic>(null);
+                directFunction.upvalues!.add(
+                  Upvalue(valueBox: box, name: upvalue.name),
+                );
+              }
+            }
+
+            return directFunction;
+          } finally {
+            vm.setCurrentEnv(savedEnv);
+          }
+        }
       } else {
         // Standard source-based execution
         result = Value((List<Object?> callArgs) async {

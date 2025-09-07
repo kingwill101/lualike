@@ -22,10 +22,10 @@ class UpvalueAnalyzer extends AstVisitor<void> {
   bool _accessesGlobals = false;
 
   /// Analyzes a function body and returns the upvalues it needs
-  static List<Upvalue> analyzeFunction(
+  static Future<List<Upvalue>> analyzeFunction(
     FunctionBody functionBody,
     Environment currentEnv,
-  ) {
+  ) async {
     final analyzer = UpvalueAnalyzer();
 
     // Record function parameters
@@ -37,10 +37,14 @@ class UpvalueAnalyzer extends AstVisitor<void> {
 
     // Analyze the function body
     for (final stmt in functionBody.body) {
-      stmt.accept(analyzer);
+      await stmt.accept(analyzer);
     }
 
+    // Reset global access flag since we'll re-evaluate it properly now
+    analyzer._accessesGlobals = false;
+
     final upvalues = <Upvalue>[];
+    final upvalueNames = <String>{};
 
     // For each referenced variable, determine if it's an upvalue
     for (final varName in analyzer._referencedVars) {
@@ -57,13 +61,18 @@ class UpvalueAnalyzer extends AstVisitor<void> {
 
       // Look for the variable in the environment chain starting from parent
       Environment? env = currentEnv.parent;
+      bool foundAsUpvalue = false;
       while (env != null) {
         if (env.values.containsKey(varName)) {
           final box = env.values[varName]!;
+
           // Only add if it's a local variable (upvalue candidate)
           if (box.isLocal) {
             final upvalue = Upvalue(valueBox: box, name: varName);
             upvalues.add(upvalue);
+            upvalueNames.add(varName);
+            foundAsUpvalue = true;
+
             break;
           }
         }
@@ -71,18 +80,23 @@ class UpvalueAnalyzer extends AstVisitor<void> {
       }
 
       // If not found in parent environments, check current environment for locals
-      if (currentEnv.values.containsKey(varName)) {
+      if (!foundAsUpvalue && currentEnv.values.containsKey(varName)) {
         final box = currentEnv.values[varName]!;
+
         if (box.isLocal && !analyzer._localVars.contains(varName)) {
           final upvalue = Upvalue(valueBox: box, name: varName);
           upvalues.add(upvalue);
+          upvalueNames.add(varName);
         }
+      } else if (!foundAsUpvalue) {
+        // This variable is truly a global access since it's not an upvalue
+        analyzer._accessesGlobals = true;
       }
     }
 
-    // Always add _ENV as the last upvalue if the function accesses globals
-    // or if we found any upvalues (following Lua convention)
-    if (analyzer._accessesGlobals || upvalues.isNotEmpty) {
+    // Only add _ENV as upvalue if the function actually accesses globals
+    // Don't add it just because there are other upvalues
+    if (analyzer._accessesGlobals) {
       final envValue = currentEnv.get('_ENV');
       if (envValue != null) {
         // Create a synthetic box for _ENV
@@ -92,6 +106,21 @@ class UpvalueAnalyzer extends AstVisitor<void> {
       }
     }
 
+    // Sort upvalues to match Lua's ordering behavior
+    // In Lua, regular upvalues come first in declaration order, then _ENV comes last
+    upvalues.sort((a, b) {
+      final nameA = a.name ?? '';
+      final nameB = b.name ?? '';
+
+      // _ENV should always come last
+      if (nameA == '_ENV' && nameB != '_ENV') return 1;
+      if (nameB == '_ENV' && nameA != '_ENV') return -1;
+      if (nameA == '_ENV' && nameB == '_ENV') return 0;
+
+      // For regular upvalues, sort by name (which generally matches declaration order)
+      return nameA.compareTo(nameB);
+    });
+
     return upvalues;
   }
 
@@ -99,14 +128,8 @@ class UpvalueAnalyzer extends AstVisitor<void> {
   Future<void> visitIdentifier(Identifier node) async {
     _referencedVars.add(node.name);
 
-    // Check if this might be a global access
-    if (!_parameters.contains(node.name) &&
-        !_localVars.contains(node.name) &&
-        node.name != '_ENV' &&
-        node.name != '_G' &&
-        node.name != '...') {
-      _accessesGlobals = true;
-    }
+    // Don't mark variables as global access during traversal
+    // We'll determine what's truly global vs upvalue during final analysis
   }
 
   @override
@@ -196,12 +219,14 @@ class UpvalueAnalyzer extends AstVisitor<void> {
   @override
   Future<void> visitIfStatement(IfStatement node) async {
     await node.cond.accept(this);
+
     for (final stmt in node.thenBlock) {
       await stmt.accept(this);
     }
     for (final elseIf in node.elseIfs) {
       await elseIf.accept(this);
     }
+
     for (final stmt in node.elseBlock) {
       await stmt.accept(this);
     }

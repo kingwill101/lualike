@@ -151,8 +151,23 @@ class _StringDump implements BuiltinFunction {
     final fb = func.functionBody;
 
     if (fb != null) {
+      // Debug logging to check span information
+      Logger.debug(
+        'string.dump: function has functionBody, span=${fb.span}, sourceUrl=${fb.span?.sourceUrl}',
+        category: 'StringLib',
+      );
+
+      // Extract upvalue names from the function
+      List<String>? upvalueNames;
+      if (func.upvalues != null && func.upvalues!.isNotEmpty) {
+        upvalueNames = func.upvalues!
+            .map((upvalue) => upvalue.name ?? '')
+            .where((name) => name.isNotEmpty)
+            .toList();
+      }
+
       // Use ChunkSerializer for consistent dump/load handling
-      final serialized = ChunkSerializer.serializeFunction(fb);
+      final serialized = ChunkSerializer.serializeFunction(fb, upvalueNames);
       return Value(serialized);
     }
 

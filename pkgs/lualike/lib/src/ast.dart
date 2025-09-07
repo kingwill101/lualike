@@ -2,6 +2,7 @@ import 'package:source_span/source_span.dart';
 
 import 'parsers/string.dart';
 import 'ast_dump.dart';
+import 'logging/logger.dart';
 
 /// Base class for all ASFuture`<T>` nodes.
 abstract class AstNode {
@@ -15,6 +16,128 @@ abstract class AstNode {
 
   // A getter so you can easily access the span.
   SourceSpan? getSpan() => span;
+
+  /// Dumps span information to a serializable map
+  Map<String, dynamic>? dumpSpan() {
+    if (span == null) {
+      Logger.debug('AST: No span to dump', category: 'AST');
+      return null;
+    }
+
+    Logger.debug(
+      'AST: Dumping span for ${span!.sourceUrl} (${span!.start.offset}-${span!.end.offset})',
+      category: 'AST',
+    );
+
+    return {
+      'sourceUrl': span!.sourceUrl?.toString(),
+      'start': span!.start.offset,
+      'end': span!.end.offset,
+      'length': span!.length,
+      'text': span!.text,
+      'startLine': span!.start.line,
+      'startColumn': span!.start.column,
+      'endLine': span!.end.line,
+      'endColumn': span!.end.column,
+    };
+  }
+
+  /// Restores span information from a serialized map
+  void restoreSpan(Map<String, dynamic>? spanData, String? fallbackSourceUrl) {
+    Logger.debug(
+      'AST: restoreSpan called with spanData=$spanData',
+      category: 'AST',
+    );
+    if (spanData == null) {
+      Logger.debug('AST: No span data to restore', category: 'AST');
+      return;
+    }
+
+    try {
+      final sourceUrl = spanData['sourceUrl'] as String? ?? fallbackSourceUrl;
+      final start = spanData['start'] as int? ?? 0;
+      final end = spanData['end'] as int? ?? 0;
+      final text = spanData['text'] as String? ?? '';
+      final length = spanData['length'] as int? ?? (end - start);
+
+      Logger.debug(
+        'AST: Attempting to restore span: sourceUrl=$sourceUrl, start=$start, end=$end',
+        category: 'AST',
+      );
+
+      if (sourceUrl != null && text.isNotEmpty) {
+        // Create a source file with the original content and URL
+        final uri = Uri.parse(sourceUrl);
+        final sourceFile = SourceFile.fromString(text, url: uri);
+        span = sourceFile.span(start, end);
+        Logger.debug(
+          'AST: Restored span for ${uri} (${start}-${end})',
+          category: 'AST',
+        );
+      } else if (sourceUrl != null) {
+        // Fallback: create a minimal span with just the URL
+        final uri = Uri.parse(sourceUrl);
+        final sourceFile = SourceFile.fromString('', url: uri);
+        span = sourceFile.span(0, 0);
+        Logger.debug('AST: Restored minimal span for ${uri}', category: 'AST');
+      }
+    } catch (e) {
+      // If restoration fails, silently continue without span
+      Logger.debug('AST: Failed to restore span: $e', category: 'AST');
+    }
+  }
+
+  /// Attempts to infer span information from child nodes
+  void inferSpanFromChildren() {
+    if (span != null) return; // Already has span
+
+    // Try to find spans from child nodes to infer source location
+    SourceSpan? firstSpan;
+    SourceSpan? lastSpan;
+
+    void findSpans(dynamic node) {
+      if (node is AstNode && node.span != null) {
+        firstSpan ??= node.span;
+        lastSpan = node.span;
+      } else if (node is List) {
+        for (final item in node) {
+          findSpans(item);
+        }
+      }
+    }
+
+    // Check different types of child collections
+    if (this is FunctionBody) {
+      final fb = this as FunctionBody;
+      findSpans(fb.parameters);
+      findSpans(fb.body);
+    }
+
+    // If we found spans from children, create a span that encompasses them
+    if (firstSpan != null && lastSpan != null) {
+      try {
+        final sourceFile = firstSpan!.sourceUrl;
+        final sourceText =
+            firstSpan!.text + (lastSpan != firstSpan ? lastSpan!.text : '');
+        final mockSourceFile = SourceFile.fromString(
+          sourceText,
+          url: sourceFile,
+        );
+        final start = 0;
+        final end = sourceText.length;
+        span = mockSourceFile.span(start, end);
+        Logger.debug(
+          'AST: Inferred span from children for ${sourceFile} ($start-$end)',
+          category: 'AST',
+        );
+      } catch (e) {
+        Logger.debug(
+          'AST: Failed to infer span from children: $e',
+          category: 'AST',
+        );
+      }
+    }
+  }
 
   Future<T> accept<T>(AstVisitor<T> visitor);
 
@@ -122,11 +245,14 @@ class GroupedExpression extends AstNode with Dumpable {
   Map<String, dynamic> dump() => {
     'type': 'GroupedExpression',
     'expr': expr is Dumpable ? (expr as Dumpable).dump() : {'type': 'Unknown'},
+    'span': dumpSpan(),
   };
 
   static GroupedExpression fromDump(Map<String, dynamic> data) {
     final expr = undumpAst(Map<String, dynamic>.from(data['expr']));
-    return GroupedExpression(expr);
+    final groupedExpr = GroupedExpression(expr);
+    groupedExpr.restoreSpan(data['span'] as Map<String, dynamic>?, null);
+    return groupedExpr;
   }
 }
 
@@ -150,13 +276,16 @@ class DoBlock extends AstNode with Dumpable {
     'body': body
         .map((s) => s is Dumpable ? (s).dump() : {'type': 'Unknown'})
         .toList(),
+    'span': dumpSpan(),
   };
 
   static DoBlock fromDump(Map<String, dynamic> data) {
     final bodyNodes = (data['body'] as List? ?? const <dynamic>[])
         .map((e) => undumpAst(Map<String, dynamic>.from(e)))
         .toList();
-    return DoBlock(bodyNodes);
+    final doBlock = DoBlock(bodyNodes);
+    doBlock.restoreSpan(data['span'] as Map<String, dynamic>?, null);
+    return doBlock;
   }
 }
 
@@ -172,10 +301,12 @@ class VarArg extends AstNode with Dumpable {
   }
 
   @override
-  Map<String, dynamic> dump() => {'type': 'VarArg'};
+  Map<String, dynamic> dump() => {'type': 'VarArg', 'span': dumpSpan()};
 
   static VarArg fromDump(Map<String, dynamic> data) {
-    return VarArg();
+    final varArg = VarArg();
+    varArg.restoreSpan(data['span'] as Map<String, dynamic>?, null);
+    return varArg;
   }
 }
 
@@ -627,13 +758,16 @@ class FunctionDef extends AstNode with Dumpable {
     'name': name.dump(),
     'body': body.dump(),
     'implicitSelf': implicitSelf,
+    'span': dumpSpan(),
   };
 
   static FunctionDef fromDump(Map<String, dynamic> data) {
     final name = FunctionName.fromDump(Map<String, dynamic>.from(data['name']));
     final body = FunctionBody.fromDump(Map<String, dynamic>.from(data['body']));
     final implicitSelf = data['implicitSelf'] as bool? ?? false;
-    return FunctionDef(name, body, implicitSelf: implicitSelf);
+    final functionDef = FunctionDef(name, body, implicitSelf: implicitSelf);
+    functionDef.restoreSpan(data['span'] as Map<String, dynamic>?, null);
+    return functionDef;
   }
 }
 
@@ -736,6 +870,7 @@ class FunctionBody extends AstNode with Dumpable {
     'body': body
         .map((s) => s is Dumpable ? (s).dump() : {'type': 'Unknown'})
         .toList(),
+    'span': dumpSpan(),
   };
 
   static FunctionBody fromDump(Map<String, dynamic> data) {
@@ -746,7 +881,16 @@ class FunctionBody extends AstNode with Dumpable {
         .map((e) => undumpAst(Map<String, dynamic>.from(e)))
         .toList();
     final isVararg = data['vararg'] as bool? ?? false;
-    return FunctionBody(params, bodyNodes, isVararg);
+    final functionBody = FunctionBody(params, bodyNodes, isVararg);
+
+    // Restore span information
+    final spanData = data['span'] as Map<String, dynamic>?;
+    functionBody.restoreSpan(spanData, null);
+
+    // If no span was restored, try to infer from child nodes
+    functionBody.inferSpanFromChildren();
+
+    return functionBody;
   }
 }
 
@@ -766,11 +910,14 @@ class FunctionLiteral extends AstNode with Dumpable {
   Map<String, dynamic> dump() => {
     'type': 'FunctionLiteral',
     'body': funcBody.dump(),
+    'span': dumpSpan(),
   };
 
   static FunctionLiteral fromDump(Map<String, dynamic> data) {
     final fb = FunctionBody.fromDump(Map<String, dynamic>.from(data['body']));
-    return FunctionLiteral(fb);
+    final functionLiteral = FunctionLiteral(fb);
+    functionLiteral.restoreSpan(data['span'] as Map<String, dynamic>?, null);
+    return functionLiteral;
   }
 }
 
@@ -1396,9 +1543,15 @@ class Identifier extends AstNode with Dumpable {
   String toString() => name;
 
   @override
-  Map<String, dynamic> dump() => {'type': 'Identifier', 'name': name};
+  Map<String, dynamic> dump() => {
+    'type': 'Identifier',
+    'name': name,
+    'span': dumpSpan(),
+  };
 
   static Identifier fromDump(Map<String, dynamic> data) {
-    return Identifier(data['name'] as String);
+    final identifier = Identifier(data['name'] as String);
+    identifier.restoreSpan(data['span'] as Map<String, dynamic>?, null);
+    return identifier;
   }
 }

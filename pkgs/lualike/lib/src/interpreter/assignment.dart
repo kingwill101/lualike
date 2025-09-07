@@ -345,6 +345,22 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       return wrappedValue;
     }
 
+    // NEW: Try upvalue assignment first
+    final currentFunc = (this as Interpreter).getCurrentFunction();
+    final upvalueAssigned = UpvalueAssignmentHandler.tryAssignToUpvalue(
+      name, 
+      wrappedValue, 
+      currentFunc
+    );
+    
+    if (upvalueAssigned) {
+      Logger.debug(
+        'Assignment: $name updated via upvalue',
+        category: 'Assignment',
+      );
+      return wrappedValue;
+    }
+
     // Check if there's a custom _ENV that is different from the initial _G
     final envValue = globals.get('_ENV');
     final gValue = globals.get('_G');

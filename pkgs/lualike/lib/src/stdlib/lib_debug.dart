@@ -1,9 +1,11 @@
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/coroutine.dart';
+import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/stdlib/debug_getinfo.dart';
 import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
+import 'package:lualike/src/upvalue.dart';
 
 class DebugLib {
   static Map<String, BuiltinFunction> functions = {};
@@ -142,13 +144,14 @@ class _GetUpvalue implements BuiltinFunction {
             Environment.current?.get('_ENV') ??
             Environment.current?.get('_G') ??
             Value(Environment.current);
-        return Value.multi([Value('_ENV'), Value(envValue)]);
+        return Value.multi([Value('_ENV'), envValue]);
       } else if (index == 1) {
         // First upvalue could be any captured variable, return nil for now
         return Value.multi([Value(null), Value(null)]);
       }
     }
 
+    // For functions without upvalues, return null
     return Value.multi([Value(null), Value(null)]);
   }
 }
@@ -247,7 +250,41 @@ class _SetUpvalue implements BuiltinFunction {
     if (args.length < 3) {
       throw Exception("debug.setupvalue requires function, index and value");
     }
-    // Set upvalue
+
+    final functionArg = args[0] as Value;
+    final indexArg = args[1] as Value;
+    final newValue = args[2] as Value;
+
+    // Validate that index is a number
+    if (indexArg.raw is! num) {
+      return Value(null);
+    }
+
+    final index = (indexArg.raw as num).toInt();
+
+    // Check if the function has explicit upvalues
+    if (functionArg.upvalues != null &&
+        index > 0 &&
+        index <= functionArg.upvalues!.length) {
+      final upvalue = functionArg.upvalues![index - 1];
+      final oldName = upvalue.name;
+      upvalue.setValue(newValue.raw);
+      return Value(oldName);
+    }
+
+    // For AST-based interpreter, only modify existing upvalues
+    if (functionArg.raw is Function) {
+      // Check if upvalues exist and if the index is valid
+      if (functionArg.upvalues != null &&
+          index > 0 &&
+          index <= functionArg.upvalues!.length) {
+        final upvalue = functionArg.upvalues![index - 1];
+        final oldName = upvalue.name;
+        upvalue.setValue(newValue.raw);
+        return Value(oldName);
+      }
+    }
+
     return Value(null);
   }
 }

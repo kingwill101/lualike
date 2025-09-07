@@ -408,11 +408,28 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       env = env.parent;
     }
 
+    // Check current function's upvalues if we're executing within a function
+    if (this is Interpreter) {
+      final currentFunction = (this as Interpreter).getCurrentFunction();
+      if (currentFunction != null && currentFunction.upvalues != null) {
+        for (final upvalue in currentFunction.upvalues!) {
+          if (upvalue.name == node.name) {
+            Logger.debug(
+              'Resolving identifier ${node.name} via function upvalue',
+              category: 'Expression',
+            );
+            final value = upvalue.getValue();
+            return value is Value ? value : Value(value);
+          }
+        }
+      }
+    }
+
     // Route global lookups through _ENV to match Lua semantics.
     // In Lua 5.2+, chunks access globals via the upvalue `_ENV`.
     // We emulate that here by always trying `_ENV[name]` after checking locals.
     final envValue = globals.get('_ENV');
-    if (envValue is Value) {
+    if (envValue is Value && envValue.raw != null) {
       if (envValue.raw is Map) {
         Logger.debug(
           'Resolving global via _ENV for: ${node.name}',

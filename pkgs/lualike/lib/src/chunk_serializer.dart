@@ -18,10 +18,19 @@ class ChunkSerializer {
   /// The format is: ESC + marker + payload
   /// - For AST dumps: ESC + "AST:" + JSON
   /// - For source fallback: ESC + "SRC:" + Lua source code
-  static String serializeFunction(FunctionBody functionBody) {
+  static String serializeFunction(
+    FunctionBody functionBody, [
+    List<String>? upvalueNames,
+  ]) {
     try {
       // Try AST serialization first
       final dumpData = (functionBody as Dumpable).dump();
+
+      // Add upvalue information if available
+      if (upvalueNames != null && upvalueNames.isNotEmpty) {
+        dumpData['upvalues'] = upvalueNames;
+      }
+
       final jsonString = jsonEncode(dumpData);
       final payload = _astMarker + jsonString;
       return _createBinaryChunk(payload);
@@ -70,6 +79,13 @@ ${_sourceMarker}function(...) end""";
         final decoded = jsonDecode(jsonData);
         if (decoded is Map<String, dynamic>) {
           final astNode = undumpAst(decoded);
+
+          // Extract upvalue names if present
+          List<String>? upvalueNames;
+          if (decoded.containsKey('upvalues') && decoded['upvalues'] is List) {
+            upvalueNames = List<String>.from(decoded['upvalues']);
+          }
+
           if (astNode is FunctionBody) {
             // For string.dump functions, return the AST directly for evaluation
             // This avoids toSource() issues and allows direct AST execution
@@ -77,6 +93,7 @@ ${_sourceMarker}function(...) end""";
               source: "", // Empty source since we'll use AST directly
               isStringDumpFunction: true,
               originalFunctionBody: astNode,
+              upvalueNames: upvalueNames,
             );
           } else {
             // Other AST node, return for direct evaluation
@@ -144,10 +161,14 @@ class ChunkInfo {
   /// The original FunctionBody or AST node if available for direct evaluation.
   final AstNode? originalFunctionBody;
 
+  /// Original upvalue names from the dumped function.
+  final List<String>? upvalueNames;
+
   const ChunkInfo({
     required this.source,
     required this.isStringDumpFunction,
     required this.originalFunctionBody,
+    this.upvalueNames,
   });
 
   @override

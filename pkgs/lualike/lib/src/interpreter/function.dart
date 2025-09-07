@@ -212,14 +212,17 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     );
 
     // Analyze upvalues before creating the function
-    final upvalues = UpvalueAnalyzer.analyzeFunction(node, closureEnv);
+    final upvalues = await UpvalueAnalyzer.analyzeFunction(node, closureEnv);
 
     Logger.debug(
       'Function upvalues analyzed: ${upvalues.map((u) => u.name).join(', ')}',
       category: 'Interpreter',
     );
 
-    final funcValue = Value((List<Object?> args) async {
+    // Create a variable to hold the function value for self-reference
+    Value? funcValue;
+
+    funcValue = Value((List<Object?> args) async {
       // Create new environment with closureEnv as parent to ensure proper variable access
       final execEnv = Environment(
         parent: closureEnv,
@@ -269,15 +272,18 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       // Don't create a call frame here - it will be created by _callFunction
       // which has access to the function name
 
-      // Save the current environment
+      // Save the current environment and function
       final savedEnv = (this as Interpreter).getCurrentEnv();
+      final savedFunction = (this as Interpreter).getCurrentFunction();
 
       Object? result;
       try {
         // Set the environment to the execution environment
         (this as Interpreter).setCurrentEnv(execEnv);
+        // Set the current function for upvalue resolution
+        (this as Interpreter).setCurrentFunction(funcValue);
         Logger.debug(
-          "Set current environment to execEnv for function execution",
+          "Set current environment to execEnv and current function for function execution",
           category: 'Interpreter',
         );
 
@@ -292,8 +298,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       } on ReturnException catch (e) {
         result = e.value;
       } finally {
-        // Restore the previous environment
+        // Restore the previous environment and function
         (this as Interpreter).setCurrentEnv(savedEnv);
+        (this as Interpreter).setCurrentFunction(savedFunction);
       }
 
       return result;

@@ -16,6 +16,7 @@ import 'package:lualike/src/utils/type.dart';
 import 'package:lualike/src/value.dart';
 import 'package:lualike/src/value_class.dart';
 import 'package:lualike/src/utils/file_system_utils.dart' as fs;
+import 'package:lualike/src/interpreter/upvalue_assignment.dart';
 
 import '../exceptions.dart';
 import '../extensions/extensions.dart';
@@ -58,6 +59,9 @@ class Interpreter extends AstVisitor<Object?>
 
   /// Current environment for variable scope.
   Environment _currentEnv;
+
+  /// Current function being executed (for upvalue resolution)
+  Value? _currentFunction;
 
   /// Current script path being executed
   String? currentScriptPath;
@@ -240,6 +244,20 @@ class Interpreter extends AstVisitor<Object?>
     );
     _currentEnv = env;
     Environment.current = env;
+  }
+
+  /// Gets the current function being executed.
+  Value? getCurrentFunction() {
+    return _currentFunction;
+  }
+
+  /// Sets the current function being executed.
+  void setCurrentFunction(Value? function) {
+    Logger.debug(
+      'Setting current function from ${_currentFunction?.hashCode} to ${function?.hashCode}',
+      category: 'Interpreter',
+    );
+    _currentFunction = function;
   }
 
   /// Creates a new interpreter instance.
