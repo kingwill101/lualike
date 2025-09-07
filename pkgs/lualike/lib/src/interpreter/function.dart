@@ -211,6 +211,14 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       category: 'Interpreter',
     );
 
+    // Analyze upvalues before creating the function
+    final upvalues = UpvalueAnalyzer.analyzeFunction(node, closureEnv);
+
+    Logger.debug(
+      'Function upvalues analyzed: ${upvalues.map((u) => u.name).join(', ')}',
+      category: 'Interpreter',
+    );
+
     final funcValue = Value((List<Object?> args) async {
       // Create new environment with closureEnv as parent to ensure proper variable access
       final execEnv = Environment(
@@ -290,6 +298,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
       return result;
     }, functionBody: node);
+
+    // Set the upvalues on the function
+    funcValue.upvalues = upvalues;
 
     // Set the interpreter on the value object itself
     funcValue.interpreter = this as Interpreter;

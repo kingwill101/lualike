@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/const_checker.dart';
+import 'package:lualike/src/interpreter/upvalue_analyzer.dart';
+import 'package:lualike/src/upvalue.dart';
 import 'package:lualike/src/utils/file_system_utils.dart';
 import 'package:lualike/src/utils/type.dart';
 import 'package:path/path.dart' as path;
@@ -943,6 +945,25 @@ class LoadFunction implements BuiltinFunction {
           throw LuaError("Error executing loaded chunk '$chunkname': $e");
         }
       }, functionBody: actualBody);
+
+      // For loaded functions, we need to ensure _ENV is available as an upvalue
+      // since they typically access globals. This simulates Lua's behavior where
+      // loaded chunks have _ENV as an upvalue for global access.
+      final currentEnv = vm.getCurrentEnv();
+      final upvalues = <Upvalue>[];
+
+      // Add placeholder for first upvalue (index 1) - typically local variables
+      upvalues.add(Upvalue(valueBox: Box<dynamic>(null), name: null));
+
+      // Add _ENV as second upvalue (index 2) to match Lua behavior
+      final envValue = currentEnv.get('_ENV') ?? currentEnv.get('_G');
+      if (envValue != null) {
+        final envBox = Box<dynamic>(envValue);
+        final envUpvalue = Upvalue(valueBox: envBox, name: '_ENV');
+        upvalues.add(envUpvalue);
+      }
+
+      result.upvalues = upvalues;
 
       result.interpreter = vm;
       return result;

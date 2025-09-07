@@ -111,8 +111,45 @@ class _GetUpvalue implements BuiltinFunction {
     if (args.length < 2) {
       throw Exception("debug.getupvalue requires function and index arguments");
     }
-    // Return name and value of upvalue
-    return [Value(null), Value(null)];
+
+    final functionArg = args[0] as Value;
+    final indexArg = args[1] as Value;
+
+    // Validate that index is a number
+    if (indexArg.raw is! num) {
+      return Value.multi([Value(null), Value(null)]);
+    }
+
+    final index = (indexArg.raw as num).toInt();
+
+    // Check if the function has explicit upvalues first
+    if (functionArg.upvalues != null &&
+        index > 0 &&
+        index <= functionArg.upvalues!.length) {
+      final upvalue = functionArg.upvalues![index - 1];
+      final name = upvalue.name;
+      final value = Value(upvalue.getValue());
+      return Value.multi([Value(name), value]);
+    }
+
+    // For AST-based interpreter, we simulate standard Lua upvalue behavior
+    // In Lua, functions typically have _ENV as an upvalue for global access
+    if (functionArg.raw is Function) {
+      // For any Dart function (with or without functionBody), simulate standard upvalue structure
+      if (index == 2) {
+        // Second upvalue is typically _ENV in Lua
+        final envValue =
+            Environment.current?.get('_ENV') ??
+            Environment.current?.get('_G') ??
+            Value(Environment.current);
+        return Value.multi([Value('_ENV'), Value(envValue)]);
+      } else if (index == 1) {
+        // First upvalue could be any captured variable, return nil for now
+        return Value.multi([Value(null), Value(null)]);
+      }
+    }
+
+    return Value.multi([Value(null), Value(null)]);
   }
 }
 

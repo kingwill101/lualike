@@ -19,6 +19,7 @@ import 'package:lualike/src/utils/file_system_utils.dart' as fs;
 
 import '../exceptions.dart';
 import '../extensions/extensions.dart';
+import 'upvalue_analyzer.dart';
 
 part 'assignment.dart';
 part 'control_flow.dart';
