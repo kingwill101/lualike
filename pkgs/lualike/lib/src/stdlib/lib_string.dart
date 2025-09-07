@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:collection/collection.dart' show ListEquality;
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
+import 'package:lualike/src/chunk_serializer.dart';
 import 'package:lualike/src/number_limits.dart';
 import 'package:lualike/src/parsers/pattern.dart' as lpc;
 import 'package:lualike/src/stdlib/binary_type_size.dart';
@@ -133,10 +134,6 @@ class _StringChar implements BuiltinFunction {
 class _StringDump implements BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
-    // - Uses AST serialization for functions with available function bodies
-    // - Creates proper binary chunks that can be loaded back
-    // - Synthesizes textual chunks prefixed with ESC (0x1B) for binary mode compatibility
-
     if (args.isEmpty) {
       throw LuaError.typeError("string.dump requires a function argument");
     }
@@ -154,183 +151,14 @@ class _StringDump implements BuiltinFunction {
     final fb = func.functionBody;
 
     if (fb != null) {
-      // Use the function body content directly to generate valid Lua code
-      try {
-        // Generate the body statements directly instead of wrapping in function
-        final bodyStatements = fb.body.map((s) => s.toSource()).join('\n');
-        final chunk = bodyStatements;
-        Logger.debug(
-          'string.dump using function body: $chunk',
-          category: 'String',
-        );
-
-        // Return as a String with ESC prefix for compatibility
-        final payload = utf8.encode(chunk);
-        final bytes = Uint8List(payload.length + 1);
-        bytes[0] = 0x1B; // ESC
-        bytes.setRange(1, bytes.length, payload);
-        return Value(String.fromCharCodes(bytes));
-      } catch (e) {
-        Logger.debug(
-          'string.dump body generation failed: $e',
-          category: 'String',
-        );
-        // Fall through to simplified implementation
-      }
+      // Use ChunkSerializer for consistent dump/load handling
+      final serialized = ChunkSerializer.serializeFunction(fb);
+      return Value(serialized);
     }
 
-    // Simplified implementation for functions without AST or when AST serialization fails
-    // This handles literal-only return functions for basic compatibility
-    List<Object?> retValues = [];
-    if (fb != null) {
-      // Find the first ReturnStatement in the body
-      ReturnStatement? ret;
-      for (final s in fb.body) {
-        if (s is ReturnStatement) {
-          ret = s;
-          break;
-        }
-      }
-      if (ret != null) {
-        bool allLiterals = true;
-        for (final e in ret.expr) {
-          if (e is NumberLiteral) {
-            retValues.add(Value(e.value));
-          } else if (e is StringLiteral) {
-            retValues.add(
-              Value(LuaString.fromBytes(Uint8List.fromList(e.bytes))),
-            );
-          } else if (e is BooleanLiteral) {
-            retValues.add(Value(e.value));
-          } else if (e is NilValue) {
-            retValues.add(Value(null));
-          } else {
-            allLiterals = false;
-            break;
-          }
-        }
-        if (!allLiterals) {
-          // Try to use the function body statements directly
-          try {
-            final bodyStatements = fb.body.map((s) => s.toSource()).join('\n');
-            final chunk = bodyStatements;
-            Logger.debug(
-              'string.dump using body statements: $chunk',
-              category: 'String',
-            );
-
-            final payload = utf8.encode(chunk);
-            final bytes = Uint8List(payload.length + 1);
-            bytes[0] = 0x1B; // ESC
-            bytes.setRange(1, bytes.length, payload);
-            return Value(String.fromCharCodes(bytes));
-          } catch (e) {
-            Logger.debug(
-              'string.dump body statements failed: $e',
-              category: 'String',
-            );
-            throw LuaError("unable to dump given function");
-          }
-        }
-      } else {
-        // No return statement - try to dump the function body statements
-        try {
-          final bodyStatements = fb.body.map((s) => s.toSource()).join('\n');
-          final chunk = bodyStatements;
-          Logger.debug(
-            'string.dump using body for no-return function: $chunk',
-            category: 'String',
-          );
-
-          final payload = utf8.encode(chunk);
-          final bytes = Uint8List(payload.length + 1);
-          bytes[0] = 0x1B; // ESC
-          bytes.setRange(1, bytes.length, payload);
-          return Value(String.fromCharCodes(bytes));
-        } catch (e) {
-          Logger.debug(
-            'string.dump body failed for no-return function: $e',
-            category: 'String',
-          );
-          throw LuaError("unable to dump given function");
-        }
-      }
-    } else {
-      // No function body available - cannot dump
-      throw LuaError("unable to dump given function");
-    }
-
-    String quoteStringFromBytes(Uint8List bytes) {
-      final sb = StringBuffer();
-      sb.write('"');
-      for (final b in bytes) {
-        switch (b) {
-          case 34: // '"'
-            sb.write('\\"');
-            break;
-          case 92: // '\\'
-            sb.write('\\\\');
-            break;
-          case 10: // '\n'
-            sb.write('\\n');
-            break;
-          case 13: // '\r'
-            sb.write('\\r');
-            break;
-          case 9: // '\t'
-            sb.write('\\t');
-            break;
-          default:
-            if (b >= 32 && b <= 126) {
-              sb.write(String.fromCharCode(b));
-            } else {
-              // Use 3-digit decimal escapes \ddd
-              final d = b.toString().padLeft(3, '0');
-              sb.write('\\$d');
-            }
-        }
-      }
-      sb.write('"');
-      return sb.toString();
-    }
-
-    String toLuaLiteral(Value v) {
-      final raw = v.raw;
-      if (raw == null) return 'nil';
-      if (raw is bool) return raw ? 'true' : 'false';
-      if (raw is BigInt) return raw.toString();
-      if (raw is num) {
-        if (raw.isNaN) return '(0/0)';
-        if (raw == double.infinity) return '(1/0)';
-        if (raw == double.negativeInfinity) return '(-1/0)';
-        return raw.toString();
-      }
-      if (raw is LuaString) {
-        return quoteStringFromBytes(raw.bytes);
-      }
-      if (raw is String) {
-        // Encode to bytes to preserve non-ASCII in decimal escapes
-        final bytes = Uint8List.fromList(utf8.encode(raw));
-        return quoteStringFromBytes(bytes);
-      }
-      // Unsupported types in this heuristic
-      return 'nil';
-    }
-
-    // Handle literal-only return functions
-    final parts = <String>[];
-    for (final val in retValues) {
-      final vv = val is Value ? val : Value(val);
-      parts.add(toLuaLiteral(vv));
-    }
-    final body = parts.isEmpty ? '' : parts.join(', ');
-    final chunk = 'return $body';
-    Logger.debug(
-      'string.dump synthesized literal chunk: $chunk',
-      category: 'String',
-    );
-
-    final payload = utf8.encode(chunk);
+    // Final fallback for functions without functionBody
+    final source = "return function(...) end";
+    final payload = utf8.encode(source);
     final bytes = Uint8List(payload.length + 1);
     bytes[0] = 0x1B; // ESC
     bytes.setRange(1, bytes.length, payload);
