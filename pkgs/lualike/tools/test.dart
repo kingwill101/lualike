@@ -115,6 +115,13 @@ Future<void> main(List<String> args) async {
       help:
           'Enable portability mode (sets _port = true). Enabled by default; use --no-port to disable.',
     )
+    ..addFlag(
+      'skip-heavy',
+      negatable: true,
+      defaultsTo: true,
+      help:
+          'Skip heavy tests (sets _skip_heavy = true). Enabled by default; use --no-skip-heavy to include heavy tests.',
+    )
     ..addMultiOption(
       'test',
       abbr: 't',
@@ -190,12 +197,14 @@ Future<void> main(List<String> args) async {
       ? combinedTests
       : List<String>.from(testFiles);
 
-  // Auto-skip known heavy tests on CI unless explicitly requested
+  // Auto-skip known heavy tests on CI or when skip-heavy flag is set
   final isCI =
       (Platform.environment['CI']?.toLowerCase() == 'true') ||
       (Platform.environment['GITHUB_ACTIONS']?.toLowerCase() == 'true');
+  final skipHeavy = r['skip-heavy'] as bool;
   const heavyTests = {'heavy.lua'};
-  if (combinedTests.isEmpty && isCI) {
+  
+  if (combinedTests.isEmpty && (isCI || skipHeavy)) {
     final skipped = testsToRun.where((t) => heavyTests.contains(t)).toList();
     if (skipped.isNotEmpty) {
       testsToRun = testsToRun.where((t) => !heavyTests.contains(t)).toList();
@@ -204,7 +213,12 @@ Future<void> main(List<String> args) async {
       console.setTextStyle(bold: true);
       console.write('Auto-skip');
       console.resetColorAttributes();
-      console.write(' on CI: ');
+      if (isCI) {
+        console.write(' on CI');
+      } else {
+        console.write(' (--skip-heavy enabled)');
+      }
+      console.write(': ');
       console.setForegroundColor(ConsoleColor.yellow);
       console.write(skipped.join(', '));
       console.resetColorAttributes();
