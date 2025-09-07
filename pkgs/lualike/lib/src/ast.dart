@@ -104,7 +104,7 @@ abstract class AstVisitor<T> {
 }
 
 /// Grouped expression in parentheses: (expr)
-class GroupedExpression extends AstNode {
+class GroupedExpression extends AstNode with Dumpable {
   final AstNode expr;
 
   GroupedExpression(this.expr);
@@ -117,9 +117,20 @@ class GroupedExpression extends AstNode {
   String toSource() {
     return "(${expr.toSource()})";
   }
+
+  @override
+  Map<String, dynamic> dump() => {
+    'type': 'GroupedExpression',
+    'expr': expr is Dumpable ? (expr as Dumpable).dump() : {'type': 'Unknown'},
+  };
+
+  static GroupedExpression fromDump(Map<String, dynamic> data) {
+    final expr = undumpAst(Map<String, dynamic>.from(data['expr']));
+    return GroupedExpression(expr);
+  }
 }
 
-class DoBlock extends AstNode {
+class DoBlock extends AstNode with Dumpable {
   final List<AstNode> body;
 
   DoBlock(this.body);
@@ -132,9 +143,24 @@ class DoBlock extends AstNode {
     final bodySrc = body.map((s) => s.toSource()).join("\n");
     return "do\n$bodySrc\nend";
   }
+
+  @override
+  Map<String, dynamic> dump() => {
+    'type': 'DoBlock',
+    'body': body
+        .map((s) => s is Dumpable ? (s).dump() : {'type': 'Unknown'})
+        .toList(),
+  };
+
+  static DoBlock fromDump(Map<String, dynamic> data) {
+    final bodyNodes = (data['body'] as List? ?? const <dynamic>[])
+        .map((e) => undumpAst(Map<String, dynamic>.from(e)))
+        .toList();
+    return DoBlock(bodyNodes);
+  }
 }
 
-class VarArg extends AstNode {
+class VarArg extends AstNode with Dumpable {
   VarArg();
 
   @override
@@ -144,9 +170,16 @@ class VarArg extends AstNode {
   String toSource() {
     return "...";
   }
+
+  @override
+  Map<String, dynamic> dump() => {'type': 'VarArg'};
+
+  static VarArg fromDump(Map<String, dynamic> data) {
+    return VarArg();
+  }
 }
 
-class Label extends AstNode {
+class Label extends AstNode with Dumpable {
   final Identifier label;
 
   Label(this.label);
@@ -158,9 +191,17 @@ class Label extends AstNode {
   String toSource() {
     return "$label:";
   }
+
+  @override
+  Map<String, dynamic> dump() => {'type': 'Label', 'label': label.dump()};
+
+  static Label fromDump(Map<String, dynamic> data) {
+    final label = Identifier.fromDump(Map<String, dynamic>.from(data['label']));
+    return Label(label);
+  }
 }
 
-class Break extends AstNode {
+class Break extends AstNode with Dumpable {
   Break();
 
   @override
@@ -170,9 +211,16 @@ class Break extends AstNode {
   String toSource() {
     return "break";
   }
+
+  @override
+  Map<String, dynamic> dump() => {'type': 'Break'};
+
+  static Break fromDump(Map<String, dynamic> data) {
+    return Break();
+  }
 }
 
-class Goto extends AstNode {
+class Goto extends AstNode with Dumpable {
   final Identifier label;
 
   Goto(this.label);
@@ -183,6 +231,14 @@ class Goto extends AstNode {
   @override
   String toSource() {
     return "goto $label";
+  }
+
+  @override
+  Map<String, dynamic> dump() => {'type': 'Goto', 'label': label.dump()};
+
+  static Goto fromDump(Map<String, dynamic> data) {
+    final label = Identifier.fromDump(Map<String, dynamic>.from(data['label']));
+    return Goto(label);
   }
 }
 
@@ -215,7 +271,7 @@ class Program extends AstNode with Dumpable {
 }
 
 /// x = expr or k, v = next(t)
-class Assignment extends AstNode {
+class Assignment extends AstNode with Dumpable {
   final List<AstNode> targets; // Changed from single target to list
   final List<AstNode> exprs;
 
@@ -229,10 +285,31 @@ class Assignment extends AstNode {
     final targetsStr = targets.map((t) => t.toSource()).join(", ");
     return "$targetsStr = ${exprs.map((e) => e.toSource()).join(",")}";
   }
+
+  @override
+  Map<String, dynamic> dump() => {
+    'type': 'Assignment',
+    'targets': targets
+        .map((t) => t is Dumpable ? (t).dump() : {'type': 'Unknown'})
+        .toList(),
+    'exprs': exprs
+        .map((e) => e is Dumpable ? (e).dump() : {'type': 'Unknown'})
+        .toList(),
+  };
+
+  static Assignment fromDump(Map<String, dynamic> data) {
+    final targets = (data['targets'] as List? ?? const <dynamic>[])
+        .map((e) => undumpAst(Map<String, dynamic>.from(e)))
+        .toList();
+    final exprs = (data['exprs'] as List? ?? const <dynamic>[])
+        .map((e) => undumpAst(Map<String, dynamic>.from(e)))
+        .toList();
+    return Assignment(targets, exprs);
+  }
 }
 
 /// local x = expr
-class LocalDeclaration extends AstNode {
+class LocalDeclaration extends AstNode with Dumpable {
   final List<Identifier> names;
   final List<String> attributes; // "const", "close", or empty string
   final List<AstNode> exprs; // can be fewer, equal, or more than names
@@ -257,10 +334,33 @@ class LocalDeclaration extends AstNode {
     final exprsStr = exprs.map((e) => e.toSource()).join(", ");
     return "local $nameAttribPairs = $exprsStr";
   }
+
+  @override
+  Map<String, dynamic> dump() => {
+    'type': 'LocalDeclaration',
+    'names': names.map((n) => n.dump()).toList(),
+    'attributes': attributes,
+    'exprs': exprs
+        .map((e) => e is Dumpable ? (e).dump() : {'type': 'Unknown'})
+        .toList(),
+  };
+
+  static LocalDeclaration fromDump(Map<String, dynamic> data) {
+    final names = (data['names'] as List? ?? const <dynamic>[])
+        .map((n) => Identifier.fromDump(Map<String, dynamic>.from(n)))
+        .toList();
+    final attributes = (data['attributes'] as List? ?? const <dynamic>[])
+        .map((a) => a as String)
+        .toList();
+    final exprs = (data['exprs'] as List? ?? const <dynamic>[])
+        .map((e) => undumpAst(Map<String, dynamic>.from(e)))
+        .toList();
+    return LocalDeclaration(names, attributes, exprs);
+  }
 }
 
 /// if cond then thenBlock ... end
-class IfStatement extends AstNode {
+class IfStatement extends AstNode with Dumpable {
   final AstNode cond;
   final List<AstNode> thenBlock;
   final List<ElseIfClause> elseIfs;
@@ -280,9 +380,36 @@ class IfStatement extends AstNode {
         : "";
     return "if ${cond.toSource()} then\n$thenSrc\n$elseIfSrc\n$elseSrc\nend";
   }
+
+  @override
+  Map<String, dynamic> dump() => {
+    'type': 'IfStatement',
+    'cond': cond is Dumpable ? (cond as Dumpable).dump() : {'type': 'Unknown'},
+    'thenBlock': thenBlock
+        .map((s) => s is Dumpable ? (s).dump() : {'type': 'Unknown'})
+        .toList(),
+    'elseIfs': elseIfs.map((e) => (e as Dumpable).dump()).toList(),
+    'elseBlock': elseBlock
+        .map((s) => s is Dumpable ? (s).dump() : {'type': 'Unknown'})
+        .toList(),
+  };
+
+  static IfStatement fromDump(Map<String, dynamic> data) {
+    final cond = undumpAst(Map<String, dynamic>.from(data['cond']));
+    final thenBlock = (data['thenBlock'] as List? ?? const <dynamic>[])
+        .map((e) => undumpAst(Map<String, dynamic>.from(e)))
+        .toList();
+    final elseIfs = (data['elseIfs'] as List? ?? const <dynamic>[])
+        .map((e) => ElseIfClause.fromDump(Map<String, dynamic>.from(e)))
+        .toList();
+    final elseBlock = (data['elseBlock'] as List? ?? const <dynamic>[])
+        .map((e) => undumpAst(Map<String, dynamic>.from(e)))
+        .toList();
+    return IfStatement(cond, elseIfs, thenBlock, elseBlock);
+  }
 }
 
-class ElseIfClause extends AstNode {
+class ElseIfClause extends AstNode with Dumpable {
   final AstNode cond;
   final List<AstNode> thenBlock;
 
@@ -296,10 +423,27 @@ class ElseIfClause extends AstNode {
     final blockSrc = thenBlock.map((s) => s.toSource()).join("\n");
     return "elseif ${cond.toSource()} then\n$blockSrc";
   }
+
+  @override
+  Map<String, dynamic> dump() => {
+    'type': 'ElseIfClause',
+    'cond': cond is Dumpable ? (cond as Dumpable).dump() : {'type': 'Unknown'},
+    'thenBlock': thenBlock
+        .map((s) => s is Dumpable ? (s).dump() : {'type': 'Unknown'})
+        .toList(),
+  };
+
+  static ElseIfClause fromDump(Map<String, dynamic> data) {
+    final cond = undumpAst(Map<String, dynamic>.from(data['cond']));
+    final thenBlock = (data['thenBlock'] as List? ?? const <dynamic>[])
+        .map((e) => undumpAst(Map<String, dynamic>.from(e)))
+        .toList();
+    return ElseIfClause(cond, thenBlock);
+  }
 }
 
 /// while cond do body end
-class WhileStatement extends AstNode {
+class WhileStatement extends AstNode with Dumpable {
   final AstNode cond;
   final List<AstNode> body;
 
@@ -314,10 +458,27 @@ class WhileStatement extends AstNode {
     final bodySrc = body.map((s) => s.toSource()).join("\n");
     return "while ${cond.toSource()} do\n$bodySrc\nend";
   }
+
+  @override
+  Map<String, dynamic> dump() => {
+    'type': 'WhileStatement',
+    'cond': cond is Dumpable ? (cond as Dumpable).dump() : {'type': 'Unknown'},
+    'body': body
+        .map((s) => s is Dumpable ? (s).dump() : {'type': 'Unknown'})
+        .toList(),
+  };
+
+  static WhileStatement fromDump(Map<String, dynamic> data) {
+    final cond = undumpAst(Map<String, dynamic>.from(data['cond']));
+    final body = (data['body'] as List? ?? const <dynamic>[])
+        .map((e) => undumpAst(Map<String, dynamic>.from(e)))
+        .toList();
+    return WhileStatement(cond, body);
+  }
 }
 
 /// for var = start, end [, step] do body end
-class ForLoop extends AstNode {
+class ForLoop extends AstNode with Dumpable {
   final Identifier varName;
   final AstNode start;
   final AstNode endExpr;
@@ -334,10 +495,41 @@ class ForLoop extends AstNode {
     final bodySrc = body.map((s) => s.toSource()).join("\n");
     return "for ${varName.toSource()} = ${start.toSource()}, ${endExpr.toSource()}, ${stepExpr.toSource()} do\n$bodySrc\nend";
   }
+
+  @override
+  Map<String, dynamic> dump() => {
+    'type': 'ForLoop',
+    'varName': varName.dump(),
+    'start': start is Dumpable
+        ? (start as Dumpable).dump()
+        : {'type': 'Unknown'},
+    'endExpr': endExpr is Dumpable
+        ? (endExpr as Dumpable).dump()
+        : {'type': 'Unknown'},
+    'stepExpr': stepExpr is Dumpable
+        ? (stepExpr as Dumpable).dump()
+        : {'type': 'Unknown'},
+    'body': body
+        .map((s) => s is Dumpable ? (s).dump() : {'type': 'Unknown'})
+        .toList(),
+  };
+
+  static ForLoop fromDump(Map<String, dynamic> data) {
+    final varName = Identifier.fromDump(
+      Map<String, dynamic>.from(data['varName']),
+    );
+    final start = undumpAst(Map<String, dynamic>.from(data['start']));
+    final endExpr = undumpAst(Map<String, dynamic>.from(data['endExpr']));
+    final stepExpr = undumpAst(Map<String, dynamic>.from(data['stepExpr']));
+    final body = (data['body'] as List? ?? const <dynamic>[])
+        .map((e) => undumpAst(Map<String, dynamic>.from(e)))
+        .toList();
+    return ForLoop(varName, start, endExpr, stepExpr, body);
+  }
 }
 
 // ForInLoop(names, iterators, body)
-class ForInLoop extends AstNode {
+class ForInLoop extends AstNode with Dumpable {
   final List<Identifier> names;
   final List<AstNode> iterators;
   final List<AstNode> body;
@@ -353,10 +545,35 @@ class ForInLoop extends AstNode {
     final paramsSrc = names.map((p) => p.toSource()).join(", ");
     return "for $paramsSrc in ${iterators.map((i) => i.toSource()).join(", ")} do\n$bodySrc\nend";
   }
+
+  @override
+  Map<String, dynamic> dump() => {
+    'type': 'ForInLoop',
+    'names': names.map((n) => n.dump()).toList(),
+    'iterators': iterators
+        .map((i) => i is Dumpable ? (i).dump() : {'type': 'Unknown'})
+        .toList(),
+    'body': body
+        .map((s) => s is Dumpable ? (s).dump() : {'type': 'Unknown'})
+        .toList(),
+  };
+
+  static ForInLoop fromDump(Map<String, dynamic> data) {
+    final names = (data['names'] as List? ?? const <dynamic>[])
+        .map((n) => Identifier.fromDump(Map<String, dynamic>.from(n)))
+        .toList();
+    final iterators = (data['iterators'] as List? ?? const <dynamic>[])
+        .map((i) => undumpAst(Map<String, dynamic>.from(i)))
+        .toList();
+    final body = (data['body'] as List? ?? const <dynamic>[])
+        .map((s) => undumpAst(Map<String, dynamic>.from(s)))
+        .toList();
+    return ForInLoop(names, iterators, body);
+  }
 }
 
 /// repeat body until cond
-class RepeatUntilLoop extends AstNode {
+class RepeatUntilLoop extends AstNode with Dumpable {
   final List<AstNode> body;
   final AstNode cond;
 
@@ -371,10 +588,27 @@ class RepeatUntilLoop extends AstNode {
     final bodySrc = body.map((s) => s.toSource()).join("\n");
     return "repeat\n$bodySrc\nuntil ${cond.toSource()}";
   }
+
+  @override
+  Map<String, dynamic> dump() => {
+    'type': 'RepeatUntilLoop',
+    'body': body
+        .map((s) => s is Dumpable ? (s).dump() : {'type': 'Unknown'})
+        .toList(),
+    'cond': cond is Dumpable ? (cond as Dumpable).dump() : {'type': 'Unknown'},
+  };
+
+  static RepeatUntilLoop fromDump(Map<String, dynamic> data) {
+    final body = (data['body'] as List? ?? const <dynamic>[])
+        .map((s) => undumpAst(Map<String, dynamic>.from(s)))
+        .toList();
+    final cond = undumpAst(Map<String, dynamic>.from(data['cond']));
+    return RepeatUntilLoop(body, cond);
+  }
 }
 
 /// function name(params) body end
-class FunctionDef extends AstNode {
+class FunctionDef extends AstNode with Dumpable {
   final FunctionName name;
   final FunctionBody body;
   bool implicitSelf;
@@ -386,10 +620,25 @@ class FunctionDef extends AstNode {
 
   @override
   String toSource() => "function ${name.toSource()} ${body.toSource()}";
+
+  @override
+  Map<String, dynamic> dump() => {
+    'type': 'FunctionDef',
+    'name': name.dump(),
+    'body': body.dump(),
+    'implicitSelf': implicitSelf,
+  };
+
+  static FunctionDef fromDump(Map<String, dynamic> data) {
+    final name = FunctionName.fromDump(Map<String, dynamic>.from(data['name']));
+    final body = FunctionBody.fromDump(Map<String, dynamic>.from(data['body']));
+    final implicitSelf = data['implicitSelf'] as bool? ?? false;
+    return FunctionDef(name, body, implicitSelf: implicitSelf);
+  }
 }
 
 //FunctionName(first, rest, method)
-class FunctionName extends AstNode {
+class FunctionName extends AstNode with Dumpable {
   final Identifier first;
   final List<Identifier> rest;
   final Identifier? method;
@@ -404,10 +653,29 @@ class FunctionName extends AstNode {
     final restSrc = rest.map((r) => r.toSource()).join(", ");
     return "${first.toSource()}${restSrc.isNotEmpty ? "($restSrc)" : ""}${method != null ? ".$method" : ""}";
   }
+
+  @override
+  Map<String, dynamic> dump() => {
+    'type': 'FunctionName',
+    'first': first.dump(),
+    'rest': rest.map((r) => r.dump()).toList(),
+    'method': method?.dump(),
+  };
+
+  static FunctionName fromDump(Map<String, dynamic> data) {
+    final first = Identifier.fromDump(Map<String, dynamic>.from(data['first']));
+    final rest = (data['rest'] as List? ?? const <dynamic>[])
+        .map((r) => Identifier.fromDump(Map<String, dynamic>.from(r)))
+        .toList();
+    final method = data['method'] != null
+        ? Identifier.fromDump(Map<String, dynamic>.from(data['method']))
+        : null;
+    return FunctionName(first, rest, method);
+  }
 }
 
 // LocalFunctionDef(name, funcBody)
-class LocalFunctionDef extends AstNode {
+class LocalFunctionDef extends AstNode with Dumpable {
   final Identifier name;
   final FunctionBody funcBody;
 
@@ -420,6 +688,21 @@ class LocalFunctionDef extends AstNode {
   @override
   String toSource() =>
       "local function ${name.toSource()} ${funcBody.toSource()}";
+
+  @override
+  Map<String, dynamic> dump() => {
+    'type': 'LocalFunctionDef',
+    'name': name.dump(),
+    'funcBody': funcBody.dump(),
+  };
+
+  static LocalFunctionDef fromDump(Map<String, dynamic> data) {
+    final name = Identifier.fromDump(Map<String, dynamic>.from(data['name']));
+    final funcBody = FunctionBody.fromDump(
+      Map<String, dynamic>.from(data['funcBody']),
+    );
+    return LocalFunctionDef(name, funcBody);
+  }
 }
 
 class FunctionBody extends AstNode with Dumpable {
@@ -521,7 +804,7 @@ class ReturnStatement extends AstNode with Dumpable {
 }
 
 /// yield expr
-class YieldStatement extends AstNode {
+class YieldStatement extends AstNode with Dumpable {
   final List<AstNode> expr;
 
   YieldStatement(this.expr);
@@ -532,10 +815,25 @@ class YieldStatement extends AstNode {
 
   @override
   String toSource() => "yield ${expr.map((e) => e.toSource()).join(", ")}";
+
+  @override
+  Map<String, dynamic> dump() => {
+    'type': 'YieldStatement',
+    'expr': expr
+        .map((e) => e is Dumpable ? (e).dump() : {'type': 'Unknown'})
+        .toList(),
+  };
+
+  static YieldStatement fromDump(Map<String, dynamic> data) {
+    final exprs = (data['expr'] as List? ?? const <dynamic>[])
+        .map((e) => undumpAst(Map<String, dynamic>.from(e)))
+        .toList();
+    return YieldStatement(exprs);
+  }
 }
 
 /// Expression used as a statement.
-class ExpressionStatement extends AstNode {
+class ExpressionStatement extends AstNode with Dumpable {
   final AstNode expr;
 
   ExpressionStatement(this.expr);
@@ -546,11 +844,22 @@ class ExpressionStatement extends AstNode {
 
   @override
   String toSource() => expr.toSource();
+
+  @override
+  Map<String, dynamic> dump() => {
+    'type': 'ExpressionStatement',
+    'expr': expr is Dumpable ? (expr as Dumpable).dump() : {'type': 'Unknown'},
+  };
+
+  static ExpressionStatement fromDump(Map<String, dynamic> data) {
+    final expr = undumpAst(Map<String, dynamic>.from(data['expr']));
+    return ExpressionStatement(expr);
+  }
 }
 
 /// `words[i] = 1`
 /// `words.value[i] = 1`
-class AssignmentIndexAccessExpr extends AstNode {
+class AssignmentIndexAccessExpr extends AstNode with Dumpable {
   final AstNode target;
   final AstNode index;
   final AstNode value;
@@ -566,10 +875,31 @@ class AssignmentIndexAccessExpr extends AstNode {
   String toSource() {
     return "${target.toSource()}[${index.toSource()}] = ${value.toSource()}";
   }
+
+  @override
+  Map<String, dynamic> dump() => {
+    'type': 'AssignmentIndexAccessExpr',
+    'target': target is Dumpable
+        ? (target as Dumpable).dump()
+        : {'type': 'Unknown'},
+    'index': index is Dumpable
+        ? (index as Dumpable).dump()
+        : {'type': 'Unknown'},
+    'value': value is Dumpable
+        ? (value as Dumpable).dump()
+        : {'type': 'Unknown'},
+  };
+
+  static AssignmentIndexAccessExpr fromDump(Map<String, dynamic> data) {
+    final target = undumpAst(Map<String, dynamic>.from(data['target']));
+    final index = undumpAst(Map<String, dynamic>.from(data['index']));
+    final value = undumpAst(Map<String, dynamic>.from(data['value']));
+    return AssignmentIndexAccessExpr(target, index, value);
+  }
 }
 
 /// Table field access expression (table.field) - dot notation
-class TableFieldAccess extends AstNode {
+class TableFieldAccess extends AstNode with Dumpable {
   final AstNode table;
   final Identifier fieldName; // Always an identifier for field access
 
@@ -581,10 +911,27 @@ class TableFieldAccess extends AstNode {
 
   @override
   String toSource() => "${table.toSource()}.${fieldName.toSource()}";
+
+  @override
+  Map<String, dynamic> dump() => {
+    'type': 'TableFieldAccess',
+    'table': table is Dumpable
+        ? (table as Dumpable).dump()
+        : {'type': 'Unknown'},
+    'fieldName': fieldName.dump(),
+  };
+
+  static TableFieldAccess fromDump(Map<String, dynamic> data) {
+    final table = undumpAst(Map<String, dynamic>.from(data['table']));
+    final fieldName = Identifier.fromDump(
+      Map<String, dynamic>.from(data['fieldName']),
+    );
+    return TableFieldAccess(table, fieldName);
+  }
 }
 
 /// Table index access expression (table[expr]) - bracket notation
-class TableIndexAccess extends AstNode {
+class TableIndexAccess extends AstNode with Dumpable {
   final AstNode table;
   final AstNode index; // Any expression for index access
 
@@ -596,11 +943,28 @@ class TableIndexAccess extends AstNode {
 
   @override
   String toSource() => "${table.toSource()}[${index.toSource()}]";
+
+  @override
+  Map<String, dynamic> dump() => {
+    'type': 'TableIndexAccess',
+    'table': table is Dumpable
+        ? (table as Dumpable).dump()
+        : {'type': 'Unknown'},
+    'index': index is Dumpable
+        ? (index as Dumpable).dump()
+        : {'type': 'Unknown'},
+  };
+
+  static TableIndexAccess fromDump(Map<String, dynamic> data) {
+    final table = undumpAst(Map<String, dynamic>.from(data['table']));
+    final index = undumpAst(Map<String, dynamic>.from(data['index']));
+    return TableIndexAccess(table, index);
+  }
 }
 
 /// Legacy table access expression - kept for backward compatibility
 /// Will be deprecated in favor of TableFieldAccess and TableIndexAccess
-class TableAccessExpr extends AstNode {
+class TableAccessExpr extends AstNode with Dumpable {
   final AstNode table;
   final AstNode index;
 
@@ -611,10 +975,27 @@ class TableAccessExpr extends AstNode {
 
   @override
   String toSource() => "${table.toSource()}.${index.toSource()}";
+
+  @override
+  Map<String, dynamic> dump() => {
+    'type': 'TableAccessExpr',
+    'table': table is Dumpable
+        ? (table as Dumpable).dump()
+        : {'type': 'Unknown'},
+    'index': index is Dumpable
+        ? (index as Dumpable).dump()
+        : {'type': 'Unknown'},
+  };
+
+  static TableAccessExpr fromDump(Map<String, dynamic> data) {
+    final table = undumpAst(Map<String, dynamic>.from(data['table']));
+    final index = undumpAst(Map<String, dynamic>.from(data['index']));
+    return TableAccessExpr(table, index);
+  }
 }
 
 /// Binary operation: left op right.
-class BinaryExpression extends AstNode {
+class BinaryExpression extends AstNode with Dumpable {
   final AstNode left;
   final String op;
   final AstNode right;
@@ -627,12 +1008,29 @@ class BinaryExpression extends AstNode {
 
   @override
   String toSource() => "(${left.toSource()} $op ${right.toSource()})";
+
+  @override
+  Map<String, dynamic> dump() => {
+    'type': 'BinaryExpression',
+    'left': left is Dumpable ? (left as Dumpable).dump() : {'type': 'Unknown'},
+    'op': op,
+    'right': right is Dumpable
+        ? (right as Dumpable).dump()
+        : {'type': 'Unknown'},
+  };
+
+  static BinaryExpression fromDump(Map<String, dynamic> data) {
+    final left = undumpAst(Map<String, dynamic>.from(data['left']));
+    final op = data['op'] as String;
+    final right = undumpAst(Map<String, dynamic>.from(data['right']));
+    return BinaryExpression(left, op, right);
+  }
 }
 
 /// Unary operation: op expr.
 /// Example: -5, not true.
 
-class UnaryExpression extends AstNode {
+class UnaryExpression extends AstNode with Dumpable {
   final String op;
   final AstNode expr;
 
@@ -649,12 +1047,25 @@ class UnaryExpression extends AstNode {
     }
     return "$op$expr";
   }
+
+  @override
+  Map<String, dynamic> dump() => {
+    'type': 'UnaryExpression',
+    'op': op,
+    'expr': expr is Dumpable ? (expr as Dumpable).dump() : {'type': 'Unknown'},
+  };
+
+  static UnaryExpression fromDump(Map<String, dynamic> data) {
+    final op = data['op'] as String;
+    final expr = undumpAst(Map<String, dynamic>.from(data['expr']));
+    return UnaryExpression(op, expr);
+  }
 }
 
 abstract class Call extends AstNode {}
 
 /// Function call: name(args).
-class FunctionCall extends Call {
+class FunctionCall extends Call with Dumpable {
   final AstNode name;
   final List<AstNode> args;
 
@@ -668,10 +1079,27 @@ class FunctionCall extends Call {
     final argsSrc = args.map((a) => a.toSource()).join(", ");
     return "${name.toSource()}($argsSrc)";
   }
+
+  @override
+  Map<String, dynamic> dump() => {
+    'type': 'FunctionCall',
+    'name': name is Dumpable ? (name as Dumpable).dump() : {'type': 'Unknown'},
+    'args': args
+        .map((a) => a is Dumpable ? (a).dump() : {'type': 'Unknown'})
+        .toList(),
+  };
+
+  static FunctionCall fromDump(Map<String, dynamic> data) {
+    final name = undumpAst(Map<String, dynamic>.from(data['name']));
+    final args = (data['args'] as List? ?? const <dynamic>[])
+        .map((a) => undumpAst(Map<String, dynamic>.from(a)))
+        .toList();
+    return FunctionCall(name, args);
+  }
 }
 
 // MethodCall(prefix, methodName, args);
-class MethodCall extends Call {
+class MethodCall extends Call with Dumpable {
   final AstNode prefix;
   final AstNode methodName;
   final List<AstNode> args;
@@ -692,10 +1120,35 @@ class MethodCall extends Call {
     final argsSrc = args.map((a) => a.toSource()).join(", ");
     return "${prefix.toSource()}.${methodName.toSource()}($argsSrc)";
   }
+
+  @override
+  Map<String, dynamic> dump() => {
+    'type': 'MethodCall',
+    'prefix': prefix is Dumpable
+        ? (prefix as Dumpable).dump()
+        : {'type': 'Unknown'},
+    'methodName': methodName is Dumpable
+        ? (methodName as Dumpable).dump()
+        : {'type': 'Unknown'},
+    'args': args
+        .map((a) => a is Dumpable ? (a).dump() : {'type': 'Unknown'})
+        .toList(),
+    'implicitSelf': implicitSelf,
+  };
+
+  static MethodCall fromDump(Map<String, dynamic> data) {
+    final prefix = undumpAst(Map<String, dynamic>.from(data['prefix']));
+    final methodName = undumpAst(Map<String, dynamic>.from(data['methodName']));
+    final args = (data['args'] as List? ?? const <dynamic>[])
+        .map((a) => undumpAst(Map<String, dynamic>.from(a)))
+        .toList();
+    final implicitSelf = data['implicitSelf'] as bool? ?? false;
+    return MethodCall(prefix, methodName, args, implicitSelf: implicitSelf);
+  }
 }
 
 /// Table constructor: { entries }.
-class TableConstructor extends AstNode {
+class TableConstructor extends AstNode with Dumpable {
   final List<TableEntry> entries;
 
   TableConstructor(this.entries);
@@ -709,13 +1162,30 @@ class TableConstructor extends AstNode {
     final entriesSrc = entries.map((e) => e.toSource()).join(", ");
     return "{ $entriesSrc }";
   }
+
+  @override
+  Map<String, dynamic> dump() => {
+    'type': 'TableConstructor',
+    'entries': entries
+        .map(
+          (e) => e is Dumpable ? (e as Dumpable).dump() : {'type': 'Unknown'},
+        )
+        .toList(),
+  };
+
+  static TableConstructor fromDump(Map<String, dynamic> data) {
+    final entries = (data['entries'] as List? ?? const <dynamic>[])
+        .map((e) => undumpAst(Map<String, dynamic>.from(e)) as TableEntry)
+        .toList();
+    return TableConstructor(entries);
+  }
 }
 
 /// Abstract base class for table entries.
 abstract class TableEntry extends AstNode {}
 
 // Keyed table entry: key = value (field assignment)
-class KeyedTableEntry extends TableEntry {
+class KeyedTableEntry extends TableEntry with Dumpable {
   final AstNode key; // Identifier for field name
   final AstNode value;
 
@@ -729,10 +1199,25 @@ class KeyedTableEntry extends TableEntry {
   String toSource() {
     return "${key.toSource()} = ${value.toSource()}";
   }
+
+  @override
+  Map<String, dynamic> dump() => {
+    'type': 'KeyedTableEntry',
+    'key': key is Dumpable ? (key as Dumpable).dump() : {'type': 'Unknown'},
+    'value': value is Dumpable
+        ? (value as Dumpable).dump()
+        : {'type': 'Unknown'},
+  };
+
+  static KeyedTableEntry fromDump(Map<String, dynamic> data) {
+    final key = undumpAst(Map<String, dynamic>.from(data['key']));
+    final value = undumpAst(Map<String, dynamic>.from(data['value']));
+    return KeyedTableEntry(key, value);
+  }
 }
 
 // Indexed table entry: [key] = value (index assignment)
-class IndexedTableEntry extends TableEntry {
+class IndexedTableEntry extends TableEntry with Dumpable {
   final AstNode key; // Expression to be evaluated as key
   final AstNode value;
 
@@ -746,10 +1231,25 @@ class IndexedTableEntry extends TableEntry {
   String toSource() {
     return '[${key.toSource()}] = ${value.toSource()}';
   }
+
+  @override
+  Map<String, dynamic> dump() => {
+    'type': 'IndexedTableEntry',
+    'key': key is Dumpable ? (key as Dumpable).dump() : {'type': 'Unknown'},
+    'value': value is Dumpable
+        ? (value as Dumpable).dump()
+        : {'type': 'Unknown'},
+  };
+
+  static IndexedTableEntry fromDump(Map<String, dynamic> data) {
+    final key = undumpAst(Map<String, dynamic>.from(data['key']));
+    final value = undumpAst(Map<String, dynamic>.from(data['value']));
+    return IndexedTableEntry(key, value);
+  }
 }
 
 /// Table entry given as a lone expression.
-class TableEntryLiteral extends TableEntry {
+class TableEntryLiteral extends TableEntry with Dumpable {
   final AstNode expr;
 
   TableEntryLiteral(this.expr);
@@ -763,10 +1263,21 @@ class TableEntryLiteral extends TableEntry {
 
   @override
   String toString() => "TableEntryLiteral(${expr.toString()})";
+
+  @override
+  Map<String, dynamic> dump() => {
+    'type': 'TableEntryLiteral',
+    'expr': expr is Dumpable ? (expr as Dumpable).dump() : {'type': 'Unknown'},
+  };
+
+  static TableEntryLiteral fromDump(Map<String, dynamic> data) {
+    final expr = undumpAst(Map<String, dynamic>.from(data['expr']));
+    return TableEntryLiteral(expr);
+  }
 }
 
 /// Literal representing a nil value.
-class NilValue extends AstNode {
+class NilValue extends AstNode with Dumpable {
   NilValue();
 
   @override
@@ -774,6 +1285,13 @@ class NilValue extends AstNode {
 
   @override
   String toSource() => "nil";
+
+  @override
+  Map<String, dynamic> dump() => {'type': 'NilValue'};
+
+  static NilValue fromDump(Map<String, dynamic> data) {
+    return NilValue();
+  }
 }
 
 /// Numeric literal.
