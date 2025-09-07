@@ -91,7 +91,7 @@ class Interpreter extends AstVisitor<Object?>
   /// Lowered to 512 to avoid long-running overflow tests (e.g., xpcall/pcall
   /// recursion) hitting the default test timeout while still allowing
   /// realistic recursion depth for regular programs.
-  static const int maxCallDepth = 128;
+  static const int maxCallDepth = 512;
 
   /// Gets the currently running coroutine
   @override
