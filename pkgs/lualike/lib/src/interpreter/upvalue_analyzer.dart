@@ -1,7 +1,6 @@
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/upvalue.dart';
-import 'package:lualike/src/value.dart';
 
 /// Analyzes AST nodes to determine which variables are upvalues.
 ///

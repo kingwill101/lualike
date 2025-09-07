@@ -1388,17 +1388,10 @@ Program parse(String source, {Uri? url}) {
   final end = pos < normalizedSource.length ? pos + 1 : pos;
   final span = sourceFile.span(pos, end);
 
-  String unexpected;
-  if (pos >= normalizedSource.length) {
-    unexpected = 'end of input';
-  } else {
-    final ch = normalizedSource[pos];
-    unexpected = ch == '\n' ? 'newline' : "'$ch'";
-  }
+
 
   // Basic heuristic: if we see an identifier followed by whitespace and '...' but no comma,
   // suggest the missing comma (common Lua gotcha).
-  String suggestion = '';
   final _ = pos >= 30 ? pos - 30 : 0;
 
   // Special cases: surface Lua-like errors for unfinished long strings/comments
