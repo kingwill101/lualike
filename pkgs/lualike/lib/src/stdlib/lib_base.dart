@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:lualike/lualike.dart';
+import 'package:lualike/src/ast_dump.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/const_checker.dart';
 import 'package:lualike/src/utils/file_system_utils.dart';
@@ -595,26 +596,72 @@ class LoadFunction implements BuiltinFunction {
     String mode;
     Value? providedEnv;
 
+    // Handle chunkname parameter (2nd argument)
+    chunkname = args.length > 1 ? (args[1] as Value).raw.toString() : "=(load)";
+
     // Handle mode parameter (3rd argument)
-    mode = args.length > 2 ? (args[2] as Value).raw.toString() : 'bt';
+    if (args.length > 2) {
+      final modeValue = (args[2] as Value).raw;
+      mode = modeValue == null ? 'bt' : modeValue.toString();
+    } else {
+      mode = 'bt';
+    }
 
     // Handle environment parameter (4th argument). Keep as Value to preserve metatable/proxy
     if (args.length > 3) {
       providedEnv = args[3] as Value;
     }
 
+    bool isBinaryChunk = false;
+
     if (args[0] is Value) {
       if ((args[0] as Value).raw is String) {
         // Load from string
         source = (args[0] as Value).raw as String;
+        // Check if it starts with ESC (0x1B) to detect binary chunks
+        isBinaryChunk = source.isNotEmpty && source.codeUnitAt(0) == 0x1B;
+        Logger.debug(
+          "LoadFunction: String source, length=${source.length}, isBinaryChunk=$isBinaryChunk",
+          category: 'Load',
+        );
+        if (isBinaryChunk) {
+          // If binary, interpret the rest as textual payload
+          source = source.substring(1);
+          Logger.debug(
+            "LoadFunction: Stripped ESC, new source='$source'",
+            category: 'Load',
+          );
+        }
       } else if ((args[0] as Value).raw is LuaString) {
         // Load from LuaString - convert bytes to UTF-8 string to preserve encoding
         final luaString = (args[0] as Value).raw as LuaString;
-        try {
-          source = utf8.decode(luaString.bytes, allowMalformed: true);
-        } catch (e) {
-          // Fallback to Latin-1 if UTF-8 decode fails
-          source = luaString.toLatin1String();
+        // Check if it starts with ESC (0x1B) to detect binary chunks
+        isBinaryChunk =
+            luaString.bytes.isNotEmpty && luaString.bytes[0] == 0x1B;
+        Logger.debug(
+          "LoadFunction: LuaString source, length=${luaString.bytes.length}, first byte=${luaString.bytes.isNotEmpty ? luaString.bytes[0] : 'none'}, isBinaryChunk=$isBinaryChunk",
+          category: 'Load',
+        );
+        if (isBinaryChunk) {
+          // If binary, interpret the rest as textual payload
+          final payloadBytes = luaString.bytes.sublist(1);
+          try {
+            source = utf8.decode(payloadBytes, allowMalformed: true);
+          } catch (e) {
+            // Fallback to Latin-1 if UTF-8 decode fails
+            source = String.fromCharCodes(payloadBytes);
+          }
+          Logger.debug(
+            "LoadFunction: Decoded binary payload to: '$source'",
+            category: 'Load',
+          );
+        } else {
+          try {
+            source = utf8.decode(luaString.bytes, allowMalformed: true);
+          } catch (e) {
+            // Fallback to Latin-1 if UTF-8 decode fails
+            source = luaString.toLatin1String();
+          }
         }
       } else if ((args[0] as Value).raw is Function) {
         // Load from reader function
@@ -640,8 +687,8 @@ class LoadFunction implements BuiltinFunction {
                 );
               }
               chunks.add(s);
-            } else {
-              final s = chunk.raw.toString();
+            } else if (chunk.raw is String) {
+              final s = chunk.raw as String;
               if (s.isEmpty) break;
               readCount++;
               if (Logger.enabled) {
@@ -652,26 +699,56 @@ class LoadFunction implements BuiltinFunction {
                 );
               }
               chunks.add(s);
+            } else {
+              // Reader function must return string or nil
+              return [
+                Value(null),
+                Value("reader function must return a string"),
+              ];
             }
           } else {
-            final s = chunk.toString();
-            if (s.isEmpty) break;
-            readCount++;
-            if (Logger.enabled) {
-              final prev = s.length > 10 ? s.substring(0, 10) : s;
-              Logger.debug(
-                "load(reader): chunk #$readCount (dynamic) len=${s.length} head='${prev.replaceAll('\n', '\\n')}'",
-                category: 'Load',
-              );
+            // Non-Value return from reader function is invalid
+            return [Value(null), Value("reader function must return a string")];
+          }
+
+          // Try to parse incrementally to detect lexical errors early like Lua
+          // This prevents infinite loops with invalid repeating chunks
+          if (chunks.length >= 2) {
+            final testSource = chunks.join();
+            try {
+              // Try parsing to see if we get a lexical error
+              parse(testSource, url: chunkname);
+            } catch (e) {
+              // If we get a FormatException (parse error), check if it's a lexical error
+              // Only catch errors that suggest the input will never be valid
+              if (e is FormatException && e.message.contains('malformed')) {
+                // Return lexical errors immediately, like Lua does
+                return [Value(null), Value(e.message)];
+              }
+              // For other parse errors (like incomplete input), continue reading
             }
-            chunks.add(s);
+          }
+
+          // Prevent infinite loops by limiting chunk count
+          if (readCount > 100) {
+            return [Value(null), Value("too many chunks from reader function")];
           }
         }
         source = chunks.join();
+        // Check if the concatenated source from reader is a binary chunk
+        isBinaryChunk = source.isNotEmpty && source.codeUnitAt(0) == 0x1B;
+        if (isBinaryChunk) {
+          // If binary, interpret the rest as textual payload
+          source = source.substring(1);
+          Logger.debug(
+            "LoadFunction: Reader produced binary chunk, stripped ESC, new source='$source'",
+            category: 'Load',
+          );
+        }
         if (Logger.enabled) {
           final prev = source.length > 40 ? source.substring(0, 40) : source;
           Logger.debug(
-            "load(reader): total chunks=$readCount, source len=${source.length}, head='${prev.replaceAll('\n', '\\n')}'",
+            "load(reader): total chunks=$readCount, source len=${source.length}, isBinaryChunk=$isBinaryChunk, head='${prev.replaceAll('\n', '\\n')}'",
             category: 'Load',
           );
         }
@@ -684,16 +761,35 @@ class LoadFunction implements BuiltinFunction {
           "load() first argument must be string, function or binary",
         );
       }
-      chunkname = args.length > 1
-          ? (args[1] as Value).raw.toString()
-          : "=(load)";
+      // chunkname already assigned above
     } else {
       throw Exception("load() first argument must be a string");
     }
 
-    // Check if mode allows text chunks
-    if (mode.contains('b') && !mode.contains('t')) {
-      // Binary mode only - reject text chunks
+    // Check mode compatibility with chunk type
+    final allowBinary = mode.contains('b');
+    final allowText = mode.contains('t');
+
+    Logger.debug(
+      "LoadFunction: mode='$mode', allowBinary=$allowBinary, allowText=$allowText, isBinaryChunk=$isBinaryChunk",
+      category: 'Load',
+    );
+
+    if (isBinaryChunk && !allowBinary) {
+      Logger.debug(
+        "LoadFunction: Rejecting binary chunk because mode '$mode' doesn't allow binary",
+        category: 'Load',
+      );
+      return [
+        Value(null),
+        Value("attempt to load a binary chunk (mode is '$mode')"),
+      ];
+    }
+    if (!isBinaryChunk && !allowText) {
+      Logger.debug(
+        "LoadFunction: Rejecting text chunk because mode '$mode' doesn't allow text",
+        category: 'Load',
+      );
       return [
         Value(null),
         Value("attempt to load a text chunk (mode is '$mode')"),
@@ -724,19 +820,20 @@ class LoadFunction implements BuiltinFunction {
         return [Value(null), Value(adjustedError)];
       }
 
-      // Create a synthetic function body with source info for debug.getinfo
+      // Create a function body with the actual AST for string.dump compatibility
       final sourceFile = path.url.joinAll(
         path.split(path.normalize(chunkname)),
       );
-      final syntheticBody = FunctionBody([], [], false);
+      // Create a function body with the actual AST for string.dump compatibility
+      final actualBody = FunctionBody([], ast.statements, false);
       try {
         final file = SourceFile.fromString(source, url: sourceFile);
-        syntheticBody.setSpan(file.span(0, source.length));
+        actualBody.setSpan(file.span(0, source.length));
       } catch (_) {
         // If we cannot create a SourceFile, leave span null
       }
 
-      return Value((List<Object?> callArgs) async {
+      final result = Value((List<Object?> callArgs) async {
         try {
           // Save the current environment
           final savedEnv = vm.getCurrentEnv();
@@ -835,7 +932,10 @@ class LoadFunction implements BuiltinFunction {
         } catch (e) {
           throw LuaError("Error executing loaded chunk '$chunkname': $e");
         }
-      }, functionBody: syntheticBody);
+      }, functionBody: actualBody);
+
+      result.interpreter = vm;
+      return result;
     } catch (e) {
       // For FormatException, return just the message without prefix
       // to match Lua's error format
