@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:lualike/lualike.dart';
-import 'package:lualike/src/ast_dump.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/const_checker.dart';
 import 'package:lualike/src/utils/file_system_utils.dart';
