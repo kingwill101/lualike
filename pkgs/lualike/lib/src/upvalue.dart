@@ -58,6 +58,27 @@ class Upvalue {
     }
   }
 
+  /// Joins this upvalue with another upvalue by sharing the same value box.
+  ///
+  /// This is used by debug.upvaluejoin to make two upvalues share the same storage.
+  /// Since we can't modify the valueBox field (it's final), we'll make this upvalue
+  /// point to the same value as the target upvalue by updating the value in our box.
+  void joinWith(Upvalue other) {
+    if (_isOpen && other._isOpen) {
+      // Make this upvalue's box contain the same value as the other upvalue's box
+      valueBox.value = other.valueBox.value;
+    } else if (!_isOpen && !other._isOpen) {
+      // Both are closed, copy the closed value
+      _closedValue = other._closedValue;
+    } else if (_isOpen && !other._isOpen) {
+      // This is open, other is closed - set our box to the other's closed value
+      valueBox.value = other._closedValue;
+    } else {
+      // This is closed, other is open - capture the other's current value
+      _closedValue = other.valueBox.value;
+    }
+  }
+
   @override
   String toString() {
     final status = _isOpen ? 'open' : 'closed';

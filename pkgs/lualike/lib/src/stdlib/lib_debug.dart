@@ -336,7 +336,45 @@ class _UpvalueJoin implements BuiltinFunction {
     if (args.length < 4) {
       throw Exception("debug.upvaluejoin requires f1,n1,f2,n2 arguments");
     }
-    // Join upvalues
+
+    final f1Arg = args[0] as Value;
+    final n1Arg = args[1] as Value;
+    final f2Arg = args[2] as Value;
+    final n2Arg = args[3] as Value;
+
+    // Validate that indices are numbers
+    if (n1Arg.raw is! num || n2Arg.raw is! num) {
+      throw Exception("debug.upvaluejoin indices must be numbers");
+    }
+
+    final n1 = (n1Arg.raw as num).toInt();
+    final n2 = (n2Arg.raw as num).toInt();
+
+    // Validate that both functions have upvalues
+    if (f1Arg.upvalues == null || f2Arg.upvalues == null) {
+      throw Exception("debug.upvaluejoin: functions must have upvalues");
+    }
+
+    // Validate indices are within bounds
+    if (n1 < 1 || n1 > f1Arg.upvalues!.length) {
+      throw Exception("debug.upvaluejoin: f1 upvalue index $n1 out of bounds");
+    }
+    if (n2 < 1 || n2 > f2Arg.upvalues!.length) {
+      throw Exception("debug.upvaluejoin: f2 upvalue index $n2 out of bounds");
+    }
+
+    // Join the upvalues by making f1's upvalue point to the same value box as f2's upvalue
+    final f1Upvalue = f1Arg.upvalues![n1 - 1];
+    final f2Upvalue = f2Arg.upvalues![n2 - 1];
+    
+    // Use the new joinWith method to join the upvalues
+    f1Upvalue.joinWith(f2Upvalue);
+    
+    Logger.debug(
+      'UpvalueJoin: Joined f1 upvalue $n1 with f2 upvalue $n2',
+      category: 'Debug',
+    );
+
     return Value(null);
   }
 }
