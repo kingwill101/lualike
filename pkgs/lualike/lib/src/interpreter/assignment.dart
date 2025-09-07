@@ -779,6 +779,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           rawValue.raw,
           metatable: rawValue.metatable,
           // Explicitly do not copy isConst or isToBeClose
+          upvalues: rawValue.upvalues,
+          interpreter: rawValue.interpreter,
+          functionBody: rawValue.functionBody,
+          functionName: rawValue.functionName,
         );
       }
 

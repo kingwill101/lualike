@@ -187,6 +187,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         metatable: metatable != null ? Map.from(metatable!) : null,
         isConst: isConst,
         isToBeClose: isToBeClose,
+        upvalues: upvalues,
+        interpreter: interpreter,
+        functionBody: functionBody,
+        functionName: functionName,
       );
     }
     // For non-table values, copy with metatable
@@ -195,6 +199,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       metatable: metatable != null ? Map.from(metatable!) : null,
       isConst: isConst,
       isToBeClose: isToBeClose,
+      upvalues: upvalues,
+      interpreter: interpreter,
+      functionBody: functionBody,
+      functionName: functionName,
     );
   }
 
