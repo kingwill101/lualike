@@ -17,7 +17,17 @@ repl: compile
     ./lualike
 
 tool-test *ARG='':
-    dart run tools/test.dart {{ARG}}
+    # Ensure compiled test runner exists
+    if [ ! -x test_runner ]; then \
+      dart compile exe tools/test.dart -o test_runner; \
+    fi
+
+    # Run tests using compiled runner and binary
+    ./test_runner {{ARG}}
+
+# Compile the standalone test runner binary
+test-tool-compile:
+    dart compile exe tools/test.dart -o test_runner
 
 # Run integration tests with default options
 integrate *ARG='':

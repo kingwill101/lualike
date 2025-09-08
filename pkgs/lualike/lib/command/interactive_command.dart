@@ -42,6 +42,16 @@ class ConsoleOutputDevice implements IODevice {
   }
 
   @override
+  Future<WriteResult> writeBytes(List<int> bytes) async {
+    if (_isClosed) {
+      return WriteResult(false, "Device is closed");
+    }
+    // For console, interpret bytes as Latin-1 to preserve mapping
+    console.write(String.fromCharCodes(bytes));
+    return WriteResult(true);
+  }
+
+  @override
   Future<int> seek(SeekWhence whence, int offset) async {
     throw UnimplementedError("ConsoleOutputDevice does not support seek");
   }
@@ -91,7 +101,10 @@ class InteractiveMode {
     final stdinDevice = VirtualIODevice();
     final stdoutDevice = ConsoleOutputDevice(console);
     IOLib.defaultInput = LuaFile(stdinDevice);
-    IOLib.defaultOutput = LuaFile(stdoutDevice);
+    IOLib.defaultOutput = Value(
+      LuaFile(stdoutDevice),
+      metatable: IOLib.fileClass.metamethods,
+    );
 
     // Custom print function that writes to our buffer instead of stdout
     void customPrint(String message) {

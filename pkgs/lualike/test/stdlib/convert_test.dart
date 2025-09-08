@@ -28,9 +28,9 @@ void main() {
     test('base64Encode and base64Decode roundtrip', () async {
       final bridge = LuaLike();
       await bridge.execute('''
-        local bytes = dart.string.bytes.toBytes("hello lualike")
+        bytes = dart.string.bytes.toBytes("hello lualike")
         base64_encoded = convert.base64Encode(bytes)
-        local base64_decoded_bytes = convert.base64Decode(base64_encoded)
+        base64_decoded_bytes = convert.base64Decode(base64_encoded)
         base64_decoded_str = dart.string.bytes.fromBytes(base64_decoded_bytes)
       ''');
       final decoded = bridge.getGlobal('base64_decoded_str')!;
@@ -40,7 +40,7 @@ void main() {
     test('base64UrlEncode works', () async {
       final bridge = LuaLike();
       await bridge.execute('''
-        local bytes = dart.string.bytes.toBytes("??lualike??")
+        bytes = dart.string.bytes.toBytes("??lualike??")
         base64url_encoded = convert.base64UrlEncode(bytes)
       ''');
       final encoded = bridge.getGlobal('base64url_encoded')!;
@@ -62,7 +62,7 @@ void main() {
       await bridge.execute(r'''
         -- Use a string with Latin-1 characters (byte values 128-255)
         -- Create the string using string.char to ensure proper byte values
-        local test_str = string.char(98, 108, 229, 98, 230, 114, 103, 114, 246, 100) -- "bl" + å + "b" + æ + "rgr" + ö + "d"
+        test_str = string.char(98, 108, 229, 98, 230, 114, 103, 114, 246, 100) -- "bl" + å + "b" + æ + "rgr" + ö + "d"
         latin1_encoded = convert.latin1Encode(test_str)
         latin1_decoded = convert.latin1Decode(latin1_encoded)
       ''');

@@ -133,6 +133,18 @@ class _StringChar implements BuiltinFunction {
 class _StringDump implements BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
+    // TODO(lualike): string.dump is a minimal, test-oriented implementation.
+    // - Not a true bytecode dump; we synthesize a textual chunk prefixed with
+    //   ESC (0x1B) so loadfile recognizes it as "binary" in mode checks.
+    // - Only supports literal-only return functions (no upvalues, no complex body).
+    // - The optional 'strip' flag is not handled; debug info stripping is not implemented.
+    // - Functions with upvalues should serialize only the upvalue count and, upon
+    //   load, receive fresh nil upvalues; we currently do not implement that.
+    // - On unsupported functions, Lua raises "unable to dump given function";
+    //   we should align error behavior (raise LuaError) instead of returning stubs.
+    // Consider reworking this to leverage Dumpable on AST nodes and/or add a
+    // proper bytecode path once a VM serialization format is available.
+
     if (args.isEmpty) {
       throw LuaError.typeError("string.dump requires a function argument");
     }
@@ -142,9 +154,125 @@ class _StringDump implements BuiltinFunction {
       throw LuaError.typeError("string.dump requires a function argument");
     }
 
-    // In a real implementation, this would serialize the function
-    // For now, we'll just return a placeholder
-    return Value("function bytecode");
+    // Heuristic dump without executing the function: inspect the captured
+    // function body. If it is a simple function with a literal-only return
+    // statement, synthesize a chunk "return <literals>". This mirrors the
+    // behavior of loading a precompiled function that returns those values
+    // when executed.
+    List<Object?> retValues = [];
+    final fb = func.functionBody;
+    if (fb != null) {
+      // Find the first ReturnStatement in the body
+      ReturnStatement? ret;
+      for (final s in fb.body) {
+        if (s is ReturnStatement) {
+          ret = s;
+          break;
+        }
+      }
+      if (ret != null) {
+        bool allLiterals = true;
+        for (final e in ret.expr) {
+          if (e is NumberLiteral) {
+            retValues.add(Value(e.value));
+          } else if (e is StringLiteral) {
+            retValues.add(
+              Value(LuaString.fromBytes(Uint8List.fromList(e.bytes))),
+            );
+          } else if (e is BooleanLiteral) {
+            retValues.add(Value(e.value));
+          } else if (e is NilValue) {
+            retValues.add(Value(null));
+          } else {
+            allLiterals = false;
+            break;
+          }
+        }
+        if (!allLiterals) {
+          // Fallback: do not attempt to dump complex functions
+          return Value("-- dump unsupported (complex function)");
+        }
+      } else {
+        return Value("-- dump unsupported (no return)");
+      }
+    } else {
+      return Value("-- dump unsupported (no body)");
+    }
+
+    String quoteStringFromBytes(Uint8List bytes) {
+      final sb = StringBuffer();
+      sb.write('"');
+      for (final b in bytes) {
+        switch (b) {
+          case 34: // '"'
+            sb.write('\\"');
+            break;
+          case 92: // '\\'
+            sb.write('\\\\');
+            break;
+          case 10: // '\n'
+            sb.write('\\n');
+            break;
+          case 13: // '\r'
+            sb.write('\\r');
+            break;
+          case 9: // '\t'
+            sb.write('\\t');
+            break;
+          default:
+            if (b >= 32 && b <= 126) {
+              sb.write(String.fromCharCode(b));
+            } else {
+              // Use 3-digit decimal escapes \ddd
+              final d = b.toString().padLeft(3, '0');
+              sb.write('\\$d');
+            }
+        }
+      }
+      sb.write('"');
+      return sb.toString();
+    }
+
+    String toLuaLiteral(Value v) {
+      final raw = v.raw;
+      if (raw == null) return 'nil';
+      if (raw is bool) return raw ? 'true' : 'false';
+      if (raw is BigInt) return raw.toString();
+      if (raw is num) {
+        if (raw.isNaN) return '(0/0)';
+        if (raw == double.infinity) return '(1/0)';
+        if (raw == double.negativeInfinity) return '(-1/0)';
+        return raw.toString();
+      }
+      if (raw is LuaString) {
+        return quoteStringFromBytes(raw.bytes);
+      }
+      if (raw is String) {
+        // Encode to bytes to preserve non-ASCII in decimal escapes
+        final bytes = Uint8List.fromList(utf8.encode(raw));
+        return quoteStringFromBytes(bytes);
+      }
+      // Unsupported types in this heuristic
+      return 'nil';
+    }
+
+    final parts = <String>[];
+    for (final val in retValues) {
+      final vv = val is Value ? val : Value(val);
+      parts.add(toLuaLiteral(vv));
+    }
+    final body = parts.isEmpty ? '' : parts.join(', ');
+    // Produce a chunk that, when executed, returns the captured values.
+    final chunk = 'return $body';
+    Logger.debug('string.dump synthesized chunk: $chunk', category: 'String');
+    // Return as a LuaString so that byte-for-byte write preserves content
+    // Prefix with 0x1B to mark as a "binary" chunk for loadfile() mode checks.
+    final payload = utf8.encode(chunk);
+    final bytes = Uint8List(payload.length + 1);
+    bytes[0] = 0x1B; // ESC
+    bytes.setRange(1, bytes.length, payload);
+    final luaString = LuaString.fromBytes(bytes);
+    return Value(luaString);
   }
 }
 

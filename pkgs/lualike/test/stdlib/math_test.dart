@@ -12,12 +12,12 @@ void main() {
 
     test('basic arithmetic functions', () async {
       await bridge.execute('''
-        local abs = math.abs(-5)
-        local ceil = math.ceil(3.4)
-        local floor = math.floor(3.7)
-        local max = math.max(1, 5, 3, 2, 4)
-        local min = math.min(1, 5, 3, 2, 4)
-        local mod = math.fmod(10, 3)
+        abs = math.abs(-5)
+        ceil = math.ceil(3.4)
+        floor = math.floor(3.7)
+        max = math.max(1, 5, 3, 2, 4)
+        min = math.min(1, 5, 3, 2, 4)
+        mod = math.fmod(10, 3)
       ''');
 
       var abs = bridge.getGlobal('abs');
@@ -37,13 +37,13 @@ void main() {
 
     test('trigonometric functions', () async {
       await bridge.execute('''
-        local pi = math.pi
-        local sin = math.sin(pi/2)
-        local cos = math.cos(pi)
-        local tan = math.tan(pi/4)
-        local asin = math.asin(1)
-        local acos = math.acos(0)
-        local atan = math.atan(1)
+        pi = math.pi
+        sin = math.sin(pi/2)
+        cos = math.cos(pi)
+        tan = math.tan(pi/4)
+        asin = math.asin(1)
+        acos = math.acos(0)
+        atan = math.atan(1)
       ''');
 
       var sin = bridge.getGlobal('sin');
@@ -63,10 +63,10 @@ void main() {
 
     test('exponential and logarithmic functions', () async {
       await bridge.execute('''
-        local exp = math.exp(1)
-        local log = math.log(math.exp(1))
-        local log10 = math.log(100, 10)
-        local sqrt = math.sqrt(16)
+        exp = math.exp(1)
+        log = math.log(math.exp(1))
+        log10 = math.log(100, 10)
+        sqrt = math.sqrt(16)
       ''');
 
       var exp = bridge.getGlobal('exp');
@@ -83,9 +83,9 @@ void main() {
     test('random number generation', () async {
       await bridge.execute('''
         math.randomseed(12345)
-        local r1 = math.random()
-        local r2 = math.random(10)
-        local r3 = math.random(20, 30)
+        r1 = math.random()
+        r2 = math.random(10)
+        r3 = math.random(20, 30)
       ''');
 
       var r1 = bridge.getGlobal('r1');
@@ -117,8 +117,8 @@ void main() {
 
     test('angle conversion', () async {
       await bridge.execute('''
-        local deg = math.deg(math.pi)
-        local rad = math.rad(180)
+        deg = math.deg(math.pi)
+        rad = math.rad(180)
       ''');
 
       var deg = bridge.getGlobal('deg');
@@ -130,9 +130,9 @@ void main() {
 
     test('math type checking', () async {
       await bridge.execute('''
-        local t1 = math.type(3)
-        local t2 = math.type(3.14)
-        local t3 = math.type("not a number")
+        t1 = math.type(3)
+        t2 = math.type(3.14)
+        t3 = math.type("not a number")
       ''');
 
       var t1 = bridge.getGlobal('t1');
@@ -146,7 +146,7 @@ void main() {
 
     test('modf function', () async {
       await bridge.execute('''
-        local i, f = math.modf(3.14)
+        i, f = math.modf(3.14)
       ''');
 
       var i = bridge.getGlobal('i');
@@ -158,8 +158,8 @@ void main() {
 
     test('constants', () async {
       await bridge.execute('''
-        local pi = math.pi
-        local huge = math.huge
+        pi = math.pi
+        huge = math.huge
       ''');
 
       var pi = bridge.getGlobal('pi');
@@ -171,11 +171,11 @@ void main() {
 
     test('indirect usage through metatables', () async {
       await bridge.execute('''
-        local x = -5
-        local y = math.abs(x)
-        local sum = 2 + 3
-        local neg = -x
-        local prod = 2 * 3
+        x = -5
+        y = math.abs(x)
+        sum = 2 + 3
+        neg = -x
+        prod = 2 * 3
       ''');
 
       var y = bridge.getGlobal('y');

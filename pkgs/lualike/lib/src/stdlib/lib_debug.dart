@@ -46,8 +46,35 @@ class _GetLocal implements BuiltinFunction {
         "debug.getlocal requires thread/function and level arguments",
       );
     }
-    // Return name and value of local variable
-    return [Value(null), Value(null)];
+
+    final levelArg = args[0] as Value;
+    final indexArg = args[1] as Value;
+
+    // Only support numeric level lookups (common case in tests)
+    if (levelArg.raw is! num || indexArg.raw is! num) {
+      return Value.multi([Value(null), Value(null)]);
+    }
+
+    final level = (levelArg.raw as num).toInt();
+    final index = (indexArg.raw as num).toInt();
+
+    // Map Lua levels to our call stack: skip this C function's own frame
+    final interpreter = Environment.current?.interpreter;
+    final frame = interpreter?.callStack.getFrameAtLevel(level + 1);
+    if (frame == null) {
+      return Value.multi([Value(null), Value(null)]);
+    }
+
+    // Enumerate debug locals recorded for the frame
+    final locals = frame.debugLocals;
+    if (index <= 0 || index > locals.length) {
+      return Value.multi([Value(null), Value(null)]);
+    }
+
+    final entry = locals[index - 1];
+    final name = entry.key;
+    final value = entry.value;
+    return Value.multi([Value(name), value]);
   }
 }
 

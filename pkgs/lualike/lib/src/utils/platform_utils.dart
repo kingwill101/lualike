@@ -43,3 +43,7 @@ String get executableName => platform_impl.executableName;
 
 /// Platform-safe way to get the script path
 String? get scriptPath => platform_impl.scriptPath;
+
+/// Platform-safe way to get the resolved executable path of the current process
+/// For compiled binaries, this is the absolute path to the binary.
+String get resolvedExecutablePath => platform_impl.resolvedExecutablePath;

@@ -32,3 +32,6 @@ String? get scriptPath {
     return null;
   }
 }
+
+/// Platform-safe way to get the resolved executable path for current process
+String get resolvedExecutablePath => Platform.resolvedExecutable;

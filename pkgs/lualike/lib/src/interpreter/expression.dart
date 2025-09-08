@@ -418,9 +418,13 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         'Using custom _ENV for variable lookup: ${node.name}',
         category: 'Expression',
       );
-
-      final result = await envValue.getValueAsync(Value(node.name));
-      return result is Value ? result : Value(result);
+      if (envValue.raw is Map) {
+        final result = await envValue.getValueAsync(Value(node.name));
+        return result is Value ? result : Value(result);
+      }
+      // Non-table _ENV: any variable lookup is an index on that value -> error
+      final tname = getLuaType(envValue.raw);
+      throw LuaError.typeError('attempt to index a $tname value');
     }
 
     // Default behavior: look up in the current environment
@@ -473,12 +477,28 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
 
     final result = await node.expr.accept(this);
 
-    // In Lua, parentheses don't change the semantics of function call results
-    // A function that returns multiple values still returns multiple values
-    // when wrapped in parentheses
+    // Lua semantics: parentheses around an expression force it to a single
+    // value in contexts like function arguments and operators. If the inner
+    // expression produces multiple results, only the first is preserved.
+    if (result is Value && result.isMulti) {
+      final values = result.raw as List;
+      final first = values.isNotEmpty ? values.first : Value(null);
+      Logger.debug(
+        'GroupedExpression: collapsing multi to first: $first',
+        category: 'Expression',
+      );
+      return first is Value ? first : Value(first);
+    }
+    if (result is List) {
+      final first = result.isNotEmpty ? result.first : Value(null);
+      Logger.debug(
+        'GroupedExpression: collapsing list to first: $first',
+        category: 'Expression',
+      );
+      return first is Value ? first : Value(first);
+    }
 
     Logger.debug('GroupedExpression result: $result', category: 'Expression');
-
     return result;
   }
 }

@@ -41,3 +41,6 @@ void exitProcess(int code) {
 ProcessResult runProcessSync(String executable, List<String> arguments) {
   throw UnsupportedError('Process execution is not supported on web platform');
 }
+
+/// Web does not expose OS error codes
+int extractOsErrorCode(Object e) => 0;

@@ -12,7 +12,7 @@ void main() {
     test('table.unpack with nil as third argument', () async {
       // Test that table.unpack(args, 1, nil) works same as table.unpack(args, 1)
       await lua.execute('''
-        local args = {1, 2, 3}
+        args = {1, 2, 3}
         a, b, c = table.unpack(args, 1, nil)
       ''');
 
@@ -24,15 +24,15 @@ void main() {
     test('table.unpack with args.n being nil', () async {
       // Test the specific case that was failing in vararg.lua
       await lua.execute('''
-        local function call(f, args)
+        function call(f, args)
           return f(table.unpack(args, 1, args.n))
         end
 
-        local function test(a, b)
+        function test(a, b)
           return a + b
         end
 
-        local args = {10, 20}
+        args = {10, 20}
         -- args.n is nil here
         result = call(test, args)
       ''');
@@ -43,7 +43,7 @@ void main() {
     test('table indexing with varargs uses first value only', () async {
       // Test that t[...] uses only the first value from varargs
       await lua.execute('''
-        local t = {10, 20, 30}
+        t = {10, 20, 30}
 
         function test(...)
           return t[...]
@@ -58,9 +58,9 @@ void main() {
     test('method call with varargs arithmetic', () async {
       // Test the specific method call that was failing
       await lua.execute('''
-        local t = {1, 10}
+        t = {1, 10}
         function t:f (...)
-          local arg = {...}
+          arg = {...}
           return self[...] + #arg
         end
 
@@ -79,7 +79,7 @@ void main() {
           return {...}
         end
 
-        local t = test(1, 2, 3, 4)
+        t = test(1, 2, 3, 4)
         a, b, c, d, n = t[1], t[2], t[3], t[4], #t
       ''');
 
@@ -94,9 +94,9 @@ void main() {
       // Test select function behavior
       await lua.execute('''
         function test(...)
-          local n = select('#', ...)
-          local first = select(1, ...)
-          local second = select(2, ...)
+          n = select('#', ...)
+          first = select(1, ...)
+          second = select(2, ...)
           return n, first, second
         end
 
@@ -111,7 +111,7 @@ void main() {
     test('table.unpack with custom range', () async {
       // Test table.unpack with start and end indices
       await lua.execute('''
-        local t = {10, 20, 30, 40, 50}
+        t = {10, 20, 30, 40, 50}
         a, b, c = table.unpack(t, 2, 4)
       ''');
 
@@ -123,7 +123,7 @@ void main() {
     test('table.pack creates table with n field', () async {
       // Test table.pack functionality
       await lua.execute('''
-        local t = table.pack(1, 2, nil, 4)
+        t = table.pack(1, 2, nil, 4)
         a, b, c, d, n = t[1], t[2], t[3], t[4], t.n
       ''');
 
@@ -135,13 +135,13 @@ void main() {
     });
 
     test('function redefinition scope', () async {
-      // Test that global function definitions override local ones
+      // Test that global function definitions override ones
       await lua.execute('''
-        local function f(x)
-          return x * 2  -- local version
+        function f(x)
+          return x * 2  -- version
         end
 
-        result1 = f(5)  -- Should use local version: 10
+        result1 = f(5)  -- Should use version: 10
 
         function f(x)
           return x * 3  -- global version
@@ -157,19 +157,19 @@ void main() {
     test('complex varargs with function calls', () async {
       // Test complex varargs scenarios
       await lua.execute('''
-        local function vararg(...)
+        function vararg(...)
           return {n = select('#', ...), ...}
         end
 
-        local function c12(...)
-          local x = {...}
+        function c12(...)
+          x = {...}
           x.n = #x
-          local res = (x.n == 2 and x[1] == 1 and x[2] == 2)
+          res = (x.n == 2 and x[1] == 1 and x[2] == 2)
           if res then res = 55 end
           return res, 2
         end
 
-        local call = function(f, args)
+        call = function(f, args)
           return f(table.unpack(args, 1, args.n))
         end
 
