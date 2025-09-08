@@ -34,8 +34,8 @@ void main() {
         ''');
 
         expect((bridge.getGlobal('a') as Value?)?.raw, equals(10));
-        expect((bridge.getGlobal('b') as Value?)?.raw, equals('hello'));
-        expect((bridge.getGlobal('c') as Value?)?.raw, equals('world'));
+        expect((bridge.getGlobal('b') as Value?)?.raw.toString(), equals('hello'));
+        expect((bridge.getGlobal('c') as Value?)?.raw.toString(), equals('world'));
       });
 
       test('function with parameters', () async {
@@ -58,9 +58,9 @@ void main() {
         ''');
 
         expect((bridge.getGlobal('count') as Value?)?.raw, equals(3));
-        expect((bridge.getGlobal('a') as Value?)?.raw, equals('x'));
-        expect((bridge.getGlobal('b') as Value?)?.raw, equals('y'));
-        expect((bridge.getGlobal('c') as Value?)?.raw, equals('z'));
+        expect((bridge.getGlobal('a') as Value?)?.raw.toString(), equals('x'));
+        expect((bridge.getGlobal('b') as Value?)?.raw.toString(), equals('y'));
+        expect((bridge.getGlobal('c') as Value?)?.raw.toString(), equals('z'));
       });
     });
 
@@ -124,7 +124,7 @@ void main() {
         ''');
 
         expect(
-          (bridge.getGlobal('result') as Value?)?.raw,
+          (bridge.getGlobal('result') as Value?)?.raw.toString(),
           equals('test string'),
         );
       });
@@ -152,7 +152,7 @@ void main() {
         ''');
 
         expect(
-          (bridge.getGlobal('result') as Value?)?.raw,
+          (bridge.getGlobal('result') as Value?)?.raw.toString(),
           equals('01234567890123456789012345678901234567890123456789'),
         );
       });
@@ -178,7 +178,7 @@ void main() {
         ''');
 
         expect((bridge.getGlobal('a') as Value?)?.raw, equals(20));
-        expect((bridge.getGlobal('b') as Value?)?.raw, equals('000'));
+        expect(((bridge.getGlobal('b') as Value?)?.raw as LuaString).unwrap(), equals('\x00\x00\x00'));
         expect((bridge.getGlobal('c') as Value?)?.raw, isNull);
       });
     });
@@ -302,8 +302,8 @@ void main() {
         ''');
 
         expect((bridge.getGlobal('a') as Value?)?.raw, equals(20));
-        expect((bridge.getGlobal('b') as Value?)?.raw, equals('0alo255'));
-        expect((bridge.getGlobal('c') as Value?)?.raw, equals('hi'));
+        expect((bridge.getGlobal('b') as Value?)?.raw.toString(), equals('\x00alo�'));
+        expect((bridge.getGlobal('c') as Value?)?.raw.toString(), equals('hi'));
       });
     });
 

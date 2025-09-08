@@ -974,6 +974,7 @@ class LoadFunction implements BuiltinFunction {
                 final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G');
                 if (gValue is Value) {
                   loadEnv.declare('_ENV', gValue);
+                  loadEnv.declare('_G', gValue);
                 }
               }
 
