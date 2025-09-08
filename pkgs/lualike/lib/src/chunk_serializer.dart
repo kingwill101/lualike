@@ -110,6 +110,7 @@ class ChunkSerializer {
         final upvalueNames = (data['upvalueNames'] as List?)?.cast<String>();
         final upvalueValues = data['upvalueValues'] as List<dynamic>?;
         
+        
         // Remove upvalue data from the AST data
         data.remove('upvalueNames');
         data.remove('upvalueValues');
@@ -120,7 +121,6 @@ class ChunkSerializer {
         // Generate source from the reconstructed function body
         // For string.dump functions, we need to execute the function and return its result
         final source = "return (${functionBody.toSource()})()";
-        
         return ChunkInfo(
           source: source,
           isStringDumpFunction: true,

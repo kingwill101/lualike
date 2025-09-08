@@ -615,9 +615,10 @@ class LoadFunction implements BuiltinFunction {
       providedEnv = args[3] as Value;
     }
 
-    bool isBinaryChunk = false;
+      bool isBinaryChunk = false;
+      ChunkInfo? chunkInfo;
 
-    if (args[0] is Value) {
+      if (args[0] is Value) {
       if ((args[0] as Value).raw is String) {
         // Load from string
         source = (args[0] as Value).raw as String;
@@ -629,7 +630,7 @@ class LoadFunction implements BuiltinFunction {
         );
         if (isBinaryChunk) {
           // Use ChunkSerializer to handle binary chunk deserialization
-          final chunkInfo = ChunkSerializer.deserializeChunk(source);
+          chunkInfo = ChunkSerializer.deserializeChunk(source);
           source = chunkInfo.source;
           Logger.debug(
             "LoadFunction: Deserialized chunk: $chunkInfo",
@@ -895,8 +896,7 @@ class LoadFunction implements BuiltinFunction {
       List<dynamic>? originalUpvalueValues;
 
       // For binary chunks, check if we have a direct AST node
-      if (isBinaryChunk) {
-        final chunkInfo = ChunkSerializer.deserializeChunk(source);
+      if (isBinaryChunk && chunkInfo != null) {
         if (chunkInfo.originalFunctionBody != null) {
           hasDirectAST = true;
           directASTNode = chunkInfo.originalFunctionBody;
@@ -1022,6 +1022,7 @@ class LoadFunction implements BuiltinFunction {
               for (int i = 0; i < originalUpvalueNames.length; i++) {
                 final upvalueName = originalUpvalueNames[i];
                 // If no environment provided (nil), set upvalues to null but preserve names for debug.setupvalue
+                // If environment provided, use original upvalue values
                 final upvalueValue = (providedEnv != null && providedEnv.raw != null && originalUpvalueValues != null && i < originalUpvalueValues.length) 
                     ? originalUpvalueValues[i] 
                     : null;
@@ -1136,6 +1137,7 @@ class LoadFunction implements BuiltinFunction {
                 for (int i = 0; i < originalUpvalueNames.length; i++) {
                   final upvalueName = originalUpvalueNames[i];
                   // If no environment provided (nil), set upvalues to null but preserve names for debug.setupvalue
+                  // If environment provided, use original upvalue values
                   final upvalueValue = (providedEnv != null && providedEnv.raw != null && originalUpvalueValues != null && i < originalUpvalueValues.length) 
                       ? originalUpvalueValues[i] 
                       : null;
@@ -1187,6 +1189,7 @@ class LoadFunction implements BuiltinFunction {
         for (int i = 0; i < originalUpvalueNames.length; i++) {
           final upvalueName = originalUpvalueNames[i];
           // If no environment provided (nil), set upvalues to null but preserve names for debug.setupvalue
+          // If environment provided, use original upvalue values
           final upvalueValue = (providedEnv != null && providedEnv.raw != null && originalUpvalueValues != null && i < originalUpvalueValues.length) 
               ? originalUpvalueValues[i] 
               : null;
