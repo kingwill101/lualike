@@ -118,8 +118,8 @@ class ChunkSerializer {
         final functionBody = FunctionBody.fromDump(data);
         
         // Generate source from the reconstructed function body
-        // Wrap in return statement to make it a valid chunk
-        final source = "return ${functionBody.toSource()}";
+        // For string.dump functions, we need to execute the function and return its result
+        final source = "return (${functionBody.toSource()})()";
         
         return ChunkInfo(
           source: source,
