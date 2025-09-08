@@ -6,10 +6,10 @@ void main() {
     test('assert', () async {
       final bridge = LuaLike();
       await bridge.execute('''
-        local a = assert(true, "This should not be shown")
-        local b = assert(1, "This should not be shown")
-        local c = assert("string", "This should not be shown")
-        local d, e = assert(true, "message", "extra")
+        a = assert(true, "This should not be shown")
+        b = assert(1, "This should not be shown")
+        c = assert("string", "This should not be shown")
+        d, e = assert(true, "message", "extra")
       ''');
 
       expect((bridge.getGlobal('a') as Value).raw, isNotNull);
@@ -41,12 +41,12 @@ void main() {
       final bridge = LuaLike();
       await bridge.execute('''
         -- Basic functionality tests
-        local isRunning = collectgarbage("isrunning")
+        isRunning = collectgarbage("isrunning")
         collectgarbage("collect")
-        local mem = collectgarbage("count")
+        mem = collectgarbage("count")
         collectgarbage("stop")
         collectgarbage("restart")
-        local step = collectgarbage("step", 1)
+        step = collectgarbage("step", 1)
       ''');
 
       expect((bridge.getGlobal('isRunning') as Value).raw, equals(true));
@@ -66,24 +66,24 @@ void main() {
         collectgarbage("collect")
 
         -- Test count and verify return format
-        local count, step = collectgarbage("count")
+        count, step = collectgarbage("count")
         assert(type(count) == "number")
         assert(type(step) == "number")
 
         -- Test stop/restart
         collectgarbage("stop")
-        local running1 = collectgarbage("isrunning")
+        running1 = collectgarbage("isrunning")
         assert(running1 == false)
 
         collectgarbage("restart")
-        local running2 = collectgarbage("isrunning")
+        running2 = collectgarbage("isrunning")
         assert(running2 == true)
 
         -- Test step
-        local cycleComplete = collectgarbage("step", 0)  -- basic step
+        cycleComplete = collectgarbage("step", 0)  -- basic step
         assert(type(cycleComplete) == "boolean")
 
-        local cycleComplete2 = collectgarbage("step", 100)  -- step with KB
+        cycleComplete2 = collectgarbage("step", 100)  -- step with KB
         assert(type(cycleComplete2) == "boolean")
 
         -- Test incremental mode
@@ -124,13 +124,13 @@ void main() {
       await bridge.execute('''
         -- Test that _G is the global environment
         _G.newVar = "global variable"
-        local isGlobalTable = type(_G) == "table"
-        local hasG = _G ~= nil
+        isGlobalTable = type(_G) == "table"
+        hasG = _G ~= nil
       ''');
 
       // Test that we can access the global variable
       await bridge.execute('''
-        local canAccessGlobal = newVar == "global variable"
+        canAccessGlobal = newVar == "global variable"
       ''');
 
       expect((bridge.getGlobal('isGlobalTable') as Value).unwrap(), isTrue);
@@ -146,14 +146,14 @@ void main() {
       test('setmetatable with function', () async {
         final bridge = LuaLike();
         await bridge.execute(r'''
-local t = {x = 1}
-local mt = {__tostring = function(self) return "custom: " .. self.x end}
+t = {x = 1}
+mt = {__tostring = function(self) return "custom: " .. self.x end}
 
 -- Set metatable with __tostring function
 setmetatable(t, mt)
 
 -- Test that the __tostring function is called when converting to string
-local result = tostring(t)
+result = tostring(t)
         ''');
         expect(
           (bridge.getGlobal('result') as Value).unwrap(),
@@ -164,15 +164,15 @@ local result = tostring(t)
       test('getmetatable and setmetatable', () async {
         final bridge = LuaLike();
         await bridge.execute('''
-        local t = {}
-        local mt = {__index = {value = 10}}
+        t = {}
+        mt = {__index = {value = 10}}
 
         -- Set metatable
-        local result = setmetatable(t, mt)
-        local hasMt = getmetatable(t) ~= nil
+        result = setmetatable(t, mt)
+        hasMt = getmetatable(t) ~= nil
 
         -- Test nil case
-        local nilMt = getmetatable(123) == nil
+        nilMt = getmetatable(123) == nil
       ''');
 
         expect((bridge.getGlobal('result') as Value).raw, isA<Map>());
@@ -181,9 +181,9 @@ local result = tostring(t)
 
         // Test __metatable field separately
         await bridge.execute('''
-        local t2 = {}
+        t2 = {}
         setmetatable(t2, {__metatable = "protected"})
-        local protectedMt = getmetatable(t2)
+        protectedMt = getmetatable(t2)
       ''');
 
         expect(
@@ -206,7 +206,7 @@ local result = tostring(t)
     test('type', () async {
       final bridge = LuaLike();
       await bridge.execute('''
-        local types = {
+        types = {
           nil_type = type(nil),
           number_type = type(123),
           string_type = type("hello"),
@@ -228,8 +228,8 @@ local result = tostring(t)
     test('_VERSION', () async {
       final bridge = LuaLike();
       await bridge.execute('''
-        local version = _VERSION
-        local isString = type(version) == "string"
+        version = _VERSION
+        isString = type(version) == "string"
       ''');
 
       expect((bridge.getGlobal('isString') as Value).unwrap(), equals(true));
@@ -256,8 +256,8 @@ local result = tostring(t)
       final bridge = LuaLike();
       await bridge.execute('''
         -- Test basic conversion
-        local s1 = tostring(123)
-        local s3 = tostring(nil)
+        s1 = tostring(123)
+        s3 = tostring(nil)
       ''');
 
       expect((bridge.getGlobal('s1') as Value).unwrap(), equals("123"));
@@ -268,96 +268,96 @@ local result = tostring(t)
       final bridge = LuaLike();
       await bridge.execute('''
         -- Test basic conversion
-        local n1 = tonumber("123")
-        local n2 = tonumber("123.45")
-        local n3 = tonumber("-123.45")
+        n1 = tonumber("123")
+        n2 = tonumber("123.45")
+        n3 = tonumber("-123.45")
 
         -- Test positive sign prefix
-        local pos1 = tonumber("+123")
-        local pos2 = tonumber("+123.45")
-        local pos3 = tonumber("+0.01")
-        local pos4 = tonumber("+.01")
-        local pos5 = tonumber("+1.")
+        pos1 = tonumber("+123")
+        pos2 = tonumber("+123.45")
+        pos3 = tonumber("+0.01")
+        pos4 = tonumber("+.01")
+        pos5 = tonumber("+1.")
 
         -- Test decimal point variations
-        local dot1 = tonumber(".01")
-        local dot2 = tonumber("-.01")
-        local dot3 = tonumber("-1.")
-        local dot4 = tonumber("1.")
-        local dot5 = tonumber("0.")
-        local dot6 = tonumber("+0.")
-        local dot7 = tonumber("-0.")
+        dot1 = tonumber(".01")
+        dot2 = tonumber("-.01")
+        dot3 = tonumber("-1.")
+        dot4 = tonumber("1.")
+        dot5 = tonumber("0.")
+        dot6 = tonumber("+0.")
+        dot7 = tonumber("-0.")
 
         -- Test leading/trailing zeros
-        local zero1 = tonumber("007")
-        local zero2 = tonumber("007.5")
-        local zero3 = tonumber("0.500")
-        local zero4 = tonumber("+007")
-        local zero5 = tonumber("-007")
+        zero1 = tonumber("007")
+        zero2 = tonumber("007.5")
+        zero3 = tonumber("0.500")
+        zero4 = tonumber("+007")
+        zero5 = tonumber("-007")
 
         -- Test scientific notation
-        local sci1 = tonumber("1e2")
-        local sci2 = tonumber("1.5e2")
-        local sci3 = tonumber("1E2")
-        local sci4 = tonumber("1.5E-2")
-        local sci5 = tonumber("+1e2")
-        local sci6 = tonumber("-1e2")
-        local sci7 = tonumber("1e+2")
-        local sci8 = tonumber("1e-2")
+        sci1 = tonumber("1e2")
+        sci2 = tonumber("1.5e2")
+        sci3 = tonumber("1E2")
+        sci4 = tonumber("1.5E-2")
+        sci5 = tonumber("+1e2")
+        sci6 = tonumber("-1e2")
+        sci7 = tonumber("1e+2")
+        sci8 = tonumber("1e-2")
 
         -- Test hex numbers (base 10 should treat these as invalid)
-        local hex_base10_1 = tonumber("0x10")
-        local hex_base10_2 = tonumber("0X10")
+        hex_base10_1 = tonumber("0x10")
+        hex_base10_2 = tonumber("0X10")
 
         -- Test with base parameter
-        local hex = tonumber("FF", 16)
-        local hex2 = tonumber("ff", 16)
-        local hex3 = tonumber("10", 16)
-        local bin = tonumber("1010", 2)
-        local oct = tonumber("70", 8)
-        local base36 = tonumber("ZZ", 36)
+        hex = tonumber("FF", 16)
+        hex2 = tonumber("ff", 16)
+        hex3 = tonumber("10", 16)
+        bin = tonumber("1010", 2)
+        oct = tonumber("70", 8)
+        base36 = tonumber("ZZ", 36)
 
         -- Test whitespace handling
-        local ws1 = tonumber(" 123 ")
-        local ws2 = tonumber("\\t456\\n")
-        local ws3 = tonumber("  +123.45  ")
-        local ws4 = tonumber("\\n\\t-67.89\\t\\n")
+        ws1 = tonumber(" 123 ")
+        ws2 = tonumber("\\t456\\n")
+        ws3 = tonumber("  +123.45  ")
+        ws4 = tonumber("\\n\\t-67.89\\t\\n")
 
         -- Test edge cases
-        local inf_pos = tonumber("inf")
-        local inf_neg = tonumber("-inf")
-        local nan_val = tonumber("nan")
+        inf_pos = tonumber("inf")
+        inf_neg = tonumber("-inf")
+        nan_val = tonumber("nan")
 
         -- Test invalid conversions
-        local invalid1 = tonumber("not a number")
-        local invalid2 = tonumber("FF") -- without base 16
-        local invalid3 = tonumber("123abc")
-        local invalid4 = tonumber("12.34.56")
-        local invalid5 = tonumber("++123")
-        local invalid6 = tonumber("--123")
-        local invalid7 = tonumber("1.2.3")
-        local invalid8 = tonumber("")
-        local invalid9 = tonumber("   ")
-        local invalid10 = tonumber("1e")
-        local invalid11 = tonumber("1e+")
-        local invalid12 = tonumber("e5")
-        local invalid13 = tonumber(".")
-        local invalid14 = tonumber("+")
-        local invalid15 = tonumber("-")
+        invalid1 = tonumber("not a number")
+        invalid2 = tonumber("FF") -- without base 16
+        invalid3 = tonumber("123abc")
+        invalid4 = tonumber("12.34.56")
+        invalid5 = tonumber("++123")
+        invalid6 = tonumber("--123")
+        invalid7 = tonumber("1.2.3")
+        invalid8 = tonumber("")
+        invalid9 = tonumber("   ")
+        invalid10 = tonumber("1e")
+        invalid11 = tonumber("1e+")
+        invalid12 = tonumber("e5")
+        invalid13 = tonumber(".")
+        invalid14 = tonumber("+")
+        invalid15 = tonumber("-")
 
         -- Test the specific cases from math.lua that were failing
-        local math_test1 = tonumber("+0.01")
-        local math_test2 = tonumber("+.01")
-        local math_test3 = tonumber(".01")
-        local math_test4 = tonumber("-1.")
-        local math_test5 = tonumber("+1.")
+        math_test1 = tonumber("+0.01")
+        math_test2 = tonumber("+.01")
+        math_test3 = tonumber(".01")
+        math_test4 = tonumber("-1.")
+        math_test5 = tonumber("+1.")
 
         -- Verify math.lua assertions
-        local check1 = math_test1 == 1/100
-        local check2 = math_test2 == 0.01
-        local check3 = math_test3 == 0.01
-        local check4 = math_test4 == -1
-        local check5 = math_test5 == 1
+        check1 = math_test1 == 1/100
+        check2 = math_test2 == 0.01
+        check3 = math_test3 == 0.01
+        check4 = math_test4 == -1
+        check5 = math_test5 == 1
       ''');
 
       // Basic conversions
@@ -467,10 +467,10 @@ local result = tostring(t)
       final bridge = LuaLike();
       await bridge.execute('''
         -- Test select with index
-        local a, b, c = select(2, "a", "b", "c", "d")
+        a, b, c = select(2, "a", "b", "c", "d")
 
         -- Test select with "#"
-        local count = select("#", "a", "b", "c", "d")
+        count = select("#", "a", "b", "c", "d")
       ''');
 
       // Note: Due to how multiple return values are handled, we can't easily test
@@ -482,12 +482,12 @@ local result = tostring(t)
       final bridge = LuaLike();
       await bridge.execute('''
         -- Test rawequal
-        local t1 = {}
-        local t2 = {}
-        local sameTable = t1
-        local eq1 = rawequal(t1, t1)
-        local eq2 = rawequal(t1, t2)
-        local eq3 = rawequal(t1, sameTable)
+        t1 = {}
+        t2 = {}
+        sameTable = t1
+        eq1 = rawequal(t1, t1)
+        eq2 = rawequal(t1, t2)
+        eq3 = rawequal(t1, sameTable)
       ''');
 
       expect((bridge.getGlobal('eq1') as Value).raw, isTrue);
@@ -499,13 +499,13 @@ local result = tostring(t)
       final bridge = LuaLike();
       await bridge.execute('''
         -- Test rawget and rawset
-        local t = {}
+        t = {}
 
         -- Set a value using rawset
         rawset(t, "key", "value")
 
         -- Get the value using rawget
-        local rawGetResult = rawget(t, "key")
+        rawGetResult = rawget(t, "key")
       ''');
 
       expect(
@@ -517,7 +517,7 @@ local result = tostring(t)
     test('rawset rejects invalid keys', () async {
       final bridge = LuaLike();
       await bridge.execute('''
-        local t = {}
+        t = {}
         okNaN, errNaN = pcall(rawset, t, 0/0, 1)
         okNil, errNil = pcall(rawset, t, nil, 1)
       ''');
@@ -538,10 +538,10 @@ local result = tostring(t)
       final bridge = LuaLike();
       await bridge.execute('''
         -- Test rawlen
-        local str = "hello"
-        local arr = {1, 2, 3, 4, 5}
-        local strLen = rawlen(str)
-        local arrLen = rawlen(arr)
+        str = "hello"
+        arr = {1, 2, 3, 4, 5}
+        strLen = rawlen(str)
+        arrLen = rawlen(arr)
       ''');
 
       expect((bridge.getGlobal('strLen') as Value).raw, equals(5));
@@ -552,22 +552,22 @@ local result = tostring(t)
       final bridge = LuaLike();
       await bridge.execute('''
         -- Test next function
-        local t = {a = 1, b = 2, c = 3}
-        local keys = {}
-        local values = {}
+        t = {a = 1, b = 2, c = 3}
+        keys = {}
+        values = {}
 
         -- Get first key-value pair
-        local k, v = next(t)
+        k, v = next(t)
         keys[1] = k
         values[1] = v
 
         -- Get next key-value pair
-        local k2, v2 = next(t, k)
+        k2, v2 = next(t, k)
         keys[2] = k2
         values[2] = v2
 
         -- Test empty table
-        local isEmpty = next({}) == nil
+        isEmpty = next({}) == nil
       ''');
 
       // We can't predict the exact order of keys, but we can check that we got some values
@@ -585,8 +585,8 @@ local result = tostring(t)
       final bridge = LuaLike();
       await bridge.execute('''
         -- Test pairs function with a regular table
-        local t = {a = 1, b = 2, c = 3}
-        local count = 0
+        t = {a = 1, b = 2, c = 3}
+        count = 0
 
         -- Use pairs to iterate over the table
         for k, v in pairs(t) do
@@ -594,13 +594,13 @@ local result = tostring(t)
         end
 
         -- Test pairs with empty table
-        local emptyCount = 0
+        emptyCount = 0
         for k, v in pairs({}) do
           emptyCount = emptyCount + 1
         end
 
         -- Test pairs with table containing nil values
-        local nilTable = {}
+        nilTable = {}
         nilTable.a = 1
         nilTable.b = nil
         nilTable.c = 3
@@ -612,14 +612,14 @@ local result = tostring(t)
         end
 
         -- Count keys directly
-        local directCount = 0
+        directCount = 0
         if nilTable.a ~= nil then directCount = directCount + 1 end
         if nilTable.b ~= nil then directCount = directCount + 1 end
         if nilTable.c ~= nil then directCount = directCount + 1 end
         print("directCount:", directCount)
 
         -- Count keys using pairs
-        local nilCount = 0
+        nilCount = 0
         for k, v in pairs(nilTable) do
           nilCount = nilCount + 1
         end
@@ -646,10 +646,10 @@ local result = tostring(t)
       final bridge = LuaLike();
       await bridge.execute('''
         -- Test ipairs function with a regular array
-        local t = {"a", "b", "c", "d"}
+        t = {"a", "b", "c", "d"}
         t[10] = "j" -- sparse array - should be ignored by ipairs
 
-        local count = 0
+        count = 0
 
         -- Use ipairs to iterate over the array
         for i, v in ipairs(t) do
@@ -657,17 +657,17 @@ local result = tostring(t)
         end
 
         -- Test ipairs with empty table
-        local emptyCount = 0
+        emptyCount = 0
         for i, v in ipairs({}) do
           emptyCount = emptyCount + 1
         end
 
         -- Test ipairs with a table that has holes
-        local holeyTable = {}
+        holeyTable = {}
         holeyTable[1] = "one"
         holeyTable[3] = "three"
         holeyTable[5] = "five"
-        local holeyCount = 0
+        holeyCount = 0
         for i, v in ipairs(holeyTable) do
           holeyCount = holeyCount + 1
         end
@@ -688,24 +688,24 @@ local result = tostring(t)
       // Test successful call
       await bridge.execute('''
         -- Test successful call
-        local status, result = pcall(function() return "success" end)
+        status, result = pcall(function() return "success" end)
 
         -- Test error call
-        local errorStatus, errorMsg = pcall(function() error("test error") end)
+        errorStatus, errorMsg = pcall(function() error("test error") end)
 
         -- Test with arguments
-        local argStatus, argResult = pcall(function(x, y) return x + y end, 10, 20)
+        argStatus, argResult = pcall(function(x, y) return x + y end, 10, 20)
 
         -- Test calling non-function (should return false with type error)
-        local typeErrorStatus, typeErrorMsg = pcall(42)
+        typeErrorStatus, typeErrorMsg = pcall(42)
 
         -- Test calling nil (should return false with type error)
-        local nilErrorStatus, nilErrorMsg = pcall(nil)
+        nilErrorStatus, nilErrorMsg = pcall(nil)
 
         -- Test multiple return values
-        local multiStatus, multiResult = pcall(function() return 1, 2, 3 end)
+        multiStatus, multiResult = pcall(function() return 1, 2, 3 end)
         -- Check if multiResult is a list (multiple values returned as a single value)
-        local a, b, c
+        a, b, c = nil, nil, nil
         if type(multiResult) == "table" and multiResult[1] then
           a, b, c = multiResult[1], multiResult[2], multiResult[3]
         else
@@ -713,7 +713,7 @@ local result = tostring(t)
         end
 
         -- Test pcall with builtin function
-        local builtinStatus, builtinResult = pcall(type, "hello")
+        builtinStatus, builtinResult = pcall(type, "hello")
       ''');
 
       expect((bridge.getGlobal('status') as Value).unwrap(), equals(true));
@@ -774,19 +774,19 @@ local result = tostring(t)
       // Test successful call
       await bridge.execute('''
         -- Test successful call
-        local status, result = xpcall(
+        status, result = xpcall(
           function() return "success" end,
           function(err) return "Handler: " .. err end
         )
 
         -- Test error call
-        local errorStatus, errorMsg = xpcall(
+        errorStatus, errorMsg = xpcall(
           function() error("test error") end,
           function(err) return "Handled: " .. err end
         )
 
         -- Test with arguments
-        local argStatus, argResult = xpcall(
+        argStatus, argResult = xpcall(
           function(x, y) return x + y end,
           function(err) return "Error in addition: " .. err end,
           10, 20
@@ -819,13 +819,13 @@ local result = tostring(t)
       // Test that pcall always returns Value objects (not raw values)
       await bridge.execute('''
         -- Test that return values are properly wrapped
-        local status1, result1 = pcall(function() return nil end)
-        local status2, result2 = pcall(function() return false end)
-        local status3, result3 = pcall(function() return 0 end)
-        local status4, result4 = pcall(function() return "" end)
+        status1, result1 = pcall(function() return nil end)
+        status2, result2 = pcall(function() return false end)
+        status3, result3 = pcall(function() return 0 end)
+        status4, result4 = pcall(function() return "" end)
 
         -- Test error return value wrapping
-        local errorStatus, errorResult = pcall(function() error({custom = "error"}) end)
+        errorStatus, errorResult = pcall(function() error({custom = "error"}) end)
 
         -- Verify types
         status1_type = type(status1)
@@ -872,18 +872,18 @@ local result = tostring(t)
       // Test pcall with different types of functions
       await bridge.execute('''
         -- Test with user-defined function
-        local function userFunc(x) return x * 2 end
-        local userStatus, userResult = pcall(userFunc, 5)
+        function userFunc(x) return x * 2 end
+        userStatus, userResult = pcall(userFunc, 5)
 
         -- Test with anonymous function
-        local anonStatus, anonResult = pcall(function(x) return x + 1 end, 10)
+        anonStatus, anonResult = pcall(function(x) return x + 1 end, 10)
 
         -- Test with builtin function that might throw
-        local builtinStatus, builtinResult = pcall(tonumber, "not_a_number")
+        builtinStatus, builtinResult = pcall(tonumber, "not_a_number")
 
         -- Test with function that returns multiple values
         -- pcall only returns the first result, not all multiple values
-        local multiStatus, firstResult = pcall(function() return 1, 2, 3 end)
+        multiStatus, firstResult = pcall(function() return 1, 2, 3 end)
         multi_count = (firstResult ~= nil) and 1 or 0
       ''');
 

@@ -12,8 +12,8 @@ void main() {
     group('String Type Compatibility', () {
       test('utf8 functions work with regular Dart Strings', () async {
         await lua.execute('''
-          local s = "hello"
-          local s2 = string.upper(s)  -- This returns a regular Dart String
+          s = "hello"
+          s2 = string.upper(s)  -- This returns a regular Dart String
 
           -- utf8 functions should work with both LuaString and regular Strings
           len1 = utf8.len(s)
@@ -54,7 +54,7 @@ void main() {
       test('utf8 functions work with LuaString objects', () async {
         await lua.execute(r'''
           -- Create strings with high bytes that should be LuaString objects
-          local s = "\xC2\x80"  -- UTF-8 for U+0080
+          s = "\xC2\x80"  -- UTF-8 for U+0080
 
           len = utf8.len(s)
           cp = utf8.codepoint(s, 1, 1)
@@ -80,7 +80,7 @@ void main() {
       test('utf8.codes throws error on invalid UTF-8', () async {
         await lua.execute(r'''
           function test_invalid_utf8(s)
-            local success, err = pcall(function()
+            success, err = pcall(function()
               for c in utf8.codes(s) do
                 -- This should trigger an error
               end
@@ -135,7 +135,7 @@ void main() {
       test('utf8.offset throws error for continuation bytes', () async {
         await lua.execute(r'''
           function test_continuation_error(s, n, i)
-            local success, err = pcall(utf8.offset, s, n, i)
+            success, err = pcall(utf8.offset, s, n, i)
             return success, err
           end
 
@@ -157,7 +157,7 @@ void main() {
       test('utf8 functions throw error for out of bounds', () async {
         await lua.execute(r'''
           function test_bounds_error(func, ...)
-            local success, err = pcall(func, ...)
+            success, err = pcall(func, ...)
             return success, err
           end
 
@@ -237,7 +237,7 @@ void main() {
       test('utf8.char throws error for invalid codepoints', () async {
         await lua.execute('''
           function test_char_error(cp)
-            local success, err = pcall(utf8.char, cp)
+            success, err = pcall(utf8.char, cp)
             return success, err
           end
 

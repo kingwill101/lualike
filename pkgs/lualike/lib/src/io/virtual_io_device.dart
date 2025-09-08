@@ -125,6 +125,15 @@ class VirtualIODevice extends BaseIODevice {
   }
 
   @override
+  Future<WriteResult> writeBytes(List<int> bytes) async {
+    Logger.debug('Writing raw bytes to virtual device: ${bytes.length} bytes');
+    checkOpen();
+    final str = String.fromCharCodes(bytes);
+    _buffer.write(str);
+    return WriteResult(true);
+  }
+
+  @override
   Future<int> seek(SeekWhence whence, int offset) async {
     Logger.debug('Seeking with whence: $whence, offset: $offset');
     checkOpen();

@@ -28,7 +28,7 @@ void main() {
       await lua.execute('''
         local x <const>, y, z <const> = 10, 20, 30
         y = 25  -- This should work
-        local success = true
+        success = true
         success = success and (x == 10)
         success = success and (y == 25)
         success = success and (z == 30)
@@ -39,7 +39,7 @@ void main() {
     test('const variables can be read', () async {
       await lua.execute('''
         local x <const> = 10
-        local y = x + 5
+        y = x + 5
       ''');
       expect(lua.getGlobal("y").unwrap(), equals(15));
     });
@@ -47,7 +47,7 @@ void main() {
     test('const variables in different scopes', () async {
       await lua.execute('''
         local x <const> = 10
-        local success = true
+        success = true
         do
           local x <const> = 20  -- Different variable in inner scope
           success = success and (x == 20)

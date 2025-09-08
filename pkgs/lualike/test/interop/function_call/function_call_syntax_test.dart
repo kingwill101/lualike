@@ -14,7 +14,7 @@ void main() {
           return "Hello, " .. name
         end
 
-        local result = greet("World")
+        result = greet("World")
       ''');
 
       var result = bridge.getGlobal('result');
@@ -30,7 +30,7 @@ void main() {
           return "Hello, " .. name
         end
 
-        local result = greet"World"
+        result = greet"World"
       ''');
 
       var result = bridge.getGlobal('result');
@@ -47,7 +47,7 @@ void main() {
           return "Method called with: " .. param
         end
 
-        local result = t.method("test")
+        result = t.method("test")
       ''');
 
       var result = bridge.getGlobal('result');
@@ -64,7 +64,7 @@ void main() {
           return "Method called with: " .. param
         end
 
-        local result = t.method"test"
+        result = t.method"test"
       ''');
 
       var result = bridge.getGlobal('result');
@@ -76,7 +76,7 @@ void main() {
 
       // Test string.upper without parentheses
       await bridge.execute('''
-        local result = string.upper"hello"
+        result = string.upper"hello"
       ''');
 
       var result = bridge.getGlobal('result');
@@ -96,7 +96,7 @@ void main() {
       // Test standard require syntax
       await bridge.execute('''
         local module = require("test_module")
-        local result = module.test()
+        result = module.test()
       ''');
 
       var result = bridge.getGlobal('result');
@@ -116,7 +116,7 @@ void main() {
       // Test alternative require syntax without parentheses
       await bridge.execute('''
         local module = require"test_module"
-        local result = module.test()
+        result = module.test()
       ''');
 
       var result = bridge.getGlobal('result');
@@ -144,7 +144,7 @@ void main() {
 
         t.increment(5)
         t.double()
-        local result = t.value
+        result = t.value
       ''');
 
       var result = bridge.getGlobal('result');
@@ -171,7 +171,7 @@ void main() {
       // This is valid Lua syntax and should be supported
 
       await bridge.execute('''
-          local result = require("test_module").test()
+          result = require("test_module").test()
         ''');
       final result = bridge.getGlobal('result');
       expect((result as Value).unwrap(), equals("test ok"));
@@ -190,7 +190,7 @@ void main() {
       // Test combined alternative syntax with workaround
       await bridge.execute('''
         local module = require"test_module"
-        local result = module.test"param"
+        result = module.test"param"
       ''');
 
       var result = bridge.getGlobal('result');
@@ -206,7 +206,7 @@ void main() {
         function obj:foo(...)
           return self.x, select('#', ...), ...
         end
-        local sx, n, a, b = obj:foo(10, 20)
+        sx, n, a, b = obj:foo(10, 20)
 
       ''');
       var sx = bridge.getGlobal('sx');
@@ -227,9 +227,9 @@ void main() {
           self.count = self.count + 1
           return self.count
         end
-        local a = obj:inc()
-        local b = obj:inc()
-        local c = obj.count
+        a = obj:inc()
+        b = obj:inc()
+        c = obj.count
       ''');
       var a = bridge.getGlobal('a');
       var b = bridge.getGlobal('b');
@@ -254,7 +254,7 @@ void main() {
           return self.val
         end
 
-        local result = obj:inc(2):inc(3):get()
+        result = obj:inc(2):inc(3):get()
       ''');
       var result = bridge.getGlobal('result');
       expect((result as Value).unwrap(), equals(6));
@@ -267,7 +267,7 @@ void main() {
         function obj.foo(...)
           return obj.x, select('#', ...), ...
         end
-        local ox, n, a, b = obj.foo(10, 20)
+        ox, n, a, b = obj.foo(10, 20)
       ''');
       var ox = bridge.getGlobal('ox');
       var n = bridge.getGlobal('n');
@@ -289,7 +289,7 @@ void main() {
             function obj:bar(x, ...)
               return self and self.x or -1, x, select('#', ...), ...
             end
-            local sx, x, n, a = obj.bar(99, 100)
+            sx, x, n, a = obj.bar(99, 100)
           '''),
           throwsA(isA<LuaError>()),
         );
@@ -305,7 +305,7 @@ void main() {
         function obj.baz(x, ...)
           return x and x.y or -1, select('#', ...), ...
         end
-        local ay, n, b, c = obj:baz(1, 2, 3)
+        ay, n, b, c = obj:baz(1, 2, 3)
       ''');
         var ay = bridge.getGlobal('ay');
         var n = bridge.getGlobal('n');
@@ -328,7 +328,7 @@ void main() {
         function obj:whoami()
           return self
         end
-        local result = obj:whoami()
+        result = obj:whoami()
       ''');
       var result = bridge.getGlobal('result');
       expect(result, isNotNull);
@@ -343,7 +343,7 @@ void main() {
         function obj:echo(x)
           return self, x
         end
-        local s, x = obj:echo(42)
+        s, x = obj:echo(42)
       ''');
       var s = bridge.getGlobal('s');
       var x = bridge.getGlobal('x');
@@ -359,7 +359,7 @@ local obj = {y = 42}
 function obj:val( x)
   return self.y + x
 end
-local result = obj:val(99)
+result = obj:val(99)
       ''');
       var result = bridge.getGlobal('result');
       expect((result as Value).unwrap(), equals(141));
@@ -372,7 +372,7 @@ local result = obj:val(99)
         function obj:const()
           return 7
         end
-        local result = obj:const()
+        result = obj:const()
       ''');
       var result = bridge.getGlobal('result');
       expect((result as Value).unwrap(), equals(7));
@@ -385,7 +385,7 @@ local result = obj:val(99)
         function obj:readx()
           return self.x
         end
-        local result = obj:readx()
+        result = obj:readx()
       ''');
       var result = bridge.getGlobal('result');
       expect((result as Value).unwrap(), equals(55));

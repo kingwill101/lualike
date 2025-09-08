@@ -10,9 +10,9 @@ void main() {
 
     test('utf8.char basic usage', () async {
       await bridge.execute('''
-        local str1 = utf8.char(65, 66, 67)
-        local str2 = utf8.char(0x1F600)
-        local str3 = utf8.char(0x0041, 0x00A9)
+        str1 = utf8.char(65, 66, 67)
+        str2 = utf8.char(0x1F600)
+        str3 = utf8.char(0x0041, 0x00A9)
 
         -- Get byte sequences for verification
         str2_bytes = {}
@@ -49,17 +49,17 @@ void main() {
     test('utf8.char error handling', () async {
       expect(() async {
         await bridge.execute('''
-          local invalid = utf8.char(0x80000000) -- Too large (beyond 0x7FFFFFFF)
+          invalid = utf8.char(0x80000000) -- Too large (beyond 0x7FFFFFFF)
         ''');
       }, throwsA(isA<Exception>()));
     });
 
     test('utf8.char with empty table unpack', () async {
       await bridge.execute('''
-        local t = {}
-        local result = utf8.char(table.unpack(t))
-        local result_length = #result
-        local is_empty = result == ""
+        t = {}
+        result = utf8.char(table.unpack(t))
+        result_length = #result
+        is_empty = result == ""
       ''');
 
       var result = bridge.getGlobal('result');
@@ -73,15 +73,15 @@ void main() {
 
     test('utf8.char with nil values', () async {
       await bridge.execute('''
-        local result1 = utf8.char(nil)
-        local result2 = utf8.char(nil, 65)
-        local result3 = utf8.char(65, nil, 66)
-        local result4 = utf8.char(nil, 65, nil, 66, nil)
+        result1 = utf8.char(nil)
+        result2 = utf8.char(nil, 65)
+        result3 = utf8.char(65, nil, 66)
+        result4 = utf8.char(nil, 65, nil, 66, nil)
 
-        local len1 = #result1
-        local len2 = #result2
-        local len3 = #result3
-        local len4 = #result4
+        len1 = #result1
+        len2 = #result2
+        len3 = #result3
+        len4 = #result4
       ''');
 
       var result1 = bridge.getGlobal('result1');
@@ -107,10 +107,10 @@ void main() {
 
     test('utf8.char with mixed nil and valid values', () async {
       await bridge.execute('''
-        local t = {65, nil, 66, nil, 67}
-        local result = utf8.char(table.unpack(t))
-        local expected = utf8.char(65, 66, 67)
-        local matches = result == expected
+        t = {65, nil, 66, nil, 67}
+        result = utf8.char(table.unpack(t))
+        expected = utf8.char(65, 66, 67)
+        matches = result == expected
       ''');
 
       var result = bridge.getGlobal('result');
@@ -131,12 +131,12 @@ void main() {
         -- But utf8.char(65, nil, 66) throws an error in standard Lua
         -- Our implementation is more permissive and skips nil values
 
-        local t = {65, nil, 66, nil, 67}
-        local a, b, c, d, e = table.unpack(t)
+        t = {65, nil, 66, nil, 67}
+        a, b, c, d, e = table.unpack(t)
 
         -- Verify table.unpack returns all values including nil
-        local unpack_results = {a, b, c, d, e}
-        local nil_count = 0
+        unpack_results = {a, b, c, d, e}
+        nil_count = 0
         for i = 1, #unpack_results do
           if unpack_results[i] == nil then
             nil_count = nil_count + 1
@@ -155,8 +155,8 @@ void main() {
     test('utf8.char regression test from utf8.lua', () async {
       await bridge.execute('''
         -- This is the exact test case that was failing in utf8.lua
-        local function check (s, t, nonstrict)
-          local l = utf8.len(s, 1, -1, nonstrict)
+        function check (s, t, nonstrict)
+          l = utf8.len(s, 1, -1, nonstrict)
           assert(#t == l)
           assert(utf8.char(table.unpack(t)) == s)
         end
@@ -178,9 +178,9 @@ void main() {
     test('utf8.char with table containing nil values', () async {
       await bridge.execute('''
         -- Test that utf8.char correctly handles tables with nil values
-        local t = {65, nil, 66, nil, 67}
-        local result = utf8.char(table.unpack(t))
-        local expected = utf8.char(65, 66, 67)
+        t = {65, nil, 66, nil, 67}
+        result = utf8.char(table.unpack(t))
+        expected = utf8.char(65, 66, 67)
 
         -- Our implementation skips nil values, so this should work
         assert(result == expected)
@@ -195,9 +195,9 @@ void main() {
       await bridge.execute('''
         -- Construct string with UTF-8 characters using proper byte sequences
         -- "ABC" + 👋 (U+1F44B) + 🌍 (U+1F30D)
-        local s = "ABC" .. string.char(240, 159, 145, 139) .. string.char(240, 159, 140, 141)
-        local positions = {}
-        local codepoints = {}
+        s = "ABC" .. string.char(240, 159, 145, 139) .. string.char(240, 159, 140, 141)
+        positions = {}
+        codepoints = {}
         for pos, cp in utf8.codes(s) do
           table.insert(positions, pos)
           table.insert(codepoints, cp)
@@ -230,15 +230,15 @@ void main() {
     test('utf8.codepoint extraction', () async {
       await bridge.runCode('''
         -- Use utf8.char to create the string instead of string.char
-        local emoji = utf8.char(0x1F30D)
-        local s = "Hello" .. emoji .. "World"
-        local cp1 = utf8.codepoint(s, 1)
-        local cp2 = utf8.codepoint(s, 6)
-        local cp3 = utf8.codepoint(s, 7)
+        emoji = utf8.char(0x1F30D)
+        s = "Hello" .. emoji .. "World"
+        cp1 = utf8.codepoint(s, 1)
+        cp2 = utf8.codepoint(s, 6)
+        cp3 = utf8.codepoint(s, 7)
 
         -- Get multiple codepoints and convert to string
-        local cp_h, cp_e, cp_l = utf8.codepoint(s, 1, 3)
-        local multi = cp_h .. cp_e .. cp_l
+        cp_h, cp_e, cp_l = utf8.codepoint(s, 1, 3)
+        multi = cp_h .. cp_e .. cp_l
       ''');
 
       var cp1 = bridge.getGlobal('cp1');
@@ -258,15 +258,15 @@ void main() {
 
     test('utf8.len string length', () async {
       await bridge.execute('''
-        local s1 = "Hello"
+        s1 = "Hello"
         -- Construct "Hello🌍" using proper UTF-8 bytes for 🌍
-        local s2 = "Hello" .. string.char(240, 159, 140, 141)
+        s2 = "Hello" .. string.char(240, 159, 140, 141)
         -- Construct "🌍🌎🌏" using proper UTF-8 bytes
-        local s3 = string.char(240, 159, 140, 141) .. string.char(240, 159, 140, 142) .. string.char(240, 159, 140, 143)
-        local len1 = utf8.len(s1)
-        local len2 = utf8.len(s2)
-        local len3 = utf8.len(s3)
-        local partial = utf8.len(s2, 1, 5)
+        s3 = string.char(240, 159, 140, 141) .. string.char(240, 159, 140, 142) .. string.char(240, 159, 140, 143)
+        len1 = utf8.len(s1)
+        len2 = utf8.len(s2)
+        len3 = utf8.len(s3)
+        partial = utf8.len(s2, 1, 5)
       ''');
 
       var len1 = bridge.getGlobal('len1');
@@ -283,11 +283,11 @@ void main() {
     test('utf8.offset position calculation', () async {
       await bridge.execute('''
         -- Construct "Hello🌍World" using proper UTF-8 bytes
-        local s = "Hello" .. string.char(240, 159, 140, 141) .. "World"
-        local pos1 = utf8.offset(s, 1)
-        local pos2 = utf8.offset(s, 6)
-        local pos3 = utf8.offset(s, 7)
-        local pos4 = utf8.offset(s, -1)
+        s = "Hello" .. string.char(240, 159, 140, 141) .. "World"
+        pos1 = utf8.offset(s, 1)
+        pos2 = utf8.offset(s, 6)
+        pos3 = utf8.offset(s, 7)
+        pos4 = utf8.offset(s, -1)
       ''');
 
       var pos1 = bridge.getGlobal('pos1');
@@ -307,7 +307,7 @@ void main() {
     test('utf8.charpattern exists', () async {
       await bridge.execute('''
         -- Just check that charpattern is a string
-        local pattern_type = type(utf8.charpattern)
+        pattern_type = type(utf8.charpattern)
       ''');
 
       var patternType = bridge.getGlobal('pattern_type');
@@ -317,10 +317,10 @@ void main() {
     test('string library basic functions', () async {
       await bridge.execute('''
         -- Test basic string functions
-        local upper_result = string.upper('test')
-        local find_start, find_end = string.find('hello', 'll')
-        local match_result = string.match('hello', 'll')
-        local gsub_result = string.gsub('hello', 'll', 'XX')
+        upper_result = string.upper('test')
+        find_start, find_end = string.find('hello', 'll')
+        match_result = string.match('hello', 'll')
+        gsub_result = string.gsub('hello', 'll', 'XX')
       ''');
 
       var upperResult = bridge.getGlobal('upper_result');
@@ -347,10 +347,10 @@ void main() {
     test('pcall catches utf8.codes errors on invalid UTF-8', () async {
       await bridge.execute('''
         -- Test pcall with invalid UTF-8
-        local invalid_utf8 = string.char(0xFF, 0xFE)  -- Invalid UTF-8 sequence
+        invalid_utf8 = string.char(0xFF, 0xFE)  -- Invalid UTF-8 sequence
 
-        local success, result = pcall(function()
-          local codes = {}
+        success, result = pcall(function()
+          codes = {}
           for pos, code in utf8.codes(invalid_utf8) do
             -- Iterator should end early returning nil when invalid UTF-8 is encountered
             table.insert(codes, code)
@@ -378,10 +378,10 @@ void main() {
     test('pcall catches utf8.codes errors with strict mode', () async {
       await bridge.execute('''
         -- Test strict mode validation in pcall
-        local five_byte_sequence = string.char(0xF8, 0x88, 0x80, 0x80, 0x80)
+        five_byte_sequence = string.char(0xF8, 0x88, 0x80, 0x80, 0x80)
 
-        local success, result = pcall(function()
-          local codes = {}
+        success, result = pcall(function()
+          codes = {}
           for pos, code in utf8.codes(five_byte_sequence) do
             -- Iterator should end early in strict mode (nonstrict=nil)
             table.insert(codes, code)
@@ -406,10 +406,10 @@ void main() {
     test('pcall does not catch utf8.codes errors in lax mode', () async {
       await bridge.execute('''
         -- Test lax mode allows extended sequences
-        local five_byte_sequence = string.char(0xF8, 0x88, 0x80, 0x80, 0x80)
+        five_byte_sequence = string.char(0xF8, 0x88, 0x80, 0x80, 0x80)
 
-        local success, result = pcall(function()
-          local codes = {}
+        success, result = pcall(function()
+          codes = {}
           for pos, code in utf8.codes(five_byte_sequence, 1, -1, true) do
             -- This should work in lax mode (nonstrict=true)
             table.insert(codes, code)
@@ -436,9 +436,9 @@ void main() {
       () async {
         await bridge.execute('''
         -- Test that utf8.len returns nil, position for invalid UTF-8 (reference Lua behavior)
-        local invalid_utf8 = string.char(0xFF, 0xFE)
+        invalid_utf8 = string.char(0xFF, 0xFE)
 
-        local success, result = pcall(function()
+        success, result = pcall(function()
           return utf8.len(invalid_utf8)
         end)
 
@@ -463,8 +463,8 @@ void main() {
     test('normal utf8 operations work without pcall', () async {
       await bridge.execute('''
         -- Test that valid UTF-8 works normally
-        local valid_utf8 = "Hello 世界"
-        local count = 0
+        valid_utf8 = "Hello 世界"
+        count = 0
 
         for pos, code in utf8.codes(valid_utf8) do
           count = count + 1
@@ -492,9 +492,9 @@ void main() {
     test('5-byte sequences return nil, position in strict mode', () async {
       await bridge.execute('''
         -- 5-byte UTF-8 sequence (invalid in strict mode)
-        local five_byte = string.char(0xF8, 0x88, 0x80, 0x80, 0x80)
+        five_byte = string.char(0xF8, 0x88, 0x80, 0x80, 0x80)
 
-        local success, result = pcall(function()
+        success, result = pcall(function()
           return utf8.len(five_byte)  -- strict mode (nonstrict=nil)
         end)
 
@@ -518,9 +518,9 @@ void main() {
     test('6-byte sequences return nil, position in strict mode', () async {
       await bridge.execute('''
         -- 6-byte UTF-8 sequence (invalid in strict mode)
-        local six_byte = string.char(0xFC, 0x84, 0x80, 0x80, 0x80, 0x80)
+        six_byte = string.char(0xFC, 0x84, 0x80, 0x80, 0x80, 0x80)
 
-        local success, result = pcall(function()
+        success, result = pcall(function()
           return utf8.len(six_byte)  -- strict mode (nonstrict=nil)
         end)
 
@@ -544,9 +544,9 @@ void main() {
     test('5-byte sequences allowed in lax mode', () async {
       await bridge.execute('''
         -- 5-byte UTF-8 sequence should work in lax mode
-        local five_byte = string.char(0xF8, 0x88, 0x80, 0x80, 0x80)
+        five_byte = string.char(0xF8, 0x88, 0x80, 0x80, 0x80)
 
-        local success, len = pcall(function()
+        success, len = pcall(function()
           return utf8.len(five_byte, 1, -1, true)  -- lax mode (nonstrict=true)
         end)
 
@@ -564,9 +564,9 @@ void main() {
     test('6-byte sequences allowed in lax mode', () async {
       await bridge.execute('''
         -- 6-byte UTF-8 sequence should work in lax mode
-        local six_byte = string.char(0xFC, 0x84, 0x80, 0x80, 0x80, 0x80)
+        six_byte = string.char(0xFC, 0x84, 0x80, 0x80, 0x80, 0x80)
 
-        local success, len = pcall(function()
+        success, len = pcall(function()
           return utf8.len(six_byte, 1, -1, true)  -- lax mode (nonstrict=true)
         end)
 
@@ -584,10 +584,10 @@ void main() {
     test('utf8.codes respects strict mode for 5-byte sequences', () async {
       await bridge.execute('''
         -- Test utf8.codes with 5-byte sequence in strict mode
-        local five_byte = string.char(0xF8, 0x88, 0x80, 0x80, 0x80)
+        five_byte = string.char(0xF8, 0x88, 0x80, 0x80, 0x80)
 
-        local success, result = pcall(function()
-          local codes = {}
+        success, result = pcall(function()
+          codes = {}
           for pos, code in utf8.codes(five_byte) do  -- strict mode
             table.insert(codes, code)
           end
@@ -611,10 +611,10 @@ void main() {
     test('utf8.codes respects lax mode for 5-byte sequences', () async {
       await bridge.execute('''
         -- Test utf8.codes with 5-byte sequence in lax mode
-        local five_byte = string.char(0xF8, 0x88, 0x80, 0x80, 0x80)
-        local codes = {}
+        five_byte = string.char(0xF8, 0x88, 0x80, 0x80, 0x80)
+        codes = {}
 
-        local success, _ = pcall(function()
+        success, _ = pcall(function()
           for pos, code in utf8.codes(five_byte, 1, -1, true) do  -- lax mode
             table.insert(codes, code)
           end
@@ -640,9 +640,9 @@ void main() {
     test('utf8.codepoint respects strict mode', () async {
       await bridge.execute('''
         -- Test utf8.codepoint with 5-byte sequence in strict mode
-        local five_byte = string.char(0xF8, 0x88, 0x80, 0x80, 0x80)
+        five_byte = string.char(0xF8, 0x88, 0x80, 0x80, 0x80)
 
-        local success, result = pcall(function()
+        success, result = pcall(function()
           return utf8.codepoint(five_byte)  -- strict mode
         end)
 
@@ -666,13 +666,13 @@ void main() {
     test('standard 4-byte UTF-8 works in both modes', () async {
       await bridge.execute('''
         -- Test standard 4-byte UTF-8 (U+1F600, 😀)
-        local four_byte = string.char(0xF0, 0x9F, 0x98, 0x80)
+        four_byte = string.char(0xF0, 0x9F, 0x98, 0x80)
 
-        local strict_success, strict_len = pcall(function()
+        strict_success, strict_len = pcall(function()
           return utf8.len(four_byte)  -- strict mode
         end)
 
-        local lax_success, lax_len = pcall(function()
+        lax_success, lax_len = pcall(function()
           return utf8.len(four_byte, 1, -1, true)  -- lax mode
         end)
 
@@ -706,8 +706,8 @@ void main() {
       () async {
         await bridge.execute('''
         -- Test that UTF-8 characters are not corrupted during pattern matching
-        local test_string = "a日b"
-        local matches = {}
+        test_string = "a日b"
+        matches = {}
 
         for match in string.gmatch(test_string, utf8.charpattern) do
           table.insert(matches, match)
@@ -743,8 +743,8 @@ void main() {
     test('pattern matching works with mixed ASCII and UTF-8', () async {
       await bridge.execute('''
         -- Test mixed ASCII and UTF-8 characters
-        local mixed_string = "Hello世界123"
-        local chars = {}
+        mixed_string = "Hello世界123"
+        chars = {}
 
         for char in string.gmatch(mixed_string, utf8.charpattern) do
           table.insert(chars, char)
@@ -773,8 +773,8 @@ void main() {
     test('pattern matching preserves emoji characters', () async {
       await bridge.execute('''
         -- Test emoji preservation in pattern matching
-        local emoji_string = "🌍🌎🌏"
-        local emojis = {}
+        emoji_string = "🌍🌎🌏"
+        emojis = {}
 
         for emoji in string.gmatch(emoji_string, utf8.charpattern) do
           table.insert(emojis, emoji)
@@ -798,8 +798,8 @@ void main() {
       await bridge.execute('''
         -- Test that LuaString objects (raw bytes) still work correctly
         -- This would typically involve binary data, but we'll simulate with ASCII
-        local binary_like = "abcd"  -- Simple ASCII for testing
-        local parts = {}
+        binary_like = "abcd"  -- Simple ASCII for testing
+        parts = {}
 
         -- This should work with byte-level processing for actual LuaString objects
         for part in string.gmatch(binary_like, ".") do
@@ -825,8 +825,8 @@ void main() {
       () async {
         await bridge.execute('''
         -- Test that UTF-8 characters remain uncorrupted after pattern operations
-        local original = "Test日本語"
-        local reconstructed = ""
+        original = "Test日本語"
+        reconstructed = ""
 
         for char in string.gmatch(original, utf8.charpattern) do
           reconstructed = reconstructed .. char

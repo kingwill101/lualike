@@ -11,10 +11,6 @@ void main() {
         for i = 1, 5 do
           words[i] = "word" .. i
         end
-      ''');
-
-      // Test direct assignment to indexed element
-      await bridge.execute('''
         words[3] = 11
       ''');
 
@@ -38,10 +34,7 @@ void main() {
         words[3] = "word3"
         words[4] = "word4"
         words[5] = "word5"
-      ''');
 
-      // Test direct assignment to indexed element
-      await bridge.execute('''
         words[3] = 11
       ''');
 
@@ -68,10 +61,7 @@ void main() {
         for i = 1, 5 do
           words.something.value[i] = "deep" .. i
         end
-      ''');
 
-      // Test assignment to deeply nested indexed element
-      await bridge.execute('''
         words.something.value[3] = 11
       ''');
 
@@ -99,10 +89,7 @@ void main() {
         words.something.value[3] = "deep3"
         words.something.value[4] = "deep4"
         words.something.value[5] = "deep5"
-      ''');
 
-      // Test assignment to deeply nested indexed element
-      await bridge.execute('''
         words.something.value[3] = 11
       ''');
 
@@ -140,7 +127,7 @@ void main() {
       // Error: FormatException: line 1, column 42: Expected: '"', '#', ''', '(', etc.
       // This is valid Lua syntax and should be supported
       await bridge.execute('''
-        local result = require("tracegc").start()
+        result = require("tracegc").start()
       ''');
 
       var result = bridge.getGlobal('result');
@@ -168,7 +155,7 @@ void main() {
       // Test require functionality (using workaround)
       await bridge.execute('''
         local tracegc = require("tracegc")
-        local result = tracegc.start()
+        result = tracegc.start()
       ''');
 
       var result = bridge.getGlobal('result');
@@ -186,7 +173,7 @@ void main() {
         end
 
         -- Test the function
-        local result = table.property("first")
+         result = table.property("first")
       ''');
 
       var result = bridge.getGlobal('result');
@@ -206,7 +193,7 @@ void main() {
         -- Test the function with alternative call syntax (no parentheses)
         -- FIXME: Our parser should support function calls without parentheses
         -- This is valid Lua syntax and should be supported
-        local result = table.property"first"
+        result = table.property"first"
       ''');
 
       var result = bridge.getGlobal('result');
@@ -226,7 +213,7 @@ void main() {
         end
 
         -- Test the function with standard call syntax
-        local result = table.property("first")
+        result = table.property("first")
       ''');
 
         var result = bridge.getGlobal('result');
@@ -256,7 +243,7 @@ void main() {
       // FIXME: Our parser should support function calls without parentheses
       // This is valid Lua syntax and should be supported
       await bridge.execute('''
-        local result = require"tracegc".start()
+        result = require"tracegc".start()
       ''');
 
       var result = bridge.getGlobal('result');
@@ -284,7 +271,7 @@ void main() {
       // Test require functionality with standard call syntax
       await bridge.execute('''
         local tracegc = require("tracegc")
-        local result = tracegc.start()
+        result = tracegc.start()
       ''');
 
       var result = bridge.getGlobal('result');
@@ -316,8 +303,8 @@ void main() {
       await bridge.execute('''
         local m = require("tracegc")
         m.start()
-        local propResult = m.property("status")
-        local status = m.status
+        propResult = m.property("status")
+        status = m.status
       ''');
 
       var propResult = bridge.getGlobal('propResult');
@@ -332,7 +319,7 @@ void main() {
 
       // Register a virtual module with table property functionality
       bridge.vm.fileManager.registerVirtualFile('tracegc.lua', '''
-        local M = {}
+        M = {}
 
         M.status = "inactive"
 
@@ -351,10 +338,10 @@ void main() {
 
       // Test combined require and property syntax (using workaround)
       await bridge.execute('''
-        local tracegc = require("tracegc")
+        tracegc = require("tracegc")
         tracegc.start()
-        local propResult = tracegc.property("status")
-        local status = tracegc.status
+        propResult = tracegc.property("status")
+        status = tracegc.status
       ''');
 
       var propResult = bridge.getGlobal('propResult');
@@ -369,7 +356,7 @@ void main() {
 
       // Register a virtual module with table property functionality
       bridge.vm.fileManager.registerVirtualFile('tracegc.lua', '''
-        local M = {}
+        M = {}
 
         M.status = "inactive"
 
@@ -391,10 +378,10 @@ void main() {
       // and method chaining on require results
       // This is valid Lua syntax and should be supported
       await bridge.execute('''
-        local tracegc = require"tracegc"
+        tracegc = require"tracegc"
         tracegc.start()
-        local propResult = tracegc.property"status"
-        local status = tracegc.status
+        propResult = tracegc.property"status"
+        status = tracegc.status
       ''');
 
       var propResult = bridge.getGlobal('propResult');
@@ -409,7 +396,7 @@ void main() {
 
       // Register a virtual module with table property functionality
       bridge.vm.fileManager.registerVirtualFile('tracegc.lua', '''
-        local M = {}
+        M = {}
 
         M.status = "inactive"
 
@@ -428,10 +415,10 @@ void main() {
 
       // Test with standard call syntax
       await bridge.execute('''
-        local tracegc = require("tracegc")
+        tracegc = require("tracegc")
         tracegc.start()
-        local propResult = tracegc.property("status")
-        local status = tracegc.status
+        propResult = tracegc.property("status")
+        status = tracegc.status
       ''');
 
       var propResult = bridge.getGlobal('propResult');

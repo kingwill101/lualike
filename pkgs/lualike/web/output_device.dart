@@ -46,6 +46,21 @@ class WebOutputDevice implements IODevice {
   }
 
   @override
+  Future<WriteResult> writeBytes(List<int> bytes) async {
+    if (_isClosed) {
+      return WriteResult(false, "Device is closed");
+    }
+
+    final str = String.fromCharCodes(bytes);
+    final line = web.document.createElement('div') as web.HTMLDivElement;
+    line.className = 'output-line';
+    line.textContent = str;
+    outputDiv.appendChild(line);
+    outputDiv.scrollTop = outputDiv.scrollHeight;
+    return WriteResult(true);
+  }
+
+  @override
   Future<int> seek(SeekWhence whence, int offset) async {
     throw UnimplementedError("WebOutputDevice does not support seek");
   }

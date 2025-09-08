@@ -12,7 +12,7 @@ void main() {
 
       var prog = <AstNode>[
         // local declare x = 1
-        LocalDeclaration([Identifier("x")], [], [NumberLiteral(1)]),
+        Assignment([Identifier("x")], [NumberLiteral(1)]),
         // goto L
         Goto(Identifier("L")),
         // This assignment should never execute.
@@ -34,7 +34,7 @@ void main() {
       // Program with a goto referencing an undefined label.
       var prog = <AstNode>[
         // local declare x = 10
-        LocalDeclaration([Identifier("x")], [], [NumberLiteral(10)]),
+        Assignment([Identifier("x")], [NumberLiteral(10)]),
         // goto label "NoSuchLabel" which is not defined in the program.
         Goto(Identifier("NoSuchLabel")),
         // A dummy assignment (should not get executed).
@@ -56,7 +56,7 @@ void main() {
 
     test('goto can jump backward within the same block', () async {
       var prog = <AstNode>[
-        LocalDeclaration([Identifier('x')], [], [NumberLiteral(0)]),
+        Assignment([Identifier('x')], [NumberLiteral(0)]),
         Label(Identifier('loop')),
         Assignment(
           [Identifier('x')],
@@ -78,11 +78,8 @@ void main() {
 
     test('labels with same name are scoped per block', () async {
       var prog = <AstNode>[
-        LocalDeclaration(
-          [Identifier('x'), Identifier('y')],
-          [],
-          [NumberLiteral(0), NumberLiteral(5)],
-        ),
+        Assignment([Identifier('x')], [NumberLiteral(0)]),
+        Assignment([Identifier('y')], [NumberLiteral(5)]),
         DoBlock([
           Label(Identifier('repeat')),
           Assignment(

@@ -4,7 +4,7 @@ void main() {
   group('Goto with repeated loops', () {
     test('goto repeats a for loop until condition met', () async {
       var program = <AstNode>[
-        LocalDeclaration([Identifier('i')], [], [NumberLiteral(0)]),
+        Assignment([Identifier('i')], [NumberLiteral(0)]),
         Label(Identifier('doagain')),
         ForLoop(
           Identifier('j'),

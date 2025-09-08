@@ -348,37 +348,78 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     // Check if there's a custom _ENV that is different from the initial _G
     final envValue = globals.get('_ENV');
     final gValue = globals.get('_G');
+    Logger.debug(
+      "ENV assign context: name=$name, _ENV=$envValue (rawType: \\${envValue is Value ? envValue.raw.runtimeType : envValue?.runtimeType}), _G=$gValue (rawType: \\${gValue is Value ? gValue.raw.runtimeType : gValue?.runtimeType})",
+      category: 'Assignment',
+    );
 
-    // If _ENV exists and is different from _G, use _ENV for variable assignments
+    // If there is a custom _ENV in effect (different from _G), then assignments to
+    // undeclared identifiers must go through `_ENV[name] = value`, regardless of
+    // whether _ENV is a table or not (non-table must raise an indexing error).
     if (envValue is Value && gValue is Value && envValue != gValue) {
-      // Check if this is a local variable in the current or parent scopes
-      // Local variables should be updated in place, not redirected to _ENV
-      Environment? env = globals;
-      while (env != null) {
-        if (env.values.containsKey(name) && env.values[name]!.isLocal) {
-          Logger.debug(
-            'Updating local variable: $name',
-            category: 'Assignment',
-          );
-          env.define(name, wrappedValue);
-          return wrappedValue;
+      // In isolated environments (load with custom env), skip local lookup to avoid
+      // touching parent locals. Otherwise, prefer updating an existing local.
+      final isIsolatedEnvironment = globals.isLoadIsolated;
+      if (!isIsolatedEnvironment) {
+        Environment? env = globals;
+        while (env != null) {
+          if (env.values.containsKey(name) && env.values[name]!.isLocal) {
+            Logger.debug(
+              'Updating local variable: $name',
+              category: 'Assignment',
+            );
+            env.define(name, wrappedValue);
+            return wrappedValue;
+          }
+          env = env.parent;
         }
-        env = env.parent;
       }
 
       Logger.debug(
         'Using custom _ENV for variable assignment: $name',
         category: 'Assignment',
       );
-
+      Logger.debug(
+        'Assignment: About to call setValueAsync on _ENV for $name = $wrappedValue',
+        category: 'Assignment',
+      );
+      // This will correctly handle tables, metamethods, or throw for non-tables
       await envValue.setValueAsync(name, wrappedValue);
+      Logger.debug(
+        'Assignment: setValueAsync completed for $name',
+        category: 'Assignment',
+      );
       return wrappedValue;
     }
 
-    // Use the current environment for assignment
-    // The Environment class will handle propagating to parent environments if needed
+    // Assignment Strategy for Local vs Global Variables:
+    //
+    // In Lua, the assignment `x = value` has specific semantics:
+    // 1. If a local variable `x` exists in current scope chain, update it
+    // 2. If no local variable exists, create/update global variable `x`
+    // 3. Local variables always take precedence over global variables
+    //
+    // This two-step approach fixes the original scoping bug where local
+    // variables in the main script were incorrectly affecting globals.
+
+    // Step 1: Check if this is a local variable assignment
+    // updateLocal() searches only for variables with isLocal=true and updates
+    // the first one found. Returns true if a local was updated.
+    if (globals.updateLocal(name, wrappedValue)) {
+      Logger.debug('Updated local variable: $name', category: 'Assignment');
+      return wrappedValue;
+    }
+
+    // Step 2: No local variable found, this is a global assignment
+    // defineGlobal() always operates on the root environment, creating or
+    // updating global variables while ignoring any local variables with
+    // the same name in the current scope chain.
     try {
-      globals.define(name, wrappedValue);
+      globals.defineGlobal(name, wrappedValue);
+      Logger.debug(
+        'Assigned to global variable: $name',
+        category: 'Assignment',
+      );
     } catch (e) {
       throw LuaError(
         'Assignment to constant variable: $name',
@@ -786,6 +827,9 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           'Local declare $name = $valueWithAttributes (attribute: $attribute)',
           category: 'Interpreter',
         );
+        // Use declare() for local variable declarations
+        // declare() creates a new local variable with isLocal=true that
+        // shadows any existing variables with the same name
         globals.declare(name, valueWithAttributes);
       }
     }

@@ -235,7 +235,7 @@ void main() {
       await vm.evaluate('''
     local count = 0
 
-    local increment = function()
+    increment = function()
       count = count + 1
       return count
     end

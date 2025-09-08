@@ -11,9 +11,9 @@ void main() {
     test('pcall with async functions', () async {
       await lua.execute('''
         -- Test pcall with functions that might be async internally
-        local status1, result1 = pcall(tostring, 42)
-        local status2, result2 = pcall(tonumber, "123")
-        local status3, result3 = pcall(type, {})
+        status1, result1 = pcall(tostring, 42)
+        status2, result2 = pcall(tonumber, "123")
+        status3, result3 = pcall(type, {})
       ''');
 
       expect(lua.getGlobal("status1").unwrap(), equals(true));
@@ -27,14 +27,14 @@ void main() {
     test('pcall error value preservation', () async {
       await lua.execute('''
         -- Test that error values are preserved correctly
-        local status1, err1 = pcall(function() error("string error") end)
-        local status2, err2 = pcall(function() error(42) end)
-        local status3, err3 = pcall(function() error({message = "table error"}) end)
-        local status4, err4 = pcall(function() error(nil) end)
+        status1, err1 = pcall(function() error("string error") end)
+        status2, err2 = pcall(function() error(42) end)
+        status3, err3 = pcall(function() error({message = "table error"}) end)
+        status4, err4 = pcall(function() error(nil) end)
 
         -- Test that Value objects are preserved in protected calls
-        local status5, err5 = pcall(function()
-          local t = {custom = "error object"}
+        status5, err5 = pcall(function()
+          t = {custom = "error object"}
           error(t)
         end)
       ''');
@@ -64,8 +64,8 @@ void main() {
     test('pcall with nested calls', () async {
       await lua.execute('''
         -- Test pcall within pcall
-        local status, result = pcall(function()
-          local innerStatus, innerResult = pcall(function()
+        status, result = pcall(function()
+          innerStatus, innerResult = pcall(function()
             return "nested success"
           end)
           if innerStatus then
@@ -83,11 +83,11 @@ void main() {
     test('pcall with various argument types', () async {
       await lua.execute('''
         -- Test pcall with different argument types
-        local function testFunc(a, b, c, d, e)
+        function testFunc(a, b, c, d, e)
           return type(a), type(b), type(c), type(d), type(e)
         end
 
-        local status, t1, t2, t3, t4, t5 = pcall(testFunc,
+        status, t1, t2, t3, t4, t5 = pcall(testFunc,
           42, "string", true, {}, nil)
       ''');
 
@@ -100,7 +100,7 @@ void main() {
       // This test verifies that pcall properly manages the yieldable state
       await lua.execute('''
         -- Test that pcall sets non-yieldable state
-        local status, result = pcall(function()
+        status, result = pcall(function()
           -- This should work even if we're in a non-yieldable context
           return "success"
         end)
@@ -114,8 +114,8 @@ void main() {
       // Test that errors in protected calls are properly isolated
       await lua.execute('''
         -- Test nested pcall behavior with different error types
-        local status1, err1 = pcall(function()
-          local innerStatus, innerErr = pcall(function()
+        status1, err1 = pcall(function()
+          innerStatus, innerErr = pcall(function()
             error({nested = "table error"})
           end)
           if not innerStatus then
@@ -126,8 +126,8 @@ void main() {
         end)
 
         -- Test that the error object is preserved through nested calls
-        local errorType = type(err1)
-        local hasNestedField = err1 and err1.nested == "table error"
+        errorType = type(err1)
+        hasNestedField = err1 and err1.nested == "table error"
       ''');
 
       expect(lua.getGlobal("status1").unwrap(), equals(false));
@@ -139,20 +139,20 @@ void main() {
       // Test that Dart exceptions are properly converted to Lua errors
       await lua.execute('''
         -- Test pcall with a function that might throw Dart exceptions
-        local status1, err1 = pcall(function()
+        status1, err1 = pcall(function()
           -- This should trigger error handling in the Dart layer
-          local x = 1 / 0  -- Division by zero
+          x = 1 / 0  -- Division by zero
           return x
         end)
 
         -- Test with string operations that might fail
-        local status2, err2 = pcall(function()
-          local s = nil
+        status2, err2 = pcall(function()
+          s = nil
           return s:upper()  -- Should fail with nil method call
         end)
 
         -- Test error function behavior in protected context
-        local status3, err3 = pcall(function()
+        status3, err3 = pcall(function()
           error({type = "custom", message = "protected error"})
         end)
       ''');
@@ -181,13 +181,13 @@ void main() {
       // Test that all return values are properly wrapped as Value objects
       await lua.execute('''
         -- Test that return values are consistently wrapped
-        local status1, result1 = pcall(function() return nil end)
-        local status2, result2 = pcall(function() return false end)
-        local status3, result3 = pcall(function() return 0 end)
-        local status4, result4 = pcall(function() return "" end)
+        status1, result1 = pcall(function() return nil end)
+        status2, result2 = pcall(function() return false end)
+        status3, result3 = pcall(function() return 0 end)
+        status4, result4 = pcall(function() return "" end)
 
         -- Test error return value wrapping
-        local errorStatus, errorResult = pcall(function() error("test") end)
+        errorStatus, errorResult = pcall(function() error("test") end)
 
         -- Verify types are correct
         status1_type = type(status1)
@@ -213,13 +213,13 @@ void main() {
       // Test proper handling of multi-value returns
       await lua.execute('''
         -- Test function returning multiple values
-        local status, a, b, c = pcall(function() return 1, 2, 3 end)
+        status, a, b, c = pcall(function() return 1, 2, 3 end)
 
         -- Test function returning single value
-        local status2, result = pcall(function() return "single" end)
+        status2, result = pcall(function() return "single" end)
 
         -- Test function returning no values
-        local status3, result3 = pcall(function() end)
+        status3, result3 = pcall(function() end)
       ''');
 
       expect(lua.getGlobal("status").unwrap(), equals(true));
@@ -238,10 +238,10 @@ void main() {
       // Test that type errors provide clear messages
       await lua.execute('''
         -- Test calling various non-function types
-        local status1, err1 = pcall(42)
-        local status2, err2 = pcall("string")
-        local status3, err3 = pcall({})
-        local status4, err4 = pcall(true)
+        status1, err1 = pcall(42)
+        status2, err2 = pcall("string")
+        status3, err3 = pcall({})
+        status4, err4 = pcall(true)
       ''');
 
       expect(lua.getGlobal("status1").unwrap(), equals(false));
@@ -274,26 +274,26 @@ void main() {
       // This tests the debug code added to handle "Value:<actual_value>" patterns
       await lua.execute('''
         -- Test error with simple values that might get wrapped as Value strings
-        local status1, err1 = pcall(function()
+        status1, err1 = pcall(function()
           error("simple string error")
         end)
 
-        local status2, err2 = pcall(function()
+        status2, err2 = pcall(function()
           error(123)
         end)
 
-        local status3, err3 = pcall(function()
+        status3, err3 = pcall(function()
           error(true)
         end)
 
         -- Test error with nil
-        local status4, err4 = pcall(function()
+        status4, err4 = pcall(function()
           error(nil)
         end)
 
         -- Test error with complex object
-        local status5, err5 = pcall(function()
-          local obj = {message = "complex error", code = 500}
+        status5, err5 = pcall(function()
+          obj = {message = "complex error", code = 500}
           error(obj)
         end)
       ''');
@@ -332,14 +332,14 @@ void main() {
       // from "Value:<actual_value>" formatted error messages
       await lua.execute('''
         -- Create a scenario that might produce Value string representations
-        local function createErrorWithValueString()
+        function createErrorWithValueString()
           -- This simulates what might happen internally when a Value gets
           -- converted to a string representation in an error message
-          local errorMsg = "test error message"
+          errorMsg = "test error message"
           error(errorMsg)
         end
 
-        local status, err = pcall(createErrorWithValueString)
+        status, err = pcall(createErrorWithValueString)
 
         -- Test that the error message is properly extracted and not wrapped
         error_type = type(err)

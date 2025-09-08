@@ -55,7 +55,7 @@ void main() {
           false,
         ),
       );
-      var assignFunc = LocalDeclaration([Identifier("f")], [], [anonFunc]);
+      var assignFunc = Assignment([Identifier("f")], [anonFunc]);
       var vm = Interpreter();
       await assignFunc.accept(vm);
       var call = FunctionCall(Identifier("f"), [NumberLiteral(5)]);

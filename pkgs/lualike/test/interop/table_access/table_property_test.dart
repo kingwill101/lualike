@@ -15,9 +15,9 @@ void main() {
 
       // Access properties
       await bridge.execute('''
-        local name = person.name
-        local age = person.age
-        local greeting = person.greet()
+        name = person.name
+        age = person.age
+        greeting = person.greet()
       ''');
 
       var name = bridge.getGlobal('name');
@@ -42,14 +42,14 @@ void main() {
 
       // Access properties
       await bridge.execute('''
-        local name = person["name"]
-        local age = person["age"]
+        name = person["name"]
+        age = person["age"]
       ''');
 
       // Create a function separately
       await bridge.execute('''
         person.greet = function() return "Hello, I'm " .. person["name"] end
-        local greeting = person.greet()
+        greeting = person.greet()
       ''');
 
       var name = bridge.getGlobal('name');
@@ -83,10 +83,10 @@ void main() {
 
       // Access properties using mixed notation
       await bridge.execute('''
-        local name = person.name
-        local age = person["age"]
-        local email = person["contact"].email
-        local phone = person.contact.phone
+        name = person.name
+        age = person["age"]
+        email = person["contact"].email
+        phone = person.contact.phone
       ''');
 
       var name = bridge.getGlobal('name');
@@ -106,16 +106,14 @@ void main() {
 
       // Create a table with properties
       await bridge.execute('''
-        local t = {}
+        t = {}
         t[1] = "one"
         t[2] = "two"
         t["key3"] = "three"
-      ''');
-
-      // Access with computed key
-      await bridge.execute('''
-        local key = "key3"
-        local result = t[key]
+        
+        -- Access with computed key
+        key = "key3"
+        result = t[key]
       ''');
 
       var result = bridge.getGlobal('result');
@@ -133,10 +131,10 @@ void main() {
         end
 
         -- Test the function with standard call syntax
-        local result1 = table.property("first")
+        result1 = table.property("first")
 
         -- Test the function with alternative call syntax (no parentheses)
-        local result2 = table.property"second"
+        result2 = table.property"second"
       ''');
 
       var result1 = bridge.getGlobal('result1');

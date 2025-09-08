@@ -584,13 +584,19 @@ class LoadFunction implements BuiltinFunction {
   LoadFunction(this.vm);
 
   @override
-  Object? call(List<Object?> args) {
+  Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
       throw Exception("load() requires a string or function argument");
     }
 
     String source;
     String chunkname;
+    Object? env;
+
+    // Handle environment parameter (4th argument)
+    if (args.length > 3) {
+      env = (args[3] as Value).raw;
+    }
 
     if (args[0] is Value) {
       if ((args[0] as Value).raw is String) {
@@ -610,9 +616,17 @@ class LoadFunction implements BuiltinFunction {
         final chunks = <String>[];
         final reader = (args[0] as Value).raw as Function;
         while (true) {
-          final chunk = reader([]);
+          final result = reader([]);
+          final chunk = result is Future ? await result : result;
           if (chunk == null || (chunk is Value && chunk.raw == null)) break;
-          chunks.add(chunk.toString());
+
+          // Extract string from Value objects
+          if (chunk is Value) {
+            if (chunk.raw == null) break;
+            chunks.add(chunk.raw.toString());
+          } else {
+            chunks.add(chunk.toString());
+          }
         }
         source = chunks.join();
       } else if ((args[0] as Value).raw is List<int>) {
@@ -660,10 +674,41 @@ class LoadFunction implements BuiltinFunction {
           // Save the current environment
           final savedEnv = vm.getCurrentEnv();
 
-          // Create a new environment for the loaded code that inherits from
-          // the root environment. This ensures loaded code can access globals
-          // but not the caller's local variables
-          final loadEnv = Environment(parent: savedEnv.root, interpreter: vm);
+          // Create a new environment for the loaded code
+          final Environment loadEnv;
+          if (env != null) {
+            // If an environment was provided, create completely isolated environment
+            // This prevents access to local variables from calling scope
+            loadEnv = Environment(
+              parent: null,
+              interpreter: vm,
+              isLoadIsolated: true,
+            );
+
+            // Set up the custom environment table with proper metatable for built-in access
+            final gValue =
+                savedEnv.get('_G') ?? savedEnv.root.get('_G') ?? Value({});
+
+            // Set up metatable for the custom environment to fall back to _G
+            if (env is Map<String, dynamic>) {
+              if (!env.containsKey('__metatable')) {
+                env['__index'] = (gValue as Value).raw;
+              }
+            } else if (env is Map) {
+              // Handle generic Map type
+              final envMap = env;
+              if (!envMap.containsKey('__metatable')) {
+                envMap['__index'] = (gValue as Value).raw;
+              }
+            }
+
+            final envValue = Value(env);
+            loadEnv.declare("_ENV", envValue);
+            loadEnv.declare("_G", gValue);
+          } else {
+            // Default: inherit from the root environment
+            loadEnv = Environment(parent: savedEnv.root, interpreter: vm);
+          }
 
           // Set up varargs in the load environment
           loadEnv.declare("...", Value.multi(callArgs));
@@ -718,7 +763,7 @@ class DoFileFunction implements BuiltinFunction {
       final ast = parse(source, url: filename);
 
       // Execute in current VM context
-      final result = vm.run(ast.statements);
+      final result = await vm.run(ast.statements);
 
       // Return result or nil if no result
       return result;
@@ -772,37 +817,134 @@ class LoadfileFunction implements BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
     final filename = args.isNotEmpty ? (args[0] as Value).raw.toString() : null;
-    //mode
-    final _ = args.length > 1 ? (args[1] as Value).raw.toString() : 'bt';
+    // mode: 'b', 't', or 'bt' (default)
+    final modeStr = args.length > 1 ? (args[1] as Value).raw.toString() : 'bt';
+    // env parameter (3rd argument). Important: even when explicitly passed as
+    // nil, Lua considers the environment "provided" and sets _ENV to nil for
+    // the loaded function. Distinguish between not-provided and provided-nil.
+    final bool envProvided = args.length > 2;
+    final env = envProvided ? (args[2] as Value).raw : null;
+
+    // If a filename is provided and it does not exist, follow Lua semantics: return nil
+    if (filename != null && !(await fileExists(filename))) {
+      return Value(null);
+    }
+
+    // Decide text/binary and get source now (Lua compiles at load time).
+    final allowText = modeStr.contains('t');
+    final allowBinary = modeStr.contains('b');
+    String sourceCode;
 
     try {
-      final source = filename == null
-          ? () async {
-              // Read from default input instead of stdin
-              final result = await IOLib.defaultInput.read('a'); // Read all
-              return result[0]?.toString() ?? "";
-            }()
-          : () async {
-              // Use FileManager to read files properly
-              final vm = Environment.current?.interpreter ?? Interpreter();
-              return vm.fileManager.loadSource(filename);
-            }();
-
-      final sourceCode = await source;
-      if (sourceCode == null) {
-        return Value(null);
+      if (filename == null) {
+        // Read all from default input
+        final result = await IOLib.defaultInput.read('a');
+        sourceCode = result[0]?.toString() ?? '';
+        // Enforce mode on textual source too: if begins with ESC -> binary
+        final startsEsc =
+            sourceCode.isNotEmpty && sourceCode.codeUnitAt(0) == 0x1B;
+        if (startsEsc && !allowBinary) {
+          return [Value(null), Value("a binary chunk")];
+        }
+        if (!startsEsc && !allowText) {
+          return [Value(null), Value("a text chunk")];
+        }
+      } else {
+        // Inspect raw bytes to decide text/binary
+        final bytes = await readFileAsBytes(filename);
+        if (bytes == null) {
+          // Fall back to text loader
+          final src = await Environment.current?.interpreter?.fileManager
+              .loadSource(filename);
+          if (src == null) {
+            return Value(null);
+          }
+          final startsEsc = src.isNotEmpty && src.codeUnitAt(0) == 0x1B;
+          if (startsEsc && !allowBinary) {
+            return [Value(null), Value("a binary chunk")];
+          }
+          if (!startsEsc && !allowText) {
+            return [Value(null), Value("a text chunk")];
+          }
+          sourceCode = src;
+        } else {
+          final isBinary = bytes.isNotEmpty && bytes[0] == 0x1B;
+          if (isBinary && !allowBinary) {
+            return [Value(null), Value("a binary chunk")];
+          }
+          if (!isBinary && !allowText) {
+            return [Value(null), Value("a text chunk")];
+          }
+          // If binary, interpret the rest as textual payload
+          sourceCode = isBinary
+              ? utf8.decode(bytes.sublist(1), allowMalformed: true)
+              : utf8.decode(bytes, allowMalformed: true);
+        }
       }
+
+      // Empty chunk yields function that returns nil
+      if (sourceCode.trim().isEmpty) {
+        return Value((List<Object?> _) async => Value(null));
+      }
+
+      Logger.debug(
+        'loadfile: source head: ${sourceCode.length > 80 ? sourceCode.substring(0, 80) : sourceCode}',
+        category: 'Load',
+      );
       final ast = parse(sourceCode, url: filename ?? 'stdin');
-      return Value((List<Object?> callArgs) {
-        final vm = Interpreter();
+
+      // Build the callable chunk that runs the parsed AST under the right env
+      return Value((List<Object?> callArgs) async {
+        final currentVm = Environment.current?.interpreter;
+        if (currentVm == null) {
+          throw Exception("No interpreter context available");
+        }
         try {
-          return vm.run(ast.statements);
+          if (envProvided) {
+            final savedEnv = currentVm.getCurrentEnv();
+            final loadEnv = Environment(
+              parent: savedEnv.root,
+              interpreter: currentVm,
+            );
+            loadEnv.declare("_ENV", Value(env));
+            loadEnv.declare("...", Value.multi(callArgs));
+            final prevPath = currentVm.currentScriptPath;
+            currentVm.setCurrentEnv(loadEnv);
+            currentVm.currentScriptPath = filename;
+            try {
+              final r = await currentVm.run(ast.statements);
+              Logger.debug(
+                'loadfile: executed chunk, result=$r',
+                category: 'Load',
+              );
+              return r;
+            } finally {
+              currentVm.setCurrentEnv(savedEnv);
+              currentVm.currentScriptPath = prevPath;
+            }
+          } else {
+            final prevPath = currentVm.currentScriptPath;
+            currentVm.currentScriptPath = filename;
+            try {
+              final r = await currentVm.run(ast.statements);
+              Logger.debug(
+                'loadfile: executed chunk, result=$r',
+                category: 'Load',
+              );
+              return r;
+            } finally {
+              currentVm.currentScriptPath = prevPath;
+            }
+          }
         } catch (e) {
           throw Exception("Error executing loaded chunk: $e");
         }
       });
     } catch (e) {
-      return Value(null);
+      if (e is FormatException) {
+        return [Value(null), Value(e.message)];
+      }
+      return [Value(null), Value("Error parsing source code: $e")];
     }
   }
 }

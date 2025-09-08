@@ -18,9 +18,9 @@ void main() {
         // assert(string.match("aaa", ".*a") == "aaa")
         // assert(string.match("b", ".*b") == "b")
         await bridge.execute('''
-          local r1 = string.match("aaab", ".*b")
-          local r2 = string.match("aaa", ".*a")
-          local r3 = string.match("b", ".*b")
+          r1 = string.match("aaab", ".*b")
+          r2 = string.match("aaa", ".*a")
+          r3 = string.match("b", ".*b")
         ''');
 
         expect((bridge.getGlobal('r1') as Value).raw, equals("aaab"));
@@ -34,9 +34,9 @@ void main() {
         // assert(string.match("aaa", ".+a") == "aaa")
         // assert(not string.match("b", ".+b"))
         await bridge.execute('''
-          local r1 = string.match("aaab", ".+b")
-          local r2 = string.match("aaa", ".+a")
-          local r3 = string.match("b", ".+b")
+          r1 = string.match("aaab", ".+b")
+          r2 = string.match("aaa", ".+a")
+          r3 = string.match("b", ".+b")
         ''');
 
         expect((bridge.getGlobal('r1') as Value).raw, equals("aaab"));
@@ -50,9 +50,9 @@ void main() {
         // assert(string.match("aaa", ".?a") == "aa")
         // assert(string.match("b", ".?b") == "b")
         await bridge.execute('''
-          local r1 = string.match("aaab", ".?b")
-          local r2 = string.match("aaa", ".?a")
-          local r3 = string.match("b", ".?b")
+          r1 = string.match("aaab", ".?b")
+          r2 = string.match("aaa", ".?a")
+          r3 = string.match("b", ".?b")
         ''');
 
         expect((bridge.getGlobal('r1') as Value).raw, equals("ab"));
@@ -62,9 +62,9 @@ void main() {
 
       test('non-greedy patterns', () async {
         await bridge.execute('''
-          local r1 = string.match("aaab", ".-b")
-          local r2 = string.match("aaa", ".-a")
-          local r3 = string.match("aaabc", "a.-c")
+          r1 = string.match("aaab", ".-b")
+          r2 = string.match("aaa", ".-a")
+          r3 = string.match("aaabc", "a.-c")
         ''');
 
         expect((bridge.getGlobal('r1') as Value).raw, equals("aaab"));
@@ -76,10 +76,10 @@ void main() {
     group('character classes', () {
       test('basic character classes', () async {
         await bridge.execute('''
-          local r1 = string.match("abc123", "%a+")
-          local r2 = string.match("abc123", "%d+")
-          local r3 = string.match("abc123", "%w+")
-          local r4 = string.match("abc 123", "%s+")
+          r1 = string.match("abc123", "%a+")
+          r2 = string.match("abc123", "%d+")
+          r3 = string.match("abc123", "%w+")
+          r4 = string.match("abc 123", "%s+")
         ''');
 
         expect((bridge.getGlobal('r1') as Value).raw, equals("abc"));
@@ -90,10 +90,10 @@ void main() {
 
       test('negated character classes', () async {
         await bridge.execute('''
-          local r1 = string.match("abc123", "%A+")
-          local r2 = string.match("abc123", "%D+")
-          local r3 = string.match("abc123", "%W+")
-          local r4 = string.match("abc 123", "%S+")
+          r1 = string.match("abc123", "%A+")
+          r2 = string.match("abc123", "%D+")
+          r3 = string.match("abc123", "%W+")
+          r4 = string.match("abc 123", "%S+")
         ''');
 
         expect((bridge.getGlobal('r1') as Value).raw, equals("123"));
@@ -104,10 +104,10 @@ void main() {
 
       test('custom character classes', () async {
         await bridge.execute('''
-          local r1 = string.match("abc123", "[a-z]+")
-          local r2 = string.match("abc123", "[0-9]+")
-          local r3 = string.match("abc123", "[^a-z]+")
-          local r4 = string.match("abc123", "[^0-9]+")
+          r1 = string.match("abc123", "[a-z]+")
+          r2 = string.match("abc123", "[0-9]+")
+          r3 = string.match("abc123", "[^a-z]+")
+          r4 = string.match("abc123", "[^0-9]+")
         ''');
 
         expect((bridge.getGlobal('r1') as Value).raw, equals("abc"));
@@ -123,8 +123,8 @@ void main() {
         // assert(string.match("alo xyzK", "(%w+)K") == "xyz")
         // assert(string.match("254 K", "(%d*)K") == "")
         await bridge.execute('''
-          local r1 = string.match("alo xyzK", "(%w+)K")
-          local r2 = string.match("254 K", "(%d*)K")
+          r1 = string.match("alo xyzK", "(%w+)K")
+          r2 = string.match("254 K", "(%d*)K")
         ''');
 
         expect((bridge.getGlobal('r1') as Value).raw, equals("xyz"));
@@ -136,8 +136,8 @@ void main() {
         // assert(string.match("alo ", "(%w*)$") == "")
         // assert(not string.match("alo ", "(%w+)$"))
         await bridge.execute(r'''
-          local r1 = string.match("alo ", "(%w*)$")
-          local r2 = string.match("alo ", "(%w+)$")
+          r1 = string.match("alo ", "(%w*)$")
+          r2 = string.match("alo ", "(%w+)$")
         ''');
 
         expect((bridge.getGlobal('r1') as Value).raw, equals(""));
@@ -146,8 +146,8 @@ void main() {
 
       test('basic captures', () async {
         await bridge.execute('''
-          local r1 = string.match("abc123", "(%a+)(%d+)")
-          local r2 = string.match("name = value", "(%w+)%s*=%s*(%w+)")
+          r1 = string.match("abc123", "(%a+)(%d+)")
+          r2 = string.match("name = value", "(%w+)%s*=%s*(%w+)")
         ''');
 
         expect((bridge.getGlobal('r1') as Value).raw, equals("abc"));
@@ -156,8 +156,8 @@ void main() {
 
       test('multiple captures', () async {
         await bridge.execute('''
-          local a, b = string.match("abc123", "(%a+)(%d+)")
-          local c, d = string.match("name = value", "(%w+)%s*=%s*(%w+)")
+          a, b = string.match("abc123", "(%a+)(%d+)")
+          c, d = string.match("name = value", "(%w+)%s*=%s*(%w+)")
         ''');
 
         expect((bridge.getGlobal('a') as Value).raw, equals("abc"));
@@ -168,7 +168,7 @@ void main() {
 
       test('nested captures', () async {
         await bridge.execute('''
-          local a, b, c = string.match("abc123", "((%a+)(%d+))")
+          a, b, c = string.match("abc123", "((%a+)(%d+))")
         ''');
 
         expect((bridge.getGlobal('a') as Value).raw, equals("abc123"));
@@ -180,9 +180,9 @@ void main() {
     group('special patterns', () {
       test('frontier patterns', () async {
         // From pm.lua:
-        // local k = string.match(" alo aalo allo", "%f[%S](.-%f[%s].-%f[%S])")
+        // k = string.match(" alo aalo allo", "%f[%S](.-%f[%s].-%f[%S])")
         await bridge.execute('''
-          local k = string.match(" alo aalo allo", "%f[%S](.-%f[%s].-%f[%S])")
+          k = string.match(" alo aalo allo", "%f[%S](.-%f[%s].-%f[%S])")
         ''');
 
         expect((bridge.getGlobal('k') as Value).raw, equals("alo "));
@@ -193,8 +193,8 @@ void main() {
         // assert(string.match("abc\\0\\1\\2c", "[\\0-\\2]+") == "\\0\\1\\2")
         // assert(string.match("abc\\0\\0\\0", "%\\0+") == "\\0\\0\\0")
         await bridge.execute('''
-          local r1 = string.match("abc\\0\\1\\2c", "[\\0-\\2]+")
-          local r2 = string.match("abc\\0\\0\\0", "%\\0+")
+          r1 = string.match("abc\\0\\1\\2c", "[\\0-\\2]+")
+          r2 = string.match("abc\\0\\0\\0", "%\\0+")
         ''');
 
         expect(
@@ -211,7 +211,7 @@ void main() {
         // From pm.lua:
         // assert(string.match("abc\\0efg\\0\\1e\\1g", "%b\\0\\1") == "\\0efg\\0\\1e\\1")
         await bridge.execute('''
-          local r = string.match("abc\\0efg\\0\\1e\\1g", "%b\\0\\1")
+          r = string.match("abc\\0efg\\0\\1e\\1g", "%b\\0\\1")
         ''');
 
         expect(
@@ -222,9 +222,9 @@ void main() {
 
       test('anchors', () async {
         await bridge.execute(r'''
-          local r1 = string.match("hello world", "^%a+")
-          local r2 = string.match("hello world", "%a+$")
-          local r3 = string.match("hello", "^%a+$")
+          r1 = string.match("hello world", "^%a+")
+          r2 = string.match("hello world", "%a+$")
+          r3 = string.match("hello", "^%a+$")
         ''');
 
         expect((bridge.getGlobal('r1') as Value).raw, equals("hello"));
@@ -236,23 +236,23 @@ void main() {
     group('from Lua test suite', () {
       test('pm.lua examples', () async {
         await bridge.execute(r'''
-          local r1 = string.match("aaab", ".*b")
-          local r2 = string.match("aaa", ".*a")
-          local r3 = string.match("b", ".*b")
-          local r4 = string.match("aaab", ".+b")
-          local r5 = string.match("aaa", ".+a")
-          local r6 = string.match("b", ".+b")
-          local r7 = string.match("aaab", ".?b")
-          local r8 = string.match("aaa", ".?a")
-          local r9 = string.match("b", ".?b")
-          local r10 = string.match("alo xyzK", "(%w+)K")
-          local r11 = string.match("254 K", "(%d*)K")
-          local r12 = string.match("alo ", "(%w*)$")
-          local r13 = string.match("alo ", "(%w+)$")
-          local r14 = string.match(" alo aalo allo", "%f[%S](.-%f[%s].-%f[%S])")
-          local r15 = string.match("abc\0\1\2c", "[\0-\2]+")
-          local r16 = string.match("abc\0\0\0", "%\0+")
-          local r17 = string.match("abc\0efg\0\1e\1g", "%b\0\1")
+          r1 = string.match("aaab", ".*b")
+          r2 = string.match("aaa", ".*a")
+          r3 = string.match("b", ".*b")
+          r4 = string.match("aaab", ".+b")
+          r5 = string.match("aaa", ".+a")
+          r6 = string.match("b", ".+b")
+          r7 = string.match("aaab", ".?b")
+          r8 = string.match("aaa", ".?a")
+          r9 = string.match("b", ".?b")
+          r10 = string.match("alo xyzK", "(%w+)K")
+          r11 = string.match("254 K", "(%d*)K")
+          r12 = string.match("alo ", "(%w*)$")
+          r13 = string.match("alo ", "(%w+)$")
+          r14 = string.match(" alo aalo allo", "%f[%S](.-%f[%s].-%f[%S])")
+          r15 = string.match("abc\0\1\2c", "[\0-\2]+")
+          r16 = string.match("abc\0\0\0", "%\0+")
+          r17 = string.match("abc\0efg\0\1e\1g", "%b\0\1")
         ''');
 
         expect((bridge.getGlobal('r1') as Value).raw, equals("aaab"));

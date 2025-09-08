@@ -37,3 +37,11 @@ ProcessResult runProcessSync(String executable, List<String> arguments) {
     result.stderr.toString(),
   );
 }
+
+/// Extract OS error code from a native exception when available
+int extractOsErrorCode(Object e) {
+  if (e is io.FileSystemException && e.osError != null) {
+    return e.osError!.errorCode;
+  }
+  return 0;
+}

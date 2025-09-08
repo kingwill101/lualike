@@ -12,9 +12,9 @@ void main() {
       'negative zero and positive zero as table keys - direct assignment',
       () async {
         await bridge.execute('''
-        local mz = -0.0
-        local z = 0.0
-        local t = {}
+        mz = -0.0
+        z = 0.0
+        t = {}
         t[mz] = 42
         result = t[z]
       ''');
@@ -32,9 +32,9 @@ void main() {
       'negative zero and positive zero as table keys - constructor syntax',
       () async {
         await bridge.execute('''
-        local mz = -0.0
-        local z = 0.0
-        local t = {[mz] = 42}
+        mz = -0.0
+        z = 0.0
+        t = {[mz] = 42}
         result = t[z]
       ''');
 
@@ -52,9 +52,9 @@ void main() {
       'positive zero and negative zero as table keys - constructor syntax',
       () async {
         await bridge.execute('''
-        local mz = -0.0
-        local z = 0.0
-        local t = {[z] = 100}
+        mz = -0.0
+        z = 0.0
+        t = {[z] = 100}
         result = t[mz]
       ''');
 
@@ -70,8 +70,8 @@ void main() {
 
     test('zero variants equality in Lua', () async {
       await bridge.execute('''
-        local mz = -0.0
-        local z = 0.0
+        mz = -0.0
+        z = 0.0
         result = mz == z
       ''');
 
@@ -81,9 +81,9 @@ void main() {
 
     test('math.lua specific assertion test', () async {
       await bridge.execute('''
-        local mz = -0.0
-        local z = 0.0
-        local a = {[mz] = 1}
+        mz = -0.0
+        z = 0.0
+        a = {[mz] = 1}
         result = a[z] == 1 and a[mz] == 1
       ''');
 
@@ -97,9 +97,9 @@ void main() {
 
     test('table key debugging - what keys exist', () async {
       await bridge.execute('''
-        local mz = -0.0
-        local z = 0.0
-        local a = {[mz] = 1}
+        mz = -0.0
+        z = 0.0
+        a = {[mz] = 1}
         
         num_keys = 0
         for k, v in pairs(a) do

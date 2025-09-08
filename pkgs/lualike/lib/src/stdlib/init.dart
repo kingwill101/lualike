@@ -282,7 +282,7 @@ void _defineCoroutineStub({required Environment env}) {
       var started = false;
       var idx = 0;
 
-      return Value((List<Object?> _) async {
+      return Value((List<Object?> args) async {
         final prevOverride = _CoroutineStubState.yieldOverride;
         _CoroutineStubState.yieldOverride = (List<Object?> yargs) {
           if (yargs.isEmpty) {
@@ -301,12 +301,12 @@ void _defineCoroutineStub({required Environment env}) {
             started = true;
             Value? first;
             if (func.raw is Function) {
-              final out = await (func.raw as Function)(<Object?>[]);
+              final out = await (func.raw as Function)(args);
               first = out is Value
                   ? out
                   : (out == null ? Value(null) : Value(out));
             } else if (func.raw is BuiltinFunction) {
-              final out = (func.raw as BuiltinFunction).call(<Object?>[]);
+              final out = (func.raw as BuiltinFunction).call(args);
               first = out is Value
                   ? out
                   : (out == null ? Value(null) : Value(out));
@@ -324,12 +324,12 @@ void _defineCoroutineStub({required Environment env}) {
           }
           // Plain function path: call per invocation until nil
           if (func.raw is Function) {
-            final out = await (func.raw as Function)(<Object?>[]);
+            final out = await (func.raw as Function)(args);
             return out is Value
                 ? out
                 : (out == null ? Value(null) : Value(out));
           } else if (func.raw is BuiltinFunction) {
-            final out = (func.raw as BuiltinFunction).call(<Object?>[]);
+            final out = (func.raw as BuiltinFunction).call(args);
             return out is Value
                 ? out
                 : (out == null ? Value(null) : Value(out));

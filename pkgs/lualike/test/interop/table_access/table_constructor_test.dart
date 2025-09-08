@@ -9,7 +9,7 @@ void main() {
       final bridge = LuaLike();
 
       await bridge.execute('''
-        local files = {
+        files = {
           ["names.lua"] = "do return {...} end\\n",
           ["err.lua"] = "B = 15; a = a + 1;",
           ["synerr.lua"] = "B =",
@@ -45,7 +45,7 @@ void main() {
       final bridge = LuaLike();
 
       await bridge.execute('''
-        local mixed = {
+        mixed = {
           ["string.key"] = "string key value",
           normal_key = "normal key value",
           ["number"] = 42,
@@ -93,15 +93,15 @@ void main() {
       final bridge = LuaLike();
 
       await bridge.execute('''
-local function func()
+function func()
     return 3, 4
 end
 
-local function func2(...)
+function func2(...)
     return ...
 end
 
-local function print_table_contents(tbl)
+function print_table_contents(tbl)
     local t = '{'
     for k, v in pairs(tbl) do
         t = t .. tostring(k) .. ' = ' ..tostring(v) .. '  '

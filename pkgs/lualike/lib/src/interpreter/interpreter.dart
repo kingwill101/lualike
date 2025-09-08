@@ -12,6 +12,7 @@ import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/stack.dart';
 import 'package:lualike/src/stdlib/init.dart' show initializeStandardLibrary;
 import 'package:lualike/src/utils/platform_utils.dart' as platform;
+import 'package:lualike/src/utils/type.dart';
 import 'package:lualike/src/value.dart';
 import 'package:lualike/src/value_class.dart';
 import 'package:lualike/src/utils/file_system_utils.dart' as fs;
@@ -493,8 +494,14 @@ class Interpreter extends AstVisitor<Object?>
       Logger.info('evalStack.pop()', category: 'Interpreter');
     }
 
-    // Push a top-level frame to track currentline via AST spans
-    callStack.push(currentScriptPath ?? 'chunk');
+    // Create a script environment for main script execution
+    // This ensures local variables in the main script don't affect globals
+    final savedEnv = _currentEnv;
+    final scriptEnv = Environment(parent: savedEnv, interpreter: this);
+    _currentEnv = scriptEnv;
+
+    // Push a top-level frame to track currentline via AST spans, bound to script env
+    callStack.push(currentScriptPath ?? 'chunk', env: _currentEnv);
 
     try {
       await _executeStatements(program);
@@ -512,6 +519,9 @@ class Interpreter extends AstVisitor<Object?>
       // Report undefined label with helpful message
       Logger.warning('Undefined label: ${e.label}', category: 'Interpreter');
       throw GotoException('Undefined label: ${e.label}');
+    } finally {
+      // Restore the original environment
+      _currentEnv = savedEnv;
     }
 
     Logger.info('Program finished', category: 'Interpreter');
