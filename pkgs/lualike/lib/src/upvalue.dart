@@ -31,7 +31,7 @@ class Upvalue {
     if (_joinedUpvalue != null) {
       return _joinedUpvalue!.getValue();
     }
-    
+
     return _isOpen ? valueBox.value : _closedValue;
   }
 
@@ -46,7 +46,7 @@ class Upvalue {
       _joinedUpvalue!.setValue(newValue);
       return;
     }
-    
+
     if (_isOpen) {
       // TODO: Consider const checking here eventually, based on valueBox.isConst
       valueBox.value = newValue;
@@ -80,19 +80,19 @@ class Upvalue {
     // We can't modify the valueBox field since it's final, but we can
     // make this upvalue behave as if it's using the other's box by
     // overriding the getValue and setValue methods behavior.
-    
+
     // Store a reference to the target upvalue for delegation
     _joinedUpvalue = other;
-    
+
     Logger.debug(
       'UpvalueJoin: Joined upvalue ${name ?? 'unnamed'} with ${other.name ?? 'unnamed'}',
       category: 'Debug',
     );
   }
-  
+
   /// Reference to the upvalue this one is joined with, if any
   Upvalue? _joinedUpvalue;
-  
+
   /// Whether this upvalue has been joined with another upvalue
   bool get isJoined => _joinedUpvalue != null;
 

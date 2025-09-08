@@ -33,7 +33,6 @@ class ChunkSerializer {
     }
   }
 
-
   /// Serializes a FunctionBody to a binary chunk string.
   ///
   /// The format is: ESC + marker + payload
@@ -47,7 +46,10 @@ class ChunkSerializer {
     try {
       // Use AST serialization as the source of truth
       final dumpData = (functionBody as Dumpable).dump();
-      Logger.debug('dumpData keys: ${dumpData.keys.toList()}', category: 'ChunkSerializer');
+      Logger.debug(
+        'dumpData keys: ${dumpData.keys.toList()}',
+        category: 'ChunkSerializer',
+      );
 
       // Remove all spans to avoid JSON encoding issues
       _removeSpansFromMap(dumpData);
@@ -65,7 +67,10 @@ class ChunkSerializer {
       Logger.error('AST serialization failed: $e', category: 'ChunkSerializer');
       Logger.debug('Error type: ${e.runtimeType}', category: 'ChunkSerializer');
       if (e is RangeError) {
-        Logger.debug('RangeError details: ${e.message}', category: 'ChunkSerializer');
+        Logger.debug(
+          'RangeError details: ${e.message}',
+          category: 'ChunkSerializer',
+        );
       }
       rethrow;
     }
@@ -81,7 +86,10 @@ class ChunkSerializer {
     try {
       // Use AST serialization as the source of truth
       final dumpData = (functionBody as Dumpable).dump();
-      Logger.debug('dumpData keys: ${dumpData.keys.toList()}', category: 'ChunkSerializer');
+      Logger.debug(
+        'dumpData keys: ${dumpData.keys.toList()}',
+        category: 'ChunkSerializer',
+      );
 
       // Remove all spans to avoid JSON encoding issues
       _removeSpansFromMap(dumpData);
@@ -99,7 +107,10 @@ class ChunkSerializer {
       Logger.error('AST serialization failed: $e', category: 'ChunkSerializer');
       Logger.debug('Error type: ${e.runtimeType}', category: 'ChunkSerializer');
       if (e is RangeError) {
-        Logger.debug('RangeError details: ${e.message}', category: 'ChunkSerializer');
+        Logger.debug(
+          'RangeError details: ${e.message}',
+          category: 'ChunkSerializer',
+        );
       }
       rethrow;
     }
@@ -122,70 +133,73 @@ class ChunkSerializer {
     }
 
     String payload;
-    
+
     // Check if this is a truncated Lua binary chunk (starts with ESC but too short)
-    if (binaryChunk.bytes.isNotEmpty && 
-        binaryChunk.bytes.length < 15 && 
+    if (binaryChunk.bytes.isNotEmpty &&
+        binaryChunk.bytes.length < 15 &&
         binaryChunk.bytes[0] == 0x1B) {
       throw Exception("Invalid binary chunk: truncated (too short)");
     }
-    
+
     // Check if it's a Lua-compatible binary chunk (starts with \27Lua)
-    if (binaryChunk.bytes.length >= 15 && 
-        binaryChunk.bytes[0] == 0x1B && 
-        binaryChunk.bytes[1] == 0x4C && 
-        binaryChunk.bytes[2] == 0x75 && 
+    if (binaryChunk.bytes.length >= 15 &&
+        binaryChunk.bytes[0] == 0x1B &&
+        binaryChunk.bytes[1] == 0x4C &&
+        binaryChunk.bytes[2] == 0x75 &&
         binaryChunk.bytes[3] == 0x61 &&
-        binaryChunk.bytes[4] == 0x54 &&  // Version
-        binaryChunk.bytes[5] == 0x00 &&  // Format
-        binaryChunk.bytes[6] == 0x19 &&  // Data signature
+        binaryChunk.bytes[4] == 0x54 && // Version
+        binaryChunk.bytes[5] == 0x00 && // Format
+        binaryChunk.bytes[6] == 0x19 && // Data signature
         binaryChunk.bytes[7] == 0x93 &&
         binaryChunk.bytes[8] == 0x0D &&
         binaryChunk.bytes[9] == 0x0A &&
         binaryChunk.bytes[10] == 0x1A &&
         binaryChunk.bytes[11] == 0x0A &&
-        binaryChunk.bytes[12] == BinaryTypeSize.i &&  // Instruction size
-        binaryChunk.bytes[13] == BinaryTypeSize.j &&  // Integer size
-        binaryChunk.bytes[14] == BinaryTypeSize.n) {  // Number size
+        binaryChunk.bytes[12] == BinaryTypeSize.i && // Instruction size
+        binaryChunk.bytes[13] == BinaryTypeSize.j && // Integer size
+        binaryChunk.bytes[14] == BinaryTypeSize.n) {
+      // Number size
       // Skip the Lua header (15 bytes) + LUAC_INT + LUAC_NUM = 15 + 8 + 8 = 31 bytes total
       final totalHeaderSize = 15 + BinaryTypeSize.j + BinaryTypeSize.n;
       if (binaryChunk.bytes.length < totalHeaderSize) {
         throw Exception("Invalid binary chunk: truncated (too short)");
       }
-      
+
       // Check if there's any payload after the header (minimum 4 bytes for "AST:" or "SRC:")
       if (binaryChunk.bytes.length < totalHeaderSize + 4) {
         throw Exception("Invalid binary chunk: truncated (no payload)");
       }
-      
+
       // Validate LUAC_INT and LUAC_NUM values for endianness verification
       final luacIntStart = 15;
       final luacIntEnd = luacIntStart + BinaryTypeSize.j;
       final luacNumStart = luacIntEnd;
       final luacNumEnd = luacNumStart + BinaryTypeSize.n;
-      
+
       final luacIntBytes = binaryChunk.bytes.sublist(luacIntStart, luacIntEnd);
       final luacNumBytes = binaryChunk.bytes.sublist(luacNumStart, luacNumEnd);
-      
+
       // Check LUAC_INT: should be 0x5678 (22136) as little-endian 8-byte integer
       final expectedLuacInt = _createLuacIntBytes();
       if (!_bytesEqual(luacIntBytes, expectedLuacInt)) {
         throw Exception("Invalid binary chunk: truncated (LUAC_INT mismatch)");
       }
-      
+
       // Check LUAC_NUM: should be 370.5 as IEEE 754 double precision (little-endian)
       final expectedLuacNum = _createLuacNumBytes();
       if (!_bytesEqual(luacNumBytes, expectedLuacNum)) {
         throw Exception("Invalid binary chunk: truncated (LUAC_NUM mismatch)");
       }
-      
-      payload = String.fromCharCodes(binaryChunk.bytes.sublist(totalHeaderSize));
+
+      payload = String.fromCharCodes(
+        binaryChunk.bytes.sublist(totalHeaderSize),
+      );
     } else if (binaryChunk.bytes[0] == _binaryPrefix) {
       // Any chunk starting with ESC should be treated as binary
       if (binaryChunk.bytes.length < 2) {
         throw Exception("Invalid binary chunk: truncated (too short)");
       }
-      
+
       // Legacy format: ESC + marker + payload
       payload = String.fromCharCodes(binaryChunk.bytes.sublist(1));
     } else {
@@ -204,18 +218,19 @@ class ChunkSerializer {
       final jsonString = payload.substring(_astMarker.length);
       try {
         final data = jsonDecode(jsonString) as Map<String, dynamic>;
-        
+
         // Extract upvalue information if present
         List<String>? upvalueNames;
         List<dynamic>? upvalueValues;
-        if (data.containsKey('upvalueNames') && data.containsKey('upvalueValues')) {
+        if (data.containsKey('upvalueNames') &&
+            data.containsKey('upvalueValues')) {
           upvalueNames = List<String>.from(data['upvalueNames']);
           upvalueValues = data['upvalueValues'];
         }
 
         // Reconstruct the function body from the AST data
         final functionBody = undumpAst(data) as FunctionBody;
-        
+
         return ChunkInfo(
           source: "return (${functionBody.toSource()})()",
           isStringDumpFunction: true,
@@ -224,7 +239,10 @@ class ChunkSerializer {
           upvalueValues: upvalueValues,
         );
       } catch (e) {
-        Logger.error('Failed to deserialize AST chunk: $e', category: 'ChunkSerializer');
+        Logger.error(
+          'Failed to deserialize AST chunk: $e',
+          category: 'ChunkSerializer',
+        );
         // Since this is a binary chunk, any failure should be treated as truncated
         throw Exception("Invalid binary chunk: truncated (malformed payload)");
       }
@@ -267,28 +285,28 @@ class ChunkSerializer {
     }
 
     String payload;
-    
+
     // Check if this is a truncated Lua binary chunk (starts with ESC but too short)
-    if (binaryChunk.isNotEmpty && 
-        binaryChunk.length < 4 && 
+    if (binaryChunk.isNotEmpty &&
+        binaryChunk.length < 4 &&
         binaryChunk.codeUnitAt(0) == 0x1B) {
       throw Exception("Invalid binary chunk: truncated (too short)");
     }
-    
+
     // Check if it's a Lua-compatible binary chunk (starts with \27Lua)
-    if (binaryChunk.length >= 4 && 
-        binaryChunk.codeUnitAt(0) == 0x1B && 
+    if (binaryChunk.length >= 4 &&
+        binaryChunk.codeUnitAt(0) == 0x1B &&
         binaryChunk.substring(1, 4) == "Lua") {
       // Skip the Lua header (15 bytes) + LUAC_INT (8 bytes) + LUAC_NUM (8 bytes) = 31 bytes total
       if (binaryChunk.length < 31) {
         throw Exception("Invalid binary chunk: truncated (too short)");
       }
-      
+
       // Check if there's any payload after the header (minimum 4 bytes for "AST:" or "SRC:")
       if (binaryChunk.length < 35) {
         throw Exception("Invalid binary chunk: truncated (no payload)");
       }
-      
+
       payload = binaryChunk.substring(31);
     } else if (binaryChunk.codeUnitAt(0) == _binaryPrefix) {
       // Legacy format: ESC + marker + payload
@@ -309,19 +327,18 @@ class ChunkSerializer {
       final jsonString = payload.substring(_astMarker.length);
       try {
         final data = jsonDecode(jsonString) as Map<String, dynamic>;
-        
+
         // Extract upvalue information if present
         final upvalueNames = (data['upvalueNames'] as List?)?.cast<String>();
         final upvalueValues = data['upvalueValues'] as List<dynamic>?;
-        
-        
+
         // Remove upvalue data from the AST data
         data.remove('upvalueNames');
         data.remove('upvalueValues');
-        
+
         // Reconstruct the function body from AST
         final functionBody = FunctionBody.fromDump(data);
-        
+
         // Generate source from the reconstructed function body
         // For string.dump functions, we need to execute the function and return its result
         final source = "return (${functionBody.toSource()})()";
@@ -358,7 +375,6 @@ class ChunkSerializer {
     }
   }
 
-
   /// Helper method to compare two byte arrays for equality.
   static bool _bytesEqual(List<int> bytes1, List<int> bytes2) {
     if (bytes1.length != bytes2.length) return false;
@@ -393,13 +409,18 @@ class ChunkSerializer {
       // BBB: instruction size (4), integer size (8), number size (8)
       BinaryTypeSize.i, BinaryTypeSize.j, BinaryTypeSize.n,
     ];
-    
+
     // Add LUAC_INT and LUAC_NUM values (used for endianness verification)
     final luacInt = _createLuacIntBytes();
     final luacNum = _createLuacNumBytes();
-    
+
     // Combine header, LUAC values, and our AST payload
-    final allBytes = <int>[...header, ...luacInt, ...luacNum, ...payload.codeUnits];
+    final allBytes = <int>[
+      ...header,
+      ...luacInt,
+      ...luacNum,
+      ...payload.codeUnits,
+    ];
     // Use String.fromCharCodes to preserve raw bytes
     return String.fromCharCodes(allBytes);
   }
@@ -419,13 +440,18 @@ class ChunkSerializer {
       // BBB: instruction size (4), integer size (8), number size (8)
       BinaryTypeSize.i, BinaryTypeSize.j, BinaryTypeSize.n,
     ];
-    
+
     // Add LUAC_INT and LUAC_NUM values (used for endianness verification)
     final luacInt = _createLuacIntBytes();
     final luacNum = _createLuacNumBytes();
-    
+
     // Combine header, LUAC values, and our AST payload as raw bytes
-    final allBytes = <int>[...header, ...luacInt, ...luacNum, ...payload.codeUnits];
+    final allBytes = <int>[
+      ...header,
+      ...luacInt,
+      ...luacNum,
+      ...payload.codeUnits,
+    ];
     return LuaString.fromBytes(Uint8List.fromList(allBytes));
   }
 }

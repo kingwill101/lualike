@@ -616,10 +616,10 @@ class LoadFunction implements BuiltinFunction {
       providedEnv = args[3] as Value;
     }
 
-      bool isBinaryChunk = false;
-      ChunkInfo? chunkInfo;
+    bool isBinaryChunk = false;
+    ChunkInfo? chunkInfo;
 
-      if (args[0] is Value) {
+    if (args[0] is Value) {
       if ((args[0] as Value).raw is String) {
         // Load from string
         source = (args[0] as Value).raw as String;
@@ -661,7 +661,9 @@ class LoadFunction implements BuiltinFunction {
         if (isBinaryChunk) {
           // Handle LuaString binary chunk directly
           try {
-            chunkInfo = ChunkSerializer.deserializeChunkFromLuaString(luaString);
+            chunkInfo = ChunkSerializer.deserializeChunkFromLuaString(
+              luaString,
+            );
             source = chunkInfo.source;
             Logger.debug(
               "LoadFunction: Deserialized LuaString chunk: $chunkInfo",
@@ -791,7 +793,9 @@ class LoadFunction implements BuiltinFunction {
             isBinaryChunk = true;
 
             // Use ChunkSerializer to handle binary chunk from reader
-            final binaryChunkLuaString = LuaString.fromBytes(Uint8List.fromList(allBytes));
+            final binaryChunkLuaString = LuaString.fromBytes(
+              Uint8List.fromList(allBytes),
+            );
             try {
               final chunkInfo = ChunkSerializer.deserializeChunkFromLuaString(
                 binaryChunkLuaString,
@@ -1034,14 +1038,19 @@ class LoadFunction implements BuiltinFunction {
             directFunction.upvalues = [];
 
             // Use upvalue names and values from ChunkInfo if available, otherwise analyze
-            if (originalUpvalueNames != null && originalUpvalueNames.isNotEmpty) {
+            if (originalUpvalueNames != null &&
+                originalUpvalueNames.isNotEmpty) {
               // Use the original upvalue structure with preserved values
               for (int i = 0; i < originalUpvalueNames.length; i++) {
                 final upvalueName = originalUpvalueNames[i];
                 // If no environment provided (nil), set upvalues to null but preserve names for debug.setupvalue
                 // If environment provided, use original upvalue values
-                final upvalueValue = (providedEnv != null && providedEnv.raw != null && originalUpvalueValues != null && i < originalUpvalueValues.length) 
-                    ? originalUpvalueValues[i] 
+                final upvalueValue =
+                    (providedEnv != null &&
+                        providedEnv.raw != null &&
+                        originalUpvalueValues != null &&
+                        i < originalUpvalueValues.length)
+                    ? originalUpvalueValues[i]
                     : null;
                 final box = Box<dynamic>(upvalueValue);
                 directFunction.upvalues!.add(
@@ -1107,7 +1116,7 @@ class LoadFunction implements BuiltinFunction {
                 interpreter: vm,
                 isLoadIsolated: true,
               );
-              
+
               // Only provide access to the global _G table
               final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G');
               if (gValue is Value) {
@@ -1147,23 +1156,30 @@ class LoadFunction implements BuiltinFunction {
                 "LoadFunction: Code execution completed in environment ${vm.getCurrentEnv().hashCode}",
                 category: 'Load',
               );
-              
+
               // If we have upvalue information and the result is a function, set up the upvalues
-              if (originalUpvalueNames != null && originalUpvalueNames.isNotEmpty && result is Value && result.raw is Function) {
+              if (originalUpvalueNames != null &&
+                  originalUpvalueNames.isNotEmpty &&
+                  result is Value &&
+                  result.raw is Function) {
                 final upvalues = <Upvalue>[];
                 for (int i = 0; i < originalUpvalueNames.length; i++) {
                   final upvalueName = originalUpvalueNames[i];
                   // If no environment provided (nil), set upvalues to null but preserve names for debug.setupvalue
                   // If environment provided, use original upvalue values
-                  final upvalueValue = (providedEnv != null && providedEnv.raw != null && originalUpvalueValues != null && i < originalUpvalueValues.length) 
-                      ? originalUpvalueValues[i] 
+                  final upvalueValue =
+                      (providedEnv != null &&
+                          providedEnv.raw != null &&
+                          originalUpvalueValues != null &&
+                          i < originalUpvalueValues.length)
+                      ? originalUpvalueValues[i]
                       : null;
                   final box = Box<dynamic>(upvalueValue);
                   upvalues.add(Upvalue(valueBox: box, name: upvalueName));
                 }
                 result.upvalues = upvalues;
               }
-              
+
               return result;
             } finally {
               // Restore the previous environment
@@ -1207,8 +1223,12 @@ class LoadFunction implements BuiltinFunction {
           final upvalueName = originalUpvalueNames[i];
           // If no environment provided (nil), set upvalues to null but preserve names for debug.setupvalue
           // If environment provided, use original upvalue values
-          final upvalueValue = (providedEnv != null && providedEnv.raw != null && originalUpvalueValues != null && i < originalUpvalueValues.length) 
-              ? originalUpvalueValues[i] 
+          final upvalueValue =
+              (providedEnv != null &&
+                  providedEnv.raw != null &&
+                  originalUpvalueValues != null &&
+                  i < originalUpvalueValues.length)
+              ? originalUpvalueValues[i]
               : null;
           final box = Box<dynamic>(upvalueValue);
           upvalues.add(Upvalue(valueBox: box, name: upvalueName));
@@ -1402,7 +1422,7 @@ class LoadfileFunction implements BuiltinFunction {
                   } else {
                     return funcValue;
                   }
-                                } finally {
+                } finally {
                   currentVm.setCurrentEnv(savedEnv);
                   currentVm.currentScriptPath = prevPath;
                 }
@@ -1475,17 +1495,13 @@ class LoadfileFunction implements BuiltinFunction {
                   currentVm.currentScriptPath = filename;
                   try {
                     final astNode = chunkInfo.originalFunctionBody!;
-                    final funcValue =
-                        await astNode.accept(currentVm) as Value;
+                    final funcValue = await astNode.accept(currentVm) as Value;
                     if (funcValue.raw is Function) {
-                      return await currentVm.callFunction(
-                        funcValue,
-                        callArgs,
-                      );
+                      return await currentVm.callFunction(funcValue, callArgs);
                     } else {
                       return funcValue;
                     }
-                                    } finally {
+                  } finally {
                     currentVm.setCurrentEnv(savedEnv);
                     currentVm.currentScriptPath = prevPath;
                   }
@@ -1526,7 +1542,9 @@ class LoadfileFunction implements BuiltinFunction {
           if (isBinary) {
             // Extract binary chunk from the position where ESC byte is found
             final binaryBytes = bytes.sublist(binaryStart);
-            final binaryChunkLuaString = LuaString.fromBytes(Uint8List.fromList(binaryBytes));
+            final binaryChunkLuaString = LuaString.fromBytes(
+              Uint8List.fromList(binaryBytes),
+            );
             ChunkInfo chunkInfo;
             try {
               chunkInfo = ChunkSerializer.deserializeChunkFromLuaString(
@@ -1563,17 +1581,13 @@ class LoadfileFunction implements BuiltinFunction {
                   currentVm.currentScriptPath = filename;
                   try {
                     final astNode = chunkInfo.originalFunctionBody!;
-                    final funcValue =
-                        await astNode.accept(currentVm) as Value;
+                    final funcValue = await astNode.accept(currentVm) as Value;
                     if (funcValue.raw is Function) {
-                      return await currentVm.callFunction(
-                        funcValue,
-                        callArgs,
-                      );
+                      return await currentVm.callFunction(funcValue, callArgs);
                     } else {
                       return funcValue;
                     }
-                                    } finally {
+                  } finally {
                     currentVm.setCurrentEnv(savedEnv);
                     currentVm.currentScriptPath = prevPath;
                   }
@@ -2398,7 +2412,10 @@ class RequireFunction implements BuiltinFunction {
 
     // If not found in the script directory, use the regular resolution
     if (modulePath == null) {
-      Logger.debug("Resolving module path for '$moduleName'", category: 'Require');
+      Logger.debug(
+        "Resolving module path for '$moduleName'",
+        category: 'Require',
+      );
       modulePath = await vm.fileManager.resolveModulePath(moduleName);
 
       // Print the resolved globs for debugging

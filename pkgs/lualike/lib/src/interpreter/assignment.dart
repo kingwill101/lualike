@@ -345,7 +345,6 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       return wrappedValue;
     }
 
-
     // Check if there's a custom _ENV that is different from the initial _G
     final envValue = globals.get('_ENV');
     final gValue = globals.get('_G');
@@ -385,7 +384,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       // code should be assigned to the local environment, while global variables should
       // be assigned to _ENV.
       // final isIsolatedEnvironment = globals.isLoadIsolated;
-      
+
       // First, check if this is a local variable in the current environment chain
       Environment? env = globals;
       while (env != null) {
@@ -440,11 +439,11 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     // Only check upvalues after local variables have been ruled out
     final currentFunc = (this as Interpreter).getCurrentFunction();
     final upvalueAssigned = UpvalueAssignmentHandler.tryAssignToUpvalue(
-      name, 
-      wrappedValue, 
-      currentFunc
+      name,
+      wrappedValue,
+      currentFunc,
     );
-    
+
     if (upvalueAssigned) {
       Logger.debug(
         'Assignment: $name updated via upvalue',

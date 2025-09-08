@@ -185,10 +185,16 @@ class _LuaLoader implements BuiltinFunction {
         vm.currentScriptPath != null) {
       final scriptDir = path_lib.dirname(vm.currentScriptPath!);
       final directPath = path_lib.join(scriptDir, '$name.lua');
-      Logger.debug("Trying direct path in script directory: $directPath", category: 'Package');
+      Logger.debug(
+        "Trying direct path in script directory: $directPath",
+        category: 'Package',
+      );
 
       if (await fileExists(directPath)) {
-        Logger.debug("Module found in script directory: $directPath", category: 'Package');
+        Logger.debug(
+          "Module found in script directory: $directPath",
+          category: 'Package',
+        );
         modulePath = directPath;
       }
     }
@@ -196,7 +202,10 @@ class _LuaLoader implements BuiltinFunction {
     // If not found in the script directory, use the regular resolution
     if (modulePath == null) {
       // Try to find the module file
-      Logger.debug("Attempting to resolve module path for: $name", category: 'Package');
+      Logger.debug(
+        "Attempting to resolve module path for: $name",
+        category: 'Package',
+      );
       modulePath = await fileManager.resolveModulePath(name);
 
       // Print the resolved globs for debugging
@@ -217,7 +226,10 @@ class _LuaLoader implements BuiltinFunction {
 
         try {
           // Load the source code
-          Logger.debug("Attempting to load source from: $modulePath", category: 'Package');
+          Logger.debug(
+            "Attempting to load source from: $modulePath",
+            category: 'Package',
+          );
           final source = await fileManager.loadSource(modulePath);
           if (source == null) {
             Logger.debug(
@@ -227,16 +239,25 @@ class _LuaLoader implements BuiltinFunction {
             throw Exception("cannot load module '$name': file not found");
           }
 
-          Logger.debug("Source loaded successfully, length: ${source.length}", category: 'Package');
+          Logger.debug(
+            "Source loaded successfully, length: ${source.length}",
+            category: 'Package',
+          );
 
           try {
             // Parse the module code
             Logger.debug("Parsing module code", category: 'Package');
             final ast = parse(source, url: modulePath);
-            Logger.debug("Module code parsed successfully", category: 'Package');
+            Logger.debug(
+              "Module code parsed successfully",
+              category: 'Package',
+            );
 
             // Create a new environment for the module
-            Logger.debug("Creating new environment for module", category: 'Package');
+            Logger.debug(
+              "Creating new environment for module",
+              category: 'Package',
+            );
             final moduleEnv = Environment(parent: vm.globals, interpreter: vm);
 
             // Pass arguments like Lua's loader function (...)
@@ -246,7 +267,10 @@ class _LuaLoader implements BuiltinFunction {
             );
 
             // Execute the module code in the new environment
-            Logger.debug("Creating interpreter for module", category: 'Package');
+            Logger.debug(
+              "Creating interpreter for module",
+              category: 'Package',
+            );
             final interpreter = Interpreter(
               environment: moduleEnv,
               fileManager: fileManager,
@@ -268,7 +292,10 @@ class _LuaLoader implements BuiltinFunction {
             }
 
             // Set the current script path to the module path
-            Logger.debug("Setting script path to: $absoluteModulePath", category: 'Package');
+            Logger.debug(
+              "Setting script path to: $absoluteModulePath",
+              category: 'Package',
+            );
             interpreter.currentScriptPath = absoluteModulePath;
 
             // Store the script path in the module environment (normalized)
@@ -309,7 +336,10 @@ class _LuaLoader implements BuiltinFunction {
               // Run the module code
               Logger.debug("Running module code", category: 'Package');
               await interpreter.run(ast.statements);
-              Logger.debug("Module code executed successfully", category: 'Package');
+              Logger.debug(
+                "Module code executed successfully",
+                category: 'Package',
+              );
               // If no explicit return, the result is nil
               result = Value(null);
             } on ReturnException catch (e) {
@@ -320,15 +350,24 @@ class _LuaLoader implements BuiltinFunction {
 
             // If the module didn't return anything, return an empty table
             if ((result is Value && result.raw == null)) {
-              Logger.debug("Module returned nil, defaulting to empty table", category: 'Package');
+              Logger.debug(
+                "Module returned nil, defaulting to empty table",
+                category: 'Package',
+              );
               result = Value({});
             } else {
-              Logger.debug("Module returned: ${result.runtimeType}", category: 'Package');
+              Logger.debug(
+                "Module returned: ${result.runtimeType}",
+                category: 'Package',
+              );
             }
 
             // Store the result in package.loaded immediately to ensure it's available
             // for any recursive requires within the module
-            Logger.debug("Storing module in package.loaded", category: 'Package');
+            Logger.debug(
+              "Storing module in package.loaded",
+              category: 'Package',
+            );
             final packageVal = vm.globals.get("package");
             if (packageVal is Value && packageVal.raw is Map) {
               final packageTable = packageVal.raw as Map;
@@ -336,7 +375,10 @@ class _LuaLoader implements BuiltinFunction {
                 final loadedValue = packageTable["loaded"] as Value;
                 final loaded = loadedValue.raw as Map;
                 loaded[name] = result;
-                Logger.debug("Module '$name' stored in package.loaded", category: 'Package');
+                Logger.debug(
+                  "Module '$name' stored in package.loaded",
+                  category: 'Package',
+                );
                 Logger.debug(
                   "Module '$name' stored in package.loaded during load",
                   category: 'Package',
@@ -344,10 +386,16 @@ class _LuaLoader implements BuiltinFunction {
               }
             }
 
-            Logger.debug("Module loading completed successfully", category: 'Package');
+            Logger.debug(
+              "Module loading completed successfully",
+              category: 'Package',
+            );
             return result;
           } catch (e) {
-            Logger.error("Error parsing/executing module: $e", category: 'Package');
+            Logger.error(
+              "Error parsing/executing module: $e",
+              category: 'Package',
+            );
             throw Exception("error loading module '$name': $e");
           }
         } catch (e) {

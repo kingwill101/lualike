@@ -6,11 +6,12 @@ class UpvalueAssignmentHandler {
   /// Attempts to assign a value to an upvalue
   /// Returns true if assignment was handled, false if not an upvalue
   static bool tryAssignToUpvalue(
-    String varName, 
-    Value newValue, 
-    Value? currentFunction
+    String varName,
+    Value newValue,
+    Value? currentFunction,
   ) {
-    if (currentFunction?.upvalues == null || currentFunction!.upvalues!.isEmpty) {
+    if (currentFunction?.upvalues == null ||
+        currentFunction!.upvalues!.isEmpty) {
       return false;
     }
 
@@ -24,7 +25,7 @@ class UpvalueAssignmentHandler {
         return true;
       }
     }
-    
+
     return false; // Variable name not found in upvalues
   }
 

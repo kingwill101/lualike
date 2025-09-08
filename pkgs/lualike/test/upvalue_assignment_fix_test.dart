@@ -36,7 +36,7 @@ void main() {
 
       final result = await lua.evaluate(script);
       final values = result.raw as Map;
-      
+
       expect(values[1].raw, equals(30)); // a should be 30 (10 + 20)
       expect(values[2].raw, equals(15)); // b should be 15 (20 - 5)
     });
@@ -128,7 +128,7 @@ void main() {
 
       final result = await lua.evaluate(script);
       final values = result.raw as Map;
-      
+
       expect(values[1].raw, equals(300)); // p should be 300 (100 + 200)
       expect(values[2].raw, equals(150)); // q should be 150 (200 - 50)
     });
@@ -160,10 +160,13 @@ void main() {
 
       final result = await lua.evaluate(script);
       final values = result.raw as Map;
-      
+
       expect(values[1].raw, equals(15)); // upval should be 15 (10 + 5)
       expect(values[2].raw, equals(15)); // returned upval should be 15
-      expect(values[3].raw, equals(10)); // returned localvar should be 10 (5 * 2)
+      expect(
+        values[3].raw,
+        equals(10),
+      ); // returned localvar should be 10 (5 * 2)
     });
 
     test('nested function upvalue assignments', () async {
@@ -244,7 +247,10 @@ void main() {
       ''';
 
       final result = await lua.evaluate(script);
-      expect(result.raw.toString(), equals("hello world")); // str should be "hello world"
+      expect(
+        result.raw.toString(),
+        equals("hello world"),
+      ); // str should be "hello world"
     });
   });
 }

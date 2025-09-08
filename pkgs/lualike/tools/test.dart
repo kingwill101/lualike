@@ -59,7 +59,6 @@ Future<List<String>> collectProcessOutput(Stream<List<int>> stream) async {
   return output;
 }
 
-
 /// Compile the lualike binary using smart compilation
 Future<void> compile({bool force = false}) async {
   final compiler = SmartCompiler(projectRoot: '.');
@@ -203,7 +202,7 @@ Future<void> main(List<String> args) async {
       (Platform.environment['GITHUB_ACTIONS']?.toLowerCase() == 'true');
   final skipHeavy = r['skip-heavy'] as bool;
   const heavyTests = {'heavy.lua'};
-  
+
   if (combinedTests.isEmpty && (isCI || skipHeavy)) {
     final skipped = testsToRun.where((t) => heavyTests.contains(t)).toList();
     if (skipped.isNotEmpty) {

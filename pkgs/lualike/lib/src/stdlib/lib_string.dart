@@ -165,24 +165,29 @@ class _StringDump implements BuiltinFunction {
             .map((upvalue) => upvalue.name ?? '')
             .where((name) => name.isNotEmpty)
             .toList();
-        upvalueValues = func.upvalues!
-            .map((upvalue) {
-              final value = upvalue.getValue();
-              // Convert Value objects to their raw values for JSON encoding
-              final rawValue = value is Value ? value.raw : value;
-              // Ensure the value is JSON-serializable
-              if (rawValue is String || rawValue is num || rawValue is bool || rawValue == null) {
-                return rawValue;
-              } else {
-                // For non-JSON-serializable values, convert to string
-                return rawValue.toString();
-              }
-            })
-            .toList();
+        upvalueValues = func.upvalues!.map((upvalue) {
+          final value = upvalue.getValue();
+          // Convert Value objects to their raw values for JSON encoding
+          final rawValue = value is Value ? value.raw : value;
+          // Ensure the value is JSON-serializable
+          if (rawValue is String ||
+              rawValue is num ||
+              rawValue is bool ||
+              rawValue == null) {
+            return rawValue;
+          } else {
+            // For non-JSON-serializable values, convert to string
+            return rawValue.toString();
+          }
+        }).toList();
       }
 
       // Use ChunkSerializer for consistent dump/load handling
-      final serialized = ChunkSerializer.serializeFunctionAsLuaString(fb, upvalueNames, upvalueValues);
+      final serialized = ChunkSerializer.serializeFunctionAsLuaString(
+        fb,
+        upvalueNames,
+        upvalueValues,
+      );
       return Value(serialized);
     }
 

@@ -365,10 +365,10 @@ class _UpvalueJoin implements BuiltinFunction {
     // Join the upvalues by making f1's upvalue point to the same value box as f2's upvalue
     final f1Upvalue = f1Arg.upvalues![n1 - 1];
     final f2Upvalue = f2Arg.upvalues![n2 - 1];
-    
+
     // Use the new joinWith method to join the upvalues
     f1Upvalue.joinWith(f2Upvalue);
-    
+
     Logger.debug(
       'UpvalueJoin: Joined f1 upvalue $n1 with f2 upvalue $n2',
       category: 'Debug',

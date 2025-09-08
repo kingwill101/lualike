@@ -1388,8 +1388,6 @@ Program parse(String source, {Uri? url}) {
   final end = pos < normalizedSource.length ? pos + 1 : pos;
   final span = sourceFile.span(pos, end);
 
-
-
   // Basic heuristic: if we see an identifier followed by whitespace and '...' but no comma,
   // suggest the missing comma (common Lua gotcha).
   final _ = pos >= 30 ? pos - 30 : 0;

@@ -228,7 +228,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       // have access to the local variables that are captured as upvalues
       // Create environment - only filter if we have joined upvalues
       Environment execEnv;
-      final joinedUpvalues = upvalues.where((u) => u.isJoined && u.name != null && u.name != '_ENV').toList();
+      final joinedUpvalues = upvalues
+          .where((u) => u.isJoined && u.name != null && u.name != '_ENV')
+          .toList();
       if (joinedUpvalues.isNotEmpty) {
         // Only filter out variables that have been joined via debug.upvaluejoin
         final joinedUpvalueNames = joinedUpvalues.map((u) => u.name!).toSet();
@@ -339,29 +341,32 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
   /// This is used when a function has upvalues to prevent the function from
   /// accessing the local variables through the environment chain instead of
   /// through upvalues.
-  Environment _createFilteredEnvironment(Environment sourceEnv, Set<String> excludeNames) {
+  Environment _createFilteredEnvironment(
+    Environment sourceEnv,
+    Set<String> excludeNames,
+  ) {
     final filteredEnv = Environment(
       parent: sourceEnv.parent,
       interpreter: this as Interpreter,
       isClosure: sourceEnv.isClosure,
       isLoadIsolated: sourceEnv.isLoadIsolated,
     );
-    
+
     // Copy all variables except the excluded ones
     for (final entry in sourceEnv.values.entries) {
       if (!excludeNames.contains(entry.key)) {
         filteredEnv.values[entry.key] = entry.value;
       }
     }
-    
+
     // Copy toBeClosedVars
     filteredEnv.toBeClosedVars.addAll(sourceEnv.toBeClosedVars);
-    
+
     Logger.debug(
       'Created filtered environment: excluded ${excludeNames.join(', ')}, copied ${filteredEnv.values.length} variables',
       category: 'Interpreter',
     );
-    
+
     return filteredEnv;
   }
 
