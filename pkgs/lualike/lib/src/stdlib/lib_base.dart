@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:lualike/src/chunk_serializer.dart';
-import 'package:lualike/src/lua_string.dart';
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
@@ -632,12 +631,22 @@ class LoadFunction implements BuiltinFunction {
         );
         if (isBinaryChunk) {
           // Use ChunkSerializer to handle binary chunk deserialization
-          chunkInfo = ChunkSerializer.deserializeChunk(source);
-          source = chunkInfo.source;
-          Logger.debug(
-            "LoadFunction: Deserialized chunk: $chunkInfo",
-            category: 'Load',
-          );
+          try {
+            chunkInfo = ChunkSerializer.deserializeChunk(source);
+            source = chunkInfo.source;
+            Logger.debug(
+              "LoadFunction: Deserialized chunk: $chunkInfo",
+              category: 'Load',
+            );
+          } catch (e) {
+            // Return error for invalid binary chunks
+            String errorMsg = e.toString();
+            // Clean up error message format - remove "Exception: " prefix
+            if (errorMsg.startsWith('Exception: ')) {
+              errorMsg = errorMsg.substring('Exception: '.length);
+            }
+            return [Value(null), Value(errorMsg)];
+          }
         }
       } else if ((args[0] as Value).raw is LuaString) {
         // Load from LuaString - convert bytes to UTF-8 string to preserve encoding
@@ -651,12 +660,22 @@ class LoadFunction implements BuiltinFunction {
         );
         if (isBinaryChunk) {
           // Handle LuaString binary chunk directly
-          chunkInfo = ChunkSerializer.deserializeChunkFromLuaString(luaString);
-          source = chunkInfo.source;
-          Logger.debug(
-            "LoadFunction: Deserialized LuaString chunk: $chunkInfo",
-            category: 'Load',
-          );
+          try {
+            chunkInfo = ChunkSerializer.deserializeChunkFromLuaString(luaString);
+            source = chunkInfo.source;
+            Logger.debug(
+              "LoadFunction: Deserialized LuaString chunk: $chunkInfo",
+              category: 'Load',
+            );
+          } catch (e) {
+            // Return error for invalid binary chunks
+            String errorMsg = e.toString();
+            // Clean up error message format - remove "Exception: " prefix
+            if (errorMsg.startsWith('Exception: ')) {
+              errorMsg = errorMsg.substring('Exception: '.length);
+            }
+            return [Value(null), Value(errorMsg)];
+          }
         } else {
           try {
             source = utf8.decode(luaString.bytes, allowMalformed: true);
@@ -773,13 +792,22 @@ class LoadFunction implements BuiltinFunction {
 
             // Use ChunkSerializer to handle binary chunk from reader
             final binaryChunkLuaString = LuaString.fromBytes(Uint8List.fromList(allBytes));
-            final chunkInfo = ChunkSerializer.deserializeChunkFromLuaString(
-              binaryChunkLuaString,
-            );
-
-            // Store ChunkInfo for later AST evaluation
-            readerChunkInfo = chunkInfo;
-            source = chunkInfo.source;
+            try {
+              final chunkInfo = ChunkSerializer.deserializeChunkFromLuaString(
+                binaryChunkLuaString,
+              );
+              // Store ChunkInfo for later AST evaluation
+              readerChunkInfo = chunkInfo;
+              source = chunkInfo.source;
+            } catch (e) {
+              // Return error for invalid binary chunks
+              String errorMsg = e.toString();
+              // Clean up error message format - remove "Exception: " prefix
+              if (errorMsg.startsWith('Exception: ')) {
+                errorMsg = errorMsg.substring('Exception: '.length);
+              }
+              return [Value(null), Value(errorMsg)];
+            }
 
             Logger.debug(
               "LoadFunction: Deserialized reader chunk: $chunkInfo",
@@ -900,10 +928,10 @@ class LoadFunction implements BuiltinFunction {
 
       // Check for reader function ChunkInfo
       if (readerChunkInfo != null &&
-          readerChunkInfo!.originalFunctionBody != null) {
+          readerChunkInfo.originalFunctionBody != null) {
         hasDirectAST = true;
-        directASTNode = readerChunkInfo!.originalFunctionBody;
-        originalUpvalueNames = readerChunkInfo!.upvalueNames;
+        directASTNode = readerChunkInfo.originalFunctionBody;
+        originalUpvalueNames = readerChunkInfo.upvalueNames;
       }
 
       // Create a function body with the actual AST
@@ -986,7 +1014,7 @@ class LoadFunction implements BuiltinFunction {
             }
           },
           functionBody: directASTNode is FunctionBody
-              ? directASTNode as FunctionBody
+              ? directASTNode
               : actualBody,
         );
 
@@ -999,7 +1027,7 @@ class LoadFunction implements BuiltinFunction {
 
           vm.setCurrentEnv(loadEnv);
           try {
-            final functionBody = directASTNode as FunctionBody;
+            final functionBody = directASTNode;
             final directFunction = await functionBody.accept(vm) as Value;
 
             // Initialize upvalues for this function using original upvalue names
@@ -1335,7 +1363,12 @@ class LoadfileFunction implements BuiltinFunction {
         // Handle binary chunks from standard input
         if (startsEsc) {
           // Use ChunkSerializer for consistent binary chunk handling
-          final chunkInfo = ChunkSerializer.deserializeChunk(sourceCode);
+          ChunkInfo chunkInfo;
+          try {
+            chunkInfo = ChunkSerializer.deserializeChunk(sourceCode);
+          } catch (e) {
+            return [Value(null), Value(e.toString())];
+          }
           if (chunkInfo.originalFunctionBody != null) {
             // Use direct AST evaluation for string.dump functions
             return Value((List<Object?> callArgs) async {
@@ -1363,17 +1396,13 @@ class LoadfileFunction implements BuiltinFunction {
                 currentVm.currentScriptPath = filename;
                 try {
                   final astNode = chunkInfo.originalFunctionBody!;
-                  if (astNode is FunctionBody) {
-                    final funcValue = await astNode.accept(currentVm) as Value;
-                    if (funcValue.raw is Function) {
-                      return await currentVm.callFunction(funcValue, callArgs);
-                    } else {
-                      return funcValue;
-                    }
+                  final funcValue = await astNode.accept(currentVm) as Value;
+                  if (funcValue.raw is Function) {
+                    return await currentVm.callFunction(funcValue, callArgs);
                   } else {
-                    return await astNode.accept(currentVm);
+                    return funcValue;
                   }
-                } finally {
+                                } finally {
                   currentVm.setCurrentEnv(savedEnv);
                   currentVm.currentScriptPath = prevPath;
                 }
@@ -1412,7 +1441,12 @@ class LoadfileFunction implements BuiltinFunction {
           // Handle binary chunks from file fallback
           if (startsEsc) {
             // Use ChunkSerializer for consistent binary chunk handling
-            final chunkInfo = ChunkSerializer.deserializeChunk(src);
+            ChunkInfo chunkInfo;
+            try {
+              chunkInfo = ChunkSerializer.deserializeChunk(src);
+            } catch (e) {
+              return [Value(null), Value(e.toString())];
+            }
             if (chunkInfo.originalFunctionBody != null) {
               // Use direct AST evaluation for string.dump functions
               return Value((List<Object?> callArgs) async {
@@ -1441,21 +1475,17 @@ class LoadfileFunction implements BuiltinFunction {
                   currentVm.currentScriptPath = filename;
                   try {
                     final astNode = chunkInfo.originalFunctionBody!;
-                    if (astNode is FunctionBody) {
-                      final funcValue =
-                          await astNode.accept(currentVm) as Value;
-                      if (funcValue.raw is Function) {
-                        return await currentVm.callFunction(
-                          funcValue,
-                          callArgs,
-                        );
-                      } else {
-                        return funcValue;
-                      }
+                    final funcValue =
+                        await astNode.accept(currentVm) as Value;
+                    if (funcValue.raw is Function) {
+                      return await currentVm.callFunction(
+                        funcValue,
+                        callArgs,
+                      );
                     } else {
-                      return await astNode.accept(currentVm);
+                      return funcValue;
                     }
-                  } finally {
+                                    } finally {
                     currentVm.setCurrentEnv(savedEnv);
                     currentVm.currentScriptPath = prevPath;
                   }
@@ -1497,9 +1527,14 @@ class LoadfileFunction implements BuiltinFunction {
             // Extract binary chunk from the position where ESC byte is found
             final binaryBytes = bytes.sublist(binaryStart);
             final binaryChunkLuaString = LuaString.fromBytes(Uint8List.fromList(binaryBytes));
-            final chunkInfo = ChunkSerializer.deserializeChunkFromLuaString(
-              binaryChunkLuaString,
-            );
+            ChunkInfo chunkInfo;
+            try {
+              chunkInfo = ChunkSerializer.deserializeChunkFromLuaString(
+                binaryChunkLuaString,
+              );
+            } catch (e) {
+              return [Value(null), Value(e.toString())];
+            }
             if (chunkInfo.originalFunctionBody != null) {
               // Use direct AST evaluation for string.dump functions
               return Value((List<Object?> callArgs) async {
@@ -1528,21 +1563,17 @@ class LoadfileFunction implements BuiltinFunction {
                   currentVm.currentScriptPath = filename;
                   try {
                     final astNode = chunkInfo.originalFunctionBody!;
-                    if (astNode is FunctionBody) {
-                      final funcValue =
-                          await astNode.accept(currentVm) as Value;
-                      if (funcValue.raw is Function) {
-                        return await currentVm.callFunction(
-                          funcValue,
-                          callArgs,
-                        );
-                      } else {
-                        return funcValue;
-                      }
+                    final funcValue =
+                        await astNode.accept(currentVm) as Value;
+                    if (funcValue.raw is Function) {
+                      return await currentVm.callFunction(
+                        funcValue,
+                        callArgs,
+                      );
                     } else {
-                      return await astNode.accept(currentVm);
+                      return funcValue;
                     }
-                  } finally {
+                                    } finally {
                     currentVm.setCurrentEnv(savedEnv);
                     currentVm.currentScriptPath = prevPath;
                   }
@@ -2367,7 +2398,7 @@ class RequireFunction implements BuiltinFunction {
 
     // If not found in the script directory, use the regular resolution
     if (modulePath == null) {
-      print("DEBUG: Resolving module path for '$moduleName'");
+      Logger.debug("Resolving module path for '$moduleName'", category: 'Require');
       modulePath = await vm.fileManager.resolveModulePath(moduleName);
 
       // Print the resolved globs for debugging
@@ -2532,7 +2563,7 @@ class RequireFunction implements BuiltinFunction {
       final typeName = searchersAny == null
           ? 'null'
           : searchersAny.runtimeType.toString();
-      print("DEBUG(require): package.searchers typeof=$typeName");
+      Logger.debug("package.searchers typeof=$typeName", category: 'Require');
     }
     final pkgMapForSearchers = packageTable.raw as Map;
     final searchersEntry = pkgMapForSearchers['searchers'];
@@ -2666,7 +2697,7 @@ class RequireFunction implements BuiltinFunction {
 
     final errorMsg =
         "module '$moduleName' not found:\n\t${errorLines.join('\n\t')}";
-    print("DEBUG: Error message: $errorMsg");
+    Logger.debug("Error message: $errorMsg", category: 'Require');
     throw Exception(errorMsg);
   }
 }

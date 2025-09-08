@@ -384,7 +384,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       // local vs global variable assignment. Local variables declared within the loaded
       // code should be assigned to the local environment, while global variables should
       // be assigned to _ENV.
-      final isIsolatedEnvironment = globals.isLoadIsolated;
+      // final isIsolatedEnvironment = globals.isLoadIsolated;
       
       // First, check if this is a local variable in the current environment chain
       Environment? env = globals;

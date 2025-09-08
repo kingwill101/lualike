@@ -58,7 +58,6 @@ abstract class AstNode {
       final start = spanData['start'] as int? ?? 0;
       final end = spanData['end'] as int? ?? 0;
       final text = spanData['text'] as String? ?? '';
-      final length = spanData['length'] as int? ?? (end - start);
 
       Logger.debug(
         'AST: Attempting to restore span: sourceUrl=$sourceUrl, start=$start, end=$end',
@@ -71,7 +70,7 @@ abstract class AstNode {
         final sourceFile = SourceFile.fromString(text, url: uri);
         span = sourceFile.span(start, end);
         Logger.debug(
-          'AST: Restored span for ${uri} (${start}-${end})',
+          'AST: Restored span for $uri ($start-$end)',
           category: 'AST',
         );
       } else if (sourceUrl != null) {
@@ -79,7 +78,7 @@ abstract class AstNode {
         final uri = Uri.parse(sourceUrl);
         final sourceFile = SourceFile.fromString('', url: uri);
         span = sourceFile.span(0, 0);
-        Logger.debug('AST: Restored minimal span for ${uri}', category: 'AST');
+        Logger.debug('AST: Restored minimal span for $uri', category: 'AST');
       }
     } catch (e) {
       // If restoration fails, silently continue without span
@@ -127,7 +126,7 @@ abstract class AstNode {
         final end = sourceText.length;
         span = mockSourceFile.span(start, end);
         Logger.debug(
-          'AST: Inferred span from children for ${sourceFile} ($start-$end)',
+          'AST: Inferred span from children for $sourceFile ($start-$end)',
           category: 'AST',
         );
       } catch (e) {

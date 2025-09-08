@@ -1,11 +1,9 @@
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/coroutine.dart';
-import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/stdlib/debug_getinfo.dart';
 import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
-import 'package:lualike/src/upvalue.dart';
 
 class DebugLib {
   static Map<String, BuiltinFunction> functions = {};

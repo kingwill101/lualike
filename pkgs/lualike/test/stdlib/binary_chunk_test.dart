@@ -178,7 +178,7 @@ void main() {
         ''');
 
         expect((bridge.getGlobal('a') as Value?)?.raw, equals(20));
-        expect((bridge.getGlobal('b') as Value?)?.raw, equals('\0\0\0'));
+        expect((bridge.getGlobal('b') as Value?)?.raw, equals('000'));
         expect((bridge.getGlobal('c') as Value?)?.raw, isNull);
       });
     });
@@ -302,7 +302,7 @@ void main() {
         ''');
 
         expect((bridge.getGlobal('a') as Value?)?.raw, equals(20));
-        expect((bridge.getGlobal('b') as Value?)?.raw, equals('\0alo\255'));
+        expect((bridge.getGlobal('b') as Value?)?.raw, equals('0alo255'));
         expect((bridge.getGlobal('c') as Value?)?.raw, equals('hi'));
       });
     });
