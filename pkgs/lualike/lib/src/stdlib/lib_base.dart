@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:lualike/src/chunk_serializer.dart';
+import 'package:lualike/src/lua_string.dart';
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
@@ -648,21 +650,8 @@ class LoadFunction implements BuiltinFunction {
           category: 'Load',
         );
         if (isBinaryChunk) {
-          // If binary, interpret the rest as textual payload
-          final payloadBytes = luaString.bytes.sublist(1);
-          try {
-            source = utf8.decode(payloadBytes, allowMalformed: true);
-          } catch (e) {
-            // Fallback to Latin-1 if UTF-8 decode fails
-            source = String.fromCharCodes(payloadBytes);
-          }
-
-          // Reconstruct binary chunk string for ChunkSerializer
-          final binaryChunkString = String.fromCharCodes([
-            0x1B,
-            ...payloadBytes,
-          ]);
-          final chunkInfo = ChunkSerializer.deserializeChunk(binaryChunkString);
+          // Handle LuaString binary chunk directly
+          chunkInfo = ChunkSerializer.deserializeChunkFromLuaString(luaString);
           source = chunkInfo.source;
           Logger.debug(
             "LoadFunction: Deserialized LuaString chunk: $chunkInfo",
@@ -783,9 +772,9 @@ class LoadFunction implements BuiltinFunction {
             isBinaryChunk = true;
 
             // Use ChunkSerializer to handle binary chunk from reader
-            final binaryChunkString = String.fromCharCodes(allBytes);
-            final chunkInfo = ChunkSerializer.deserializeChunk(
-              binaryChunkString,
+            final binaryChunkLuaString = LuaString.fromBytes(Uint8List.fromList(allBytes));
+            final chunkInfo = ChunkSerializer.deserializeChunkFromLuaString(
+              binaryChunkLuaString,
             );
 
             // Store ChunkInfo for later AST evaluation
@@ -1507,9 +1496,9 @@ class LoadfileFunction implements BuiltinFunction {
           if (isBinary) {
             // Extract binary chunk from the position where ESC byte is found
             final binaryBytes = bytes.sublist(binaryStart);
-            final binaryChunkString = String.fromCharCodes(binaryBytes);
-            final chunkInfo = ChunkSerializer.deserializeChunk(
-              binaryChunkString,
+            final binaryChunkLuaString = LuaString.fromBytes(Uint8List.fromList(binaryBytes));
+            final chunkInfo = ChunkSerializer.deserializeChunkFromLuaString(
+              binaryChunkLuaString,
             );
             if (chunkInfo.originalFunctionBody != null) {
               // Use direct AST evaluation for string.dump functions

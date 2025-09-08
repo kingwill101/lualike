@@ -182,7 +182,7 @@ class _StringDump implements BuiltinFunction {
       }
 
       // Use ChunkSerializer for consistent dump/load handling
-      final serialized = ChunkSerializer.serializeFunction(fb, upvalueNames, upvalueValues);
+      final serialized = ChunkSerializer.serializeFunctionAsLuaString(fb, upvalueNames, upvalueValues);
       return Value(serialized);
     }
 
