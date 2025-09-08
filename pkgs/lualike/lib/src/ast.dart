@@ -904,7 +904,7 @@ class FunctionLiteral extends AstNode with Dumpable {
       visitor.visitFunctionLiteral(this);
 
   @override
-  String toSource() => "function ${funcBody.toSource()}";
+  String toSource() => funcBody.toSource();
 
   @override
   Map<String, dynamic> dump() => {

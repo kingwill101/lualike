@@ -1,17 +1,48 @@
 import 'dart:convert';
-import 'dart:typed_data';
+import 'package:source_span/source_span.dart';
 
 import 'ast.dart';
 import 'ast_dump.dart';
+import 'value.dart';
 
-/// Handles serialization and deserialization of Lua chunks for string.dump/load.
-///
-/// This provides a consistent abstraction for encoding/decoding function chunks
-/// that both string.dump and load/loadfile can use, avoiding code duplication.
+/// Serializes and deserializes Lua function chunks for string.dump/load functionality.
 class ChunkSerializer {
-  static const int _binaryPrefix = 0x1B; // ESC byte to mark binary chunks
-  static const String _astMarker = 'AST:';
-  static const String _sourceMarker = 'SRC:';
+  static const int _binaryPrefix = 0x1B; // ESC character
+  static const String _astMarker = "AST:";
+  static const String _sourceMarker = "SRC:";
+
+  /// Recursively removes spans from a map to avoid JSON encoding issues
+  static void _removeSpansFromMap(Map<String, dynamic> map) {
+    for (final key in map.keys.toList()) {
+      final value = map[key];
+      if (value is Map<String, dynamic>) {
+        _removeSpansFromMap(value);
+      } else if (value is List) {
+        for (final item in value) {
+          if (item is Map<String, dynamic>) {
+            _removeSpansFromMap(item);
+          }
+        }
+      } else if (value is SourceSpan) {
+        // Remove span information
+        map.remove(key);
+      }
+    }
+  }
+
+  /// Recursively clears spans from AST nodes to avoid RangeError in toSource()
+  static void _clearSpansFromNode(AstNode node) {
+    node.span = null;
+    // Clear spans from child nodes if they exist
+    if (node is FunctionBody) {
+      for (final param in node.parameters ?? []) {
+        _clearSpansFromNode(param);
+      }
+      for (final statement in node.body) {
+        _clearSpansFromNode(statement);
+      }
+    }
+  }
 
   /// Serializes a FunctionBody to a binary chunk string.
   ///
@@ -21,37 +52,32 @@ class ChunkSerializer {
   static String serializeFunction(
     FunctionBody functionBody, [
     List<String>? upvalueNames,
+    List<dynamic>? upvalueValues,
   ]) {
     try {
-      // Try AST serialization first
+      // Use AST serialization as the source of truth
       final dumpData = (functionBody as Dumpable).dump();
+      print('dumpData keys: ${dumpData.keys.toList()}');
 
-      // Add upvalue information if available
+      // Remove all spans to avoid JSON encoding issues
+      _removeSpansFromMap(dumpData);
+
+      // Add upvalue information if provided
       if (upvalueNames != null && upvalueNames.isNotEmpty) {
-        dumpData['upvalues'] = upvalueNames;
+        dumpData['upvalueNames'] = upvalueNames;
+        dumpData['upvalueValues'] = upvalueValues;
       }
 
       final jsonString = jsonEncode(dumpData);
       final payload = _astMarker + jsonString;
       return _createBinaryChunk(payload);
     } catch (e) {
-      // Fall through to source generation
-    }
-
-    try {
-      // Fallback: generate Lua source code
-      final paramsSrc =
-          functionBody.parameters?.map((p) => p.toSource()).join(", ") ?? "";
-      final bodySrc = functionBody.body.map((s) => s.toSource()).join("\n");
-      final varargSuffix = functionBody.isVararg ? ", ..." : "";
-      final source = "function($paramsSrc$varargSuffix)\n$bodySrc\nend";
-      final payload = _sourceMarker + source;
-      return _createBinaryChunk(payload);
-    } catch (e) {
-      // Final fallback
-      final payload = """
-${_sourceMarker}function(...) end""";
-      return _createBinaryChunk(payload);
+      print('AST serialization failed: $e');
+      print('Error type: ${e.runtimeType}');
+      if (e is RangeError) {
+        print('RangeError details: ${e.message}');
+      }
+      rethrow;
     }
   }
 
@@ -66,114 +92,99 @@ ${_sourceMarker}function(...) end""";
         source: binaryChunk,
         isStringDumpFunction: false,
         originalFunctionBody: null,
+        upvalueNames: null,
+        upvalueValues: null,
       );
     }
 
-    // Strip the ESC prefix
+    // Extract payload (skip ESC character)
     final payload = binaryChunk.substring(1);
 
     if (payload.startsWith(_astMarker)) {
-      // AST dump format
-      final jsonData = payload.substring(_astMarker.length);
+      // AST-based chunk
+      final jsonString = payload.substring(_astMarker.length);
       try {
-        final decoded = jsonDecode(jsonData);
-        if (decoded is Map<String, dynamic>) {
-          final astNode = undumpAst(decoded);
-
-          // Extract upvalue names if present
-          List<String>? upvalueNames;
-          if (decoded.containsKey('upvalues') && decoded['upvalues'] is List) {
-            upvalueNames = List<String>.from(decoded['upvalues']);
-          }
-
-          if (astNode is FunctionBody) {
-            // For string.dump functions, return the AST directly for evaluation
-            // This avoids toSource() issues and allows direct AST execution
-            return ChunkInfo(
-              source: "", // Empty source since we'll use AST directly
-              isStringDumpFunction: true,
-              originalFunctionBody: astNode,
-              upvalueNames: upvalueNames,
-            );
-          } else {
-            // Other AST node, return for direct evaluation
-            return ChunkInfo(
-              source: "", // Empty source since we'll use AST directly
-              isStringDumpFunction: false,
-              originalFunctionBody: astNode is FunctionBody ? astNode : null,
-            );
-          }
-        }
+        final data = jsonDecode(jsonString) as Map<String, dynamic>;
+        
+        // Extract upvalue information if present
+        final upvalueNames = (data['upvalueNames'] as List?)?.cast<String>();
+        final upvalueValues = data['upvalueValues'] as List<dynamic>?;
+        
+        // Remove upvalue data from the AST data
+        data.remove('upvalueNames');
+        data.remove('upvalueValues');
+        
+        // Reconstruct the function body from AST
+        final functionBody = FunctionBody.fromDump(data);
+        
+        // Generate source from the reconstructed function body
+        // Wrap in return statement to make it a valid chunk
+        final source = "return ${functionBody.toSource()}";
+        
+        return ChunkInfo(
+          source: source,
+          isStringDumpFunction: true,
+          originalFunctionBody: functionBody,
+          upvalueNames: upvalueNames,
+          upvalueValues: upvalueValues,
+        );
       } catch (e) {
-        // JSON decode failed, fall through to treating as source
+        // Fallback to treating as source
+        return ChunkInfo(
+          source: payload,
+          isStringDumpFunction: true,
+          originalFunctionBody: null,
+          upvalueNames: null,
+          upvalueValues: null,
+        );
       }
-    }
-
-    if (payload.startsWith(_sourceMarker)) {
-      // Source code format
+    } else if (payload.startsWith(_sourceMarker)) {
+      // Source-based chunk
       final source = payload.substring(_sourceMarker.length);
       return ChunkInfo(
         source: source,
-        isStringDumpFunction: false,
+        isStringDumpFunction: true,
         originalFunctionBody: null,
+        upvalueNames: null,
+        upvalueValues: null,
+      );
+    } else {
+      // Unknown format, treat as source
+      return ChunkInfo(
+        source: payload,
+        isStringDumpFunction: true,
+        originalFunctionBody: null,
+        upvalueNames: null,
+        upvalueValues: null,
       );
     }
-
-    // Legacy format or unknown, treat as raw source
-    return ChunkInfo(
-      source: payload,
-      isStringDumpFunction: false,
-      originalFunctionBody: null,
-    );
   }
 
-  /// Creates a binary chunk with the ESC prefix and UTF-8 encoded payload.
+  /// Creates a binary chunk with the given payload.
   static String _createBinaryChunk(String payload) {
-    final payloadBytes = utf8.encode(payload);
-    final bytes = Uint8List(payloadBytes.length + 1);
-    bytes[0] = _binaryPrefix;
-    bytes.setRange(1, bytes.length, payloadBytes);
-    return String.fromCharCodes(bytes);
-  }
-
-  /// Checks if a string is a binary chunk (starts with ESC).
-  static bool isBinaryChunk(String data) {
-    return data.isNotEmpty && data.codeUnitAt(0) == _binaryPrefix;
-  }
-
-  /// Extracts just the payload from a binary chunk (without ESC prefix).
-  static String extractPayload(String binaryChunk) {
-    if (isBinaryChunk(binaryChunk)) {
-      return binaryChunk.substring(1);
-    }
-    return binaryChunk;
+    return String.fromCharCodes([_binaryPrefix, ...payload.codeUnits]);
   }
 }
 
 /// Information about a deserialized chunk.
 class ChunkInfo {
-  /// The Lua source code to be parsed and executed.
   final String source;
-
-  /// Whether this chunk originated from string.dump of a function.
   final bool isStringDumpFunction;
-
-  /// The original FunctionBody or AST node if available for direct evaluation.
-  final AstNode? originalFunctionBody;
-
-  /// Original upvalue names from the dumped function.
+  final FunctionBody? originalFunctionBody;
   final List<String>? upvalueNames;
+  final List<dynamic>? upvalueValues;
 
-  const ChunkInfo({
+  ChunkInfo({
     required this.source,
     required this.isStringDumpFunction,
     required this.originalFunctionBody,
-    this.upvalueNames,
+    required this.upvalueNames,
+    required this.upvalueValues,
   });
 
   @override
   String toString() {
-    return 'ChunkInfo(isStringDumpFunction: $isStringDumpFunction, '
-        'source: ${source.length > 50 ? "${source.substring(0, 50)}..." : source})';
+    return 'ChunkInfo(source: $source, isStringDumpFunction: $isStringDumpFunction, '
+        'upvalueNames: $upvalueNames, upvalueValues: $upvalueValues)';
   }
 }

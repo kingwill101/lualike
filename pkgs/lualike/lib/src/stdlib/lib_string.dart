@@ -157,17 +157,32 @@ class _StringDump implements BuiltinFunction {
         category: 'StringLib',
       );
 
-      // Extract upvalue names from the function
+      // Extract upvalue names and values from the function
       List<String>? upvalueNames;
+      List<dynamic>? upvalueValues;
       if (func.upvalues != null && func.upvalues!.isNotEmpty) {
         upvalueNames = func.upvalues!
             .map((upvalue) => upvalue.name ?? '')
             .where((name) => name.isNotEmpty)
             .toList();
+        upvalueValues = func.upvalues!
+            .map((upvalue) {
+              final value = upvalue.getValue();
+              // Convert Value objects to their raw values for JSON encoding
+              final rawValue = value is Value ? value.raw : value;
+              // Ensure the value is JSON-serializable
+              if (rawValue is String || rawValue is num || rawValue is bool || rawValue == null) {
+                return rawValue;
+              } else {
+                // For non-JSON-serializable values, convert to string
+                return rawValue.toString();
+              }
+            })
+            .toList();
       }
 
       // Use ChunkSerializer for consistent dump/load handling
-      final serialized = ChunkSerializer.serializeFunction(fb, upvalueNames);
+      final serialized = ChunkSerializer.serializeFunction(fb, upvalueNames, upvalueValues);
       return Value(serialized);
     }
 

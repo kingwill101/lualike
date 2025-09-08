@@ -24,8 +24,18 @@ class Upvalue {
   /// Gets the current value of the upvalue.
   ///
   /// Returns the value from the original Box if open, or the captured
-  /// closed value otherwise.
+  /// closed value otherwise. If this upvalue is joined with another,
+  /// delegates to the joined upvalue.
   dynamic getValue() {
+    // If this upvalue is joined with another, delegate to it
+    if (_joinedUpvalue != null) {
+      Logger.debug(
+        'Upvalue ${name ?? 'unnamed'} delegating to joined upvalue ${_joinedUpvalue!.name ?? 'unnamed'}',
+        category: 'Debug',
+      );
+      return _joinedUpvalue!.getValue();
+    }
+    
     return _isOpen ? valueBox.value : _closedValue;
   }
 
@@ -33,7 +43,14 @@ class Upvalue {
   ///
   /// Updates the value in the original Box if open.
   /// Throws an error if trying to set a closed upvalue.
+  /// If this upvalue is joined with another, delegates to the joined upvalue.
   void setValue(dynamic newValue) {
+    // If this upvalue is joined with another, delegate to it
+    if (_joinedUpvalue != null) {
+      _joinedUpvalue!.setValue(newValue);
+      return;
+    }
+    
     if (_isOpen) {
       // TODO: Consider const checking here eventually, based on valueBox.isConst
       valueBox.value = newValue;
@@ -61,23 +78,27 @@ class Upvalue {
   /// Joins this upvalue with another upvalue by sharing the same value box.
   ///
   /// This is used by debug.upvaluejoin to make two upvalues share the same storage.
-  /// Since we can't modify the valueBox field (it's final), we'll make this upvalue
-  /// point to the same value as the target upvalue by updating the value in our box.
+  /// The key insight is that we need to make this upvalue actually use the same
+  /// Box as the target upvalue, not just copy the value.
   void joinWith(Upvalue other) {
-    if (_isOpen && other._isOpen) {
-      // Make this upvalue's box contain the same value as the other upvalue's box
-      valueBox.value = other.valueBox.value;
-    } else if (!_isOpen && !other._isOpen) {
-      // Both are closed, copy the closed value
-      _closedValue = other._closedValue;
-    } else if (_isOpen && !other._isOpen) {
-      // This is open, other is closed - set our box to the other's closed value
-      valueBox.value = other._closedValue;
-    } else {
-      // This is closed, other is open - capture the other's current value
-      _closedValue = other.valueBox.value;
-    }
+    // We can't modify the valueBox field since it's final, but we can
+    // make this upvalue behave as if it's using the other's box by
+    // overriding the getValue and setValue methods behavior.
+    
+    // Store a reference to the target upvalue for delegation
+    _joinedUpvalue = other;
+    
+    Logger.debug(
+      'UpvalueJoin: Joined upvalue ${name ?? 'unnamed'} with ${other.name ?? 'unnamed'}',
+      category: 'Debug',
+    );
   }
+  
+  /// Reference to the upvalue this one is joined with, if any
+  Upvalue? _joinedUpvalue;
+  
+  /// Whether this upvalue has been joined with another upvalue
+  bool get isJoined => _joinedUpvalue != null;
 
   @override
   String toString() {

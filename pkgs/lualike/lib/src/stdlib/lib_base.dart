@@ -631,7 +631,6 @@ class LoadFunction implements BuiltinFunction {
           // Use ChunkSerializer to handle binary chunk deserialization
           final chunkInfo = ChunkSerializer.deserializeChunk(source);
           source = chunkInfo.source;
-          isBinaryChunk = true; // Maintain binary chunk flag
           Logger.debug(
             "LoadFunction: Deserialized chunk: $chunkInfo",
             category: 'Load',
@@ -893,25 +892,20 @@ class LoadFunction implements BuiltinFunction {
       bool hasDirectAST = false;
       AstNode? directASTNode;
       List<String>? originalUpvalueNames;
+      List<dynamic>? originalUpvalueValues;
 
       // For binary chunks, check if we have a direct AST node
       if (isBinaryChunk) {
-        final originalSource = (args[0] as Value).raw;
-        if (originalSource is String) {
-          final chunkInfo = ChunkSerializer.deserializeChunk(originalSource);
-          if (chunkInfo.originalFunctionBody != null) {
-            hasDirectAST = true;
-            directASTNode = chunkInfo.originalFunctionBody;
-            originalUpvalueNames = chunkInfo.upvalueNames;
-          }
-        } else if (originalSource is LuaString) {
-          final binaryString = String.fromCharCodes(originalSource.bytes);
-          final chunkInfo = ChunkSerializer.deserializeChunk(binaryString);
-          if (chunkInfo.originalFunctionBody != null) {
-            hasDirectAST = true;
-            directASTNode = chunkInfo.originalFunctionBody;
-            originalUpvalueNames = chunkInfo.upvalueNames;
-          }
+        final chunkInfo = ChunkSerializer.deserializeChunk(source);
+        if (chunkInfo.originalFunctionBody != null) {
+          hasDirectAST = true;
+          directASTNode = chunkInfo.originalFunctionBody;
+          originalUpvalueNames = chunkInfo.upvalueNames;
+          originalUpvalueValues = chunkInfo.upvalueValues;
+        } else {
+          // Even without direct AST, we might have upvalue information for source-based loading
+          originalUpvalueNames = chunkInfo.upvalueNames;
+          originalUpvalueValues = chunkInfo.upvalueValues;
         }
       }
 
@@ -1022,12 +1016,16 @@ class LoadFunction implements BuiltinFunction {
             // Initialize upvalues for this function using original upvalue names
             directFunction.upvalues = [];
 
-            // Use upvalue names from ChunkInfo if available, otherwise analyze
-            if (originalUpvalueNames != null &&
-                originalUpvalueNames.isNotEmpty) {
-              // Use the original upvalue structure
-              for (final upvalueName in originalUpvalueNames) {
-                final box = Box<dynamic>(null);
+            // Use upvalue names and values from ChunkInfo if available, otherwise analyze
+            if (originalUpvalueNames != null && originalUpvalueNames.isNotEmpty) {
+              // Use the original upvalue structure with preserved values
+              for (int i = 0; i < originalUpvalueNames.length; i++) {
+                final upvalueName = originalUpvalueNames[i];
+                // If no environment provided (nil), set upvalues to null but preserve names for debug.setupvalue
+                final upvalueValue = (providedEnv != null && providedEnv.raw != null && originalUpvalueValues != null && i < originalUpvalueValues.length) 
+                    ? originalUpvalueValues[i] 
+                    : null;
+                final box = Box<dynamic>(upvalueValue);
                 directFunction.upvalues!.add(
                   Upvalue(valueBox: box, name: upvalueName),
                 );
@@ -1084,13 +1082,19 @@ class LoadFunction implements BuiltinFunction {
                 category: 'Load',
               );
             } else {
-              // Default: inherit from the root environment
-              loadEnv = Environment(parent: savedEnv.root, interpreter: vm);
-
-              // Ensure chunks resolve globals via _ENV (defaulting to _G)
+              // When no environment is provided (nil), create a restricted environment
+              // that only has access to the global _G table, not the local calling scope
+              loadEnv = Environment(
+                parent: null,
+                interpreter: vm,
+                isLoadIsolated: true,
+              );
+              
+              // Only provide access to the global _G table
               final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G');
               if (gValue is Value) {
                 loadEnv.declare('_ENV', gValue);
+                loadEnv.declare('_G', gValue);
               }
             }
 
@@ -1125,6 +1129,22 @@ class LoadFunction implements BuiltinFunction {
                 "LoadFunction: Code execution completed in environment ${vm.getCurrentEnv().hashCode}",
                 category: 'Load',
               );
+              
+              // If we have upvalue information and the result is a function, set up the upvalues
+              if (originalUpvalueNames != null && originalUpvalueNames.isNotEmpty && result is Value && result.raw is Function) {
+                final upvalues = <Upvalue>[];
+                for (int i = 0; i < originalUpvalueNames.length; i++) {
+                  final upvalueName = originalUpvalueNames[i];
+                  // If no environment provided (nil), set upvalues to null but preserve names for debug.setupvalue
+                  final upvalueValue = (providedEnv != null && providedEnv.raw != null && originalUpvalueValues != null && i < originalUpvalueValues.length) 
+                      ? originalUpvalueValues[i] 
+                      : null;
+                  final box = Box<dynamic>(upvalueValue);
+                  upvalues.add(Upvalue(valueBox: box, name: upvalueName));
+                }
+                result.upvalues = upvalues;
+              }
+              
               return result;
             } finally {
               // Restore the previous environment
@@ -1161,15 +1181,30 @@ class LoadFunction implements BuiltinFunction {
       final currentEnv = vm.getCurrentEnv();
       final upvalues = <Upvalue>[];
 
-      // Add placeholder for first upvalue (index 1) - typically local variables
-      upvalues.add(Upvalue(valueBox: Box<dynamic>(null), name: null));
+      // Use preserved upvalue values if available (from string.dump functions)
+      if (originalUpvalueNames != null && originalUpvalueNames.isNotEmpty) {
+        // Create upvalues with preserved values
+        for (int i = 0; i < originalUpvalueNames.length; i++) {
+          final upvalueName = originalUpvalueNames[i];
+          // If no environment provided (nil), set upvalues to null but preserve names for debug.setupvalue
+          final upvalueValue = (providedEnv != null && providedEnv.raw != null && originalUpvalueValues != null && i < originalUpvalueValues.length) 
+              ? originalUpvalueValues[i] 
+              : null;
+          final box = Box<dynamic>(upvalueValue);
+          upvalues.add(Upvalue(valueBox: box, name: upvalueName));
+        }
+      } else {
+        // Default behavior for regular loaded functions
+        // Add placeholder for first upvalue (index 1) - typically local variables
+        upvalues.add(Upvalue(valueBox: Box<dynamic>(null), name: null));
 
-      // Add _ENV as second upvalue (index 2) to match Lua behavior
-      final envValue = currentEnv.get('_ENV') ?? currentEnv.get('_G');
-      if (envValue != null) {
-        final envBox = Box<dynamic>(envValue);
-        final envUpvalue = Upvalue(valueBox: envBox, name: '_ENV');
-        upvalues.add(envUpvalue);
+        // Add _ENV as second upvalue (index 2) to match Lua behavior
+        final envValue = currentEnv.get('_ENV') ?? currentEnv.get('_G');
+        if (envValue != null) {
+          final envBox = Box<dynamic>(envValue);
+          final envUpvalue = Upvalue(valueBox: envBox, name: '_ENV');
+          upvalues.add(envUpvalue);
+        }
       }
 
       result.upvalues = upvalues;

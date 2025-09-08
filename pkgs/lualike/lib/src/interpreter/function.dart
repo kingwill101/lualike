@@ -224,11 +224,30 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
     funcValue = Value((List<Object?> args) async {
       // Create new environment with closureEnv as parent to ensure proper variable access
-      final execEnv = Environment(
-        parent: closureEnv,
-        interpreter: this as Interpreter,
-        isClosure: false, // Don't mark as closure by default
-      );
+      // However, if the function has upvalues, we need to create an environment that doesn't
+      // have access to the local variables that are captured as upvalues
+      // Create environment - only filter if we have joined upvalues
+      Environment execEnv;
+      final joinedUpvalues = upvalues.where((u) => u.isJoined && u.name != null && u.name != '_ENV').toList();
+      if (joinedUpvalues.isNotEmpty) {
+        // Only filter out variables that have been joined via debug.upvaluejoin
+        final joinedUpvalueNames = joinedUpvalues.map((u) => u.name!).toSet();
+        execEnv = Environment(
+          parent: _createFilteredEnvironment(closureEnv, joinedUpvalueNames),
+          interpreter: this as Interpreter,
+          isClosure: false,
+        );
+        Logger.debug(
+          'Created filtered environment for function with ${joinedUpvalues.length} joined upvalues: ${joinedUpvalueNames.join(', ')}',
+          category: 'Interpreter',
+        );
+      } else {
+        execEnv = Environment(
+          parent: closureEnv,
+          interpreter: this as Interpreter,
+          isClosure: false,
+        );
+      }
 
       // if (node.implicitSelf) {
       //   // If this is a method, define 'self' in the execution environment
@@ -313,6 +332,37 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     funcValue.interpreter = this as Interpreter;
 
     return funcValue;
+  }
+
+  /// Creates a filtered environment that excludes specified local variables.
+  ///
+  /// This is used when a function has upvalues to prevent the function from
+  /// accessing the local variables through the environment chain instead of
+  /// through upvalues.
+  Environment _createFilteredEnvironment(Environment sourceEnv, Set<String> excludeNames) {
+    final filteredEnv = Environment(
+      parent: sourceEnv.parent,
+      interpreter: this as Interpreter,
+      isClosure: sourceEnv.isClosure,
+      isLoadIsolated: sourceEnv.isLoadIsolated,
+    );
+    
+    // Copy all variables except the excluded ones
+    for (final entry in sourceEnv.values.entries) {
+      if (!excludeNames.contains(entry.key)) {
+        filteredEnv.values[entry.key] = entry.value;
+      }
+    }
+    
+    // Copy toBeClosedVars
+    filteredEnv.toBeClosedVars.addAll(sourceEnv.toBeClosedVars);
+    
+    Logger.debug(
+      'Created filtered environment: excluded ${excludeNames.join(', ')}, copied ${filteredEnv.values.length} variables',
+      category: 'Interpreter',
+    );
+    
+    return filteredEnv;
   }
 
   /// Evaluates a function literal.

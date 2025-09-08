@@ -380,24 +380,27 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       category: 'Assignment',
     );
     if (useCustomEnv) {
-      // In isolated environments (load with custom env), skip local lookup to avoid
-      // touching parent locals. Otherwise, prefer updating an existing local.
+      // In isolated environments (load with custom env), we need to be careful about
+      // local vs global variable assignment. Local variables declared within the loaded
+      // code should be assigned to the local environment, while global variables should
+      // be assigned to _ENV.
       final isIsolatedEnvironment = globals.isLoadIsolated;
-      if (!isIsolatedEnvironment) {
-        Environment? env = globals;
-        while (env != null) {
-          if (env.values.containsKey(name) && env.values[name]!.isLocal) {
-            Logger.debug(
-              'Updating local variable: $name',
-              category: 'Assignment',
-            );
-            env.define(name, wrappedValue);
-            return wrappedValue;
-          }
-          env = env.parent;
+      
+      // First, check if this is a local variable in the current environment chain
+      Environment? env = globals;
+      while (env != null) {
+        if (env.values.containsKey(name) && env.values[name]!.isLocal) {
+          Logger.debug(
+            'Updating local variable: $name',
+            category: 'Assignment',
+          );
+          env.define(name, wrappedValue);
+          return wrappedValue;
         }
+        env = env.parent;
       }
 
+      // If no local variable found, use _ENV for global assignment
       Logger.debug(
         'Using custom _ENV for variable assignment: $name',
         category: 'Assignment',
