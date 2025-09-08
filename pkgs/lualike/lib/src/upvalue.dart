@@ -29,10 +29,6 @@ class Upvalue {
   dynamic getValue() {
     // If this upvalue is joined with another, delegate to it
     if (_joinedUpvalue != null) {
-      Logger.debug(
-        'Upvalue ${name ?? 'unnamed'} delegating to joined upvalue ${_joinedUpvalue!.name ?? 'unnamed'}',
-        category: 'Debug',
-      );
       return _joinedUpvalue!.getValue();
     }
     

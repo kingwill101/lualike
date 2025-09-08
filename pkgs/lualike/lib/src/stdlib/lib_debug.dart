@@ -130,7 +130,8 @@ class _GetUpvalue implements BuiltinFunction {
         index <= functionArg.upvalues!.length) {
       final upvalue = functionArg.upvalues![index - 1];
       final name = upvalue.name;
-      final value = Value(upvalue.getValue());
+      final rawValue = upvalue.getValue();
+      final value = rawValue is Value ? rawValue : Value(rawValue);
       return Value.multi([Value(name), value]);
     }
 

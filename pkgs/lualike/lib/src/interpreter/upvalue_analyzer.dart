@@ -59,8 +59,9 @@ class UpvalueAnalyzer extends AstVisitor<void> {
         continue;
       }
 
-      // Look for the variable in the environment chain starting from parent
-      Environment? env = currentEnv.parent;
+      // Look for the variable in the environment chain starting from current
+      // This ensures local variables shadow global variables (Lua semantics)
+      Environment? env = currentEnv;
       bool foundAsUpvalue = false;
       while (env != null) {
         if (env.values.containsKey(varName)) {
@@ -79,16 +80,7 @@ class UpvalueAnalyzer extends AstVisitor<void> {
         env = env.parent;
       }
 
-      // If not found in parent environments, check current environment for locals
-      if (!foundAsUpvalue && currentEnv.values.containsKey(varName)) {
-        final box = currentEnv.values[varName]!;
-
-        if (box.isLocal && !analyzer._localVars.contains(varName)) {
-          final upvalue = Upvalue(valueBox: box, name: varName);
-          upvalues.add(upvalue);
-          upvalueNames.add(varName);
-        }
-      } else if (!foundAsUpvalue) {
+      if (!foundAsUpvalue) {
         // This variable is truly a global access since it's not an upvalue
         analyzer._accessesGlobals = true;
       }
