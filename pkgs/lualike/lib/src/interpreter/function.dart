@@ -32,59 +32,75 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
     this is Interpreter ? (this as Interpreter).recordTrace(node) : null;
 
-    // If this is a method definition (e.g., M.double)
+    // If this is a method or a namespaced function definition (e.g., a.b.c.f)
     if (node.name.rest.isNotEmpty || node.implicitSelf) {
-      // Get the table
-      final tableName = node.name.first.name;
-      final table = globals.get(tableName);
-      if (table is! Value || table.raw is! Map) {
+      // Resolve the target table by walking the qualified name path.
+      // For `function a.b.c.f1(...)` the target table is `a.b.c` and the
+      // function name is `f1`.
+      // For `function a.b.c:f2(...)` the target table is `a.b.c` and the
+      // method name is `f2` with implicit self.
+
+      // Determine the path segments and final function/method name
+      final firstName = node.name.first.name;
+      final rest = node.name.rest;
+
+      late String methodName;
+      int pathLen;
+      if (node.implicitSelf) {
+        methodName = node.name.method!.name;
+        node.body.implicitSelf = true;
+        pathLen = rest.length; // all rest segments are part of the table path
+      } else {
+        // last element in rest is the function name
+        methodName = rest.last.name;
+        pathLen = rest.length - 1;
+      }
+
+      // Walk down from globals[firstName] through each path segment
+      dynamic current = globals.get(firstName);
+      if (current is! Value || current.raw is! Map) {
         throw Exception("Cannot define function on non-table value");
       }
 
-      String methodName = '';
-
-      if (node.name.rest.isNotEmpty) {
-        methodName = node.name.rest.last.name;
+      final pathSegments = pathLen > 0
+          ? rest.sublist(0, pathLen)
+          : const <Identifier>[];
+      for (final seg in pathSegments) {
+        final next = (current as Value)[seg.name];
+        if (next is! Value || next.raw is! Map) {
+          throw Exception("Cannot define function on non-table value");
+        }
+        current = next;
       }
 
-      if (node.implicitSelf) {
-        //implicit self
-        methodName = (node.name).method!.name;
-        node.body.implicitSelf = true;
-      }
-      // Get method name (last part of the name)
+      final targetTable = current as Value; // guaranteed to be a table Value
 
-      // Create a special environment for the function that includes the table
-      // This ensures that references to the table inside the function
-      // correctly refer to the table, not the global environment
+      // Create a special environment for the function that includes the target table
       final methodEnv = Environment(
         parent: globals,
         interpreter: this as Interpreter,
       );
-      methodEnv.define(tableName, table);
+      // Provide access to the base table name to mirror Lua's resolution rules
+      // Without mutating any outer bindings.
+      methodEnv.declare(firstName, globals.get(firstName));
 
-      //define self
       if (node.implicitSelf) {
-        methodEnv.define('self', table);
+        // For methods defined with `function t:foo(...)`, inject an implicit
+        // `self` that is local to the method's definition environment.
+        methodEnv.declare('self', targetTable);
         node.body.parameters = [Identifier("self"), ...?node.body.parameters];
       }
 
-      // Store the current environment
+      // Store and switch environments while building the closure
       final prevEnv = globals;
-
-      // Set the method environment as the current environment
       setCurrentEnv(methodEnv);
-
-      // Create function closure in this special environment
       final closure = await node.body.accept(this);
-
-      // Restore the previous environment
       setCurrentEnv(prevEnv);
 
-      // Add function to table
-      (table.raw as Map)[methodName] = closure;
+      // Install the function on the resolved target table
+      (targetTable.raw as Map)[methodName] = closure;
       Logger.debug(
-        'Defined method $methodName on table $tableName',
+        'Defined method $methodName on table path $firstName${pathSegments.isNotEmpty ? '.${pathSegments.map((e) => e.name).join('.')}' : ''}',
         category: 'Interpreter',
       );
       return closure;
@@ -195,13 +211,45 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       category: 'Interpreter',
     );
 
-    final funcValue = Value((List<Object?> args) async {
+    // Analyze upvalues before creating the function
+    final upvalues = await UpvalueAnalyzer.analyzeFunction(node, closureEnv);
+
+    Logger.debug(
+      'Function upvalues analyzed: ${upvalues.map((u) => u.name).join(', ')}',
+      category: 'Interpreter',
+    );
+
+    // Create a variable to hold the function value for self-reference
+    Value? funcValue;
+
+    funcValue = Value((List<Object?> args) async {
       // Create new environment with closureEnv as parent to ensure proper variable access
-      final execEnv = Environment(
-        parent: closureEnv,
-        interpreter: this as Interpreter,
-        isClosure: false, // Don't mark as closure by default
-      );
+      // However, if the function has upvalues, we need to create an environment that doesn't
+      // have access to the local variables that are captured as upvalues
+      // Create environment - only filter if we have joined upvalues
+      Environment execEnv;
+      final joinedUpvalues = upvalues
+          .where((u) => u.isJoined && u.name != null && u.name != '_ENV')
+          .toList();
+      if (joinedUpvalues.isNotEmpty) {
+        // Only filter out variables that have been joined via debug.upvaluejoin
+        final joinedUpvalueNames = joinedUpvalues.map((u) => u.name!).toSet();
+        execEnv = Environment(
+          parent: _createFilteredEnvironment(closureEnv, joinedUpvalueNames),
+          interpreter: this as Interpreter,
+          isClosure: false,
+        );
+        Logger.debug(
+          'Created filtered environment for function with ${joinedUpvalues.length} joined upvalues: ${joinedUpvalueNames.join(', ')}',
+          category: 'Interpreter',
+        );
+      } else {
+        execEnv = Environment(
+          parent: closureEnv,
+          interpreter: this as Interpreter,
+          isClosure: false,
+        );
+      }
 
       // if (node.implicitSelf) {
       //   // If this is a method, define 'self' in the execution environment
@@ -245,15 +293,18 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       // Don't create a call frame here - it will be created by _callFunction
       // which has access to the function name
 
-      // Save the current environment
+      // Save the current environment and function
       final savedEnv = (this as Interpreter).getCurrentEnv();
+      final savedFunction = (this as Interpreter).getCurrentFunction();
 
       Object? result;
       try {
         // Set the environment to the execution environment
         (this as Interpreter).setCurrentEnv(execEnv);
+        // Set the current function for upvalue resolution
+        (this as Interpreter).setCurrentFunction(funcValue);
         Logger.debug(
-          "Set current environment to execEnv for function execution",
+          "Set current environment to execEnv and current function for function execution",
           category: 'Interpreter',
         );
 
@@ -268,17 +319,55 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       } on ReturnException catch (e) {
         result = e.value;
       } finally {
-        // Restore the previous environment
+        // Restore the previous environment and function
         (this as Interpreter).setCurrentEnv(savedEnv);
+        (this as Interpreter).setCurrentFunction(savedFunction);
       }
 
       return result;
     }, functionBody: node);
 
+    // Set the upvalues on the function
+    funcValue.upvalues = upvalues;
+
     // Set the interpreter on the value object itself
     funcValue.interpreter = this as Interpreter;
 
     return funcValue;
+  }
+
+  /// Creates a filtered environment that excludes specified local variables.
+  ///
+  /// This is used when a function has upvalues to prevent the function from
+  /// accessing the local variables through the environment chain instead of
+  /// through upvalues.
+  Environment _createFilteredEnvironment(
+    Environment sourceEnv,
+    Set<String> excludeNames,
+  ) {
+    final filteredEnv = Environment(
+      parent: sourceEnv.parent,
+      interpreter: this as Interpreter,
+      isClosure: sourceEnv.isClosure,
+      isLoadIsolated: sourceEnv.isLoadIsolated,
+    );
+
+    // Copy all variables except the excluded ones
+    for (final entry in sourceEnv.values.entries) {
+      if (!excludeNames.contains(entry.key)) {
+        filteredEnv.values[entry.key] = entry.value;
+      }
+    }
+
+    // Copy toBeClosedVars
+    filteredEnv.toBeClosedVars.addAll(sourceEnv.toBeClosedVars);
+
+    Logger.debug(
+      'Created filtered environment: excluded ${excludeNames.join(', ')}, copied ${filteredEnv.values.length} variables',
+      category: 'Interpreter',
+    );
+
+    return filteredEnv;
   }
 
   /// Evaluates a function literal.
@@ -457,7 +546,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
           '[MethodCall] Calling metamethod __index function for method: $methodName',
           category: 'Interpreter',
         );
-        return aFunc.raw(args);
+        // Route through unified call path to support tail calls, yields, etc.
+        return await _callFunction(aFunc, args, methodName);
       }
     }
 
@@ -476,32 +566,13 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       category: 'Interpreter',
     );
 
-    // Call the function
-    if (func.raw is Function) {
-      final callArgs = node.implicitSelf ? args : [obj, ...args];
-      Logger.debug(
-        '[MethodCall] Calling function with args: $callArgs',
-        category: 'Interpreter',
-      );
-      final result = await func.raw(callArgs);
-      Logger.debug('[MethodCall] Result: $result', category: 'Interpreter');
-      return result is Future ? await result : result;
-    } else if (func.raw is BuiltinFunction) {
-      final callArgs = node.implicitSelf ? args : [obj, ...args];
-      Logger.debug(
-        '[MethodCall] Calling builtin function with args: $callArgs',
-        category: 'Interpreter',
-      );
-      final result = (func.raw as BuiltinFunction).call(callArgs);
-      Logger.debug('[MethodCall] Result: $result', category: 'Interpreter');
-      return result is Future ? await result : result;
-    } else {
-      Logger.debug(
-        '[MethodCall] Method $methodName is not callable',
-        category: 'Interpreter',
-      );
-      throw Exception("Method '$methodName' is not callable");
-    }
+    // Build final argument list (prepend receiver when not implicitSelf)
+    final callArgs = node.implicitSelf ? args : [obj, ...args];
+    Logger.debug(
+      '[MethodCall] Dispatch via _callFunction with args: $callArgs',
+      category: 'Interpreter',
+    );
+    return await _callFunction(func, callArgs, methodName);
   }
 
   /// Evaluates a return statement.
@@ -515,8 +586,102 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     Logger.debug('Visiting ReturnStatement', category: 'Interpreter');
 
     if (node.expr.isEmpty) {
-      // No return values
-      throw ReturnException(Value(null));
+      // No return values: in Lua this is zero results, not a single nil.
+      throw ReturnException(Value.multi([]));
+    }
+
+    // Tail-call optimization: if returning a single function/method call,
+    // do not evaluate the call here. Instead, prepare the callee and args
+    // and signal the caller to invoke it without growing the stack.
+    if (node.expr.length == 1) {
+      final e = node.expr[0];
+
+      // Helper to normalize args into Value-wrapped items, expanding multi-values
+      Future<List<Object?>> evalArgs(List<AstNode> argNodes) async {
+        final out = <Object?>[];
+        for (int i = 0; i < argNodes.length; i++) {
+          final v = await argNodes[i].accept(this);
+          final isLast = i == argNodes.length - 1;
+          if (isLast) {
+            if (v is Value && v.isMulti) {
+              out.addAll(
+                (v.raw as List<Object?>).map((x) => x is Value ? x : Value(x)),
+              );
+            } else if (v is List) {
+              out.addAll(v.map((x) => x is Value ? x : Value(x)));
+            } else {
+              out.add(v is Value ? v : Value(v));
+            }
+          } else {
+            if (v is Value && v.isMulti) {
+              final multi = v.raw as List;
+              out.add(
+                multi.isNotEmpty
+                    ? (multi.first is Value ? multi.first : Value(multi.first))
+                    : Value(null),
+              );
+            } else if (v is List && v.isNotEmpty) {
+              out.add(v[0] is Value ? v[0] : Value(v[0]));
+            } else {
+              out.add(v is Value ? v : Value(v));
+            }
+          }
+        }
+        return out;
+      }
+
+      if (e is FunctionCall) {
+        // Evaluate callee without invoking
+        dynamic func = await e.name.accept(this);
+        if (func is Value && func.isMulti) {
+          final multi = func.raw as List;
+          func = multi.isNotEmpty ? multi.first : Value(null);
+        } else if (func is List && func.isNotEmpty) {
+          func = func.first;
+        }
+
+        final args = await evalArgs(e.args);
+        throw TailCallException(func, args);
+      } else if (e is MethodCall) {
+        // Prepare method call as a tail call
+        final obj = await e.prefix.accept(this);
+        var args = await evalArgs(e.args);
+        if (e.implicitSelf) {
+          args = [obj, ...args];
+        }
+
+        // Determine method function
+        final methodName = e.methodName is Identifier
+            ? (e.methodName as Identifier).name
+            : e.methodName.toString();
+
+        dynamic func;
+        if (obj is Value) {
+          final indexMeta = obj.getMetamethod('__index');
+          if (indexMeta is Function) {
+            final aFunc = indexMeta([obj, Value(methodName)]);
+            if (aFunc is Value && aFunc.raw is Function) {
+              func = aFunc;
+            }
+          }
+        }
+        if (func == null) {
+          // Direct lookup
+          if (obj is Value && obj.raw is Map && (obj).containsKey(methodName)) {
+            func = (obj)[methodName];
+          } else if (obj is Map && obj.containsKey(methodName)) {
+            func = obj[methodName];
+          }
+        }
+
+        func = func is Value ? func : Value(func);
+
+        final callArgs = e.implicitSelf ? args : [obj, ...args];
+        throw TailCallException(
+          func,
+          callArgs.map((x) => x is Value ? x : Value(x)).toList(),
+        );
+      }
     }
 
     // Handle multiple return values correctly
@@ -624,331 +789,316 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       '>>> Pushing function name to call stack: "$functionName"',
       category: 'Interpreter',
     );
+    // Guard against unbounded recursion in non-tail calls (simulates C stack limit)
+    if (callStack.depth >= Interpreter.maxCallDepth) {
+      throw LuaError('C stack overflow');
+    }
     callStack.push(functionName);
 
     try {
-      if (func is Value) {
-        if (func.raw is Function) {
-          // Call the Dart function
-          Logger.debug(
-            '>>> Calling Dart function: ${func.raw.runtimeType}',
-            category: 'Interpreter',
-          );
-          try {
-            final result = await func.raw(args);
-            Logger.debug(
-              '>>> Dart function returned: $result (${result.runtimeType})',
-              category: 'Interpreter',
-            );
-            return result;
-          } catch (e, s) {
-            Logger.debug(
-              '>>> Error in Dart function: $e',
-              category: 'Interpreter',
-            );
-            Logger.debug('>>> Stack trace: $s', category: 'Interpreter');
-            rethrow;
-          }
-        } else if (func.raw is BuiltinFunction) {
-          // Call the builtin function
-          Logger.debug(
-            '>>> Calling builtin function from Value: ${func.raw.runtimeType}',
-            category: 'Interpreter',
-          );
-          try {
-            var result = (func.raw as BuiltinFunction).call(args);
-
-            if (result is Future) {
-              result = await result;
-            }
-
-            Logger.debug(
-              '>>> Builtin function call completed, result = $result',
-              category: 'Interpreter',
-            );
-            return result;
-          } catch (e) {
-            Logger.debug(
-              '>>> Builtin function call failed: $e',
-              category: 'Interpreter',
-            );
-            rethrow;
-          }
-        } else if (func.raw is FunctionDef) {
-          Logger.debug(
-            '>>> Calling LuaLike function definition',
-            category: 'Interpreter',
-          );
-          final funcDef = func.raw as FunctionDef;
-          final funcBody = funcDef.body;
-          final closure = await funcBody.accept(this);
-          Logger.debug(
-            '>>> Function body closure: $closure (${closure.runtimeType})',
-            category: 'Interpreter',
-          );
-          if (closure is Value && closure.raw is Function) {
-            try {
-              final result = await closure.raw(args);
+      while (true) {
+        try {
+          if (func is Value) {
+            if (func.raw is Function) {
+              // Call the Dart function
               Logger.debug(
-                '>>> LuaLike function result: $result',
-                category: 'Interpreter',
-              );
-              return result;
-            } catch (e) {
-              Logger.debug(
-                '>>> Error in LuaLike function: $e',
-                category: 'Interpreter',
-              );
-              rethrow;
-            }
-          }
-        } else if (func.raw is FunctionBody) {
-          // Call the LuaLike function body
-          Logger.debug(
-            '>>> Calling LuaLike function body',
-            category: 'Interpreter',
-          );
-          final funcBody = func.raw as FunctionBody;
-          final closure = await funcBody.accept(this);
-          Logger.debug(
-            '>>> Function body closure: $closure (${closure.runtimeType})',
-            category: 'Interpreter',
-          );
-          if (closure is Value && closure.raw is Function) {
-            try {
-              final result = await closure.raw(args);
-              Logger.debug(
-                '>>> LuaLike function body result: $result',
-                category: 'Interpreter',
-              );
-              return result;
-            } catch (e) {
-              Logger.debug(
-                '>>> Error in LuaLike function body: $e',
-                category: 'Interpreter',
-              );
-              rethrow;
-            }
-          }
-        } else if (func.raw is FunctionLiteral) {
-          // Call the LuaLike function literal
-          Logger.debug(
-            '>>> Calling LuaLike function literal',
-            category: 'Interpreter',
-          );
-          final funcLiteral = func.raw as FunctionLiteral;
-          final closure = await funcLiteral.accept(this);
-          Logger.debug(
-            '>>> Function literal closure: $closure (${closure.runtimeType})',
-            category: 'Interpreter',
-          );
-          if (closure is Value && closure.raw is Function) {
-            try {
-              final result = await closure.raw(args);
-              Logger.debug(
-                '>>> LuaLike function literal result: $result',
-                category: 'Interpreter',
-              );
-              return result;
-            } catch (e) {
-              Logger.debug(
-                '>>> Error in LuaLike function literal: $e',
-                category: 'Interpreter',
-              );
-              rethrow;
-            }
-          }
-        } else if (func.raw is String) {
-          final funkLookup = globals.get(func.raw);
-          if (funkLookup != null) {
-            func = funkLookup;
-          }
-        } else {
-          // Check for __call metamethod
-          Logger.debug(
-            '>>> Checking for __call metamethod',
-            category: 'Interpreter',
-          );
-          final callMeta = func.getMetamethod('__call');
-          if (callMeta != null) {
-            Logger.debug(
-              '>>> Found __call metamethod: $callMeta',
-              category: 'Interpreter',
-            );
-            final callArgs = [func, ...args];
-            if (callMeta is Function) {
-              Logger.debug(
-                '>>> Calling __call metamethod as Dart function args: $callArgs',
+                '>>> Calling Dart function: ${func.raw.runtimeType}',
                 category: 'Interpreter',
               );
               try {
-                final result = await callMeta(callArgs);
+                final result = await func.raw(args);
                 Logger.debug(
-                  '>>> __call metamethod result: $result',
+                  '>>> Dart function returned: $result (${result.runtimeType})',
+                  category: 'Interpreter',
+                );
+                return result;
+              } catch (e, s) {
+                Logger.debug(
+                  '>>> Error in Dart function: $e',
+                  category: 'Interpreter',
+                );
+                Logger.debug('>>> Stack trace: $s', category: 'Interpreter');
+                rethrow;
+              }
+            } else if (func.raw is BuiltinFunction) {
+              // Call the builtin function
+              Logger.debug(
+                '>>> Calling builtin function from Value: ${func.raw.runtimeType}',
+                category: 'Interpreter',
+              );
+              try {
+                var result = (func.raw as BuiltinFunction).call(args);
+
+                if (result is Future) {
+                  result = await result;
+                }
+
+                Logger.debug(
+                  '>>> Builtin function call completed, result = $result',
                   category: 'Interpreter',
                 );
                 return result;
               } catch (e) {
                 Logger.debug(
-                  '>>> Error in __call metamethod: $e',
+                  '>>> Builtin function call failed: $e',
                   category: 'Interpreter',
                 );
                 rethrow;
               }
-            } else if (callMeta is Value) {
-              if (callMeta.raw is Function) {
+            } else if (func.raw is FunctionDef) {
+              Logger.debug(
+                '>>> Calling LuaLike function definition',
+                category: 'Interpreter',
+              );
+              final funcDef = func.raw as FunctionDef;
+              final funcBody = funcDef.body;
+              final closure = await funcBody.accept(this);
+              Logger.debug(
+                '>>> Function body closure: $closure (${closure.runtimeType})',
+                category: 'Interpreter',
+              );
+              if (closure is Value && closure.raw is Function) {
                 try {
-                  final result = await callMeta.raw(callArgs);
+                  final result = await closure.raw(args);
                   Logger.debug(
-                    '>>> __call metamethod result: $result',
+                    '>>> LuaLike function result: $result',
                     category: 'Interpreter',
                   );
                   return result;
                 } catch (e) {
                   Logger.debug(
-                    '>>> Error in __call metamethod: $e',
+                    '>>> Error in LuaLike function: $e',
                     category: 'Interpreter',
                   );
                   rethrow;
                 }
-              } else if (callMeta.raw is FunctionDef ||
-                  callMeta.raw is FunctionLiteral ||
-                  callMeta.raw is FunctionBody) {
-                final result = await callMeta.call(callArgs);
-                return result;
+              }
+            } else if (func.raw is FunctionBody) {
+              // Call the LuaLike function body
+              Logger.debug(
+                '>>> Calling LuaLike function body',
+                category: 'Interpreter',
+              );
+              final funcBody = func.raw as FunctionBody;
+              final closure = await funcBody.accept(this);
+              Logger.debug(
+                '>>> Function body closure: $closure (${closure.runtimeType})',
+                category: 'Interpreter',
+              );
+              if (closure is Value && closure.raw is Function) {
+                try {
+                  final result = await closure.raw(args);
+                  Logger.debug(
+                    '>>> LuaLike function body result: $result',
+                    category: 'Interpreter',
+                  );
+                  return result;
+                } catch (e) {
+                  Logger.debug(
+                    '>>> Error in LuaLike function body: $e',
+                    category: 'Interpreter',
+                  );
+                  rethrow;
+                }
+              }
+            } else if (func.raw is FunctionLiteral) {
+              // Call the LuaLike function literal
+              Logger.debug(
+                '>>> Calling LuaLike function literal',
+                category: 'Interpreter',
+              );
+              final funcLiteral = func.raw as FunctionLiteral;
+              final closure = await funcLiteral.accept(this);
+              Logger.debug(
+                '>>> Function literal closure: $closure (${closure.runtimeType})',
+                category: 'Interpreter',
+              );
+              if (closure is Value && closure.raw is Function) {
+                try {
+                  final result = await closure.raw(args);
+                  Logger.debug(
+                    '>>> LuaLike function literal result: $result',
+                    category: 'Interpreter',
+                  );
+                  return result;
+                } catch (e) {
+                  Logger.debug(
+                    '>>> Error in LuaLike function literal: $e',
+                    category: 'Interpreter',
+                  );
+                  rethrow;
+                }
+              }
+            } else if (func.raw is String) {
+              final funkLookup = globals.get(func.raw);
+              if (funkLookup != null) {
+                func = funkLookup;
+              }
+            } else {
+              // Check for __call metamethod and flatten the chain iteratively.
+              Logger.debug(
+                '>>> Checking for __call metamethod',
+                category: 'Interpreter',
+              );
+              final callMeta = func.getMetamethod('__call');
+              if (callMeta != null) {
+                // Rebind callee and arguments, then continue loop without
+                // nesting calls. This prevents deep recursion for chains of
+                // tables with __call metamethods.
+                final callArgs = [func, ...args];
+                Logger.debug(
+                  '>>> __call found; rebinding callee and continuing (callee=${callMeta.runtimeType})',
+                  category: 'Interpreter',
+                );
+                func = callMeta;
+                args = callArgs;
+                continue;
               }
             }
+          } else if (func is Function) {
+            // Call the Dart function directly
+            Logger.debug(
+              '>>> Calling Dart function directly',
+              category: 'Interpreter',
+            );
+            try {
+              final result = await func(args);
+              Logger.debug(
+                '>>> Direct Dart function result: $result',
+                category: 'Interpreter',
+              );
+              return result;
+            } catch (e) {
+              Logger.debug(
+                '>>> Error in direct Dart function: $e',
+                category: 'Interpreter',
+              );
+              rethrow;
+            }
+          } else if (func is FunctionDef) {
+            // Call the LuaLike function
+            Logger.debug(
+              '>>> Calling LuaLike function definition directly',
+              category: 'Interpreter',
+            );
+            final funcBody = func.body;
+            final closure = await funcBody.accept(this);
+            Logger.debug(
+              '>>> Function body closure: $closure (${closure.runtimeType})',
+              category: 'Interpreter',
+            );
+            if (closure is Value && closure.raw is Function) {
+              try {
+                final result = await closure.raw(args);
+                Logger.debug(
+                  '>>> Direct LuaLike function result: $result',
+                  category: 'Interpreter',
+                );
+                return result;
+              } catch (e) {
+                Logger.debug(
+                  '>>> Error in direct LuaLike function: $e',
+                  category: 'Interpreter',
+                );
+                rethrow;
+              }
+            }
+          } else if (func is FunctionBody) {
+            // Call the LuaLike function body
+            Logger.debug(
+              '>>> Calling LuaLike function body directly',
+              category: 'Interpreter',
+            );
+            final closure = await func.accept(this);
+            Logger.debug(
+              '>>> Function body closure: $closure (${closure.runtimeType})',
+              category: 'Interpreter',
+            );
+            if (closure is Value && closure.raw is Function) {
+              try {
+                final result = await closure.raw(args);
+                Logger.debug(
+                  '>>> Direct LuaLike function body result: $result',
+                  category: 'Interpreter',
+                );
+                return result;
+              } catch (e) {
+                Logger.debug(
+                  '>>> Error in direct LuaLike function body: $e',
+                  category: 'Interpreter',
+                );
+                rethrow;
+              }
+            }
+          } else if (func is FunctionLiteral) {
+            // Call the LuaLike function literal
+            Logger.debug(
+              '>>> Calling LuaLike function literal directly',
+              category: 'Interpreter',
+            );
+            final closure = await func.accept(this);
+            Logger.debug(
+              '>>> Function literal closure: $closure (${closure.runtimeType})',
+              category: 'Interpreter',
+            );
+            if (closure is Value && closure.raw is Function) {
+              try {
+                final result = await closure.raw(args);
+                Logger.debug(
+                  '>>> Direct LuaLike function literal result: $result',
+                  category: 'Interpreter',
+                );
+                return result;
+              } catch (e) {
+                Logger.debug(
+                  '>>> Error in direct LuaLike function literal: $e',
+                  category: 'Interpreter',
+                );
+                rethrow;
+              }
+            }
+          } else if (func is BuiltinFunction) {
+            // Call the builtin function
+            Logger.debug(
+              '>>> Calling builtin function',
+              category: 'Interpreter',
+            );
+            try {
+              final result = func.call(args);
+              Logger.debug(
+                '>>> Builtin function result: $result',
+                category: 'Interpreter',
+              );
+              return result;
+            } catch (e) {
+              Logger.debug(
+                '>>> Error in builtin function: $e',
+                category: 'Interpreter',
+              );
+              rethrow;
+            }
           }
-        }
-      } else if (func is Function) {
-        // Call the Dart function directly
-        Logger.debug(
-          '>>> Calling Dart function directly',
-          category: 'Interpreter',
-        );
-        try {
-          final result = await func(args);
+
+          // If we get here, we couldn't call the function
           Logger.debug(
-            '>>> Direct Dart function result: $result',
+            '>>> Could not call value as function: $func (${func.runtimeType}), functionName="$functionName"',
             category: 'Interpreter',
           );
-          return result;
-        } catch (e) {
+          throw LuaError.typeError(
+            "attempt to call a ${getLuaType(func)} value",
+          );
+        } on TailCallException catch (t) {
+          // Rebind callee/args and continue without pushing a new frame
           Logger.debug(
-            '>>> Error in direct Dart function: $e',
+            '>>> TailCallException caught; rebinding callee and continuing',
             category: 'Interpreter',
           );
-          rethrow;
-        }
-      } else if (func is FunctionDef) {
-        // Call the LuaLike function
-        Logger.debug(
-          '>>> Calling LuaLike function definition directly',
-          category: 'Interpreter',
-        );
-        final funcBody = func.body;
-        final closure = await funcBody.accept(this);
-        Logger.debug(
-          '>>> Function body closure: $closure (${closure.runtimeType})',
-          category: 'Interpreter',
-        );
-        if (closure is Value && closure.raw is Function) {
-          try {
-            final result = await closure.raw(args);
-            Logger.debug(
-              '>>> Direct LuaLike function result: $result',
-              category: 'Interpreter',
-            );
-            return result;
-          } catch (e) {
-            Logger.debug(
-              '>>> Error in direct LuaLike function: $e',
-              category: 'Interpreter',
-            );
-            rethrow;
-          }
-        }
-      } else if (func is FunctionBody) {
-        // Call the LuaLike function body
-        Logger.debug(
-          '>>> Calling LuaLike function body directly',
-          category: 'Interpreter',
-        );
-        final closure = await func.accept(this);
-        Logger.debug(
-          '>>> Function body closure: $closure (${closure.runtimeType})',
-          category: 'Interpreter',
-        );
-        if (closure is Value && closure.raw is Function) {
-          try {
-            final result = await closure.raw(args);
-            Logger.debug(
-              '>>> Direct LuaLike function body result: $result',
-              category: 'Interpreter',
-            );
-            return result;
-          } catch (e) {
-            Logger.debug(
-              '>>> Error in direct LuaLike function body: $e',
-              category: 'Interpreter',
-            );
-            rethrow;
-          }
-        }
-      } else if (func is FunctionLiteral) {
-        // Call the LuaLike function literal
-        Logger.debug(
-          '>>> Calling LuaLike function literal directly',
-          category: 'Interpreter',
-        );
-        final closure = await func.accept(this);
-        Logger.debug(
-          '>>> Function literal closure: $closure (${closure.runtimeType})',
-          category: 'Interpreter',
-        );
-        if (closure is Value && closure.raw is Function) {
-          try {
-            final result = await closure.raw(args);
-            Logger.debug(
-              '>>> Direct LuaLike function literal result: $result',
-              category: 'Interpreter',
-            );
-            return result;
-          } catch (e) {
-            Logger.debug(
-              '>>> Error in direct LuaLike function literal: $e',
-              category: 'Interpreter',
-            );
-            rethrow;
-          }
-        }
-      } else if (func is BuiltinFunction) {
-        // Call the builtin function
-        Logger.debug('>>> Calling builtin function', category: 'Interpreter');
-        try {
-          final result = func.call(args);
-          Logger.debug(
-            '>>> Builtin function result: $result',
-            category: 'Interpreter',
-          );
-          return result;
-        } catch (e) {
-          Logger.debug(
-            '>>> Error in builtin function: $e',
-            category: 'Interpreter',
-          );
-          rethrow;
+          func = t.functionValue;
+          args = t.args;
+          // Continue loop to invoke new function under same frame
+          continue;
         }
       }
-
-      // If we get here, we couldn't call the function
-      Logger.debug(
-        '>>> Could not call value as function: $func (${func.runtimeType})',
-        category: 'Interpreter',
-      );
-      throw LuaError.typeError(
-        "attempt to call a non-function value ($functionName)",
-      );
     } on YieldException catch (ye) {
       // Handle coroutine yield
       Logger.debug(

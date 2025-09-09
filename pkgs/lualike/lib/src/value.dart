@@ -187,6 +187,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         metatable: metatable != null ? Map.from(metatable!) : null,
         isConst: isConst,
         isToBeClose: isToBeClose,
+        upvalues: upvalues,
+        interpreter: interpreter,
+        functionBody: functionBody,
+        functionName: functionName,
       );
     }
     // For non-table values, copy with metatable
@@ -195,6 +199,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       metatable: metatable != null ? Map.from(metatable!) : null,
       isConst: isConst,
       isToBeClose: isToBeClose,
+      upvalues: upvalues,
+      interpreter: interpreter,
+      functionBody: functionBody,
+      functionName: functionName,
     );
   }
 
@@ -729,11 +737,25 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
 
     final map = raw as Map;
-    int n = 0;
-    while (map.containsKey(n + 1)) {
-      n++;
-    }
-    return n;
+    // Lua's length is undefined for tables with holes; adopt a practical rule:
+    // use the highest positive integer index whose value is non-nil. This
+    // lets callers iterate 1..#t across sparse results (e.g., unpack) while
+    // ignoring trailing stored-nil slots like those from table.pack(...).
+    int maxIndex = 0;
+    map.forEach((k, v) {
+      var key = k;
+      if (key is Value) key = key.raw;
+      // Only consider non-nil values
+      final nonNil = !(v == null || (v is Value && v.raw == null));
+      if (!nonNil) return;
+      if (key is int && key > maxIndex) {
+        maxIndex = key;
+      } else if (key is num && key == key.floorToDouble()) {
+        final asInt = key.toInt();
+        if (asInt > maxIndex) maxIndex = asInt;
+      }
+    });
+    return maxIndex;
   }
 
   @override
@@ -1229,8 +1251,18 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
       if (callMethod is Function) {
         return await callMethod(callArgs);
-      } else if (callMethod is Value && callMethod.raw is Function) {
-        return await callMethod.raw(callArgs);
+      } else if (callMethod is Value) {
+        // If the metamethod is a Value, it may be:
+        // - a direct Dart function (raw is Function)
+        // - a Lua function (FunctionDef/FunctionBody/Literal)
+        // - a table with its own __call chain
+        if (callMethod.raw is Function) {
+          return await callMethod.raw(callArgs);
+        }
+        final interpreter = Environment.current?.interpreter;
+        if (interpreter != null) {
+          return await interpreter.callFunction(callMethod, callArgs);
+        }
       }
     } else if (raw is FunctionDef ||
         raw is FunctionLiteral ||

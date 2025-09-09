@@ -175,7 +175,7 @@ class _LuaLoader implements BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
     final name = (args[0] as Value).raw.toString();
-    print("DEBUG: _LuaLoader called for module: $name");
+    Logger.debug("_LuaLoader called for module: $name", category: 'Package');
 
     // Special case: If the current script is in a special directory like .lua-tests,
     // and the module name doesn't contain a path separator, try to load it from the same directory first
@@ -185,10 +185,16 @@ class _LuaLoader implements BuiltinFunction {
         vm.currentScriptPath != null) {
       final scriptDir = path_lib.dirname(vm.currentScriptPath!);
       final directPath = path_lib.join(scriptDir, '$name.lua');
-      print("DEBUG: Trying direct path in script directory: $directPath");
+      Logger.debug(
+        "Trying direct path in script directory: $directPath",
+        category: 'Package',
+      );
 
       if (await fileExists(directPath)) {
-        print("DEBUG: Module found in script directory: $directPath");
+        Logger.debug(
+          "Module found in script directory: $directPath",
+          category: 'Package',
+        );
         modulePath = directPath;
       }
     }
@@ -196,45 +202,62 @@ class _LuaLoader implements BuiltinFunction {
     // If not found in the script directory, use the regular resolution
     if (modulePath == null) {
       // Try to find the module file
-      print("DEBUG: Attempting to resolve module path for: $name");
+      Logger.debug(
+        "Attempting to resolve module path for: $name",
+        category: 'Package',
+      );
       modulePath = await fileManager.resolveModulePath(name);
 
       // Print the resolved globs for debugging
       fileManager.printResolvedGlobs();
     }
 
-    print("DEBUG: Module path resolved to: $modulePath");
+    Logger.debug("Module path resolved to: $modulePath", category: 'Package');
 
     // Return a loader function that will load and execute the module
     return [
       Value((List<Object?> args) async {
         final name = (args[0] as Value).raw.toString();
         final modulePath = (args[1] as Value).raw.toString();
-        print(
-          "DEBUG: Loader function called for module: $name with path: $modulePath",
+        Logger.debug(
+          "Loader function called for module: $name with path: $modulePath",
+          category: 'Package',
         );
 
         try {
           // Load the source code
-          print("DEBUG: Attempting to load source from: $modulePath");
+          Logger.debug(
+            "Attempting to load source from: $modulePath",
+            category: 'Package',
+          );
           final source = await fileManager.loadSource(modulePath);
           if (source == null) {
-            print(
-              "DEBUG: Source not found for module: $name at path: $modulePath",
+            Logger.debug(
+              "Source not found for module: $name at path: $modulePath",
+              category: 'Package',
             );
             throw Exception("cannot load module '$name': file not found");
           }
 
-          print("DEBUG: Source loaded successfully, length: ${source.length}");
+          Logger.debug(
+            "Source loaded successfully, length: ${source.length}",
+            category: 'Package',
+          );
 
           try {
             // Parse the module code
-            print("DEBUG: Parsing module code");
+            Logger.debug("Parsing module code", category: 'Package');
             final ast = parse(source, url: modulePath);
-            print("DEBUG: Module code parsed successfully");
+            Logger.debug(
+              "Module code parsed successfully",
+              category: 'Package',
+            );
 
             // Create a new environment for the module
-            print("DEBUG: Creating new environment for module");
+            Logger.debug(
+              "Creating new environment for module",
+              category: 'Package',
+            );
             final moduleEnv = Environment(parent: vm.globals, interpreter: vm);
 
             // Pass arguments like Lua's loader function (...)
@@ -244,7 +267,10 @@ class _LuaLoader implements BuiltinFunction {
             );
 
             // Execute the module code in the new environment
-            print("DEBUG: Creating interpreter for module");
+            Logger.debug(
+              "Creating interpreter for module",
+              category: 'Package',
+            );
             final interpreter = Interpreter(
               environment: moduleEnv,
               fileManager: fileManager,
@@ -259,13 +285,17 @@ class _LuaLoader implements BuiltinFunction {
               absoluteModulePath = fileManager.resolveAbsoluteModulePath(
                 modulePath,
               );
-              print(
-                "DEBUG: Resolved module path to absolute path: $absoluteModulePath",
+              Logger.debug(
+                "Resolved module path to absolute path: $absoluteModulePath",
+                category: 'Package',
               );
             }
 
             // Set the current script path to the module path
-            print("DEBUG: Setting script path to: $absoluteModulePath");
+            Logger.debug(
+              "Setting script path to: $absoluteModulePath",
+              category: 'Package',
+            );
             interpreter.currentScriptPath = absoluteModulePath;
 
             // Store the script path in the module environment (normalized)
@@ -282,8 +312,9 @@ class _LuaLoader implements BuiltinFunction {
             // Also set _MODULE_NAME global
             moduleEnv.define('_MODULE_NAME', Value(name));
 
-            print(
-              "DEBUG: Module environment set up with _SCRIPT_PATH=$absoluteModulePath, _SCRIPT_DIR=$moduleDir, _MODULE_NAME=$name",
+            Logger.debug(
+              "Module environment set up with _SCRIPT_PATH=$absoluteModulePath, _SCRIPT_DIR=$moduleDir, _MODULE_NAME=$name",
+              category: 'Package',
             );
             Logger.debug(
               "Module environment set up with _SCRIPT_PATH(norm)=$normalizedModulePath, _SCRIPT_DIR(norm)=$normalizedModuleDir | originals: path=$absoluteModulePath, dir=$moduleDir, _MODULE_NAME=$name",
@@ -295,35 +326,48 @@ class _LuaLoader implements BuiltinFunction {
             vm.globals.define('_SCRIPT_DIR', Value(normalizedModuleDir));
             vm.globals.define('_MODULE_NAME', Value(name));
 
-            print(
-              "DEBUG: Global environment updated with _SCRIPT_PATH=$absoluteModulePath, _SCRIPT_DIR=$moduleDir, _MODULE_NAME=$name",
+            Logger.debug(
+              "Global environment updated with _SCRIPT_PATH=$absoluteModulePath, _SCRIPT_DIR=$moduleDir, _MODULE_NAME=$name",
+              category: 'Package',
             );
 
             Object? result;
             try {
               // Run the module code
-              print("DEBUG: Running module code");
+              Logger.debug("Running module code", category: 'Package');
               await interpreter.run(ast.statements);
-              print("DEBUG: Module code executed successfully");
+              Logger.debug(
+                "Module code executed successfully",
+                category: 'Package',
+              );
               // If no explicit return, the result is nil
               result = Value(null);
             } on ReturnException catch (e) {
               // Handle explicit return from module
-              print("DEBUG: Module returned a value");
+              Logger.debug("Module returned a value", category: 'Package');
               result = e.value;
             }
 
             // If the module didn't return anything, return an empty table
             if ((result is Value && result.raw == null)) {
-              print("DEBUG: Module returned nil, defaulting to empty table");
+              Logger.debug(
+                "Module returned nil, defaulting to empty table",
+                category: 'Package',
+              );
               result = Value({});
             } else {
-              print("DEBUG: Module returned: ${result.runtimeType}");
+              Logger.debug(
+                "Module returned: ${result.runtimeType}",
+                category: 'Package',
+              );
             }
 
             // Store the result in package.loaded immediately to ensure it's available
             // for any recursive requires within the module
-            print("DEBUG: Storing module in package.loaded");
+            Logger.debug(
+              "Storing module in package.loaded",
+              category: 'Package',
+            );
             final packageVal = vm.globals.get("package");
             if (packageVal is Value && packageVal.raw is Map) {
               final packageTable = packageVal.raw as Map;
@@ -331,7 +375,10 @@ class _LuaLoader implements BuiltinFunction {
                 final loadedValue = packageTable["loaded"] as Value;
                 final loaded = loadedValue.raw as Map;
                 loaded[name] = result;
-                print("DEBUG: Module '$name' stored in package.loaded");
+                Logger.debug(
+                  "Module '$name' stored in package.loaded",
+                  category: 'Package',
+                );
                 Logger.debug(
                   "Module '$name' stored in package.loaded during load",
                   category: 'Package',
@@ -339,14 +386,20 @@ class _LuaLoader implements BuiltinFunction {
               }
             }
 
-            print("DEBUG: Module loading completed successfully");
+            Logger.debug(
+              "Module loading completed successfully",
+              category: 'Package',
+            );
             return result;
           } catch (e) {
-            print("DEBUG: Error parsing/executing module: $e");
+            Logger.error(
+              "Error parsing/executing module: $e",
+              category: 'Package',
+            );
             throw Exception("error loading module '$name': $e");
           }
         } catch (e) {
-          print("DEBUG: Error loading module source: $e");
+          Logger.error("Error loading module source: $e", category: 'Package');
           throw Exception("error loading module '$name': $e");
         }
       }),

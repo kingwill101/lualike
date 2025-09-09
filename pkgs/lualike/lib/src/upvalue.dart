@@ -24,8 +24,14 @@ class Upvalue {
   /// Gets the current value of the upvalue.
   ///
   /// Returns the value from the original Box if open, or the captured
-  /// closed value otherwise.
+  /// closed value otherwise. If this upvalue is joined with another,
+  /// delegates to the joined upvalue.
   dynamic getValue() {
+    // If this upvalue is joined with another, delegate to it
+    if (_joinedUpvalue != null) {
+      return _joinedUpvalue!.getValue();
+    }
+
     return _isOpen ? valueBox.value : _closedValue;
   }
 
@@ -33,7 +39,14 @@ class Upvalue {
   ///
   /// Updates the value in the original Box if open.
   /// Throws an error if trying to set a closed upvalue.
+  /// If this upvalue is joined with another, delegates to the joined upvalue.
   void setValue(dynamic newValue) {
+    // If this upvalue is joined with another, delegate to it
+    if (_joinedUpvalue != null) {
+      _joinedUpvalue!.setValue(newValue);
+      return;
+    }
+
     if (_isOpen) {
       // TODO: Consider const checking here eventually, based on valueBox.isConst
       valueBox.value = newValue;
@@ -57,6 +70,31 @@ class Upvalue {
       _isOpen = false;
     }
   }
+
+  /// Joins this upvalue with another upvalue by sharing the same value box.
+  ///
+  /// This is used by debug.upvaluejoin to make two upvalues share the same storage.
+  /// The key insight is that we need to make this upvalue actually use the same
+  /// Box as the target upvalue, not just copy the value.
+  void joinWith(Upvalue other) {
+    // We can't modify the valueBox field since it's final, but we can
+    // make this upvalue behave as if it's using the other's box by
+    // overriding the getValue and setValue methods behavior.
+
+    // Store a reference to the target upvalue for delegation
+    _joinedUpvalue = other;
+
+    Logger.debug(
+      'UpvalueJoin: Joined upvalue ${name ?? 'unnamed'} with ${other.name ?? 'unnamed'}',
+      category: 'Debug',
+    );
+  }
+
+  /// Reference to the upvalue this one is joined with, if any
+  Upvalue? _joinedUpvalue;
+
+  /// Whether this upvalue has been joined with another upvalue
+  bool get isJoined => _joinedUpvalue != null;
 
   @override
   String toString() {

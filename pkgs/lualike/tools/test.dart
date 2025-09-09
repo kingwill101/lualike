@@ -6,8 +6,12 @@ import 'package:args/args.dart';
 import 'package:dart_console/dart_console.dart';
 import 'package:path/path.dart' as path;
 
+import 'compiler.dart';
+import 'utils.dart';
+
 /// List of Lua test files to run
 final testFiles = [
+  'calls.lua',
   'attrib.lua',
   'bitwise.lua',
   'constructs.lua',
@@ -56,58 +60,102 @@ Future<List<String>> collectProcessOutput(Stream<List<int>> stream) async {
   return output;
 }
 
-/// Compile the lualike binary
-Future<void> compile() async {
-  console.setForegroundColor(ConsoleColor.cyan);
-  console.write("Compiling lualike...");
-  console.resetColorAttributes();
-  console.writeLine();
-
-  final stopwatch = Stopwatch()..start();
-
-  final process = await Process.start('dart', [
-    'compile',
-    'exe',
-    '--output',
-    'lualike',
-    path.join('bin', 'main.dart'),
-  ]);
-
-  // Handle process output
-  process.stdout
-      .transform(utf8.decoder)
-      .transform(const LineSplitter())
-      .listen((line) => console.writeLine(line));
-
-  process.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen(
-    (line) {
-      console.setForegroundColor(ConsoleColor.red);
-      console.writeLine(line);
-      console.resetColorAttributes();
-    },
+/// Compile the lualike binary using smart compilation
+Future<void> compile({bool force = false, String? dartPath}) async {
+  final compiler = SmartCompiler(
+    projectRoot: '.',
+    dartPath: dartPath ?? getExecutableName('dart'),
   );
 
-  final exitCode = await process.exitCode;
-  stopwatch.stop();
-
-  if (exitCode != 0) {
+  final success = await compiler.smartCompile(force: force);
+  if (!success) {
     console.setForegroundColor(ConsoleColor.red);
     console.setTextStyle(bold: true);
     console.write("Compilation failed");
     console.resetColorAttributes();
     console.writeLine();
-    exit(exitCode);
-  } else {
-    console.setForegroundColor(ConsoleColor.green);
-    console.write(
-      "Compilation successful in ${stopwatch.elapsed.inMilliseconds}ms",
-    );
+    exit(1);
+  }
+}
+
+/// Get the absolute path to the Dart executable
+String _getDartExecutablePath() {
+  // Use Platform.script to get the Dart executable that's running this script
+  return Platform.executable;
+}
+
+/// Compile the test runner itself into a standalone executable
+Future<void> _compileTestRunner(String? dartPath) async {
+  console.setForegroundColor(ConsoleColor.cyan);
+  console.setTextStyle(bold: true);
+  console.write("Compiling test runner...");
+  console.resetColorAttributes();
+  console.writeLine();
+
+  final currentDir = Directory.current.path;
+  final testRunnerPath = path.join(currentDir, 'tools', 'test.dart');
+  final outputPath = path.join(currentDir, getExecutableName('test_runner'));
+
+  try {
+    // Remove existing executable if it exists
+    final outputFile = File(outputPath);
+    if (outputFile.existsSync()) {
+      outputFile.deleteSync();
+    }
+
+    // Get the absolute path to the dart executable
+    final dartExecutablePath = dartPath ?? _getDartExecutablePath();
+
+    console.setForegroundColor(ConsoleColor.blue);
+    console.write("Using Dart executable: ");
+    console.resetColorAttributes();
+    console.writeLine(dartExecutablePath);
+
+    // Compile the test runner with define to inject the dart path
+    final result = await Process.run(dartExecutablePath, [
+      'compile',
+      'exe',
+      '-DDART_EXECUTABLE_PATH=$dartExecutablePath',
+      '--output',
+      outputPath,
+      testRunnerPath,
+    ]);
+
+    if (result.exitCode == 0) {
+      console.setForegroundColor(ConsoleColor.green);
+      console.write("✓ Test runner compiled successfully: ");
+      console.resetColorAttributes();
+      console.writeLine(outputPath);
+
+      // Make it executable on Unix systems
+      if (!Platform.isWindows) {
+        await Process.run('chmod', ['+x', outputPath]);
+      }
+    } else {
+      console.setForegroundColor(ConsoleColor.red);
+      console.write("✗ Failed to compile test runner");
+      console.resetColorAttributes();
+      console.writeLine();
+      console.writeLine("Error output:");
+      console.writeLine(result.stderr);
+      exit(1);
+    }
+  } catch (e) {
+    console.setForegroundColor(ConsoleColor.red);
+    console.write("✗ Error compiling test runner: $e");
     console.resetColorAttributes();
     console.writeLine();
+    exit(1);
   }
 }
 
 Future<void> main(List<String> args) async {
+  // Get the injected Dart executable path from compilation
+  const injectedDartPath = String.fromEnvironment('DART_EXECUTABLE_PATH');
+  final defaultDartPath = injectedDartPath.isNotEmpty
+      ? injectedDartPath
+      : _getDartExecutablePath();
+
   final parser = ArgParser()
     ..addFlag(
       'help',
@@ -120,6 +168,12 @@ Future<void> main(List<String> args) async {
       abbr: 's',
       negatable: false,
       help: 'Skip compile if lualike binary exists',
+    )
+    ..addFlag(
+      'force-compile',
+      abbr: 'f',
+      negatable: false,
+      help: 'Force recompilation ignoring cache',
     )
     ..addFlag(
       'verbose',
@@ -141,6 +195,13 @@ Future<void> main(List<String> args) async {
       help:
           'Enable portability mode (sets _port = true). Enabled by default; use --no-port to disable.',
     )
+    ..addFlag(
+      'skip-heavy',
+      negatable: true,
+      defaultsTo: true,
+      help:
+          'Skip heavy tests (sets _skip_heavy = true). Enabled by default; use --no-skip-heavy to include heavy tests.',
+    )
     ..addMultiOption(
       'test',
       abbr: 't',
@@ -151,6 +212,15 @@ Future<void> main(List<String> args) async {
       'tests',
       help: 'Alias for --test; accepts comma-separated names',
       splitCommas: true,
+    )
+    ..addFlag(
+      'compile-runner',
+      negatable: false,
+      help: 'Compile the test runner itself into a standalone executable',
+    )
+    ..addOption(
+      'dart-path',
+      help: 'Path to the Dart executable (defaults to "dart" in PATH)',
     );
 
   ArgResults r;
@@ -189,11 +259,20 @@ Future<void> main(List<String> args) async {
     exit(0);
   }
 
-  final binaryExists = File('lualike').existsSync();
+  final dartPath = r['dart-path'] as String? ?? defaultDartPath;
+
+  // Handle compile-runner flag
+  if (r['compile-runner'] as bool) {
+    await _compileTestRunner(dartPath);
+    exit(0);
+  }
+
+  final binaryExists = File(getExecutableName('lualike')).existsSync();
   final shouldSkipCompile = (r['skip-compile'] as bool) && binaryExists;
+  final forceCompile = r['force-compile'] as bool;
 
   if (!shouldSkipCompile) {
-    await compile();
+    await compile(force: forceCompile, dartPath: dartPath);
   } else {
     console.setForegroundColor(ConsoleColor.yellow);
     console.write("Skip-compile flag specified, using existing binary");
@@ -211,13 +290,18 @@ Future<void> main(List<String> args) async {
   final t1 = (r['test'] as List<String>?) ?? const <String>[];
   final t2 = (r['tests'] as List<String>?) ?? const <String>[];
   final combinedTests = <String>[...t1, ...t2];
-  var testsToRun = combinedTests.isNotEmpty ? combinedTests : List<String>.from(testFiles);
+  var testsToRun = combinedTests.isNotEmpty
+      ? combinedTests
+      : List<String>.from(testFiles);
 
-  // Auto-skip known heavy tests on CI unless explicitly requested
-  final isCI = (Platform.environment['CI']?.toLowerCase() == 'true') ||
+  // Auto-skip known heavy tests on CI or when skip-heavy flag is set
+  final isCI =
+      (Platform.environment['CI']?.toLowerCase() == 'true') ||
       (Platform.environment['GITHUB_ACTIONS']?.toLowerCase() == 'true');
+  final skipHeavy = r['skip-heavy'] as bool;
   const heavyTests = {'heavy.lua'};
-  if (combinedTests.isEmpty && isCI) {
+
+  if (combinedTests.isEmpty && (isCI || skipHeavy)) {
     final skipped = testsToRun.where((t) => heavyTests.contains(t)).toList();
     if (skipped.isNotEmpty) {
       testsToRun = testsToRun.where((t) => !heavyTests.contains(t)).toList();
@@ -226,7 +310,12 @@ Future<void> main(List<String> args) async {
       console.setTextStyle(bold: true);
       console.write('Auto-skip');
       console.resetColorAttributes();
-      console.write(' on CI: ');
+      if (isCI) {
+        console.write(' on CI');
+      } else {
+        console.write(' (--skip-heavy enabled)');
+      }
+      console.write(': ');
       console.setForegroundColor(ConsoleColor.yellow);
       console.write(skipped.join(', '));
       console.resetColorAttributes();
@@ -284,7 +373,7 @@ Future<List<TestResult>> runTests({
     final luaInit = initParts.join('; ');
 
     // Provide absolute path to compiled binary so child can resolve 'lualike'
-    final lualikeBinary = 'lualike';
+    final lualikeBinary = getExecutableName('lualike');
     final binaryPath = path.join(Directory.current.path, lualikeBinary);
 
     final environment = {
