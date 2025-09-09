@@ -5,7 +5,7 @@ import 'package:source_span/source_span.dart';
 import 'ast.dart';
 import 'ast_dump.dart';
 import 'lua_string.dart';
-import 'stdlib/binary_type_size.dart';
+import 'binary_type_size.dart';
 import 'logging/logger.dart';
 
 /// Serializes and deserializes Lua function chunks for string.dump/load functionality.

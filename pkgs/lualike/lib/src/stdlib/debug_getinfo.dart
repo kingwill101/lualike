@@ -323,6 +323,11 @@ String? _extractSourceFromChildren(dynamic node) {
 
 /// Formats source URL to match Lua's format
 String _formatSourceForLua(String rawSource) {
+  // Handle command line sources
+  if (rawSource.contains('command') || rawSource.contains('line')) {
+    return '=(command line)';
+  }
+
   // Handle file URLs
   if (rawSource.startsWith('file:///')) {
     final uri = Uri.parse(rawSource);

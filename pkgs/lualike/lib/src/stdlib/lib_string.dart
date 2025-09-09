@@ -9,7 +9,7 @@ import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/chunk_serializer.dart';
 import 'package:lualike/src/number_limits.dart';
 import 'package:lualike/src/parsers/pattern.dart' as lpc;
-import 'package:lualike/src/stdlib/binary_type_size.dart';
+import 'package:lualike/src/binary_type_size.dart';
 import 'package:lualike/src/stdlib/lib_utf8.dart' show UTF8Lib;
 
 /// String interning cache for short strings (Lua-like behavior)
