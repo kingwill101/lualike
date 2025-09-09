@@ -1,97 +1,182 @@
-# LuaLike Integration Test Suite
+# Lualike Tools
 
-This directory contains tools for running integration tests against the official Lua test suite.
+This directory contains various tools for building, testing, and working with the Lualike interpreter.
 
-## Overview
+## Test Runner (`test.dart`)
 
-The integration test suite downloads the official Lua test suite and runs it against the LuaLike implementation. It provides detailed reports on test results, including pass/fail status, execution time, and error messages.
+The main test runner for executing Lua test suites against the Lualike interpreter. Features intelligent compilation caching, Dart executable path injection, and comprehensive test management.
 
-## Files
-
-- `integration.dart` - The main integration test runner
-- `skip_tests.yaml` - Configuration file for tests that should be skipped
-
-## Usage
-
-The integration test suite can be run using the `just` command:
+### Basic Usage
 
 ```bash
 # Run all tests
-just integrate
+dart run tools/test.dart
 
-# Run tests with verbose output
-just integrate-verbose
+# Run with verbose output
+dart run tools/test.dart --verbose
 
-# Run tests in parallel
-just integrate-parallel
+# Run specific tests
+dart run tools/test.dart --test=literals.lua,math.lua
 
-# Run tests for a specific category
-just integrate-category core
+# Skip compilation if binary exists
+dart run tools/test.dart --skip-compile
 
-# List available test categories
-just list-categories
+# Force recompilation
+dart run tools/test.dart --force-compile
 
-# Run tests matching a pattern
-just integrate-filter "string.*"
-```
-
-You can also run the integration test suite directly:
-
-```bash
-dart run tools/integration.dart [options]
+# Use custom Dart executable
+dart run tools/test.dart --dart-path /path/to/dart
 ```
 
 ### Options
 
-- `--ast` - Run tests using AST interpreter (default)
-- `--bytecode` - Run tests using bytecode VM
-- `--internal` - Enable internal tests (requires specific build)
-- `--path <path>` - Specify the path to the test suite (default: .lua-tests)
-- `--log-path <path>` - Specify the path for log files
-- `--skip-list <path>` - Specify the path to the skip list YAML file (default: tools/skip_tests.yaml)
-- `--verbose`, `-v` - Enable verbose output
-- `--parallel`, `-p` - Run tests in parallel
-- `--jobs`, `-j <n>` - Number of parallel jobs (default: 4)
-- `--filter`, `-f <regex>` - Filter tests by name using regex
-- `--category`, `-c <cat>` - Run tests from specific category
-- `--list-categories` - List available test categories
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--help` | `-h` | Show help message |
+| `--skip-compile` | `-s` | Skip compile if lualike binary exists |
+| `--force-compile` | `-f` | Force recompilation ignoring cache |
+| `--verbose` | `-v` | Show verbose output for each test |
+| `--soft` | | Enable soft mode (sets `_soft = true`). Enabled by default |
+| `--port` | | Enable portability mode (sets `_port = true`). Enabled by default |
+| `--skip-heavy` | | Skip heavy tests (sets `_skip_heavy = true`). Enabled by default |
+| `--test` | `-t` | Run specific test(s) by name (e.g., `--test=bitwise.lua,math.lua`) |
+| `--tests` | | Alias for `--test`; accepts comma-separated names |
+| `--compile-runner` | | Compile the test runner itself into a standalone executable |
+| `--dart-path` | | Path to the Dart executable (defaults to "dart" in PATH) |
 
-## Test Categories
+### Compiling the Test Runner
 
-Tests are organized into the following categories:
+You can compile the test runner into a standalone executable for faster execution. The compiled runner automatically uses the same Dart executable that was used to compile it:
 
-- `core` - Core language features (calls, closures, constructs, errors, events, locals)
-- `api` - API tests
-- `strings` - String manipulation tests
-- `tables` - Table manipulation tests
-- `math` - Math library tests
-- `io` - I/O tests
-- `coroutines` - Coroutine tests
-- `gc` - Garbage collection tests
-- `metamethods` - Metamethod tests
-- `modules` - Module system tests
+```bash
+# Compile test runner (automatically injects current Dart path)
+dart run tools/test.dart --compile-runner
 
-## Skip List
+# Compile with custom dart path
+dart run tools/test.dart --compile-runner --dart-path /path/to/dart
 
-The `skip_tests.yaml` file contains a list of tests that should be skipped when running the integration tests. This is useful for tests that require features not yet implemented or that are known to fail.
+# Use the compiled runner (uses injected Dart path automatically)
+./test_runner --test=literals.lua
 
-Example:
-
-```yaml
-skip_tests:
-  - api.lua
-  - coroutine.lua
-  - gc.lua
+# Override Dart path in compiled runner if needed
+./test_runner --test=literals.lua --dart-path /different/dart
 ```
 
-## Test Reports
+**Key Features:**
+- **Automatic Dart Path Injection**: The compiled test runner automatically uses the same Dart executable that compiled it
+- **User Override**: You can still override the Dart path with `--dart-path` if needed
+- **Path Verification**: Both the test runner and lualike compiler show which Dart executable they're using
+- **Cross-platform**: Works on Windows (`.exe` extension) and Unix systems
 
-Test reports are generated in the specified log directory (default: test-logs/). The following files are created:
+The compiled executable will be created as `test_runner` (or `test_runner.exe` on Windows) in the project root.
 
-- `summary_report.txt` - A human-readable summary of the test results
-- `report.json` - A machine-readable JSON report of the test results
-- Individual log files for each test
+### Environment Variables
 
-## Adding New Tests
+The test runner supports several environment variables that can be set in the Lua test environment:
 
-To add new tests, simply add them to the test suite directory. The integration test runner will automatically discover and run them.
+- `_soft` - Soft mode (enabled by default)
+- `_port` - Portability mode (enabled by default)  
+- `_skip_heavy` - Skip heavy tests (enabled by default)
+
+
+## Compare Tool (`compare.dart`)
+
+Utility for comparing Lualike output with reference Lua interpreter.
+
+### Usage
+
+```bash
+# Compare a Lua command
+dart run tools/compare.dart "print('hello world')"
+
+# Compare a Lua file
+dart run tools/compare.dart script.lua
+```
+
+This tool runs the same code in both Lualike and reference Lua, showing any differences in output.
+
+
+## Examples
+
+### Running Tests
+
+```bash
+# Quick test run
+dart run tools/test.dart --test=literals.lua --skip-compile
+
+# Full test suite with verbose output
+dart run tools/test.dart --verbose
+
+# Run specific test category
+dart run tools/test.dart --test=math.lua,bitwise.lua --verbose
+
+# Use custom Dart executable
+dart run tools/test.dart --dart-path /usr/local/dart/bin/dart --verbose
+```
+
+### Development Workflow
+
+```bash
+# 1. Compile lualike
+dart run tools/test.dart --force-compile
+
+# 2. Run tests
+dart run tools/test.dart --test=your_test.lua
+
+# 3. Compare with reference Lua
+dart run tools/compare.dart "your_lua_code_here"
+```
+
+### CI/CD Usage
+
+```bash
+# Use specific Dart version
+dart run tools/test.dart --dart-path /usr/local/dart/bin/dart --force-compile
+
+# Compile test runner for faster execution
+dart run tools/test.dart --compile-runner --dart-path /usr/local/dart/bin/dart
+
+# Run with compiled runner
+./test_runner --verbose
+
+# Override Dart path in compiled runner
+./test_runner --dart-path /different/dart --verbose
+```
+
+### Dart Path Injection Examples
+
+```bash
+# Compile test runner (captures current Dart path)
+dart run tools/test.dart --compile-runner
+# Output: Using Dart executable: /home/user/fvm/versions/3.35.1/bin/cache/dart-sdk/bin/dart
+
+# Use compiled runner (automatically uses captured Dart path)
+./test_runner --test=literals.lua
+# Output: Using Dart executable: /home/user/fvm/versions/3.35.1/bin/cache/dart-sdk/bin/dart
+
+# Override Dart path in compiled runner
+./test_runner --dart-path dart --test=literals.lua
+# Output: Using Dart executable: dart
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Compilation fails**: Ensure Dart SDK is properly installed and in PATH
+2. **Tests fail**: Check that the lualike binary exists and is executable
+3. **Permission errors**: On Unix systems, ensure the lualike binary has execute permissions
+4. **Custom dart path not found**: Verify the path to the Dart executable is correct
+
+### Debug Mode
+
+For debugging test issues, you can enable verbose logging:
+
+```bash
+# Run with verbose output
+dart run tools/test.dart --verbose --test=problematic_test.lua
+
+# Use debug logging in the interpreter
+dart run tools/test.dart --test=test.lua
+# Then in the test, use: LOGGING_ENABLED=true
+```

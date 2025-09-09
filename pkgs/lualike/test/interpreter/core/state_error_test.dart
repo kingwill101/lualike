@@ -18,8 +18,8 @@ void main() {
         fail("Expected FormatException due to incomplete if statement.");
       } on FormatException catch (e) {
         var message = e.message;
-        // Verify that error message contains expected hints (e.g., 'Expected').
-        expect(message, contains("Expected"));
+        // Verify that error message contains Lua-compatible error format
+        expect(message, contains("unexpected symbol"));
       }
     });
   });

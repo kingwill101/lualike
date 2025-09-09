@@ -352,29 +352,59 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       "ENV assign context: name=$name, _ENV=$envValue (rawType: \\${envValue is Value ? envValue.raw.runtimeType : envValue?.runtimeType}), _G=$gValue (rawType: \\${gValue is Value ? gValue.raw.runtimeType : gValue?.runtimeType})",
       category: 'Assignment',
     );
+    Logger.debug(
+      "Assignment: globals.hashCode=${globals.hashCode}, globals.isLoadIsolated=${globals.isLoadIsolated}",
+      category: 'Assignment',
+    );
 
-    // If there is a custom _ENV in effect (different from _G), then assignments to
-    // undeclared identifiers must go through `_ENV[name] = value`, regardless of
-    // whether _ENV is a table or not (non-table must raise an indexing error).
-    if (envValue is Value && gValue is Value && envValue != gValue) {
-      // In isolated environments (load with custom env), skip local lookup to avoid
-      // touching parent locals. Otherwise, prefer updating an existing local.
-      final isIsolatedEnvironment = globals.isLoadIsolated;
-      if (!isIsolatedEnvironment) {
-        Environment? env = globals;
-        while (env != null) {
-          if (env.values.containsKey(name) && env.values[name]!.isLocal) {
-            Logger.debug(
-              'Updating local variable: $name',
-              category: 'Assignment',
-            );
-            env.define(name, wrappedValue);
-            return wrappedValue;
-          }
-          env = env.parent;
+    // If executing in a load-isolated environment (load with custom env), or
+    // if there is a custom _ENV different from _G, route undeclared identifiers
+    // through `_ENV[name] = value`. This mirrors Lua's behavior for loaded chunks.
+    // Check the entire environment chain for isLoadIsolated flag
+    bool isInLoadIsolatedContext = false;
+    Environment? envChain = globals;
+    while (envChain != null) {
+      if (envChain.isLoadIsolated) {
+        isInLoadIsolatedContext = true;
+        break;
+      }
+      envChain = envChain.parent;
+    }
+
+    final bool useCustomEnv =
+        (isInLoadIsolatedContext &&
+            envValue is Value &&
+            envValue.raw != null) ||
+        (envValue is Value &&
+            envValue.raw != null &&
+            gValue is Value &&
+            envValue != gValue);
+    Logger.debug(
+      "Assignment: isLoadIsolated=${globals.isLoadIsolated}, isInLoadIsolatedContext=$isInLoadIsolatedContext, envValue is Value=${envValue is Value}, gValue is Value=${gValue is Value}, envValue != gValue=${envValue is Value && gValue is Value ? envValue != gValue : 'N/A'}, useCustomEnv=$useCustomEnv",
+      category: 'Assignment',
+    );
+    if (useCustomEnv) {
+      // In isolated environments (load with custom env), we need to be careful about
+      // local vs global variable assignment. Local variables declared within the loaded
+      // code should be assigned to the local environment, while global variables should
+      // be assigned to _ENV.
+      // final isIsolatedEnvironment = globals.isLoadIsolated;
+
+      // First, check if this is a local variable in the current environment chain
+      Environment? env = globals;
+      while (env != null) {
+        if (env.values.containsKey(name) && env.values[name]!.isLocal) {
+          Logger.debug(
+            'Updating local variable: $name',
+            category: 'Assignment',
+          );
+          env.define(name, wrappedValue);
+          return wrappedValue;
         }
+        env = env.parent;
       }
 
+      // If no local variable found, use _ENV for global assignment
       Logger.debug(
         'Using custom _ENV for variable assignment: $name',
         category: 'Assignment',
@@ -410,7 +440,24 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       return wrappedValue;
     }
 
-    // Step 2: No local variable found, this is a global assignment
+    // Step 2: Check if this is an upvalue assignment
+    // Only check upvalues after local variables have been ruled out
+    final currentFunc = (this as Interpreter).getCurrentFunction();
+    final upvalueAssigned = UpvalueAssignmentHandler.tryAssignToUpvalue(
+      name,
+      wrappedValue,
+      currentFunc,
+    );
+
+    if (upvalueAssigned) {
+      Logger.debug(
+        'Assignment: $name updated via upvalue',
+        category: 'Assignment',
+      );
+      return wrappedValue;
+    }
+
+    // Step 3: No local variable or upvalue found, this is a global assignment
     // defineGlobal() always operates on the root environment, creating or
     // updating global variables while ignoring any local variables with
     // the same name in the current scope chain.
@@ -757,6 +804,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           rawValue.raw,
           metatable: rawValue.metatable,
           // Explicitly do not copy isConst or isToBeClose
+          upvalues: rawValue.upvalues,
+          interpreter: rawValue.interpreter,
+          functionBody: rawValue.functionBody,
+          functionName: rawValue.functionName,
         );
       }
 

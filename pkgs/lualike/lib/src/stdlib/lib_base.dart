@@ -1,12 +1,17 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
+import 'package:lualike/src/chunk_serializer.dart';
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/const_checker.dart';
+import 'package:lualike/src/upvalue.dart';
+import 'package:lualike/src/interpreter/upvalue_analyzer.dart';
 import 'package:lualike/src/utils/file_system_utils.dart';
 import 'package:lualike/src/utils/type.dart';
 import 'package:path/path.dart' as path;
+import 'package:source_span/source_span.dart';
 
 import 'lib_io.dart';
 
@@ -591,44 +596,248 @@ class LoadFunction implements BuiltinFunction {
 
     String source;
     String chunkname;
-    Object? env;
+    String mode;
+    Value? providedEnv;
+    ChunkInfo? readerChunkInfo; // Store ChunkInfo from reader functions
 
-    // Handle environment parameter (4th argument)
-    if (args.length > 3) {
-      env = (args[3] as Value).raw;
+    // Handle chunkname parameter (2nd argument)
+    chunkname = args.length > 1 ? (args[1] as Value).raw.toString() : "=(load)";
+
+    // Handle mode parameter (3rd argument)
+    if (args.length > 2) {
+      final modeValue = (args[2] as Value).raw;
+      mode = modeValue == null ? 'bt' : modeValue.toString();
+    } else {
+      mode = 'bt';
     }
+
+    // Handle environment parameter (4th argument). Keep as Value to preserve metatable/proxy
+    if (args.length > 3) {
+      providedEnv = args[3] as Value;
+    }
+
+    bool isBinaryChunk = false;
+    ChunkInfo? chunkInfo;
 
     if (args[0] is Value) {
       if ((args[0] as Value).raw is String) {
         // Load from string
         source = (args[0] as Value).raw as String;
+        // Check if it starts with ESC (0x1B) to detect binary chunks
+        isBinaryChunk = source.isNotEmpty && source.codeUnitAt(0) == 0x1B;
+        Logger.debug(
+          "LoadFunction: String source, length=${source.length}, isBinaryChunk=$isBinaryChunk",
+          category: 'Load',
+        );
+        if (isBinaryChunk) {
+          // Use ChunkSerializer to handle binary chunk deserialization
+          try {
+            chunkInfo = ChunkSerializer.deserializeChunk(source);
+            source = chunkInfo.source;
+            Logger.debug(
+              "LoadFunction: Deserialized chunk: $chunkInfo",
+              category: 'Load',
+            );
+          } catch (e) {
+            // Return error for invalid binary chunks
+            String errorMsg = e.toString();
+            // Clean up error message format - remove "Exception: " prefix
+            if (errorMsg.startsWith('Exception: ')) {
+              errorMsg = errorMsg.substring('Exception: '.length);
+            }
+            return [Value(null), Value(errorMsg)];
+          }
+        }
       } else if ((args[0] as Value).raw is LuaString) {
         // Load from LuaString - convert bytes to UTF-8 string to preserve encoding
         final luaString = (args[0] as Value).raw as LuaString;
-        try {
-          source = utf8.decode(luaString.bytes, allowMalformed: true);
-        } catch (e) {
-          // Fallback to Latin-1 if UTF-8 decode fails
-          source = luaString.toLatin1String();
+        // Check if it starts with ESC (0x1B) to detect binary chunks
+        isBinaryChunk =
+            luaString.bytes.isNotEmpty && luaString.bytes[0] == 0x1B;
+        Logger.debug(
+          "LoadFunction: LuaString source, length=${luaString.bytes.length}, first byte=${luaString.bytes.isNotEmpty ? luaString.bytes[0] : 'none'}, isBinaryChunk=$isBinaryChunk",
+          category: 'Load',
+        );
+        if (isBinaryChunk) {
+          // Handle LuaString binary chunk directly
+          try {
+            chunkInfo = ChunkSerializer.deserializeChunkFromLuaString(
+              luaString,
+            );
+            source = chunkInfo.source;
+            Logger.debug(
+              "LoadFunction: Deserialized LuaString chunk: $chunkInfo",
+              category: 'Load',
+            );
+          } catch (e) {
+            // Return error for invalid binary chunks
+            String errorMsg = e.toString();
+            // Clean up error message format - remove "Exception: " prefix
+            if (errorMsg.startsWith('Exception: ')) {
+              errorMsg = errorMsg.substring('Exception: '.length);
+            }
+            return [Value(null), Value(errorMsg)];
+          }
+        } else {
+          try {
+            source = utf8.decode(luaString.bytes, allowMalformed: true);
+          } catch (e) {
+            // Fallback to Latin-1 if UTF-8 decode fails
+            source = luaString.toLatin1String();
+          }
         }
       } else if ((args[0] as Value).raw is Function) {
         // Load from reader function
         final chunks = <String>[];
-        final reader = (args[0] as Value).raw as Function;
+        final readerVal = args[0] as Value;
+        int readCount = 0;
         while (true) {
-          final result = reader([]);
-          final chunk = result is Future ? await result : result;
-          if (chunk == null || (chunk is Value && chunk.raw == null)) break;
-
-          // Extract string from Value objects
+          Object? chunk;
+          try {
+            chunk = await vm.callFunction(readerVal, const []);
+          } catch (e) {
+            // If reader function throws an error, return it as load error
+            String errorMsg = e.toString();
+            // Clean up error message format - remove "Exception: " prefix
+            if (errorMsg.startsWith('Exception: ')) {
+              errorMsg = errorMsg.substring('Exception: '.length);
+            }
+            return [Value(null), Value(errorMsg)];
+          }
+          // End of input on nil or empty string
+          if (chunk == null) break;
           if (chunk is Value) {
             if (chunk.raw == null) break;
-            chunks.add(chunk.raw.toString());
+            // Accept both String and LuaString; empty string signals end
+            if (chunk.raw is LuaString) {
+              final s = (chunk.raw as LuaString).toLatin1String();
+              if (s.isEmpty) break;
+              readCount++;
+              if (Logger.enabled) {
+                final prev = s.length > 10 ? s.substring(0, 10) : s;
+                Logger.debug(
+                  "load(reader): chunk #$readCount (LuaString) len=${s.length} head='${prev.replaceAll('\n', '\\n')}'",
+                  category: 'Load',
+                );
+              }
+              chunks.add(s);
+            } else if (chunk.raw is String) {
+              final s = chunk.raw as String;
+              if (s.isEmpty) break;
+              readCount++;
+              if (Logger.enabled) {
+                final prev = s.length > 10 ? s.substring(0, 10) : s;
+                Logger.debug(
+                  "load(reader): chunk #$readCount (String) len=${s.length} head='${prev.replaceAll('\n', '\\n')}'",
+                  category: 'Load',
+                );
+              }
+              chunks.add(s);
+            } else {
+              // Reader function must return string or nil
+              return [
+                Value(null),
+                Value("reader function must return a string"),
+              ];
+            }
           } else {
-            chunks.add(chunk.toString());
+            // Non-Value return from reader function is invalid
+            return [Value(null), Value("reader function must return a string")];
+          }
+
+          // Try to parse incrementally to detect lexical errors early like Lua
+          // This prevents infinite loops with invalid repeating chunks
+          if (chunks.length >= 2) {
+            final testSource = chunks.join();
+            try {
+              // Try parsing to see if we get a lexical error
+              parse(testSource, url: chunkname);
+            } catch (e) {
+              // If we get a FormatException (parse error), check if it's a lexical error
+              // Only catch errors that suggest the input will never be valid
+              if (e is FormatException && e.message.contains('malformed')) {
+                // Return lexical errors immediately, like Lua does
+                return [Value(null), Value(e.message)];
+              }
+              // For other parse errors (like incomplete input), continue reading
+            }
+          }
+
+          // Prevent infinite loops by limiting chunk count
+          if (readCount > 10000) {
+            return [Value(null), Value("too many chunks from reader function")];
           }
         }
-        source = chunks.join();
+        // Handle binary chunks properly by reconstructing bytes
+        // Check if the concatenated source from reader is a binary chunk
+        if (chunks.isNotEmpty &&
+            chunks[0].isNotEmpty &&
+            chunks[0].codeUnitAt(0) == 0x1B) {
+          // This is a binary chunk, reconstruct the bytes properly
+          final allBytes = <int>[];
+          for (final chunk in chunks) {
+            for (int i = 0; i < chunk.length; i++) {
+              allBytes.add(chunk.codeUnitAt(i));
+            }
+          }
+
+          // Skip the ESC byte and convert remaining bytes to string
+          if (allBytes.length > 1) {
+            final payloadBytes = allBytes.sublist(1);
+            try {
+              source = utf8.decode(payloadBytes, allowMalformed: true);
+            } catch (e) {
+              // Fallback to byte-by-byte conversion if UTF-8 fails
+              source = String.fromCharCodes(payloadBytes);
+            }
+            isBinaryChunk = true;
+
+            // Use ChunkSerializer to handle binary chunk from reader
+            final binaryChunkLuaString = LuaString.fromBytes(
+              Uint8List.fromList(allBytes),
+            );
+            try {
+              final chunkInfo = ChunkSerializer.deserializeChunkFromLuaString(
+                binaryChunkLuaString,
+              );
+              // Store ChunkInfo for later AST evaluation
+              readerChunkInfo = chunkInfo;
+              source = chunkInfo.source;
+            } catch (e) {
+              // Return error for invalid binary chunks
+              String errorMsg = e.toString();
+              // Clean up error message format - remove "Exception: " prefix
+              if (errorMsg.startsWith('Exception: ')) {
+                errorMsg = errorMsg.substring('Exception: '.length);
+              }
+              return [Value(null), Value(errorMsg)];
+            }
+
+            Logger.debug(
+              "LoadFunction: Deserialized reader chunk: $chunkInfo",
+              category: 'Load',
+            );
+
+            Logger.debug(
+              "LoadFunction: Reader produced binary chunk, final source='$source'",
+              category: 'Load',
+            );
+          } else {
+            source = '';
+            isBinaryChunk = true;
+          }
+        } else {
+          // Regular text chunks
+          source = chunks.join();
+          isBinaryChunk = false;
+        }
+        if (Logger.enabled) {
+          final prev = source.length > 40 ? source.substring(0, 40) : source;
+          Logger.debug(
+            "load(reader): total chunks=$readCount, source len=${source.length}, isBinaryChunk=$isBinaryChunk, head='${prev.replaceAll('\n', '\\n')}'",
+            category: 'Load',
+          );
+        }
       } else if ((args[0] as Value).raw is List<int>) {
         // Load from binary chunk
         final bytes = (args[0] as Value).raw as List<int>;
@@ -638,11 +847,39 @@ class LoadFunction implements BuiltinFunction {
           "load() first argument must be string, function or binary",
         );
       }
-      chunkname = args.length > 1
-          ? (args[1] as Value).raw.toString()
-          : "=(load)";
+      // chunkname already assigned above
     } else {
       throw Exception("load() first argument must be a string");
+    }
+
+    // Check mode compatibility with chunk type
+    final allowBinary = mode.contains('b');
+    final allowText = mode.contains('t');
+
+    Logger.debug(
+      "LoadFunction: mode='$mode', allowBinary=$allowBinary, allowText=$allowText, isBinaryChunk=$isBinaryChunk",
+      category: 'Load',
+    );
+
+    if (isBinaryChunk && !allowBinary) {
+      Logger.debug(
+        "LoadFunction: Rejecting binary chunk because mode '$mode' doesn't allow binary",
+        category: 'Load',
+      );
+      return [
+        Value(null),
+        Value("attempt to load a binary chunk (mode is '$mode')"),
+      ];
+    }
+    if (!isBinaryChunk && !allowText) {
+      Logger.debug(
+        "LoadFunction: Rejecting text chunk because mode '$mode' doesn't allow text",
+        category: 'Load',
+      );
+      return [
+        Value(null),
+        Value("attempt to load a text chunk (mode is '$mode')"),
+      ];
     }
 
     try {
@@ -669,68 +906,370 @@ class LoadFunction implements BuiltinFunction {
         return [Value(null), Value(adjustedError)];
       }
 
-      return Value((List<Object?> callArgs) async {
-        try {
-          // Save the current environment
-          final savedEnv = vm.getCurrentEnv();
+      final sourceFile = path.url.joinAll(
+        path.split(path.normalize(chunkname)),
+      );
 
-          // Create a new environment for the loaded code
-          final Environment loadEnv;
-          if (env != null) {
-            // If an environment was provided, create completely isolated environment
-            // This prevents access to local variables from calling scope
-            loadEnv = Environment(
-              parent: null,
-              interpreter: vm,
-              isLoadIsolated: true,
-            );
+      // Check if this was a string.dump function and use direct AST evaluation if available
+      bool hasDirectAST = false;
+      AstNode? directASTNode;
+      List<String>? originalUpvalueNames;
+      List<dynamic>? originalUpvalueValues;
 
-            // Set up the custom environment table with proper metatable for built-in access
-            final gValue =
-                savedEnv.get('_G') ?? savedEnv.root.get('_G') ?? Value({});
+      // For binary chunks, check if we have a direct AST node
+      if (isBinaryChunk && chunkInfo != null) {
+        if (chunkInfo.originalFunctionBody != null) {
+          hasDirectAST = true;
+          directASTNode = chunkInfo.originalFunctionBody;
+          originalUpvalueNames = chunkInfo.upvalueNames;
+          originalUpvalueValues = chunkInfo.upvalueValues;
+        } else {
+          // Even without direct AST, we might have upvalue information for source-based loading
+          originalUpvalueNames = chunkInfo.upvalueNames;
+          originalUpvalueValues = chunkInfo.upvalueValues;
+        }
+      }
 
-            // Set up metatable for the custom environment to fall back to _G
-            if (env is Map<String, dynamic>) {
-              if (!env.containsKey('__metatable')) {
-                env['__index'] = (gValue as Value).raw;
+      // Check for reader function ChunkInfo
+      if (readerChunkInfo != null &&
+          readerChunkInfo.originalFunctionBody != null) {
+        hasDirectAST = true;
+        directASTNode = readerChunkInfo.originalFunctionBody;
+        originalUpvalueNames = readerChunkInfo.upvalueNames;
+      }
+
+      // Create a function body with the actual AST
+      final actualBody = FunctionBody([], ast.statements, false);
+      try {
+        final file = SourceFile.fromString(source, url: sourceFile);
+        actualBody.setSpan(file.span(0, source.length));
+      } catch (_) {
+        // If we cannot create a SourceFile, leave span null
+      }
+
+      // For chunks with direct AST, use AST evaluation; otherwise use source execution
+      final Value result;
+      if (hasDirectAST && directASTNode != null) {
+        // Direct AST evaluation for string.dump functions
+        result = Value(
+          (List<Object?> callArgs) async {
+            try {
+              // Save the current environment
+              final savedEnv = vm.getCurrentEnv();
+
+              // Set up environment for AST evaluation
+              final Environment loadEnv;
+              if (providedEnv != null) {
+                loadEnv = Environment(
+                  parent: null,
+                  interpreter: vm,
+                  isLoadIsolated: true,
+                );
+                final gValue =
+                    savedEnv.get('_G') ?? savedEnv.root.get('_G') ?? Value({});
+                loadEnv.declare('_ENV', providedEnv);
+                loadEnv.declare('_G', gValue);
+              } else {
+                loadEnv = Environment(parent: savedEnv.root, interpreter: vm);
+                final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G');
+                if (gValue is Value) {
+                  loadEnv.declare('_ENV', gValue);
+                }
               }
-            } else if (env is Map) {
-              // Handle generic Map type
-              final envMap = env;
-              if (!envMap.containsKey('__metatable')) {
-                envMap['__index'] = (gValue as Value).raw;
+
+              // Set up varargs in the load environment
+              loadEnv.declare("...", Value.multi(callArgs));
+
+              vm.setCurrentEnv(loadEnv);
+              final prevPath = vm.currentScriptPath;
+              vm.currentScriptPath = chunkname;
+              vm.callStack.setScriptPath(chunkname);
+
+              try {
+                // For string.dump functions, we want to execute the function and return its results
+                if (directASTNode is FunctionBody) {
+                  // Create a function value from the AST that will inherit upvalues
+                  final funcValue = await directASTNode.accept(vm) as Value;
+                  if (funcValue.raw is Function) {
+                    return await vm.callFunction(funcValue, callArgs);
+                  } else {
+                    return funcValue;
+                  }
+                } else {
+                  // For other AST nodes, evaluate directly
+                  return await directASTNode!.accept(vm);
+                }
+              } finally {
+                vm.setCurrentEnv(savedEnv);
+                vm.currentScriptPath = prevPath;
+              }
+            } on ReturnException catch (e) {
+              return e.value;
+            } on TailCallException catch (t) {
+              final callee = t.functionValue is Value
+                  ? t.functionValue as Value
+                  : Value(t.functionValue);
+              final normalizedArgs = t.args
+                  .map((a) => a is Value ? a : Value(a))
+                  .toList();
+              return await vm.callFunction(callee, normalizedArgs);
+            } catch (e) {
+              throw LuaError("Error executing AST chunk '$chunkname': $e");
+            }
+          },
+          functionBody: directASTNode is FunctionBody
+              ? directASTNode
+              : actualBody,
+        );
+
+        // For string.dump functions, return the function created from the AST directly
+        // This ensures upvalues can be set on the actual function that gets executed
+        if (hasDirectAST && directASTNode is FunctionBody) {
+          // Create and return the function directly from the AST
+          final savedEnv = vm.getCurrentEnv();
+          final loadEnv = Environment(parent: savedEnv.root, interpreter: vm);
+
+          // Set up the environment for function creation to preserve provided _ENV semantics
+          if (providedEnv != null) {
+            if (providedEnv.raw != null) {
+              // Custom environment provided: set _ENV to the provided environment
+              loadEnv.declare('_ENV', providedEnv);
+              // Also set _G to the global _G for consistency
+              final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G');
+              if (gValue is Value) {
+                loadEnv.declare('_G', gValue);
+              }
+            } else {
+              // Explicit nil environment provided: set _ENV to nil
+              // This allows functions to check type(_ENV) and get 'nil'
+              loadEnv.declare('_ENV', providedEnv); // This is Value(null)
+            }
+          }
+          // Note: When no environment is provided (providedEnv == null), we don't set up _ENV.
+          // This preserves the existing behavior for upvalue tests and other binary chunk usage.
+
+          vm.setCurrentEnv(loadEnv);
+          try {
+            final functionBody = directASTNode;
+            final directFunction = await functionBody.accept(vm) as Value;
+
+            // Initialize upvalues for this function using original upvalue names
+            directFunction.upvalues = [];
+
+            // Use upvalue names and values from ChunkInfo if available, otherwise analyze
+            if (originalUpvalueNames != null &&
+                originalUpvalueNames.isNotEmpty) {
+              // Use the original upvalue structure with preserved values
+              for (int i = 0; i < originalUpvalueNames.length; i++) {
+                final upvalueName = originalUpvalueNames[i];
+                // If no environment provided (nil), set upvalues to null but preserve names for debug.setupvalue
+                // If environment provided, use original upvalue values
+                final upvalueValue =
+                    (providedEnv != null &&
+                        providedEnv.raw != null &&
+                        originalUpvalueValues != null &&
+                        i < originalUpvalueValues.length)
+                    ? originalUpvalueValues[i]
+                    : null;
+                final box = Box<dynamic>(upvalueValue);
+                directFunction.upvalues!.add(
+                  Upvalue(valueBox: box, name: upvalueName),
+                );
+              }
+            } else {
+              // Fallback to analysis if no upvalue names stored
+              final analyzedUpvalues = await UpvalueAnalyzer.analyzeFunction(
+                functionBody,
+                loadEnv,
+              );
+              for (final upvalue in analyzedUpvalues) {
+                final box = Box<dynamic>(null);
+                directFunction.upvalues!.add(
+                  Upvalue(valueBox: box, name: upvalue.name),
+                );
               }
             }
 
-            final envValue = Value(env);
-            loadEnv.declare("_ENV", envValue);
-            loadEnv.declare("_G", gValue);
-          } else {
-            // Default: inherit from the root environment
-            loadEnv = Environment(parent: savedEnv.root, interpreter: vm);
-          }
-
-          // Set up varargs in the load environment
-          loadEnv.declare("...", Value.multi(callArgs));
-
-          // Switch to the load environment to execute the loaded code
-          vm.setCurrentEnv(loadEnv);
-
-          try {
-            final result = await vm.run(ast.statements);
-            return result;
+            return directFunction;
           } finally {
-            // Restore the previous environment
             vm.setCurrentEnv(savedEnv);
           }
-        } on ReturnException catch (e) {
-          // return statements inside the loaded chunk should just
-          // provide values to the caller, not unwind the interpreter
-          return e.value;
-        } catch (e) {
-          throw LuaError("Error executing loaded chunk '$chunkname': $e");
         }
-      });
+      } else {
+        // Standard source-based execution
+        result = Value((List<Object?> callArgs) async {
+          try {
+            // Save the current environment
+            final savedEnv = vm.getCurrentEnv();
+
+            // Create a new environment for the loaded code
+            final Environment loadEnv;
+            if (providedEnv != null) {
+              // If an environment was provided, create completely isolated environment
+              // This prevents access to local variables from calling scope
+              loadEnv = Environment(
+                parent: null,
+                interpreter: vm,
+                isLoadIsolated: true,
+              );
+              Logger.debug(
+                "LoadFunction: Created isolated environment ${loadEnv.hashCode} with isLoadIsolated=${loadEnv.isLoadIsolated}",
+                category: 'Load',
+              );
+
+              // Use the provided environment Value directly to preserve proxy/metatable
+              final gValue =
+                  savedEnv.get('_G') ?? savedEnv.root.get('_G') ?? Value({});
+              final envValue = providedEnv;
+              loadEnv.declare('_ENV', envValue);
+              loadEnv.declare('_G', gValue);
+              Logger.debug(
+                "LoadFunction: Declared _ENV and _G in isolated environment",
+                category: 'Load',
+              );
+            } else {
+              // When no environment is provided (nil), create a restricted environment
+              // that only has access to the global _G table, not the local calling scope
+              loadEnv = Environment(
+                parent: null,
+                interpreter: vm,
+                isLoadIsolated: true,
+              );
+
+              // Only provide access to the global _G table
+              final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G');
+              if (gValue is Value) {
+                loadEnv.declare('_ENV', gValue);
+                loadEnv.declare('_G', gValue);
+              }
+            }
+
+            // Set up varargs in the load environment
+            loadEnv.declare("...", Value.multi(callArgs));
+
+            // Switch to the load environment to execute the loaded code
+            Logger.debug(
+              "LoadFunction: Switching to load environment ${loadEnv.hashCode}",
+              category: 'Load',
+            );
+            vm.setCurrentEnv(loadEnv);
+            Logger.debug(
+              "LoadFunction: Environment switched, current env is now ${vm.getCurrentEnv().hashCode}",
+              category: 'Load',
+            );
+
+            // Set script path for debug.getinfo and error reporting
+            final prevPath = vm.currentScriptPath;
+            final normalizedChunk = chunkname;
+            vm.currentScriptPath = normalizedChunk;
+            vm.callStack.setScriptPath(normalizedChunk);
+            loadEnv.declare('_SCRIPT_PATH', Value(normalizedChunk));
+
+            try {
+              Logger.debug(
+                "LoadFunction: About to execute code in environment ${vm.getCurrentEnv().hashCode}",
+                category: 'Load',
+              );
+              final result = await vm.run(ast.statements);
+              Logger.debug(
+                "LoadFunction: Code execution completed in environment ${vm.getCurrentEnv().hashCode}",
+                category: 'Load',
+              );
+
+              // If we have upvalue information and the result is a function, set up the upvalues
+              if (originalUpvalueNames != null &&
+                  originalUpvalueNames.isNotEmpty &&
+                  result is Value &&
+                  result.raw is Function) {
+                final upvalues = <Upvalue>[];
+                for (int i = 0; i < originalUpvalueNames.length; i++) {
+                  final upvalueName = originalUpvalueNames[i];
+                  // If no environment provided (nil), set upvalues to null but preserve names for debug.setupvalue
+                  // If environment provided, use original upvalue values
+                  final upvalueValue =
+                      (providedEnv != null &&
+                          providedEnv.raw != null &&
+                          originalUpvalueValues != null &&
+                          i < originalUpvalueValues.length)
+                      ? originalUpvalueValues[i]
+                      : null;
+                  final box = Box<dynamic>(upvalueValue);
+                  upvalues.add(Upvalue(valueBox: box, name: upvalueName));
+                }
+                result.upvalues = upvalues;
+              }
+
+              return result;
+            } finally {
+              // Restore the previous environment
+              Logger.debug(
+                "LoadFunction: Restoring previous environment ${savedEnv.hashCode}",
+                category: 'Load',
+              );
+              vm.setCurrentEnv(savedEnv);
+              vm.currentScriptPath = prevPath;
+            }
+          } on ReturnException catch (e) {
+            // return statements inside the loaded chunk should just
+            // provide values to the caller, not unwind the interpreter
+            return e.value;
+          } on TailCallException catch (t) {
+            // Proper tail call from inside loaded chunk: invoke callee here
+            // without growing the call stack at the Lua level.
+            final callee = t.functionValue is Value
+                ? t.functionValue as Value
+                : Value(t.functionValue);
+            final normalizedArgs = t.args
+                .map((a) => a is Value ? a : Value(a))
+                .toList();
+            return await vm.callFunction(callee, normalizedArgs);
+          } catch (e) {
+            throw LuaError("Error executing loaded chunk '$chunkname': $e");
+          }
+        }, functionBody: actualBody);
+      }
+
+      // For loaded functions, we need to ensure _ENV is available as an upvalue
+      // since they typically access globals. This simulates Lua's behavior where
+      // loaded chunks have _ENV as an upvalue for global access.
+      final currentEnv = vm.getCurrentEnv();
+      final upvalues = <Upvalue>[];
+
+      // Use preserved upvalue values if available (from string.dump functions)
+      if (originalUpvalueNames != null && originalUpvalueNames.isNotEmpty) {
+        // Create upvalues with preserved values
+        for (int i = 0; i < originalUpvalueNames.length; i++) {
+          final upvalueName = originalUpvalueNames[i];
+          // If no environment provided (nil), set upvalues to null but preserve names for debug.setupvalue
+          // If environment provided, use original upvalue values
+          final upvalueValue =
+              (providedEnv != null &&
+                  providedEnv.raw != null &&
+                  originalUpvalueValues != null &&
+                  i < originalUpvalueValues.length)
+              ? originalUpvalueValues[i]
+              : null;
+          final box = Box<dynamic>(upvalueValue);
+          upvalues.add(Upvalue(valueBox: box, name: upvalueName));
+        }
+      } else {
+        // Default behavior for regular loaded functions
+        // Add placeholder for first upvalue (index 1) - typically local variables
+        upvalues.add(Upvalue(valueBox: Box<dynamic>(null), name: null));
+
+        // Add _ENV as second upvalue (index 2) to match Lua behavior
+        final envValue = currentEnv.get('_ENV') ?? currentEnv.get('_G');
+        if (envValue != null) {
+          final envBox = Box<dynamic>(envValue);
+          final envUpvalue = Upvalue(valueBox: envBox, name: '_ENV');
+          upvalues.add(envUpvalue);
+        }
+      }
+
+      result.upvalues = upvalues;
+
+      result.interpreter = vm;
+      return result;
     } catch (e) {
       // For FormatException, return just the message without prefix
       // to match Lua's error format
@@ -767,6 +1306,16 @@ class DoFileFunction implements BuiltinFunction {
 
       // Return result or nil if no result
       return result;
+    } on ReturnException catch (e) {
+      return e.value;
+    } on TailCallException catch (t) {
+      final callee = t.functionValue is Value
+          ? t.functionValue as Value
+          : Value(t.functionValue);
+      final normalizedArgs = t.args
+          .map((a) => a is Value ? a : Value(a))
+          .toList();
+      return await vm.callFunction(callee, normalizedArgs);
     } catch (e) {
       throw Exception("Error in dofile('$filename'): $e");
     }
@@ -849,6 +1398,67 @@ class LoadfileFunction implements BuiltinFunction {
         if (!startsEsc && !allowText) {
           return [Value(null), Value("a text chunk")];
         }
+
+        // Handle binary chunks from standard input
+        if (startsEsc) {
+          // Use ChunkSerializer for consistent binary chunk handling
+          ChunkInfo chunkInfo;
+          try {
+            chunkInfo = ChunkSerializer.deserializeChunk(sourceCode);
+          } catch (e) {
+            return [Value(null), Value(e.toString())];
+          }
+          if (chunkInfo.originalFunctionBody != null) {
+            // Use direct AST evaluation for string.dump functions
+            return Value((List<Object?> callArgs) async {
+              final currentVm = Environment.current?.interpreter;
+              if (currentVm == null) {
+                throw Exception("No interpreter context available");
+              }
+              try {
+                final savedEnv = currentVm.getCurrentEnv();
+                final loadEnv = Environment(
+                  parent: savedEnv.root,
+                  interpreter: currentVm,
+                );
+                if (envProvided) {
+                  loadEnv.declare("_ENV", Value(env));
+                } else {
+                  final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G');
+                  if (gValue is Value) {
+                    loadEnv.declare('_ENV', gValue);
+                  }
+                }
+                loadEnv.declare("...", Value.multi(callArgs));
+                currentVm.setCurrentEnv(loadEnv);
+                final prevPath = currentVm.currentScriptPath;
+                currentVm.currentScriptPath = filename;
+                try {
+                  final astNode = chunkInfo.originalFunctionBody!;
+                  final funcValue = await astNode.accept(currentVm) as Value;
+                  if (funcValue.raw is Function) {
+                    return await currentVm.callFunction(funcValue, callArgs);
+                  } else {
+                    return funcValue;
+                  }
+                } finally {
+                  currentVm.setCurrentEnv(savedEnv);
+                  currentVm.currentScriptPath = prevPath;
+                }
+              } on ReturnException catch (e) {
+                return e.value;
+              } catch (e) {
+                throw LuaError("Error executing AST chunk: $e");
+              }
+            });
+          } else {
+            sourceCode = chunkInfo.source;
+            Logger.debug(
+              "LoadfileFunction: Deserialized chunk from stdin: $chunkInfo",
+              category: 'Load',
+            );
+          }
+        }
       } else {
         // Inspect raw bytes to decide text/binary
         final bytes = await readFileAsBytes(filename);
@@ -866,19 +1476,152 @@ class LoadfileFunction implements BuiltinFunction {
           if (!startsEsc && !allowText) {
             return [Value(null), Value("a text chunk")];
           }
-          sourceCode = src;
+
+          // Handle binary chunks from file fallback
+          if (startsEsc) {
+            // Use ChunkSerializer for consistent binary chunk handling
+            ChunkInfo chunkInfo;
+            try {
+              chunkInfo = ChunkSerializer.deserializeChunk(src);
+            } catch (e) {
+              return [Value(null), Value(e.toString())];
+            }
+            if (chunkInfo.originalFunctionBody != null) {
+              // Use direct AST evaluation for string.dump functions
+              return Value((List<Object?> callArgs) async {
+                final currentVm = Environment.current?.interpreter;
+                if (currentVm == null) {
+                  throw Exception("No interpreter context available");
+                }
+                try {
+                  final savedEnv = currentVm.getCurrentEnv();
+                  final loadEnv = Environment(
+                    parent: savedEnv.root,
+                    interpreter: currentVm,
+                  );
+                  if (envProvided) {
+                    loadEnv.declare("_ENV", Value(env));
+                  } else {
+                    final gValue =
+                        savedEnv.get('_G') ?? savedEnv.root.get('_G');
+                    if (gValue is Value) {
+                      loadEnv.declare('_ENV', gValue);
+                    }
+                  }
+                  loadEnv.declare("...", Value.multi(callArgs));
+                  currentVm.setCurrentEnv(loadEnv);
+                  final prevPath = currentVm.currentScriptPath;
+                  currentVm.currentScriptPath = filename;
+                  try {
+                    final astNode = chunkInfo.originalFunctionBody!;
+                    final funcValue = await astNode.accept(currentVm) as Value;
+                    if (funcValue.raw is Function) {
+                      return await currentVm.callFunction(funcValue, callArgs);
+                    } else {
+                      return funcValue;
+                    }
+                  } finally {
+                    currentVm.setCurrentEnv(savedEnv);
+                    currentVm.currentScriptPath = prevPath;
+                  }
+                } on ReturnException catch (e) {
+                  return e.value;
+                } catch (e) {
+                  throw LuaError("Error executing AST chunk: $e");
+                }
+              });
+            } else {
+              sourceCode = chunkInfo.source;
+              Logger.debug(
+                "LoadfileFunction: Deserialized chunk from file fallback: $chunkInfo",
+                category: 'Load',
+              );
+            }
+          } else {
+            sourceCode = src;
+          }
         } else {
-          final isBinary = bytes.isNotEmpty && bytes[0] == 0x1B;
+          // Check for binary chunk - may start with ESC or appear after comment
+          int binaryStart = -1;
+          for (int i = 0; i < bytes.length; i++) {
+            if (bytes[i] == 0x1B) {
+              binaryStart = i;
+              break;
+            }
+          }
+
+          final isBinary = binaryStart >= 0;
           if (isBinary && !allowBinary) {
             return [Value(null), Value("a binary chunk")];
           }
           if (!isBinary && !allowText) {
             return [Value(null), Value("a text chunk")];
           }
-          // If binary, interpret the rest as textual payload
-          sourceCode = isBinary
-              ? utf8.decode(bytes.sublist(1), allowMalformed: true)
-              : utf8.decode(bytes, allowMalformed: true);
+          // Use ChunkSerializer for consistent binary chunk handling
+          if (isBinary) {
+            // Extract binary chunk from the position where ESC byte is found
+            final binaryBytes = bytes.sublist(binaryStart);
+            final binaryChunkLuaString = LuaString.fromBytes(
+              Uint8List.fromList(binaryBytes),
+            );
+            ChunkInfo chunkInfo;
+            try {
+              chunkInfo = ChunkSerializer.deserializeChunkFromLuaString(
+                binaryChunkLuaString,
+              );
+            } catch (e) {
+              return [Value(null), Value(e.toString())];
+            }
+            if (chunkInfo.originalFunctionBody != null) {
+              // Use direct AST evaluation for string.dump functions
+              return Value((List<Object?> callArgs) async {
+                final currentVm = Environment.current?.interpreter;
+                if (currentVm == null) {
+                  throw Exception("No interpreter context available");
+                }
+                try {
+                  final savedEnv = currentVm.getCurrentEnv();
+                  final loadEnv = Environment(
+                    parent: savedEnv.root,
+                    interpreter: currentVm,
+                  );
+                  if (envProvided) {
+                    loadEnv.declare("_ENV", Value(env));
+                  } else {
+                    final gValue =
+                        savedEnv.get('_G') ?? savedEnv.root.get('_G');
+                    if (gValue is Value) {
+                      loadEnv.declare('_ENV', gValue);
+                    }
+                  }
+                  loadEnv.declare("...", Value.multi(callArgs));
+                  currentVm.setCurrentEnv(loadEnv);
+                  final prevPath = currentVm.currentScriptPath;
+                  currentVm.currentScriptPath = filename;
+                  try {
+                    final astNode = chunkInfo.originalFunctionBody!;
+                    final funcValue = await astNode.accept(currentVm) as Value;
+                    if (funcValue.raw is Function) {
+                      return await currentVm.callFunction(funcValue, callArgs);
+                    } else {
+                      return funcValue;
+                    }
+                  } finally {
+                    currentVm.setCurrentEnv(savedEnv);
+                    currentVm.currentScriptPath = prevPath;
+                  }
+                } on ReturnException catch (e) {
+                  return e.value;
+                } catch (e) {
+                  throw LuaError("Error executing AST chunk: $e");
+                }
+              });
+            } else {
+              sourceCode = chunkInfo.source;
+            }
+          } else {
+            sourceCode = utf8.decode(bytes, allowMalformed: true);
+          }
         }
       }
 
@@ -936,6 +1679,16 @@ class LoadfileFunction implements BuiltinFunction {
               currentVm.currentScriptPath = prevPath;
             }
           }
+        } on ReturnException catch (e) {
+          return e.value;
+        } on TailCallException catch (t) {
+          final callee = t.functionValue is Value
+              ? t.functionValue as Value
+              : Value(t.functionValue);
+          final normalizedArgs = t.args
+              .map((a) => a is Value ? a : Value(a))
+              .toList();
+          return await currentVm.callFunction(callee, normalizedArgs);
         } catch (e) {
           throw Exception("Error executing loaded chunk: $e");
         }
@@ -1006,38 +1759,47 @@ class PCAllFunction implements BuiltinFunction {
     interpreter.enterProtectedCall();
 
     try {
-      Object? callResult;
-      if (func.raw is BuiltinFunction) {
-        callResult = (func.raw as BuiltinFunction).call(callArgs);
-      } else if (func.raw is Function) {
-        callResult = func.raw(callArgs);
-      } else {
+      // Delegate invocation to the interpreter so that all callable
+      // forms are supported (BuiltinFunction, Dart Function, FunctionBody,
+      // FunctionDef, and values with __call).
+      if (!(func.isCallable() ||
+          func.raw is BuiltinFunction ||
+          func.raw is Function ||
+          func.raw is FunctionBody ||
+          func.raw is FunctionDef)) {
         throw LuaError.typeError("attempt to call a ${getLuaType(func)} value");
       }
 
-      if (callResult is Future) {
-        final awaitedResult = await callResult;
-        if (awaitedResult is Value && awaitedResult.isMulti) {
-          // Return all values from multi-value result
-          final multiValues = awaitedResult.raw as List;
-          return Value.multi([true, ...multiValues]);
-        } else {
-          return Value.multi([
-            true,
-            awaitedResult is Value ? awaitedResult.raw : awaitedResult,
-          ]);
-        }
+      final callResult = await interpreter.callFunction(func, callArgs);
+
+      if (callResult is Value && callResult.isMulti) {
+        final multiValues = callResult.raw as List;
+        return Value.multi([true, ...multiValues]);
+      }
+      return Value.multi([
+        true,
+        callResult is Value ? callResult.raw : callResult,
+      ]);
+    } on TailCallException catch (t) {
+      // Perform the tail call using the interpreter and return as success
+      final callee = t.functionValue is Value
+          ? t.functionValue as Value
+          : Value(t.functionValue);
+      final normalizedArgs = t.args
+          .map((a) => a is Value ? a : Value(a))
+          .toList();
+      final awaitedResult = await interpreter.callFunction(
+        callee,
+        normalizedArgs,
+      );
+      if (awaitedResult is Value && awaitedResult.isMulti) {
+        final multiValues = awaitedResult.raw as List;
+        return Value.multi([true, ...multiValues]);
       } else {
-        if (callResult is Value && callResult.isMulti) {
-          // Return all values from multi-value result
-          final multiValues = callResult.raw as List;
-          return Value.multi([true, ...multiValues]);
-        } else {
-          return Value.multi([
-            true,
-            callResult is Value ? callResult.raw : callResult,
-          ]);
-        }
+        return Value.multi([
+          true,
+          awaitedResult is Value ? awaitedResult.raw : awaitedResult,
+        ]);
       }
     } catch (e) {
       // If the error is a Value object, return its raw value
@@ -1120,6 +1882,10 @@ class WarnFunction implements BuiltinFunction {
 }
 
 class XPCallFunction implements BuiltinFunction {
+  final Interpreter interpreter;
+
+  XPCallFunction(this.interpreter);
+
   @override
   Object? call(List<Object?> args) async {
     if (args.length < 2) {
@@ -1129,109 +1895,84 @@ class XPCallFunction implements BuiltinFunction {
     final msgh = args[1] as Value;
     final callArgs = args.sublist(2);
 
-    if (func.raw is! Function) {
+    if (func.raw is! Function && func.raw is! BuiltinFunction) {
       throw LuaError.typeError(
         "xpcall requires a function as its first argument",
       );
     }
 
-    if (msgh.raw is! Function) {
+    if (msgh.raw is! Function && msgh.raw is! BuiltinFunction) {
       throw LuaError.typeError(
         "xpcall requires a function as its second argument",
       );
     }
 
+    // Set protected-call flags similar to pcall
+    final previousYieldable = interpreter.isYieldable;
+    interpreter.isYieldable = false;
+    interpreter.enterProtectedCall();
+
     try {
-      final result = func.raw as Function;
-      final callResult = result(callArgs);
+      // Execute the function via interpreter to honor tail calls/yields
+      final callResult = await interpreter.callFunction(func, callArgs);
 
-      // Handle both synchronous and asynchronous results
-      if (callResult is Future) {
-        try {
-          final awaitedResult = await callResult;
-          // Return true (success) followed by the result
-          if (awaitedResult is List && awaitedResult.isNotEmpty) {
-            return [Value(true), ...awaitedResult];
-          } else {
-            return [
-              Value(true),
-              awaitedResult is Value ? awaitedResult : Value(awaitedResult),
-            ];
-          }
-        } catch (e) {
-          // Call the message handler with the error
-          try {
-            final errorHandler = msgh.raw as Function;
-            // Unwrap double-wrapped Values before passing to error handler
-            final errorValue = e is Value
-                ? (e.raw is Value ? e.raw : e)
-                : Value(e.toString());
-            final handlerResult = errorHandler([errorValue]);
-
-            if (handlerResult is Future) {
-              try {
-                final awaitedHandlerResult = await handlerResult;
-                return [
-                  Value(false),
-                  awaitedHandlerResult is Value
-                      ? awaitedHandlerResult
-                      : Value(awaitedHandlerResult),
-                ];
-              } catch (e2) {
-                return [Value(false), Value("Error in error handler: $e2")];
-              }
-            } else {
-              return [
-                Value(false),
-                handlerResult is Value ? handlerResult : Value(handlerResult),
-              ];
-            }
-          } catch (e2) {
-            return [Value(false), Value("Error in error handler: $e2")];
-          }
-        }
-      } else {
-        // Handle synchronous result
-        if (callResult is List && callResult.isNotEmpty) {
-          return [Value(true), ...callResult];
-        } else {
-          return [
-            Value(true),
-            callResult is Value ? callResult : Value(callResult),
-          ];
-        }
+      // Normalize return for success: true + results
+      if (callResult is Value && callResult.isMulti) {
+        final multiValues = callResult.raw as List;
+        return Value.multi([Value(true), ...multiValues]);
       }
+      return Value.multi([
+        Value(true),
+        callResult is Value ? callResult.raw : callResult,
+      ]);
+    } on TailCallException catch (t) {
+      // Complete the tail call and still report success
+      final callee = t.functionValue is Value
+          ? t.functionValue as Value
+          : Value(t.functionValue);
+      final normalizedArgs = t.args
+          .map((a) => a is Value ? a : Value(a))
+          .toList();
+      final awaitedResult = await interpreter.callFunction(
+        callee,
+        normalizedArgs,
+      );
+      if (awaitedResult is Value && awaitedResult.isMulti) {
+        final multiValues = awaitedResult.raw as List;
+        return Value.multi([Value(true), ...multiValues]);
+      }
+      return Value.multi([
+        Value(true),
+        awaitedResult is Value ? awaitedResult.raw : awaitedResult,
+      ]);
     } catch (e) {
-      // Call the message handler with the error
+      // Call the message handler with the error (protected)
       try {
-        final errorHandler = msgh.raw as Function;
-        // Unwrap double-wrapped Values before passing to error handler
         final errorValue = e is Value
             ? (e.raw is Value ? e.raw : e)
             : Value(e.toString());
-        final handlerResult = errorHandler([errorValue]);
+        final handlerResult = await interpreter.callFunction(msgh, [
+          errorValue,
+        ]);
 
-        if (handlerResult is Future) {
-          try {
-            final awaitedHandlerResult = await handlerResult;
-            return [
-              Value(false),
-              awaitedHandlerResult is Value
-                  ? awaitedHandlerResult
-                  : Value(awaitedHandlerResult),
-            ];
-          } catch (e2) {
-            return [Value(false), Value("Error in error handler: $e2")];
-          }
-        } else {
-          return [
-            Value(false),
-            handlerResult is Value ? handlerResult : Value(handlerResult),
-          ];
+        if (handlerResult is Value && handlerResult.isMulti) {
+          final multiValues = handlerResult.raw as List;
+          return Value.multi([Value(false), ...multiValues]);
         }
+        return Value.multi([
+          Value(false),
+          handlerResult is Value ? handlerResult : Value(handlerResult),
+        ]);
       } catch (e2) {
-        return [Value(false), Value("Error in error handler: $e2")];
+        return Value.multi([
+          Value(false),
+          Value("Error in error handler: $e2"),
+        ]);
       }
+    } finally {
+      // Exit protected-call context and restore state
+      interpreter.exitProtectedCall();
+      interpreter.isYieldable = previousYieldable;
     }
   }
 }
@@ -1690,7 +2431,10 @@ class RequireFunction implements BuiltinFunction {
 
     // If not found in the script directory, use the regular resolution
     if (modulePath == null) {
-      print("DEBUG: Resolving module path for '$moduleName'");
+      Logger.debug(
+        "Resolving module path for '$moduleName'",
+        category: 'Require',
+      );
       modulePath = await vm.fileManager.resolveModulePath(moduleName);
 
       // Print the resolved globs for debugging
@@ -1780,6 +2524,14 @@ class RequireFunction implements BuiltinFunction {
           } on ReturnException catch (e) {
             // Handle explicit return from module
             result = e.value;
+          } on TailCallException catch (t) {
+            final callee = t.functionValue is Value
+                ? t.functionValue as Value
+                : Value(t.functionValue);
+            final normalizedArgs = t.args
+                .map((a) => a is Value ? a : Value(a))
+                .toList();
+            result = await vm.callFunction(callee, normalizedArgs);
           } finally {
             // Restore previous environment and script path
             vm.setCurrentEnv(prevEnv);
@@ -1847,7 +2599,7 @@ class RequireFunction implements BuiltinFunction {
       final typeName = searchersAny == null
           ? 'null'
           : searchersAny.runtimeType.toString();
-      print("DEBUG(require): package.searchers typeof=$typeName");
+      Logger.debug("package.searchers typeof=$typeName", category: 'Require');
     }
     final pkgMapForSearchers = packageTable.raw as Map;
     final searchersEntry = pkgMapForSearchers['searchers'];
@@ -1981,7 +2733,7 @@ class RequireFunction implements BuiltinFunction {
 
     final errorMsg =
         "module '$moduleName' not found:\n\t${errorLines.join('\n\t')}";
-    print("DEBUG: Error message: $errorMsg");
+    Logger.debug("Error message: $errorMsg", category: 'Require');
     throw Exception(errorMsg);
   }
 }
@@ -2023,7 +2775,7 @@ void defineBaseLibrary({
 
     // Protected calls
     "pcall": Value(PCAllFunction(vm)),
-    "xpcall": Value(XPCallFunction()),
+    "xpcall": Value(XPCallFunction(vm)),
 
     // Metatables
     "getmetatable": Value(GetMetatableFunction()),
@@ -2054,16 +2806,32 @@ void defineBaseLibrary({
       return value ?? Value(null);
     },
     '__newindex': (List<Object?> args) {
-      final _ = args[0] as Value;
+      final self = args[0] as Value; // _G table Value
       final key = args[1] as Value;
       final value = args[2] as Value;
       final keyStr = key.raw.toString();
 
       // Set the value in the environment
       try {
+        // Update global environment
         env.define(keyStr, value);
+        // Also update the underlying _G table so reads via _G[k] see it directly
+        if (self.raw is Map) {
+          if (value.isNil) {
+            (self.raw as Map).remove(keyStr);
+          } else {
+            (self.raw as Map)[keyStr] = value;
+          }
+        }
       } catch (_) {
         env.define(keyStr, value);
+        if (self.raw is Map) {
+          if (value.isNil) {
+            (self.raw as Map).remove(keyStr);
+          } else {
+            (self.raw as Map)[keyStr] = value;
+          }
+        }
       }
 
       return Value(null);

@@ -206,13 +206,7 @@ int _getTableLength(Map map) {
 
 class TableLib {
   static final ValueClass tableClass = ValueClass.create({
-    "__len": (List<Object?> args) {
-      final table = args[0] as Value;
-      if (table.raw is Map) {
-        return Value((table.raw as Map).length);
-      }
-      throw LuaError.typeError("__len metamethod called on non-table value");
-    },
+    // Do not override __len here; '#t' should use Lua's array boundary rule
   });
 
   static final Map<String, BuiltinFunction> functions = {

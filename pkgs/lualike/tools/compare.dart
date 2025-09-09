@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'utils.dart';
+
 void main(List<String> arguments) {
   if (arguments.isEmpty) {
     print('Usage: dart compare.dart <lua_command_or_file>');
@@ -18,8 +20,8 @@ void main(List<String> arguments) {
     replArgs = ['run', 'bin/main.dart', '-e', input];
   }
 
-  final luaResult = Process.runSync('lua', luaArgs);
-  final replResult = Process.runSync('dart', replArgs);
+  final luaResult = Process.runSync(getExecutableName('lua'), luaArgs);
+  final replResult = Process.runSync(getExecutableName('dart'), replArgs);
 
   print('Lua Result:');
   print(luaResult.stdout);

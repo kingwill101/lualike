@@ -1,5 +1,5 @@
 import 'package:lualike/src/lua_error.dart';
-import 'package:lualike/src/stdlib/binary_type_size.dart';
+import 'package:lualike/src/binary_type_size.dart';
 import 'package:petitparser/petitparser.dart';
 
 import '../number_limits.dart';

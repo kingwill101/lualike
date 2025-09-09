@@ -803,7 +803,7 @@ void main() {
 
       var s = bridge.getGlobal('s');
       expect(s, isNotNull);
-      expect((s as Value).raw, isA<String>());
+      expect((s as Value).raw, isA<LuaString>());
     });
 
     // Object-oriented style tests

@@ -482,6 +482,17 @@ class Environment extends GCObject {
       );
     }
 
+    // Keep the underlying _G table in sync so reads via _G[k] see updates
+    final gVal = rootEnv.get('_G');
+    if (gVal is Value && gVal.raw is Map) {
+      final gMap = gVal.raw as Map;
+      if (value is Value ? value.isNil : value == null) {
+        gMap.remove(name);
+      } else {
+        gMap[name] = value is Value ? value : Value(value);
+      }
+    }
+
     // Track to-be-closed variables in root environment
     if (value is Value && value.isToBeClose) {
       rootEnv.toBeClosedVars.add(name);

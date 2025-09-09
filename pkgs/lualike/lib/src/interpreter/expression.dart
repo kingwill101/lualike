@@ -408,26 +408,43 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       env = env.parent;
     }
 
-    // Check if there's a custom _ENV that is different from the initial _G
-    final envValue = globals.get('_ENV');
-    final gValue = globals.get('_G');
-
-    // If _ENV exists and is different from _G, look up the variable in _ENV.
-    if (envValue is Value && gValue is Value && envValue != gValue) {
-      Logger.debug(
-        'Using custom _ENV for variable lookup: ${node.name}',
-        category: 'Expression',
-      );
-      if (envValue.raw is Map) {
-        final result = await envValue.getValueAsync(Value(node.name));
-        return result is Value ? result : Value(result);
+    // Check current function's upvalues if we're executing within a function
+    if (this is Interpreter) {
+      final currentFunction = (this as Interpreter).getCurrentFunction();
+      if (currentFunction != null && currentFunction.upvalues != null) {
+        for (final upvalue in currentFunction.upvalues!) {
+          if (upvalue.name == node.name) {
+            Logger.debug(
+              'Resolving identifier ${node.name} via function upvalue',
+              category: 'Expression',
+            );
+            final value = upvalue.getValue();
+            return value is Value ? value : Value(value);
+          }
+        }
       }
-      // Non-table _ENV: any variable lookup is an index on that value -> error
-      final tname = getLuaType(envValue.raw);
-      throw LuaError.typeError('attempt to index a $tname value');
     }
 
-    // Default behavior: look up in the current environment
+    // Route global lookups through _ENV to match Lua semantics.
+    // In Lua 5.2+, chunks access globals via the upvalue `_ENV`.
+    // We emulate that here by always trying `_ENV[name]` after checking locals.
+    final envValue = globals.get('_ENV');
+    if (envValue is Value && envValue.raw != null) {
+      if (envValue.raw is Map) {
+        Logger.debug(
+          'Resolving global via _ENV for: ${node.name}',
+          category: 'Expression',
+        );
+        final result = await envValue.getValueAsync(Value(node.name));
+        return result is Value ? result : Value(result);
+      } else {
+        // Non-table _ENV: any variable lookup is an index on that value -> error
+        final tname = getLuaType(envValue.raw);
+        throw LuaError.typeError('attempt to index a $tname value');
+      }
+    }
+
+    // Fallback: look up in the current environment chain
     final value = globals.get(node.name);
     if (value == null) {
       Logger.debug(
@@ -437,7 +454,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       return Value(null);
     }
     Logger.debug(
-      'Identifier ${node.name} resolved to: $value (type: ${value.runtimeType})',
+      'Identifier ${node.name} resolved (fallback) to: $value (type: ${value.runtimeType})',
       category: 'Expression',
     );
     return value is Value ? value : Value(value);

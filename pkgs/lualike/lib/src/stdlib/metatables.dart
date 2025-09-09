@@ -136,33 +136,8 @@ class MetaTable {
     });
     Logger.debug('Number metatable initialized', category: 'Metatables');
 
-    // Table metatable
+    // Table metatable (do not define __len by default; '#' should use array boundary rule)
     _typeMetatables['table'] = ValueClass.create({
-      '__len': (List<Object?> args) {
-        final table = args[0] as Value;
-        Logger.debug(
-          'Table __len metamethod called for table:${table.hashCode}',
-          category: 'Metatables',
-        );
-        if (table.raw is Map) {
-          // Count only non-nil values
-          int count = 0;
-          (table.raw as Map).forEach((key, value) {
-            if (value != null && (value is! Value || value.raw != null)) {
-              count++;
-            }
-          });
-          Logger.debug(
-            'Table length calculated: $count',
-            category: 'Metatables',
-          );
-          return Value(count);
-        } else if (table.raw is List) {
-          return Value((table.raw as List).length);
-        }
-
-        throw Exception("attempt to get length of non-table value");
-      },
       // Removed '__index' and '__newindex' from default table metatable
       // These should only be present when explicitly set by the user
       '__pairs': (List<Object?> args) {

@@ -16,9 +16,11 @@ import 'package:lualike/src/utils/type.dart';
 import 'package:lualike/src/value.dart';
 import 'package:lualike/src/value_class.dart';
 import 'package:lualike/src/utils/file_system_utils.dart' as fs;
+import 'package:lualike/src/interpreter/upvalue_assignment.dart';
 
 import '../exceptions.dart';
 import '../extensions/extensions.dart';
+import 'upvalue_analyzer.dart';
 
 part 'assignment.dart';
 part 'control_flow.dart';
@@ -58,6 +60,9 @@ class Interpreter extends AstVisitor<Object?>
   /// Current environment for variable scope.
   Environment _currentEnv;
 
+  /// Current function being executed (for upvalue resolution)
+  Value? _currentFunction;
+
   /// Current script path being executed
   String? currentScriptPath;
 
@@ -69,7 +74,13 @@ class Interpreter extends AstVisitor<Object?>
 
   /// Global environment for variable storage.
   @override
-  Environment get globals => _currentEnv;
+  Environment get globals {
+    Logger.debug(
+      "globals getter called, returning environment ${_currentEnv.hashCode} with isLoadIsolated=${_currentEnv.isLoadIsolated}",
+      category: 'Interpreter',
+    );
+    return _currentEnv;
+  }
 
   /// Evaluation stack for expression evaluation.
   @override
@@ -78,6 +89,14 @@ class Interpreter extends AstVisitor<Object?>
   /// Call stack for function calls.
   @override
   final CallStack callStack = CallStack();
+
+  /// Maximum call depth for non-tail calls to simulate Lua's C stack limits.
+  /// Tail calls do not grow the stack thanks to tail-call optimization.
+  ///
+  /// Lowered to 512 to avoid long-running overflow tests (e.g., xpcall/pcall
+  /// recursion) hitting the default test timeout while still allowing
+  /// realistic recursion depth for regular programs.
+  static const int maxCallDepth = 512;
 
   /// Gets the currently running coroutine
   @override
@@ -225,6 +244,20 @@ class Interpreter extends AstVisitor<Object?>
     );
     _currentEnv = env;
     Environment.current = env;
+  }
+
+  /// Gets the current function being executed.
+  Value? getCurrentFunction() {
+    return _currentFunction;
+  }
+
+  /// Sets the current function being executed.
+  void setCurrentFunction(Value? function) {
+    Logger.debug(
+      'Setting current function from ${_currentFunction?.hashCode} to ${function?.hashCode}',
+      category: 'Interpreter',
+    );
+    _currentFunction = function;
   }
 
   /// Creates a new interpreter instance.
@@ -498,6 +531,8 @@ class Interpreter extends AstVisitor<Object?>
     // This ensures local variables in the main script don't affect globals
     final savedEnv = _currentEnv;
     final scriptEnv = Environment(parent: savedEnv, interpreter: this);
+    // Propagate load-isolated flag so loaded chunks keep using provided _ENV
+    scriptEnv.isLoadIsolated = savedEnv.isLoadIsolated;
     _currentEnv = scriptEnv;
 
     // Push a top-level frame to track currentline via AST spans, bound to script env
@@ -514,6 +549,35 @@ class Interpreter extends AstVisitor<Object?>
       // Push the return value to eval stack so it can be retrieved
       if (e.value != null) {
         evalStack.push(e.value);
+      }
+    } on TailCallException catch (t) {
+      // Handle top-level tail return: execute callee and use its result
+      Logger.debug(
+        'Top-level tail return detected; invoking callee with ${t.args.length} args',
+        category: 'Interpreter',
+      );
+      final callee = t.functionValue is Value
+          ? t.functionValue as Value
+          : Value(t.functionValue);
+      final normalizedArgs = t.args
+          .map((a) => a is Value ? a : Value(a))
+          .toList();
+      final callResult = await callFunction(callee, normalizedArgs);
+      if (callResult != null) {
+        if (callResult is Value) {
+          evalStack.push(callResult);
+        } else if (callResult is List) {
+          if (callResult.isEmpty) {
+            evalStack.push(Value(null));
+          } else if (callResult.length == 1) {
+            final v = callResult[0];
+            evalStack.push(v is Value ? v : Value(v));
+          } else {
+            evalStack.push(Value.multi(callResult));
+          }
+        } else {
+          evalStack.push(Value(callResult));
+        }
       }
     } on GotoException catch (e) {
       // Report undefined label with helpful message

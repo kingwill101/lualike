@@ -79,7 +79,12 @@ class LuaStringParser {
       (char('\\'), 92), // Backslash
     ];
 
-    // Special case: backslash followed by literal newline should be treated as just newline
+    // Special case: backslash followed by a line break continues the string.
+    // Accept any platform newline and normalize to '\n' (LF).
+    // Match multi-char sequences before single-char ones.
+    final backslashCRLF = (escapeChar & char('\r') & char('\n')).map((_) => 10);
+    final backslashLFCR = (escapeChar & char('\n') & char('\r')).map((_) => 10);
+    final backslashCR = (escapeChar & char('\r')).map((_) => 10);
     final backslashNewline = (escapeChar & char('\n')).map((_) => 10);
 
     final basicEscape = basicEscapes
@@ -266,7 +271,11 @@ class LuaStringParser {
 
     final anyEscape =
         [
-              backslashNewline.map((byte) => [byte]), // Handle \<newline> first
+              // Handle backslash + newline first (normalized to LF)
+              backslashCRLF.map((byte) => [byte]),
+              backslashLFCR.map((byte) => [byte]),
+              backslashCR.map((byte) => [byte]),
+              backslashNewline.map((byte) => [byte]),
               basicEscape.map((byte) => [byte]),
               hexEscape.map((byte) => [byte]), // Try valid hex escape first
               invalidHexEscape1.map(

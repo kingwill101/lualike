@@ -1,6 +1,6 @@
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/parsers/binary_format.dart';
-import 'package:lualike/src/stdlib/binary_type_size.dart';
+import 'package:lualike/src/binary_type_size.dart';
 import 'package:test/test.dart';
 
 void main() {
