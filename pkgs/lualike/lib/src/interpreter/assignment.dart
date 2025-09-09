@@ -372,8 +372,13 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     }
 
     final bool useCustomEnv =
-        (isInLoadIsolatedContext && envValue is Value) ||
-        (envValue is Value && gValue is Value && envValue != gValue);
+        (isInLoadIsolatedContext &&
+            envValue is Value &&
+            envValue.raw != null) ||
+        (envValue is Value &&
+            envValue.raw != null &&
+            gValue is Value &&
+            envValue != gValue);
     Logger.debug(
       "Assignment: isLoadIsolated=${globals.isLoadIsolated}, isInLoadIsolatedContext=$isInLoadIsolatedContext, envValue is Value=${envValue is Value}, gValue is Value=${gValue is Value}, envValue != gValue=${envValue is Value && gValue is Value ? envValue != gValue : 'N/A'}, useCustomEnv=$useCustomEnv",
       category: 'Assignment',

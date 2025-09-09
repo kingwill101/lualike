@@ -974,7 +974,6 @@ class LoadFunction implements BuiltinFunction {
                 final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G');
                 if (gValue is Value) {
                   loadEnv.declare('_ENV', gValue);
-                  loadEnv.declare('_G', gValue);
                 }
               }
 
@@ -1029,6 +1028,25 @@ class LoadFunction implements BuiltinFunction {
           // Create and return the function directly from the AST
           final savedEnv = vm.getCurrentEnv();
           final loadEnv = Environment(parent: savedEnv.root, interpreter: vm);
+
+          // Set up the environment for function creation to preserve provided _ENV semantics
+          if (providedEnv != null) {
+            if (providedEnv.raw != null) {
+              // Custom environment provided: set _ENV to the provided environment
+              loadEnv.declare('_ENV', providedEnv);
+              // Also set _G to the global _G for consistency
+              final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G');
+              if (gValue is Value) {
+                loadEnv.declare('_G', gValue);
+              }
+            } else {
+              // Explicit nil environment provided: set _ENV to nil
+              // This allows functions to check type(_ENV) and get 'nil'
+              loadEnv.declare('_ENV', providedEnv); // This is Value(null)
+            }
+          }
+          // Note: When no environment is provided (providedEnv == null), we don't set up _ENV.
+          // This preserves the existing behavior for upvalue tests and other binary chunk usage.
 
           vm.setCurrentEnv(loadEnv);
           try {
