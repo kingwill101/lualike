@@ -6,6 +6,7 @@ import 'package:dart_console/dart_console.dart';
 import 'package:path/path.dart' as path;
 
 import 'test.dart' show console;
+import 'utils.dart';
 
 /// Smart compilation system that only recompiles when source files change
 class SmartCompiler {
@@ -13,13 +14,16 @@ class SmartCompiler {
   final String cacheDir;
   final String binaryName;
   final List<String> sourceDirectories;
+  final String dartPath;
 
   SmartCompiler({
     required this.projectRoot,
     this.cacheDir = '.build_cache',
-    this.binaryName = 'lualike',
+    String binaryName = 'lualike',
     this.sourceDirectories = const ['bin', 'lib'],
-  });
+    String dartPath = 'dart',
+  }) : binaryName = getExecutableName(binaryName),
+       dartPath = getExecutableName(dartPath);
 
   String get _hashFilePath => path.join(cacheDir, 'source_hash.txt');
 
@@ -178,7 +182,7 @@ class SmartCompiler {
 
     final stopwatch = Stopwatch()..start();
 
-    final process = await Process.start('dart', [
+    final process = await Process.start(dartPath, [
       'compile',
       'exe',
       '--output',

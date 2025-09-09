@@ -484,7 +484,10 @@ void main() {
 
         // Reference Lua behavior: binary chunks preserve original source location,
         // default chunkname is not used for debug.getinfo
-        expect((bridge.getGlobal('result') as Value?)?.raw, equals('=[C]')); // Test environment fallback
+        expect(
+          (bridge.getGlobal('result') as Value?)?.raw,
+          equals('=[C]'),
+        ); // Test environment fallback
       });
     });
   });

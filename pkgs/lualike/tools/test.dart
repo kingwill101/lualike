@@ -7,6 +7,7 @@ import 'package:dart_console/dart_console.dart';
 import 'package:path/path.dart' as path;
 
 import 'compiler.dart';
+import 'utils.dart';
 
 /// List of Lua test files to run
 final testFiles = [
@@ -60,14 +61,73 @@ Future<List<String>> collectProcessOutput(Stream<List<int>> stream) async {
 }
 
 /// Compile the lualike binary using smart compilation
-Future<void> compile({bool force = false}) async {
-  final compiler = SmartCompiler(projectRoot: '.');
+Future<void> compile({bool force = false, String? dartPath}) async {
+  final compiler = SmartCompiler(
+    projectRoot: '.',
+    dartPath: dartPath ?? getExecutableName('dart'),
+  );
 
   final success = await compiler.smartCompile(force: force);
   if (!success) {
     console.setForegroundColor(ConsoleColor.red);
     console.setTextStyle(bold: true);
     console.write("Compilation failed");
+    console.resetColorAttributes();
+    console.writeLine();
+    exit(1);
+  }
+}
+
+/// Compile the test runner itself into a standalone executable
+Future<void> _compileTestRunner(String dartPath) async {
+  console.setForegroundColor(ConsoleColor.cyan);
+  console.setTextStyle(bold: true);
+  console.write("Compiling test runner...");
+  console.resetColorAttributes();
+  console.writeLine();
+
+  final currentDir = Directory.current.path;
+  final testRunnerPath = path.join(currentDir, 'tools', 'test.dart');
+  final outputPath = path.join(currentDir, getExecutableName('test_runner'));
+
+  try {
+    // Remove existing executable if it exists
+    final outputFile = File(outputPath);
+    if (outputFile.existsSync()) {
+      outputFile.deleteSync();
+    }
+
+    // Compile the test runner
+    final result = await Process.run(dartPath, [
+      'compile',
+      'exe',
+      '--output',
+      outputPath,
+      testRunnerPath,
+    ]);
+
+    if (result.exitCode == 0) {
+      console.setForegroundColor(ConsoleColor.green);
+      console.write("✓ Test runner compiled successfully: ");
+      console.resetColorAttributes();
+      console.writeLine(outputPath);
+
+      // Make it executable on Unix systems
+      if (!Platform.isWindows) {
+        await Process.run('chmod', ['+x', outputPath]);
+      }
+    } else {
+      console.setForegroundColor(ConsoleColor.red);
+      console.write("✗ Failed to compile test runner");
+      console.resetColorAttributes();
+      console.writeLine();
+      console.writeLine("Error output:");
+      console.writeLine(result.stderr);
+      exit(1);
+    }
+  } catch (e) {
+    console.setForegroundColor(ConsoleColor.red);
+    console.write("✗ Error compiling test runner: $e");
     console.resetColorAttributes();
     console.writeLine();
     exit(1);
@@ -131,6 +191,15 @@ Future<void> main(List<String> args) async {
       'tests',
       help: 'Alias for --test; accepts comma-separated names',
       splitCommas: true,
+    )
+    ..addFlag(
+      'compile-runner',
+      negatable: false,
+      help: 'Compile the test runner itself into a standalone executable',
+    )
+    ..addOption(
+      'dart-path',
+      help: 'Path to the Dart executable (defaults to "dart" in PATH)',
     );
 
   ArgResults r;
@@ -169,12 +238,20 @@ Future<void> main(List<String> args) async {
     exit(0);
   }
 
-  final binaryExists = File('lualike').existsSync();
+  // Handle compile-runner flag
+  if (r['compile-runner'] as bool) {
+    final dartPath = r['dart-path'] as String? ?? getExecutableName('dart');
+    await _compileTestRunner(dartPath);
+    exit(0);
+  }
+
+  final binaryExists = File(getExecutableName('lualike')).existsSync();
   final shouldSkipCompile = (r['skip-compile'] as bool) && binaryExists;
   final forceCompile = r['force-compile'] as bool;
 
   if (!shouldSkipCompile) {
-    await compile(force: forceCompile);
+    final dartPath = r['dart-path'] as String? ?? getExecutableName('dart');
+    await compile(force: forceCompile, dartPath: dartPath);
   } else {
     console.setForegroundColor(ConsoleColor.yellow);
     console.write("Skip-compile flag specified, using existing binary");
@@ -275,7 +352,7 @@ Future<List<TestResult>> runTests({
     final luaInit = initParts.join('; ');
 
     // Provide absolute path to compiled binary so child can resolve 'lualike'
-    final lualikeBinary = 'lualike';
+    final lualikeBinary = getExecutableName('lualike');
     final binaryPath = path.join(Directory.current.path, lualikeBinary);
 
     final environment = {

@@ -1,97 +1,100 @@
-# LuaLike Integration Test Suite
+# Lualike Tools
 
-This directory contains tools for running integration tests against the official Lua test suite.
+This directory contains various tools for building, testing, and working with the Lualike interpreter.
 
-## Overview
+## Test Runner (`test.dart`)
 
-The integration test suite downloads the official Lua test suite and runs it against the LuaLike implementation. It provides detailed reports on test results, including pass/fail status, execution time, and error messages.
+The main test runner for executing Lua test suites against the Lualike interpreter.
 
-## Files
-
-- `integration.dart` - The main integration test runner
-- `skip_tests.yaml` - Configuration file for tests that should be skipped
-
-## Usage
-
-The integration test suite can be run using the `just` command:
+### Basic Usage
 
 ```bash
 # Run all tests
-just integrate
+dart run tools/test.dart
 
-# Run tests with verbose output
-just integrate-verbose
+# Run with verbose output
+dart run tools/test.dart --verbose
 
-# Run tests in parallel
-just integrate-parallel
+# Run specific tests
+dart run tools/test.dart --test=literals.lua,math.lua
 
-# Run tests for a specific category
-just integrate-category core
+# Skip compilation if binary exists
+dart run tools/test.dart --skip-compile
 
-# List available test categories
-just list-categories
-
-# Run tests matching a pattern
-just integrate-filter "string.*"
-```
-
-You can also run the integration test suite directly:
-
-```bash
-dart run tools/integration.dart [options]
+# Force recompilation
+dart run tools/test.dart --force-compile
 ```
 
 ### Options
 
-- `--ast` - Run tests using AST interpreter (default)
-- `--bytecode` - Run tests using bytecode VM
-- `--internal` - Enable internal tests (requires specific build)
-- `--path <path>` - Specify the path to the test suite (default: .lua-tests)
-- `--log-path <path>` - Specify the path for log files
-- `--skip-list <path>` - Specify the path to the skip list YAML file (default: tools/skip_tests.yaml)
-- `--verbose`, `-v` - Enable verbose output
-- `--parallel`, `-p` - Run tests in parallel
-- `--jobs`, `-j <n>` - Number of parallel jobs (default: 4)
-- `--filter`, `-f <regex>` - Filter tests by name using regex
-- `--category`, `-c <cat>` - Run tests from specific category
-- `--list-categories` - List available test categories
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--help` | `-h` | Show help message |
+| `--skip-compile` | `-s` | Skip compile if lualike binary exists |
+| `--force-compile` | `-f` | Force recompilation ignoring cache |
+| `--verbose` | `-v` | Show verbose output for each test |
+| `--soft` | | Enable soft mode (sets `_soft = true`). Enabled by default |
+| `--port` | | Enable portability mode (sets `_port = true`). Enabled by default |
+| `--skip-heavy` | | Skip heavy tests (sets `_skip_heavy = true`). Enabled by default |
+| `--test` | `-t` | Run specific test(s) by name (e.g., `--test=bitwise.lua,math.lua`) |
+| `--tests` | | Alias for `--test`; accepts comma-separated names |
+| `--compile-runner` | | Compile the test runner itself into a standalone executable |
+| `--dart-path` | | Path to the Dart executable (defaults to "dart" in PATH) |
 
-## Test Categories
+### Compiling the Test Runner
 
-Tests are organized into the following categories:
+You can compile the test runner into a standalone executable for faster execution:
 
-- `core` - Core language features (calls, closures, constructs, errors, events, locals)
-- `api` - API tests
-- `strings` - String manipulation tests
-- `tables` - Table manipulation tests
-- `math` - Math library tests
-- `io` - I/O tests
-- `coroutines` - Coroutine tests
-- `gc` - Garbage collection tests
-- `metamethods` - Metamethod tests
-- `modules` - Module system tests
+```bash
+# Compile test runner
+dart run tools/test.dart --compile-runner
 
-## Skip List
+# Compile with custom dart path
+dart run tools/test.dart --compile-runner --dart-path /path/to/dart
 
-The `skip_tests.yaml` file contains a list of tests that should be skipped when running the integration tests. This is useful for tests that require features not yet implemented or that are known to fail.
-
-Example:
-
-```yaml
-skip_tests:
-  - api.lua
-  - coroutine.lua
-  - gc.lua
+# Use the compiled runner
+./test_runner --test=literals.lua
 ```
 
-## Test Reports
+The compiled executable will be created as `test_runner` (or `test_runner.exe` on Windows) in the project root.
 
-Test reports are generated in the specified log directory (default: test-logs/). The following files are created:
+### Environment Variables
 
-- `summary_report.txt` - A human-readable summary of the test results
-- `report.json` - A machine-readable JSON report of the test results
-- Individual log files for each test
+The test runner supports several environment variables that can be set in the Lua test environment:
 
-## Adding New Tests
+- `_soft` - Soft mode (enabled by default)
+- `_port` - Portability mode (enabled by default)  
+- `_skip_heavy` - Skip heavy tests (enabled by default)
 
-To add new tests, simply add them to the test suite directory. The integration test runner will automatically discover and run them.
+
+## Compare Tool (`compare.dart`)
+
+Utility for comparing Lualike output with reference Lua interpreter.
+
+### Usage
+
+```bash
+# Compare a Lua command
+dart run tools/compare.dart "print('hello world')"
+
+# Compare a Lua file
+dart run tools/compare.dart script.lua
+```
+
+This tool runs the same code in both Lualike and reference Lua, showing any differences in output.
+
+
+## Examples
+
+### Running Tests
+
+```bash
+# Quick test run
+dart run tools/test.dart --test=literals.lua --skip-compile
+
+# Full test suite with verbose output
+dart run tools/test.dart --verbose
+
+# Run specific test category
+dart run tools/test.dart --test=math.lua,bitwise.lua --verbose
+```
