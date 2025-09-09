@@ -78,8 +78,14 @@ Future<void> compile({bool force = false, String? dartPath}) async {
   }
 }
 
+/// Get the absolute path to the Dart executable
+String _getDartExecutablePath() {
+  // Use Platform.script to get the Dart executable that's running this script
+  return Platform.executable;
+}
+
 /// Compile the test runner itself into a standalone executable
-Future<void> _compileTestRunner(String dartPath) async {
+Future<void> _compileTestRunner(String? dartPath) async {
   console.setForegroundColor(ConsoleColor.cyan);
   console.setTextStyle(bold: true);
   console.write("Compiling test runner...");
@@ -97,10 +103,19 @@ Future<void> _compileTestRunner(String dartPath) async {
       outputFile.deleteSync();
     }
 
-    // Compile the test runner
-    final result = await Process.run(dartPath, [
+    // Get the absolute path to the dart executable
+    final dartExecutablePath = dartPath ?? _getDartExecutablePath();
+
+    console.setForegroundColor(ConsoleColor.blue);
+    console.write("Using Dart executable: ");
+    console.resetColorAttributes();
+    console.writeLine(dartExecutablePath);
+
+    // Compile the test runner with define to inject the dart path
+    final result = await Process.run(dartExecutablePath, [
       'compile',
       'exe',
+      '-DDART_EXECUTABLE_PATH=$dartExecutablePath',
       '--output',
       outputPath,
       testRunnerPath,
@@ -135,6 +150,12 @@ Future<void> _compileTestRunner(String dartPath) async {
 }
 
 Future<void> main(List<String> args) async {
+  // Get the injected Dart executable path from compilation
+  const injectedDartPath = String.fromEnvironment('DART_EXECUTABLE_PATH');
+  final defaultDartPath = injectedDartPath.isNotEmpty
+      ? injectedDartPath
+      : _getDartExecutablePath();
+
   final parser = ArgParser()
     ..addFlag(
       'help',
@@ -238,9 +259,10 @@ Future<void> main(List<String> args) async {
     exit(0);
   }
 
+  final dartPath = r['dart-path'] as String? ?? defaultDartPath;
+
   // Handle compile-runner flag
   if (r['compile-runner'] as bool) {
-    final dartPath = r['dart-path'] as String? ?? getExecutableName('dart');
     await _compileTestRunner(dartPath);
     exit(0);
   }
@@ -250,7 +272,6 @@ Future<void> main(List<String> args) async {
   final forceCompile = r['force-compile'] as bool;
 
   if (!shouldSkipCompile) {
-    final dartPath = r['dart-path'] as String? ?? getExecutableName('dart');
     await compile(force: forceCompile, dartPath: dartPath);
   } else {
     console.setForegroundColor(ConsoleColor.yellow);

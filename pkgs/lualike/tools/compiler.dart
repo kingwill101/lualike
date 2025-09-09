@@ -180,6 +180,11 @@ class SmartCompiler {
     console.resetColorAttributes();
     console.writeLine();
 
+    console.setForegroundColor(ConsoleColor.blue);
+    console.write('Using Dart executable: ');
+    console.resetColorAttributes();
+    console.writeLine(dartPath);
+
     final stopwatch = Stopwatch()..start();
 
     final process = await Process.start(dartPath, [

@@ -4,7 +4,7 @@ This directory contains various tools for building, testing, and working with th
 
 ## Test Runner (`test.dart`)
 
-The main test runner for executing Lua test suites against the Lualike interpreter.
+The main test runner for executing Lua test suites against the Lualike interpreter. Features intelligent compilation caching, Dart executable path injection, and comprehensive test management.
 
 ### Basic Usage
 
@@ -23,6 +23,9 @@ dart run tools/test.dart --skip-compile
 
 # Force recompilation
 dart run tools/test.dart --force-compile
+
+# Use custom Dart executable
+dart run tools/test.dart --dart-path /path/to/dart
 ```
 
 ### Options
@@ -43,18 +46,27 @@ dart run tools/test.dart --force-compile
 
 ### Compiling the Test Runner
 
-You can compile the test runner into a standalone executable for faster execution:
+You can compile the test runner into a standalone executable for faster execution. The compiled runner automatically uses the same Dart executable that was used to compile it:
 
 ```bash
-# Compile test runner
+# Compile test runner (automatically injects current Dart path)
 dart run tools/test.dart --compile-runner
 
 # Compile with custom dart path
 dart run tools/test.dart --compile-runner --dart-path /path/to/dart
 
-# Use the compiled runner
+# Use the compiled runner (uses injected Dart path automatically)
 ./test_runner --test=literals.lua
+
+# Override Dart path in compiled runner if needed
+./test_runner --test=literals.lua --dart-path /different/dart
 ```
+
+**Key Features:**
+- **Automatic Dart Path Injection**: The compiled test runner automatically uses the same Dart executable that compiled it
+- **User Override**: You can still override the Dart path with `--dart-path` if needed
+- **Path Verification**: Both the test runner and lualike compiler show which Dart executable they're using
+- **Cross-platform**: Works on Windows (`.exe` extension) and Unix systems
 
 The compiled executable will be created as `test_runner` (or `test_runner.exe` on Windows) in the project root.
 
@@ -97,4 +109,74 @@ dart run tools/test.dart --verbose
 
 # Run specific test category
 dart run tools/test.dart --test=math.lua,bitwise.lua --verbose
+
+# Use custom Dart executable
+dart run tools/test.dart --dart-path /usr/local/dart/bin/dart --verbose
+```
+
+### Development Workflow
+
+```bash
+# 1. Compile lualike
+dart run tools/test.dart --force-compile
+
+# 2. Run tests
+dart run tools/test.dart --test=your_test.lua
+
+# 3. Compare with reference Lua
+dart run tools/compare.dart "your_lua_code_here"
+```
+
+### CI/CD Usage
+
+```bash
+# Use specific Dart version
+dart run tools/test.dart --dart-path /usr/local/dart/bin/dart --force-compile
+
+# Compile test runner for faster execution
+dart run tools/test.dart --compile-runner --dart-path /usr/local/dart/bin/dart
+
+# Run with compiled runner
+./test_runner --verbose
+
+# Override Dart path in compiled runner
+./test_runner --dart-path /different/dart --verbose
+```
+
+### Dart Path Injection Examples
+
+```bash
+# Compile test runner (captures current Dart path)
+dart run tools/test.dart --compile-runner
+# Output: Using Dart executable: /home/user/fvm/versions/3.35.1/bin/cache/dart-sdk/bin/dart
+
+# Use compiled runner (automatically uses captured Dart path)
+./test_runner --test=literals.lua
+# Output: Using Dart executable: /home/user/fvm/versions/3.35.1/bin/cache/dart-sdk/bin/dart
+
+# Override Dart path in compiled runner
+./test_runner --dart-path dart --test=literals.lua
+# Output: Using Dart executable: dart
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Compilation fails**: Ensure Dart SDK is properly installed and in PATH
+2. **Tests fail**: Check that the lualike binary exists and is executable
+3. **Permission errors**: On Unix systems, ensure the lualike binary has execute permissions
+4. **Custom dart path not found**: Verify the path to the Dart executable is correct
+
+### Debug Mode
+
+For debugging test issues, you can enable verbose logging:
+
+```bash
+# Run with verbose output
+dart run tools/test.dart --verbose --test=problematic_test.lua
+
+# Use debug logging in the interpreter
+dart run tools/test.dart --test=test.lua
+# Then in the test, use: LOGGING_ENABLED=true
 ```
