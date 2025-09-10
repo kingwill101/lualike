@@ -5,7 +5,7 @@ import 'package:lualike/integration.dart';
 import 'package:yaml/yaml.dart';
 
 // Configuration file constants
-const String defaultConfigFile = 'tools/integration.yaml';
+const String defaultConfigFile = 'tool/integration.yaml';
 
 // Default configuration (will be overridden by config file if it exists)
 String testSuitePath = '.lua-tests';
@@ -288,7 +288,7 @@ Options:
   --internal           Enable internal tests (requires specific build)
   --path <path>        Specify the path to the test suite (default: .lua-tests)
   --log-path <path>    Specify the path for log files
-  --skip-list <path>   Specify the path to the skip list YAML file (default: tools/skip_tests.yaml)
+  --skip-list <path>   Specify the path to the skip list YAML file (default: tool/skip_tests.yaml)
   --verbose, -v        Enable verbose output
   --parallel, -p       Run tests in parallel
   --jobs, -j <n>       Number of parallel jobs (default: 4)

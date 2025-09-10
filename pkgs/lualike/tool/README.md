@@ -10,22 +10,22 @@ The main test runner for executing Lua test suites against the Lualike interpret
 
 ```bash
 # Run all tests
-dart run tools/test.dart
+dart run tool/test.dart
 
 # Run with verbose output
-dart run tools/test.dart --verbose
+dart run tool/test.dart --verbose
 
 # Run specific tests
-dart run tools/test.dart --test=literals.lua,math.lua
+dart run tool/test.dart --test=literals.lua,math.lua
 
 # Skip compilation if binary exists
-dart run tools/test.dart --skip-compile
+dart run tool/test.dart --skip-compile
 
 # Force recompilation
-dart run tools/test.dart --force-compile
+dart run tool/test.dart --force-compile
 
 # Use custom Dart executable
-dart run tools/test.dart --dart-path /path/to/dart
+dart run tool/test.dart --dart-path /path/to/dart
 ```
 
 ### Options
@@ -50,10 +50,10 @@ You can compile the test runner into a standalone executable for faster executio
 
 ```bash
 # Compile test runner (automatically injects current Dart path)
-dart run tools/test.dart --compile-runner
+dart run tool/test.dart --compile-runner
 
 # Compile with custom dart path
-dart run tools/test.dart --compile-runner --dart-path /path/to/dart
+dart run tool/test.dart --compile-runner --dart-path /path/to/dart
 
 # Use the compiled runner (uses injected Dart path automatically)
 ./test_runner --test=literals.lua
@@ -87,10 +87,10 @@ Utility for comparing Lualike output with reference Lua interpreter.
 
 ```bash
 # Compare a Lua command
-dart run tools/compare.dart "print('hello world')"
+dart run tool/compare.dart "print('hello world')"
 
 # Compare a Lua file
-dart run tools/compare.dart script.lua
+dart run tool/compare.dart script.lua
 ```
 
 This tool runs the same code in both Lualike and reference Lua, showing any differences in output.
@@ -102,39 +102,39 @@ This tool runs the same code in both Lualike and reference Lua, showing any diff
 
 ```bash
 # Quick test run
-dart run tools/test.dart --test=literals.lua --skip-compile
+dart run tool/test.dart --test=literals.lua --skip-compile
 
 # Full test suite with verbose output
-dart run tools/test.dart --verbose
+dart run tool/test.dart --verbose
 
 # Run specific test category
-dart run tools/test.dart --test=math.lua,bitwise.lua --verbose
+dart run tool/test.dart --test=math.lua,bitwise.lua --verbose
 
 # Use custom Dart executable
-dart run tools/test.dart --dart-path /usr/local/dart/bin/dart --verbose
+dart run tool/test.dart --dart-path /usr/local/dart/bin/dart --verbose
 ```
 
 ### Development Workflow
 
 ```bash
 # 1. Compile lualike
-dart run tools/test.dart --force-compile
+dart run tool/test.dart --force-compile
 
 # 2. Run tests
-dart run tools/test.dart --test=your_test.lua
+dart run tool/test.dart --test=your_test.lua
 
 # 3. Compare with reference Lua
-dart run tools/compare.dart "your_lua_code_here"
+dart run tool/compare.dart "your_lua_code_here"
 ```
 
 ### CI/CD Usage
 
 ```bash
 # Use specific Dart version
-dart run tools/test.dart --dart-path /usr/local/dart/bin/dart --force-compile
+dart run tool/test.dart --dart-path /usr/local/dart/bin/dart --force-compile
 
 # Compile test runner for faster execution
-dart run tools/test.dart --compile-runner --dart-path /usr/local/dart/bin/dart
+dart run tool/test.dart --compile-runner --dart-path /usr/local/dart/bin/dart
 
 # Run with compiled runner
 ./test_runner --verbose
@@ -147,7 +147,7 @@ dart run tools/test.dart --compile-runner --dart-path /usr/local/dart/bin/dart
 
 ```bash
 # Compile test runner (captures current Dart path)
-dart run tools/test.dart --compile-runner
+dart run tool/test.dart --compile-runner
 # Output: Using Dart executable: /home/user/fvm/versions/3.35.1/bin/cache/dart-sdk/bin/dart
 
 # Use compiled runner (automatically uses captured Dart path)
@@ -174,9 +174,9 @@ For debugging test issues, you can enable verbose logging:
 
 ```bash
 # Run with verbose output
-dart run tools/test.dart --verbose --test=problematic_test.lua
+dart run tool/test.dart --verbose --test=problematic_test.lua
 
 # Use debug logging in the interpreter
-dart run tools/test.dart --test=test.lua
+dart run tool/test.dart --test=test.lua
 # Then in the test, use: LOGGING_ENABLED=true
 ```

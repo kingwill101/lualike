@@ -48,4 +48,4 @@ funding:
   - https://www.buymeacoffee.com/kingwill101
 
 executables:
-    lualike: bin/main.dart
+    lualike: "main"
