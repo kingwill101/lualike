@@ -107,8 +107,8 @@ Max retries: 3
 For more examples, check out the `/example` folder.
 
 For detailed documentation, see the `/docs` folder, which includes guides on:
-- [Value handling](./docs/guides/value_handling.md)
-- [Metatables and metamethods](./docs/guides/metatables.md)
-- [Error handling](./docs/guides/error_handling.md)
-- [Writing builtin functions](./docs/guides/writing_builtin_functions.md)
-- [Standard library implementation](./docs/guides/standard_library.md)
+- [Value handling](doc/guides/value_handling.md)
+- [Metatables and metamethods](doc/guides/metatables.md)
+- [Error handling](doc/guides/error_handling.md)
+- [Writing builtin functions](doc/guides/writing_builtin_functions.md)
+- [Standard library implementation](doc/guides/standard_library.md)

@@ -29,5 +29,8 @@ jobs:
           sdk: ${{ matrix.sdk }}
       - name: Install dependencies
         run: dart pub get
-      - name: Run lua test suite
-        run: dart run tools/test.dart --verbose
+      - name: Build test runner
+        run: dart run tool/test.dart --compile-runner
+      - name: Run Lua tests
+        run: ./test_runner --verbose
+

@@ -8,7 +8,7 @@ check +ARG:
   dart run bin/main.dart -e "{{ARG}}"
 
 compare *ARG='':
-    dart run tools/compare.dart {{ARG}}
+    dart run tool/compare.dart {{ARG}}
 
 compile:
     dart compile exe --output lualike bin/main.dart
@@ -19,7 +19,7 @@ repl: compile
 tool-test *ARG='':
     # Ensure compiled test runner exists
     if [ ! -x test_runner ]; then \
-      dart compile exe tools/test.dart -o test_runner; \
+      dart compile exe tool/test.dart -o test_runner; \
     fi
 
     # Run tests using compiled runner and binary
@@ -27,31 +27,31 @@ tool-test *ARG='':
 
 # Compile the standalone test runner binary
 test-tool-compile:
-    dart compile exe tools/test.dart -o test_runner
+    dart compile exe tool/test.dart -o test_runner
 
 # Run integration tests with default options
 integrate *ARG='':
-    dart run tools/integration.dart {{ARG}}
+    dart run tool/integration.dart {{ARG}}
 
 # Run integration tests with verbose output
 integrate-verbose *ARG='':
-    dart run tools/integration.dart {{ARG}} --verbose
+    dart run tool/integration.dart {{ARG}} --verbose
 
 # Run integration tests in parallel
 integrate-parallel *ARG='':
-    dart run tools/integration.dart {{ARG}} --parallel
+    dart run tool/integration.dart {{ARG}} --parallel
 
 # Run integration tests for a specific category
 integrate-category CATEGORY *ARG='':
-    dart run tools/integration.dart {{ARG}} --category {{CATEGORY}}
+    dart run tool/integration.dart {{ARG}} --category {{CATEGORY}}
 
 # List available test categories
 list-categories:
-    dart run tools/integration.dart --list-categories
+    dart run tool/integration.dart --list-categories
 
 # Run integration tests with a filter pattern
 integrate-filter PATTERN *ARG='':
-    dart run tools/integration.dart {{ARG}} --filter "{{PATTERN}}"
+    dart run tool/integration.dart {{ARG}} --filter "{{PATTERN}}"
 
 file +ARG:
     dart run bin/main.dart {{ARG}}
