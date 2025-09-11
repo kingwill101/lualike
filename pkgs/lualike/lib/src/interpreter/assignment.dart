@@ -251,18 +251,17 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
         // If key doesn't exist in raw table, try __newindex metamethod
         if (!tableValue.rawContainsKey((target.index as Identifier).name)) {
-          final newindex = tableValue.getMetamethod("__newindex");
-          if (newindex != null) {
+          if (tableValue.hasMetamethod('__newindex')) {
             Logger.debug(
               '_handleTableAccessAssignment: __newindex metamethod found',
               category: 'Interpreter',
             );
-            final result = tableValue.callMetamethod('__newindex', [
+            final result = await tableValue.callMetamethodAsync('__newindex', [
               tableValue,
               Value((target.index as Identifier).name),
               wrappedValue,
             ]);
-            return result is Future ? await result : result;
+            return result;
           }
         }
 
@@ -528,18 +527,17 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         // If key doesn't exist in raw table, try __newindex metamethod
         final keyExists = tableValue.rawContainsKey(fieldKey);
         if (!keyExists) {
-          final newindex = tableValue.getMetamethod("__newindex");
-          if (newindex != null) {
+          if (tableValue.hasMetamethod('__newindex')) {
             Logger.debug(
               '_handleTableFieldAssignment: __newindex metamethod found',
               category: 'Interpreter',
             );
-            final result = tableValue.callMetamethod('__newindex', [
+            final result = await tableValue.callMetamethodAsync('__newindex', [
               tableValue,
               Value(fieldKey),
               wrappedValue,
             ]);
-            return result is Future ? await result : result;
+            return result;
           }
         }
 
@@ -613,18 +611,17 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         // If key doesn't exist in raw table, try __newindex metamethod
         final keyExists = tableValue.rawContainsKey(indexValue);
         if (!keyExists) {
-          final newindex = tableValue.getMetamethod("__newindex");
-          if (newindex != null) {
+          if (tableValue.hasMetamethod('__newindex')) {
             Logger.debug(
               '_handleTableIndexAssignment: __newindex metamethod found',
               category: 'Interpreter',
             );
-            final result = tableValue.callMetamethod('__newindex', [
+            final result = await tableValue.callMetamethodAsync('__newindex', [
               tableValue,
               Value(indexValue),
               wrappedValue,
             ]);
-            return result is Future ? await result : result;
+            return result;
           }
         }
 
@@ -959,20 +956,13 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
       // Check for __newindex metamethod if key doesn't exist
       if (!map.containsKey(key)) {
-        final newindex = targetValue.getMetamethod("__newindex");
-        if (newindex != null) {
-          if (newindex is Function) {
-            final result = newindex([
-              targetValue,
-              indexValue is Value ? indexValue : Value(indexValue),
-              wrappedValue,
-            ]);
-            return result is Future ? await result : result;
-          } else if (newindex is Value && newindex.raw is Map) {
-            final metamap = newindex.raw as Map;
-            metamap[key] = wrappedValue;
-            return wrappedValue;
-          }
+        if (targetValue.hasMetamethod('__newindex')) {
+          final result = await targetValue.callMetamethodAsync('__newindex', [
+            targetValue,
+            indexValue is Value ? indexValue : Value(indexValue),
+            wrappedValue,
+          ]);
+          return result;
         }
       }
 
