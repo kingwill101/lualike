@@ -185,7 +185,10 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         );
 
         final callArgs = swapArgs ? [rightVal, leftVal] : [leftVal, rightVal];
-        var result = await calleeValue.callMetamethodAsync(metamethodName, callArgs);
+        var result = await calleeValue.callMetamethodAsync(
+          metamethodName,
+          callArgs,
+        );
 
         // Metamethods can return multiple values, but binary operations only use
         // the first result. Normalize here to match Lua semantics.

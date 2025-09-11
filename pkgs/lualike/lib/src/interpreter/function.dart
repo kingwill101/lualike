@@ -538,10 +538,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     );
 
     if (objVal.hasMetamethod('__index')) {
-      final aFunc = await objVal.callMetamethodAsync(
-        '__index',
-        [objVal, Value(methodName)],
-      );
+      final aFunc = await objVal.callMetamethodAsync('__index', [
+        objVal,
+        Value(methodName),
+      ]);
       if (aFunc != null) {
         Logger.debug(
           '[MethodCall] Calling __index metamethod result for method: $methodName',
@@ -660,10 +660,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
         dynamic func;
         if (obj.hasMetamethod('__index')) {
-          final aFunc = await obj.callMetamethodAsync(
-            '__index',
-            [obj, Value(methodName)],
-          );
+          final aFunc = await obj.callMetamethodAsync('__index', [
+            obj,
+            Value(methodName),
+          ]);
           if (aFunc is Value && aFunc.isCallable()) {
             func = aFunc;
           }
