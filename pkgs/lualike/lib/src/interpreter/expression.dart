@@ -179,24 +179,36 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
 
         dynamic result;
         final callArgs = swapArgs ? [rightVal, leftVal] : [leftVal, rightVal];
-        if (metamethod is Function) {
-          result = await metamethod(callArgs);
-        } else if (metamethod is Value) {
-          if (metamethod.raw is Function) {
-            result = await metamethod.raw(callArgs);
-          } else if (metamethod.raw is FunctionDef ||
-              metamethod.raw is FunctionLiteral ||
-              metamethod.raw is FunctionBody) {
-            result = await metamethod.call(callArgs);
+        try {
+          if (metamethod is Function) {
+            result = await metamethod(callArgs);
+          } else if (metamethod is Value) {
+            if (metamethod.raw is Function) {
+              result = await metamethod.raw(callArgs);
+            } else if (metamethod.raw is FunctionDef ||
+                metamethod.raw is FunctionLiteral ||
+                metamethod.raw is FunctionBody) {
+              result = await metamethod.call(callArgs);
+            } else {
+              throw LuaError.typeError(
+                "Metamethod $metamethodName exists but is not callable: $metamethod",
+              );
+            }
           } else {
             throw LuaError.typeError(
               "Metamethod $metamethodName exists but is not callable: $metamethod",
             );
           }
-        } else {
-          throw LuaError.typeError(
-            "Metamethod $metamethodName exists but is not callable: $metamethod",
+        } on TailCallException catch (t) {
+          // Handle tail call from metamethod - execute the tail call and use its result
+          Logger.debug(
+            'TailCallException caught in binary expression metamethod $metamethodName',
+            category: 'Expression',
           );
+          final callee = t.functionValue is Value
+              ? t.functionValue as Value
+              : Value(t.functionValue);
+          result = await callee.call(t.args);
         }
 
         // Metamethods can return multiple values, but binary operations only use
@@ -332,14 +344,26 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
 
         dynamic result;
         final args = [operandWrapped, operandWrapped];
-        if (metamethod is Function) {
-          result = await metamethod(args);
-        } else if (metamethod is Value && metamethod.raw is Function) {
-          result = await metamethod.raw(args);
-        } else {
-          throw LuaError.typeError(
-            "Metamethod $metamethodName exists but is not callable: $metamethod",
+        try {
+          if (metamethod is Function) {
+            result = await metamethod(args);
+          } else if (metamethod is Value && metamethod.raw is Function) {
+            result = await metamethod.raw(args);
+          } else {
+            throw LuaError.typeError(
+              "Metamethod $metamethodName exists but is not callable: $metamethod",
+            );
+          }
+        } on TailCallException catch (t) {
+          // Handle tail call from metamethod - execute the tail call and use its result
+          Logger.debug(
+            'TailCallException caught in unary expression metamethod $metamethodName',
+            category: 'Expression',
           );
+          final callee = t.functionValue is Value
+              ? t.functionValue as Value
+              : Value(t.functionValue);
+          result = await callee.call(t.args);
         }
 
         if (result is Value && result.isMulti && result.raw is List) {

@@ -496,23 +496,46 @@ class ToStringFunction implements BuiltinFunction {
     // Check for __tostring metamethod
     final tostring = value.getMetamethod("__tostring");
     if (tostring != null) {
+      Logger.debug(
+        'tostring: __tostring metamethod found on value ${value.hashCode}',
+        category: 'Base',
+      );
       try {
-        final result = value.callMetamethod('__tostring', [value]);
-        // Await the result if it's a Future
-        final awaitedResult = result is Future ? await result : result;
+        // Always use async metamethod call to ensure proper awaiting semantics
+        final awaitedResult = await value.callMetamethodAsync('__tostring', [
+          value,
+        ]);
+        Logger.debug(
+          'tostring: metamethod result type=${awaitedResult.runtimeType} value=$awaitedResult',
+          category: 'Base',
+        );
 
         // Validate that __tostring returned a string
         if (awaitedResult is Value) {
           if (awaitedResult.raw is String || awaitedResult.raw is LuaString) {
+            Logger.debug(
+              'tostring: returning Value string ${awaitedResult.raw}',
+              category: 'Base',
+            );
             return awaitedResult;
           } else {
             throw LuaError("'__tostring' must return a string");
           }
         } else if (awaitedResult is String) {
+          Logger.debug(
+            'tostring: returning raw String $awaitedResult',
+            category: 'Base',
+          );
           return Value(awaitedResult);
         } else {
           throw LuaError("'__tostring' must return a string");
         }
+      } on TailCallException catch (e) {
+        Logger.debug(
+          'tostring: TailCallException caught, calling function value ${e.functionValue.hashCode}',
+          category: 'Base',
+        );
+        return await e.functionValue.call(e.args);
       } catch (e) {
         // If it's already a LuaError, re-throw it
         if (e is LuaError) {
