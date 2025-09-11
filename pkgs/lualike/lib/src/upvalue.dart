@@ -1,11 +1,15 @@
 import 'package:lualike/lualike.dart';
+import 'package:lualike/src/gc/gc.dart';
+import 'package:lualike/src/gc/generational_gc.dart';
 
 /// Represents a reference to a variable in an outer scope (an "upvalue").
 ///
 /// This object tracks whether the variable is still accessible on the stack
 /// (open) or if its value has been captured because the original variable
 /// went out of scope (closed).
-class Upvalue {
+///
+/// In Lua 5.4, upvalues are collectible objects managed by the GC.
+class Upvalue extends GCObject {
   /// A direct reference to the Box holding the variable in its defining environment.
   final Box<dynamic> valueBox;
 
@@ -19,7 +23,12 @@ class Upvalue {
   /// Stores the value at the time of closing if [_isOpen] becomes false.
   dynamic _closedValue;
 
-  Upvalue({required this.valueBox, this.name});
+  Upvalue({required this.valueBox, this.name}) {
+    // Register with GC for proper Lua-compatible lifecycle management
+    if (GenerationalGCManager.isInitialized) {
+      GenerationalGCManager.instance.register(this);
+    }
+  }
 
   /// Gets the current value of the upvalue.
   ///
@@ -95,6 +104,40 @@ class Upvalue {
 
   /// Whether this upvalue has been joined with another upvalue
   bool get isJoined => _joinedUpvalue != null;
+
+  @override
+  List<Object?> getReferences() {
+    final refs = <Object?>[];
+
+    // Include the valueBox which may contain GC objects
+    refs.add(valueBox);
+
+    // If closed, include the closed value if it's a GC object
+    if (!_isOpen && _closedValue is GCObject) {
+      refs.add(_closedValue);
+    }
+
+    // Include joined upvalue if present
+    if (_joinedUpvalue != null) {
+      refs.add(_joinedUpvalue);
+    }
+
+    return refs;
+  }
+
+  @override
+  void free() {
+    // Close the upvalue to capture any current value
+    if (_isOpen) {
+      close();
+    }
+
+    // Clear references for GC
+    _joinedUpvalue = null;
+    _closedValue = null;
+
+    Logger.debug('Upvalue[${name ?? 'unnamed'}] freed', category: 'GC');
+  }
 
   @override
   String toString() {
