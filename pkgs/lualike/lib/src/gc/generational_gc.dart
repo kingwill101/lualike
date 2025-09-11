@@ -334,12 +334,23 @@ class GenerationalGCManager {
         category: 'GC',
       );
       ephemeronTables.add(table);
-      // For now, don't traverse entries - will be handled in convergence
-      for (final ref in table.getReferencesForGC(
-        strongKeys: false,
-        strongValues: false,
-      )) {
-        _discover(ref);
+
+      // For ephemeron tables, we don't traverse table entries initially.
+      // Instead, we only traverse non-entry references (metatable, etc.)
+      // The entries will be handled during ephemeron convergence.
+
+      // Only traverse metatable and other non-entry references
+      if (table.metatable != null) {
+        _discover(table.metatable);
+      }
+
+      // Include upvalues and function body if present
+      if (table.upvalues != null) {
+        for (final upvalue in table.upvalues!) {
+          if (upvalue.value is GCObject || upvalue.value is Value) {
+            _discover(upvalue.value);
+          }
+        }
       }
     } else if (weakMode == 'kv') {
       // All weak - don't traverse entries at all
@@ -438,6 +449,125 @@ class GenerationalGCManager {
       }
     }
     allWeakTables.clear();
+  }
+
+  /// Performs ephemeron convergence for weak keys tables.
+  ///
+  /// Ephemeron semantics: a value in a weak-keys table survives only if
+  /// its key is strongly reachable from outside the ephemeron tables.
+  /// This requires iterative convergence until a fixed point is reached.
+  void _convergeEphemerons() {
+    if (ephemeronTables.isEmpty) return;
+
+    Logger.debug(
+      'Starting ephemeron convergence for ${ephemeronTables.length} tables',
+      category: 'GC',
+    );
+
+    bool changed = true;
+    int iterations = 0;
+    const maxIterations = 100; // Safety limit to prevent infinite loops
+
+    while (changed && iterations < maxIterations) {
+      changed = false;
+      iterations++;
+
+      Logger.debug(
+        'Ephemeron convergence iteration $iterations',
+        category: 'GC',
+      );
+
+      for (final table in ephemeronTables) {
+        final tableMap = table.raw as Map;
+
+        for (final entry in tableMap.entries) {
+          final key = entry.key;
+          final value = entry.value;
+
+          // If key is marked (strongly reachable) and value is not yet marked,
+          // mark the value and propagate from it
+          if ((key is GCObject && key.marked) || (key is Value && key.marked)) {
+            if (value is GCObject && !value.marked) {
+              Logger.debug(
+                'Ephemeron: marking value ${value.hashCode} due to marked key ${key.hashCode}',
+                category: 'GC',
+              );
+              _discover(value);
+              changed = true;
+            } else if (value is Value && !value.marked) {
+              Logger.debug(
+                'Ephemeron: marking value ${value.hashCode} due to marked key ${key.hashCode}',
+                category: 'GC',
+              );
+              _discover(value);
+              changed = true;
+            }
+          }
+        }
+      }
+    }
+
+    Logger.debug(
+      'Ephemeron convergence completed after $iterations iterations',
+      category: 'GC',
+    );
+
+    if (iterations >= maxIterations) {
+      Logger.debug(
+        'Warning: Ephemeron convergence hit iteration limit',
+        category: 'GC',
+      );
+    }
+  }
+
+  /// Clears dead entries from weak-keys tables.
+  /// Called after ephemeron convergence during major collection.
+  void _clearWeakKeys() {
+    Logger.debug(
+      'Starting weak keys clearing for ${ephemeronTables.length} tables',
+      category: 'GC',
+    );
+
+    for (final table in ephemeronTables) {
+      final tableMap = table.raw as Map;
+      final entriesToRemove = <dynamic>[];
+
+      Logger.debug(
+        'Checking weak keys table ${table.hashCode} with ${tableMap.length} entries',
+        category: 'GC',
+      );
+
+      for (final entry in tableMap.entries) {
+        final key = entry.key;
+        final value = entry.value;
+        final keyMarked = (key is GCObject) ? key.marked : 'N/A';
+        final valueMarked = (value is GCObject) ? value.marked : 'N/A';
+
+        Logger.debug(
+          'Entry: key=${key} (marked: $keyMarked) -> value=${value} (marked: $valueMarked)',
+          category: 'GC',
+        );
+
+        // In weak keys tables, remove entries where the key is dead
+        if ((key is GCObject && !key.marked) || (key is Value && !key.marked)) {
+          entriesToRemove.add(entry.key);
+          Logger.debug(
+            'Marking for removal: ${entry.key} -> ${value}',
+            category: 'GC',
+          );
+        }
+      }
+
+      Logger.debug(
+        'Removing ${entriesToRemove.length} entries from table ${table.hashCode}',
+        category: 'GC',
+      );
+
+      for (final key in entriesToRemove) {
+        tableMap.remove(key);
+      }
+    }
+    ephemeronTables.clear();
   }
 
   /// Separates objects in a generation into survivors and dead.
@@ -585,21 +715,22 @@ class GenerationalGCManager {
     _markGeneration(youngGen, roots);
     _markGeneration(oldGen, roots);
 
-    // Phase 2: Clear weak table entries (while objects are still marked)
+    // Phase 2: Ephemeron convergence for weak keys tables (while objects are still marked)
+    _convergeEphemerons();
+
+    // Phase 3: Clear weak table entries (while objects are still marked)
     _clearWeakValues();
+    _clearWeakKeys();
     _clearAllWeak();
 
-    // Phase 3: Separate survivors from dead, and identify finalizables
+    // Phase 4: Separate survivors from dead, and identify finalizables
     _separate(youngGen);
     _separate(oldGen);
 
-    // Phase 4: Re-mark objects to be finalized to handle resurrection
+    // Phase 5: Re-mark objects to be finalized to handle resurrection
     for (final obj in _toBeFinalized) {
       _discover(obj);
     }
-
-    // Phase 5: TODO - Ephemeron convergence (Phase 3 of implementation plan)
-    // For now, we skip ephemeron convergence
 
     // Phase 6: Run finalizers for objects collected in this cycle.
     await _callFinalizersAsync();

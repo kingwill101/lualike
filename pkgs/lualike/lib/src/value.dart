@@ -1431,6 +1431,13 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     } else if (raw is Value) {
       // Non-table Value containing another Value
       refs.add(raw);
+    } else if (raw is List) {
+      // Value containing a List - traverse list items
+      for (final item in raw as List) {
+        if (item is GCObject || item is Value || _containsGCObject(item)) {
+          refs.add(item);
+        }
+      }
     }
 
     // Always include metatable (it's not part of weak semantics)
