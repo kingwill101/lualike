@@ -20,13 +20,13 @@ void checktab(Value table, int what) {
       bool hasRequired = true;
 
       if ((what & TablePermission.read) != 0) {
-        hasRequired = hasRequired && table.metatable!['__index'] != null;
+        hasRequired = hasRequired && table.hasMetamethod('__index');
       }
       if ((what & TablePermission.write) != 0) {
-        hasRequired = hasRequired && table.metatable!['__newindex'] != null;
+        hasRequired = hasRequired && table.hasMetamethod('__newindex');
       }
       if ((what & TablePermission.length) != 0) {
-        hasRequired = hasRequired && table.metatable!['__len'] != null;
+        hasRequired = hasRequired && table.hasMetamethod('__len');
       }
 
       if (!hasRequired) {
@@ -42,11 +42,9 @@ void checktab(Value table, int what) {
 /// This corresponds to luaL_len in the C implementation
 Future<int> getTableLength(Value table, {String? context}) async {
   // Check if table has a __len metamethod
-  if (table.metatable != null) {
-    final lenMetamethod = table.metatable!['__len'];
-    if (lenMetamethod != null) {
-      try {
-        final lenResult = await lenMetamethod.call([table]);
+  if (table.hasMetamethod('__len')) {
+    try {
+      final lenResult = await table.callMetamethodAsync('__len', [table]);
         Logger.debug(
           "getTableLength: lenResult = $lenResult, type = ${lenResult.runtimeType}",
         );
@@ -93,10 +91,9 @@ Future<int> getTableLength(Value table, {String? context}) async {
         } else {
           throw LuaError("object length is not an integer");
         }
-      } catch (e) {
-        // If the metamethod throws an error, we should propagate it
-        rethrow;
-      }
+    } catch (e) {
+      // If the metamethod throws an error, we should propagate it
+      rethrow;
     }
   }
 
@@ -222,7 +219,7 @@ class TableLib {
 
 class _TableInsert implements BuiltinFunction {
   @override
-  Object? call(List<Object?> args) {
+  Object? call(List<Object?> args) async{
     // Lua: table.insert(table, [pos,] value)
     final nArgs = args.length;
     if (nArgs != 2 && nArgs != 3) {
