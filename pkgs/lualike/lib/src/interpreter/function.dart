@@ -499,12 +499,13 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitMethodCall(MethodCall node) async {
     Logger.debug(
-      'Visiting MethodCall: \x1b[36m[36m${node.prefix}.${node.methodName}\x1b[0m',
+      'Visiting MethodCall: {node.prefix}.${node.methodName}',
       category: 'Interpreter',
     );
 
     // Get object
     var obj = await node.prefix.accept(this);
+    final objVal = obj is Value ? obj : Value(obj);
     Logger.debug(
       '[MethodCall] Receiver (prefix) value: $obj',
       category: 'Interpreter',
@@ -520,7 +521,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     );
 
     if (node.implicitSelf) {
-      args = [obj, ...args];
+      args = [objVal, ...args];
       Logger.debug(
         '[MethodCall] Arguments after implicitSelf: $args',
         category: 'Interpreter',
@@ -536,27 +537,28 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       category: 'Interpreter',
     );
 
-    final result = (obj as Value).getMetamethod('__index');
-
-    if (result is Function) {
-      final aFunc = result([obj, Value(methodName)]);
-
-      if (aFunc is Value && aFunc.raw is Function) {
+    if (objVal.hasMetamethod('__index')) {
+      final aFunc = await objVal.callMetamethodAsync(
+        '__index',
+        [objVal, Value(methodName)],
+      );
+      if (aFunc != null) {
         Logger.debug(
-          '[MethodCall] Calling metamethod __index function for method: $methodName',
+          '[MethodCall] Calling __index metamethod result for method: $methodName',
           category: 'Interpreter',
         );
         // Route through unified call path to support tail calls, yields, etc.
-        return await _callFunction(aFunc, args, methodName);
+        final fnValue = aFunc is Value ? aFunc : Value(aFunc);
+        return await _callFunction(fnValue, args, methodName);
       }
     }
 
     // Look up the method
     dynamic func;
-    if (obj.containsKey(methodName)) {
-      func = obj[methodName];
+    if (objVal.containsKey(methodName)) {
+      func = objVal[methodName];
     } else {
-      func = obj[methodName];
+      func = objVal[methodName];
     }
 
     // Make sure func is a Value
@@ -567,7 +569,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     );
 
     // Build final argument list (prepend receiver when not implicitSelf)
-    final callArgs = node.implicitSelf ? args : [obj, ...args];
+    final callArgs = node.implicitSelf ? args : [objVal, ...args];
     Logger.debug(
       '[MethodCall] Dispatch via _callFunction with args: $callArgs',
       category: 'Interpreter',
@@ -644,7 +646,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         throw TailCallException(func, args);
       } else if (e is MethodCall) {
         // Prepare method call as a tail call
-        final obj = await e.prefix.accept(this);
+        final recv = await e.prefix.accept(this);
+        final obj = recv is Value ? recv : Value(recv);
         var args = await evalArgs(e.args);
         if (e.implicitSelf) {
           args = [obj, ...args];
@@ -656,21 +659,19 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             : e.methodName.toString();
 
         dynamic func;
-        if (obj is Value) {
-          final indexMeta = obj.getMetamethod('__index');
-          if (indexMeta is Function) {
-            final aFunc = indexMeta([obj, Value(methodName)]);
-            if (aFunc is Value && aFunc.raw is Function) {
-              func = aFunc;
-            }
+        if (obj.hasMetamethod('__index')) {
+          final aFunc = await obj.callMetamethodAsync(
+            '__index',
+            [obj, Value(methodName)],
+          );
+          if (aFunc is Value && aFunc.isCallable()) {
+            func = aFunc;
           }
         }
         if (func == null) {
           // Direct lookup
-          if (obj is Value && obj.raw is Map && (obj).containsKey(methodName)) {
+          if (obj.raw is Map && (obj).containsKey(methodName)) {
             func = (obj)[methodName];
-          } else if (obj is Map && obj.containsKey(methodName)) {
-            func = obj[methodName];
           }
         }
 
@@ -740,7 +741,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     String? callerFunctionName,
   ]) async {
     Logger.debug(
-      '>>> _callFunction called with function: [36m${func.hashCode}[0m, args: $args',
+      '>>> _callFunction called with function: ${func.hashCode}, args: $args',
       category: 'Interpreter',
     );
     if (args.isNotEmpty) {
@@ -940,11 +941,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                 '>>> Checking for __call metamethod',
                 category: 'Interpreter',
               );
-              final callMeta = func.getMetamethod('__call');
-              if (callMeta != null) {
+              if (func.hasMetamethod('__call')) {
                 // Rebind callee and arguments, then continue loop without
-                // nesting calls. This prevents deep recursion for chains of
-                // tables with __call metamethods.
+                // nesting calls. This preserves tail-call behavior across
+                // chains of tables whose __call metamethods are themselves
+                // tables or functions.
+                final callMeta = func.getMetamethod('__call');
                 final callArgs = [func, ...args];
                 Logger.debug(
                   '>>> __call found; rebinding callee and continuing (callee=${callMeta.runtimeType})',
