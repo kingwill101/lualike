@@ -256,14 +256,11 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
               '_handleTableAccessAssignment: __newindex metamethod found',
               category: 'Interpreter',
             );
-            final result = await tableValue.callMetamethodAsync(
-              '__newindex',
-              [
-                tableValue,
-                Value((target.index as Identifier).name),
-                wrappedValue,
-              ],
-            );
+            final result = await tableValue.callMetamethodAsync('__newindex', [
+              tableValue,
+              Value((target.index as Identifier).name),
+              wrappedValue,
+            ]);
             return result;
           }
         }
@@ -535,10 +532,11 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
               '_handleTableFieldAssignment: __newindex metamethod found',
               category: 'Interpreter',
             );
-            final result = await tableValue.callMetamethodAsync(
-              '__newindex',
-              [tableValue, Value(fieldKey), wrappedValue],
-            );
+            final result = await tableValue.callMetamethodAsync('__newindex', [
+              tableValue,
+              Value(fieldKey),
+              wrappedValue,
+            ]);
             return result;
           }
         }
@@ -618,10 +616,11 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
               '_handleTableIndexAssignment: __newindex metamethod found',
               category: 'Interpreter',
             );
-            final result = await tableValue.callMetamethodAsync(
-              '__newindex',
-              [tableValue, Value(indexValue), wrappedValue],
-            );
+            final result = await tableValue.callMetamethodAsync('__newindex', [
+              tableValue,
+              Value(indexValue),
+              wrappedValue,
+            ]);
             return result;
           }
         }
@@ -958,14 +957,11 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       // Check for __newindex metamethod if key doesn't exist
       if (!map.containsKey(key)) {
         if (targetValue.hasMetamethod('__newindex')) {
-          final result = await targetValue.callMetamethodAsync(
-            '__newindex',
-            [
-              targetValue,
-              indexValue is Value ? indexValue : Value(indexValue),
-              wrappedValue,
-            ],
-          );
+          final result = await targetValue.callMetamethodAsync('__newindex', [
+            targetValue,
+            indexValue is Value ? indexValue : Value(indexValue),
+            wrappedValue,
+          ]);
           return result;
         }
       }
