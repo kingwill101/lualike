@@ -63,6 +63,29 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// Whether this value represents a table
   bool get isTable => _raw is Map;
 
+  /// Gets the weak mode of this table from its metatable's __mode field.
+  /// Returns null if this is not a table or has no __mode.
+  /// Returns 'k' for weak keys, 'v' for weak values, 'kv' for both.
+  String? get tableWeakMode {
+    if (!isTable || metatable == null) return null;
+    final mode = metatable!['__mode'];
+    if (mode == null) return null;
+    final modeStr = mode.toString();
+    if (modeStr.contains('k') && modeStr.contains('v')) return 'kv';
+    if (modeStr.contains('k')) return 'k';
+    if (modeStr.contains('v')) return 'v';
+    return null;
+  }
+
+  /// Whether this table has weak values (does not mark through values)
+  bool get hasWeakValues => tableWeakMode?.contains('v') ?? false;
+
+  /// Whether this table has weak keys (ephemeron behavior)
+  bool get hasWeakKeys => tableWeakMode?.contains('k') ?? false;
+
+  /// Whether this table is all-weak (both keys and values are weak)
+  bool get isAllWeak => tableWeakMode == 'kv';
+
   /// Set the raw value with attribute enforcement
   set raw(dynamic value) {
     if (isConst && _isInitialized) {
@@ -1370,17 +1393,94 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   @override
   List<Object?> getReferences() {
+    return getReferencesForGC(strongKeys: true, strongValues: true);
+  }
+
+  /// Gets references for GC traversal with control over weak semantics.
+  /// This is used internally by the GC to implement weak table behavior.
+  ///
+  /// [strongKeys] - If false, do not include table keys in references
+  /// [strongValues] - If false, do not include table values in references
+  List<Object?> getReferencesForGC({
+    required bool strongKeys,
+    required bool strongValues,
+  }) {
     final refs = <Object?>[];
-    if (raw is Map) {
-      refs.addAll((raw as Map).values);
-      refs.addAll((raw as Map).keys);
+
+    // Handle table contents based on weak mode
+    if (isTable) {
+      final tableMap = raw as Map;
+
+      // Add keys if they should be treated as strong references
+      if (strongKeys) {
+        for (final key in tableMap.keys) {
+          if (key is GCObject || key is Value || _containsGCObject(key)) {
+            refs.add(key);
+          }
+        }
+      }
+
+      // Add values if they should be treated as strong references
+      if (strongValues) {
+        for (final value in tableMap.values) {
+          if (value is GCObject || value is Value || _containsGCObject(value)) {
+            refs.add(value);
+          }
+        }
+      }
     } else if (raw is Value) {
+      // Non-table Value containing another Value
       refs.add(raw);
+    } else if (raw is List) {
+      // Value containing a List - traverse list items
+      for (final item in raw as List) {
+        if (item is GCObject || item is Value || _containsGCObject(item)) {
+          refs.add(item);
+        }
+      }
     }
+
+    // Always include metatable (it's not part of weak semantics)
     if (metatable != null) {
       refs.add(metatable);
     }
+
+    // Include upvalues and function body if present
+    // Phase 7B: Include upvalue objects themselves (now GCObjects)
+    if (upvalues != null) {
+      for (final upvalue in upvalues!) {
+        // Include the upvalue object itself for GC tracking
+        refs.add(upvalue);
+      }
+    }
+
+    if (functionBody != null) {
+      // Function bodies contain AST nodes that may reference Values
+      // For now, we don't traverse them as they're not GCObjects
+      // AST nodes are managed by Dart GC and shared/cached
+    }
+
     return refs;
+  }
+
+  /// Helper method to check if an object contains or is a GCObject
+  bool _containsGCObject(dynamic obj) {
+    if (obj is GCObject || obj is Value) return true;
+    if (obj is Map) {
+      return obj.values.any((v) => v is GCObject || v is Value) ||
+          obj.keys.any((k) => k is GCObject || k is Value);
+    }
+    if (obj is Iterable) {
+      return obj.any((item) => item is GCObject || item is Value);
+    }
+    return false;
+  }
+
+  /// Returns table entries for GC processing.
+  /// Used internally by the GC to access table contents for weak clearing.
+  Iterable<MapEntry<dynamic, dynamic>> tableEntriesForGC() {
+    if (!isTable) return const [];
+    return (raw as Map).entries;
   }
 
   @override
