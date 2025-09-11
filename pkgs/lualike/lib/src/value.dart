@@ -1446,20 +1446,18 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
 
     // Include upvalues and function body if present
-    // TODO: In Phase 7, we may make these GCObjects
+    // Phase 7B: Include upvalue objects themselves (now GCObjects)
     if (upvalues != null) {
       for (final upvalue in upvalues!) {
-        final value = upvalue.getValue();
-        if (value is GCObject) {
-          refs.add(value);
-        }
+        // Include the upvalue object itself for GC tracking
+        refs.add(upvalue);
       }
     }
 
     if (functionBody != null) {
       // Function bodies contain AST nodes that may reference Values
       // For now, we don't traverse them as they're not GCObjects
-      // This matches the current behavior and Phase 7 decision
+      // AST nodes are managed by Dart GC and shared/cached
     }
 
     return refs;

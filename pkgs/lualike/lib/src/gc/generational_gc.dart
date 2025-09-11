@@ -1,5 +1,6 @@
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
+import 'package:lualike/src/upvalue.dart';
 
 /// Represents a generation of objects in the generational garbage collector.
 ///
@@ -370,13 +371,10 @@ class GenerationalGCManager {
         _discover(table.metatable);
       }
 
-      // Include upvalues and function body if present
+      // Include upvalues if present (now GCObjects themselves)
       if (table.upvalues != null) {
         for (final upvalue in table.upvalues!) {
-          final value = upvalue.getValue();
-          if (value is GCObject) {
-            _discover(value);
-          }
+          _discover(upvalue);
         }
       }
     } else if (weakMode == 'kv') {
@@ -786,6 +784,8 @@ class GenerationalGCManager {
           totalSize += _estimateValueSize(obj);
         } else if (obj is Environment) {
           totalSize += _estimateEnvironmentSize(obj);
+        } else if (obj is Upvalue) {
+          totalSize += _estimateUpvalueSize(obj);
         } else {
           totalSize += 32; // Default object size
         }
@@ -805,7 +805,9 @@ class GenerationalGCManager {
     }
 
     if (value.upvalues != null) {
-      size += value.upvalues!.length * 32; // Upvalue overhead
+      // Upvalues are now GCObjects and counted separately in main estimation
+      // But include reference overhead here
+      size += value.upvalues!.length * 8; // Reference overhead only
     }
 
     if (value.metatable != null) {
@@ -819,6 +821,26 @@ class GenerationalGCManager {
   int _estimateEnvironmentSize(Environment env) {
     int size = 96; // Base Environment overhead
     size += env.values.length * 40; // Box overhead per variable
+    return size;
+  }
+
+  /// Estimates the memory footprint of an Upvalue object
+  int _estimateUpvalueSize(Upvalue upvalue) {
+    int size = 96; // Base Upvalue overhead
+
+    // Add Box overhead
+    size += 48; // valueBox overhead
+
+    // Add closed value overhead if closed
+    if (!upvalue.isOpen) {
+      size += 32; // Closed value storage
+    }
+
+    // Add name overhead if present
+    if (upvalue.name != null) {
+      size += upvalue.name!.length * 2; // String overhead
+    }
+
     return size;
   }
 
