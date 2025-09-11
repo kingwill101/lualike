@@ -981,32 +981,56 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
 
     if (method is Function) {
-      var result = method(list);
-      if (result is Future) result = await result;
-      return result;
+      try {
+        var result = method(list);
+        if (result is Future) result = await result;
+        return result;
+      } on TailCallException catch (t) {
+        final callee = t.functionValue is Value
+            ? t.functionValue as Value
+            : Value(t.functionValue);
+        final result = await callee.call(t.args);
+        if (s == '__index') {
+          if (result is Value && result.isMulti && result.raw is List) {
+            final values = result.raw as List;
+            return values.isNotEmpty ? values.first : Value(null);
+          } else if (result is List && result.isNotEmpty) {
+            return result.first is Value ? result.first : Value(result.first);
+          }
+        }
+        return result;
+      }
     } else if (method is BuiltinFunction) {
-      var result = method.call(list);
-      if (result is Future) result = await result;
-      return result;
+      try {
+        var result = method.call(list);
+        if (result is Future) result = await result;
+        return result;
+      } on TailCallException catch (t) {
+        final callee = t.functionValue is Value
+            ? t.functionValue as Value
+            : Value(t.functionValue);
+        final result = await callee.call(t.args);
+        if (s == '__index') {
+          if (result is Value && result.isMulti && result.raw is List) {
+            final values = result.raw as List;
+            return values.isNotEmpty ? values.first : Value(null);
+          } else if (result is List && result.isNotEmpty) {
+            return result.first is Value ? result.first : Value(result.first);
+          }
+        }
+        return result;
+      }
     } else if (method is Value) {
       if (method.raw is Function) {
-        var result = (method.raw as Function)(list);
-        if (result is Future) result = await result;
-        return result;
-      } else if (method.raw is BuiltinFunction) {
-        var result = (method.raw as BuiltinFunction).call(list);
-        if (result is Future) result = await result;
-        return result;
-      } else if (method.raw is FunctionDef ||
-          method.raw is FunctionLiteral ||
-          method.raw is FunctionBody) {
-        // This is a Lua function defined as an AST node
-        // We can await it here since this is an async method
-        final interpreter =
-            method.interpreter ?? Environment.current?.interpreter;
-        if (interpreter != null) {
-          final result = await interpreter.callFunction(method, list);
-          // For __index metamethod, only return the first value if multiple values are returned
+        try {
+          var result = (method.raw as Function)(list);
+          if (result is Future) result = await result;
+          return result;
+        } on TailCallException catch (t) {
+          final callee = t.functionValue is Value
+              ? t.functionValue as Value
+              : Value(t.functionValue);
+          final result = await callee.call(t.args);
           if (s == '__index') {
             if (result is Value && result.isMulti && result.raw is List) {
               final values = result.raw as List;
@@ -1017,14 +1041,81 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           }
           return result;
         }
+      } else if (method.raw is BuiltinFunction) {
+        try {
+          var result = (method.raw as BuiltinFunction).call(list);
+          if (result is Future) result = await result;
+          return result;
+        } on TailCallException catch (t) {
+          final callee = t.functionValue is Value
+              ? t.functionValue as Value
+              : Value(t.functionValue);
+          final result = await callee.call(t.args);
+          if (s == '__index') {
+            if (result is Value && result.isMulti && result.raw is List) {
+              final values = result.raw as List;
+              return values.isNotEmpty ? values.first : Value(null);
+            } else if (result is List && result.isNotEmpty) {
+              return result.first is Value ? result.first : Value(result.first);
+            }
+          }
+          return result;
+        }
+      } else if (method.raw is FunctionDef ||
+          method.raw is FunctionLiteral ||
+          method.raw is FunctionBody) {
+        // This is a Lua function defined as an AST node
+        // We can await it here since this is an async method
+        final interpreter =
+            method.interpreter ?? Environment.current?.interpreter;
+        if (interpreter != null) {
+          try {
+            final result = await interpreter.callFunction(method, list);
+            // For __index metamethod, only return the first value if multiple values are returned
+            if (s == '__index') {
+              if (result is Value && result.isMulti && result.raw is List) {
+                final values = result.raw as List;
+                return values.isNotEmpty ? values.first : Value(null);
+              } else if (result is List && result.isNotEmpty) {
+                return result.first is Value
+                    ? result.first
+                    : Value(result.first);
+              }
+            }
+            return result;
+          } on TailCallException catch (t) {
+            final callee = t.functionValue is Value
+                ? t.functionValue as Value
+                : Value(t.functionValue);
+            final result = await callee.call(t.args);
+            if (s == '__index') {
+              if (result is Value && result.isMulti && result.raw is List) {
+                final values = result.raw as List;
+                return values.isNotEmpty ? values.first : Value(null);
+              } else if (result is List && result.isNotEmpty) {
+                return result.first is Value
+                    ? result.first
+                    : Value(result.first);
+              }
+            }
+            return result;
+          }
+        }
         throw UnsupportedError("No interpreter available to call function");
       }
     } else if (method is FunctionDef) {
       // Handle direct FunctionDef nodes
       final interpreter = Environment.current?.interpreter;
       if (interpreter != null) {
-        final result = await interpreter.callFunction(Value(method), list);
-        return result;
+        try {
+          final result = await interpreter.callFunction(Value(method), list);
+          return result;
+        } on TailCallException catch (t) {
+          final callee = t.functionValue is Value
+              ? t.functionValue as Value
+              : Value(t.functionValue);
+          return await callee.call(t.args);
+        }
       }
       throw UnsupportedError("No interpreter available to call function");
     }
