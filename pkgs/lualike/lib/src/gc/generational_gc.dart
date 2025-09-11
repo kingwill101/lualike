@@ -250,11 +250,25 @@ class GenerationalGCManager {
       _discover(obj.values);
       if (obj.parent != null) _discover(obj.parent);
     } else if (obj is Map) {
+      // Skip empty maps and perform quick scan for GC-relevant entries
+      if (obj.isEmpty) return;
+
+      bool hasGCContent = false;
+      for (final entry in obj.entries) {
+        if (entry.key is GCObject || entry.value is GCObject) {
+          hasGCContent = true;
+          break;
+        }
+      }
+
+      if (!hasGCContent) return;
+
       Logger.debug(
         'Map traversal: ${obj.runtimeType} ${obj.hashCode} with ${obj.length} entries',
         category: 'GC',
       );
-      // Only traverse Maps that likely contain GCObjects to avoid overhead
+
+      // Only traverse entries that could contain GCObjects
       obj.forEach((key, value) {
         if (key == "t") {
           Logger.debug("t", category: 'GC');
@@ -272,6 +286,19 @@ class GenerationalGCManager {
         }
       });
     } else if (obj is Iterable) {
+      // Skip empty iterables and perform quick scan for GC-relevant content
+      if (obj.isEmpty) return;
+
+      bool hasGCContent = false;
+      for (final item in obj) {
+        if (item is GCObject) {
+          hasGCContent = true;
+          break;
+        }
+      }
+
+      if (!hasGCContent) return;
+
       Logger.debug(
         'Iterable traversal: ${obj.runtimeType} ${obj.hashCode} with ${obj.length} items',
         category: 'GC',
@@ -744,9 +771,55 @@ class GenerationalGCManager {
 
   /// Estimates the current memory usage for determining when to trigger collections.
   ///
-  /// This is a simple estimate based on the number of objects in both generations.
+  /// This provides a rough approximation based on object counts and sizes.
   int estimateMemoryUse() {
-    return youngGen.objects.length + oldGen.objects.length;
+    int totalSize = 0;
+
+    // Base object count
+    int objectCount = youngGen.objects.length + oldGen.objects.length;
+    totalSize += objectCount * 64; // Rough overhead per GC object
+
+    // Add size estimates for different object types
+    for (final gen in [youngGen, oldGen]) {
+      for (final obj in gen.objects) {
+        if (obj is Value) {
+          totalSize += _estimateValueSize(obj);
+        } else if (obj is Environment) {
+          totalSize += _estimateEnvironmentSize(obj);
+        } else {
+          totalSize += 32; // Default object size
+        }
+      }
+    }
+
+    return totalSize;
+  }
+
+  /// Estimates the memory footprint of a Value object
+  int _estimateValueSize(Value value) {
+    int size = 128; // Base Value overhead
+
+    if (value.isTable && value.raw is Map) {
+      final table = value.raw as Map;
+      size += table.length * 48; // Approximate entry overhead
+    }
+
+    if (value.upvalues != null) {
+      size += value.upvalues!.length * 32; // Upvalue overhead
+    }
+
+    if (value.metatable != null) {
+      size += 64; // Metatable overhead
+    }
+
+    return size;
+  }
+
+  /// Estimates the memory footprint of an Environment object
+  int _estimateEnvironmentSize(Environment env) {
+    int size = 96; // Base Environment overhead
+    size += env.values.length * 40; // Box overhead per variable
+    return size;
   }
 
   /// Performs a garbage collection cycle if needed based on memory usage.
