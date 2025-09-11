@@ -1449,8 +1449,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     // TODO: In Phase 7, we may make these GCObjects
     if (upvalues != null) {
       for (final upvalue in upvalues!) {
-        if (upvalue.value is GCObject || upvalue.value is Value) {
-          refs.add(upvalue.value);
+        final value = upvalue.getValue();
+        if (value is GCObject) {
+          refs.add(value);
         }
       }
     }

@@ -1,8 +1,6 @@
 import 'package:test/test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/generational_gc.dart';
-import 'package:lualike/src/interpreter/interpreter.dart';
-import 'package:lualike/src/environment.dart';
 
 void main() {
   group('Comprehensive Weak Tables Tests', () {

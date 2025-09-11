@@ -1,6 +1,5 @@
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
-import 'package:lualike/src/interpreter/interpreter.dart';
 
 /// Represents a generation of objects in the generational garbage collector.
 ///
@@ -347,8 +346,9 @@ class GenerationalGCManager {
       // Include upvalues and function body if present
       if (table.upvalues != null) {
         for (final upvalue in table.upvalues!) {
-          if (upvalue.value is GCObject || upvalue.value is Value) {
-            _discover(upvalue.value);
+          final value = upvalue.getValue();
+          if (value is GCObject) {
+            _discover(value);
           }
         }
       }
@@ -392,7 +392,7 @@ class GenerationalGCManager {
         final valueMarked = (value is GCObject) ? value.marked : 'N/A';
 
         Logger.debug(
-          'Entry: key=${key} (marked: $keyMarked) -> value=${value} (marked: $valueMarked)',
+          'Entry: key=$key (marked: $keyMarked) -> value=$value (marked: $valueMarked)',
           category: 'GC',
         );
 
@@ -400,7 +400,7 @@ class GenerationalGCManager {
             (value is Value && !value.marked)) {
           entriesToRemove.add(entry.key);
           Logger.debug(
-            'Marking for removal: ${entry.key} -> ${value}',
+            'Marking for removal: ${entry.key} -> $value',
             category: 'GC',
           );
         }
@@ -544,7 +544,7 @@ class GenerationalGCManager {
         final valueMarked = (value is GCObject) ? value.marked : 'N/A';
 
         Logger.debug(
-          'Entry: key=${key} (marked: $keyMarked) -> value=${value} (marked: $valueMarked)',
+          'Entry: key=$key (marked: $keyMarked) -> value=$value (marked: $valueMarked)',
           category: 'GC',
         );
 
@@ -552,7 +552,7 @@ class GenerationalGCManager {
         if ((key is GCObject && !key.marked) || (key is Value && !key.marked)) {
           entriesToRemove.add(entry.key);
           Logger.debug(
-            'Marking for removal: ${entry.key} -> ${value}',
+            'Marking for removal: ${entry.key} -> $value',
             category: 'GC',
           );
         }
