@@ -128,8 +128,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     );
 
     if (tableVal.raw is! Map) {
-      final indexMeta = tableVal.getMetamethod('__index');
-      if (indexMeta != null) {
+      if (tableVal.hasMetamethod('__index')) {
         Logger.debug('DEBUG: Calling __index metamethod for non-table field');
         final result = await tableVal.callMetamethodAsync('__index', [
           tableVal,
@@ -165,8 +164,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     }
 
     // Key doesn't exist, check for __index metamethod
-    final indexMeta = tableVal.getMetamethod('__index');
-    if (indexMeta != null) {
+    if (tableVal.hasMetamethod('__index')) {
       Logger.debug('DEBUG: Key not found, calling __index metamethod');
       // Call metamethod asynchronously
       final result = await tableVal.callMetamethodAsync('__index', [
@@ -222,8 +220,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     );
 
     if (tableVal.raw is! Map) {
-      final indexMeta = tableVal.getMetamethod('__index');
-      if (indexMeta != null) {
+      if (tableVal.hasMetamethod('__index')) {
         final result = await tableVal.callMetamethodAsync('__index', [
           tableVal,
           indexVal,
@@ -253,8 +250,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     }
 
     // Key doesn't exist, check for __index metamethod
-    final indexMeta = tableVal.getMetamethod('__index');
-    if (indexMeta != null) {
+    if (tableVal.hasMetamethod('__index')) {
       // Call metamethod asynchronously
       final result = await tableVal.callMetamethodAsync('__index', [
         tableVal,
