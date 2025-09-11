@@ -384,17 +384,10 @@ class PrintFunction implements BuiltinFunction {
       final value = arg as Value;
 
       // Check for __tostring metamethod first
-      final tostring = value.getMetamethod("__tostring");
-      if (tostring != null) {
-        final result = await tostring.call([value]);
-        if (result is Value) {
-          final awaitedResult = result.raw is Future
-              ? await result.raw
-              : result.raw;
-          outputs.add(awaitedResult.toString());
-        } else {
-          outputs.add(result.toString());
-        }
+      if (value.hasMetamethod("__tostring")) {
+        final result = await value.callMetamethodAsync('__tostring', [value]);
+        final awaited = result is Value ? result.unwrap() : result;
+        outputs.add(awaited.toString());
         continue;
       }
 
@@ -494,17 +487,14 @@ class ToStringFunction implements BuiltinFunction {
     final value = args[0] as Value;
 
     // Check for __tostring metamethod
-    final tostring = value.getMetamethod("__tostring");
-    if (tostring != null) {
+    if (value.hasMetamethod("__tostring")) {
       Logger.debug(
         'tostring: __tostring metamethod found on value ${value.hashCode}',
         category: 'Base',
       );
       try {
         // Always use async metamethod call to ensure proper awaiting semantics
-        final awaitedResult = await value.callMetamethodAsync('__tostring', [
-          value,
-        ]);
+        final awaitedResult = await value.callMetamethodAsync('__tostring', [value]);
         Logger.debug(
           'tostring: metamethod result type=${awaitedResult.runtimeType} value=$awaitedResult',
           category: 'Base',
@@ -2129,7 +2119,7 @@ class RawGetFunction implements BuiltinFunction {
 
 class PairsFunction implements BuiltinFunction {
   @override
-  Object? call(List<Object?> args) {
+  Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
       throw Exception("pairs requires a table argument");
     }
@@ -2144,46 +2134,10 @@ class PairsFunction implements BuiltinFunction {
       category: 'Base',
     );
 
-    final meta = table.getMetatable();
-    if (meta != null && meta.containsKey("__pairs")) {
+    if (table.hasMetamethod('__pairs')) {
       Logger.debug('PairsFunction: Using __pairs metamethod', category: 'Base');
-      // Use metamethod if available
-      final pairsFn = meta["__pairs"];
-
-      if (pairsFn is Value) {
-        Logger.debug(
-          'PairsFunction: __pairs is a Value, unwrapping',
-          category: 'Base',
-        );
-        if (pairsFn.raw is Function) {
-          Logger.debug(
-            'PairsFunction: Calling __pairs function',
-            category: 'Base',
-          );
-          final result = (pairsFn.raw as Function)([table]);
-          Logger.debug(
-            'PairsFunction: __pairs returned: $result',
-            category: 'Base',
-          );
-          return result;
-        }
-      } else if (pairsFn is Function) {
-        Logger.debug(
-          'PairsFunction: Calling __pairs function directly',
-          category: 'Base',
-        );
-        final result = pairsFn([table]);
-        Logger.debug(
-          'PairsFunction: __pairs returned: $result',
-          category: 'Base',
-        );
-        return result;
-      }
-
-      Logger.debug(
-        'PairsFunction: __pairs is not callable, falling back to default',
-        category: 'Base',
-      );
+      final result = await table.callMetamethodAsync('__pairs', [table]);
+      return result;
     }
 
     // Create a filtered copy of the table without nil values
