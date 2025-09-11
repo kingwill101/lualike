@@ -1,5 +1,6 @@
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
+import 'package:lualike/src/interpreter/interpreter.dart';
 
 /// Represents a generation of objects in the generational garbage collector.
 ///
@@ -99,6 +100,14 @@ class GenerationalGCManager {
   final Set<GCObject> _toBeFinalized = {};
   final Set<GCObject> _alreadyFinalized = {};
 
+  // Weak table tracking for major collections (package-private for testing)
+  final List<Value> weakValuesTables = [];
+  final List<Value> ephemeronTables = [];
+  final List<Value> allWeakTables = [];
+
+  /// Whether we're currently in a major collection (affects weak table handling)
+  bool _inMajorCollection = false;
+
   /// Stops the garbage collector.
   ///
   /// This is equivalent to the Lua collectgarbage("stop") function.
@@ -166,11 +175,34 @@ class GenerationalGCManager {
     }
   }
 
+  /// Builds the root set for garbage collection from interpreter state.
+  /// This should include all objects that should be considered as roots:
+  /// - Global environment and current stack frames
+  /// - All live coroutines
+  /// - VM singletons that hold GCObjects
+  List<Object?> buildRootSet(Interpreter vm) {
+    // Use the interpreter's existing getRoots method which includes:
+    // - Current environment (globals)
+    // - Call stack
+    // - Evaluation stack
+    // - Current coroutine and main thread
+    // - Active coroutines set
+    final roots = vm.getRoots();
+
+    Logger.debug('Built root set with ${roots.length} roots', category: 'GC');
+    return roots;
+  }
+
   /// Recursively discovers and marks live objects starting from a given object.
   ///
   /// This implements the mark phase of the mark-and-sweep algorithm,
   /// traversing the object graph to find all reachable objects.
   void _discover(Object? obj) {
+    Logger.debug(
+      'Discover: ${obj.runtimeType} ${obj.hashCode} (inMajorCollection: $_inMajorCollection)',
+      category: 'GC',
+    );
+
     if (obj == "t") {
       Logger.debug("t", category: 'GC');
     }
@@ -181,26 +213,231 @@ class GenerationalGCManager {
           category: 'GC',
         );
         obj.marked = true;
-        for (final ref in obj.getReferences()) {
-          _discover(ref);
+
+        // Handle Value objects with potential weak table semantics
+        if (obj is Value && obj.isTable && _inMajorCollection) {
+          Logger.debug(
+            'Found Value table ${obj.hashCode} during major collection, calling _handleTableTraversal',
+            category: 'GC',
+          );
+          _handleTableTraversal(obj);
+        } else if (obj is Value && obj.isTable) {
+          Logger.debug(
+            'Found Value table ${obj.hashCode} but not in major collection, using regular traversal',
+            category: 'GC',
+          );
+          // Regular GCObject traversal
+          for (final ref in obj.getReferences()) {
+            _discover(ref);
+          }
+        } else {
+          // Regular GCObject traversal
+          Logger.debug(
+            'Regular GCObject traversal for ${obj.runtimeType} ${obj.hashCode}',
+            category: 'GC',
+          );
+          for (final ref in obj.getReferences()) {
+            _discover(ref);
+          }
         }
+      } else {
+        Logger.debug(
+          'Already marked: ${obj.runtimeType} ${obj.hashCode}',
+          category: 'GC',
+        );
       }
     } else if (obj is Environment) {
+      Logger.debug('Environment traversal: ${obj.hashCode}', category: 'GC');
       _discover(obj.values);
       if (obj.parent != null) _discover(obj.parent);
     } else if (obj is Map) {
+      Logger.debug(
+        'Map traversal: ${obj.runtimeType} ${obj.hashCode} with ${obj.length} entries',
+        category: 'GC',
+      );
+      // Only traverse Maps that likely contain GCObjects to avoid overhead
       obj.forEach((key, value) {
         if (key == "t") {
           Logger.debug("t", category: 'GC');
         }
-        _discover(key);
-        _discover(value);
+        if (key is GCObject ||
+            value is GCObject ||
+            key is Value ||
+            value is Value) {
+          Logger.debug(
+            'Map entry: key=${key.runtimeType} ${key.hashCode} -> value=${value.runtimeType} ${value.hashCode}',
+            category: 'GC',
+          );
+          _discover(key);
+          _discover(value);
+        }
       });
     } else if (obj is Iterable) {
+      Logger.debug(
+        'Iterable traversal: ${obj.runtimeType} ${obj.hashCode} with ${obj.length} items',
+        category: 'GC',
+      );
       for (final item in obj) {
-        _discover(item);
+        if (item is GCObject || item is Value) {
+          _discover(item);
+        }
+      }
+    } else {
+      Logger.debug(
+        'Ignoring non-GC object: ${obj.runtimeType} ${obj.hashCode}',
+        category: 'GC',
+      );
+    }
+  }
+
+  /// Handles traversal of table objects based on their weak mode.
+  /// This is only used during major collections where weak semantics apply.
+  void _handleTableTraversal(Value table) {
+    assert(table.isTable);
+
+    final weakMode = table.tableWeakMode;
+
+    Logger.debug(
+      'Handling table traversal for table ${table.hashCode}, weak mode: $weakMode',
+      category: 'GC',
+    );
+
+    if (weakMode == null) {
+      // Strong table - traverse normally
+      Logger.debug(
+        'Table ${table.hashCode} is strong, traversing normally',
+        category: 'GC',
+      );
+      for (final ref in table.getReferencesForGC(
+        strongKeys: true,
+        strongValues: true,
+      )) {
+        _discover(ref);
+      }
+    } else if (weakMode == 'v') {
+      // Weak values - traverse keys only, mark table for later clearing
+      Logger.debug(
+        'Table ${table.hashCode} has weak values, adding to tracking list',
+        category: 'GC',
+      );
+      weakValuesTables.add(table);
+      for (final ref in table.getReferencesForGC(
+        strongKeys: true,
+        strongValues: false,
+      )) {
+        _discover(ref);
+      }
+    } else if (weakMode == 'k') {
+      // Weak keys (ephemeron) - special handling needed
+      Logger.debug(
+        'Table ${table.hashCode} has weak keys, adding to ephemeron list',
+        category: 'GC',
+      );
+      ephemeronTables.add(table);
+      // For now, don't traverse entries - will be handled in convergence
+      for (final ref in table.getReferencesForGC(
+        strongKeys: false,
+        strongValues: false,
+      )) {
+        _discover(ref);
+      }
+    } else if (weakMode == 'kv') {
+      // All weak - don't traverse entries at all
+      Logger.debug(
+        'Table ${table.hashCode} is all-weak, adding to all-weak list',
+        category: 'GC',
+      );
+      allWeakTables.add(table);
+      for (final ref in table.getReferencesForGC(
+        strongKeys: false,
+        strongValues: false,
+      )) {
+        _discover(ref);
       }
     }
+  }
+
+  /// Clears dead entries from weak-values tables.
+  /// Called after marking phase during major collection.
+  void _clearWeakValues() {
+    Logger.debug(
+      'Starting weak values clearing for ${weakValuesTables.length} tables',
+      category: 'GC',
+    );
+
+    for (final table in weakValuesTables) {
+      final tableMap = table.raw as Map;
+      final entriesToRemove = <dynamic>[];
+
+      Logger.debug(
+        'Checking weak table ${table.hashCode} with ${tableMap.length} entries',
+        category: 'GC',
+      );
+
+      for (final entry in tableMap.entries) {
+        final key = entry.key;
+        final value = entry.value;
+        final keyMarked = (key is GCObject) ? key.marked : 'N/A';
+        final valueMarked = (value is GCObject) ? value.marked : 'N/A';
+
+        Logger.debug(
+          'Entry: key=${key} (marked: $keyMarked) -> value=${value} (marked: $valueMarked)',
+          category: 'GC',
+        );
+
+        if ((value is GCObject && !value.marked) ||
+            (value is Value && !value.marked)) {
+          entriesToRemove.add(entry.key);
+          Logger.debug(
+            'Marking for removal: ${entry.key} -> ${value}',
+            category: 'GC',
+          );
+        }
+      }
+
+      Logger.debug(
+        'Removing ${entriesToRemove.length} entries from table ${table.hashCode}',
+        category: 'GC',
+      );
+
+      for (final key in entriesToRemove) {
+        tableMap.remove(key);
+      }
+    }
+    weakValuesTables.clear();
+  }
+
+  /// Clears dead entries from all-weak tables.
+  /// Called after marking phase during major collection.
+  void _clearAllWeak() {
+    for (final table in allWeakTables) {
+      final tableMap = table.raw as Map;
+      final entriesToRemove = <dynamic>[];
+
+      for (final entry in tableMap.entries) {
+        final key = entry.key;
+        final value = entry.value;
+
+        final keyDead =
+            (key is GCObject && !key.marked) || (key is Value && !key.marked);
+        final valueDead =
+            (value is GCObject && !value.marked) ||
+            (value is Value && !value.marked);
+
+        if (keyDead || valueDead) {
+          entriesToRemove.add(key);
+          Logger.debug(
+            'Clearing all-weak entry: $key -> $value',
+            category: 'GC',
+          );
+        }
+      }
+
+      for (final key in entriesToRemove) {
+        tableMap.remove(key);
+      }
+    }
+    allWeakTables.clear();
   }
 
   /// Separates objects in a generation into survivors and dead.
@@ -337,21 +574,40 @@ class GenerationalGCManager {
   Future<void> majorCollection(List<Object?> roots) async {
     Logger.debug('Major collection start', category: 'GC');
     _cycleComplete = false;
+    _inMajorCollection = true;
+
+    // Clear weak table tracking lists from previous collection
+    weakValuesTables.clear();
+    ephemeronTables.clear();
+    allWeakTables.clear();
 
     // Phase 1: Mark all reachable objects
     _markGeneration(youngGen, roots);
     _markGeneration(oldGen, roots);
 
-    // Phase 2: Separate survivors from dead, and identify finalizables
+    // Phase 2: Clear weak table entries (while objects are still marked)
+    _clearWeakValues();
+    _clearAllWeak();
+
+    // Phase 3: Separate survivors from dead, and identify finalizables
     _separate(youngGen);
     _separate(oldGen);
 
-    // Phase 3: Run finalizers for objects collected in this cycle.
+    // Phase 4: Re-mark objects to be finalized to handle resurrection
+    for (final obj in _toBeFinalized) {
+      _discover(obj);
+    }
+
+    // Phase 5: TODO - Ephemeron convergence (Phase 3 of implementation plan)
+    // For now, we skip ephemeron convergence
+
+    // Phase 6: Run finalizers for objects collected in this cycle.
     await _callFinalizersAsync();
 
     _lastMajorBytes = estimateMemoryUse();
     _cycleComplete =
         true; // The full cycle (including finalization) is now complete
+    _inMajorCollection = false;
     Logger.debug('Major collection complete', category: 'GC');
   }
 
@@ -378,5 +634,12 @@ class GenerationalGCManager {
     else if (currentBytes > _lastMinorBytes * (1 + minorMultiplier / 100)) {
       minorCollection(roots);
     }
+  }
+
+  /// Convenience method for major collection using the built root set.
+  /// This is the main entry point for triggering major collections.
+  Future<void> collectMajor() async {
+    final roots = buildRootSet(_interpreter);
+    await majorCollection(roots);
   }
 }
