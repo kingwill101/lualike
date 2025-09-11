@@ -138,78 +138,54 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
 
     String? metamethodName = opMap[node.op];
     if (metamethodName != null) {
-      // Check left operand's metamethod
-      var metamethod = leftVal.getMetamethod(metamethodName);
-
-      // If not found in left, check right operand's metamethod. For '__eq'
-      // Lua will look at both operands.
-      metamethod ??= rightVal.getMetamethod(metamethodName);
-
       bool swapArgs = false;
       bool invertResult = false;
+      Value? calleeValue;
 
-      if (metamethod == null && node.op == '>') {
-        metamethod = rightVal.getMetamethod('__lt');
-        if (metamethod != null) {
+      // Prefer left, then right for the direct mapping
+      if (leftVal.hasMetamethod(metamethodName)) {
+        calleeValue = leftVal;
+      } else if (rightVal.hasMetamethod(metamethodName)) {
+        calleeValue = rightVal;
+      }
+
+      // Fallback mappings for comparisons when direct mapping not present
+      if (calleeValue == null && node.op == '>') {
+        if (rightVal.hasMetamethod('__lt')) {
           metamethodName = '__lt';
+          calleeValue = rightVal;
           swapArgs = true;
         }
-      } else if (metamethod == null && node.op == '>=') {
-        metamethod =
-            leftVal.getMetamethod('__le') ?? rightVal.getMetamethod('__le');
-        if (metamethod != null) {
+      } else if (calleeValue == null && node.op == '>=') {
+        if (leftVal.hasMetamethod('__le')) {
           metamethodName = '__le';
+          calleeValue = leftVal;
           swapArgs = true;
-        } else {
-          metamethod =
-              rightVal.getMetamethod('__lt') ?? leftVal.getMetamethod('__lt');
-          if (metamethod != null) {
-            metamethodName = '__lt';
-            swapArgs = true;
-            invertResult = true;
-          }
+        } else if (rightVal.hasMetamethod('__le')) {
+          metamethodName = '__le';
+          calleeValue = rightVal;
+          swapArgs = true;
+        } else if (rightVal.hasMetamethod('__lt')) {
+          metamethodName = '__lt';
+          calleeValue = rightVal;
+          swapArgs = true;
+          invertResult = true;
+        } else if (leftVal.hasMetamethod('__lt')) {
+          metamethodName = '__lt';
+          calleeValue = leftVal;
+          // no swap here (left < right) and then invert
+          invertResult = true;
         }
       }
 
-      if (metamethod != null) {
+      if (calleeValue != null) {
         Logger.debug(
           'Using metamethod $metamethodName for operation ${node.op}',
           category: 'Expression',
         );
 
-        dynamic result;
         final callArgs = swapArgs ? [rightVal, leftVal] : [leftVal, rightVal];
-        try {
-          if (metamethod is Function) {
-            result = await metamethod(callArgs);
-          } else if (metamethod is Value) {
-            if (metamethod.raw is Function) {
-              result = await metamethod.raw(callArgs);
-            } else if (metamethod.raw is FunctionDef ||
-                metamethod.raw is FunctionLiteral ||
-                metamethod.raw is FunctionBody) {
-              result = await metamethod.call(callArgs);
-            } else {
-              throw LuaError.typeError(
-                "Metamethod $metamethodName exists but is not callable: $metamethod",
-              );
-            }
-          } else {
-            throw LuaError.typeError(
-              "Metamethod $metamethodName exists but is not callable: $metamethod",
-            );
-          }
-        } on TailCallException catch (t) {
-          // Handle tail call from metamethod - execute the tail call and use its result
-          Logger.debug(
-            'TailCallException caught in binary expression metamethod $metamethodName',
-            category: 'Expression',
-          );
-          final callee = t.functionValue is Value
-              ? t.functionValue as Value
-              : Value(t.functionValue);
-          result = await callee.call(t.args);
-        }
+        var result = await calleeValue.callMetamethodAsync(metamethodName, callArgs);
 
         // Metamethods can return multiple values, but binary operations only use
         // the first result. Normalize here to match Lua semantics.
@@ -334,37 +310,17 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
 
     final metamethodName = opMap[node.op];
     if (metamethodName != null) {
-      final metamethod = operandWrapped.getMetamethod(metamethodName);
-
-      if (metamethod != null) {
+      if (operandWrapped.hasMetamethod(metamethodName)) {
         Logger.debug(
           'Using metamethod $metamethodName for unary operation ${node.op}',
           category: 'Expression',
         );
 
-        dynamic result;
         final args = [operandWrapped, operandWrapped];
-        try {
-          if (metamethod is Function) {
-            result = await metamethod(args);
-          } else if (metamethod is Value && metamethod.raw is Function) {
-            result = await metamethod.raw(args);
-          } else {
-            throw LuaError.typeError(
-              "Metamethod $metamethodName exists but is not callable: $metamethod",
-            );
-          }
-        } on TailCallException catch (t) {
-          // Handle tail call from metamethod - execute the tail call and use its result
-          Logger.debug(
-            'TailCallException caught in unary expression metamethod $metamethodName',
-            category: 'Expression',
-          );
-          final callee = t.functionValue is Value
-              ? t.functionValue as Value
-              : Value(t.functionValue);
-          result = await callee.call(t.args);
-        }
+        var result = await operandWrapped.callMetamethodAsync(
+          metamethodName,
+          args,
+        );
 
         if (result is Value && result.isMulti && result.raw is List) {
           final values = result.raw as List;
