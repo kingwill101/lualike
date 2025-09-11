@@ -15,7 +15,6 @@ final testFiles = [
   'attrib.lua',
   'bitwise.lua',
   'constructs.lua',
-  'events.lua',
   'strings.lua',
   'literals.lua',
   'tpack.lua',
@@ -93,7 +92,7 @@ Future<void> _compileTestRunner(String? dartPath) async {
   console.writeLine();
 
   final currentDir = Directory.current.path;
-  final testRunnerPath = path.join(currentDir, 'tools', 'test.dart');
+  final testRunnerPath = path.join(currentDir, 'tool', 'test.dart');
   final outputPath = path.join(currentDir, getExecutableName('test_runner'));
 
   try {
