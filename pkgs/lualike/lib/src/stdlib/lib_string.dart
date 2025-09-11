@@ -300,7 +300,9 @@ Future<Object> _formatString(_FormatContext ctx) async {
   if (value is Value) {
     if (value.hasMetamethod("__tostring")) {
       try {
-        final awaitedResult = await value.callMetamethodAsync('__tostring', [value]);
+        final awaitedResult = await value.callMetamethodAsync('__tostring', [
+          value,
+        ]);
         final str = awaitedResult is Value
             ? awaitedResult.raw.toString()
             : awaitedResult.toString();

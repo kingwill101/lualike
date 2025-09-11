@@ -45,52 +45,48 @@ Future<int> getTableLength(Value table, {String? context}) async {
   if (table.hasMetamethod('__len')) {
     try {
       final lenResult = await table.callMetamethodAsync('__len', [table]);
-        Logger.debug(
-          "getTableLength: lenResult = $lenResult, type = ${lenResult.runtimeType}",
-        );
-        if (lenResult is Value) {
-          final lenValue = lenResult.raw;
-          if (lenValue is! int && lenValue is! BigInt) {
-            throw LuaError("object length is not an integer");
-          }
-          // Try to convert to int, but catch conversion errors
-          try {
-            return NumberUtils.toInt(lenValue);
-          } catch (e) {
-            // If conversion fails due to size, handle based on context
-            if (lenValue is BigInt &&
-                lenValue >= BigInt.from(NumberLimits.maxInt32)) {
-              if (context == "table.sort") {
-                throw LuaError(
-                  "bad argument #1 to 'table.sort' (array too big)",
-                );
-              } else {
-                throw LuaError("object length is not an integer");
-              }
-            }
-            rethrow;
-          }
-        } else if (lenResult is int || lenResult is BigInt) {
-          // Try to convert to int, but catch conversion errors
-          try {
-            return NumberUtils.toInt(lenResult);
-          } catch (e) {
-            // If conversion fails due to size, handle based on context
-            if (lenResult is BigInt &&
-                lenResult >= BigInt.from(NumberLimits.maxInt32)) {
-              if (context == "table.sort") {
-                throw LuaError(
-                  "bad argument #1 to 'table.sort' (array too big)",
-                );
-              } else {
-                throw LuaError("object length is not an integer");
-              }
-            }
-            rethrow;
-          }
-        } else {
+      Logger.debug(
+        "getTableLength: lenResult = $lenResult, type = ${lenResult.runtimeType}",
+      );
+      if (lenResult is Value) {
+        final lenValue = lenResult.raw;
+        if (lenValue is! int && lenValue is! BigInt) {
           throw LuaError("object length is not an integer");
         }
+        // Try to convert to int, but catch conversion errors
+        try {
+          return NumberUtils.toInt(lenValue);
+        } catch (e) {
+          // If conversion fails due to size, handle based on context
+          if (lenValue is BigInt &&
+              lenValue >= BigInt.from(NumberLimits.maxInt32)) {
+            if (context == "table.sort") {
+              throw LuaError("bad argument #1 to 'table.sort' (array too big)");
+            } else {
+              throw LuaError("object length is not an integer");
+            }
+          }
+          rethrow;
+        }
+      } else if (lenResult is int || lenResult is BigInt) {
+        // Try to convert to int, but catch conversion errors
+        try {
+          return NumberUtils.toInt(lenResult);
+        } catch (e) {
+          // If conversion fails due to size, handle based on context
+          if (lenResult is BigInt &&
+              lenResult >= BigInt.from(NumberLimits.maxInt32)) {
+            if (context == "table.sort") {
+              throw LuaError("bad argument #1 to 'table.sort' (array too big)");
+            } else {
+              throw LuaError("object length is not an integer");
+            }
+          }
+          rethrow;
+        }
+      } else {
+        throw LuaError("object length is not an integer");
+      }
     } catch (e) {
       // If the metamethod throws an error, we should propagate it
       rethrow;
@@ -219,7 +215,7 @@ class TableLib {
 
 class _TableInsert implements BuiltinFunction {
   @override
-  Object? call(List<Object?> args) async{
+  Object? call(List<Object?> args) async {
     // Lua: table.insert(table, [pos,] value)
     final nArgs = args.length;
     if (nArgs != 2 && nArgs != 3) {

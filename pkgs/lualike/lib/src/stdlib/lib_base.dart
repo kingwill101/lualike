@@ -494,7 +494,9 @@ class ToStringFunction implements BuiltinFunction {
       );
       try {
         // Always use async metamethod call to ensure proper awaiting semantics
-        final awaitedResult = await value.callMetamethodAsync('__tostring', [value]);
+        final awaitedResult = await value.callMetamethodAsync('__tostring', [
+          value,
+        ]);
         Logger.debug(
           'tostring: metamethod result type=${awaitedResult.runtimeType} value=$awaitedResult',
           category: 'Base',
