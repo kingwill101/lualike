@@ -172,7 +172,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         "[visitAssignment] Assigning $targetValue to $target",
         category: 'Interpreter',
       );
-      final wrappedValue = targetValue is Value
+      final Value wrappedValue = targetValue is Value
           ? targetValue
           : Value(targetValue);
 

@@ -549,7 +549,15 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         );
         // Route through unified call path to support tail calls, yields, etc.
         final fnValue = aFunc is Value ? aFunc : Value(aFunc);
-        return await _callFunction(fnValue, args, methodName);
+        try {
+          return await _callFunction(fnValue, args, methodName);
+        } on LuaError catch (e, s) {
+          final interpreter = this as Interpreter;
+          if (!interpreter.isInProtectedCall) {
+            interpreter.reportError(e.message, trace: s, error: e, node: node);
+          }
+          rethrow;
+        }
       }
     }
 
@@ -574,7 +582,15 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       '[MethodCall] Dispatch via _callFunction with args: $callArgs',
       category: 'Interpreter',
     );
-    return await _callFunction(func, callArgs, methodName);
+    try {
+      return await _callFunction(func, callArgs, methodName);
+    } on LuaError catch (e, s) {
+      final interpreter = this as Interpreter;
+      if (!interpreter.isInProtectedCall) {
+        interpreter.reportError(e.message, trace: s, error: e, node: node);
+      }
+      rethrow;
+    }
   }
 
   /// Evaluates a return statement.
