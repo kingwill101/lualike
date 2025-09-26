@@ -1,7 +1,8 @@
+import 'package:lualike/src/intern.dart';
+
 import '../logging/logger.dart';
 import '../lua_error.dart';
 import '../lua_string.dart';
-import '../stdlib/lib_string.dart';
 import '../value.dart';
 
 dynamic fromLuaValue(dynamic obj) {
