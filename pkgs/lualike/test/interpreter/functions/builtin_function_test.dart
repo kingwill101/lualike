@@ -1,7 +1,7 @@
 import 'package:lualike_test/test.dart';
 
 /// A simple built-in function that adds two numbers.
-class AddBuiltinFunction implements BuiltinFunction {
+class AddBuiltinFunction extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.length != 2) {

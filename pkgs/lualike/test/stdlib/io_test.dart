@@ -148,53 +148,51 @@ void main() {
         final filePath = '$tempPath/test.txt';
 
         // Open file
-        final openFunc = IOLib.functions['open'] as IOOpen;
+        final openFunc = IOOpen();
         final file = await openFunc.call([Value(filePath), Value('w')]);
-        expect(file, isA<Value>());
-        expect((file as Value).raw, isA<LuaFile>());
+        expect(file, isA<LuaFile>());
 
         // Set file as default output
-        final outputFunc = IOLib.functions['output'] as IOOutput;
+        final outputFunc = IOOutput();
         await outputFunc.call([file]);
 
         // Write to file
-        final writeFunc = IOLib.functions['write'] as IOWrite;
+        final writeFunc = IOWrite();
         var result = await writeFunc.call([Value('Hello, World!\n')]);
-        expect((result as Value).raw, isA<LuaFile>());
+        expect(result, isA<LuaFile>());
 
         // Close file
-        final closeFunc = IOLib.functions['close'] as IOClose;
+        final closeFunc = IOClose();
         result = await closeFunc.call([file]);
         expect((result as Value).raw[0], true);
 
         // Read file
-        final inputFunc = IOLib.functions['input'] as IOInput;
+        final inputFunc = IOInput();
         final readFile = await inputFunc.call([Value(filePath)]);
-        expect(readFile, isA<Value>());
+        expect(readFile, isA<LuaFile>());
 
-        final readFunc = IOLib.functions['read'] as IORead;
+        final readFunc = IORead();
         result = await readFunc.call([Value('l')]);
         expect((result as Value).raw[0].toString(), 'Hello, World!');
       });
 
       test('Temporary file', () async {
         // Create temp file
-        final tmpFunc = IOLib.functions['tmpfile'] as IOTmpfile;
+        final tmpFunc = IOTmpfile();
         final file = await tmpFunc.call([]);
-        expect(file, isA<Value>());
-        expect((file as Value).raw, isA<LuaFile>());
+        expect(file, isA<LuaFile>());
 
         // Set temp file as default output
-        final outputFunc = IOLib.functions['output'] as IOOutput;
+        final outputFunc = IOOutput();
         await outputFunc.call([file]);
 
         // Write to temp file (now the default output)
-        final writeFunc = IOLib.functions['write'] as IOWrite;
+        final writeFunc = IOWrite();
         var result = await writeFunc.call([Value('Hello, World!\n')]);
-        expect((result as Value).raw, isA<LuaFile>());
+        expect(result, isA<LuaFile>());
 
         // Close temp file
-        final closeFunc = IOLib.functions['close'] as IOClose;
+        final closeFunc = IOClose();
         result = await closeFunc.call([file]);
         expect((result as Value).raw[0], true);
 
@@ -203,7 +201,7 @@ void main() {
       });
 
       test('File type checking', () async {
-        final typeFunc = IOLib.functions['type'] as IOType;
+        final typeFunc = IOType();
 
         // Non-file value
         var result = await typeFunc.call([Value(42)]);
@@ -211,15 +209,15 @@ void main() {
 
         // Open file
         final filePath = '$tempPath/test.txt';
-        final openFunc = IOLib.functions['open'] as IOOpen;
+        final openFunc = IOOpen();
         final file = await openFunc.call([Value(filePath), Value('w')]);
 
         // Open file type
-        result = await typeFunc.call([file as Value]);
+        result = await typeFunc.call([file]);
         expect((result as Value).raw, 'file');
 
         // Close file
-        final closeFunc = IOLib.functions['close'] as IOClose;
+        final closeFunc = IOClose();
         await closeFunc.call([file]);
 
         // Closed file type
@@ -440,8 +438,8 @@ void main() {
 
         return content
       ''';
-
-        final _ = await executeCode(code);
+        final inter = LuaLike();
+        final _ = await inter.execute(code);
 
         final memoryFiles = InMemoryIODevice.getMemoryStorage();
         expect(memoryFiles['output.txt'], equals('Hello World!'));

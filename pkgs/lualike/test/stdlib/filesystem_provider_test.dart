@@ -311,14 +311,11 @@ void main() {
           providerName: 'TestFileSystem',
         );
 
-        final ioOpen = IOLib.functions['open']! as IOOpen;
+        final ioOpen = IOOpen();
         final result = await ioOpen.call([Value('test.txt'), Value('w')]);
 
-        expect(result, isA<Value>());
-        final value = result as Value;
-        expect(value.raw, isA<LuaFile>());
-
-        final luaFile = value.raw as LuaFile;
+        expect(result, isA<LuaFile>());
+        final luaFile = result as LuaFile;
         expect(luaFile.device, isA<MockIODevice>());
       });
 
@@ -328,14 +325,11 @@ void main() {
           providerName: 'TestFileSystem',
         );
 
-        final ioTmpfile = IOLib.functions['tmpfile']! as IOTmpfile;
+        final ioTmpfile = IOTmpfile();
         final result = await ioTmpfile.call([]);
 
-        expect(result, isA<Value>());
-        final value = result as Value;
-        expect(value.raw, isA<LuaFile>());
-
-        final luaFile = value.raw as LuaFile;
+        expect(result, isA<LuaFile>());
+        final luaFile = result as LuaFile;
         expect(luaFile.device, isA<MockIODevice>());
       });
     });
@@ -550,19 +544,16 @@ void main() {
           );
 
           // Use IOLib functions directly instead of Lua script
-          final ioOpen = IOLib.functions['open']! as IOOpen;
-          final ioWrite = IOLib.functions['write']! as IOWrite;
-          final ioClose = IOLib.functions['close']! as IOClose;
+          final ioOpen = IOOpen();
+          final ioWrite = IOWrite();
+          final ioClose = IOClose();
 
           // Open file for writing
           final openResult = await ioOpen.call([Value('test.txt'), Value('w')]);
-          expect(openResult, isA<Value>());
+          expect(openResult, isA<LuaFile>());
 
-          final luaFile = (openResult as Value).raw as LuaFile;
-          IOLib.defaultOutput = Value(
-            luaFile,
-            metatable: IOLib.fileClass.metamethods,
-          );
+          final luaFile = openResult as LuaFile;
+          IOLib.defaultOutput = Value(luaFile);
 
           // Write content
           await ioWrite.call([Value('Hello from IOLib!')]);
@@ -575,7 +566,7 @@ void main() {
             Value('test.txt'),
             Value('r'),
           ]);
-          final readFile = (readOpenResult as Value).raw as LuaFile;
+          final readFile = readOpenResult as LuaFile;
 
           // Read content
           final content = await readFile.read('a');
@@ -595,7 +586,7 @@ void main() {
         // io.open should return error values, not throw for missing files
         try {
           // Try to open non-existent file
-          final result = await (IOLib.functions['open']! as IOOpen).call([
+          final result = await IOOpen().call([
             Value('nonexistent_file.txt'),
             Value('r'),
           ]);
