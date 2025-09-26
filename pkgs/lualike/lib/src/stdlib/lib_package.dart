@@ -1,8 +1,9 @@
 import 'package:lualike/lualike.dart';
-import 'package:lualike/src/bytecode/vm.dart';
+
 import 'package:lualike/src/utils/file_system_utils.dart';
 import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:path/path.dart' as path_lib;
+import 'library.dart';
 
 class PackageLib {
   final Interpreter vm;
@@ -16,11 +17,11 @@ class PackageLib {
       final key = args[1] as Value;
       if (key.raw == "path") {
         // Default package path
-        return Value("./?.lua;./?/init.lua");
+        return Value("?.lua;?/?;?/init");
       }
       if (key.raw == "cpath") {
         // Default C module path
-        return Value("./?.so;./?.dll");
+        return Value("?.so");
       }
 
       if (table.raw is Map) {
@@ -35,12 +36,12 @@ class PackageLib {
 
   Map<String, dynamic> createFunctions() {
     return {
-      'loadlib': _LoadLib(),
-      'searchpath': _SearchPath(fileManager),
+      'loadlib': _LoadLib(vm),
+      'searchpath': _SearchPath(fileManager, vm),
       'preload': ValueClass.table({}), // Table for preloaded modules
       'loaded': ValueClass.table({}), // Table for loaded modules
-      'path': Value("./?.lua;./?/init.lua"),
-      'cpath': Value("./?.so;./?.dll"),
+      'path': Value("?.lua;?/?;?/init"),
+      'cpath': Value("?.so"),
       'config': Value(_getConfig()),
       'searchers': Value(
         _createDefaultSearchers(),
@@ -76,7 +77,7 @@ class PackageLib {
       }),
 
       // 2. Lua module loader
-      Value(_LuaLoader(vm, fileManager)),
+      Value(_LuaLoader(fileManager, vm)),
 
       // 3. C module loader (simulated for Dart)
       Value((List<Object?> args) {
@@ -93,7 +94,9 @@ class PackageLib {
   }
 }
 
-class _LoadLib implements BuiltinFunction {
+class _LoadLib extends BuiltinFunction {
+  _LoadLib(super.interpreter);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 2) {
@@ -129,10 +132,10 @@ class _LoadLib implements BuiltinFunction {
   }
 }
 
-class _SearchPath implements BuiltinFunction {
+class _SearchPath extends BuiltinFunction {
   final FileManager fileManager;
 
-  _SearchPath(this.fileManager);
+  _SearchPath(this.fileManager, super.interpreter);
 
   @override
   Future<Object?> call(List<Object?> args) async {
@@ -166,11 +169,10 @@ class _SearchPath implements BuiltinFunction {
   }
 }
 
-class _LuaLoader implements BuiltinFunction {
-  final Interpreter vm;
+class _LuaLoader extends BuiltinFunction {
   final FileManager fileManager;
 
-  _LuaLoader(this.vm, this.fileManager);
+  _LuaLoader(this.fileManager, super.interpreter);
 
   @override
   Future<Object?> call(List<Object?> args) async {
@@ -182,8 +184,8 @@ class _LuaLoader implements BuiltinFunction {
     String? modulePath;
     if (!name.contains('.') &&
         !name.contains('/') &&
-        vm.currentScriptPath != null) {
-      final scriptDir = path_lib.dirname(vm.currentScriptPath!);
+        interpreter!.currentScriptPath != null) {
+      final scriptDir = path_lib.dirname(interpreter!.currentScriptPath!);
       final directPath = path_lib.join(scriptDir, '$name.lua');
       Logger.debug(
         "Trying direct path in script directory: $directPath",
@@ -258,7 +260,10 @@ class _LuaLoader implements BuiltinFunction {
               "Creating new environment for module",
               category: 'Package',
             );
-            final moduleEnv = Environment(parent: vm.globals, interpreter: vm);
+            final moduleEnv = Environment(
+              parent: interpreter!.globals,
+              interpreter: interpreter,
+            );
 
             // Pass arguments like Lua's loader function (...)
             moduleEnv.declare(
@@ -271,7 +276,7 @@ class _LuaLoader implements BuiltinFunction {
               "Creating interpreter for module",
               category: 'Package',
             );
-            final interpreter = Interpreter(
+            final moduleInterpreter = Interpreter(
               environment: moduleEnv,
               fileManager: fileManager,
             );
@@ -296,7 +301,7 @@ class _LuaLoader implements BuiltinFunction {
               "Setting script path to: $absoluteModulePath",
               category: 'Package',
             );
-            interpreter.currentScriptPath = absoluteModulePath;
+            interpreter!.currentScriptPath = absoluteModulePath;
 
             // Store the script path in the module environment (normalized)
             final normalizedModulePath = path_lib.url.joinAll(
@@ -322,9 +327,15 @@ class _LuaLoader implements BuiltinFunction {
             );
 
             // Set the globals in the module environment
-            vm.globals.define('_SCRIPT_PATH', Value(normalizedModulePath));
-            vm.globals.define('_SCRIPT_DIR', Value(normalizedModuleDir));
-            vm.globals.define('_MODULE_NAME', Value(name));
+            interpreter!.globals.define(
+              '_SCRIPT_PATH',
+              Value(normalizedModulePath),
+            );
+            interpreter!.globals.define(
+              '_SCRIPT_DIR',
+              Value(normalizedModuleDir),
+            );
+            interpreter!.globals.define('_MODULE_NAME', Value(name));
 
             Logger.debug(
               "Global environment updated with _SCRIPT_PATH=$absoluteModulePath, _SCRIPT_DIR=$moduleDir, _MODULE_NAME=$name",
@@ -335,7 +346,7 @@ class _LuaLoader implements BuiltinFunction {
             try {
               // Run the module code
               Logger.debug("Running module code", category: 'Package');
-              await interpreter.run(ast.statements);
+              await moduleInterpreter.run(ast.statements);
               Logger.debug(
                 "Module code executed successfully",
                 category: 'Package',
@@ -368,7 +379,7 @@ class _LuaLoader implements BuiltinFunction {
               "Storing module in package.loaded",
               category: 'Package',
             );
-            final packageVal = vm.globals.get("package");
+            final packageVal = interpreter!.globals.get("package");
             if (packageVal is Value && packageVal.raw is Map) {
               final packageTable = packageVal.raw as Map;
               if (packageTable.containsKey("loaded")) {
@@ -408,11 +419,97 @@ class _LuaLoader implements BuiltinFunction {
   }
 }
 
-void definePackageLibrary({
-  required Environment env,
-  Interpreter? astVm,
-  BytecodeVM? bytecodeVm,
-}) {
+/// Package library implementation using the new Library system
+class PackageLibrary extends Library {
+  @override
+  String get name => ""; // Empty name means base library (no namespace)
+
+  @override
+  void registerFunctions(LibraryRegistrationContext context) {
+    final packageLib = PackageLib(context.interpreter!);
+
+    // Create package table with metamethods
+    final packageTable = ValueClass.table();
+    packageLib.createFunctions().forEach((key, value) {
+      packageTable[key] = value;
+    });
+
+    // Define require function globally
+    context.define('require', RequireFunction(interpreter!));
+
+    // Define package table globally
+    context.define(
+      'package',
+      Value(packageTable, metatable: packageLib.packageClass.metamethods),
+    );
+  }
+}
+
+class RequireFunction extends BuiltinFunction {
+  RequireFunction(super.interpreter);
+
+  @override
+  Future<Object?> call(List<Object?> args) async {
+    if (args.isEmpty) {
+      throw Exception('require expects a module name');
+    }
+
+    final name = (args[0] as Value).raw.toString();
+
+    // Get package.loaded table
+    final packageTable = interpreter!.globals.get('package');
+    if (packageTable is Value && packageTable.raw is Map) {
+      final packageMap = packageTable.raw as Map;
+      final loadedTable = packageMap['loaded'];
+
+      if (loadedTable is Value && loadedTable.raw is Map) {
+        final loadedMap = loadedTable.raw as Map;
+
+        // Check if module is already loaded
+        if (loadedMap.containsKey(name)) {
+          return loadedMap[name];
+        }
+
+        // Try to load module using searchers
+        final searchersValue = packageMap['searchers'];
+        if (searchersValue is Value && searchersValue.raw is List) {
+          final searchers = searchersValue.raw as List;
+
+          for (final searcher in searchers) {
+            if (searcher is Value) {
+              try {
+                final result = await interpreter!.callFunction(searcher, [
+                  Value(name),
+                ]);
+                if (result is List && result.isNotEmpty && result[0] is Value) {
+                  final loader = result[0] as Value;
+                  if (loader.raw != null) {
+                    // Call the loader
+                    final moduleResult = await interpreter!.callFunction(
+                      loader,
+                      [Value(name)],
+                    );
+
+                    // Store in loaded table
+                    loadedMap[name] = moduleResult ?? Value(true);
+                    return loadedMap[name];
+                  }
+                }
+              } catch (e) {
+                // Continue to next searcher
+                continue;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    throw Exception("module '$name' not found");
+  }
+}
+
+void definePackageLibrary({required Environment env, Interpreter? astVm}) {
   final packageLib = PackageLib(astVm ?? Interpreter());
 
   // Create package table with metamethods
@@ -439,7 +536,7 @@ void definePackageLibrary({
       final path = packageTable['path'] as Value;
 
       try {
-        final searcher = _SearchPath(packageLib.fileManager);
+        final searcher = _SearchPath(packageLib.fileManager, astVm);
         final filename = searcher.call([Value(name), path]);
 
         if (filename is Value && filename.raw != null) {

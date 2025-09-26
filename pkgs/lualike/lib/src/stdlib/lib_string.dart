@@ -5,36 +5,43 @@ import 'dart:typed_data';
 
 import 'package:collection/collection.dart' show ListEquality;
 import 'package:lualike/lualike.dart';
-import 'package:lualike/src/bytecode/vm.dart';
+import 'package:lualike/src/binary_type_size.dart';
 import 'package:lualike/src/chunk_serializer.dart';
+import 'package:lualike/src/intern.dart';
 import 'package:lualike/src/number_limits.dart';
 import 'package:lualike/src/parsers/pattern.dart' as lpc;
-import 'package:lualike/src/binary_type_size.dart';
 import 'package:lualike/src/stdlib/lib_utf8.dart' show UTF8Lib;
 
-/// String interning cache for short strings (Lua-like behavior)
-/// In Lua, short strings are typically internalized while long strings are not
-class StringInterning {
-  static const int shortStringThreshold = 40; // Lua 5.4 uses 40 characters
-  static final Map<String, LuaString> _internCache = <String, LuaString>{};
+import 'library.dart';
 
-  /// Creates or retrieves an interned LuaString
-  static LuaString intern(String content) {
-    // Only intern short strings
-    if (content.length <= shortStringThreshold) {
-      return _internCache.putIfAbsent(
-        content,
-        () => LuaString.fromDartString(content),
-      );
-    } else {
-      // Long strings are not interned - always create new instances
-      return LuaString.fromDartString(content);
-    }
-  }
+/// String library implementation using the new Library system
+class StringLibrary extends Library {
+  @override
+  String get name => "string";
 
-  /// Creates a Value with proper string interning
-  static Value createStringValue(String content) {
-    return Value(intern(content));
+  // Metamethods for string values are handled in metatables.dart
+  // This library only provides the string table functions
+
+  @override
+  void registerFunctions(LibraryRegistrationContext context) {
+    // Register all string functions directly
+    context.define("byte", _StringByte(interpreter));
+    context.define("char", _StringChar(interpreter));
+    context.define("dump", _StringDump(interpreter));
+    context.define("find", _StringFind(interpreter));
+    context.define("format", _StringFormat(interpreter));
+    context.define("gmatch", _StringGmatch(interpreter));
+    context.define("gsub", _StringGsub(interpreter));
+    context.define("len", _StringLen(interpreter));
+    context.define("lower", _StringLower(interpreter));
+    context.define("match", _StringMatch(interpreter));
+    context.define("pack", _StringPack(interpreter));
+    context.define("packsize", _StringPackSize(interpreter));
+    context.define("rep", _StringRep(interpreter));
+    context.define("reverse", _StringReverse(interpreter));
+    context.define("sub", _StringSub(interpreter));
+    context.define("unpack", _StringUnpack(interpreter));
+    context.define("upper", _StringUpper(interpreter));
   }
 }
 
@@ -50,29 +57,11 @@ class StringLib {
       return Value(a.raw.toString() + b.raw.toString());
     },
   });
-
-  static final Map<String, dynamic> functions = {
-    "byte": Value(_StringByte()),
-    "char": Value(_StringChar()),
-    "dump": Value(_StringDump()),
-    "find": Value(_StringFind()),
-    "format": Value(_StringFormat()),
-    "gmatch": Value(_StringGmatch()),
-    "gsub": Value(_StringGsub()),
-    "len": Value(_StringLen()),
-    "lower": Value(_StringLower()),
-    "match": Value(_StringMatch()),
-    "pack": Value(_StringPack()),
-    "packsize": Value(_StringPackSize()),
-    "rep": Value(_StringRep()),
-    "reverse": Value(_StringReverse()),
-    "sub": Value(_StringSub()),
-    "unpack": Value(_StringUnpack()),
-    "upper": Value(_StringUpper()),
-  };
 }
 
-class _StringByte implements BuiltinFunction {
+class _StringByte extends BuiltinFunction {
+  _StringByte([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -111,7 +100,9 @@ class _StringByte implements BuiltinFunction {
   }
 }
 
-class _StringChar implements BuiltinFunction {
+class _StringChar extends BuiltinFunction {
+  _StringChar([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     final bytes = <int>[];
@@ -131,7 +122,9 @@ class _StringChar implements BuiltinFunction {
   }
 }
 
-class _StringDump implements BuiltinFunction {
+class _StringDump extends BuiltinFunction {
+  _StringDump([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -201,7 +194,9 @@ class _StringDump implements BuiltinFunction {
   }
 }
 
-class _StringFind implements BuiltinFunction {
+class _StringFind extends BuiltinFunction {
+  _StringFind([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.length < 2) {
@@ -413,25 +408,28 @@ LuaString _formatCharacter(_FormatContext ctx) {
 }
 
 String _formatPointer(_FormatContext ctx) {
-  String ptr;
-  final v = ctx.value;
+  dynamic raw = ctx.value is Value ? (ctx.value as Value).raw : ctx.value;
 
-  // Extract raw value if it's a Value object
-  final rawValue = v is Value ? v.raw : v;
-
-  if (rawValue == null || rawValue is num || rawValue is bool) {
-    ptr = '(null)';
-  } else if (rawValue is LuaString) {
-    // For LuaString objects, use the identity of the LuaString itself
-    // This enables proper pointer equality for interned strings
-    ptr = identityHashCode(rawValue).toRadixString(16);
-  } else {
-    // For other objects, use identityHashCode of the Value object itself for unique identification
-    ptr = identityHashCode(v).toRadixString(16);
+  // Scalars → "(null)"
+  if (raw == null || raw is num || raw is bool) {
+    return _applyPadding('(null)', ctx);
   }
 
-  ptr = _applyPadding(ptr, ctx);
-  return ptr;
+  int id;
+
+  // Short strings (≤ 40 bytes) must share the same pointer when their
+  // contents are equal, no matter if they are different objects.
+  if (raw is String && raw.length <= 40) {
+    id = raw.hashCode; // content hash is enough
+  } else if (raw is LuaString && raw.length <= 40) {
+    id = const ListEquality<int>().hash(raw.bytes);
+  } else {
+    // Other collectable objects: use identity
+    id = identityHashCode(raw);
+  }
+
+  final ptr = '0x${id.toUnsigned(32).toRadixString(16)}';
+  return _applyPadding(ptr, ctx);
 }
 
 // Helper function to format large numbers with high precision using NumberUtils approach
@@ -771,6 +769,7 @@ class _FormatContext {
   final String specifier;
 
   int get widthValue => width.isEmpty ? 0 : int.parse(width);
+
   int get precisionValue {
     if (precision.isEmpty) {
       return 6; // Default precision
@@ -785,9 +784,13 @@ class _FormatContext {
   }
 
   bool get leftAlign => flags.contains('-');
+
   bool get showSign => flags.contains('+');
+
   bool get spacePrefix => flags.contains(' ');
+
   bool get zeroPad => flags.contains('0');
+
   bool get alternative => flags.contains('#');
 
   _FormatContext({
@@ -891,7 +894,9 @@ LuaString _formatQuoted(_FormatContext ctx) {
   }
 }
 
-class _StringFormat implements BuiltinFunction {
+class _StringFormat extends BuiltinFunction {
+  _StringFormat([super.interpreter]);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -1084,7 +1089,9 @@ class _StringFormat implements BuiltinFunction {
   }
 }
 
-class _StringGmatch implements BuiltinFunction {
+class _StringGmatch extends BuiltinFunction {
+  _StringGmatch([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.length < 2) {
@@ -1265,7 +1272,9 @@ class _StringGmatch implements BuiltinFunction {
   }
 }
 
-class _StringGsub implements BuiltinFunction {
+class _StringGsub extends BuiltinFunction {
+  _StringGsub([super.interpreter]);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 3) {
@@ -1318,7 +1327,7 @@ class _StringGsub implements BuiltinFunction {
               replacement = await replacement;
             }
           } on TailCallException catch (t) {
-            final vm = Environment.current?.interpreter;
+            final vm = interpreter;
             if (vm == null) rethrow;
             final callee = t.functionValue is Value
                 ? t.functionValue as Value
@@ -1433,7 +1442,9 @@ class _StringGsub implements BuiltinFunction {
   }
 }
 
-class _StringLen implements BuiltinFunction {
+class _StringLen extends BuiltinFunction {
+  _StringLen([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -1450,7 +1461,9 @@ class _StringLen implements BuiltinFunction {
   }
 }
 
-class _StringLower implements BuiltinFunction {
+class _StringLower extends BuiltinFunction {
+  _StringLower([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -1491,7 +1504,9 @@ class _StringLower implements BuiltinFunction {
   }
 }
 
-class _StringMatch implements BuiltinFunction {
+class _StringMatch extends BuiltinFunction {
+  _StringMatch([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.length < 2) {
@@ -1546,7 +1561,9 @@ class _StringMatch implements BuiltinFunction {
   }
 }
 
-class _StringRep implements BuiltinFunction {
+class _StringRep extends BuiltinFunction {
+  _StringRep([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.length < 2) {
@@ -1639,7 +1656,9 @@ class _StringRep implements BuiltinFunction {
   }
 }
 
-class _StringReverse implements BuiltinFunction {
+class _StringReverse extends BuiltinFunction {
+  _StringReverse([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -1658,7 +1677,9 @@ class _StringReverse implements BuiltinFunction {
   }
 }
 
-class _StringSub implements BuiltinFunction {
+class _StringSub extends BuiltinFunction {
+  _StringSub([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -1705,7 +1726,9 @@ class _StringSub implements BuiltinFunction {
   }
 }
 
-class _StringPack implements BuiltinFunction {
+class _StringPack extends BuiltinFunction {
+  _StringPack([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -2049,7 +2072,9 @@ List<int> _packInt(BigInt value, int size, Endian endianness) {
   return bytes;
 }
 
-class _StringPackSize implements BuiltinFunction {
+class _StringPackSize extends BuiltinFunction {
+  _StringPackSize([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -2222,7 +2247,9 @@ class _StringPackSize implements BuiltinFunction {
   }
 }
 
-class _StringUnpack implements BuiltinFunction {
+class _StringUnpack extends BuiltinFunction {
+  _StringUnpack([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.length < 2) {
@@ -2584,7 +2611,9 @@ BigInt _unpackBigInt(List<int> bytes, int offset, int size, Endian endianness) {
   return value;
 }
 
-class _StringUpper implements BuiltinFunction {
+class _StringUpper extends BuiltinFunction {
+  _StringUpper([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -2696,20 +2725,4 @@ String _formatGeneral(_FormatContext ctx, bool uppercase) {
   }
 
   return _applyPadding(result, ctx);
-}
-
-void defineStringLibrary({
-  required Environment env,
-  Interpreter? astVm,
-  BytecodeVM? bytecodeVm,
-}) {
-  final stringTable = <String, dynamic>{};
-  StringLib.functions.forEach((key, value) {
-    stringTable[key] = value;
-  });
-
-  env.define(
-    "string",
-    Value(StringLib.functions, metatable: StringLib.stringClass.metamethods),
-  );
 }

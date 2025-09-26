@@ -1,8 +1,58 @@
 import 'package:lualike/lualike.dart';
-import 'package:lualike/src/bytecode/vm.dart';
+
 import 'package:lualike/src/utils/type.dart';
+import 'library.dart';
 
 import '../number_limits.dart';
+
+/// Table library implementation using the new Library system
+class TableLibrary extends Library {
+  @override
+  String get name => "table";
+
+  @override
+  Map<String, Function>? getMetamethods(Interpreter interpreter) => {
+    "__index": (List<Object?> args) {
+      final _ = args[0] as Value;
+      final key = args[1] as Value;
+
+      // Convert key to string if needed
+      final keyStr = key.raw is String ? key.raw as String : key.toString();
+
+      // Return the function from our registry if it exists
+      switch (keyStr) {
+        case "concat":
+          return _TableConcat();
+        case "insert":
+          return _TableInsert();
+        case "move":
+          return _TableMove();
+        case "pack":
+          return _TablePack();
+        case "remove":
+          return _TableRemove();
+        case "sort":
+          return _TableSort();
+        case "unpack":
+          return _TableUnpack();
+        default:
+          return Value(null);
+      }
+    },
+  };
+
+  @override
+  void registerFunctions(LibraryRegistrationContext context) {
+    // Register all table functions directly
+    context.define("insert", _TableInsert());
+    context.define("remove", _TableRemove());
+    context.define("concat", _TableConcat());
+    context.define("move", _TableMove());
+    context.define("pack", _TablePack());
+    context.define("sort", _TableSort());
+    context.define("unpack", _TableUnpack());
+  }
+}
 
 class TablePermission {
   static const int read = 1;
@@ -198,10 +248,6 @@ int _getTableLength(Map map) {
 }
 
 class TableLib {
-  static final ValueClass tableClass = ValueClass.create({
-    // Do not override __len here; '#t' should use Lua's array boundary rule
-  });
-
   static final Map<String, BuiltinFunction> functions = {
     "insert": _TableInsert(),
     "remove": _TableRemove(),
@@ -213,7 +259,8 @@ class TableLib {
   };
 }
 
-class _TableInsert implements BuiltinFunction {
+class _TableInsert extends BuiltinFunction {
+  _TableInsert() : super();
   @override
   Object? call(List<Object?> args) async {
     // Lua: table.insert(table, [pos,] value)
@@ -283,7 +330,8 @@ class _TableInsert implements BuiltinFunction {
   }
 }
 
-class _TableRemove implements BuiltinFunction {
+class _TableRemove extends BuiltinFunction {
+  _TableRemove() : super();
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -311,7 +359,8 @@ class _TableRemove implements BuiltinFunction {
   }
 }
 
-class _TableConcat implements BuiltinFunction {
+class _TableConcat extends BuiltinFunction {
+  _TableConcat() : super();
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -359,7 +408,8 @@ class _TableConcat implements BuiltinFunction {
   }
 }
 
-class _TableMove implements BuiltinFunction {
+class _TableMove extends BuiltinFunction {
+  _TableMove() : super();
   @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debug("_TableMove: Starting with ${args.length} args");
@@ -462,7 +512,8 @@ class _TableMove implements BuiltinFunction {
   }
 }
 
-class _TableSort implements BuiltinFunction {
+class _TableSort extends BuiltinFunction {
+  _TableSort() : super();
   @override
   Object? call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -887,7 +938,8 @@ class _TableSort implements BuiltinFunction {
   // Partition function (similar to C implementation)
 }
 
-class _TablePack implements BuiltinFunction {
+class _TablePack extends BuiltinFunction {
+  _TablePack() : super();
   @override
   Object? call(List<Object?> args) {
     final table = <dynamic, dynamic>{};
@@ -899,7 +951,8 @@ class _TablePack implements BuiltinFunction {
   }
 }
 
-class _TableUnpack implements BuiltinFunction {
+class _TableUnpack extends BuiltinFunction {
+  _TableUnpack() : super();
   @override
   Object? call(List<Object?> args) async {
     Logger.debug("_TableUnpack: Starting unpack with ${args.length} args");
@@ -1031,19 +1084,4 @@ class _TableUnpack implements BuiltinFunction {
     if (result.length == 1) return result[0];
     return Value.multi(result);
   }
-}
-
-void defineTableLibrary({
-  required Environment env,
-  Interpreter? astVm,
-  BytecodeVM? bytecodeVm,
-}) {
-  final tableTable = <String, dynamic>{};
-  TableLib.functions.forEach((key, value) {
-    tableTable[key] = value;
-  });
-  env.define(
-    "table",
-    Value(tableTable, metatable: TableLib.tableClass.metamethods),
-  );
 }

@@ -6,12 +6,30 @@ import 'package:crypto/crypto.dart';
 import 'package:pointycastle/export.dart' as pc;
 import 'package:convert/convert.dart' show hex;
 import 'package:lualike/src/builtin_function.dart';
-import 'package:lualike/src/environment.dart';
-import 'package:lualike/src/interpreter/interpreter.dart';
-import 'package:lualike/src/bytecode/vm.dart' show BytecodeVM;
+
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/value.dart';
 import 'package:lualike/src/lua_string.dart';
+import 'library.dart';
+
+/// Crypto library implementation using the new Library system
+class CryptoLibrary extends Library {
+  @override
+  String get name => "crypto";
+
+  @override
+  void registerFunctions(LibraryRegistrationContext context) {
+    // Register all crypto functions directly
+    context.define('md5', _HashFunction(md5, interpreter!));
+    context.define('sha1', _HashFunction(sha1, interpreter!));
+    context.define('sha256', _HashFunction(sha256, interpreter!));
+    context.define('sha512', _HashFunction(sha512, interpreter!));
+    context.define('hmac', HmacFunction(interpreter!));
+    context.define('randomBytes', RandomBytesFunction(interpreter!));
+    context.define('aesEncrypt', _AesCbcFunction(true, interpreter!));
+    context.define('aesDecrypt', _AesCbcFunction(false, interpreter!));
+  }
+}
 
 Uint8List _toBytes(Value value) {
   final raw = value.raw;
@@ -35,35 +53,10 @@ Uint8List _toBytes(Value value) {
   throw LuaError('Expected a string, Uint8List, or a table of integers');
 }
 
-class DartCryptoLib {
-  static final Map<String, BuiltinFunction> functions = {
-    'md5': _HashFunction(md5),
-    'sha1': _HashFunction(sha1),
-    'sha256': _HashFunction(sha256),
-    'sha512': _HashFunction(sha512),
-    'hmac': HmacFunction(),
-    'randomBytes': RandomBytesFunction(),
-    'aesEncrypt': _AesCbcFunction(true),
-    'aesDecrypt': _AesCbcFunction(false),
-  };
-}
-
-void defineCryptoLibrary({
-  required Environment env,
-  Interpreter? astVm,
-  BytecodeVM? bytecodeVm,
-}) {
-  final cryptoTable = <String, dynamic>{};
-  DartCryptoLib.functions.forEach((key, value) {
-    cryptoTable[key] = value;
-  });
-  env.define('crypto', Value(cryptoTable));
-}
-
-class _HashFunction implements BuiltinFunction {
+class _HashFunction extends BuiltinFunction {
   final Hash _hash;
 
-  _HashFunction(this._hash);
+  _HashFunction(this._hash, super.interpreter);
 
   @override
   Future<Object?> call(List<Object?> args) async {
@@ -76,7 +69,8 @@ class _HashFunction implements BuiltinFunction {
   }
 }
 
-class HmacFunction implements BuiltinFunction {
+class HmacFunction extends BuiltinFunction {
+  HmacFunction(super.interpreter);
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 3) {
@@ -100,7 +94,8 @@ class HmacFunction implements BuiltinFunction {
   }
 }
 
-class RandomBytesFunction implements BuiltinFunction {
+class RandomBytesFunction extends BuiltinFunction {
+  RandomBytesFunction(super.interpreter);
   final _secureRandom = Random.secure();
 
   @override
@@ -120,10 +115,10 @@ class RandomBytesFunction implements BuiltinFunction {
   }
 }
 
-class _AesCbcFunction implements BuiltinFunction {
+class _AesCbcFunction extends BuiltinFunction {
   final bool _encrypt;
 
-  _AesCbcFunction(this._encrypt);
+  _AesCbcFunction(this._encrypt, super.interpreter);
 
   @override
   Future<Object?> call(List<Object?> args) async {

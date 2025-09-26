@@ -4,8 +4,9 @@ import 'dart:typed_data';
 import 'package:lualike/src/chunk_serializer.dart';
 
 import 'package:lualike/lualike.dart';
-import 'package:lualike/src/bytecode/vm.dart';
+
 import 'package:lualike/src/const_checker.dart';
+import 'package:lualike/src/io/lua_file.dart';
 import 'package:lualike/src/upvalue.dart';
 import 'package:lualike/src/interpreter/upvalue_analyzer.dart';
 import 'package:lualike/src/utils/file_system_utils.dart';
@@ -14,9 +15,70 @@ import 'package:path/path.dart' as path;
 import 'package:source_span/source_span.dart';
 
 import 'lib_io.dart';
+import 'library.dart';
+
+/// Base library implementation using the new Library system
+/// Note: Base functions are global, so they don't have a namespace
+class BaseLibrary extends Library {
+  @override
+  String get name => ""; // Empty name means global functions
+
+  @override
+  void registerFunctions(LibraryRegistrationContext context) {
+    final interpreter = context.vm;
+    if (interpreter == null) {
+      throw StateError('Base library requires interpreter instance');
+    }
+
+    final packageVal = context.environment.get('package') as Value?;
+
+    // Register all base library functions
+    context.define("assert", AssertFunction(interpreter));
+    context.define("error", ErrorFunction(interpreter));
+    context.define("ipairs", IPairsFunction(interpreter));
+    context.define("pairs", PairsFunction(interpreter));
+    context.define("collectgarbage", CollectGarbageFunction(interpreter));
+    context.define("rawget", RawGetFunction(interpreter));
+    context.define("print", PrintFunction(interpreter));
+    context.define("type", TypeFunction(interpreter));
+    context.define("tonumber", ToNumberFunction(interpreter));
+    context.define("tostring", ToStringFunction(interpreter));
+    context.define("select", SelectFunction(interpreter));
+
+    // File operations
+    context.define("dofile", DoFileFunction(interpreter));
+    context.define("load", LoadFunction(interpreter));
+    context.define("loadfile", LoadfileFunction(interpreter));
+    if (packageVal != null) {
+      context.define("require", RequireFunction(interpreter, packageVal));
+    }
+
+    // Table operations
+    context.define("next", NextFunction(interpreter));
+    context.define("rawequal", RawEqualFunction(interpreter));
+    context.define("rawlen", RawLenFunction(interpreter));
+    context.define("rawset", RawSetFunction(interpreter));
+
+    // Protected calls
+    context.define("pcall", PCAllFunction(interpreter));
+    context.define("xpcall", XPCallFunction(interpreter));
+
+    // Metatables
+    context.define("getmetatable", GetMetatableFunction(interpreter));
+    context.define("setmetatable", SetMetatableFunction(interpreter));
+
+    // Miscellaneous
+    context.define("warn", WarnFunction(interpreter));
+
+    // Global variables
+    context.define("_VERSION", Value("LuaLike 0.1"));
+  }
+}
 
 /// Built-in function to retrieve the metatable of a value.
-class GetMetatableFunction implements BuiltinFunction {
+class GetMetatableFunction extends BuiltinFunction {
+  GetMetatableFunction(super.interpreter);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -50,7 +112,9 @@ class GetMetatableFunction implements BuiltinFunction {
 
 /// Built-in function to set the metatable of a table value.
 /// Only values wrapping a Map (table) can have a metatable set.
-class SetMetatableFunction implements BuiltinFunction {
+class SetMetatableFunction extends BuiltinFunction {
+  SetMetatableFunction(super.interpreter);
+
   @override
   Object? call(List<Object?> args) {
     if (args.length != 2) {
@@ -94,7 +158,9 @@ class SetMetatableFunction implements BuiltinFunction {
 }
 
 /// Built-in function to set a table field without invoking metamethods.
-class RawSetFunction implements BuiltinFunction {
+class RawSetFunction extends BuiltinFunction {
+  RawSetFunction(super.interpreter);
+
   @override
   Object? call(List<Object?> args) {
     if (args.length < 3) {
@@ -135,10 +201,8 @@ class RawSetFunction implements BuiltinFunction {
   }
 }
 
-class AssertFunction implements BuiltinFunction {
-  final Interpreter? vm;
-
-  AssertFunction([this.vm]);
+class AssertFunction extends BuiltinFunction {
+  AssertFunction(super.interpreter);
 
   @override
   Object? call(List<Object?> args) {
@@ -171,8 +235,11 @@ class AssertFunction implements BuiltinFunction {
         'AssertFunction: Assertion failed with message: $message',
         category: 'Base',
       );
-      if (vm?.callStack.current?.callNode != null) {
-        throw LuaError.fromNode(vm!.callStack.current!.callNode!, message);
+      if (interpreter?.callStack.current?.callNode != null) {
+        throw LuaError.fromNode(
+          interpreter!.callStack.current!.callNode!,
+          message,
+        );
       }
       throw LuaError(message);
     }
@@ -195,10 +262,8 @@ class AssertFunction implements BuiltinFunction {
 // Static flag to track if an error is already being reported
 bool _errorReporting = false;
 
-class ErrorFunction implements BuiltinFunction {
-  final Interpreter? vm;
-
-  ErrorFunction([this.vm]);
+class ErrorFunction extends BuiltinFunction {
+  ErrorFunction(super.interpreter);
 
   @override
   Object? call(List<Object?> args) {
@@ -211,7 +276,7 @@ class ErrorFunction implements BuiltinFunction {
     final errorValue = args[0] as Value;
 
     // If we're in a protected call (pcall/xpcall), always throw the Value directly
-    if (vm != null && vm!.isInProtectedCall) {
+    if (interpreter != null && interpreter!.isInProtectedCall) {
       throw errorValue;
     }
 
@@ -221,7 +286,6 @@ class ErrorFunction implements BuiltinFunction {
     }
 
     final message = errorValue.raw.toString();
-    final level = args.length > 1 ? (args[1] as Value).raw as int : 1;
 
     // If we're already reporting an error, just throw the exception
     // without calling reportError again
@@ -233,43 +297,10 @@ class ErrorFunction implements BuiltinFunction {
     _errorReporting = true;
 
     try {
-      // If we have access to the VM, use its call stack for better error reporting
-      if (vm != null) {
-        // Let the VM handle the error reporting with proper stack trace
-        vm!.reportError(message);
-        // This will never be reached, but needed for type safety
-        throw Exception(message);
-      } else {
-        // Get the current script path if available
-        String scriptPath = "unknown";
-        if (vm != null) {
-          // Try to get the script path from the environment first
-          final scriptPathValue = vm!.globals.get('_SCRIPT_PATH');
-          if (scriptPathValue is Value && scriptPathValue.raw != null) {
-            scriptPath = scriptPathValue.raw.toString();
-          } else if (vm!.currentScriptPath != null) {
-            scriptPath = vm!.currentScriptPath!;
-          }
-
-          // Extract just the filename for display, like Lua does
-          scriptPath = scriptPath.split('/').last;
-        }
-
-        // Format error message like Lua CLI
-        final errorMsg = "$scriptPath: $message";
-
-        // Generate a simple stack trace based on level
-        final trace = StringBuffer(errorMsg);
-        if (level > 0) {
-          trace.writeln();
-          trace.writeln("stack traceback:");
-          for (var i = 0; i < level; i++) {
-            trace.writeln("\t$scriptPath:${i + 1}: in function '?'");
-          }
-        }
-
-        throw Exception(trace.toString());
-      }
+      // Let the interpreter handle the error reporting with proper stack trace
+      interpreter!.reportError(message);
+      // This will never be reached, but needed for type safety
+      throw Exception(message);
     } finally {
       // Reset the flag
       _errorReporting = false;
@@ -277,7 +308,9 @@ class ErrorFunction implements BuiltinFunction {
   }
 }
 
-class IPairsFunction implements BuiltinFunction {
+class IPairsFunction extends BuiltinFunction {
+  IPairsFunction(super.interpreter);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) throw Exception("ipairs requires a table");
@@ -368,7 +401,9 @@ class IPairsFunction implements BuiltinFunction {
   }
 }
 
-class PrintFunction implements BuiltinFunction {
+class PrintFunction extends BuiltinFunction {
+  PrintFunction(super.interpreter);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     final outputs = <String>[];
@@ -413,12 +448,16 @@ class PrintFunction implements BuiltinFunction {
     }
 
     final output = outputs.join("\t");
-    await IOLib.defaultOutput.write("$output\n");
+    final defaultOutput = IOLib.defaultOutput;
+    final luaFile = defaultOutput.raw as LuaFile;
+    await luaFile.write("$output\n");
     return null;
   }
 }
 
-class TypeFunction implements BuiltinFunction {
+class TypeFunction extends BuiltinFunction {
+  TypeFunction(super.interpreter);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) throw Exception("type requires an argument");
@@ -428,7 +467,9 @@ class TypeFunction implements BuiltinFunction {
   }
 }
 
-class ToNumberFunction implements BuiltinFunction {
+class ToNumberFunction extends BuiltinFunction {
+  ToNumberFunction(super.interpreter);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -480,7 +521,9 @@ class ToNumberFunction implements BuiltinFunction {
   }
 }
 
-class ToStringFunction implements BuiltinFunction {
+class ToStringFunction extends BuiltinFunction {
+  ToStringFunction(super.interpreter);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) throw Exception("tostring requires an argument");
@@ -556,7 +599,9 @@ class ToStringFunction implements BuiltinFunction {
   }
 }
 
-class SelectFunction implements BuiltinFunction {
+class SelectFunction extends BuiltinFunction {
+  SelectFunction(super.interpreter);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) throw Exception("select requires at least one argument");
@@ -598,10 +643,8 @@ class SelectFunction implements BuiltinFunction {
   }
 }
 
-class LoadFunction implements BuiltinFunction {
-  final Interpreter vm;
-
-  LoadFunction(this.vm);
+class LoadFunction extends BuiltinFunction {
+  LoadFunction(super.interpreter);
 
   @override
   Future<Object?> call(List<Object?> args) async {
@@ -709,7 +752,7 @@ class LoadFunction implements BuiltinFunction {
         while (true) {
           Object? chunk;
           try {
-            chunk = await vm.callFunction(readerVal, const []);
+            chunk = await interpreter!.callFunction(readerVal, const []);
           } catch (e) {
             // If reader function throws an error, return it as load error
             String errorMsg = e.toString();
@@ -970,14 +1013,14 @@ class LoadFunction implements BuiltinFunction {
           (List<Object?> callArgs) async {
             try {
               // Save the current environment
-              final savedEnv = vm.getCurrentEnv();
+              final savedEnv = interpreter!.getCurrentEnv();
 
               // Set up environment for AST evaluation
               final Environment loadEnv;
               if (providedEnv != null) {
                 loadEnv = Environment(
                   parent: null,
-                  interpreter: vm,
+                  interpreter: interpreter!,
                   isLoadIsolated: true,
                 );
                 final gValue =
@@ -985,7 +1028,10 @@ class LoadFunction implements BuiltinFunction {
                 loadEnv.declare('_ENV', providedEnv);
                 loadEnv.declare('_G', gValue);
               } else {
-                loadEnv = Environment(parent: savedEnv.root, interpreter: vm);
+                loadEnv = Environment(
+                  parent: savedEnv.root,
+                  interpreter: interpreter!,
+                );
                 final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G');
                 if (gValue is Value) {
                   loadEnv.declare('_ENV', gValue);
@@ -995,28 +1041,29 @@ class LoadFunction implements BuiltinFunction {
               // Set up varargs in the load environment
               loadEnv.declare("...", Value.multi(callArgs));
 
-              vm.setCurrentEnv(loadEnv);
-              final prevPath = vm.currentScriptPath;
-              vm.currentScriptPath = chunkname;
-              vm.callStack.setScriptPath(chunkname);
+              interpreter!.setCurrentEnv(loadEnv);
+              final prevPath = interpreter!.currentScriptPath;
+              interpreter!.currentScriptPath = chunkname;
+              interpreter!.callStack.setScriptPath(chunkname);
 
               try {
                 // For string.dump functions, we want to execute the function and return its results
                 if (directASTNode is FunctionBody) {
                   // Create a function value from the AST that will inherit upvalues
-                  final funcValue = await directASTNode.accept(vm) as Value;
+                  final funcValue =
+                      await directASTNode.accept(interpreter!) as Value;
                   if (funcValue.raw is Function) {
-                    return await vm.callFunction(funcValue, callArgs);
+                    return await interpreter!.callFunction(funcValue, callArgs);
                   } else {
                     return funcValue;
                   }
                 } else {
                   // For other AST nodes, evaluate directly
-                  return await directASTNode!.accept(vm);
+                  return await directASTNode!.accept(interpreter!);
                 }
               } finally {
-                vm.setCurrentEnv(savedEnv);
-                vm.currentScriptPath = prevPath;
+                interpreter!.setCurrentEnv(savedEnv);
+                interpreter!.currentScriptPath = prevPath;
               }
             } on ReturnException catch (e) {
               return e.value;
@@ -1027,7 +1074,7 @@ class LoadFunction implements BuiltinFunction {
               final normalizedArgs = t.args
                   .map((a) => a is Value ? a : Value(a))
                   .toList();
-              return await vm.callFunction(callee, normalizedArgs);
+              return await interpreter!.callFunction(callee, normalizedArgs);
             } catch (e) {
               throw LuaError("Error executing AST chunk '$chunkname': $e");
             }
@@ -1041,8 +1088,11 @@ class LoadFunction implements BuiltinFunction {
         // This ensures upvalues can be set on the actual function that gets executed
         if (hasDirectAST && directASTNode is FunctionBody) {
           // Create and return the function directly from the AST
-          final savedEnv = vm.getCurrentEnv();
-          final loadEnv = Environment(parent: savedEnv.root, interpreter: vm);
+          final savedEnv = interpreter!.getCurrentEnv();
+          final loadEnv = Environment(
+            parent: savedEnv.root,
+            interpreter: interpreter!,
+          );
 
           // Set up the environment for function creation to preserve provided _ENV semantics
           if (providedEnv != null) {
@@ -1063,10 +1113,11 @@ class LoadFunction implements BuiltinFunction {
           // Note: When no environment is provided (providedEnv == null), we don't set up _ENV.
           // This preserves the existing behavior for upvalue tests and other binary chunk usage.
 
-          vm.setCurrentEnv(loadEnv);
+          interpreter!.setCurrentEnv(loadEnv);
           try {
             final functionBody = directASTNode;
-            final directFunction = await functionBody.accept(vm) as Value;
+            final directFunction =
+                await functionBody.accept(interpreter!) as Value;
 
             // Initialize upvalues for this function using original upvalue names
             directFunction.upvalues = [];
@@ -1107,7 +1158,7 @@ class LoadFunction implements BuiltinFunction {
 
             return directFunction;
           } finally {
-            vm.setCurrentEnv(savedEnv);
+            interpreter!.setCurrentEnv(savedEnv);
           }
         }
       } else {
@@ -1115,7 +1166,7 @@ class LoadFunction implements BuiltinFunction {
         result = Value((List<Object?> callArgs) async {
           try {
             // Save the current environment
-            final savedEnv = vm.getCurrentEnv();
+            final savedEnv = interpreter!.getCurrentEnv();
 
             // Create a new environment for the loaded code
             final Environment loadEnv;
@@ -1124,7 +1175,7 @@ class LoadFunction implements BuiltinFunction {
               // This prevents access to local variables from calling scope
               loadEnv = Environment(
                 parent: null,
-                interpreter: vm,
+                interpreter: interpreter!,
                 isLoadIsolated: true,
               );
               Logger.debug(
@@ -1147,7 +1198,7 @@ class LoadFunction implements BuiltinFunction {
               // that only has access to the global _G table, not the local calling scope
               loadEnv = Environment(
                 parent: null,
-                interpreter: vm,
+                interpreter: interpreter,
                 isLoadIsolated: true,
               );
 
@@ -1167,27 +1218,27 @@ class LoadFunction implements BuiltinFunction {
               "LoadFunction: Switching to load environment ${loadEnv.hashCode}",
               category: 'Load',
             );
-            vm.setCurrentEnv(loadEnv);
+            interpreter!.setCurrentEnv(loadEnv);
             Logger.debug(
-              "LoadFunction: Environment switched, current env is now ${vm.getCurrentEnv().hashCode}",
+              "LoadFunction: Environment switched, current env is now ${interpreter!.getCurrentEnv().hashCode}",
               category: 'Load',
             );
 
             // Set script path for debug.getinfo and error reporting
-            final prevPath = vm.currentScriptPath;
+            final prevPath = interpreter!.currentScriptPath;
             final normalizedChunk = chunkname;
-            vm.currentScriptPath = normalizedChunk;
-            vm.callStack.setScriptPath(normalizedChunk);
+            interpreter!.currentScriptPath = normalizedChunk;
+            interpreter!.callStack.setScriptPath(normalizedChunk);
             loadEnv.declare('_SCRIPT_PATH', Value(normalizedChunk));
 
             try {
               Logger.debug(
-                "LoadFunction: About to execute code in environment ${vm.getCurrentEnv().hashCode}",
+                "LoadFunction: About to execute code in environment ${interpreter!.getCurrentEnv().hashCode}",
                 category: 'Load',
               );
-              final result = await vm.run(ast.statements);
+              final result = await interpreter!.run(ast.statements);
               Logger.debug(
-                "LoadFunction: Code execution completed in environment ${vm.getCurrentEnv().hashCode}",
+                "LoadFunction: Code execution completed in environment ${interpreter!.getCurrentEnv().hashCode}",
                 category: 'Load',
               );
 
@@ -1221,8 +1272,8 @@ class LoadFunction implements BuiltinFunction {
                 "LoadFunction: Restoring previous environment ${savedEnv.hashCode}",
                 category: 'Load',
               );
-              vm.setCurrentEnv(savedEnv);
-              vm.currentScriptPath = prevPath;
+              interpreter!.setCurrentEnv(savedEnv);
+              interpreter!.currentScriptPath = prevPath;
             }
           } on ReturnException catch (e) {
             // return statements inside the loaded chunk should just
@@ -1237,7 +1288,7 @@ class LoadFunction implements BuiltinFunction {
             final normalizedArgs = t.args
                 .map((a) => a is Value ? a : Value(a))
                 .toList();
-            return await vm.callFunction(callee, normalizedArgs);
+            return await interpreter!.callFunction(callee, normalizedArgs);
           } catch (e) {
             throw LuaError("Error executing loaded chunk '$chunkname': $e");
           }
@@ -1247,7 +1298,7 @@ class LoadFunction implements BuiltinFunction {
       // For loaded functions, we need to ensure _ENV is available as an upvalue
       // since they typically access globals. This simulates Lua's behavior where
       // loaded chunks have _ENV as an upvalue for global access.
-      final currentEnv = vm.getCurrentEnv();
+      final currentEnv = interpreter!.getCurrentEnv();
       final upvalues = <Upvalue>[];
 
       // Use preserved upvalue values if available (from string.dump functions)
@@ -1283,7 +1334,7 @@ class LoadFunction implements BuiltinFunction {
 
       result.upvalues = upvalues;
 
-      result.interpreter = vm;
+      result.interpreter = interpreter!;
       return result;
     } catch (e) {
       // For FormatException, return just the message without prefix
@@ -1296,10 +1347,8 @@ class LoadFunction implements BuiltinFunction {
   }
 }
 
-class DoFileFunction implements BuiltinFunction {
-  final Interpreter vm;
-
-  DoFileFunction(this.vm);
+class DoFileFunction extends BuiltinFunction {
+  DoFileFunction(super.interpreter);
 
   @override
   Future<Object?> call(List<Object?> args) async {
@@ -1307,7 +1356,7 @@ class DoFileFunction implements BuiltinFunction {
     final filename = (args[0] as Value).raw.toString();
 
     // Load source using FileManager
-    final source = await vm.fileManager.loadSource(filename);
+    final source = await interpreter!.fileManager.loadSource(filename);
     if (source == null) {
       throw Exception("Cannot open file '$filename'");
     }
@@ -1317,7 +1366,7 @@ class DoFileFunction implements BuiltinFunction {
       final ast = parse(source, url: filename);
 
       // Execute in current VM context
-      final result = await vm.run(ast.statements);
+      final result = await interpreter!.run(ast.statements);
 
       // Return result or nil if no result
       return result;
@@ -1330,14 +1379,16 @@ class DoFileFunction implements BuiltinFunction {
       final normalizedArgs = t.args
           .map((a) => a is Value ? a : Value(a))
           .toList();
-      return await vm.callFunction(callee, normalizedArgs);
+      return await interpreter!.callFunction(callee, normalizedArgs);
     } catch (e) {
       throw Exception("Error in dofile('$filename'): $e");
     }
   }
 }
 
-class GetmetaFunction implements BuiltinFunction {
+class GetmetaFunction extends BuiltinFunction {
+  GetmetaFunction(super.interpreter);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) return Value(null);
@@ -1349,7 +1400,9 @@ class GetmetaFunction implements BuiltinFunction {
   }
 }
 
-class SetmetaFunction implements BuiltinFunction {
+class SetmetaFunction extends BuiltinFunction {
+  SetmetaFunction(super.interpreter);
+
   @override
   Object? call(List<Object?> args) {
     if (args.length != 2) throw Exception("setmetatable expects 2 arguments");
@@ -1377,7 +1430,9 @@ class SetmetaFunction implements BuiltinFunction {
   }
 }
 
-class LoadfileFunction implements BuiltinFunction {
+class LoadfileFunction extends BuiltinFunction {
+  LoadfileFunction(super.interpreter);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     final filename = args.isNotEmpty ? (args[0] as Value).raw.toString() : null;
@@ -1402,7 +1457,9 @@ class LoadfileFunction implements BuiltinFunction {
     try {
       if (filename == null) {
         // Read all from default input
-        final result = await IOLib.defaultInput.read('a');
+        final defaultInput = IOLib.defaultInput;
+        final luaFile = defaultInput.raw as LuaFile;
+        final result = await luaFile.read('a');
         sourceCode = result[0]?.toString() ?? '';
         // Enforce mode on textual source too: if begins with ESC -> binary
         final startsEsc =
@@ -1426,7 +1483,7 @@ class LoadfileFunction implements BuiltinFunction {
           if (chunkInfo.originalFunctionBody != null) {
             // Use direct AST evaluation for string.dump functions
             return Value((List<Object?> callArgs) async {
-              final currentVm = Environment.current?.interpreter;
+              final currentVm = interpreter;
               if (currentVm == null) {
                 throw Exception("No interpreter context available");
               }
@@ -1479,8 +1536,7 @@ class LoadfileFunction implements BuiltinFunction {
         final bytes = await readFileAsBytes(filename);
         if (bytes == null) {
           // Fall back to text loader
-          final src = await Environment.current?.interpreter?.fileManager
-              .loadSource(filename);
+          final src = await interpreter?.fileManager.loadSource(filename);
           if (src == null) {
             return Value(null);
           }
@@ -1504,7 +1560,7 @@ class LoadfileFunction implements BuiltinFunction {
             if (chunkInfo.originalFunctionBody != null) {
               // Use direct AST evaluation for string.dump functions
               return Value((List<Object?> callArgs) async {
-                final currentVm = Environment.current?.interpreter;
+                final currentVm = interpreter;
                 if (currentVm == null) {
                   throw Exception("No interpreter context available");
                 }
@@ -1590,7 +1646,7 @@ class LoadfileFunction implements BuiltinFunction {
             if (chunkInfo.originalFunctionBody != null) {
               // Use direct AST evaluation for string.dump functions
               return Value((List<Object?> callArgs) async {
-                final currentVm = Environment.current?.interpreter;
+                final currentVm = interpreter;
                 if (currentVm == null) {
                   throw Exception("No interpreter context available");
                 }
@@ -1653,7 +1709,7 @@ class LoadfileFunction implements BuiltinFunction {
 
       // Build the callable chunk that runs the parsed AST under the right env
       return Value((List<Object?> callArgs) async {
-        final currentVm = Environment.current?.interpreter;
+        final currentVm = interpreter;
         if (currentVm == null) {
           throw Exception("No interpreter context available");
         }
@@ -1717,7 +1773,9 @@ class LoadfileFunction implements BuiltinFunction {
   }
 }
 
-class NextFunction implements BuiltinFunction {
+class NextFunction extends BuiltinFunction {
+  NextFunction(Interpreter super.interpreter);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) throw Exception("next requires a table argument");
@@ -1755,10 +1813,8 @@ class NextFunction implements BuiltinFunction {
   }
 }
 
-class PCAllFunction implements BuiltinFunction {
-  final Interpreter interpreter;
-
-  PCAllFunction(this.interpreter);
+class PCAllFunction extends BuiltinFunction {
+  PCAllFunction(super.interpreter);
 
   @override
   Object? call(List<Object?> args) async {
@@ -1767,11 +1823,11 @@ class PCAllFunction implements BuiltinFunction {
     final callArgs = args.sublist(1);
 
     // Set non-yieldable state for this protected call
-    final previousYieldable = interpreter.isYieldable;
-    interpreter.isYieldable = false;
+    final previousYieldable = interpreter!.isYieldable;
+    interpreter!.isYieldable = false;
 
     // Enter protected call context
-    interpreter.enterProtectedCall();
+    interpreter!.enterProtectedCall();
 
     try {
       // Delegate invocation to the interpreter so that all callable
@@ -1785,7 +1841,7 @@ class PCAllFunction implements BuiltinFunction {
         throw LuaError.typeError("attempt to call a ${getLuaType(func)} value");
       }
 
-      final callResult = await interpreter.callFunction(func, callArgs);
+      final callResult = await interpreter!.callFunction(func, callArgs);
 
       if (callResult is Value && callResult.isMulti) {
         final multiValues = callResult.raw as List;
@@ -1803,7 +1859,7 @@ class PCAllFunction implements BuiltinFunction {
       final normalizedArgs = t.args
           .map((a) => a is Value ? a : Value(a))
           .toList();
-      final awaitedResult = await interpreter.callFunction(
+      final awaitedResult = await interpreter!.callFunction(
         callee,
         normalizedArgs,
       );
@@ -1828,15 +1884,17 @@ class PCAllFunction implements BuiltinFunction {
       return Value.multi([false, errorValue]);
     } finally {
       // Exit protected call context
-      interpreter.exitProtectedCall();
+      interpreter!.exitProtectedCall();
 
       // Restore previous yieldable state
-      interpreter.isYieldable = previousYieldable;
+      interpreter!.isYieldable = previousYieldable;
     }
   }
 }
 
-class RawEqualFunction implements BuiltinFunction {
+class RawEqualFunction extends BuiltinFunction {
+  RawEqualFunction(Interpreter super.interpreter);
+
   @override
   Object? call(List<Object?> args) {
     if (args.length < 2) throw Exception("rawequal requires two arguments");
@@ -1846,7 +1904,9 @@ class RawEqualFunction implements BuiltinFunction {
   }
 }
 
-class RawLenFunction implements BuiltinFunction {
+class RawLenFunction extends BuiltinFunction {
+  RawLenFunction(Interpreter super.interpreter);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) throw Exception("rawlen requires an argument");
@@ -1858,11 +1918,13 @@ class RawLenFunction implements BuiltinFunction {
   }
 }
 
-class WarnFunction implements BuiltinFunction {
+class WarnFunction extends BuiltinFunction {
+  WarnFunction(Interpreter super.interpreter);
+
   bool _enabled = true;
 
   @override
-  Object? call(List<Object?> args) {
+  Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) return Value(null);
 
     final firstArg = args[0] as Value;
@@ -1888,18 +1950,18 @@ class WarnFunction implements BuiltinFunction {
           .join("\t");
 
       // Use IOLib default output for warnings instead of stderr
-      IOLib.defaultOutput.write("Lua warning: $messages\n");
-      IOLib.defaultOutput.flush();
+      final defaultOutput = IOLib.defaultOutput;
+      final luaFile = defaultOutput.raw as LuaFile;
+      await luaFile.write("Lua warning: $messages\n");
+      await luaFile.flush();
     }
 
     return Value(null);
   }
 }
 
-class XPCallFunction implements BuiltinFunction {
-  final Interpreter interpreter;
-
-  XPCallFunction(this.interpreter);
+class XPCallFunction extends BuiltinFunction {
+  XPCallFunction(super.interpreter);
 
   @override
   Object? call(List<Object?> args) async {
@@ -1923,13 +1985,13 @@ class XPCallFunction implements BuiltinFunction {
     }
 
     // Set protected-call flags similar to pcall
-    final previousYieldable = interpreter.isYieldable;
-    interpreter.isYieldable = false;
-    interpreter.enterProtectedCall();
+    final previousYieldable = interpreter!.isYieldable;
+    interpreter!.isYieldable = false;
+    interpreter!.enterProtectedCall();
 
     try {
       // Execute the function via interpreter to honor tail calls/yields
-      final callResult = await interpreter.callFunction(func, callArgs);
+      final callResult = await interpreter!.callFunction(func, callArgs);
 
       // Normalize return for success: true + results
       if (callResult is Value && callResult.isMulti) {
@@ -1948,7 +2010,7 @@ class XPCallFunction implements BuiltinFunction {
       final normalizedArgs = t.args
           .map((a) => a is Value ? a : Value(a))
           .toList();
-      final awaitedResult = await interpreter.callFunction(
+      final awaitedResult = await interpreter!.callFunction(
         callee,
         normalizedArgs,
       );
@@ -1966,7 +2028,7 @@ class XPCallFunction implements BuiltinFunction {
         final errorValue = e is Value
             ? (e.raw is Value ? e.raw : e)
             : Value(e.toString());
-        final handlerResult = await interpreter.callFunction(msgh, [
+        final handlerResult = await interpreter!.callFunction(msgh, [
           errorValue,
         ]);
 
@@ -1986,17 +2048,16 @@ class XPCallFunction implements BuiltinFunction {
       }
     } finally {
       // Exit protected-call context and restore state
-      interpreter.exitProtectedCall();
-      interpreter.isYieldable = previousYieldable;
+      interpreter!.exitProtectedCall();
+      interpreter!.isYieldable = previousYieldable;
     }
   }
 }
 
-class CollectGarbageFunction implements BuiltinFunction {
-  final Interpreter vm;
-  String _currentMode = "incremental"; // Default mode
+class CollectGarbageFunction extends BuiltinFunction {
+  CollectGarbageFunction(super.interpreter);
 
-  CollectGarbageFunction(this.vm);
+  String _currentMode = "incremental"; // Default mode
 
   @override
   Object? call(List<Object?> args) async {
@@ -2008,17 +2069,17 @@ class CollectGarbageFunction implements BuiltinFunction {
     switch (option) {
       case "collect":
         // "collect": Performs a full garbage-collection cycle
-        await vm.gc.majorCollection(vm.getRoots());
+        await interpreter!.gc.majorCollection(interpreter!.getRoots());
         return Value(true);
 
       case "count":
         // "count": Returns the total memory in use by Lua in Kbytes
         // The value has a fractional part, so that it multiplied by 1024
         // gives the exact number of bytes in use by Lua
-        final count = vm.gc.estimateMemoryUse() / 1024.0;
+        final count = interpreter!.gc.estimateMemoryUse() / 1024.0;
         return Value.multi([
           Value(count),
-          Value(vm.gc.minorMultiplier / 100.0),
+          Value(interpreter!.gc.minorMultiplier / 100.0),
         ]);
 
       case "step":
@@ -2029,12 +2090,12 @@ class CollectGarbageFunction implements BuiltinFunction {
         // (in Kbytes) had been allocated by Lua
         final stepSize = args.length > 1 ? (args[1] as Value).raw as num : 0;
         if (stepSize == 0) {
-          vm.gc.minorCollection(vm.getRoots());
+          interpreter!.gc.minorCollection(interpreter!.getRoots());
         } else {
-          vm.gc.simulateAllocation((stepSize * 1024).toInt());
+          interpreter!.gc.simulateAllocation((stepSize * 1024).toInt());
         }
         // Returns true if the step finished a collection cycle
-        return Value(vm.gc.isCollectionCycleComplete());
+        return Value(interpreter!.gc.isCollectionCycleComplete());
 
       case "incremental":
         // "incremental": Change the collector mode to incremental
@@ -2047,12 +2108,14 @@ class CollectGarbageFunction implements BuiltinFunction {
         _currentMode = "incremental";
 
         if (args.length > 1) {
-          vm.gc.majorMultiplier = (args[1] as Value).raw as int;
+          interpreter!.gc.majorMultiplier = (args[1] as Value).raw as int;
         }
         if (args.length > 2) {
-          vm.gc.minorMultiplier = (args[2] as Value).raw as int;
+          interpreter!.gc.minorMultiplier = (args[2] as Value).raw as int;
         }
-        if (args.length > 3) vm.gc.stepSize = (args[3] as Value).raw as int;
+        if (args.length > 3) {
+          interpreter!.gc.stepSize = (args[3] as Value).raw as int;
+        }
         return Value(oldMode);
 
       case "generational":
@@ -2065,27 +2128,27 @@ class CollectGarbageFunction implements BuiltinFunction {
         _currentMode = "generational";
 
         if (args.length > 1) {
-          vm.gc.minorMultiplier = (args[1] as Value).raw as int;
+          interpreter!.gc.minorMultiplier = (args[1] as Value).raw as int;
         }
         if (args.length > 2) {
-          vm.gc.majorMultiplier = (args[2] as Value).raw as int;
+          interpreter!.gc.majorMultiplier = (args[2] as Value).raw as int;
         }
         return Value(oldMode);
 
       case "isrunning":
         // "isrunning": Returns a boolean that tells whether the collector
         // is running (i.e., not stopped)
-        return Value(!vm.gc.isStopped);
+        return Value(!interpreter!.gc.isStopped);
 
       case "stop":
         // "stop": Stops automatic execution of the garbage collector
         // The collector will run only when explicitly invoked, until a call to restart it
-        vm.gc.stop();
+        interpreter!.gc.stop();
         return Value(true);
 
       case "restart":
         // "restart": Restarts automatic execution of the garbage collector
-        vm.gc.start();
+        interpreter!.gc.start();
         return Value(true);
 
       default:
@@ -2094,7 +2157,9 @@ class CollectGarbageFunction implements BuiltinFunction {
   }
 }
 
-class RawGetFunction implements BuiltinFunction {
+class RawGetFunction extends BuiltinFunction {
+  RawGetFunction(Interpreter super.interpreter);
+
   @override
   Object? call(List<Object?> args) {
     if (args.length < 2) {
@@ -2119,7 +2184,9 @@ class RawGetFunction implements BuiltinFunction {
   }
 }
 
-class PairsFunction implements BuiltinFunction {
+class PairsFunction extends BuiltinFunction {
+  PairsFunction(super.interpreter);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -2244,11 +2311,10 @@ class PairsFunction implements BuiltinFunction {
   }
 }
 
-class RequireFunction implements BuiltinFunction {
-  final Interpreter vm;
-  final Value packageTable;
+class RequireFunction extends BuiltinFunction {
+  RequireFunction(super.interpreter, this.packageTable);
 
-  RequireFunction(this.vm, this.packageTable);
+  final Value packageTable;
 
   @override
   Future<Object?> call(List<Object?> args) async {
@@ -2291,7 +2357,7 @@ class RequireFunction implements BuiltinFunction {
       "coroutine",
     ];
     if (standardLibs.contains(moduleName)) {
-      final globalLib = vm.globals.get(moduleName);
+      final globalLib = interpreter!.globals.get(moduleName);
       if (globalLib != null) {
         Logger.debug(
           "Found standard library module '$moduleName' in globals",
@@ -2395,8 +2461,8 @@ class RequireFunction implements BuiltinFunction {
     String? modulePath;
     if (!moduleName.contains('.') &&
         !moduleName.contains('/') &&
-        vm.currentScriptPath != null) {
-      final scriptDir = path.dirname(vm.currentScriptPath!);
+        interpreter!.currentScriptPath != null) {
+      final scriptDir = path.dirname(interpreter!.currentScriptPath!);
       final directPath = path.join(scriptDir, '$moduleName.lua');
       Logger.debug(
         "DEBUG: Trying direct path in script directory: $directPath",
@@ -2414,10 +2480,10 @@ class RequireFunction implements BuiltinFunction {
         "Resolving module path for '$moduleName'",
         category: 'Require',
       );
-      modulePath = await vm.fileManager.resolveModulePath(moduleName);
+      modulePath = await interpreter!.fileManager.resolveModulePath(moduleName);
 
       // Print the resolved globs for debugging
-      // vm.fileManager.printResolvedGlobs();
+      // interpreter!.fileManager.printResolvedGlobs();
     }
 
     final modulePathStr = modulePath;
@@ -2427,7 +2493,7 @@ class RequireFunction implements BuiltinFunction {
         category: 'Require',
       );
 
-      final source = await vm.fileManager.loadSource(modulePathStr);
+      final source = await interpreter!.fileManager.loadSource(modulePathStr);
       if (source != null) {
         try {
           Logger.debug(
@@ -2439,8 +2505,9 @@ class RequireFunction implements BuiltinFunction {
 
           // Execute module code in an isolated module environment.
           // After execution, propagate specific globals expected by tests.
-          final moduleEnv = Environment.createModuleEnvironment(vm.globals)
-            ..interpreter = vm;
+          final moduleEnv = Environment.createModuleEnvironment(
+            interpreter!.globals,
+          )..interpreter = interpreter!;
 
           // We'll execute the module code using the current interpreter to
           // ensure package.loaded is shared.
@@ -2450,9 +2517,8 @@ class RequireFunction implements BuiltinFunction {
           if (path.isAbsolute(modulePathStr)) {
             absoluteModulePath = modulePathStr;
           } else {
-            absoluteModulePath = vm.fileManager.resolveAbsoluteModulePath(
-              modulePathStr,
-            );
+            absoluteModulePath = interpreter!.fileManager
+                .resolveAbsoluteModulePath(modulePathStr);
           }
 
           // Get the directory part of the script path
@@ -2465,10 +2531,10 @@ class RequireFunction implements BuiltinFunction {
           );
 
           // Temporarily switch to the module environment
-          final prevEnv = vm.getCurrentEnv();
-          final prevPath = vm.currentScriptPath;
-          vm.setCurrentEnv(moduleEnv);
-          vm.currentScriptPath = absoluteModulePath;
+          final prevEnv = interpreter!.getCurrentEnv();
+          final prevPath = interpreter!.currentScriptPath;
+          interpreter!.setCurrentEnv(moduleEnv);
+          interpreter!.currentScriptPath = absoluteModulePath;
 
           // Store the script path in the module environment (normalized)
           Logger.debug(
@@ -2497,7 +2563,7 @@ class RequireFunction implements BuiltinFunction {
           Object? result;
           try {
             // Run the module code within the current interpreter
-            result = await vm.run(ast.statements);
+            result = await interpreter!.run(ast.statements);
             // If the script didn't return anything, result will be null
             result ??= Value(null);
           } on ReturnException catch (e) {
@@ -2510,11 +2576,11 @@ class RequireFunction implements BuiltinFunction {
             final normalizedArgs = t.args
                 .map((a) => a is Value ? a : Value(a))
                 .toList();
-            result = await vm.callFunction(callee, normalizedArgs);
+            result = await interpreter!.callFunction(callee, normalizedArgs);
           } finally {
             // Restore previous environment and script path
-            vm.setCurrentEnv(prevEnv);
-            vm.currentScriptPath = prevPath;
+            interpreter!.setCurrentEnv(prevEnv);
+            interpreter!.currentScriptPath = prevPath;
 
             // Restore previous varargs
             if (oldVarargs != null) {
@@ -2705,129 +2771,11 @@ class RequireFunction implements BuiltinFunction {
       }
     }
 
-    // Add any other errors from searchers
-    if (errors.isNotEmpty) {
-      errorLines.addAll(errors);
-    }
+    // Lua does not add the searchers' diagnostic strings here
 
     final errorMsg =
         "module '$moduleName' not found:\n\t${errorLines.join('\n\t')}";
     Logger.debug("Error message: $errorMsg", category: 'Require');
     throw Exception(errorMsg);
   }
-}
-
-void defineBaseLibrary({
-  required Environment env,
-  Interpreter? astVm,
-  BytecodeVM? bytecodeVm,
-}) {
-  final vm = astVm ?? Interpreter();
-  final packageVal = env.get('package') as Value;
-
-  // Create a map of all functions and variables
-  final baseLib = {
-    // Core functions
-    "assert": Value(AssertFunction(vm)),
-    "error": Value(ErrorFunction(vm)),
-    "ipairs": Value(IPairsFunction()),
-    "pairs": Value(PairsFunction()),
-    "collectgarbage": Value(CollectGarbageFunction(vm)),
-    "rawget": Value(RawGetFunction()),
-    "print": Value(PrintFunction()),
-    "type": Value(TypeFunction()),
-    "tonumber": Value(ToNumberFunction()),
-    "tostring": Value(ToStringFunction()),
-    "select": Value(SelectFunction()),
-
-    // File operations
-    "dofile": Value(DoFileFunction(vm)),
-    "load": Value(LoadFunction(vm)),
-    "loadfile": Value(LoadfileFunction()),
-    "require": Value(RequireFunction(vm, packageVal)),
-
-    // Table operations
-    "next": Value(NextFunction()),
-    "rawequal": Value(RawEqualFunction()),
-    "rawlen": Value(RawLenFunction()),
-    "rawset": Value(RawSetFunction()),
-
-    // Protected calls
-    "pcall": Value(PCAllFunction(vm)),
-    "xpcall": Value(XPCallFunction(vm)),
-
-    // Metatables
-    "getmetatable": Value(GetMetatableFunction()),
-    "setmetatable": Value(SetMetatableFunction()),
-
-    // Miscellaneous
-    "warn": Value(WarnFunction()),
-
-    // Global variables
-    "_VERSION": Value("LuaLike 0.1"),
-  };
-
-  // Define all functions and variables at once
-  env.defineAll(baseLib);
-
-  // Create a special _G table that directly references the environment
-  final gTable = <dynamic, dynamic>{};
-
-  // Create a proxy map that will forward all operations to the environment
-  final proxyHandler = <String, Function>{
-    '__index': (List<Object?> args) {
-      final _ = args[0] as Value;
-      final key = args[1] as Value;
-      final keyStr = key.raw.toString();
-
-      // Get the value from the environment
-      final value = env.get(keyStr);
-      return value ?? Value(null);
-    },
-    '__newindex': (List<Object?> args) {
-      final self = args[0] as Value; // _G table Value
-      final key = args[1] as Value;
-      final value = args[2] as Value;
-      final keyStr = key.raw.toString();
-
-      // Set the value in the environment
-      try {
-        // Update global environment
-        env.define(keyStr, value);
-        // Also update the underlying _G table so reads via _G[k] see it directly
-        if (self.raw is Map) {
-          if (value.isNil) {
-            (self.raw as Map).remove(keyStr);
-          } else {
-            (self.raw as Map)[keyStr] = value;
-          }
-        }
-      } catch (_) {
-        env.define(keyStr, value);
-        if (self.raw is Map) {
-          if (value.isNil) {
-            (self.raw as Map).remove(keyStr);
-          } else {
-            (self.raw as Map)[keyStr] = value;
-          }
-        }
-      }
-
-      return Value(null);
-    },
-  };
-
-  // Create the _G value with the proxy metatable
-  final gValue = Value(gTable);
-  gValue.setMetatable(proxyHandler);
-
-  // Make _G point to itself
-  gTable["_G"] = gValue;
-
-  // Define _G in the environment
-  env.define("_G", gValue);
-
-  // Define _ENV as initially pointing to _G, but as a separate reference
-  // This allows _ENV to be reassigned without creating circular references
-  env.define("_ENV", gValue);
 }

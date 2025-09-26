@@ -1,31 +1,170 @@
 import 'dart:async';
 
-import 'package:lualike/lualike.dart';
+import 'package:lualike/src/builtin_function.dart';
+import 'package:lualike/src/logging/logger.dart';
+import 'package:lualike/src/lua_error.dart';
+import 'package:lualike/src/value.dart';
 
+import '../stdlib/lib_io.dart';
 import 'io_device.dart';
 
-/// Represents a Lua file object that wraps an IODevice
+// Create metamethods for the wrapped file
+final fileMetamethods = {
+  "__name": "FILE*",
+  "__gc": (List<Object?> args) async {
+    Logger.debug('Garbage collecting file', category: 'IO');
+    final fileValue = args[0];
+    if (fileValue is! Value || fileValue.raw is! LuaFile) {
+      throw LuaError.typeError("file expected");
+    }
+    final luaFile = fileValue.raw as LuaFile;
+    Logger.debug(
+      'GC: About to close file: ${luaFile.toString()}, isClosed: ${luaFile.isClosed}',
+      category: 'IO',
+    );
+
+    // Check if this is a default file before closing
+    final isDefaultOutput = IOLib.defaultOutput.raw == luaFile;
+    final isDefaultInput = IOLib.defaultInput.raw == luaFile;
+
+    Logger.debug(
+      'GC: Is this the default output? $isDefaultOutput',
+      category: 'IO',
+    );
+    Logger.debug(
+      'GC: Is this the default input? $isDefaultInput',
+      category: 'IO',
+    );
+
+    // Don't close if already closed
+    if (luaFile.isClosed) {
+      Logger.debug('GC: File already closed, skipping', category: 'IO');
+      return Value(null);
+    }
+
+    // For default files that are being GC'd, we need to be more careful
+    if (isDefaultOutput || isDefaultInput) {
+      // Check if this is a standard file that should never be closed
+      if (luaFile.device == IOLib.stdoutDevice ||
+          luaFile.device == IOLib.stderrDevice ||
+          luaFile.device == IOLib.stdinDevice) {
+        Logger.debug('GC: Skipping close of standard device', category: 'IO');
+        return Value(null);
+      }
+
+      // For non-standard default files, reset the default but don't close yet
+      // The file will be closed when explicitly closed or when a new default is set
+      Logger.debug(
+        'GC: Default file being collected, but keeping it alive',
+        category: 'IO',
+      );
+      return Value(null);
+    }
+
+    // Not a default file and not closed, safe to close
+    await luaFile.close();
+    Logger.debug('GC: File closed successfully', category: 'IO');
+    return Value(null);
+  },
+  "__close": (List<Object?> args) async {
+    Logger.debug('Closing file', category: 'IO');
+    final fileValue = args[0];
+    if (fileValue is Value && fileValue.raw is LuaFile) {
+      final file = fileValue.raw as LuaFile;
+      final result = await file.close();
+      return Value.multi(result);
+    } else {
+      throw LuaError.typeError("file expected");
+    }
+  },
+  "__tostring": (List<Object?> args) {
+    Logger.debug('Converting file to string', category: 'IO');
+    final fileValue = args[0];
+    if (fileValue is Value && fileValue.raw is LuaFile) {
+      final file = fileValue.raw as LuaFile;
+      return Value(file.toString());
+    } else {
+      throw LuaError.typeError("file expected");
+    }
+  },
+  "__index": (List<Object?> args) {
+    final fileValue = args[0];
+    final key = args[1] as Value;
+    Logger.debug(
+      'File __index metamethod called for ${key.raw}',
+      category: 'IO',
+    );
+
+    if (key.raw is String) {
+      final method = LuaFile.fileMethods[key.raw];
+      if (method != null) {
+        Logger.debug('Found file method: ${key.raw}', category: 'IO');
+
+        // Return a bound method that checks for proper self argument
+        return Value((callArgs) {
+          Logger.debug(
+            'File method ${key.raw} called with ${callArgs.length} arguments',
+            category: 'IO',
+          );
+
+          // If called without arguments, it should fail
+          if (callArgs.isEmpty) {
+            // This is the case: local f = io.stdin.close; f()
+            return method.call(callArgs); // Let method handle the error
+          }
+
+          // If first argument is this file, call method normally
+          if (callArgs.isNotEmpty && callArgs.first == fileValue) {
+            return method.call(callArgs);
+          }
+
+          // Otherwise, prepend the file as self (for io.stdin.close() syntax)
+          return method.call([fileValue, ...callArgs]);
+        });
+      }
+    }
+
+    Logger.debug('File method not found: ${key.raw}', category: 'IO');
+    return Value(null);
+  },
+};
+
+/// Represents a Lua file object
 class LuaFile {
-  final IODevice _device;
+  final IODevice device;
 
-  IODevice get device => _device;
+  bool get isClosed => device.isClosed;
 
-  bool get isClosed => _device.isClosed;
+  String get mode => device.mode;
 
-  String get mode => _device.mode;
+  /// Whether this file is a standard file (stdin, stdout, stderr)
+  final bool isStandardFile;
 
-  LuaFile(this._device) {
-    Logger.debug("Created LuaFile with mode: $mode", category: 'LuaFile');
+  LuaFile(this.device, {this.isStandardFile = false}) {
+    Logger.debug(
+      "Created LuaFile with mode: $mode, isStandardFile: $isStandardFile",
+      category: 'LuaFile',
+    );
   }
+
+  static final Map<String, BuiltinFunction> fileMethods = {
+    "close": FileClose(),
+    "flush": FileFlush(),
+    "read": FileRead(),
+    "write": FileWrite(),
+    "seek": FileSeek(),
+    "lines": FileLines(),
+    "setvbuf": FileSetvbuf(),
+  };
 
   /// Close the file
   Future<List<Object?>> close() async {
     Logger.debug(
-      "Closing file: $this (device: ${_device.runtimeType})",
+      "Closing file: $this (device: ${device.runtimeType})",
       category: 'LuaFile',
     );
     try {
-      await _device.close();
+      await device.close();
       Logger.debug("File closed successfully", category: 'LuaFile');
       return [true];
     } catch (e) {
@@ -38,7 +177,7 @@ class LuaFile {
   Future<List<Object?>> flush() async {
     Logger.debug("Flushing file buffer: $this", category: 'LuaFile');
     try {
-      await _device.flush();
+      await device.flush();
       Logger.debug("File buffer flushed successfully", category: 'LuaFile');
       return [true];
     } catch (e) {
@@ -53,7 +192,12 @@ class LuaFile {
       "Reading from file $this with format '$format'",
       category: 'LuaFile',
     );
-    final result = await _device.read(format);
+
+    if (isClosed) {
+      throw Exception(" input file is closed");
+    }
+
+    final result = await device.read(format);
     if (result.isSuccess) {
       Logger.debug("Read successful: ${result.value}", category: 'LuaFile');
     } else {
@@ -68,7 +212,7 @@ class LuaFile {
       "Writing to file $this: ${data.length} characters",
       category: 'LuaFile',
     );
-    final result = await _device.write(data);
+    final result = await device.write(data);
     if (result.success) {
       Logger.debug("Write successful", category: 'LuaFile');
     } else {
@@ -86,7 +230,7 @@ class LuaFile {
       "Writing raw bytes to file $this: ${bytes.length} bytes",
       category: 'LuaFile',
     );
-    final result = await _device.writeBytes(bytes);
+    final result = await device.writeBytes(bytes);
     if (result.success) {
       Logger.debug("Raw write successful", category: 'LuaFile');
     } else {
@@ -117,7 +261,7 @@ class LuaFile {
       };
 
       Logger.debug("Seek whence mapped to: $whenceEnum", category: 'LuaFile');
-      final position = await _device.seek(whenceEnum, offset);
+      final position = await device.seek(whenceEnum, offset);
       Logger.debug(
         "Seek successful: new position=$position",
         category: 'LuaFile',
@@ -149,7 +293,7 @@ class LuaFile {
       };
 
       Logger.debug("Buffer mode mapped to: $bufferMode", category: 'LuaFile');
-      await _device.setBuffering(bufferMode, size);
+      await device.setBuffering(bufferMode, size);
       Logger.debug("Buffer mode set successfully", category: 'LuaFile');
       return [true];
     } catch (e) {
@@ -211,7 +355,7 @@ class LuaFile {
         "Line iterator checking EOF for $this (iteration #$iterationCount)",
         category: 'IO',
       );
-      final isAtEOF = await _device.isEOF();
+      final isAtEOF = await device.isEOF();
       Logger.debug(
         "EOF check result: $isAtEOF for $this (iteration #$iterationCount)",
         category: 'IO',
@@ -246,7 +390,7 @@ class LuaFile {
           category: 'IO',
         );
 
-        final result = await _device.read(format);
+        final result = await device.read(format);
         Logger.debug(
           "Read result: success=${result.isSuccess}, value=${result.value}, error=${result.error} (iteration #$iterationCount)",
           category: 'IO',
@@ -300,4 +444,11 @@ class LuaFile {
   String toString() {
     return isClosed ? "file (closed)" : "file ($mode)";
   }
+}
+
+/// Helper function to create a LuaFile wrapped in a Value with proper metamethods
+Value createLuaFile(IODevice device, {bool isStandardFile = false}) {
+  final luaFile = LuaFile(device, isStandardFile: isStandardFile);
+
+  return Value(luaFile, metatable: fileMetamethods);
 }

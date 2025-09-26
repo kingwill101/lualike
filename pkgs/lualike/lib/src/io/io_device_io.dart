@@ -8,6 +8,7 @@ import 'package:lualike/lualike.dart';
 import 'io_device.dart';
 import 'lua_file.dart';
 import 'package:lualike/src/utils/platform_utils.dart' as platform;
+import 'package:lualike/src/utils/command_parser.dart';
 
 /// Implementation for real files using dart:io
 class FileIODevice extends BaseIODevice {
@@ -806,21 +807,51 @@ class ProcessIODevice extends BaseIODevice {
         }
       }
     }
-    final executable = platform.isWindows ? 'cmd' : 'sh';
-    final args = platform.isWindows ? ['/c', command] : ['-c', command];
-    final proc = await Process.start(
-      executable,
-      args,
-      mode: ProcessStartMode.normal,
-      runInShell: false,
-    );
+
+    // Check if the command starts with a quoted executable path
+    final parsedCommand = parseQuotedCommand(command);
+    Process proc;
+
+    if (parsedCommand != null) {
+      // Execute the parsed command directly without shell
+      proc = await Process.start(
+        parsedCommand[0],
+        parsedCommand.skip(1).toList(),
+        mode: ProcessStartMode.normal,
+        runInShell: false,
+        workingDirectory: Directory.current.path,
+      );
+    } else {
+      // Use shell for other commands
+      final executable = platform.isWindows ? 'cmd' : 'sh';
+      final args = platform.isWindows ? ['/c', command] : ['-c', command];
+      proc = await Process.start(
+        executable,
+        args,
+        mode: ProcessStartMode.normal,
+        runInShell: false,
+      );
+    }
+
     return ProcessIODevice._(proc, mode, command);
   }
 
   Future<List<Object?>> _statusTriple() async {
     try {
+      Logger.debug(
+        'ProcessIODevice._statusTriple() called for command: $_command',
+        category: 'IO',
+      );
       final code = await _process.exitCode;
+      Logger.debug(
+        'ProcessIODevice._statusTriple() got exit code: $code',
+        category: 'IO',
+      );
       if (code == 0) {
+        Logger.debug(
+          'ProcessIODevice._statusTriple() returning [true, exit, 0]',
+          category: 'IO',
+        );
         return [true, 'exit', 0];
       }
       if (!platform.isWindows && code < 0) {
@@ -828,12 +859,28 @@ class ProcessIODevice extends BaseIODevice {
           r"^\s*sh\s+-c\s+'kill\s+-s\s+[^']+\s+\$\$'\s*",
         ).hasMatch(_command);
         if (!isWrappedKill) {
+          Logger.debug(
+            'ProcessIODevice._statusTriple() returning [false, signal, ${-code}]',
+            category: 'IO',
+          );
           return [false, 'signal', -code];
         }
+        Logger.debug(
+          'ProcessIODevice._statusTriple() returning [false, exit, ${-code}]',
+          category: 'IO',
+        );
         return [false, 'exit', -code];
       }
+      Logger.debug(
+        'ProcessIODevice._statusTriple() returning [false, exit, $code]',
+        category: 'IO',
+      );
       return [false, 'exit', code];
     } catch (e) {
+      Logger.debug(
+        'ProcessIODevice._statusTriple() caught exception: $e',
+        category: 'IO',
+      );
       return [false, 'error', e.toString()];
     }
   }
@@ -1173,11 +1220,17 @@ class PopenLuaFile extends LuaFile {
   Future<List<Object?>> close() async {
     Logger.debug('PopenLuaFile.close()', category: 'IO');
     final dev = device as ProcessIODevice;
-    try {
-      await dev.close();
-    } catch (_) {}
+
+    // Close the device first (this closes stdin if needed)
+    await dev.close();
+
     // Wait for process termination and return os.execute-like triple
     final triple = await dev.finalizeStatus();
+    Logger.debug(
+      'PopenLuaFile.close() returning triple: $triple',
+      category: 'IO',
+    );
+
     return triple;
   }
 }

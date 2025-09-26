@@ -624,6 +624,4 @@ class Environment extends GCObject {
     }
     return current;
   }
-
-  static Environment? current;
 }

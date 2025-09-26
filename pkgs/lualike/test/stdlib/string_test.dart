@@ -1044,7 +1044,7 @@ void main() {
       expect(tests['char1'], equals(Value('A')));
       expect(tests['char2'], equals(Value('a')));
 
-      expect(tests['ptr1'].raw.toString(), matches(RegExp(r'^[0-9a-f]+$')));
+      expect(tests['ptr1'].raw.toString(), matches(RegExp(r'^0x[0-9a-f]+$')));
     });
 
     test('Lua strings.lua: %q%s complex case', () async {

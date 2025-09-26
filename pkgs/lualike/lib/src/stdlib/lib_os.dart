@@ -1,10 +1,36 @@
+import 'dart:io';
+
 import 'package:lualike/lualike.dart';
-import 'package:lualike/src/bytecode/vm.dart';
+
 import 'package:lualike/src/utils/file_system_utils.dart';
 import 'package:lualike/src/number_limits.dart';
 import 'package:lualike/src/utils/io_abstractions.dart';
 import 'package:lualike/src/utils/platform_utils.dart' as platform;
+import 'package:lualike/src/utils/command_parser.dart';
 import 'package:path/path.dart' as path_lib;
+import 'library.dart';
+
+/// OS library implementation using the new Library system
+class OSLibraryNew extends Library {
+  @override
+  String get name => "os";
+
+  @override
+  void registerFunctions(LibraryRegistrationContext context) {
+    // Register all OS functions directly
+    context.define('clock', _OSClock());
+    context.define('date', _OSDate());
+    context.define('difftime', _OSDiffTime());
+    context.define('execute', _OSExecute());
+    context.define('exit', _OSExit());
+    context.define('getenv', _OSGetEnv());
+    context.define('remove', _OSRemove());
+    context.define('rename', _OSRename());
+    context.define('setlocale', _OSSetLocale());
+    context.define('time', _OSTime());
+    context.define('tmpname', _OSTmpName());
+  }
+}
 
 class OSLibrary {
   static final Map<String, BuiltinFunction> _functions = {
@@ -25,7 +51,8 @@ class OSLibrary {
   static Map<String, BuiltinFunction> get functions => _functions;
 }
 
-class _OSClock implements BuiltinFunction {
+class _OSClock extends BuiltinFunction {
+  _OSClock() : super();
   static final _start = DateTime.now();
 
   @override
@@ -36,7 +63,8 @@ class _OSClock implements BuiltinFunction {
   }
 }
 
-class _OSDate implements BuiltinFunction {
+class _OSDate extends BuiltinFunction {
+  _OSDate() : super();
   @override
   Object? call(List<Object?> args) {
     String format = args.isNotEmpty ? (args[0] as Value).raw.toString() : "%c";
@@ -230,7 +258,8 @@ class _OSDate implements BuiltinFunction {
   }
 }
 
-class _OSDiffTime implements BuiltinFunction {
+class _OSDiffTime extends BuiltinFunction {
+  _OSDiffTime() : super();
   @override
   Object? call(List<Object?> args) {
     if (args.length < 2) {
@@ -244,7 +273,8 @@ class _OSDiffTime implements BuiltinFunction {
   }
 }
 
-class _OSExecute implements BuiltinFunction {
+class _OSExecute extends BuiltinFunction {
+  _OSExecute() : super();
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -255,11 +285,27 @@ class _OSExecute implements BuiltinFunction {
     String command = (args[0] as Value).raw.toString();
     // Convenience: allow invoking local compiled binary "lualike" without path
     command = _maybePrefixLocalLualike(command);
+
     try {
-      final result = runProcessSync(
-        platform.isWindows ? 'cmd' : 'sh',
-        platform.isWindows ? ['/c', command] : ['-c', command],
-      );
+      // Check if the command starts with a quoted executable path
+      final parsedCommand = parseQuotedCommand(command);
+      ProcessResult result;
+
+      if (parsedCommand != null) {
+        // Execute the parsed command directly without shell
+        result = runProcessSync(
+          parsedCommand[0],
+          parsedCommand.skip(1).toList(),
+          workingDirectory: Directory.current.path,
+        );
+      } else {
+        // Use shell for other commands
+        result = runProcessSync(
+          platform.isWindows ? 'cmd' : 'sh',
+          platform.isWindows ? ['/c', command] : ['-c', command],
+        );
+      }
+
       // Classify exit like Lua: return (ok, what, code)
       // On POSIX, Dart can report negative exit codes for signals.
       // We map negative codes to (false, 'signal', -code), except for
@@ -308,7 +354,8 @@ String _maybePrefixLocalLualike(String command) {
   return command;
 }
 
-class _OSExit implements BuiltinFunction {
+class _OSExit extends BuiltinFunction {
+  _OSExit() : super();
   @override
   Object? call(List<Object?> args) {
     final code = args.isNotEmpty ? (args[0] as Value).raw as int : 0;
@@ -317,7 +364,8 @@ class _OSExit implements BuiltinFunction {
   }
 }
 
-class _OSGetEnv implements BuiltinFunction {
+class _OSGetEnv extends BuiltinFunction {
+  _OSGetEnv() : super();
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -331,7 +379,8 @@ class _OSGetEnv implements BuiltinFunction {
   }
 }
 
-class _OSRemove implements BuiltinFunction {
+class _OSRemove extends BuiltinFunction {
+  _OSRemove() : super();
   @override
   Object? call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -353,7 +402,8 @@ class _OSRemove implements BuiltinFunction {
   }
 }
 
-class _OSRename implements BuiltinFunction {
+class _OSRename extends BuiltinFunction {
+  _OSRename() : super();
   @override
   Object? call(List<Object?> args) async {
     if (args.length < 2) {
@@ -376,7 +426,8 @@ class _OSRename implements BuiltinFunction {
   }
 }
 
-class _OSSetLocale implements BuiltinFunction {
+class _OSSetLocale extends BuiltinFunction {
+  _OSSetLocale() : super();
   static String? _currentLocale;
 
   @override
@@ -410,7 +461,8 @@ class _OSSetLocale implements BuiltinFunction {
   }
 }
 
-class _OSTime implements BuiltinFunction {
+class _OSTime extends BuiltinFunction {
+  _OSTime() : super();
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -574,7 +626,8 @@ class _OSTime implements BuiltinFunction {
   }
 }
 
-class _OSTmpName implements BuiltinFunction {
+class _OSTmpName extends BuiltinFunction {
+  _OSTmpName() : super();
   static int _counter = 0;
 
   @override
@@ -586,11 +639,7 @@ class _OSTmpName implements BuiltinFunction {
   }
 }
 
-void defineOSLibrary({
-  required Environment env,
-  Interpreter? astVm,
-  BytecodeVM? bytecodeVm,
-}) {
+void defineOSLibrary({required Environment env, Interpreter? astVm}) {
   final osTable = <String, dynamic>{};
   OSLibrary.functions.forEach((key, value) {
     osTable[key] = value;

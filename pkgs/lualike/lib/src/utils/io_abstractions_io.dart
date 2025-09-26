@@ -29,8 +29,16 @@ String createTempFilePath(String prefix) {
 void exitProcess(int code) => io.exit(code);
 
 /// Platform-safe way to run a process synchronously
-ProcessResult runProcessSync(String executable, List<String> arguments) {
-  final result = io.Process.runSync(executable, arguments);
+ProcessResult runProcessSync(
+  String executable,
+  List<String> arguments, {
+  String? workingDirectory,
+}) {
+  final result = io.Process.runSync(
+    executable,
+    arguments,
+    workingDirectory: workingDirectory,
+  );
   return ProcessResult(
     result.exitCode,
     result.stdout.toString(),

@@ -38,7 +38,11 @@ void exitProcess(int code) {
 }
 
 /// Platform-safe way to run a process synchronously - not supported on web
-ProcessResult runProcessSync(String executable, List<String> arguments) {
+ProcessResult runProcessSync(
+  String executable,
+  List<String> arguments, {
+  String? workingDirectory,
+}) {
   throw UnsupportedError('Process execution is not supported on web platform');
 }
 

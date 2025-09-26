@@ -17,12 +17,12 @@ import 'package:path/path.dart' as path;
 ///
 /// Provides a bridge between Dart functions and the LuaLike runtime,
 /// handling argument conversion and function calling conventions.
-class DartFunction implements BuiltinFunction {
+class DartFunction extends BuiltinFunction {
   /// The wrapped Dart function.
   final Function dartFunction;
 
   /// Creates a new DartFunction wrapping the given Dart function.
-  DartFunction(this.dartFunction);
+  DartFunction(this.dartFunction, [super.interpreter]);
 
   @override
   Object? call(List<Object?> args) {

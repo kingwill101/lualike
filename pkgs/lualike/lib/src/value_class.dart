@@ -15,7 +15,7 @@ import 'value.dart';
 /// });
 /// ```
 /// ValueClass represents a constructor for creating new Value objects with a predefined metatable.
-class ValueClass implements BuiltinFunction {
+class ValueClass extends BuiltinFunction {
   final Map<String, dynamic> _metatable;
 
   ValueClass(this._metatable);

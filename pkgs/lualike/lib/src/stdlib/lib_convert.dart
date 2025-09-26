@@ -6,10 +6,31 @@ import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/extensions/value_extension.dart';
 import 'package:lualike/src/interpreter/interpreter.dart';
-import 'package:lualike/src/bytecode/vm.dart' show BytecodeVM;
+
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/value.dart';
+import 'library.dart';
+
+/// Convert library implementation using the new Library system
+class ConvertLibrary extends Library {
+  @override
+  String get name => "convert";
+
+  @override
+  void registerFunctions(LibraryRegistrationContext context) {
+    // Register all convert functions directly
+    context.define('jsonEncode', JsonEncode(interpreter!));
+    context.define('jsonDecode', JsonDecode(interpreter!));
+    context.define('base64Encode', Base64Encode(interpreter!));
+    context.define('base64Decode', Base64Decode(interpreter!));
+    context.define('base64UrlEncode', Base64UrlEncode(interpreter!));
+    context.define('asciiEncode', AsciiEncode(interpreter!));
+    context.define('asciiDecode', AsciiDecode(interpreter!));
+    context.define('latin1Encode', Latin1Encode(interpreter!));
+    context.define('latin1Decode', Latin1Decode(interpreter!));
+  }
+}
 
 List<int> _toListInt(Value value) {
   if (value.raw is Uint8List) {
@@ -22,33 +43,24 @@ List<int> _toListInt(Value value) {
   throw LuaError('Expected Uint8List, List<int>, or a table of integers');
 }
 
-class DartConvertLib {
-  static final Map<String, BuiltinFunction> functions = {
-    'jsonEncode': JsonEncode(),
-    'jsonDecode': JsonDecode(),
-    'base64Encode': Base64Encode(),
-    'base64Decode': Base64Decode(),
-    'base64UrlEncode': Base64UrlEncode(),
-    'asciiEncode': AsciiEncode(),
-    'asciiDecode': AsciiDecode(),
-    'latin1Encode': Latin1Encode(),
-    'latin1Decode': Latin1Decode(),
+void defineConvertLibrary({required Environment env, Interpreter? astVm}) {
+  final vm = astVm ?? Interpreter();
+  final convertTable = {
+    'jsonEncode': JsonEncode(vm),
+    'jsonDecode': JsonDecode(vm),
+    'base64Encode': Base64Encode(vm),
+    'base64Decode': Base64Decode(vm),
+    'base64UrlEncode': Base64UrlEncode(vm),
+    'asciiEncode': AsciiEncode(vm),
+    'asciiDecode': AsciiDecode(vm),
+    'latin1Encode': Latin1Encode(vm),
+    'latin1Decode': Latin1Decode(vm),
   };
-}
-
-void defineConvertLibrary({
-  required Environment env,
-  Interpreter? astVm,
-  BytecodeVM? bytecodeVm,
-}) {
-  final convertTable = <String, dynamic>{};
-  DartConvertLib.functions.forEach((key, value) {
-    convertTable[key] = value;
-  });
   env.define('convert', Value(convertTable));
 }
 
-class JsonEncode implements BuiltinFunction {
+class JsonEncode extends BuiltinFunction {
+  JsonEncode(super.interpreter);
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -67,7 +79,9 @@ class JsonEncode implements BuiltinFunction {
   }
 }
 
-class JsonDecode implements BuiltinFunction {
+class JsonDecode extends BuiltinFunction {
+  JsonDecode(super.interpreter);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -86,7 +100,9 @@ class JsonDecode implements BuiltinFunction {
   }
 }
 
-class Base64Encode implements BuiltinFunction {
+class Base64Encode extends BuiltinFunction {
+  Base64Encode(super.interpreter);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -101,7 +117,9 @@ class Base64Encode implements BuiltinFunction {
   }
 }
 
-class Base64Decode implements BuiltinFunction {
+class Base64Decode extends BuiltinFunction {
+  Base64Decode(super.interpreter);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -120,7 +138,9 @@ class Base64Decode implements BuiltinFunction {
   }
 }
 
-class Base64UrlEncode implements BuiltinFunction {
+class Base64UrlEncode extends BuiltinFunction {
+  Base64UrlEncode(super.interpreter);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -135,7 +155,9 @@ class Base64UrlEncode implements BuiltinFunction {
   }
 }
 
-class AsciiEncode implements BuiltinFunction {
+class AsciiEncode extends BuiltinFunction {
+  AsciiEncode(super.interpreter);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -154,7 +176,9 @@ class AsciiEncode implements BuiltinFunction {
   }
 }
 
-class AsciiDecode implements BuiltinFunction {
+class AsciiDecode extends BuiltinFunction {
+  AsciiDecode(super.interpreter);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -169,7 +193,9 @@ class AsciiDecode implements BuiltinFunction {
   }
 }
 
-class Latin1Encode implements BuiltinFunction {
+class Latin1Encode extends BuiltinFunction {
+  Latin1Encode(super.interpreter);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -204,7 +230,9 @@ class Latin1Encode implements BuiltinFunction {
   }
 }
 
-class Latin1Decode implements BuiltinFunction {
+class Latin1Decode extends BuiltinFunction {
+  Latin1Decode(super.interpreter);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
