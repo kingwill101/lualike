@@ -41,11 +41,8 @@ class LuaLikeWebApp {
     // Set up virtual devices for web I/O (similar to interactive REPL)
     final stdinDevice = VirtualIODevice();
     final stdoutDevice = WebOutputDevice(output);
-    IOLib.defaultInput = LuaFile(stdinDevice);
-    IOLib.defaultOutput = Value(
-      LuaFile(stdoutDevice),
-      metatable: IOLib.fileClass.metamethods,
-    );
+    IOLib.defaultInput = createLuaFile(stdinDevice);
+    IOLib.defaultOutput = createLuaFile(stdoutDevice);
 
     // Populate examples dropdown
     populateExamplesDropdown();
