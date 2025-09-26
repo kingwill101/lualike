@@ -1,68 +1,54 @@
 import 'dart:async';
 
 import 'package:lualike/src/builtin_function.dart';
-import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/lua_error.dart';
-import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/value.dart';
-import 'package:lualike/src/bytecode/vm.dart' show BytecodeVM;
+
 import 'lib_dart_bytes.dart';
+import 'library.dart';
 
-class DartStringLib {
-  static final Map<String, BuiltinFunction> functions = {
-    'split': DartStringSplit(),
-    'trim': DartStringTrim(),
-    'toUpperCase': DartStringToUpper(),
-    'toLowerCase': DartStringToLower(),
-    'contains': DartStringContains(),
-    'replaceAll': DartStringReplaceAll(),
-    'substring': DartStringSubstring(),
-    'trimLeft': DartStringTrimLeft(),
-    'trimRight': DartStringTrimRight(),
-    'padLeft': DartStringPadLeft(),
-    'padRight': DartStringPadRight(),
-    'startsWith': DartStringStartsWith(),
-    'endsWith': DartStringEndsWith(),
-    'indexOf': DartStringIndexOf(),
-    'lastIndexOf': DartStringLastIndexOf(),
-    'replaceFirst': DartStringReplaceFirst(),
-    'isEmpty': DartStringIsEmpty(),
-    'fromCharCodes': DartStringFromCharCodes(),
-  };
-}
+/// Dart String library implementation using the new Library system
+class DartStringLibrary extends Library {
+  @override
+  String get name => "dart";
 
-void defineDartStringLibrary({
-  required Environment env,
-  Interpreter? astVm,
-  BytecodeVM? bytecodeVm,
-}) {
-  final existing = env.get('dart');
-  Map<String, dynamic> dartTable;
+  @override
+  void registerFunctions(LibraryRegistrationContext context) {
+    // Create string functions for the dart.string namespace
+    final stringFunctions = <String, dynamic>{};
 
-  if (existing is Value && existing.raw is Map<String, dynamic>) {
-    dartTable = existing.raw as Map<String, dynamic>;
-  } else if (existing is Map<String, dynamic>) {
-    dartTable = existing;
-  } else {
-    dartTable = {};
-    env.define('dart', Value(dartTable));
+    stringFunctions['split'] = DartStringSplit();
+    stringFunctions['trim'] = DartStringTrim();
+    stringFunctions['toUpperCase'] = DartStringToUpper();
+    stringFunctions['toLowerCase'] = DartStringToLower();
+    stringFunctions['contains'] = DartStringContains();
+    stringFunctions['replaceAll'] = DartStringReplaceAll();
+    stringFunctions['substring'] = DartStringSubstring();
+    stringFunctions['trimLeft'] = DartStringTrimLeft();
+    stringFunctions['trimRight'] = DartStringTrimRight();
+    stringFunctions['padLeft'] = DartStringPadLeft();
+    stringFunctions['padRight'] = DartStringPadRight();
+    stringFunctions['startsWith'] = DartStringStartsWith();
+    stringFunctions['endsWith'] = DartStringEndsWith();
+    stringFunctions['indexOf'] = DartStringIndexOf();
+    stringFunctions['lastIndexOf'] = DartStringLastIndexOf();
+    stringFunctions['replaceFirst'] = DartStringReplaceFirst();
+    stringFunctions['isEmpty'] = DartStringIsEmpty();
+    stringFunctions['fromCharCodes'] = DartStringFromCharCodes();
+
+    // Add bytes sub-library
+    stringFunctions['bytes'] = Value({
+      'toBytes': DartToBytes(),
+      'fromBytes': DartFromBytes(),
+    });
+
+    // Register the string subtable
+    context.define('string', Value(stringFunctions));
   }
-
-  final stringTable = <String, dynamic>{};
-  DartStringLib.functions.forEach((key, value) {
-    stringTable[key] = value;
-  });
-
-  final bytesTable = <String, dynamic>{};
-  DartBytesLib.functions.forEach((key, value) {
-    bytesTable[key] = value;
-  });
-  stringTable['bytes'] = bytesTable;
-
-  dartTable['string'] = stringTable;
 }
 
-class DartStringSplit implements BuiltinFunction {
+class DartStringSplit extends BuiltinFunction {
+  DartStringSplit() : super();
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 2) {
@@ -80,7 +66,8 @@ class DartStringSplit implements BuiltinFunction {
   }
 }
 
-class DartStringTrim implements BuiltinFunction {
+class DartStringTrim extends BuiltinFunction {
+  DartStringTrim() : super();
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -96,7 +83,8 @@ class DartStringTrim implements BuiltinFunction {
   }
 }
 
-class DartStringToUpper implements BuiltinFunction {
+class DartStringToUpper extends BuiltinFunction {
+  DartStringToUpper() : super();
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -112,7 +100,8 @@ class DartStringToUpper implements BuiltinFunction {
   }
 }
 
-class DartStringToLower implements BuiltinFunction {
+class DartStringToLower extends BuiltinFunction {
+  DartStringToLower() : super();
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -128,7 +117,8 @@ class DartStringToLower implements BuiltinFunction {
   }
 }
 
-class DartStringContains implements BuiltinFunction {
+class DartStringContains extends BuiltinFunction {
+  DartStringContains() : super();
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 2) {
@@ -147,7 +137,8 @@ class DartStringContains implements BuiltinFunction {
   }
 }
 
-class DartStringReplaceAll implements BuiltinFunction {
+class DartStringReplaceAll extends BuiltinFunction {
+  DartStringReplaceAll() : super();
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 3) {
@@ -164,7 +155,8 @@ class DartStringReplaceAll implements BuiltinFunction {
   }
 }
 
-class DartStringSubstring implements BuiltinFunction {
+class DartStringSubstring extends BuiltinFunction {
+  DartStringSubstring() : super();
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 2) {
@@ -182,7 +174,8 @@ class DartStringSubstring implements BuiltinFunction {
   }
 }
 
-class DartStringTrimLeft implements BuiltinFunction {
+class DartStringTrimLeft extends BuiltinFunction {
+  DartStringTrimLeft() : super();
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -198,7 +191,8 @@ class DartStringTrimLeft implements BuiltinFunction {
   }
 }
 
-class DartStringTrimRight implements BuiltinFunction {
+class DartStringTrimRight extends BuiltinFunction {
+  DartStringTrimRight() : super();
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -214,7 +208,8 @@ class DartStringTrimRight implements BuiltinFunction {
   }
 }
 
-class DartStringPadLeft implements BuiltinFunction {
+class DartStringPadLeft extends BuiltinFunction {
+  DartStringPadLeft() : super();
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 2) {
@@ -237,7 +232,8 @@ class DartStringPadLeft implements BuiltinFunction {
   }
 }
 
-class DartStringPadRight implements BuiltinFunction {
+class DartStringPadRight extends BuiltinFunction {
+  DartStringPadRight() : super();
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 2) {
@@ -260,7 +256,8 @@ class DartStringPadRight implements BuiltinFunction {
   }
 }
 
-class DartStringStartsWith implements BuiltinFunction {
+class DartStringStartsWith extends BuiltinFunction {
+  DartStringStartsWith() : super();
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 2) {
@@ -281,7 +278,8 @@ class DartStringStartsWith implements BuiltinFunction {
   }
 }
 
-class DartStringEndsWith implements BuiltinFunction {
+class DartStringEndsWith extends BuiltinFunction {
+  DartStringEndsWith() : super();
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 2) {
@@ -296,7 +294,8 @@ class DartStringEndsWith implements BuiltinFunction {
   }
 }
 
-class DartStringIndexOf implements BuiltinFunction {
+class DartStringIndexOf extends BuiltinFunction {
+  DartStringIndexOf() : super();
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 2) {
@@ -317,7 +316,8 @@ class DartStringIndexOf implements BuiltinFunction {
   }
 }
 
-class DartStringLastIndexOf implements BuiltinFunction {
+class DartStringLastIndexOf extends BuiltinFunction {
+  DartStringLastIndexOf() : super();
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 2) {
@@ -338,7 +338,8 @@ class DartStringLastIndexOf implements BuiltinFunction {
   }
 }
 
-class DartStringReplaceFirst implements BuiltinFunction {
+class DartStringReplaceFirst extends BuiltinFunction {
+  DartStringReplaceFirst() : super();
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 3) {
@@ -359,7 +360,8 @@ class DartStringReplaceFirst implements BuiltinFunction {
   }
 }
 
-class DartStringIsEmpty implements BuiltinFunction {
+class DartStringIsEmpty extends BuiltinFunction {
+  DartStringIsEmpty() : super();
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -370,7 +372,8 @@ class DartStringIsEmpty implements BuiltinFunction {
   }
 }
 
-class DartStringFromCharCodes implements BuiltinFunction {
+class DartStringFromCharCodes extends BuiltinFunction {
+  DartStringFromCharCodes() : super();
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {

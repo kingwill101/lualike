@@ -1,10 +1,8 @@
 // import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/coroutine.dart';
-import 'package:lualike/src/stdlib/lib_string.dart' show StringLib;
 import 'package:lualike/src/utils/type.dart';
 
 import '../../lualike.dart';
-import 'lib_string.dart';
 
 /// Handles default metatables and metamethods for built-in types
 class MetaTable {
@@ -14,6 +12,7 @@ class MetaTable {
   final Map<String, ValueClass> _typeMetatables = {};
   final Map<String, Value?> _typeMetatableRefs = {};
   bool _numberMetatableEnabled = false;
+  Interpreter? _interpreter;
 
   factory MetaTable() {
     return _instance;
@@ -22,10 +21,11 @@ class MetaTable {
   MetaTable._internal();
 
   static void initialize(Interpreter interpreter) {
-    _instance._initialize();
+    _instance._interpreter = interpreter;
+    _instance._initialize(interpreter);
   }
 
-  void _initialize() {
+  void _initialize(Interpreter interpreter) {
     if (_initialized) {
       Logger.debug(
         'MetaTable already initialized, skipping',
@@ -58,26 +58,56 @@ class MetaTable {
         );
 
         if (key.raw is String) {
-          final method = StringLib.functions[key.raw];
-          if (method != null) {
-            Logger.debug(
-              'Found string method: ${key.raw}',
-              category: 'Metatables',
-            );
-
-            // Return a function that will be called later
-            return Value((callArgs) {
+          // Get string functions from the environment's string table
+          final stringTable = interpreter.globals.get('string');
+          if (stringTable is Value && stringTable.raw is Map) {
+            final stringMap = stringTable.raw as Map;
+            final method = stringMap[key.raw];
+            if (method != null) {
               Logger.debug(
-                'String method ${key.raw} cal led with ${callArgs.length} arguments',
+                'Found string method: ${key.raw}',
                 category: 'Metatables',
               );
 
-              if (callArgs.isNotEmpty && callArgs.first == str) {
-                return method.call(callArgs);
-              }
+              // Return a function that will be called later
+              return Value((callArgs) {
+                Logger.debug(
+                  'String method ${key.raw} called with ${callArgs.length} arguments',
+                  category: 'Metatables',
+                );
 
-              return method.call([str, ...callArgs]);
-            });
+                // was the method invoked with the string already as first arg?
+                final hasSelf = callArgs.isNotEmpty && callArgs.first == str;
+
+                if (hasSelf) {
+                  if (method is BuiltinFunction) {
+                    return method.call(callArgs);
+                  } else if (method is Value && method.raw is BuiltinFunction) {
+                    return (method.raw as BuiltinFunction).call(callArgs);
+                  } else if (method is Function) {
+                    return method(callArgs);
+                  } else if (method is Value && method.raw is Function) {
+                    return (method.raw as Function)(callArgs);
+                  }
+                  return method; // not callable
+                }
+
+                // prepend the string itself (obj:func() syntax)
+                if (method is BuiltinFunction) {
+                  return method.call([str, ...callArgs]);
+                } else if (method is Value && method.raw is BuiltinFunction) {
+                  return (method.raw as BuiltinFunction).call([
+                    str,
+                    ...callArgs,
+                  ]);
+                } else if (method is Function) {
+                  return method([str, ...callArgs]);
+                } else if (method is Value && method.raw is Function) {
+                  return (method.raw as Function)([str, ...callArgs]);
+                }
+                return method;
+              });
+            }
           }
         }
 
@@ -396,8 +426,8 @@ class MetaTable {
   /// as a metatable of some object. In particular, the __gc metamethod works only when
   /// this order is followed."
   void applyDefaultMetatable(Value value) {
-    if (!_initialized) {
-      _initialize();
+    if (!_initialized && _interpreter != null) {
+      _initialize(_interpreter!);
     }
     final type = getLuaType(value);
     Logger.debug('Determined type for value: $type', category: 'Metatables');

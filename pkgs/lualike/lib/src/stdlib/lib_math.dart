@@ -1,19 +1,56 @@
 import 'dart:math' as math;
 
 import 'package:lualike/lualike.dart';
-import 'package:lualike/src/bytecode/vm.dart';
+import 'library.dart';
 
 import '../number_limits.dart' as limits;
 import 'random_native.dart' if (dart.library.js_interop) 'random_web.dart';
 
-// Base class for math functions to handle common number validation
-abstract class _MathFunction implements BuiltinFunction {
-  dynamic _getNumber(Value value, String funcName, int argNum) {
-    return NumberUtils.getNumber(value, funcName, argNum);
+/// Math library implementation using the new Library system
+class MathLibrary extends Library {
+  @override
+  String get name => "math";
+
+  @override
+  void registerFunctions(LibraryRegistrationContext context) {
+    // Register all math functions directly
+    context.define("abs", _MathAbs());
+    context.define("acos", _MathAcos());
+    context.define("asin", _MathAsin());
+    context.define("atan", _MathAtan());
+    context.define("ceil", _MathCeil());
+    context.define("cos", _MathCos());
+    context.define("deg", _MathDeg());
+    context.define("exp", _MathExp());
+    context.define("floor", _MathFloor());
+    context.define("fmod", _MathFmod());
+    context.define("log", _MathLog());
+    context.define("max", _MathMax());
+    context.define("min", _MathMin());
+    context.define("modf", _MathModf());
+    context.define("pi", Value(math.pi));
+    context.define("rad", _MathRad());
+    final randomFunc = _MathRandom();
+    context.define("random", randomFunc);
+    context.define("randomseed", _MathRandomseed(randomFunc));
+    context.define("sin", _MathSin());
+    context.define("sqrt", _MathSqrt());
+    context.define("tan", _MathTan());
+    context.define("tointeger", _MathTointeger());
+    context.define("ult", _MathUlt());
+    context.define("type", _MathType());
+    context.define("huge", Value(double.infinity));
+    context.define("maxinteger", Value(limits.NumberLimits.maxInteger));
+    context.define("mininteger", Value(limits.NumberLimits.minInteger));
   }
 }
 
-class _MathAbs extends _MathFunction {
+// Base class for math functions to handle common number validation
+dynamic _getNumber(Value value, String funcName, int argNum) {
+  return NumberUtils.getNumber(value, funcName, argNum);
+}
+
+class _MathAbs extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -26,7 +63,7 @@ class _MathAbs extends _MathFunction {
   }
 }
 
-class _MathAcos extends _MathFunction {
+class _MathAcos extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -39,7 +76,7 @@ class _MathAcos extends _MathFunction {
   }
 }
 
-class _MathAsin extends _MathFunction {
+class _MathAsin extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -52,7 +89,7 @@ class _MathAsin extends _MathFunction {
   }
 }
 
-class _MathAtan extends _MathFunction {
+class _MathAtan extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -74,7 +111,7 @@ class _MathAtan extends _MathFunction {
   }
 }
 
-class _MathCeil extends _MathFunction {
+class _MathCeil extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -94,7 +131,7 @@ class _MathCeil extends _MathFunction {
   }
 }
 
-class _MathCos extends _MathFunction {
+class _MathCos extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -107,7 +144,7 @@ class _MathCos extends _MathFunction {
   }
 }
 
-class _MathDeg extends _MathFunction {
+class _MathDeg extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -120,7 +157,7 @@ class _MathDeg extends _MathFunction {
   }
 }
 
-class _MathExp extends _MathFunction {
+class _MathExp extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -133,7 +170,7 @@ class _MathExp extends _MathFunction {
   }
 }
 
-class _MathFloor extends _MathFunction {
+class _MathFloor extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -153,7 +190,7 @@ class _MathFloor extends _MathFunction {
   }
 }
 
-class _MathFmod extends _MathFunction {
+class _MathFmod extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -174,7 +211,7 @@ class _MathFmod extends _MathFunction {
   }
 }
 
-class _MathLog extends _MathFunction {
+class _MathLog extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -196,7 +233,7 @@ class _MathLog extends _MathFunction {
   }
 }
 
-class _MathMax extends _MathFunction {
+class _MathMax extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -214,7 +251,7 @@ class _MathMax extends _MathFunction {
   }
 }
 
-class _MathMin extends _MathFunction {
+class _MathMin extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -232,7 +269,7 @@ class _MathMin extends _MathFunction {
   }
 }
 
-class _MathModf extends _MathFunction {
+class _MathModf extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -245,7 +282,7 @@ class _MathModf extends _MathFunction {
   }
 }
 
-class _MathRad extends _MathFunction {
+class _MathRad extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -256,7 +293,7 @@ class _MathRad extends _MathFunction {
   }
 }
 
-class _MathRandom extends _MathFunction {
+class _MathRandom extends BuiltinFunction {
   Xoshiro256ss _random = Xoshiro256ss.seeded();
 
   @override
@@ -335,7 +372,7 @@ class _MathRandom extends _MathFunction {
   }
 }
 
-class _MathRandomseed extends _MathFunction {
+class _MathRandomseed extends BuiltinFunction {
   final _MathRandom _randomFunc;
   _MathRandomseed(this._randomFunc);
 
@@ -367,7 +404,7 @@ class _MathRandomseed extends _MathFunction {
   }
 }
 
-class _MathSin extends _MathFunction {
+class _MathSin extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -378,7 +415,7 @@ class _MathSin extends _MathFunction {
   }
 }
 
-class _MathSqrt extends _MathFunction {
+class _MathSqrt extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -389,7 +426,7 @@ class _MathSqrt extends _MathFunction {
   }
 }
 
-class _MathTan extends _MathFunction {
+class _MathTan extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -400,7 +437,7 @@ class _MathTan extends _MathFunction {
   }
 }
 
-class _MathTointeger extends _MathFunction {
+class _MathTointeger extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -413,7 +450,7 @@ class _MathTointeger extends _MathFunction {
   }
 }
 
-class _MathType extends _MathFunction {
+class _MathType extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -431,7 +468,7 @@ class _MathType extends _MathFunction {
   }
 }
 
-class _MathUlt extends _MathFunction {
+class _MathUlt extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.length < 2) {
@@ -443,55 +480,4 @@ class _MathUlt extends _MathFunction {
 
     return Value(NumberUtils.unsignedLessThan(m, n));
   }
-}
-
-class MathLib {
-  // Use constants from NumberLimits
-  static int get maxInteger => limits.NumberLimits.maxInteger;
-  static int get minInteger => limits.NumberLimits.minInteger;
-
-  static void logIntegerLimits() {
-    print(
-      'MathLib: Dart platform maxInteger=\x1b[32m$maxInteger\x1b[0m, minInteger=\x1b[31m$minInteger\x1b[0m',
-    );
-  }
-
-  static final _MathRandom _randomFunc = _MathRandom();
-  static final Map<String, dynamic> functions = {
-    "abs": Value(_MathAbs()),
-    "acos": Value(_MathAcos()),
-    "asin": Value(_MathAsin()),
-    "atan": Value(_MathAtan()),
-    "ceil": Value(_MathCeil()),
-    "cos": Value(_MathCos()),
-    "deg": Value(_MathDeg()),
-    "exp": Value(_MathExp()),
-    "floor": Value(_MathFloor()),
-    "fmod": Value(_MathFmod()),
-    "log": Value(_MathLog()),
-    "max": Value(_MathMax()),
-    "min": Value(_MathMin()),
-    "modf": Value(_MathModf()),
-    "pi": Value(math.pi),
-    "rad": Value(_MathRad()),
-    "random": Value(_randomFunc),
-    "randomseed": Value(_MathRandomseed(_randomFunc)),
-    "sin": Value(_MathSin()),
-    "sqrt": Value(_MathSqrt()),
-    "tan": Value(_MathTan()),
-    "tointeger": Value(_MathTointeger()),
-    "ult": Value(_MathUlt()),
-    "type": Value(_MathType()),
-    "huge": Value(double.infinity),
-    "maxinteger": Value(maxInteger),
-    "mininteger": Value(minInteger),
-  };
-}
-
-void defineMathLibrary({
-  required Environment env,
-  Interpreter? astVm,
-  BytecodeVM? bytecodeVm,
-}) {
-  env.define("math", MathLib.functions);
 }
