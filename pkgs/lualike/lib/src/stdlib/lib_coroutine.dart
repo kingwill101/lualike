@@ -1,3 +1,5 @@
+// ignore_for_file: unused_element
+
 import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/exceptions.dart';
 import 'package:lualike/src/value.dart';
