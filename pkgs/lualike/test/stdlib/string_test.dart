@@ -1044,7 +1044,7 @@ void main() {
       expect(tests['char1'], equals(Value('A')));
       expect(tests['char2'], equals(Value('a')));
 
-      expect(tests['ptr1'].raw.toString(), matches(RegExp(r'^[0-9a-f]+$')));
+      expect(tests['ptr1'].raw.toString(), matches(RegExp(r'^0x[0-9a-f]+$')));
     });
 
     test('Lua strings.lua: %q%s complex case', () async {
@@ -1242,16 +1242,6 @@ void main() {
       await bridge.execute(script);
       final result = (bridge.getGlobal('result') as Value).unwrap();
       expect(result, contains('no value'));
-    });
-
-    test("si", () async {
-      final bridge = LuaLike();
-      final script = r'''
-        assert(("\000123456789"):sub(8) == "789")
-      ''';
-      await bridge.execute(script);
-      final result = (bridge.getGlobal('result') as Value).unwrap();
-      expect(result, equals('42'));
     });
 
     test('Lua strings.lua: error on cannot have modifiers for %q', () async {

@@ -314,8 +314,8 @@ void main() {
         final ioOpen = IOOpen();
         final result = await ioOpen.call([Value('test.txt'), Value('w')]);
 
-        expect(result, isA<LuaFile>());
-        final luaFile = result as LuaFile;
+        expect(result.unwrap(), isA<LuaFile>());
+        final luaFile = result.unwrap() as LuaFile;
         expect(luaFile.device, isA<MockIODevice>());
       });
 
@@ -328,8 +328,8 @@ void main() {
         final ioTmpfile = IOTmpfile();
         final result = await ioTmpfile.call([]);
 
-        expect(result, isA<LuaFile>());
-        final luaFile = result as LuaFile;
+        expect(result.unwrap(), isA<LuaFile>());
+        final luaFile = result.unwrap() as LuaFile;
         expect(luaFile.device, isA<MockIODevice>());
       });
     });
@@ -550,9 +550,9 @@ void main() {
 
           // Open file for writing
           final openResult = await ioOpen.call([Value('test.txt'), Value('w')]);
-          expect(openResult, isA<LuaFile>());
+          expect(openResult.unwrap(), isA<LuaFile>());
 
-          final luaFile = openResult as LuaFile;
+          final luaFile = openResult.unwrap() as LuaFile;
           IOLib.defaultOutput = Value(luaFile);
 
           // Write content
@@ -566,7 +566,7 @@ void main() {
             Value('test.txt'),
             Value('r'),
           ]);
-          final readFile = readOpenResult as LuaFile;
+          final readFile = readOpenResult.unwrap() as LuaFile;
 
           // Read content
           final content = await readFile.read('a');

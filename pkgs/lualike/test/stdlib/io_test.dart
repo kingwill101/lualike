@@ -150,7 +150,7 @@ void main() {
         // Open file
         final openFunc = IOOpen();
         final file = await openFunc.call([Value(filePath), Value('w')]);
-        expect(file, isA<LuaFile>());
+        expect(file.unwrap(), isA<LuaFile>());
 
         // Set file as default output
         final outputFunc = IOOutput();
@@ -159,7 +159,7 @@ void main() {
         // Write to file
         final writeFunc = IOWrite();
         var result = await writeFunc.call([Value('Hello, World!\n')]);
-        expect(result, isA<LuaFile>());
+        expect(result.unwrapped, isA<LuaFile>());
 
         // Close file
         final closeFunc = IOClose();
@@ -169,7 +169,7 @@ void main() {
         // Read file
         final inputFunc = IOInput();
         final readFile = await inputFunc.call([Value(filePath)]);
-        expect(readFile, isA<LuaFile>());
+        expect(readFile.unwrapped, isA<LuaFile>());
 
         final readFunc = IORead();
         result = await readFunc.call([Value('l')]);
@@ -180,7 +180,7 @@ void main() {
         // Create temp file
         final tmpFunc = IOTmpfile();
         final file = await tmpFunc.call([]);
-        expect(file, isA<LuaFile>());
+        expect(file.unwrap(), isA<LuaFile>());
 
         // Set temp file as default output
         final outputFunc = IOOutput();
@@ -189,7 +189,7 @@ void main() {
         // Write to temp file (now the default output)
         final writeFunc = IOWrite();
         var result = await writeFunc.call([Value('Hello, World!\n')]);
-        expect(result, isA<LuaFile>());
+        expect(result.unwrap(), isA<LuaFile>());
 
         // Close temp file
         final closeFunc = IOClose();
