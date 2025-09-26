@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
 import 'package:lualike/src/gc/generational_gc.dart';
+import 'package:lualike/src/io/lua_file.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/upvalue.dart';
 
@@ -147,15 +148,50 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   }
 
   /// Creates a to-be-closed value that will have its __close metamethod called when it goes out of scope
+  ///
+  /// ------------------------------------------------------------
+  /// Internal helper: resolve the active interpreter for this Value
+  /// ------------------------------------------------------------
+  /// We look in the following order:
+  /// 1. `this.interpreter` field (set by libraries for closures/builtins)
+  /// 2. If `raw` is a `BuiltinFunction`, use its interpreter
+  /// 3. If `raw` is an AST Function node that captured an interpreter field
+  /// 4. Otherwise, return null – callers must handle the unsupported case
+  ///
+  Interpreter? _resolveInterpreter() {
+    if (interpreter != null) return interpreter;
+    if (raw is BuiltinFunction) {
+      return (raw as BuiltinFunction).interpreter;
+    }
+    // No interpreter found
+    return null;
+  }
+
   factory Value.toBeClose(dynamic value, {Map<String, dynamic>? metatable}) {
     if (value != null && value != false) {
       // Verify the value has a __close metamethod
-      final tempValue = Value(value, metatable: metatable);
+      // If value is already a Value (like LuaFile), preserve it to keep its metamethods
+      final tempValue = value is Value
+          ? value
+          : Value(value, metatable: metatable);
       if (!tempValue.hasMetamethod('__close')) {
         throw UnsupportedError(
           "to-be-closed variable value must have a __close metamethod",
         );
       }
+    }
+    // If value is already a Value (like LuaFile), create a new instance with isToBeClose flag
+    // but preserve the original type and metamethods
+    if (value is Value) {
+      if (value.raw is LuaFile) {
+        // For LuaFile, we need to preserve the LuaFile type completely
+        final luaFile = value.raw as LuaFile;
+        return createLuaFile(
+          luaFile.device,
+          isStandardFile: luaFile.isStandardFile,
+        )..isToBeClose = true;
+      }
+      return Value(value.raw, metatable: value.metatable, isToBeClose: true);
     }
     return Value(value, metatable: metatable, isToBeClose: true);
   }
@@ -288,17 +324,21 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       final FunctionDef funcDef = raw as FunctionDef;
       final FunctionBody funcBody = funcDef.body;
       // Evaluate the function body
-      final result = await funcBody.accept(
-        Environment.current?.interpreter as AstVisitor<Object?>,
-      );
+      final interp = _resolveInterpreter();
+      if (interp == null) {
+        throw UnsupportedError("No interpreter available to execute function");
+      }
+      final result = await funcBody.accept(interp as AstVisitor<Object?>);
       return result;
     } else if (raw is FunctionBody) {
       // Call LuaLike function body directly (closure)
       final FunctionBody funcBody = raw as FunctionBody;
       // Evaluate the function body
-      final result = await funcBody.accept(
-        Environment.current?.interpreter as AstVisitor<Object?>,
-      );
+      final interp = _resolveInterpreter();
+      if (interp == null) {
+        throw UnsupportedError("No interpreter available to execute function");
+      }
+      final result = await funcBody.accept(interp as AstVisitor<Object?>);
       return result;
     } else if (raw is BuiltinFunction) {
       // Call BuiltinFunction
@@ -1089,8 +1129,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           method.raw is FunctionBody) {
         // This is a Lua function defined as an AST node
         // We can await it here since this is an async method
-        final interpreter =
-            method.interpreter ?? Environment.current?.interpreter;
+        final interpreter = _resolveInterpreter();
         if (interpreter != null) {
           try {
             final result = await interpreter.callFunction(method, list);
@@ -1128,7 +1167,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       }
     } else if (method is FunctionDef) {
       // Handle direct FunctionDef nodes
-      final interpreter = Environment.current?.interpreter;
+      final interpreter = _resolveInterpreter();
       if (interpreter != null) {
         try {
           final result = await interpreter.callFunction(Value(method), list);
@@ -1191,8 +1230,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           method.raw is FunctionBody) {
         // This is a Lua function defined as an AST node
         // We need to call it using the interpreter
-        final interpreter =
-            method.interpreter ?? Environment.current?.interpreter;
+        final interpreter = _resolveInterpreter();
         if (interpreter != null) {
           // Call the function directly using the interpreter
           final result = interpreter.callFunction(method, list);
@@ -1205,7 +1243,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       }
     } else if (method is FunctionDef) {
       // Handle direct FunctionDef nodes
-      final interpreter = Environment.current?.interpreter;
+      final interpreter = _resolveInterpreter();
       if (interpreter != null) {
         // Call the function directly using the interpreter
         return interpreter.callFunction(Value(method), list);
@@ -1373,7 +1411,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         if (callMethod.raw is Function) {
           return await callMethod.raw(callArgs);
         }
-        final interpreter = Environment.current?.interpreter;
+        final interpreter = _resolveInterpreter();
         if (interpreter != null) {
           return await interpreter.callFunction(callMethod, callArgs);
         }
@@ -1382,7 +1420,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         raw is FunctionLiteral ||
         raw is FunctionBody) {
       // Get interpreter to evaluate the function
-      final interpreter = Environment.current?.interpreter;
+      final interpreter = _resolveInterpreter();
       if (interpreter != null) {
         return await interpreter.callFunction(this, args);
       }
