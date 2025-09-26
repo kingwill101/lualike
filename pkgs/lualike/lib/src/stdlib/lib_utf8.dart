@@ -3,8 +3,7 @@ import 'dart:typed_data';
 
 import 'package:characters/characters.dart';
 import 'package:lualike/src/builtin_function.dart' show BuiltinFunction;
-import 'package:lualike/src/bytecode/vm.dart' show BytecodeVM;
-import 'package:lualike/src/environment.dart' show Environment;
+
 import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/lua_error.dart';
@@ -13,7 +12,60 @@ import 'package:lualike/src/parsers/string.dart';
 import 'package:lualike/src/value.dart' show Value;
 
 import '../../lualike.dart' show Value;
-import '../value_class.dart';
+import 'library.dart';
+
+/// UTF8 library implementation using the Library system
+class UTF8Library extends Library {
+  @override
+  String get name => "utf8";
+
+  @override
+  Map<String, Function>? getMetamethods(Interpreter interpreter) => {
+    "__len": (List<Object?> args) {
+      final str = args[0] as Value;
+      if (str.raw is! String && str.raw is! LuaString) {
+        throw Exception("utf8 operation on non-string value");
+      }
+      return Value(str.raw.toString().characters.length);
+    },
+    "__index": (List<Object?> args) {
+      final _ = args[0] as Value;
+      final key = args[1] as Value;
+
+      // Convert key to string if needed
+      final keyStr = key.raw is String ? key.raw as String : key.toString();
+
+      // Return the function from our registry if it exists
+      switch (keyStr) {
+        case 'char':
+          return _UTF8Char();
+        case 'codes':
+          return _UTF8Codes();
+        case 'codepoint':
+          return _UTF8CodePoint();
+        case 'len':
+          return _UTF8Len();
+        case 'offset':
+          return _UTF8Offset();
+        case 'charpattern':
+          return Value(UTF8Lib.charpattern);
+        default:
+          return Value(null);
+      }
+    },
+  };
+
+  @override
+  void registerFunctions(LibraryRegistrationContext context) {
+    // Register all UTF8 functions directly
+    context.define('char', _UTF8Char());
+    context.define('codes', _UTF8Codes());
+    context.define('codepoint', _UTF8CodePoint());
+    context.define('len', _UTF8Len());
+    context.define('offset', _UTF8Offset());
+    context.define('charpattern', Value(UTF8Lib.charpattern));
+  }
+}
 
 class UTF8Lib {
   // Pattern that matches exactly one UTF-8 byte sequence
@@ -55,21 +107,6 @@ class UTF8Lib {
     return LuaString.fromBytes(bytes);
   }();
 
-  static final ValueClass utf8Class = ValueClass.create({
-    "__len": (List<Object?> args) {
-      final str = args[0] as Value;
-      if (str.raw is! String && str.raw is! LuaString) {
-        throw Exception("utf8 operation on non-string value");
-      }
-      return Value(str.raw.toString().characters.length);
-    },
-    "__index": (List<Object?> args) {
-      final _ = args[0] as Value;
-      final key = args[1] as Value;
-      return functions[key.raw] ?? Value(null);
-    },
-  });
-
   static final Map<String, dynamic> functions = {
     'char': _UTF8Char(),
     'codes': _UTF8Codes(),
@@ -80,7 +117,8 @@ class UTF8Lib {
   };
 }
 
-class _UTF8Char implements BuiltinFunction {
+class _UTF8Char extends BuiltinFunction {
+  _UTF8Char() : super();
   @override
   Object? call(List<Object?> args) {
     // Return empty string when no arguments provided (like standard Lua)
@@ -122,7 +160,8 @@ class _UTF8Char implements BuiltinFunction {
   }
 }
 
-class _UTF8Codes implements BuiltinFunction {
+class _UTF8Codes extends BuiltinFunction {
+  _UTF8Codes() : super();
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -239,7 +278,8 @@ class _UTF8Codes implements BuiltinFunction {
   }
 }
 
-class _UTF8CodePoint implements BuiltinFunction {
+class _UTF8CodePoint extends BuiltinFunction {
+  _UTF8CodePoint() : super();
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -348,7 +388,8 @@ class _UTF8CodePoint implements BuiltinFunction {
   }
 }
 
-class _UTF8Len implements BuiltinFunction {
+class _UTF8Len extends BuiltinFunction {
+  _UTF8Len() : super();
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -458,7 +499,8 @@ class _UTF8Len implements BuiltinFunction {
   }
 }
 
-class _UTF8Offset implements BuiltinFunction {
+class _UTF8Offset extends BuiltinFunction {
+  _UTF8Offset() : super();
   @override
   Object? call(List<Object?> args) {
     if (args.length < 2) {
@@ -617,15 +659,4 @@ class _UTF8Offset implements BuiltinFunction {
       return Value(null);
     }
   }
-}
-
-void defineUTF8Library({
-  required Environment env,
-  Interpreter? astVm,
-  BytecodeVM? bytecodeVm,
-}) {
-  env.define(
-    "utf8",
-    Value(UTF8Lib.functions, metatable: UTF8Lib.utf8Class.metamethods),
-  );
 }

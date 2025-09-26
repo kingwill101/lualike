@@ -2,7 +2,6 @@ library;
 
 export 'src/ast.dart';
 export 'src/builtin_function.dart';
-export 'src/bytecode/bytecode.dart';
 export 'src/call_stack.dart';
 export 'src/config.dart';
 export 'src/environment.dart';

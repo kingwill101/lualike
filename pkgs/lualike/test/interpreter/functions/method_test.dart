@@ -1,7 +1,7 @@
 import 'package:lualike_test/test.dart';
 
 /// A simple built-in function that multiplies two numbers.
-class MultiplyFunction implements BuiltinFunction {
+class MultiplyFunction extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.length != 3) {

@@ -11,6 +11,7 @@ import 'package:lualike/src/lua_stack_trace.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/stack.dart';
 import 'package:lualike/src/stdlib/init.dart' show initializeStandardLibrary;
+import 'package:lualike/src/stdlib/library.dart' show LibraryRegistry;
 import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:lualike/src/utils/type.dart';
 import 'package:lualike/src/value.dart';
@@ -56,6 +57,9 @@ class Interpreter extends AstVisitor<Object?>
 
   /// File manager for handling source code loading.
   final FileManager fileManager;
+
+  /// Library registry for this interpreter instance.
+  late final LibraryRegistry libraryRegistry = LibraryRegistry(this);
 
   /// Current environment for variable scope.
   Environment _currentEnv;
@@ -243,7 +247,6 @@ class Interpreter extends AstVisitor<Object?>
       category: 'Interpreter',
     );
     _currentEnv = env;
-    Environment.current = env;
   }
 
   /// Gets the current function being executed.
@@ -258,6 +261,26 @@ class Interpreter extends AstVisitor<Object?>
       category: 'Interpreter',
     );
     _currentFunction = function;
+  }
+
+  /// Gets the metamethods for a specific library
+  ///
+  /// This is used by the Library system to get metamethods for library tables and objects
+  /// [libraryName] - The name of the library to get metamethods for (e.g., "io", "string")
+  Map<String, Function>? getLibraryMetamethods(String libraryName) {
+    try {
+      // Get all libraries from the interpreter's registry
+      final library = libraryRegistry.libraries.firstWhere(
+        (lib) => lib.name == libraryName,
+      );
+      return library.getMetamethods(this);
+    } catch (e) {
+      Logger.warning(
+        'Library $libraryName not found for metamethod access',
+        category: 'Interpreter',
+      );
+      return null;
+    }
   }
 
   /// Creates a new interpreter instance.
@@ -278,9 +301,11 @@ class Interpreter extends AstVisitor<Object?>
     ); // Register the initial environment
 
     // Initialize coroutines before the standard library
+    // Initialize coroutines before the standard library
     initializeCoroutines();
 
-    initializeStandardLibrary(env: _currentEnv, astVm: this);
+    // Initialize standard libraries
+    initializeStandardLibrary(astVm: this);
 
     // Attach this interpreter to the root environment for later lookups
     _currentEnv.interpreter = this;
@@ -288,7 +313,6 @@ class Interpreter extends AstVisitor<Object?>
     // Ensure the static current environment is set so that utility
     // methods like Value.callMetamethod can access the interpreter
     // during script execution.
-    Environment.current = _currentEnv;
   }
 
   /// Records a trace frame for the specified AST node.

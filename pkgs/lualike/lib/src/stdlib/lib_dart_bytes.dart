@@ -7,14 +7,9 @@ import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/value.dart';
 
-class DartBytesLib {
-  static final Map<String, BuiltinFunction> functions = {
-    'toBytes': DartToBytes(),
-    'fromBytes': DartFromBytes(),
-  };
-}
+class DartToBytes extends BuiltinFunction {
+  DartToBytes() : super();
 
-class DartToBytes implements BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -37,7 +32,9 @@ class DartToBytes implements BuiltinFunction {
   }
 }
 
-class DartFromBytes implements BuiltinFunction {
+class DartFromBytes extends BuiltinFunction {
+  DartFromBytes() : super();
+
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {

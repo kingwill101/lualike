@@ -1,4 +1,4 @@
-import 'package:lualike/src/environment.dart';
+import 'package:lualike/src/stdlib/library.dart';
 import 'package:lualike/src/value.dart';
 import 'dart:math' as math;
 
@@ -326,16 +326,24 @@ class TestLib {
   }
 }
 
-/// Define the test library in the environment
-void defineTestLibrary({required Environment env}) {
-  // Create the T table
-  final testTable = <String, dynamic>{};
+/// Create and register the test library
+class TestLibrary extends Library {
+  @override
+  String get name => "T";
 
-  // Add all functions to the table
-  TestLib.functions.forEach((key, value) {
-    testTable[key] = value;
-  });
+  @override
+  void registerFunctions(LibraryRegistrationContext context) {
+    // Create the T table
+    final testTable = <String, dynamic>{};
 
-  // Add the table to the environment
-  env.define("T", Value(testTable));
+    // Add all functions to the table
+    TestLib.functions.forEach((key, value) {
+      testTable[key] = value;
+    });
+
+    // Add the table to the environment
+    testTable.forEach((name, func) {
+      context.define(name, func);
+    });
+  }
 }
