@@ -1411,9 +1411,7 @@ class _StringGsub extends BuiltinFunction {
             captureReplaced = true;
           }
 
-          if (captureReplaced || replStr.isNotEmpty) {
-            count++;
-          }
+          count++;
 
           buffer.write(replacement);
           lastEnd = match.end;
