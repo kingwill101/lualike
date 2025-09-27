@@ -4,6 +4,7 @@ import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/io/lua_file.dart';
 import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
+import 'package:lualike/src/upvalue.dart';
 import 'library.dart';
 
 class DebugLib {
@@ -383,8 +384,25 @@ class _UpvalueId extends BuiltinFunction {
     if (args.length < 2) {
       throw Exception("debug.upvalueid requires function and index");
     }
-    // Return unique id for upvalue
-    return Value(null);
+    final functionArg = args[0] as Value;
+    final indexArg = args[1] as Value;
+
+    if (indexArg.raw is! num) {
+      throw Exception("debug.upvalueid index must be a number");
+    }
+
+    final index = (indexArg.raw as num).toInt();
+    if (index < 1) {
+      return Value(null);
+    }
+
+    final upvalues = functionArg.upvalues;
+    if (upvalues == null || index > upvalues.length) {
+      return Value(null);
+    }
+
+    final Upvalue upvalue = upvalues[index - 1];
+    return Value(upvalue.canonicalBox);
   }
 }
 

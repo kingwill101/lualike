@@ -13,6 +13,7 @@ import 'utils.dart';
 final testFiles = [
   'calls.lua',
   'attrib.lua',
+  'goto.lua',
   'bitwise.lua',
   'constructs.lua',
   'strings.lua',

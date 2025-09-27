@@ -76,6 +76,30 @@ print("Counter: " .. counter()) -- 11
 print("Counter: " .. counter()) -- 12
 print("Counter: " .. counter()) -- 13''',
 
+    'goto': '''-- Goto and Labels
+print("Starting goto demo")
+
+local total = 0
+local i = 1
+
+::loop::
+if i > 5 then
+    goto finish
+end
+
+total = total + i
+i = i + 1
+goto loop
+
+::finish::
+print("Sum of the first five integers is " .. total)
+
+local message = "before"
+goto skip
+message = "this line is skipped"
+::skip::
+print("Final message: " .. message)''',
+
     'metatable': '''-- Metatables Example
 -- Create a vector class
 Vector = {}
@@ -301,6 +325,7 @@ stringFile:close()''',
   // Display names for the examples
   static const Map<String, String> displayNames = {
     'hello': 'Hello World',
+    'goto': 'Goto and Labels',
     'fibonacci': 'Fibonacci Sequence',
     'table': 'Table Operations',
     'functions': 'Functions & Closures',
@@ -314,7 +339,7 @@ stringFile:close()''',
   };
 
   // Get all example keys
-  static List<String> get keys => examples.keys.toList();
+  static List<String> get keys => examples.keys.toList()..sort();
 
   // Get example code by key
   static String? getExample(String key) => examples[key];

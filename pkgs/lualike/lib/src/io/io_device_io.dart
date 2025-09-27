@@ -9,6 +9,7 @@ import 'io_device.dart';
 import 'lua_file.dart';
 import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:lualike/src/utils/command_parser.dart';
+import 'package:lualike/src/utils/file_system_utils.dart';
 
 /// Implementation for real files using dart:io
 class FileIODevice extends BaseIODevice {
@@ -819,7 +820,7 @@ class ProcessIODevice extends BaseIODevice {
         parsedCommand.skip(1).toList(),
         mode: ProcessStartMode.normal,
         runInShell: false,
-        workingDirectory: Directory.current.path,
+        workingDirectory: getCurrentDirectory(),
       );
     } else {
       // Use shell for other commands
