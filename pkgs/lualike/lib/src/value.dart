@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
+import 'package:lualike/src/gc/gc_weights.dart';
 import 'package:lualike/src/gc/generational_gc.dart';
+import 'package:lualike/src/gc/memory_credits.dart';
 import 'package:lualike/src/io/lua_file.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/upvalue.dart';
@@ -58,6 +60,31 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   @override
   bool isOld = false;
 
+  @override
+  int get estimatedSize {
+    var size = GcWeights.gcObjectHeader + GcWeights.valueBase;
+    if (isTable && raw is Map) {
+      size += (raw as Map).length * GcWeights.tableEntry;
+    }
+
+    if (upvalues != null) {
+      size += upvalues!.length * GcWeights.valueUpvalueRef;
+    }
+
+    if (metatable != null) {
+      size += GcWeights.metatableRef;
+    }
+
+    final dynamic payload = raw;
+    if (payload is LuaString) {
+      size += payload.length * GcWeights.stringUnit;
+    } else if (payload is String) {
+      size += payload.length * GcWeights.stringUnit;
+    }
+
+    return size;
+  }
+
   /// Get the raw value
   dynamic get raw => _raw;
 
@@ -94,6 +121,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
     _raw = value;
     _isInitialized = true;
+    if (GenerationalGCManager.isInitialized) {
+      MemoryCredits.instance.recalculate(this);
+    }
   }
 
   /// Creates a new Value wrapping the given raw value.
@@ -275,6 +305,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// [mt] - The new metatable to associate with this value.
   void setMetatable(Map<String, dynamic> mt) {
     metatable = mt;
+    if (GenerationalGCManager.isInitialized) {
+      MemoryCredits.instance.recalculate(this);
+    }
   }
 
   /// Looks up a metamethod in this value's metatable.
@@ -625,6 +658,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         key is Value ? key : Value(key),
         value is Value ? value : Value(value),
       ]);
+      if (GenerationalGCManager.isInitialized) {
+        MemoryCredits.instance.recalculate(this);
+      }
       return;
     }
     if (raw is Map) {
@@ -633,6 +669,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         (raw as Map).remove(rawKey);
       } else {
         (raw as Map)[rawKey] = valueToSet;
+      }
+      if (GenerationalGCManager.isInitialized) {
+        MemoryCredits.instance.recalculate(this);
       }
       return;
     }
@@ -676,6 +715,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         value is Value ? value : Value(value),
       ]);
       if (result is Future) await result;
+      if (GenerationalGCManager.isInitialized) {
+        MemoryCredits.instance.recalculate(this);
+      }
       return;
     }
     if (raw is Map) {
@@ -684,6 +726,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         (raw as Map).remove(rawKey);
       } else {
         (raw as Map)[rawKey] = valueToSet;
+      }
+      if (GenerationalGCManager.isInitialized) {
+        MemoryCredits.instance.recalculate(this);
       }
       return;
     }
@@ -705,6 +750,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
 
     (raw as Map).clear();
+    if (GenerationalGCManager.isInitialized) {
+      MemoryCredits.instance.recalculate(this);
+    }
   }
 
   @override

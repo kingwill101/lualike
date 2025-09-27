@@ -70,19 +70,15 @@ class FileIODevice extends BaseIODevice {
 
     try {
       Logger.debug('Attempting to open file: $normalizedPath', category: 'IO');
-      // Ensure the directory exists when writing
-      if (fileMode == FileMode.write ||
-          fileMode == FileMode.writeOnly ||
-          fileMode == FileMode.writeOnlyAppend ||
-          fileMode == FileMode.append) {
-        final dir = Directory(path_lib.dirname(normalizedPath));
-        if (!await dir.exists()) {
-          await dir.create(recursive: true);
-        }
-      }
       final file = await File(normalizedPath).open(mode: fileMode);
       Logger.debug('Successfully opened file: $normalizedPath', category: 'IO');
       return FileIODevice._(file, mode);
+    } on FileSystemException catch (e, s) {
+      Logger.debug(
+        'Failed to open file: $normalizedPath, error: $e',
+        category: 'IO',
+      );
+      Error.throwWithStackTrace(e, s);
     } catch (e, s) {
       Logger.debug(
         'Failed to open file: $normalizedPath, error: $e',
