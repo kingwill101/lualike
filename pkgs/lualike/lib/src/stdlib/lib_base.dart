@@ -2158,6 +2158,26 @@ class CollectGarbageFunction extends BuiltinFunction {
         interpreter!.gc.start();
         return Value(true);
 
+      case "setpause":
+        // "setpause": Sets the pause of the collector
+        // Returns the previous value of the pause
+        final oldPause = interpreter!.gc.majorMultiplier;
+        if (args.length > 1) {
+          final newPause = (args[1] as Value).raw as num;
+          interpreter!.gc.majorMultiplier = newPause.toInt();
+        }
+        return Value(oldPause);
+
+      case "setstepmul":
+        // "setstepmul": Sets the step multiplier of the collector
+        // Returns the previous value of the step multiplier
+        final oldStepMul = interpreter!.gc.minorMultiplier;
+        if (args.length > 1) {
+          final newStepMul = (args[1] as Value).raw as num;
+          interpreter!.gc.minorMultiplier = newStepMul.toInt();
+        }
+        return Value(oldStepMul);
+
       default:
         throw LuaError("invalid option for collectgarbage: $option");
     }
