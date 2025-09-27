@@ -20,6 +20,13 @@ abstract class GCObject {
   /// Used in generational collection to determine which generation the object belongs to.
   bool isOld = false;
 
+  /// Estimated memory footprint for this object expressed in GC "credits".
+  ///
+  /// Implementations should override this getter to provide a more accurate
+  /// estimate when possible. The default value loosely corresponds to the
+  /// baseline header cost used across the collector heuristics.
+  int get estimatedSize => 64;
+
   /// Return direct references so the GC can traverse the object graph.
   ///
   /// This method is crucial for the mark phase of garbage collection,

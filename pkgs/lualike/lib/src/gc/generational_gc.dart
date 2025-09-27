@@ -1,6 +1,6 @@
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
-import 'package:lualike/src/upvalue.dart';
+import 'package:lualike/src/gc/memory_credits.dart';
 
 /// Represents a generation of objects in the generational garbage collector.
 ///
@@ -146,6 +146,7 @@ class GenerationalGCManager {
   /// New objects are always placed in the young generation (nursery).
   void register(GCObject obj) {
     youngGen.add(obj);
+    MemoryCredits.instance.onAllocate(obj, space: GCGenerationSpace.young);
     Logger.debug(
       'Register: ${obj.runtimeType} ${obj.hashCode}',
       category: 'GC',
@@ -161,6 +162,7 @@ class GenerationalGCManager {
     youngGen.remove(obj);
     oldGen.add(obj);
     obj.isOld = true;
+    MemoryCredits.instance.onPromote(obj);
     Logger.debug('Promoted object to old generation', category: 'GC');
   }
 
@@ -633,6 +635,7 @@ class GenerationalGCManager {
             'Free: ${obj.runtimeType} ${obj.hashCode}',
             category: 'GC',
           );
+          MemoryCredits.instance.onFree(obj);
           obj.free();
         }
       }
@@ -702,6 +705,7 @@ class GenerationalGCManager {
           'Minor free: ${obj.runtimeType} ${obj.hashCode}',
           category: 'GC',
         );
+        MemoryCredits.instance.onFree(obj);
         obj.free();
       }
     }
@@ -771,77 +775,11 @@ class GenerationalGCManager {
   ///
   /// This provides a rough approximation based on object counts and sizes.
   int estimateMemoryUse() {
-    int totalSize = 0;
-
-    // Base object count
-    int objectCount = youngGen.objects.length + oldGen.objects.length;
-    totalSize += objectCount * 64; // Rough overhead per GC object
-
-    // Add size estimates for different object types
-    for (final gen in [youngGen, oldGen]) {
-      for (final obj in gen.objects) {
-        if (obj is Value) {
-          totalSize += _estimateValueSize(obj);
-        } else if (obj is Environment) {
-          totalSize += _estimateEnvironmentSize(obj);
-        } else if (obj is Upvalue) {
-          totalSize += _estimateUpvalueSize(obj);
-        } else {
-          totalSize += 32; // Default object size
-        }
-      }
-    }
-
-    return totalSize;
-  }
-
-  /// Estimates the memory footprint of a Value object
-  int _estimateValueSize(Value value) {
-    int size = 128; // Base Value overhead
-
-    if (value.isTable && value.raw is Map) {
-      final table = value.raw as Map;
-      size += table.length * 48; // Approximate entry overhead
-    }
-
-    if (value.upvalues != null) {
-      // Upvalues are now GCObjects and counted separately in main estimation
-      // But include reference overhead here
-      size += value.upvalues!.length * 8; // Reference overhead only
-    }
-
-    if (value.metatable != null) {
-      size += 64; // Metatable overhead
-    }
-
-    return size;
-  }
-
-  /// Estimates the memory footprint of an Environment object
-  int _estimateEnvironmentSize(Environment env) {
-    int size = 96; // Base Environment overhead
-    size += env.values.length * 40; // Box overhead per variable
-    return size;
-  }
-
-  /// Estimates the memory footprint of an Upvalue object
-  int _estimateUpvalueSize(Upvalue upvalue) {
-    int size = 96; // Base Upvalue overhead
-
-    // Add Box overhead
-    size += 48; // valueBox overhead
-
-    // Add closed value overhead if closed
-    if (!upvalue.isOpen) {
-      size += 32; // Closed value storage
-    }
-
-    // Add name overhead if present
-    if (upvalue.name != null) {
-      size += upvalue.name!.length * 2; // String overhead
-    }
-
-    return size;
+    MemoryCredits.instance.reconcileGenerations(
+      young: youngGen.objects,
+      old: oldGen.objects,
+    );
+    return MemoryCredits.instance.totalCredits;
   }
 
   /// Performs a garbage collection cycle if needed based on memory usage.

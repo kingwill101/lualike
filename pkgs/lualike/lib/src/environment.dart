@@ -1,6 +1,8 @@
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart' show GCObject;
+import 'package:lualike/src/gc/gc_weights.dart';
 import 'package:lualike/src/gc/generational_gc.dart' show GenerationalGCManager;
+import 'package:lualike/src/gc/memory_credits.dart';
 
 /// A generic box class that wraps a single value of type T.
 /// Used to create mutable references to values in the environment.
@@ -19,6 +21,9 @@ class Box<T> extends GCObject {
       category: 'GC',
     );
   }
+
+  @override
+  int get estimatedSize => GcWeights.gcObjectHeader + GcWeights.boxBase;
 
   @override
   List<GCObject> getReferences() {
@@ -120,6 +125,18 @@ class Environment extends GCObject {
       category: 'Env',
     );
   }
+
+  void _updateCredits() {
+    if (GenerationalGCManager.isInitialized) {
+      MemoryCredits.instance.recalculate(this);
+    }
+  }
+
+  @override
+  int get estimatedSize =>
+      GcWeights.gcObjectHeader +
+      GcWeights.environmentBase +
+      values.length * GcWeights.environmentEntry;
 
   @override
   List<GCObject> getReferences() {
@@ -305,6 +322,8 @@ class Environment extends GCObject {
       category: 'Env',
     );
 
+    rootEnv._updateCredits();
+
     // Track to-be-closed variables
     if (value is Value && value.isToBeClose) {
       rootEnv.toBeClosedVars.add(name);
@@ -344,6 +363,8 @@ class Environment extends GCObject {
 
     // Create a fresh Box that shadows any previous binding
     values[name] = Box(value, isLocal: true);
+
+    _updateCredits();
 
     // Track to-be-closed variables
     if (value is Value && value.isToBeClose) {
@@ -480,6 +501,7 @@ class Environment extends GCObject {
         "Created new global variable '$name' = $value in root env (${rootEnv.hashCode})",
         category: 'Env',
       );
+      rootEnv._updateCredits();
     }
 
     // Keep the underlying _G table in sync so reads via _G[k] see updates
@@ -612,6 +634,8 @@ class Environment extends GCObject {
 
     // Copy to-be-closed variables
     cloned.toBeClosedVars.addAll(toBeClosedVars);
+
+    cloned._updateCredits();
 
     return cloned;
   }
