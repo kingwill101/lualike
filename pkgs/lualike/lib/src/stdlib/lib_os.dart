@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:lualike/lualike.dart';
 
 import 'package:lualike/src/utils/file_system_utils.dart';
@@ -296,7 +294,7 @@ class _OSExecute extends BuiltinFunction {
         result = runProcessSync(
           parsedCommand[0],
           parsedCommand.skip(1).toList(),
-          workingDirectory: Directory.current.path,
+          workingDirectory: getCurrentDirectory(),
         );
       } else {
         // Use shell for other commands
