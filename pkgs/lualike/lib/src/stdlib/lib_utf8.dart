@@ -24,7 +24,7 @@ class UTF8Library extends Library {
     "__len": (List<Object?> args) {
       final str = args[0] as Value;
       if (str.raw is! String && str.raw is! LuaString) {
-        throw Exception("utf8 operation on non-string value");
+        throw LuaError("utf8 operation on non-string value");
       }
       return Value(str.raw.toString().characters.length);
     },

@@ -108,7 +108,7 @@ class _CoroutineCreate extends BuiltinFunction {
 
   @override
   Object? call(List<Object?> args) {
-    throw Exception("coroutine.create not implemented");
+    throw LuaError("coroutine.create not implemented");
   }
 }
 
@@ -117,7 +117,7 @@ class _CoroutineResume extends BuiltinFunction {
 
   @override
   Object? call(List<Object?> args) {
-    throw Exception("coroutine.resume not implemented");
+    throw LuaError("coroutine.resume not implemented");
   }
 }
 
@@ -132,7 +132,7 @@ class _CoroutineYield extends BuiltinFunction {
 
     final collector = _CoroutineStubState.currentCollector;
     if (collector == null) {
-      throw Exception("attempt to yield from outside a coroutine");
+      throw LuaError("attempt to yield from outside a coroutine");
     }
 
     if (args.isEmpty) {
@@ -274,7 +274,7 @@ class _CoroutineClose extends BuiltinFunction {
 
   @override
   Object? call(List<Object?> args) {
-    throw Exception("coroutine.close not implemented");
+    throw LuaError("coroutine.close not implemented");
   }
 }
 

@@ -81,7 +81,7 @@ class _GetLocal extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.length < 2) {
-      throw Exception(
+      throw LuaError(
         "debug.getlocal requires thread/function and level arguments",
       );
     }
@@ -121,7 +121,7 @@ class _GetMetatable extends BuiltinFunction {
 
   @override
   Object? call(List<Object?> args) {
-    if (args.isEmpty) throw Exception("debug.getmetatable requires a value");
+    if (args.isEmpty) throw LuaError("debug.getmetatable requires a value");
     final value = args[0] as Value;
     final meta = value.getMetatable();
     if (meta == null) {
@@ -153,7 +153,7 @@ class _GetUpvalue extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.length < 2) {
-      throw Exception("debug.getupvalue requires function and index arguments");
+      throw LuaError("debug.getupvalue requires function and index arguments");
     }
 
     final functionArg = args[0] as Value;
@@ -205,7 +205,7 @@ class _GetUserValue extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.length < 2) {
-      throw Exception(
+      throw LuaError(
         "debug.getuservalue requires userdata and index arguments",
       );
     }
@@ -220,7 +220,7 @@ class _SetHook extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.length < 3) {
-      throw Exception("debug.sethook requires hook function, mask and count");
+      throw LuaError("debug.sethook requires hook function, mask and count");
     }
     // Set debug hook function
     return Value(null);
@@ -233,7 +233,7 @@ class _SetLocal extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.length < 3) {
-      throw Exception(
+      throw LuaError(
         "debug.setlocal requires thread/function, index and value",
       );
     }
@@ -248,7 +248,7 @@ class _SetMetatable extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.length < 2) {
-      throw Exception("debug.setmetatable requires value and metatable");
+      throw LuaError("debug.setmetatable requires value and metatable");
     }
     final value = args[0] as Value;
     final meta = args[1] as Value;
@@ -280,7 +280,7 @@ class _SetMetatable extends BuiltinFunction {
         return Value(true);
       }
     }
-    throw Exception("metatable must be a table or nil");
+    throw LuaError("metatable must be a table or nil");
   }
 
   String _typeOf(Object? raw) {
@@ -301,7 +301,7 @@ class _SetUpvalue extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.length < 3) {
-      throw Exception("debug.setupvalue requires function, index and value");
+      throw LuaError("debug.setupvalue requires function, index and value");
     }
 
     final functionArg = args[0] as Value;
@@ -348,7 +348,7 @@ class _SetUserValue extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.length < 3) {
-      throw Exception("debug.setuservalue requires userdata, value and index");
+      throw LuaError("debug.setuservalue requires userdata, value and index");
     }
     // Set nth user value
     return Value(null);
@@ -382,13 +382,13 @@ class _UpvalueId extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.length < 2) {
-      throw Exception("debug.upvalueid requires function and index");
+      throw LuaError("debug.upvalueid requires function and index");
     }
     final functionArg = args[0] as Value;
     final indexArg = args[1] as Value;
 
     if (indexArg.raw is! num) {
-      throw Exception("debug.upvalueid index must be a number");
+      throw LuaError("debug.upvalueid index must be a number");
     }
 
     final index = (indexArg.raw as num).toInt();
@@ -412,7 +412,7 @@ class _UpvalueJoin extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.length < 4) {
-      throw Exception("debug.upvaluejoin requires f1,n1,f2,n2 arguments");
+      throw LuaError("debug.upvaluejoin requires f1,n1,f2,n2 arguments");
     }
 
     final f1Arg = args[0] as Value;
@@ -422,7 +422,7 @@ class _UpvalueJoin extends BuiltinFunction {
 
     // Validate that indices are numbers
     if (n1Arg.raw is! num || n2Arg.raw is! num) {
-      throw Exception("debug.upvaluejoin indices must be numbers");
+      throw LuaError("debug.upvaluejoin indices must be numbers");
     }
 
     final n1 = (n1Arg.raw as num).toInt();
@@ -430,15 +430,15 @@ class _UpvalueJoin extends BuiltinFunction {
 
     // Validate that both functions have upvalues
     if (f1Arg.upvalues == null || f2Arg.upvalues == null) {
-      throw Exception("debug.upvaluejoin: functions must have upvalues");
+      throw LuaError("debug.upvaluejoin: functions must have upvalues");
     }
 
     // Validate indices are within bounds
     if (n1 < 1 || n1 > f1Arg.upvalues!.length) {
-      throw Exception("debug.upvaluejoin: f1 upvalue index $n1 out of bounds");
+      throw LuaError("debug.upvaluejoin: f1 upvalue index $n1 out of bounds");
     }
     if (n2 < 1 || n2 > f2Arg.upvalues!.length) {
-      throw Exception("debug.upvaluejoin: f2 upvalue index $n2 out of bounds");
+      throw LuaError("debug.upvaluejoin: f2 upvalue index $n2 out of bounds");
     }
 
     // Join the upvalues by making f1's upvalue point to the same value box as f2's upvalue

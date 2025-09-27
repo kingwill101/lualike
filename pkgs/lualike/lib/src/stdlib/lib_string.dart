@@ -251,7 +251,7 @@ class _StringFind extends BuiltinFunction {
       }
       return Value.multi(results);
     } catch (e) {
-      throw Exception('malformed pattern: $e');
+      throw LuaError('malformed pattern: $e');
     }
   }
 }

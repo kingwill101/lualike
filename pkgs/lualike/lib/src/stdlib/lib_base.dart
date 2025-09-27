@@ -83,7 +83,7 @@ class GetMetatableFunction extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
-      throw Exception("getmetatable requires an argument");
+      throw LuaError("getmetatable requires an argument");
     }
 
     final value = args[0];
@@ -119,21 +119,21 @@ class SetMetatableFunction extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.length != 2) {
-      throw Exception("setmetatable expects two arguments");
+      throw LuaError("setmetatable expects two arguments");
     }
 
     final table = args[0];
     final metatable = args[1];
 
     if (table is! Value || table.raw is! Map) {
-      throw Exception("setmetatable only supported for table values");
+      throw LuaError("setmetatable only supported for table values");
     }
 
     // Check if the current metatable is protected
     final currentMetatable = table.getMetatable();
     if (currentMetatable != null &&
         currentMetatable.containsKey('__metatable')) {
-      throw Exception("cannot change a protected metatable");
+      throw LuaError("cannot change a protected metatable");
     }
 
     if (metatable is Value) {
@@ -154,7 +154,7 @@ class SetMetatableFunction extends BuiltinFunction {
       }
     }
 
-    throw Exception("metatable must be a table or nil");
+    throw LuaError("metatable must be a table or nil");
   }
 }
 
@@ -165,12 +165,12 @@ class RawSetFunction extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.length < 3) {
-      throw Exception("rawset expects three arguments (table, key, value)");
+      throw LuaError("rawset expects three arguments (table, key, value)");
     }
 
     final table = args[0];
     if (table is! Value || table.raw is! Map) {
-      throw Exception("rawset: first argument must be a table");
+      throw LuaError("rawset: first argument must be a table");
     }
 
     final key = args[1] as Value;
@@ -207,7 +207,7 @@ class AssertFunction extends BuiltinFunction {
 
   @override
   Object? call(List<Object?> args) {
-    if (args.isEmpty) throw Exception("assert requires at least one argument");
+    if (args.isEmpty) throw LuaError("assert requires at least one argument");
     final condition = args[0];
 
     bool isTrue;
@@ -291,7 +291,7 @@ class ErrorFunction extends BuiltinFunction {
     // If we're already reporting an error, just throw the exception
     // without calling reportError again
     if (_errorReporting) {
-      throw Exception(message);
+      throw LuaError(message);
     }
 
     // Set the flag to indicate we're reporting an error
@@ -301,7 +301,7 @@ class ErrorFunction extends BuiltinFunction {
       // Let the interpreter handle the error reporting with proper stack trace
       interpreter!.reportError(message);
       // This will never be reached, but needed for type safety
-      throw Exception(message);
+      throw LuaError(message);
     } finally {
       // Reset the flag
       _errorReporting = false;
@@ -314,9 +314,9 @@ class IPairsFunction extends BuiltinFunction {
 
   @override
   Object? call(List<Object?> args) {
-    if (args.isEmpty) throw Exception("ipairs requires a table");
+    if (args.isEmpty) throw LuaError("ipairs requires a table");
     final table = args[0] as Value;
-    if (table.raw is! Map) throw Exception("ipairs requires a table");
+    if (table.raw is! Map) throw LuaError("ipairs requires a table");
 
     // Debug logging disabled for performance
     // Logger.debug(
@@ -327,20 +327,20 @@ class IPairsFunction extends BuiltinFunction {
     // Create a function that returns the next index and value
     final iteratorFunction = Value((List<Object?> iterArgs) {
       if (iterArgs.length < 2) {
-        throw Exception("iterator requires a table and an index");
+        throw LuaError("iterator requires a table and an index");
       }
 
       final t = iterArgs[0] as Value;
 
       if (t.raw is! Map) {
-        throw Exception("iterator requires a table as first argument");
+        throw LuaError("iterator requires a table as first argument");
       }
 
       final map = t.raw as Map;
 
       // The second argument must be a number
       if (iterArgs[1] is! Value || (iterArgs[1] as Value).raw is! num) {
-        throw Exception("iterator index must be a number");
+        throw LuaError("iterator index must be a number");
       }
 
       final index = (iterArgs[1] as Value).raw as num;
@@ -461,7 +461,7 @@ class TypeFunction extends BuiltinFunction {
 
   @override
   Object? call(List<Object?> args) {
-    if (args.isEmpty) throw Exception("type requires an argument");
+    if (args.isEmpty) throw LuaError("type requires an argument");
     final value = args[0] as Value;
 
     return getLuaType(value);
@@ -474,7 +474,7 @@ class ToNumberFunction extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
-      throw Exception("tonumber requires an argument");
+      throw LuaError("tonumber requires an argument");
     }
 
     final value = args[0] as Value;
@@ -527,7 +527,7 @@ class ToStringFunction extends BuiltinFunction {
 
   @override
   Future<Object?> call(List<Object?> args) async {
-    if (args.isEmpty) throw Exception("tostring requires an argument");
+    if (args.isEmpty) throw LuaError("tostring requires an argument");
     final value = args[0] as Value;
 
     // Check for __tostring metamethod
@@ -605,7 +605,7 @@ class SelectFunction extends BuiltinFunction {
 
   @override
   Object? call(List<Object?> args) {
-    if (args.isEmpty) throw Exception("select requires at least one argument");
+    if (args.isEmpty) throw LuaError("select requires at least one argument");
     final index = args[0] as Value;
 
     if (index.raw is String && index.raw == "#") {
@@ -618,7 +618,7 @@ class SelectFunction extends BuiltinFunction {
 
     // Handle non-integer indices
     if (index.raw is! num) {
-      throw Exception(
+      throw LuaError(
         "bad argument #1 to 'select' (number expected, got ${index.raw.runtimeType})",
       );
     }
@@ -650,7 +650,7 @@ class LoadFunction extends BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
-      throw Exception("load() requires a string or function argument");
+      throw LuaError("load() requires a string or function argument");
     }
 
     String source;
@@ -902,13 +902,13 @@ class LoadFunction extends BuiltinFunction {
         final bytes = (args[0] as Value).raw as List<int>;
         source = utf8.decode(bytes);
       } else {
-        throw Exception(
+        throw LuaError(
           "load() first argument must be string, function or binary",
         );
       }
       // chunkname already assigned above
     } else {
-      throw Exception("load() first argument must be a string");
+      throw LuaError("load() first argument must be a string");
     }
 
     // Check mode compatibility with chunk type
@@ -1359,13 +1359,13 @@ class DoFileFunction extends BuiltinFunction {
 
   @override
   Future<Object?> call(List<Object?> args) async {
-    if (args.isEmpty) throw Exception("dofile requires a filename");
+    if (args.isEmpty) throw LuaError("dofile requires a filename");
     final filename = (args[0] as Value).raw.toString();
 
     // Load source using FileManager
     final source = await interpreter!.fileManager.loadSource(filename);
     if (source == null) {
-      throw Exception("Cannot open file '$filename'");
+      throw LuaError("Cannot open file '$filename'");
     }
 
     try {
@@ -1388,7 +1388,7 @@ class DoFileFunction extends BuiltinFunction {
           .toList();
       return await interpreter!.callFunction(callee, normalizedArgs);
     } catch (e) {
-      throw Exception("Error in dofile('$filename'): $e");
+      throw LuaError("Error in dofile('$filename'): $e");
     }
   }
 }
@@ -1412,12 +1412,12 @@ class SetmetaFunction extends BuiltinFunction {
 
   @override
   Object? call(List<Object?> args) {
-    if (args.length != 2) throw Exception("setmetatable expects 2 arguments");
+    if (args.length != 2) throw LuaError("setmetatable expects 2 arguments");
     final table = args[0];
     final meta = args[1];
 
     if (table is! Value || meta is! Value) {
-      throw Exception("setmetatable requires table and metatable arguments");
+      throw LuaError("setmetatable requires table and metatable arguments");
     }
 
     if (meta.raw is Map) {
@@ -1433,7 +1433,7 @@ class SetmetaFunction extends BuiltinFunction {
       );
       return table;
     }
-    throw Exception("metatable must be a table");
+    throw LuaError("metatable must be a table");
   }
 }
 
@@ -1492,7 +1492,7 @@ class LoadfileFunction extends BuiltinFunction {
             return Value((List<Object?> callArgs) async {
               final currentVm = interpreter;
               if (currentVm == null) {
-                throw Exception("No interpreter context available");
+                throw LuaError("No interpreter context available");
               }
               try {
                 final savedEnv = currentVm.getCurrentEnv();
@@ -1569,7 +1569,7 @@ class LoadfileFunction extends BuiltinFunction {
               return Value((List<Object?> callArgs) async {
                 final currentVm = interpreter;
                 if (currentVm == null) {
-                  throw Exception("No interpreter context available");
+                  throw LuaError("No interpreter context available");
                 }
                 try {
                   final savedEnv = currentVm.getCurrentEnv();
@@ -1655,7 +1655,7 @@ class LoadfileFunction extends BuiltinFunction {
               return Value((List<Object?> callArgs) async {
                 final currentVm = interpreter;
                 if (currentVm == null) {
-                  throw Exception("No interpreter context available");
+                  throw LuaError("No interpreter context available");
                 }
                 try {
                   final savedEnv = currentVm.getCurrentEnv();
@@ -1718,7 +1718,7 @@ class LoadfileFunction extends BuiltinFunction {
       return Value((List<Object?> callArgs) async {
         final currentVm = interpreter;
         if (currentVm == null) {
-          throw Exception("No interpreter context available");
+          throw LuaError("No interpreter context available");
         }
         try {
           if (envProvided) {
@@ -1768,7 +1768,7 @@ class LoadfileFunction extends BuiltinFunction {
               .toList();
           return await currentVm.callFunction(callee, normalizedArgs);
         } catch (e) {
-          throw Exception("Error executing loaded chunk: $e");
+          throw LuaError("Error executing loaded chunk: $e");
         }
       });
     } catch (e) {
@@ -1785,9 +1785,9 @@ class NextFunction extends BuiltinFunction {
 
   @override
   Object? call(List<Object?> args) {
-    if (args.isEmpty) throw Exception("next requires a table argument");
+    if (args.isEmpty) throw LuaError("next requires a table argument");
     final table = args[0] as Value;
-    if (table.raw is! Map) throw Exception("next requires a table argument");
+    if (table.raw is! Map) throw LuaError("next requires a table argument");
     final map = table.raw as Map;
 
     // Filter out nil values from the map
@@ -1825,7 +1825,7 @@ class PCAllFunction extends BuiltinFunction {
 
   @override
   Object? call(List<Object?> args) async {
-    if (args.isEmpty) throw Exception("pcall requires a function");
+    if (args.isEmpty) throw LuaError("pcall requires a function");
     final func = args[0] as Value;
     final callArgs = args.sublist(1);
 
@@ -1904,7 +1904,7 @@ class RawEqualFunction extends BuiltinFunction {
 
   @override
   Object? call(List<Object?> args) {
-    if (args.length < 2) throw Exception("rawequal requires two arguments");
+    if (args.length < 2) throw LuaError("rawequal requires two arguments");
     final v1 = args[0] as Value;
     final v2 = args[1] as Value;
     return Value(v1.raw == v2.raw);
@@ -1916,12 +1916,12 @@ class RawLenFunction extends BuiltinFunction {
 
   @override
   Object? call(List<Object?> args) {
-    if (args.isEmpty) throw Exception("rawlen requires an argument");
+    if (args.isEmpty) throw LuaError("rawlen requires an argument");
     final value = args[0] as Value;
     if (value.raw is String) return Value(value.raw.toString().length);
     if (value.raw is LuaString) return Value((value.raw as LuaString).length);
     if (value.raw is Map) return Value((value.raw as Map).length);
-    throw Exception("rawlen requires a string or table");
+    throw LuaError("rawlen requires a string or table");
   }
 }
 
@@ -2159,7 +2159,7 @@ class CollectGarbageFunction extends BuiltinFunction {
         return Value(true);
 
       default:
-        throw Exception("invalid option for collectgarbage: $option");
+        throw LuaError("invalid option for collectgarbage: $option");
     }
   }
 }
@@ -2170,12 +2170,12 @@ class RawGetFunction extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.length < 2) {
-      throw Exception("rawget requires table and index arguments");
+      throw LuaError("rawget requires table and index arguments");
     }
 
     final table = args[0] as Value;
     if (table.raw is! Map) {
-      throw Exception("rawget requires a table as first argument");
+      throw LuaError("rawget requires a table as first argument");
     }
 
     final key = args[1] as Value;
@@ -2197,12 +2197,12 @@ class PairsFunction extends BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
-      throw Exception("pairs requires a table argument");
+      throw LuaError("pairs requires a table argument");
     }
 
     final table = args[0] as Value;
     if (table.raw is! Map) {
-      throw Exception("pairs requires a table argument");
+      throw LuaError("pairs requires a table argument");
     }
 
     Logger.debug(
@@ -2231,7 +2231,7 @@ class PairsFunction extends BuiltinFunction {
     // Create the iterator function - this is essentially the 'next' function
     final iteratorFunction = Value((List<Object?> iterArgs) {
       if (iterArgs.length < 2) {
-        throw Exception("iterator requires a table and a key");
+        throw LuaError("iterator requires a table and a key");
       }
 
       // We ignore the original table passed in iterArgs[0] and use our filtered table instead
@@ -2325,7 +2325,7 @@ class RequireFunction extends BuiltinFunction {
 
   @override
   Future<Object?> call(List<Object?> args) async {
-    if (args.isEmpty) throw Exception("require() needs a module name");
+    if (args.isEmpty) throw LuaError("require() needs a module name");
     final moduleName = (args[0] as Value).raw.toString();
 
     Logger.debug("Looking for module '$moduleName'", category: 'Require');
@@ -2376,7 +2376,7 @@ class RequireFunction extends BuiltinFunction {
 
     // Get package.loaded table
     if (packageTable.raw is! Map) {
-      throw Exception("package is not a table");
+      throw LuaError("package is not a table");
     }
 
     // Use the stored package table
@@ -2387,7 +2387,7 @@ class RequireFunction extends BuiltinFunction {
       if (pathField is Value) {
         final rawPath = pathField.raw;
         if (rawPath is! String && rawPath is! LuaString) {
-          throw Exception('package.path must be a string');
+          throw LuaError('package.path must be a string');
         }
       }
     }
@@ -2444,7 +2444,7 @@ class RequireFunction extends BuiltinFunction {
             loaded[moduleName] = result;
             return Value.multi([result, Value(':preload:')]);
           } catch (e) {
-            throw Exception(
+            throw LuaError(
               "error loading module '$moduleName' from preload: $e",
             );
           }
@@ -2639,7 +2639,7 @@ class RequireFunction extends BuiltinFunction {
           final normalizedPath = modulePathStr.replaceAll('\\', '/');
           return Value.multi([result, Value(normalizedPath)]);
         } catch (e) {
-          throw Exception("error loading module '$moduleName': $e");
+          throw LuaError("error loading module '$moduleName': $e");
         }
       }
     }
@@ -2656,11 +2656,11 @@ class RequireFunction extends BuiltinFunction {
     final pkgMapForSearchers = packageTable.raw as Map;
     final searchersEntry = pkgMapForSearchers['searchers'];
     if (searchersEntry is! Value) {
-      throw Exception("package.searchers must be a table");
+      throw LuaError("package.searchers must be a table");
     }
     final searchersRaw = searchersEntry.raw;
     if (searchersRaw is! List) {
-      throw Exception("package.searchers must be a table");
+      throw LuaError("package.searchers must be a table");
     }
     final searchers = searchersRaw;
 
@@ -2783,6 +2783,6 @@ class RequireFunction extends BuiltinFunction {
     final errorMsg =
         "module '$moduleName' not found:\n\t${errorLines.join('\n\t')}";
     Logger.debug("Error message: $errorMsg", category: 'Require');
-    throw Exception(errorMsg);
+    throw LuaError(errorMsg);
   }
 }

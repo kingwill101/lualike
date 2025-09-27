@@ -185,7 +185,7 @@ class MetaTable {
             'Error: Attempt to iterate over non-table value of type ${table.raw.runtimeType}',
             category: 'Metatables',
           );
-          throw Exception("attempt to iterate over non-table value");
+          throw LuaError("attempt to iterate over non-table value");
         }
 
         // Create a filtered map without nil values
@@ -304,7 +304,7 @@ class MetaTable {
           return result;
         }
 
-        throw Exception("attempt to call non-function value");
+        throw LuaError("attempt to call non-function value");
       },
     });
     Logger.debug('Function metatable initialized', category: 'Metatables');
