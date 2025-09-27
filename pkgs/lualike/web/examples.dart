@@ -339,7 +339,7 @@ stringFile:close()''',
   };
 
   // Get all example keys
-    static List<String> get keys => examples.keys.toList()..sort();
+  static List<String> get keys => examples.keys.toList()..sort();
 
   // Get example code by key
   static String? getExample(String key) => examples[key];
