@@ -141,6 +141,22 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       }
     }
 
+    // Special case: if we're in a load-isolated environment and _ENV == _G,
+    // define the function in the global _G table to make it globally accessible
+    if (globals.isLoadIsolated &&
+        envVal is Value &&
+        gVal is Value &&
+        envVal == gVal) {
+      Logger.debug(
+        'Defining function ${node.name.first.name} in global _G table from load context',
+        category: 'Interpreter',
+      );
+      if (gVal.raw is Map) {
+        (gVal.raw as Map)[node.name.first.name] = closure;
+        return closure;
+      }
+    }
+
     globals.define(node.name.first.name, closure);
     Logger.debug(
       'Defined function ${node.name.first.name}',
