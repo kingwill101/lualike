@@ -6,6 +6,7 @@ import 'package:lualike/src/chunk_serializer.dart';
 import 'package:lualike/lualike.dart';
 
 import 'package:lualike/src/const_checker.dart';
+import 'package:lualike/src/goto_validator.dart';
 import 'package:lualike/src/io/lua_file.dart';
 import 'package:lualike/src/upvalue.dart';
 import 'package:lualike/src/interpreter/upvalue_analyzer.dart';
@@ -962,6 +963,12 @@ class LoadFunction extends BuiltinFunction {
         }
         // Return error in load() format: [nil, error_message]
         return [Value(null), Value(adjustedError)];
+      }
+
+      final gotoValidator = GotoLabelValidator();
+      final gotoError = gotoValidator.checkGotoLabelViolations(ast);
+      if (gotoError != null) {
+        return [Value(null), Value(gotoError)];
       }
 
       final sourceFile = path.url.joinAll(
