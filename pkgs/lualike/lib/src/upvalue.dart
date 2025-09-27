@@ -105,6 +105,20 @@ class Upvalue extends GCObject {
   /// Whether this upvalue has been joined with another upvalue
   bool get isJoined => _joinedUpvalue != null;
 
+  /// Returns the canonical storage box backing this upvalue, taking into
+  /// account any joins performed via debug.upvaluejoin. When joined, all
+  /// participating upvalues resolve to the same underlying box to mirror
+  /// Lua's pointer identity semantics for upvalues.
+  Box<dynamic> get canonicalBox {
+    var current = this;
+    final visited = <Upvalue>{};
+    while (current._joinedUpvalue != null && !visited.contains(current)) {
+      visited.add(current);
+      current = current._joinedUpvalue!;
+    }
+    return current.valueBox;
+  }
+
   @override
   List<Object?> getReferences() {
     final refs = <Object?>[];
