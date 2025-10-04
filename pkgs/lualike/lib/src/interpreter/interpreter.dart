@@ -646,6 +646,13 @@ class Interpreter extends AstVisitor<Object?>
       try {
         result = await node.accept(this);
         index++;
+        
+        // Trigger GC at safe point after each statement if there's significant accumulated debt
+        // Use a very large threshold to avoid triggering GC too frequently during deep recursion
+        // For tail call recursion, we need an even larger threshold to avoid performance issues
+        // if (gc.allocationDebt > 1024 * 1024 * 100) { // 100MB threshold for deep recursion
+        //   gc.triggerGCIfNeeded();
+        // }
       } on GotoException catch (e) {
         if (!labelMap.containsKey(e.label)) {
           // Propagate to outer scope for resolution

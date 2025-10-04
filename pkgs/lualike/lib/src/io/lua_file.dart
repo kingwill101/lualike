@@ -96,14 +96,17 @@ final fileMetamethods = {
     );
 
     if (key.raw is String) {
-      final method = LuaFile.fileMethods[key.raw];
+      final keyStr = key.raw as String;
+      
+      // Handle file methods
+      final method = LuaFile.fileMethods[keyStr];
       if (method != null) {
-        Logger.debug('Found file method: ${key.raw}', category: 'IO');
+        Logger.debug('Found file method: $keyStr', category: 'IO');
 
         // Return a bound method that checks for proper self argument
         return Value((callArgs) {
           Logger.debug(
-            'File method ${key.raw} called with ${callArgs.length} arguments',
+            'File method $keyStr called with ${callArgs.length} arguments',
             category: 'IO',
           );
 
@@ -122,9 +125,26 @@ final fileMetamethods = {
           return method.call([fileValue, ...callArgs]);
         });
       }
+      
+      // Handle file properties
+      if (fileValue is Value && fileValue.raw is LuaFile) {
+        final luaFile = fileValue.raw as LuaFile;
+        
+        switch (keyStr) {
+          case 'mode':
+            Logger.debug('Returning file mode: ${luaFile.mode}', category: 'IO');
+            return Value(luaFile.mode);
+          case 'isClosed':
+            Logger.debug('Returning file isClosed: ${luaFile.isClosed}', category: 'IO');
+            return Value(luaFile.isClosed);
+          case 'isStandardFile':
+            Logger.debug('Returning file isStandardFile: ${luaFile.isStandardFile}', category: 'IO');
+            return Value(luaFile.isStandardFile);
+        }
+      }
     }
 
-    Logger.debug('File method not found: ${key.raw}', category: 'IO');
+    Logger.debug('File property/method not found: ${key.raw}', category: 'IO');
     return Value(null);
   },
 };

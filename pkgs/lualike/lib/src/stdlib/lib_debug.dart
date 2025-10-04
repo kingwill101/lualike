@@ -320,6 +320,10 @@ class _SetUpvalue extends BuiltinFunction {
         index > 0 &&
         index <= functionArg.upvalues!.length) {
       final upvalue = functionArg.upvalues![index - 1];
+      Logger.debug(
+        'debug.setupvalue explicit: name=${upvalue.name} value=${newValue.raw} open=${upvalue.isOpen}',
+        category: 'DebugLib',
+      );
       final oldName = upvalue.name;
       upvalue.setValue(newValue.raw);
       return Value(oldName);
@@ -332,6 +336,10 @@ class _SetUpvalue extends BuiltinFunction {
           index > 0 &&
           index <= functionArg.upvalues!.length) {
         final upvalue = functionArg.upvalues![index - 1];
+        Logger.debug(
+          'debug.setupvalue raw: name=${upvalue.name} value=${newValue.raw} open=${upvalue.isOpen}',
+          category: 'DebugLib',
+        );
         final oldName = upvalue.name;
         upvalue.setValue(newValue.raw);
         return Value(oldName);

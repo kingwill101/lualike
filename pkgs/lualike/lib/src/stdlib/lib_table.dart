@@ -1029,8 +1029,8 @@ class _TableUnpack extends BuiltinFunction {
 
     // Check for empty range
     if (i > j) {
-      Logger.debug("_TableUnpack: Empty range (i > j), returning nil");
-      return Value(null);
+      Logger.debug("_TableUnpack: Empty range (i > j), returning zero values");
+      return Value.multi(<dynamic>[]);
     }
 
     // Check for "too many results to unpack"

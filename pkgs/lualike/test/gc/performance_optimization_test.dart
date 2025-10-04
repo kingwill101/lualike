@@ -12,6 +12,8 @@ void main() {
       vm = Interpreter();
       GenerationalGCManager.initialize(vm);
       gc = GenerationalGCManager.instance;
+      // Stop incremental GC to prevent it from sweeping test objects
+      gc.stop();
     });
 
     group('Map Traversal Filtering', () {

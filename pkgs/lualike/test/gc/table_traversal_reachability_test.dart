@@ -11,6 +11,8 @@ void main() {
       interpreter = Interpreter();
       GenerationalGCManager.initialize(interpreter);
       gc = GenerationalGCManager.instance;
+      // Stop incremental GC to prevent it from sweeping test objects
+      gc.stop();
     });
 
     test('objects reachable only via table are kept alive', () async {

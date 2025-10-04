@@ -3,6 +3,7 @@ import 'package:lualike/src/value.dart';
 import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/gc/gc.dart';
+import 'package:lualike/src/gc/gc_weights.dart';
 import 'package:lualike/src/gc/generational_gc.dart';
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/lua_error.dart';
@@ -65,7 +66,20 @@ class Coroutine extends GCObject {
       ), // Clone closureEnv for execution
       super() {
     // Register with garbage collector
-    GenerationalGCManager.instance.register(this);
+    if (GenerationalGCManager.isInitialized) {
+      GenerationalGCManager.instance.register(this);
+    }
+  }
+
+  @override
+  int get estimatedSize {
+    var size = GcWeights.gcObjectHeader + GcWeights.coroutineBase;
+    size += GcWeights.coroutineEnvironmentRef; // closure environment
+    size += GcWeights.coroutineEnvironmentRef; // execution environment snapshot
+    if (completer != null) {
+      size += GcWeights.coroutineEnvironmentRef;
+    }
+    return size;
   }
 
   /// Resumes the coroutine with the given arguments

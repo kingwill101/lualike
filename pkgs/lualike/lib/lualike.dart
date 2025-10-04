@@ -12,7 +12,7 @@ export 'src/extensions/extensions.dart';
 export 'src/file_manager.dart';
 export 'src/interop.dart';
 export 'src/interpreter/interpreter.dart';
-export 'src/logging/logger.dart';
+export 'src/logging/logging.dart';
 export 'src/lua_error.dart';
 export 'src/lua_stack_trace.dart';
 export 'src/lua_string.dart';

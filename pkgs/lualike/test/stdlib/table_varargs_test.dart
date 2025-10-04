@@ -120,6 +120,19 @@ void main() {
       expect((lua.getGlobal('c') as Value).raw, equals(40));
     });
 
+    test('table.unpack returns zero values when range is empty', () async {
+      await lua.execute('''
+        count = select('#', table.unpack({1, 2, 3}, 4, 2))
+        firstValue = table.unpack({1, 2, 3}, 4, 2)
+        packed = {table.unpack({1, 2, 3}, 5, 4)}
+        packedLength = #packed
+      ''');
+
+      expect((lua.getGlobal('count') as Value).raw, equals(0));
+      expect((lua.getGlobal('firstValue') as Value).raw, isNull);
+      expect((lua.getGlobal('packedLength') as Value).raw, equals(0));
+    });
+
     test('table.pack creates table with n field', () async {
       // Test table.pack functionality
       await lua.execute('''

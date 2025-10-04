@@ -1,6 +1,8 @@
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
+import 'package:lualike/src/gc/gc_weights.dart';
 import 'package:lualike/src/gc/generational_gc.dart';
+import 'package:lualike/src/gc/memory_credits.dart';
 
 /// Represents a reference to a variable in an outer scope (an "upvalue").
 ///
@@ -28,6 +30,18 @@ class Upvalue extends GCObject {
     if (GenerationalGCManager.isInitialized) {
       GenerationalGCManager.instance.register(this);
     }
+  }
+
+  @override
+  int get estimatedSize {
+    var size = GcWeights.gcObjectHeader + GcWeights.upvalueBase;
+    if (!_isOpen) {
+      size += GcWeights.upvalueClosedValue;
+    }
+    if (name != null) {
+      size += name!.length * GcWeights.stringUnit;
+    }
+    return size;
   }
 
   /// Gets the current value of the upvalue.
@@ -60,11 +74,8 @@ class Upvalue extends GCObject {
       // TODO: Consider const checking here eventually, based on valueBox.isConst
       valueBox.value = newValue;
     } else {
-      // In standard Lua, assigning to a closed upvalue shouldn't happen
-      // because the variable itself is gone. We might refine this error.
-      throw LuaError(
-        'Cannot set value of a closed upvalue: ${name ?? 'unknown'}',
-      );
+      _closedValue = newValue;
+      valueBox.value = newValue;
     }
   }
 
@@ -77,6 +88,9 @@ class Upvalue extends GCObject {
     if (_isOpen) {
       _closedValue = valueBox.value;
       _isOpen = false;
+      if (GenerationalGCManager.isInitialized) {
+        MemoryCredits.instance.recalculate(this);
+      }
     }
   }
 

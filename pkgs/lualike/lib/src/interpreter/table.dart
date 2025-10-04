@@ -235,15 +235,8 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       );
     }
 
-    // Normalize the key when checking existence
-    var rawKey = indexVal.raw;
-    if (rawKey is LuaString) {
-      rawKey = rawKey.toString();
-    }
-
-    // Check if key exists in table first
-    if (tableVal.raw is Map && (tableVal.raw as Map).containsKey(rawKey)) {
-      // Key exists, get it directly
+    final hasRawKey = tableVal.rawContainsKey(indexVal);
+    if (hasRawKey) {
       final result = tableVal[indexVal];
       Logger.debug('TableIndexAccess result: $result', category: 'Interpreter');
       return result;
@@ -420,14 +413,14 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
             category: 'Interpreter',
           );
         } else {
-          final keyResult = await entry.key.accept(this);
-          rawKey = keyResult is Value ? keyResult.raw : keyResult;
+          rawKey = await entry.key.accept(this);
         }
 
-        if (rawKey == null) {
+        final keyForCheck = rawKey is Value ? rawKey.raw : rawKey;
+        if (keyForCheck == null) {
           throw LuaError.typeError('table index is nil');
         }
-        if (rawKey is num && rawKey.isNaN) {
+        if (keyForCheck is num && keyForCheck.isNaN) {
           throw LuaError.typeError('table index is NaN');
         }
 
@@ -443,32 +436,24 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
             ? valueResult
             : Value(valueResult);
 
-        // Handle LuaString keys
-        var mapKey = rawKey;
-        if (mapKey is LuaString) {
-          mapKey = mapKey.toString();
-        }
+        final mapKey = _normalizeTableKey(rawKey);
 
         tableMap[mapKey] = rawValue;
 
         // Update arrayIndex if this is a numeric key
-        if (rawKey is int && rawKey >= arrayIndex) {
-          arrayIndex = rawKey + 1;
+        if (keyForCheck is int && keyForCheck >= arrayIndex) {
+          arrayIndex = keyForCheck + 1;
         }
       } else if (entry is IndexedTableEntry) {
         // Indexed key-value pair: [key] = value
-        dynamic rawKey = await entry.key.accept(this);
-        if (rawKey is Value) {
-          rawKey = rawKey.raw;
-        }
-        if (rawKey is LuaString) {
-          rawKey = rawKey.toString();
-        }
-
-        if (rawKey == null) {
+        final evaluatedKey = await entry.key.accept(this);
+        final keyForCheck = evaluatedKey is Value
+            ? evaluatedKey.raw
+            : evaluatedKey;
+        if (keyForCheck == null) {
           throw LuaError.typeError('table index is nil');
         }
-        if (rawKey is num && rawKey.isNaN) {
+        if (keyForCheck is num && keyForCheck.isNaN) {
           throw LuaError.typeError('table index is NaN');
         }
 
@@ -483,11 +468,12 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
         final rawValue = valueResult is Value
             ? valueResult
             : Value(valueResult);
-        tableMap[rawKey] = rawValue;
+        final mapKey = _normalizeTableKey(evaluatedKey);
+        tableMap[mapKey] = rawValue;
 
         // Update arrayIndex if this is a numeric key
-        if (rawKey is int && rawKey >= arrayIndex) {
-          arrayIndex = rawKey + 1;
+        if (keyForCheck is int && keyForCheck >= arrayIndex) {
+          arrayIndex = keyForCheck + 1;
         }
       } else if (entry is TableEntryLiteral) {
         // Array-like entry without explicit key
@@ -631,5 +617,30 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       category: 'Interpreter',
     );
     return ValueClass.table(tableMap);
+  }
+
+  dynamic _normalizeTableKey(dynamic rawKey) {
+    if (rawKey is Value) {
+      final inner = rawKey.raw;
+      if (inner is LuaString) {
+        return inner.toString();
+      }
+      if (inner is num) {
+        // Normalize -0.0 to 0.0 for consistent key handling (Lua treats them equal)
+        return inner == 0 ? 0.0 : inner;
+      }
+      return rawKey;
+    }
+    if (rawKey is LuaString) {
+      return rawKey.toString();
+    }
+    if (rawKey is num) {
+      // Normalize -0.0 to 0.0 for consistent key handling (Lua treats them equal)
+      return rawKey == 0 ? 0.0 : rawKey;
+    }
+    if (rawKey is String || rawKey is bool) {
+      return rawKey;
+    }
+    return rawKey;
   }
 }

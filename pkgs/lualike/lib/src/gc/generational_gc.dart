@@ -1,6 +1,13 @@
+import 'dart:async';
+import 'dart:collection';
+import 'dart:math' as math;
+
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
-import 'package:lualike/src/upvalue.dart';
+import 'package:lualike/src/gc/memory_credits.dart';
+
+/// Phases of incremental garbage collection
+enum GCPhase { idle, marking, sweeping, finalizing }
 
 /// Represents a generation of objects in the generational garbage collector.
 ///
@@ -88,7 +95,18 @@ class GenerationalGCManager {
 
   /// Whether the current collection cycle is complete.
   // ignore: prefer_final_fields
-  bool _cycleComplete = false;
+  bool _cycleComplete = true;
+
+  /// Incremental GC state tracking
+  GCPhase _currentPhase = GCPhase.idle;
+  List<GCObject> _objectsToMark = [];
+  List<GCObject> _objectsToSweep = [];
+  int _sweepingIndex = 0;
+  int _simulatedAllocationDebt = 0;
+  
+  /// Public getter for allocation debt (used by interpreter to trigger GC at safe points)
+  int get allocationDebt => _simulatedAllocationDebt;
+  int _manualStepDebtKb = 0;
 
   /// The young generation (nursery) containing newly created objects.
   final Generation youngGen = Generation();
@@ -104,6 +122,14 @@ class GenerationalGCManager {
   final List<Value> weakValuesTables = [];
   final List<Value> ephemeronTables = [];
   final List<Value> allWeakTables = [];
+
+
+  /// Pending removals for weak-key/all-weak tables that must wait until after
+  /// finalizers run (Lua expects weak keys to survive during finalization).
+  final Map<Value, Set<dynamic>> _pendingWeakKeyRemovals =
+      HashMap<Value, Set<dynamic>>.identity();
+  final Map<Value, Set<dynamic>> _pendingAllWeakRemovals =
+      HashMap<Value, Set<dynamic>>.identity();
 
   /// Whether we're currently in a major collection (affects weak table handling)
   bool _inMajorCollection = false;
@@ -132,13 +158,408 @@ class GenerationalGCManager {
   /// This is used to trigger collection based on allocation pressure,
   /// similar to how Lua triggers collection when memory usage increases.
   void simulateAllocation(int bytes) {
-    if (_isStopped) return;
+    if (_isStopped || bytes <= 0) return;
 
-    final currentBytes = estimateMemoryUse();
-    if (currentBytes - _lastMinorBytes > bytes) {
-      minorCollection([]); // Trigger minor collection
+    _simulatedAllocationDebt += bytes;
+    Logger.debug(
+      'Simulated allocation: bytes=$bytes, debt=$_simulatedAllocationDebt',
+      category: 'GC',
+    );
+
+    _processSimulatedAllocationDebt();
+  }
+  
+  /// Trigger GC if there's accumulated allocation debt.
+  /// This should be called at safe points during execution.
+  void triggerGCIfNeeded() {
+    if (_simulatedAllocationDebt > 0 && !_isStopped) {
+      _processSimulatedAllocationDebt();
     }
-    Logger.debug('Simulated allocation of $bytes bytes', category: 'GC');
+  }
+
+  /// Perform an incremental garbage collection step.
+  /// Returns true if the collection cycle is complete, false otherwise.
+  bool performIncrementalStep(int stepSize) {
+    // Note: Even when GC is stopped, manual steps should still work
+    // Being "stopped" only means automatic collection is disabled
+
+    final normalizedStepSize = math.max(1, stepSize);
+    var remainingBudget = _totalWorkBudget(normalizedStepSize);
+    var cycleComplete = false;
+
+    Logger.debug(
+      'Incremental GC step start: phase=$_currentPhase, stepSize=$normalizedStepSize, budget=$remainingBudget',
+      category: 'GC',
+    );
+
+    while (remainingBudget > 0 && !cycleComplete) {
+      switch (_currentPhase) {
+        case GCPhase.idle:
+          // Start a new collection cycle and re-evaluate with same budget.
+          _startIncrementalCollection();
+          continue;
+
+        case GCPhase.marking:
+          final workDone = _performMarkingWork(
+            normalizedStepSize,
+            remainingBudget,
+          );
+          remainingBudget -= workDone;
+          break;
+
+        case GCPhase.sweeping:
+          final workDone = _performSweepingWork(
+            normalizedStepSize,
+            remainingBudget,
+          );
+          remainingBudget -= workDone;
+          break;
+
+        case GCPhase.finalizing:
+          final workDone = _performFinalizingWork();
+          remainingBudget -= workDone;
+          cycleComplete = true;
+          break;
+      }
+    }
+
+    Logger.debug(
+      'Incremental GC step end: phase=$_currentPhase, budgetRemaining=$remainingBudget, cycleComplete=$cycleComplete',
+      category: 'GC',
+    );
+
+    return cycleComplete;
+  }
+
+  bool performManualStep(int sizeKb) {
+    final normalized = math.max(1, sizeKb);
+    _manualStepDebtKb += normalized;
+    const minimumStep = 4;
+    const maxStep = 1 << 20;
+    var cycleComplete = false;
+
+    while ((_manualStepDebtKb > 0 || _currentPhase != GCPhase.idle) &&
+        !cycleComplete) {
+      final requested = _manualStepDebtKb > 0
+          ? math.min(_manualStepDebtKb, maxStep)
+          : minimumStep;
+      final stepSize = math.max(minimumStep, requested);
+
+      cycleComplete = performIncrementalStep(stepSize);
+
+      if (_manualStepDebtKb > 0) {
+        _manualStepDebtKb = math.max(0, _manualStepDebtKb - stepSize);
+      }
+
+      if (!cycleComplete && _currentPhase == GCPhase.idle) {
+        break;
+      }
+    }
+
+    if (cycleComplete) {
+      _manualStepDebtKb = 0;
+    }
+
+    return cycleComplete;
+  }
+
+  void _processSimulatedAllocationDebt() {
+    if (_isStopped) {
+      return;
+    }
+
+    final threshold = _allocationDebtThreshold();
+    if (threshold <= 0) {
+      return;
+    }
+
+    var iterations = 0;
+    while (true) {
+      if (_currentPhase != GCPhase.idle) {
+        _simulatedAllocationDebt = math.max(
+          _simulatedAllocationDebt,
+          threshold,
+        );
+      }
+
+      if (_simulatedAllocationDebt < threshold) {
+        break;
+      }
+
+      iterations++;
+      final debtKb = math.max(1, (_simulatedAllocationDebt + 1023) ~/ 1024);
+      final requested = math.max(stepSize, debtKb);
+      final stepBudget = requested.clamp(1, 1 << 20).toInt();
+      final cycleComplete = performIncrementalStep(stepBudget);
+
+      if (cycleComplete) {
+        _simulatedAllocationDebt = 0;
+        break;
+      }
+
+      _simulatedAllocationDebt -= threshold;
+      if (_simulatedAllocationDebt < 0) {
+        _simulatedAllocationDebt = 0;
+      }
+
+      if (_currentPhase == GCPhase.idle || iterations > 1024) {
+        break;
+      }
+    }
+  }
+
+  int _allocationDebtThreshold() {
+    final normalizedStep = math.max(1, stepSize);
+    return normalizedStep * 1024;
+  }
+
+  void _startIncrementalCollection() {
+    Logger.debug('Starting incremental collection cycle', category: 'GC');
+    _cycleComplete = false;
+    _currentPhase = GCPhase.marking;
+
+    // Clear all marks first
+    for (final obj in youngGen.objects) {
+      obj.marked = false;
+    }
+    for (final obj in oldGen.objects) {
+      obj.marked = false;
+    }
+
+    // Prepare objects to mark (start with roots)
+    _objectsToMark = [];
+    _objectsToSweep = [];
+    _sweepingIndex = 0;
+
+    // Add root objects to marking queue
+    final roots = buildRootSet(_interpreter);
+    for (final root in roots) {
+      if (root is GCObject && !_objectsToMark.contains(root)) {
+        _objectsToMark.add(root);
+      }
+    }
+
+    Logger.debug(
+      'Initialized marking queue with ${_objectsToMark.length} root objects',
+      category: 'GC',
+    );
+
+    // If no roots to mark, skip to sweeping
+    if (_objectsToMark.isEmpty) {
+      Logger.debug(
+        'No roots to mark, moving directly to sweeping',
+        category: 'GC',
+      );
+      _currentPhase = GCPhase.sweeping;
+      _objectsToSweep = [...youngGen.objects, ...oldGen.objects];
+      _sweepingIndex = 0;
+    }
+  }
+
+  int _performMarkingWork(int stepSize, int budget) {
+    Logger.debug(
+      'Incremental marking work (${_objectsToMark.length} objects in queue, budget=$budget)',
+      category: 'GC',
+    );
+
+    if (_objectsToMark.isEmpty) {
+      Logger.debug('No objects to mark, switching to sweeping', category: 'GC');
+      _currentPhase = GCPhase.sweeping;
+      if (_objectsToSweep.isEmpty) {
+        _objectsToSweep = [...youngGen.objects, ...oldGen.objects];
+        _sweepingIndex = 0;
+      }
+      return 0;
+    }
+
+    var workDone = 0;
+    final maxWorkPerStep = math.min(budget, _markingWorkQuota(stepSize));
+
+    while (_objectsToMark.isNotEmpty && workDone < maxWorkPerStep) {
+      final obj = _objectsToMark.removeAt(0);
+
+      if (!obj.marked) {
+        obj.marked = true;
+        Logger.debug(
+          'Marked: ${obj.runtimeType} ${obj.hashCode}',
+          category: 'GC',
+        );
+
+        // Add referenced objects to marking queue
+        for (final ref in obj.getReferences()) {
+          if (ref is GCObject && !ref.marked && !_objectsToMark.contains(ref)) {
+            _objectsToMark.add(ref);
+          }
+        }
+      }
+
+      workDone++;
+    }
+
+    Logger.debug(
+      'Marking work complete: processed=$workDone, remaining=${_objectsToMark.length}',
+      category: 'GC',
+    );
+
+    if (_objectsToMark.isEmpty) {
+      Logger.debug(
+        'Marking phase finished, preparing sweeping phase',
+        category: 'GC',
+      );
+      _currentPhase = GCPhase.sweeping;
+      _objectsToSweep = [...youngGen.objects, ...oldGen.objects];
+      _sweepingIndex = 0;
+    }
+
+    return workDone;
+  }
+
+  int _performSweepingWork(int stepSize, int budget) {
+    final remainingObjects = _objectsToSweep.length - _sweepingIndex;
+    Logger.debug(
+      'Incremental sweeping work ($remainingObjects objects remaining, budget=$budget)',
+      category: 'GC',
+    );
+
+    if (_sweepingIndex >= _objectsToSweep.length) {
+      _currentPhase = GCPhase.finalizing;
+      return 0;
+    }
+
+    var workDone = 0;
+    final maxWorkPerStep = math.min(budget, _sweepingWorkQuota(stepSize));
+    final objectsToFree = <GCObject>[];
+
+    while (_sweepingIndex < _objectsToSweep.length &&
+        workDone < maxWorkPerStep) {
+      final obj = _objectsToSweep[_sweepingIndex];
+
+      if (!obj.marked) {
+        if (obj is Value &&
+            obj.hasMetamethod('__gc') &&
+            !_alreadyFinalized.contains(obj)) {
+          Logger.debug(
+            'Queued for finalization: ${obj.runtimeType} ${obj.hashCode}',
+            category: 'GC',
+          );
+          _toBeFinalized.add(obj);
+        } else {
+          objectsToFree.add(obj);
+          Logger.debug(
+            'Marked for freeing: ${obj.runtimeType} ${obj.hashCode}',
+            category: 'GC',
+          );
+        }
+      }
+
+      _sweepingIndex++;
+      workDone++;
+    }
+
+    Logger.debug(
+      'Sweeping work complete: processed=$workDone, toFree=${objectsToFree.length}, remaining=${_objectsToSweep.length - _sweepingIndex}',
+      category: 'GC',
+    );
+
+    for (final obj in objectsToFree) {
+      MemoryCredits.instance.onFree(obj);
+      obj.free();
+      youngGen.remove(obj);
+      oldGen.remove(obj);
+    }
+
+    if (_sweepingIndex >= _objectsToSweep.length) {
+      Logger.debug(
+        'Sweeping phase complete, moving to finalizing',
+        category: 'GC',
+      );
+      _currentPhase = GCPhase.finalizing;
+    }
+
+    return workDone;
+  }
+
+  int _markingWorkQuota(int stepSize) {
+    const baseMarkWork = 32;
+    return baseMarkWork + _scaledWorkUnits(stepSize);
+  }
+
+  int _sweepingWorkQuota(int stepSize) {
+    const baseSweepWork = 64;
+    return baseSweepWork + _scaledWorkUnits(stepSize);
+  }
+
+  int _scaledWorkUnits(int stepSize) {
+    final normalized = math.max(1, stepSize);
+    return normalized * 16;
+  }
+
+  int _totalWorkBudget(int stepSize) {
+    // Allow unspent marking credit to spill into sweeping/finalizing.
+    // Include a single unit for the finalization phase.
+    return _markingWorkQuota(stepSize) + _sweepingWorkQuota(stepSize) + 1;
+  }
+
+  int _performFinalizingWork() {
+    Logger.debug('Incremental finalizing work', category: 'GC');
+
+    if (_toBeFinalized.isNotEmpty) {
+      final pending = List<GCObject>.from(_toBeFinalized);
+      _toBeFinalized.clear();
+
+      for (final obj in pending) {
+        if (obj is Value) {
+          _alreadyFinalized.add(obj);
+          try {
+            final result = obj.callMetamethod('__gc', [obj]);
+            if (result is Future) {
+              // Allow asynchronous finalizers to complete without blocking.
+              result.catchError((error, stack) {
+                Logger.debug('Async finalizer error: $error', category: 'GC');
+              });
+            }
+          } catch (error) {
+            Logger.debug('Error in finalizer: $error', category: 'GC');
+          }
+        }
+
+        MemoryCredits.instance.onFree(obj);
+        youngGen.remove(obj);
+        oldGen.remove(obj);
+        obj.free();
+        _alreadyFinalized.remove(obj);
+      }
+    }
+
+    // Update memory tracking
+    _lastMinorBytes = estimateMemoryUse();
+    _lastMajorBytes = estimateMemoryUse();
+    _simulatedAllocationDebt = 0;
+
+    // Clean up state
+    _objectsToMark.clear();
+    _objectsToSweep.clear();
+    _sweepingIndex = 0;
+
+    // Complete the cycle
+    _cycleComplete = true;
+    _currentPhase = GCPhase.idle;
+
+    Logger.debug('Incremental collection cycle complete', category: 'GC');
+    return 1;
+  }
+
+  void ensureTracked(GCObject obj) {
+    if (youngGen.objects.contains(obj) || oldGen.objects.contains(obj)) {
+      return;
+    }
+    if (obj.isOld) {
+      oldGen.add(obj);
+      MemoryCredits.instance.onAllocate(obj, space: GCGenerationSpace.old);
+    } else {
+      youngGen.add(obj);
+      MemoryCredits.instance.onAllocate(obj, space: GCGenerationSpace.young);
+    }
   }
 
   /// Registers a new object with the garbage collector.
@@ -146,6 +567,16 @@ class GenerationalGCManager {
   /// New objects are always placed in the young generation (nursery).
   void register(GCObject obj) {
     youngGen.add(obj);
+    MemoryCredits.instance.onAllocate(obj, space: GCGenerationSpace.young);
+    // Don't trigger GC immediately during registration - only accumulate debt
+    // GC will run at safe points during execution
+    _simulatedAllocationDebt += obj.estimatedSize;
+    if (obj is Value && obj.isTable) {
+      Logger.debug(
+        'Register table ${obj.hashCode} weakMode=${obj.tableWeakMode}',
+        category: 'GC',
+      );
+    }
     Logger.debug(
       'Register: ${obj.runtimeType} ${obj.hashCode}',
       category: 'GC',
@@ -161,6 +592,7 @@ class GenerationalGCManager {
     youngGen.remove(obj);
     oldGen.add(obj);
     obj.isOld = true;
+    MemoryCredits.instance.onPromote(obj);
     Logger.debug('Promoted object to old generation', category: 'GC');
   }
 
@@ -189,6 +621,21 @@ class GenerationalGCManager {
     // - Active coroutines set
     final roots = vm.getRoots();
 
+    // Add evaluation stack contents explicitly so temporaries stay rooted
+    if (vm.evalStack.items.isNotEmpty) {
+      roots.addAll(vm.evalStack.items);
+    }
+
+    // Include environments and locals referenced by call frames
+    for (final frame in vm.callStack.frames) {
+      if (frame.env != null) {
+        roots.add(frame.env);
+      }
+      for (final entry in frame.debugLocals) {
+        roots.add(entry.value);
+      }
+    }
+
     Logger.debug('Built root set with ${roots.length} roots', category: 'GC');
     return roots;
   }
@@ -198,59 +645,46 @@ class GenerationalGCManager {
   /// This implements the mark phase of the mark-and-sweep algorithm,
   /// traversing the object graph to find all reachable objects.
   void _discover(Object? obj) {
+    if (obj == null) {
+      return;
+    }
+
     Logger.debug(
       'Discover: ${obj.runtimeType} ${obj.hashCode} (inMajorCollection: $_inMajorCollection)',
       category: 'GC',
     );
 
-    if (obj == "t") {
-      Logger.debug("t", category: 'GC');
-    }
     if (obj is GCObject) {
-      if (!obj.marked) {
-        Logger.debug(
-          'Mark: ${obj.runtimeType} ${obj.hashCode}',
-          category: 'GC',
-        );
-        obj.marked = true;
-
-        // Handle Value objects with potential weak table semantics
-        if (obj is Value && obj.isTable && _inMajorCollection) {
-          Logger.debug(
-            'Found Value table ${obj.hashCode} during major collection, calling _handleTableTraversal',
-            category: 'GC',
-          );
+      if (obj.marked) {
+        if (_inMajorCollection &&
+            obj is Value &&
+            obj.isTable &&
+            obj.tableWeakMode != null) {
           _handleTableTraversal(obj);
-        } else if (obj is Value && obj.isTable) {
-          Logger.debug(
-            'Found Value table ${obj.hashCode} but not in major collection, using regular traversal',
-            category: 'GC',
-          );
-          // Regular GCObject traversal
-          for (final ref in obj.getReferences()) {
-            _discover(ref);
-          }
-        } else {
-          // Regular GCObject traversal
-          Logger.debug(
-            'Regular GCObject traversal for ${obj.runtimeType} ${obj.hashCode}',
-            category: 'GC',
-          );
-          for (final ref in obj.getReferences()) {
-            _discover(ref);
-          }
         }
-      } else {
+        return;
+      }
+
+      obj.marked = true;
+
+      if (obj is Value && obj.isTable) {
         Logger.debug(
-          'Already marked: ${obj.runtimeType} ${obj.hashCode}',
+          'Mark table ${obj.hashCode} weakMode=${obj.tableWeakMode}',
           category: 'GC',
         );
+        if (_inMajorCollection) {
+          _handleTableTraversal(obj);
+          return;
+        }
       }
-    } else if (obj is Environment) {
-      Logger.debug('Environment traversal: ${obj.hashCode}', category: 'GC');
-      _discover(obj.values);
-      if (obj.parent != null) _discover(obj.parent);
-    } else if (obj is Map) {
+
+      for (final ref in obj.getReferences()) {
+        _discover(ref);
+      }
+      return;
+    }
+
+    if (obj is Map) {
       // Skip empty maps and perform quick scan for GC-relevant entries
       if (obj.isEmpty) return;
 
@@ -271,9 +705,6 @@ class GenerationalGCManager {
 
       // Only traverse entries that could contain GCObjects
       obj.forEach((key, value) {
-        if (key == "t") {
-          Logger.debug("t", category: 'GC');
-        }
         if (key is GCObject ||
             value is GCObject ||
             key is Value ||
@@ -286,7 +717,10 @@ class GenerationalGCManager {
           _discover(value);
         }
       });
-    } else if (obj is Iterable) {
+      return;
+    }
+
+    if (obj is Iterable) {
       // Skip empty iterables and perform quick scan for GC-relevant content
       if (obj.isEmpty) return;
 
@@ -309,12 +743,13 @@ class GenerationalGCManager {
           _discover(item);
         }
       }
-    } else {
-      Logger.debug(
-        'Ignoring non-GC object: ${obj.runtimeType} ${obj.hashCode}',
-        category: 'GC',
-      );
+      return;
     }
+
+    Logger.debug(
+      'Ignoring non-GC object: ${obj.runtimeType} ${obj.hashCode}',
+      category: 'GC',
+    );
   }
 
   /// Handles traversal of table objects based on their weak mode.
@@ -330,11 +765,11 @@ class GenerationalGCManager {
     );
 
     if (weakMode == null) {
-      // Strong table - traverse normally
       Logger.debug(
-        'Table ${table.hashCode} is strong, traversing normally',
+        'Table ${table.hashCode} has no weak mode (metatable: ${table.metatable})',
         category: 'GC',
       );
+      // Strong table - traverse normally
       for (final ref in table.getReferencesForGC(
         strongKeys: true,
         strongValues: true,
@@ -347,7 +782,9 @@ class GenerationalGCManager {
         'Table ${table.hashCode} has weak values, adding to tracking list',
         category: 'GC',
       );
-      weakValuesTables.add(table);
+      if (!weakValuesTables.contains(table)) {
+        weakValuesTables.add(table);
+      }
       for (final ref in table.getReferencesForGC(
         strongKeys: true,
         strongValues: false,
@@ -360,7 +797,23 @@ class GenerationalGCManager {
         'Table ${table.hashCode} has weak keys, adding to ephemeron list',
         category: 'GC',
       );
-      ephemeronTables.add(table);
+      if (!ephemeronTables.contains(table)) {
+        ephemeronTables.add(table);
+      }
+
+      if (_inMajorCollection) {
+        final tableMap = table.raw as Map;
+        for (final entry in tableMap.entries) {
+          final key = entry.key;
+          if (key is Value && key.marked) {
+            key.marked = false;
+            Logger.debug(
+              'Unmarking weak key ${key.hashCode} for table ${table.hashCode}',
+              category: 'GC',
+            );
+          }
+        }
+      }
 
       // For ephemeron tables, we don't traverse table entries initially.
       // Instead, we only traverse non-entry references (metatable, etc.)
@@ -383,7 +836,9 @@ class GenerationalGCManager {
         'Table ${table.hashCode} is all-weak, adding to all-weak list',
         category: 'GC',
       );
-      allWeakTables.add(table);
+      if (!allWeakTables.contains(table)) {
+        allWeakTables.add(table);
+      }
       for (final ref in table.getReferencesForGC(
         strongKeys: false,
         strongValues: false,
@@ -417,12 +872,13 @@ class GenerationalGCManager {
         final valueMarked = (value is GCObject) ? value.marked : 'N/A';
 
         Logger.debug(
-          'Entry: key=$key (marked: $keyMarked) -> value=$value (marked: $valueMarked)',
+          'WeakValueCheck: table=${table.hashCode} keyType=${key.runtimeType} keyMarked=$keyMarked value=$value valueType=${value.runtimeType} valueMarked=$valueMarked isPrimitive=${value is Value ? value.isPrimitiveLike : false}',
           category: 'GC',
         );
 
-        if ((value is GCObject && !value.marked) ||
-            (value is Value && !value.marked)) {
+        if ((value is Value && !value.isPrimitiveLike && !value.marked) ||
+            (_isCollectableNonPrimitiveGC(value) &&
+                !(value as GCObject).marked)) {
           entriesToRemove.add(entry.key);
           Logger.debug(
             'Marking for removal: ${entry.key} -> $value',
@@ -437,6 +893,29 @@ class GenerationalGCManager {
       );
 
       for (final key in entriesToRemove) {
+        // Before removing the entry, preserve the key if it's a Value object
+        // This ensures the key survives the collection cycle as per Lua semantics
+        if (key is Value && !key.isPrimitiveLike) {
+          // Re-mark the key to keep it alive during this collection
+          key.marked = true;
+          // Add the key back to the appropriate generation so it survives separation
+          if (youngGen.objects.contains(key)) {
+            // Key is already in young generation, just keep it marked
+          } else if (oldGen.objects.contains(key)) {
+            // Key is already in old generation, just keep it marked
+          } else {
+            // Key is not in any generation, add it to young generation
+            youngGen.add(key);
+            Logger.debug(
+              'Added preserved key ${key.hashCode} back to young generation',
+              category: 'GC',
+            );
+          }
+          Logger.debug(
+            'Preserving weak table key ${key.hashCode} when clearing weak value',
+            category: 'GC',
+          );
+        }
         tableMap.remove(key);
       }
     }
@@ -448,29 +927,32 @@ class GenerationalGCManager {
   void _clearAllWeak() {
     for (final table in allWeakTables) {
       final tableMap = table.raw as Map;
-      final entriesToRemove = <dynamic>[];
-
       for (final entry in tableMap.entries) {
         final key = entry.key;
         final value = entry.value;
 
         final keyDead =
-            (key is GCObject && !key.marked) || (key is Value && !key.marked);
+            (key is Value && !key.isPrimitiveLike && !key.marked) ||
+            (_isCollectableNonPrimitiveGC(key) && !(key as GCObject).marked);
         final valueDead =
-            (value is GCObject && !value.marked) ||
-            (value is Value && !value.marked);
+            (value is Value && !value.marked) ||
+            (_isCollectableNonPrimitiveGC(value) &&
+                !(value as GCObject).marked);
+
+        if (key is Value) {
+          Logger.debug(
+            'All-weak key ${key.hashCode} marked=${key.marked}',
+            category: 'GC',
+          );
+        }
 
         if (keyDead || valueDead) {
-          entriesToRemove.add(key);
+          _scheduleAllWeakRemoval(table, key);
           Logger.debug(
             'Clearing all-weak entry: $key -> $value',
             category: 'GC',
           );
         }
-      }
-
-      for (final key in entriesToRemove) {
-        tableMap.remove(key);
       }
     }
     allWeakTables.clear();
@@ -512,7 +994,8 @@ class GenerationalGCManager {
           // If key is marked (strongly reachable) and value is not yet marked,
           // mark the value and propagate from it
           if ((key is GCObject && key.marked) || (key is Value && key.marked)) {
-            if (value is GCObject && !value.marked) {
+            if (_isCollectableNonPrimitiveGC(value) &&
+                !(value as GCObject).marked) {
               Logger.debug(
                 'Ephemeron: marking value ${value.hashCode} due to marked key ${key.hashCode}',
                 category: 'GC',
@@ -545,6 +1028,45 @@ class GenerationalGCManager {
     }
   }
 
+  void _scheduleWeakKeyRemoval(Value table, dynamic key) {
+    final pending = _pendingWeakKeyRemovals.putIfAbsent(
+      table,
+      () => HashSet<dynamic>.identity(),
+    );
+    pending.add(key);
+  }
+
+  void _scheduleAllWeakRemoval(Value table, dynamic key) {
+    final pending = _pendingAllWeakRemovals.putIfAbsent(
+      table,
+      () => HashSet<dynamic>.identity(),
+    );
+    pending.add(key);
+  }
+
+  bool _isCollectableNonPrimitiveGC(Object? value) {
+    return value is GCObject && value is! Value && value is! LuaString;
+  }
+
+  void _applyPendingWeakRemovals() {
+    void apply(Map<Value, Set<dynamic>> pending) {
+      pending.forEach((table, keys) {
+        final tableMap = table.raw as Map;
+        for (final key in keys) {
+          Logger.debug(
+            'Applying pending removal for table ${table.hashCode} key=$key',
+            category: 'GC',
+          );
+          tableMap.remove(key);
+        }
+      });
+      pending.clear();
+    }
+
+    apply(_pendingWeakKeyRemovals);
+    apply(_pendingAllWeakRemovals);
+  }
+
   /// Clears dead entries from weak-keys tables.
   /// Called after ephemeron convergence during major collection.
   void _clearWeakKeys() {
@@ -552,10 +1074,10 @@ class GenerationalGCManager {
       'Starting weak keys clearing for ${ephemeronTables.length} tables',
       category: 'GC',
     );
+    Logger.debug('In major collection: $_inMajorCollection', category: 'GC');
 
     for (final table in ephemeronTables) {
       final tableMap = table.raw as Map;
-      final entriesToRemove = <dynamic>[];
 
       Logger.debug(
         'Checking weak keys table ${table.hashCode} with ${tableMap.length} entries',
@@ -569,27 +1091,26 @@ class GenerationalGCManager {
         final valueMarked = (value is GCObject) ? value.marked : 'N/A';
 
         Logger.debug(
-          'Entry: key=$key (marked: $keyMarked) -> value=$value (marked: $valueMarked)',
+          'Entry: key=$key type=${key.runtimeType} (marked: $keyMarked) -> value=$value type=${value.runtimeType} (marked: $valueMarked)',
           category: 'GC',
         );
 
         // In weak keys tables, remove entries where the key is dead
-        if ((key is GCObject && !key.marked) || (key is Value && !key.marked)) {
-          entriesToRemove.add(entry.key);
+        // Check both Value and GCObject keys
+        final shouldRemove = (key is Value && !key.isPrimitiveLike && !key.marked) ||
+                             (key is GCObject && key is! Value && !key.marked);
+        
+        if (shouldRemove) {
+          Logger.debug(
+            'Scheduling weak key removal for table ${table.hashCode} key=$key',
+            category: 'GC',
+          );
+          _scheduleWeakKeyRemoval(table, entry.key);
           Logger.debug(
             'Marking for removal: ${entry.key} -> $value',
             category: 'GC',
           );
         }
-      }
-
-      Logger.debug(
-        'Removing ${entriesToRemove.length} entries from table ${table.hashCode}',
-        category: 'GC',
-      );
-
-      for (final key in entriesToRemove) {
-        tableMap.remove(key);
       }
     }
     ephemeronTables.clear();
@@ -633,6 +1154,7 @@ class GenerationalGCManager {
             'Free: ${obj.runtimeType} ${obj.hashCode}',
             category: 'GC',
           );
+          MemoryCredits.instance.onFree(obj);
           obj.free();
         }
       }
@@ -650,8 +1172,12 @@ class GenerationalGCManager {
       category: 'GC',
     );
     // According to Lua spec, finalizers are called in an unspecified order.
-    // Iterating and clearing is sufficient.
-    for (final obj in _toBeFinalized) {
+    // Make a copy of the list to avoid concurrent modification during iteration
+    // (finalizers might trigger GC which could modify _toBeFinalized)
+    final objectsToFinalize = _toBeFinalized.toList();
+    _toBeFinalized.clear();
+    
+    for (final obj in objectsToFinalize) {
       if (obj is Value) {
         // Mark as finalized BEFORE calling __gc. This prevents re-finalization
         // if the object is resurrected and then becomes dead again.
@@ -668,7 +1194,6 @@ class GenerationalGCManager {
         }
       }
     }
-    _toBeFinalized.clear();
   }
 
   /// Performs a minor collection, which only traverses the young generation.
@@ -681,6 +1206,7 @@ class GenerationalGCManager {
   void minorCollection(List<Object?> roots) {
     Logger.debug('Minor collection start', category: 'GC');
     _cycleComplete = false;
+    _currentPhase = GCPhase.idle;
 
     // In a real generational GC, we'd need a write barrier to track pointers
     // from the old generation to the young generation. For now, we'll just
@@ -696,13 +1222,25 @@ class GenerationalGCManager {
         obj.marked = false; // unmark for next cycle
         survivors.add(obj);
       } else {
-        // In minor collection, we don't finalize.
-        // If it's dead, it's just dead.
-        Logger.debug(
-          'Minor free: ${obj.runtimeType} ${obj.hashCode}',
-          category: 'GC',
-        );
-        obj.free();
+        final needsFinalizer =
+            obj is Value &&
+            obj.hasMetamethod('__gc') &&
+            !_alreadyFinalized.contains(obj);
+        if (needsFinalizer) {
+          Logger.debug(
+            'Minor queued finalizer: ${obj.runtimeType} ${obj.hashCode}',
+            category: 'GC',
+          );
+          _toBeFinalized.add(obj);
+          survivors.add(obj);
+        } else {
+          Logger.debug(
+            'Minor free: ${obj.runtimeType} ${obj.hashCode}',
+            category: 'GC',
+          );
+          MemoryCredits.instance.onFree(obj);
+          obj.free();
+        }
       }
     }
 
@@ -715,6 +1253,7 @@ class GenerationalGCManager {
 
     _lastMinorBytes = estimateMemoryUse();
     _cycleComplete = true;
+    _currentPhase = GCPhase.idle;
     Logger.debug('Minor collection end', category: 'GC');
     Logger.debug('Minor collection complete', category: 'GC');
   }
@@ -729,7 +1268,13 @@ class GenerationalGCManager {
   Future<void> majorCollection(List<Object?> roots) async {
     Logger.debug('Major collection start', category: 'GC');
     _cycleComplete = false;
+    _currentPhase = GCPhase.idle;
     _inMajorCollection = true;
+
+    // Ensure all objects participate in this major collection cycle.
+    // Without clearing existing marks, objects touched by prior incremental
+    // passes remain marked and skip traversal, which breaks weak-table logic.
+    _resetMarksForMajorCycle();
 
     // Clear weak table tracking lists from previous collection
     weakValuesTables.clear();
@@ -760,88 +1305,80 @@ class GenerationalGCManager {
     // Phase 6: Run finalizers for objects collected in this cycle.
     await _callFinalizersAsync();
 
+    // Weak keys/all-weak entries are only cleared after finalizers run to
+    // match Lua's observation order during __gc metamethods.
+    _applyPendingWeakRemovals();
+
     _lastMajorBytes = estimateMemoryUse();
     _cycleComplete =
         true; // The full cycle (including finalization) is now complete
+    _currentPhase = GCPhase.idle;
     _inMajorCollection = false;
     Logger.debug('Major collection complete', category: 'GC');
   }
 
-  /// Estimates the current memory usage for determining when to trigger collections.
-  ///
-  /// This provides a rough approximation based on object counts and sizes.
-  int estimateMemoryUse() {
-    int totalSize = 0;
-
-    // Base object count
-    int objectCount = youngGen.objects.length + oldGen.objects.length;
-    totalSize += objectCount * 64; // Rough overhead per GC object
-
-    // Add size estimates for different object types
-    for (final gen in [youngGen, oldGen]) {
+  void _resetMarksForMajorCycle() {
+    int clearedCount = 0;
+    void clearMarks(Generation gen) {
       for (final obj in gen.objects) {
-        if (obj is Value) {
-          totalSize += _estimateValueSize(obj);
-        } else if (obj is Environment) {
-          totalSize += _estimateEnvironmentSize(obj);
-        } else if (obj is Upvalue) {
-          totalSize += _estimateUpvalueSize(obj);
-        } else {
-          totalSize += 32; // Default object size
+        if (obj.marked) {
+          obj.marked = false;
+          clearedCount++;
         }
       }
     }
 
-    return totalSize;
+    clearMarks(youngGen);
+    clearMarks(oldGen);
+
+    for (final obj in _toBeFinalized) {
+      obj.marked = false;
+      clearedCount++;
+    }
+
+    void unmark(Object? root) {
+      if (root is GCObject && root.marked) {
+        root.marked = false;
+        clearedCount++;
+      }
+    }
+
+    unmark(_interpreter.getCurrentEnv());
+    unmark(_interpreter.callStack);
+    unmark(_interpreter.evalStack);
+    unmark(_interpreter.getCurrentCoroutine());
+    unmark(_interpreter.getMainThread());
+
+    void unmarkEnvChain(Environment? env) {
+      final visited = HashSet<Environment>.identity();
+      Environment? current = env;
+      while (current != null && visited.add(current)) {
+        if (current.marked) {
+          current.marked = false;
+          clearedCount++;
+        }
+        current = current.parent;
+      }
+    }
+
+    unmarkEnvChain(_interpreter.getCurrentEnv());
+
+    Logger.debug(
+      'Reset $clearedCount marks before major collection (young=${youngGen.objects.length}, old=${oldGen.objects.length})',
+      category: 'GC',
+    );
   }
 
-  /// Estimates the memory footprint of a Value object
-  int _estimateValueSize(Value value) {
-    int size = 128; // Base Value overhead
-
-    if (value.isTable && value.raw is Map) {
-      final table = value.raw as Map;
-      size += table.length * 48; // Approximate entry overhead
-    }
-
-    if (value.upvalues != null) {
-      // Upvalues are now GCObjects and counted separately in main estimation
-      // But include reference overhead here
-      size += value.upvalues!.length * 8; // Reference overhead only
-    }
-
-    if (value.metatable != null) {
-      size += 64; // Metatable overhead
-    }
-
-    return size;
-  }
-
-  /// Estimates the memory footprint of an Environment object
-  int _estimateEnvironmentSize(Environment env) {
-    int size = 96; // Base Environment overhead
-    size += env.values.length * 40; // Box overhead per variable
-    return size;
-  }
-
-  /// Estimates the memory footprint of an Upvalue object
-  int _estimateUpvalueSize(Upvalue upvalue) {
-    int size = 96; // Base Upvalue overhead
-
-    // Add Box overhead
-    size += 48; // valueBox overhead
-
-    // Add closed value overhead if closed
-    if (!upvalue.isOpen) {
-      size += 32; // Closed value storage
-    }
-
-    // Add name overhead if present
-    if (upvalue.name != null) {
-      size += upvalue.name!.length * 2; // String overhead
-    }
-
-    return size;
+  /// Estimates the current memory usage for determining when to trigger collections.
+  ///
+  /// This forces a reconciliation between tracked credits and the current
+  /// generation lists, ensuring drift from missed mutations is corrected.
+  int estimateMemoryUse() {
+    MemoryCredits.instance.reconcileGenerations(
+      young: youngGen.objects,
+      old: oldGen.objects,
+    );
+    return MemoryCredits.instance.totalCredits;
   }
 
   /// Performs a garbage collection cycle if needed based on memory usage.

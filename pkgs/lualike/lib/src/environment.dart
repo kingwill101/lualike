@@ -1,6 +1,8 @@
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart' show GCObject;
+import 'package:lualike/src/gc/gc_weights.dart';
 import 'package:lualike/src/gc/generational_gc.dart' show GenerationalGCManager;
+import 'package:lualike/src/gc/memory_credits.dart';
 
 /// A generic box class that wraps a single value of type T.
 /// Used to create mutable references to values in the environment.
@@ -13,12 +15,13 @@ class Box<T> extends GCObject {
 
   /// Creates a new Box containing [value].
   Box(this.value, {this.isLocal = false}) {
-    GenerationalGCManager.instance.register(this);
-    Logger.debug(
-      'Created new Box($value) and registered with GC',
-      category: 'GC',
-    );
+    if (GenerationalGCManager.isInitialized) {
+      GenerationalGCManager.instance.register(this);
+    }
   }
+
+  @override
+  int get estimatedSize => GcWeights.gcObjectHeader + GcWeights.boxBase;
 
   @override
   List<GCObject> getReferences() {
@@ -115,11 +118,26 @@ class Environment extends GCObject {
     this.isClosure = false,
     this.isLoadIsolated = false,
   }) {
+    if (GenerationalGCManager.isInitialized) {
+      GenerationalGCManager.instance.register(this);
+    }
     Logger.debug(
       "Environment($hashCode) created. Parent: ${parent?.hashCode}",
       category: 'Env',
     );
   }
+
+  void _updateCredits() {
+    if (GenerationalGCManager.isInitialized) {
+      MemoryCredits.instance.recalculate(this);
+    }
+  }
+
+  @override
+  int get estimatedSize =>
+      GcWeights.gcObjectHeader +
+      GcWeights.environmentBase +
+      values.length * GcWeights.environmentEntry;
 
   @override
   List<GCObject> getReferences() {
@@ -127,11 +145,19 @@ class Environment extends GCObject {
     if (parent != null) {
       refs.add(parent!);
     }
-    values.forEach((key, box) {
-      if (box.value is GCObject) {
-        refs.add(box.value as GCObject);
+    final gcReady = GenerationalGCManager.isInitialized;
+    for (final entry in values.entries) {
+      final box = entry.value;
+      refs.add(box);
+      if (!gcReady) {
+        continue;
       }
-    });
+      GenerationalGCManager.instance.ensureTracked(box);
+      final boxedValue = box.value;
+      if (boxedValue is GCObject) {
+        GenerationalGCManager.instance.ensureTracked(boxedValue);
+      }
+    }
     return refs;
   }
 
@@ -300,6 +326,7 @@ class Environment extends GCObject {
     // This ensures that global assignments from loaded code persist
     final rootEnv = root;
     rootEnv.values[name] = Box(value);
+    rootEnv._updateCredits();
     Logger.debug(
       "Created new binding for '$name' = $value in root env (${rootEnv.hashCode})",
       category: 'Env',
@@ -344,6 +371,7 @@ class Environment extends GCObject {
 
     // Create a fresh Box that shadows any previous binding
     values[name] = Box(value, isLocal: true);
+    _updateCredits();
 
     // Track to-be-closed variables
     if (value is Value && value.isToBeClose) {
@@ -475,12 +503,18 @@ class Environment extends GCObject {
       );
     } else {
       // Create new global variable
+      Logger.debug(
+        "Creating new global variable '$name' with value type ${value.runtimeType} (is GCObject: ${value is GCObject})",
+        category: 'Env',
+      );
       rootEnv.values[name] = Box(value);
       Logger.debug(
         "Created new global variable '$name' = $value in root env (${rootEnv.hashCode})",
         category: 'Env',
       );
     }
+
+    rootEnv._updateCredits();
 
     // Keep the underlying _G table in sync so reads via _G[k] see updates
     final gVal = rootEnv.get('_G');
@@ -612,6 +646,8 @@ class Environment extends GCObject {
 
     // Copy to-be-closed variables
     cloned.toBeClosedVars.addAll(toBeClosedVars);
+
+    cloned._updateCredits();
 
     return cloned;
   }

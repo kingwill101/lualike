@@ -11,6 +11,8 @@ void main() {
       interpreter = Interpreter();
       GenerationalGCManager.initialize(interpreter);
       gc = GenerationalGCManager.instance;
+      // Stop incremental GC to prevent it from sweeping test objects
+      gc.stop();
     });
 
     test('weak keys table removes entries with dead keys', () async {
@@ -269,6 +271,57 @@ void main() {
       expect(strongRefs.contains(key), true);
       expect(strongRefs.contains(value), true);
     });
+
+    test(
+      'weak keys survive incremental marking only when still reachable',
+      () async {
+        final weakTable = Value({});
+        weakTable.setMetatable({'__mode': 'k'});
+
+        const lim = 5;
+        final ephemeralKeys = <Value>[];
+
+        for (var i = 1; i <= lim; i++) {
+          final key = Value({});
+          ephemeralKeys.add(key);
+          await weakTable.setValueAsync(key, Value(i));
+        }
+
+        for (var i = 1; i <= lim; i++) {
+          await weakTable.setValueAsync(Value(i), Value(i));
+        }
+
+        for (var i = 1; i <= lim; i++) {
+          final s = Value(List.filled(i, '@').join());
+          await weakTable.setValueAsync(s, Value('${s.raw}#'));
+        }
+
+        final rootEnv = Environment();
+        rootEnv.define('weak_table', Box<Value>(weakTable));
+
+        // Simulate incremental marking before a major collection.
+        gc.performIncrementalStep(8);
+
+        await gc.majorCollection([rootEnv]);
+
+        final tableMap = weakTable.raw as Map;
+        final survivingEphemeral = tableMap.entries
+            .where(
+              (entry) =>
+                  entry.key is Value &&
+                  ephemeralKeys.any((value) => identical(value, entry.key)),
+            )
+            .length;
+
+        expect(survivingEphemeral, 0);
+
+        for (var i = 1; i <= lim; i++) {
+          expect(tableMap[Value(i)], Value(i));
+          final s = List.filled(i, '@').join();
+          expect(tableMap[Value(s)], Value('$s#'));
+        }
+      },
+    );
 
     test('minor collections do not apply weak keys semantics', () async {
       final weakTable = Value({});

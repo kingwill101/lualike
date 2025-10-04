@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
+import 'package:lualike/src/gc/gc_weights.dart';
 import 'package:lualike/src/gc/generational_gc.dart';
+import 'package:lualike/src/gc/memory_credits.dart';
 import 'package:lualike/src/io/lua_file.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/upvalue.dart';
@@ -58,6 +60,31 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   @override
   bool isOld = false;
 
+  @override
+  int get estimatedSize {
+    var size = GcWeights.gcObjectHeader + GcWeights.valueBase;
+    if (isTable && raw is Map) {
+      size += (raw as Map).length * GcWeights.tableEntry;
+    }
+
+    if (upvalues != null) {
+      size += upvalues!.length * GcWeights.valueUpvalueRef;
+    }
+
+    if (metatable != null) {
+      size += GcWeights.metatableRef;
+    }
+
+    final payload = raw;
+    if (payload is LuaString) {
+      size += payload.length * GcWeights.stringUnit;
+    } else if (payload is String) {
+      size += payload.length * GcWeights.stringUnit;
+    }
+
+    return size;
+  }
+
   /// Get the raw value
   dynamic get raw => _raw;
 
@@ -69,9 +96,23 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// Returns 'k' for weak keys, 'v' for weak values, 'kv' for both.
   String? get tableWeakMode {
     if (!isTable || metatable == null) return null;
-    final mode = metatable!['__mode'];
+    dynamic mode = metatable!['__mode'];
+    Logger.debug(
+      'tableWeakMode raw metatable __mode: $mode (${mode.runtimeType})',
+      category: 'Value',
+    );
+    if (mode is Value) {
+      mode = mode.raw;
+    }
     if (mode == null) return null;
-    final modeStr = mode.toString();
+    String modeStr;
+    if (mode is LuaString) {
+      modeStr = mode.toString();
+    } else if (mode is String) {
+      modeStr = mode;
+    } else {
+      modeStr = mode.toString();
+    }
     if (modeStr.contains('k') && modeStr.contains('v')) return 'kv';
     if (modeStr.contains('k')) return 'k';
     if (modeStr.contains('v')) return 'v';
@@ -94,6 +135,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
     _raw = value;
     _isInitialized = true;
+    if (GenerationalGCManager.isInitialized) {
+      MemoryCredits.instance.recalculate(this);
+    }
   }
 
   /// Creates a new Value wrapping the given raw value.
@@ -134,6 +178,23 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   bool isA<T>() {
     return raw is T;
+  }
+
+  /// Primitive-like values (numbers, booleans, strings, nil) behave as
+  /// immediate values in Lua and are not reclaimed due solely to weak table
+  /// reachability. Treat them as always-alive when sweeping weak tables so we
+  /// match Lua's semantics for weak references involving primitives.
+  bool get isPrimitiveLike {
+    final current = raw;
+    return current == null ||
+        current is bool ||
+        current is num ||
+        current is BigInt;
+  }
+
+  bool get isStringLike {
+    final current = raw;
+    return current is String || current is LuaString;
   }
 
   factory Value.multi(List<dynamic> values) {
@@ -275,6 +336,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// [mt] - The new metatable to associate with this value.
   void setMetatable(Map<String, dynamic> mt) {
     metatable = mt;
+    if (GenerationalGCManager.isInitialized) {
+      MemoryCredits.instance.recalculate(this);
+    }
   }
 
   /// Looks up a metamethod in this value's metatable.
@@ -523,18 +587,16 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   @override
   dynamic operator [](Object? key) {
     if (raw is Map) {
-      // Normalize the key
-      var rawKey = key is Value ? key.raw : key;
-      if (rawKey is LuaString) {
-        rawKey = rawKey.toString();
+      final storageKey = _computeStorageKey(key);
+      if ((raw as Map).containsKey(storageKey)) {
+        final result = (raw as Map)[storageKey];
+        return result is Value ? result : Value(result);
       }
 
-      // First check if the key exists in the table
-      if ((raw as Map).containsKey(rawKey)) {
-        var result = (raw as Map)[rawKey];
-        // If the result is not already wrapped, wrap it
-        if (result is! Value) result = Value(result);
-        return result;
+      final legacyKey = _computeLegacyKey(key);
+      if (legacyKey != storageKey && (raw as Map).containsKey(legacyKey)) {
+        final legacyResult = (raw as Map)[legacyKey];
+        return legacyResult is Value ? legacyResult : Value(legacyResult);
       }
 
       // Key doesn't exist, check for __index metamethod
@@ -570,15 +632,16 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// Lua functions which return [Future]s.
   Future<dynamic> getValueAsync(Object? key) async {
     if (raw is Map) {
-      var rawKey = key is Value ? key.raw : key;
-      if (rawKey is LuaString) {
-        rawKey = rawKey.toString();
+      final storageKey = _computeStorageKey(key);
+      if ((raw as Map).containsKey(storageKey)) {
+        final result = (raw as Map)[storageKey];
+        return result is Value ? result : Value(result);
       }
 
-      if ((raw as Map).containsKey(rawKey)) {
-        var result = (raw as Map)[rawKey];
-        if (result is! Value) result = Value(result);
-        return result;
+      final legacyKey = _computeLegacyKey(key);
+      if (legacyKey != storageKey && (raw as Map).containsKey(legacyKey)) {
+        final legacyResult = (raw as Map)[legacyKey];
+        return legacyResult is Value ? legacyResult : Value(legacyResult);
       }
 
       final indexMeta = getMetamethod('__index');
@@ -607,15 +670,20 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   @override
   void operator []=(Object key, dynamic value) {
-    var rawKey = key is Value ? key.raw : key;
-    if (rawKey is LuaString) {
-      rawKey = rawKey.toString();
-    }
+    final rawKey = _computeRawKey(key);
     if (rawKey == null) {
       throw LuaError.typeError('table index is nil');
     }
     if (rawKey is num && rawKey.isNaN) {
       throw LuaError.typeError('table index is NaN');
+    }
+
+    final hasRawTable = raw is Map;
+    final keyExists = hasRawTable && rawContainsKey(key);
+
+    if (hasRawTable && keyExists) {
+      _setRawTableEntry(key, value);
+      return;
     }
 
     final newindexMeta = getMetamethod('__newindex');
@@ -627,15 +695,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       ]);
       return;
     }
-    if (raw is Map) {
-      final valueToSet = value is Value ? value : Value(value);
-      if (valueToSet.isNil) {
-        (raw as Map).remove(rawKey);
-      } else {
-        (raw as Map)[rawKey] = valueToSet;
-      }
+
+    if (hasRawTable) {
+      _setRawTableEntry(key, value);
       return;
     }
+
     final tname = NumberUtils.typeName(raw);
     throw LuaError.typeError('attempt to index a $tname value');
   }
@@ -646,10 +711,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     dynamic value, [
     Set<Value>? visited,
   ]) async {
-    var rawKey = key is Value ? key.raw : key;
-    if (rawKey is LuaString) {
-      rawKey = rawKey.toString();
-    }
+    final rawKey = _computeRawKey(key);
     if (rawKey == null) {
       throw LuaError.typeError('table index is nil');
     }
@@ -657,38 +719,65 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       throw LuaError.typeError('table index is NaN');
     }
 
-    final newindexMeta = getMetamethod('__newindex');
-    if (newindexMeta != null) {
-      visited ??= <Value>{};
-      if (visited.contains(this)) {
-        throw LuaError('loop in settable');
-      }
-      visited.add(this);
+    final hasRawTable = raw is Map;
+    final keyExists = hasRawTable && rawContainsKey(key);
 
-      if (newindexMeta is Value && newindexMeta.raw is Map) {
-        await newindexMeta.setValueAsync(key, value, visited);
+    if (!keyExists) {
+      final newindexMeta = getMetamethod('__newindex');
+      if (newindexMeta != null) {
+        visited ??= <Value>{};
+        if (visited.contains(this)) {
+          throw LuaError('loop in settable');
+        }
+        visited.add(this);
+
+        if (newindexMeta is Value && newindexMeta.raw is Map) {
+          await newindexMeta.setValueAsync(key, value, visited);
+          return;
+        }
+
+        final result = callMetamethod('__newindex', [
+          this,
+          key is Value ? key : Value(key),
+          value is Value ? value : Value(value),
+        ]);
+        if (result is Future) await result;
         return;
       }
+    }
 
-      final result = callMetamethod('__newindex', [
-        this,
-        key is Value ? key : Value(key),
-        value is Value ? value : Value(value),
-      ]);
-      if (result is Future) await result;
+    if (hasRawTable) {
+      _setRawTableEntry(key, value);
       return;
     }
-    if (raw is Map) {
-      final valueToSet = value is Value ? value : Value(value);
-      if (valueToSet.isNil) {
-        (raw as Map).remove(rawKey);
-      } else {
-        (raw as Map)[rawKey] = valueToSet;
-      }
-      return;
-    }
+
     final tname = NumberUtils.typeName(raw);
     throw LuaError.typeError('attempt to index a $tname value');
+  }
+
+  void _setRawTableEntry(Object key, dynamic value) {
+    final valueToSet = value is Value ? value : Value(value);
+    final storageKey = _computeStorageKey(key);
+    final legacyKey = _computeLegacyKey(key);
+    final isWeakTable = isTable && tableWeakMode != null;
+    final storageValue = isWeakTable && valueToSet.isStringLike
+        ? valueToSet.raw
+        : valueToSet;
+
+    if (valueToSet.isNil) {
+      (raw as Map).remove(storageKey);
+      if (legacyKey != storageKey) {
+        (raw as Map).remove(legacyKey);
+      }
+    } else {
+      (raw as Map)[storageKey] = storageValue;
+      if (legacyKey != storageKey) {
+        (raw as Map).remove(legacyKey);
+      }
+    }
+    if (GenerationalGCManager.isInitialized) {
+      MemoryCredits.instance.recalculate(this);
+    }
   }
 
   @override
@@ -705,20 +794,22 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
 
     (raw as Map).clear();
+    if (GenerationalGCManager.isInitialized) {
+      MemoryCredits.instance.recalculate(this);
+    }
   }
 
   @override
   bool containsKey(Object? key) {
     if (raw is! Map) return false;
 
-    // Normalize the key the same way as operator[]
-    var rawKey = key is Value ? key.raw : key;
-    if (rawKey is LuaString) {
-      rawKey = rawKey.toString();
+    final storageKey = _computeStorageKey(key);
+    if ((raw as Map).containsKey(storageKey)) {
+      return true;
     }
 
-    // First check if the key exists in the table directly
-    if ((raw as Map).containsKey(rawKey)) {
+    final legacyKey = _computeLegacyKey(key);
+    if (legacyKey != storageKey && (raw as Map).containsKey(legacyKey)) {
       return true;
     }
 
@@ -736,13 +827,17 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   bool rawContainsKey(Object? key) {
     if (raw is! Map) return false;
 
-    // Normalize the key the same way as operator[]
-    var rawKey = key is Value ? key.raw : key;
-    if (rawKey is LuaString) {
-      rawKey = rawKey.toString();
+    final storageKey = _computeStorageKey(key);
+    if ((raw as Map).containsKey(storageKey)) {
+      return true;
     }
 
-    return (raw as Map).containsKey(rawKey);
+    final legacyKey = _computeLegacyKey(key);
+    if (legacyKey != storageKey && (raw as Map).containsKey(legacyKey)) {
+      return true;
+    }
+
+    return false;
   }
 
   @override
@@ -865,10 +960,14 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       return wrappedValue;
     }
 
-    return (raw as Map).putIfAbsent(key, () {
+    final result = (raw as Map).putIfAbsent(key, () {
       final value = ifAbsent();
       return value is Value ? value : Value(value);
     });
+    if (GenerationalGCManager.isInitialized) {
+      MemoryCredits.instance.recalculate(this);
+    }
+    return result;
   }
 
   @override
@@ -882,7 +981,20 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       return oldValue;
     }
 
-    final value = (raw as Map).remove(key);
+    final storageKey = _computeStorageKey(key);
+    dynamic value = (raw as Map).remove(storageKey);
+
+    if (value == null) {
+      final legacyKey = _computeLegacyKey(key);
+      if (legacyKey != storageKey) {
+        value = (raw as Map).remove(legacyKey);
+      }
+    }
+
+    if (GenerationalGCManager.isInitialized) {
+      MemoryCredits.instance.recalculate(this);
+    }
+
     return value is Value
         ? value
         : value != null
@@ -1277,6 +1389,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         (e) => MapEntry(e.key, e.value is Value ? e.value : Value(e.value)),
       ),
     );
+    if (GenerationalGCManager.isInitialized) {
+      MemoryCredits.instance.recalculate(this);
+    }
   }
 
   @override
@@ -1312,6 +1427,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     (raw as Map).removeWhere(
       (k, v) => test(k.toString(), v is Value ? v : Value(v)),
     );
+    if (GenerationalGCManager.isInitialized) {
+      MemoryCredits.instance.recalculate(this);
+    }
   }
 
   @override
@@ -1347,6 +1465,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       final result = update(k.toString(), v is Value ? v : Value(v));
       return result is Value ? result : Value(result);
     });
+    if (GenerationalGCManager.isInitialized) {
+      MemoryCredits.instance.recalculate(this);
+    }
   }
 
   @override
@@ -1375,19 +1496,23 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       return null;
     }
 
-    return (raw as Map).update(
+    final result = (raw as Map).update(
       key,
       (value) {
-        final result = update(value is Value ? value : Value(value));
-        return result is Value ? result : Value(result);
+        final updated = update(value is Value ? value : Value(value));
+        return updated is Value ? updated : Value(updated);
       },
       ifAbsent: ifAbsent != null
           ? () {
-              final result = ifAbsent();
-              return result is Value ? result : Value(result);
+              final created = ifAbsent();
+              return created is Value ? created : Value(created);
             }
           : null,
     );
+    if (GenerationalGCManager.isInitialized) {
+      MemoryCredits.instance.recalculate(this);
+    }
+    return result;
   }
 
   // Overload the call operator
@@ -1519,6 +1644,53 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   Iterable<MapEntry<dynamic, dynamic>> tableEntriesForGC() {
     if (!isTable) return const [];
     return (raw as Map).entries;
+  }
+
+  dynamic _computeRawKey(Object? key) {
+    if (key is Value) {
+      var rawKey = key.raw;
+      if (rawKey is LuaString) {
+        rawKey = rawKey.toString();
+      }
+      return rawKey;
+    }
+    if (key is LuaString) {
+      return key.toString();
+    }
+    return key;
+  }
+
+  dynamic _computeStorageKey(Object? key) {
+    if (key is Value) {
+      final rawKey = key.raw;
+      if (rawKey is LuaString) {
+        return rawKey.toString();
+      }
+      if (rawKey is num) {
+        // Normalize -0.0 to 0.0 for consistent key handling (Lua treats them equal)
+        return rawKey == 0 ? 0.0 : rawKey;
+      }
+      if (_isPrimitiveKey(rawKey)) {
+        return rawKey;
+      }
+      return key;
+    }
+    if (key is LuaString) {
+      return key.toString();
+    }
+    if (key is num) {
+      // Normalize -0.0 to 0.0 for consistent key handling (Lua treats them equal)
+      return key == 0 ? 0.0 : key;
+    }
+    return key;
+  }
+
+  dynamic _computeLegacyKey(Object? key) {
+    return _computeRawKey(key);
+  }
+
+  bool _isPrimitiveKey(Object? value) {
+    return value is num || value is String || value is bool || value is BigInt;
   }
 
   @override

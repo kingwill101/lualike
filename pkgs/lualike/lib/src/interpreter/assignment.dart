@@ -20,6 +20,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       'Visiting Assignment: ${node.targets} = ${node.exprs}',
       category: 'Interpreter',
     );
+
     // Evaluate the expressions on the right-hand side into a list
     final expressions = <Object?>[];
     for (int i = 0; i < node.exprs.length; i++) {
@@ -119,10 +120,17 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       } else {
         expressions.add(value);
       }
-      Logger.debug(
-        'visitAssignment: Final value added to expressions: \\${expressions.last}',
-        category: 'Assignment',
-      );
+      if (expressions.isNotEmpty) {
+        Logger.debug(
+          'visitAssignment: Final value added to expressions: \\${expressions.last}',
+          category: 'Assignment',
+        );
+      } else {
+        Logger.debug(
+          'visitAssignment: Expression produced no values',
+          category: 'Assignment',
+        );
+      }
     }
     Logger.debug(
       'Assignment expressions evaluated: $expressions',
@@ -601,47 +609,37 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           final values = indexResult.raw as List;
           indexResult = values.isNotEmpty ? values[0] : Value(null);
         }
-        final indexValue = indexResult is Value ? indexResult.raw : indexResult;
+
+        final keyValue = indexResult is Value
+            ? indexResult
+            : Value(indexResult);
+        final keyExists = tableValue.rawContainsKey(keyValue);
+        final hasNewIndexMeta = tableValue.hasMetamethod('__newindex');
 
         // Check for nil index - this should throw an error
-        if (indexValue == null) {
+        if (keyValue.isNil) {
           throw LuaError.typeError('table index is nil');
         }
 
         // If key doesn't exist in raw table, try __newindex metamethod
-        final keyExists = tableValue.rawContainsKey(indexValue);
-        if (!keyExists) {
-          if (tableValue.hasMetamethod('__newindex')) {
-            Logger.debug(
-              '_handleTableIndexAssignment: __newindex metamethod found',
-              category: 'Interpreter',
-            );
-            final result = await tableValue.callMetamethodAsync('__newindex', [
-              tableValue,
-              Value(indexValue),
-              wrappedValue,
-            ]);
-            return result;
-          }
+        if (!keyExists && hasNewIndexMeta) {
+          Logger.debug(
+            '_handleTableIndexAssignment: __newindex metamethod found',
+            category: 'Interpreter',
+          );
+          final result = await tableValue.callMetamethodAsync('__newindex', [
+            tableValue,
+            keyValue,
+            wrappedValue,
+          ]);
+          return result;
         }
 
-        // No metamethod or key exists - do regular assignment
-        if (keyExists) {
-          var mapKey = indexValue is Value ? indexValue.raw : indexValue;
-          if (mapKey is LuaString) {
-            mapKey = mapKey.toString();
-          }
-          if (wrappedValue.isNil) {
-            (tableValue.raw as Map).remove(mapKey);
-          } else {
-            (tableValue.raw as Map)[mapKey] = wrappedValue;
-          }
-        } else {
-          await tableValue.setValueAsync(indexValue, wrappedValue);
-        }
+        // No metamethod or key already exists - do regular assignment
+        tableValue[keyValue] = wrappedValue;
 
         Logger.debug(
-          '_handleTableIndexAssignment: Assigned ${wrappedValue.raw} to index $indexValue',
+          '_handleTableIndexAssignment: Assigned ${wrappedValue.raw} to index ${keyValue.raw}',
           category: 'Interpreter',
         );
         return wrappedValue;

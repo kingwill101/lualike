@@ -1145,9 +1145,9 @@ class LoadFunction extends BuiltinFunction {
                     ? originalUpvalueValues[i]
                     : null;
                 final box = Box<dynamic>(upvalueValue);
-                directFunction.upvalues!.add(
-                  Upvalue(valueBox: box, name: upvalueName),
-                );
+                final upvalue = Upvalue(valueBox: box, name: upvalueName);
+                upvalue.close();
+                directFunction.upvalues!.add(upvalue);
               }
             } else {
               // Fallback to analysis if no upvalue names stored
@@ -1155,11 +1155,11 @@ class LoadFunction extends BuiltinFunction {
                 functionBody,
                 loadEnv,
               );
-              for (final upvalue in analyzedUpvalues) {
+              for (final analyzed in analyzedUpvalues) {
                 final box = Box<dynamic>(null);
-                directFunction.upvalues!.add(
-                  Upvalue(valueBox: box, name: upvalue.name),
-                );
+                final upvalue = Upvalue(valueBox: box, name: analyzed.name);
+                upvalue.close();
+                directFunction.upvalues!.add(upvalue);
               }
             }
 
@@ -1323,18 +1323,23 @@ class LoadFunction extends BuiltinFunction {
               ? originalUpvalueValues[i]
               : null;
           final box = Box<dynamic>(upvalueValue);
-          upvalues.add(Upvalue(valueBox: box, name: upvalueName));
+          final upvalue = Upvalue(valueBox: box, name: upvalueName);
+          upvalue.close();
+          upvalues.add(upvalue);
         }
       } else {
         // Default behavior for regular loaded functions
         // Add placeholder for first upvalue (index 1) - typically local variables
-        upvalues.add(Upvalue(valueBox: Box<dynamic>(null), name: null));
+        final placeholder = Upvalue(valueBox: Box<dynamic>(null), name: null);
+        placeholder.close();
+        upvalues.add(placeholder);
 
         // Add _ENV as second upvalue (index 2) to match Lua behavior
         final envValue = currentEnv.get('_ENV') ?? currentEnv.get('_G');
         if (envValue != null) {
           final envBox = Box<dynamic>(envValue);
           final envUpvalue = Upvalue(valueBox: envBox, name: '_ENV');
+          envUpvalue.close();
           upvalues.add(envUpvalue);
         }
       }
@@ -1425,8 +1430,25 @@ class SetmetaFunction extends BuiltinFunction {
         "setmetatable called on table with raw: ${table.raw} and meta: ${meta.raw}",
         category: "Metatables",
       );
+      final rawMeta = <String, dynamic>{};
+      (meta.raw as Map).forEach((key, value) {
+        dynamic resolvedKey = key;
+        if (resolvedKey is Value) {
+          resolvedKey = resolvedKey.raw;
+        }
+        if (resolvedKey is LuaString) {
+          resolvedKey = resolvedKey.toString();
+        }
+        if (resolvedKey is String) {
+          rawMeta[resolvedKey] = value;
+        }
+      });
       table.metatableRef = meta;
-      table.setMetatable((meta.raw as Map).cast());
+      table.setMetatable(rawMeta);
+      Logger.debug(
+        "Metatable set. Weak mode now ${table.tableWeakMode}",
+        category: 'Metatables',
+      );
       Logger.debug(
         "Metatable set. New metatable: ${table.getMetatable()}",
         category: "Metatables",
@@ -1790,33 +1812,51 @@ class NextFunction extends BuiltinFunction {
     if (table.raw is! Map) throw LuaError("next requires a table argument");
     final map = table.raw as Map;
 
-    // Filter out nil values from the map
-    final filteredEntries = map.entries.where((entry) {
-      final value = entry.value;
-      return !(value == null || (value is Value && value.raw == null));
-    }).toList();
+    final keyValue = args.length > 1 ? args[1] as Value : null;
+    final keyRaw = keyValue?.raw;
 
-    final key = args.length > 1 ? (args[1] as Value).raw : null;
-    if (key == null) {
-      if (filteredEntries.isEmpty) return Value(null);
-      final firstEntry = filteredEntries.first;
-      return Value.multi([
-        Value(firstEntry.key),
-        firstEntry.value is Value ? firstEntry.value : Value(firstEntry.value),
-      ]);
-    }
-
-    bool found = false;
-    for (final entry in filteredEntries) {
-      if (found) {
-        return Value.multi([
-          Value(entry.key),
-          entry.value is Value ? entry.value : Value(entry.value),
-        ]);
+    var returnNext = keyValue == null || keyRaw == null;
+    for (final entry in map.entries) {
+      if (!returnNext) {
+        if (_keysMatch(entry.key, keyValue, keyRaw)) {
+          returnNext = true;
+        }
+        continue;
       }
-      if (entry.key == key) found = true;
+
+      final nextKey = entry.key is Value
+          ? entry.key as Value
+          : Value(entry.key);
+      final entryValue = entry.value;
+      final nextValue = entryValue is Value ? entryValue : Value(entryValue);
+      return Value.multi([nextKey, nextValue]);
     }
+
     return Value(null);
+  }
+
+  bool _keysMatch(dynamic candidate, Value? keyValue, dynamic keyRaw) {
+    if (keyValue == null) {
+      return false;
+    }
+
+    if (identical(candidate, keyValue)) {
+      return true;
+    }
+
+    if (candidate == keyValue) {
+      return true;
+    }
+
+    if (candidate == keyRaw) {
+      return true;
+    }
+
+    if (candidate is Value && candidate.raw == keyRaw) {
+      return true;
+    }
+
+    return false;
   }
 }
 
@@ -2096,13 +2136,15 @@ class CollectGarbageFunction extends BuiltinFunction {
         // For non-zero values, the collector will perform as if that amount of memory
         // (in Kbytes) had been allocated by Lua
         final stepSize = args.length > 1 ? (args[1] as Value).raw as num : 0;
+        bool cycleComplete = false;
         if (stepSize == 0) {
-          interpreter!.gc.minorCollection(interpreter!.getRoots());
+          cycleComplete = interpreter!.gc.performIncrementalStep(1);
         } else {
-          interpreter!.gc.simulateAllocation((stepSize * 1024).toInt());
+          final sizeKb = stepSize.abs().toInt().clamp(1, 1 << 20);
+          cycleComplete = interpreter!.gc.performManualStep(sizeKb);
         }
         // Returns true if the step finished a collection cycle
-        return Value(interpreter!.gc.isCollectionCycleComplete());
+        return Value(cycleComplete);
 
       case "incremental":
         // "incremental": Change the collector mode to incremental
@@ -2221,120 +2263,25 @@ class PairsFunction extends BuiltinFunction {
     }
 
     final table = args[0] as Value;
+    if (table.hasMetamethod('__pairs')) {
+      return await table.callMetamethodAsync('__pairs', [table]);
+    }
+
     if (table.raw is! Map) {
       throw LuaError("pairs requires a table argument");
     }
 
-    Logger.debug(
-      'PairsFunction: Creating iterator for table: ${table.raw}',
-      category: 'Base',
-    );
+    final nextFunc = interpreter!.globals.get('next');
+    final nextValue = nextFunc is Value ? nextFunc : Value(nextFunc);
 
-    if (table.hasMetamethod('__pairs')) {
-      Logger.debug('PairsFunction: Using __pairs metamethod', category: 'Base');
-      final result = await table.callMetamethodAsync('__pairs', [table]);
-      return result;
-    }
-
-    // Create a filtered copy of the table without nil values
-    final filteredTable = <dynamic, dynamic>{};
-    final map = table.raw as Map;
-    map.forEach((key, value) {
-      if (!(value == null || (value is Value && value.raw == null))) {
-        filteredTable[key] = value;
-      }
+    final iterator = Value((List<Object?> iterArgs) async {
+      final normalizedArgs = iterArgs
+          .map((arg) => arg is Value ? arg : Value(arg))
+          .toList();
+      return await interpreter!.callFunction(nextValue, normalizedArgs);
     });
 
-    // Create a Value wrapper for the filtered table to use in the iterator
-    final filteredTableValue = Value(filteredTable);
-
-    // Create the iterator function - this is essentially the 'next' function
-    final iteratorFunction = Value((List<Object?> iterArgs) {
-      if (iterArgs.length < 2) {
-        throw LuaError("iterator requires a table and a key");
-      }
-
-      // We ignore the original table passed in iterArgs[0] and use our filtered table instead
-      final k = iterArgs[1] as Value;
-
-      Logger.debug(
-        'PairsFunction.iterator: Called with key: ${k.raw}',
-        category: 'Base',
-      );
-
-      // If key is nil, return the first key-value pair
-      if (k.raw == null) {
-        if (filteredTable.isEmpty) {
-          Logger.debug(
-            'PairsFunction.iterator: Empty table or no non-nil values, returning nil',
-            category: 'Base',
-          );
-          return Value(null);
-        }
-
-        // Get the first entry
-        final entry = filteredTable.entries.first;
-        final nextKey = Value(entry.key);
-        final nextValue = entry.value is Value
-            ? entry.value
-            : Value(entry.value);
-
-        Logger.debug(
-          'PairsFunction.iterator: First entry - key: ${nextKey.raw}, value: $nextValue',
-          category: 'Base',
-        );
-
-        return Value.multi([nextKey, nextValue]);
-      }
-
-      // Find the key in the filtered entries
-      bool foundKey = false;
-      MapEntry? nextEntry;
-
-      // Iterate through entries to find the key and get the next entry
-      for (final entry in filteredTable.entries) {
-        if (foundKey) {
-          nextEntry = entry;
-          break;
-        }
-
-        if (entry.key == k.raw) {
-          foundKey = true;
-        }
-      }
-
-      // If we found the next entry, return it
-      if (nextEntry != null) {
-        final nextKey = Value(nextEntry.key);
-        final nextValue = nextEntry.value is Value
-            ? nextEntry.value
-            : Value(nextEntry.value);
-
-        Logger.debug(
-          'PairsFunction.iterator: Next entry - key: ${nextKey.raw}, value: $nextValue',
-          category: 'Base',
-        );
-
-        return Value.multi([nextKey, nextValue]);
-      }
-
-      // If we didn2t find the next entry, return nil
-      Logger.debug(
-        'PairsFunction.iterator: No more entries, returning nil',
-        category: 'Base',
-      );
-
-      return Value(null);
-    });
-
-    Logger.debug(
-      'PairsFunction: Returning iterator components via Value.multi',
-      category: 'Base',
-    );
-
-    // Return iterator function, filtered table, and nil as initial key using Value.multi
-    // This matches Lua's behavior: pairs(t) returns next, t, nil
-    return Value.multi([iteratorFunction, filteredTableValue, Value(null)]);
+    return Value.multi([iterator, table, Value(null)]);
   }
 }
 

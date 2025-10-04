@@ -1395,20 +1395,17 @@ class _StringGsub extends BuiltinFunction {
           buffer.write(str.substring(lastEnd, match.start));
 
           String replacement = replStr;
-          bool captureReplaced = false;
 
           for (int i = 0; i <= match.captures.length; i++) {
             final capture = i == 0 ? match.match : match.captures[i - 1];
             final placeholder = '%$i';
             if (replacement.contains(placeholder)) {
               replacement = replacement.replaceAll(placeholder, capture ?? '');
-              captureReplaced = true;
             }
           }
 
           if (replacement.contains('%%')) {
             replacement = replacement.replaceAll('%%', '%');
-            captureReplaced = true;
           }
 
           count++;

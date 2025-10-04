@@ -28,4 +28,7 @@ class Stack<T> {
 
   /// The number of elements in the stack.
   int get length => _list.length;
+
+  /// Exposes the items currently on the stack without allowing mutation.
+  Iterable<T> get items => List.unmodifiable(_list);
 }
