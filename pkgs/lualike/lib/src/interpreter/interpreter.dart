@@ -396,6 +396,12 @@ class Interpreter extends AstVisitor<Object?>
     Object? error,
     AstNode? node,
   }) {
+    final luaError = error is LuaError ? error : null;
+
+    if (luaError != null && luaError.hasBeenReported) {
+      return;
+    }
+
     // If we're already reporting an error, don't report it again
     if (_errorReporting) {
       return;
@@ -405,6 +411,8 @@ class Interpreter extends AstVisitor<Object?>
     _errorReporting = true;
 
     try {
+      luaError?.hasBeenReported = true;
+
       // Build stack trace
       final luaStackTrace = callStack.toLuaStackTrace();
 

@@ -299,9 +299,10 @@ class ErrorFunction extends BuiltinFunction {
 
     try {
       // Let the interpreter handle the error reporting with proper stack trace
-      interpreter!.reportError(message);
+      final luaError = LuaError(message);
+      interpreter!.reportError(message, error: luaError);
       // This will never be reached, but needed for type safety
-      throw LuaError(message);
+      throw luaError;
     } finally {
       // Reset the flag
       _errorReporting = false;

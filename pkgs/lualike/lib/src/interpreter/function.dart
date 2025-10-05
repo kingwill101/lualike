@@ -491,7 +491,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
     // Call the function with the determined function name
     try {
-      final result = await _callFunction(func, args, functionName);
+      final result = await _callFunction(
+        func,
+        args,
+        callerFunctionName: functionName,
+        callNode: node,
+      );
       Logger.debug(
         'Function call result: $result (${result.runtimeType})',
         category: 'Interpreter',
@@ -566,7 +571,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         // Route through unified call path to support tail calls, yields, etc.
         final fnValue = aFunc is Value ? aFunc : Value(aFunc);
         try {
-          return await _callFunction(fnValue, args, methodName);
+          return await _callFunction(
+            fnValue,
+            args,
+            callerFunctionName: methodName,
+            callNode: node,
+          );
         } on LuaError catch (e, s) {
           final interpreter = this as Interpreter;
           if (!interpreter.isInProtectedCall) {
@@ -599,7 +609,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       category: 'Interpreter',
     );
     try {
-      return await _callFunction(func, callArgs, methodName);
+      return await _callFunction(
+        func,
+        callArgs,
+        callerFunctionName: methodName,
+        callNode: node,
+      );
     } on LuaError catch (e, s) {
       final interpreter = this as Interpreter;
       if (!interpreter.isInProtectedCall) {
@@ -769,9 +784,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
   /// Helper method to call a function
   Future<Object?> _callFunction(
     dynamic func,
-    List<Object?> args, [
+    List<Object?> args, {
     String? callerFunctionName,
-  ]) async {
+    AstNode? callNode,
+  }) async {
     Logger.debug(
       '>>> _callFunction called with function: ${func.hashCode}, args: $args',
       category: 'Interpreter',
@@ -784,9 +800,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     }
 
     // Log the current coroutine
+    final interpreter = this as Interpreter;
     final currentCoroutine = getCurrentCoroutine();
     Logger.debug(
-      '>>> Current coroutine: ${currentCoroutine?.hashCode}, current environment: ${(this as Interpreter).getCurrentEnv().hashCode}',
+      '>>> Current coroutine: ${currentCoroutine?.hashCode}, current environment: ${interpreter.getCurrentEnv().hashCode}',
       category: 'Interpreter',
     );
 
@@ -826,7 +843,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     if (callStack.depth >= Interpreter.maxCallDepth) {
       throw LuaError('C stack overflow');
     }
-    callStack.push(functionName);
+    callStack.push(functionName, callNode: callNode);
 
     try {
       while (true) {

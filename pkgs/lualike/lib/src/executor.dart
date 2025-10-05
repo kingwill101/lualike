@@ -45,7 +45,7 @@ Future<Object?> executeCode(
       errorMsg = errorMsg.substring('Exception: '.length);
     }
 
-    interpreter.reportError(errorMsg, trace: s);
+    interpreter.reportError(errorMsg, trace: s, error: e);
     rethrow;
   }
 }
