@@ -18,6 +18,14 @@ final fileMetamethods = {
       throw LuaError.typeError("file expected");
     }
     final luaFile = fileValue.raw as LuaFile;
+
+    if (fileValue.isToBeClose) {
+      Logger.debug(
+        'GC: File is managed by to-be-closed variable, skipping auto close',
+        category: 'IO',
+      );
+      return Value(null);
+    }
     Logger.debug(
       'GC: About to close file: ${luaFile.toString()}, isClosed: ${luaFile.isClosed}',
       category: 'IO',
@@ -97,7 +105,7 @@ final fileMetamethods = {
 
     if (key.raw is String) {
       final keyStr = key.raw as String;
-      
+
       // Handle file methods
       final method = LuaFile.fileMethods[keyStr];
       if (method != null) {
@@ -125,20 +133,29 @@ final fileMetamethods = {
           return method.call([fileValue, ...callArgs]);
         });
       }
-      
+
       // Handle file properties
       if (fileValue is Value && fileValue.raw is LuaFile) {
         final luaFile = fileValue.raw as LuaFile;
-        
+
         switch (keyStr) {
           case 'mode':
-            Logger.debug('Returning file mode: ${luaFile.mode}', category: 'IO');
+            Logger.debug(
+              'Returning file mode: ${luaFile.mode}',
+              category: 'IO',
+            );
             return Value(luaFile.mode);
           case 'isClosed':
-            Logger.debug('Returning file isClosed: ${luaFile.isClosed}', category: 'IO');
+            Logger.debug(
+              'Returning file isClosed: ${luaFile.isClosed}',
+              category: 'IO',
+            );
             return Value(luaFile.isClosed);
           case 'isStandardFile':
-            Logger.debug('Returning file isStandardFile: ${luaFile.isStandardFile}', category: 'IO');
+            Logger.debug(
+              'Returning file isStandardFile: ${luaFile.isStandardFile}',
+              category: 'IO',
+            );
             return Value(luaFile.isStandardFile);
         }
       }
@@ -187,8 +204,8 @@ class LuaFile {
       await device.close();
       Logger.debug("File closed successfully", category: 'LuaFile');
       return [true];
-    } catch (e) {
-      Logger.error("Error closing file: $e", error: 'LuaFile');
+    } catch (e, st) {
+      Logger.error("Error closing file: $e", error: 'LuaFile', trace: st);
       return [null, e.toString()];
     }
   }
@@ -214,7 +231,7 @@ class LuaFile {
     );
 
     if (isClosed) {
-      throw Exception(" input file is closed");
+      throw LuaError(" input file is closed");
     }
 
     final result = await device.read(format);
@@ -416,17 +433,38 @@ class LuaFile {
           category: 'IO',
         );
 
-        if (!result.isSuccess || result.value == null) {
+        if (!result.isSuccess) {
           Logger.debug(
-            "Line iterator read unsuccessful for $this, closing file (iteration #$iterationCount)",
+            "Line iterator read failed for $this: ${result.error} (iteration #$iterationCount)",
             category: 'IO',
           );
-          await close();
-          hasBeenClosed = true;
+          if (closeOnEof) {
+            Logger.debug(
+              "closeOnEof=true, marking iterator closed after read error (iteration #$iterationCount)",
+              category: 'IO',
+            );
+            hasBeenClosed = true;
+          }
+          throw LuaError(result.error ?? "file read error");
+        }
+
+        if (result.value == null) {
           Logger.debug(
-            "File closed, returning null to end iteration (iteration #$iterationCount)",
-            category: 'LuaFile',
+            "Line iterator reached EOF for $this (iteration #$iterationCount)",
+            category: 'IO',
           );
+          hasBeenClosed = true;
+          if (closeOnEof) {
+            Logger.debug(
+              "closeOnEof=true, deferring close to to-be-closed variable (iteration #$iterationCount)",
+              category: 'IO',
+            );
+          } else {
+            Logger.debug(
+              "closeOnEof=false, iterator marked closed but file remains open for manual close (iteration #$iterationCount)",
+              category: 'IO',
+            );
+          }
           return Value(null);
         }
 
