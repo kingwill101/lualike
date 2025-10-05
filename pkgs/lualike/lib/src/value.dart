@@ -5,7 +5,6 @@ import 'package:lualike/src/gc/gc.dart';
 import 'package:lualike/src/gc/gc_weights.dart';
 import 'package:lualike/src/gc/generational_gc.dart';
 import 'package:lualike/src/gc/memory_credits.dart';
-import 'package:lualike/src/io/lua_file.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/upvalue.dart';
 
@@ -244,15 +243,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     // If value is already a Value (like LuaFile), create a new instance with isToBeClose flag
     // but preserve the original type and metamethods
     if (value is Value) {
-      if (value.raw is LuaFile) {
-        // For LuaFile, we need to preserve the LuaFile type completely
-        final luaFile = value.raw as LuaFile;
-        return createLuaFile(
-          luaFile.device,
-          isStandardFile: luaFile.isStandardFile,
-        )..isToBeClose = true;
-      }
-      return Value(value.raw, metatable: value.metatable, isToBeClose: true);
+      value.isToBeClose = true;
+      return value;
     }
     return Value(value, metatable: metatable, isToBeClose: true);
   }
