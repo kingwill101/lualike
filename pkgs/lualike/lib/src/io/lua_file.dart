@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:lualike/src/builtin_function.dart';
+import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/value.dart';
@@ -185,13 +186,13 @@ class LuaFile {
   }
 
   static final Map<String, BuiltinFunction> fileMethods = {
-    "close": FileClose(),
-    "flush": FileFlush(),
-    "read": FileRead(),
-    "write": FileWrite(),
-    "seek": FileSeek(),
-    "lines": FileLines(),
-    "setvbuf": FileSetvbuf(),
+    "close": FileClose(null),
+    "flush": FileFlush(null),
+    "read": FileRead(null),
+    "write": FileWrite(null),
+    "seek": FileSeek(null),
+    "lines": FileLines(null),
+    "setvbuf": FileSetvbuf(null),
   };
 
   /// Close the file
@@ -341,9 +342,11 @@ class LuaFile {
 
   /// Create an iterator that reads lines from the file
   /// [closeOnEof] - whether to close the file when EOF is reached (default: false)
+  /// [fileValue] - the Value wrapping this LuaFile, kept alive by the iterator to prevent premature GC
   Future<Value> lines([
     List<String> formats = const ["l"],
     bool closeOnEof = false,
+    Value? fileValue,
   ]) async {
     Logger.debug(
       "Creating file line iterator for $this with formats: $formats",
@@ -365,6 +368,8 @@ class LuaFile {
     int iterationCount = 0;
 
     return Value((List<Object?> args) async {
+      // Capture fileValue to keep it alive and prevent premature GC
+      final _ = fileValue; // Keep the Value alive during iteration
       iterationCount++;
       Logger.debug(
         "Line iterator call #$iterationCount for $this",
@@ -505,8 +510,20 @@ class LuaFile {
 }
 
 /// Helper function to create a LuaFile wrapped in a Value with proper metamethods
-Value createLuaFile(IODevice device, {bool isStandardFile = false}) {
+Value createLuaFile(
+  IODevice device, {
+  bool isStandardFile = false,
+  Interpreter? interpreter,
+}) {
   final luaFile = LuaFile(device, isStandardFile: isStandardFile);
 
-  return Value(luaFile, metatable: fileMetamethods);
+  final value = Value(luaFile, metatable: fileMetamethods);
+  // Set interpreter so the Value gets registered with GC
+  if (interpreter != null) {
+    value.interpreter = interpreter;
+    // Manually register with GC since interpreter wasn't set during construction
+    // File objects should always count as allocations (they're significant resources)
+    interpreter.gc.register(value, countAllocation: true);
+  }
+  return value;
 }
