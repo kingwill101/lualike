@@ -290,7 +290,9 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitForLoop(ForLoop node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
-    Logger.info('Entering for loop', category: 'ControlFlow');
+    if (Logger.enabled) {
+      Logger.info('Entering for loop', category: 'ControlFlow');
+    }
 
     // Record trace information
     if (this is Interpreter) {
@@ -300,10 +302,12 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     var start = await node.start.accept(this);
     var end = await node.endExpr.accept(this);
     var step = await node.stepExpr.accept(this);
-    Logger.debug(
-      'ForLoop start: $start, end: $end, step: $step',
-      category: 'ControlFlow',
-    );
+    if (Logger.enabled) {
+      Logger.debug(
+        'ForLoop start: $start, end: $end, step: $step',
+        category: 'ControlFlow',
+      );
+    }
 
     if (start is Value && start.raw is num) {
       start = start.unwrap();
@@ -371,10 +375,12 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     try {
       while (step > 0 ? current <= end : current >= end) {
         loopVarBox.value = current;
-        Logger.debug(
-          'ForLoop iteration: i = $current',
-          category: 'ControlFlow',
-        );
+        if (Logger.enabled) {
+          Logger.debug(
+            'ForLoop iteration: i = $current',
+            category: 'ControlFlow',
+          );
+        }
         setCurrentEnv(loopEnv);
 
         try {
@@ -387,10 +393,12 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           }
         } on BreakException {
           await resetLoopEnvironment();
-          Logger.debug(
-            'BreakException caught, breaking for loop',
-            category: 'ControlFlow',
-          );
+          if (Logger.enabled) {
+            Logger.debug(
+              'BreakException caught, breaking for loop',
+              category: 'ControlFlow',
+            );
+          }
           return null;
         } on ReturnException {
           await resetLoopEnvironment();

@@ -145,6 +145,7 @@ void _ensureGlobalTable(Environment env) {
         } else {
           (self.raw as Map)[keyStr] = value;
         }
+        self.markTableModified();
       }
       return Value(null);
     },
@@ -154,6 +155,7 @@ void _ensureGlobalTable(Environment env) {
 
   // self-reference
   gBacking['_G'] = gValue;
+  gValue.markTableModified();
 
   env.define('_G', gValue);
   // _ENV starts out pointing at _G

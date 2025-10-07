@@ -116,7 +116,12 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           'visitAssignment: TableAccessExpr evaluated to Coroutine, assigning empty table instead',
           category: 'Assignment',
         );
-        expressions.add(ValueClass.table());
+        final tbl = ValueClass.table();
+        if (this is Interpreter) {
+          tbl.interpreter = this as Interpreter;
+          (this as Interpreter).gc.register(tbl);
+        }
+        expressions.add(tbl);
       } else {
         expressions.add(value);
       }
@@ -557,6 +562,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           } else {
             (tableValue.raw as Map)[fieldKey] = wrappedValue;
           }
+          tableValue.markTableModified();
         } else {
           // Key doesn't exist and no metamethod, use async assignment
           await tableValue.setValueAsync(fieldKey, wrappedValue);

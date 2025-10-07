@@ -588,6 +588,84 @@ class _TableSort extends BuiltinFunction {
     // Validate the order function if provided
     await _validateOrderFunction(map, n, comp);
 
+    // Fast path: default comparator and homogeneous primitive array (numbers or strings)
+    final isDefaultComparator =
+        comp == null || (comp is Value && comp.raw == null);
+    if (isDefaultComparator) {
+      var allNums = true;
+      var allStrs = true;
+      var complex = false;
+
+      for (var i = 1; i <= n; i++) {
+        final v = map[i];
+        if (v is Value) {
+          if (v.metatable != null) {
+            complex = true;
+            break;
+          }
+          final raw = v.raw;
+          if (raw is num) {
+            allStrs = false;
+          } else if (raw is String || raw is LuaString) {
+            allNums = false;
+          } else {
+            complex = true;
+            break;
+          }
+        } else if (v is num) {
+          allStrs = false;
+        } else if (v is String || v is LuaString) {
+          allNums = false;
+        } else {
+          complex = true;
+          break;
+        }
+      }
+
+      if (!complex && (allNums || allStrs)) {
+        if (allNums) {
+          final arr = List<double>.generate(n, (i) {
+            final vv = map[i + 1];
+            if (vv is Value) return (vv.raw as num).toDouble();
+            return (vv as num).toDouble();
+          });
+          arr.sort();
+          for (var i = 1; i <= n; i++) {
+            final orig = map[i];
+            final v = arr[i - 1];
+            if (orig is Value) {
+              orig.raw = v;
+              map[i] = orig;
+            } else {
+              map[i] = v;
+            }
+          }
+          return Value(null);
+        } else if (allStrs) {
+          final arr = List<String>.generate(n, (i) {
+            final vv = map[i + 1];
+            if (vv is Value) {
+              final raw = vv.raw;
+              return raw is LuaString ? raw.toString() : raw.toString();
+            }
+            return vv is LuaString ? vv.toString() : vv.toString();
+          });
+          arr.sort();
+          for (var i = 1; i <= n; i++) {
+            final orig = map[i];
+            final v = arr[i - 1];
+            if (orig is Value) {
+              orig.raw = v;
+              map[i] = orig;
+            } else {
+              map[i] = v;
+            }
+          }
+          return Value(null);
+        }
+      }
+    }
+
     // Perform in-place quicksort using Lua's algorithm
     await _auxSort(map, 1, n, comp, 0);
 
@@ -732,6 +810,30 @@ class _TableSort extends BuiltinFunction {
 
     if (comp == null || (comp is Value && comp.raw == null)) {
       // no function?
+
+      // Fast path: number/number or string/string (including LuaString) comparisons
+      final aVal = valA is Value ? (valA).raw : valA;
+      final bVal = valB is Value ? (valB).raw : valB;
+      if (aVal is num && bVal is num) {
+        final res = aVal < bVal;
+        Logger.debug(
+          "_sortComp (fast num): $aVal < $bVal => $res",
+          category: 'TableSort',
+        );
+        return res;
+      }
+      if ((aVal is String || aVal is LuaString) &&
+          (bVal is String || bVal is LuaString)) {
+        final aStr = aVal.toString();
+        final bStr = bVal.toString();
+        final res = aStr.compareTo(bStr) < 0;
+        Logger.debug(
+          "_sortComp (fast str): '$aStr' < '$bStr' => $res",
+          category: 'TableSort',
+        );
+        return res;
+      }
+
       final result = await _compareValues(valA, valB) < 0; // a < b
       Logger.debug("_sortComp: result = $result", category: 'TableSort');
       return result;

@@ -198,6 +198,7 @@ class RawSetFunction extends BuiltinFunction {
     } else {
       (table.raw as Map)[rawKey] = wrappedValue;
     }
+    table.markTableModified();
     return table;
   }
 }
@@ -1147,6 +1148,7 @@ class LoadFunction extends BuiltinFunction {
                     : null;
                 final box = Box<dynamic>(upvalueValue);
                 final upvalue = Upvalue(valueBox: box, name: upvalueName);
+                interpreter!.gc.register(upvalue);
                 upvalue.close();
                 directFunction.upvalues!.add(upvalue);
               }
@@ -1159,6 +1161,7 @@ class LoadFunction extends BuiltinFunction {
               for (final analyzed in analyzedUpvalues) {
                 final box = Box<dynamic>(null);
                 final upvalue = Upvalue(valueBox: box, name: analyzed.name);
+                interpreter!.gc.register(upvalue);
                 upvalue.close();
                 directFunction.upvalues!.add(upvalue);
               }
@@ -1268,7 +1271,9 @@ class LoadFunction extends BuiltinFunction {
                       ? originalUpvalueValues[i]
                       : null;
                   final box = Box<dynamic>(upvalueValue);
-                  upvalues.add(Upvalue(valueBox: box, name: upvalueName));
+                  final uv = Upvalue(valueBox: box, name: upvalueName);
+                  interpreter!.gc.register(uv);
+                  upvalues.add(uv);
                 }
                 result.upvalues = upvalues;
               }
@@ -1325,6 +1330,7 @@ class LoadFunction extends BuiltinFunction {
               : null;
           final box = Box<dynamic>(upvalueValue);
           final upvalue = Upvalue(valueBox: box, name: upvalueName);
+          interpreter!.gc.register(upvalue);
           upvalue.close();
           upvalues.add(upvalue);
         }
@@ -1332,6 +1338,7 @@ class LoadFunction extends BuiltinFunction {
         // Default behavior for regular loaded functions
         // Add placeholder for first upvalue (index 1) - typically local variables
         final placeholder = Upvalue(valueBox: Box<dynamic>(null), name: null);
+        interpreter!.gc.register(placeholder);
         placeholder.close();
         upvalues.add(placeholder);
 
@@ -1340,6 +1347,7 @@ class LoadFunction extends BuiltinFunction {
         if (envValue != null) {
           final envBox = Box<dynamic>(envValue);
           final envUpvalue = Upvalue(valueBox: envBox, name: '_ENV');
+          interpreter!.gc.register(envUpvalue);
           envUpvalue.close();
           upvalues.add(envUpvalue);
         }
@@ -2194,11 +2202,13 @@ class CollectGarbageFunction extends BuiltinFunction {
         // "stop": Stops automatic execution of the garbage collector
         // The collector will run only when explicitly invoked, until a call to restart it
         interpreter!.gc.stop();
+        interpreter!.gc.autoTriggerEnabled = false;
         return Value(true);
 
       case "restart":
         // "restart": Restarts automatic execution of the garbage collector
         interpreter!.gc.start();
+        interpreter!.gc.autoTriggerEnabled = true;
         return Value(true);
 
       case "setpause":

@@ -1,7 +1,7 @@
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
 import 'package:lualike/src/gc/gc_weights.dart';
-import 'package:lualike/src/gc/generational_gc.dart';
+// Upvalue registration happens where created (analyzer/loader); no direct GC imports here.
 import 'package:lualike/src/gc/memory_credits.dart';
 
 /// Represents a reference to a variable in an outer scope (an "upvalue").
@@ -25,12 +25,7 @@ class Upvalue extends GCObject {
   /// Stores the value at the time of closing if [_isOpen] becomes false.
   dynamic _closedValue;
 
-  Upvalue({required this.valueBox, this.name}) {
-    // Register with GC for proper Lua-compatible lifecycle management
-    if (GenerationalGCManager.isInitialized) {
-      GenerationalGCManager.instance.register(this);
-    }
-  }
+  Upvalue({required this.valueBox, this.name});
 
   @override
   int get estimatedSize {
@@ -88,9 +83,7 @@ class Upvalue extends GCObject {
     if (_isOpen) {
       _closedValue = valueBox.value;
       _isOpen = false;
-      if (GenerationalGCManager.isInitialized) {
-        MemoryCredits.instance.recalculate(this);
-      }
+      MemoryCredits.instance.recalculate(this);
     }
   }
 

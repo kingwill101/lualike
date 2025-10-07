@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
 import 'package:lualike/src/gc/gc_weights.dart';
-import 'package:lualike/src/gc/generational_gc.dart';
+import 'package:lualike/src/gc/gc_access.dart';
 import 'package:lualike/src/gc/memory_credits.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/upvalue.dart';
@@ -19,6 +19,10 @@ typedef AsyncFunction = Future<Object?> Function(List<Object?> args);
 class Value extends Object implements Map<String, dynamic>, GCObject {
   /// The underlying raw value being wrapped.
   dynamic _raw;
+
+  /// Monotonically increasing counter for table mutations so the interpreter
+  /// can invalidate cached lookups when a table changes.
+  int _tableVersion = 0;
 
   /// Optional metatable defining the value's behavior for various operations.
   Map<String, dynamic>? metatable;
@@ -45,6 +49,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   /// Whether this value is a to-be-closed variable
   bool isToBeClose = false;
+
+  /// Hint for fast-calling simple Lua closures (e.g., comparator x < y)
+  /// Currently used to accelerate very common patterns in tight loops.
+  bool isLessComparator = false;
 
   /// Whether this value has been initialized (used for const variables)
   bool _isInitialized = false;
@@ -90,6 +98,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// Whether this value represents a table
   bool get isTable => _raw is Map;
 
+  /// Incrementing version that changes every time the underlying table mutates.
+  int get tableVersion => _tableVersion;
+
   /// Gets the weak mode of this table from its metatable's __mode field.
   /// Returns null if this is not a table or has no __mode.
   /// Returns 'k' for weak keys, 'v' for weak values, 'kv' for both.
@@ -134,7 +145,13 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
     _raw = value;
     _isInitialized = true;
-    if (GenerationalGCManager.isInitialized) {
+    if (value is Map) {
+      _incrementTableVersion();
+    } else {
+      _tableVersion = 0;
+    }
+    final gcLocal1 = GCAccess.fromValue(this);
+    if (gcLocal1 != null) {
       MemoryCredits.instance.recalculate(this);
     }
   }
@@ -170,9 +187,34 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       this.metatable = metatable;
     }
 
-    if (GenerationalGCManager.isInitialized) {
-      GenerationalGCManager.instance.register(this);
+    // Always register with the GC so mark/unmark and separation logic
+    // remains correct, but avoid charging allocation debt for
+    // primitive-like wrappers to reduce auto-trigger overhead.
+    final gcLocal2 = GCAccess.fromValue(this);
+    gcLocal2?.register(
+      this,
+      countAllocation: _shouldCountAllocation(),
+    );
+
+  }
+
+  /// Determines whether this Value should contribute allocation debt.
+  ///
+  /// Primitive-like wrappers are extremely common and cheap; we skip
+  /// debt for them to avoid frequent auto-GC triggers in tight loops.
+  bool _shouldCountAllocation() {
+    if (isMulti) return false; // short-lived carrier, don't count
+    if (isTable) return true; // tables are significant
+    final payload = raw;
+    if (payload == null ||
+        payload is bool ||
+        payload is num ||
+        payload is BigInt ||
+        payload is String ||
+        payload is LuaString) {
+      return false;
     }
+    return true;
   }
 
   bool isA<T>() {
@@ -328,7 +370,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// [mt] - The new metatable to associate with this value.
   void setMetatable(Map<String, dynamic> mt) {
     metatable = mt;
-    if (GenerationalGCManager.isInitialized) {
+    final gcLocal3 = GCAccess.fromValue(this);
+    if (gcLocal3 != null) {
       MemoryCredits.instance.recalculate(this);
     }
   }
@@ -585,12 +628,6 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         return result is Value ? result : Value(result);
       }
 
-      final legacyKey = _computeLegacyKey(key);
-      if (legacyKey != storageKey && (raw as Map).containsKey(legacyKey)) {
-        final legacyResult = (raw as Map)[legacyKey];
-        return legacyResult is Value ? legacyResult : Value(legacyResult);
-      }
-
       // Key doesn't exist, check for __index metamethod
       final indexMeta = getMetamethod('__index');
       if (indexMeta != null) {
@@ -628,12 +665,6 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       if ((raw as Map).containsKey(storageKey)) {
         final result = (raw as Map)[storageKey];
         return result is Value ? result : Value(result);
-      }
-
-      final legacyKey = _computeLegacyKey(key);
-      if (legacyKey != storageKey && (raw as Map).containsKey(legacyKey)) {
-        final legacyResult = (raw as Map)[legacyKey];
-        return legacyResult is Value ? legacyResult : Value(legacyResult);
       }
 
       final indexMeta = getMetamethod('__index');
@@ -750,7 +781,6 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   void _setRawTableEntry(Object key, dynamic value) {
     final valueToSet = value is Value ? value : Value(value);
     final storageKey = _computeStorageKey(key);
-    final legacyKey = _computeLegacyKey(key);
     final isWeakTable = isTable && tableWeakMode != null;
     final storageValue = isWeakTable && valueToSet.isStringLike
         ? valueToSet.raw
@@ -758,17 +788,25 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
     if (valueToSet.isNil) {
       (raw as Map).remove(storageKey);
-      if (legacyKey != storageKey) {
-        (raw as Map).remove(legacyKey);
-      }
     } else {
       (raw as Map)[storageKey] = storageValue;
-      if (legacyKey != storageKey) {
-        (raw as Map).remove(legacyKey);
-      }
     }
-    if (GenerationalGCManager.isInitialized) {
+    _incrementTableVersion();
+    final gcLocal4 = GCAccess.fromValue(this);
+    if (gcLocal4 != null) {
       MemoryCredits.instance.recalculate(this);
+    }
+  }
+
+  /// Marks the underlying table as modified so cached lookups can be
+  /// invalidated.
+  void markTableModified() {
+    _incrementTableVersion();
+  }
+
+  void _incrementTableVersion() {
+    if (raw is Map) {
+      _tableVersion++;
     }
   }
 
@@ -786,7 +824,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
 
     (raw as Map).clear();
-    if (GenerationalGCManager.isInitialized) {
+    _incrementTableVersion();
+    final gcLocal5 = GCAccess.fromValue(this);
+    if (gcLocal5 != null) {
       MemoryCredits.instance.recalculate(this);
     }
   }
@@ -797,11 +837,6 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
     final storageKey = _computeStorageKey(key);
     if ((raw as Map).containsKey(storageKey)) {
-      return true;
-    }
-
-    final legacyKey = _computeLegacyKey(key);
-    if (legacyKey != storageKey && (raw as Map).containsKey(legacyKey)) {
       return true;
     }
 
@@ -820,16 +855,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     if (raw is! Map) return false;
 
     final storageKey = _computeStorageKey(key);
-    if ((raw as Map).containsKey(storageKey)) {
-      return true;
-    }
-
-    final legacyKey = _computeLegacyKey(key);
-    if (legacyKey != storageKey && (raw as Map).containsKey(legacyKey)) {
-      return true;
-    }
-
-    return false;
+    return (raw as Map).containsKey(storageKey);
   }
 
   @override
@@ -952,11 +978,17 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       return wrappedValue;
     }
 
+    var inserted = false;
     final result = (raw as Map).putIfAbsent(key, () {
+      inserted = true;
       final value = ifAbsent();
       return value is Value ? value : Value(value);
     });
-    if (GenerationalGCManager.isInitialized) {
+    if (inserted) {
+      _incrementTableVersion();
+    }
+    final gc = GCAccess.fromValue(this);
+    if (gc != null) {
       MemoryCredits.instance.recalculate(this);
     }
     return result;
@@ -974,16 +1006,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
 
     final storageKey = _computeStorageKey(key);
-    dynamic value = (raw as Map).remove(storageKey);
+    var value = (raw as Map).remove(storageKey);
 
-    if (value == null) {
-      final legacyKey = _computeLegacyKey(key);
-      if (legacyKey != storageKey) {
-        value = (raw as Map).remove(legacyKey);
-      }
-    }
-
-    if (GenerationalGCManager.isInitialized) {
+    final gcLocal = GCAccess.fromValue(this);
+    if (gcLocal != null) {
       MemoryCredits.instance.recalculate(this);
     }
 
@@ -1381,7 +1407,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         (e) => MapEntry(e.key, e.value is Value ? e.value : Value(e.value)),
       ),
     );
-    if (GenerationalGCManager.isInitialized) {
+    final gcLocal2 = GCAccess.fromValue(this);
+    if (gcLocal2 != null) {
       MemoryCredits.instance.recalculate(this);
     }
   }
@@ -1419,7 +1446,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     (raw as Map).removeWhere(
       (k, v) => test(k.toString(), v is Value ? v : Value(v)),
     );
-    if (GenerationalGCManager.isInitialized) {
+    final gcLocal3 = GCAccess.fromValue(this);
+    if (gcLocal3 != null) {
       MemoryCredits.instance.recalculate(this);
     }
   }
@@ -1457,7 +1485,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       final result = update(k.toString(), v is Value ? v : Value(v));
       return result is Value ? result : Value(result);
     });
-    if (GenerationalGCManager.isInitialized) {
+    final gcLocal4 = GCAccess.fromValue(this);
+    if (gcLocal4 != null) {
       MemoryCredits.instance.recalculate(this);
     }
   }
@@ -1501,7 +1530,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
             }
           : null,
     );
-    if (GenerationalGCManager.isInitialized) {
+    final gcLocal5 = GCAccess.fromValue(this);
+    if (gcLocal5 != null) {
       MemoryCredits.instance.recalculate(this);
     }
     return result;
@@ -1675,10 +1705,6 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       return key == 0 ? 0.0 : key;
     }
     return key;
-  }
-
-  dynamic _computeLegacyKey(Object? key) {
-    return _computeRawKey(key);
   }
 
   bool _isPrimitiveKey(Object? value) {
@@ -1904,6 +1930,10 @@ extension OperatorExtension on Value {
       );
       return false;
     }
+    // Fast path: both are doubles (most common case)
+    if (raw is double && otherRaw is double) {
+      return raw > otherRaw;
+    }
     // Always use mathematical ordering for int/BigInt vs double
     if ((raw is int || raw is BigInt) && otherRaw is double) {
       if (!otherRaw.isFinite) {
@@ -1997,6 +2027,10 @@ extension OperatorExtension on Value {
       );
       return false;
     }
+    // Fast path: both are doubles (most common case)
+    if (raw is double && otherRaw is double) {
+      return raw < otherRaw;
+    }
     if ((raw is int || raw is BigInt) && otherRaw is double) {
       if (!otherRaw.isFinite) {
         if (otherRaw.isInfinite) {
@@ -2079,6 +2113,10 @@ extension OperatorExtension on Value {
       );
       return false;
     }
+    // Fast path: both are doubles (most common case)
+    if (raw is double && otherRaw is double) {
+      return raw >= otherRaw;
+    }
     if ((raw is int || raw is BigInt) && otherRaw is double) {
       if (!otherRaw.isFinite) {
         if (otherRaw.isInfinite) {
@@ -2158,6 +2196,10 @@ extension OperatorExtension on Value {
         category: 'Value',
       );
       return false;
+    }
+    // Fast path: both are doubles (most common case)
+    if (raw is double && otherRaw is double) {
+      return raw <= otherRaw;
     }
     if ((raw is int || raw is BigInt) && otherRaw is double) {
       if (!otherRaw.isFinite) {

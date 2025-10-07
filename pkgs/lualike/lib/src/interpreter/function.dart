@@ -99,6 +99,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
       // Install the function on the resolved target table
       (targetTable.raw as Map)[methodName] = closure;
+      targetTable.markTableModified();
       Logger.debug(
         'Defined method $methodName on table path $firstName${pathSegments.isNotEmpty ? '.${pathSegments.map((e) => e.name).join('.')}' : ''}',
         category: 'Interpreter',
@@ -137,6 +138,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       );
       if (envVal.raw is Map) {
         (envVal.raw as Map)[node.name.first.name] = closure;
+        envVal.markTableModified();
         return closure;
       }
     }
@@ -153,6 +155,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       );
       if (gVal.raw is Map) {
         (gVal.raw as Map)[node.name.first.name] = closure;
+        gVal.markTableModified();
         return closure;
       }
     }
@@ -315,6 +318,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
       Object? result;
       try {
+        // Enter function body for safe-point gating
+        (this as Interpreter)._functionBodyDepth++;
         // Set the environment to the execution environment
         (this as Interpreter).setCurrentEnv(execEnv);
         // Set the current function for upvalue resolution
@@ -338,6 +343,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         // Restore the previous environment and function
         (this as Interpreter).setCurrentEnv(savedEnv);
         (this as Interpreter).setCurrentFunction(savedFunction);
+        (this as Interpreter)._functionBodyDepth =
+            ((this as Interpreter)._functionBodyDepth > 0)
+            ? (this as Interpreter)._functionBodyDepth - 1
+            : 0;
       }
 
       return result;
@@ -429,6 +438,41 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       category: 'Interpreter',
     );
 
+    // Fast path: avoid wrapping args for simple comparator closure
+    if (func is Value && func.isLessComparator) {
+      final fastArgs = <Object?>[];
+      for (int i = 0; i < node.args.length && fastArgs.length < 2; i++) {
+        final v = await node.args[i].accept(this);
+        Object? first;
+        if (v is Value && v.isMulti) {
+          final list = v.raw as List<Object?>;
+          first = list.isNotEmpty ? list.first : null;
+        } else if (v is List && v.isNotEmpty) {
+          first = v.first;
+        } else {
+          first = v;
+        }
+        // Use raw when possible to skip temporary Value wrappers
+        fastArgs.add(first is Value ? first.raw : first);
+      }
+      while (fastArgs.length < 2) {
+        fastArgs.add(null);
+      }
+      try {
+        final result = await _callFunction(func, fastArgs, callNode: node);
+        Logger.debug(
+          'Function call result: $result (${result.runtimeType})',
+          category: 'Interpreter',
+        );
+        return result;
+      } on LuaError catch (e, s) {
+        final interpreter = this as Interpreter;
+        if (!interpreter.isInProtectedCall) {
+          interpreter.reportError(e.message, trace: s, error: e, node: node);
+        }
+        rethrow;
+      }
+    }
     // Evaluate the arguments with proper multi-value handling
     final args = <Object?>[];
 
@@ -481,6 +525,31 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         functionName = 'method';
       }
     } else if (func is Value) {
+      // Fast path: simple less-than comparator closures (function(x,y) return x<y end)
+      if (func.isLessComparator && args.length >= 2) {
+        final a0 = args[0];
+        final a1 = args[1];
+        final rawA = a0 is Value ? a0.raw : a0;
+        final rawB = a1 is Value ? a1.raw : a1;
+        final safeA = !(a0 is Value && a0.metatable != null);
+        final safeB = !(a1 is Value && a1.metatable != null);
+        if (safeA &&
+            safeB &&
+            ((rawA is num && rawB is num) ||
+                ((rawA is String || rawA is LuaString) &&
+                    (rawB is String || rawB is LuaString)))) {
+          bool res;
+          if (rawA is num && rawB is num) {
+            res = rawA < rawB;
+          } else {
+            final sa = rawA.toString();
+            final sb = rawB.toString();
+            res = sa.compareTo(sb) < 0;
+          }
+          return Value(res);
+        }
+      }
+
       if (func.raw is FunctionDef) {
         final funcDef = func.raw as FunctionDef;
         functionName = funcDef.name.first.name;
@@ -788,24 +857,28 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     String? callerFunctionName,
     AstNode? callNode,
   }) async {
-    Logger.debug(
-      '>>> _callFunction called with function: ${func.hashCode}, args: $args',
-      category: 'Interpreter',
-    );
-    if (args.isNotEmpty) {
+    if (Logger.enabled) {
       Logger.debug(
-        '>>> _callFunction first arg (potential self): ${args[0]}',
+        '>>> _callFunction called with function: ${func.hashCode}, args: $args',
         category: 'Interpreter',
       );
+      if (args.isNotEmpty) {
+        Logger.debug(
+          '>>> _callFunction first arg (potential self): ${args[0]}',
+          category: 'Interpreter',
+        );
+      }
     }
 
     // Log the current coroutine
     final interpreter = this as Interpreter;
     final currentCoroutine = getCurrentCoroutine();
-    Logger.debug(
-      '>>> Current coroutine: ${currentCoroutine?.hashCode}, current environment: ${interpreter.getCurrentEnv().hashCode}',
-      category: 'Interpreter',
-    );
+    if (Logger.enabled) {
+      Logger.debug(
+        '>>> Current coroutine: ${currentCoroutine?.hashCode}, current environment: ${interpreter.getCurrentEnv().hashCode}',
+        category: 'Interpreter',
+      );
+    }
 
     // Get function name for call stack if possible
     String functionName = callerFunctionName ?? 'function';
@@ -835,10 +908,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     }
 
     // Push function to call stack
-    Logger.debug(
-      '>>> Pushing function name to call stack: "$functionName"',
-      category: 'Interpreter',
-    );
+    if (Logger.enabled) {
+      Logger.debug(
+        '>>> Pushing function name to call stack: "$functionName"',
+        category: 'Interpreter',
+      );
+    }
     // Guard against unbounded recursion in non-tail calls (simulates C stack limit)
     if (callStack.depth >= Interpreter.maxCallDepth) {
       throw LuaError('C stack overflow');
@@ -851,31 +926,39 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
           if (func is Value) {
             if (func.raw is Function) {
               // Call the Dart function
-              Logger.debug(
-                '>>> Calling Dart function: ${func.raw.runtimeType}',
-                category: 'Interpreter',
-              );
+              if (Logger.enabled) {
+                Logger.debug(
+                  '>>> Calling Dart function: ${func.raw.runtimeType}',
+                  category: 'Interpreter',
+                );
+              }
               try {
                 final result = await func.raw(args);
-                Logger.debug(
-                  '>>> Dart function returned: $result (${result.runtimeType})',
-                  category: 'Interpreter',
-                );
+                if (Logger.enabled) {
+                  Logger.debug(
+                    '>>> Dart function returned: $result (${result.runtimeType})',
+                    category: 'Interpreter',
+                  );
+                }
                 return result;
               } catch (e, s) {
-                Logger.debug(
-                  '>>> Error in Dart function: $e',
-                  category: 'Interpreter',
-                );
-                Logger.debug('>>> Stack trace: $s', category: 'Interpreter');
+                if (Logger.enabled) {
+                  Logger.debug(
+                    '>>> Error in Dart function: $e',
+                    category: 'Interpreter',
+                  );
+                  Logger.debug('>>> Stack trace: $s', category: 'Interpreter');
+                }
                 rethrow;
               }
             } else if (func.raw is BuiltinFunction) {
               // Call the builtin function
-              Logger.debug(
-                '>>> Calling builtin function from Value: ${func.raw.runtimeType}',
-                category: 'Interpreter',
-              );
+              if (Logger.enabled) {
+                Logger.debug(
+                  '>>> Calling builtin function from Value: ${func.raw.runtimeType}',
+                  category: 'Interpreter',
+                );
+              }
               try {
                 var result = (func.raw as BuiltinFunction).call(args);
 
@@ -883,99 +966,127 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                   result = await result;
                 }
 
-                Logger.debug(
-                  '>>> Builtin function call completed, result = $result',
-                  category: 'Interpreter',
-                );
+                if (Logger.enabled) {
+                  Logger.debug(
+                    '>>> Builtin function call completed, result = $result',
+                    category: 'Interpreter',
+                  );
+                }
                 return result;
               } catch (e) {
-                Logger.debug(
-                  '>>> Builtin function call failed: $e',
-                  category: 'Interpreter',
-                );
+                if (Logger.enabled) {
+                  Logger.debug(
+                    '>>> Builtin function call failed: $e',
+                    category: 'Interpreter',
+                  );
+                }
                 rethrow;
               }
             } else if (func.raw is FunctionDef) {
-              Logger.debug(
-                '>>> Calling LuaLike function definition',
-                category: 'Interpreter',
-              );
+              if (Logger.enabled) {
+                Logger.debug(
+                  '>>> Calling LuaLike function definition',
+                  category: 'Interpreter',
+                );
+              }
               final funcDef = func.raw as FunctionDef;
               final funcBody = funcDef.body;
               final closure = await funcBody.accept(this);
-              Logger.debug(
-                '>>> Function body closure: $closure (${closure.runtimeType})',
-                category: 'Interpreter',
-              );
+              if (Logger.enabled) {
+                Logger.debug(
+                  '>>> Function body closure: $closure (${closure.runtimeType})',
+                  category: 'Interpreter',
+                );
+              }
               if (closure is Value && closure.raw is Function) {
                 try {
                   final result = await closure.raw(args);
-                  Logger.debug(
-                    '>>> LuaLike function result: $result',
-                    category: 'Interpreter',
-                  );
+                  if (Logger.enabled) {
+                    Logger.debug(
+                      '>>> LuaLike function result: $result',
+                      category: 'Interpreter',
+                    );
+                  }
                   return result;
                 } catch (e) {
-                  Logger.debug(
-                    '>>> Error in LuaLike function: $e',
-                    category: 'Interpreter',
-                  );
+                  if (Logger.enabled) {
+                    Logger.debug(
+                      '>>> Error in LuaLike function: $e',
+                      category: 'Interpreter',
+                    );
+                  }
                   rethrow;
                 }
               }
             } else if (func.raw is FunctionBody) {
               // Call the LuaLike function body
-              Logger.debug(
-                '>>> Calling LuaLike function body',
-                category: 'Interpreter',
-              );
+              if (Logger.enabled) {
+                Logger.debug(
+                  '>>> Calling LuaLike function body',
+                  category: 'Interpreter',
+                );
+              }
               final funcBody = func.raw as FunctionBody;
               final closure = await funcBody.accept(this);
-              Logger.debug(
-                '>>> Function body closure: $closure (${closure.runtimeType})',
-                category: 'Interpreter',
-              );
+              if (Logger.enabled) {
+                Logger.debug(
+                  '>>> Function body closure: $closure (${closure.runtimeType})',
+                  category: 'Interpreter',
+                );
+              }
               if (closure is Value && closure.raw is Function) {
                 try {
                   final result = await closure.raw(args);
-                  Logger.debug(
-                    '>>> LuaLike function body result: $result',
-                    category: 'Interpreter',
-                  );
+                  if (Logger.enabled) {
+                    Logger.debug(
+                      '>>> LuaLike function body result: $result',
+                      category: 'Interpreter',
+                    );
+                  }
                   return result;
                 } catch (e) {
-                  Logger.debug(
-                    '>>> Error in LuaLike function body: $e',
-                    category: 'Interpreter',
-                  );
+                  if (Logger.enabled) {
+                    Logger.debug(
+                      '>>> Error in LuaLike function body: $e',
+                      category: 'Interpreter',
+                    );
+                  }
                   rethrow;
                 }
               }
             } else if (func.raw is FunctionLiteral) {
               // Call the LuaLike function literal
-              Logger.debug(
-                '>>> Calling LuaLike function literal',
-                category: 'Interpreter',
-              );
+              if (Logger.enabled) {
+                Logger.debug(
+                  '>>> Calling LuaLike function literal',
+                  category: 'Interpreter',
+                );
+              }
               final funcLiteral = func.raw as FunctionLiteral;
               final closure = await funcLiteral.accept(this);
-              Logger.debug(
-                '>>> Function literal closure: $closure (${closure.runtimeType})',
-                category: 'Interpreter',
-              );
+              if (Logger.enabled) {
+                Logger.debug(
+                  '>>> Function literal closure: $closure (${closure.runtimeType})',
+                  category: 'Interpreter',
+                );
+              }
               if (closure is Value && closure.raw is Function) {
                 try {
                   final result = await closure.raw(args);
-                  Logger.debug(
-                    '>>> LuaLike function literal result: $result',
-                    category: 'Interpreter',
-                  );
+                  if (Logger.enabled) {
+                    Logger.debug(
+                      '>>> LuaLike function literal result: $result',
+                      category: 'Interpreter',
+                    );
+                  }
                   return result;
                 } catch (e) {
-                  Logger.debug(
-                    '>>> Error in LuaLike function literal: $e',
-                    category: 'Interpreter',
-                  );
+                  if (Logger.enabled) {
+                    Logger.debug(
+                      '>>> Error in LuaLike function literal: $e',
+                      category: 'Interpreter',
+                    );
+                  }
                   rethrow;
                 }
               }
@@ -986,10 +1097,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
               }
             } else {
               // Check for __call metamethod and flatten the chain iteratively.
-              Logger.debug(
-                '>>> Checking for __call metamethod',
-                category: 'Interpreter',
-              );
+              if (Logger.enabled) {
+                Logger.debug(
+                  '>>> Checking for __call metamethod',
+                  category: 'Interpreter',
+                );
+              }
               if (func.hasMetamethod('__call')) {
                 // Rebind callee and arguments, then continue loop without
                 // nesting calls. This preserves tail-call behavior across
@@ -997,10 +1110,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                 // tables or functions.
                 final callMeta = func.getMetamethod('__call');
                 final callArgs = [func, ...args];
-                Logger.debug(
-                  '>>> __call found; rebinding callee and continuing (callee=${callMeta.runtimeType})',
-                  category: 'Interpreter',
-                );
+                if (Logger.enabled) {
+                  Logger.debug(
+                    '>>> __call found; rebinding callee and continuing (callee=${callMeta.runtimeType})',
+                    category: 'Interpreter',
+                  );
+                }
                 func = callMeta;
                 args = callArgs;
                 continue;
@@ -1008,43 +1123,55 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             }
           } else if (func is Function) {
             // Call the Dart function directly
-            Logger.debug(
-              '>>> Calling Dart function directly',
-              category: 'Interpreter',
-            );
+            if (Logger.enabled) {
+              Logger.debug(
+                '>>> Calling Dart function directly',
+                category: 'Interpreter',
+              );
+            }
             try {
               final result = await func(args);
-              Logger.debug(
-                '>>> Direct Dart function result: $result',
-                category: 'Interpreter',
-              );
+              if (Logger.enabled) {
+                Logger.debug(
+                  '>>> Direct Dart function result: $result',
+                  category: 'Interpreter',
+                );
+              }
               return result;
             } catch (e) {
-              Logger.debug(
-                '>>> Error in direct Dart function: $e',
-                category: 'Interpreter',
-              );
+              if (Logger.enabled) {
+                Logger.debug(
+                  '>>> Error in direct Dart function: $e',
+                  category: 'Interpreter',
+                );
+              }
               rethrow;
             }
           } else if (func is FunctionDef) {
             // Call the LuaLike function
-            Logger.debug(
-              '>>> Calling LuaLike function definition directly',
-              category: 'Interpreter',
-            );
+            if (Logger.enabled) {
+              Logger.debug(
+                '>>> Calling LuaLike function definition directly',
+                category: 'Interpreter',
+              );
+            }
             final funcBody = func.body;
             final closure = await funcBody.accept(this);
-            Logger.debug(
-              '>>> Function body closure: $closure (${closure.runtimeType})',
-              category: 'Interpreter',
-            );
+            if (Logger.enabled) {
+              Logger.debug(
+                '>>> Function body closure: $closure (${closure.runtimeType})',
+                category: 'Interpreter',
+              );
+            }
             if (closure is Value && closure.raw is Function) {
               try {
                 final result = await closure.raw(args);
-                Logger.debug(
-                  '>>> Direct LuaLike function result: $result',
-                  category: 'Interpreter',
-                );
+                if (Logger.enabled) {
+                  Logger.debug(
+                    '>>> Direct LuaLike function result: $result',
+                    category: 'Interpreter',
+                  );
+                }
                 return result;
               } catch (e) {
                 Logger.debug(
@@ -1140,10 +1267,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
           );
         } on TailCallException catch (t) {
           // Rebind callee/args and continue without pushing a new frame
-          Logger.debug(
-            '>>> TailCallException caught; rebinding callee and continuing',
-            category: 'Interpreter',
-          );
+          if (Logger.enabled) {
+            Logger.debug(
+              '>>> TailCallException caught; rebinding callee and continuing',
+              category: 'Interpreter',
+            );
+          }
           func = t.functionValue;
           args = t.args;
           // Continue loop to invoke new function under same frame
@@ -1152,10 +1281,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       }
     } on YieldException catch (ye) {
       // Handle coroutine yield
-      Logger.debug(
-        '>>> Caught YieldException: \\${ye.values}',
-        category: 'Coroutine',
-      );
+      if (Logger.enabled) {
+        Logger.debug(
+          '>>> Caught YieldException: \\${ye.values}',
+          category: 'Coroutine',
+        );
+      }
 
       // Save the previous coroutine
       final interpreter = this as Interpreter;
@@ -1164,22 +1295,28 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       interpreter.setCurrentCoroutine(ye.coroutine);
 
       // Wait for the coroutine to be resumed
-      Logger.debug(
-        '>>> YieldException: waiting for resumeFuture...',
-        category: 'Coroutine',
-      );
+      if (Logger.enabled) {
+        Logger.debug(
+          '>>> YieldException: waiting for resumeFuture...',
+          category: 'Coroutine',
+        );
+      }
       final resumeArgs = await ye.resumeFuture;
-      Logger.debug(
-        '>>> YieldException: resumeFuture completed with: \\$resumeArgs',
-        category: 'Coroutine',
-      );
+      if (Logger.enabled) {
+        Logger.debug(
+          '>>> YieldException: resumeFuture completed with: \\$resumeArgs',
+          category: 'Coroutine',
+        );
+      }
 
       // Ensure coroutine status is suspended after yield
       if (ye.coroutine != null) {
-        Logger.debug(
-          '>>> Forcing coroutine status to suspended after yield (interpreter)',
-          category: 'Coroutine',
-        );
+        if (Logger.enabled) {
+          Logger.debug(
+            '>>> Forcing coroutine status to suspended after yield (interpreter)',
+            category: 'Coroutine',
+          );
+        }
         ye.coroutine!.status = CoroutineStatus.suspended;
       }
 

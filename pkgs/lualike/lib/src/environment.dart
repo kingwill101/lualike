@@ -1,7 +1,8 @@
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart' show GCObject;
 import 'package:lualike/src/gc/gc_weights.dart';
-import 'package:lualike/src/gc/generational_gc.dart' show GenerationalGCManager;
+// Per-interpreter GC available via Environment.interpreter.gc
+import 'package:lualike/src/gc/gc_access.dart';
 import 'package:lualike/src/gc/memory_credits.dart';
 
 /// A generic box class that wraps a single value of type T.
@@ -14,11 +15,7 @@ class Box<T> extends GCObject {
   final bool isLocal;
 
   /// Creates a new Box containing [value].
-  Box(this.value, {this.isLocal = false}) {
-    if (GenerationalGCManager.isInitialized) {
-      GenerationalGCManager.instance.register(this);
-    }
-  }
+  Box(this.value, {this.isLocal = false});
 
   @override
   int get estimatedSize => GcWeights.gcObjectHeader + GcWeights.boxBase;
@@ -83,6 +80,10 @@ class Box<T> extends GCObject {
 /// leading to bugs where local variables in main scripts affected globals.
 /// The newer methods provide precise control over each scenario.
 class Environment extends GCObject {
+  static int totalCreated = 0;
+  static int totalFreed = 0;
+  static int maxActive = 0;
+
   /// Storage for variable bindings in this scope.
   final Map<String, Box<dynamic>> values = {};
 
@@ -118,9 +119,8 @@ class Environment extends GCObject {
     this.isClosure = false,
     this.isLoadIsolated = false,
   }) {
-    if (GenerationalGCManager.isInitialized) {
-      GenerationalGCManager.instance.register(this);
-    }
+    final gc = GCAccess.fromEnv(this);
+    gc?.register(this, countAllocation: false);
     Logger.debug(
       "Environment($hashCode) created. Parent: ${parent?.hashCode}",
       category: 'Env',
@@ -128,9 +128,30 @@ class Environment extends GCObject {
   }
 
   void _updateCredits() {
-    if (GenerationalGCManager.isInitialized) {
+    final gc = GCAccess.fromEnv(this);
+    if (gc != null) {
       MemoryCredits.instance.recalculate(this);
     }
+  }
+
+  void _syncGlobalTableEntry(String name, dynamic value) {
+    final rootEnv = root;
+    final gBox = rootEnv.values['_G'];
+    if (gBox == null) {
+      return;
+    }
+    final gValue = gBox.value;
+    if (gValue is! Value || gValue.raw is! Map) {
+      return;
+    }
+
+    final map = gValue.raw as Map;
+    if (value is Value ? value.raw == null : value == null) {
+      map.remove(name);
+    } else {
+      map[name] = value is Value ? value : Value(value);
+    }
+    gValue.markTableModified();
   }
 
   @override
@@ -145,17 +166,18 @@ class Environment extends GCObject {
     if (parent != null) {
       refs.add(parent!);
     }
-    final gcReady = GenerationalGCManager.isInitialized;
+    final gcReady = GCAccess.fromEnv(this) != null;
     for (final entry in values.entries) {
       final box = entry.value;
       refs.add(box);
       if (!gcReady) {
         continue;
       }
-      GenerationalGCManager.instance.ensureTracked(box);
+      final gc = GCAccess.fromEnv(this);
+      gc?.ensureTracked(box);
       final boxedValue = box.value;
       if (boxedValue is GCObject) {
-        GenerationalGCManager.instance.ensureTracked(boxedValue);
+        gc?.ensureTracked(boxedValue);
       }
     }
     return refs;
@@ -317,6 +339,9 @@ class Environment extends GCObject {
           "Updated variable '$name' to $value in env (${current.hashCode})",
           category: 'Env',
         );
+        if (current.parent == null) {
+          _syncGlobalTableEntry(name, value);
+        }
         return;
       }
       current = current.parent;
@@ -331,6 +356,8 @@ class Environment extends GCObject {
       "Created new binding for '$name' = $value in root env (${rootEnv.hashCode})",
       category: 'Env',
     );
+
+    _syncGlobalTableEntry(name, value);
 
     // Track to-be-closed variables
     if (value is Value && value.isToBeClose) {
@@ -517,15 +544,7 @@ class Environment extends GCObject {
     rootEnv._updateCredits();
 
     // Keep the underlying _G table in sync so reads via _G[k] see updates
-    final gVal = rootEnv.get('_G');
-    if (gVal is Value && gVal.raw is Map) {
-      final gMap = gVal.raw as Map;
-      if (value is Value ? value.isNil : value == null) {
-        gMap.remove(name);
-      } else {
-        gMap[name] = value is Value ? value : Value(value);
-      }
-    }
+    _syncGlobalTableEntry(name, value);
 
     // Track to-be-closed variables in root environment
     if (value is Value && value.isToBeClose) {
@@ -580,6 +599,17 @@ class Environment extends GCObject {
           Logger.debug("Error closing variable '$name': $e", category: 'Env');
           error ??= e;
         }
+      }
+    }
+
+    final gc = GCAccess.fromEnv(this);
+    if (gc != null) {
+      Logger.debug(
+        'Environment safe point debt check: debt=${gc.allocationDebt} threshold=${gc.autoTriggerDebtThreshold}',
+        category: 'Env',
+      );
+      if (gc.allocationDebt >= gc.autoTriggerDebtThreshold) {
+        gc.runPendingAutoTrigger();
       }
     }
   }

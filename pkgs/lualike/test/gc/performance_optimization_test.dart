@@ -10,8 +10,7 @@ void main() {
 
     setUp(() {
       vm = Interpreter();
-      GenerationalGCManager.initialize(vm);
-      gc = GenerationalGCManager.instance;
+      gc = vm.gc;
       // Stop incremental GC to prevent it from sweeping test objects
       gc.stop();
     });

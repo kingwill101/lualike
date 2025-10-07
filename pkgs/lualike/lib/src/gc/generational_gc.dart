@@ -48,22 +48,15 @@ class Generation {
 /// above a limit, the collector does a stop-the-world major collection, which traverses
 /// all objects."
 class GenerationalGCManager {
+
   /// Reference to the interpreter for accessing global state.
   // ignore: unused_field
   final Interpreter _interpreter;
 
-  /// Singleton instance of the garbage collector.
-  static late GenerationalGCManager instance;
-  static bool isInitialized = false;
+  static int totalRegistrations = 0;
+  static final Map<Type, int> allocationHistogram = <Type, int>{};
 
-  /// Initializes the garbage collector with a reference to the interpreter.
-  static void initialize(Interpreter interpreter) {
-    instance = GenerationalGCManager._(interpreter);
-    isInitialized = true;
-  }
-
-  // Private constructor
-  GenerationalGCManager._(Interpreter interpreter) : _interpreter = interpreter;
+  GenerationalGCManager(this._interpreter);
 
   /// Whether garbage collection is currently stopped.
   bool _isStopped = false;
@@ -71,10 +64,22 @@ class GenerationalGCManager {
   /// Returns whether garbage collection is currently stopped.
   bool get isStopped => _isStopped;
 
+  /// Whether garbage collection is currently in progress (prevents recursive GC)
+  bool _isCollecting = false;
+
+  /// Tracks whether an automatic GC trigger has been requested.
+  bool _autoTriggerRequested = false;
+
+  /// Whether automatic GC triggering is enabled for this manager.
+  /// When disabled, allocation debt will accumulate but no auto work runs
+  /// at safe points until re-enabled. Manual steps still work.
+  bool autoTriggerEnabled = true;
+
   /// GC tuning parameters as described in Lua 5.4 reference manual.
 
   /// Controls the size of each incremental step.
   /// In Lua, this is logarithmic: a value of n means allocating 2^n bytes between steps.
+  /// Default to Lua-like small step size; callers can adjust via tuning APIs.
   int stepSize = 1;
 
   /// Controls the frequency of minor collections.
@@ -103,7 +108,7 @@ class GenerationalGCManager {
   List<GCObject> _objectsToSweep = [];
   int _sweepingIndex = 0;
   int _simulatedAllocationDebt = 0;
-  
+
   /// Public getter for allocation debt (used by interpreter to trigger GC at safe points)
   int get allocationDebt => _simulatedAllocationDebt;
   int _manualStepDebtKb = 0;
@@ -123,13 +128,23 @@ class GenerationalGCManager {
   final List<Value> ephemeronTables = [];
   final List<Value> allWeakTables = [];
 
-
   /// Pending removals for weak-key/all-weak tables that must wait until after
   /// finalizers run (Lua expects weak keys to survive during finalization).
   final Map<Value, Set<dynamic>> _pendingWeakKeyRemovals =
       HashMap<Value, Set<dynamic>>.identity();
   final Map<Value, Set<dynamic>> _pendingAllWeakRemovals =
       HashMap<Value, Set<dynamic>>.identity();
+
+  /// Multiplicative factor applied to the allocation debt threshold before
+  /// automatic collection is requested. This prevents small, frequent
+  /// allocations (like loop scopes) from triggering GC every safe point.
+  static const int _autoTriggerDebtMultiplier = 512;
+
+  int _autoTriggerDebtThreshold() {
+    return _allocationDebtThreshold() * _autoTriggerDebtMultiplier;
+  }
+
+  int get autoTriggerDebtThreshold => _autoTriggerDebtThreshold();
 
   /// Whether we're currently in a major collection (affects weak table handling)
   bool _inMajorCollection = false;
@@ -158,7 +173,7 @@ class GenerationalGCManager {
   /// This is used to trigger collection based on allocation pressure,
   /// similar to how Lua triggers collection when memory usage increases.
   void simulateAllocation(int bytes) {
-    if (_isStopped || bytes <= 0) return;
+    if (_isStopped || bytes <= 0 || !autoTriggerEnabled) return;
 
     _simulatedAllocationDebt += bytes;
     Logger.debug(
@@ -166,14 +181,21 @@ class GenerationalGCManager {
       category: 'GC',
     );
 
-    _processSimulatedAllocationDebt();
+    _requestAutoTrigger();
   }
-  
+
   /// Trigger GC if there's accumulated allocation debt.
   /// This should be called at safe points during execution.
   void triggerGCIfNeeded() {
-    if (_simulatedAllocationDebt > 0 && !_isStopped) {
-      _processSimulatedAllocationDebt();
+    if (_simulatedAllocationDebt > 0 && !_isStopped && autoTriggerEnabled) {
+      if (Logger.enabled) {
+        Logger.debug(
+          'Manual triggerGCIfNeeded invoked with debt=$_simulatedAllocationDebt phase=$_currentPhase',
+          category: 'GC',
+        );
+      }
+      _autoTriggerRequested = true;
+      runPendingAutoTrigger();
     }
   }
 
@@ -263,8 +285,8 @@ class GenerationalGCManager {
     return cycleComplete;
   }
 
-  void _processSimulatedAllocationDebt() {
-    if (_isStopped) {
+  void _processSimulatedAllocationDebt({int iterationBudget = 1024}) {
+    if (_isStopped || _isCollecting) {
       return;
     }
 
@@ -273,38 +295,43 @@ class GenerationalGCManager {
       return;
     }
 
-    var iterations = 0;
-    while (true) {
-      if (_currentPhase != GCPhase.idle) {
-        _simulatedAllocationDebt = math.max(
-          _simulatedAllocationDebt,
-          threshold,
-        );
-      }
+    _isCollecting = true;
+    try {
+      var iterations = 0;
+      while (true) {
+        if (_currentPhase != GCPhase.idle) {
+          _simulatedAllocationDebt = math.max(
+            _simulatedAllocationDebt,
+            threshold,
+          );
+        }
 
-      if (_simulatedAllocationDebt < threshold) {
-        break;
-      }
+        if (_simulatedAllocationDebt < threshold) {
+          break;
+        }
 
-      iterations++;
-      final debtKb = math.max(1, (_simulatedAllocationDebt + 1023) ~/ 1024);
-      final requested = math.max(stepSize, debtKb);
-      final stepBudget = requested.clamp(1, 1 << 20).toInt();
-      final cycleComplete = performIncrementalStep(stepBudget);
+        iterations++;
+        final debtKb = math.max(1, (_simulatedAllocationDebt + 1023) ~/ 1024);
+        final requested = math.max(stepSize, debtKb);
+        final stepBudget = requested.clamp(1, 1 << 20).toInt();
+        final cycleComplete = performIncrementalStep(stepBudget);
 
-      if (cycleComplete) {
-        _simulatedAllocationDebt = 0;
-        break;
-      }
+        if (cycleComplete) {
+          _simulatedAllocationDebt = 0;
+          break;
+        }
 
-      _simulatedAllocationDebt -= threshold;
-      if (_simulatedAllocationDebt < 0) {
-        _simulatedAllocationDebt = 0;
-      }
+        _simulatedAllocationDebt -= threshold;
+        if (_simulatedAllocationDebt < 0) {
+          _simulatedAllocationDebt = 0;
+        }
 
-      if (_currentPhase == GCPhase.idle || iterations > 1024) {
-        break;
+        if (_currentPhase == GCPhase.idle || iterations >= iterationBudget) {
+          break;
+        }
       }
+    } finally {
+      _isCollecting = false;
     }
   }
 
@@ -565,12 +592,31 @@ class GenerationalGCManager {
   /// Registers a new object with the garbage collector.
   ///
   /// New objects are always placed in the young generation (nursery).
-  void register(GCObject obj) {
+  void register(GCObject obj, {bool countAllocation = true}) {
+    totalRegistrations++;
+    final type = obj.runtimeType;
+    final newCount = (allocationHistogram[type] ?? 0) + 1;
+    allocationHistogram[type] = newCount;
+    if (Logger.enabled && totalRegistrations % 5000 == 0) {
+      final topEntries = allocationHistogram.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+      final summary = topEntries
+          .take(5)
+          .map((entry) => '${entry.key}:${entry.value}')
+          .join(', ');
+      Logger.debug(
+        'GC register stats: total=$totalRegistrations, debt=$_simulatedAllocationDebt, topTypes=[$summary]',
+        category: 'GC',
+      );
+    }
     youngGen.add(obj);
     MemoryCredits.instance.onAllocate(obj, space: GCGenerationSpace.young);
-    // Don't trigger GC immediately during registration - only accumulate debt
-    // GC will run at safe points during execution
-    _simulatedAllocationDebt += obj.estimatedSize;
+    if (countAllocation) {
+      // Don't trigger GC immediately during registration - only accumulate debt
+      // GC will run at safe points during execution
+      _simulatedAllocationDebt += obj.estimatedSize;
+      _requestAutoTrigger();
+    }
     if (obj is Value && obj.isTable) {
       Logger.debug(
         'Register table ${obj.hashCode} weakMode=${obj.tableWeakMode}',
@@ -581,6 +627,59 @@ class GenerationalGCManager {
       'Register: ${obj.runtimeType} ${obj.hashCode}',
       category: 'GC',
     );
+  }
+
+  void _requestAutoTrigger() {
+    if (_isStopped || _simulatedAllocationDebt <= 0) {
+      return;
+    }
+    final triggerThreshold = _autoTriggerDebtThreshold();
+    if (_simulatedAllocationDebt >= triggerThreshold) {
+      if (!_autoTriggerRequested && Logger.enabled) {
+        Logger.debug(
+          'Auto trigger requested: debt=$_simulatedAllocationDebt threshold=$triggerThreshold (stepSize=$stepSize, multiplier=$_autoTriggerDebtMultiplier)',
+          category: 'GC',
+        );
+      }
+      _autoTriggerRequested = true;
+    }
+  }
+
+  /// Runs pending automatic garbage collection work if requested.
+  ///
+  /// This should only be called from interpreter-designated safe points.
+  void runPendingAutoTrigger() {
+    if (_isStopped ||
+        !autoTriggerEnabled ||
+        !_autoTriggerRequested ||
+        _simulatedAllocationDebt <= 0) {
+      return;
+    }
+
+    if (_isCollecting) {
+      return;
+    }
+
+    final debtBefore = _simulatedAllocationDebt;
+    final phaseBefore = _currentPhase;
+    final stopwatch = Stopwatch()..start();
+
+    _autoTriggerRequested = false;
+    _processSimulatedAllocationDebt(iterationBudget: 16);
+
+    final requeueThreshold = _autoTriggerDebtThreshold();
+    if (!_isStopped && _simulatedAllocationDebt >= requeueThreshold) {
+      // More debt remains; schedule another run at the next safe point.
+      _autoTriggerRequested = true;
+    }
+
+    stopwatch.stop();
+    if (Logger.enabled) {
+      Logger.debug(
+        'Auto GC safe point: phaseBefore=$phaseBefore, debtBefore=$debtBefore, debtAfter=$_simulatedAllocationDebt, duration=${stopwatch.elapsedMilliseconds}ms',
+        category: 'GC',
+      );
+    }
   }
 
   /// Promotes an object from the young generation to the old generation.
@@ -1097,9 +1196,10 @@ class GenerationalGCManager {
 
         // In weak keys tables, remove entries where the key is dead
         // Check both Value and GCObject keys
-        final shouldRemove = (key is Value && !key.isPrimitiveLike && !key.marked) ||
-                             (key is GCObject && key is! Value && !key.marked);
-        
+        final shouldRemove =
+            (key is Value && !key.isPrimitiveLike && !key.marked) ||
+            (key is GCObject && key is! Value && !key.marked);
+
         if (shouldRemove) {
           Logger.debug(
             'Scheduling weak key removal for table ${table.hashCode} key=$key',
@@ -1176,7 +1276,7 @@ class GenerationalGCManager {
     // (finalizers might trigger GC which could modify _toBeFinalized)
     final objectsToFinalize = _toBeFinalized.toList();
     _toBeFinalized.clear();
-    
+
     for (final obj in objectsToFinalize) {
       if (obj is Value) {
         // Mark as finalized BEFORE calling __gc. This prevents re-finalization

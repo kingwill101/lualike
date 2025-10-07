@@ -1,5 +1,24 @@
 part of 'interpreter.dart';
 
+class _TableFieldInlineCache {
+  Value? table;
+  int tableVersion = -1;
+  Value? value;
+}
+
+final Expando<_TableFieldInlineCache> _tableFieldAccessCache =
+    Expando<_TableFieldInlineCache>('tableFieldAccessCache');
+
+class _TableIndexInlineCache {
+  Value? table;
+  int tableVersion = -1;
+  Value? index;
+  Value? value;
+}
+
+final Expando<_TableIndexInlineCache> _tableIndexAccessCache =
+    Expando<_TableIndexInlineCache>('tableIndexAccessCache');
+
 mixin InterpreterTableMixin on AstVisitor<Object?> {
   // Required getters that must be implemented by the class using this mixin
   Environment get globals;
@@ -121,6 +140,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     // Ensure proper Value wrapping
     final tableVal = table is Value ? table : Value(table);
     final indexVal = Value(fieldKey);
+    final bool tableIsOriginalValue = identical(tableVal, table);
 
     Logger.info(
       'TableFieldAccess: ${tableVal.toString()}.$fieldKey',
@@ -144,6 +164,23 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       );
     }
 
+    final bool canUseCache =
+        tableIsOriginalValue && !tableVal.hasMetamethod('__index');
+    _TableFieldInlineCache? cache;
+    if (canUseCache) {
+      cache = _tableFieldAccessCache[node];
+      if (cache != null &&
+          identical(cache.table, tableVal) &&
+          cache.tableVersion == tableVal.tableVersion &&
+          cache.value != null) {
+        Logger.debug(
+          'TableFieldAccess cache hit: ${node.fieldName.name}',
+          category: 'Interpreter',
+        );
+        return cache.value;
+      }
+    }
+
     Logger.debug(
       'DEBUG: TableFieldAccess - key: ${indexVal.raw}, exists: ${(tableVal.raw as Map).containsKey(indexVal.raw)}',
     );
@@ -159,6 +196,18 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       // Key exists, get it directly
       Logger.debug('DEBUG: Key exists, getting directly');
       final result = tableVal[indexVal];
+      if (canUseCache) {
+        cache ??= _TableFieldInlineCache();
+        cache
+          ..table = tableVal
+          ..tableVersion = tableVal.tableVersion
+          ..value = result is Value ? result : Value(result);
+        _tableFieldAccessCache[node] = cache;
+        Logger.debug(
+          'TableFieldAccess cache store: ${node.fieldName.name}',
+          category: 'Interpreter',
+        );
+      }
       Logger.debug('TableFieldAccess result: $result', category: 'Interpreter');
       return result;
     }
@@ -195,10 +244,12 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
   /// Returns the value at the specified index in the table.
   @override
   Future<Object?> visitTableIndexAccess(TableIndexAccess node) async {
-    Logger.info(
-      'Accessing table index: ${node.table}[${node.index}]',
-      category: 'TableAccess',
-    );
+    if (Logger.enabled) {
+      Logger.info(
+        'Accessing table index: ${node.table}[${node.index}]',
+        category: 'TableAccess',
+      );
+    }
     final table = await node.table.accept(this);
 
     // For index access, always evaluate the index expression
@@ -214,10 +265,51 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     final tableVal = table is Value ? table : Value(table);
     final indexVal = indexResult is Value ? indexResult : Value(indexResult);
 
-    Logger.info(
-      'TableIndexAccess: ${tableVal.toString()}[${indexVal.toString()}]',
-      category: 'TableAccess',
-    );
+    // Check if we can use caching (table is not transformed and has no __index metamethod)
+    final bool tableIsOriginalValue = identical(table, tableVal);
+    final bool canUseCache =
+        tableIsOriginalValue &&
+        tableVal.raw is Map &&
+        !tableVal.hasMetamethod('__index');
+
+    if (canUseCache) {
+      final cache = _tableIndexAccessCache[node];
+      if (cache != null) {
+        final tableMatch = identical(cache.table, tableVal);
+        final versionMatch = cache.tableVersion == tableVal.tableVersion;
+        final indexMatch = cache.index == indexVal;
+        final hasValue = cache.value != null;
+
+        if (Logger.enabled) {
+          Logger.debug(
+            'TableIndexAccess cache check: table=$tableMatch, version=$versionMatch, index=$indexMatch (cached=${cache.index?.raw}, current=${indexVal.raw}), hasValue=$hasValue',
+            category: 'Interpreter',
+          );
+        }
+
+        if (tableMatch && versionMatch && indexMatch && hasValue) {
+          if (Logger.enabled) {
+            Logger.debug(
+              'TableIndexAccess cache hit: [${indexVal.toString()}]',
+              category: 'Interpreter',
+            );
+          }
+          return cache.value;
+        }
+      } else if (Logger.enabled) {
+        Logger.debug(
+          'TableIndexAccess cache miss: no cache entry for this AST node',
+          category: 'Interpreter',
+        );
+      }
+    }
+
+    if (Logger.enabled) {
+      Logger.info(
+        'TableIndexAccess: ${tableVal.toString()}[${indexVal.toString()}]',
+        category: 'TableAccess',
+      );
+    }
 
     if (tableVal.raw is! Map) {
       if (tableVal.hasMetamethod('__index')) {
@@ -235,33 +327,34 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       );
     }
 
-    final hasRawKey = tableVal.rawContainsKey(indexVal);
-    if (hasRawKey) {
-      final result = tableVal[indexVal];
+    // Direct table access - operator[] handles key computation and __index metamethod
+    final result = await tableVal.getValueAsync(indexVal);
+
+    if (Logger.enabled) {
       Logger.debug('TableIndexAccess result: $result', category: 'Interpreter');
-      return result;
     }
 
-    // Key doesn't exist, check for __index metamethod
-    if (tableVal.hasMetamethod('__index')) {
-      // Call metamethod asynchronously
-      final result = await tableVal.callMetamethodAsync('__index', [
-        tableVal,
-        indexVal,
-      ]);
-      Logger.debug(
-        'TableIndexAccess __index result: $result',
-        category: 'Interpreter',
-      );
-      return result;
+    // Store in cache if eligible and result is not from __index metamethod
+    if (canUseCache && result is Value) {
+      var cache = _tableIndexAccessCache[node];
+      if (cache == null) {
+        cache = _TableIndexInlineCache();
+        _tableIndexAccessCache[node] = cache;
+      }
+      cache
+        ..table = tableVal
+        ..tableVersion = tableVal.tableVersion
+        ..index = indexVal
+        ..value = result;
+      if (Logger.enabled) {
+        Logger.debug(
+          'TableIndexAccess cache store: [${indexVal.toString()}]',
+          category: 'Interpreter',
+        );
+      }
     }
 
-    // No metamethod, return nil
-    Logger.debug(
-      'TableIndexAccess result: nil (no metamethod)',
-      category: 'Interpreter',
-    );
-    return Value(null);
+    return result;
   }
 
   /// Evaluates a keyed table entry.
@@ -388,7 +481,12 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
         'TableConstructor: No entries, returning empty table',
         category: 'Interpreter',
       );
-      return ValueClass.table();
+      final tbl = ValueClass.table();
+      if (this is Interpreter) {
+        tbl.interpreter = this as Interpreter;
+        (this as Interpreter).gc.register(tbl);
+      }
+      return tbl;
     }
 
     final Map<Object?, Value> tableMap = {};
@@ -584,6 +682,10 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
             final values = result.raw as List;
             // Return the expanded values directly if they form a proper table
             final expandedTable = ValueClass.table();
+            if (this is Interpreter) {
+              expandedTable.interpreter = this as Interpreter;
+              (this as Interpreter).gc.register(expandedTable);
+            }
             for (var j = 0; j < values.length; j++) {
               expandedTable[Value(j + 1)] = values[j] is Value
                   ? values[j]
@@ -593,6 +695,10 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
           } else if (result is List) {
             // Direct list of values - expand into table
             final expandedTable = ValueClass.table();
+            if (this is Interpreter) {
+              expandedTable.interpreter = this as Interpreter;
+              (this as Interpreter).gc.register(expandedTable);
+            }
             for (var j = 0; j < result.length; j++) {
               expandedTable[Value(j + 1)] = result[j] is Value
                   ? result[j]
@@ -604,6 +710,10 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
           // After resumption, insert yielded values as array elements
           final values = ye.values;
           final yieldTable = ValueClass.table();
+          if (this is Interpreter) {
+            yieldTable.interpreter = this as Interpreter;
+            (this as Interpreter).gc.register(yieldTable);
+          }
           for (var j = 0; j < values.length; j++) {
             yieldTable[Value(j + 1)] = values[j];
           }
@@ -616,7 +726,12 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       'TableConstructor: Finished constructing table with ${tableMap.length} entries',
       category: 'Interpreter',
     );
-    return ValueClass.table(tableMap);
+    final tbl = ValueClass.table(tableMap);
+    if (this is Interpreter) {
+      tbl.interpreter = this as Interpreter;
+      (this as Interpreter).gc.register(tbl);
+    }
+    return tbl;
   }
 
   dynamic _normalizeTableKey(dynamic rawKey) {

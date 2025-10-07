@@ -70,11 +70,11 @@ class Interpreter extends AstVisitor<Object?>
   /// Current script path being executed
   String? currentScriptPath;
 
-  /// Garbage collector for memory management.
+  /// Garbage collector for memory management (per-interpreter).
   ///
   /// This is an implementation of Lua's generational garbage collector
   /// as described in section 2.5.2 of the Lua 5.4 reference manual.
-  GenerationalGCManager get gc => GenerationalGCManager.instance;
+  late final GenerationalGCManager gc;
 
   /// Global environment for variable storage.
   @override
@@ -101,6 +101,11 @@ class Interpreter extends AstVisitor<Object?>
   /// recursion) hitting the default test timeout while still allowing
   /// realistic recursion depth for regular programs.
   static const int maxCallDepth = 512;
+
+  /// Tracks nested function-body execution depth.
+  /// Used to gate GC auto-trigger safe points that are known to interfere
+  /// with tail-call rebinding in deep recursion.
+  int _functionBodyDepth = 0;
 
   /// Gets the currently running coroutine
   @override
@@ -295,8 +300,11 @@ class Interpreter extends AstVisitor<Object?>
     // Set the interpreter reference in the file manager
     this.fileManager.setInterpreter(this);
 
-    GenerationalGCManager.initialize(this);
-    GenerationalGCManager.instance.register(
+    gc = GenerationalGCManager(this);
+    // Default to safety-first: disable auto-trigger until explicitly enabled
+    // to avoid interference with deep tail-call rebinding or tight loops.
+    gc.autoTriggerEnabled = false;
+    gc.register(
       _currentEnv,
     ); // Register the initial environment
 
@@ -646,27 +654,58 @@ class Interpreter extends AstVisitor<Object?>
     var index = 0;
     while (index < statements.length) {
       final node = statements[index];
+      final currentIndex = index;
       Logger.debug(
         'Visiting node ${node.runtimeType} at index $index',
         category: 'Interpreter',
       );
       recordTrace(node);
+      var statementCompleted = false;
+      Stopwatch? statementStopwatch;
+      if (Logger.enabled) {
+        statementStopwatch = Stopwatch()..start();
+      }
       try {
         result = await node.accept(this);
+        statementCompleted = true;
         index++;
-        
-        // Trigger GC at safe point after each statement if there's significant accumulated debt
-        // Use a very large threshold to avoid triggering GC too frequently during deep recursion
-        // For tail call recursion, we need an even larger threshold to avoid performance issues
-        // if (gc.allocationDebt > 1024 * 1024 * 100) { // 100MB threshold for deep recursion
-        //   gc.triggerGCIfNeeded();
-        // }
       } on GotoException catch (e) {
         if (!labelMap.containsKey(e.label)) {
           // Propagate to outer scope for resolution
           throw GotoException(e.label);
         }
         index = labelMap[e.label]!;
+      } finally {
+        if (statementStopwatch != null) {
+          statementStopwatch.stop();
+          final elapsedMs = statementStopwatch.elapsedMilliseconds;
+          if (elapsedMs >= 200) {
+            String location = '';
+            final span = node.span;
+            if (span != null) {
+              final line = span.start.line + 1;
+              final column = span.start.column + 1;
+              final sourcePath = span.sourceUrl?.path;
+              if (sourcePath != null) {
+                location = ' @ $sourcePath:$line:$column';
+              } else {
+                location = ' @ $line:$column';
+              }
+            }
+            final debt = gc.allocationDebt;
+            final script =
+                callStack.scriptPath ?? currentScriptPath ?? '<chunk>';
+            final currentFunction =
+                callStack.top?.functionName ?? '<global>'; // best-effort name
+            Logger.debug(
+              'Statement ${node.runtimeType} at index $currentIndex$location took ${elapsedMs}ms (allocationDebt=$debt, script=$script, function=$currentFunction)',
+              category: 'Interpreter',
+            );
+          }
+        }
+        if (statementCompleted && _functionBodyDepth == 0) {
+          _runAutoGCAtSafePoint();
+        }
       }
     }
     return result;
@@ -706,5 +745,20 @@ class Interpreter extends AstVisitor<Object?>
   /// Explicitly call a function with the given arguments
   Future<Object?> callFunction(Value function, List<Object?> args) async {
     return await _callFunction(function, args);
+  }
+
+  void _runAutoGCAtSafePoint() {
+    final threshold = gc.autoTriggerDebtThreshold;
+    final debt = gc.allocationDebt;
+    if (Logger.enabled) {
+      Logger.debug(
+        'Safe point debt check: debt=$debt threshold=$threshold',
+        category: 'Interpreter',
+      );
+    }
+    if (debt < threshold) {
+      return;
+    }
+    gc.runPendingAutoTrigger();
   }
 }

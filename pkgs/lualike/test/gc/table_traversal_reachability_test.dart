@@ -9,8 +9,7 @@ void main() {
 
     setUp(() {
       interpreter = Interpreter();
-      GenerationalGCManager.initialize(interpreter);
-      gc = GenerationalGCManager.instance;
+      gc = interpreter.gc;
       // Stop incremental GC to prevent it from sweeping test objects
       gc.stop();
     });
@@ -19,6 +18,8 @@ void main() {
       // Create a table with a Value that should be kept alive
       final table = Value({});
       final valueInTable = Value('test_value');
+      gc.ensureTracked(table);
+      gc.ensureTracked(valueInTable);
       table['key'] = valueInTable;
 
       // Create a root that references the table
@@ -49,6 +50,9 @@ void main() {
       final rootTable = Value({});
       final nestedTable = Value({});
       final deepValue = Value('deep_value');
+      gc.ensureTracked(rootTable);
+      gc.ensureTracked(nestedTable);
+      gc.ensureTracked(deepValue);
 
       nestedTable['deep_key'] = deepValue;
       rootTable['nested'] = nestedTable;
@@ -73,6 +77,9 @@ void main() {
       final table = Value({});
       final referencedValue = Value('referenced');
       final unreferencedValue = Value('unreferenced');
+      gc.ensureTracked(table);
+      gc.ensureTracked(referencedValue);
+      gc.ensureTracked(unreferencedValue);
 
       table['ref_key'] = referencedValue;
       // Don't add unreferencedValue to the table
@@ -105,6 +112,9 @@ void main() {
       final table = Value({});
       final keyValue = Value('key_object');
       final regularValue = Value('value_object');
+      gc.ensureTracked(table);
+      gc.ensureTracked(keyValue);
+      gc.ensureTracked(regularValue);
 
       // Use Value as key
       table.raw[keyValue] = regularValue;
@@ -128,6 +138,8 @@ void main() {
       // Create table with metatable
       final table = Value({});
       final metaValue = Value('meta_function');
+      gc.ensureTracked(table);
+      gc.ensureTracked(metaValue);
       final metatable = {'__index': metaValue};
 
       table.setMetatable(metatable);

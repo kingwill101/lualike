@@ -4,7 +4,7 @@ import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/gc/gc.dart';
 import 'package:lualike/src/gc/gc_weights.dart';
-import 'package:lualike/src/gc/generational_gc.dart';
+// GC access occurs via environment.interpreter.gc
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/lua_error.dart';
 
@@ -66,9 +66,7 @@ class Coroutine extends GCObject {
       ), // Clone closureEnv for execution
       super() {
     // Register with garbage collector
-    if (GenerationalGCManager.isInitialized) {
-      GenerationalGCManager.instance.register(this);
-    }
+    closureEnvironment.interpreter?.gc.register(this);
   }
 
   @override
