@@ -16,6 +16,8 @@ class Logger {
 
   static final Map<String, pkg_logging.Logger> _categoryLoggers = {};
 
+  static bool _initialized = false;
+
   /// Optional filters for log output
   static String? logCategoryFilter;
   static pkg_logging.Level? logLevelFilter;
@@ -36,6 +38,9 @@ class Logger {
     pkg_logging.Level defaultLevel = pkg_logging.Level.INFO,
   }) {
     pkg_logging.Logger.root.level = defaultLevel;
+    if (_initialized) {
+      return;
+    }
     pkg_logging.Logger.root.onRecord.listen((record) {
       // Filter by category if set
       if (logCategoryFilter != null && record.loggerName != logCategoryFilter) {
@@ -55,6 +60,7 @@ class Logger {
           : '';
       print('[$time] [$level] [$category] $msg$error$stack');
     });
+    _initialized = true;
   }
 
   /// Get or create a logger for a given category.

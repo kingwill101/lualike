@@ -347,14 +347,14 @@ class IOLines extends BuiltinFunction {
       formats = ["l"];
       Logger.debug('About to call file.lines()...', category: 'IO');
       final luaFile = fileValue.raw as LuaFile;
-      return await luaFile.lines(formats, false, fileValue);
+      return await luaFile.lines(formats, false);
     } else if (isLuaFile(args[0])) {
       Logger.debug('Using provided file for lines', category: 'IO');
       fileValue = args[0] as Value;
       final luaFile = fileValue.raw as LuaFile;
       formats = args.skip(1).map((e) => (e as Value).raw.toString()).toList();
       if (formats.isEmpty) formats = ["l"];
-      return await luaFile.lines(formats, false, fileValue);
+      return await luaFile.lines(formats, false);
     } else if (args[0] is Value && (args[0] as Value).raw != null) {
       Logger.debug('Opening new file for lines', category: 'IO');
       final filename = (args[0] as Value).raw.toString();
@@ -367,7 +367,6 @@ class IOLines extends BuiltinFunction {
         final iterator = await luaFile.lines(
           formats,
           true,
-          fileValue,
         ); // closeOnEof = true for io.lines(filename)
 
         // Return iterator, dummy state/control (nil), and a to-be-closed variable
@@ -394,7 +393,7 @@ class IOLines extends BuiltinFunction {
         'About to call file.lines() for nil case with formats: $formats...',
         category: 'IO',
       );
-      return await luaFile.lines(formats, false, fileValue);
+      return await luaFile.lines(formats, false);
     }
   }
 }
@@ -909,7 +908,7 @@ class FileLines extends BuiltinFunction {
         : ["l"];
 
     final fileValue = file is Value ? file : Value(file);
-    final result = await extractLuaFile(file)!.lines(formats, false, fileValue);
+    final result = await extractLuaFile(file)!.lines(formats, false);
     return result;
   }
 }

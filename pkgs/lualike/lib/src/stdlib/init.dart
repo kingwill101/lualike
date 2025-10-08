@@ -11,6 +11,7 @@ import 'lib_crypto.dart';
 import 'lib_dart_string.dart';
 import 'lib_debug.dart';
 import 'lib_io.dart';
+import 'lib_logging.dart';
 import 'lib_math.dart';
 import 'lib_os.dart';
 import 'lib_package.dart';
@@ -34,6 +35,7 @@ void initializeStandardLibrary({required Interpreter astVm}) {
   registry.register(MathLibrary());
   registry.register(TableLibrary());
   registry.register(IOLibrary());
+  registry.register(LoggingLibrary());
   registry.register(OSLibraryNew());
   registry.register(UTF8Library());
   registry.register(ConvertLibrary());
