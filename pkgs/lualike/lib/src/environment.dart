@@ -14,6 +14,15 @@ class Box<T> extends GCObject {
   /// Whether this binding represents a local variable.
   final bool isLocal;
 
+  /// Optional debug helper storing the symbol name backing this box.
+  String? debugName;
+
+  /// Count of upvalues that currently reference this box.
+  ///
+  /// Boxes with active upvalues cannot be cleared when exiting a scope
+  /// because closures still depend on their stored values.
+  int _upvalueRefCount = 0;
+
   /// Creates a new Box containing [value].
   Box(this.value, {this.isLocal = false});
 
@@ -22,11 +31,32 @@ class Box<T> extends GCObject {
 
   @override
   List<GCObject> getReferences() {
+    // Skip nil values to allow weak table collection
+    if (value == null) return [];
+    if (value is Value && value.isNil) return [];
     return value is GCObject ? [value as GCObject] : [];
   }
 
+  /// Marks this box as being referenced by an upvalue.
+  void retainUpvalue() {
+    _upvalueRefCount++;
+  }
+
+  /// Releases an upvalue reference from this box.
+  void releaseUpvalue() {
+    if (_upvalueRefCount > 0) {
+      _upvalueRefCount--;
+    }
+  }
+
+  /// Whether this box still has live upvalues referencing it.
+  bool get hasUpvalueReferences => _upvalueRefCount > 0;
+
   @override
-  String toString() => 'Box($value)';
+  String toString() {
+    final namePart = debugName != null ? '$debugName=' : '';
+    return 'Box($namePart$value)';
+  }
 }
 
 /// Represents a scope for variable bindings in the interpreter.
@@ -169,13 +199,20 @@ class Environment extends GCObject {
     final gcReady = GCAccess.fromEnv(this) != null;
     for (final entry in values.entries) {
       final box = entry.value;
+      final boxedValue = box.value;
+
+      // Skip nil values - they don't need GC protection and shouldn't keep
+      // weak table entries alive. This allows proper weak table collection
+      // when variables are nil'ed.
+      if (boxedValue == null) continue;
+      if (boxedValue is Value && boxedValue.isNil) continue;
+
       refs.add(box);
       if (!gcReady) {
         continue;
       }
       final gc = GCAccess.fromEnv(this);
       gc?.ensureTracked(box);
-      final boxedValue = box.value;
       if (boxedValue is GCObject) {
         gc?.ensureTracked(boxedValue);
       }
@@ -350,7 +387,8 @@ class Environment extends GCObject {
     // If not found anywhere, create new binding in root environment
     // This ensures that global assignments from loaded code persist
     final rootEnv = root;
-    rootEnv.values[name] = Box(value);
+    final newBox = Box(value)..debugName = name;
+    rootEnv.values[name] = newBox;
     rootEnv._updateCredits();
     Logger.debug(
       "Created new binding for '$name' = $value in root env (${rootEnv.hashCode})",
@@ -397,7 +435,8 @@ class Environment extends GCObject {
     );
 
     // Create a fresh Box that shadows any previous binding
-    values[name] = Box(value, isLocal: true);
+    final box = Box(value, isLocal: true)..debugName = name;
+    values[name] = box;
     _updateCredits();
 
     // Track to-be-closed variables
@@ -534,7 +573,7 @@ class Environment extends GCObject {
         "Creating new global variable '$name' with value type ${value.runtimeType} (is GCObject: ${value is GCObject})",
         category: 'Env',
       );
-      rootEnv.values[name] = Box(value);
+      rootEnv.values[name] = Box(value)..debugName = name;
       Logger.debug(
         "Created new global variable '$name' = $value in root env (${rootEnv.hashCode})",
         category: 'Env',

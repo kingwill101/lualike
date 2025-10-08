@@ -1147,8 +1147,11 @@ class LoadFunction extends BuiltinFunction {
                     ? originalUpvalueValues[i]
                     : null;
                 final box = Box<dynamic>(upvalueValue);
-                final upvalue = Upvalue(valueBox: box, name: upvalueName);
-                interpreter!.gc.register(upvalue);
+                final upvalue = Upvalue(
+                  valueBox: box,
+                  name: upvalueName,
+                  interpreter: interpreter,
+                );
                 upvalue.close();
                 directFunction.upvalues!.add(upvalue);
               }
@@ -1160,8 +1163,11 @@ class LoadFunction extends BuiltinFunction {
               );
               for (final analyzed in analyzedUpvalues) {
                 final box = Box<dynamic>(null);
-                final upvalue = Upvalue(valueBox: box, name: analyzed.name);
-                interpreter!.gc.register(upvalue);
+                final upvalue = Upvalue(
+                  valueBox: box,
+                  name: analyzed.name,
+                  interpreter: interpreter,
+                );
                 upvalue.close();
                 directFunction.upvalues!.add(upvalue);
               }
@@ -1271,8 +1277,11 @@ class LoadFunction extends BuiltinFunction {
                       ? originalUpvalueValues[i]
                       : null;
                   final box = Box<dynamic>(upvalueValue);
-                  final uv = Upvalue(valueBox: box, name: upvalueName);
-                  interpreter!.gc.register(uv);
+                  final uv = Upvalue(
+                    valueBox: box,
+                    name: upvalueName,
+                    interpreter: interpreter,
+                  );
                   upvalues.add(uv);
                 }
                 result.upvalues = upvalues;
@@ -1329,16 +1338,22 @@ class LoadFunction extends BuiltinFunction {
               ? originalUpvalueValues[i]
               : null;
           final box = Box<dynamic>(upvalueValue);
-          final upvalue = Upvalue(valueBox: box, name: upvalueName);
-          interpreter!.gc.register(upvalue);
+          final upvalue = Upvalue(
+            valueBox: box,
+            name: upvalueName,
+            interpreter: interpreter,
+          );
           upvalue.close();
           upvalues.add(upvalue);
         }
       } else {
         // Default behavior for regular loaded functions
         // Add placeholder for first upvalue (index 1) - typically local variables
-        final placeholder = Upvalue(valueBox: Box<dynamic>(null), name: null);
-        interpreter!.gc.register(placeholder);
+        final placeholder = Upvalue(
+          valueBox: Box<dynamic>(null),
+          name: null,
+          interpreter: interpreter,
+        );
         placeholder.close();
         upvalues.add(placeholder);
 
@@ -1346,8 +1361,11 @@ class LoadFunction extends BuiltinFunction {
         final envValue = currentEnv.get('_ENV') ?? currentEnv.get('_G');
         if (envValue != null) {
           final envBox = Box<dynamic>(envValue);
-          final envUpvalue = Upvalue(valueBox: envBox, name: '_ENV');
-          interpreter!.gc.register(envUpvalue);
+          final envUpvalue = Upvalue(
+            valueBox: envBox,
+            name: '_ENV',
+            interpreter: interpreter,
+          );
           envUpvalue.close();
           upvalues.add(envUpvalue);
         }

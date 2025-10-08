@@ -3,6 +3,7 @@ import 'package:lualike/src/gc/gc.dart';
 import 'package:lualike/src/gc/gc_weights.dart';
 // Upvalue registration happens where created (analyzer/loader); no direct GC imports here.
 import 'package:lualike/src/gc/memory_credits.dart';
+import 'package:lualike/src/gc/gc_access.dart';
 
 /// Represents a reference to a variable in an outer scope (an "upvalue").
 ///
@@ -108,6 +109,9 @@ class Upvalue extends GCObject {
 
   /// Reference to the upvalue this one is joined with, if any
   Upvalue? _joinedUpvalue;
+
+  /// Interpreter reference for GC registration (optional)
+  Interpreter? _interpreter;
 
   /// Whether this upvalue has been joined with another upvalue
   bool get isJoined => _joinedUpvalue != null;

@@ -69,8 +69,11 @@ class UpvalueAnalyzer extends AstVisitor<void> {
 
           // Only add if it's a local variable (upvalue candidate)
           if (box.isLocal) {
-            final upvalue = Upvalue(valueBox: box, name: varName);
-            currentEnv.interpreter?.gc.register(upvalue);
+            final upvalue = Upvalue(
+              valueBox: box,
+              name: varName,
+              interpreter: currentEnv.interpreter,
+            );
             upvalues.add(upvalue);
             upvalueNames.add(varName);
             foundAsUpvalue = true;
@@ -94,8 +97,11 @@ class UpvalueAnalyzer extends AstVisitor<void> {
       if (envValue != null) {
         // Create a synthetic box for _ENV
         final envBox = Box<dynamic>(envValue);
-        final envUpvalue = Upvalue(valueBox: envBox, name: '_ENV');
-        currentEnv.interpreter?.gc.register(envUpvalue);
+        final envUpvalue = Upvalue(
+          valueBox: envBox,
+          name: '_ENV',
+          interpreter: currentEnv.interpreter,
+        );
         upvalues.add(envUpvalue);
       }
     }

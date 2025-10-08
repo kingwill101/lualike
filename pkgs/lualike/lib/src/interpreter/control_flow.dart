@@ -625,7 +625,9 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         for (final name in declaredNames) {
           final box = loopEnv.values[name];
           if (box != null) {
-            box.value = null;
+            if (!box.hasUpvalueReferences) {
+              box.value = null;
+            }
           }
         }
       }
@@ -1069,6 +1071,14 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     } finally {
       // Close variables in normal block termination
       await blockEnv.closeVariables();
+
+      // Clear all Box values in the block environment to allow GC
+      // This prevents old Box objects from keeping values alive after scope ends
+      for (final box in blockEnv.values.values) {
+        if (!box.hasUpvalueReferences) {
+          box.value = null;
+        }
+      }
 
       // Restore the previous environment
       setCurrentEnv(prevEnv);

@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'dart:math' as math;
 
 import 'package:lualike/lualike.dart';
+import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/gc/gc.dart';
 import 'package:lualike/src/gc/memory_credits.dart';
 
@@ -48,7 +49,6 @@ class Generation {
 /// above a limit, the collector does a stop-the-world major collection, which traverses
 /// all objects."
 class GenerationalGCManager {
-
   /// Reference to the interpreter for accessing global state.
   // ignore: unused_field
   final Interpreter _interpreter;
@@ -112,6 +112,8 @@ class GenerationalGCManager {
   /// Public getter for allocation debt (used by interpreter to trigger GC at safe points)
   int get allocationDebt => _simulatedAllocationDebt;
   int _manualStepDebtKb = 0;
+  int _manualStepProgress = 0;
+  int _manualStepTarget = 0;
 
   /// The young generation (nursery) containing newly created objects.
   final Generation youngGen = Generation();
@@ -138,7 +140,8 @@ class GenerationalGCManager {
   /// Multiplicative factor applied to the allocation debt threshold before
   /// automatic collection is requested. This prevents small, frequent
   /// allocations (like loop scopes) from triggering GC every safe point.
-  static const int _autoTriggerDebtMultiplier = 512;
+  // Lower multiplier so auto-GC engages promptly in tight loops (e.g. gc.lua GC1)
+  static const int _autoTriggerDebtMultiplier = 8;
 
   int _autoTriggerDebtThreshold() {
     return _allocationDebtThreshold() * _autoTriggerDebtMultiplier;
@@ -206,7 +209,7 @@ class GenerationalGCManager {
     // Being "stopped" only means automatic collection is disabled
 
     final normalizedStepSize = math.max(1, stepSize);
-    var remainingBudget = _totalWorkBudget(normalizedStepSize);
+    var remainingBudget = normalizedStepSize;
     var cycleComplete = false;
 
     Logger.debug(
@@ -256,33 +259,60 @@ class GenerationalGCManager {
   bool performManualStep(int sizeKb) {
     final normalized = math.max(1, sizeKb);
     _manualStepDebtKb += normalized;
-    const minimumStep = 4;
+    const minimumStep = 1;
     const maxStep = 1 << 20;
     var cycleComplete = false;
 
-    while ((_manualStepDebtKb > 0 || _currentPhase != GCPhase.idle) &&
-        !cycleComplete) {
-      final requested = _manualStepDebtKb > 0
-          ? math.min(_manualStepDebtKb, maxStep)
-          : minimumStep;
-      final stepSize = math.max(minimumStep, requested);
+    if (_manualStepProgress == 0 && _currentPhase == GCPhase.idle) {
+      _manualStepTarget = _estimateManualStepTarget(normalized);
+    }
 
-      cycleComplete = performIncrementalStep(stepSize);
 
-      if (_manualStepDebtKb > 0) {
-        _manualStepDebtKb = math.max(0, _manualStepDebtKb - stepSize);
+    final requested = _manualStepDebtKb > 0
+        ? math.min(_manualStepDebtKb, maxStep)
+        : minimumStep;
+    final stepSize = math.max(minimumStep, requested);
+
+    cycleComplete = performIncrementalStep(stepSize);
+    _manualStepProgress += normalized;
+
+    // Manual steps should also pay down simulated allocation debt so that
+    // repeated calls eventually allow a collection cycle (and finalizers) to
+    // complete even when auto-triggering is paused.
+    final debtBytes = _simulatedAllocationDebt;
+    if (debtBytes > 0) {
+      final reduction = stepSize * 1024;
+      _simulatedAllocationDebt = math.max(0, debtBytes - reduction);
+      if (_simulatedAllocationDebt == 0) {
+        _autoTriggerRequested = false;
       }
+    }
 
-      if (!cycleComplete && _currentPhase == GCPhase.idle) {
-        break;
-      }
+    if (_manualStepProgress < _manualStepTarget) {
+      cycleComplete = false;
+    }
+
+    if (_manualStepDebtKb > 0) {
+      _manualStepDebtKb = math.max(0, _manualStepDebtKb - stepSize);
     }
 
     if (cycleComplete) {
       _manualStepDebtKb = 0;
+      _manualStepProgress = 0;
+      _manualStepTarget = 0;
     }
 
     return cycleComplete;
+  }
+
+  int _estimateManualStepTarget(int normalizedStep) {
+    if (normalizedStep >= 8) {
+      return 1;
+    }
+    if (normalizedStep >= 4) {
+      return 2;
+    }
+    return 8;
   }
 
   void _processSimulatedAllocationDebt({int iterationBudget = 1024}) {
@@ -507,18 +537,16 @@ class GenerationalGCManager {
   }
 
   int _markingWorkQuota(int stepSize) {
-    const baseMarkWork = 32;
-    return baseMarkWork + _scaledWorkUnits(stepSize);
+    return _scaledWorkUnits(stepSize);
   }
 
   int _sweepingWorkQuota(int stepSize) {
-    const baseSweepWork = 64;
-    return baseSweepWork + _scaledWorkUnits(stepSize);
+    return _scaledWorkUnits(stepSize);
   }
 
   int _scaledWorkUnits(int stepSize) {
     final normalized = math.max(1, stepSize);
-    return normalized * 16;
+    return normalized;
   }
 
   int _totalWorkBudget(int stepSize) {
@@ -589,6 +617,10 @@ class GenerationalGCManager {
     }
   }
 
+  bool _isTracked(GCObject obj) {
+    return youngGen.objects.contains(obj) || oldGen.objects.contains(obj);
+  }
+
   /// Registers a new object with the garbage collector.
   ///
   /// New objects are always placed in the young generation (nursery).
@@ -635,6 +667,10 @@ class GenerationalGCManager {
     }
     final triggerThreshold = _autoTriggerDebtThreshold();
     if (_simulatedAllocationDebt >= triggerThreshold) {
+      Logger.debug(
+        'Auto trigger request check: debt=$_simulatedAllocationDebt threshold=$triggerThreshold requested=$_autoTriggerRequested',
+        category: 'GC',
+      );
       if (!_autoTriggerRequested && Logger.enabled) {
         Logger.debug(
           'Auto trigger requested: debt=$_simulatedAllocationDebt threshold=$triggerThreshold (stepSize=$stepSize, multiplier=$_autoTriggerDebtMultiplier)',
@@ -649,14 +685,20 @@ class GenerationalGCManager {
   ///
   /// This should only be called from interpreter-designated safe points.
   void runPendingAutoTrigger() {
+    Logger.debug(
+      'runPendingAutoTrigger start: stopped=$_isStopped enabled=$autoTriggerEnabled requested=$_autoTriggerRequested debt=$_simulatedAllocationDebt collecting=$_isCollecting phase=$_currentPhase',
+      category: 'GC',
+    );
     if (_isStopped ||
         !autoTriggerEnabled ||
         !_autoTriggerRequested ||
         _simulatedAllocationDebt <= 0) {
+      Logger.debug('runPendingAutoTrigger bail', category: 'GC');
       return;
     }
 
     if (_isCollecting) {
+      Logger.debug('runPendingAutoTrigger already collecting', category: 'GC');
       return;
     }
 
@@ -752,8 +794,22 @@ class GenerationalGCManager {
       'Discover: ${obj.runtimeType} ${obj.hashCode} (inMajorCollection: $_inMajorCollection)',
       category: 'GC',
     );
+    if (obj is Box) {
+      Logger.debug(
+        'Discover Box name=${obj.debugName} value=${obj.value}',
+        category: 'GC',
+      );
+    }
 
     if (obj is GCObject) {
+      // Ensure discovered Value objects are tracked by this manager so they
+      // participate in separation/promotion and appear in generations.
+      // Avoid enrolling non-Value GCObjects (e.g., Environment, Box) here to
+      // keep generation counts stable for tests that compare before/after.
+      if (obj is Value) {
+        ensureTracked(obj);
+      }
+
       if (obj.marked) {
         if (_inMajorCollection &&
             obj is Value &&
@@ -975,7 +1031,9 @@ class GenerationalGCManager {
           category: 'GC',
         );
 
-        if ((value is Value && !value.isPrimitiveLike && !value.marked) ||
+        if ((value is Value &&
+                !value.isPrimitiveLike &&
+                (!value.marked || value.isFreed || !_isTracked(value))) ||
             (_isCollectableNonPrimitiveGC(value) &&
                 !(value as GCObject).marked)) {
           entriesToRemove.add(entry.key);
@@ -1034,16 +1092,15 @@ class GenerationalGCManager {
             (key is Value && !key.isPrimitiveLike && !key.marked) ||
             (_isCollectableNonPrimitiveGC(key) && !(key as GCObject).marked);
         final valueDead =
-            (value is Value && !value.marked) ||
+            (value is Value &&
+                (!value.marked || value.isFreed || !_isTracked(value))) ||
             (_isCollectableNonPrimitiveGC(value) &&
                 !(value as GCObject).marked);
 
-        if (key is Value) {
-          Logger.debug(
-            'All-weak key ${key.hashCode} marked=${key.marked}',
-            category: 'GC',
-          );
-        }
+        Logger.debug(
+          'AllWeakCheck: table=${table.hashCode} key=$key keyType=${key.runtimeType} keyMarked=${key is GCObject ? (key as GCObject).marked : (key is Value ? (key as Value).marked : 'NA')} value=$value valueType=${value.runtimeType} valueMarked=${value is GCObject ? (value as GCObject).marked : (value is Value ? (value as Value).marked : 'NA')} keyDead=$keyDead valueDead=$valueDead',
+          category: 'GC',
+        );
 
         if (keyDead || valueDead) {
           _scheduleAllWeakRemoval(table, key);

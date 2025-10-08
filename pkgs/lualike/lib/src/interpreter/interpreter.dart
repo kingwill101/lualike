@@ -5,6 +5,7 @@ import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/file_manager.dart';
 import 'package:lualike/src/gc/generational_gc.dart' show GenerationalGCManager;
+import 'package:lualike/src/gc/gc_access.dart';
 import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_stack_trace.dart';
@@ -301,9 +302,10 @@ class Interpreter extends AstVisitor<Object?>
     this.fileManager.setInterpreter(this);
 
     gc = GenerationalGCManager(this);
-    // Default to safety-first: disable auto-trigger until explicitly enabled
-    // to avoid interference with deep tail-call rebinding or tight loops.
-    gc.autoTriggerEnabled = false;
+    // Enable automatic GC triggers by default so long-running Lua loops
+    // eventually collect unreachable objects without requiring explicit
+    // collectgarbage() calls (matching stock Lua behaviour).
+    gc.autoTriggerEnabled = true;
     gc.register(
       _currentEnv,
     ); // Register the initial environment
@@ -317,6 +319,12 @@ class Interpreter extends AstVisitor<Object?>
 
     // Attach this interpreter to the root environment for later lookups
     _currentEnv.interpreter = this;
+
+    // Expose this GC manager as a default for objects created outside
+    // an interpreter context (e.g., unit tests constructing Upvalues
+    // directly). This allows immediate registration of GCObjects that
+    // don't have an interpreter reference at creation time.
+    GCAccess.defaultManager = gc;
 
     // Ensure the static current environment is set so that utility
     // methods like Value.callMetamethod can access the interpreter
@@ -703,7 +711,7 @@ class Interpreter extends AstVisitor<Object?>
             );
           }
         }
-        if (statementCompleted && _functionBodyDepth == 0) {
+        if (statementCompleted) {
           _runAutoGCAtSafePoint();
         }
       }
