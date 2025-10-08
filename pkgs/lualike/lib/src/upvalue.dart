@@ -26,7 +26,14 @@ class Upvalue extends GCObject {
   /// Stores the value at the time of closing if [_isOpen] becomes false.
   dynamic _closedValue;
 
-  Upvalue({required this.valueBox, this.name});
+  Upvalue({required this.valueBox, this.name, Interpreter? interpreter})
+    : _interpreter = interpreter {
+    valueBox.retainUpvalue();
+    // Auto-register with GC if interpreter is provided, otherwise use
+    // the default manager (set by the active Interpreter).
+    final manager = interpreter?.gc ?? GCAccess.defaultManager;
+    manager?.register(this);
+  }
 
   @override
   int get estimatedSize {
@@ -156,6 +163,7 @@ class Upvalue extends GCObject {
     if (_isOpen) {
       close();
     }
+    valueBox.releaseUpvalue();
 
     // Clear references for GC
     _joinedUpvalue = null;

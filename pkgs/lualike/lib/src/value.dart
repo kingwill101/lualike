@@ -63,6 +63,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// Whether this value is marked for garbage collection
   bool _marked = false;
 
+  /// Whether this value has been freed by the GC.
+  bool _isFreed = false;
+
   /// Whether this value is old (used for garbage collection)
   @override
   bool isOld = false;
@@ -177,6 +180,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   }) {
     _raw = raw;
     _isInitialized = true;
+    _isFreed = false;
 
     // If no metatable is provided, apply the default metatable for this type.
     // This mirrors Lua's behavior where strings, numbers, etc. share
@@ -209,11 +213,11 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     if (payload == null ||
         payload is bool ||
         payload is num ||
-        payload is BigInt ||
-        payload is String ||
-        payload is LuaString) {
+        payload is BigInt) {
       return false;
     }
+    // Count strings to model Lua's GC pressure from string creation
+    if (payload is String || payload is LuaString) return true;
     return true;
   }
 
@@ -1713,9 +1717,16 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   @override
   void free() {
-    // The GC manager now handles __gc metamethods.
-    // This method is for other resource cleanup if needed.
+    // Reset GC bookkeeping so stale values don't remain marked when
+    // referenced from weak tables after they've otherwise been collected.
+    Logger.debug('Value.free() called for $hashCode', category: 'GC');
+    _marked = false;
+    isOld = false;
+    _isFreed = true;
   }
+
+  /// Whether this value has been freed by the GC.
+  bool get isFreed => _isFreed;
 
   @override
   bool get marked => _marked;

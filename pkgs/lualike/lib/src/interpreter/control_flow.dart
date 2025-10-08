@@ -820,7 +820,9 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       for (final name in declaredNames) {
         final box = loopEnv.values[name];
         if (box != null) {
-          box.value = null;
+          if (!box.hasUpvalueReferences) {
+            box.value = null;
+          }
         }
       }
     }
@@ -866,6 +868,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
             'ForInLoop: Iterator returned null/empty, breaking loop',
             category: 'ControlFlow',
           );
+          await resetLoopEnvironment();
           if (toCloseVar != null) {
             try {
               await toCloseVar.close();
@@ -915,6 +918,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
             'ForInLoop: Control is null, breaking loop',
             category: 'ControlFlow',
           );
+          await resetLoopEnvironment();
           if (toCloseVar != null) {
             try {
               await toCloseVar.close();
