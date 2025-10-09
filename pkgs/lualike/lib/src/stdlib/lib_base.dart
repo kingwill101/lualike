@@ -151,6 +151,15 @@ class SetMetatableFunction extends BuiltinFunction {
         table.setMetatable(rawMeta);
         // Ensure future lookups return this wrapper for the underlying map.
         Value.registerTableIdentity(table);
+        // KIN-23: object becomes eligible for finalization only if `__gc`
+        // existed when metatable was set (value can be any non-nil sentinel,
+        // commonly `true` or a function). Changes later do not make it
+        // eligible retroactively.
+        try {
+          table.finalizerEligible = rawMeta.containsKey('__gc');
+        } catch (_) {
+          table.finalizerEligible = false;
+        }
         return table;
       } else if (metatable.raw == null) {
         // Setting nil metatable removes the metatable

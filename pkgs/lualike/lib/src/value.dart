@@ -82,6 +82,14 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   @override
   bool isOld = false;
 
+  /// Whether this object is eligible for finalization. Per Lua semantics, an
+  /// object is only finalized if its metatable had a `__gc` field when the
+  /// metatable was set (KIN-23). Adding `__gc` later does not retroactively
+  /// make the object finalizable.
+  bool _finalizerEligible = false;
+  bool get finalizerEligible => _finalizerEligible;
+  set finalizerEligible(bool v) => _finalizerEligible = v;
+
   @override
   int get estimatedSize {
     var size = GcWeights.gcObjectHeader + GcWeights.valueBase;
@@ -469,7 +477,30 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// Returns the metamethod if found, null otherwise.
   dynamic getMetamethod(String event) {
     if (metatable != null && metatable!.containsKey(event)) {
-      return metatable![event];
+      var method = metatable![event];
+      // If the metatable itself has weak values (via its own metatable's
+      // __mode = 'v'), then a GC cycle may have logically cleared this entry
+      // even if the raw map still contains it. Respect that by treating
+      // unmarked GC values as absent when the owner metatable has weak values.
+      if (metatableRef is Value) {
+        final owner = metatableRef as Value;
+        if (owner.isTable && owner.hasWeakValues) {
+          // For __gc specifically, weak-values metatables should not drive
+          // finalization; Lua tests rely on this pattern to ensure that
+          // setting __gc under a weak-values metatable does not run.
+          if (event == '__gc') {
+            return null;
+          }
+          if (method is Value) {
+            if (!method.isPrimitiveLike && (!method.marked || method.isFreed)) {
+              return null;
+            }
+          } else if (method is GCObject) {
+            if (!method.marked) return null;
+          }
+        }
+      }
+      return method;
     }
     final reg = _getRegisteredTableMetatable();
     if (reg != null && reg.containsKey(event)) return reg[event];

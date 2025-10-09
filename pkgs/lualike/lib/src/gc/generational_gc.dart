@@ -577,7 +577,9 @@ class GenerationalGCManager {
       _toBeFinalized.clear();
 
       for (final obj in pending) {
-        if (obj is Value) {
+        if (obj is Value &&
+            obj.finalizerEligible &&
+            obj.hasMetamethod('__gc')) {
           _alreadyFinalized.add(obj);
           try {
             final result = obj.callMetamethod('__gc', [obj]);
@@ -1264,6 +1266,65 @@ class GenerationalGCManager {
     // For all-weak tables, entries are cleared before finalizers.
   }
 
+  /// Clean weak-values entries in metatables of objects scheduled for
+  /// finalization before we re-mark them. This ensures metamethods whose only
+  /// references are weak (e.g., __gc placed in a weak-values metatable) are
+  /// removed prior to running finalizers, matching Lua's ordering.
+  void _preFinalizerWeakValuesCleanup() {
+    if (_toBeFinalized.isEmpty) return;
+    for (final obj in _toBeFinalized) {
+      if (obj is! Value) continue;
+      final metaVal = obj.metatableRef;
+      if (metaVal is! Value || !metaVal.isTable) continue;
+      final mode = metaVal.tableWeakMode;
+      if (Logger.enabled) {
+        Logger.debug(
+          'Pre-finalizer: obj=${obj.hashCode} meta=${metaVal.hashCode} mode=$mode entries=${(metaVal.raw as Map).length}',
+          category: 'GC',
+        );
+      }
+      if (mode != 'v') continue; // only weak-values relevant here
+
+      final tableMap = metaVal.raw as Map;
+      final keysToRemove = <dynamic>[];
+
+      for (final entry in tableMap.entries) {
+        final value = entry.value;
+        // If value is a non-primitive GC object and not marked by the mark
+        // phase, it should be cleared from this weak-values table.
+        bool dead = false;
+        if (value is Value) {
+          if (!value.isPrimitiveLike && (!value.marked || value.isFreed)) {
+            dead = true;
+          }
+        } else if (value is GCObject) {
+          if (!value.marked) dead = true;
+        }
+        if (dead) {
+          keysToRemove.add(entry.key);
+        }
+      }
+
+      if (keysToRemove.isNotEmpty) {
+        if (Logger.enabled) {
+          Logger.debug(
+            'Pre-finalizer cleanup: removing ${keysToRemove.length} entries from metatable ${metaVal.hashCode}',
+            category: 'GC',
+          );
+        }
+        for (final k in keysToRemove) {
+          tableMap.remove(k);
+        }
+        if (Logger.enabled) {
+          Logger.debug(
+            'Pre-finalizer cleanup: remaining entries in meta ${metaVal.hashCode} => ${tableMap.length}',
+            category: 'GC',
+          );
+        }
+      }
+    }
+  }
+
   /// Clears dead entries from weak-keys tables.
   /// Called after ephemeron convergence during major collection.
   void _clearWeakKeys() {
@@ -1345,11 +1406,13 @@ class GenerationalGCManager {
       } else {
         // It's dead (unreachable).
         bool hasGc = false;
+        bool eligible = false;
         if (obj is Value) {
           hasGc = obj.hasMetamethod('__gc');
+          eligible = obj.finalizerEligible;
         }
 
-        if (hasGc && !_alreadyFinalized.contains(obj)) {
+        if (hasGc && eligible && !_alreadyFinalized.contains(obj)) {
           // It's finalizable and has not been finalized yet.
           // Add to the finalization list and "resurrect" it for this cycle.
           // It will be collected in the next GC cycle if still unreachable.
@@ -1543,7 +1606,12 @@ class GenerationalGCManager {
     _clearWeakKeys();
     _clearAllWeak();
 
-    // Phase 4: Separate survivors from dead, and identify finalizables
+    // Phase 4: Clean weak-values in metatables of candidates before separation
+    // Ensure metamethods set in weak-values metatables (like __gc) are cleared
+    // prior to deciding finalizables, matching Lua's ordering.
+    _preFinalizerWeakValuesCleanup();
+
+    // Phase 5: Separate survivors from dead, and identify finalizables
     final beforeYoung = youngGen.objects.length;
     final beforeOld = oldGen.objects.length;
     _separate(youngGen);
@@ -1555,12 +1623,12 @@ class GenerationalGCManager {
       );
     }
 
-    // Phase 5: Re-mark objects to be finalized to handle resurrection
+    // Phase 6: Re-mark objects to be finalized to handle resurrection
     for (final obj in _toBeFinalized) {
       _discover(obj);
     }
 
-    // Phase 6: Run finalizers for objects collected in this cycle.
+    // Phase 7: Run finalizers for objects collected in this cycle.
     // Expose the finalizing phase so that observation-sensitive operations
     // (like next()/pairs over weak-keys tables) can see entries until removals
     // are applied after finalizers, matching Lua semantics.
