@@ -2234,16 +2234,26 @@ class GenerationalGCManager {
     );
   }
 
-  /// Estimates the current memory usage for determining when to trigger collections.
+  /// Returns the current tracked memory credits without rescanning.
   ///
-  /// This forces a reconciliation between tracked credits and the current
-  /// generation lists, ensuring drift from missed mutations is corrected.
+  /// Credits are maintained incrementally via onAllocate/onFree/onPromote calls.
+  /// For debugging or validation, use [validateMemoryTracking()] instead.
   int estimateMemoryUse() {
+    return MemoryCredits.instance.totalCredits;
+  }
+
+  /// Validates credit tracking by rescanning all generations.
+  ///
+  /// This is for debugging only - normal operation should not need this.
+  /// Returns true if tracked credits match actual generation contents.
+  bool validateMemoryTracking() {
+    final beforeTotal = MemoryCredits.instance.totalCredits;
     MemoryCredits.instance.reconcileGenerations(
       young: youngGen.objects,
       old: oldGen.objects,
     );
-    return MemoryCredits.instance.totalCredits;
+    final afterTotal = MemoryCredits.instance.totalCredits;
+    return beforeTotal == afterTotal;
   }
 
   /// Performs a garbage collection cycle if needed based on memory usage.

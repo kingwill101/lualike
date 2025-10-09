@@ -102,24 +102,21 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     if (isTable && raw is Map) {
       final map = raw as Map;
       size += map.length * GcWeights.tableEntry;
-      // Use cached string-key credits if available; compute lazily once.
+      // Count only RAW string keys, not Value-wrapped keys.
+      // Value keys are separate GC objects already tracked; counting their
+      // content again would double-count them.
       int? bytes = _tableStringKeyBytes[map];
       if (bytes == null) {
         var total = 0;
         try {
           for (final k in map.keys) {
+            // Only count raw strings - Value keys are tracked separately
             if (k is String) {
               total += k.length * GcWeights.stringUnit;
             } else if (k is LuaString) {
               total += k.length * GcWeights.stringUnit;
-            } else if (k is Value) {
-              final kr = k.raw;
-              if (kr is String) {
-                total += kr.length * GcWeights.stringUnit;
-              } else if (kr is LuaString) {
-                total += kr.length * GcWeights.stringUnit;
-              }
             }
+            // Removed: Don't count Value-wrapped strings - they're separate GC objects
           }
         } catch (_) {}
         _tableStringKeyBytes[map] = total;
