@@ -101,13 +101,26 @@ class GetMetatableFunction extends BuiltinFunction {
       return metatable['__metatable'];
     }
 
-    // Return the original metatable value if available to preserve identity
+    // Return the original metatable value if available to preserve identity.
+    // Prefer the canonical wrapper to avoid identity mismatches across calls.
     if (value.metatableRef != null) {
-      return value.metatableRef;
+      final metaVal = value.metatableRef!;
+      try {
+        final canonical = Value.lookupCanonicalTableWrapper(metaVal.raw);
+        return canonical ?? metaVal;
+      } catch (_) {
+        return metaVal;
+      }
     }
 
-    // Otherwise wrap the map in a new Value
-    return Value(metatable);
+    // Otherwise wrap the map in a new Value and register identity so that
+    // subsequent calls return the same wrapper.
+    final wrapped = Value(metatable);
+    try {
+      Value.registerTableIdentity(wrapped);
+      value.metatableRef = wrapped;
+    } catch (_) {}
+    return wrapped;
   }
 }
 

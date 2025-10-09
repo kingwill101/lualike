@@ -178,6 +178,11 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// Whether this table is all-weak (both keys and values are weak)
   bool get isAllWeak => tableWeakMode == 'kv';
 
+  /// Cached-only check for weak-values mode, using the last observed
+  /// '__mode' string from setMetatable. Useful when the live metatable is
+  /// already freed but we still need to honor semantics for this cycle.
+  bool get cachedHasWeakValues => _cachedWeakMode?.contains('v') ?? false;
+
   /// Set the raw value with attribute enforcement
   set raw(dynamic value) {
     if (isConst && _isInitialized) {
@@ -522,7 +527,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       // unmarked GC values as absent when the owner metatable has weak values.
       if (metatableRef is Value) {
         final owner = metatableRef as Value;
-        bool ownerWeakV = owner.isTable && owner.hasWeakValues;
+        bool ownerWeakV =
+            owner.isTable && (owner.hasWeakValues || owner.cachedHasWeakValues);
         if (!ownerWeakV && owner.isTable && owner.metatable == null) {
           // Fallback: inspect owner's metatableRef raw map for '__mode' even
           // if the live metatable is gone (e.g., freed earlier in GC). Keys
