@@ -32,6 +32,8 @@ void main() {
         local cnt, ok, bad = 0, true, 0
         local sample = {}
         for k,v in pairs(a) do
+          -- In weak-values tables, only t->t entries survive; number->string
+          -- entries are cleared because strings are collectable values.
           local good = (k == v) or (type(k)=='number' and ((k - lim)..'x') == v)
           if #sample < 4 then table.insert(sample, {type(k), tostring(k), type(v), tostring(v), good}) end
           if not good then ok=false; bad = bad + 1 end

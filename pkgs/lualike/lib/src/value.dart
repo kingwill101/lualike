@@ -28,6 +28,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// Optional metatable defining the value's behavior for various operations.
   Map<String, dynamic>? metatable;
 
+  /// Cached weak mode from the last setMetatable call for table values.
+  /// This preserves knowledge of '__mode' even if the metatable is freed
+  /// later in the GC cycle, which is important for honoring weak semantics
+  /// during finalization ordering.
+  String? _cachedWeakMode;
+
   /// Reference to the original metatable Value when set via `setmetatable`.
   /// This allows `getmetatable` to return the same table object that was
   /// provided, preserving identity semantics required by Lua tests.
@@ -135,7 +141,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     Map<String, dynamic>? mt = metatable;
     if (mt == null) {
       mt = _getRegisteredTableMetatable();
-      if (mt == null) return null;
+      if (mt == null) {
+        // If no active metatable is found, use the cached mode if present.
+        return _cachedWeakMode;
+      }
     }
     dynamic mode = mt['__mode'];
     Logger.debug(
@@ -299,11 +308,11 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     return raw is T;
   }
 
-  /// Primitive-like values (numbers, booleans, nil, strings) behave as
-  /// immediate values for weak-table semantics and are not reclaimed due
-  /// solely to weak table reachability. In particular, Lua strings are
-  /// typically interned and survive as values in weak tables such as the
-  /// number->string cases exercised by gc.lua.
+  /// Primitive-like values for weak-table semantics: numbers, booleans, nil,
+  /// BigInt, and strings. In Lua's weak tables, strings and numbers behave as
+  /// immediate values for clearing logic used by tests like gc.lua (e.g.,
+  /// keeping number->string survivors in weak-values tables and allowing
+  /// string->string survivors in all-weak tables).
   bool get isPrimitiveLike {
     final current = raw;
     return current == null ||
@@ -461,6 +470,34 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// [mt] - The new metatable to associate with this value.
   void setMetatable(Map<String, dynamic> mt) {
     metatable = mt;
+    // Cache weak mode string for later semantics checks even if this
+    // metatable is freed before finalization runs.
+    try {
+      final rawMode = mt['__mode'];
+      String? modeStr;
+      if (rawMode is LuaString) {
+        modeStr = rawMode.toString();
+      } else if (rawMode is Value) {
+        modeStr = rawMode.raw?.toString();
+      } else if (rawMode is String) {
+        modeStr = rawMode;
+      }
+      if (modeStr != null) {
+        if (modeStr.contains('k') && modeStr.contains('v')) {
+          _cachedWeakMode = 'kv';
+        } else if (modeStr.contains('k')) {
+          _cachedWeakMode = 'k';
+        } else if (modeStr.contains('v')) {
+          _cachedWeakMode = 'v';
+        } else {
+          _cachedWeakMode = null;
+        }
+      } else {
+        _cachedWeakMode = null;
+      }
+    } catch (_) {
+      _cachedWeakMode = null;
+    }
     if (raw is Map) {
       try {
         _tableMetatables[raw as Map] = mt;
@@ -485,7 +522,48 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       // unmarked GC values as absent when the owner metatable has weak values.
       if (metatableRef is Value) {
         final owner = metatableRef as Value;
-        if (owner.isTable && owner.hasWeakValues) {
+        bool ownerWeakV = owner.isTable && owner.hasWeakValues;
+        if (!ownerWeakV && owner.isTable && owner.metatable == null) {
+          // Fallback: inspect owner's metatableRef raw map for '__mode' even
+          // if the live metatable is gone (e.g., freed earlier in GC). Keys
+          // may be LuaString or Value-wrapped strings.
+          try {
+            final meta = owner.metatableRef;
+            if (meta is Value && meta.raw is Map) {
+              final m = meta.raw as Map;
+              dynamic rawMode = m['__mode'];
+              if (rawMode == null) {
+                for (final k in m.keys) {
+                  String? ks;
+                  if (k is LuaString) {
+                    ks = k.toString();
+                  } else if (k is Value) {
+                    final kr = k.raw;
+                    if (kr is LuaString) {
+                      ks = kr.toString();
+                    } else if (kr is String) {
+                      ks = kr;
+                    }
+                  }
+                  if (ks == '__mode') {
+                    rawMode = m[k];
+                    break;
+                  }
+                }
+              }
+              String modeStr;
+              if (rawMode is LuaString) {
+                modeStr = rawMode.toString();
+              } else if (rawMode is Value) {
+                modeStr = rawMode.raw?.toString() ?? '';
+              } else {
+                modeStr = rawMode?.toString() ?? '';
+              }
+              if (modeStr.contains('v')) ownerWeakV = true;
+            }
+          } catch (_) {}
+        }
+        if (ownerWeakV) {
           if (Logger.enabled && event == '__gc') {
             Logger.debug(
               'getMetamethod("__gc"): owner=${owner.hashCode} weakMode=${owner.tableWeakMode} methodType=${method.runtimeType}',

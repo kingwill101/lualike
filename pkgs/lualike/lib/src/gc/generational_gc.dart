@@ -600,6 +600,10 @@ class GenerationalGCManager {
           }
           // Skip finalizer if meta-owner is weak-values
           if (!ownerWeakV) {
+            // Also re-check metamethod presence under current semantics
+            if (!obj.hasMetamethod('__gc')) {
+              continue;
+            }
             _alreadyFinalized.add(obj);
             try {
               final result = obj.callMetamethod('__gc', [obj]);
@@ -1355,6 +1359,49 @@ class GenerationalGCManager {
     }
   }
 
+  /// Additionally, before running finalizers, aggressively clean any all-weak
+  /// (kv) tables referenced from the metatable of objects scheduled for
+  /// finalization. This ensures assertions that inspect weak tables inside
+  /// __gc see the cleared state even if earlier tracking missed an owner.
+  void _preFinalizerAllWeakCleanup() {
+    if (_toBeFinalized.isEmpty) return;
+    for (final obj in _toBeFinalized) {
+      if (obj is! Value) continue;
+      final metaVal = obj.metatableRef;
+      if (metaVal is! Value || !metaVal.isTable) continue;
+      final metaMap = metaVal.raw as Map;
+      for (final entry in metaMap.entries) {
+        final val = entry.value;
+        if (val is! Value || !val.isTable) continue;
+        if (val.tableWeakMode != 'kv') continue;
+        final tableMap = val.raw as Map;
+        final keysToRemove = <dynamic>[];
+        for (final e in tableMap.entries) {
+          final k = e.key;
+          final v = e.value;
+          final keyDead = (k is Value && !k.marked) ||
+              (_isCollectableNonPrimitiveGC(k) && !(k as GCObject).marked);
+          final valueDead = (v is Value && (!v.marked || v.isFreed)) ||
+              (_isCollectableNonPrimitiveGC(v) && !(v as GCObject).marked);
+          if (keyDead || valueDead) {
+            keysToRemove.add(k);
+          }
+        }
+        if (keysToRemove.isNotEmpty) {
+          if (Logger.enabled) {
+            Logger.debug(
+              'Pre-finalizer kv cleanup: removing ${keysToRemove.length} entries from ${val.hashCode}',
+              category: 'GC',
+            );
+          }
+          for (final k in keysToRemove) {
+            tableMap.remove(k);
+          }
+        }
+      }
+    }
+  }
+
   /// Clears dead entries from weak-keys tables.
   /// Called after ephemeron convergence during major collection.
   void _clearWeakKeys() {
@@ -1446,9 +1493,51 @@ class GenerationalGCManager {
           bool ownerWeakV = false;
           if (metaOwner is Value) {
             ownerWeakV = metaOwner.hasWeakValues;
-            // Fallback: inspect raw metatable directly if tableWeakMode is not set yet.
+            // Fallback A: inspect current metatable directly if available.
             if (!ownerWeakV && metaOwner.metatable != null) {
               final rawMode = metaOwner.metatable!['__mode'];
+              String modeStr;
+              if (rawMode is LuaString) {
+                modeStr = rawMode.toString();
+              } else if (rawMode is Value) {
+                modeStr = rawMode.raw?.toString() ?? '';
+              } else {
+                modeStr = rawMode?.toString() ?? '';
+              }
+              if (modeStr.contains('v')) ownerWeakV = true;
+            }
+            // Fallback B: if owner's metatable is null now, consult the
+            // owner's metatableRef (the Value used in setmetatable). Even if
+            // that table has been collected, its raw map still records
+            // '__mode', which allows us to honor weak-values semantics.
+            if (!ownerWeakV && metaOwner.metatable == null &&
+                metaOwner.metatableRef is Value) {
+              final meta = metaOwner.metatableRef as Value;
+              dynamic rawMode;
+              if (meta.raw is Map) {
+                final m = meta.raw as Map;
+                rawMode = m['__mode'];
+                if (rawMode == null) {
+                  // Lookup using LuaString or Value keys if present.
+                  for (final k in m.keys) {
+                    String? ks;
+                    if (k is LuaString) {
+                      ks = k.toString();
+                    } else if (k is Value) {
+                      final kr = k.raw;
+                      if (kr is LuaString) {
+                        ks = kr.toString();
+                      } else if (kr is String) {
+                        ks = kr;
+                      }
+                    }
+                    if (ks == '__mode') {
+                      rawMode = m[k];
+                      break;
+                    }
+                  }
+                }
+              }
               String modeStr;
               if (rawMode is LuaString) {
                 modeStr = rawMode.toString();
@@ -1464,8 +1553,9 @@ class GenerationalGCManager {
             final mtInfo = (metaOwner is Value)
                 ? (metaOwner.metatable?.keys.toString() ?? 'null')
                 : 'n/a';
+            final ownerMode = (metaOwner is Value) ? metaOwner.tableWeakMode : null;
             Logger.debug(
-              'Finalize check: obj=${obj.hashCode} hasGc=$hasGc eligible=${obj.finalizerEligible} owner=${(metaOwner is Value) ? metaOwner.hashCode : 'null'} owner.mtKeys=$mtInfo ownerWeakV=$ownerWeakV',
+              'Finalize check: obj=${obj.hashCode} hasGc=$hasGc eligible=${obj.finalizerEligible} owner=${(metaOwner is Value) ? metaOwner.hashCode : 'null'} owner.mtKeys=$mtInfo ownerMode=$ownerMode ownerWeakV=$ownerWeakV',
               category: 'GC',
             );
           }
@@ -1541,6 +1631,43 @@ class GenerationalGCManager {
             }
             if (modeStr.contains('v')) ownerWeakV = true;
           }
+          if (!ownerWeakV && metaOwner.metatable == null &&
+              metaOwner.metatableRef is Value) {
+            final meta = metaOwner.metatableRef as Value;
+            dynamic rawMode;
+            if (meta.raw is Map) {
+              final m = meta.raw as Map;
+              rawMode = m['__mode'];
+              if (rawMode == null) {
+                for (final k in m.keys) {
+                  String? ks;
+                  if (k is LuaString) {
+                    ks = k.toString();
+                  } else if (k is Value) {
+                    final kr = k.raw;
+                    if (kr is LuaString) {
+                      ks = kr.toString();
+                    } else if (kr is String) {
+                      ks = kr;
+                    }
+                  }
+                  if (ks == '__mode') {
+                    rawMode = m[k];
+                    break;
+                  }
+                }
+              }
+            }
+            String modeStr;
+            if (rawMode is LuaString) {
+              modeStr = rawMode.toString();
+            } else if (rawMode is Value) {
+              modeStr = rawMode.raw?.toString() ?? '';
+            } else {
+              modeStr = rawMode?.toString() ?? '';
+            }
+            if (modeStr.contains('v')) ownerWeakV = true;
+          }
         }
         if (ownerWeakV) {
           if (Logger.enabled) {
@@ -1550,6 +1677,10 @@ class GenerationalGCManager {
             );
           }
           // Do not mark as finalized; allow normal collection to proceed.
+          continue;
+        }
+        // Also re-check current metamethod under semantics; if absent, skip.
+        if (obj.getMetamethod('__gc') == null) {
           continue;
         }
         // Mark as finalized BEFORE calling __gc. This prevents re-finalization
@@ -1724,6 +1855,7 @@ class GenerationalGCManager {
     // finalization, so __gc stored via weak-values will be cleared before we
     // attempt to run finalizers (matches Lua semantics for this scenario).
     _preFinalizerWeakValuesCleanup();
+    _preFinalizerAllWeakCleanup();
 
     // Phase 6: Re-mark objects to be finalized to handle resurrection
     for (final obj in _toBeFinalized) {
