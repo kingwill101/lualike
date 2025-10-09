@@ -1606,12 +1606,7 @@ class GenerationalGCManager {
     _clearWeakKeys();
     _clearAllWeak();
 
-    // Phase 4: Clean weak-values in metatables of candidates before separation
-    // Ensure metamethods set in weak-values metatables (like __gc) are cleared
-    // prior to deciding finalizables, matching Lua's ordering.
-    _preFinalizerWeakValuesCleanup();
-
-    // Phase 5: Separate survivors from dead, and identify finalizables
+    // Phase 4: Separate survivors from dead, and identify finalizables
     final beforeYoung = youngGen.objects.length;
     final beforeOld = oldGen.objects.length;
     _separate(youngGen);
@@ -1622,6 +1617,11 @@ class GenerationalGCManager {
         category: 'GC',
       );
     }
+
+    // Phase 5: Clean weak-values in metatables of objects scheduled for
+    // finalization, so __gc stored via weak-values will be cleared before we
+    // attempt to run finalizers (matches Lua semantics for this scenario).
+    _preFinalizerWeakValuesCleanup();
 
     // Phase 6: Re-mark objects to be finalized to handle resurrection
     for (final obj in _toBeFinalized) {

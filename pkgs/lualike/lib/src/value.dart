@@ -512,10 +512,14 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// [event] - The name of the metamethod to check for.
   /// Returns `true` if the metamethod exists, `false` otherwise.
   bool hasMetamethod(String event) {
-    if (metatable != null && metatable!.containsKey(event)) return true;
-    final reg = _getRegisteredTableMetatable();
-    if (reg != null && reg.containsKey(event)) return true;
-    return false;
+    // Use getMetamethod to honor weak semantics (e.g., __mode = 'v' on the
+    // metatable of a metatable) and any guards we enforce there. Presence of
+    // a key in the raw map is not sufficient when values are weak.
+    try {
+      return getMetamethod(event) != null;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Checks if this value is callable (is a function or has __call metamethod)

@@ -515,7 +515,40 @@ Future<void> main(List<String> args) async {
   }
 }
 
-/// Run the specified tests and return results
+/// Resolve a test entry to an absolute file path.
+/// Supports:
+/// - Known suite files (from [testFiles]) located under `luascripts/test/`
+/// - Arbitrary file paths (relative or absolute) anywhere in the repo
+String _resolveTestPath(String entry) {
+  // If entry is a known suite file, look under default scripts dir
+  if (testFiles.contains(entry)) {
+    final p = path.normalize(path.join('luascripts', 'test', entry));
+    if (File(p).existsSync()) return path.normalize(path.absolute(p));
+  }
+
+  // Otherwise, treat entry as a path. Try as-is (relative to CWD)
+  if (File(entry).existsSync()) return path.normalize(path.absolute(entry));
+
+  // Try relative to default scripts dir
+  final underDefault = path.normalize(path.join('luascripts', 'test', entry));
+  if (File(underDefault).existsSync()) {
+    return path.normalize(path.absolute(underDefault));
+  }
+
+  // Try under pkg path (common when calling from repo root)
+  final underPkg = path.normalize(
+    path.join('pkgs', 'lualike', 'luascripts', 'test', entry),
+  );
+  if (File(underPkg).existsSync()) {
+    return path.normalize(path.absolute(underPkg));
+  }
+
+  throw ArgumentError('Test not found: $entry');
+}
+
+/// Run the specified tests and return results.
+/// If a provided item in `tests` is not a known test name, it will be
+/// validated as a file path and executed directly.
 Future<List<TestResult>> runTests({
   List<String> tests = const [],
   bool verbose = false,
@@ -542,22 +575,46 @@ Future<List<TestResult>> runTests({
     initParts.add(soft ? '_soft = true' : '_soft = false');
     final luaInit = initParts.join('; ');
 
-    // Provide absolute path to compiled binary so child can resolve 'lualike'
+    // Resolve lualike binary and target test path
     final lualikeBinary = getExecutableName('lualike');
     final binaryPath = path.join(Directory.current.path, lualikeBinary);
+    late final String targetPath;
+    try {
+      targetPath = _resolveTestPath(file);
+    } catch (e) {
+      console.setForegroundColor(ConsoleColor.red);
+      console.write('✗ ');
+      console.setTextStyle(bold: true);
+      console.write('Test not found');
+      console.resetColorAttributes();
+      console.write(': ');
+      console.writeLine(file);
+      // Fail fast for missing files
+      results.add(TestResult(
+        fileName: file,
+        exitCode: 1,
+        duration: Duration.zero,
+        output: const [],
+        errors: ['Test not found: $file'],
+      ));
+      continue;
+    }
 
     final environment = {
       'LUA_INIT': luaInit,
       'LUALIKE_BIN': binaryPath,
       ...Platform.environment,
     };
-    final workingDir = path.join('luascripts', 'test');
+    // Always run from repo root and pass absolute path to the script. This
+    // avoids duplicating the working directory prefix when tests are given
+    // as relative paths under luascripts/test/.
+    final workingDir = Directory.current.path;
 
     final processArgs = <String>[];
     if (debug) {
       processArgs.add('--debug');
     }
-    processArgs.add(file);
+    processArgs.add(targetPath);
 
     final process = await Process.start(
       binaryPath,
