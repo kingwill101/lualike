@@ -1867,20 +1867,26 @@ class NextFunction extends BuiltinFunction {
       // For weak-keys/all-weak tables, opportunistically skip entries whose
       // keys are dead according to the current GC tracking, to match Lua's
       // observation that pairs(a) should not yield dead keys after collect().
+      // However, during the finalization phase, Lua semantics allow weak-keys
+      // to be observed by __gc finalizers before keys are removed. Therefore,
+      // we do NOT skip dead keys if GC is currently finalizing.
       if (table.tableWeakMode != null &&
           (table.hasWeakKeys || table.isAllWeak)) {
         final vm = interpreter!;
-        bool isAliveKey = true;
-        if (!nextKey.isPrimitiveLike) {
-          final inYoung = vm.gc.youngGen.objects.contains(nextKey);
-          final inOld = vm.gc.oldGen.objects.contains(nextKey);
-          if ((!inYoung && !inOld) || nextKey.isFreed) {
-            isAliveKey = false;
+        // During finalization, keep observation of weak-keys intact.
+        if (!vm.gc.isFinalizing) {
+          bool isAliveKey = true;
+          if (!nextKey.isPrimitiveLike) {
+            final inYoung = vm.gc.youngGen.objects.contains(nextKey);
+            final inOld = vm.gc.oldGen.objects.contains(nextKey);
+            if ((!inYoung && !inOld) || nextKey.isFreed) {
+              isAliveKey = false;
+            }
           }
-        }
-        if (!isAliveKey) {
-          // Skip yielding this entry; continue to look for the next one.
-          continue;
+          if (!isAliveKey) {
+            // Skip yielding this entry; continue to look for the next one.
+            continue;
+          }
         }
       }
       // Focused instrumentation: when iterating weak-key or all-weak tables

@@ -57,7 +57,11 @@ void main() {
       );
 
       final m = a.raw as Map;
-      expect(m.length, 4, reason: 'expected 3 numeric-object + 1 string-string, got \${m.length}');
+      expect(
+        m.length,
+        4,
+        reason: 'expected 3 numeric-object + 1 string-string, got \${m.length}',
+      );
       expect(m[1], same(x));
       expect(m[2], same(y));
       expect(m[3], same(z));

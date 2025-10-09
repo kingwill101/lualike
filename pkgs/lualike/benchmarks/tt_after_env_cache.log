@@ -1,0 +1,34 @@
+Benchmark tt.lua with LIMIT=20 after env cache optimization
+Run 1: 0.015556 s
+Interpreter command: /run/media/kingwill101/disk2/code/code/dart_packages/lualike/pkgs/lualike/lualike
+Executing script: /run/media/kingwill101/disk2/code/code/dart_packages/lualike/pkgs/lualike/tt.lua
+filling a
+filling complete
+
+Run 2: 0.017139 s
+Interpreter command: /run/media/kingwill101/disk2/code/code/dart_packages/lualike/pkgs/lualike/lualike
+Executing script: /run/media/kingwill101/disk2/code/code/dart_packages/lualike/pkgs/lualike/tt.lua
+filling a
+filling complete
+
+Run 3: 0.015792 s
+Interpreter command: /run/media/kingwill101/disk2/code/code/dart_packages/lualike/pkgs/lualike/lualike
+Executing script: /run/media/kingwill101/disk2/code/code/dart_packages/lualike/pkgs/lualike/tt.lua
+filling a
+filling complete
+
+Run 4: 0.017834 s
+Interpreter command: /run/media/kingwill101/disk2/code/code/dart_packages/lualike/pkgs/lualike/lualike
+Executing script: /run/media/kingwill101/disk2/code/code/dart_packages/lualike/pkgs/lualike/tt.lua
+filling a
+filling complete
+
+Run 5: 0.016243 s
+Interpreter command: /run/media/kingwill101/disk2/code/code/dart_packages/lualike/pkgs/lualike/lualike
+Executing script: /run/media/kingwill101/disk2/code/code/dart_packages/lualike/pkgs/lualike/tt.lua
+filling a
+filling complete
+
+Summary:
+  mean: 0.016513 s
+  stdev: 0.000854 s

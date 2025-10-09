@@ -1,0 +1,2512 @@
+commit 126e559e88e7351d11ec6c10bea492623aa752ed
+Author: kingwill101 <hey@glenfordwilliams.com>
+Date:   Sat Sep 27 08:16:10 2025 -0500
+
+ 
+diff --git a/pkgs/lualike/bin/main.dart b/pkgs/lualike/bin/main.dart
+index 72b09b5..f230b81 100644
+--- a/pkgs/lualike/bin/main.dart
++++ b/pkgs/lualike/bin/main.dart
+@@ -15,4 +15,6 @@ Future<void> main(List<String> args) async {
+     // }
+     exit(1);
+   }
++  print('Main function completed');
++  exit(0);
+ }
+diff --git a/pkgs/lualike/lib/command/lualike_command_runner.dart b/pkgs/lualike/lib/command/lualike_command_runner.dart
+index 6187767..b2025a8 100644
+--- a/pkgs/lualike/lib/command/lualike_command_runner.dart
++++ b/pkgs/lualike/lib/command/lualike_command_runner.dart
+@@ -11,6 +11,7 @@ import 'interactive_command_wrapper.dart';
+ import 'require_command.dart';
+ import 'script_command.dart';
+ import 'stdin_command.dart';
++import 'package:lualike/src/interop.dart';
+ 
+ /// Main command runner for LuaLike following Lua CLI specification
+ class LuaLikeCommandRunner extends CommandRunner {
+@@ -193,6 +194,13 @@ class LuaLikeCommandRunner extends CommandRunner {
+         final interactiveCmd = InteractiveCommandWrapper(debugMode: debugMode);
+         await interactiveCmd.run();
+       }
++
++      // Dispose of the interpreter to clean up any pending operations
++      try {
++        await LuaLike.disposeGlobal();
++      } catch (e) {
++        // Ignore dispose errors
++      }
+     } catch (e) {
+       if (e is UsageException) {
+         print(usage);
+diff --git a/pkgs/lualike/lib/lualike.dart b/pkgs/lualike/lib/lualike.dart
+index c6fca45..c4d1a8a 100644
+--- a/pkgs/lualike/lib/lualike.dart
++++ b/pkgs/lualike/lib/lualike.dart
+@@ -26,3 +26,4 @@ export 'src/stack.dart';
+ export 'src/utils/platform_utils.dart';
+ export 'src/value.dart';
+ export 'src/value_class.dart';
++export 'src/logging/logging.dart';
+diff --git a/pkgs/lualike/lib/src/builtin_function.dart b/pkgs/lualike/lib/src/builtin_function.dart
+index eead9eb..3f65e78 100644
+--- a/pkgs/lualike/lib/src/builtin_function.dart
++++ b/pkgs/lualike/lib/src/builtin_function.dart
+@@ -1,9 +1,16 @@
++import 'interpreter/interpreter.dart';
++
+ /// An abstract class representing a built-in function in the interpreter.
+ ///
+ /// Built-in functions are implemented directly in Dart and provide core
+ /// functionality to the interpreted language. They can be called with a list
+ /// of arguments and return a value of any type.
+ abstract class BuiltinFunction {
++  // BuiltinFunction(this.interpreter);
++  
++  // /// The interpreter instance.
++  // final Interpreter interpreter;
++  
+   /// Executes the built-in function with the given arguments.
+   ///
+   /// [args] - The list of arguments passed to the function.
+diff --git a/pkgs/lualike/lib/src/coroutine.dart b/pkgs/lualike/lib/src/coroutine.dart
+index 41bd3d2..717bff0 100644
+--- a/pkgs/lualike/lib/src/coroutine.dart
++++ b/pkgs/lualike/lib/src/coroutine.dart
+@@ -475,8 +475,8 @@ class Coroutine extends GCObject {
+   List<GCObject> getReferences() {
+     final refs = <GCObject>[];
+     refs.add(functionValue);
+-    refs.add(closureEnvironment);
+-    refs.add(_executionEnvironment);
++    // Environment is now stack-managed, not GC-managed
++    // refs.add(_executionEnvironment);
+     // if (_originalArgs != null) {
+     //   refs.addAll(_originalArgs!);
+     // }
+diff --git a/pkgs/lualike/lib/src/environment.dart b/pkgs/lualike/lib/src/environment.dart
+index f7da429..28bd7fb 100644
+--- a/pkgs/lualike/lib/src/environment.dart
++++ b/pkgs/lualike/lib/src/environment.dart
+@@ -1,10 +1,10 @@
+ import 'package:lualike/lualike.dart';
+-import 'package:lualike/src/gc/gc.dart' show GCObject;
++import 'package:lualike/src/gc/gc.dart' show HeapObject, StackObject, GCObject;
+ import 'package:lualike/src/gc/generational_gc.dart' show GenerationalGCManager;
+ 
+ /// A generic box class that wraps a single value of type T.
+ /// Used to create mutable references to values in the environment.
+-class Box<T> extends GCObject {
++class Box<T> extends HeapObject {
+   /// The wrapped value.
+   T value;
+ 
+@@ -21,8 +21,21 @@ class Box<T> extends GCObject {
+   }
+ 
+   @override
+-  List<GCObject> getReferences() {
+-    return value is GCObject ? [value as GCObject] : [];
++  List<HeapObject> getReferences() {
++    final refs = <HeapObject>[];
++    if (value is GCObject) {
++      refs.add(value as HeapObject);
++      Logger.debug(
++        'Box.getReferences() found GCObject: ${value.runtimeType} ${value.hashCode}',
++        category: 'GC',
++      );
++    } else {
++      Logger.debug(
++        'Box.getReferences() value is not GCObject: ${value.runtimeType} ${value.hashCode}',
++        category: 'GC',
++      );
++    }
++    return refs;
+   }
+ 
+   @override
+@@ -79,7 +92,7 @@ class Box<T> extends GCObject {
+ /// The original `define()` method couldn't distinguish these cases correctly,
+ /// leading to bugs where local variables in main scripts affected globals.
+ /// The newer methods provide precise control over each scenario.
+-class Environment extends GCObject {
++class Environment extends StackObject {
+   /// Storage for variable bindings in this scope.
+   final Map<String, Box<dynamic>> values = {};
+ 
+@@ -121,20 +134,6 @@ class Environment extends GCObject {
+     );
+   }
+ 
+-  @override
+-  List<GCObject> getReferences() {
+-    final refs = <GCObject>[];
+-    if (parent != null) {
+-      refs.add(parent!);
+-    }
+-    values.forEach((key, box) {
+-      if (box.value is GCObject) {
+-        refs.add(box.value as GCObject);
+-      }
+-    });
+-    return refs;
+-  }
+-
+   /// Returns a string representation of the environment chain.
+   ///
+   /// The chain is represented as a series of environment hash codes connected
+diff --git a/pkgs/lualike/lib/src/gc/gc.dart b/pkgs/lualike/lib/src/gc/gc.dart
+index 0ebf81c..0954105 100644
+--- a/pkgs/lualike/lib/src/gc/gc.dart
++++ b/pkgs/lualike/lib/src/gc/gc.dart
+@@ -38,3 +38,34 @@ abstract class GCObject {
+     // By default, nothing needs to be done.
+   }
+ }
++
++/// Base class for objects that are managed on the stack rather than the heap.
++///
++/// Stack-managed objects (like Environment) are not subject to garbage collection
++/// because their lifetime is managed by the call stack. They are created and
++/// destroyed in a predictable, stack-based manner.
++///
++/// Examples: Environment, CallFrame
++abstract class StackObject {
++  /// Stack objects don't need GC methods since they're not heap-managed
++}
++
++/// Base class for objects that live on the heap and are subject to garbage collection.
++///
++/// Heap-managed objects extend GCObject and participate in the garbage collection
++/// process. They can be collected when they become unreachable.
++///
++/// Examples: Value, Box, Upvalue, Coroutine
++abstract class HeapObject extends GCObject {
++  /// Heap objects inherit all GC functionality from GCObject
++}
++
++/// Base class for objects that should never be garbage collected.
++///
++/// Root objects are always considered reachable and are never collected.
++/// They typically represent core runtime objects or singletons.
++///
++/// Examples: Main thread, Global environment (though Environment is now StackObject)
++abstract class RootObject {
++  /// Root objects are never collected, so they don't need GC methods
++}
+diff --git a/pkgs/lualike/lib/src/gc/generational_gc.dart b/pkgs/lualike/lib/src/gc/generational_gc.dart
+index 4d332d1..1556c90 100644
+--- a/pkgs/lualike/lib/src/gc/generational_gc.dart
++++ b/pkgs/lualike/lib/src/gc/generational_gc.dart
+@@ -1,5 +1,9 @@
++import 'dart:async';
++
+ import 'package:lualike/lualike.dart';
++import 'package:lualike/src/gc/dynamic_root_set.dart';
+ import 'package:lualike/src/gc/gc.dart';
++import 'package:lualike/src/interpreter/interpreter_state.dart';
+ import 'package:lualike/src/upvalue.dart';
+ 
+ /// Represents a generation of objects in the generational garbage collector.
+@@ -74,7 +78,7 @@ class GenerationalGCManager {
+   /// For a minor multiplier x, a new minor collection will be done when memory
+   /// grows x% larger than the memory in use after the previous major collection.
+   /// Default in Lua is 20, maximum is 200.
+-  int minorMultiplier = 100;
++  int minorMultiplier = 20;
+ 
+   /// Controls the frequency of major collections.
+   /// For a major multiplier x, a new major collection will be done when memory
+@@ -90,6 +94,13 @@ class GenerationalGCManager {
+   // ignore: prefer_final_fields
+   bool _cycleComplete = false;
+ 
++  /// Accumulated simulated allocation debt from GC step operations.
++  ///
++  /// `collectgarbage('step', size)` models allocating `size` Kbytes of memory.
++  /// We accumulate that debt here so we can trigger a real minor collection once
++  /// the configured step size threshold is exceeded.
++  int _simulatedAllocationDebt = 0;
++
+   /// The young generation (nursery) containing newly created objects.
+   final Generation youngGen = Generation();
+ 
+@@ -131,14 +142,29 @@ class GenerationalGCManager {
+   ///
+   /// This is used to trigger collection based on allocation pressure,
+   /// similar to how Lua triggers collection when memory usage increases.
+-  void simulateAllocation(int bytes) {
++  Future<void> simulateAllocation(int bytes) async {
+     if (_isStopped) return;
+ 
+-    final currentBytes = estimateMemoryUse();
+-    if (currentBytes - _lastMinorBytes > bytes) {
+-      minorCollection([]); // Trigger minor collection
++    _simulatedAllocationDebt += bytes;
++
++    final stepThresholdBytes = (1 << stepSize) * 1024;
++
++    Logger.debug(
++      'Simulated allocation of $bytes bytes (debt: $_simulatedAllocationDebt/$stepThresholdBytes)',
++      category: 'GC',
++    );
++
++    if (_simulatedAllocationDebt < stepThresholdBytes) {
++      return;
+     }
+-    Logger.debug('Simulated allocation of $bytes bytes', category: 'GC');
++
++    final roots = buildRootSet(_interpreter);
++    minorCollection(roots);
++    _simulatedAllocationDebt = 0;
++
++    // After forcing a minor collection, check if we also crossed the
++    // thresholds that would normally trigger a larger cycle.
++    await checkAndCollectIfNeeded();
+   }
+ 
+   /// Registers a new object with the garbage collector.
+@@ -150,6 +176,15 @@ class GenerationalGCManager {
+       'Register: ${obj.runtimeType} ${obj.hashCode}',
+       category: 'GC',
+     );
++
++    // Schedule automatic GC checks. If we're already at a safe point we can
++    // start the check immediately; otherwise run it in the next microtask so
++    // execution can reach a safe point first.
++    if (InterpreterState.isAtSafePoint()) {
++      checkAndCollectIfNeeded();
++    } else {
++      Future.microtask(checkAndCollectIfNeeded);
++    }
+   }
+ 
+   /// Promotes an object from the young generation to the old generation.
+@@ -167,10 +202,14 @@ class GenerationalGCManager {
+   /// Marks all live objects in a generation starting from the given roots.
+   void _markGeneration(Generation gen, List<Object?> roots) {
+     Logger.debug(
+-      'Marking generation (${gen == youngGen ? 'young' : 'old'})',
++      'Marking generation (${gen == youngGen ? 'young' : 'old'}), ${gen.objects.length} objects',
+       category: 'GC',
+     );
+     for (final root in roots) {
++      Logger.debug(
++        'Processing root: ${root.runtimeType} ${root.hashCode}',
++        category: 'GC',
++      );
+       _discover(root);
+     }
+   }
+@@ -179,7 +218,8 @@ class GenerationalGCManager {
+   /// This should include all objects that should be considered as roots:
+   /// - Global environment and current stack frames
+   /// - All live coroutines
+-  /// - VM singletons that hold GCObjects
++  /// VM singletons that hold GCObjects
++  /// - Dynamic roots from current execution state
+   List<Object?> buildRootSet(Interpreter vm) {
+     // Use the interpreter's existing getRoots method which includes:
+     // - Current environment (globals)
+@@ -189,7 +229,15 @@ class GenerationalGCManager {
+     // - Active coroutines set
+     final roots = vm.getRoots();
+ 
+-    Logger.debug('Built root set with ${roots.length} roots', category: 'GC');
++    // Add dynamic roots from current execution state
++    final dynamicRootSet = DynamicRootSet(vm);
++    final dynamicRoots = dynamicRootSet.getAllDynamicRoots();
++    roots.addAll(dynamicRoots);
++
++    Logger.debug(
++      'Built root set with ${roots.length} roots (${dynamicRoots.length} dynamic)',
++      category: 'GC',
++    );
+     return roots;
+   }
+ 
+@@ -213,6 +261,10 @@ class GenerationalGCManager {
+           category: 'GC',
+         );
+         obj.marked = true;
++        Logger.debug(
++          'Marked object: ${obj.runtimeType} ${obj.hashCode}',
++          category: 'GC',
++        );
+ 
+         // Handle Value objects with potential weak table semantics
+         if (obj is Value && obj.isTable && _inMajorCollection) {
+@@ -247,9 +299,17 @@ class GenerationalGCManager {
+         );
+       }
+     } else if (obj is Environment) {
+-      Logger.debug('Environment traversal: ${obj.hashCode}', category: 'GC');
+-      _discover(obj.values);
+-      if (obj.parent != null) _discover(obj.parent);
++      Logger.debug('Traversing Environment ${obj.hashCode}', category: 'GC');
++      // Traverse the values in the environment
++      obj.values.forEach((key, box) {
++        if (box.value is GCObject) {
++          _discover(box.value);
++        }
++      });
++      // Also traverse the parent environment
++      if (obj.parent != null) {
++        _discover(obj.parent);
++      }
+     } else if (obj is Map) {
+       // Skip empty maps and perform quick scan for GC-relevant entries
+       if (obj.isEmpty) return;
+@@ -650,8 +710,12 @@ class GenerationalGCManager {
+       category: 'GC',
+     );
+     // According to Lua spec, finalizers are called in an unspecified order.
+-    // Iterating and clearing is sufficient.
+-    for (final obj in _toBeFinalized) {
++    // Iterate over a snapshot to avoid concurrent modification when finalizers
++    // trigger additional GC work that might mutate the set.
++    final pendingFinalizers = List<GCObject>.from(_toBeFinalized);
++    _toBeFinalized.clear();
++
++    for (final obj in pendingFinalizers) {
+       if (obj is Value) {
+         // Mark as finalized BEFORE calling __gc. This prevents re-finalization
+         // if the object is resurrected and then becomes dead again.
+@@ -668,7 +732,6 @@ class GenerationalGCManager {
+         }
+       }
+     }
+-    _toBeFinalized.clear();
+   }
+ 
+   /// Performs a minor collection, which only traverses the young generation.
+@@ -782,8 +845,6 @@ class GenerationalGCManager {
+       for (final obj in gen.objects) {
+         if (obj is Value) {
+           totalSize += _estimateValueSize(obj);
+-        } else if (obj is Environment) {
+-          totalSize += _estimateEnvironmentSize(obj);
+         } else if (obj is Upvalue) {
+           totalSize += _estimateUpvalueSize(obj);
+         } else {
+@@ -817,13 +878,6 @@ class GenerationalGCManager {
+     return size;
+   }
+ 
+-  /// Estimates the memory footprint of an Environment object
+-  int _estimateEnvironmentSize(Environment env) {
+-    int size = 96; // Base Environment overhead
+-    size += env.values.length * 40; // Box overhead per variable
+-    return size;
+-  }
+-
+   /// Estimates the memory footprint of an Upvalue object
+   int _estimateUpvalueSize(Upvalue upvalue) {
+     int size = 96; // Base Upvalue overhead
+@@ -868,4 +922,51 @@ class GenerationalGCManager {
+     final roots = buildRootSet(_interpreter);
+     await majorCollection(roots);
+   }
++
++  /// Convenience method for minor collection using the built root set.
++  /// This is the main entry point for triggering minor collections.
++  void collectMinor() {
++    final roots = buildRootSet(_interpreter);
++    minorCollection(roots);
++  }
++
++  /// Checks memory usage and triggers collection if needed.
++  /// This is called from the deferred GC system.
++  Future<void> checkAndCollectIfNeeded() async {
++    final currentMemory = estimateMemoryUse();
++    final objectCount = youngGen.objects.length + oldGen.objects.length;
++
++    if (_lastMajorBytes == 0) {
++      _lastMajorBytes = currentMemory;
++    }
++    if (_lastMinorBytes == 0) {
++      _lastMinorBytes = currentMemory;
++    }
++
++    final majorTarget = (_lastMajorBytes * (100 + majorMultiplier)) ~/ 100;
++    final minorTarget = (_lastMinorBytes * (100 + minorMultiplier)) ~/ 100;
++
++    final needsMajor = currentMemory > majorTarget;
++    final needsMinor = currentMemory > minorTarget || objectCount > 500;
++
++    if (!needsMajor && !needsMinor) {
++      Logger.debug(
++        'GC skipped (memory: $currentMemory, minor target: $minorTarget, major target: $majorTarget, objects: $objectCount)',
++        category: 'GC',
++      );
++      return;
++    }
++
++    Logger.debug(
++      'GC thresholds exceeded (memory: $currentMemory, minor target: $minorTarget, major target: $majorTarget, objects: $objectCount), triggering collection',
++      category: 'GC',
++    );
++
++    final roots = buildRootSet(_interpreter);
++    await collect(roots);
++
++    if (_simulatedAllocationDebt > 0) {
++      _simulatedAllocationDebt = 0;
++    }
++  }
+ }
+diff --git a/pkgs/lualike/lib/src/interop.dart b/pkgs/lualike/lib/src/interop.dart
+index c9d4cac..2b3b912 100644
+--- a/pkgs/lualike/lib/src/interop.dart
++++ b/pkgs/lualike/lib/src/interop.dart
+@@ -174,9 +174,15 @@ class LuaLike {
+   /// The underlying LuaLike interpreter instance.
+   final Interpreter vm;
+ 
++  /// Singleton instance of the LuaLike bridge.
++  static LuaLike? _instance;
++
+   /// Creates a new bridge with a fresh interpreter instance.
+   /// If an instance already exists, returns that instance.
+-  factory LuaLike() => LuaLike._internal();
++  factory LuaLike() {
++    _instance ??= LuaLike._internal();
++    return _instance!;
++  }
+ 
+   /// Internal constructor
+   LuaLike._internal() : vm = Interpreter();
+@@ -285,6 +291,23 @@ class LuaLike {
+       node: null,
+     );
+   }
++
++  /// Disposes of the LuaLike bridge and cleans up resources.
++  /// This method should be called when the bridge is no longer needed
++  /// to ensure proper cleanup of interpreter resources.
++  Future<void> dispose() async {
++    await vm.dispose();
++  }
++
++  /// Static method to dispose of the global LuaLike instance and clean up resources.
++  /// This method should be called when the application is shutting down
++  /// to ensure proper cleanup of all interpreter resources.
++  static Future<void> disposeGlobal() async {
++    if (_instance != null) {
++      await _instance!.dispose();
++      _instance = null;
++    }
++  }
+ }
+ 
+ /// Runs a Lua file with the given path.
+diff --git a/pkgs/lualike/lib/src/interpreter/expression.dart b/pkgs/lualike/lib/src/interpreter/expression.dart
+index 50fa1a8..f5541e1 100644
+--- a/pkgs/lualike/lib/src/interpreter/expression.dart
++++ b/pkgs/lualike/lib/src/interpreter/expression.dart
+@@ -35,235 +35,243 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
+   /// Returns the result of the binary operation.
+   @override
+   Future<Object?> visitBinaryExpression(BinaryExpression node) async {
+-    Logger.debug(
+-      'Visiting BinaryExpression: ${node.left} ${node.op} ${node.right}',
+-      category: 'Expression',
+-    );
+-    dynamic leftResult = await node.left.accept(this);
+-
+-    // Short-circuit evaluation for logical operators
+-    if (node.op == 'and' || node.op == 'or') {
+-      // Normalize multi-value results from the left side
+-      if (leftResult is Value && leftResult.isMulti) {
+-        final multiValues = leftResult.raw as List;
+-        leftResult = multiValues.isNotEmpty ? multiValues[0] : Value(null);
+-      } else if (leftResult is List && leftResult.isNotEmpty) {
+-        leftResult = leftResult[0];
+-      }
++    InterpreterState.setEvaluatingExpression(true);
++    try {
++      Logger.debug(
++        'Visiting BinaryExpression: ${node.left} ${node.op} ${node.right}',
++        category: 'Expression',
++      );
++      dynamic leftResult = await node.left.accept(this);
++
++      // Short-circuit evaluation for logical operators
++      if (node.op == 'and' || node.op == 'or') {
++        // Normalize multi-value results from the left side
++        if (leftResult is Value && leftResult.isMulti) {
++          final multiValues = leftResult.raw as List;
++          leftResult = multiValues.isNotEmpty ? multiValues[0] : Value(null);
++        } else if (leftResult is List && leftResult.isNotEmpty) {
++          leftResult = leftResult[0];
++        }
+ 
+-      final leftVal = leftResult is Value ? leftResult : Value(leftResult);
++        final leftVal = leftResult is Value ? leftResult : Value(leftResult);
+ 
+-      if (node.op == 'and') {
+-        if (!leftVal.isTruthy()) {
+-          return leftVal;
++        if (node.op == 'and') {
++          if (!leftVal.isTruthy()) {
++            return leftVal;
++          }
++        } else {
++          // 'or'
++          if (leftVal.isTruthy()) {
++            return leftVal;
++          }
+         }
+-      } else {
+-        // 'or'
+-        if (leftVal.isTruthy()) {
+-          return leftVal;
++
++        // Need to evaluate the right side only when necessary
++        dynamic rightResult = await node.right.accept(this);
++
++        if (rightResult is Value && rightResult.isMulti) {
++          final multiValues = rightResult.raw as List;
++          rightResult = multiValues.isNotEmpty ? multiValues[0] : Value(null);
++        } else if (rightResult is List && rightResult.isNotEmpty) {
++          rightResult = rightResult[0];
+         }
++
++        final rightVal = rightResult is Value
++            ? rightResult
++            : Value(rightResult);
++        return rightVal;
+       }
+ 
+-      // Need to evaluate the right side only when necessary
+       dynamic rightResult = await node.right.accept(this);
+ 
++      // In a binary expression, if either operand is a function call returning multiple values,
++      // only the first return value should be used
++      if (leftResult is Value && leftResult.isMulti) {
++        Logger.debug(
++          'BinaryExpression: limiting left multi-value result to first value',
++          category: 'Expression',
++        );
++        final multiValues = leftResult.raw as List;
++        leftResult = multiValues.isNotEmpty ? multiValues[0] : Value(null);
++      } else if (leftResult is List && leftResult.isNotEmpty) {
++        leftResult = leftResult[0];
++      }
++
+       if (rightResult is Value && rightResult.isMulti) {
++        Logger.debug(
++          'BinaryExpression: limiting right multi-value result to first value',
++          category: 'Expression',
++        );
+         final multiValues = rightResult.raw as List;
+         rightResult = multiValues.isNotEmpty ? multiValues[0] : Value(null);
+       } else if (rightResult is List && rightResult.isNotEmpty) {
+         rightResult = rightResult[0];
+       }
+ 
++      final leftVal = leftResult is Value ? leftResult : Value(leftResult);
+       final rightVal = rightResult is Value ? rightResult : Value(rightResult);
+-      return rightVal;
+-    }
+-
+-    dynamic rightResult = await node.right.accept(this);
+-
+-    // In a binary expression, if either operand is a function call returning multiple values,
+-    // only the first return value should be used
+-    if (leftResult is Value && leftResult.isMulti) {
+-      Logger.debug(
+-        'BinaryExpression: limiting left multi-value result to first value',
+-        category: 'Expression',
+-      );
+-      final multiValues = leftResult.raw as List;
+-      leftResult = multiValues.isNotEmpty ? multiValues[0] : Value(null);
+-    } else if (leftResult is List && leftResult.isNotEmpty) {
+-      leftResult = leftResult[0];
+-    }
+ 
+-    if (rightResult is Value && rightResult.isMulti) {
+       Logger.debug(
+-        'BinaryExpression: limiting right multi-value result to first value',
++        'BinaryExpression operands before metamethod check: $leftVal (${leftVal.raw.runtimeType}) ${node.op} $rightVal (${rightVal.raw.runtimeType})',
+         category: 'Expression',
+       );
+-      final multiValues = rightResult.raw as List;
+-      rightResult = multiValues.isNotEmpty ? multiValues[0] : Value(null);
+-    } else if (rightResult is List && rightResult.isNotEmpty) {
+-      rightResult = rightResult[0];
+-    }
+ 
+-    final leftVal = leftResult is Value ? leftResult : Value(leftResult);
+-    final rightVal = rightResult is Value ? rightResult : Value(rightResult);
+-
+-    Logger.debug(
+-      'BinaryExpression operands before metamethod check: $leftVal (${leftVal.raw.runtimeType}) ${node.op} $rightVal (${rightVal.raw.runtimeType})',
+-      category: 'Expression',
+-    );
+-
+-    // Check for metamethods first
+-    final opMap = {
+-      '+': '__add',
+-      '-': '__sub',
+-      '*': '__mul',
+-      '/': '__div',
+-      '%': '__mod',
+-      '^': '__pow',
+-      '//': '__idiv',
+-      '&': '__band',
+-      '|': '__bor',
+-      '~': '__bxor',
+-      '<<': '__shl',
+-      '>>': '__shr',
+-      '..': '__concat',
+-      '<': '__lt',
+-      '>': '__gt',
+-      '<=': '__le',
+-      '>=': '__ge',
+-      '==': '__eq',
+-      '~=': '__eq', // Negated result
+-      '!=': '__eq', // Negated result
+-    };
+-
+-    String? metamethodName = opMap[node.op];
+-    if (metamethodName != null) {
+-      bool swapArgs = false;
+-      bool invertResult = false;
+-      Value? calleeValue;
+-
+-      // Prefer left, then right for the direct mapping
+-      if (leftVal.hasMetamethod(metamethodName)) {
+-        calleeValue = leftVal;
+-      } else if (rightVal.hasMetamethod(metamethodName)) {
+-        calleeValue = rightVal;
+-      }
+-
+-      // Fallback mappings for comparisons when direct mapping not present
+-      if (calleeValue == null && node.op == '>') {
+-        if (rightVal.hasMetamethod('__lt')) {
+-          metamethodName = '__lt';
+-          calleeValue = rightVal;
+-          swapArgs = true;
+-        }
+-      } else if (calleeValue == null && node.op == '>=') {
+-        if (leftVal.hasMetamethod('__le')) {
+-          metamethodName = '__le';
++      // Check for metamethods first
++      final opMap = {
++        '+': '__add',
++        '-': '__sub',
++        '*': '__mul',
++        '/': '__div',
++        '%': '__mod',
++        '^': '__pow',
++        '//': '__idiv',
++        '&': '__band',
++        '|': '__bor',
++        '~': '__bxor',
++        '<<': '__shl',
++        '>>': '__shr',
++        '..': '__concat',
++        '<': '__lt',
++        '>': '__gt',
++        '<=': '__le',
++        '>=': '__ge',
++        '==': '__eq',
++        '~=': '__eq', // Negated result
++        '!=': '__eq', // Negated result
++      };
++
++      String? metamethodName = opMap[node.op];
++      if (metamethodName != null) {
++        bool swapArgs = false;
++        bool invertResult = false;
++        Value? calleeValue;
++
++        // Prefer left, then right for the direct mapping
++        if (leftVal.hasMetamethod(metamethodName)) {
+           calleeValue = leftVal;
+-          swapArgs = true;
+-        } else if (rightVal.hasMetamethod('__le')) {
+-          metamethodName = '__le';
+-          calleeValue = rightVal;
+-          swapArgs = true;
+-        } else if (rightVal.hasMetamethod('__lt')) {
+-          metamethodName = '__lt';
++        } else if (rightVal.hasMetamethod(metamethodName)) {
+           calleeValue = rightVal;
+-          swapArgs = true;
+-          invertResult = true;
+-        } else if (leftVal.hasMetamethod('__lt')) {
+-          metamethodName = '__lt';
+-          calleeValue = leftVal;
+-          // no swap here (left < right) and then invert
+-          invertResult = true;
+         }
+-      }
+ 
+-      if (calleeValue != null) {
+-        Logger.debug(
+-          'Using metamethod $metamethodName for operation ${node.op}',
+-          category: 'Expression',
+-        );
+-
+-        final callArgs = swapArgs ? [rightVal, leftVal] : [leftVal, rightVal];
+-        var result = await calleeValue.callMetamethodAsync(
+-          metamethodName,
+-          callArgs,
+-        );
+-
+-        // Metamethods can return multiple values, but binary operations only use
+-        // the first result. Normalize here to match Lua semantics.
+-        if (result is Value && result.isMulti && result.raw is List) {
+-          final values = result.raw as List;
+-          result = values.isNotEmpty ? values.first : Value(null);
+-        } else if (result is List) {
+-          result = result.isNotEmpty ? result.first : Value(null);
++        // Fallback mappings for comparisons when direct mapping not present
++        if (calleeValue == null && node.op == '>') {
++          if (rightVal.hasMetamethod('__lt')) {
++            metamethodName = '__lt';
++            calleeValue = rightVal;
++            swapArgs = true;
++          }
++        } else if (calleeValue == null && node.op == '>=') {
++          if (leftVal.hasMetamethod('__le')) {
++            metamethodName = '__le';
++            calleeValue = leftVal;
++            swapArgs = true;
++          } else if (rightVal.hasMetamethod('__le')) {
++            metamethodName = '__le';
++            calleeValue = rightVal;
++            swapArgs = true;
++          } else if (rightVal.hasMetamethod('__lt')) {
++            metamethodName = '__lt';
++            calleeValue = rightVal;
++            swapArgs = true;
++            invertResult = true;
++          } else if (leftVal.hasMetamethod('__lt')) {
++            metamethodName = '__lt';
++            calleeValue = leftVal;
++            // no swap here (left < right) and then invert
++            invertResult = true;
++          }
+         }
+ 
+-        // For inequality operators that use __eq, negate the result
+-        if ((node.op == '~=' || node.op == '!=') && metamethodName == '__eq') {
+-          if (result is bool) {
+-            return Value(!result);
+-          } else if (result is Value && result.raw is bool) {
+-            return Value(!result.raw);
++        if (calleeValue != null) {
++          Logger.debug(
++            'Using metamethod $metamethodName for operation ${node.op}',
++            category: 'Expression',
++          );
++
++          final callArgs = swapArgs ? [rightVal, leftVal] : [leftVal, rightVal];
++          var result = await calleeValue.callMetamethodAsync(
++            metamethodName,
++            callArgs,
++          );
++
++          // Metamethods can return multiple values, but binary operations only use
++          // the first result. Normalize here to match Lua semantics.
++          if (result is Value && result.isMulti && result.raw is List) {
++            final values = result.raw as List;
++            result = values.isNotEmpty ? values.first : Value(null);
++          } else if (result is List) {
++            result = result.isNotEmpty ? result.first : Value(null);
++          }
++
++          // For inequality operators that use __eq, negate the result
++          if ((node.op == '~=' || node.op == '!=') &&
++              metamethodName == '__eq') {
++            if (result is bool) {
++              return Value(!result);
++            } else if (result is Value && result.raw is bool) {
++              return Value(!result.raw);
++            }
+           }
+-        }
+ 
+-        if (invertResult) {
+-          if (result is bool) {
+-            result = !result;
+-          } else if (result is Value && result.raw is bool) {
+-            result = Value(!result.raw);
++          if (invertResult) {
++            if (result is bool) {
++              result = !result;
++            } else if (result is Value && result.raw is bool) {
++              result = Value(!result.raw);
++            }
+           }
++
++          return result is Value ? result : Value(result);
+         }
++      }
+ 
+-        return result is Value ? result : Value(result);
++      // If no metamethod found, use regular operators
++      if (node.op == '==') {
++        Logger.debug(
++          'Equality check: leftVal.raw type = ${leftVal.raw.runtimeType}, value = "${leftVal.raw}"',
++          category: 'Expression/Equality',
++        );
++        Logger.debug(
++          'Equality check: rightVal.raw type = ${rightVal.raw.runtimeType}, value = "${rightVal.raw}"',
++          category: 'Expression/Equality',
++        );
+       }
+-    }
++      var result = switch (node.op) {
++        '+' => leftVal + rightVal,
++        '-' => leftVal - rightVal,
++        '*' => leftVal * rightVal,
++        '/' => leftVal / rightVal,
++        '%' => leftVal % rightVal,
++        '^' => leftVal.exp(rightVal),
++        '//' => leftVal ~/ rightVal,
++        '&' => leftVal & rightVal,
++        '|' => leftVal | rightVal,
++        '~' => leftVal ^ rightVal,
++        '<<' => leftVal << rightVal,
++        '==' => leftVal == rightVal,
++        '~=' => leftVal != rightVal,
++        '!=' => leftVal != rightVal,
++        '>' => leftVal > rightVal,
++        '<' => leftVal < rightVal,
++        '>=' => leftVal >= rightVal,
++        '<=' => leftVal <= rightVal,
++        '>>' => leftVal >> rightVal,
++        '..' => leftVal.concat(rightVal),
++        'and' => leftVal.and(rightVal),
++        'or' => leftVal.or(rightVal),
++        _ => throw LuaError.typeError(
++          'Operation (${node.op}) not supported for these types [$leftVal, $rightVal]',
++        ),
++      };
+ 
+-    // If no metamethod found, use regular operators
+-    if (node.op == '==') {
+-      Logger.debug(
+-        'Equality check: leftVal.raw type = ${leftVal.raw.runtimeType}, value = "${leftVal.raw}"',
+-        category: 'Expression/Equality',
+-      );
+       Logger.debug(
+-        'Equality check: rightVal.raw type = ${rightVal.raw.runtimeType}, value = "${rightVal.raw}"',
+-        category: 'Expression/Equality',
++        'BinaryExpression result: $result (raw: ${(result is Value ? result.raw : result).runtimeType})',
++        category: 'Expression',
+       );
++      return result is Value ? result : Value(result);
++    } finally {
++      InterpreterState.setEvaluatingExpression(false);
+     }
+-    var result = switch (node.op) {
+-      '+' => leftVal + rightVal,
+-      '-' => leftVal - rightVal,
+-      '*' => leftVal * rightVal,
+-      '/' => leftVal / rightVal,
+-      '%' => leftVal % rightVal,
+-      '^' => leftVal.exp(rightVal),
+-      '//' => leftVal ~/ rightVal,
+-      '&' => leftVal & rightVal,
+-      '|' => leftVal | rightVal,
+-      '~' => leftVal ^ rightVal,
+-      '<<' => leftVal << rightVal,
+-      '==' => leftVal == rightVal,
+-      '~=' => leftVal != rightVal,
+-      '!=' => leftVal != rightVal,
+-      '>' => leftVal > rightVal,
+-      '<' => leftVal < rightVal,
+-      '>=' => leftVal >= rightVal,
+-      '<=' => leftVal <= rightVal,
+-      '>>' => leftVal >> rightVal,
+-      '..' => leftVal.concat(rightVal),
+-      'and' => leftVal.and(rightVal),
+-      'or' => leftVal.or(rightVal),
+-      _ => throw LuaError.typeError(
+-        'Operation (${node.op}) not supported for these types [$leftVal, $rightVal]',
+-      ),
+-    };
+-
+-    Logger.debug(
+-      'BinaryExpression result: $result (raw: ${(result is Value ? result.raw : result).runtimeType})',
+-      category: 'Expression',
+-    );
+-    return result is Value ? result : Value(result);
+   }
+ 
+   /// Evaluates a unary expression.
+@@ -276,77 +284,82 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
+   /// Returns the result of the unary operation.
+   @override
+   Future<Object?> visitUnaryExpression(UnaryExpression node) async {
+-    Logger.debug(
+-      'Visiting UnaryExpression: ${node.op} ${node.expr}',
+-      category: 'Expression',
+-    );
+-    dynamic operandResult = await node.expr.accept(this);
+-
+-    // In a unary expression, if the operand is a function call returning multiple values,
+-    // only the first return value should be used
+-    if (operandResult is Value && operandResult.isMulti) {
++    InterpreterState.setEvaluatingExpression(true);
++    try {
+       Logger.debug(
+-        'UnaryExpression: limiting multi-value result to first value',
++        'Visiting UnaryExpression: ${node.op} ${node.expr}',
+         category: 'Expression',
+       );
+-      final multiValues = operandResult.raw as List;
++      dynamic operandResult = await node.expr.accept(this);
+ 
+-      //special case for # operator
+-      if (node.op != "#") {
+-        operandResult = multiValues.isNotEmpty ? multiValues[0] : Value(null);
+-      }
+-    } else if (operandResult is List && operandResult.isNotEmpty) {
+-      operandResult = operandResult[0];
+-    }
+-
+-    final operandWrapped = operandResult is Value
+-        ? operandResult
+-        : Value(operandResult);
+-
+-    // Check for metamethods first
+-    final opMap = {
+-      '-': '__unm',
+-      '~': '__bnot',
+-      '#': '__len',
+-      // 'not' has no metamethod in Lua
+-    };
+-
+-    final metamethodName = opMap[node.op];
+-    if (metamethodName != null) {
+-      if (operandWrapped.hasMetamethod(metamethodName)) {
++      // In a unary expression, if the operand is a function call returning multiple values,
++      // only the first return value should be used
++      if (operandResult is Value && operandResult.isMulti) {
+         Logger.debug(
+-          'Using metamethod $metamethodName for unary operation ${node.op}',
++          'UnaryExpression: limiting multi-value result to first value',
+           category: 'Expression',
+         );
++        final multiValues = operandResult.raw as List;
+ 
+-        final args = [operandWrapped, operandWrapped];
+-        var result = await operandWrapped.callMetamethodAsync(
+-          metamethodName,
+-          args,
+-        );
+-
+-        if (result is Value && result.isMulti && result.raw is List) {
+-          final values = result.raw as List;
+-          result = values.isNotEmpty ? values.first : Value(null);
+-        } else if (result is List) {
+-          result = result.isNotEmpty ? result.first : Value(null);
++        //special case for # operator
++        if (node.op != "#") {
++          operandResult = multiValues.isNotEmpty ? multiValues[0] : Value(null);
+         }
++      } else if (operandResult is List && operandResult.isNotEmpty) {
++        operandResult = operandResult[0];
++      }
++
++      final operandWrapped = operandResult is Value
++          ? operandResult
++          : Value(operandResult);
++
++      // Check for metamethods first
++      final opMap = {
++        '-': '__unm',
++        '~': '__bnot',
++        '#': '__len',
++        // 'not' has no metamethod in Lua
++      };
++
++      final metamethodName = opMap[node.op];
++      if (metamethodName != null) {
++        if (operandWrapped.hasMetamethod(metamethodName)) {
++          Logger.debug(
++            'Using metamethod $metamethodName for unary operation ${node.op}',
++            category: 'Expression',
++          );
++
++          final args = [operandWrapped, operandWrapped];
++          var result = await operandWrapped.callMetamethodAsync(
++            metamethodName,
++            args,
++          );
++
++          if (result is Value && result.isMulti && result.raw is List) {
++            final values = result.raw as List;
++            result = values.isNotEmpty ? values.first : Value(null);
++          } else if (result is List) {
++            result = result.isNotEmpty ? result.first : Value(null);
++          }
+ 
+-        return result is Value ? result : Value(result);
++          return result is Value ? result : Value(result);
++        }
+       }
+-    }
+ 
+-    // If no metamethod found, use regular operators
+-    var result = switch (node.op) {
+-      "-" => -operandWrapped,
+-      "not" => Value(!operandWrapped.isTruthy()),
+-      "~" => ~operandWrapped,
+-      "#" => operandWrapped.length,
+-      _ => throw LuaError.typeError("Unknown unary operator ${node.op}"),
+-    };
+-
+-    Logger.debug('UnaryExpression result: $result', category: 'Expression');
+-    return result is Value ? result : Value(result);
++      // If no metamethod found, use regular operators
++      var result = switch (node.op) {
++        "-" => -operandWrapped,
++        "not" => Value(!operandWrapped.isTruthy()),
++        "~" => ~operandWrapped,
++        "#" => operandWrapped.length,
++        _ => throw LuaError.typeError("Unknown unary operator ${node.op}"),
++      };
++
++      Logger.debug('UnaryExpression result: $result', category: 'Expression');
++      return result is Value ? result : Value(result);
++    } finally {
++      InterpreterState.setEvaluatingExpression(false);
++    }
+   }
+ 
+   /// Evaluates a variable reference.
+@@ -357,90 +370,96 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
+   /// Returns the value of the variable, or null if not found.
+   @override
+   Future<Object?> visitIdentifier(Identifier node) async {
+-    Logger.debug('Visiting Identifier: ${node.name}', category: 'Expression');
+-
+-    // Special case: always look up _ENV and _G from the global environment directly
+-    // to avoid infinite recursion
+-    if (node.name == '_ENV' || node.name == '_G') {
+-      final value = globals.get(node.name);
+-      if (value == null) {
++    InterpreterState.setInVariableAccess(true);
++    try {
++      Logger.debug('Visiting Identifier: ${node.name}', category: 'Expression');
++
++      // Special case: always look up _ENV and _G from the global environment directly
++      // to avoid infinite recursion
++      if (node.name == '_ENV' || node.name == '_G') {
++        final value = globals.get(node.name);
++        if (value == null) {
++          Logger.debug(
++            'Identifier ${node.name} not found, returning nil',
++            category: 'Expression',
++          );
++          return Value(null);
++        }
+         Logger.debug(
+-          'Identifier ${node.name} not found, returning nil',
++          'Identifier ${node.name} resolved to: $value (type: ${value.runtimeType})',
+           category: 'Expression',
+         );
+-        return Value(null);
++        return value is Value ? value : Value(value);
+       }
+-      Logger.debug(
+-        'Identifier ${node.name} resolved to: $value (type: ${value.runtimeType})',
+-        category: 'Expression',
+-      );
+-      return value is Value ? value : Value(value);
+-    }
+ 
+-    // Check for a local variable in the current environment. When executing
+-    // inside a function, the current environment will have a parent. Globals
+-    // live in the root environment (which has no parent). Locals should take
+-    // precedence over entries in `_ENV`.
+-    // Search up the environment chain for a local variable with this name
+-    Environment? env = globals;
+-    while (env != null) {
+-      if (env.values.containsKey(node.name) && env.values[node.name]!.isLocal) {
+-        final val = env.values[node.name]!.value;
+-        return val is Value ? val : Value(val);
++      // Check for a local variable in the current environment. When executing
++      // inside a function, the current environment will have a parent. Globals
++      // live in the root environment (which has no parent). Locals should take
++      // precedence over entries in `_ENV`.
++      // Search up the environment chain for a local variable with this name
++      Environment? env = globals;
++      while (env != null) {
++        if (env.values.containsKey(node.name) &&
++            env.values[node.name]!.isLocal) {
++          final val = env.values[node.name]!.value;
++          return val is Value ? val : Value(val);
++        }
++        env = env.parent;
+       }
+-      env = env.parent;
+-    }
+ 
+-    // Check current function's upvalues if we're executing within a function
+-    if (this is Interpreter) {
+-      final currentFunction = (this as Interpreter).getCurrentFunction();
+-      if (currentFunction != null && currentFunction.upvalues != null) {
+-        for (final upvalue in currentFunction.upvalues!) {
+-          if (upvalue.name == node.name) {
+-            Logger.debug(
+-              'Resolving identifier ${node.name} via function upvalue',
+-              category: 'Expression',
+-            );
+-            final value = upvalue.getValue();
+-            return value is Value ? value : Value(value);
++      // Check current function's upvalues if we're executing within a function
++      if (this is Interpreter) {
++        final currentFunction = (this as Interpreter).getCurrentFunction();
++        if (currentFunction != null && currentFunction.upvalues != null) {
++          for (final upvalue in currentFunction.upvalues!) {
++            if (upvalue.name == node.name) {
++              Logger.debug(
++                'Resolving identifier ${node.name} via function upvalue',
++                category: 'Expression',
++              );
++              final value = upvalue.getValue();
++              return value is Value ? value : Value(value);
++            }
+           }
+         }
+       }
+-    }
+ 
+-    // Route global lookups through _ENV to match Lua semantics.
+-    // In Lua 5.2+, chunks access globals via the upvalue `_ENV`.
+-    // We emulate that here by always trying `_ENV[name]` after checking locals.
+-    final envValue = globals.get('_ENV');
+-    if (envValue is Value && envValue.raw != null) {
+-      if (envValue.raw is Map) {
++      // Route global lookups through _ENV to match Lua semantics.
++      // In Lua 5.2+, chunks access globals via the upvalue `_ENV`.
++      // We emulate that here by always trying `_ENV[name]` after checking locals.
++      final envValue = globals.get('_ENV');
++      if (envValue is Value && envValue.raw != null) {
++        if (envValue.raw is Map) {
++          Logger.debug(
++            'Resolving global via _ENV for: ${node.name}',
++            category: 'Expression',
++          );
++          final result = await envValue.getValueAsync(Value(node.name));
++          return result is Value ? result : Value(result);
++        } else {
++          // Non-table _ENV: any variable lookup is an index on that value -> error
++          final tname = getLuaType(envValue.raw);
++          throw LuaError.typeError('attempt to index a $tname value');
++        }
++      }
++
++      // Fallback: look up in the current environment chain
++      final value = globals.get(node.name);
++      if (value == null) {
+         Logger.debug(
+-          'Resolving global via _ENV for: ${node.name}',
++          'Identifier ${node.name} not found, returning nil',
+           category: 'Expression',
+         );
+-        final result = await envValue.getValueAsync(Value(node.name));
+-        return result is Value ? result : Value(result);
+-      } else {
+-        // Non-table _ENV: any variable lookup is an index on that value -> error
+-        final tname = getLuaType(envValue.raw);
+-        throw LuaError.typeError('attempt to index a $tname value');
++        return Value(null);
+       }
+-    }
+-
+-    // Fallback: look up in the current environment chain
+-    final value = globals.get(node.name);
+-    if (value == null) {
+       Logger.debug(
+-        'Identifier ${node.name} not found, returning nil',
++        'Identifier ${node.name} resolved (fallback) to: $value (type: ${value.runtimeType})',
+         category: 'Expression',
+       );
+-      return Value(null);
++      return value is Value ? value : Value(value);
++    } finally {
++      InterpreterState.setInVariableAccess(false);
+     }
+-    Logger.debug(
+-      'Identifier ${node.name} resolved (fallback) to: $value (type: ${value.runtimeType})',
+-      category: 'Expression',
+-    );
+-    return value is Value ? value : Value(value);
+   }
+ 
+   /// Processes a vararg expression.
+diff --git a/pkgs/lualike/lib/src/interpreter/function.dart b/pkgs/lualike/lib/src/interpreter/function.dart
+index 67aeef9..ad8e8b2 100644
+--- a/pkgs/lualike/lib/src/interpreter/function.dart
++++ b/pkgs/lualike/lib/src/interpreter/function.dart
+@@ -319,7 +319,6 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
+     return funcValue;
+   }
+ 
+-
+   /// Evaluates a function literal.
+   ///
+   /// Creates a closure that captures the current environment and
+@@ -341,102 +340,109 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
+   /// Returns the result of the function call.
+   @override
+   Future<Object?> visitFunctionCall(FunctionCall node) async {
+-    Logger.debug(
+-      'Visiting FunctionCall: ${node.name}',
+-      category: 'Interpreter',
+-    );
+-
+-    // Record trace information
+-    this is Interpreter ? (this as Interpreter).recordTrace(node) : null;
+-
+-    // Evaluate the function (callee). If it yields multiple values, use only
+-    // the first value as the function to call (Lua semantics).
+-    dynamic func = await node.name.accept(this);
+-    if (func is Value && func.isMulti) {
+-      final multi = func.raw as List;
+-      func = multi.isNotEmpty ? multi.first : Value(null);
+-    } else if (func is List && func.isNotEmpty) {
+-      func = func.first;
+-    }
+-    Logger.debug(
+-      'Function evaluated to: $func (${func.runtimeType})',
+-      category: 'Interpreter',
+-    );
+-
+-    // Evaluate the arguments with proper multi-value handling
+-    final args = <Object?>[];
+-
+-    for (int i = 0; i < node.args.length; i++) {
+-      final arg = node.args[i];
++    InterpreterState.setInFunctionCall(true);
++    try {
++      Logger.debug(
++        'Visiting FunctionCall: ${node.name}',
++        category: 'Interpreter',
++      );
+ 
+-      final value = await arg.accept(this);
++      // Record trace information
++      this is Interpreter ? (this as Interpreter).recordTrace(node) : null;
++
++      // Evaluate the function (callee). If it yields multiple values, use only
++      // the first value as the function to call (Lua semantics).
++      dynamic func = await node.name.accept(this);
++      if (func is Value && func.isMulti) {
++        final multi = func.raw as List;
++        func = multi.isNotEmpty ? multi.first : Value(null);
++      } else if (func is List && func.isNotEmpty) {
++        func = func.first;
++      }
+       Logger.debug(
+-        'Argument evaluated to: $value (${value.runtimeType})',
++        'Function evaluated to: $func (${func.runtimeType})',
+         category: 'Interpreter',
+       );
+ 
+-      // Special handling for the last argument
+-      if (i == node.args.length - 1) {
+-        if (value is Value && value.isMulti) {
+-          // Expand multi-values from the last argument
+-          args.addAll(
+-            (value.raw as List<Object?>).map((v) => v is Value ? v : Value(v)),
+-          );
+-        } else if (value is List) {
+-          // Expand list from the last argument
+-          args.addAll(value.map((v) => v is Value ? v : Value(v)));
+-        } else {
+-          // Regular value
+-          args.add(value is Value ? value : Value(value));
+-        }
+-      } else {
+-        // For non-last arguments, only take the first value of multi-returns
+-        if (value is Value && value.isMulti) {
+-          final multiValues = value.raw as List;
+-          args.add(multiValues.isNotEmpty ? multiValues.first : Value(null));
+-        } else if (value is List && value.isNotEmpty) {
+-          args.add(value[0] is Value ? value[0] : Value(value[0]));
++      // Evaluate the arguments with proper multi-value handling
++      final args = <Object?>[];
++
++      for (int i = 0; i < node.args.length; i++) {
++        final arg = node.args[i];
++
++        final value = await arg.accept(this);
++        Logger.debug(
++          'Argument evaluated to: $value (${value.runtimeType})',
++          category: 'Interpreter',
++        );
++
++        // Special handling for the last argument
++        if (i == node.args.length - 1) {
++          if (value is Value && value.isMulti) {
++            // Expand multi-values from the last argument
++            args.addAll(
++              (value.raw as List<Object?>).map(
++                (v) => v is Value ? v : Value(v),
++              ),
++            );
++          } else if (value is List) {
++            // Expand list from the last argument
++            args.addAll(value.map((v) => v is Value ? v : Value(v)));
++          } else {
++            // Regular value
++            args.add(value is Value ? value : Value(value));
++          }
+         } else {
+-          // Regular value
+-          args.add(value is Value ? value : Value(value));
++          // For non-last arguments, only take the first value of multi-returns
++          if (value is Value && value.isMulti) {
++            final multiValues = value.raw as List;
++            args.add(multiValues.isNotEmpty ? multiValues.first : Value(null));
++          } else if (value is List && value.isNotEmpty) {
++            args.add(value[0] is Value ? value[0] : Value(value[0]));
++          } else {
++            // Regular value
++            args.add(value is Value ? value : Value(value));
++          }
+         }
+       }
+-    }
+ 
+-    // Get function name for call stack
+-    String functionName = 'function';
+-    if (node.name is Identifier) {
+-      functionName = (node.name as Identifier).name;
+-    } else if (node.name is TableAccessExpr) {
+-      final tableAccess = node.name as TableAccessExpr;
+-      if (tableAccess.index is Identifier) {
+-        functionName = (tableAccess.index as Identifier).name;
+-      } else {
+-        functionName = 'method';
+-      }
+-    } else if (func is Value) {
+-      if (func.raw is FunctionDef) {
+-        final funcDef = func.raw as FunctionDef;
+-        functionName = funcDef.name.first.name;
+-      } else if (func.raw is Function) {
+-        functionName = 'function';
++      // Get function name for call stack
++      String functionName = 'function';
++      if (node.name is Identifier) {
++        functionName = (node.name as Identifier).name;
++      } else if (node.name is TableAccessExpr) {
++        final tableAccess = node.name as TableAccessExpr;
++        if (tableAccess.index is Identifier) {
++          functionName = (tableAccess.index as Identifier).name;
++        } else {
++          functionName = 'method';
++        }
++      } else if (func is Value) {
++        if (func.raw is FunctionDef) {
++          final funcDef = func.raw as FunctionDef;
++          functionName = funcDef.name.first.name;
++        } else if (func.raw is Function) {
++          functionName = 'function';
++        }
+       }
+-    }
+ 
+-    // Call the function with the determined function name
+-    try {
+-      final result = await _callFunction(func, args, functionName);
+-      Logger.debug(
+-        'Function call result: $result (${result.runtimeType})',
+-        category: 'Interpreter',
+-      );
+-      return result;
+-    } on LuaError catch (e, s) {
+-      final interpreter = this as Interpreter;
+-      if (!interpreter.isInProtectedCall) {
+-        interpreter.reportError(e.message, trace: s, error: e, node: node);
++      // Call the function with the determined function name
++      try {
++        final result = await _callFunction(func, args, functionName);
++        Logger.debug(
++          'Function call result: $result (${result.runtimeType})',
++          category: 'Interpreter',
++        );
++        return result;
++      } on LuaError catch (e, s) {
++        final interpreter = this as Interpreter;
++        if (!interpreter.isInProtectedCall) {
++          interpreter.reportError(e.message, trace: s, error: e, node: node);
++        }
++        rethrow;
+       }
+-      rethrow;
++    } finally {
++      InterpreterState.setInFunctionCall(false);
+     }
+   }
+ 
+@@ -448,83 +454,88 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
+   /// Returns the result of the method call.
+   @override
+   Future<Object?> visitMethodCall(MethodCall node) async {
+-    Logger.debug(
+-      'Visiting MethodCall: {node.prefix}.${node.methodName}',
+-      category: 'Interpreter',
+-    );
+-
+-    // Get object
+-    var obj = await node.prefix.accept(this);
+-    final objVal = obj is Value ? obj : Value(obj);
+-    Logger.debug(
+-      '[MethodCall] Receiver (prefix) value: $obj',
+-      category: 'Interpreter',
+-    );
+-
+-    // Evaluate arguments
+-    List<dynamic> args = await Future.wait(
+-      node.args.map((a) async => await a.accept(this)).toList(),
+-    );
+-    Logger.debug(
+-      '[MethodCall] Arguments before implicitSelf: $args',
+-      category: 'Interpreter',
+-    );
++    InterpreterState.setInFunctionCall(true);
++    try {
++      Logger.debug(
++        'Visiting MethodCall: {node.prefix}.${node.methodName}',
++        category: 'Interpreter',
++      );
+ 
+-    if (node.implicitSelf) {
+-      args = [objVal, ...args];
++      // Get object
++      var obj = await node.prefix.accept(this);
++      final objVal = obj is Value ? obj : Value(obj);
+       Logger.debug(
+-        '[MethodCall] Arguments after implicitSelf: $args',
++        '[MethodCall] Receiver (prefix) value: $obj',
+         category: 'Interpreter',
+       );
+-    }
+ 
+-    // Get method name
+-    final methodName = node.methodName is Identifier
+-        ? (node.methodName as Identifier).name
+-        : node.methodName.toString();
+-    Logger.debug(
+-      '[MethodCall] Method name: $methodName',
+-      category: 'Interpreter',
+-    );
++      // Evaluate arguments
++      List<dynamic> args = await Future.wait(
++        node.args.map((a) async => await a.accept(this)).toList(),
++      );
++      Logger.debug(
++        '[MethodCall] Arguments before implicitSelf: $args',
++        category: 'Interpreter',
++      );
+ 
+-    if (objVal.hasMetamethod('__index')) {
+-      final aFunc = await objVal.callMetamethodAsync('__index', [
+-        objVal,
+-        Value(methodName),
+-      ]);
+-      if (aFunc != null) {
++      if (node.implicitSelf) {
++        args = [objVal, ...args];
+         Logger.debug(
+-          '[MethodCall] Calling __index metamethod result for method: $methodName',
++          '[MethodCall] Arguments after implicitSelf: $args',
+           category: 'Interpreter',
+         );
+-        // Route through unified call path to support tail calls, yields, etc.
+-        final fnValue = aFunc is Value ? aFunc : Value(aFunc);
+-        return await _callFunction(fnValue, args, methodName);
+       }
+-    }
+ 
+-    // Look up the method
+-    dynamic func;
+-    if (objVal.containsKey(methodName)) {
+-      func = objVal[methodName];
+-    } else {
+-      func = objVal[methodName];
+-    }
++      // Get method name
++      final methodName = node.methodName is Identifier
++          ? (node.methodName as Identifier).name
++          : node.methodName.toString();
++      Logger.debug(
++        '[MethodCall] Method name: $methodName',
++        category: 'Interpreter',
++      );
+ 
+-    // Make sure func is a Value
+-    func = func is Value ? func : Value(func);
+-    Logger.debug(
+-      '[MethodCall] Function to call: $func',
+-      category: 'Interpreter',
+-    );
++      if (objVal.hasMetamethod('__index')) {
++        final aFunc = await objVal.callMetamethodAsync('__index', [
++          objVal,
++          Value(methodName),
++        ]);
++        if (aFunc != null) {
++          Logger.debug(
++            '[MethodCall] Calling __index metamethod result for method: $methodName',
++            category: 'Interpreter',
++          );
++          // Route through unified call path to support tail calls, yields, etc.
++          final fnValue = aFunc is Value ? aFunc : Value(aFunc);
++          return await _callFunction(fnValue, args, methodName);
++        }
++      }
+ 
+-    // Build final argument list (prepend receiver when not implicitSelf)
+-    final callArgs = node.implicitSelf ? args : [objVal, ...args];
+-    Logger.debug(
+-      '[MethodCall] Dispatch via _callFunction with args: $callArgs',
+-      category: 'Interpreter',
+-    );
+-    return await _callFunction(func, callArgs, methodName);
++      // Look up the method
++      dynamic func;
++      if (objVal.containsKey(methodName)) {
++        func = objVal[methodName];
++      } else {
++        func = objVal[methodName];
++      }
++
++      // Make sure func is a Value
++      func = func is Value ? func : Value(func);
++      Logger.debug(
++        '[MethodCall] Function to call: $func',
++        category: 'Interpreter',
++      );
++
++      // Build final argument list (prepend receiver when not implicitSelf)
++      final callArgs = node.implicitSelf ? args : [objVal, ...args];
++      Logger.debug(
++        '[MethodCall] Dispatch via _callFunction with args: $callArgs',
++        category: 'Interpreter',
++      );
++      return await _callFunction(func, callArgs, methodName);
++    } finally {
++      InterpreterState.setInFunctionCall(false);
++    }
+   }
+ 
+   /// Evaluates a return statement.
+diff --git a/pkgs/lualike/lib/src/interpreter/interpreter.dart b/pkgs/lualike/lib/src/interpreter/interpreter.dart
+index 9e6424a..902ba14 100644
+--- a/pkgs/lualike/lib/src/interpreter/interpreter.dart
++++ b/pkgs/lualike/lib/src/interpreter/interpreter.dart
+@@ -21,6 +21,7 @@ import 'package:lualike/src/upvalue.dart';
+ 
+ import '../exceptions.dart';
+ import '../extensions/extensions.dart';
++import 'interpreter_state.dart';
+ 
+ part 'assignment.dart';
+ part 'control_flow.dart';
+@@ -221,15 +222,27 @@ class Interpreter extends AstVisitor<Object?>
+   /// "An object is considered dead as soon as the collector can be sure the object
+   /// will not be accessed again in the normal execution of the program."
+   List<Object?> getRoots() {
+-    return [
+-      _currentEnv, // Current environment (includes globals)
++    final roots = <Object?>[];
++
++    // Add Box objects from current environment chain instead of Environment itself
++    Environment? env = _currentEnv;
++    while (env != null) {
++      for (final box in env.values.values) {
++        roots.add(box); // Box extends GCObject
++      }
++      env = env.parent;
++    }
++
++    roots.addAll([
+       callStack, // Active call stack
+       evalStack, // Evaluation stack
+       _traceBuffer, // The circular buffer
+       _currentCoroutine, // Currently executing coroutine
+       _mainThread, // Main thread coroutine
+       _activeCoroutines, // Set of all active coroutines
+-    ];
++    ]);
++
++    return roots;
+   }
+ 
+   /// Sets the current environment.
+@@ -273,9 +286,7 @@ class Interpreter extends AstVisitor<Object?>
+     this.fileManager.setInterpreter(this);
+ 
+     GenerationalGCManager.initialize(this);
+-    GenerationalGCManager.instance.register(
+-      _currentEnv,
+-    ); // Register the initial environment
++    // Environment is now stack-managed, not GC-managed
+ 
+     // Initialize coroutines before the standard library
+     initializeCoroutines();
+@@ -620,7 +631,23 @@ class Interpreter extends AstVisitor<Object?>
+       );
+       recordTrace(node);
+       try {
+-        result = await node.accept(this);
++        InterpreterState.enterUnsafeRegion('statement execution');
++        try {
++          result = await node.accept(this);
++
++          // Trigger periodic GC to prevent memory accumulation during long loops
++          if (index % 25 == 0 && index > 0) { // Every 25 statements (more frequent)
++            Logger.debug('Periodic GC check at statement $index', category: 'GC');
++            try {
++              await gc.checkAndCollectIfNeeded();
++            } catch (gcError) {
++              Logger.debug('GC error during periodic check: $gcError', category: 'GC');
++              // Continue execution even if GC fails
++            }
++          }
++        } finally {
++          InterpreterState.exitUnsafeRegion('statement execution');
++        }
+         index++;
+       } on GotoException catch (e) {
+         if (!labelMap.containsKey(e.label)) {
+@@ -670,7 +697,7 @@ class Interpreter extends AstVisitor<Object?>
+   }
+ 
+   /// Runtime upvalue analysis to find which variables should be captured as upvalues.
+-  /// 
++  ///
+   /// This replaces the static analysis approach with runtime detection based on
+   /// the actual environment state when the function is created.
+   List<Upvalue> _findUpvalues(FunctionBody body, Environment env) {
+@@ -883,7 +910,7 @@ class Interpreter extends AstVisitor<Object?>
+         // Use the original Box from the upvalue to maintain reference sharing
+         // This ensures that modifications to upvalues persist across function calls
+         execEnv.values[upvalue.name!] = upvalue.valueBox;
+-        
++
+         Logger.debug(
+           'Captured upvalue ${upvalue.name} = ${upvalue.getValue()} (box: ${upvalue.valueBox})',
+           category: 'Interpreter',
+@@ -891,4 +918,30 @@ class Interpreter extends AstVisitor<Object?>
+       }
+     }
+   }
++
++  /// Disposes of the interpreter and cleans up resources.
++  /// This method should be called when the interpreter is no longer needed
++  /// to ensure proper cleanup of GC resources and streams.
++  Future<void> dispose() async {
++    Logger.debug('Disposing interpreter', category: 'Interpreter');
++
++    try {
++      // Stop the GC manager to clean up streams and timers
++      gc.stop();
++    } catch (e) {
++      Logger.debug('Error stopping GC: $e', category: 'Interpreter');
++    }
++
++    // Close all active coroutines
++    for (final coroutine in _activeCoroutines.toList()) {
++      try {
++        await coroutine.close();
++      } catch (e) {
++        Logger.debug('Error closing coroutine: $e', category: 'Interpreter');
++      }
++    }
++    _activeCoroutines.clear();
++
++    Logger.debug('Interpreter disposed', category: 'Interpreter');
++  }
+ }
+diff --git a/pkgs/lualike/lib/src/interpreter/table.dart b/pkgs/lualike/lib/src/interpreter/table.dart
+index e013afd..0a5ea9b 100644
+--- a/pkgs/lualike/lib/src/interpreter/table.dart
++++ b/pkgs/lualike/lib/src/interpreter/table.dart
+@@ -12,87 +12,92 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
+   /// Returns the value at the specified index in the table.
+   @override
+   Future<Object?> visitTableAccess(TableAccessExpr node) async {
+-    Logger.info(
+-      'Accessing table: ${node.table} with key: ${node.index}',
+-      category: 'TableAccess',
+-    );
+-    var table = await node.table.accept(this);
+-    if (table is Value && table.isMulti) {
+-      final values = table.raw as List;
+-      table = values.isNotEmpty ? values.first : Value(null);
+-    } else if (table is List && table.isNotEmpty) {
+-      table = table.first;
+-    }
+-    Object? indexResult;
+-
+-    if (node.index is Identifier) {
+-      // Get the identifier name
+-      final identName = (node.index as Identifier).name;
+-
+-      if (identName.isNotEmpty && (table as Value).containsKey(identName)) {
+-        Logger.debug(
+-          'Identifier "$identName" found in table: $table',
+-          category: 'Interpreter',
+-        );
+-        return table[identName];
+-      }
+-      // First check if this is a variable in the environment
+-      try {
+-        indexResult = globals.get(identName);
+-        Logger.debug(
+-          'Identifier "$identName" found in globals: $indexResult',
+-          category: 'Interpreter',
+-        );
+-      } catch (_) {
+-        // Not found in globals, will use as a direct string key
+-        indexResult = identName;
+-        Logger.debug(
+-          'Identifier "$identName" not found in globals, using as direct key',
+-          category: 'Interpreter',
+-        );
++    InterpreterState.enterUnsafeRegion('table access');
++    try {
++      Logger.info(
++        'Accessing table: ${node.table} with key: ${node.index}',
++        category: 'TableAccess',
++      );
++      var table = await node.table.accept(this);
++      if (table is Value && table.isMulti) {
++        final values = table.raw as List;
++        table = values.isNotEmpty ? values.first : Value(null);
++      } else if (table is List && table.isNotEmpty) {
++        table = table.first;
+       }
++      Object? indexResult;
+ 
+-      // If the lookup result is nil, use the name as a direct key
+-      if ((indexResult is Value && indexResult.raw == null)) {
+-        indexResult = identName;
+-        Logger.debug(
+-          'Using "$identName" as direct table key (nil value or not found)',
+-          category: 'Interpreter',
+-        );
+-      }
+-    } else {
+-      // Non-identifier index, evaluate normally
+-      indexResult = await node.index.accept(this);
++      if (node.index is Identifier) {
++        // Get the identifier name
++        final identName = (node.index as Identifier).name;
+ 
+-      // If the index is a multi-value (like from varargs), use only the first value
+-      if (indexResult is Value && indexResult.isMulti) {
+-        final values = indexResult.raw as List;
+-        indexResult = values.isNotEmpty ? values[0] : Value(null);
++        if (identName.isNotEmpty && (table as Value).containsKey(identName)) {
++          Logger.debug(
++            'Identifier "$identName" found in table: $table',
++            category: 'Interpreter',
++          );
++          return table[identName];
++        }
++        // First check if this is a variable in the environment
++        try {
++          indexResult = globals.get(identName);
++          Logger.debug(
++            'Identifier "$identName" found in globals: $indexResult',
++            category: 'Interpreter',
++          );
++        } catch (_) {
++          // Not found in globals, will use as a direct string key
++          indexResult = identName;
++          Logger.debug(
++            'Identifier "$identName" not found in globals, using as direct key',
++            category: 'Interpreter',
++          );
++        }
++
++        // If the lookup result is nil, use the name as a direct key
++        if ((indexResult is Value && indexResult.raw == null)) {
++          indexResult = identName;
++          Logger.debug(
++            'Using "$identName" as direct table key (nil value or not found)',
++            category: 'Interpreter',
++          );
++        }
++      } else {
++        // Non-identifier index, evaluate normally
++        indexResult = await node.index.accept(this);
++
++        // If the index is a multi-value (like from varargs), use only the first value
++        if (indexResult is Value && indexResult.isMulti) {
++          final values = indexResult.raw as List;
++          indexResult = values.isNotEmpty ? values[0] : Value(null);
++        }
+       }
+-    }
+ 
+-    // Ensure proper Value wrapping
+-    final tableVal = table is Value ? table : Value(table);
+-    final indexVal = indexResult is Value ? indexResult : Value(indexResult);
++      // Ensure proper Value wrapping
++      final tableVal = table is Value ? table : Value(table);
++      final indexVal = indexResult is Value ? indexResult : Value(indexResult);
+ 
+-    Logger.info(
+-      'TableAccess: ${tableVal.toString()}[${indexVal.toString()}]',
+-      category: 'TableAccess',
+-    );
++      Logger.info(
++        'TableAccess: ${tableVal.toString()}[${indexVal.toString()}]',
++        category: 'TableAccess',
++      );
+ 
+-    if (tableVal.raw is! Map) {
+-      if (tableVal.raw == null) {
+-        throw LuaError.typeError('attempt to index a nil value');
++      if (tableVal.raw is! Map) {
++        if (tableVal.raw == null) {
++          throw LuaError.typeError('attempt to index a nil value');
++        }
++        // If the value is not a table, throw a type error with details
++        throw LuaError.typeError(
++          'attempt to index a ${tableVal.raw.runtimeType} value',
++        );
+       }
+-      // If the value is not a table, throw a type error with details
+-      throw LuaError.typeError(
+-        'attempt to index a ${tableVal.raw.runtimeType} value',
+-      );
+-    }
+ 
+-    final result = tableVal[indexVal];
+-    Logger.debug('TableAccess result: $result', category: 'Interpreter');
+-    return result;
++      final result = tableVal[indexVal];
++      Logger.debug('TableAccess result: $result', category: 'Interpreter');
++      return result;
++    } finally {
++      InterpreterState.exitUnsafeRegion('table access');
++    }
+   }
+ 
+   /// Evaluates a table field access expression (table.field).
+@@ -103,88 +108,96 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
+   /// Returns the value at the specified field in the table.
+   @override
+   Future<Object?> visitTableFieldAccess(TableFieldAccess node) async {
+-    Logger.info(
+-      'Accessing table field: ${node.table}.${node.fieldName.name}',
+-      category: 'TableAccess',
+-    );
+-    var table = await node.table.accept(this);
+-    if (table is Value && table.isMulti) {
+-      final values = table.raw as List;
+-      table = values.isNotEmpty ? values.first : Value(null);
+-    } else if (table is List && table.isNotEmpty) {
+-      table = table.first;
+-    }
++    InterpreterState.enterUnsafeRegion('table field access');
++    try {
++      Logger.info(
++        'Accessing table field: ${node.table}.${node.fieldName.name}',
++        category: 'TableAccess',
++      );
++      var table = await node.table.accept(this);
++      if (table is Value && table.isMulti) {
++        final values = table.raw as List;
++        table = values.isNotEmpty ? values.first : Value(null);
++      } else if (table is List && table.isNotEmpty) {
++        table = table.first;
++      }
+ 
+-    // For field access, always use the field name as a literal string key
+-    final fieldKey = node.fieldName.name;
++      // For field access, always use the field name as a literal string key
++      final fieldKey = node.fieldName.name;
+ 
+-    // Ensure proper Value wrapping
+-    final tableVal = table is Value ? table : Value(table);
+-    final indexVal = Value(fieldKey);
++      // Ensure proper Value wrapping
++      final tableVal = table is Value ? table : Value(table);
++      final indexVal = Value(fieldKey);
+ 
+-    Logger.info(
+-      'TableFieldAccess: ${tableVal.toString()}.$fieldKey',
+-      category: 'TableAccess',
+-    );
++      Logger.info(
++        'TableFieldAccess: ${tableVal.toString()}.$fieldKey',
++        category: 'TableAccess',
++      );
++
++      if (tableVal.raw is! Map) {
++        if (tableVal.hasMetamethod('__index')) {
++          Logger.debug('DEBUG: Calling __index metamethod for non-table field');
++          final result = await tableVal.callMetamethodAsync('__index', [
++            tableVal,
++            indexVal,
++          ]);
++          return result;
++        }
++        if (tableVal.raw == null) {
++          throw LuaError.typeError('attempt to index a nil value');
++        }
++        throw LuaError.typeError(
++          'attempt to index a ${tableVal.raw.runtimeType} value',
++        );
++      }
++
++      Logger.debug(
++        'DEBUG: TableFieldAccess - key: ${indexVal.raw}, exists: ${(tableVal.raw as Map).containsKey(indexVal.raw)}',
++      );
++
++      // Normalize the key when checking existence
++      var rawKey = indexVal.raw;
++      if (rawKey is LuaString) {
++        rawKey = rawKey.toString();
++      }
++
++      // Check if key exists in table first
++      if (tableVal.raw is Map && (tableVal.raw as Map).containsKey(rawKey)) {
++        // Key exists, get it directly
++        Logger.debug('DEBUG: Key exists, getting directly');
++        final result = tableVal[indexVal];
++        Logger.debug(
++          'TableFieldAccess result: $result',
++          category: 'Interpreter',
++        );
++        return result;
++      }
+ 
+-    if (tableVal.raw is! Map) {
++      // Key doesn't exist, check for __index metamethod
+       if (tableVal.hasMetamethod('__index')) {
+-        Logger.debug('DEBUG: Calling __index metamethod for non-table field');
++        Logger.debug('DEBUG: Key not found, calling __index metamethod');
++        // Call metamethod asynchronously
+         final result = await tableVal.callMetamethodAsync('__index', [
+           tableVal,
+           indexVal,
+         ]);
++        Logger.debug(
++          'TableFieldAccess __index result: $result',
++          category: 'Interpreter',
++        );
+         return result;
+       }
+-      if (tableVal.raw == null) {
+-        throw LuaError.typeError('attempt to index a nil value');
+-      }
+-      throw LuaError.typeError(
+-        'attempt to index a ${tableVal.raw.runtimeType} value',
+-      );
+-    }
+ 
+-    Logger.debug(
+-      'DEBUG: TableFieldAccess - key: ${indexVal.raw}, exists: ${(tableVal.raw as Map).containsKey(indexVal.raw)}',
+-    );
+-
+-    // Normalize the key when checking existence
+-    var rawKey = indexVal.raw;
+-    if (rawKey is LuaString) {
+-      rawKey = rawKey.toString();
+-    }
+-
+-    // Check if key exists in table first
+-    if (tableVal.raw is Map && (tableVal.raw as Map).containsKey(rawKey)) {
+-      // Key exists, get it directly
+-      Logger.debug('DEBUG: Key exists, getting directly');
+-      final result = tableVal[indexVal];
+-      Logger.debug('TableFieldAccess result: $result', category: 'Interpreter');
+-      return result;
+-    }
+-
+-    // Key doesn't exist, check for __index metamethod
+-    if (tableVal.hasMetamethod('__index')) {
+-      Logger.debug('DEBUG: Key not found, calling __index metamethod');
+-      // Call metamethod asynchronously
+-      final result = await tableVal.callMetamethodAsync('__index', [
+-        tableVal,
+-        indexVal,
+-      ]);
++      // No metamethod, return nil
++      Logger.debug('DEBUG: No metamethod, returning nil');
+       Logger.debug(
+-        'TableFieldAccess __index result: $result',
++        'TableFieldAccess result: nil (no metamethod)',
+         category: 'Interpreter',
+       );
+-      return result;
++      return Value(null);
++    } finally {
++      InterpreterState.exitUnsafeRegion('table field access');
+     }
+-
+-    // No metamethod, return nil
+-    Logger.debug('DEBUG: No metamethod, returning nil');
+-    Logger.debug(
+-      'TableFieldAccess result: nil (no metamethod)',
+-      category: 'Interpreter',
+-    );
+-    return Value(null);
+   }
+ 
+   /// Evaluates a table index access expression (table[expr]).
+@@ -195,80 +208,88 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
+   /// Returns the value at the specified index in the table.
+   @override
+   Future<Object?> visitTableIndexAccess(TableIndexAccess node) async {
+-    Logger.info(
+-      'Accessing table index: ${node.table}[${node.index}]',
+-      category: 'TableAccess',
+-    );
+-    final table = await node.table.accept(this);
++    InterpreterState.enterUnsafeRegion('table index access');
++    try {
++      Logger.info(
++        'Accessing table index: ${node.table}[${node.index}]',
++        category: 'TableAccess',
++      );
++      final table = await node.table.accept(this);
+ 
+-    // For index access, always evaluate the index expression
+-    Object? indexResult = await node.index.accept(this);
++      // For index access, always evaluate the index expression
++      Object? indexResult = await node.index.accept(this);
+ 
+-    // If the index is a multi-value (like from varargs), use only the first value
+-    if (indexResult is Value && indexResult.isMulti) {
+-      final values = indexResult.raw as List;
+-      indexResult = values.isNotEmpty ? values[0] : Value(null);
+-    }
++      // If the index is a multi-value (like from varargs), use only the first value
++      if (indexResult is Value && indexResult.isMulti) {
++        final values = indexResult.raw as List;
++        indexResult = values.isNotEmpty ? values[0] : Value(null);
++      }
+ 
+-    // Ensure proper Value wrapping
+-    final tableVal = table is Value ? table : Value(table);
+-    final indexVal = indexResult is Value ? indexResult : Value(indexResult);
++      // Ensure proper Value wrapping
++      final tableVal = table is Value ? table : Value(table);
++      final indexVal = indexResult is Value ? indexResult : Value(indexResult);
+ 
+-    Logger.info(
+-      'TableIndexAccess: ${tableVal.toString()}[${indexVal.toString()}]',
+-      category: 'TableAccess',
+-    );
++      Logger.info(
++        'TableIndexAccess: ${tableVal.toString()}[${indexVal.toString()}]',
++        category: 'TableAccess',
++      );
++
++      if (tableVal.raw is! Map) {
++        if (tableVal.hasMetamethod('__index')) {
++          final result = await tableVal.callMetamethodAsync('__index', [
++            tableVal,
++            indexVal,
++          ]);
++          return result;
++        }
++        if (tableVal.raw == null) {
++          throw LuaError.typeError('attempt to index a nil value');
++        }
++        throw LuaError.typeError(
++          'attempt to index a ${tableVal.raw.runtimeType} value',
++        );
++      }
++
++      // Normalize the key when checking existence
++      var rawKey = indexVal.raw;
++      if (rawKey is LuaString) {
++        rawKey = rawKey.toString();
++      }
+ 
+-    if (tableVal.raw is! Map) {
++      // Check if key exists in table first
++      if (tableVal.raw is Map && (tableVal.raw as Map).containsKey(rawKey)) {
++        // Key exists, get it directly
++        final result = tableVal[indexVal];
++        Logger.debug(
++          'TableIndexAccess result: $result',
++          category: 'Interpreter',
++        );
++        return result;
++      }
++
++      // Key doesn't exist, check for __index metamethod
+       if (tableVal.hasMetamethod('__index')) {
++        // Call metamethod asynchronously
+         final result = await tableVal.callMetamethodAsync('__index', [
+           tableVal,
+           indexVal,
+         ]);
++        Logger.debug(
++          'TableIndexAccess __index result: $result',
++          category: 'Interpreter',
++        );
+         return result;
+       }
+-      if (tableVal.raw == null) {
+-        throw LuaError.typeError('attempt to index a nil value');
+-      }
+-      throw LuaError.typeError(
+-        'attempt to index a ${tableVal.raw.runtimeType} value',
+-      );
+-    }
+ 
+-    // Normalize the key when checking existence
+-    var rawKey = indexVal.raw;
+-    if (rawKey is LuaString) {
+-      rawKey = rawKey.toString();
+-    }
+-
+-    // Check if key exists in table first
+-    if (tableVal.raw is Map && (tableVal.raw as Map).containsKey(rawKey)) {
+-      // Key exists, get it directly
+-      final result = tableVal[indexVal];
+-      Logger.debug('TableIndexAccess result: $result', category: 'Interpreter');
+-      return result;
+-    }
+-
+-    // Key doesn't exist, check for __index metamethod
+-    if (tableVal.hasMetamethod('__index')) {
+-      // Call metamethod asynchronously
+-      final result = await tableVal.callMetamethodAsync('__index', [
+-        tableVal,
+-        indexVal,
+-      ]);
++      // No metamethod, return nil
+       Logger.debug(
+-        'TableIndexAccess __index result: $result',
++        'TableIndexAccess result: nil (no metamethod)',
+         category: 'Interpreter',
+       );
+-      return result;
++      return Value(null);
++    } finally {
++      InterpreterState.exitUnsafeRegion('table index access');
+     }
+-
+-    // No metamethod, return nil
+-    Logger.debug(
+-      'TableIndexAccess result: nil (no metamethod)',
+-      category: 'Interpreter',
+-    );
+-    return Value(null);
+   }
+ 
+   /// Evaluates a keyed table entry.
+@@ -343,32 +364,40 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
+   Future<Object?> visitAssignmentIndexAccessExpr(
+     AssignmentIndexAccessExpr node,
+   ) async {
+-    (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
+-    Logger.debug('Visiting AssignmentIndexAccessExpr', category: 'Interpreter');
+-    final target = await node.target.accept(this);
+-    final index = await node.index.accept(this);
+-    final value = await node.value.accept(this);
++    InterpreterState.enterUnsafeRegion('table assignment');
++    try {
++      (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
++      Logger.debug(
++        'Visiting AssignmentIndexAccessExpr',
++        category: 'Interpreter',
++      );
++      final target = await node.target.accept(this);
++      final index = await node.index.accept(this);
++      final value = await node.value.accept(this);
+ 
+-    final targetVal = target is Value ? target : Value(target);
+-    final indexVal = index is Value ? index : Value(index);
+-    final valueVal = value is Value ? value : Value(value);
++      final targetVal = target is Value ? target : Value(target);
++      final indexVal = index is Value ? index : Value(index);
++      final valueVal = value is Value ? value : Value(value);
+ 
+-    final rawKey = indexVal.raw;
+-    if (rawKey == null) {
+-      throw LuaError.typeError('table index is nil');
+-    }
+-    if (rawKey is num && rawKey.isNaN) {
+-      throw LuaError.typeError('table index is NaN');
+-    }
++      final rawKey = indexVal.raw;
++      if (rawKey == null) {
++        throw LuaError.typeError('table index is nil');
++      }
++      if (rawKey is num && rawKey.isNaN) {
++        throw LuaError.typeError('table index is NaN');
++      }
+ 
+-    if (targetVal.raw is! Map) {
+-      throw UnsupportedError(
+-        'Cannot assign to index of non-table value: $targetVal',
+-      );
+-    }
++      if (targetVal.raw is! Map) {
++        throw UnsupportedError(
++          'Cannot assign to index of non-table value: $targetVal',
++        );
++      }
+ 
+-    targetVal[indexVal] = valueVal;
+-    return valueVal;
++      targetVal[indexVal] = valueVal;
++      return valueVal;
++    } finally {
++      InterpreterState.exitUnsafeRegion('table assignment');
++    }
+   }
+ 
+   /// Evaluates a table constructor.
+diff --git a/pkgs/lualike/lib/src/stdlib/lib_base.dart b/pkgs/lualike/lib/src/stdlib/lib_base.dart
+index 357c394..6e90bac 100644
+--- a/pkgs/lualike/lib/src/stdlib/lib_base.dart
++++ b/pkgs/lualike/lib/src/stdlib/lib_base.dart
+@@ -2022,8 +2022,9 @@ class CollectGarbageFunction implements BuiltinFunction {
+         final stepSize = args.length > 1 ? (args[1] as Value).raw as num : 0;
+         if (stepSize == 0) {
+           vm.gc.minorCollection(vm.getRoots());
++          await vm.gc.checkAndCollectIfNeeded();
+         } else {
+-          vm.gc.simulateAllocation((stepSize * 1024).toInt());
++          await vm.gc.simulateAllocation((stepSize * 1024).toInt());
+         }
+         // Returns true if the step finished a collection cycle
+         return Value(vm.gc.isCollectionCycleComplete());
+diff --git a/pkgs/lualike/lib/src/value.dart b/pkgs/lualike/lib/src/value.dart
+index 97c43db..7a8e0e9 100644
+--- a/pkgs/lualike/lib/src/value.dart
++++ b/pkgs/lualike/lib/src/value.dart
+@@ -1,7 +1,7 @@
+ import 'dart:async';
+ 
+ import 'package:lualike/lualike.dart';
+-import 'package:lualike/src/gc/gc.dart';
++import 'package:lualike/src/gc/gc.dart' show GCObject, HeapObject;
+ import 'package:lualike/src/gc/generational_gc.dart';
+ import 'package:lualike/src/stdlib/metatables.dart';
+ import 'package:lualike/src/upvalue.dart';
+@@ -14,7 +14,7 @@ typedef AsyncFunction = Future<Object?> Function(List<Object?> args);
+ /// Values can hold any Dart object and optionally have an associated metatable
+ /// that defines their behavior for various operations. Values that represent
+ /// tables implement the Map interface for easy interaction with Dart code.
+-class Value extends Object implements Map<String, dynamic>, GCObject {
++class Value extends Object implements Map<String, dynamic>, HeapObject {
+   /// The underlying raw value being wrapped.
+   dynamic _raw;
+ 
+diff --git a/pkgs/lualike/test/gc/comprehensive_weak_test.dart b/pkgs/lualike/test/gc/comprehensive_weak_test.dart
+index d377d99..6e89847 100644
+--- a/pkgs/lualike/test/gc/comprehensive_weak_test.dart
++++ b/pkgs/lualike/test/gc/comprehensive_weak_test.dart
+@@ -120,24 +120,29 @@ void main() {
+       final weakValuesTables = List.generate(3, (i) {
+         final table = Value({});
+         table.setMetatable({'__mode': 'v'});
++        gc.register(table); // Register with GC
+         return table;
+       });
+ 
+       final ephemeronTables = List.generate(2, (i) {
+         final table = Value({});
+         table.setMetatable({'__mode': 'k'});
++        gc.register(table); // Register with GC
+         return table;
+       });
+ 
+       final allWeakTables = List.generate(2, (i) {
+         final table = Value({});
+         table.setMetatable({'__mode': 'kv'});
++        gc.register(table); // Register with GC
+         return table;
+       });
+ 
+       // Add some entries
+       final key = Value('key');
+       final value = Value('value');
++      gc.register(key); // Register with GC
++      gc.register(value); // Register with GC
+ 
+       for (final table in [
+         ...weakValuesTables,
+@@ -158,6 +163,7 @@ void main() {
+       for (int i = 0; i < allWeakTables.length; i++) {
+         rootEnv.define('all_weak_$i', Box<Value>(allWeakTables[i]));
+       }
++      // Environment is now stack-managed, not GC-managed
+ 
+       // Verify tracking lists are initially empty
+       expect(gc.weakValuesTables.length, 0);
+diff --git a/pkgs/lualike/test/gc/performance_optimization_test.dart b/pkgs/lualike/test/gc/performance_optimization_test.dart
+index 83c9f28..5a74baa 100644
+--- a/pkgs/lualike/test/gc/performance_optimization_test.dart
++++ b/pkgs/lualike/test/gc/performance_optimization_test.dart
+@@ -133,7 +133,7 @@ void main() {
+ 
+         gc.register(simpleValue);
+         gc.register(tableValue);
+-        gc.register(env);
++        // Environment is now stack-managed, not GC-managed
+ 
+         final memoryEstimate = gc.estimateMemoryUse();
+ 
+@@ -199,13 +199,15 @@ void main() {
+           env2.define('var$i', Value(i));
+         }
+ 
+-        gc.register(env1);
++        // Environment is now stack-managed, not GC-managed
+         final smallEnvEstimate = gc.estimateMemoryUse();
+ 
+-        gc.register(env2);
++        // Environment is now stack-managed, not GC-managed
+         final largeEnvEstimate = gc.estimateMemoryUse();
+ 
+-        expect(largeEnvEstimate, greaterThan(smallEnvEstimate));
++        // Since environments are stack-managed, their memory usage
++        // is not tracked by GC, so estimates should be equal
++        expect(largeEnvEstimate, equals(smallEnvEstimate));
+       });
+ 
+       test('memory estimation is stable and consistent', () {
+diff --git a/pkgs/lualike/test/gc/table_traversal_reachability_test.dart b/pkgs/lualike/test/gc/table_traversal_reachability_test.dart
+index 8dcdbd3..adc4395 100644
+--- a/pkgs/lualike/test/gc/table_traversal_reachability_test.dart
++++ b/pkgs/lualike/test/gc/table_traversal_reachability_test.dart
+@@ -8,6 +8,8 @@ void main() {
+     late GenerationalGCManager gc;
+ 
+     setUp(() {
++      // setLualikeLogging(enabled: true);
++
+       interpreter = Interpreter();
+       GenerationalGCManager.initialize(interpreter);
+       gc = GenerationalGCManager.instance;
+@@ -19,10 +21,15 @@ void main() {
+       final valueInTable = Value('test_value');
+       table['key'] = valueInTable;
+ 
++      // Register objects with GC
++      gc.register(table);
++      gc.register(valueInTable);
++
+       // Create a root that references the table
+       final rootEnv = Environment();
+       final rootBox = Box<Value>(table);
+       rootEnv.define('table_var', rootBox);
++      // Environment is now stack-managed, not GC-managed
+ 
+       // Verify initial state
+       expect(gc.youngGen.objects.length, greaterThan(0));
+@@ -48,6 +55,11 @@ void main() {
+       final nestedTable = Value({});
+       final deepValue = Value('deep_value');
+ 
++      // Register objects with GC
++      gc.register(rootTable);
++      gc.register(nestedTable);
++      gc.register(deepValue);
++
+       nestedTable['deep_key'] = deepValue;
+       rootTable['nested'] = nestedTable;
+ 
+@@ -55,6 +67,7 @@ void main() {
+       final rootEnv = Environment();
+       final rootBox = Box<Value>(rootTable);
+       rootEnv.define('root_table', rootBox);
++      // Environment is now stack-managed, not GC-managed
+ 
+       // Perform major collection
+       await gc.majorCollection([rootEnv]);
+@@ -72,6 +85,11 @@ void main() {
+       final referencedValue = Value('referenced');
+       final unreferencedValue = Value('unreferenced');
+ 
++      // Register objects with GC
++      gc.register(table);
++      gc.register(referencedValue);
++      gc.register(unreferencedValue);
++
+       table['ref_key'] = referencedValue;
+       // Don't add unreferencedValue to the table
+ 
+@@ -79,6 +97,7 @@ void main() {
+       final rootEnv = Environment();
+       final rootBox = Box<Value>(table);
+       rootEnv.define('table_var', rootBox);
++      // Environment is now stack-managed, not GC-managed
+ 
+       // Get initial count
+       final initialCount =
+@@ -104,6 +123,11 @@ void main() {
+       final keyValue = Value('key_object');
+       final regularValue = Value('value_object');
+ 
++      // Register objects with GC
++      gc.register(table);
++      gc.register(keyValue);
++      gc.register(regularValue);
++
+       // Use Value as key
+       table.raw[keyValue] = regularValue;
+ 
+@@ -111,6 +135,7 @@ void main() {
+       final rootEnv = Environment();
+       final rootBox = Box<Value>(table);
+       rootEnv.define('table_var', rootBox);
++      // Environment is now stack-managed, not GC-managed
+ 
+       // Perform major collection
+       await gc.majorCollection([rootEnv]);
+@@ -128,12 +153,17 @@ void main() {
+       final metaValue = Value('meta_function');
+       final metatable = {'__index': metaValue};
+ 
++      // Register objects with GC
++      gc.register(table);
++      gc.register(metaValue);
++
+       table.setMetatable(metatable);
+ 
+       // Create root
+       final rootEnv = Environment();
+       final rootBox = Box<Value>(table);
+       rootEnv.define('table_var', rootBox);
++      // Environment is now stack-managed, not GC-managed
+ 
+       // Perform major collection
+       await gc.majorCollection([rootEnv]);
+@@ -237,12 +267,18 @@ void main() {
+       final weakTable = Value({});
+       weakTable.setMetatable({'__mode': 'v'});
+       final value = Value('should_not_be_cleared');
++
++      // Register objects with GC
++      gc.register(weakTable);
++      gc.register(value);
++
+       weakTable['key'] = value;
+ 
+       // Create root
+       final rootEnv = Environment();
+       final rootBox = Box<Value>(weakTable);
+       rootEnv.define('weak_table', rootBox);
++      // Environment is now stack-managed, not GC-managed
+ 
+       // Perform minor collection (should not clear weak entries)
+       gc.minorCollection([rootEnv]);

@@ -2,10 +2,13 @@ import 'package:test/test.dart';
 import 'package:lualike/lualike.dart';
 
 void main() {
-  test('weak-values clears object values but keeps t->t and number->string', () async {
-    final vm = LuaLike();
-    const lim = 8;
-    final code = '''
+  test(
+    'weak-values clears object values but keeps t->t and number->string',
+    () async {
+      final vm = LuaLike();
+      const lim = 8;
+      final code =
+          '''
       local lim = $lim
       a = {}
       setmetatable(a, { __mode = 'v' })
@@ -24,11 +27,11 @@ void main() {
       end
       return ok, i
     ''';
-    final res = await vm.execute(code) as List;
-    final ok = (res[0] as Value).raw as bool;
-    final count = (res[1] as Value).raw as num;
-    expect(ok, isTrue);
-    expect(count, equals(2 * lim));
-  });
+      final res = await vm.execute(code) as List;
+      final ok = (res[0] as Value).raw as bool;
+      final count = (res[1] as Value).raw as num;
+      expect(ok, isTrue);
+      expect(count, equals(2 * lim));
+    },
+  );
 }
-

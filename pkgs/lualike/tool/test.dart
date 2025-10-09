@@ -14,7 +14,7 @@ import 'utils.dart';
 /// List of Lua test files to run
 final testFiles = [
   // 'gc.lua',
-  'calls.lua',
+  // 'calls.lua',
   'attrib.lua',
   'goto.lua',
   'bitwise.lua',

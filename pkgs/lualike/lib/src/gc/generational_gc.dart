@@ -114,6 +114,12 @@ class GenerationalGCManager {
   int _manualStepProgress = 0;
   int _manualStepTarget = 0;
 
+  /// Expose current GC phase for observation-sensitive behaviors (e.g.,
+  /// iteration over weak-keys tables during finalization should still see
+  /// dead keys until weak-key removals are applied after finalizers).
+  GCPhase get currentPhase => _currentPhase;
+  bool get isFinalizing => _currentPhase == GCPhase.finalizing;
+
   /// The young generation (nursery) containing newly created objects.
   final Generation youngGen = Generation();
 
@@ -1133,10 +1139,10 @@ class GenerationalGCManager {
             (_isCollectableNonPrimitiveGC(key) && !(key as GCObject).marked);
         final valueDead =
             (value is Value &&
-                    !value.isPrimitiveLike &&
-                    (!value.marked || value.isFreed)) ||
-                (_isCollectableNonPrimitiveGC(value) &&
-                    !(value as GCObject).marked);
+                !value.isPrimitiveLike &&
+                (!value.marked || value.isFreed)) ||
+            (_isCollectableNonPrimitiveGC(value) &&
+                !(value as GCObject).marked);
 
         if (keyDead || valueDead) {
           keysToRemove.add(entry.key);
@@ -1522,7 +1528,6 @@ class GenerationalGCManager {
       }
     } catch (_) {}
 
-
     // Ensure weak tables are tracked even if discovered via raw Map roots
     // or alternate wrappers: scan generations and then roots for tables with
     // weak modes. The root scan is a safety net for wrappers that may not
@@ -1556,7 +1561,13 @@ class GenerationalGCManager {
     }
 
     // Phase 6: Run finalizers for objects collected in this cycle.
+    // Expose the finalizing phase so that observation-sensitive operations
+    // (like next()/pairs over weak-keys tables) can see entries until removals
+    // are applied after finalizers, matching Lua semantics.
+    _currentPhase = GCPhase.finalizing;
     await _callFinalizersAsync();
+    // Note: We intentionally keep phase as finalizing until after applying
+    // pending weak-key removals so iterators in finalizers can observe keys.
 
     // Weak keys/all-weak entries are only cleared after finalizers run to
     // match Lua's observation order during __gc metamethods.
