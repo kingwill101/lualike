@@ -248,7 +248,7 @@ class Interpreter extends AstVisitor<Object?>
   /// during function calls.
   @override
   void setCurrentEnv(Environment env) {
-    Logger.info(
+    Logger.debug(
       '>>> Interpreter.setCurrentEnv() called, changing from: ${_currentEnv.hashCode} to: ${env.hashCode}',
       category: 'Interpreter',
     );

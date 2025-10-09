@@ -2240,14 +2240,9 @@ class CollectGarbageFunction extends BuiltinFunction {
         return Value(true);
 
       case "count":
-        // "count": Returns the total memory in use by Lua in Kbytes
-        // The value has a fractional part, so that it multiplied by 1024
-        // gives the exact number of bytes in use by Lua
-        final count = interpreter!.gc.estimateMemoryUse() / 1024.0;
-        return Value.multi([
-          Value(count),
-          Value(interpreter!.gc.minorMultiplier / 100.0),
-        ]);
+        // MemoryCredits only — return total credits in KB (matches Lua's count)
+        final baseKB = interpreter!.gc.estimateMemoryUse() / 1024.0;
+        return Value(baseKB);
 
       case "step":
         // "step": Performs a garbage-collection step

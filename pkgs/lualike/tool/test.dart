@@ -590,13 +590,15 @@ Future<List<TestResult>> runTests({
       console.write(': ');
       console.writeLine(file);
       // Fail fast for missing files
-      results.add(TestResult(
-        fileName: file,
-        exitCode: 1,
-        duration: Duration.zero,
-        output: const [],
-        errors: ['Test not found: $file'],
-      ));
+      results.add(
+        TestResult(
+          fileName: file,
+          exitCode: 1,
+          duration: Duration.zero,
+          output: const [],
+          errors: ['Test not found: $file'],
+        ),
+      );
       continue;
     }
 

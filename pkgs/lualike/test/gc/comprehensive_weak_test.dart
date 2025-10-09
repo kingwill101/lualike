@@ -250,10 +250,14 @@ void main() {
         // weak semantics apply and the entry can be cleared.
         // Use a collectable key for weak-keys tables, and a collectable value
         // for weak-values tables, so the entry is eligible for clearing.
-        final Value deadKey = name == 'weak_keys'
+        // Ensure entries are eligible for clearing under each mode:
+        // - weak_keys: collectable key
+        // - weak_values: collectable value
+        // - all_weak: make both sides collectable to avoid primitive survivors
+        final Value deadKey = (name == 'weak_keys' || name == 'all_weak')
             ? Value(<dynamic, dynamic>{})
             : Value('dead_key_$name');
-        final Value deadValue = name == 'weak_values'
+        final Value deadValue = (name == 'weak_values' || name == 'all_weak')
             ? Value(<dynamic, dynamic>{})
             : Value('dead_value_$name');
         table.raw[deadKey] = deadValue;

@@ -22,7 +22,15 @@ class GcWeights {
   static const int valueUpvalueRef = 8;
 
   /// String content scaling for either LuaString or plain Dart strings.
-  static const int stringUnit = 2;
+  ///
+  /// We account 1 credit per character to approximate Lua's byte-based
+  /// accounting so that `collectgarbage("count")` deltas line up with
+  /// string lengths in KB (2^10). Using higher multipliers causes the
+  /// long-string assertions in gc.lua (e.g., +2^13 before GC, then between
+  /// +2^12 and +2^13 after one key is collected) to overshoot.
+  static const int stringUnit = 1;
+
+  // No fixed base for strings; we count by character length only.
 
   /// Base weight for an Environment.
   static const int environmentBase = 96;

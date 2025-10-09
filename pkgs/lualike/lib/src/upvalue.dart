@@ -118,6 +118,7 @@ class Upvalue extends GCObject {
   Upvalue? _joinedUpvalue;
 
   /// Interpreter reference for GC registration (optional)
+  // ignore: unused_field
   final Interpreter? _interpreter;
 
   /// Whether this upvalue has been joined with another upvalue

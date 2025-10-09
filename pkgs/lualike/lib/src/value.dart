@@ -100,7 +100,32 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   int get estimatedSize {
     var size = GcWeights.gcObjectHeader + GcWeights.valueBase;
     if (isTable && raw is Map) {
-      size += (raw as Map).length * GcWeights.tableEntry;
+      final map = raw as Map;
+      size += map.length * GcWeights.tableEntry;
+      // Use cached string-key credits if available; compute lazily once.
+      int? bytes = _tableStringKeyBytes[map];
+      if (bytes == null) {
+        var total = 0;
+        try {
+          for (final k in map.keys) {
+            if (k is String) {
+              total += k.length * GcWeights.stringUnit;
+            } else if (k is LuaString) {
+              total += k.length * GcWeights.stringUnit;
+            } else if (k is Value) {
+              final kr = k.raw;
+              if (kr is String) {
+                total += kr.length * GcWeights.stringUnit;
+              } else if (kr is LuaString) {
+                total += kr.length * GcWeights.stringUnit;
+              }
+            }
+          }
+        } catch (_) {}
+        _tableStringKeyBytes[map] = total;
+        bytes = total;
+      }
+      size += bytes;
     }
 
     if (upvalues != null) {
@@ -253,6 +278,25 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   static final Expando<Value> _tableIdentity = Expando<Value>('tableIdentity');
   static final Expando<Map<String, dynamic>> _tableMetatables =
       Expando<Map<String, dynamic>>('tableMetatables');
+  // Tracks total credits for string-like keys stored in the underlying Map.
+  static final Expando<int> _tableStringKeyBytes = Expando<int>(
+    'tableStringKeyBytes',
+  );
+
+  /// Adjusts cached string-key credits for a raw Map when entries are
+  /// mutated externally (e.g., by the GC during weak-table clearing).
+  /// [deltaChars] is character count; multiplied by stringUnit.
+  static void adjustStringKeyCreditsForMap(
+    Map map,
+    Object? key,
+    int deltaChars,
+  ) {
+    if (deltaChars == 0) return;
+    try {
+      final current = _tableStringKeyBytes[map] ?? 0;
+      _tableStringKeyBytes[map] = current + deltaChars * GcWeights.stringUnit;
+    } catch (_) {}
+  }
 
   void _registerTableIdentity(Map table) {
     try {
@@ -1070,6 +1114,29 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     final valueToSet = value is Value ? value : Value(value);
     final storageKey = _computeStorageKey(key);
     final storageValue = valueToSet;
+    final map = raw as Map;
+    // Seed cache if missing (first mutation may precede a count)
+    if (_tableStringKeyBytes[map] == null) {
+      var total = 0;
+      try {
+        for (final k in map.keys) {
+          if (k is String) {
+            total += k.length * GcWeights.stringUnit;
+          } else if (k is LuaString) {
+            total += k.length * GcWeights.stringUnit;
+          } else if (k is Value) {
+            final kr = k.raw;
+            if (kr is String) {
+              total += kr.length * GcWeights.stringUnit;
+            } else if (kr is LuaString) {
+              total += kr.length * GcWeights.stringUnit;
+            }
+          }
+        }
+      } catch (_) {}
+      _tableStringKeyBytes[map] = total;
+    }
+    final existed = map.containsKey(storageKey);
     if (Logger.enabled &&
         isTable &&
         tableWeakMode != null &&
@@ -1087,15 +1154,27 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
 
     if (valueToSet.isNil) {
-      (raw as Map).remove(storageKey);
+      map.remove(storageKey);
     } else {
-      (raw as Map)[storageKey] = storageValue;
+      map[storageKey] = storageValue;
     }
     _incrementTableVersion();
     final gcLocal4 = GCAccess.fromValue(this);
     if (gcLocal4 != null) {
       MemoryCredits.instance.recalculate(this);
     }
+    // Maintain string-key credits incrementally when keys are Strings.
+    try {
+      int keyLen(String s) => s.length * GcWeights.stringUnit;
+      if (!existed && storageKey is String) {
+        _tableStringKeyBytes[map] =
+            (_tableStringKeyBytes[map] ?? 0) + keyLen(storageKey);
+      }
+      if (valueToSet.isNil && existed && storageKey is String) {
+        _tableStringKeyBytes[map] =
+            (_tableStringKeyBytes[map] ?? 0) - keyLen(storageKey);
+      }
+    } catch (_) {}
   }
 
   /// Marks the underlying table as modified so cached lookups can be

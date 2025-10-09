@@ -907,7 +907,6 @@ class FileLines extends BuiltinFunction {
         ? actualArgs.map((e) => (e as Value).raw.toString()).toList()
         : ["l"];
 
-    final fileValue = file is Value ? file : Value(file);
     final result = await extractLuaFile(file)!.lines(formats, false);
     return result;
   }

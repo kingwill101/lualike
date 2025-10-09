@@ -111,8 +111,8 @@ class GenerationalGCManager {
   /// Public getter for allocation debt (used by interpreter to trigger GC at safe points)
   int get allocationDebt => _simulatedAllocationDebt;
   int _manualStepDebtKb = 0;
-  int _manualStepProgress = 0;
-  int _manualStepTarget = 0;
+  // Removed: _manualStepProgress (unused)
+  // Deprecated: previous multi-step tracking target (unused)
 
   /// Expose current GC phase for observation-sensitive behaviors (e.g.,
   /// iteration over weak-keys tables during finalization should still see
@@ -139,8 +139,7 @@ class GenerationalGCManager {
   /// finalizers run (Lua expects weak keys to survive during finalization).
   final Map<Value, Set<dynamic>> _pendingWeakKeyRemovals =
       HashMap<Value, Set<dynamic>>.identity();
-  final Map<Value, Set<dynamic>> _pendingAllWeakRemovals =
-      HashMap<Value, Set<dynamic>>.identity();
+  // Removed: _pendingAllWeakRemovals (unused)
 
   /// Multiplicative factor applied to the allocation debt threshold before
   /// automatic collection is requested. This prevents small, frequent
@@ -268,10 +267,7 @@ class GenerationalGCManager {
     const maxStep = 1 << 20;
     var cycleComplete = false;
 
-    if (_manualStepProgress == 0 && _currentPhase == GCPhase.idle) {
-      // No multi-step target; each manual call attempts a full cycle.
-      _manualStepTarget = 1;
-    }
+    // Single-call policy: a manual step attempts to complete a full cycle.
 
     final requested = _manualStepDebtKb > 0
         ? math.min(_manualStepDebtKb, maxStep)
@@ -289,7 +285,7 @@ class GenerationalGCManager {
     // and predictable for tests that expect step(1) to return true.
     final stepBudget = 1 << 20;
     cycleComplete = performIncrementalStep(stepBudget);
-    _manualStepProgress += normalized;
+    // progress tracking removed
 
     // Manual steps should also pay down simulated allocation debt so that
     // repeated calls eventually allow a collection cycle (and finalizers) to
@@ -312,22 +308,13 @@ class GenerationalGCManager {
 
     if (cycleComplete) {
       _manualStepDebtKb = 0;
-      _manualStepProgress = 0;
-      _manualStepTarget = 0;
+      // progress tracking removed
     }
 
     return cycleComplete;
   }
 
-  int _estimateManualStepTarget(int normalizedStep) {
-    if (normalizedStep >= 8) {
-      return 1;
-    }
-    if (normalizedStep >= 4) {
-      return 2;
-    }
-    return 8;
-  }
+  // Removed: _estimateManualStepTarget (unused)
 
   void _processSimulatedAllocationDebt({int iterationBudget = 1024}) {
     if (_isStopped || _isCollecting) {
@@ -563,11 +550,7 @@ class GenerationalGCManager {
     return normalized;
   }
 
-  int _totalWorkBudget(int stepSize) {
-    // Allow unspent marking credit to spill into sweeping/finalizing.
-    // Include a single unit for the finalization phase.
-    return _markingWorkQuota(stepSize) + _sweepingWorkQuota(stepSize) + 1;
-  }
+  // Removed: _totalWorkBudget (unused)
 
   int _performFinalizingWork() {
     Logger.debug('Incremental finalizing work', category: 'GC');
@@ -1176,9 +1159,9 @@ class GenerationalGCManager {
         final value = entry.value;
 
         // In all-weak tables, primitive-like keys/values (e.g., strings, numbers)
-        // are treated as always alive for weak semantics. This matches Lua's
-        // behavior where primitives are not reclaimed due solely to weak table
-        // reachability and ensures cases like string->string entries survive.
+        // behave as immediate values and should not cause removal when only
+        // reachable through the weak table. This matches Lua's behavior that
+        // allows string->string survivors in kv tables.
         final keyDead =
             (key is Value && !key.isPrimitiveLike && !key.marked) ||
             (_isCollectableNonPrimitiveGC(key) && !(key as GCObject).marked);
@@ -1194,6 +1177,24 @@ class GenerationalGCManager {
         }
       }
       for (final k in keysToRemove) {
+        // Adjust string-key credits before actual removal
+        try {
+          int len = 0;
+          if (k is String) {
+            len = k.length;
+          } else if (k is LuaString) {
+            len = k.length;
+          } else if (k is Value) {
+            final kr = k.raw;
+            if (kr is String) {
+              len = kr.length;
+            } else if (kr is LuaString)
+              len = kr.length;
+          }
+          if (len > 0) {
+            Value.adjustStringKeyCreditsForMap(tableMap, k, -len);
+          }
+        } catch (_) {}
         tableMap.remove(k);
       }
     }
@@ -1278,13 +1279,7 @@ class GenerationalGCManager {
     pending.add(key);
   }
 
-  void _scheduleAllWeakRemoval(Value table, dynamic key) {
-    final pending = _pendingAllWeakRemovals.putIfAbsent(
-      table,
-      () => HashSet<dynamic>.identity(),
-    );
-    pending.add(key);
-  }
+  // Removed: _scheduleAllWeakRemoval (unused)
 
   bool _isCollectableNonPrimitiveGC(Object? value) {
     return value is GCObject && value is! Value && value is! LuaString;
@@ -1299,6 +1294,23 @@ class GenerationalGCManager {
             'Applying pending removal for table ${table.hashCode} key=$key',
             category: 'GC',
           );
+          try {
+            int len = 0;
+            if (key is String) {
+              len = key.length;
+            } else if (key is LuaString) {
+              len = key.length;
+            } else if (key is Value) {
+              final kr = key.raw;
+              if (kr is String) {
+                len = kr.length;
+              } else if (kr is LuaString)
+                len = kr.length;
+            }
+            if (len > 0) {
+              Value.adjustStringKeyCreditsForMap(tableMap, key, -len);
+            }
+          } catch (_) {}
           tableMap.remove(key);
         }
       });
@@ -1435,6 +1447,23 @@ class GenerationalGCManager {
           );
         }
         for (final k in keysToRemove) {
+          try {
+            int len = 0;
+            if (k is String) {
+              len = k.length;
+            } else if (k is LuaString) {
+              len = k.length;
+            } else if (k is Value) {
+              final kr = k.raw;
+              if (kr is String) {
+                len = kr.length;
+              } else if (kr is LuaString)
+                len = kr.length;
+            }
+            if (len > 0) {
+              Value.adjustStringKeyCreditsForMap(tableMap, k, -len);
+            }
+          } catch (_) {}
           tableMap.remove(k);
         }
         if (Logger.enabled) {
@@ -1485,6 +1514,24 @@ class GenerationalGCManager {
             );
           }
           for (final k in keysToRemove) {
+            try {
+              int len = 0;
+              if (k is String) {
+                len = k.length;
+              } else if (k is LuaString) {
+                len = k.length;
+              } else if (k is Value) {
+                final kr = k.raw;
+                if (kr is String) {
+                  len = kr.length;
+                } else if (kr is LuaString) {
+                  len = kr.length;
+                }
+              }
+              if (len > 0) {
+                Value.adjustStringKeyCreditsForMap(tableMap, k, -len);
+              }
+            } catch (_) {}
             tableMap.remove(k);
           }
         }
@@ -1890,12 +1937,6 @@ class GenerationalGCManager {
   ///
   /// During a major collection, finalizers are run for objects with __gc metamethods.
   Future<void> majorCollection(List<Object?> roots) async {
-    final prevLogging = Logger.enabled;
-    if (!prevLogging) {
-      // Temporarily enable logging to aid GC diagnostics in tests that rely on
-      // collection behavior. This is limited to the duration of this call.
-      Logger.setEnabled(true);
-    }
     Logger.debug('Major collection start', category: 'GC');
     _cycleComplete = false;
     _currentPhase = GCPhase.idle;
@@ -2005,9 +2046,6 @@ class GenerationalGCManager {
     ephemeronTables.clear();
     allWeakTables.clear();
     Logger.debug('Major collection complete', category: 'GC');
-    if (!prevLogging) {
-      Logger.setEnabled(false);
-    }
   }
 
   void _collectWeakTablesFromGenerations() {
