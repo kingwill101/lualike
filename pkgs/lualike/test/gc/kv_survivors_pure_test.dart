@@ -25,12 +25,9 @@ void main() {
       (a.raw as Map)[1] = x;
       (a.raw as Map)[2] = y;
       (a.raw as Map)[3] = z;
-      // '44444444444'.replaceAll('\u0002', '');
-      // '4';
-      // List.filled(11, r'4').join();
-      // '4' * 11;
-      // Use plain strings for simplicity
-      (a.raw as Map)[r'4' * 11] = r'4' * 11;
+
+      // Use plain strings for simplicity: a string of 11 dollar signs
+      (a.raw as Map)['\$' * 11] = '\$' * 11;
 
       // Root the table and the values x,y,z via environment boxes
       rootEnv.define('a', Box<Value>(a));
@@ -60,12 +57,13 @@ void main() {
       expect(
         m.length,
         4,
-        reason: 'expected 3 numeric-object + 1 string-string, got \${m.length}',
+        reason: 'expected 3 numeric-object + 1 string-string, got ${m.length}',
       );
       expect(m[1], same(x));
       expect(m[2], same(y));
       expect(m[3], same(z));
-      expect(m.containsKey(r'$$$$$$$$$$$'), isTrue);
+      expect(m.containsKey('\$' * 11), isTrue);
     });
   });
 }
+

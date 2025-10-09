@@ -7,6 +7,7 @@ void main() {
       final bridge = LuaLike();
       // Override os.exit in Lua to avoid process termination and to assert calls.
       await bridge.execute('''
+        logging.enable("FINE"); logging.set_category("GC")
         os_exit_called = false
         os.exit = function(code) os_exit_called = code or true end
         local u = setmetatable({}, { __gc = true })
@@ -26,6 +27,7 @@ void main() {
     test('__gc added after metatable set (no __gc at set time) must not run', () async {
       final bridge = LuaLike();
       await bridge.execute('''
+        logging.enable("FINE"); logging.set_category("GC")
         os_exit_called_late = false
         os.exit = function(code) os_exit_called_late = code or true end
         local u2 = setmetatable({}, {}) -- no __gc at set time
@@ -39,4 +41,3 @@ void main() {
     });
   });
 }
-

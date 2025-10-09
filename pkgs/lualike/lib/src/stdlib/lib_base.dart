@@ -125,6 +125,13 @@ class SetMetatableFunction extends BuiltinFunction {
     final table = args[0];
     final metatable = args[1];
 
+    if (Logger.enabled) {
+      Logger.debug(
+        "[SetMetatable] invoked on table=${table is Value ? table.hashCode : table} meta=$metatable",
+        category: 'GC',
+      );
+    }
+
     if (table is! Value || table.raw is! Map) {
       throw LuaError("setmetatable only supported for table values");
     }
@@ -149,6 +156,22 @@ class SetMetatableFunction extends BuiltinFunction {
           metatable.raw as Map,
         );
         table.setMetatable(rawMeta);
+        if (Logger.enabled) {
+          final mode = rawMeta['__mode'];
+          Logger.debug(
+            "[SetMetatable] applied metatable to table=${table.hashCode} metaKeys=${rawMeta.keys.toList()} __mode=$mode",
+            category: 'GC',
+          );
+        }
+        // Ensure both the target table (the one receiving the metatable) and
+        // the metatable itself are tracked by the GC generations immediately,
+        // so subsequent GC passes can observe weakness and clear entries.
+        try {
+          interpreter!.gc.ensureTracked(table);
+          if (table.metatableRef is Value) {
+            interpreter!.gc.ensureTracked(table.metatableRef as Value);
+          }
+        } catch (_) {}
         // Ensure future lookups return this wrapper for the underlying map.
         Value.registerTableIdentity(table);
         // KIN-23: object becomes eligible for finalization only if `__gc`

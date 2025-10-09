@@ -577,28 +577,58 @@ class GenerationalGCManager {
       _toBeFinalized.clear();
 
       for (final obj in pending) {
+        var finalized = false;
         if (obj is Value &&
             obj.finalizerEligible &&
             obj.hasMetamethod('__gc')) {
-          _alreadyFinalized.add(obj);
-          try {
-            final result = obj.callMetamethod('__gc', [obj]);
-            if (result is Future) {
-              // Allow asynchronous finalizers to complete without blocking.
-              result.catchError((error, stack) {
-                Logger.debug('Async finalizer error: $error', category: 'GC');
-              });
+          final metaOwner = obj.metatableRef;
+          bool ownerWeakV = false;
+          if (metaOwner is Value) {
+            ownerWeakV = metaOwner.hasWeakValues;
+            if (!ownerWeakV && metaOwner.metatable != null) {
+              final rawMode = metaOwner.metatable!['__mode'];
+              String modeStr;
+              if (rawMode is LuaString) {
+                modeStr = rawMode.toString();
+              } else if (rawMode is Value) {
+                modeStr = rawMode.raw?.toString() ?? '';
+              } else {
+                modeStr = rawMode?.toString() ?? '';
+              }
+              if (modeStr.contains('v')) ownerWeakV = true;
             }
-          } catch (error) {
-            Logger.debug('Error in finalizer: $error', category: 'GC');
+          }
+          // Skip finalizer if meta-owner is weak-values
+          if (!ownerWeakV) {
+            _alreadyFinalized.add(obj);
+            try {
+              final result = obj.callMetamethod('__gc', [obj]);
+              if (result is Future) {
+                // Allow asynchronous finalizers to complete without blocking.
+                result.catchError((error, stack) {
+                  Logger.debug('Async finalizer error: $error', category: 'GC');
+                });
+              }
+              finalized = true;
+            } catch (error) {
+              Logger.debug('Error in finalizer: $error', category: 'GC');
+            }
+          } else {
+            if (Logger.enabled) {
+              Logger.debug(
+                'Skip __gc (incremental) due to weak-values meta-owner: obj=${obj.hashCode} owner=${(metaOwner as Value).hashCode}',
+                category: 'GC',
+              );
+            }
           }
         }
 
+        // Free object now in incremental mode
         MemoryCredits.instance.onFree(obj);
         youngGen.remove(obj);
         oldGen.remove(obj);
         obj.free();
-        _alreadyFinalized.remove(obj);
+        if (finalized) _alreadyFinalized.remove(obj);
       }
     }
 
@@ -1409,6 +1439,45 @@ class GenerationalGCManager {
         bool eligible = false;
         if (obj is Value) {
           hasGc = obj.hasMetamethod('__gc');
+          // If the object's metamethods are stored in a metatable whose own
+          // metatable declares __mode = 'v' (weak values), Lua does not treat
+          // __gc as a strong finalizer hook. Do not schedule finalization.
+          final metaOwner = obj.metatableRef;
+          bool ownerWeakV = false;
+          if (metaOwner is Value) {
+            ownerWeakV = metaOwner.hasWeakValues;
+            // Fallback: inspect raw metatable directly if tableWeakMode is not set yet.
+            if (!ownerWeakV && metaOwner.metatable != null) {
+              final rawMode = metaOwner.metatable!['__mode'];
+              String modeStr;
+              if (rawMode is LuaString) {
+                modeStr = rawMode.toString();
+              } else if (rawMode is Value) {
+                modeStr = rawMode.raw?.toString() ?? '';
+              } else {
+                modeStr = rawMode?.toString() ?? '';
+              }
+              if (modeStr.contains('v')) ownerWeakV = true;
+            }
+          }
+          if (Logger.enabled && hasGc) {
+            final mtInfo = (metaOwner is Value)
+                ? (metaOwner.metatable?.keys.toString() ?? 'null')
+                : 'n/a';
+            Logger.debug(
+              'Finalize check: obj=${obj.hashCode} hasGc=$hasGc eligible=${obj.finalizerEligible} owner=${(metaOwner is Value) ? metaOwner.hashCode : 'null'} owner.mtKeys=$mtInfo ownerWeakV=$ownerWeakV',
+              category: 'GC',
+            );
+          }
+          if (ownerWeakV) {
+            if (Logger.enabled && hasGc) {
+              Logger.debug(
+                'Finalizer suppressed due to weak-values meta-owner: obj=${obj.hashCode} owner=${(metaOwner as Value).hashCode}',
+                category: 'GC',
+              );
+            }
+            hasGc = false;
+          }
           eligible = obj.finalizerEligible;
         }
 
@@ -1453,6 +1522,36 @@ class GenerationalGCManager {
 
     for (final obj in objectsToFinalize) {
       if (obj is Value) {
+        // Skip running __gc if the object's metamethods are under a weak-values
+        // metatable owner. In this case, Lua does not consider __gc a strong
+        // finalizer hook.
+        final metaOwner = obj.metatableRef;
+        bool ownerWeakV = false;
+        if (metaOwner is Value) {
+          ownerWeakV = metaOwner.hasWeakValues;
+          if (!ownerWeakV && metaOwner.metatable != null) {
+            final rawMode = metaOwner.metatable!['__mode'];
+            String modeStr;
+            if (rawMode is LuaString) {
+              modeStr = rawMode.toString();
+            } else if (rawMode is Value) {
+              modeStr = rawMode.raw?.toString() ?? '';
+            } else {
+              modeStr = rawMode?.toString() ?? '';
+            }
+            if (modeStr.contains('v')) ownerWeakV = true;
+          }
+        }
+        if (ownerWeakV) {
+          if (Logger.enabled) {
+            Logger.debug(
+              'Skip __gc due to weak-values meta-owner during finalization: obj=${obj.hashCode} owner=${metaOwner.hashCode}',
+              category: 'GC',
+            );
+          }
+          // Do not mark as finalized; allow normal collection to proceed.
+          continue;
+        }
         // Mark as finalized BEFORE calling __gc. This prevents re-finalization
         // if the object is resurrected and then becomes dead again.
         _alreadyFinalized.add(obj);
@@ -1571,23 +1670,26 @@ class GenerationalGCManager {
     _markGeneration(youngGen, roots);
     _markGeneration(oldGen, roots);
 
-    // Ensure top-level locals (Boxes in the current script environment) are
-    // discovered before weak clearing. This does not change reachability; it
-    // only guarantees discovery order so live locals are marked when we clear
-    // kv tables. It walks the current environment chain and discovers boxed
-    // GCObject values.
+    // Ensure top-level locals (Boxes in the active environment chains for the
+    // provided roots) are discovered before weak clearing. This guarantees
+    // discovery order so live locals are marked when we clear kv tables,
+    // without unintentionally pulling in the interpreter's global environment
+    // when tests use custom, isolated Environment roots.
     try {
-      Environment? env = _interpreter.getCurrentEnv();
       final visited = HashSet<Environment>.identity();
-      while (env != null && visited.add(env)) {
-        for (final entry in env.values.entries) {
-          final boxed = entry.value;
-          final val = boxed.value;
-          if (val is GCObject) {
-            _discover(val);
+      for (final root in roots) {
+        if (root is! Environment) continue;
+        Environment? env = root;
+        while (env != null && visited.add(env)) {
+          for (final entry in env.values.entries) {
+            final boxed = entry.value;
+            final val = boxed.value;
+            if (val is GCObject) {
+              _discover(val);
+            }
           }
+          env = env.parent;
         }
-        env = env.parent;
       }
     } catch (_) {}
 
@@ -1684,6 +1786,33 @@ class GenerationalGCManager {
             if (!weakValuesTables.contains(obj)) weakValuesTables.add(obj);
           } else if (mode == 'kv') {
             if (!allWeakTables.contains(obj)) allWeakTables.add(obj);
+          }
+          // Also consider the object's metatable as a weak table owner if its
+          // own metatable declares __mode. This captures cases like
+          // setmetatable(getmetatable(u), { __mode = 'v' }) where weakness
+          // applies to entries in the metatable of 'u'.
+          final metaOwner = obj.metatableRef;
+          if (metaOwner is Value && metaOwner.isTable) {
+            final metaMode = metaOwner.tableWeakMode;
+            if (Logger.enabled && metaMode != null) {
+              Logger.debug(
+                'Weak meta-owner in gen(${gen == youngGen ? 'young' : 'old'}): table=${metaOwner.hashCode} mode=$metaMode (owner=${obj.hashCode})',
+                category: 'GC',
+              );
+            }
+            if (metaMode == 'k') {
+              if (!ephemeronTables.contains(metaOwner)) {
+                ephemeronTables.add(metaOwner);
+              }
+            } else if (metaMode == 'v') {
+              if (!weakValuesTables.contains(metaOwner)) {
+                weakValuesTables.add(metaOwner);
+              }
+            } else if (metaMode == 'kv') {
+              if (!allWeakTables.contains(metaOwner)) {
+                allWeakTables.add(metaOwner);
+              }
+            }
           }
         }
       }

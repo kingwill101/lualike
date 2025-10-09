@@ -299,10 +299,11 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     return raw is T;
   }
 
-  /// Primitive-like values (numbers, booleans, strings, nil) behave as
-  /// immediate values in Lua and are not reclaimed due solely to weak table
-  /// reachability. Treat them as always-alive when sweeping weak tables so we
-  /// match Lua's semantics for weak references involving primitives.
+  /// Primitive-like values (numbers, booleans, nil, strings) behave as
+  /// immediate values for weak-table semantics and are not reclaimed due
+  /// solely to weak table reachability. In particular, Lua strings are
+  /// typically interned and survive as values in weak tables such as the
+  /// number->string cases exercised by gc.lua.
   bool get isPrimitiveLike {
     final current = raw;
     return current == null ||
@@ -485,6 +486,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       if (metatableRef is Value) {
         final owner = metatableRef as Value;
         if (owner.isTable && owner.hasWeakValues) {
+          if (Logger.enabled && event == '__gc') {
+            Logger.debug(
+              'getMetamethod("__gc"): owner=${owner.hashCode} weakMode=${owner.tableWeakMode} methodType=${method.runtimeType}',
+              category: 'GC',
+            );
+          }
           // For __gc specifically, weak-values metatables should not drive
           // finalization; Lua tests rely on this pattern to ensure that
           // setting __gc under a weak-values metatable does not run.
