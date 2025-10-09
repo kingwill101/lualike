@@ -196,7 +196,6 @@ class Environment extends GCObject {
     if (parent != null) {
       refs.add(parent!);
     }
-    final gcReady = GCAccess.fromEnv(this) != null;
     for (final entry in values.entries) {
       final box = entry.value;
       final boxedValue = box.value;
@@ -207,15 +206,9 @@ class Environment extends GCObject {
       if (boxedValue == null) continue;
       if (boxedValue is Value && boxedValue.isNil) continue;
 
+      // Return the Box and any GCObject value it holds as references.
+      // Do not auto-enroll raw values directly; discovery proceeds via Box.
       refs.add(box);
-      if (!gcReady) {
-        continue;
-      }
-      final gc = GCAccess.fromEnv(this);
-      gc?.ensureTracked(box);
-      if (boxedValue is GCObject) {
-        gc?.ensureTracked(boxedValue);
-      }
     }
     return refs;
   }
@@ -387,8 +380,7 @@ class Environment extends GCObject {
     // If not found anywhere, create new binding in root environment
     // This ensures that global assignments from loaded code persist
     final rootEnv = root;
-    final newBox = Box(value)..debugName = name;
-    rootEnv.values[name] = newBox;
+    rootEnv.values[name] = Box(value);
     rootEnv._updateCredits();
     Logger.debug(
       "Created new binding for '$name' = $value in root env (${rootEnv.hashCode})",
@@ -435,8 +427,7 @@ class Environment extends GCObject {
     );
 
     // Create a fresh Box that shadows any previous binding
-    final box = Box(value, isLocal: true)..debugName = name;
-    values[name] = box;
+    values[name] = Box(value, isLocal: true);
     _updateCredits();
 
     // Track to-be-closed variables
@@ -573,7 +564,7 @@ class Environment extends GCObject {
         "Creating new global variable '$name' with value type ${value.runtimeType} (is GCObject: ${value is GCObject})",
         category: 'Env',
       );
-      rootEnv.values[name] = Box(value)..debugName = name;
+      rootEnv.values[name] = Box(value);
       Logger.debug(
         "Created new global variable '$name' = $value in root env (${rootEnv.hashCode})",
         category: 'Env',

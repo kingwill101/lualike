@@ -118,7 +118,7 @@ class Upvalue extends GCObject {
   Upvalue? _joinedUpvalue;
 
   /// Interpreter reference for GC registration (optional)
-  Interpreter? _interpreter;
+  final Interpreter? _interpreter;
 
   /// Whether this upvalue has been joined with another upvalue
   bool get isJoined => _joinedUpvalue != null;

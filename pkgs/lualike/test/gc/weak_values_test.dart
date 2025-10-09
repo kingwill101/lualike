@@ -25,7 +25,8 @@ void main() {
         final strongKey = Value('strong_key');
         final weakKey = Value('weak_key');
         final strongValue = Value('strong_value');
-        final weakValue = Value('weak_value');
+        // Use a collectable value (table) so weak-values semantics clear it
+        final weakValue = Value(<dynamic, dynamic>{});
 
         weakTable.raw[strongKey] = strongValue;
         weakTable.raw[weakKey] = weakValue;
@@ -62,10 +63,11 @@ void main() {
         final weakTable = Value({});
         weakTable.setMetatable({'__mode': 'v'});
 
-        final key1 = Value('key1');
-        final key2 = Value('key2');
-        final deadValue1 = Value('dead1');
-        final deadValue2 = Value('dead2');
+        // Use collectable keys (tables) so they are preserved even when values die
+        final key1 = Value(<dynamic, dynamic>{});
+        final key2 = Value(<dynamic, dynamic>{});
+        final deadValue1 = Value(<dynamic, dynamic>{});
+        final deadValue2 = Value(<dynamic, dynamic>{});
 
         weakTable.raw[key1] = deadValue1;
         weakTable.raw[key2] = deadValue2;
@@ -102,7 +104,8 @@ void main() {
       // No __mode = strong table
 
       final key = Value('key');
-      final value = Value('value');
+      // Use a collectable value so clearing applies
+      final value = Value(<dynamic, dynamic>{});
 
       weakTable.raw[key] = value;
       strongTable.raw[key] = value;
@@ -141,8 +144,8 @@ void main() {
 
         final key1 = Value('key1');
         final key2 = Value('key2');
-        final value1 = Value('value1');
-        final value2 = Value('value2');
+        final value1 = Value(<dynamic, dynamic>{});
+        final value2 = Value(<dynamic, dynamic>{});
 
         weakTable.raw[key1] = value1;
         weakTable.raw[key2] = value2;
@@ -210,7 +213,7 @@ void main() {
       weakTable.setMetatable({'__mode': 'v'});
 
       final key = Value('key');
-      final value = Value('value');
+      final value = Value(<dynamic, dynamic>{});
       weakTable.raw[key] = value;
 
       // Root references only the table, not the value
@@ -242,7 +245,7 @@ void main() {
       weakTable.setMetatable({'__mode': 'v'});
 
       final key = Value('key');
-      final value = Value('value');
+      final value = Value(<dynamic, dynamic>{});
       weakTable.raw[key] = value;
 
       // Root references only the table, not the value
@@ -264,8 +267,8 @@ void main() {
 
       final stringKey = 'string_key';
       final numberKey = 42;
-      final value1 = Value('value1');
-      final value2 = Value('value2');
+      final value1 = Value(<dynamic, dynamic>{});
+      final value2 = Value(<dynamic, dynamic>{});
 
       weakTable.raw[stringKey] = value1;
       weakTable.raw[numberKey] = value2;
@@ -292,7 +295,7 @@ void main() {
       weakTable.setMetatable(metatable);
 
       final key = Value('key');
-      final value = Value('dead_value');
+      final value = Value(<dynamic, dynamic>{});
       weakTable.raw[key] = value;
 
       // Root references only the table

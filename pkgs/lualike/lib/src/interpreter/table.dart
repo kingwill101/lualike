@@ -109,7 +109,13 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       );
     }
 
-    final result = tableVal[indexVal];
+    var result = tableVal[indexVal];
+    if (result is Value && result.raw is Map) {
+      final canon = Value.lookupCanonicalTableWrapper(result.raw);
+      if (canon != null && !identical(canon, result)) {
+        result = canon;
+      }
+    }
     Logger.debug('TableAccess result: $result', category: 'Interpreter');
     return result;
   }
@@ -195,7 +201,13 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     if (tableVal.raw is Map && (tableVal.raw as Map).containsKey(rawKey)) {
       // Key exists, get it directly
       Logger.debug('DEBUG: Key exists, getting directly');
-      final result = tableVal[indexVal];
+      var result = tableVal[indexVal];
+      if (result is Value && result.raw is Map) {
+        final canon = Value.lookupCanonicalTableWrapper(result.raw);
+        if (canon != null && !identical(canon, result)) {
+          result = canon;
+        }
+      }
       if (canUseCache) {
         cache ??= _TableFieldInlineCache();
         cache

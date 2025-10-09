@@ -126,6 +126,22 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     final leftVal = leftResult is Value ? leftResult : Value(leftResult);
     final rightVal = rightResult is Value ? rightResult : Value(rightResult);
 
+    // Canonicalize table wrappers to preserve per-instance metatables
+    Value canon(Value v) {
+      if (v.raw is Map) {
+        final c = Value.lookupCanonicalTableWrapper(v.raw);
+        if (c != null) return c;
+      }
+      return v;
+    }
+
+    final leftValCanon = canon(leftVal);
+    final rightValCanon = canon(rightVal);
+
+    // Use canonicalized values for metamethod checks
+    final canonicalLeft = leftValCanon;
+    final canonicalRight = rightValCanon;
+
     if (Logger.enabled) {
       Logger.debug(
         'BinaryExpression operands before metamethod check: $leftVal (${leftVal.raw.runtimeType}) ${node.op} $rightVal (${rightVal.raw.runtimeType})',
@@ -164,36 +180,47 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       Value? calleeValue;
 
       // Prefer left, then right for the direct mapping
-      if (leftVal.hasMetamethod(metamethodName)) {
-        calleeValue = leftVal;
-      } else if (rightVal.hasMetamethod(metamethodName)) {
-        calleeValue = rightVal;
+      if (canonicalLeft.hasMetamethod(metamethodName)) {
+        calleeValue = canonicalLeft;
+      } else if (canonicalRight.hasMetamethod(metamethodName)) {
+        calleeValue = canonicalRight;
+      }
+
+      if (Logger.enabled &&
+          (node.op == '<' ||
+              node.op == '>' ||
+              node.op == '<=' ||
+              node.op == '>=')) {
+        Logger.debug(
+          'Metamethod probe: op=${node.op}, left.type=${getLuaType(leftVal)}, right.type=${getLuaType(rightVal)}, left.has($metamethodName)=${leftVal.hasMetamethod(metamethodName)}, right.has($metamethodName)=${rightVal.hasMetamethod(metamethodName)}, callee=${calleeValue == leftVal ? 'left' : (calleeValue == rightVal ? 'right' : 'none')}',
+          category: 'Expression',
+        );
       }
 
       // Fallback mappings for comparisons when direct mapping not present
       if (calleeValue == null && node.op == '>') {
-        if (rightVal.hasMetamethod('__lt')) {
+        if (canonicalRight.hasMetamethod('__lt')) {
           metamethodName = '__lt';
-          calleeValue = rightVal;
+          calleeValue = canonicalRight;
           swapArgs = true;
         }
       } else if (calleeValue == null && node.op == '>=') {
-        if (leftVal.hasMetamethod('__le')) {
+        if (canonicalLeft.hasMetamethod('__le')) {
           metamethodName = '__le';
-          calleeValue = leftVal;
+          calleeValue = canonicalLeft;
           swapArgs = true;
-        } else if (rightVal.hasMetamethod('__le')) {
+        } else if (canonicalRight.hasMetamethod('__le')) {
           metamethodName = '__le';
-          calleeValue = rightVal;
+          calleeValue = canonicalRight;
           swapArgs = true;
-        } else if (rightVal.hasMetamethod('__lt')) {
+        } else if (canonicalRight.hasMetamethod('__lt')) {
           metamethodName = '__lt';
-          calleeValue = rightVal;
+          calleeValue = canonicalRight;
           swapArgs = true;
           invertResult = true;
-        } else if (leftVal.hasMetamethod('__lt')) {
+        } else if (canonicalLeft.hasMetamethod('__lt')) {
           metamethodName = '__lt';
-          calleeValue = leftVal;
+          calleeValue = canonicalLeft;
           // no swap here (left < right) and then invert
           invertResult = true;
         }
@@ -207,7 +234,9 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
           );
         }
 
-        final callArgs = swapArgs ? [rightVal, leftVal] : [leftVal, rightVal];
+        final callArgs = swapArgs
+            ? [canonicalRight, canonicalLeft]
+            : [canonicalLeft, canonicalRight];
         var result = await calleeValue.callMetamethodAsync(
           metamethodName,
           callArgs,
@@ -256,33 +285,60 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         );
       }
     }
-    var result = switch (node.op) {
-      '+' => leftVal + rightVal,
-      '-' => leftVal - rightVal,
-      '*' => leftVal * rightVal,
-      '/' => leftVal / rightVal,
-      '%' => leftVal % rightVal,
-      '^' => leftVal.exp(rightVal),
-      '//' => leftVal ~/ rightVal,
-      '&' => leftVal & rightVal,
-      '|' => leftVal | rightVal,
-      '~' => leftVal ^ rightVal,
-      '<<' => leftVal << rightVal,
-      '==' => leftVal == rightVal,
-      '~=' => leftVal != rightVal,
-      '!=' => leftVal != rightVal,
-      '>' => leftVal > rightVal,
-      '<' => leftVal < rightVal,
-      '>=' => leftVal >= rightVal,
-      '<=' => leftVal <= rightVal,
-      '>>' => leftVal >> rightVal,
-      '..' => leftVal.concat(rightVal),
-      'and' => leftVal.and(rightVal),
-      'or' => leftVal.or(rightVal),
-      _ => throw LuaError.typeError(
-        'Operation (${node.op}) not supported for these types [$leftVal, $rightVal]',
-      ),
-    };
+    // If we are about to fall back to default operators for a comparison
+    // involving tables, emit a diagnostic when no metamethod was found.
+    if ((node.op == '<' ||
+            node.op == '>' ||
+            node.op == '<=' ||
+            node.op == '>=') &&
+        leftVal.raw is Map &&
+        rightVal.raw is Map) {
+      final hasLtLeft = leftVal.hasMetamethod('__lt');
+      final hasLtRight = rightVal.hasMetamethod('__lt');
+      final hasLeLeft = leftVal.hasMetamethod('__le');
+      final hasLeRight = rightVal.hasMetamethod('__le');
+      if (Logger.enabled) {
+        Logger.debug(
+          'Compare fallback (no metamethod): op=${node.op}, left.has(__lt)=$hasLtLeft, right.has(__lt)=$hasLtRight, left.has(__le)=$hasLeLeft, right.has(__le)=$hasLeRight',
+          category: 'Expression',
+        );
+      }
+    }
+
+    dynamic result;
+    try {
+      result = switch (node.op) {
+        '+' => leftVal + rightVal,
+        '-' => leftVal - rightVal,
+        '*' => leftVal * rightVal,
+        '/' => leftVal / rightVal,
+        '%' => leftVal % rightVal,
+        '^' => leftVal.exp(rightVal),
+        '//' => leftVal ~/ rightVal,
+        '&' => leftVal & rightVal,
+        '|' => leftVal | rightVal,
+        '~' => leftVal ^ rightVal,
+        '<<' => leftVal << rightVal,
+        '==' => leftVal == rightVal,
+        '~=' => leftVal != rightVal,
+        '!=' => leftVal != rightVal,
+        '>' => leftVal > rightVal,
+        '<' => leftVal < rightVal,
+        '>=' => leftVal >= rightVal,
+        '<=' => leftVal <= rightVal,
+        '>>' => leftVal >> rightVal,
+        '..' => leftVal.concat(rightVal),
+        'and' => leftVal.and(rightVal),
+        'or' => leftVal.or(rightVal),
+        _ => throw LuaError.typeError(
+          'Operation (${node.op}) not supported for these types [$leftVal, $rightVal]',
+        ),
+      };
+    } on UnsupportedError catch (e) {
+      // Normalize Dart-side UnsupportedError from direct Value operators into
+      // LuaError with the same message to preserve Lua semantics at runtime.
+      throw LuaError.typeError(e.message ?? e.toString());
+    }
 
     if (Logger.enabled) {
       Logger.debug(
@@ -512,6 +568,22 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
             _identifierGlobalCache[node] = cache;
           }
 
+          return resolvedValue;
+        }
+        // Fast path: when _ENV === _G, direct global lookups can bypass the
+        // __index metamethod and read from the environment chain. This avoids
+        // expensive async metamethod calls for common globals like 'assert'.
+        final direct = globals.get(node.name);
+        if (direct != null) {
+          final resolvedValue = direct is Value ? direct : Value(direct);
+          if (canUseGlobalCache) {
+            cache ??= _IdentifierGlobalCache();
+            cache
+              ..env = envValue
+              ..envVersion = envValue.tableVersion
+              ..value = resolvedValue;
+            _identifierGlobalCache[node] = cache;
+          }
           return resolvedValue;
         }
         if (Logger.enabled) {

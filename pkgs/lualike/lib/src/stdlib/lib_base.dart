@@ -138,16 +138,23 @@ class SetMetatableFunction extends BuiltinFunction {
 
     if (metatable is Value) {
       if (metatable.raw is Map) {
+        Logger.debug(
+          "[SetMetatable] on table=${table.hashCode} raw=${table.raw.hashCode} using meta raw=${metatable.raw.hashCode}",
+          category: 'Metatables',
+        );
         // Preserve identity by keeping a reference to the original Value.
         table.metatableRef = metatable;
         // Reuse the same map instance so identity comparisons work as expected.
         final rawMeta = Map.castFrom<dynamic, dynamic, String, dynamic>(
           metatable.raw as Map,
         );
-        table.metatable = rawMeta;
+        table.setMetatable(rawMeta);
+        // Ensure future lookups return this wrapper for the underlying map.
+        Value.registerTableIdentity(table);
         return table;
       } else if (metatable.raw == null) {
         // Setting nil metatable removes the metatable
+        table.setMetatable(<String, dynamic>{});
         table.metatable = null;
         table.metatableRef = null;
         return table;
@@ -1856,6 +1863,41 @@ class NextFunction extends BuiltinFunction {
           : Value(entry.key);
       final entryValue = entry.value;
       final nextValue = entryValue is Value ? entryValue : Value(entryValue);
+
+      // For weak-keys/all-weak tables, opportunistically skip entries whose
+      // keys are dead according to the current GC tracking, to match Lua's
+      // observation that pairs(a) should not yield dead keys after collect().
+      if (table.tableWeakMode != null &&
+          (table.hasWeakKeys || table.isAllWeak)) {
+        final vm = interpreter!;
+        bool isAliveKey = true;
+        if (!nextKey.isPrimitiveLike) {
+          final inYoung = vm.gc.youngGen.objects.contains(nextKey);
+          final inOld = vm.gc.oldGen.objects.contains(nextKey);
+          if ((!inYoung && !inOld) || nextKey.isFreed) {
+            isAliveKey = false;
+          }
+        }
+        if (!isAliveKey) {
+          // Skip yielding this entry; continue to look for the next one.
+          continue;
+        }
+      }
+      // Focused instrumentation: when iterating weak-key or all-weak tables
+      // and GC logging is enabled, emit the produced key/value to aid
+      // diagnosing gc.lua failures around pairs(a) assertions.
+      try {
+        if (Logger.enabled &&
+            table.tableWeakMode != null &&
+            (table.hasWeakKeys || table.hasWeakValues || table.isAllWeak)) {
+          Logger.debug(
+            'next(pair): weak table (${table.tableWeakMode}) -> k=${nextKey.raw} (${nextKey.raw.runtimeType}) v=${nextValue.raw} (${nextValue.raw.runtimeType})',
+            category: 'GC',
+          );
+        }
+      } catch (_) {
+        // Best-effort debug logging only.
+      }
       return Value.multi([nextKey, nextValue]);
     }
 

@@ -358,6 +358,41 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     // Set the interpreter on the value object itself
     funcValue.interpreter = this as Interpreter;
 
+    // Lightweight pattern detection to enable fast paths for very common
+    // trivial closures used in hot loops (e.g., sort comparators and
+    // validation checks). These hints let the call site avoid building a
+    // fresh execution environment for each invocation when safe.
+    try {
+      // Detect `function(x, y) return x < y end`
+      if ((node.parameters?.length ?? 0) >= 2 && node.body.length == 1) {
+        final stmt = node.body[0];
+        if (stmt is ReturnStatement && stmt.expr.length == 1) {
+          final expr = stmt.expr[0];
+          if (expr is BinaryExpression && expr.op == '<') {
+            if (expr.left is Identifier && expr.right is Identifier) {
+              final p0 = node.parameters![0].name;
+              final p1 = node.parameters![1].name;
+              final l = (expr.left as Identifier).name;
+              final r = (expr.right as Identifier).name;
+              if (l == p0 && r == p1) {
+                funcValue.isLessComparator = true;
+              }
+              // Detect reversed simple comparator: return y < x
+              if (l == p1 && r == p0) {
+                funcValue.isLessComparatorReversed = true;
+              }
+            }
+          }
+          // Detect `function(...) return nil end` (always returns nil)
+          if (expr is NilValue) {
+            funcValue.isNilReturningClosure = true;
+          }
+        }
+      }
+    } catch (_) {
+      // If AST structures change, silently skip hints (safe fallback).
+    }
+
     return funcValue;
   }
 
@@ -473,6 +508,60 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         rethrow;
       }
     }
+
+    // Fast path: trivial closure that always returns nil. Evaluate
+    // arguments for side effects, but bypass creating an execution
+    // environment and do not call the closure body.
+    if (func is Value && func.isNilReturningClosure) {
+      for (final argNode in node.args) {
+        // Evaluate each argument; discard value
+        await argNode.accept(this);
+      }
+      return Value(null);
+    }
+
+    // Fast path: reversed simple comparator `function(x, y) return y < x end`.
+    // Only safe for primitive-like comparisons (numbers/strings) with no
+    // metatables on arguments.
+    if (func is Value && func.isLessComparatorReversed) {
+      final fastArgs = <Object?>[];
+      for (int i = 0; i < node.args.length && fastArgs.length < 2; i++) {
+        final v = await node.args[i].accept(this);
+        Object? first;
+        if (v is Value && v.isMulti) {
+          final list = v.raw as List<Object?>;
+          first = list.isNotEmpty ? list.first : null;
+        } else if (v is List && v.isNotEmpty) {
+          first = v.first;
+        } else {
+          first = v;
+        }
+        fastArgs.add(first is Value ? first : Value(first));
+      }
+      while (fastArgs.length < 2) {
+        fastArgs.add(Value(null));
+      }
+      final a0 = fastArgs[0] as Value;
+      final a1 = fastArgs[1] as Value;
+      final rawA = a0.raw;
+      final rawB = a1.raw;
+      final safeA = a0.metatable == null;
+      final safeB = a1.metatable == null;
+      if (safeA && safeB) {
+        // Numbers
+        if (rawA is num && rawB is num) {
+          return Value(rawB < rawA);
+        }
+        // Strings / LuaStrings
+        if ((rawA is String || rawA is LuaString) &&
+            (rawB is String || rawB is LuaString)) {
+          final sa = rawA.toString();
+          final sb = rawB.toString();
+          return Value(sb.compareTo(sa) < 0);
+        }
+      }
+      // Fallback to normal path when not safe
+    }
     // Evaluate the arguments with proper multi-value handling
     final args = <Object?>[];
 
@@ -509,6 +598,17 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         } else {
           // Regular value
           args.add(value is Value ? value : Value(value));
+        }
+      }
+    }
+
+    // Canonicalize table arguments to preserve per-instance metatables.
+    for (var i = 0; i < args.length; i++) {
+      final a = args[i];
+      if (a is Value && a.raw is Map) {
+        final canon = Value.lookupCanonicalTableWrapper(a.raw);
+        if (canon != null && !identical(canon, a)) {
+          args[i] = canon;
         }
       }
     }

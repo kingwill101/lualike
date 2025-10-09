@@ -505,7 +505,11 @@ class LuaFile {
 }
 
 /// Helper function to create a LuaFile wrapped in a Value with proper metamethods
-Value createLuaFile(IODevice device, {bool isStandardFile = false, Object? interpreter}) {
+Value createLuaFile(
+  IODevice device, {
+  bool isStandardFile = false,
+  Object? interpreter,
+}) {
   final luaFile = LuaFile(device, isStandardFile: isStandardFile);
 
   return Value(luaFile, metatable: fileMetamethods);

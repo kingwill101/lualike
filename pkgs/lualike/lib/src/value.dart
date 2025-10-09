@@ -7,6 +7,7 @@ import 'package:lualike/src/gc/gc_access.dart';
 import 'package:lualike/src/gc/memory_credits.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/upvalue.dart';
+import 'package:lualike/src/utils/type.dart' show getLuaType;
 
 /// Represents an asynchronous function that can be called with a list of arguments.
 typedef AsyncFunction = Future<Object?> Function(List<Object?> args);
@@ -53,6 +54,17 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// Hint for fast-calling simple Lua closures (e.g., comparator x < y)
   /// Currently used to accelerate very common patterns in tight loops.
   bool isLessComparator = false;
+
+  /// Hint for trivial closures that always return nil (e.g.,
+  /// `function(x, y) return nil end`). This allows the interpreter to
+  /// bypass creating an execution environment and skip the closure call,
+  /// while still evaluating argument expressions for side effects.
+  bool isNilReturningClosure = false;
+
+  /// Hint for simple reversed comparator closures of the form
+  /// `function(x, y) return y < x end`. Used to accelerate validation
+  /// checks in tight loops.
+  bool isLessComparatorReversed = false;
 
   /// Whether this value has been initialized (used for const variables)
   bool _isInitialized = false;
@@ -108,8 +120,16 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// Returns null if this is not a table or has no __mode.
   /// Returns 'k' for weak keys, 'v' for weak values, 'kv' for both.
   String? get tableWeakMode {
-    if (!isTable || metatable == null) return null;
-    dynamic mode = metatable!['__mode'];
+    if (!isTable) return null;
+    // Prefer the direct metatable field, but fall back to the globally
+    // registered metatable for this raw Map so that alternate wrappers
+    // (e.g., those seen during GC traversal) still observe weak modes.
+    Map<String, dynamic>? mt = metatable;
+    if (mt == null) {
+      mt = _getRegisteredTableMetatable();
+      if (mt == null) return null;
+    }
+    dynamic mode = mt['__mode'];
     Logger.debug(
       'tableWeakMode raw metatable __mode: $mode (${mode.runtimeType})',
       category: 'Value',
@@ -182,6 +202,13 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     _isInitialized = true;
     _isFreed = false;
 
+    // Register identity for table (Map) values so that future lookups
+    // can return the canonical Value wrapper and preserve per-instance
+    // metatables and identity-sensitive behavior like __lt.
+    if (_raw is Map) {
+      _registerTableIdentity(_raw as Map);
+    }
+
     // If no metatable is provided, apply the default metatable for this type.
     // This mirrors Lua's behavior where strings, numbers, etc. share
     // common metatables giving them methods like string.find.
@@ -195,11 +222,50 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     // remains correct, but avoid charging allocation debt for
     // primitive-like wrappers to reduce auto-trigger overhead.
     final gcLocal2 = GCAccess.fromValue(this);
-    gcLocal2?.register(
-      this,
-      countAllocation: _shouldCountAllocation(),
-    );
+    gcLocal2?.register(this, countAllocation: _shouldCountAllocation());
+  }
 
+  // ---------------------------------------------------------------------------
+  // Identity registry for table (Map) values
+  // ---------------------------------------------------------------------------
+  static final Expando<Value> _tableIdentity = Expando<Value>('tableIdentity');
+  static final Expando<Map<String, dynamic>> _tableMetatables =
+      Expando<Map<String, dynamic>>('tableMetatables');
+
+  void _registerTableIdentity(Map table) {
+    try {
+      _tableIdentity[table] = this;
+    } catch (_) {
+      // If Expando association fails for any reason, ignore; behavior remains correct
+    }
+  }
+
+  static Value? _lookupTableIdentity(Object? table) {
+    if (table is Map) {
+      try {
+        return _tableIdentity[table];
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  /// Public helper to retrieve the canonical wrapper for a raw Map-backed
+  /// table, if one is registered. Returns null if none is registered or the
+  /// value is not a Map.
+  static Value? lookupCanonicalTableWrapper(Object? table) {
+    return _lookupTableIdentity(table);
+  }
+
+  /// Register [v] as the canonical wrapper for its underlying Map, so that
+  /// subsequent lookups will return [v] and preserve its metatable/identity.
+  static void registerTableIdentity(Value v) {
+    if (v.raw is Map) {
+      try {
+        _tableIdentity[v.raw as Map] = v;
+      } catch (_) {}
+    }
   }
 
   /// Determines whether this Value should contribute allocation debt.
@@ -234,7 +300,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     return current == null ||
         current is bool ||
         current is num ||
-        current is BigInt;
+        current is BigInt ||
+        current is String ||
+        current is LuaString;
   }
 
   bool get isStringLike {
@@ -368,12 +436,27 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   ///
   /// Returns the metatable or null if none is set.
   Map<String, dynamic>? getMetatable() => metatable;
+  Map<String, dynamic>? _getRegisteredTableMetatable() {
+    if (raw is Map) {
+      try {
+        return _tableMetatables[raw as Map];
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
+  }
 
   /// Sets a new metatable for this value.
   ///
   /// [mt] - The new metatable to associate with this value.
   void setMetatable(Map<String, dynamic> mt) {
     metatable = mt;
+    if (raw is Map) {
+      try {
+        _tableMetatables[raw as Map] = mt;
+      } catch (_) {}
+    }
     final gcLocal3 = GCAccess.fromValue(this);
     if (gcLocal3 != null) {
       MemoryCredits.instance.recalculate(this);
@@ -385,9 +468,11 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// [event] - The name of the metamethod to look up (e.g. "__add")
   /// Returns the metamethod if found, null otherwise.
   dynamic getMetamethod(String event) {
-    if (metatable != null) {
+    if (metatable != null && metatable!.containsKey(event)) {
       return metatable![event];
     }
+    final reg = _getRegisteredTableMetatable();
+    if (reg != null && reg.containsKey(event)) return reg[event];
     return null;
   }
 
@@ -395,8 +480,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   ///
   /// [event] - The name of the metamethod to check for.
   /// Returns `true` if the metamethod exists, `false` otherwise.
-  bool hasMetamethod(String event) =>
-      metatable != null && metatable!.containsKey(event);
+  bool hasMetamethod(String event) {
+    if (metatable != null && metatable!.containsKey(event)) return true;
+    final reg = _getRegisteredTableMetatable();
+    if (reg != null && reg.containsKey(event)) return true;
+    return false;
+  }
 
   /// Checks if this value is callable (is a function or has __call metamethod)
   bool isCallable() {
@@ -629,7 +718,40 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       final storageKey = _computeStorageKey(key);
       if ((raw as Map).containsKey(storageKey)) {
         final result = (raw as Map)[storageKey];
-        return result is Value ? result : Value(result);
+        if (result is Value) {
+          // If this Value wraps a Map and there is a canonical wrapper
+          // registered for that Map, return the canonical one to preserve
+          // metatables and identity semantics.
+          if (result.raw is Map) {
+            final existing = _lookupTableIdentity(result.raw);
+            if (existing != null && !identical(existing, result)) {
+              // Update stored entry to canonical wrapper
+              (raw as Map)[storageKey] = existing;
+              return existing;
+            }
+          }
+          return result;
+        }
+        // If the stored result is a raw Map, try to return the canonical
+        // Value wrapper to preserve metatables and identity.
+        final existing = _lookupTableIdentity(result);
+        if (existing != null) {
+          // Do not write back into the underlying Map when it is not already
+          // storing Value instances; some tables may use typed Maps (CastMap)
+          // for native data (e.g., functions). Writing a Value into those
+          // structures triggers type errors. Simply return the canonical
+          // wrapper to preserve identity semantics at the Value layer.
+          return existing;
+        }
+        final wrapped = Value(result);
+        if (wrapped.raw is Map) {
+          _tableIdentity[wrapped.raw as Map] = wrapped;
+        }
+        // Avoid mutating the underlying Map with a Value wrapper when it may
+        // be a typed CastMap (e.g., Map<Object?, SomeFunctionType>). Such
+        // writes can cause type cast exceptions. We still register identity
+        // for Map-backed values so subsequent reads canonicalize correctly.
+        return wrapped;
       }
 
       // Key doesn't exist, check for __index metamethod
@@ -649,10 +771,14 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       // Not a table, but might have an __index metamethod
       final indexMeta = getMetamethod('__index');
       if (indexMeta != null) {
-        return callMetamethod('__index', [
+        final result = callMetamethod('__index', [
           this,
           key is Value ? key : Value(key),
         ]);
+        if (result is Value) return result;
+        final existing = _lookupTableIdentity(result);
+        if (existing != null) return existing;
+        return result;
       }
       // No metamethod, cannot index
       final tname = NumberUtils.typeName(raw);
@@ -668,7 +794,29 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       final storageKey = _computeStorageKey(key);
       if ((raw as Map).containsKey(storageKey)) {
         final result = (raw as Map)[storageKey];
-        return result is Value ? result : Value(result);
+        if (result is Value) {
+          if (result.raw is Map) {
+            final existing = _lookupTableIdentity(result.raw);
+            if (existing != null && !identical(existing, result)) {
+              (raw as Map)[storageKey] = existing;
+              return existing;
+            }
+          }
+          return result;
+        }
+        final existing = _lookupTableIdentity(result);
+        if (existing != null) {
+          // See synchronous variant: return canonical wrapper without writing
+          // back to avoid typed map cast issues.
+          return existing;
+        }
+        final wrapped = Value(result);
+        if (wrapped.raw is Map) {
+          _tableIdentity[wrapped.raw as Map] = wrapped;
+        }
+        // See synchronous variant: avoid writing back wrapped Value into
+        // possibly typed maps.
+        return wrapped;
       }
 
       final indexMeta = getMetamethod('__index');
@@ -677,7 +825,14 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           this,
           key is Value ? key : Value(key),
         ]);
-        return result is Value ? result : Value(result);
+        if (result is Value) return result;
+        final existing = _lookupTableIdentity(result);
+        if (existing != null) return existing;
+        final wrapped = Value(result);
+        if (wrapped.raw is Map) {
+          _tableIdentity[wrapped.raw as Map] = wrapped;
+        }
+        return wrapped;
       }
 
       return Value(null);
@@ -688,6 +843,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           this,
           key is Value ? key : Value(key),
         ]);
+        if (result is Value) return result;
+        final existing = _lookupTableIdentity(result);
+        if (existing != null) return existing;
         return result;
       }
       final tname = NumberUtils.typeName(raw);
@@ -785,10 +943,22 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   void _setRawTableEntry(Object key, dynamic value) {
     final valueToSet = value is Value ? value : Value(value);
     final storageKey = _computeStorageKey(key);
-    final isWeakTable = isTable && tableWeakMode != null;
-    final storageValue = isWeakTable && valueToSet.isStringLike
-        ? valueToSet.raw
-        : valueToSet;
+    final storageValue = valueToSet;
+    if (Logger.enabled &&
+        isTable &&
+        tableWeakMode != null &&
+        (tableWeakMode?.contains('k') ?? false)) {
+      try {
+        final keyType = storageKey.runtimeType;
+        final keyRawType = storageKey is Value
+            ? storageKey.raw.runtimeType
+            : keyType;
+        Logger.debug(
+          'setRawTableEntry: weak-k store keyType=$keyType keyRawType=$keyRawType',
+          category: 'GC',
+        );
+      } catch (_) {}
+    }
 
     if (valueToSet.isNil) {
       (raw as Map).remove(storageKey);
@@ -1699,6 +1869,15 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       if (_isPrimitiveKey(rawKey)) {
         return rawKey;
       }
+      // For non-primitive keys (e.g., tables), always use the canonical Value
+      // wrapper for the underlying Map so lookups/writes agree and GC can
+      // observe the key as a GCObject (for weak-keys semantics).
+      if (rawKey is Map) {
+        // For map keys, avoid binding this wrapper into the global identity
+        // registry. Using the wrapper as-is prevents hidden strong references
+        // that can confuse weak-keys collection semantics during GC.
+        return key;
+      }
       return key;
     }
     if (key is LuaString) {
@@ -2023,7 +2202,7 @@ extension OperatorExtension on Value {
       return LuaString.fromDartString(raw) > otherRaw;
     }
     throw UnsupportedError(
-      'Greater than not supported for these types ${raw.runtimeType} and ${other.runtimeType}',
+      'attempt to compare ${getLuaType(Value(raw))} with ${getLuaType(Value(otherRaw))}',
     );
   }
 
@@ -2109,7 +2288,7 @@ extension OperatorExtension on Value {
       return LuaString.fromDartString(raw) < otherRaw;
     }
     throw UnsupportedError(
-      'Less than not supported for these types ${raw.runtimeType} and ${other.runtimeType}',
+      'attempt to compare ${getLuaType(Value(raw))} with ${getLuaType(Value(otherRaw))}',
     );
   }
 
@@ -2193,7 +2372,7 @@ extension OperatorExtension on Value {
       return LuaString.fromDartString(raw) >= otherRaw;
     }
     throw UnsupportedError(
-      'Greater than or equal not supported for these types ${raw.runtimeType} and ${other.runtimeType}',
+      'attempt to compare ${getLuaType(Value(raw))} with ${getLuaType(Value(otherRaw))}',
     );
   }
 
@@ -2277,7 +2456,7 @@ extension OperatorExtension on Value {
       return LuaString.fromDartString(raw) <= otherRaw;
     }
     throw UnsupportedError(
-      'Less than or equal not supported for these types ${raw.runtimeType} and ${other.runtimeType}',
+      'attempt to compare ${getLuaType(Value(raw))} with ${getLuaType(Value(otherRaw))}',
     );
   }
 

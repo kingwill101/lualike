@@ -245,9 +245,17 @@ void main() {
         table.metatable!['__index'] = metaFunction;
         table.metatable!['__newindex'] = metaFunction;
 
-        // Add table entry that will be cleared
-        final deadKey = Value('dead_key_$name');
-        final deadValue = Value('dead_value_$name');
+        // Add table entry that will be cleared. For weak-values tables,
+        // ensure the value is a collectable (a table), not a string, so
+        // weak semantics apply and the entry can be cleared.
+        // Use a collectable key for weak-keys tables, and a collectable value
+        // for weak-values tables, so the entry is eligible for clearing.
+        final Value deadKey = name == 'weak_keys'
+            ? Value(<dynamic, dynamic>{})
+            : Value('dead_key_$name');
+        final Value deadValue = name == 'weak_values'
+            ? Value(<dynamic, dynamic>{})
+            : Value('dead_value_$name');
         table.raw[deadKey] = deadValue;
       }
 

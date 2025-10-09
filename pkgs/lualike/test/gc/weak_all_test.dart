@@ -58,7 +58,8 @@ void main() {
         final allWeakTable = Value({});
         allWeakTable.setMetatable({'__mode': 'kv'});
 
-        final deadKey = Value('dead_key');
+        // Use a collectable key (table) so all-weak semantics can remove it
+        final deadKey = Value(<dynamic, dynamic>{});
         final strongValue = Value('strong_value');
         allWeakTable.raw[deadKey] = strongValue;
 
@@ -147,8 +148,8 @@ void main() {
       // Mix of primitive and object keys/values
       allWeakTable.raw['string_key'] = valueObj1;
       allWeakTable.raw[42] = valueObj2;
-      allWeakTable.raw[Value('obj_key')] = 'string_value';
-      allWeakTable.raw[Value('obj_key2')] = valueObj1;
+      allWeakTable.raw[Value(<dynamic, dynamic>{})] = 'string_value';
+      allWeakTable.raw[Value(<dynamic, dynamic>{})] = valueObj1;
 
       // Root references only the table and one value
       final rootEnv = Environment();

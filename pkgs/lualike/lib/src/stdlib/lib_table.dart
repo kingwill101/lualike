@@ -943,85 +943,49 @@ class _TableSort extends BuiltinFunction {
       final bStr = bVal.toString();
       return aStr.compareTo(bStr);
     } else {
-      // Check for metamethods
+      // Check for metamethods using the unified Value API
       final aValue = a is Value ? a : Value(a);
       final bValue = b is Value ? b : Value(b);
 
-      // Try to use __lt metamethod from a
-      if (aValue.metatable != null) {
-        final ltMetamethod = aValue.metatable!.raw['__lt'];
-        if (ltMetamethod != null) {
-          try {
-            final result = await ltMetamethod.call([aValue, bValue]);
-            Logger.debug(
-              "_compareValues: __lt metamethod result: $result (${result.runtimeType})",
-              category: 'TableSort',
-            );
-            if (result is Value) {
-              final boolResult = result.raw == true ? -1 : 1;
-              Logger.debug(
-                "_compareValues: returning $boolResult (Value case)",
-                category: 'TableSort',
-              );
-              return boolResult;
-            } else {
-              final boolResult = result == true ? -1 : 1;
-              Logger.debug(
-                "_compareValues: returning $boolResult (direct case)",
-                category: 'TableSort',
-              );
-              return boolResult;
-            }
-          } catch (e) {
-            Logger.debug(
-              "_compareValues: __lt metamethod failed for a: $e",
-              category: 'TableSort',
-            );
-            // If __lt metamethod fails, try the reverse
-            if (bValue.metatable != null) {
-              final bLtMetamethod = bValue.metatable!.raw['__lt'];
-              if (bLtMetamethod != null) {
-                try {
-                  final result = await bLtMetamethod.call([bValue, aValue]);
-                  if (result is Value) {
-                    return result.raw == true ? 1 : -1;
-                  } else {
-                    return result == true ? 1 : -1;
-                  }
-                } catch (e) {
-                  Logger.debug(
-                    "_compareValues: __lt metamethod failed for b: $e",
-                    category: 'TableSort',
-                  );
-                  // Both metamethods failed
-                }
-              }
-            }
-          }
+      // Prefer __lt from 'a'
+      if (aValue.hasMetamethod('__lt')) {
+        try {
+          final result = await aValue.callMetamethodAsync('__lt', [
+            aValue,
+            bValue,
+          ]);
+          final boolRes = result is Value
+              ? (result.raw == true)
+              : (result == true);
+          return boolRes ? -1 : 1;
+        } catch (e) {
+          Logger.debug(
+            "_compareValues: __lt metamethod failed for a: $e",
+            category: 'TableSort',
+          );
         }
       }
 
-      // Try to use __lt metamethod from b
-      if (bValue.metatable != null) {
-        final ltMetamethod = bValue.metatable!.raw['__lt'];
-        if (ltMetamethod != null) {
-          try {
-            final result = await ltMetamethod.call([bValue, aValue]);
-            if (result is Value) {
-              return result.raw == true ? 1 : -1;
-            } else {
-              return result == true ? 1 : -1;
-            }
-          } catch (e) {
-            Logger.debug(
-              "_compareValues: __lt metamethod failed for b (second attempt): $e",
-              category: 'TableSort',
-            );
-            // Metamethod failed
-          }
+      // Try __lt from 'b' (reverse)
+      if (bValue.hasMetamethod('__lt')) {
+        try {
+          final result = await bValue.callMetamethodAsync('__lt', [
+            bValue,
+            aValue,
+          ]);
+          final boolRes = result is Value
+              ? (result.raw == true)
+              : (result == true);
+          return boolRes ? 1 : -1;
+        } catch (e) {
+          Logger.debug(
+            "_compareValues: __lt metamethod failed for b: $e",
+            category: 'TableSort',
+          );
         }
       }
 
+      // No metamethods available
       throw LuaError.typeError("attempt to compare incompatible types");
     }
   }

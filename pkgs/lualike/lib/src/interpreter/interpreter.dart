@@ -306,9 +306,7 @@ class Interpreter extends AstVisitor<Object?>
     // eventually collect unreachable objects without requiring explicit
     // collectgarbage() calls (matching stock Lua behaviour).
     gc.autoTriggerEnabled = true;
-    gc.register(
-      _currentEnv,
-    ); // Register the initial environment
+    gc.register(_currentEnv); // Register the initial environment
 
     // Initialize coroutines before the standard library
     // Initialize coroutines before the standard library
@@ -712,6 +710,15 @@ class Interpreter extends AstVisitor<Object?>
           }
         }
         if (statementCompleted) {
+          // Discard temporary expression results between statements so they
+          // do not persist on the eval stack as unintended GC roots.
+          // Only clear after expression statements to preserve top-level
+          // returns/tail-call results used by callers (e.g., REPL).
+          if (node is ExpressionStatement) {
+            while (!evalStack.isEmpty) {
+              evalStack.pop();
+            }
+          }
           _runAutoGCAtSafePoint();
         }
       }
