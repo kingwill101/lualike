@@ -68,6 +68,10 @@ class GenerationalGCManager {
 
   /// Tracks whether an automatic GC trigger has been requested.
   bool _autoTriggerRequested = false;
+  
+  /// Temporarily suppress auto-GC triggers during critical allocations.
+  /// Used to prevent transient objects from being freed before collectgarbage("count").
+  bool _suppressAutoTrigger = false;
 
   /// Whether automatic GC triggering is enabled for this manager.
   /// When disabled, allocation debt will accumulate but no auto work runs
@@ -162,6 +166,16 @@ class GenerationalGCManager {
   void stop() {
     _isStopped = true;
     Logger.debug('GC stopped', category: 'GC');
+  }
+  
+  /// Temporarily suppresses auto-GC triggers (for critical allocations).
+  void suppressAutoTrigger() {
+    _suppressAutoTrigger = true;
+  }
+  
+  /// Re-enables auto-GC triggers after suppression.
+  void resumeAutoTrigger() {
+    _suppressAutoTrigger = false;
   }
 
   /// Starts the garbage collector.
@@ -684,8 +698,11 @@ class GenerationalGCManager {
       );
     }
     youngGen.add(obj);
-    MemoryCredits.instance.onAllocate(obj, space: GCGenerationSpace.young);
     if (countAllocation) {
+      // Only count allocation in MemoryCredits if countAllocation is true
+      // This excludes transient execution context objects (Environments, Boxes)
+      // from collectgarbage("count") to match Lua's behavior
+      MemoryCredits.instance.onAllocate(obj, space: GCGenerationSpace.young);
       // Don't trigger GC immediately during registration - only accumulate debt
       // GC will run at safe points during execution
       _simulatedAllocationDebt += obj.estimatedSize;
@@ -704,7 +721,7 @@ class GenerationalGCManager {
   }
 
   void _requestAutoTrigger() {
-    if (_isStopped || _simulatedAllocationDebt <= 0) {
+    if (_isStopped || _suppressAutoTrigger || _simulatedAllocationDebt <= 0) {
       return;
     }
     final triggerThreshold = _autoTriggerDebtThreshold();
@@ -1905,8 +1922,9 @@ class GenerationalGCManager {
           _toBeFinalized.add(obj);
           survivors.add(obj);
         } else {
+          final credits = obj.estimatedSize;
           Logger.debug(
-            'Minor free: ${obj.runtimeType} ${obj.hashCode}',
+            'Minor free: ${obj.runtimeType} ${obj.hashCode}, credits=${(credits / 1024).toStringAsFixed(2)} KB',
             category: 'GC',
           );
           MemoryCredits.instance.onFree(obj);

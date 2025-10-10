@@ -1,6 +1,7 @@
 import 'package:lualike/lualike.dart';
 
 import 'package:lualike/src/coroutine.dart';
+import 'package:lualike/src/gc/memory_credits.dart';
 import 'package:lualike/src/io/lua_file.dart';
 import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
@@ -35,6 +36,10 @@ class DebugLibrary extends Library {
     context.define("traceback", _Traceback());
     context.define("upvalueid", _UpvalueId());
     context.define("upvaluejoin", _UpvalueJoin());
+    
+    // Memory debugging functions
+    context.define("memtrace", _MemTrace());
+    context.define("memtree", _MemTree());
   }
 }
 
@@ -820,6 +825,11 @@ Map<String, BuiltinFunction> createDebugLib(Interpreter? astVm) {
     'traceback': _Traceback(),
     'upvalueid': _UpvalueId(),
     'upvaluejoin': _UpvalueJoin(),
+    
+    // Memory debugging functions
+    'memtrace': _MemTrace(),
+    'memtree': _MemTree(),
+    'memclear': _MemClear(),
   };
 }
 
@@ -872,4 +882,47 @@ void defineDebugLibrary({required Environment env, Interpreter? astVm}) {
     'Debug library initialized with interpreter: ${astVm != null}',
     category: 'Debug',
   );
+}
+
+/// Enable/disable memory allocation stack trace tracking
+class _MemTrace extends BuiltinFunction {
+  _MemTrace() : super();
+  
+  @override
+  Object? call(List<Object?> args) {
+    if (args.isEmpty) {
+      return Value(MemoryCredits.enableStackTraces);
+    }
+    
+    final enable = args[0];
+    if (enable is Value) {
+      MemoryCredits.enableStackTraces = enable.raw == true;
+    } else {
+      MemoryCredits.enableStackTraces = enable == true;
+    }
+    
+    return Value(null);
+  }
+}
+
+/// Print memory allocation tree
+class _MemTree extends BuiltinFunction {
+  _MemTree() : super();
+  
+  @override
+  Object? call(List<Object?> args) {
+    MemoryCredits.instance.printAllocationTree();
+    return Value(null);
+  }
+}
+
+/// Clear tracked objects list for debugging specific allocations
+class _MemClear extends BuiltinFunction {
+  _MemClear() : super();
+  
+  @override
+  Object? call(List<Object?> args) {
+    MemoryCredits.instance.clearTrackedObjects();
+    return Value(null);
+  }
 }

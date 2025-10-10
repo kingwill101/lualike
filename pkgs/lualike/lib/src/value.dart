@@ -1162,12 +1162,16 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
     // Maintain string-key credits incrementally when keys are Strings.
     try {
-      int keyLen(String s) => s.length * GcWeights.stringUnit;
-      if (!existed && storageKey is String) {
+      int keyLen(Object k) {
+        if (k is String) return k.length * GcWeights.stringUnit;
+        if (k is LuaString) return k.length * GcWeights.stringUnit;
+        return 0;
+      }
+      if (!existed && (storageKey is String || storageKey is LuaString)) {
         _tableStringKeyBytes[map] =
             (_tableStringKeyBytes[map] ?? 0) + keyLen(storageKey);
       }
-      if (valueToSet.isNil && existed && storageKey is String) {
+      if (valueToSet.isNil && existed && (storageKey is String || storageKey is LuaString)) {
         _tableStringKeyBytes[map] =
             (_tableStringKeyBytes[map] ?? 0) - keyLen(storageKey);
       }
@@ -2061,6 +2065,15 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   dynamic _computeStorageKey(Object? key) {
     if (key is Value) {
       final rawKey = key.raw;
+
+      // For weak-key tables, ALWAYS preserve the Value wrapper so GC can track it.
+      // Otherwise inline expressions like a[string.rep(...)] will unwrap to raw
+      // strings, the Value wrapper gets freed, and credits are lost.
+      if (tableWeakMode != null && tableWeakMode!.contains('k')) {
+        // Weak keys: keep Value wrapper for GC tracking
+        return key;
+      }
+
       if (rawKey is LuaString) {
         return rawKey.toString();
       }

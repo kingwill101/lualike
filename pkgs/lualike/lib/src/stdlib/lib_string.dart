@@ -1618,7 +1618,11 @@ class _StringRep extends BuiltinFunction {
         // For high-byte content, we cannot use StringInterning because it would
         // UTF-8 encode the Latin-1 string, corrupting the bytes
         // Instead, return the LuaString directly
-        return Value(resultLuaString);
+        final result = Value(resultLuaString);
+        
+        // Re-enable auto-GC after large allocation completes
+        
+        return result;
       }
     } else {
       // Handle regular strings
@@ -1646,7 +1650,13 @@ class _StringRep extends BuiltinFunction {
         }
       }
 
-      return StringInterning.createStringValue(buffer.toString());
+      // Create the result string once and reuse it
+      final resultString = buffer.toString();
+      final result = StringInterning.createStringValue(resultString);
+      
+      // Re-enable auto-GC after large allocation completes
+      
+      return result;
     }
   }
 }

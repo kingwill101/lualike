@@ -1,4 +1,7 @@
+import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
+import 'package:lualike/src/logging/logger.dart';
+import 'package:lualike/src/value.dart';
 
 /// Identifies the generation an object currently belongs to for credit
 /// accounting purposes.
@@ -21,6 +24,11 @@ class MemoryCredits {
   final Expando<GCGenerationSpace> _objectSpaces = Expando<GCGenerationSpace>(
     'gcSpace',
   );
+  
+  // Debug: Track allocation stack traces
+  static bool enableStackTraces = false;
+  final Expando<StackTrace> _objectStackTraces = Expando<StackTrace>('objectStackTraces');
+  final List<GCObject> _trackedObjects = [];
 
   int _total = 0;
   int _young = 0;
@@ -33,6 +41,19 @@ class MemoryCredits {
   /// Records a freshly allocated object.
   void onAllocate(GCObject obj, {required GCGenerationSpace space}) {
     final credits = obj.estimatedSize;
+    
+    // Debug: Capture stack trace if enabled
+    if (enableStackTraces) {
+      _objectStackTraces[obj] = StackTrace.current;
+      _trackedObjects.add(obj);
+    }
+    
+    // Debug: Log allocations during large operations
+    if (Logger.enabled && _total > 1000000 && credits > 100) {
+      final objType = obj is Value ? 'Value(${(obj as Value).raw?.runtimeType ?? 'null'})' : obj.runtimeType.toString();
+      Logger.debug('[MemoryCredits] onAllocate during large op: $objType#${obj.hashCode}, credits=$credits, _total: $_total -> ${_total+credits}', category: 'GC');
+    }
+    
     _objectCredits[obj] = credits;
     _objectSpaces[obj] = space;
     _total += credits;
@@ -125,5 +146,86 @@ class MemoryCredits {
     _young = recalculatedYoung;
     _old = recalculatedOld;
     _total = recalculatedYoung + recalculatedOld;
+  }
+  
+  /// Prints an allocation tree showing what objects are currently tracked
+  /// and where they were allocated from (if stack traces are enabled).
+  void printAllocationTree() {
+    final buffer = StringBuffer();
+    buffer.writeln('\n=== Memory Allocation Tree ===');
+    buffer.writeln('Total Credits: $_total ($_young young, $_old old)');
+    buffer.writeln('Tracked Objects: ${_trackedObjects.length}');
+    buffer.writeln();
+    
+    // Group by type
+    final byType = <String, List<GCObject>>{};
+    for (final obj in _trackedObjects) {
+      final credits = _objectCredits[obj];
+      if (credits != null && credits > 0) {
+        String typeName;
+        if (obj is Value) {
+          final raw = obj.raw;
+          typeName = 'Value(${raw?.runtimeType ?? 'null'})';
+        } else {
+          typeName = obj.runtimeType.toString();
+        }
+        byType.putIfAbsent(typeName, () => []).add(obj);
+      }
+    }
+    
+    // Sort by total credits per type
+    final sortedTypes = byType.entries.toList()
+      ..sort((a, b) {
+        final aTotal = a.value.fold<int>(0, (sum, obj) => sum + (_objectCredits[obj] ?? 0));
+        final bTotal = b.value.fold<int>(0, (sum, obj) => sum + (_objectCredits[obj] ?? 0));
+        return bTotal.compareTo(aTotal);
+      });
+    
+    for (final entry in sortedTypes) {
+      final typeName = entry.key;
+      final objects = entry.value;
+      final totalCredits = objects.fold<int>(0, (sum, obj) => sum + (_objectCredits[obj] ?? 0));
+      
+      buffer.writeln('$typeName: ${objects.length} objects, $totalCredits credits');
+      
+      // Show top 3 instances with stack traces
+      final sortedObjs = objects.toList()
+        ..sort((a, b) => (_objectCredits[b] ?? 0).compareTo(_objectCredits[a] ?? 0));
+      
+      for (var i = 0; i < sortedObjs.length && i < 3; i++) {
+        final obj = sortedObjs[i];
+        final credits = _objectCredits[obj] ?? 0;
+        buffer.writeln('  ├─ #${obj.hashCode}: $credits credits');
+        
+        if (enableStackTraces) {
+          final trace = _objectStackTraces[obj];
+          if (trace != null) {
+            // Extract first few relevant frames
+            final frames = trace.toString().split('\n')
+              .where((line) => 
+                !line.contains('dart:') &&
+                !line.contains('memory_credits.dart') &&
+                !line.contains('generational_gc.dart') &&
+                line.trim().isNotEmpty)
+              .take(2);
+            for (final frame in frames) {
+              buffer.writeln('  │  $frame');
+            }
+          }
+        }
+      }
+      if (objects.length > 3) {
+        buffer.writeln('  └─ ... and ${objects.length - 3} more');
+      }
+      buffer.writeln();
+    }
+    
+    buffer.writeln('=============================\n');
+    print(buffer.toString());
+  }
+  
+  /// Clears tracked objects list (for debugging specific allocations)
+  void clearTrackedObjects() {
+    _trackedObjects.clear();
   }
 }

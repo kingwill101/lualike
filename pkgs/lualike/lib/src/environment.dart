@@ -13,6 +13,11 @@ class Box<T> extends GCObject {
 
   /// Whether this binding represents a local variable.
   final bool isLocal;
+  
+  /// Whether this Box should be excluded from memory credit tracking.
+  /// Transient boxes (function parameters, local variables in executing functions)
+  /// are not counted to match Lua's behavior where the C stack isn't counted.
+  final bool isTransient;
 
   /// Optional debug helper storing the symbol name backing this box.
   String? debugName;
@@ -24,7 +29,11 @@ class Box<T> extends GCObject {
   int _upvalueRefCount = 0;
 
   /// Creates a new Box containing [value].
-  Box(this.value, {this.isLocal = false});
+  Box(this.value, {this.isLocal = false, this.isTransient = false}) {
+    // Register with GC, but don't count allocation for transient boxes
+    final gc = GCAccess.fromEnv(null);  
+    gc?.register(this, countAllocation: !isTransient);
+  }
 
   @override
   int get estimatedSize => GcWeights.gcObjectHeader + GcWeights.boxBase;
@@ -427,7 +436,8 @@ class Environment extends GCObject {
     );
 
     // Create a fresh Box that shadows any previous binding
-    values[name] = Box(value, isLocal: true);
+    // Mark as transient since function-local variables aren't counted in Lua's memory
+    values[name] = Box(value, isLocal: true, isTransient: true);
     _updateCredits();
 
     // Track to-be-closed variables

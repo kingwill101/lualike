@@ -375,6 +375,7 @@ class MetaTable {
     });
     Logger.debug('Userdata metatable initialized', category: 'Metatables');
 
+
     _initialized = true;
     Logger.debug(
       'All default metatables initialized successfully',

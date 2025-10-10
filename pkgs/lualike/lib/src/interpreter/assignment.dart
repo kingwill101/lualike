@@ -790,16 +790,22 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           }
         }
       } else {
-        // Create a new Value to avoid inheriting const/close attributes from source
-        valueWithAttributes = Value(
-          rawValue.raw,
-          metatable: rawValue.metatable,
-          // Explicitly do not copy isConst or isToBeClose
-          upvalues: rawValue.upvalues,
-          interpreter: rawValue.interpreter,
-          functionBody: rawValue.functionBody,
-          functionName: rawValue.functionName,
-        );
+        // Reuse the existing Value if it doesn't have const/close attributes
+        // to avoid double-wrapping (which causes double allocation + GC overhead)
+        if (rawValue.isConst == false && rawValue.isToBeClose == false) {
+          valueWithAttributes = rawValue;
+        } else {
+          // Create a new Value to avoid inheriting const/close attributes from source
+          valueWithAttributes = Value(
+            rawValue.raw,
+            metatable: rawValue.metatable,
+            // Explicitly do not copy isConst or isToBeClose
+            upvalues: rawValue.upvalues,
+            interpreter: rawValue.interpreter,
+            functionBody: rawValue.functionBody,
+            functionName: rawValue.functionName,
+          );
+        }
       }
 
       globals.declare(name, valueWithAttributes);
