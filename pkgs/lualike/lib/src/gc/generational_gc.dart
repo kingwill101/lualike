@@ -664,12 +664,24 @@ class GenerationalGCManager {
     if (youngGen.objects.contains(obj) || oldGen.objects.contains(obj)) {
       return;
     }
+    
+    // Check if this object should be counted for memory credits
+    bool shouldCount = true;
+    if (obj is Value) {
+      // Respect the isTempKey and isMulti flags
+      shouldCount = !(obj.isTempKey || obj.isMulti);
+    }
+    
     if (obj.isOld) {
       oldGen.add(obj);
-      MemoryCredits.instance.onAllocate(obj, space: GCGenerationSpace.old);
+      if (shouldCount) {
+        MemoryCredits.instance.onAllocate(obj, space: GCGenerationSpace.old);
+      }
     } else {
       youngGen.add(obj);
-      MemoryCredits.instance.onAllocate(obj, space: GCGenerationSpace.young);
+      if (shouldCount) {
+        MemoryCredits.instance.onAllocate(obj, space: GCGenerationSpace.young);
+      }
     }
   }
 
@@ -681,6 +693,15 @@ class GenerationalGCManager {
   ///
   /// New objects are always placed in the young generation (nursery).
   void register(GCObject obj, {bool countAllocation = true}) {
+    // Prevent duplicate registrations - if object is already tracked, skip
+    if (youngGen.objects.contains(obj) || oldGen.objects.contains(obj)) {
+      Logger.debug(
+        'Skipping duplicate registration: ${obj.runtimeType} ${obj.hashCode}',
+        category: 'GC',
+      );
+      return;
+    }
+    
     totalRegistrations++;
     final type = obj.runtimeType;
     final newCount = (allocationHistogram[type] ?? 0) + 1;
@@ -1161,6 +1182,10 @@ class GenerationalGCManager {
         }
         tableMap.remove(key);
       }
+      // Recalculate credits after removing entries to update total tracked memory
+      if (entriesToRemove.isNotEmpty) {
+        MemoryCredits.instance.recalculate(table);
+      }
     }
     weakValuesTables.clear();
   }
@@ -1202,25 +1227,14 @@ class GenerationalGCManager {
         }
       }
       for (final k in keysToRemove) {
-        // Adjust string-key credits before actual removal
-        try {
-          int len = 0;
-          if (k is String) {
-            len = k.length;
-          } else if (k is LuaString) {
-            len = k.length;
-          } else if (k is Value) {
-            final kr = k.raw;
-            if (kr is String) {
-              len = kr.length;
-            } else if (kr is LuaString)
-              len = kr.length;
-          }
-          if (len > 0) {
-            Value.adjustStringKeyCreditsForMap(tableMap, k, -len);
-          }
-        } catch (_) {}
         tableMap.remove(k);
+      }
+      // Invalidate cache and recalculate credits after removing entries.
+      // Don't manually adjust the cache - let recalculate() rebuild it from scratch
+      // to avoid double-decrement bugs.
+      if (keysToRemove.isNotEmpty) {
+        Value.invalidateStringKeyCache(tableMap);
+        MemoryCredits.instance.recalculate(table);
       }
     }
     allWeakTables.clear();
@@ -1319,24 +1333,12 @@ class GenerationalGCManager {
             'Applying pending removal for table ${table.hashCode} key=$key',
             category: 'GC',
           );
-          try {
-            int len = 0;
-            if (key is String) {
-              len = key.length;
-            } else if (key is LuaString) {
-              len = key.length;
-            } else if (key is Value) {
-              final kr = key.raw;
-              if (kr is String) {
-                len = kr.length;
-              } else if (kr is LuaString)
-                len = kr.length;
-            }
-            if (len > 0) {
-              Value.adjustStringKeyCreditsForMap(tableMap, key, -len);
-            }
-          } catch (_) {}
           tableMap.remove(key);
+        }
+        // Invalidate cache and recalculate credits after removing entries
+        if (keys.isNotEmpty) {
+          Value.invalidateStringKeyCache(tableMap);
+          MemoryCredits.instance.recalculate(table);
         }
       });
       pending.clear();
@@ -1472,25 +1474,11 @@ class GenerationalGCManager {
           );
         }
         for (final k in keysToRemove) {
-          try {
-            int len = 0;
-            if (k is String) {
-              len = k.length;
-            } else if (k is LuaString) {
-              len = k.length;
-            } else if (k is Value) {
-              final kr = k.raw;
-              if (kr is String) {
-                len = kr.length;
-              } else if (kr is LuaString)
-                len = kr.length;
-            }
-            if (len > 0) {
-              Value.adjustStringKeyCreditsForMap(tableMap, k, -len);
-            }
-          } catch (_) {}
           tableMap.remove(k);
         }
+        // Invalidate cache and recalculate credits after removing entries
+        Value.invalidateStringKeyCache(tableMap);
+        MemoryCredits.instance.recalculate(canonicalOwner);
         if (Logger.enabled) {
           Logger.debug(
             'Pre-finalizer cleanup: remaining entries in meta ${canonicalOwner.hashCode} => ${tableMap.length}',
@@ -1539,26 +1527,11 @@ class GenerationalGCManager {
             );
           }
           for (final k in keysToRemove) {
-            try {
-              int len = 0;
-              if (k is String) {
-                len = k.length;
-              } else if (k is LuaString) {
-                len = k.length;
-              } else if (k is Value) {
-                final kr = k.raw;
-                if (kr is String) {
-                  len = kr.length;
-                } else if (kr is LuaString) {
-                  len = kr.length;
-                }
-              }
-              if (len > 0) {
-                Value.adjustStringKeyCreditsForMap(tableMap, k, -len);
-              }
-            } catch (_) {}
             tableMap.remove(k);
           }
+          // Invalidate cache and recalculate credits after removing entries
+          Value.invalidateStringKeyCache(tableMap);
+          MemoryCredits.instance.recalculate(val);
         }
       }
     }
