@@ -32,8 +32,9 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitTableAccess(TableAccessExpr node) async {
     Logger.info(
-      'Accessing table: ${node.table} with key: ${node.index}',
+      'Accessing table with key',
       category: 'TableAccess',
+      context: {'table': node.table.toString(), 'key': node.index.toString()},
     );
     var table = await node.table.accept(this);
     if (table is Value && table.isMulti) {
@@ -50,8 +51,9 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
 
       if (identName.isNotEmpty && (table as Value).containsKey(identName)) {
         Logger.debug(
-          'Identifier "$identName" found in table: $table',
-          category: 'Interpreter',
+          'Identifier found in table',
+          category: 'TableAccess',
+          context: {'identifier': identName},
         );
         return table[identName];
       }
@@ -59,15 +61,17 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       try {
         indexResult = globals.get(identName);
         Logger.debug(
-          'Identifier "$identName" found in globals: $indexResult',
-          category: 'Interpreter',
+          'Identifier found in globals',
+          category: 'TableAccess',
+          context: {'identifier': identName},
         );
       } catch (_) {
         // Not found in globals, will use as a direct string key
         indexResult = identName;
         Logger.debug(
-          'Identifier "$identName" not found in globals, using as direct key',
-          category: 'Interpreter',
+          'Identifier not found in globals, using as direct key',
+          category: 'TableAccess',
+          context: {'identifier': identName},
         );
       }
 
@@ -75,8 +79,9 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       if ((indexResult is Value && indexResult.raw == null)) {
         indexResult = identName;
         Logger.debug(
-          'Using "$identName" as direct table key (nil value or not found)',
-          category: 'Interpreter',
+          'Using identifier as direct table key (nil value or not found)',
+          category: 'TableAccess',
+          context: {'identifier': identName},
         );
       }
     } else {
@@ -98,8 +103,12 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       : Value(indexResult, isTempKey: indexResult is String || indexResult is num);
 
     Logger.info(
-      'TableAccess: ${tableVal.toString()}[${indexVal.toString()}]',
+      'TableAccess operation',
       category: 'TableAccess',
+      context: {
+        'hasTable': tableVal.raw != null,
+        'hasIndex': indexVal.raw != null,
+      },
     );
 
     if (tableVal.raw is! Map) {
@@ -119,7 +128,11 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
         result = canon;
       }
     }
-    Logger.debug('TableAccess result: $result', category: 'Interpreter');
+    Logger.debugLazy(
+      () => 'TableAccess result: $result',
+      category: 'TableAccess',
+      contextBuilder: () => {'hasResult': result != null},
+    );
     return result;
   }
 
@@ -132,8 +145,9 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitTableFieldAccess(TableFieldAccess node) async {
     Logger.info(
-      'Accessing table field: ${node.table}.${node.fieldName.name}',
+      'Accessing table field',
       category: 'TableAccess',
+      context: {'fieldName': node.fieldName.name},
     );
     var table = await node.table.accept(this);
     if (table is Value && table.isMulti) {
@@ -152,13 +166,18 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     final bool tableIsOriginalValue = identical(tableVal, table);
 
     Logger.info(
-      'TableFieldAccess: ${tableVal.toString()}.$fieldKey',
+      'TableFieldAccess operation',
       category: 'TableAccess',
+      context: {'fieldKey': fieldKey},
     );
 
     if (tableVal.raw is! Map) {
       if (tableVal.hasMetamethod('__index')) {
-        Logger.debug('DEBUG: Calling __index metamethod for non-table field');
+        Logger.debugLazy(
+          () => 'Calling __index metamethod for non-table field',
+          category: 'TableAccess',
+          contextBuilder: () => {'fieldKey': fieldKey},
+        );
         final result = await tableVal.callMetamethodAsync('__index', [
           tableVal,
           indexVal,
@@ -183,15 +202,21 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
           cache.tableVersion == tableVal.tableVersion &&
           cache.value != null) {
         Logger.debug(
-          'TableFieldAccess cache hit: ${node.fieldName.name}',
-          category: 'Interpreter',
+          'TableFieldAccess cache hit',
+          category: 'TableAccess',
+          context: {'fieldName': node.fieldName.name, 'cached': true},
         );
         return cache.value;
       }
     }
 
     Logger.debug(
-      'DEBUG: TableFieldAccess - key: ${indexVal.raw}, exists: ${(tableVal.raw as Map).containsKey(indexVal.raw)}',
+      'TableFieldAccess - checking key existence',
+      category: 'TableAccess',
+      context: {
+        'key': indexVal.raw.toString(),
+        'exists': (tableVal.raw as Map).containsKey(indexVal.raw),
+      },
     );
 
     // Normalize the key when checking existence
@@ -202,8 +227,11 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
 
     // Check if key exists in table first
     if (tableVal.raw is Map && (tableVal.raw as Map).containsKey(rawKey)) {
-      // Key exists, get it directly
-      Logger.debug('DEBUG: Key exists, getting directly');
+      Logger.debugLazy(
+        () => 'Key exists, getting directly',
+        category: 'TableAccess',
+        contextBuilder: () => {'key': rawKey.toString()},
+      );
       var result = tableVal[indexVal];
       if (result is Value && result.raw is Map) {
         final canon = Value.lookupCanonicalTableWrapper(result.raw);
@@ -219,34 +247,47 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
           ..value = result is Value ? result : Value(result);
         _tableFieldAccessCache[node] = cache;
         Logger.debug(
-          'TableFieldAccess cache store: ${node.fieldName.name}',
-          category: 'Interpreter',
+          'TableFieldAccess cache store',
+          category: 'TableAccess',
+          context: {'fieldName': node.fieldName.name, 'cached': true},
         );
       }
-      Logger.debug('TableFieldAccess result: $result', category: 'Interpreter');
+      Logger.debugLazy(
+        () => 'TableFieldAccess result: $result',
+        category: 'TableAccess',
+        contextBuilder: () => {'hasResult': result != null},
+      );
       return result;
     }
 
     // Key doesn't exist, check for __index metamethod
     if (tableVal.hasMetamethod('__index')) {
-      Logger.debug('DEBUG: Key not found, calling __index metamethod');
-      // Call metamethod asynchronously
+      Logger.debugLazy(
+        () => 'Key not found, calling __index metamethod',
+        category: 'TableAccess',
+        contextBuilder: () => {'fieldKey': fieldKey},
+      );
       final result = await tableVal.callMetamethodAsync('__index', [
         tableVal,
         indexVal,
       ]);
       Logger.debug(
-        'TableFieldAccess __index result: $result',
-        category: 'Interpreter',
+        'TableFieldAccess __index result',
+        category: 'TableAccess',
+        context: {'hasResult': result != null},
       );
       return result;
     }
 
-    // No metamethod, return nil
-    Logger.debug('DEBUG: No metamethod, returning nil');
+    Logger.debugLazy(
+      () => 'No metamethod, returning nil',
+      category: 'TableAccess',
+      contextBuilder: () => {},
+    );
     Logger.debug(
       'TableFieldAccess result: nil (no metamethod)',
-      category: 'Interpreter',
+      category: 'TableAccess',
+      context: {},
     );
     return Value(null);
   }
@@ -261,8 +302,9 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
   Future<Object?> visitTableIndexAccess(TableIndexAccess node) async {
     if (Logger.enabled) {
       Logger.info(
-        'Accessing table index: ${node.table}[${node.index}]',
+        'Accessing table index',
         category: 'TableAccess',
+        context: {},
       );
     }
     final table = await node.table.accept(this);
@@ -297,16 +339,23 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
 
         if (Logger.enabled) {
           Logger.debug(
-            'TableIndexAccess cache check: table=$tableMatch, version=$versionMatch, index=$indexMatch (cached=${cache.index?.raw}, current=${indexVal.raw}), hasValue=$hasValue',
-            category: 'Interpreter',
+            'TableIndexAccess cache check',
+            category: 'TableAccess',
+            context: {
+              'tableMatch': tableMatch,
+              'versionMatch': versionMatch,
+              'indexMatch': indexMatch,
+              'hasValue': hasValue,
+            },
           );
         }
 
         if (tableMatch && versionMatch && indexMatch && hasValue) {
           if (Logger.enabled) {
             Logger.debug(
-              'TableIndexAccess cache hit: [${indexVal.toString()}]',
-              category: 'Interpreter',
+              'TableIndexAccess cache hit',
+              category: 'TableAccess',
+              context: {'cached': true},
             );
           }
           return cache.value;
@@ -314,15 +363,17 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       } else if (Logger.enabled) {
         Logger.debug(
           'TableIndexAccess cache miss: no cache entry for this AST node',
-          category: 'Interpreter',
+          category: 'TableAccess',
+          context: {},
         );
       }
     }
 
     if (Logger.enabled) {
       Logger.info(
-        'TableIndexAccess: ${tableVal.toString()}[${indexVal.toString()}]',
+        'TableIndexAccess operation',
         category: 'TableAccess',
+        context: {},
       );
     }
 
@@ -346,10 +397,13 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     final result = await tableVal.getValueAsync(indexVal);
 
     if (Logger.enabled) {
-      Logger.debug('TableIndexAccess result: $result', category: 'Interpreter');
+      Logger.debugLazy(
+        () => 'TableIndexAccess result: $result',
+        category: 'TableAccess',
+        contextBuilder: () => {'hasResult': result != null},
+      );
     }
 
-    // Store in cache if eligible and result is not from __index metamethod
     if (canUseCache && result is Value) {
       var cache = _tableIndexAccessCache[node];
       if (cache == null) {
@@ -363,8 +417,9 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
         ..value = result;
       if (Logger.enabled) {
         Logger.debug(
-          'TableIndexAccess cache store: [${indexVal.toString()}]',
-          category: 'Interpreter',
+          'TableIndexAccess cache store',
+          category: 'TableAccess',
+          context: {'cached': true},
         );
       }
     }
@@ -382,14 +437,18 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
   Future<Object?> visitKeyedTableEntry(KeyedTableEntry node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
 
-    Logger.debug('Visiting KeyedTableEntry', category: 'Interpreter');
+    Logger.debugLazy(
+      () => 'Visiting KeyedTableEntry',
+      category: 'Table',
+      contextBuilder: () => {},
+    );
     Object? key;
     if (node.key is Identifier) {
-      // Use the identifier's name directly as the key literal
       key = (node.key as Identifier).name;
       Logger.debug(
-        'Using Identifier literal for key: $key',
-        category: 'Interpreter',
+        'Using Identifier literal for key',
+        category: 'Table',
+        context: {'key': key.toString()},
       );
     } else {
       key = await node.key.accept(this);
@@ -411,7 +470,11 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
   Future<Object?> visitIndexedTableEntry(IndexedTableEntry node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
 
-    Logger.debug('Visiting IndexedTableEntry', category: 'Interpreter');
+    Logger.debugLazy(
+      () => 'Visiting IndexedTableEntry',
+      category: 'Table',
+      contextBuilder: () => {},
+    );
     // For indexed entries, always evaluate the key expression
     Object? key = await node.key.accept(this);
     if (key is Value) {
@@ -430,7 +493,11 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitTableEntryLiteral(TableEntryLiteral node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
-    Logger.debug('Visiting TableEntryLiteral', category: 'Interpreter');
+    Logger.debugLazy(
+      () => 'Visiting TableEntryLiteral',
+      category: 'Table',
+      contextBuilder: () => {},
+    );
     return await node.expr.accept(this);
   }
 
@@ -445,7 +512,11 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     AssignmentIndexAccessExpr node,
   ) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
-    Logger.debug('Visiting AssignmentIndexAccessExpr', category: 'Interpreter');
+    Logger.debugLazy(
+      () => 'Visiting AssignmentIndexAccessExpr',
+      category: 'Table',
+      contextBuilder: () => {},
+    );
     final target = await node.target.accept(this);
     final index = await node.index.accept(this);
     final value = await node.value.accept(this);
@@ -489,12 +560,17 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
   Future<Object?> visitTableConstructor(TableConstructor node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
 
-    Logger.debug('Visiting TableConstructor', category: 'Interpreter');
+    Logger.debugLazy(
+      () => 'Visiting TableConstructor',
+      category: 'Table',
+      contextBuilder: () => {'entriesCount': node.entries.length},
+    );
 
     if (node.entries.isEmpty) {
       Logger.debug(
         'TableConstructor: No entries, returning empty table',
-        category: 'Interpreter',
+        category: 'Table',
+        context: {},
       );
       final tbl = ValueClass.table();
       if (this is Interpreter) {
@@ -505,14 +581,19 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     }
 
     final Map<Object?, Value> tableMap = {};
-    int arrayIndex = 1; // For array-like entries
+    int arrayIndex = 1;
 
     // Process all fields
     for (int i = 0; i < node.entries.length; i++) {
       final entry = node.entries[i];
       Logger.debug(
-        'TableConstructor: Processing entry ${i + 1}/${node.entries.length}: ${entry.runtimeType}',
-        category: 'Interpreter',
+        'TableConstructor: Processing entry',
+        category: 'Table',
+        context: {
+          'entryIndex': i + 1,
+          'totalEntries': node.entries.length,
+          'entryType': entry.runtimeType.toString(),
+        },
       );
 
       if (entry is KeyedTableEntry) {
@@ -522,8 +603,9 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
           // Use the identifier's name directly as the key literal
           rawKey = (entry.key as Identifier).name;
           Logger.debug(
-            'Using Identifier literal for key: $rawKey',
-            category: 'Interpreter',
+            'Using Identifier literal for key',
+            category: 'Table',
+            context: {'key': rawKey.toString()},
           );
         } else {
           rawKey = await entry.key.accept(this);
@@ -605,7 +687,8 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
           // Handle grouped expressions in table constructors
           Logger.debug(
             'TableConstructor: Processing GroupedExpression entry',
-            category: 'Interpreter',
+            category: 'Table',
+            context: {'entryIndex': i},
           );
 
           final innerExpr = (entry.expr as GroupedExpression).expr;
@@ -738,8 +821,9 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     }
 
     Logger.debug(
-      'TableConstructor: Finished constructing table with ${tableMap.length} entries',
-      category: 'Interpreter',
+      'TableConstructor: Finished constructing table',
+      category: 'Table',
+      context: {'entriesCount': tableMap.length},
     );
     final tbl = ValueClass.table(tableMap);
     if (this is Interpreter) {

@@ -17,7 +17,11 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitIfStatement(IfStatement node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
-    Logger.info('Entering if block', category: 'ControlFlow');
+    Logger.infoLazy(
+      () => 'Entering if block',
+      category: 'ControlFlow',
+      contextBuilder: () => {},
+    );
 
     this is Interpreter ? (this as Interpreter).recordTrace(node) : null;
 
@@ -29,10 +33,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       final vals = condition.raw as List;
       condition = vals.isNotEmpty ? vals.first : Value(null);
     }
-    Logger.debug(
-      'If condition evaluated to $condition',
-      category: 'ControlFlow',
-    );
+
     bool condValue = false;
 
     if (condition is bool) {
@@ -46,6 +47,12 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       }
     }
 
+    Logger.debug(
+      'If condition evaluated',
+      category: 'ControlFlow',
+      context: {'condValue': condValue},
+    );
+
     // Create a new environment for the block scope
     final blockEnv = Environment(
       parent: globals,
@@ -58,7 +65,11 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       setCurrentEnv(blockEnv);
 
       if (condValue) {
-        Logger.debug('Executing then block', category: 'ControlFlow');
+        Logger.debugLazy(
+          () => 'Executing then block',
+          category: 'ControlFlow',
+          contextBuilder: () => {},
+        );
         if (this is Interpreter) {
           await (this as Interpreter)._executeStatements(node.thenBlock);
         } else {
@@ -93,7 +104,11 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           }
 
           if (elseIfCondValue) {
-            Logger.debug('Executing elseif block', category: 'ControlFlow');
+            Logger.debugLazy(
+              () => 'Executing elseif block',
+              category: 'ControlFlow',
+              contextBuilder: () => {},
+            );
             if (this is Interpreter) {
               await (this as Interpreter)._executeStatements(elseIf.thenBlock);
             } else {
@@ -108,7 +123,11 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
 
         // If no elseif matched, execute the else block
         if (!elseIfMatched && node.elseBlock.isNotEmpty) {
-          Logger.debug('Executing else block', category: 'ControlFlow');
+          Logger.debugLazy(
+            () => 'Executing else block',
+            category: 'ControlFlow',
+            contextBuilder: () => {},
+          );
           if (this is Interpreter) {
             await (this as Interpreter)._executeStatements(node.elseBlock);
           } else {
@@ -118,7 +137,11 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           }
         }
       } else if (node.elseBlock.isNotEmpty) {
-        Logger.debug('Executing else block', category: 'ControlFlow');
+        Logger.debugLazy(
+          () => 'Executing else block',
+          category: 'ControlFlow',
+          contextBuilder: () => {},
+        );
         if (this is Interpreter) {
           await (this as Interpreter)._executeStatements(node.elseBlock);
         } else {
@@ -168,7 +191,11 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitWhileStatement(WhileStatement node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
-    Logger.info('Entering while loop', category: 'ControlFlow');
+    Logger.infoLazy(
+      () => 'Entering while loop',
+      category: 'ControlFlow',
+      contextBuilder: () => {},
+    );
 
     final loopEnv = Environment(
       parent: globals,
@@ -219,10 +246,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       }
 
       final condition = await node.cond.accept(this);
-      Logger.debug(
-        'While condition evaluated to $condition',
-        category: 'ControlFlow',
-      );
+
       bool condValue = false;
 
       if (condition is bool) {
@@ -235,10 +259,17 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         }
       }
 
+      Logger.debug(
+        'While condition evaluated',
+        category: 'ControlFlow',
+        context: {'condValue': condValue},
+      );
+
       if (!condValue) {
         Logger.debug(
           'While condition is false, breaking',
           category: 'ControlFlow',
+          context: {},
         );
         break;
       }
@@ -246,7 +277,11 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       setCurrentEnv(loopEnv);
 
       try {
-        Logger.debug('Executing while loop body', category: 'ControlFlow');
+        Logger.debugLazy(
+          () => 'Executing while loop body',
+          category: 'ControlFlow',
+          contextBuilder: () => {},
+        );
         if (this is Interpreter) {
           await (this as Interpreter)._executeStatements(node.body);
         } else {
@@ -259,6 +294,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         Logger.debug(
           'BreakException caught, breaking while loop',
           category: 'ControlFlow',
+          context: {},
         );
         return null;
       } on ReturnException {
@@ -290,9 +326,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitForLoop(ForLoop node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
-    if (Logger.enabled) {
-      Logger.info('Entering for loop', category: 'ControlFlow');
-    }
+    Logger.info('Entering for loop', category: 'ControlFlow');
 
     // Record trace information
     if (this is Interpreter) {
@@ -302,12 +336,11 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     var start = await node.start.accept(this);
     var end = await node.endExpr.accept(this);
     var step = await node.stepExpr.accept(this);
-    if (Logger.enabled) {
-      Logger.debug(
-        'ForLoop start: $start, end: $end, step: $step',
-        category: 'ControlFlow',
-      );
-    }
+    Logger.debug(
+      'ForLoop start: $start, end: $end, step: $step',
+      category: 'ControlFlow',
+      context: {'start': start, 'end': end, 'step': step},
+    );
 
     if (start is Value && start.raw is num) {
       start = start.unwrap();
@@ -375,12 +408,11 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     try {
       while (step > 0 ? current <= end : current >= end) {
         loopVarBox.value = current;
-        if (Logger.enabled) {
-          Logger.debug(
-            'ForLoop iteration: i = $current',
-            category: 'ControlFlow',
-          );
-        }
+        Logger.debug(
+          'ForLoop iteration: i = $current',
+          category: 'ControlFlow',
+          context: {'current': current},
+        );
         setCurrentEnv(loopEnv);
 
         try {
@@ -393,12 +425,10 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           }
         } on BreakException {
           await resetLoopEnvironment();
-          if (Logger.enabled) {
-            Logger.debug(
-              'BreakException caught, breaking for loop',
-              category: 'ControlFlow',
-            );
-          }
+          Logger.debug(
+            'BreakException caught, breaking for loop',
+            category: 'ControlFlow',
+          );
           return null;
         } on ReturnException {
           await resetLoopEnvironment();
@@ -486,6 +516,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         Logger.debug(
           'Executing repeat-until loop body',
           category: 'ControlFlow',
+          context: {},
         );
         if (this is Interpreter) {
           await (this as Interpreter)._executeStatements(node.body);
@@ -496,10 +527,6 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         }
 
         final condition = await node.cond.accept(this);
-        Logger.debug(
-          'Repeat-until condition evaluated to $condition',
-          category: 'ControlFlow',
-        );
 
         if (condition is bool) {
           condValue = condition;
@@ -514,11 +541,18 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         } else {
           condValue = false;
         }
+
+        Logger.debug(
+          'Repeat-until condition evaluated',
+          category: 'ControlFlow',
+          context: {'condValue': condValue},
+        );
       } on BreakException {
         await resetLoopEnvironment();
         Logger.debug(
           'BreakException caught, breaking repeat-until loop',
           category: 'ControlFlow',
+          context: {},
         );
         return null;
       } on ReturnException {
@@ -551,7 +585,11 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitForInLoop(ForInLoop node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
-    Logger.info('Entering for-in loop', category: 'ControlFlow');
+    Logger.infoLazy(
+      () => 'Entering for-in loop',
+      category: 'ControlFlow',
+      contextBuilder: () => {},
+    );
     // Get iterator components from node.iterators
     final iterComponents = await Future.wait(
       node.iterators.map((e) => e.accept(this)),
@@ -560,6 +598,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     Logger.debug(
       'ForInLoop: iterComponents: $iterComponents',
       category: 'ControlFlow',
+      context: {'componentsCount': iterComponents.length},
     );
 
     if (iterComponents.isEmpty) return null;
@@ -571,6 +610,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       Logger.debug(
         'ForInLoop: Direct table iteration',
         category: 'ControlFlow',
+        context: {'iterationType': 'direct_table'},
       );
       final table = (iterComponents[0] as Value).raw as Map;
       final entries = table.entries.toList();
@@ -663,6 +703,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
             Logger.debug(
               'ForInLoop: Break encountered',
               category: 'ControlFlow',
+              context: {},
             );
             return null;
           } on ReturnException {
@@ -693,17 +734,19 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       Logger.debug(
         'ForInLoop: Found Value.multi, unwrapping',
         category: 'ControlFlow',
+        context: {},
       );
       components = (iterComponents[0] as Value).raw as List<Object?>;
       Logger.debug(
         'ForInLoop: Unwrapped components: $components',
         category: 'ControlFlow',
+        context: {'componentsCount': components.length},
       );
     } else if (iterComponents[0] is List) {
-      // Handle the case where the first component is already a list (from __pairs metamethod)
       Logger.debug(
         'ForInLoop: First component is a List, using directly',
         category: 'ControlFlow',
+        context: {},
       );
       components = iterComponents[0] as List<Object?>;
     } else {
@@ -751,6 +794,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     Logger.debug(
       'ForInLoop: iterFunc: $iterFunc, state: $state, control: $control',
       category: 'ControlFlow',
+      context: {'hasIterFunc': iterFunc != null, 'hasState': state != null},
     );
 
     // Unwrap iterFunc if needed
@@ -758,6 +802,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       Logger.debug(
         'ForInLoop: Unwrapping iterFunc from Value',
         category: 'ControlFlow',
+        context: {},
       );
       iterFunc = iterFunc.raw;
     }
@@ -766,6 +811,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       Logger.warning(
         'ForInLoop: iterFunc is not a Function: ${iterFunc.runtimeType}',
         category: 'ControlFlow',
+        context: {'iterFuncType': iterFunc.runtimeType.toString()},
       );
       throw Exception("For-in loop requires function iterator");
     }
@@ -843,6 +889,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         Logger.debug(
           'ForInLoop: Calling iterator with state: $state, control: $control',
           category: 'ControlFlow',
+          context: {},
         );
 
         Object? items;
@@ -859,6 +906,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         Logger.debug(
           'ForInLoop: Iterator returned: $items',
           category: 'ControlFlow',
+          context: {'itemsType': items?.runtimeType.toString() ?? 'null'},
         );
 
         if (items == null ||
@@ -867,6 +915,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           Logger.debug(
             'ForInLoop: Iterator returned null/empty, breaking loop',
             category: 'ControlFlow',
+            context: {},
           );
           await resetLoopEnvironment();
           if (toCloseVar != null) {
@@ -882,18 +931,21 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           Logger.debug(
             'ForInLoop: Unwrapping Value.multi result',
             category: 'ControlFlow',
+            context: {},
           );
           values = items.raw as List<Object?>;
         } else if (items is List) {
           Logger.debug(
             'ForInLoop: Using List result directly',
             category: 'ControlFlow',
+            context: {},
           );
           values = items;
         } else {
           Logger.debug(
             'ForInLoop: Wrapping single value in list',
             category: 'ControlFlow',
+            context: {},
           );
           values = [items];
         }
@@ -901,6 +953,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         Logger.debug(
           'ForInLoop: Values for this iteration: $values',
           category: 'ControlFlow',
+          context: {'valuesCount': values.length},
         );
 
         final rawControl = values.isNotEmpty ? values[0] : null;
@@ -908,6 +961,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         Logger.debug(
           'ForInLoop: Updated control to: $control',
           category: 'ControlFlow',
+          context: {},
         );
         if (frame != null && frame.debugLocals.length >= 3) {
           frame.debugLocals[2] = MapEntry('(for state)', control);
@@ -917,6 +971,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           Logger.debug(
             'ForInLoop: Control is null, breaking loop',
             category: 'ControlFlow',
+            context: {},
           );
           await resetLoopEnvironment();
           if (toCloseVar != null) {
@@ -942,6 +997,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           Logger.debug(
             'ForInLoop: Break encountered, exiting loop',
             category: 'ControlFlow',
+            context: {},
           );
           if (toCloseVar != null) {
             try {
@@ -977,6 +1033,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           'ForInLoop: Error in for-in loop: $e',
           error: e,
           node: node,
+          context: {'errorType': e.runtimeType.toString()},
         );
       }
       rethrow;
@@ -1029,7 +1086,11 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitDoBlock(DoBlock node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
-    Logger.info('Entering do block', category: 'ControlFlow');
+    Logger.infoLazy(
+      () => 'Entering do block',
+      category: 'ControlFlow',
+      contextBuilder: () => {},
+    );
 
     // Create a new environment for the block scope
     final blockEnv = Environment(
@@ -1044,7 +1105,11 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       // Set the block environment as the current environment
       setCurrentEnv(blockEnv);
 
-      Logger.debug('Executing do block statements', category: 'ControlFlow');
+      Logger.debugLazy(
+        () => 'Executing do block statements',
+        category: 'ControlFlow',
+        contextBuilder: () => {},
+      );
       if (this is Interpreter) {
         result = await (this as Interpreter)._executeStatements(node.body);
       } else {
@@ -1101,7 +1166,11 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitElseIfClause(ElseIfClause node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
-    Logger.info('Entering elseif clause', category: 'ControlFlow');
+    Logger.infoLazy(
+      () => 'Entering elseif clause',
+      category: 'ControlFlow',
+      contextBuilder: () => {},
+    );
     final condition = await node.cond.accept(this);
     Logger.debug(
       'ElseIf condition evaluated to $condition',

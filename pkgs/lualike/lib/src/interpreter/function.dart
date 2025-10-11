@@ -28,7 +28,17 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
   /// Returns the created function value.
   @override
   Future<Object?> visitFunctionDef(FunctionDef node) async {
-    Logger.debug('Visiting FunctionDef: ${node.name}', category: 'Interpreter');
+    Logger.debugLazy(
+      () => 'Visiting FunctionDef',
+      categories: {'Interpreter', 'Function'},
+      contextBuilder: () => {
+        'function_name': node.name.toString(),
+        'param_count': node.body.parameters?.length ?? 0,
+        'is_vararg': node.body.isVararg,
+        'implicit_self': node.implicitSelf,
+      },
+      node: node,
+    );
 
     this is Interpreter ? (this as Interpreter).recordTrace(node) : null;
 
@@ -100,9 +110,14 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       // Install the function on the resolved target table
       (targetTable.raw as Map)[methodName] = closure;
       targetTable.markTableModified();
-      Logger.debug(
-        'Defined method $methodName on table path $firstName${pathSegments.isNotEmpty ? '.${pathSegments.map((e) => e.name).join('.')}' : ''}',
-        category: 'Interpreter',
+      Logger.debugLazy(
+        () => 'Defined method on table',
+        categories: {'Interpreter', 'Function', 'Table'},
+        contextBuilder: () => {
+          'method_name': methodName,
+          'table_path': firstName + (pathSegments.isNotEmpty ? '.${pathSegments.map((e) => e.name).join('.')}' : ''),
+          'path_depth': pathSegments.length,
+        },
       );
       return closure;
     }
@@ -121,9 +136,13 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     while (localEnv != null) {
       if (localEnv.values.containsKey(node.name.first.name) &&
           localEnv.values[node.name.first.name]!.isLocal) {
-        Logger.debug(
-          'Updating existing local function ${node.name.first.name}',
-          category: 'Interpreter',
+        Logger.debugLazy(
+          () => 'Updating existing local function',
+          categories: {'Interpreter', 'Function'},
+          contextBuilder: () => {
+            'function_name': node.name.first.name,
+            'is_local': true,
+          },
         );
         localEnv.define(node.name.first.name, closure);
         return closure;
@@ -132,9 +151,13 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     }
 
     if (envVal is Value && gVal is Value && envVal != gVal) {
-      Logger.debug(
-        'Defining function ${node.name.first.name} in custom _ENV table',
-        category: 'Interpreter',
+      Logger.debugLazy(
+        () => 'Defining function in custom _ENV table',
+        categories: {'Interpreter', 'Function', 'Environment'},
+        contextBuilder: () => {
+          'function_name': node.name.first.name,
+          'env_hash': envVal.hashCode,
+        },
       );
       if (envVal.raw is Map) {
         (envVal.raw as Map)[node.name.first.name] = closure;
@@ -149,9 +172,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         envVal is Value &&
         gVal is Value &&
         envVal == gVal) {
-      Logger.debug(
-        'Defining function ${node.name.first.name} in global _G table from load context',
-        category: 'Interpreter',
+      Logger.debugLazy(
+        () => 'Defining function in global _G table from load context',
+        categories: {'Interpreter', 'Function', 'Environment'},
+        contextBuilder: () => {
+          'function_name': node.name.first.name,
+        },
       );
       if (gVal.raw is Map) {
         (gVal.raw as Map)[node.name.first.name] = closure;
@@ -161,9 +187,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     }
 
     globals.define(node.name.first.name, closure);
-    Logger.debug(
-      'Defined function ${node.name.first.name}',
-      category: 'Interpreter',
+    Logger.debugLazy(
+      () => 'Defined function in global scope',
+      categories: {'Interpreter', 'Function'},
+      contextBuilder: () => {
+        'function_name': node.name.first.name,
+      },
     );
     return closure;
   }
@@ -213,9 +242,17 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
   /// Returns the created function value.
   @override
   Future<Object?> visitFunctionBody(FunctionBody node) async {
-    Logger.debug('Visiting FunctionBody', category: 'Interpreter');
-    Logger.debug(
-      'Function parameters: ${node.parameters}',
+    Logger.debugLazy(
+      () => 'Visiting FunctionBody',
+      categories: {'Interpreter', 'Function'},
+      contextBuilder: () => {
+        'param_count': node.parameters?.length ?? 0,
+        'is_vararg': node.isVararg,
+        'statement_count': node.body.length,
+      },
+    );
+    Logger.debugLazy(
+      () => 'Function parameters: ${node.parameters}',
       category: 'Interpreter',
     );
     Logger.debug(
@@ -439,7 +476,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
   /// Returns the created function value.
   @override
   Future<Object?> visitFunctionLiteral(FunctionLiteral node) async {
-    Logger.debug('Visiting FunctionLiteral', category: 'Interpreter');
+    Logger.debugLazy(() => 'Visiting FunctionLiteral', category: 'Interpreter');
     return await node.funcBody.accept(this);
   }
 
@@ -801,7 +838,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
   /// Returns null (never actually returns).
   @override
   Future<Object?> visitReturnStatement(ReturnStatement node) async {
-    Logger.debug('Visiting ReturnStatement', category: 'Interpreter');
+    Logger.debugLazy(() => 'Visiting ReturnStatement', category: 'Interpreter');
 
     if (node.expr.isEmpty) {
       // No return values: in Lua this is zero results, not a single nil.
@@ -934,7 +971,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       }
     }
 
-    Logger.debug('Return values: $values', category: 'Interpreter');
+    Logger.debugLazy(() => 'Return values: $values', category: 'Interpreter');
 
     // If there's only one value, return it directly
     if (values.length == 1) {
@@ -1047,7 +1084,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                     '>>> Error in Dart function: $e',
                     category: 'Interpreter',
                   );
-                  Logger.debug('>>> Stack trace: $s', category: 'Interpreter');
+                  Logger.debugLazy(() => '>>> Stack trace: $s', category: 'Interpreter');
                 }
                 rethrow;
               }

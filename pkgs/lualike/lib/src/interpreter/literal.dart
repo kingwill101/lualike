@@ -21,7 +21,11 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitNilValue(NilValue node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
-    Logger.debug('Visiting NilValue', category: 'Literal');
+    Logger.debugLazy(
+      () => 'Visiting NilValue',
+      category: 'Literal',
+      contextBuilder: () => {},
+    );
     return Value(null);
   }
 
@@ -34,7 +38,11 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitBooleanLiteral(BooleanLiteral node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
-    Logger.debug('Visiting BooleanLiteral: ${node.value}', category: 'Literal');
+    Logger.debugLazy(
+      () => 'Visiting BooleanLiteral: ${node.value}',
+      category: 'Literal',
+      contextBuilder: () => {'value': node.value},
+    );
     return Value(node.value);
   }
 
@@ -47,7 +55,11 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitNumberLiteral(NumberLiteral node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
-    Logger.debug('Visiting NumberLiteral: ${node.value}', category: 'Literal');
+    Logger.debugLazy(
+      () => 'Visiting NumberLiteral: ${node.value}',
+      category: 'Literal',
+      contextBuilder: () => {'value': node.value},
+    );
     return Value(node.value);
   }
 
@@ -60,7 +72,11 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitStringLiteral(StringLiteral node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
-    Logger.debug('Visiting StringLiteral: ${node.value}', category: 'Literal');
+    Logger.debugLazy(
+      () => 'Visiting StringLiteral: ${node.value}',
+      category: 'Literal',
+      contextBuilder: () => {'value': node.value},
+    );
 
     // Always use LuaString for proper byte-level string handling, but
     // intern the object for literals so identical literals share identity.

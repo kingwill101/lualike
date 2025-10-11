@@ -23,7 +23,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitExpressionStatement(ExpressionStatement node) async {
     if (Logger.enabled) {
-      Logger.debug('Visiting ExpressionStatement', category: 'Expression');
+      Logger.debugLazy(() => 'Visiting ExpressionStatement', category: 'Expression', contextBuilder: () => {});
     }
     final result = await node.expr.accept(this);
     evalStack.push(
@@ -435,7 +435,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     };
 
     if (Logger.enabled) {
-      Logger.debug('UnaryExpression result: $result', category: 'Expression');
+      Logger.debugLazy(() => 'UnaryExpression result: $result', category: 'Expression');
     }
     return result is Value ? result : Value(result);
   }
@@ -449,7 +449,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitIdentifier(Identifier node) async {
     if (Logger.enabled) {
-      Logger.debug('Visiting Identifier: ${node.name}', category: 'Expression');
+      Logger.debugLazy(() => 'Visiting Identifier: ${node.name}', category: 'Expression');
     }
 
     // Special case: always look up _ENV and _G from the global environment directly
@@ -682,7 +682,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       return first is Value ? first : Value(first);
     }
     if (Logger.enabled) {
-      Logger.debug('GroupedExpression result: $result', category: 'Expression');
+      Logger.debugLazy(() => 'GroupedExpression result: $result', category: 'Expression');
     }
     return result;
   }

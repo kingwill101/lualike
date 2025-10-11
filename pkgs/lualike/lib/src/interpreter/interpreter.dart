@@ -90,9 +90,13 @@ class Interpreter extends AstVisitor<Object?>
   /// Global environment for variable storage.
   @override
   Environment get globals {
-    Logger.debug(
-      "globals getter called, returning environment ${_currentEnv.hashCode} with isLoadIsolated=${_currentEnv.isLoadIsolated}",
+    Logger.debugLazy(
+      () => "globals getter called",
       category: 'Interpreter',
+      contextBuilder: () => {
+        'env_hash': _currentEnv.hashCode,
+        'is_load_isolated': _currentEnv.isLoadIsolated,
+      },
     );
     return _currentEnv;
   }
@@ -121,9 +125,13 @@ class Interpreter extends AstVisitor<Object?>
   /// Gets the currently running coroutine
   @override
   Coroutine? getCurrentCoroutine() {
-    Logger.info(
-      '>>> Interpreter.getCurrentCoroutine() called, current: ${_currentCoroutine?.hashCode}',
-      category: 'Interpreter',
+    Logger.infoLazy(
+      () => 'getCurrentCoroutine() called',
+      category: 'Coroutine',
+      contextBuilder: () => {
+        'coroutine_hash': _currentCoroutine?.hashCode,
+        'coroutine_status': _currentCoroutine?.status.toString(),
+      },
     );
     return _currentCoroutine;
   }
@@ -132,27 +140,40 @@ class Interpreter extends AstVisitor<Object?>
   @override
   void setCurrentCoroutine(Coroutine? coroutine) {
     final oldCoroutine = _currentCoroutine;
-    // Read status explicitly BEFORE logging
     final oldStatus = oldCoroutine?.status;
     final newStatus = coroutine?.status;
 
-    Logger.info(
-      '>>> Interpreter.setCurrentCoroutine() called, changing from: ${oldCoroutine?.hashCode} (PRE-READ status: $oldStatus) to: ${coroutine?.hashCode} (PRE-READ status: $newStatus)',
-      category: 'Interpreter',
+    Logger.infoLazy(
+      () => 'setCurrentCoroutine() called',
+      categories: {'Interpreter', 'Coroutine'},
+      contextBuilder: () => {
+        'old_hash': oldCoroutine?.hashCode,
+        'old_status': oldStatus?.toString() ?? 'null',
+        'new_hash': coroutine?.hashCode,
+        'new_status': newStatus?.toString() ?? 'null',
+      },
     );
     _currentCoroutine = coroutine;
-    Logger.info(
-      '>>> Interpreter.setCurrentCoroutine() finished. Old: ${oldCoroutine?.hashCode} (POST status: ${oldCoroutine?.status}). New: ${_currentCoroutine?.hashCode} (POST status: ${_currentCoroutine?.status})',
-      category: 'Interpreter',
+    Logger.infoLazy(
+      () => 'setCurrentCoroutine() finished',
+      categories: {'Interpreter', 'Coroutine'},
+      contextBuilder: () => {
+        'current_hash': _currentCoroutine?.hashCode,
+        'current_status': _currentCoroutine?.status.toString(),
+      },
     );
   }
 
   /// Gets the main thread coroutine
   @override
   Coroutine getMainThread() {
-    Logger.info(
-      '>>> Interpreter.getMainThread() called, main thread: ${_mainThread.hashCode}',
-      category: 'Interpreter',
+    Logger.infoLazy(
+      () => 'getMainThread() called',
+      categories: {'Interpreter', 'Coroutine'},
+      contextBuilder: () => {
+        'main_thread_hash': _mainThread?.hashCode,
+        'exists': _mainThread != null,
+      },
     );
     if (_mainThread == null) {
       // Create a main thread if it doesn't exist
@@ -164,9 +185,12 @@ class Interpreter extends AstVisitor<Object?>
         mainThreadFunctionBody, // functionBody
         _currentEnv, // closureEnvironment
       );
-      Logger.info(
-        'Interpreter: Main thread coroutine created: ${_mainThread.hashCode}',
-        category: 'Interpreter',
+      Logger.infoLazy(
+        () => 'Main thread coroutine created',
+        categories: {'Interpreter', 'Coroutine'},
+        contextBuilder: () => {
+          'main_thread_hash': _mainThread.hashCode,
+        },
       );
       _mainThread!.status = CoroutineStatus.running;
       _activeCoroutines.add(_mainThread!);
@@ -178,8 +202,9 @@ class Interpreter extends AstVisitor<Object?>
   @override
   void registerCoroutine(Coroutine coroutine) {
     Logger.info(
-      '>>> Interpreter.registerCoroutine() called, registering: ${coroutine.hashCode}',
-      category: 'Interpreter',
+      'Interpreter.registerCoroutine() called, registering coroutine',
+      category: 'Coroutine',
+      context: {'coroutine_hash': coroutine.hashCode},
     );
     _activeCoroutines.add(coroutine);
   }
@@ -187,7 +212,11 @@ class Interpreter extends AstVisitor<Object?>
   /// Initialize the coroutine system
   void initializeCoroutines() {
     _currentCoroutine = getMainThread();
-    Logger.info('Initialized coroutine system', category: 'Coroutine');
+    Logger.infoLazy(
+      () => 'Initialized coroutine system',
+      category: 'Coroutine',
+      contextBuilder: () => {},
+    );
   }
 
   // Fixed size for call frames for better performance and prevent overflow
@@ -259,8 +288,12 @@ class Interpreter extends AstVisitor<Object?>
   @override
   void setCurrentEnv(Environment env) {
     Logger.debug(
-      '>>> Interpreter.setCurrentEnv() called, changing from: ${_currentEnv.hashCode} to: ${env.hashCode}',
+      'Interpreter.setCurrentEnv() called, changing environment',
       category: 'Interpreter',
+      context: {
+        'from_hash': _currentEnv.hashCode,
+        'to_hash': env.hashCode,
+      },
     );
     _currentEnv = env;
   }
@@ -273,8 +306,12 @@ class Interpreter extends AstVisitor<Object?>
   /// Sets the current function being executed.
   void setCurrentFunction(Value? function) {
     Logger.debug(
-      'Setting current function from ${_currentFunction?.hashCode} to ${function?.hashCode}',
+      'Setting current function',
       category: 'Interpreter',
+      context: {
+        'from_hash': _currentFunction?.hashCode,
+        'to_hash': function?.hashCode,
+      },
     );
     _currentFunction = function;
   }
@@ -292,8 +329,9 @@ class Interpreter extends AstVisitor<Object?>
       return library.getMetamethods(this);
     } catch (e) {
       Logger.warning(
-        'Library $libraryName not found for metamethod access',
+        'Library not found for metamethod access',
         category: 'Interpreter',
+        context: {'libraryName': libraryName},
       );
       return null;
     }
@@ -306,7 +344,11 @@ class Interpreter extends AstVisitor<Object?>
   Interpreter({FileManager? fileManager, Environment? environment})
     : fileManager = fileManager ?? FileManager(),
       _currentEnv = environment ?? Environment() {
-    Logger.info('Interpreter created', category: 'Interpreter');
+    Logger.infoLazy(
+      () => 'Interpreter created',
+      category: 'Interpreter',
+      contextBuilder: () => {},
+    );
 
     // Set the interpreter reference in the file manager
     this.fileManager.setInterpreter(this);
@@ -386,27 +428,31 @@ class Interpreter extends AstVisitor<Object?>
   ///
   /// Returns true if the exception was handled, false otherwise.
   bool handleControlFlow(Object exception, {AstNode? node}) {
-    // Only handle specific control flow exceptions
-    // Do not try to handle other types of exceptions
     if (exception is GotoException) {
       Logger.info(
-        'GotoException caught: ${exception.label}',
-        category: 'Interpreter',
+        'GotoException caught',
+        category: 'ControlFlow',
+        context: {'label': exception.label},
         node: node,
       );
       return true;
     } else if (exception is ReturnException) {
       Logger.info(
-        'ReturnException caught with value: ${exception.value}',
-        category: 'Interpreter',
+        'ReturnException caught',
+        category: 'ControlFlow',
+        context: {'hasValue': exception.value != null},
         node: node,
       );
       return true;
     } else if (exception is BreakException) {
-      Logger.info('BreakException caught', category: 'Interpreter', node: node);
+      Logger.infoLazy(
+        () => 'BreakException caught',
+        category: 'ControlFlow',
+        contextBuilder: () => {},
+        node: node,
+      );
       return true;
     }
-    // For all other exceptions, return false to let them be handled normally
     return false;
   }
 
@@ -541,9 +587,18 @@ class Interpreter extends AstVisitor<Object?>
       // Only log the error details for debugging if debug mode is enabled
       // This avoids duplicate error messages
       if (Logger.enabled) {
-        Logger.info("Error details: $message", category: 'Error', node: node);
+        Logger.infoLazy(
+          () => "Error details",
+          category: 'Error',
+          contextBuilder: () => {'message': message},
+          node: node,
+        );
         if (trace != null) {
-          Logger.info("Stack trace: $trace", category: 'Error');
+          Logger.infoLazy(
+            () => "Stack trace",
+            category: 'Error',
+            contextBuilder: () => {'trace': trace.toString()},
+          );
         }
       }
     } finally {
@@ -564,8 +619,9 @@ class Interpreter extends AstVisitor<Object?>
   /// Returns the result of the last executed statement, or null.
   Future<Object?> run(List<AstNode> program) async {
     Logger.info(
-      'Running program with ${program.length} statements',
+      'Running program',
       category: 'Interpreter',
+      context: {'statementsCount': program.length},
     );
 
     // Set the script path in the call stack if available
@@ -580,7 +636,11 @@ class Interpreter extends AstVisitor<Object?>
     // Clear evaluation stack at start.
     while (!evalStack.isEmpty) {
       evalStack.pop();
-      Logger.info('evalStack.pop()', category: 'Interpreter');
+      Logger.infoLazy(
+        () => 'evalStack.pop()',
+        category: 'Interpreter',
+        contextBuilder: () => {},
+      );
     }
 
     // Create a script environment for main script execution
@@ -597,21 +657,23 @@ class Interpreter extends AstVisitor<Object?>
     try {
       await _executeStatements(program);
     } on ReturnException catch (e) {
-      // Handle top-level return statements - this is valid in Lua
       Logger.debug(
-        'Top-level return with value: ${e.value}',
+        'Top-level return',
         category: 'Interpreter',
+        context: {'hasValue': e.value != null},
       );
+      // Handle top-level return statements - this is valid in Lua
       // Push the return value to eval stack so it can be retrieved
       if (e.value != null) {
         evalStack.push(e.value);
       }
     } on TailCallException catch (t) {
-      // Handle top-level tail return: execute callee and use its result
       Logger.debug(
-        'Top-level tail return detected; invoking callee with ${t.args.length} args',
+        'Top-level tail return detected; invoking callee',
         category: 'Interpreter',
+        context: {'argsCount': t.args.length},
       );
+      // Handle top-level tail return: execute callee and use its result
       final callee = t.functionValue is Value
           ? t.functionValue as Value
           : Value(t.functionValue);
@@ -636,15 +698,22 @@ class Interpreter extends AstVisitor<Object?>
         }
       }
     } on GotoException catch (e) {
-      // Report undefined label with helpful message
-      Logger.warning('Undefined label: ${e.label}', category: 'Interpreter');
+      Logger.warningLazy(
+        () => 'Undefined label',
+        category: 'ControlFlow',
+        contextBuilder: () => {'label': e.label},
+      );
       throw GotoException('Undefined label: ${e.label}');
     } finally {
       // Restore the original environment
       _currentEnv = savedEnv;
     }
 
-    Logger.info('Program finished', category: 'Interpreter');
+    Logger.infoLazy(
+      () => 'Program finished',
+      category: 'Interpreter',
+      contextBuilder: () => {},
+    );
 
     // Restore previous script path
     callStack.setScriptPath(prevScriptPath);
@@ -664,7 +733,11 @@ class Interpreter extends AstVisitor<Object?>
         labelMap[node.label.name] = i;
       }
     }
-    Logger.info('Label map: $labelMap', category: 'Interpreter');
+    Logger.infoLazy(
+      () => 'Label map',
+      category: 'Interpreter',
+      contextBuilder: () => {'labels': labelMap.keys.toList()},
+    );
 
     Object? result;
     var index = 0;
@@ -672,8 +745,12 @@ class Interpreter extends AstVisitor<Object?>
       final node = statements[index];
       final currentIndex = index;
       Logger.debug(
-        'Visiting node ${node.runtimeType} at index $index',
+        'Visiting node',
         category: 'Interpreter',
+        context: {
+          'nodeType': node.runtimeType.toString(),
+          'index': index,
+        },
       );
       recordTrace(node);
       var statementCompleted = false;
@@ -712,10 +789,19 @@ class Interpreter extends AstVisitor<Object?>
             final script =
                 callStack.scriptPath ?? currentScriptPath ?? '<chunk>';
             final currentFunction =
-                callStack.top?.functionName ?? '<global>'; // best-effort name
+                callStack.top?.functionName ?? '<global>';
             Logger.debug(
-              'Statement ${node.runtimeType} at index $currentIndex$location took ${elapsedMs}ms (allocationDebt=$debt, script=$script, function=$currentFunction)',
-              category: 'Interpreter',
+              'Statement execution time',
+              category: 'Performance',
+              context: {
+                'nodeType': node.runtimeType.toString(),
+                'index': currentIndex,
+                'elapsedMs': elapsedMs,
+                'allocationDebt': debt,
+                'script': script,
+                'function': currentFunction,
+                'location': location,
+              },
             );
           }
         }
@@ -761,8 +847,9 @@ class Interpreter extends AstVisitor<Object?>
   /// Add this method to the Interpreter class
   Environment getCurrentEnv() {
     Logger.info(
-      '>>> Interpreter.getCurrentEnv() called, current: ${_currentEnv.hashCode}',
+      'Interpreter.getCurrentEnv() called',
       category: 'Interpreter',
+      context: {'env_hash': _currentEnv.hashCode},
     );
     return _currentEnv;
   }
@@ -777,8 +864,9 @@ class Interpreter extends AstVisitor<Object?>
     final debt = gc.allocationDebt;
     if (Logger.enabled) {
       Logger.debug(
-        'Safe point debt check: debt=$debt threshold=$threshold',
-        category: 'Interpreter',
+        'Safe point debt check',
+        category: 'GC',
+        context: {'debt': debt, 'threshold': threshold},
       );
     }
     if (debt < threshold) {
