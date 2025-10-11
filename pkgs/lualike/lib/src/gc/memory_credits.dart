@@ -1,7 +1,5 @@
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
-import 'package:lualike/src/logging/logger.dart';
-import 'package:lualike/src/value.dart';
 
 /// Identifies the generation an object currently belongs to for credit
 /// accounting purposes.

@@ -96,9 +96,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// object is only finalized if its metatable had a `__gc` field when the
   /// metatable was set (KIN-23). Adding `__gc` later does not retroactively
   /// make the object finalizable.
-  bool _finalizerEligible = false;
-  bool get finalizerEligible => _finalizerEligible;
-  set finalizerEligible(bool v) => _finalizerEligible = v;
+  bool finalizerEligible = false;
 
   @override
   int get estimatedSize {
@@ -300,6 +298,15 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     } catch (_) {}
   }
 
+  /// Invalidates the cached string-key credits for a raw Map.
+  /// This forces estimatedSize to recalculate from scratch on next access.
+  /// Used by GC when removing multiple keys to avoid double-decrement bugs.
+  static void invalidateStringKeyCache(Map map) {
+    try {
+      _tableStringKeyBytes[map] = null;
+    } catch (_) {}
+  }
+
   void _registerTableIdentity(Map table) {
     try {
       _tableIdentity[table] = this;
@@ -342,7 +349,15 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// debt for them to avoid frequent auto-GC triggers in tight loops.
   bool _shouldCountAllocation() {
     if (isMulti) return false; // short-lived carrier, don't count
-    if (isTempKey) return false; // temporary keys for table lookups, don't count
+    if (isTempKey) {
+      if (Logger.enabled) {
+        Logger.debug(
+          'Value $hashCode (${raw.runtimeType}) marked as temp key, NOT counting allocation',
+          category: 'GC',
+        );
+      }
+      return false; // temporary keys for table lookups, don't count
+    }
     if (isTable) return true; // tables are significant
     final payload = raw;
     if (payload == null ||
@@ -352,7 +367,16 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       return false;
     }
     // Count strings to model Lua's GC pressure from string creation
-    if (payload is String || payload is LuaString) return true;
+    if (payload is String || payload is LuaString) {
+      if (Logger.enabled) {
+        final len = payload is String ? payload.length : (payload as LuaString).length;
+        Logger.debug(
+          'Value $hashCode wrapping ${payload.runtimeType}(len=$len), WILL count allocation',
+          category: 'GC',
+        );
+      }
+      return true;
+    }
     return true;
   }
 

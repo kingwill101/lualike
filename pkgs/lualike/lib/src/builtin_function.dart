@@ -1,3 +1,5 @@
+import 'dart:async' show FutureOr;
+
 import 'package:lualike/src/interpreter/interpreter.dart';
 
 /// Abstract base class representing a built-in function in the interpreter.
@@ -17,5 +19,5 @@ abstract class BuiltinFunction {
   ///
   /// [args] - The list of arguments passed to the function.
   /// Returns the result of the function call, which may be null.
-  Object? call(List<Object?> args);
+  FutureOr<Object?> call(List<Object?> args);
 }
