@@ -1,232 +1,387 @@
-/// A simple logger for the LuaLike interpreter.
+/// A simplified logging facade that uses the contextual package directly.
 ///
-/// This class provides a centralized way to handle debug logging throughout
-/// the interpreter. Logging can be globally enabled or disabled, with separate
-/// handling for debug and error messages.
+/// This module provides a thin wrapper around the contextual logging library,
+/// adding Lualike-specific features like AST node position tracking and Lua
+/// stack traces while delegating all the heavy lifting to contextual.
 library;
 
 import '../ast.dart';
 import '../lua_error.dart';
 import '../lua_stack_trace.dart';
-import 'package:logging/logging.dart' as pkg_logging;
+import 'package:contextual/contextual.dart' as ctx;
 
 class Logger {
-  /// Whether debug logging is enabled.
+  /// The underlying contextual logger instance
+  static ctx.Logger? _logger;
+
+  /// Whether logging is enabled
   static bool enabled = false;
 
-  static final Map<String, pkg_logging.Logger> _categoryLoggers = {};
+  /// Category filters (any-match). Null/empty means no filter.
+  static Set<String>? _categoryFilters;
 
-  static bool _initialized = false;
+  /// Level filter. Null means no filter.
+  static ctx.Level? logLevelFilter;
 
-  /// Optional filters for log output
-  static String? logCategoryFilter;
-  static pkg_logging.Level? logLevelFilter;
-
-  /// Set the log category filter (for CLI --category)
-  static void setCategoryFilter(String? category) {
-    logCategoryFilter = category;
+  /// Initialize the logging subsystem with a pretty console output by default
+  static void initialize({bool pretty = true}) {
+    final formatter = pretty
+        ? ctx.PrettyLogFormatter()
+        : ctx.PlainTextLogFormatter();
+    _logger = ctx.Logger();
+    _logger!.addChannel(
+      'console',
+      ctx.ConsoleLogDriver(),
+      formatter: formatter,
+    );
   }
 
-  /// Set the log level filter (for CLI --level)
-  static void setLevelFilter(pkg_logging.Level? level) {
+  /// Ensure logger is initialized (lazy init)
+  static void _ensureInitialized() {
+    _logger ??= ctx.Logger()
+      ..addChannel(
+        'console',
+        ctx.ConsoleLogDriver(),
+        formatter: ctx.PrettyLogFormatter(),
+      );
+  }
+
+  /// Set category filter (backward compatibility)
+  static void setCategoryFilter(String? category) {
+    if (category == null || category.isEmpty) {
+      _categoryFilters = null;
+    } else {
+      _categoryFilters = {category};
+    }
+  }
+
+  /// Set multiple category filters
+  static void setCategoryFilters(Set<String>? categories) {
+    _categoryFilters = (categories == null || categories.isEmpty)
+        ? null
+        : categories;
+  }
+
+  /// Set the log level filter
+  static void setLevelFilter(ctx.Level? level) {
     logLevelFilter = level;
   }
 
-  /// Initialize the root logger and set up a default handler.
-  /// Only logs matching the selected category and level are printed.
-  static void initialize({
-    pkg_logging.Level defaultLevel = pkg_logging.Level.INFO,
-  }) {
-    pkg_logging.Logger.root.level = defaultLevel;
-    if (_initialized) {
-      return;
+  /// Enable or disable logging
+  static void setEnabled(bool isEnabled) {
+    enabled = isEnabled;
+    if (enabled) {
+      _ensureInitialized();
+      debug('Logging enabled');
     }
-    pkg_logging.Logger.root.onRecord.listen((record) {
-      // Filter by category if set
-      if (logCategoryFilter != null && record.loggerName != logCategoryFilter) {
-        return;
-      }
-      // Filter by level if set
-      if (logLevelFilter != null && record.level < logLevelFilter!) {
-        return;
-      }
-      final time = record.time.toIso8601String();
-      final level = record.level.name;
-      final category = record.loggerName;
-      final msg = record.message;
-      final error = record.error != null ? '\n  Error: ${record.error}' : '';
-      final stack = record.stackTrace != null
-          ? '\n  StackTrace: ${record.stackTrace}'
-          : '';
-      print('[$time] [$level] [$category] $msg$error$stack');
-    });
-    _initialized = true;
   }
 
-  /// Get or create a logger for a given category.
-  static pkg_logging.Logger _getLogger(String? category) {
-    final name = category ?? 'General';
-    return _categoryLoggers.putIfAbsent(name, () => pkg_logging.Logger(name));
+  /// Deprecated no-op: retained for backward compatibility
+  static void setDefaultLevel(Object level) {}
+
+  /// No-op compatibility methods
+  static void setDispatchMode(Object mode) {}
+  static void setSink(Object sink) {}
+  static void useContextualBackend({bool pretty = true}) {
+    initialize(pretty: pretty);
   }
 
-  /// Set the log level for a specific category.
-  static void setCategoryLevel(String category, pkg_logging.Level level) {
-    _getLogger(category).level = level;
-  }
+  // ---------- Public logging APIs ----------
 
-  /// Set the default log level for all loggers.
-  static void setDefaultLevel(pkg_logging.Level level) {
-    pkg_logging.Logger.root.level = level;
-  }
-
-  /// Log a debug message if logging is enabled.
-  ///
-  /// @param message The message to log.
-  /// @param category Optional category for the log message.
-  /// @param node Optional AST node for position information.
   static void debug(
     String message, {
     String? category,
+    Set<String>? categories,
+    Map<String, Object?>? context,
     String? source,
     AstNode? node,
     LuaStackTrace? luaStackTrace,
   }) {
-    if (!enabled) return;
-    String positionInfo = '';
-    if (node != null && node.span != null) {
-      final span = node.span!;
-      positionInfo =
-          ' [${span.sourceUrl?.path}:${span.start.line}:${span.start.column}-${span.end.line}:${span.end.column}]';
-    }
-    final logMessage = '$positionInfo$message';
-    _getLogger(category).fine(logMessage);
-  }
-
-  /// Log an error message.
-  ///
-  /// Error messages are only logged if logging is enabled.
-  ///
-  /// @param message The error message to log.
-  /// @param error Optional error object.
-  /// @param node Optional AST node for position information.
-  static void error(
-    String message, {
-    Object? error,
-    String? category,
-    StackTrace? trace,
-    AstNode? node,
-    LuaStackTrace? luaStackTrace,
-  }) {
-    if (!enabled) return;
-    final errorDetails = error != null ? ' - $error' : '';
-    if (error is LuaError) {
-      final errorMessage = error.formatError();
-      _getLogger(category).severe(errorMessage, error, trace);
-      if (luaStackTrace != null) {
-        _getLogger(category).severe(luaStackTrace.format());
-      }
-      return;
-    }
-    String positionInfo = '';
-    if (node != null && node.span != null) {
-      final span = node.span!;
-      positionInfo =
-          ' [${span.start.line}:${span.start.column}-${span.end.line}:${span.end.column}]';
-    }
-    final errorMessage = '$positionInfo$message$errorDetails';
-    _getLogger(category).severe(errorMessage, error, trace);
-    if (luaStackTrace != null) {
-      _getLogger(category).severe(luaStackTrace.format());
-    }
-  }
-
-  /// Create and log a LuaError with source information.
-  ///
-  /// @param message The error message.
-  /// @param node The AST node where the error occurred.
-  /// @param cause The original exception that caused this error.
-  /// @param category Optional category for the log message.
-  /// @param trace Optional stack trace.
-  static LuaError luaError(
-    String message, {
-    AstNode? node,
-    Object? cause,
-    String? category,
-    StackTrace? trace,
-    LuaStackTrace? luaStackTrace,
-  }) {
-    final luaError = node != null
-        ? LuaError.fromNode(
-            node,
-            message,
-            cause: cause,
-            stackTrace: trace,
-            luaStackTrace: luaStackTrace,
-          )
-        : LuaError(
-            message,
-            cause: cause,
-            stackTrace: trace,
-            luaStackTrace: luaStackTrace,
-          );
-
-    error(
-      message,
-      error: luaError,
-      category: category,
-      trace: trace,
+    _log(
+      level: ctx.Level.debug,
+      message: message,
+      singleCategory: category,
+      categories: categories,
+      context: context,
+      node: node,
       luaStackTrace: luaStackTrace,
     );
-    return luaError;
-  }
-
-  /// Enable or disable logging.
-  ///
-  /// @param isEnabled Whether logging should be enabled.
-  static void setEnabled(bool isEnabled) {
-    enabled = isEnabled;
-    if (enabled) {
-      debug('Logging enabled');
-    }
   }
 
   static void info(
     String message, {
     String? category,
+    Set<String>? categories,
+    Map<String, Object?>? context,
     String? source,
     AstNode? node,
     LuaStackTrace? luaStackTrace,
   }) {
-    if (!enabled) return;
-    String positionInfo = '';
-    if (node != null && node.span != null) {
-      final span = node.span!;
-      positionInfo =
-          ' [${span.sourceUrl?.path}:${span.start.line}:${span.start.column}-${span.end.line}:${span.end.column}]';
-    }
-    final logMessage = '$positionInfo$message';
-    _getLogger(category).info(logMessage);
+    _log(
+      level: ctx.Level.info,
+      message: message,
+      singleCategory: category,
+      categories: categories,
+      context: context,
+      node: node,
+      luaStackTrace: luaStackTrace,
+    );
   }
 
   static void warning(
     String message, {
     Object? error,
     String? category,
+    Set<String>? categories,
+    Map<String, Object?>? context,
     StackTrace? trace,
     AstNode? node,
     LuaStackTrace? luaStackTrace,
   }) {
-    if (!enabled) return;
-    String positionInfo = '';
+    _log(
+      level: ctx.Level.warning,
+      message: message,
+      singleCategory: category,
+      categories: categories,
+      context: context,
+      node: node,
+      error: error,
+      stackTrace: trace,
+      luaStackTrace: luaStackTrace,
+    );
+  }
+
+  static void error(
+    String message, {
+    Object? error,
+    String? category,
+    Set<String>? categories,
+    Map<String, Object?>? context,
+    StackTrace? trace,
+    AstNode? node,
+    LuaStackTrace? luaStackTrace,
+  }) {
+    // If the error is a LuaError, prefer its formatted message
+    if (error is LuaError) {
+      final formatted = error.formatError();
+      _log(
+        level: ctx.Level.error,
+        message: formatted,
+        singleCategory: category,
+        categories: categories,
+        context: context,
+        node: node,
+        error: error,
+        stackTrace: trace,
+        luaStackTrace: luaStackTrace,
+      );
+      return;
+    }
+    _log(
+      level: ctx.Level.error,
+      message: message,
+      singleCategory: category,
+      categories: categories,
+      context: context,
+      node: node,
+      error: error,
+      stackTrace: trace,
+      luaStackTrace: luaStackTrace,
+    );
+  }
+
+  // ---------- Lazy APIs (zero-cost when disabled/filtered) ----------
+
+  static void debugLazy(
+    String Function() messageBuilder, {
+    String? category,
+    Set<String>? categories,
+    Map<String, Object?> Function()? contextBuilder,
+    AstNode? node,
+    LuaStackTrace? luaStackTrace,
+  }) {
+    if (!_shouldLog(ctx.Level.debug, category, categories)) return;
+    _log(
+      level: ctx.Level.debug,
+      message: messageBuilder(),
+      singleCategory: category,
+      categories: categories,
+      context: contextBuilder?.call(),
+      node: node,
+      luaStackTrace: luaStackTrace,
+    );
+  }
+
+  static void infoLazy(
+    String Function() messageBuilder, {
+    String? category,
+    Set<String>? categories,
+    Map<String, Object?> Function()? contextBuilder,
+    AstNode? node,
+    LuaStackTrace? luaStackTrace,
+  }) {
+    if (!_shouldLog(ctx.Level.info, category, categories)) return;
+    _log(
+      level: ctx.Level.info,
+      message: messageBuilder(),
+      singleCategory: category,
+      categories: categories,
+      context: contextBuilder?.call(),
+      node: node,
+      luaStackTrace: luaStackTrace,
+    );
+  }
+
+  static void warningLazy(
+    String Function() messageBuilder, {
+    Object? error,
+    String? category,
+    Set<String>? categories,
+    Map<String, Object?> Function()? contextBuilder,
+    StackTrace? trace,
+    AstNode? node,
+    LuaStackTrace? luaStackTrace,
+  }) {
+    if (!_shouldLog(ctx.Level.warning, category, categories)) return;
+    _log(
+      level: ctx.Level.warning,
+      message: messageBuilder(),
+      singleCategory: category,
+      categories: categories,
+      context: contextBuilder?.call(),
+      node: node,
+      error: error,
+      stackTrace: trace,
+      luaStackTrace: luaStackTrace,
+    );
+  }
+
+  static void errorLazy(
+    String Function() messageBuilder, {
+    Object? error,
+    String? category,
+    Set<String>? categories,
+    Map<String, Object?> Function()? contextBuilder,
+    StackTrace? trace,
+    AstNode? node,
+    LuaStackTrace? luaStackTrace,
+  }) {
+    if (!_shouldLog(ctx.Level.error, category, categories)) return;
+    _log(
+      level: ctx.Level.error,
+      message: messageBuilder(),
+      singleCategory: category,
+      categories: categories,
+      context: contextBuilder?.call(),
+      node: node,
+      error: error,
+      stackTrace: trace,
+      luaStackTrace: luaStackTrace,
+    );
+  }
+
+  // ---------- Internal helpers ----------
+
+  static bool _shouldLog(
+    ctx.Level level,
+    String? singleCategory,
+    Set<String>? categories,
+  ) {
+    if (!enabled) return false;
+    if (!_passesLevel(level)) return false;
+
+    final cats = _combineCategories(singleCategory, categories);
+    if (_categoryFilters != null && _categoryFilters!.isNotEmpty) {
+      if (cats.isEmpty) return false;
+      if (!cats.any((c) => _categoryFilters!.contains(c))) return false;
+    }
+    return true;
+  }
+
+  static bool _passesLevel(ctx.Level level) {
+    if (logLevelFilter == null) return true;
+    return _severity(level) >= _severity(logLevelFilter!);
+  }
+
+  static Set<String> _combineCategories(
+    String? singleCategory,
+    Set<String>? categories,
+  ) {
+    final set = <String>{};
+    if (singleCategory != null && singleCategory.isNotEmpty) {
+      set.add(singleCategory);
+    }
+    if (categories != null && categories.isNotEmpty) {
+      set.addAll(categories);
+    }
+    return set;
+  }
+
+  static void _log({
+    required ctx.Level level,
+    required String message,
+    String? singleCategory,
+    Set<String>? categories,
+    Map<String, Object?>? context,
+    AstNode? node,
+    Object? error,
+    StackTrace? stackTrace,
+    LuaStackTrace? luaStackTrace,
+  }) {
+    if (!_shouldLog(level, singleCategory, categories)) return;
+
+    _ensureInitialized();
+
+    final cats = _combineCategories(singleCategory, categories);
+    final enrichedContext = <String, Object?>{};
+
+    // Add user context
+    if (context != null) enrichedContext.addAll(context);
+
+    // Add categories
+    if (cats.isNotEmpty) enrichedContext['categories'] = cats.toList();
+
+    // Add AST node position info
     if (node != null && node.span != null) {
       final span = node.span!;
-      positionInfo =
-          ' [${span.sourceUrl?.path}:${span.start.line}:${span.start.column}-${span.end.line}:${span.end.column}]';
+      enrichedContext['source'] = span.sourceUrl?.path;
+      enrichedContext['position'] =
+          '${span.start.line}:${span.start.column}-${span.end.line}:${span.end.column}';
     }
-    final warningMessage = '$positionInfo$message';
-    _getLogger(category).warning(warningMessage, error, trace);
+
+    // Add error info
+    if (error != null) enrichedContext['error'] = error.toString();
+    if (stackTrace != null) {
+      enrichedContext['stackTrace'] = stackTrace.toString();
+    }
+
+    // Add Lua stack trace
     if (luaStackTrace != null) {
-      _getLogger(category).warning(luaStackTrace.format());
+      enrichedContext['luaStackTrace'] = luaStackTrace.format();
     }
+
+    // Let contextual handle everything
+    _logger!.log(level, message, ctx.Context(enrichedContext));
+  }
+}
+
+int _severity(ctx.Level level) {
+  switch (level) {
+    case ctx.Level.debug:
+      return 10;
+    case ctx.Level.notice:
+      return 20;
+    case ctx.Level.info:
+      return 30;
+    case ctx.Level.warning:
+      return 40;
+    case ctx.Level.error:
+      return 50;
+    case ctx.Level.critical:
+      return 55;
+    case ctx.Level.alert:
+      return 60;
+    case ctx.Level.emergency:
+      return 70;
   }
 }
