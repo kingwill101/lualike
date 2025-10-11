@@ -77,6 +77,16 @@ class Interpreter extends AstVisitor<Object?>
   /// as described in section 2.5.2 of the Lua 5.4 reference manual.
   late final GenerationalGCManager gc;
 
+  /// Per-interpreter intern pool for string literals.
+  /// Ensures identical literal strings in the same chunk share identity.
+  @override
+  final Map<String, LuaString> literalStringInternPool = <String, LuaString>{};
+  
+  /// Per-interpreter cache of Value wrappers for string literals.
+  /// Avoids creating new Value objects on every literal reference.
+  @override
+  final Map<String, Value> literalValueCache = <String, Value>{};
+
   /// Global environment for variable storage.
   @override
   Environment get globals {
