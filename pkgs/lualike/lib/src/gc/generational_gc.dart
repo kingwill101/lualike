@@ -1191,6 +1191,14 @@ class GenerationalGCManager {
 
         if (keyDead || valueDead) {
           keysToRemove.add(entry.key);
+        } else {
+          // Entry survives - ensure key and value are marked to survive sweep
+          if (key is GCObject) {
+            key.marked = true;
+          }
+          if (value is GCObject) {
+            value.marked = true;
+          }
         }
       }
       for (final k in keysToRemove) {
