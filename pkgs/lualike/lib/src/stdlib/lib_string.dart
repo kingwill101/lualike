@@ -1623,7 +1623,15 @@ class _StringRep extends BuiltinFunction {
       if (isAsciiOnly) {
         // Safe to convert to regular string and intern
         final resultString = String.fromCharCodes(resultBytes);
-        return StringInterning.createStringValue(resultString);
+        
+        // Mark small strings (<= 1KB) as temporary to avoid counting them in
+        // collectgarbage("count"). This matches Lua C behavior where temp strings
+        // for immediate use (like table lookups) don't allocate heap memory.
+        final isSmallTemp = resultString.length <= 1024;
+        final luaStr = StringInterning.intern(resultString);
+        final result = Value(luaStr, isTempKey: isSmallTemp);
+        
+        return result;
       } else {
         // Contains high bytes, preserve as LuaString
         final resultLuaString = LuaString.fromBytes(resultBytes);
@@ -1631,7 +1639,9 @@ class _StringRep extends BuiltinFunction {
         // For high-byte content, we cannot use StringInterning because it would
         // UTF-8 encode the Latin-1 string, corrupting the bytes
         // Instead, return the LuaString directly
-        final result = Value(resultLuaString);
+        // Mark small strings (<= 1KB) as temporary
+        final isSmallTemp = resultLuaString.length <= 1024;
+        final result = Value(resultLuaString, isTempKey: isSmallTemp);
         
         // Re-enable auto-GC after large allocation completes
         if (isLargeAllocation) {
@@ -1674,7 +1684,13 @@ class _StringRep extends BuiltinFunction {
 
       // Create the result string once and reuse it
       final resultString = buffer.toString();
-      final result = StringInterning.createStringValue(resultString);
+      
+      // Mark small strings (<= 1KB) as temporary to avoid counting them in
+      // collectgarbage("count"). This matches Lua C behavior where temp strings
+      // for immediate use (like table lookups) don't allocate heap memory.
+      final isSmallTemp = resultString.length <= 1024;
+      final luaStr = StringInterning.intern(resultString);
+      final result = Value(luaStr, isTempKey: isSmallTemp);
       
       // Re-enable auto-GC after large allocation completes
       if (isLargeAllocation) {

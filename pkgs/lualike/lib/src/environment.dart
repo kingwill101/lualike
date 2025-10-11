@@ -389,7 +389,9 @@ class Environment extends GCObject {
     // If not found anywhere, create new binding in root environment
     // This ensures that global assignments from loaded code persist
     final rootEnv = root;
-    rootEnv.values[name] = Box(value);
+    // Mark as transient to match Lua behavior - variable bindings on the
+    // stack aren't counted toward memory usage
+    rootEnv.values[name] = Box(value, isTransient: true);
     rootEnv._updateCredits();
     Logger.debug(
       "Created new binding for '$name' = $value in root env (${rootEnv.hashCode})",
