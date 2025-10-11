@@ -2257,10 +2257,13 @@ class CollectGarbageFunction extends BuiltinFunction {
         return Value(true);
 
       case "count":
-        // MemoryCredits only — return total credits in KB (matches Lua's count)
+        // Return total memory in KB as two values: integer KB and fractional part
+        // This matches Lua 5.4 spec: collectgarbage("count") returns (kb, frac)
         final totalCredits = interpreter!.gc.estimateMemoryUse();
-        final baseKB = totalCredits / 1024.0;
-        return Value(baseKB);
+        final totalKB = totalCredits / 1024.0;
+        final integerKB = totalKB.floor().toDouble();
+        final fractionalKB = totalKB - integerKB;
+        return Value.multi([Value(integerKB), Value(fractionalKB)]);
 
       case "step":
         // "step": Performs a garbage-collection step

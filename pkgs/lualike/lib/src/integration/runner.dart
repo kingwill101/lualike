@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/integration/const.dart';
 import 'package:lualike/src/integration/result.dart';
-import 'package:lualike/src/stdlib/lib_test.dart';
+import 'package:lualike/src/stdlib/test_lib.dart';
 import 'package:path/path.dart' as p;
 
 class TestRunner {
