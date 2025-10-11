@@ -92,7 +92,10 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
 
     // Ensure proper Value wrapping
     final tableVal = table is Value ? table : Value(table);
-    final indexVal = indexResult is Value ? indexResult : Value(indexResult);
+    // Mark simple string/number indices as temporary keys to avoid GC tracking overhead
+    final indexVal = indexResult is Value 
+      ? indexResult 
+      : Value(indexResult, isTempKey: indexResult is String || indexResult is num);
 
     Logger.info(
       'TableAccess: ${tableVal.toString()}[${indexVal.toString()}]',
@@ -145,7 +148,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
 
     // Ensure proper Value wrapping
     final tableVal = table is Value ? table : Value(table);
-    final indexVal = Value(fieldKey);
+    final indexVal = Value(fieldKey, isTempKey: true);  // Mark as temporary key to avoid GC tracking
     final bool tableIsOriginalValue = identical(tableVal, table);
 
     Logger.info(

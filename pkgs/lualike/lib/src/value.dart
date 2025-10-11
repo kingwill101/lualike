@@ -56,6 +56,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   /// Whether this value is a to-be-closed variable
   bool isToBeClose = false;
+  
+  /// Whether this value is a temporary key used for table lookups.
+  /// Temporary keys are not counted for GC debt to avoid tracking overhead.
+  bool isTempKey = false;
 
   /// Hint for fast-calling simple Lua closures (e.g., comparator x < y)
   /// Currently used to accelerate very common patterns in tight loops.
@@ -237,6 +241,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     Map<String, dynamic>? metatable,
     this.isConst = false,
     this.isToBeClose = false,
+    this.isTempKey = false,
     this.upvalues,
     this.interpreter,
     this.functionBody,
@@ -337,6 +342,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// debt for them to avoid frequent auto-GC triggers in tight loops.
   bool _shouldCountAllocation() {
     if (isMulti) return false; // short-lived carrier, don't count
+    if (isTempKey) return false; // temporary keys for table lookups, don't count
     if (isTable) return true; // tables are significant
     final payload = raw;
     if (payload == null ||

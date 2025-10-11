@@ -13,6 +13,13 @@ class MetaTable {
   final Map<String, Value?> _typeMetatableRefs = {};
   bool _numberMetatableEnabled = false;
   Interpreter? _interpreter;
+  
+  // Cache for stdlib methods to avoid repeated lookups and wrapper creation
+  final Map<String, dynamic> _cachedStringMethods = {};
+  
+  // Cache method wrappers per-string-instance to avoid creating new closures
+  static final Expando<Map<String, Value>> _stringMethodCache = 
+    Expando<Map<String, Value>>('stringMethodCache');
 
   factory MetaTable() {
     return _instance;
@@ -58,19 +65,31 @@ class MetaTable {
         );
 
         if (key.raw is String) {
-          // Get string functions from the environment's string table
-          final stringTable = interpreter.globals.get('string');
-          if (stringTable is Value && stringTable.raw is Map) {
-            final stringMap = stringTable.raw as Map;
-            final method = stringMap[key.raw];
-            if (method != null) {
+          final keyStr = key.raw as String;
+          
+          // Check if we've cached a wrapper for this string+method combination
+          var methodCache = _stringMethodCache[str];
+          if (methodCache != null) {
+            final cachedWrapper = methodCache[keyStr];
+            if (cachedWrapper != null) {
               Logger.debug(
-                'Found string method: ${key.raw}',
+                'Returning cached method wrapper for $keyStr',
                 category: 'Metatables',
               );
+              return cachedWrapper;
+            }
+          }
+          
+          // Use cached method lookup to avoid repeated string table access
+          final method = _cachedStringMethods[keyStr];
+          if (method != null) {
+            Logger.debug(
+              'Found cached string method: $keyStr',
+              category: 'Metatables',
+            );
 
-              // Return a function that will be called later
-              return Value((callArgs) {
+            // Create method wrapper and cache it on this string instance
+            final wrapper = Value((callArgs) {
                 Logger.debug(
                   'String method ${key.raw} called with ${callArgs.length} arguments',
                   category: 'Metatables',
@@ -84,10 +103,10 @@ class MetaTable {
                     return method.call(callArgs);
                   } else if (method is Value && method.raw is BuiltinFunction) {
                     return (method.raw as BuiltinFunction).call(callArgs);
-                  } else if (method is Function) {
-                    return method(callArgs);
                   } else if (method is Value && method.raw is Function) {
                     return (method.raw as Function)(callArgs);
+                  } else if (method is Function) {
+                    return method(callArgs);
                   }
                   return method; // not callable
                 }
@@ -106,8 +125,16 @@ class MetaTable {
                   return (method.raw as Function)([str, ...callArgs]);
                 }
                 return method;
-              });
+              }, isTempKey: true);  // Don't count this wrapper in GC debt
+            
+            // Cache the wrapper on this string instance
+            if (methodCache == null) {
+              methodCache = <String, Value>{};
+              _stringMethodCache[str] = methodCache;
             }
+            methodCache[keyStr] = wrapper;
+            
+            return wrapper;
           }
         }
 
@@ -375,12 +402,33 @@ class MetaTable {
     });
     Logger.debug('Userdata metatable initialized', category: 'Metatables');
 
+    // Pre-cache string table and methods to reduce wrapper creation
+    _cacheStdlibMethods(interpreter);
 
     _initialized = true;
     Logger.debug(
       'All default metatables initialized successfully',
       category: 'Metatables',
     );
+  }
+  
+  /// Pre-cache stdlib methods to avoid creating temporary wrappers on each access
+  void _cacheStdlibMethods(Interpreter interpreter) {
+    // Cache string methods from the global string table
+    final stringTable = interpreter.globals.get('string');
+    if (stringTable is Value && stringTable.raw is Map) {
+      final stringMap = stringTable.raw as Map;
+      
+      // Cache all string methods to avoid repeated map lookups
+      for (final entry in stringMap.entries) {
+        _cachedStringMethods[entry.key.toString()] = entry.value;
+      }
+      
+      Logger.debug(
+        'Cached ${_cachedStringMethods.length} string methods',
+        category: 'Metatables',
+      );
+    }
   }
 
   /// Get metatable for a given type

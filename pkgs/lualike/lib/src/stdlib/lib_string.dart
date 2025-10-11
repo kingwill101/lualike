@@ -1572,6 +1572,13 @@ class _StringRep extends BuiltinFunction {
     if (count <= 0) {
       return StringInterning.createStringValue('');
     }
+    
+    // For large allocations, suppress auto-GC to prevent premature collection
+    // of transient objects before collectgarbage("count") can see them
+    final isLargeAllocation = count > 1000000;
+    if (isLargeAllocation) {
+      interpreter?.gc.suppressAutoTrigger();
+    }
 
     // Handle LuaString specially to preserve byte representation
     if (value.raw is LuaString) {
@@ -1588,10 +1595,16 @@ class _StringRep extends BuiltinFunction {
               BigInt.from(math.max(0, count - 1)));
 
       if (totalLength > BigInt.from(1 << 30)) {
+        if (isLargeAllocation) {
+          interpreter?.gc.resumeAutoTrigger();
+        }
         throw LuaError('too large');
       }
 
       if (count == 1) {
+        if (isLargeAllocation) {
+          interpreter?.gc.resumeAutoTrigger();
+        }
         return value;
       }
 
@@ -1621,6 +1634,9 @@ class _StringRep extends BuiltinFunction {
         final result = Value(resultLuaString);
         
         // Re-enable auto-GC after large allocation completes
+        if (isLargeAllocation) {
+          interpreter?.gc.resumeAutoTrigger();
+        }
         
         return result;
       }
@@ -1635,10 +1651,16 @@ class _StringRep extends BuiltinFunction {
               BigInt.from(math.max(0, count - 1)));
 
       if (totalLength > BigInt.from(1 << 30)) {
+        if (isLargeAllocation) {
+          interpreter?.gc.resumeAutoTrigger();
+        }
         throw LuaError('too large');
       }
 
       if (count == 1) {
+        if (isLargeAllocation) {
+          interpreter?.gc.resumeAutoTrigger();
+        }
         return StringInterning.createStringValue(originalStr);
       }
 
@@ -1655,6 +1677,9 @@ class _StringRep extends BuiltinFunction {
       final result = StringInterning.createStringValue(resultString);
       
       // Re-enable auto-GC after large allocation completes
+      if (isLargeAllocation) {
+        interpreter?.gc.resumeAutoTrigger();
+      }
       
       return result;
     }
