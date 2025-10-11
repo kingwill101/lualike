@@ -151,6 +151,14 @@ class LibraryRegistrationContext extends LibraryContext {
 
   /// Define a function in this library
   void define(String name, dynamic function) {
-    _functionMap[name] = function;
+    // Wrap builtin functions in Value objects once during registration
+    // to avoid creating new Value wrappers on every identifier access.
+    // This prevents temporary Value allocations that affect collectgarbage("count").
+    if ((function is BuiltinFunction || function is Function) &&
+        function is! Value) {
+      _functionMap[name] = Value(function);
+    } else {
+      _functionMap[name] = function;
+    }
   }
 }
