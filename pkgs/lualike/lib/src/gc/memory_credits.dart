@@ -40,17 +40,36 @@ class MemoryCredits {
 
   /// Records a freshly allocated object.
   void onAllocate(GCObject obj, {required GCGenerationSpace space}) {
+    // Check if object already has credits assigned - if so, skip to avoid double-counting
+    final existingCredits = _objectCredits[obj];
+    if (existingCredits != null) {
+      // Object already tracked - just update space if needed
+      final existingSpace = _objectSpaces[obj];
+      if (existingSpace != space) {
+        _objectSpaces[obj] = space;
+      }
+      return;
+    }
+    
     final credits = obj.estimatedSize;
     
     // Debug: Capture stack trace if enabled
     if (enableStackTraces) {
-      _objectStackTraces[obj] = StackTrace.current;
-      _trackedObjects.add(obj);
+      // Capture current stack trace BEFORE any async operations
+      try {
+        throw Exception('Stack trace capture');
+      } catch (e, stackTrace) {
+        _objectStackTraces[obj] = stackTrace;
+      }
+      // Only add if not already in the list (prevent duplicate entries)
+      if (!_trackedObjects.contains(obj)) {
+        _trackedObjects.add(obj);
+      }
     }
     
     // Debug: Log allocations during large operations
     if (Logger.enabled && _total > 1000000 && credits > 100) {
-      final objType = obj is Value ? 'Value(${(obj as Value).raw?.runtimeType ?? 'null'})' : obj.runtimeType.toString();
+      final objType = obj is Value ? 'Value(${obj.raw?.runtimeType ?? 'null'})' : obj.runtimeType.toString();
       Logger.debug('[MemoryCredits] onAllocate during large op: $objType#${obj.hashCode}, credits=$credits, _total: $_total -> ${_total+credits}', category: 'GC');
     }
     
@@ -154,12 +173,20 @@ class MemoryCredits {
     final buffer = StringBuffer();
     buffer.writeln('\n=== Memory Allocation Tree ===');
     buffer.writeln('Total Credits: $_total ($_young young, $_old old)');
-    buffer.writeln('Tracked Objects: ${_trackedObjects.length}');
+
+    // Create a snapshot to avoid concurrent modification during iteration
+    final snapshot = List<GCObject>.from(_trackedObjects);
+
+    buffer.writeln('Tracked Objects: ${snapshot.length}');
+    for(final obj in snapshot) {
+        buffer.writeln('$obj');
+    }
+
     buffer.writeln();
     
     // Group by type
     final byType = <String, List<GCObject>>{};
-    for (final obj in _trackedObjects) {
+    for (final obj in snapshot) {
       final credits = _objectCredits[obj];
       if (credits != null && credits > 0) {
         String typeName;
@@ -195,21 +222,39 @@ class MemoryCredits {
       for (var i = 0; i < sortedObjs.length && i < 3; i++) {
         final obj = sortedObjs[i];
         final credits = _objectCredits[obj] ?? 0;
-        buffer.writeln('  ├─ #${obj.hashCode}: $credits credits');
+        
+        // Add useful object info to the output
+        String objInfo = '#${obj.hashCode}: $credits credits';
+        if (obj is Value) {
+          if (obj.isTempKey) {
+            objInfo += ' [TEMP]';
+          }
+          final raw = obj.raw;
+          if (raw is LuaString && raw.length <= 200) {
+            final preview = raw.toString();
+            final truncated = preview.length > 50 ? '${preview.substring(0, 50)}...' : preview;
+            objInfo += ' content="$truncated"';
+          } else if (raw is String && raw.length <= 200) {
+            final truncated = raw.length > 50 ? '${raw.substring(0, 50)}...' : raw;
+            objInfo += ' content="$truncated"';
+          }
+        }
+        buffer.writeln('  ├─ $objInfo');
         
         if (enableStackTraces) {
           final trace = _objectStackTraces[obj];
           if (trace != null) {
-            // Extract first few relevant frames
-            final frames = trace.toString().split('\n')
-              .where((line) => 
-                !line.contains('dart:') &&
-                !line.contains('memory_credits.dart') &&
-                !line.contains('generational_gc.dart') &&
-                line.trim().isNotEmpty)
-              .take(2);
-            for (final frame in frames) {
+            // Extract relevant frames with more context
+            final allFrames = trace.toString().split('\n');
+
+            allFrames.removeRange(0, 2);
+
+            for (final frame in allFrames) {
               buffer.writeln('  │  $frame');
+            }
+            
+            if (allFrames.isEmpty) {
+              buffer.writeln('  │  (no relevant stack frames)');
             }
           }
         }
