@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:logging/logging.dart' as pkg_logging;
+import 'package:contextual/contextual.dart' as ctx;
 import 'package:lualike/command/version_command.dart';
 import 'package:lualike/src/logging/logging.dart';
 
@@ -39,9 +39,10 @@ class LuaLikeCommandRunner extends CommandRunner {
       help: 'Set log level (FINE, INFO, WARNING, SEVERE, etc)',
     );
 
-    argParser.addOption(
+    argParser.addMultiOption(
       'category',
-      help: 'Set log category to filter (only logs for this category)',
+      help: 'Set log category filter (repeatable or comma-separated)',
+      splitCommas: true,
     );
 
     argParser.addFlag(
@@ -93,8 +94,7 @@ class LuaLikeCommandRunner extends CommandRunner {
 
   @override
   Future<void> run(Iterable<String> args) async {
-    // Enable hierarchical logging
-    pkg_logging.hierarchicalLoggingEnabled = true;
+    // Contextual backend is used by default; no hierarchical setup required.
 
     try {
       // Parse arguments
@@ -112,20 +112,18 @@ class LuaLikeCommandRunner extends CommandRunner {
 
       // Set up logging
       final logLevel = argResults['level'] as String?;
-      final logCategory = argResults['category'] as String?;
+      final logCategories =
+          (argResults['category'] as List<String>?) ?? const <String>[];
 
-      pkg_logging.Level? cliLevel;
+      ctx.Level? cliLevel;
       if (logLevel != null && logLevel.isNotEmpty) {
-        cliLevel = pkg_logging.Level.LEVELS.firstWhere(
-          (lvl) => lvl.name.toUpperCase() == logLevel.toUpperCase(),
-          orElse: () => pkg_logging.Level.WARNING,
-        );
+        cliLevel = parseLogLevel(logLevel) ?? ctx.Level.warning;
       }
 
       setLualikeLogging(
         enabled: debugMode,
         level: cliLevel,
-        category: logCategory,
+        categories: logCategories.isEmpty ? null : logCategories,
       );
 
       // Note: execution mode is handled by individual commands
