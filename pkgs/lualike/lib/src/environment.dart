@@ -281,33 +281,41 @@ class Environment extends GCObject {
   ///
   /// **Usage**: Variable lookups in expressions like `print(x)` or `y = x + 1`.
   dynamic get(String name) {
-    Logger.debug("Looking for '$name' in env ($hashCode)}", category: 'Env');
-    Logger.debug(
-      "Environment chain: ${_getEnvironmentChain()}",
-      category: 'Env',
-    );
+    if (Logger.enabled) {
+      Logger.debug("Looking for '$name' in env ($hashCode)}", category: 'Env');
+      Logger.debug(
+        "Environment chain: ${_getEnvironmentChain()}",
+        category: 'Env',
+      );
+    }
 
     if (values.containsKey(name)) {
       final val = values[name]!.value;
-      Logger.debug(
-        "Found '$name' = $val (type: ${val is Value ? val.raw.runtimeType : val.runtimeType}) in env ($hashCode)",
-        category: 'Env',
-      );
+      if (Logger.enabled) {
+        Logger.debug(
+          "Found '$name' = $val (type: ${val is Value ? val.raw.runtimeType : val.runtimeType}) in env ($hashCode)",
+          category: 'Env',
+        );
+      }
       return val;
     }
 
     if (parent != null) {
-      Logger.debug(
-        "'$name' not found in current env, checking parent env (${parent!.hashCode})",
-        category: 'Env',
-      );
+      if (Logger.enabled) {
+        Logger.debug(
+          "'$name' not found in current env, checking parent env (${parent!.hashCode})",
+          category: 'Env',
+        );
+      }
       return parent!.get(name);
     }
 
-    Logger.debug(
-      "'$name' not found in any environment in chain: ${_getEnvironmentChain()}",
-      category: 'Env',
-    );
+    if (Logger.enabled) {
+      Logger.debug(
+        "'$name' not found in any environment in chain: ${_getEnvironmentChain()}",
+        category: 'Env',
+      );
+    }
     return null;
   }
 
