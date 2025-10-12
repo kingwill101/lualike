@@ -1078,6 +1078,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                   );
                 }
                 return result;
+              } on TailCallException {
+                rethrow;
               } catch (e, s) {
                 if (Logger.enabled) {
                   Logger.debug(

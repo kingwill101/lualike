@@ -479,7 +479,8 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     // live in the root environment (which has no parent). Locals should take
     // precedence over entries in `_ENV`.
     // Search up the environment chain for a local variable with this name
-    Environment? env = globals;
+    final currentGlobals = globals;
+    Environment? env = currentGlobals;
     while (env != null) {
       if (env.values.containsKey(node.name) && env.values[node.name]!.isLocal) {
         final val = env.values[node.name]!.value;
@@ -510,17 +511,17 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     // Route global lookups through _ENV to match Lua semantics.
     // Use the current globals environment to get _ENV, not the root,
     // so that local _ENV assignments are respected.
-    Value? envValue = globals.values['_ENV']?.value;
-    Value? gValue = globals.values['_G']?.value;
+    Value? envValue = currentGlobals.values['_ENV']?.value;
+    Value? gValue = currentGlobals.values['_G']?.value;
 
     if (envValue == null) {
-      final fallbackEnv = globals.get('_ENV');
+      final fallbackEnv = currentGlobals.get('_ENV');
       if (fallbackEnv is Value) {
         envValue = fallbackEnv;
       }
     }
     if (gValue == null) {
-      final fallbackG = globals.get('_G');
+      final fallbackG = currentGlobals.get('_G');
       if (fallbackG is Value) {
         gValue = fallbackG;
       }
@@ -573,7 +574,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         // Fast path: when _ENV === _G, direct global lookups can bypass the
         // __index metamethod and read from the environment chain. This avoids
         // expensive async metamethod calls for common globals like 'assert'.
-        final direct = globals.get(node.name);
+        final direct = currentGlobals.get(node.name);
         if (direct != null) {
           final resolvedValue = direct is Value ? direct : Value(direct);
           if (canUseGlobalCache) {
@@ -602,7 +603,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     }
 
     // Fallback: look up in the current environment chain
-    final value = globals.get(node.name);
+    final value = currentGlobals.get(node.name);
     if (value == null) {
       if (Logger.enabled) {
         Logger.debug(
