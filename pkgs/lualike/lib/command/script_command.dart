@@ -42,9 +42,6 @@ class ScriptCommand extends BaseCommand {
       // Get absolute path for better debugging
       final absolutePath = file.absolute.path;
 
-      // Log the script execution
-      print('Executing script: $absolutePath');
-
       // Execute with script path set for proper line number tracking
       await bridge.execute(sourceCode, scriptPath: absolutePath);
     } catch (e) {
