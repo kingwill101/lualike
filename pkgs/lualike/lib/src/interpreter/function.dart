@@ -115,7 +115,11 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         categories: {'Interpreter', 'Function', 'Table'},
         contextBuilder: () => {
           'method_name': methodName,
-          'table_path': firstName + (pathSegments.isNotEmpty ? '.${pathSegments.map((e) => e.name).join('.')}' : ''),
+          'table_path':
+              firstName +
+              (pathSegments.isNotEmpty
+                  ? '.${pathSegments.map((e) => e.name).join('.')}'
+                  : ''),
           'path_depth': pathSegments.length,
         },
       );
@@ -175,9 +179,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       Logger.debugLazy(
         () => 'Defining function in global _G table from load context',
         categories: {'Interpreter', 'Function', 'Environment'},
-        contextBuilder: () => {
-          'function_name': node.name.first.name,
-        },
+        contextBuilder: () => {'function_name': node.name.first.name},
       );
       if (gVal.raw is Map) {
         (gVal.raw as Map)[node.name.first.name] = closure;
@@ -190,9 +192,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     Logger.debugLazy(
       () => 'Defined function in global scope',
       categories: {'Interpreter', 'Function'},
-      contextBuilder: () => {
-        'function_name': node.name.first.name,
-      },
+      contextBuilder: () => {'function_name': node.name.first.name},
     );
     return closure;
   }
@@ -275,20 +275,72 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       category: 'Interpreter',
     );
 
-    // Create a variable to hold the function value for self-reference
-    Value? funcValue;
+    // Precompute parameter metadata for both execution paths.
+    final bool hasVarargs = node.isVararg;
+    final int regularParamCount = node.parameters?.length ?? 0;
+    final List<String> parameterNames = node.parameters == null
+        ? const <String>[]
+        : node.parameters!.map((param) => param.name).toList();
 
-    funcValue = Value((List<Object?> args) async {
-      // Create new environment with closureEnv as parent to ensure proper variable access
-      // However, if the function has upvalues, we need to create an environment that doesn't
-      // have access to the local variables that are captured as upvalues
-      // Create environment - only filter if we have joined upvalues
+    Value _wrapArg(Object? arg) => arg is Value ? arg : Value(arg);
+
+    bool _bodyContainsClose(List<AstNode> statements) {
+      final pending = <AstNode>[...statements];
+      while (pending.isNotEmpty) {
+        final current = pending.removeLast();
+        if (current is LocalDeclaration) {
+          for (final attr in current.attributes) {
+            if (attr == 'close') {
+              return true;
+            }
+          }
+        } else if (current is DoBlock) {
+          pending.addAll(current.body);
+        } else if (current is IfStatement) {
+          pending.addAll(current.thenBlock);
+          for (final elseIf in current.elseIfs) {
+            pending.addAll(elseIf.thenBlock);
+          }
+          pending.addAll(current.elseBlock);
+        } else if (current is WhileStatement) {
+          pending.addAll(current.body);
+        } else if (current is RepeatUntilLoop) {
+          pending.addAll(current.body);
+        } else if (current is ForLoop) {
+          pending.addAll(current.body);
+        } else if (current is ForInLoop) {
+          pending.addAll(current.body);
+        } else if (current is LocalFunctionDef) {
+          pending.addAll(current.funcBody.body);
+        }
+      }
+      return false;
+    }
+
+    final joinedUpvalues = upvalues
+        .where((u) => u.isJoined && u.name != null && u.name != '_ENV')
+        .toList();
+    final bool hasJoinedUpvalues = joinedUpvalues.isNotEmpty;
+    final bool hasNonEnvUpvalues = upvalues.any((u) {
+      final name = u.name;
+      if (name == null) {
+        return true;
+      }
+      return name != '_ENV';
+    });
+    final bool canReuseEnvironment =
+        !hasNonEnvUpvalues &&
+        !hasJoinedUpvalues &&
+        !_bodyContainsClose(node.body);
+
+    // Create a variable to hold the function value for self-reference
+    late Value funcValue;
+
+    late Value self;
+
+    Future<Object?> regularCall(List<Object?> args) async {
       Environment execEnv;
-      final joinedUpvalues = upvalues
-          .where((u) => u.isJoined && u.name != null && u.name != '_ENV')
-          .toList();
-      if (joinedUpvalues.isNotEmpty) {
-        // Only filter out variables that have been joined via debug.upvaluejoin
+      if (hasJoinedUpvalues) {
         final joinedUpvalueNames = joinedUpvalues.map((u) => u.name!).toSet();
         execEnv = Environment(
           parent: _createFilteredEnvironment(closureEnv, joinedUpvalueNames),
@@ -296,7 +348,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
           isClosure: false,
         );
         Logger.debug(
-          'Created filtered environment for function with ${joinedUpvalues.length} joined upvalues: ${joinedUpvalueNames.join(', ')}',
+          'Created filtered environment for function with ${joinedUpvalueNames.length} joined upvalues: ${joinedUpvalueNames.join(', ')}',
           category: 'Interpreter',
         );
       } else {
@@ -307,87 +359,161 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         );
       }
 
-      // if (node.implicitSelf) {
-      //   // If this is a method, define 'self' in the execution environment
-      //   execEnv.define('self', args.isNotEmpty ? args[0] : Value(null));
-      //   Logger.debug(
-      //     'Defined implicit self in execEnv: ${execEnv.get("self")}',
-      //     category: 'Interpreter',
-      //   );
-      // }
-
       Logger.debug(
         "visitFunctionBody: Created execEnv (${execEnv.hashCode}) with parent ${closureEnv.hashCode}",
         category: 'Interpreter',
       );
 
-      // Check for varargs parameter
-      final hasVarargs = node.isVararg;
-      int regularParamCount = node.parameters?.length ?? 0;
-
-      // Bind regular parameters
       for (var i = 0; i < regularParamCount; i++) {
-        final paramName = (node.parameters![i]).name;
-        if (i < args.length) {
-          execEnv.declare(
-            paramName,
-            args[i] is Value ? args[i] : Value(args[i]),
-          );
-        } else {
-          execEnv.declare(paramName, Value(null));
-        }
+        final paramName = parameterNames[i];
+        final value = i < args.length ? args[i] : null;
+        execEnv.declare(paramName, _wrapArg(value));
       }
 
-      // Handle varargs if present
       if (hasVarargs) {
-        List<Object?> varargs = args.length > regularParamCount
+        final varargs = args.length > regularParamCount
             ? args.sublist(regularParamCount)
-            : [];
-        execEnv.declare("...", Value.multi(varargs));
+            : <Object?>[];
+        execEnv.declare('...', Value.multi(varargs));
       }
 
-      // Don't create a call frame here - it will be created by _callFunction
-      // which has access to the function name
-
-      // Save the current environment and function
-      final savedEnv = (this as Interpreter).getCurrentEnv();
-      final savedFunction = (this as Interpreter).getCurrentFunction();
+      final interpreter = this as Interpreter;
+      final savedEnv = interpreter.getCurrentEnv();
+      final savedFunction = interpreter.getCurrentFunction();
 
       Object? result;
       try {
-        // Enter function body for safe-point gating
-        (this as Interpreter)._functionBodyDepth++;
-        // Set the environment to the execution environment
-        (this as Interpreter).setCurrentEnv(execEnv);
-        // Set the current function for upvalue resolution
-        (this as Interpreter).setCurrentFunction(funcValue);
+        interpreter._functionBodyDepth++;
+        interpreter.setCurrentEnv(execEnv);
+        interpreter.setCurrentFunction(self);
         Logger.debug(
           "Set current environment to execEnv and current function for function execution",
           category: 'Interpreter',
         );
 
-        // Execute the function body in the new environment
-        if (this is Interpreter) {
-          result = await (this as Interpreter)._executeStatements(node.body);
-        } else {
-          for (final stmt in node.body) {
-            result = await stmt.accept(this);
-          }
-        }
+        result = await interpreter._executeStatements(node.body);
       } on ReturnException catch (e) {
         result = e.value;
       } finally {
-        // Restore the previous environment and function
-        (this as Interpreter).setCurrentEnv(savedEnv);
-        (this as Interpreter).setCurrentFunction(savedFunction);
-        (this as Interpreter)._functionBodyDepth =
-            ((this as Interpreter)._functionBodyDepth > 0)
-            ? (this as Interpreter)._functionBodyDepth - 1
+        interpreter.setCurrentEnv(savedEnv);
+        interpreter.setCurrentFunction(savedFunction);
+        interpreter._functionBodyDepth = interpreter._functionBodyDepth > 0
+            ? interpreter._functionBodyDepth - 1
             : 0;
       }
 
       return result;
-    }, functionBody: node);
+    }
+
+    Future<Object?> optimizedSelfTailLoop(List<Object?> initialArgs) async {
+      assert(
+        canReuseEnvironment,
+        'optimizedSelfTailLoop invoked when reuse is not permitted',
+      );
+
+      var args = initialArgs;
+      final interpreter = this as Interpreter;
+      Environment? reusableEnv;
+      final paramBoxes = List<Box<dynamic>?>.filled(
+        regularParamCount,
+        null,
+        growable: false,
+      );
+      Box<dynamic>? varargBox;
+
+      while (true) {
+        final bool reuse = reusableEnv != null;
+        final execEnv = reuse
+            ? reusableEnv!
+            : Environment(
+                parent: closureEnv,
+                interpreter: interpreter,
+                isClosure: false,
+              );
+
+        if (!reuse) {
+          reusableEnv = execEnv;
+          Logger.debug(
+            "visitFunctionBody: Created execEnv (${execEnv.hashCode}) with parent ${closureEnv.hashCode}",
+            category: 'Interpreter',
+          );
+        }
+
+        if (execEnv.toBeClosedVars.isNotEmpty) {
+          execEnv.toBeClosedVars.clear();
+        }
+
+        for (var i = 0; i < regularParamCount; i++) {
+          final value = i < args.length ? args[i] : null;
+          final normalized = _wrapArg(value);
+          if (!reuse || paramBoxes[i] == null) {
+            execEnv.declare(parameterNames[i], normalized);
+            paramBoxes[i] = execEnv.values[parameterNames[i]];
+          } else {
+            paramBoxes[i]!.value = normalized;
+          }
+        }
+
+        if (hasVarargs) {
+          final varargs = args.length > regularParamCount
+              ? args.sublist(regularParamCount)
+              : <Object?>[];
+          final newValue = Value.multi(varargs);
+          if (!reuse || varargBox == null) {
+            execEnv.declare('...', newValue);
+            varargBox = execEnv.values['...'];
+          } else {
+            varargBox!.value = newValue;
+          }
+        }
+
+        final savedEnv = interpreter.getCurrentEnv();
+        final savedFunction = interpreter.getCurrentFunction();
+
+        Object? result;
+        var selfTailCall = false;
+
+        try {
+          interpreter._functionBodyDepth++;
+          interpreter.setCurrentEnv(execEnv);
+          interpreter.setCurrentFunction(self);
+          Logger.debug(
+            "Set current environment to execEnv and current function for function execution",
+            category: 'Interpreter',
+          );
+
+          result = await interpreter._executeStatements(node.body);
+        } on ReturnException catch (e) {
+          result = e.value;
+        } on TailCallException catch (t) {
+          if (identical(t.functionValue, self)) {
+            args = t.args;
+            selfTailCall = true;
+          } else {
+            rethrow;
+          }
+        } finally {
+          interpreter.setCurrentEnv(savedEnv);
+          interpreter.setCurrentFunction(savedFunction);
+          interpreter._functionBodyDepth = interpreter._functionBodyDepth > 0
+              ? interpreter._functionBodyDepth - 1
+              : 0;
+        }
+
+        if (selfTailCall) {
+          continue;
+        }
+
+        return result;
+      }
+    }
+
+    final callTarget = canReuseEnvironment
+        ? optimizedSelfTailLoop
+        : regularCall;
+
+    funcValue = Value(callTarget, functionBody: node);
+    self = funcValue;
 
     // Set the upvalues on the function
     funcValue.upvalues = upvalues;
@@ -1086,7 +1212,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                     '>>> Error in Dart function: $e',
                     category: 'Interpreter',
                   );
-                  Logger.debugLazy(() => '>>> Stack trace: $s', category: 'Interpreter');
+                  Logger.debugLazy(
+                    () => '>>> Stack trace: $s',
+                    category: 'Interpreter',
+                  );
                 }
                 rethrow;
               }
