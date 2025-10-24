@@ -18,6 +18,7 @@ import 'lib_package.dart';
 import 'lib_string.dart';
 import 'lib_table.dart';
 import 'lib_utf8.dart';
+import 'library.dart' show LibraryRegistry, LazyLibraryMap;
 import 'metatables.dart';
 // import 'lib_convert.dart';
 
@@ -44,13 +45,24 @@ void initializeStandardLibrary({required Interpreter astVm}) {
   registry.register(StringLibrary());
   registry.register(CoroutineLibrary());
 
-  // Initialize all registered libraries
-  registry.initializeAll();
+  // Initialize eager libraries (those that populate globals directly)
+  for (final library in registry.libraries.where((lib) => lib.name.isEmpty)) {
+    registry.initializeLibrary(library);
+  }
 
   // Initialize metatables
   MetaTable.initialize(astVm);
 
   final env = astVm.getCurrentEnv();
+
+  // Install lazy stubs for namespaced libraries so they load on demand
+  for (final library in registry.libraries.where((lib) => lib.name.isNotEmpty)) {
+    _installLazyLibraryStub(
+      env: env,
+      registry: registry,
+      libraryName: library.name,
+    );
+  }
 
   // ------------------------------------------------------------------
   //  Make sure _G behaves like the real Lua global table
@@ -58,6 +70,10 @@ void initializeStandardLibrary({required Interpreter astVm}) {
   _ensureGlobalTable(env);
 
   // Set up package.loaded references (same as original)
+  _populatePackageLoaded(env, registry);
+}
+
+void _populatePackageLoaded(Environment env, LibraryRegistry registry) {
   final packageTable = env.get("package");
   if (packageTable != null &&
       packageTable is Value &&
@@ -72,45 +88,16 @@ void initializeStandardLibrary({required Interpreter astVm}) {
     if (loadedTable is Value && loadedTable.raw is Map) {
       final loadedMap = loadedTable.raw as Map;
 
-      // Store references to the global standard library tables in package.loaded
-      final mathTable = env.get("math");
-      if (mathTable != null) {
-        loadedMap["math"] = mathTable;
-      }
-
-      final tableTable = env.get("table");
-      if (tableTable != null) {
-        loadedMap["table"] = tableTable;
-      }
-
-      final ioTable = env.get("io");
-      if (ioTable != null) {
-        loadedMap["io"] = ioTable;
-      }
-
-      final osTable = env.get("os");
-      if (osTable != null) {
-        loadedMap["os"] = osTable;
-      }
-
-      final debugTable = env.get("debug");
-      if (debugTable != null) {
-        loadedMap["debug"] = debugTable;
-      }
-
-      final coroutineTable = env.get("coroutine");
-      if (coroutineTable != null) {
-        loadedMap["coroutine"] = coroutineTable;
-      }
-
-      final utf8Table = env.get("utf8");
-      if (utf8Table != null) {
-        loadedMap["utf8"] = utf8Table;
-      }
-
-      final stringTable = env.get("string");
-      if (stringTable != null) {
-        loadedMap["string"] = stringTable;
+      for (final library in registry.libraries.where(
+        (lib) => lib.name.isNotEmpty,
+      )) {
+        final tableValue = env.get(library.name);
+        if (tableValue is Value && tableValue.raw is LazyLibraryMap) {
+          continue;
+        }
+        if (tableValue != null) {
+          loadedMap[library.name] = tableValue;
+        }
       }
     }
   }
@@ -162,4 +149,29 @@ void _ensureGlobalTable(Environment env) {
   env.define('_G', gValue);
   // _ENV starts out pointing at _G
   env.define('_ENV', gValue);
+}
+
+void _installLazyLibraryStub({
+  required Environment env,
+  required LibraryRegistry registry,
+  required String libraryName,
+}) {
+  final existing = env.get(libraryName);
+  if (existing is Value && existing.raw is! LazyLibraryMap) {
+    // Already initialized or overridden.
+    return;
+  }
+
+  final lazyMap = LazyLibraryMap(
+    env: env,
+    registry: registry,
+    libraryName: libraryName,
+  );
+
+  if (existing is Value) {
+    existing.raw = lazyMap;
+    return;
+  }
+
+  env.define(libraryName, Value(lazyMap));
 }

@@ -364,10 +364,17 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         category: 'Interpreter',
       );
 
+      final fastLocals = <String, Box<dynamic>>{};
+
       for (var i = 0; i < regularParamCount; i++) {
         final paramName = parameterNames[i];
-        final value = i < args.length ? args[i] : null;
-        execEnv.declare(paramName, _wrapArg(value));
+        final arg = i < args.length ? args[i] : Value(null);
+        final stored = arg is Value ? arg : Value(arg);
+        execEnv.declare(paramName, stored);
+        final box = execEnv.values[paramName];
+        if (box != null) {
+          fastLocals[paramName] = box;
+        }
       }
 
       if (hasVarargs) {
@@ -375,17 +382,25 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             ? args.sublist(regularParamCount)
             : <Object?>[];
         execEnv.declare('...', Value.multi(varargs));
+        final varargBox = execEnv.values['...'];
+        if (varargBox != null) {
+          fastLocals['...'] = varargBox;
+        }
       }
 
       final interpreter = this as Interpreter;
       final savedEnv = interpreter.getCurrentEnv();
       final savedFunction = interpreter.getCurrentFunction();
+      final prevFastLocals = interpreter.getCurrentFastLocals();
 
       Object? result;
       try {
         interpreter._functionBodyDepth++;
         interpreter.setCurrentEnv(execEnv);
         interpreter.setCurrentFunction(self);
+        interpreter.setCurrentFastLocals(
+          fastLocals.isEmpty ? null : fastLocals,
+        );
         Logger.debug(
           "Set current environment to execEnv and current function for function execution",
           category: 'Interpreter',
@@ -395,6 +410,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       } on ReturnException catch (e) {
         result = e.value;
       } finally {
+        interpreter.setCurrentFastLocals(prevFastLocals);
         interpreter.setCurrentEnv(savedEnv);
         interpreter.setCurrentFunction(savedFunction);
         interpreter._functionBodyDepth = interpreter._functionBodyDepth > 0
@@ -420,91 +436,126 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         growable: false,
       );
       Box<dynamic>? varargBox;
+      final fastLocals = <String, Box<dynamic>>{};
+      final prevFastLocals = interpreter.getCurrentFastLocals();
+      var fastLocalsInitialized = false;
 
-      while (true) {
-        final bool reuse = reusableEnv != null;
-        final execEnv = reuse
-            ? reusableEnv!
-            : Environment(
-                parent: closureEnv,
-                interpreter: interpreter,
-                isClosure: false,
-              );
+      try {
+        while (true) {
+          final bool reuse = reusableEnv != null;
+          final execEnv = reuse
+              ? reusableEnv!
+              : Environment(
+                  parent: closureEnv,
+                  interpreter: interpreter,
+                  isClosure: false,
+                );
 
-        if (!reuse) {
-          reusableEnv = execEnv;
-          Logger.debug(
-            "visitFunctionBody: Created execEnv (${execEnv.hashCode}) with parent ${closureEnv.hashCode}",
-            category: 'Interpreter',
-          );
-        }
-
-        if (execEnv.toBeClosedVars.isNotEmpty) {
-          execEnv.toBeClosedVars.clear();
-        }
-
-        for (var i = 0; i < regularParamCount; i++) {
-          final value = i < args.length ? args[i] : null;
-          final normalized = _wrapArg(value);
-          if (!reuse || paramBoxes[i] == null) {
-            execEnv.declare(parameterNames[i], normalized);
-            paramBoxes[i] = execEnv.values[parameterNames[i]];
-          } else {
-            paramBoxes[i]!.value = normalized;
+          if (!reuse) {
+            reusableEnv = execEnv;
+            Logger.debug(
+              "visitFunctionBody: Created execEnv (${execEnv.hashCode}) with parent ${closureEnv.hashCode}",
+              category: 'Interpreter',
+            );
           }
-        }
 
-        if (hasVarargs) {
-          final varargs = args.length > regularParamCount
-              ? args.sublist(regularParamCount)
-              : <Object?>[];
-          final newValue = Value.multi(varargs);
-          if (!reuse || varargBox == null) {
-            execEnv.declare('...', newValue);
-            varargBox = execEnv.values['...'];
-          } else {
-            varargBox!.value = newValue;
+          if (execEnv.toBeClosedVars.isNotEmpty) {
+            execEnv.toBeClosedVars.clear();
           }
-        }
 
-        final savedEnv = interpreter.getCurrentEnv();
-        final savedFunction = interpreter.getCurrentFunction();
-
-        Object? result;
-        var selfTailCall = false;
-
-        try {
-          interpreter._functionBodyDepth++;
-          interpreter.setCurrentEnv(execEnv);
-          interpreter.setCurrentFunction(self);
-          Logger.debug(
-            "Set current environment to execEnv and current function for function execution",
-            category: 'Interpreter',
-          );
-
-          result = await interpreter._executeStatements(node.body);
-        } on ReturnException catch (e) {
-          result = e.value;
-        } on TailCallException catch (t) {
-          if (identical(t.functionValue, self)) {
-            args = t.args;
-            selfTailCall = true;
-          } else {
-            rethrow;
+          for (var i = 0; i < regularParamCount; i++) {
+            final arg = i < args.length ? args[i] : Value(null);
+            if (!reuse || paramBoxes[i] == null) {
+              final stored = arg is Value ? arg : Value(arg);
+              execEnv.declare(parameterNames[i], stored);
+              paramBoxes[i] = execEnv.values[parameterNames[i]];
+              final box = paramBoxes[i];
+              if (box != null) {
+                fastLocals[parameterNames[i]] = box;
+              }
+            } else {
+              final box = paramBoxes[i]!;
+              if (arg is Value) {
+                box.value = arg;
+              } else {
+                final current = box.value;
+                if (current is Value) {
+                  current.raw = arg;
+                } else {
+                  box.value = Value(arg);
+                }
+              }
+            }
           }
-        } finally {
-          interpreter.setCurrentEnv(savedEnv);
-          interpreter.setCurrentFunction(savedFunction);
-          interpreter._functionBodyDepth = interpreter._functionBodyDepth > 0
-              ? interpreter._functionBodyDepth - 1
-              : 0;
-        }
 
-        if (selfTailCall) {
-          continue;
-        }
+          if (hasVarargs) {
+            final varargs = args.length > regularParamCount
+                ? args.sublist(regularParamCount)
+                : <Object?>[];
+            if (!reuse || varargBox == null) {
+              final stored = Value.multi(varargs);
+              execEnv.declare('...', stored);
+              varargBox = execEnv.values['...'];
+              if (varargBox != null) {
+                fastLocals['...'] = varargBox;
+              }
+            } else {
+              final box = varargBox!;
+              final current = box.value;
+              if (current is Value && current.isMulti) {
+                current.raw = varargs;
+              } else {
+                box.value = Value.multi(varargs);
+              }
+            }
+          }
 
-        return result;
+          final savedEnv = interpreter.getCurrentEnv();
+          final savedFunction = interpreter.getCurrentFunction();
+
+          Object? result;
+          var selfTailCall = false;
+
+          try {
+            if (!fastLocalsInitialized && fastLocals.isNotEmpty) {
+              interpreter.setCurrentFastLocals(fastLocals);
+              fastLocalsInitialized = true;
+            }
+
+            interpreter._functionBodyDepth++;
+            interpreter.setCurrentEnv(execEnv);
+            interpreter.setCurrentFunction(self);
+            Logger.debug(
+              "Set current environment to execEnv and current function for function execution",
+              category: 'Interpreter',
+            );
+
+            result = await interpreter._executeStatements(node.body);
+          } on ReturnException catch (e) {
+            result = e.value;
+          } on TailCallException catch (t) {
+            if (identical(t.functionValue, self)) {
+              args = t.args;
+              selfTailCall = true;
+            } else {
+              rethrow;
+            }
+          } finally {
+            interpreter.setCurrentEnv(savedEnv);
+            interpreter.setCurrentFunction(savedFunction);
+            interpreter._functionBodyDepth = interpreter._functionBodyDepth > 0
+                ? interpreter._functionBodyDepth - 1
+                : 0;
+          }
+
+          if (selfTailCall) {
+            continue;
+          }
+
+          return result;
+        }
+      } finally {
+        interpreter.setCurrentFastLocals(prevFastLocals);
       }
     }
 

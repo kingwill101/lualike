@@ -31,6 +31,15 @@ class MetaTable {
     _instance._interpreter = interpreter;
     _instance._initialize(interpreter);
   }
+  
+  static void refreshStringCache() {
+    final instance = _instance;
+    final interpreter = instance._interpreter;
+    if (interpreter == null) {
+      return;
+    }
+    instance._cacheStdlibMethods(interpreter, force: true);
+  }
 
   void _initialize(Interpreter interpreter) {
     if (_initialized) {
@@ -413,7 +422,10 @@ class MetaTable {
   }
   
   /// Pre-cache stdlib methods to avoid creating temporary wrappers on each access
-  void _cacheStdlibMethods(Interpreter interpreter) {
+  void _cacheStdlibMethods(Interpreter interpreter, {bool force = false}) {
+    if (!force && _cachedStringMethods.isNotEmpty) {
+      return;
+    }
     // Cache string methods from the global string table
     final stringTable = interpreter.globals.get('string');
     if (stringTable is Value && stringTable.raw is Map) {

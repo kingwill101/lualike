@@ -19,6 +19,7 @@ import 'package:lualike/src/value.dart';
 import 'package:lualike/src/value_class.dart';
 import 'package:lualike/src/utils/file_system_utils.dart' as fs;
 import 'package:lualike/src/interpreter/upvalue_assignment.dart';
+import 'package:lualike/src/number_utils.dart';
 
 import '../exceptions.dart';
 import '../extensions/extensions.dart';
@@ -68,6 +69,9 @@ class Interpreter extends AstVisitor<Object?>
   /// Current function being executed (for upvalue resolution)
   Value? _currentFunction;
 
+  /// Fast path cache for local variable boxes in the current function.
+  Map<String, Box<dynamic>>? _currentFastLocals;
+
   /// Current script path being executed
   String? currentScriptPath;
 
@@ -81,7 +85,7 @@ class Interpreter extends AstVisitor<Object?>
   /// Ensures identical literal strings in the same chunk share identity.
   @override
   final Map<String, LuaString> literalStringInternPool = <String, LuaString>{};
-  
+
   /// Per-interpreter cache of Value wrappers for string literals.
   /// Avoids creating new Value objects on every literal reference.
   @override
@@ -188,9 +192,7 @@ class Interpreter extends AstVisitor<Object?>
       Logger.infoLazy(
         () => 'Main thread coroutine created',
         categories: {'Interpreter', 'Coroutine'},
-        contextBuilder: () => {
-          'main_thread_hash': _mainThread.hashCode,
-        },
+        contextBuilder: () => {'main_thread_hash': _mainThread.hashCode},
       );
       _mainThread!.status = CoroutineStatus.running;
       _activeCoroutines.add(_mainThread!);
@@ -290,10 +292,7 @@ class Interpreter extends AstVisitor<Object?>
     Logger.debug(
       'Interpreter.setCurrentEnv() called, changing environment',
       category: 'Interpreter',
-      context: {
-        'from_hash': _currentEnv.hashCode,
-        'to_hash': env.hashCode,
-      },
+      context: {'from_hash': _currentEnv.hashCode, 'to_hash': env.hashCode},
     );
     _currentEnv = env;
   }
@@ -314,6 +313,14 @@ class Interpreter extends AstVisitor<Object?>
       },
     );
     _currentFunction = function;
+  }
+
+  /// Gets the cached local boxes for the current function, if any.
+  Map<String, Box<dynamic>>? getCurrentFastLocals() => _currentFastLocals;
+
+  /// Sets the cached local boxes for the current function.
+  void setCurrentFastLocals(Map<String, Box<dynamic>>? locals) {
+    _currentFastLocals = locals;
   }
 
   /// Gets the metamethods for a specific library
@@ -747,10 +754,7 @@ class Interpreter extends AstVisitor<Object?>
       Logger.debug(
         'Visiting node',
         category: 'Interpreter',
-        context: {
-          'nodeType': node.runtimeType.toString(),
-          'index': index,
-        },
+        context: {'nodeType': node.runtimeType.toString(), 'index': index},
       );
       recordTrace(node);
       var statementCompleted = false;
@@ -788,8 +792,7 @@ class Interpreter extends AstVisitor<Object?>
             final debt = gc.allocationDebt;
             final script =
                 callStack.scriptPath ?? currentScriptPath ?? '<chunk>';
-            final currentFunction =
-                callStack.top?.functionName ?? '<global>';
+            final currentFunction = callStack.top?.functionName ?? '<global>';
             Logger.debug(
               'Statement execution time',
               category: 'Performance',
