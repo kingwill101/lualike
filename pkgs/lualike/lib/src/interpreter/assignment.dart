@@ -715,6 +715,18 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       category: 'Interpreter',
       context: {'namesCount': node.names.length},
     );
+
+    void updateFastLocalBinding(String name) {
+      if (this is Interpreter) {
+        final fastLocals = (this as Interpreter).getCurrentFastLocals();
+        if (fastLocals != null) {
+          final box = globals.values[name];
+          if (box != null) {
+            fastLocals[name] = box;
+          }
+        }
+      }
+    }
     // Evaluate all expressions on the right side.
     final values = <Object?>[];
     for (final expr in node.exprs) {
@@ -867,6 +879,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       }
 
       globals.declare(name, valueWithAttributes);
+      updateFastLocalBinding(name);
     } else {
       // Assign values to the respective names, defaulting to nil if fewer expressions than names.
       for (var i = 0; i < node.names.length; i++) {
@@ -938,6 +951,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         // declare() creates a new local variable with isLocal=true that
         // shadows any existing variables with the same name
         globals.declare(name, valueWithAttributes);
+        updateFastLocalBinding(name);
       }
     }
 
