@@ -1953,6 +1953,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     if (raw is Function) {
       // Direct function call
       return raw(args);
+    } else if (raw is BuiltinFunction) {
+      final result = raw.call(args);
+      return result is Future ? await result : result;
     } else if (hasMetamethod('__call')) {
       // Use __call metamethod
       final callMethod = getMetamethod('__call');

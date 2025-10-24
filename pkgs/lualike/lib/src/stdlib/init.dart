@@ -92,11 +92,9 @@ void _populatePackageLoaded(Environment env, LibraryRegistry registry) {
         (lib) => lib.name.isNotEmpty,
       )) {
         final tableValue = env.get(library.name);
-        if (tableValue is Value && tableValue.raw is LazyLibraryMap) {
-          continue;
-        }
         if (tableValue != null) {
-          loadedMap[library.name] = tableValue;
+          final value = tableValue is Value ? tableValue : Value(tableValue);
+          loadedMap[library.name] = value;
         }
       }
     }

@@ -469,11 +469,12 @@ class IOOutput extends BuiltinFunction {
     Logger.debug('About to handle current default output', category: 'IO');
     // Avoid hanging - just set the new output without closing problematic files
     if (IOLib._defaultOutput != null &&
-        IOLib._defaultOutput!.raw is LuaFile &&
-        (IOLib._defaultOutput!.raw as LuaFile).device is! StdoutDevice) {
-      Logger.debug('Current output is not stdout - replacing', category: 'IO');
-      // Don't attempt to close - just replace the reference
-      IOLib._defaultOutput = null;
+        IOLib._defaultOutput!.raw is LuaFile) {
+      final currentFile = IOLib._defaultOutput!.raw as LuaFile;
+      if (currentFile.device is! StdoutDevice) {
+        Logger.debug('Closing previous default output before replacement', category: 'IO');
+        await currentFile.close();
+      }
     }
 
     Logger.debug('Setting new default output', category: 'IO');

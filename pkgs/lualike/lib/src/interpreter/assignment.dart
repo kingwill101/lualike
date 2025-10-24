@@ -719,7 +719,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     void updateFastLocalBinding(String name) {
       if (this is Interpreter) {
         final fastLocals = (this as Interpreter).getCurrentFastLocals();
-        if (fastLocals != null) {
+        if (fastLocals != null && fastLocals.containsKey(name)) {
           final box = globals.values[name];
           if (box != null) {
             fastLocals[name] = box;
