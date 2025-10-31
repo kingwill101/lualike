@@ -1143,6 +1143,7 @@ class LoadFunction extends BuiltinFunction {
           functionBody: directASTNode is FunctionBody
               ? directASTNode
               : actualBody,
+          closureEnvironment: interpreter!.getCurrentEnv(),
         );
 
         // For string.dump functions, return the function created from the AST directly
@@ -1232,141 +1233,145 @@ class LoadFunction extends BuiltinFunction {
         }
       } else {
         // Standard source-based execution
-        result = Value((List<Object?> callArgs) async {
-          try {
-            // Save the current environment
-            final savedEnv = interpreter!.getCurrentEnv();
-
-            // Create a new environment for the loaded code
-            final Environment loadEnv;
-            if (providedEnv != null) {
-              // If an environment was provided, create completely isolated environment
-              // This prevents access to local variables from calling scope
-              loadEnv = Environment(
-                parent: null,
-                interpreter: interpreter!,
-                isLoadIsolated: true,
-              );
-              Logger.debug(
-                "LoadFunction: Created isolated environment ${loadEnv.hashCode} with isLoadIsolated=${loadEnv.isLoadIsolated}",
-                category: 'Load',
-              );
-
-              // Use the provided environment Value directly to preserve proxy/metatable
-              final gValue =
-                  savedEnv.get('_G') ?? savedEnv.root.get('_G') ?? Value({});
-              final envValue = providedEnv;
-              loadEnv.declare('_ENV', envValue);
-              loadEnv.declare('_G', gValue);
-              Logger.debug(
-                "LoadFunction: Declared _ENV and _G in isolated environment",
-                category: 'Load',
-              );
-            } else {
-              // When no environment is provided (nil), create a restricted environment
-              // that only has access to the global _G table, not the local calling scope
-              loadEnv = Environment(
-                parent: null,
-                interpreter: interpreter,
-                isLoadIsolated: true,
-              );
-
-              // Only provide access to the global _G table
-              final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G');
-              if (gValue is Value) {
-                loadEnv.declare('_ENV', gValue);
-                loadEnv.declare('_G', gValue);
-              }
-            }
-
-            // Set up varargs in the load environment
-            loadEnv.declare("...", Value.multi(callArgs));
-
-            // Switch to the load environment to execute the loaded code
-            Logger.debug(
-              "LoadFunction: Switching to load environment ${loadEnv.hashCode}",
-              category: 'Load',
-            );
-            interpreter!.setCurrentEnv(loadEnv);
-            Logger.debug(
-              "LoadFunction: Environment switched, current env is now ${interpreter!.getCurrentEnv().hashCode}",
-              category: 'Load',
-            );
-
-            // Set script path for debug.getinfo and error reporting
-            final prevPath = interpreter!.currentScriptPath;
-            final normalizedChunk = chunkname;
-            interpreter!.currentScriptPath = normalizedChunk;
-            interpreter!.callStack.setScriptPath(normalizedChunk);
-            loadEnv.declare('_SCRIPT_PATH', Value(normalizedChunk));
-
+        result = Value(
+          (List<Object?> callArgs) async {
             try {
-              Logger.debug(
-                "LoadFunction: About to execute code in environment ${interpreter!.getCurrentEnv().hashCode}",
-                category: 'Load',
-              );
-              final result = await interpreter!.run(ast.statements);
-              Logger.debug(
-                "LoadFunction: Code execution completed in environment ${interpreter!.getCurrentEnv().hashCode}",
-                category: 'Load',
-              );
+              // Save the current environment
+              final savedEnv = interpreter!.getCurrentEnv();
 
-              // If we have upvalue information and the result is a function, set up the upvalues
-              if (originalUpvalueNames != null &&
-                  originalUpvalueNames.isNotEmpty &&
-                  result is Value &&
-                  result.raw is Function) {
-                final upvalues = <Upvalue>[];
-                for (int i = 0; i < originalUpvalueNames.length; i++) {
-                  final upvalueName = originalUpvalueNames[i];
-                  // If no environment provided (nil), set upvalues to null but preserve names for debug.setupvalue
-                  // If environment provided, use original upvalue values
-                  final upvalueValue =
-                      (providedEnv != null &&
-                          providedEnv.raw != null &&
-                          originalUpvalueValues != null &&
-                          i < originalUpvalueValues.length)
-                      ? originalUpvalueValues[i]
-                      : null;
-                  final box = Box<dynamic>(upvalueValue);
-                  final uv = Upvalue(
-                    valueBox: box,
-                    name: upvalueName,
-                    interpreter: interpreter,
-                  );
-                  upvalues.add(uv);
+              // Create a new environment for the loaded code
+              final Environment loadEnv;
+              if (providedEnv != null) {
+                // If an environment was provided, create completely isolated environment
+                // This prevents access to local variables from calling scope
+                loadEnv = Environment(
+                  parent: null,
+                  interpreter: interpreter!,
+                  isLoadIsolated: true,
+                );
+                Logger.debug(
+                  "LoadFunction: Created isolated environment ${loadEnv.hashCode} with isLoadIsolated=${loadEnv.isLoadIsolated}",
+                  category: 'Load',
+                );
+
+                // Use the provided environment Value directly to preserve proxy/metatable
+                final gValue =
+                    savedEnv.get('_G') ?? savedEnv.root.get('_G') ?? Value({});
+                final envValue = providedEnv;
+                loadEnv.declare('_ENV', envValue);
+                loadEnv.declare('_G', gValue);
+                Logger.debug(
+                  "LoadFunction: Declared _ENV and _G in isolated environment",
+                  category: 'Load',
+                );
+              } else {
+                // When no environment is provided (nil), create a restricted environment
+                // that only has access to the global _G table, not the local calling scope
+                loadEnv = Environment(
+                  parent: null,
+                  interpreter: interpreter,
+                  isLoadIsolated: true,
+                );
+
+                // Only provide access to the global _G table
+                final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G');
+                if (gValue is Value) {
+                  loadEnv.declare('_ENV', gValue);
+                  loadEnv.declare('_G', gValue);
                 }
-                result.upvalues = upvalues;
               }
 
-              return result;
-            } finally {
-              // Restore the previous environment
+              // Set up varargs in the load environment
+              loadEnv.declare("...", Value.multi(callArgs));
+
+              // Switch to the load environment to execute the loaded code
               Logger.debug(
-                "LoadFunction: Restoring previous environment ${savedEnv.hashCode}",
+                "LoadFunction: Switching to load environment ${loadEnv.hashCode}",
                 category: 'Load',
               );
-              interpreter!.setCurrentEnv(savedEnv);
-              interpreter!.currentScriptPath = prevPath;
+              interpreter!.setCurrentEnv(loadEnv);
+              Logger.debug(
+                "LoadFunction: Environment switched, current env is now ${interpreter!.getCurrentEnv().hashCode}",
+                category: 'Load',
+              );
+
+              // Set script path for debug.getinfo and error reporting
+              final prevPath = interpreter!.currentScriptPath;
+              final normalizedChunk = chunkname;
+              interpreter!.currentScriptPath = normalizedChunk;
+              interpreter!.callStack.setScriptPath(normalizedChunk);
+              loadEnv.declare('_SCRIPT_PATH', Value(normalizedChunk));
+
+              try {
+                Logger.debug(
+                  "LoadFunction: About to execute code in environment ${interpreter!.getCurrentEnv().hashCode}",
+                  category: 'Load',
+                );
+                final result = await interpreter!.run(ast.statements);
+                Logger.debug(
+                  "LoadFunction: Code execution completed in environment ${interpreter!.getCurrentEnv().hashCode}",
+                  category: 'Load',
+                );
+
+                // If we have upvalue information and the result is a function, set up the upvalues
+                if (originalUpvalueNames != null &&
+                    originalUpvalueNames.isNotEmpty &&
+                    result is Value &&
+                    result.raw is Function) {
+                  final upvalues = <Upvalue>[];
+                  for (int i = 0; i < originalUpvalueNames.length; i++) {
+                    final upvalueName = originalUpvalueNames[i];
+                    // If no environment provided (nil), set upvalues to null but preserve names for debug.setupvalue
+                    // If environment provided, use original upvalue values
+                    final upvalueValue =
+                        (providedEnv != null &&
+                            providedEnv.raw != null &&
+                            originalUpvalueValues != null &&
+                            i < originalUpvalueValues.length)
+                        ? originalUpvalueValues[i]
+                        : null;
+                    final box = Box<dynamic>(upvalueValue);
+                    final uv = Upvalue(
+                      valueBox: box,
+                      name: upvalueName,
+                      interpreter: interpreter,
+                    );
+                    upvalues.add(uv);
+                  }
+                  result.upvalues = upvalues;
+                }
+
+                return result;
+              } finally {
+                // Restore the previous environment
+                Logger.debug(
+                  "LoadFunction: Restoring previous environment ${savedEnv.hashCode}",
+                  category: 'Load',
+                );
+                interpreter!.setCurrentEnv(savedEnv);
+                interpreter!.currentScriptPath = prevPath;
+              }
+            } on ReturnException catch (e) {
+              // return statements inside the loaded chunk should just
+              // provide values to the caller, not unwind the interpreter
+              return e.value;
+            } on TailCallException catch (t) {
+              // Proper tail call from inside loaded chunk: invoke callee here
+              // without growing the call stack at the Lua level.
+              final callee = t.functionValue is Value
+                  ? t.functionValue as Value
+                  : Value(t.functionValue);
+              final normalizedArgs = t.args
+                  .map((a) => a is Value ? a : Value(a))
+                  .toList();
+              return await interpreter!.callFunction(callee, normalizedArgs);
+            } catch (e) {
+              throw LuaError("Error executing loaded chunk '$chunkname': $e");
             }
-          } on ReturnException catch (e) {
-            // return statements inside the loaded chunk should just
-            // provide values to the caller, not unwind the interpreter
-            return e.value;
-          } on TailCallException catch (t) {
-            // Proper tail call from inside loaded chunk: invoke callee here
-            // without growing the call stack at the Lua level.
-            final callee = t.functionValue is Value
-                ? t.functionValue as Value
-                : Value(t.functionValue);
-            final normalizedArgs = t.args
-                .map((a) => a is Value ? a : Value(a))
-                .toList();
-            return await interpreter!.callFunction(callee, normalizedArgs);
-          } catch (e) {
-            throw LuaError("Error executing loaded chunk '$chunkname': $e");
-          }
-        }, functionBody: actualBody);
+          },
+          functionBody: actualBody,
+          closureEnvironment: interpreter!.getCurrentEnv(),
+        );
       }
 
       // For loaded functions, we need to ensure _ENV is available as an upvalue
@@ -2236,16 +2241,32 @@ class CollectGarbageFunction extends BuiltinFunction {
     switch (option) {
       case "collect":
         // "collect": Performs a full garbage-collection cycle
-        var lastTotal = interpreter!.gc.estimateMemoryUse();
+        final gcManager = interpreter!.gc;
+        if (gcManager.isCycleActive) {
+          // Lua returns false when collection is already running
+          return Value(false);
+        }
+        final wasStopped = gcManager.isStopped;
+        final previousAuto = gcManager.autoTriggerEnabled;
+        if (wasStopped) {
+          gcManager.start();
+        } else {
+          gcManager.autoTriggerEnabled = previousAuto;
+        }
+        var lastTotal = gcManager.estimateMemoryUse();
         // Run at least once, but keep iterating while we keep freeing a
         // meaningful amount of memory. This mirrors Lua's behaviour where a
         // full collection may need multiple cycles to finish finalizers and
         // clear weak tables before reporting stable memory numbers.
         const maxPasses = 4;
         for (var pass = 0; pass < maxPasses; pass++) {
-          await interpreter!.gc.majorCollection(interpreter!.getRoots());
-          final currentTotal = interpreter!.gc.estimateMemoryUse();
+          await gcManager.majorCollection(interpreter!.getRoots());
+          final currentTotal = gcManager.estimateMemoryUse();
           final reclaimed = lastTotal - currentTotal;
+          if (gcManager.hasPendingFinalizers) {
+            lastTotal = currentTotal;
+            continue;
+          }
           // Stop once the reclaimed credits drop below 0.5 KB (or we regressed)
           // – further passes would not materially change collectgarbage("count")
           // results and would just repeat the same work.
@@ -2253,6 +2274,14 @@ class CollectGarbageFunction extends BuiltinFunction {
             break;
           }
           lastTotal = currentTotal;
+        }
+        if (gcManager.hasPendingFinalizers) {
+          await gcManager.majorCollection(interpreter!.getRoots());
+        }
+        if (wasStopped) {
+          gcManager.stop();
+        } else {
+          gcManager.autoTriggerEnabled = previousAuto;
         }
         return Value(true);
 

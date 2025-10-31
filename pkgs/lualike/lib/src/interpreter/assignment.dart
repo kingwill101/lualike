@@ -891,6 +891,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
             upvalues: rawValue.upvalues,
             interpreter: rawValue.interpreter,
             functionBody: rawValue.functionBody,
+            closureEnvironment: rawValue.closureEnvironment,
             functionName: rawValue.functionName,
           );
         }

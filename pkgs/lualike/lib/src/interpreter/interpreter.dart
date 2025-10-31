@@ -54,8 +54,8 @@ class Interpreter extends AstVisitor<Object?>
   /// Main thread coroutine
   Coroutine? _mainThread;
 
-  /// Set of all active coroutines
-  final Set<Coroutine> _activeCoroutines = {};
+  /// Weak set of active coroutines for bookkeeping (not used as GC roots).
+  final Set<WeakReference<Coroutine>> _activeCoroutines = {};
 
   /// File manager for handling source code loading.
   final FileManager fileManager;
@@ -195,7 +195,7 @@ class Interpreter extends AstVisitor<Object?>
         contextBuilder: () => {'main_thread_hash': _mainThread.hashCode},
       );
       _mainThread!.status = CoroutineStatus.running;
-      _activeCoroutines.add(_mainThread!);
+      _activeCoroutines.add(WeakReference(_mainThread!));
     }
     return _mainThread!;
   }
@@ -208,7 +208,15 @@ class Interpreter extends AstVisitor<Object?>
       category: 'Coroutine',
       context: {'coroutine_hash': coroutine.hashCode},
     );
-    _activeCoroutines.add(coroutine);
+    _activeCoroutines.add(WeakReference(coroutine));
+  }
+
+  /// Unregister a coroutine that has completed or been closed.
+  void unregisterCoroutine(Coroutine coroutine) {
+    _activeCoroutines.removeWhere((ref) {
+      final target = ref.target;
+      return target == null || identical(target, coroutine);
+    });
   }
 
   /// Initialize the coroutine system
@@ -279,7 +287,6 @@ class Interpreter extends AstVisitor<Object?>
       _traceBuffer, // The circular buffer
       _currentCoroutine, // Currently executing coroutine
       _mainThread, // Main thread coroutine
-      _activeCoroutines, // Set of all active coroutines
     ];
   }
 

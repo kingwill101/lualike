@@ -563,7 +563,11 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         ? optimizedSelfTailLoop
         : regularCall;
 
-    funcValue = Value(callTarget, functionBody: node);
+    funcValue = Value(
+      callTarget,
+      functionBody: node,
+      closureEnvironment: closureEnv,
+    );
     self = funcValue;
 
     // Set the upvalues on the function
@@ -1229,7 +1233,14 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       );
     }
     // Guard against unbounded recursion in non-tail calls (simulates C stack limit)
-    if (callStack.depth >= Interpreter.maxCallDepth) {
+    int callStackBaseDepth = 0;
+    if (this is Interpreter) {
+      final currentCoroutine = (this as Interpreter).getCurrentCoroutine();
+      if (currentCoroutine != null) {
+        callStackBaseDepth = currentCoroutine.callStackBaseDepth;
+      }
+    }
+    if ((callStack.depth - callStackBaseDepth) >= Interpreter.maxCallDepth) {
       throw LuaError('C stack overflow');
     }
     callStack.push(functionName, callNode: callNode);

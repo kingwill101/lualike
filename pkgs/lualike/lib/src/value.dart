@@ -45,6 +45,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// The AST node representing the function body, if this value is a Lua function.
   FunctionBody? functionBody;
 
+  /// Captured environment for Lua functions to support coroutine cloning.
+  Environment? closureEnvironment;
+
   /// The name of the function, if this value is a named function.
   String? functionName;
 
@@ -243,6 +246,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     this.upvalues,
     this.interpreter,
     this.functionBody,
+    this.closureEnvironment,
     this.functionName,
   }) {
     _raw = raw;
@@ -512,6 +516,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         upvalues: upvalues,
         interpreter: interpreter,
         functionBody: functionBody,
+        closureEnvironment: closureEnvironment,
         functionName: functionName,
       );
     }
@@ -524,6 +529,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       upvalues: upvalues,
       interpreter: interpreter,
       functionBody: functionBody,
+      closureEnvironment: closureEnvironment,
       functionName: functionName,
     );
   }

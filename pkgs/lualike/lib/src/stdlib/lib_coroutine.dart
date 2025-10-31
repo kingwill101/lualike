@@ -1,33 +1,87 @@
-// ignore_for_file: unused_element
-
+import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/builtin_function.dart';
-import 'package:lualike/src/exceptions.dart';
-import 'package:lualike/src/value.dart';
+import 'package:lualike/src/coroutine.dart';
+import 'package:lualike/src/environment.dart';
+import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/number_utils.dart';
-import 'package:lualike/src/interpreter/interpreter.dart';
+import 'package:lualike/src/value.dart';
+
 import 'library.dart';
 
-/// Minimal coroutine stub state to support coroutine.wrap/yield pre-collection
-class _CoroutineStubState {
-  static final List<List<Value>> _collectorStack = <List<Value>>[];
-  static Value Function(List<Object?> args)? yieldOverride;
+Value _threadValue(Interpreter interpreter, Coroutine coroutine) =>
+    Value(coroutine, interpreter: interpreter);
 
-  static void pushCollector(List<Value> collector) {
-    _collectorStack.add(collector);
+Coroutine _expectCoroutine(Object? raw, String functionName, int index) {
+  final value = raw is Value ? raw : Value(raw);
+  if (value.raw is! Coroutine) {
+    throw LuaError.typeError(
+      "bad argument #$index to '$functionName' "
+      "(thread expected, got ${NumberUtils.typeName(value.raw)})",
+    );
   }
-
-  static List<Value>? get currentCollector =>
-      _collectorStack.isNotEmpty ? _collectorStack.last : null;
-
-  static void popCollector() {
-    if (_collectorStack.isNotEmpty) {
-      _collectorStack.removeLast();
-    }
-  }
+  return value.raw as Coroutine;
 }
 
-/// Coroutine library implementation using the Library system
+FunctionBody _requireFunctionBody(Value functionValue, String functionName) {
+  final FunctionBody? body =
+      functionValue.functionBody ??
+      (functionValue.raw is FunctionBody
+          ? functionValue.raw as FunctionBody
+          : null);
+  if (body == null) {
+    throw LuaError.typeError(
+      "bad argument #1 to '$functionName' "
+      "(Lua function expected, got ${NumberUtils.typeName(functionValue.raw)})",
+    );
+  }
+  return body;
+}
+
+Environment _resolveClosureEnvironment(
+  Interpreter interpreter,
+  Value functionValue,
+) {
+  return functionValue.closureEnvironment ?? interpreter.getCurrentEnv();
+}
+
+List<Object?> _cloneArgs(List<Object?> args) =>
+    args.isEmpty ? const [] : List<Object?>.from(args);
+
+bool _isTrue(Object? value) {
+  final dynamic raw = value is Value ? value.raw : value;
+  return raw != null && raw != false;
+}
+
+String _statusToString(Interpreter interpreter, Coroutine coroutine) {
+  final Coroutine main = interpreter.getMainThread();
+  final Coroutine? current = interpreter.getCurrentCoroutine();
+
+  if (identical(coroutine, main)) {
+    return coroutine.status == CoroutineStatus.dead ? "dead" : "running";
+  }
+
+  if (identical(coroutine, current)) {
+    return "running";
+  }
+
+  return switch (coroutine.status) {
+    CoroutineStatus.running => "running",
+    CoroutineStatus.normal => "normal",
+    CoroutineStatus.suspended => "suspended",
+    CoroutineStatus.dead => "dead",
+  };
+}
+
+Value _resumeResultToValue(Value resumeResult) {
+  if (!resumeResult.isMulti) {
+    return resumeResult;
+  }
+  final raw = resumeResult.raw as List<Object?>;
+  return Value.multi(raw);
+}
+
+/// Coroutine library implementation using the Library system.
 class CoroutineLibrary extends Library {
   @override
   String get name => "coroutine";
@@ -35,30 +89,29 @@ class CoroutineLibrary extends Library {
   @override
   Map<String, Function>? getMetamethods(Interpreter interpreter) => {
     "__index": (List<Object?> args) {
-      final _ = args[0] as Value;
-      final key = args[1] as Value;
+      final value = args[0] as Value;
+      final keyValue = args[1] as Value;
+      final key = keyValue.raw is String
+          ? keyValue.raw as String
+          : keyValue.toString();
 
-      // Convert key to string if needed
-      final keyStr = key.raw is String ? key.raw as String : key.toString();
-
-      // Return the function from our registry if it exists
-      switch (keyStr) {
+      switch (key) {
         case "running":
-          return _CoroutineRunning();
+          return _CoroutineRunning(interpreter);
         case "status":
-          return _CoroutineStatus();
+          return _CoroutineStatus(interpreter);
         case "create":
-          return _CoroutineCreate();
+          return _CoroutineCreate(interpreter);
         case "resume":
-          return _CoroutineResume();
+          return _CoroutineResume(interpreter);
         case "yield":
-          return _CoroutineYield();
+          return _CoroutineYield(interpreter);
         case "wrap":
           return _CoroutineWrap(interpreter);
         case "close":
-          return _CoroutineClose();
+          return _CoroutineClose(interpreter);
         case "isyieldable":
-          return _CoroutineIsYieldable();
+          return _CoroutineIsYieldable(interpreter);
         default:
           return Value(null);
       }
@@ -67,30 +120,37 @@ class CoroutineLibrary extends Library {
 
   @override
   void registerFunctions(LibraryRegistrationContext context) {
-    // Register all coroutine functions
-    context.define("running", _CoroutineRunning());
-    context.define("status", _CoroutineStatus());
-    context.define("create", _CoroutineCreate());
-    context.define("resume", _CoroutineResume());
-    context.define("yield", _CoroutineYield());
-    context.define("wrap", _CoroutineWrap(interpreter!));
-    context.define("close", _CoroutineClose());
-    context.define("isyieldable", _CoroutineIsYieldable());
+    final vm = interpreter!;
+    context.define("running", _CoroutineRunning(vm));
+    context.define("status", _CoroutineStatus(vm));
+    context.define("create", _CoroutineCreate(vm));
+    context.define("resume", _CoroutineResume(vm));
+    context.define("yield", _CoroutineYield(vm));
+    context.define("wrap", _CoroutineWrap(vm));
+    context.define("close", _CoroutineClose(vm));
+    context.define("isyieldable", _CoroutineIsYieldable(vm));
   }
 }
 
 class _CoroutineRunning extends BuiltinFunction {
-  _CoroutineRunning() : super();
+  _CoroutineRunning(this._interpreter);
+
+  final Interpreter _interpreter;
 
   @override
   Object? call(List<Object?> args) {
-    // Return a dummy coroutine object and true to indicate it's the main thread
-    return Value.multi([Value("main"), Value(true)]);
+    final Coroutine current =
+        _interpreter.getCurrentCoroutine() ?? _interpreter.getMainThread();
+    final Coroutine main = _interpreter.getMainThread();
+    final isMain = identical(current, main);
+    return Value.multi([_threadValue(_interpreter, current), Value(isMain)]);
   }
 }
 
 class _CoroutineStatus extends BuiltinFunction {
-  _CoroutineStatus() : super();
+  _CoroutineStatus(this._interpreter);
+
+  final Interpreter _interpreter;
 
   @override
   Object? call(List<Object?> args) {
@@ -99,58 +159,99 @@ class _CoroutineStatus extends BuiltinFunction {
         "bad argument #1 to 'status' (thread expected, got no value)",
       );
     }
-    return Value("running");
+
+    final Coroutine coroutine = _expectCoroutine(args[0], "status", 1);
+    return Value(_statusToString(_interpreter, coroutine));
   }
 }
 
 class _CoroutineCreate extends BuiltinFunction {
-  _CoroutineCreate() : super();
+  _CoroutineCreate(this._interpreter);
+
+  final Interpreter _interpreter;
 
   @override
   Object? call(List<Object?> args) {
-    throw LuaError("coroutine.create not implemented");
+    if (args.isEmpty) {
+      throw LuaError.typeError(
+        "bad argument #1 to 'create' (function expected, got no value)",
+      );
+    }
+
+    final Value functionValue = args[0] is Value
+        ? args[0] as Value
+        : Value(args[0]);
+    if (!functionValue.isCallable()) {
+      throw LuaError.typeError(
+        "bad argument #1 to 'create' "
+        "(function expected, got ${NumberUtils.typeName(functionValue.raw)})",
+      );
+    }
+
+    final body = _requireFunctionBody(functionValue, "create");
+    final closureEnv = _resolveClosureEnvironment(_interpreter, functionValue);
+    final coroutine = Coroutine(functionValue, body, closureEnv);
+    _interpreter.registerCoroutine(coroutine);
+    return _threadValue(_interpreter, coroutine);
   }
 }
 
 class _CoroutineResume extends BuiltinFunction {
-  _CoroutineResume() : super();
+  _CoroutineResume(this._interpreter);
+
+  final Interpreter _interpreter;
 
   @override
-  Object? call(List<Object?> args) {
-    throw LuaError("coroutine.resume not implemented");
+  Future<Object?> call(List<Object?> args) async {
+    if (args.isEmpty) {
+      throw LuaError.typeError(
+        "bad argument #1 to 'resume' (thread expected, got no value)",
+      );
+    }
+
+    final Coroutine coroutine = _expectCoroutine(args[0], "resume", 1);
+    final Coroutine main = _interpreter.getMainThread();
+    if (identical(coroutine, main)) {
+      return Value.multi([Value(false), Value("cannot resume main thread")]);
+    }
+
+    final Coroutine? previous = _interpreter.getCurrentCoroutine();
+    if (previous != null &&
+        previous != coroutine &&
+        previous != main &&
+        previous.status != CoroutineStatus.dead) {
+      previous.status = CoroutineStatus.normal;
+    }
+
+    final resumeArgs = _cloneArgs(args.length > 1 ? args.sublist(1) : const []);
+    final Value result = await coroutine.resume(resumeArgs);
+    return _resumeResultToValue(result);
   }
 }
 
 class _CoroutineYield extends BuiltinFunction {
-  _CoroutineYield() : super();
+  _CoroutineYield(this._interpreter);
+
+  final Interpreter _interpreter;
 
   @override
-  Object? call(List<Object?> args) {
-    if (_CoroutineStubState.yieldOverride != null) {
-      return _CoroutineStubState.yieldOverride!(args);
-    }
-
-    final collector = _CoroutineStubState.currentCollector;
-    if (collector == null) {
+  Future<Object?> call(List<Object?> args) async {
+    final Coroutine current =
+        _interpreter.getCurrentCoroutine() ?? _interpreter.getMainThread();
+    final Coroutine main = _interpreter.getMainThread();
+    if (identical(current, main)) {
       throw LuaError("attempt to yield from outside a coroutine");
     }
 
-    if (args.isEmpty) {
-      collector.add(Value(null));
-    } else if (args.length == 1) {
-      final v = args[0];
-      collector.add(v is Value ? v : Value(v));
-    } else {
-      final list = args.map((e) => e is Value ? e : Value(e)).toList();
-      collector.add(Value.multi(list));
-    }
-
-    return Value(null);
+    await current.yield_(args);
+    return Value(null); // Unreachable, included for completeness
   }
 }
 
 class _CoroutineWrap extends BuiltinFunction {
-  _CoroutineWrap(Interpreter super.interpreter);
+  _CoroutineWrap(this._interpreter);
+
+  final Interpreter _interpreter;
 
   @override
   Object? call(List<Object?> args) {
@@ -160,129 +261,93 @@ class _CoroutineWrap extends BuiltinFunction {
       );
     }
 
-    final func = args[0] as Value;
-    if (func.raw is! Function && func.raw is! BuiltinFunction) {
+    final Value functionValue = args[0] is Value
+        ? args[0] as Value
+        : Value(args[0]);
+    if (!functionValue.isCallable()) {
       throw LuaError.typeError(
-        "bad argument #1 to 'wrap' (function expected, got ${NumberUtils.typeName(func.raw)})",
+        "bad argument #1 to 'wrap' "
+        "(function expected, got ${NumberUtils.typeName(functionValue.raw)})",
       );
     }
 
-    // Defer running until first call; supports two scenarios:
-    // 1) Functions that use coroutine.yield: we pre-collect all yields.
-    // 2) Plain iterator-like functions (e.g., from string.gmatch):
-    //    call the function per invocation until it returns nil.
-    final collected = <Value>[];
-    var started = false;
-    var idx = 0;
+    final body = _requireFunctionBody(functionValue, "wrap");
+    final closureEnv = _resolveClosureEnvironment(_interpreter, functionValue);
+    final coroutine = Coroutine(functionValue, body, closureEnv);
+    _interpreter.registerCoroutine(coroutine);
 
-    return Value((List<Object?> args) async {
-      final prevOverride = _CoroutineStubState.yieldOverride;
-      _CoroutineStubState.yieldOverride = (List<Object?> yargs) {
-        if (yargs.isEmpty) {
-          collected.add(Value(null));
-        } else if (yargs.length == 1) {
-          final v = yargs[0];
-          collected.add(v is Value ? v : Value(v));
-        } else {
-          final list = yargs.map((e) => e is Value ? e : Value(e)).toList();
-          collected.add(Value.multi(list));
-        }
-        return Value(null);
-      };
+    return Value((List<Object?> callArgs) async {
+      final Value resumeResult = await coroutine.resume(_cloneArgs(callArgs));
 
-      try {
-        if (!started) {
-          started = true;
-          Value? first;
-          try {
-            if (func.raw is Function) {
-              final out = await (func.raw as Function)(args);
-              first = out is Value
-                  ? out
-                  : (out == null ? Value(null) : Value(out));
-            } else if (func.raw is BuiltinFunction) {
-              final out = (func.raw as BuiltinFunction).call(args);
-              first = out is Value
-                  ? out
-                  : (out == null ? Value(null) : Value(out));
-            }
-          } on TailCallException catch (t) {
-            final currentVm = interpreter;
-            if (currentVm == null) {
-              rethrow;
-            }
-            final callee = t.functionValue is Value
-                ? t.functionValue as Value
-                : Value(t.functionValue);
-            final normalizedArgs = t.args
-                .map((a) => a is Value ? a : Value(a))
-                .toList();
-            final out = await currentVm.callFunction(callee, normalizedArgs);
-            first = out is Value
-                ? out
-                : (out == null ? Value(null) : Value(out));
-          }
-          // Prefer yielded values if any; otherwise return the direct result
-          if (collected.isNotEmpty) {
-            idx = 1;
-            return collected.first;
-          }
-          return first ?? Value(null);
-        }
-
-        if (idx < collected.length) {
-          return collected[idx++];
-        }
-
-        // Plain function path: call per invocation until nil
-        try {
-          if (func.raw is Function) {
-            final out = await (func.raw as Function)(args);
-            return out is Value
-                ? out
-                : (out == null ? Value(null) : Value(out));
-          } else if (func.raw is BuiltinFunction) {
-            final out = (func.raw as BuiltinFunction).call(args);
-            return out is Value
-                ? out
-                : (out == null ? Value(null) : Value(out));
-          }
-        } on TailCallException catch (t) {
-          final currentVm = interpreter;
-          if (currentVm == null) {
-            rethrow;
-          }
-          final callee = t.functionValue is Value
-              ? t.functionValue as Value
-              : Value(t.functionValue);
-          final normalizedArgs = t.args
-              .map((a) => a is Value ? a : Value(a))
-              .toList();
-          final out = await currentVm.callFunction(callee, normalizedArgs);
-          return out is Value ? out : (out == null ? Value(null) : Value(out));
-        }
-        return Value(null);
-      } finally {
-        _CoroutineStubState.yieldOverride = prevOverride;
+      if (!resumeResult.isMulti) {
+        return resumeResult;
       }
+
+      final raw = resumeResult.raw as List<Object?>;
+      if (raw.isEmpty) {
+        return Value(null);
+      }
+
+      final success = _isTrue(raw.first);
+      if (!success) {
+        final Object? errValue = raw.length > 1 ? raw[1] : Value(null);
+        final message = errValue is Value ? errValue.unwrap() : errValue;
+        throw LuaError(message?.toString() ?? 'nil');
+      }
+
+      if (raw.length == 1) {
+        return Value(null);
+      }
+
+      final values = raw
+          .sublist(1)
+          .map((v) => v is Value ? v : Value(v))
+          .toList();
+      if (values.length == 1) {
+        return values.first;
+      }
+      return Value.multi(values);
     });
   }
 }
 
 class _CoroutineClose extends BuiltinFunction {
-  _CoroutineClose() : super();
+  _CoroutineClose(this._interpreter);
+
+  final Interpreter _interpreter;
 
   @override
-  Object? call(List<Object?> args) {
-    throw LuaError("coroutine.close not implemented");
+  Future<Object?> call(List<Object?> args) async {
+    if (args.isEmpty) {
+      throw LuaError.typeError(
+        "bad argument #1 to 'close' (thread expected, got no value)",
+      );
+    }
+
+    final Coroutine coroutine = _expectCoroutine(args[0], "close", 1);
+    final Object? error = args.length > 1 ? args[1] : null;
+    final normalizedError = error is Value ? error.raw : error;
+
+    final List<Object?> result = await coroutine.close(normalizedError);
+    return Value.multi(result);
   }
 }
 
 class _CoroutineIsYieldable extends BuiltinFunction {
-  _CoroutineIsYieldable() : super();
+  _CoroutineIsYieldable(this._interpreter);
+
+  final Interpreter _interpreter;
 
   @override
   Object? call(List<Object?> args) {
-    return Value(false); // Main thread is not yieldable
+    final Coroutine main = _interpreter.getMainThread();
+
+    if (args.isEmpty) {
+      final Coroutine current = _interpreter.getCurrentCoroutine() ?? main;
+      return Value(current.isYieldable(main));
+    }
+
+    final Coroutine coroutine = _expectCoroutine(args[0], "isyieldable", 1);
+    return Value(coroutine.isYieldable(main));
   }
 }

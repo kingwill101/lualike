@@ -123,6 +123,9 @@ class GenerationalGCManager {
   /// dead keys until weak-key removals are applied after finalizers).
   GCPhase get currentPhase => _currentPhase;
   bool get isFinalizing => _currentPhase == GCPhase.finalizing;
+  bool get isCycleActive => _currentPhase != GCPhase.idle;
+
+  bool get hasPendingFinalizers => _toBeFinalized.isNotEmpty;
 
   /// The young generation (nursery) containing newly created objects.
   final Generation youngGen = Generation();
@@ -275,54 +278,40 @@ class GenerationalGCManager {
   }
 
   bool performManualStep(int sizeKb) {
-    final normalized = math.max(1, sizeKb);
-    _manualStepDebtKb += normalized;
-    const minimumStep = 1;
-    const maxStep = 1 << 20;
-    var cycleComplete = false;
+    // Lua treats the argument as kilobytes of work to perform. Use it to scale
+    // the incremental budget, so smaller requests need more iterations.
+    final requestedKb = math.max(1, sizeKb);
+    _manualStepDebtKb += requestedKb;
 
-    // Single-call policy: a manual step attempts to complete a full cycle.
+    // Clamp debt so extremely large requests do not overflow work units. Keep
+    // debt in kilobytes; convert to work units below.
+    const maxDebtKb = 1 << 20; // ~1GB equivalent budget ceiling
+    _manualStepDebtKb = math.min(_manualStepDebtKb, maxDebtKb);
 
-    final requested = _manualStepDebtKb > 0
-        ? math.min(_manualStepDebtKb, maxStep)
-        : minimumStep;
-    final stepSize = math.max(minimumStep, requested);
+    // Scale KB into work units. Each unit corresponds to one object processed
+    // in marking/sweeping. A modest scale factor keeps behaviour close to Lua.
+    const workScale = 16; // Tuned to align with Lua step pacing
+    final workUnits = math.min(
+      math.max(1, _manualStepDebtKb * workScale),
+      1 << 20,
+    );
 
-    // Use a budget large enough to complete the entire incremental cycle in
-    // one manual step. Lua specifies that collectgarbage("step", x) performs
-    // a GC step as if x KB had been allocated, and returns true if a cycle
-    // completed. For our implementation and tests, treating a manual step as
-    // a full-cycle attempt provides deterministic results (e.g., step(1)
-    // returns true) and avoids long multi-step progress tracking.
-    // Use a very large budget to ensure we can finish a full cycle in one
-    // call when asked to perform a manual step. This keeps behaviour simple
-    // and predictable for tests that expect step(1) to return true.
-    final stepBudget = 1 << 20;
-    cycleComplete = performIncrementalStep(stepBudget);
-    // progress tracking removed
-
-    // Manual steps should also pay down simulated allocation debt so that
-    // repeated calls eventually allow a collection cycle (and finalizers) to
-    // complete even when auto-triggering is paused.
-    final debtBytes = _simulatedAllocationDebt;
-    if (debtBytes > 0) {
-      final reduction = stepSize * 1024;
-      _simulatedAllocationDebt = math.max(0, debtBytes - reduction);
-      if (_simulatedAllocationDebt == 0) {
-        _autoTriggerRequested = false;
-      }
-    }
-
-    // Do not downgrade cycle completion status based on progress; if the
-    // incremental engine completed a cycle, report true.
-
-    if (_manualStepDebtKb > 0) {
-      _manualStepDebtKb = math.max(0, _manualStepDebtKb - stepSize);
-    }
+    final cycleComplete = performIncrementalStep(workUnits);
 
     if (cycleComplete) {
       _manualStepDebtKb = 0;
-      // progress tracking removed
+    } else {
+      // Reduce debt gradually so repeated calls progress toward completion.
+      _manualStepDebtKb = math.max(1, _manualStepDebtKb ~/ 2);
+    }
+
+    if (_simulatedAllocationDebt > 0) {
+      final reductionBytes = requestedKb * 1024;
+      _simulatedAllocationDebt =
+          math.max(0, _simulatedAllocationDebt - reductionBytes);
+      if (_simulatedAllocationDebt == 0) {
+        _autoTriggerRequested = false;
+      }
     }
 
     return cycleComplete;

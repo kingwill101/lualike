@@ -73,6 +73,11 @@ class CallStack {
     );
   }
 
+  /// Restores a previously captured frame onto the stack.
+  void pushFrame(CallFrame frame) {
+    _frames.add(frame);
+  }
+
   /// Pops the top frame from the call stack.
   CallFrame? pop() {
     return _frames.isNotEmpty ? _frames.removeLast() : null;
