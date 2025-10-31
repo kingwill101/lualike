@@ -192,7 +192,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       Logger.debug(
         "[visitAssignment] Assigning $targetValue to $target",
         category: 'Interpreter',
-        context: {'targetIndex': i, 'targetType': target.runtimeType.toString()},
+        context: {
+          'targetIndex': i,
+          'targetType': target.runtimeType.toString(),
+        },
       );
       final Value wrappedValue = targetValue is Value
           ? targetValue
@@ -606,6 +609,13 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         } else {
           await tableValue.setValueAsync(fieldKey, wrappedValue);
         }
+        if (this is Interpreter) {
+          final interpreter = this as Interpreter;
+          if (wrappedValue.interpreter == null) {
+            wrappedValue.interpreter = interpreter;
+          }
+          interpreter.gc.ensureTracked(wrappedValue);
+        }
 
         Logger.debug(
           '_handleTableFieldAssignment: Assigned ${wrappedValue.raw} to ${target.fieldName.name}',
@@ -685,6 +695,13 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
         // No metamethod or key already exists - do regular assignment
         tableValue[keyValue] = wrappedValue;
+        if (this is Interpreter) {
+          final interpreter = this as Interpreter;
+          if (wrappedValue.interpreter == null) {
+            wrappedValue.interpreter = interpreter;
+          }
+          interpreter.gc.ensureTracked(wrappedValue);
+        }
 
         Logger.debug(
           '_handleTableIndexAssignment: Assigned ${wrappedValue.raw} to index ${keyValue.raw}',
@@ -727,6 +744,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         }
       }
     }
+
     // Evaluate all expressions on the right side.
     final values = <Object?>[];
     for (final expr in node.exprs) {

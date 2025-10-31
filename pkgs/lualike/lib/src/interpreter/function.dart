@@ -282,9 +282,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         ? const <String>[]
         : node.parameters!.map((param) => param.name).toList();
 
-    Value _wrapArg(Object? arg) => arg is Value ? arg : Value(arg);
+    Value wrapArg(Object? arg) => arg is Value ? arg : Value(arg);
 
-    bool _bodyContainsClose(List<AstNode> statements) {
+    bool bodyContainsClose(List<AstNode> statements) {
       final pending = <AstNode>[...statements];
       while (pending.isNotEmpty) {
         final current = pending.removeLast();
@@ -331,7 +331,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     final bool canReuseEnvironment =
         !hasNonEnvUpvalues &&
         !hasJoinedUpvalues &&
-        !_bodyContainsClose(node.body);
+        !bodyContainsClose(node.body);
 
     // Create a variable to hold the function value for self-reference
     late Value funcValue;
@@ -444,7 +444,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         while (true) {
           final bool reuse = reusableEnv != null;
           final execEnv = reuse
-              ? reusableEnv!
+              ? reusableEnv
               : Environment(
                   parent: closureEnv,
                   interpreter: interpreter,
@@ -500,7 +500,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                 fastLocals['...'] = varargBox;
               }
             } else {
-              final box = varargBox!;
+              final box = varargBox;
               final current = box.value;
               if (current is Value && current.isMulti) {
                 current.raw = varargs;

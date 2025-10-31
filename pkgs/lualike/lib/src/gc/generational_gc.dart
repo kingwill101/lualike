@@ -68,7 +68,7 @@ class GenerationalGCManager {
 
   /// Tracks whether an automatic GC trigger has been requested.
   bool _autoTriggerRequested = false;
-  
+
   /// Temporarily suppress auto-GC triggers during critical allocations.
   /// Used to prevent transient objects from being freed before collectgarbage("count").
   bool _suppressAutoTrigger = false;
@@ -167,12 +167,12 @@ class GenerationalGCManager {
     _isStopped = true;
     Logger.debug('GC stopped', category: 'GC');
   }
-  
+
   /// Temporarily suppresses auto-GC triggers (for critical allocations).
   void suppressAutoTrigger() {
     _suppressAutoTrigger = true;
   }
-  
+
   /// Re-enables auto-GC triggers after suppression.
   void resumeAutoTrigger() {
     _suppressAutoTrigger = false;
@@ -664,14 +664,14 @@ class GenerationalGCManager {
     if (youngGen.objects.contains(obj) || oldGen.objects.contains(obj)) {
       return;
     }
-    
+
     // Check if this object should be counted for memory credits
     bool shouldCount = true;
     if (obj is Value) {
       // Respect the isTempKey and isMulti flags
       shouldCount = !(obj.isTempKey || obj.isMulti);
     }
-    
+
     if (obj.isOld) {
       oldGen.add(obj);
       if (shouldCount) {
@@ -701,7 +701,7 @@ class GenerationalGCManager {
       );
       return;
     }
-    
+
     totalRegistrations++;
     final type = obj.runtimeType;
     final newCount = (allocationHistogram[type] ?? 0) + 1;
@@ -1207,12 +1207,15 @@ class GenerationalGCManager {
         final keyDead =
             (key is Value && !key.isPrimitiveLike && !key.marked) ||
             (_isCollectableNonPrimitiveGC(key) && !(key as GCObject).marked);
-        final valueDead =
+        var valueDead =
             (value is Value &&
                 !value.isPrimitiveLike &&
                 (!value.marked || value.isFreed)) ||
             (_isCollectableNonPrimitiveGC(value) &&
                 !(value as GCObject).marked);
+        if (!valueDead && value is Value && !_isTracked(value)) {
+          valueDead = true;
+        }
 
         if (keyDead || valueDead) {
           keysToRemove.add(entry.key);
@@ -2134,6 +2137,16 @@ class GenerationalGCManager {
           } else if (mode == 'kv') {
             if (!allWeakTables.contains(obj)) allWeakTables.add(obj);
           }
+
+          final bool strongKeys = mode != 'k' && mode != 'kv';
+          final bool strongValues = mode != 'v' && mode != 'kv';
+          for (final ref in obj.getReferencesForGC(
+            strongKeys: strongKeys,
+            strongValues: strongValues,
+          )) {
+            scan(ref);
+          }
+          return;
         }
         for (final ref in obj.getReferences()) {
           scan(ref);

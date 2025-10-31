@@ -56,7 +56,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   /// Whether this value is a to-be-closed variable
   bool isToBeClose = false;
-  
+
   /// Whether this value is a temporary key used for table lookups.
   /// Temporary keys are not counted for GC debt to avoid tracking overhead.
   bool isTempKey = false;
@@ -369,7 +369,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     // Count strings to model Lua's GC pressure from string creation
     if (payload is String || payload is LuaString) {
       if (Logger.enabled) {
-        final len = payload is String ? payload.length : (payload as LuaString).length;
+        final len = payload is String
+            ? payload.length
+            : (payload as LuaString).length;
         Logger.debug(
           'Value $hashCode wrapping ${payload.runtimeType}(len=$len), WILL count allocation',
           category: 'GC',
@@ -1184,6 +1186,15 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       map.remove(storageKey);
     } else {
       map[storageKey] = storageValue;
+      if (storageValue is Value) {
+        final manager = GCAccess.fromValue(this);
+        if (manager != null) {
+          if (storageValue.interpreter == null && interpreter != null) {
+            storageValue.interpreter = interpreter;
+          }
+          manager.ensureTracked(storageValue);
+        }
+      }
     }
     _incrementTableVersion();
     final gcLocal4 = GCAccess.fromValue(this);
@@ -1197,11 +1208,14 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         if (k is LuaString) return k.length * GcWeights.stringUnit;
         return 0;
       }
+
       if (!existed && (storageKey is String || storageKey is LuaString)) {
         _tableStringKeyBytes[map] =
             (_tableStringKeyBytes[map] ?? 0) + keyLen(storageKey);
       }
-      if (valueToSet.isNil && existed && (storageKey is String || storageKey is LuaString)) {
+      if (valueToSet.isNil &&
+          existed &&
+          (storageKey is String || storageKey is LuaString)) {
         _tableStringKeyBytes[map] =
             (_tableStringKeyBytes[map] ?? 0) - keyLen(storageKey);
       }
@@ -2227,10 +2241,11 @@ extension OperatorExtension on Value {
       final intVal = raw is BigInt ? raw as BigInt : BigInt.from(raw);
       final doubleVal = otherRaw;
       final doubleFromInt = intVal.toDouble();
-      final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
+      final intFromDouble = BigInt.from(doubleVal);
       final isExact = (doubleVal == doubleFromInt) && (intVal == intFromDouble);
-      Logger.debug(
-        'COMPARE ~=: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt, intFromDouble=$intFromDouble, isExact=$isExact',
+      Logger.debugLazy(
+        () =>
+            'COMPARE ~=: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt, intFromDouble=$intFromDouble, isExact=$isExact',
         category: 'Value',
       );
       return !isExact;
@@ -2246,10 +2261,11 @@ extension OperatorExtension on Value {
       final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
       final doubleVal = raw;
       final doubleFromInt = intVal.toDouble();
-      final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
+      final intFromDouble = BigInt.from(doubleVal);
       final isExact = (doubleVal == doubleFromInt) && (intVal == intFromDouble);
-      Logger.debug(
-        'COMPARE ~=: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt, intFromDouble=$intFromDouble, isExact=$isExact',
+      Logger.debugLazy(
+        () =>
+            'COMPARE ~=: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt, intFromDouble=$intFromDouble, isExact=$isExact',
         category: 'Value',
       );
       return !isExact;
@@ -2257,21 +2273,26 @@ extension OperatorExtension on Value {
     return !(this == other);
   }
 
+  @pragma('vm:prefer-inline')
   Value _arith(String op, Value other) {
     final result = NumberUtils.performArithmetic(op, raw, other.raw);
     return Value(result);
   }
 
   /// Overload the addition operator
+  @pragma('vm:prefer-inline')
   Value operator +(dynamic other) => _arith('+', Value.wrap(other));
 
   // Overload the subtraction operator
+  @pragma('vm:prefer-inline')
   Value operator -(dynamic other) => _arith('-', Value.wrap(other));
 
   // Overload the multiplication operator
+  @pragma('vm:prefer-inline')
   Value operator *(dynamic other) => _arith('*', Value.wrap(other));
 
   // Overload the division operator
+  @pragma('vm:prefer-inline')
   Value operator /(dynamic other) => _arith('/', Value.wrap(other));
 
   // Overload the bitwise NOT operator
@@ -2281,18 +2302,23 @@ extension OperatorExtension on Value {
   }
 
   // Overload the left shift operator
+  @pragma('vm:prefer-inline')
   Value operator <<(dynamic other) => _arith('<<', Value.wrap(other));
 
   // Overload the right shift operator
+  @pragma('vm:prefer-inline')
   Value operator >>(dynamic other) => _arith('>>', Value.wrap(other));
 
   // Overload the modulo operator
+  @pragma('vm:prefer-inline')
   Value operator %(dynamic other) => _arith('%', Value.wrap(other));
 
   // Overload the floor division operator
+  @pragma('vm:prefer-inline')
   Value operator ~/(dynamic other) => _arith('//', Value.wrap(other));
 
   // Overload the exponentiation operator
+  @pragma('vm:prefer-inline')
   Value exp(dynamic other) => _arith('^', Value.wrap(other));
 
   // Overload the negation operator
@@ -2392,7 +2418,7 @@ extension OperatorExtension on Value {
       if (doubleFromInt == doubleVal) {
         BigInt intFromDouble;
         try {
-          intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
+          intFromDouble = BigInt.from(doubleVal);
         } on FormatException {
           return false;
         }
@@ -2419,7 +2445,7 @@ extension OperatorExtension on Value {
       if (doubleFromInt == doubleVal) {
         BigInt intFromDouble;
         try {
-          intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
+          intFromDouble = BigInt.from(doubleVal);
         } on FormatException {
           return false;
         }
@@ -2486,7 +2512,7 @@ extension OperatorExtension on Value {
         category: 'Value',
       );
       if (doubleFromInt == doubleVal) {
-        final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
+        final intFromDouble = BigInt.from(doubleVal);
         return intVal < intFromDouble;
       }
       return doubleFromInt < doubleVal;
@@ -2508,7 +2534,7 @@ extension OperatorExtension on Value {
         category: 'Value',
       );
       if (doubleFromInt == doubleVal) {
-        final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
+        final intFromDouble = BigInt.from(doubleVal);
         return intFromDouble < intVal;
       }
       return doubleVal < doubleFromInt;
@@ -2571,7 +2597,7 @@ extension OperatorExtension on Value {
         category: 'Value',
       );
       if (doubleFromInt == doubleVal) {
-        final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
+        final intFromDouble = BigInt.from(doubleVal);
         return intVal >= intFromDouble;
       }
       return doubleFromInt >= doubleVal;
@@ -2592,7 +2618,7 @@ extension OperatorExtension on Value {
         category: 'Value',
       );
       if (doubleFromInt == doubleVal) {
-        final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
+        final intFromDouble = BigInt.from(doubleVal);
         return intFromDouble >= intVal;
       }
       return doubleVal >= doubleFromInt;
@@ -2655,7 +2681,7 @@ extension OperatorExtension on Value {
         category: 'Value',
       );
       if (doubleFromInt == doubleVal) {
-        final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
+        final intFromDouble = BigInt.from(doubleVal);
         return intVal <= intFromDouble;
       }
       return doubleFromInt <= doubleVal;
@@ -2676,7 +2702,7 @@ extension OperatorExtension on Value {
         category: 'Value',
       );
       if (doubleFromInt == doubleVal) {
-        final intFromDouble = BigInt.parse(doubleVal.toStringAsFixed(0));
+        final intFromDouble = BigInt.from(doubleVal);
         return intFromDouble <= intVal;
       }
       return doubleVal <= doubleFromInt;
@@ -2748,8 +2774,9 @@ extension OperatorExtension on Value {
       }
       final doubleFromInt = intVal.toDouble();
       final isExact = (doubleVal == doubleFromInt) && (intVal == intFromDouble);
-      Logger.debug(
-        'COMPARE ==: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt, intFromDouble=$intFromDouble, isExact=$isExact',
+      Logger.debugLazy(
+        () =>
+            'COMPARE ==: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt, intFromDouble=$intFromDouble, isExact=$isExact',
         category: 'Value',
       );
       return isExact;
@@ -2783,8 +2810,9 @@ extension OperatorExtension on Value {
       }
       final doubleFromInt = intVal.toDouble();
       final isExact = (doubleVal == doubleFromInt) && (intVal == intFromDouble);
-      Logger.debug(
-        'COMPARE ==: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt, intFromDouble=$intFromDouble, isExact=$isExact',
+      Logger.debugLazy(
+        () =>
+            'COMPARE ==: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt, intFromDouble=$intFromDouble, isExact=$isExact',
         category: 'Value',
       );
       return isExact;
@@ -2793,8 +2821,8 @@ extension OperatorExtension on Value {
         (raw is double && otherRaw is BigInt)) {
       final d1 = raw is BigInt ? raw.toDouble() : raw;
       final d2 = otherRaw is BigInt ? otherRaw.toDouble() : otherRaw;
-      Logger.debug(
-        'COMPARE ==: promoting BigInt to double: $d1 == $d2',
+      Logger.debugLazy(
+        () => 'COMPARE ==: promoting BigInt to double: $d1 == $d2',
         category: 'Value',
       );
       return d1 == d2;
