@@ -2262,6 +2262,11 @@ class CollectGarbageFunction extends BuiltinFunction {
         if (!gcManager.tryEnterManualCollect()) {
           return Value(false);
         }
+        if (gcManager.shouldThrottleManualCollect()) {
+          gcManager.exitManualCollect();
+          gcManager.noteManualCollectSkip();
+          return Value(true);
+        }
         try {
           final wasStopped = gcManager.isStopped;
           final previousAuto = gcManager.autoTriggerEnabled;
@@ -2277,7 +2282,15 @@ class CollectGarbageFunction extends BuiltinFunction {
           // clear weak tables before reporting stable memory numbers.
           const maxPasses = 4;
           for (var pass = 0; pass < maxPasses; pass++) {
+            final sw = Stopwatch()..start();
             await gcManager.majorCollection(interpreter!.getRoots());
+            sw.stop();
+            if (Logger.enabled) {
+              Logger.debug(
+                'manual collect major pass #$pass took ${sw.elapsedMilliseconds}ms',
+                category: 'GC',
+              );
+            }
             final currentTotal = gcManager.estimateMemoryUse();
             final reclaimed = lastTotal - currentTotal;
             if (gcManager.hasPendingFinalizers) {
@@ -2300,6 +2313,7 @@ class CollectGarbageFunction extends BuiltinFunction {
           } else {
             gcManager.autoTriggerEnabled = previousAuto;
           }
+          gcManager.noteManualCollectCompletion();
           return Value(true);
         } finally {
           gcManager.exitManualCollect();

@@ -131,20 +131,51 @@ class GenerationalGCManager {
 
   bool tryEnterManualCollect() {
     if (_manualCollectRunning) {
-      // ignore: avoid_print
-      print('manual collect already running');
       return false;
     }
     _manualCollectRunning = true;
-    // ignore: avoid_print
-    print('manual collect enter');
     return true;
   }
 
   void exitManualCollect() {
-    // ignore: avoid_print
-    print('manual collect exit');
     _manualCollectRunning = false;
+  }
+
+  DateTime? _lastManualCollectTimestamp;
+  int _registrationsAtLastManualCollect = 0;
+  int _manualCollectCooldown = 0;
+
+  void noteManualCollectCompletion() {
+    _lastManualCollectTimestamp = DateTime.now();
+    _registrationsAtLastManualCollect = totalRegistrations;
+    _manualCollectCooldown = 32;
+  }
+
+  void noteManualCollectSkip() {
+    _lastManualCollectTimestamp = DateTime.now();
+  }
+
+  bool shouldThrottleManualCollect({
+    Duration threshold = const Duration(milliseconds: 50),
+    int maxNewRegistrations = 4096,
+  }) {
+    final newRegistrations =
+        totalRegistrations - _registrationsAtLastManualCollect;
+
+    if (_manualCollectCooldown > 0 && newRegistrations < maxNewRegistrations) {
+      _manualCollectCooldown--;
+      return true;
+    }
+    if (_lastManualCollectTimestamp == null) {
+      return false;
+    }
+    final elapsed = DateTime.now().difference(_lastManualCollectTimestamp!);
+    if (elapsed < threshold &&
+        newRegistrations < maxNewRegistrations &&
+        !hasPendingFinalizers) {
+      return true;
+    }
+    return false;
   }
 
   /// The young generation (nursery) containing newly created objects.

@@ -579,26 +579,30 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     // validation checks). These hints let the call site avoid building a
     // fresh execution environment for each invocation when safe.
     try {
-      // Detect `function(x, y) return x < y end`
-      if ((node.parameters?.length ?? 0) >= 2 && node.body.length == 1) {
-        final stmt = node.body[0];
-        if (stmt is ReturnStatement && stmt.expr.length == 1) {
-          final expr = stmt.expr[0];
-          if (expr is BinaryExpression && expr.op == '<') {
+      final params = node.parameters ?? const <Identifier>[];
+      if (node.body.isNotEmpty) {
+        final lastStmt = node.body.last;
+        if (lastStmt is ReturnStatement && lastStmt.expr.length == 1) {
+          final expr = lastStmt.expr[0];
+
+          // Detect `function(x, y) return x < y end` even when auxiliary
+          // statements exist before the return (e.g. instrumentation counters).
+          if (params.length >= 2 &&
+              expr is BinaryExpression &&
+              expr.op == '<') {
             if (expr.left is Identifier && expr.right is Identifier) {
-              final p0 = node.parameters![0].name;
-              final p1 = node.parameters![1].name;
-              final l = (expr.left as Identifier).name;
-              final r = (expr.right as Identifier).name;
-              if (l == p0 && r == p1) {
+              final firstParam = params[0].name;
+              final secondParam = params[1].name;
+              final left = (expr.left as Identifier).name;
+              final right = (expr.right as Identifier).name;
+              if (left == firstParam && right == secondParam) {
                 funcValue.isLessComparator = true;
-              }
-              // Detect reversed simple comparator: return y < x
-              if (l == p1 && r == p0) {
+              } else if (left == secondParam && right == firstParam) {
                 funcValue.isLessComparatorReversed = true;
               }
             }
           }
+
           // Detect `function(...) return nil end` (always returns nil)
           if (expr is NilValue) {
             funcValue.isNilReturningClosure = true;

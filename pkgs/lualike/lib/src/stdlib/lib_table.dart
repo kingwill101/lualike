@@ -624,6 +624,10 @@ class _TableSort extends BuiltinFunction {
 
       if (!complex && (allNums || allStrs)) {
         if (allNums) {
+          Logger.debug(
+            'table.sort fast path (numeric) length=$n',
+            category: 'TableSort',
+          );
           final arr = List<double>.generate(n, (i) {
             final vv = map[i + 1];
             if (vv is Value) return (vv.raw as num).toDouble();
@@ -642,6 +646,10 @@ class _TableSort extends BuiltinFunction {
           }
           return Value(null);
         } else if (allStrs) {
+          Logger.debug(
+            'table.sort fast path (string) length=$n',
+            category: 'TableSort',
+          );
           final arr = List<String>.generate(n, (i) {
             final vv = map[i + 1];
             if (vv is Value) {
@@ -800,6 +808,23 @@ class _TableSort extends BuiltinFunction {
       category: 'TableSort',
     );
 
+    bool? _fastLessThan(dynamic lhs, dynamic rhs) {
+      final left = lhs is Value ? lhs.raw : lhs;
+      final right = rhs is Value ? rhs.raw : rhs;
+
+      if (left is num && right is num) {
+        return left < right;
+      }
+      if ((left is String || left is LuaString) &&
+          (right is String || right is LuaString)) {
+        final ls = left.toString();
+        final rs = right.toString();
+        return ls.compareTo(rs) < 0;
+      }
+
+      return null;
+    }
+
     // If either value is nil, raise an error (Lua behavior)
     if (valA == null ||
         (valA is Value && valA.raw == null) ||
@@ -841,6 +866,23 @@ class _TableSort extends BuiltinFunction {
       // function
       if (comp is Value &&
           (comp.raw is Function || comp.raw is BuiltinFunction)) {
+        if (comp.isNilReturningClosure) {
+          return false;
+        }
+
+        if (comp.isLessComparator || comp.isLessComparatorReversed) {
+          final fast = comp.isLessComparator
+              ? _fastLessThan(valA, valB)
+              : _fastLessThan(valB, valA);
+          if (fast != null) {
+            Logger.debug(
+              "_sortComp: comparator hint fast result = $fast",
+              category: 'TableSort',
+            );
+            return fast;
+          }
+        }
+
         final func = comp.raw;
         final result = await func([valA, valB]);
         final boolResult = result is Value
