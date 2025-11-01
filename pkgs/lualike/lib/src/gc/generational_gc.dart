@@ -124,8 +124,28 @@ class GenerationalGCManager {
   GCPhase get currentPhase => _currentPhase;
   bool get isFinalizing => _currentPhase == GCPhase.finalizing;
   bool get isCycleActive => _currentPhase != GCPhase.idle;
+  bool get isFinalizerActive => _finalizerActive;
 
   bool get hasPendingFinalizers => _toBeFinalized.isNotEmpty;
+  bool get isManualCollectRunning => _manualCollectRunning;
+
+  bool tryEnterManualCollect() {
+    if (_manualCollectRunning) {
+      // ignore: avoid_print
+      print('manual collect already running');
+      return false;
+    }
+    _manualCollectRunning = true;
+    // ignore: avoid_print
+    print('manual collect enter');
+    return true;
+  }
+
+  void exitManualCollect() {
+    // ignore: avoid_print
+    print('manual collect exit');
+    _manualCollectRunning = false;
+  }
 
   /// The young generation (nursery) containing newly created objects.
   final Generation youngGen = Generation();
@@ -162,6 +182,8 @@ class GenerationalGCManager {
 
   /// Whether we're currently in a major collection (affects weak table handling)
   bool _inMajorCollection = false;
+  bool _finalizerActive = false;
+  bool _manualCollectRunning = false;
 
   /// Stops the garbage collector.
   ///
@@ -307,8 +329,10 @@ class GenerationalGCManager {
 
     if (_simulatedAllocationDebt > 0) {
       final reductionBytes = requestedKb * 1024;
-      _simulatedAllocationDebt =
-          math.max(0, _simulatedAllocationDebt - reductionBytes);
+      _simulatedAllocationDebt = math.max(
+        0,
+        _simulatedAllocationDebt - reductionBytes,
+      );
       if (_simulatedAllocationDebt == 0) {
         _autoTriggerRequested = false;
       }
@@ -559,75 +583,83 @@ class GenerationalGCManager {
     Logger.debug('Incremental finalizing work', category: 'GC');
 
     if (_toBeFinalized.isNotEmpty) {
-      final pending = List<GCObject>.from(_toBeFinalized);
-      _toBeFinalized.clear();
+      _finalizerActive = true;
+      try {
+        final pending = List<GCObject>.from(_toBeFinalized);
+        _toBeFinalized.clear();
 
-      for (final obj in pending) {
-        var finalized = false;
-        if (obj is Value &&
-            obj.finalizerEligible &&
-            obj.hasMetamethod('__gc')) {
-          // Prefer the canonical wrapper for the object's metatable map,
-          // falling back to the stored metatableRef when needed.
-          Value? metaOwner = obj.metatableRef;
-          try {
-            final ownerMap = obj.getMetatable();
-            if (ownerMap != null) {
-              final lookup = Value.lookupCanonicalTableWrapper(ownerMap);
-              if (lookup != null) metaOwner = lookup;
-            }
-          } catch (_) {}
-          bool ownerWeakV = false;
-          if (metaOwner is Value) {
-            ownerWeakV = metaOwner.hasWeakValues;
-            if (!ownerWeakV && metaOwner.metatable != null) {
-              final rawMode = metaOwner.metatable!['__mode'];
-              String modeStr;
-              if (rawMode is LuaString) {
-                modeStr = rawMode.toString();
-              } else if (rawMode is Value) {
-                modeStr = rawMode.raw?.toString() ?? '';
-              } else {
-                modeStr = rawMode?.toString() ?? '';
-              }
-              if (modeStr.contains('v')) ownerWeakV = true;
-            }
-          }
-          // Skip finalizer if meta-owner is weak-values
-          if (!ownerWeakV) {
-            // Also re-check metamethod presence under current semantics
-            if (!obj.hasMetamethod('__gc')) {
-              continue;
-            }
-            _alreadyFinalized.add(obj);
+        for (final obj in pending) {
+          var finalized = false;
+          if (obj is Value &&
+              obj.finalizerEligible &&
+              obj.hasMetamethod('__gc')) {
+            // Prefer the canonical wrapper for the object's metatable map,
+            // falling back to the stored metatableRef when needed.
+            Value? metaOwner = obj.metatableRef;
             try {
-              final result = obj.callMetamethod('__gc', [obj]);
-              if (result is Future) {
-                // Allow asynchronous finalizers to complete without blocking.
-                result.catchError((error, stack) {
-                  Logger.debug('Async finalizer error: $error', category: 'GC');
-                });
+              final ownerMap = obj.getMetatable();
+              if (ownerMap != null) {
+                final lookup = Value.lookupCanonicalTableWrapper(ownerMap);
+                if (lookup != null) metaOwner = lookup;
               }
-              finalized = true;
-            } catch (error) {
-              Logger.debug('Error in finalizer: $error', category: 'GC');
+            } catch (_) {}
+            bool ownerWeakV = false;
+            if (metaOwner is Value) {
+              ownerWeakV = metaOwner.hasWeakValues;
+              if (!ownerWeakV && metaOwner.metatable != null) {
+                final rawMode = metaOwner.metatable!['__mode'];
+                String modeStr;
+                if (rawMode is LuaString) {
+                  modeStr = rawMode.toString();
+                } else if (rawMode is Value) {
+                  modeStr = rawMode.raw?.toString() ?? '';
+                } else {
+                  modeStr = rawMode?.toString() ?? '';
+                }
+                if (modeStr.contains('v')) ownerWeakV = true;
+              }
             }
-          } else {
-            if (Logger.enabled) {
-              Logger.debug(
-                'Skip __gc (incremental) due to weak-values meta-owner: obj=${obj.hashCode} owner=${(metaOwner as Value).hashCode}',
-                category: 'GC',
-              );
+            // Skip finalizer if meta-owner is weak-values
+            if (!ownerWeakV) {
+              // Also re-check metamethod presence under current semantics
+              if (!obj.hasMetamethod('__gc')) {
+                continue;
+              }
+              _alreadyFinalized.add(obj);
+              try {
+                final result = obj.callMetamethod('__gc', [obj]);
+                if (result is Future) {
+                  // Allow asynchronous finalizers to complete without blocking.
+                  result.catchError((error, stack) {
+                    Logger.debug(
+                      'Async finalizer error: $error',
+                      category: 'GC',
+                    );
+                  });
+                }
+                finalized = true;
+              } catch (error) {
+                Logger.debug('Error in finalizer: $error', category: 'GC');
+              }
+            } else {
+              if (Logger.enabled) {
+                Logger.debug(
+                  'Skip __gc (incremental) due to weak-values meta-owner: obj=${obj.hashCode} owner=${(metaOwner as Value).hashCode}',
+                  category: 'GC',
+                );
+              }
             }
           }
-        }
 
-        // Free object now in incremental mode
-        MemoryCredits.instance.onFree(obj);
-        youngGen.remove(obj);
-        oldGen.remove(obj);
-        obj.free();
-        if (finalized) _alreadyFinalized.remove(obj);
+          // Free object now in incremental mode
+          MemoryCredits.instance.onFree(obj);
+          youngGen.remove(obj);
+          oldGen.remove(obj);
+          obj.free();
+          if (finalized) _alreadyFinalized.remove(obj);
+        }
+      } finally {
+        _finalizerActive = false;
       }
     }
 
@@ -791,6 +823,29 @@ class GenerationalGCManager {
         category: 'GC',
       );
     }
+  }
+
+  /// Drains any in-progress incremental collection cycle by repeatedly
+  /// performing incremental steps until the collector returns to the idle
+  /// phase or a maximum iteration budget is reached. Returns `true` if the
+  /// collector is idle afterwards.
+  bool drainCurrentIncrementalCycle({
+    int maxIterations = 4096,
+    int stepSize = 256,
+  }) {
+    if (_currentPhase == GCPhase.idle) {
+      return true;
+    }
+    final normalizedStep = math.max(1, stepSize);
+    var iterations = 0;
+    while (_currentPhase != GCPhase.idle && iterations < maxIterations) {
+      final cycleComplete = performIncrementalStep(normalizedStep);
+      iterations++;
+      if (cycleComplete) {
+        break;
+      }
+    }
+    return _currentPhase == GCPhase.idle;
   }
 
   /// Promotes an object from the young generation to the old generation.
@@ -1203,7 +1258,9 @@ class GenerationalGCManager {
             (_isCollectableNonPrimitiveGC(value) &&
                 !(value as GCObject).marked);
         if (!valueDead && value is Value && !_isTracked(value)) {
-          valueDead = true;
+          if (!value.isPrimitiveLike) {
+            valueDead = true;
+          }
         }
 
         if (keyDead || valueDead) {
@@ -1742,29 +1799,42 @@ class GenerationalGCManager {
       'Calling finalizers for ${_toBeFinalized.length} objects',
       category: 'GC',
     );
-    // According to Lua spec, finalizers are called in an unspecified order.
-    // Make a copy of the list to avoid concurrent modification during iteration
-    // (finalizers might trigger GC which could modify _toBeFinalized)
-    final objectsToFinalize = _toBeFinalized.toList();
-    _toBeFinalized.clear();
+    _finalizerActive = true;
+    try {
+      // According to Lua spec, finalizers are called in an unspecified order.
+      // Make a copy of the list to avoid concurrent modification during iteration
+      // (finalizers might trigger GC which could modify _toBeFinalized)
+      final objectsToFinalize = _toBeFinalized.toList();
+      _toBeFinalized.clear();
 
-    for (final obj in objectsToFinalize) {
-      if (obj is Value) {
+      for (final obj in objectsToFinalize) {
+        if (obj is! Value) {
+          if (Logger.enabled) {
+            Logger.debug(
+              'Skip __gc for non-Value object during finalization: ${obj.runtimeType} ${obj.hashCode}',
+              category: 'GC',
+            );
+          }
+          continue;
+        }
+
+        final value = obj;
+
         // Skip running __gc if the object's metamethods are under a weak-values
         // metatable owner. In this case, Lua does not consider __gc a strong
         // finalizer hook.
         // Prefer the canonical wrapper for the object's metatable map,
         // falling back to the stored metatableRef when needed.
-        Value? metaOwner = obj.metatableRef;
+        Value? metaOwner = value.metatableRef;
+        Value? canonicalOwner;
+        bool ownerWeakV = false;
         try {
-          final ownerMap = obj.getMetatable();
+          final ownerMap = value.getMetatable();
           if (ownerMap != null) {
             final lookup = Value.lookupCanonicalTableWrapper(ownerMap);
             if (lookup != null) metaOwner = lookup;
           }
         } catch (_) {}
-        bool ownerWeakV = false;
-        Value? canonicalOwner;
         if (metaOwner is Value) {
           try {
             canonicalOwner =
@@ -1829,7 +1899,7 @@ class GenerationalGCManager {
         if (ownerWeakV) {
           if (Logger.enabled) {
             Logger.debug(
-              'Skip __gc due to weak-values meta-owner during finalization: obj=${obj.hashCode} owner=${(canonicalOwner ?? metaOwner).hashCode}',
+              'Skip __gc due to weak-values meta-owner during finalization: obj=${value.hashCode} owner=${(canonicalOwner ?? metaOwner).hashCode}',
               category: 'GC',
             );
           }
@@ -1837,23 +1907,25 @@ class GenerationalGCManager {
           continue;
         }
         // Also re-check current metamethod under semantics; if absent, skip.
-        if (obj.getMetamethod('__gc') == null) {
+        if (value.getMetamethod('__gc') == null) {
           continue;
         }
         // Mark as finalized BEFORE calling __gc. This prevents re-finalization
         // if the object is resurrected and then becomes dead again.
-        _alreadyFinalized.add(obj);
+        _alreadyFinalized.add(value);
         try {
           Logger.debug(
-            'Run finalizer: ${obj.runtimeType} ${obj.hashCode}',
+            'Run finalizer: ${value.runtimeType} ${value.hashCode}',
             category: 'GC',
           );
-          await obj.callMetamethodAsync('__gc', [obj]);
+          await value.callMetamethodAsync('__gc', [value]);
         } catch (e) {
           // Errors in finalizers are reported but not propagated.
           Logger.debug('Error in finalizer: $e', category: 'GC');
         }
       }
+    } finally {
+      _finalizerActive = false;
     }
   }
 
