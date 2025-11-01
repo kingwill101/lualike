@@ -23,19 +23,29 @@ Coroutine _expectCoroutine(Object? raw, String functionName, int index) {
   return value.raw as Coroutine;
 }
 
-FunctionBody _requireFunctionBody(Value functionValue, String functionName) {
+FunctionBody? _requireFunctionBody(Value functionValue, String functionName) {
   final FunctionBody? body =
       functionValue.functionBody ??
       (functionValue.raw is FunctionBody
           ? functionValue.raw as FunctionBody
           : null);
-  if (body == null) {
-    throw LuaError.typeError(
-      "bad argument #1 to '$functionName' "
-      "(Lua function expected, got ${NumberUtils.typeName(functionValue.raw)})",
-    );
+  if (body != null) {
+    return body;
   }
-  return body;
+
+  final raw = functionValue.raw;
+  if (raw is Function ||
+      raw is BuiltinFunction ||
+      raw is FunctionDef ||
+      raw is FunctionLiteral ||
+      raw is FunctionBody) {
+    return null;
+  }
+
+  throw LuaError.typeError(
+    "bad argument #1 to '$functionName' "
+    "(Lua function expected, got ${NumberUtils.typeName(raw)})",
+  );
 }
 
 Environment _resolveClosureEnvironment(
@@ -237,7 +247,9 @@ class _CoroutineYield extends BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
     final Coroutine current =
-        _interpreter.getCurrentCoroutine() ?? _interpreter.getMainThread();
+        Coroutine.active ??
+        _interpreter.getCurrentCoroutine() ??
+        _interpreter.getMainThread();
     final Coroutine main = _interpreter.getMainThread();
     if (identical(current, main)) {
       throw LuaError("attempt to yield from outside a coroutine");
@@ -333,7 +345,6 @@ class _CoroutineClose extends BuiltinFunction {
 
 class _CoroutineIsYieldable extends BuiltinFunction {
   _CoroutineIsYieldable([super.interpreter]);
-
 
   @override
   Object? call(List<Object?> args) {

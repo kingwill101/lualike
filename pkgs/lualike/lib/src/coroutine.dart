@@ -29,11 +29,18 @@ enum CoroutineStatus {
 
 /// Represents a Lua coroutine that participates in garbage collection
 class Coroutine extends GCObject {
+  static final List<Coroutine> _activeStack = [];
+
+  static Coroutine? get active {
+    if (_activeStack.isEmpty) return null;
+    return _activeStack.last;
+  }
+
   /// The function that this coroutine executes (its Value wrapper)
   final Value functionValue;
 
   /// The AST node representing the function body
-  final FunctionBody functionBody;
+  final FunctionBody? functionBody;
 
   /// Current status of the coroutine
   CoroutineStatus status = CoroutineStatus.suspended;
@@ -124,11 +131,11 @@ class Coroutine extends GCObject {
     final previousEnv = interpreter?.getCurrentEnv();
 
     try {
+      _activeStack.add(this);
       // Set this coroutine as the current one
       if (interpreter != null) {
         _restoreCallStack();
         interpreter.setCurrentCoroutine(this);
-
         // When resuming from a yield, restore the saved execution environment
         interpreter.setCurrentEnv(
           _executionEnvironment,
@@ -240,6 +247,11 @@ class Coroutine extends GCObject {
       _finalizeTermination();
       return Value.multi([Value(false), Value(e.toString())]);
     } finally {
+      if (_activeStack.isNotEmpty && identical(_activeStack.last, this)) {
+        _activeStack.removeLast();
+      } else {
+        _activeStack.removeWhere((c) => identical(c, this));
+      }
       Logger.debug(
         'Coroutine.resume: Finally block executed',
         category: 'Coroutine',
@@ -281,6 +293,41 @@ class Coroutine extends GCObject {
     } else {
       // Wrap raw value
       return Value.multi([Value(true), Value(value)]);
+    }
+  }
+
+  Future<void> _handleTailCallCompletion(TailCallException t) async {
+    final interpreter = closureEnvironment.interpreter;
+    if (interpreter == null) {
+      error = t;
+      status = CoroutineStatus.dead;
+      _finalizeTermination();
+      if (completer != null && !completer!.isCompleted) {
+        completer!.completeError(t);
+      }
+      return;
+    }
+
+    final callee = t.functionValue is Value
+        ? t.functionValue as Value
+        : Value(t.functionValue);
+    final normalizedArgs = t.args
+        .map((arg) => arg is Value ? arg : Value(arg))
+        .toList();
+    final callResult = await interpreter.callFunction(callee, normalizedArgs);
+    _completeWithReturn(callResult);
+  }
+
+  void _completeWithReturn(Object? value) {
+    status = CoroutineStatus.dead;
+    _finalizeTermination();
+    if (completer != null && !completer!.isCompleted) {
+      final handledResult = _handleReturnValue(value);
+      if (handledResult.isMulti) {
+        completer!.complete(handledResult.raw as List<Object?>);
+      } else {
+        completer!.complete([handledResult.raw]);
+      }
     }
   }
 
@@ -421,19 +468,38 @@ class Coroutine extends GCObject {
     // Create initial environment for function parameters and locals
     final interpreter = closureEnvironment.interpreter;
 
-    // No null check for functionBody needed here, as it's now non-nullable
-
     // Process arguments for the function call
     final processedArgs = initialArgs.map((arg) {
       return arg is Value ? arg : Value(arg);
     }).toList();
 
+    final body = functionBody;
+    if (body == null) {
+      try {
+        final interpreter = closureEnvironment.interpreter;
+        if (interpreter == null) {
+          throw LuaError('coroutine has no interpreter');
+        }
+        interpreter.setCurrentEnv(_executionEnvironment);
+        final result = await interpreter.callFunction(
+          functionValue,
+          processedArgs,
+        );
+        _completeWithReturn(result);
+      } on YieldException {
+        rethrow;
+      } on TailCallException catch (t) {
+        await _handleTailCallCompletion(t);
+      }
+      return;
+    }
+
     // Bind regular parameters
-    final hasVarargs = functionBody.isVararg;
-    int regularParamCount = functionBody.parameters?.length ?? 0;
+    final hasVarargs = body.isVararg;
+    int regularParamCount = body.parameters?.length ?? 0;
 
     for (var i = 0; i < regularParamCount; i++) {
-      final paramName = (functionBody.parameters![i]).name;
+      final paramName = (body.parameters![i]).name;
       if (i < processedArgs.length) {
         _executionEnvironment.declare(paramName, processedArgs[i]);
       } else {
@@ -451,8 +517,8 @@ class Coroutine extends GCObject {
 
     try {
       // Execute statements from the current program counter
-      for (; _programCounter < functionBody.body.length; _programCounter++) {
-        final stmt = functionBody.body[_programCounter];
+      for (; _programCounter < body.body.length; _programCounter++) {
+        final stmt = body.body[_programCounter];
 
         Logger.debug(
           '_executeCoroutine: Executing statement $_programCounter: ${stmt.runtimeType}',
@@ -498,21 +564,17 @@ class Coroutine extends GCObject {
         '_executeCoroutine: Caught ReturnException',
         category: 'Coroutine',
       );
-      // Normal return from the coroutine function
-      status = CoroutineStatus.dead;
-      _finalizeTermination();
-      if (completer != null && !completer!.isCompleted) {
-        final handledResult = _handleReturnValue(e.value);
-        if (handledResult.isMulti) {
-          completer!.complete(handledResult.raw as List<Object?>);
-        } else {
-          completer!.complete([handledResult.raw]);
-        }
-        Logger.debug(
-          '_executeCoroutine: Completer completed with return value',
-          category: 'Coroutine',
-        );
-      }
+      _completeWithReturn(e.value);
+      Logger.debug(
+        '_executeCoroutine: Completer completed with return value',
+        category: 'Coroutine',
+      );
+    } on TailCallException catch (t) {
+      await _handleTailCallCompletion(t);
+      Logger.debug(
+        '_executeCoroutine: Completer completed with tail-call result',
+        category: 'Coroutine',
+      );
     } catch (e) {
       error = e;
       Logger.error('Error in _executeCoroutine: $e', category: 'Coroutine');

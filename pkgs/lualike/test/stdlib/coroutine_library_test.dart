@@ -84,6 +84,61 @@ void main() {
       );
     });
 
+    test('wrap handles tail-call chains via __call metamethods', () async {
+      await lua.execute(r'''
+        local depth = 256
+        local function foo()
+          if depth == 0 then return 99
+          else depth = depth - 1; return foo()
+          end
+        end
+
+        for i = 1, 32 do
+          foo = setmetatable({}, { __call = foo })
+        end
+
+        tailWrapResult = coroutine.wrap(function()
+          return foo()
+        end)()
+      ''');
+
+      expect(lua.getGlobal('tailWrapResult').unwrap(), equals(99));
+    });
+
+    test('wrap accepts iterators returned by string.gmatch', () async {
+      await lua.execute(r'''
+        local iter = string.gmatch("1 2 3", "%d+")
+        directFirst = iter()
+        wrappedIterResult = coroutine.wrap(iter)()
+      ''');
+
+      expect(lua.getGlobal('directFirst').unwrap(), equals('1'));
+      expect(lua.getGlobal('wrappedIterResult').unwrap(), equals('2'));
+    });
+
+    test('wrap supports recursive generators using yield', () async {
+      await lua.execute(r'''
+        local x = {"=", "[", "]", "\n"}
+        local len = 2
+        local function gen(c, n)
+          if n == 0 then
+            coroutine.yield(c)
+          else
+            for _, a in ipairs(x) do
+              gen(c .. a, n - 1)
+            end
+          end
+        end
+
+        local iter = coroutine.wrap(function() gen("", len) end)
+        wrapGenA = iter()
+        wrapGenB = iter()
+      ''');
+
+      expect(lua.getGlobal('wrapGenA').unwrap(), equals('=='));
+      expect(lua.getGlobal('wrapGenB').unwrap(), equals('=['));
+    });
+
     test('close transitions coroutine to dead state', () async {
       await lua.execute(r'''
         closable = coroutine.create(function()
