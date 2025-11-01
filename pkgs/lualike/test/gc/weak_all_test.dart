@@ -14,6 +14,26 @@ void main() {
       gc.stop();
     });
 
+    test('all-weak table preserves primitive string entry', () async {
+      final allWeakTable = Value({});
+      allWeakTable.setMetatable({'__mode': 'kv'});
+
+      final stringKey = Value('sentinel');
+      final stringValue = Value('sentinel');
+      allWeakTable.raw[stringKey] = stringValue;
+
+      final rootEnv = Environment();
+      rootEnv.define('all_weak_table', Box<Value>(allWeakTable));
+
+      await gc.majorCollection([rootEnv]);
+      expect((allWeakTable.raw as Map).length, 1);
+      expect((allWeakTable.raw as Map)[stringKey], equals(stringValue));
+
+      await gc.majorCollection([rootEnv]);
+      expect((allWeakTable.raw as Map).length, 1);
+      expect((allWeakTable.raw as Map)[stringKey], equals(stringValue));
+    });
+
     test('all-weak table removes entries with dead keys or values', () async {
       // Create all-weak table
       final allWeakTable = Value({});

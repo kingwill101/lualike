@@ -282,8 +282,6 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         ? const <String>[]
         : node.parameters!.map((param) => param.name).toList();
 
-    Value wrapArg(Object? arg) => arg is Value ? arg : Value(arg);
-
     bool bodyContainsClose(List<AstNode> statements) {
       final pending = <AstNode>[...statements];
       while (pending.isNotEmpty) {

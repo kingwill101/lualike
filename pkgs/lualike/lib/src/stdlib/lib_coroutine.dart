@@ -89,7 +89,7 @@ class CoroutineLibrary extends Library {
   @override
   Map<String, Function>? getMetamethods(Interpreter interpreter) => {
     "__index": (List<Object?> args) {
-      final value = args[0] as Value;
+      final _ = args[0] as Value;
       final keyValue = args[1] as Value;
       final key = keyValue.raw is String
           ? keyValue.raw as String
@@ -312,9 +312,7 @@ class _CoroutineWrap extends BuiltinFunction {
 }
 
 class _CoroutineClose extends BuiltinFunction {
-  _CoroutineClose(this._interpreter);
-
-  final Interpreter _interpreter;
+  _CoroutineClose([super.interpreter]);
 
   @override
   Future<Object?> call(List<Object?> args) async {
@@ -334,16 +332,15 @@ class _CoroutineClose extends BuiltinFunction {
 }
 
 class _CoroutineIsYieldable extends BuiltinFunction {
-  _CoroutineIsYieldable(this._interpreter);
+  _CoroutineIsYieldable([super.interpreter]);
 
-  final Interpreter _interpreter;
 
   @override
   Object? call(List<Object?> args) {
-    final Coroutine main = _interpreter.getMainThread();
+    final Coroutine main = interpreter!.getMainThread();
 
     if (args.isEmpty) {
-      final Coroutine current = _interpreter.getCurrentCoroutine() ?? main;
+      final Coroutine current = interpreter!.getCurrentCoroutine() ?? main;
       return Value(current.isYieldable(main));
     }
 

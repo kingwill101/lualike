@@ -1192,16 +1192,14 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       map.remove(storageKey);
     } else {
       map[storageKey] = storageValue;
-      if (storageValue is Value) {
-        final manager = GCAccess.fromValue(this);
-        if (manager != null) {
-          if (storageValue.interpreter == null && interpreter != null) {
-            storageValue.interpreter = interpreter;
-          }
-          manager.ensureTracked(storageValue);
+      final manager = GCAccess.fromValue(this);
+      if (manager != null) {
+        if (storageValue.interpreter == null && interpreter != null) {
+          storageValue.interpreter = interpreter;
         }
+        manager.ensureTracked(storageValue);
       }
-    }
+        }
     _incrementTableVersion();
     final gcLocal4 = GCAccess.fromValue(this);
     if (gcLocal4 != null) {

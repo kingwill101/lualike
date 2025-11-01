@@ -611,9 +611,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         }
         if (this is Interpreter) {
           final interpreter = this as Interpreter;
-          if (wrappedValue.interpreter == null) {
-            wrappedValue.interpreter = interpreter;
-          }
+          wrappedValue.interpreter ??= interpreter;
           interpreter.gc.ensureTracked(wrappedValue);
         }
 
@@ -697,9 +695,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         tableValue[keyValue] = wrappedValue;
         if (this is Interpreter) {
           final interpreter = this as Interpreter;
-          if (wrappedValue.interpreter == null) {
-            wrappedValue.interpreter = interpreter;
-          }
+          wrappedValue.interpreter ??= interpreter;
           interpreter.gc.ensureTracked(wrappedValue);
         }
 
