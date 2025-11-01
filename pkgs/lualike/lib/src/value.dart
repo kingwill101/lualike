@@ -5,9 +5,12 @@ import 'package:lualike/src/gc/gc.dart';
 import 'package:lualike/src/gc/gc_weights.dart';
 import 'package:lualike/src/gc/gc_access.dart';
 import 'package:lualike/src/gc/memory_credits.dart';
+import 'dart:collection';
+
 import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/upvalue.dart';
 import 'package:lualike/src/utils/type.dart' show getLuaType;
+import 'table_storage.dart';
 
 /// Represents an asynchronous function that can be called with a list of arguments.
 typedef AsyncFunction = Future<Object?> Function(List<Object?> args);
@@ -215,9 +218,15 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     if (isConst && _isInitialized) {
       throw UnsupportedError("attempt to assign to const variable");
     }
-    _raw = value;
+    dynamic normalized = value;
+    if (normalized is Map && normalized is! TableStorage) {
+      if (normalized is! MapBase<String, dynamic>) {
+        normalized = TableStorage.from(normalized);
+      }
+    }
+    _raw = normalized;
     _isInitialized = true;
-    if (value is Map) {
+    if (normalized is Map) {
       _incrementTableVersion();
     } else {
       _tableVersion = 0;
@@ -249,7 +258,13 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     this.closureEnvironment,
     this.functionName,
   }) {
-    _raw = raw;
+    dynamic normalized = raw;
+    if (normalized is Map && normalized is! TableStorage) {
+      if (normalized is! MapBase<String, dynamic>) {
+        normalized = TableStorage.from(normalized);
+      }
+    }
+    _raw = normalized;
     _isInitialized = true;
     _isFreed = false;
 
@@ -1199,7 +1214,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         }
         manager.ensureTracked(storageValue);
       }
-        }
+    }
     _incrementTableVersion();
     final gcLocal4 = GCAccess.fromValue(this);
     if (gcLocal4 != null) {

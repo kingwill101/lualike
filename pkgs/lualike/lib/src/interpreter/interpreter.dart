@@ -17,6 +17,7 @@ import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:lualike/src/utils/type.dart';
 import 'package:lualike/src/value.dart';
 import 'package:lualike/src/value_class.dart';
+import 'package:lualike/src/table_storage.dart';
 import 'package:lualike/src/utils/file_system_utils.dart' as fs;
 import 'package:lualike/src/interpreter/upvalue_assignment.dart';
 import 'package:lualike/src/number_utils.dart';

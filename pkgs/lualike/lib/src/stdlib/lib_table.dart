@@ -1,5 +1,6 @@
 import 'package:lualike/lualike.dart';
 
+import 'package:lualike/src/table_storage.dart';
 import 'package:lualike/src/utils/type.dart';
 import 'library.dart';
 
@@ -1063,7 +1064,10 @@ class _TableUnpack extends BuiltinFunction {
   _TableUnpack() : super();
   @override
   Object? call(List<Object?> args) async {
-    Logger.debug("_TableUnpack: Starting unpack with ${args.length} args");
+    final bool log = Logger.enabled;
+    if (log) {
+      Logger.debug("_TableUnpack: Starting unpack with ${args.length} args");
+    }
 
     if (args.isEmpty) {
       throw LuaError.typeError("table.unpack requires a table argument");
@@ -1072,16 +1076,20 @@ class _TableUnpack extends BuiltinFunction {
     final table = args[0] is Value ? args[0] as Value : Value(args[0]);
     checktab(table, TablePermission.read);
     final map = table.raw as Map;
-    Logger.debug("_TableUnpack: Got table with ${map.length} entries");
+    if (log) {
+      Logger.debug("_TableUnpack: Got table with ${map.length} entries");
+    }
 
     int i, j;
 
     // Handle start index (default to 1)
     if (args.length > 1) {
       final startArg = args[1] as Value;
-      Logger.debug(
-        "_TableUnpack: Start arg raw value: ${startArg.raw}, type: ${startArg.raw.runtimeType}",
-      );
+      if (log) {
+        Logger.debug(
+          "_TableUnpack: Start arg raw value: ${startArg.raw}, type: ${startArg.raw.runtimeType}",
+        );
+      }
       if (startArg.raw == null) {
         throw LuaError.typeError(
           "bad argument #2 to 'unpack' (number expected, got nil)",
@@ -1089,89 +1097,186 @@ class _TableUnpack extends BuiltinFunction {
       }
       try {
         i = NumberUtils.toInt(startArg.raw);
-        Logger.debug(
-          "_TableUnpack: Converted start index to: $i, type: ${i.runtimeType}",
-        );
+        if (log) {
+          Logger.debug(
+            "_TableUnpack: Converted start index to: $i, type: ${i.runtimeType}",
+          );
+        }
       } catch (e) {
-        Logger.debug("_TableUnpack: Error converting start index: $e");
+        if (log) {
+          Logger.debug("_TableUnpack: Error converting start index: $e");
+        }
         throw LuaError.typeError(
           "bad argument #2 to 'unpack' (number expected)",
         );
       }
     } else {
       i = 1;
-      Logger.debug("_TableUnpack: Using default start index: $i");
+      if (log) {
+        Logger.debug("_TableUnpack: Using default start index: $i");
+      }
     }
 
     // Handle end index (default to table length using Lua semantics)
     if (args.length > 2) {
       final endArg = args[2] as Value;
-      Logger.debug(
-        "_TableUnpack: End arg raw value: ${endArg.raw}, type: ${endArg.raw.runtimeType}",
-      );
+      if (log) {
+        Logger.debug(
+          "_TableUnpack: End arg raw value: ${endArg.raw}, type: ${endArg.raw.runtimeType}",
+        );
+      }
       if (endArg.raw == null) {
         // nil means use table length (same as not providing the argument)
-        Logger.debug("_TableUnpack: End arg is nil, getting table length");
+        if (log) {
+          Logger.debug("_TableUnpack: End arg is nil, getting table length");
+        }
         j = await getTableLength(table, context: null);
       } else {
         try {
           j = NumberUtils.toInt(endArg.raw);
-          Logger.debug(
-            "_TableUnpack: Converted end index to: $j, type: ${j.runtimeType}",
-          );
+          if (log) {
+            Logger.debug(
+              "_TableUnpack: Converted end index to: $j, type: ${j.runtimeType}",
+            );
+          }
         } catch (e) {
-          Logger.debug("_TableUnpack: Error converting end index: $e");
+          if (log) {
+            Logger.debug("_TableUnpack: Error converting end index: $e");
+          }
           throw LuaError.typeError(
             "bad argument #3 to 'unpack' (number expected)",
           );
         }
       }
     } else {
-      Logger.debug("_TableUnpack: No end arg, getting table length");
+      if (log) {
+        Logger.debug("_TableUnpack: No end arg, getting table length");
+      }
       j = await getTableLength(table, context: null);
     }
 
-    Logger.debug(
-      "_TableUnpack: i=$i (${i.runtimeType}), j=$j (${j.runtimeType})",
-    );
+    if (log) {
+      Logger.debug(
+        "_TableUnpack: i=$i (${i.runtimeType}), j=$j (${j.runtimeType})",
+      );
+    }
+
+    if (i is int && j is int) {
+      final int start = i;
+      final int end = j;
+      if (start > end) {
+        if (log) {
+          Logger.debug(
+            "_TableUnpack: Empty range (i > j), returning zero values",
+          );
+        }
+        return Value.multi(<dynamic>[]);
+      }
+
+      final int count = end - start + 1;
+      if (count < 0 || count > NumberLimits.maxInt32) {
+        if (log) {
+          Logger.debug(
+            "_TableUnpack: count=$count outside limits, throwing error",
+          );
+        }
+        throw LuaError("too many results to unpack");
+      }
+
+      final result = List<Value?>.filled(count, null, growable: false);
+      if (map is TableStorage) {
+        final storage = map as TableStorage;
+        for (var offset = 0; offset < count; offset++) {
+          final value = storage.arrayValueAt(start + offset);
+          if (value == null) {
+            result[offset] = Value(null);
+          } else if (value is Value) {
+            result[offset] = value;
+          } else {
+            result[offset] = Value(value);
+          }
+        }
+      } else {
+        for (var offset = 0; offset < count; offset++) {
+          final value = map[start + offset];
+          if (value == null || (value is Value && value.raw == null)) {
+            result[offset] = Value(null);
+          } else {
+            result[offset] = value is Value ? value : Value(value);
+          }
+        }
+      }
+
+      if (count == 0) {
+        return Value.multi(<dynamic>[]);
+      }
+      if (count == 1) {
+        return result[0]!;
+      }
+      return Value.multi(result.cast<Value>());
+    }
 
     // Check for empty range
     if (i > j) {
-      Logger.debug("_TableUnpack: Empty range (i > j), returning zero values");
+      if (log) {
+        Logger.debug(
+          "_TableUnpack: Empty range (i > j), returning zero values",
+        );
+      }
       return Value.multi(<dynamic>[]);
     }
 
     // Check for "too many results to unpack"
     // Use NumberUtils for safe arithmetic operations
-    Logger.debug("_TableUnpack: Calculating n = j - i + 1");
+    if (log) {
+      Logger.debug("_TableUnpack: Calculating n = j - i + 1");
+    }
 
     // Calculate n = j - i + 1 using NumberUtils to handle overflow
     // Ensure consistent types by converting constants to BigInt when needed
     final diff = NumberUtils.subtract(j, i);
-    Logger.debug("_TableUnpack: diff = $diff (${diff.runtimeType})");
+    if (log) {
+      Logger.debug("_TableUnpack: diff = $diff (${diff.runtimeType})");
+    }
     final n = NumberUtils.add(diff, 1);
-    Logger.debug("_TableUnpack: n = $n (${n.runtimeType})");
+    if (log) {
+      Logger.debug("_TableUnpack: n = $n (${n.runtimeType})");
+    }
 
     // Check if n is valid (positive and not too large)
-    Logger.debug("_TableUnpack: Checking if n is valid");
+    if (log) {
+      Logger.debug("_TableUnpack: Checking if n is valid");
+    }
     final nCompare0 = NumberUtils.compare(n, 0);
-    Logger.debug("_TableUnpack: n compare 0: $nCompare0");
+    if (log) {
+      Logger.debug("_TableUnpack: n compare 0: $nCompare0");
+    }
     final nCompareMax = NumberUtils.compare(n, NumberLimits.maxInt32);
-    Logger.debug("_TableUnpack: n compare maxInt32: $nCompareMax");
+    if (log) {
+      Logger.debug("_TableUnpack: n compare maxInt32: $nCompareMax");
+    }
 
     if (nCompare0 < 0 || nCompareMax >= 0) {
-      Logger.debug("_TableUnpack: n is invalid, throwing error");
+      if (log) {
+        Logger.debug("_TableUnpack: n is invalid, throwing error");
+      }
       throw LuaError("too many results to unpack");
     }
 
-    Logger.debug("_TableUnpack: n is valid, starting loop");
+    if (log) {
+      Logger.debug("_TableUnpack: n is valid, starting loop");
+    }
     final result = <Value>[];
 
     // Use NumberUtils for safe loop iteration
     var k = i;
-    Logger.debug("_TableUnpack: Starting loop with k=$k (${k.runtimeType})");
+    if (log) {
+      Logger.debug("_TableUnpack: Starting loop with k=$k (${k.runtimeType})");
+    }
     while (NumberUtils.compare(k, j) <= 0) {
-      Logger.debug("_TableUnpack: Loop iteration, k=$k, j=$j");
+      if (log) {
+        Logger.debug("_TableUnpack: Loop iteration, k=$k, j=$j");
+      }
       final v = map[k];
       if (v == null || (v is Value && v.raw == null)) {
         result.add(Value(null));
@@ -1181,11 +1286,15 @@ class _TableUnpack extends BuiltinFunction {
 
       // Use NumberUtils for safe increment
       if (k == NumberLimits.maxInteger) {
-        Logger.debug("_TableUnpack: k reached maxInteger, breaking");
+        if (log) {
+          Logger.debug("_TableUnpack: k reached maxInteger, breaking");
+        }
         break; // Can't increment further
       }
       k = NumberUtils.add(k, 1);
-      Logger.debug("_TableUnpack: Incremented k to: $k (${k.runtimeType})");
+      if (log) {
+        Logger.debug("_TableUnpack: Incremented k to: $k (${k.runtimeType})");
+      }
     }
 
     if (result.isEmpty) return Value.multi([]);
