@@ -2242,48 +2242,68 @@ class CollectGarbageFunction extends BuiltinFunction {
       case "collect":
         // "collect": Performs a full garbage-collection cycle
         final gcManager = interpreter!.gc;
-        if (gcManager.isCycleActive) {
-          // Lua returns false when collection is already running
+        if (gcManager.isFinalizerActive) {
+          // Lua returns false when collection is in a finalizer to prevent
+          // re-entrancy (the finalizer may attempt another collect).
           return Value(false);
         }
-        final wasStopped = gcManager.isStopped;
-        final previousAuto = gcManager.autoTriggerEnabled;
-        if (wasStopped) {
-          gcManager.start();
-        } else {
-          gcManager.autoTriggerEnabled = previousAuto;
+        if (gcManager.isCycleActive) {
+          final drained = gcManager.drainCurrentIncrementalCycle(
+            maxIterations: 8192,
+            stepSize: 512,
+          );
+          if (!drained && Logger.enabled) {
+            Logger.debug(
+              'collectgarbage("collect") could not drain incremental cycle before manual collect (phase=${gcManager.currentPhase})',
+              category: 'Base',
+            );
+          }
         }
-        var lastTotal = gcManager.estimateMemoryUse();
-        // Run at least once, but keep iterating while we keep freeing a
-        // meaningful amount of memory. This mirrors Lua's behaviour where a
-        // full collection may need multiple cycles to finish finalizers and
-        // clear weak tables before reporting stable memory numbers.
-        const maxPasses = 4;
-        for (var pass = 0; pass < maxPasses; pass++) {
-          await gcManager.majorCollection(interpreter!.getRoots());
-          final currentTotal = gcManager.estimateMemoryUse();
-          final reclaimed = lastTotal - currentTotal;
-          if (gcManager.hasPendingFinalizers) {
+        if (!gcManager.tryEnterManualCollect()) {
+          return Value(false);
+        }
+        try {
+          final wasStopped = gcManager.isStopped;
+          final previousAuto = gcManager.autoTriggerEnabled;
+          if (wasStopped) {
+            gcManager.start();
+          } else {
+            gcManager.autoTriggerEnabled = previousAuto;
+          }
+          var lastTotal = gcManager.estimateMemoryUse();
+          // Run at least once, but keep iterating while we keep freeing a
+          // meaningful amount of memory. This mirrors Lua's behaviour where a
+          // full collection may need multiple cycles to finish finalizers and
+          // clear weak tables before reporting stable memory numbers.
+          const maxPasses = 4;
+          for (var pass = 0; pass < maxPasses; pass++) {
+            await gcManager.majorCollection(interpreter!.getRoots());
+            final currentTotal = gcManager.estimateMemoryUse();
+            final reclaimed = lastTotal - currentTotal;
+            if (gcManager.hasPendingFinalizers) {
+              lastTotal = currentTotal;
+              continue;
+            }
+            // Stop once the reclaimed credits drop below 0.5 KB (or we regressed)
+            // – further passes would not materially change collectgarbage("count")
+            // results and would just repeat the same work.
+            if (reclaimed <= 512) {
+              break;
+            }
             lastTotal = currentTotal;
-            continue;
           }
-          // Stop once the reclaimed credits drop below 0.5 KB (or we regressed)
-          // – further passes would not materially change collectgarbage("count")
-          // results and would just repeat the same work.
-          if (reclaimed <= 512) {
-            break;
+          if (gcManager.hasPendingFinalizers) {
+            await gcManager.majorCollection(interpreter!.getRoots());
           }
-          lastTotal = currentTotal;
+          if (wasStopped) {
+            gcManager.stop();
+          } else {
+            gcManager.autoTriggerEnabled = previousAuto;
+          }
+          return Value(true);
+        } finally {
+          gcManager.exitManualCollect();
         }
-        if (gcManager.hasPendingFinalizers) {
-          await gcManager.majorCollection(interpreter!.getRoots());
-        }
-        if (wasStopped) {
-          gcManager.stop();
-        } else {
-          gcManager.autoTriggerEnabled = previousAuto;
-        }
-        return Value(true);
 
       case "count":
         // Return total memory in KB as two values: integer KB and fractional part
