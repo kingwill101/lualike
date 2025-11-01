@@ -207,6 +207,21 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     final baseToBeClosedLen = loopEnv.toBeClosedVars.length;
 
     Future<void> resetLoopEnvironment([Object? error]) async {
+      if (loopEnv.toBeClosedVars.length == baseToBeClosedLen &&
+          loopEnv.values.length == baseBindings.length) {
+        var allMatch = true;
+        for (final entry in baseBindings.entries) {
+          final current = loopEnv.values[entry.key];
+          if (!identical(current, entry.value)) {
+            allMatch = false;
+            break;
+          }
+        }
+        if (allMatch) {
+          return;
+        }
+      }
+
       if (loopEnv.toBeClosedVars.length > baseToBeClosedLen) {
         final namesToClose = <String>[];
         while (loopEnv.toBeClosedVars.length > baseToBeClosedLen) {

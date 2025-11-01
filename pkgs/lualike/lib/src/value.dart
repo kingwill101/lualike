@@ -219,9 +219,11 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       throw UnsupportedError("attempt to assign to const variable");
     }
     dynamic normalized = value;
-    if (normalized is Map && normalized is! TableStorage) {
-      if (normalized is! MapBase<String, dynamic>) {
-        normalized = TableStorage.from(normalized);
+    if (normalized is Map) {
+      if (normalized is TableStorage) {
+        _canonicalTableStorage[normalized] ??= normalized;
+      } else if (normalized is! MapBase<String, dynamic>) {
+        normalized = _ensureCanonicalStorage(normalized);
       }
     }
     _raw = normalized;
@@ -259,9 +261,11 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     this.functionName,
   }) {
     dynamic normalized = raw;
-    if (normalized is Map && normalized is! TableStorage) {
-      if (normalized is! MapBase<String, dynamic>) {
-        normalized = TableStorage.from(normalized);
+    if (normalized is Map) {
+      if (normalized is TableStorage) {
+        _canonicalTableStorage[normalized] ??= normalized;
+      } else if (normalized is! MapBase<String, dynamic>) {
+        normalized = _ensureCanonicalStorage(normalized);
       }
     }
     _raw = normalized;
@@ -295,11 +299,16 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   // Identity registry for table (Map) values
   // ---------------------------------------------------------------------------
   static final Expando<Value> _tableIdentity = Expando<Value>('tableIdentity');
+  static final Expando<TableStorage> _canonicalTableStorage =
+      Expando<TableStorage>('canonicalTableStorage');
   static final Expando<Map<String, dynamic>> _tableMetatables =
       Expando<Map<String, dynamic>>('tableMetatables');
   // Tracks total credits for string-like keys stored in the underlying Map.
   static final Expando<int> _tableStringKeyBytes = Expando<int>(
     'tableStringKeyBytes',
+  );
+  static final Expando<int> _tableDenseWriteDebt = Expando<int>(
+    'tableDenseWriteDebt',
   );
 
   /// Adjusts cached string-key credits for a raw Map when entries are
@@ -350,6 +359,21 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// value is not a Map.
   static Value? lookupCanonicalTableWrapper(Object? table) {
     return _lookupTableIdentity(table);
+  }
+
+  static TableStorage _ensureCanonicalStorage(Map<dynamic, dynamic> map) {
+    if (map is TableStorage) {
+      _canonicalTableStorage[map] ??= map;
+      return map;
+    }
+    final existing = _canonicalTableStorage[map];
+    if (existing != null) {
+      return existing;
+    }
+    final storage = TableStorage.from(map);
+    _canonicalTableStorage[map] = storage;
+    _canonicalTableStorage[storage] = storage;
+    return storage;
   }
 
   /// Register [v] as the canonical wrapper for its underlying Map, so that
@@ -1012,6 +1036,18 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   Future<dynamic> getValueAsync(Object? key) async {
     if (raw is Map) {
       final storageKey = _computeStorageKey(key);
+      if (raw is TableStorage && key is Value) {
+        final int? denseIndex = _extractPositiveIndex(key);
+        if (denseIndex != null) {
+          final stored = (raw as TableStorage).arrayValueAt(denseIndex);
+          if (stored != null) {
+            if (stored is Value) {
+              return stored;
+            }
+            return Value(stored);
+          }
+        }
+      }
       if ((raw as Map).containsKey(storageKey)) {
         final result = (raw as Map)[storageKey];
         if (result is Value) {
@@ -1206,7 +1242,11 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     if (valueToSet.isNil) {
       map.remove(storageKey);
     } else {
-      map[storageKey] = storageValue;
+      if (map is TableStorage && storageKey is int && storageKey > 0) {
+        map.setDense(storageKey, storageValue);
+      } else {
+        map[storageKey] = storageValue;
+      }
       final manager = GCAccess.fromValue(this);
       if (manager != null) {
         if (storageValue.interpreter == null && interpreter != null) {
@@ -1245,6 +1285,65 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// invalidated.
   void markTableModified() {
     _incrementTableVersion();
+  }
+
+  /// Directly assigns [value] to the numeric index [index] without performing
+  /// additional key normalization. Intended for dense-array fast paths where
+  /// metamethods are known to be absent.
+  void setNumericIndex(int index, Value value) {
+    if (raw is! Map) {
+      final tname = NumberUtils.typeName(raw);
+      throw LuaError.typeError('attempt to index a $tname value');
+    }
+    final map = raw as Map;
+    if (map is TableStorage && index > 0) {
+      final manager = GCAccess.fromValue(this);
+      if (value.isNil) {
+        map.remove(index);
+        _tableDenseWriteDebt[this] = 0;
+        _incrementTableVersion();
+        if (manager != null) {
+          MemoryCredits.instance.recalculate(this);
+        }
+        return;
+      }
+
+      map[index] = value;
+      _incrementTableVersion();
+      if (manager != null) {
+        if (value.interpreter == null && interpreter != null) {
+          value.interpreter = interpreter;
+        }
+        manager.ensureTracked(value);
+        final pending = (_tableDenseWriteDebt[this] ?? 0) + 1;
+        if (pending >= 1024) {
+          _tableDenseWriteDebt[this] = 0;
+          MemoryCredits.instance.recalculate(this);
+        } else {
+          _tableDenseWriteDebt[this] = pending;
+        }
+      }
+      return;
+    }
+
+    _setRawTableEntry(index, value);
+  }
+
+  int? _extractPositiveIndex(Object? key) {
+    Object? candidate = key;
+    if (candidate is Value) {
+      candidate = candidate.raw;
+    }
+    if (candidate is int) {
+      return candidate > 0 ? candidate : null;
+    }
+    if (candidate is num) {
+      final intKey = candidate.toInt();
+      if (intKey > 0 && intKey.toDouble() == candidate.toDouble()) {
+        return intKey;
+      }
+    }
+    return null;
   }
 
   void _incrementTableVersion() {

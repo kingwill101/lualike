@@ -133,6 +133,16 @@ void main() {
       expect((lua.getGlobal('packedLength') as Value).raw, equals(0));
     });
 
+    test('table.unpack reads sparse numeric slot beyond array part', () async {
+      await lua.execute('''
+        t = {}
+        t[1000] = 'value'
+        grabbed = table.unpack(t, 1000, 1000)
+      ''');
+
+      expect((lua.getGlobal('grabbed') as Value).raw.toString(), equals('value'));
+    });
+
     test('table.pack creates table with n field', () async {
       // Test table.pack functionality
       await lua.execute('''

@@ -13,7 +13,7 @@ class Box<T> extends GCObject {
 
   /// Whether this binding represents a local variable.
   final bool isLocal;
-  
+
   /// Whether this Box should be excluded from memory credit tracking.
   /// Transient boxes (function parameters, local variables in executing functions)
   /// are not counted to match Lua's behavior where the C stack isn't counted.
@@ -31,7 +31,7 @@ class Box<T> extends GCObject {
   /// Creates a new Box containing [value].
   Box(this.value, {this.isLocal = false, this.isTransient = false}) {
     // Register with GC, but don't count allocation for transient boxes
-    final gc = GCAccess.fromEnv(null);  
+    final gc = GCAccess.fromEnv(null);
     gc?.register(this, countAllocation: !isTransient);
   }
 

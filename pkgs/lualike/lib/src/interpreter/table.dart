@@ -34,7 +34,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     final tableFutureOr = node.table.accept(this);
     Object? table;
     table = await tableFutureOr;
-      if (table is Value && table.isMulti) {
+    if (table is Value && table.isMulti) {
       final values = table.raw as List;
       table = values.isNotEmpty ? values.first : Value(null);
     } else if (table is List && table.isNotEmpty) {
@@ -65,7 +65,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       // Non-identifier index, evaluate normally
       final indexFutureOr = node.index.accept(this);
       indexResult = await indexFutureOr;
-    
+
       // If the index is a multi-value (like from varargs), use only the first value
       if (indexResult is Value && indexResult.isMulti) {
         final values = indexResult.raw as List;
@@ -82,6 +82,34 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
             indexResult,
             isTempKey: indexResult is String || indexResult is num,
           );
+
+    int? _positiveInteger(Value candidate) {
+      final raw = candidate.raw;
+      if (raw is int) {
+        return raw > 0 ? raw : null;
+      }
+      if (raw is num) {
+        final intValue = raw.toInt();
+        if (intValue > 0 && intValue.toDouble() == raw.toDouble()) {
+          return intValue;
+        }
+      }
+      return null;
+    }
+
+    if (tableVal.raw is TableStorage && !tableVal.hasMetamethod('__index')) {
+      final denseIndex = _positiveInteger(indexVal);
+      if (denseIndex != null) {
+        final storage = tableVal.raw as TableStorage;
+        final stored = storage.arrayValueAt(denseIndex);
+        if (stored != null) {
+          if (stored is Value) {
+            return stored;
+          }
+          return Value(stored);
+        }
+      }
+    }
 
     if (tableVal.raw is! Map) {
       if (tableVal.raw == null) {
@@ -115,7 +143,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     final tableFutureOr = node.table.accept(this);
     Object? table;
     table = await tableFutureOr;
-      if (table is Value && table.isMulti) {
+    if (table is Value && table.isMulti) {
       final values = table.raw as List;
       table = values.isNotEmpty ? values.first : Value(null);
     } else if (table is List && table.isNotEmpty) {
@@ -489,16 +517,47 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     final targetFutureOr = node.target.accept(this);
     Object? target;
     target = await targetFutureOr;
-      final indexFutureOr = node.index.accept(this);
+    final indexFutureOr = node.index.accept(this);
     Object? index;
     index = await indexFutureOr;
-      final valueFutureOr = node.value.accept(this);
+    final valueFutureOr = node.value.accept(this);
     Object? value;
     value = await valueFutureOr;
-  
+
     final targetVal = target is Value ? target : Value(target);
     final indexVal = index is Value ? index : Value(index);
     final valueVal = value is Value ? value : Value(value);
+
+    int? _positiveInteger(Value candidate) {
+      final raw = candidate.raw;
+      if (raw is int) {
+        return raw > 0 ? raw : null;
+      }
+      if (raw is num) {
+        final intValue = raw.toInt();
+        if (intValue > 0 && intValue.toDouble() == raw.toDouble()) {
+          return intValue;
+        }
+      }
+      return null;
+    }
+
+    if (targetVal.raw is TableStorage &&
+        !targetVal.hasMetamethod('__newindex') &&
+        !targetVal.hasMetamethod('__index')) {
+      assert(() {
+        // ignore: avoid_print
+        if (Logger.enabled) {
+          print('fast path check raw key type: ${indexVal.raw.runtimeType}');
+        }
+        return true;
+      }());
+      final denseIndex = _positiveInteger(indexVal);
+      if (denseIndex != null) {
+        targetVal.setNumericIndex(denseIndex, valueVal);
+        return valueVal;
+      }
+    }
 
     final rawKey = indexVal.raw;
     if (rawKey == null) {

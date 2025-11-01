@@ -10,13 +10,18 @@ import 'package:lualike/src/goto_validator.dart';
 import 'package:lualike/src/io/lua_file.dart';
 import 'package:lualike/src/upvalue.dart';
 import 'package:lualike/src/interpreter/upvalue_analyzer.dart';
+import 'package:lualike/src/table_storage.dart';
 import 'package:lualike/src/utils/file_system_utils.dart';
+import 'package:lualike/src/utils/platform_utils.dart';
 import 'package:lualike/src/utils/type.dart';
 import 'package:path/path.dart' as path;
 import 'package:source_span/source_span.dart';
 
 import 'lib_io.dart';
 import 'library.dart';
+
+final bool _loadProfileEnabled =
+    getEnvironmentVariable('LUALIKE_PROFILE_LOAD') == '1';
 
 /// Base library implementation using the new Library system
 /// Note: Base functions are global, so they don't have a namespace
@@ -703,15 +708,40 @@ class LoadFunction extends BuiltinFunction {
 
   @override
   Future<Object?> call(List<Object?> args) async {
+    late String source;
+    late String chunkname;
+    late String mode;
+    Value? providedEnv;
+    ChunkInfo? readerChunkInfo; // Store ChunkInfo from reader functions
+
+    final Stopwatch? totalTimer = _loadProfileEnabled
+        ? (Stopwatch()..start())
+        : null;
+    Stopwatch? parseTimer;
+    Duration? parseDuration;
+    var loggedProfile = false;
+
+    void logProfile(String phase, {String? error}) {
+      if (!_loadProfileEnabled || loggedProfile) {
+        return;
+      }
+      if (totalTimer != null && totalTimer.isRunning) {
+        totalTimer.stop();
+      }
+      final totalMicros = totalTimer?.elapsedMicroseconds ?? -1;
+      final parseMicros = parseDuration?.inMicroseconds ?? -1;
+      final message = error != null
+          ? 'load profile [$phase]: chunk="$chunkname" len=${source.length} '
+                'parse_us=$parseMicros total_us=$totalMicros error=$error'
+          : 'load profile [$phase]: chunk="$chunkname" len=${source.length} '
+                'parse_us=$parseMicros total_us=$totalMicros';
+      Logger.info(message, category: 'LoadProfile');
+      loggedProfile = true;
+    }
+
     if (args.isEmpty) {
       throw LuaError("load() requires a string or function argument");
     }
-
-    String source;
-    String chunkname;
-    String mode;
-    Value? providedEnv;
-    ChunkInfo? readerChunkInfo; // Store ChunkInfo from reader functions
 
     // Handle chunkname parameter (2nd argument)
     chunkname = args.length > 1 ? (args[1] as Value).raw.toString() : "=(load)";
@@ -996,8 +1026,15 @@ class LoadFunction extends BuiltinFunction {
     }
 
     try {
+      if (_loadProfileEnabled) {
+        parseTimer = Stopwatch()..start();
+      }
       // Centralized normalization happens in parse(); just pass source through.
       final ast = parse(source, url: chunkname);
+      if (parseTimer != null) {
+        parseTimer!.stop();
+        parseDuration = parseTimer!.elapsed;
+      }
 
       // Check for const variable assignment errors
       final constChecker = ConstChecker();
@@ -1016,12 +1053,14 @@ class LoadFunction extends BuiltinFunction {
           });
         }
         // Return error in load() format: [nil, error_message]
+        logProfile('const-error', error: adjustedError);
         return [Value(null), Value(adjustedError)];
       }
 
       final gotoValidator = GotoLabelValidator();
       final gotoError = gotoValidator.checkGotoLabelViolations(ast);
       if (gotoError != null) {
+        logProfile('goto-error', error: gotoError);
         return [Value(null), Value(gotoError)];
       }
 
@@ -1226,6 +1265,7 @@ class LoadFunction extends BuiltinFunction {
               }
             }
 
+            logProfile('success');
             return directFunction;
           } finally {
             interpreter!.setCurrentEnv(savedEnv);
@@ -1341,6 +1381,7 @@ class LoadFunction extends BuiltinFunction {
                   result.upvalues = upvalues;
                 }
 
+                logProfile('success');
                 return result;
               } finally {
                 // Restore the previous environment
@@ -1354,6 +1395,7 @@ class LoadFunction extends BuiltinFunction {
             } on ReturnException catch (e) {
               // return statements inside the loaded chunk should just
               // provide values to the caller, not unwind the interpreter
+              logProfile('success');
               return e.value;
             } on TailCallException catch (t) {
               // Proper tail call from inside loaded chunk: invoke callee here
@@ -1364,7 +1406,12 @@ class LoadFunction extends BuiltinFunction {
               final normalizedArgs = t.args
                   .map((a) => a is Value ? a : Value(a))
                   .toList();
-              return await interpreter!.callFunction(callee, normalizedArgs);
+              final value = await interpreter!.callFunction(
+                callee,
+                normalizedArgs,
+              );
+              logProfile('success');
+              return value;
             } catch (e) {
               throw LuaError("Error executing loaded chunk '$chunkname': $e");
             }
@@ -1431,13 +1478,16 @@ class LoadFunction extends BuiltinFunction {
       result.upvalues = upvalues;
 
       result.interpreter = interpreter!;
+      logProfile('success');
       return result;
     } catch (e) {
       // For FormatException, return just the message without prefix
       // to match Lua's error format
       if (e is FormatException) {
+        logProfile('parse-error', error: e.message);
         return [Value(null), Value(e.message)];
       }
+      logProfile('parse-error', error: e.toString());
       return [Value(null), Value("Error parsing source code: $e")];
     }
   }
@@ -2262,11 +2312,6 @@ class CollectGarbageFunction extends BuiltinFunction {
         if (!gcManager.tryEnterManualCollect()) {
           return Value(false);
         }
-        if (gcManager.shouldThrottleManualCollect()) {
-          gcManager.exitManualCollect();
-          gcManager.noteManualCollectSkip();
-          return Value(true);
-        }
         try {
           final wasStopped = gcManager.isStopped;
           final previousAuto = gcManager.autoTriggerEnabled;
@@ -2471,7 +2516,6 @@ class PairsFunction extends BuiltinFunction {
     if (table.raw is! Map) {
       throw LuaError("pairs requires a table argument");
     }
-
     final nextFunc = interpreter!.globals.get('next');
     final nextValue = nextFunc is Value ? nextFunc : Value(nextFunc);
 

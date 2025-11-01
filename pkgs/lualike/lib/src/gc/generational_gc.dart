@@ -349,7 +349,16 @@ class GenerationalGCManager {
       1 << 20,
     );
 
-    final cycleComplete = performIncrementalStep(workUnits);
+    var cycleComplete = false;
+    var attempts = 0;
+    while (!cycleComplete && attempts < 8) {
+      final budget = workUnits * (attempts + 1);
+      cycleComplete = performIncrementalStep(budget);
+      if (!cycleComplete && _currentPhase == GCPhase.idle) {
+        cycleComplete = true;
+      }
+      attempts++;
+    }
 
     if (cycleComplete) {
       _manualStepDebtKb = 0;

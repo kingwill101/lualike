@@ -1,3 +1,4 @@
+import 'package:lualike/lualike.dart';
 import 'package:lualike_test/test.dart';
 
 void main() {
@@ -16,13 +17,16 @@ void main() {
         })
         json_decoded = convert.jsonDecode(json_encoded)
       ''');
-      final decoded = bridge.getGlobal('json_decoded')!;
-      final rawMap = decoded.raw as Map<dynamic, Value>;
-      expect(rawMap['awesome']!.raw, true);
-      final features = rawMap['features']!.raw as Map<dynamic, Value>;
-      expect(features['ffi']!.raw, 'awesome');
-      final versions = rawMap['versions']!.raw as List<Value>;
-      expect(versions[1].raw, 2);
+      final decoded = bridge.getGlobal('json_decoded')! as Value;
+      final awesome = decoded['awesome'] as Value;
+      expect(awesome.raw, true);
+
+      final features = decoded['features'] as Value;
+      expect((features['ffi'] as Value).raw, 'awesome');
+
+      final versions = decoded['versions'] as Value;
+      final versionList = versions.raw as List<Value>;
+      expect(versionList[1].raw, 2);
     });
 
     test('base64Encode and base64Decode roundtrip', () async {

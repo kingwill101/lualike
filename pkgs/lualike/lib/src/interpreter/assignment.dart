@@ -691,6 +691,40 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           return result;
         }
 
+        int? _positiveInteger(Value candidate) {
+          final raw = candidate.raw;
+          if (raw is int) {
+            return raw > 0 ? raw : null;
+          }
+          if (raw is num) {
+            final intValue = raw.toInt();
+            if (intValue > 0 && intValue.toDouble() == raw.toDouble()) {
+              return intValue;
+            }
+          }
+          return null;
+        }
+
+        if (tableValue.raw is TableStorage &&
+            (!hasNewIndexMeta || keyExists) &&
+            !tableValue.hasMetamethod('__index')) {
+          final denseIndex = _positiveInteger(keyValue);
+          if (denseIndex != null) {
+            tableValue.setNumericIndex(denseIndex, wrappedValue);
+            if (this is Interpreter) {
+              final interpreter = this as Interpreter;
+              wrappedValue.interpreter ??= interpreter;
+              interpreter.gc.ensureTracked(wrappedValue);
+            }
+            Logger.debug(
+              '_handleTableIndexAssignment: Assigned ${wrappedValue.raw} to dense index ${keyValue.raw}',
+              category: 'Interpreter',
+              context: {'keyType': keyValue.raw.runtimeType.toString()},
+            );
+            return wrappedValue;
+          }
+        }
+
         // No metamethod or key already exists - do regular assignment
         tableValue[keyValue] = wrappedValue;
         if (this is Interpreter) {
@@ -1037,29 +1071,51 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         ? valueToAssign
         : Value(valueToAssign);
 
-    if (targetValue is Value && targetValue.raw is Map) {
-      final map = targetValue.raw as Map;
+    final targetVal = targetValue is Value ? targetValue : Value(targetValue);
+    final indexVal = indexValue is Value ? indexValue : Value(indexValue);
 
-      // Convert the index to the appropriate form
-      final key = indexValue is Value ? indexValue.raw : indexValue;
-
-      // Check for __newindex metamethod if key doesn't exist
-      if (!map.containsKey(key)) {
-        if (targetValue.hasMetamethod('__newindex')) {
-          final result = await targetValue.callMetamethodAsync('__newindex', [
-            targetValue,
-            indexValue is Value ? indexValue : Value(indexValue),
-            wrappedValue,
-          ]);
-          return result;
-        }
-      }
-
-      // No metamethod or key exists - do regular assignment
-      map[key] = wrappedValue;
-      return wrappedValue;
+    if (targetVal.raw is! Map) {
+      throw Exception('Cannot assign to index of non-table value');
     }
 
-    throw Exception("Cannot assign to index of non-table value");
+    final map = targetVal.raw as Map;
+    final rawKey = indexVal.raw;
+    final bool keyExists = map.containsKey(rawKey);
+    final bool hasNewindex = targetVal.hasMetamethod('__newindex');
+    final bool hasIndexMeta = targetVal.hasMetamethod('__index');
+
+    if (!keyExists && hasNewindex) {
+      final result = await targetVal.callMetamethodAsync('__newindex', [
+        targetVal,
+        indexVal,
+        wrappedValue,
+      ]);
+      return result;
+    }
+
+    int? _positiveInteger(Value candidate) {
+      final raw = candidate.raw;
+      if (raw is int) {
+        return raw > 0 ? raw : null;
+      }
+      if (raw is num) {
+        final intValue = raw.toInt();
+        if (intValue > 0 && intValue.toDouble() == raw.toDouble()) {
+          return intValue;
+        }
+      }
+      return null;
+    }
+
+    if (map is TableStorage && (!hasNewindex || keyExists) && !hasIndexMeta) {
+      final denseIndex = _positiveInteger(indexVal);
+      if (denseIndex != null) {
+        targetVal.setNumericIndex(denseIndex, wrappedValue);
+        return wrappedValue;
+      }
+    }
+
+    map[rawKey] = wrappedValue;
+    return wrappedValue;
   }
 }

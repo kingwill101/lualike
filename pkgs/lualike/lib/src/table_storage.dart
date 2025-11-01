@@ -1,4 +1,5 @@
 import 'dart:collection';
+import 'dart:typed_data';
 
 class TableStorage extends MapBase<dynamic, dynamic> {
   TableStorage();
@@ -12,7 +13,8 @@ class TableStorage extends MapBase<dynamic, dynamic> {
   }
 
   final List<dynamic> _array = <dynamic>[];
-  final Map<dynamic, dynamic> _hash = <dynamic, dynamic>{};
+  Uint8List _occupied = Uint8List(0);
+  final HashMap<dynamic, dynamic> _hash = HashMap<dynamic, dynamic>();
 
   int _arrayCount = 0;
 
@@ -46,9 +48,8 @@ class TableStorage extends MapBase<dynamic, dynamic> {
     final arrayIdx = _arrayIndexFor(key);
     if (arrayIdx != null) {
       if (arrayIdx < _array.length) {
-        final value = _array[arrayIdx];
-        if (value != null) {
-          return value;
+        if (arrayIdx < _occupied.length && _occupied[arrayIdx] != 0) {
+          return _array[arrayIdx];
         }
       }
       return _hash[key];
@@ -67,17 +68,24 @@ class TableStorage extends MapBase<dynamic, dynamic> {
     if (oneBasedIndex != null && _shouldUseArray(oneBasedIndex + 1)) {
       final arrayIdx = oneBasedIndex;
       if (arrayIdx < _array.length) {
-        final current = _array[arrayIdx];
-        if (current == null) {
+        if (arrayIdx >= _occupied.length) {
+          _growOccupied(arrayIdx + 1);
+        }
+        final wasEmpty = _occupied[arrayIdx] == 0;
+        _array[arrayIdx] = value;
+        if (wasEmpty) {
+          _occupied[arrayIdx] = 1;
           _arrayCount++;
         }
-        _array[arrayIdx] = value;
       } else if (arrayIdx == _array.length) {
         _array.add(value);
+        _growOccupied(arrayIdx + 1);
+        _occupied[arrayIdx] = 1;
         _arrayCount++;
       } else {
-        _array.length = arrayIdx + 1;
+        ensureArrayCapacity(arrayIdx + 1);
         _array[arrayIdx] = value;
+        _occupied[arrayIdx] = 1;
         _arrayCount++;
       }
       _hash.remove(key);
@@ -94,8 +102,50 @@ class TableStorage extends MapBase<dynamic, dynamic> {
   @override
   void clear() {
     _array..clear();
+    _occupied = Uint8List(0);
     _hash.clear();
     _arrayCount = 0;
+  }
+
+  /// Appends [value] at the next sequential integer slot.
+  void append(dynamic value) {
+    final idx = _array.length;
+    _array.add(value);
+    _growOccupied(idx + 1);
+    _occupied[idx] = 1;
+    _arrayCount++;
+    _hash.remove(idx + 1);
+  }
+
+  /// Writes [value] at the (1-based) [index], leaving holes as necessary.
+  /// Assumes [index] > 0.
+  void setDense(int index, dynamic value) {
+    final arrayIdx = index - 1;
+    if (arrayIdx == _array.length) {
+      _array.add(value);
+      _growOccupied(arrayIdx + 1);
+      _occupied[arrayIdx] = 1;
+      _arrayCount++;
+      _hash.remove(index);
+      return;
+    }
+    if (arrayIdx >= 0 && arrayIdx < _array.length) {
+      _array[arrayIdx] = value;
+      if (arrayIdx >= _occupied.length) {
+        _growOccupied(arrayIdx + 1);
+      }
+      if (_occupied[arrayIdx] == 0) {
+        _occupied[arrayIdx] = 1;
+        _arrayCount++;
+      }
+      _hash.remove(index);
+      return;
+    }
+    ensureArrayCapacity(index);
+    _array[index - 1] = value;
+    _occupied[index - 1] = 1;
+    _arrayCount++;
+    _hash.remove(index);
   }
 
   void ensureArrayCapacity(int capacity) {
@@ -104,13 +154,31 @@ class TableStorage extends MapBase<dynamic, dynamic> {
     if (target <= _array.length) return;
     final additional = target - _array.length;
     _array.addAll(List<dynamic>.filled(additional, null));
+    _growOccupied(target);
+  }
+
+  void _growOccupied(int requiredLength) {
+    if (requiredLength <= _occupied.length) {
+      return;
+    }
+    final target = requiredLength > _maxArraySize
+        ? _maxArraySize
+        : requiredLength;
+    final next = Uint8List(target);
+    if (_occupied.isNotEmpty) {
+      next.setRange(0, _occupied.length, _occupied);
+    }
+    _occupied = next;
   }
 
   @override
   Iterable<dynamic> get keys sync* {
-    for (var i = 0; i < _array.length; i++) {
-      final value = _array[i];
-      if (value != null) {
+    final occupied = _occupied;
+    final limit = occupied.length < _array.length
+        ? occupied.length
+        : _array.length;
+    for (var i = 0; i < limit; i++) {
+      if (occupied[i] != 0) {
         yield i + 1;
       }
     }
@@ -124,11 +192,12 @@ class TableStorage extends MapBase<dynamic, dynamic> {
       if (arrayIdx >= _array.length) {
         return _hash.remove(key);
       }
-      final current = _array[arrayIdx];
-      if (current == null) {
+      if (arrayIdx >= _occupied.length || _occupied[arrayIdx] == 0) {
         return _hash.remove(key);
       }
+      final current = _array[arrayIdx];
       _array[arrayIdx] = null;
+      _occupied[arrayIdx] = 0;
       _arrayCount--;
       _trimArray();
       return current;
@@ -138,8 +207,20 @@ class TableStorage extends MapBase<dynamic, dynamic> {
 
   void _trimArray() {
     var last = _array.length - 1;
-    while (last >= 0 && _array[last] == null) {
+    while (last >= 0) {
+      final isOccupied = last < _occupied.length && _occupied[last] != 0;
+      if (isOccupied) {
+        break;
+      }
       _array.removeLast();
+      if (_occupied.isNotEmpty && last < _occupied.length) {
+        // shrink occupancy mirror
+        final next = Uint8List(last);
+        if (last > 0) {
+          next.setRange(0, last, _occupied);
+        }
+        _occupied = next;
+      }
       last--;
     }
   }
@@ -148,11 +229,12 @@ class TableStorage extends MapBase<dynamic, dynamic> {
   bool containsKey(Object? key) {
     final arrayIdx = _arrayIndexFor(key);
     if (arrayIdx != null) {
-      if (arrayIdx >= _array.length) {
+      if (arrayIdx < _array.length && arrayIdx < _occupied.length) {
+        if (_occupied[arrayIdx] != 0) {
+          return true;
+        }
+      } else if (arrayIdx >= _array.length) {
         return _hash.containsKey(key);
-      }
-      if (_array[arrayIdx] != null) {
-        return true;
       }
       return _hash.containsKey(key);
     }
@@ -167,12 +249,22 @@ class TableStorage extends MapBase<dynamic, dynamic> {
   dynamic arrayValueAt(int oneBasedIndex) {
     if (oneBasedIndex <= 0) return _hash[oneBasedIndex];
     final idx = oneBasedIndex - 1;
-    if (idx < _array.length) {
-      final value = _array[idx];
-      if (value != null) {
-        return value;
+    if (idx < _array.length && idx < _occupied.length) {
+      if (_occupied[idx] != 0) {
+        return _array[idx];
       }
     }
     return _hash[oneBasedIndex];
   }
+
+  dynamic denseValueAt(int oneBasedIndex) {
+    if (oneBasedIndex <= 0) return null;
+    final idx = oneBasedIndex - 1;
+    if (idx < _array.length && idx < _occupied.length) {
+      return _occupied[idx] != 0 ? _array[idx] : null;
+    }
+    return null;
+  }
+
+  Iterable<MapEntry<dynamic, dynamic>> get hashEntries => _hash.entries;
 }
