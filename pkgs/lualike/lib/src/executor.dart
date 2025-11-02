@@ -2,8 +2,11 @@ import 'const_checker.dart';
 import 'exceptions.dart';
 import 'file_manager.dart';
 import 'interpreter/interpreter.dart';
-import 'runtime/lua_runtime.dart';
 import 'parse.dart';
+import 'runtime/lua_runtime.dart';
+import 'config.dart';
+import 'bytecode/compiler.dart';
+import 'bytecode/vm.dart';
 
 typedef RuntimeSetupCallback = void Function(LuaRuntime);
 
@@ -20,7 +23,9 @@ Future<Object?> executeCode(
   FileManager? fileManager,
   RuntimeSetupCallback? onRuntimeSetup,
   LuaRuntime? vm,
+  EngineMode? mode,
 }) async {
+  final selectedMode = mode ?? LuaLikeConfig().defaultEngineMode;
   final runtime = vm ?? Interpreter(fileManager: fileManager);
   if (onRuntimeSetup != null) {
     onRuntimeSetup(runtime);
@@ -35,6 +40,12 @@ Future<Object?> executeCode(
   }
 
   try {
+    if (selectedMode == EngineMode.bytecode) {
+      final chunk = BytecodeCompiler().compile(program);
+      final result = await BytecodeVm(environment: runtime.globals).execute(chunk);
+      return result;
+    }
+
     return await runtime.runAst(program.statements);
   } on ReturnException catch (e) {
     // Handle return statement at the top level

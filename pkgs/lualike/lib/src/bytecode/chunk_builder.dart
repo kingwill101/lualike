@@ -48,9 +48,11 @@ class BytecodePrototypeBuilder {
     return index;
   }
 
-  BytecodePrototypeBuilder addChild(BytecodePrototypeBuilder builder) {
+  ChildPrototypeBuilder createChild() {
+    final builder = BytecodePrototypeBuilder();
+    final index = _childBuilders.length;
     _childBuilders.add(builder);
-    return builder;
+    return ChildPrototypeBuilder(builder: builder, index: index);
   }
 
   BytecodePrototype build() {
@@ -78,6 +80,13 @@ class BytecodePrototypeBuilder {
       LongStringConstant(value: final value) => ('long', value),
     };
   }
+}
+
+class ChildPrototypeBuilder {
+  const ChildPrototypeBuilder({required this.builder, required this.index});
+
+  final BytecodePrototypeBuilder builder;
+  final int index;
 }
 
 class BytecodeChunkBuilder {

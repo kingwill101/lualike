@@ -1,12 +1,6 @@
 import 'ast.dart';
 
-/// Mixin for AST nodes that can be serialized ("dumped") into a
-/// data structure and reconstructed ("undumped") later.
-mixin Dumpable on AstNode {
-  /// Returns a JSON-serializable representation of this AST node.
-  /// Implementations should include a 'type' field to assist decoding.
-  Map<String, dynamic> dump();
-}
+
 
 /// Helper for encoding/decoding AST nodes that implement [Dumpable].
 ///

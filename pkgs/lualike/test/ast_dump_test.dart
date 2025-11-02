@@ -238,7 +238,7 @@ void main() {
     test('LocalDeclaration dump/restore', () {
       final names = [Identifier('x'), Identifier('y')];
       final attributes = ['', 'const'];
-      final exprs = [NumberLiteral(10), StringLiteral('hello')];
+      final exprs = <AstNode>[NumberLiteral(10), StringLiteral('hello')];
       final original = LocalDeclaration(names, attributes, exprs);
 
       final dumped = original.dump();
