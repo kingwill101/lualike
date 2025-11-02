@@ -80,10 +80,15 @@ void main() {
         ),
         isTrue,
       );
-      final setIIndices = instructions
-          .where((instruction) => instruction.opcode == BytecodeOpcode.setI)
-          .map((instruction) => (instruction as ABCInstruction).b);
-      expect(setIIndices, containsAll(<int>[1, 2]));
+      final setListInstructions = instructions
+          .where((instruction) => instruction.opcode == BytecodeOpcode.setList)
+          .cast<ABCInstruction>()
+          .toList();
+      expect(setListInstructions, hasLength(2));
+      expect(setListInstructions[0].b, equals(1));
+      expect(setListInstructions[0].c, equals(1));
+      expect(setListInstructions[1].b, equals(1));
+      expect(setListInstructions[1].c, equals(2));
 
       expect(
         instructions.any(
@@ -97,6 +102,25 @@ void main() {
         ),
         isTrue,
       );
+    });
+
+    test('compiles table constructor with vararg tail', () {
+      final program = parse('local function build(...) return {1, 2, ...} end');
+      final chunk = BytecodeCompiler().compile(program);
+      final proto = chunk.mainPrototype.prototypes.first;
+      final instructions = _stripVarArgPrep(proto);
+
+      expect(
+        instructions.any(
+          (instruction) => instruction.opcode == BytecodeOpcode.setList,
+        ),
+        isTrue,
+      );
+      final setListInstructions = instructions
+          .where((instruction) => instruction.opcode == BytecodeOpcode.setList)
+          .cast<ABCInstruction>()
+          .toList();
+      expect(setListInstructions.last.b, equals(0));
     });
   });
 }
