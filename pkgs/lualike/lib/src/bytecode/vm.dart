@@ -112,6 +112,21 @@ class _BytecodeFrame {
     }
   }
 
+  void truncateRegisters(int newTop) {
+    if (newTop < 0) {
+      newTop = 0;
+    }
+    if (newTop >= top) {
+      return;
+    }
+    for (var i = newTop; i < top; i++) {
+      if (i < registers.length) {
+        registers[i] = null;
+      }
+    }
+    top = newTop;
+  }
+
   _UpvalueCell captureRegister(int index) {
     return _registerUpvalues.putIfAbsent(
       index,
@@ -245,10 +260,11 @@ class BytecodeVm {
           final instr = instruction as ABCInstruction;
           final requested = instr.b == 0 ? _returnAll : instr.b - 1;
           if (requested == _returnAll) {
-            frame.setRegister(
-              instr.a,
-              Value.multi(List<dynamic>.from(frame.varargs)),
-            );
+            final start = instr.a;
+            for (var i = 0; i < frame.varargs.length; i++) {
+              frame.setRegister(start + i, frame.varargs[i]);
+            }
+            frame.truncateRegisters(start + frame.varargs.length);
           } else {
             for (var i = 0; i < requested; i++) {
               final value = i < frame.varargs.length ? frame.varargs[i] : null;
@@ -390,6 +406,26 @@ class BytecodeVm {
               ? _resolveConstant(constants[instr.c])
               : registers[instr.c];
           _tableSet(registers[instr.a], instr.b, value);
+          break;
+        case BytecodeOpcode.setList:
+          final instr = instruction as ABCInstruction;
+          final table = registers[instr.a];
+          final startIndex = instr.c;
+          if (instr.b == 0) {
+            final firstReg = instr.a + 1;
+            var arraySlot = startIndex;
+            for (var regIndex = firstReg; regIndex < frame.top; regIndex++) {
+              _tableSet(table, arraySlot, registers[regIndex]);
+              arraySlot += 1;
+            }
+            frame.truncateRegisters(firstReg);
+          } else {
+            for (var i = 0; i < instr.b; i++) {
+              final value = registers[instr.a + 1 + i];
+              _tableSet(table, startIndex + i, value);
+            }
+            frame.truncateRegisters(instr.a + 1);
+          }
           break;
         case BytecodeOpcode.newTable:
           final instr = instruction as ABCInstruction;

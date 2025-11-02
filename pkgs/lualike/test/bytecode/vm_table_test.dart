@@ -52,5 +52,23 @@ void main() {
       expect(result[Value(3)]?.raw, equals(7));
       expect(result[Value(1)]?.raw, equals(9));
     });
+
+    test('constructs table literal with vararg tail', () async {
+      const source = '''
+local function build(...)
+  return {1, 2, ...}
+end
+
+return build(3, 4, 5)
+''';
+      final chunk = BytecodeCompiler().compile(parse(source));
+      final result = await BytecodeVm().execute(chunk) as Value;
+
+      expect(result[Value(1)]?.raw, equals(1));
+      expect(result[Value(2)]?.raw, equals(2));
+      expect(result[Value(3)]?.raw, equals(3));
+      expect(result[Value(4)]?.raw, equals(4));
+      expect(result[Value(5)]?.raw, equals(5));
+    });
   });
 }

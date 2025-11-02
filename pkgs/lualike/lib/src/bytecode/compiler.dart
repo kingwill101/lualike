@@ -582,20 +582,88 @@ class _PrototypeContext {
     emitter.emitABC(opcode: BytecodeOpcode.newTable, a: tableReg, b: 0, c: 0);
 
     var arrayIndex = 1;
+    var pendingCount = 0;
+    var pendingStart = -1;
 
-    for (final entry in node.entries) {
-      switch (entry) {
-        case TableEntryLiteral(:final expr):
-          final valueReg = _emitExpression(expr);
-          emitter.emitABC(
-            opcode: BytecodeOpcode.setI,
-            a: tableReg,
-            b: arrayIndex,
-            c: valueReg,
-          );
-          _releaseRegister(valueReg);
-          arrayIndex += 1;
+    void flushPending() {
+      if (pendingCount == 0) {
+        return;
+      }
+      emitter.emitABC(
+        opcode: BytecodeOpcode.setList,
+        a: tableReg,
+        b: pendingCount,
+        c: arrayIndex,
+      );
+      for (var i = pendingCount - 1; i >= 0; i--) {
+        _releaseRegister(pendingStart + i);
+      }
+      arrayIndex += pendingCount;
+      pendingCount = 0;
+      pendingStart = -1;
+    }
+
+    bool isExpandableTail(TableEntry entry, int entryIndex) {
+      if (entryIndex != node.entries.length - 1) {
+        return false;
+      }
+      if (entry case TableEntryLiteral(expr: final expr)) {
+        return expr is VarArg || expr is FunctionCall || expr is MethodCall;
+      }
+      return false;
+    }
+
+    void expandTail(TableEntryLiteral entry) {
+      final expr = entry.expr;
+      final baseRegister = tableReg + 1;
+      if (expr is VarArg) {
+        _emitVarArg(target: baseRegister, resultCount: 0);
+      } else if (expr is FunctionCall) {
+        _emitFunctionCall(expr, captureAll: true, baseRegister: baseRegister);
+      } else if (expr is MethodCall) {
+        _emitMethodCall(expr, captureAll: true, baseRegister: baseRegister);
+      } else {
+        throw UnsupportedError(
+          'Unexpected expandable tail expression: ${expr.runtimeType}',
+        );
+      }
+
+      emitter.emitABC(
+        opcode: BytecodeOpcode.setList,
+        a: tableReg,
+        b: 0,
+        c: arrayIndex,
+      );
+
+      while (_nextRegister > baseRegister) {
+        _releaseRegister(_nextRegister - 1);
+      }
+    }
+
+    for (var i = 0; i < node.entries.length; i++) {
+      final entry = node.entries[i];
+      if (entry is TableEntryLiteral) {
+        if (isExpandableTail(entry, i)) {
+          flushPending();
+          expandTail(entry);
+          arrayIndex = -1;
           break;
+        }
+        final targetReg = tableReg + 1 + pendingCount;
+        _emitExpression(entry.expr, target: targetReg);
+        if (pendingStart == -1) {
+          pendingStart = targetReg;
+        }
+        pendingCount += 1;
+        if (pendingCount == 50) {
+          flushPending();
+        }
+        continue;
+      }
+
+      flushPending();
+
+      switch (entry) {
         case KeyedTableEntry():
           final key = entry.key;
           int? fieldIndex;
@@ -644,6 +712,7 @@ class _PrototypeContext {
       }
     }
 
+    flushPending();
     return tableReg;
   }
 
@@ -1147,6 +1216,7 @@ class _PrototypeContext {
     _emitExpression(node.name, target: base);
 
     final argRegs = <int>[];
+    var hasVariadicArgs = false;
     for (var i = 0; i < node.args.length; i++) {
       final argument = node.args[i];
       final reg = _allocateRegister();
@@ -1155,12 +1225,15 @@ class _PrototypeContext {
       if (argument is VarArg) {
         final requested = isLastArg ? 0 : 1;
         _emitVarArg(target: reg, resultCount: requested);
+        if (requested == 0) {
+          hasVariadicArgs = true;
+        }
       } else {
         _emitExpression(argument, target: reg);
       }
     }
 
-    final bOperand = argRegs.length + 1;
+    final bOperand = hasVariadicArgs ? 0 : argRegs.length + 1;
     final opcode = asTailCall ? BytecodeOpcode.tailCall : BytecodeOpcode.call;
 
     int producedResults = 0;
@@ -1181,6 +1254,12 @@ class _PrototypeContext {
 
     for (var i = argRegs.length - 1; i >= 0; i--) {
       _releaseRegister(argRegs[i]);
+    }
+
+    if (hasVariadicArgs) {
+      while (_nextRegister > base) {
+        _releaseRegister(_nextRegister - 1);
+      }
     }
 
     if (asTailCall || discardResult) {
@@ -1221,6 +1300,7 @@ class _PrototypeContext {
     final fieldIndex = _ensureConstantIndex(methodIdentifier.name);
 
     final argRegs = <int>[];
+    var hasVariadicArgs = false;
     final selfReg = _allocateRegister();
     emitter.emitABC(
       opcode: BytecodeOpcode.move,
@@ -1240,11 +1320,21 @@ class _PrototypeContext {
     for (var i = 0; i < node.args.length; i++) {
       final reg = _allocateRegister();
       argRegs.add(reg);
-      _emitExpression(node.args[i], target: reg);
+      final argument = node.args[i];
+      final isLastArg = i == node.args.length - 1;
+      if (argument is VarArg) {
+        final requested = isLastArg ? 0 : 1;
+        _emitVarArg(target: reg, resultCount: requested);
+        if (requested == 0) {
+          hasVariadicArgs = true;
+        }
+      } else {
+        _emitExpression(argument, target: reg);
+      }
     }
 
     final opcode = asTailCall ? BytecodeOpcode.tailCall : BytecodeOpcode.call;
-    final bOperand = argRegs.length + 1;
+    final bOperand = hasVariadicArgs ? 0 : argRegs.length + 1;
 
     int producedResults = 0;
     final int cOperand;
@@ -1266,6 +1356,12 @@ class _PrototypeContext {
       _releaseRegister(argRegs[i]);
     }
 
+    if (hasVariadicArgs) {
+      while (_nextRegister > funcReg) {
+        _releaseRegister(_nextRegister - 1);
+      }
+    }
+
     if (asTailCall || discardResult) {
       _releaseRegister(funcReg);
     } else if (!captureAll) {
@@ -1273,6 +1369,10 @@ class _PrototypeContext {
       if (requested > 1) {
         _ensureRegister(funcReg + requested - 1);
       }
+    }
+
+    if (funcReg != objectReg) {
+      _releaseRegister(objectReg);
     }
 
     return _CallEmissionResult(
