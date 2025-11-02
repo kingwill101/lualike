@@ -29,9 +29,7 @@ class BytecodeEmitter {
     required int a,
     required int bx,
   }) {
-    return builder.addInstruction(
-      ABxInstruction(opcode: opcode, a: a, bx: bx),
-    );
+    return builder.addInstruction(ABxInstruction(opcode: opcode, a: a, bx: bx));
   }
 
   int emitAsBx({
@@ -44,22 +42,12 @@ class BytecodeEmitter {
     );
   }
 
-  int emitAx({
-    required BytecodeOpcode opcode,
-    required int ax,
-  }) {
-    return builder.addInstruction(
-      AxInstruction(opcode: opcode, ax: ax),
-    );
+  int emitAx({required BytecodeOpcode opcode, required int ax}) {
+    return builder.addInstruction(AxInstruction(opcode: opcode, ax: ax));
   }
 
-  int emitAsJ({
-    required BytecodeOpcode opcode,
-    required int sJ,
-  }) {
-    return builder.addInstruction(
-      AsJInstruction(opcode: opcode, sJ: sJ),
-    );
+  int emitAsJ({required BytecodeOpcode opcode, required int sJ}) {
+    return builder.addInstruction(AsJInstruction(opcode: opcode, sJ: sJ));
   }
 
   int emitAvBC({

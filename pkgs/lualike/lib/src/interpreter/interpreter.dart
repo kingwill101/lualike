@@ -44,14 +44,14 @@ bool _errorReporting = false;
 /// the syntax tree. Handles all runtime operations including variable management,
 /// function calls, and control flow.
 class Interpreter extends AstVisitor<Object?>
-  
     with
         InterpreterFunctionMixin,
         InterpreterAssignmentMixin,
         InterpreterControlFlowMixin,
         InterpreterExpressionMixin,
         InterpreterLiteralMixin,
-        InterpreterTableMixin  implements LuaRuntime{
+        InterpreterTableMixin
+    implements LuaRuntime {
   /// Currently active coroutine
   Coroutine? _currentCoroutine;
 
@@ -393,7 +393,7 @@ class Interpreter extends AstVisitor<Object?>
     initializeCoroutines();
 
     // Initialize standard libraries
-    initializeStandardLibrary(astVm: this);
+    initializeStandardLibrary(vm: this);
 
     // Attach this interpreter to the root environment for later lookups
     _currentEnv.interpreter = this;
@@ -885,6 +885,12 @@ class Interpreter extends AstVisitor<Object?>
   Future<Object?> callFunction(Value function, List<Object?> args) async {
     return await _callFunction(function, args);
   }
+
+  @override
+  Future<Object?> runAst(List<AstNode> program) => run(program);
+
+  @override
+  Future<Object?> evaluateAst(AstNode node) => node.accept(this);
 
   void _runAutoGCAtSafePoint() {
     final threshold = gc.autoTriggerDebtThreshold;

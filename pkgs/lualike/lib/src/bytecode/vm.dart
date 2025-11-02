@@ -11,9 +11,7 @@ import 'opcode.dart';
 /// Simple bytecode VM capable of executing the subset of opcodes produced by
 /// [LoopBytecodeCompiler].
 class LoopBytecodeVm {
-  LoopBytecodeVm({
-    required this.environment,
-  });
+  LoopBytecodeVm({required this.environment});
 
   final Environment environment;
 
@@ -137,8 +135,7 @@ class LoopBytecodeVm {
     final limit = _asNumber(registers[base + 1]);
     final nextValue = _asNumber(registers[base]) + step;
     registers[base] = nextValue;
-    final continueLoop =
-        step > 0 ? nextValue <= limit : nextValue >= limit;
+    final continueLoop = step > 0 ? nextValue <= limit : nextValue >= limit;
     if (continueLoop) {
       registers[base + 3] = nextValue;
     }
@@ -187,6 +184,8 @@ class LoopBytecodeVm {
       return;
     }
 
-    throw LuaError.typeError('attempt to index a ${tableValue.raw.runtimeType} value');
+    throw LuaError.typeError(
+      'attempt to index a ${tableValue.raw.runtimeType} value',
+    );
   }
 }

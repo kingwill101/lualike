@@ -6,7 +6,7 @@ import 'package:path/path.dart' as path_lib;
 import 'library.dart';
 
 class PackageLib {
-  final Interpreter vm;
+  final LuaRuntime vm;
   final FileManager fileManager;
 
   PackageLib(this.vm) : fileManager = vm.fileManager;
@@ -346,7 +346,7 @@ class _LuaLoader extends BuiltinFunction {
             try {
               // Run the module code
               Logger.debug("Running module code", category: 'Package');
-              await moduleInterpreter.run(ast.statements);
+              await moduleInterpreter.runAst(ast.statements);
               Logger.debug(
                 "Module code executed successfully",
                 category: 'Package',
@@ -509,8 +509,8 @@ class RequireFunction extends BuiltinFunction {
   }
 }
 
-void definePackageLibrary({required Environment env, Interpreter? astVm}) {
-  final packageLib = PackageLib(astVm ?? Interpreter());
+void definePackageLibrary({required Environment env, LuaRuntime? vm}) {
+  final packageLib = PackageLib(vm ?? Interpreter());
 
   // Create package table with metamethods
   final packageTable = ValueClass.table();
@@ -536,7 +536,7 @@ void definePackageLibrary({required Environment env, Interpreter? astVm}) {
       final path = packageTable['path'] as Value;
 
       try {
-        final searcher = _SearchPath(packageLib.fileManager, astVm);
+        final searcher = _SearchPath(packageLib.fileManager, packageLib.vm);
         final filename = searcher.call([Value(name), path]);
 
         if (filename is Value && filename.raw != null) {
@@ -581,7 +581,7 @@ void definePackageLibrary({required Environment env, Interpreter? astVm}) {
   ];
   packageTable['searchers'] = Value(searchers);
 
-  astVm?.globals.define(
+  env.define(
     "package",
     Value(packageTable, metatable: packageLib.packageClass.metamethods),
   );

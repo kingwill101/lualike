@@ -7,7 +7,11 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
   Value _detachPrimitiveValue(Value value) {
     final raw = value.raw;
     if (!value.isMulti &&
-        (raw == null || raw is num || raw is bool || raw is String || raw is LuaString)) {
+        (raw == null ||
+            raw is num ||
+            raw is bool ||
+            raw is String ||
+            raw is LuaString)) {
       return Value(raw);
     }
     return value;

@@ -151,7 +151,7 @@ void main() {
       test('larger tables result in higher memory estimates', () {
         // Get baseline with just stdlib
         final baselineEstimate = gc.estimateMemoryUse();
-        
+
         final smallTable = Value(<String, dynamic>{'a': 1});
         gc.register(smallTable);
         final smallEstimate = gc.estimateMemoryUse();
@@ -163,7 +163,10 @@ void main() {
         final largeEstimate = gc.estimateMemoryUse();
 
         // Check delta from baseline, not absolute values
-        expect(largeEstimate - baselineEstimate, greaterThan(smallEstimate - baselineEstimate));
+        expect(
+          largeEstimate - baselineEstimate,
+          greaterThan(smallEstimate - baselineEstimate),
+        );
       });
 
       test('values with upvalues increase memory estimates', () {
@@ -283,14 +286,14 @@ void main() {
         // Register objects incrementally and measure growth
         final estimates = <int>[];
         final baseline = gc.estimateMemoryUse();
-        
+
         for (int i = 0; i < 50; i++) {
           final value = Value(<String, dynamic>{
             'id': i,
             'data': List.generate(5, (j) => 'item_$j'),
           });
           gc.register(value);
-          
+
           // Record estimates at specific milestones
           if (i == 0 || i == 4 || i == 9 || i == 24 || i == 49) {
             estimates.add(gc.estimateMemoryUse() - baseline);

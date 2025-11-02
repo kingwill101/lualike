@@ -155,10 +155,7 @@ class BytecodePrototype {
 
 /// Complete bytecode chunk ready for serialization/execution.
 class BytecodeChunk {
-  const BytecodeChunk({
-    required this.flags,
-    required this.mainPrototype,
-  });
+  const BytecodeChunk({required this.flags, required this.mainPrototype});
 
   final BytecodeChunkFlags flags;
   final BytecodePrototype mainPrototype;

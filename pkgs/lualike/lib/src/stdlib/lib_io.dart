@@ -1,5 +1,5 @@
 import 'package:lualike/src/builtin_function.dart';
-import 'package:lualike/src/interpreter/interpreter.dart';
+import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_string.dart';
@@ -18,7 +18,7 @@ class IOLibrary extends Library {
   String get name => "io";
 
   @override
-  Map<String, Function>? getMetamethods(Interpreter interpreter) => null;
+  Map<String, Function>? getMetamethods(LuaRuntime interpreter) => null;
 
   @override
   void registerFunctions(LibraryRegistrationContext context) {
@@ -468,11 +468,13 @@ class IOOutput extends BuiltinFunction {
 
     Logger.debug('About to handle current default output', category: 'IO');
     // Avoid hanging - just set the new output without closing problematic files
-    if (IOLib._defaultOutput != null &&
-        IOLib._defaultOutput!.raw is LuaFile) {
+    if (IOLib._defaultOutput != null && IOLib._defaultOutput!.raw is LuaFile) {
       final currentFile = IOLib._defaultOutput!.raw as LuaFile;
       if (currentFile.device is! StdoutDevice) {
-        Logger.debug('Closing previous default output before replacement', category: 'IO');
+        Logger.debug(
+          'Closing previous default output before replacement',
+          category: 'IO',
+        );
         await currentFile.close();
       }
     }

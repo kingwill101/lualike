@@ -262,7 +262,7 @@ class AssertFunction extends BuiltinFunction {
   AssertFunction(super.interpreter);
 
   @override
-  Object? call(List<Object?> args) {
+  Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) throw LuaError("assert requires at least one argument");
     final condition = args[0];
 
@@ -1149,7 +1149,7 @@ class LoadFunction extends BuiltinFunction {
                 if (directASTNode is FunctionBody) {
                   // Create a function value from the AST that will inherit upvalues
                   final funcValue =
-                      await directASTNode.accept(interpreter!) as Value;
+                      await interpreter!.evaluateAst(directASTNode) as Value;
                   if (funcValue.raw is Function) {
                     return await interpreter!.callFunction(funcValue, callArgs);
                   } else {
@@ -1157,7 +1157,7 @@ class LoadFunction extends BuiltinFunction {
                   }
                 } else {
                   // For other AST nodes, evaluate directly
-                  return await directASTNode!.accept(interpreter!);
+                  return await interpreter!.evaluateAst(directASTNode!);
                 }
               } finally {
                 interpreter!.setCurrentEnv(savedEnv);
@@ -1216,7 +1216,7 @@ class LoadFunction extends BuiltinFunction {
           try {
             final functionBody = directASTNode;
             final directFunction =
-                await functionBody.accept(interpreter!) as Value;
+                await interpreter!.evaluateAst(functionBody) as Value;
 
             // Initialize upvalues for this function using original upvalue names
             directFunction.upvalues = [];
@@ -1345,7 +1345,7 @@ class LoadFunction extends BuiltinFunction {
                   "LoadFunction: About to execute code in environment ${interpreter!.getCurrentEnv().hashCode}",
                   category: 'Load',
                 );
-                final result = await interpreter!.run(ast.statements);
+                final result = await interpreter!.runAst(ast.statements);
                 Logger.debug(
                   "LoadFunction: Code execution completed in environment ${interpreter!.getCurrentEnv().hashCode}",
                   category: 'Load',
@@ -1510,7 +1510,7 @@ class DoFileFunction extends BuiltinFunction {
       final ast = parse(source, url: filename);
 
       // Execute in current VM context
-      final result = await interpreter!.run(ast.statements);
+      final result = await interpreter!.runAst(ast.statements);
 
       // Return result or nil if no result
       return result;
@@ -1668,7 +1668,8 @@ class LoadfileFunction extends BuiltinFunction {
                 currentVm.currentScriptPath = filename;
                 try {
                   final astNode = chunkInfo.originalFunctionBody!;
-                  final funcValue = await astNode.accept(currentVm) as Value;
+                  final funcValue =
+                      await currentVm.evaluateAst(astNode) as Value;
                   if (funcValue.raw is Function) {
                     return await currentVm.callFunction(funcValue, callArgs);
                   } else {
@@ -1746,7 +1747,8 @@ class LoadfileFunction extends BuiltinFunction {
                   currentVm.currentScriptPath = filename;
                   try {
                     final astNode = chunkInfo.originalFunctionBody!;
-                    final funcValue = await astNode.accept(currentVm) as Value;
+                    final funcValue =
+                        await currentVm.evaluateAst(astNode) as Value;
                     if (funcValue.raw is Function) {
                       return await currentVm.callFunction(funcValue, callArgs);
                     } else {
@@ -1832,7 +1834,8 @@ class LoadfileFunction extends BuiltinFunction {
                   currentVm.currentScriptPath = filename;
                   try {
                     final astNode = chunkInfo.originalFunctionBody!;
-                    final funcValue = await astNode.accept(currentVm) as Value;
+                    final funcValue =
+                        await currentVm.evaluateAst(astNode) as Value;
                     if (funcValue.raw is Function) {
                       return await currentVm.callFunction(funcValue, callArgs);
                     } else {
@@ -1887,7 +1890,7 @@ class LoadfileFunction extends BuiltinFunction {
             currentVm.setCurrentEnv(loadEnv);
             currentVm.currentScriptPath = filename;
             try {
-              final r = await currentVm.run(ast.statements);
+              final r = await currentVm.runAst(ast.statements);
               Logger.debug(
                 'loadfile: executed chunk, result=$r',
                 category: 'Load',
@@ -1901,7 +1904,7 @@ class LoadfileFunction extends BuiltinFunction {
             final prevPath = currentVm.currentScriptPath;
             currentVm.currentScriptPath = filename;
             try {
-              final r = await currentVm.run(ast.statements);
+              final r = await currentVm.runAst(ast.statements);
               Logger.debug(
                 'loadfile: executed chunk, result=$r',
                 category: 'Load',
@@ -1935,7 +1938,7 @@ class LoadfileFunction extends BuiltinFunction {
 }
 
 class NextFunction extends BuiltinFunction {
-  NextFunction(Interpreter super.interpreter);
+  NextFunction(LuaRuntime super.interpreter);
 
   @override
   Object? call(List<Object?> args) {
@@ -2037,7 +2040,7 @@ class PCAllFunction extends BuiltinFunction {
   PCAllFunction(super.interpreter);
 
   @override
-  Object? call(List<Object?> args) async {
+  Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) throw LuaError("pcall requires a function");
     final func = args[0] as Value;
     final callArgs = args.sublist(1);
@@ -2113,7 +2116,7 @@ class PCAllFunction extends BuiltinFunction {
 }
 
 class RawEqualFunction extends BuiltinFunction {
-  RawEqualFunction(Interpreter super.interpreter);
+  RawEqualFunction(LuaRuntime super.interpreter);
 
   @override
   Object? call(List<Object?> args) {
@@ -2125,7 +2128,7 @@ class RawEqualFunction extends BuiltinFunction {
 }
 
 class RawLenFunction extends BuiltinFunction {
-  RawLenFunction(Interpreter super.interpreter);
+  RawLenFunction(LuaRuntime super.interpreter);
 
   @override
   Object? call(List<Object?> args) {
@@ -2139,7 +2142,7 @@ class RawLenFunction extends BuiltinFunction {
 }
 
 class WarnFunction extends BuiltinFunction {
-  WarnFunction(Interpreter super.interpreter);
+  WarnFunction(LuaRuntime super.interpreter);
 
   bool _enabled = true;
 
@@ -2184,7 +2187,7 @@ class XPCallFunction extends BuiltinFunction {
   XPCallFunction(super.interpreter);
 
   @override
-  Object? call(List<Object?> args) async {
+  Future<Object?> call(List<Object?> args) async {
     if (args.length < 2) {
       throw LuaError("xpcall requires at least two arguments");
     }
@@ -2280,198 +2283,200 @@ class CollectGarbageFunction extends BuiltinFunction {
   String _currentMode = "incremental"; // Default mode
 
   @override
-  Object? call(List<Object?> args) async {
+  Future<Object?> call(List<Object?> args) async {
     final option = args.isNotEmpty
         ? (args[0] as Value).raw.toString()
         : "collect";
     Logger.debug('CollectGarbageFunction: option: $option', category: 'Base');
 
-    switch (option) {
-      case "collect":
-        // "collect": Performs a full garbage-collection cycle
-        final gcManager = interpreter!.gc;
-        if (gcManager.isFinalizerActive) {
-          // Lua returns false when collection is in a finalizer to prevent
-          // re-entrancy (the finalizer may attempt another collect).
-          return Value(false);
-        }
-        if (gcManager.isCycleActive) {
-          final drained = gcManager.drainCurrentIncrementalCycle(
-            maxIterations: 8192,
-            stepSize: 512,
-          );
-          if (!drained && Logger.enabled) {
-            Logger.debug(
-              'collectgarbage("collect") could not drain incremental cycle before manual collect (phase=${gcManager.currentPhase})',
-              category: 'Base',
+    return () async {
+      switch (option) {
+        case "collect":
+          // "collect": Performs a full garbage-collection cycle
+          final gcManager = interpreter!.gc;
+          if (gcManager.isFinalizerActive) {
+            // Lua returns false when collection is in a finalizer to prevent
+            // re-entrancy (the finalizer may attempt another collect).
+            return Value(false);
+          }
+          if (gcManager.isCycleActive) {
+            final drained = gcManager.drainCurrentIncrementalCycle(
+              maxIterations: 8192,
+              stepSize: 512,
             );
-          }
-        }
-        if (!gcManager.tryEnterManualCollect()) {
-          return Value(false);
-        }
-        try {
-          final wasStopped = gcManager.isStopped;
-          final previousAuto = gcManager.autoTriggerEnabled;
-          if (wasStopped) {
-            gcManager.start();
-          } else {
-            gcManager.autoTriggerEnabled = previousAuto;
-          }
-          var lastTotal = gcManager.estimateMemoryUse();
-          // Run at least once, but keep iterating while we keep freeing a
-          // meaningful amount of memory. This mirrors Lua's behaviour where a
-          // full collection may need multiple cycles to finish finalizers and
-          // clear weak tables before reporting stable memory numbers.
-          const maxPasses = 4;
-          for (var pass = 0; pass < maxPasses; pass++) {
-            final sw = Stopwatch()..start();
-            await gcManager.majorCollection(interpreter!.getRoots());
-            sw.stop();
-            if (Logger.enabled) {
+            if (!drained && Logger.enabled) {
               Logger.debug(
-                'manual collect major pass #$pass took ${sw.elapsedMilliseconds}ms',
-                category: 'GC',
+                'collectgarbage("collect") could not drain incremental cycle before manual collect (phase=${gcManager.currentPhase})',
+                category: 'Base',
               );
             }
-            final currentTotal = gcManager.estimateMemoryUse();
-            final reclaimed = lastTotal - currentTotal;
-            if (gcManager.hasPendingFinalizers) {
+          }
+          if (!gcManager.tryEnterManualCollect()) {
+            return Value(false);
+          }
+          try {
+            final wasStopped = gcManager.isStopped;
+            final previousAuto = gcManager.autoTriggerEnabled;
+            if (wasStopped) {
+              gcManager.start();
+            } else {
+              gcManager.autoTriggerEnabled = previousAuto;
+            }
+            var lastTotal = gcManager.estimateMemoryUse();
+            // Run at least once, but keep iterating while we keep freeing a
+            // meaningful amount of memory. This mirrors Lua's behaviour where a
+            // full collection may need multiple cycles to finish finalizers and
+            // clear weak tables before reporting stable memory numbers.
+            const maxPasses = 4;
+            for (var pass = 0; pass < maxPasses; pass++) {
+              final sw = Stopwatch()..start();
+              await gcManager.majorCollection(interpreter!.getRoots());
+              sw.stop();
+              if (Logger.enabled) {
+                Logger.debug(
+                  'manual collect major pass #$pass took ${sw.elapsedMilliseconds}ms',
+                  category: 'GC',
+                );
+              }
+              final currentTotal = gcManager.estimateMemoryUse();
+              final reclaimed = lastTotal - currentTotal;
+              if (gcManager.hasPendingFinalizers) {
+                lastTotal = currentTotal;
+                continue;
+              }
+              // Stop once the reclaimed credits drop below 0.5 KB (or we regressed)
+              // – further passes would not materially change collectgarbage("count")
+              // results and would just repeat the same work.
+              if (reclaimed <= 512) {
+                break;
+              }
               lastTotal = currentTotal;
-              continue;
             }
-            // Stop once the reclaimed credits drop below 0.5 KB (or we regressed)
-            // – further passes would not materially change collectgarbage("count")
-            // results and would just repeat the same work.
-            if (reclaimed <= 512) {
-              break;
+            if (gcManager.hasPendingFinalizers) {
+              await gcManager.majorCollection(interpreter!.getRoots());
             }
-            lastTotal = currentTotal;
+            if (wasStopped) {
+              gcManager.stop();
+            } else {
+              gcManager.autoTriggerEnabled = previousAuto;
+            }
+            gcManager.noteManualCollectCompletion();
+            return Value(true);
+          } finally {
+            gcManager.exitManualCollect();
           }
-          if (gcManager.hasPendingFinalizers) {
-            await gcManager.majorCollection(interpreter!.getRoots());
-          }
-          if (wasStopped) {
-            gcManager.stop();
+
+        case "count":
+          // Return total memory in KB as two values: integer KB and fractional part
+          // This matches Lua 5.4 spec: collectgarbage("count") returns (kb, frac)
+          final totalCredits = interpreter!.gc.estimateMemoryUse();
+          final totalKB = totalCredits / 1024.0;
+          final integerKB = totalKB.floor().toDouble();
+          final fractionalKB = totalKB - integerKB;
+          return Value.multi([Value(integerKB), Value(fractionalKB)]);
+
+        case "step":
+          // "step": Performs a garbage-collection step
+          // The step "size" is controlled by arg
+          // With a zero value, the collector will perform one basic (indivisible) step
+          // For non-zero values, the collector will perform as if that amount of memory
+          // (in Kbytes) had been allocated by Lua
+          final stepSize = args.length > 1 ? (args[1] as Value).raw as num : 0;
+          bool cycleComplete = false;
+          if (stepSize == 0) {
+            cycleComplete = interpreter!.gc.performIncrementalStep(1);
           } else {
-            gcManager.autoTriggerEnabled = previousAuto;
+            final sizeKb = stepSize.abs().toInt().clamp(1, 1 << 20);
+            cycleComplete = interpreter!.gc.performManualStep(sizeKb);
           }
-          gcManager.noteManualCollectCompletion();
+          // Returns true if the step finished a collection cycle
+          return Value(cycleComplete);
+
+        case "incremental":
+          // "incremental": Change the collector mode to incremental
+          // Can be followed by three numbers:
+          // - the garbage-collector pause
+          // - the step multiplier
+          // - the step size
+          // A zero means to not change that value
+          final oldMode = _currentMode;
+          _currentMode = "incremental";
+
+          if (args.length > 1) {
+            interpreter!.gc.majorMultiplier = (args[1] as Value).raw as int;
+          }
+          if (args.length > 2) {
+            interpreter!.gc.minorMultiplier = (args[2] as Value).raw as int;
+          }
+          if (args.length > 3) {
+            interpreter!.gc.stepSize = (args[3] as Value).raw as int;
+          }
+          return Value(oldMode);
+
+        case "generational":
+          // "generational": Change the collector mode to generational
+          // Can be followed by two numbers:
+          // - the garbage-collector minor multiplier
+          // - the major multiplier
+          // A zero means to not change that value
+          final oldMode = _currentMode;
+          _currentMode = "generational";
+
+          if (args.length > 1) {
+            interpreter!.gc.minorMultiplier = (args[1] as Value).raw as int;
+          }
+          if (args.length > 2) {
+            interpreter!.gc.majorMultiplier = (args[2] as Value).raw as int;
+          }
+          return Value(oldMode);
+
+        case "isrunning":
+          // "isrunning": Returns a boolean that tells whether the collector
+          // is running (i.e., not stopped)
+          return Value(!interpreter!.gc.isStopped);
+
+        case "stop":
+          // "stop": Stops automatic execution of the garbage collector
+          // The collector will run only when explicitly invoked, until a call to restart it
+          interpreter!.gc.stop();
+          interpreter!.gc.autoTriggerEnabled = false;
           return Value(true);
-        } finally {
-          gcManager.exitManualCollect();
-        }
 
-      case "count":
-        // Return total memory in KB as two values: integer KB and fractional part
-        // This matches Lua 5.4 spec: collectgarbage("count") returns (kb, frac)
-        final totalCredits = interpreter!.gc.estimateMemoryUse();
-        final totalKB = totalCredits / 1024.0;
-        final integerKB = totalKB.floor().toDouble();
-        final fractionalKB = totalKB - integerKB;
-        return Value.multi([Value(integerKB), Value(fractionalKB)]);
+        case "restart":
+          // "restart": Restarts automatic execution of the garbage collector
+          interpreter!.gc.start();
+          interpreter!.gc.autoTriggerEnabled = true;
+          return Value(true);
 
-      case "step":
-        // "step": Performs a garbage-collection step
-        // The step "size" is controlled by arg
-        // With a zero value, the collector will perform one basic (indivisible) step
-        // For non-zero values, the collector will perform as if that amount of memory
-        // (in Kbytes) had been allocated by Lua
-        final stepSize = args.length > 1 ? (args[1] as Value).raw as num : 0;
-        bool cycleComplete = false;
-        if (stepSize == 0) {
-          cycleComplete = interpreter!.gc.performIncrementalStep(1);
-        } else {
-          final sizeKb = stepSize.abs().toInt().clamp(1, 1 << 20);
-          cycleComplete = interpreter!.gc.performManualStep(sizeKb);
-        }
-        // Returns true if the step finished a collection cycle
-        return Value(cycleComplete);
+        case "setpause":
+          // "setpause": Sets the pause of the collector
+          // Returns the previous value of the pause
+          final oldPause = interpreter!.gc.majorMultiplier;
+          if (args.length > 1) {
+            final newPause = (args[1] as Value).raw as num;
+            interpreter!.gc.majorMultiplier = newPause.toInt();
+          }
+          return Value(oldPause);
 
-      case "incremental":
-        // "incremental": Change the collector mode to incremental
-        // Can be followed by three numbers:
-        // - the garbage-collector pause
-        // - the step multiplier
-        // - the step size
-        // A zero means to not change that value
-        final oldMode = _currentMode;
-        _currentMode = "incremental";
+        case "setstepmul":
+          // "setstepmul": Sets the step multiplier of the collector
+          // Returns the previous value of the step multiplier
+          final oldStepMul = interpreter!.gc.minorMultiplier;
+          if (args.length > 1) {
+            final newStepMul = (args[1] as Value).raw as num;
+            interpreter!.gc.minorMultiplier = newStepMul.toInt();
+          }
+          return Value(oldStepMul);
 
-        if (args.length > 1) {
-          interpreter!.gc.majorMultiplier = (args[1] as Value).raw as int;
-        }
-        if (args.length > 2) {
-          interpreter!.gc.minorMultiplier = (args[2] as Value).raw as int;
-        }
-        if (args.length > 3) {
-          interpreter!.gc.stepSize = (args[3] as Value).raw as int;
-        }
-        return Value(oldMode);
-
-      case "generational":
-        // "generational": Change the collector mode to generational
-        // Can be followed by two numbers:
-        // - the garbage-collector minor multiplier
-        // - the major multiplier
-        // A zero means to not change that value
-        final oldMode = _currentMode;
-        _currentMode = "generational";
-
-        if (args.length > 1) {
-          interpreter!.gc.minorMultiplier = (args[1] as Value).raw as int;
-        }
-        if (args.length > 2) {
-          interpreter!.gc.majorMultiplier = (args[2] as Value).raw as int;
-        }
-        return Value(oldMode);
-
-      case "isrunning":
-        // "isrunning": Returns a boolean that tells whether the collector
-        // is running (i.e., not stopped)
-        return Value(!interpreter!.gc.isStopped);
-
-      case "stop":
-        // "stop": Stops automatic execution of the garbage collector
-        // The collector will run only when explicitly invoked, until a call to restart it
-        interpreter!.gc.stop();
-        interpreter!.gc.autoTriggerEnabled = false;
-        return Value(true);
-
-      case "restart":
-        // "restart": Restarts automatic execution of the garbage collector
-        interpreter!.gc.start();
-        interpreter!.gc.autoTriggerEnabled = true;
-        return Value(true);
-
-      case "setpause":
-        // "setpause": Sets the pause of the collector
-        // Returns the previous value of the pause
-        final oldPause = interpreter!.gc.majorMultiplier;
-        if (args.length > 1) {
-          final newPause = (args[1] as Value).raw as num;
-          interpreter!.gc.majorMultiplier = newPause.toInt();
-        }
-        return Value(oldPause);
-
-      case "setstepmul":
-        // "setstepmul": Sets the step multiplier of the collector
-        // Returns the previous value of the step multiplier
-        final oldStepMul = interpreter!.gc.minorMultiplier;
-        if (args.length > 1) {
-          final newStepMul = (args[1] as Value).raw as num;
-          interpreter!.gc.minorMultiplier = newStepMul.toInt();
-        }
-        return Value(oldStepMul);
-
-      default:
-        throw LuaError("invalid option for collectgarbage: $option");
-    }
+        default:
+          throw LuaError("invalid option for collectgarbage: $option");
+      }
+    }();
   }
 }
 
 class RawGetFunction extends BuiltinFunction {
-  RawGetFunction(Interpreter super.interpreter);
+  RawGetFunction(LuaRuntime super.interpreter);
 
   @override
   Object? call(List<Object?> args) {
@@ -2780,7 +2785,7 @@ class RequireFunction extends BuiltinFunction {
           Object? result;
           try {
             // Run the module code within the current interpreter
-            result = await interpreter!.run(ast.statements);
+            result = await interpreter!.runAst(ast.statements);
             // If the script didn't return anything, result will be null
             result ??= Value(null);
           } on ReturnException catch (e) {

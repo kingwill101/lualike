@@ -129,9 +129,9 @@ class TestRunner {
             final _ = await executeCode(
               sourceCode,
               // mode,
-              onInterpreterSetup: (interpreter) {
+              onRuntimeSetup: (runtime) {
                 if (useInternalTests) {
-                  _injectInternalTestFunctions(interpreter.globals);
+                  _injectInternalTestFunctions(runtime.globals);
                 }
               },
             );
@@ -337,9 +337,9 @@ class TestRunner {
         final _ = await executeCode(
           sourceCode,
           // mode,
-          onInterpreterSetup: (interpreter) {
+          onRuntimeSetup: (runtime) {
             if (useInternalTests) {
-              _injectInternalTestFunctions(interpreter.globals);
+              _injectInternalTestFunctions(runtime.globals);
             }
           },
         );

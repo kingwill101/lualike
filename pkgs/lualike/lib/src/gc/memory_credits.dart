@@ -22,10 +22,12 @@ class MemoryCredits {
   final Expando<GCGenerationSpace> _objectSpaces = Expando<GCGenerationSpace>(
     'gcSpace',
   );
-  
+
   // Debug: Track allocation stack traces
   static bool enableStackTraces = false;
-  final Expando<StackTrace> _objectStackTraces = Expando<StackTrace>('objectStackTraces');
+  final Expando<StackTrace> _objectStackTraces = Expando<StackTrace>(
+    'objectStackTraces',
+  );
   final List<GCObject> _trackedObjects = [];
 
   int _total = 0;
@@ -48,9 +50,9 @@ class MemoryCredits {
       }
       return;
     }
-    
+
     final credits = obj.estimatedSize;
-    
+
     // Debug: Capture stack trace if enabled
     if (enableStackTraces) {
       // Capture current stack trace BEFORE any async operations
@@ -64,13 +66,18 @@ class MemoryCredits {
         _trackedObjects.add(obj);
       }
     }
-    
+
     // Debug: Log allocations during large operations
     if (Logger.enabled && _total > 1000000 && credits > 100) {
-      final objType = obj is Value ? 'Value(${obj.raw?.runtimeType ?? 'null'})' : obj.runtimeType.toString();
-      Logger.debug('[MemoryCredits] onAllocate during large op: $objType#${obj.hashCode}, credits=$credits, _total: $_total -> ${_total+credits}', category: 'GC');
+      final objType = obj is Value
+          ? 'Value(${obj.raw?.runtimeType ?? 'null'})'
+          : obj.runtimeType.toString();
+      Logger.debug(
+        '[MemoryCredits] onAllocate during large op: $objType#${obj.hashCode}, credits=$credits, _total: $_total -> ${_total + credits}',
+        category: 'GC',
+      );
     }
-    
+
     _objectCredits[obj] = credits;
     _objectSpaces[obj] = space;
     _total += credits;
@@ -164,7 +171,7 @@ class MemoryCredits {
     _old = recalculatedOld;
     _total = recalculatedYoung + recalculatedOld;
   }
-  
+
   /// Prints an allocation tree showing what objects are currently tracked
   /// and where they were allocated from (if stack traces are enabled).
   void printAllocationTree() {
@@ -176,12 +183,12 @@ class MemoryCredits {
     final snapshot = List<GCObject>.from(_trackedObjects);
 
     buffer.writeln('Tracked Objects: ${snapshot.length}');
-    for(final obj in snapshot) {
-        buffer.writeln('$obj');
+    for (final obj in snapshot) {
+      buffer.writeln('$obj');
     }
 
     buffer.writeln();
-    
+
     // Group by type
     final byType = <String, List<GCObject>>{};
     for (final obj in snapshot) {
@@ -197,30 +204,43 @@ class MemoryCredits {
         byType.putIfAbsent(typeName, () => []).add(obj);
       }
     }
-    
+
     // Sort by total credits per type
     final sortedTypes = byType.entries.toList()
       ..sort((a, b) {
-        final aTotal = a.value.fold<int>(0, (sum, obj) => sum + (_objectCredits[obj] ?? 0));
-        final bTotal = b.value.fold<int>(0, (sum, obj) => sum + (_objectCredits[obj] ?? 0));
+        final aTotal = a.value.fold<int>(
+          0,
+          (sum, obj) => sum + (_objectCredits[obj] ?? 0),
+        );
+        final bTotal = b.value.fold<int>(
+          0,
+          (sum, obj) => sum + (_objectCredits[obj] ?? 0),
+        );
         return bTotal.compareTo(aTotal);
       });
-    
+
     for (final entry in sortedTypes) {
       final typeName = entry.key;
       final objects = entry.value;
-      final totalCredits = objects.fold<int>(0, (sum, obj) => sum + (_objectCredits[obj] ?? 0));
-      
-      buffer.writeln('$typeName: ${objects.length} objects, $totalCredits credits');
-      
+      final totalCredits = objects.fold<int>(
+        0,
+        (sum, obj) => sum + (_objectCredits[obj] ?? 0),
+      );
+
+      buffer.writeln(
+        '$typeName: ${objects.length} objects, $totalCredits credits',
+      );
+
       // Show top 3 instances with stack traces
       final sortedObjs = objects.toList()
-        ..sort((a, b) => (_objectCredits[b] ?? 0).compareTo(_objectCredits[a] ?? 0));
-      
+        ..sort(
+          (a, b) => (_objectCredits[b] ?? 0).compareTo(_objectCredits[a] ?? 0),
+        );
+
       for (var i = 0; i < sortedObjs.length && i < 3; i++) {
         final obj = sortedObjs[i];
         final credits = _objectCredits[obj] ?? 0;
-        
+
         // Add useful object info to the output
         String objInfo = '#${obj.hashCode}: $credits credits';
         if (obj is Value) {
@@ -230,15 +250,19 @@ class MemoryCredits {
           final raw = obj.raw;
           if (raw is LuaString && raw.length <= 200) {
             final preview = raw.toString();
-            final truncated = preview.length > 50 ? '${preview.substring(0, 50)}...' : preview;
+            final truncated = preview.length > 50
+                ? '${preview.substring(0, 50)}...'
+                : preview;
             objInfo += ' content="$truncated"';
           } else if (raw is String && raw.length <= 200) {
-            final truncated = raw.length > 50 ? '${raw.substring(0, 50)}...' : raw;
+            final truncated = raw.length > 50
+                ? '${raw.substring(0, 50)}...'
+                : raw;
             objInfo += ' content="$truncated"';
           }
         }
         buffer.writeln('  ├─ $objInfo');
-        
+
         if (enableStackTraces) {
           final trace = _objectStackTraces[obj];
           if (trace != null) {
@@ -250,7 +274,7 @@ class MemoryCredits {
             for (final frame in allFrames) {
               buffer.writeln('  │  $frame');
             }
-            
+
             if (allFrames.isEmpty) {
               buffer.writeln('  │  (no relevant stack frames)');
             }
@@ -262,11 +286,11 @@ class MemoryCredits {
       }
       buffer.writeln();
     }
-    
+
     buffer.writeln('=============================\n');
     print(buffer.toString());
   }
-  
+
   /// Clears tracked objects list (for debugging specific allocations)
   void clearTrackedObjects() {
     _trackedObjects.clear();

@@ -2,14 +2,14 @@ import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/environment.dart';
-import 'package:lualike/src/interpreter/interpreter.dart';
+import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/number_utils.dart';
 import 'package:lualike/src/value.dart';
 
 import 'library.dart';
 
-Value _threadValue(Interpreter interpreter, Coroutine coroutine) =>
+Value _threadValue(LuaRuntime interpreter, Coroutine coroutine) =>
     Value(coroutine, interpreter: interpreter);
 
 Coroutine _expectCoroutine(Object? raw, String functionName, int index) {
@@ -49,7 +49,7 @@ FunctionBody? _requireFunctionBody(Value functionValue, String functionName) {
 }
 
 Environment _resolveClosureEnvironment(
-  Interpreter interpreter,
+  LuaRuntime interpreter,
   Value functionValue,
 ) {
   return functionValue.closureEnvironment ?? interpreter.getCurrentEnv();
@@ -63,7 +63,7 @@ bool _isTrue(Object? value) {
   return raw != null && raw != false;
 }
 
-String _statusToString(Interpreter interpreter, Coroutine coroutine) {
+String _statusToString(LuaRuntime interpreter, Coroutine coroutine) {
   final Coroutine main = interpreter.getMainThread();
   final Coroutine? current = interpreter.getCurrentCoroutine();
 
@@ -97,7 +97,7 @@ class CoroutineLibrary extends Library {
   String get name => "coroutine";
 
   @override
-  Map<String, Function>? getMetamethods(Interpreter interpreter) => {
+  Map<String, Function>? getMetamethods(LuaRuntime interpreter) => {
     "__index": (List<Object?> args) {
       final _ = args[0] as Value;
       final keyValue = args[1] as Value;
@@ -145,7 +145,7 @@ class CoroutineLibrary extends Library {
 class _CoroutineRunning extends BuiltinFunction {
   _CoroutineRunning(this._interpreter);
 
-  final Interpreter _interpreter;
+  final LuaRuntime _interpreter;
 
   @override
   Object? call(List<Object?> args) {
@@ -160,7 +160,7 @@ class _CoroutineRunning extends BuiltinFunction {
 class _CoroutineStatus extends BuiltinFunction {
   _CoroutineStatus(this._interpreter);
 
-  final Interpreter _interpreter;
+  final LuaRuntime _interpreter;
 
   @override
   Object? call(List<Object?> args) {
@@ -178,7 +178,7 @@ class _CoroutineStatus extends BuiltinFunction {
 class _CoroutineCreate extends BuiltinFunction {
   _CoroutineCreate(this._interpreter);
 
-  final Interpreter _interpreter;
+  final LuaRuntime _interpreter;
 
   @override
   Object? call(List<Object?> args) {
@@ -209,7 +209,7 @@ class _CoroutineCreate extends BuiltinFunction {
 class _CoroutineResume extends BuiltinFunction {
   _CoroutineResume(this._interpreter);
 
-  final Interpreter _interpreter;
+  final LuaRuntime _interpreter;
 
   @override
   Future<Object?> call(List<Object?> args) async {
@@ -242,7 +242,7 @@ class _CoroutineResume extends BuiltinFunction {
 class _CoroutineYield extends BuiltinFunction {
   _CoroutineYield(this._interpreter);
 
-  final Interpreter _interpreter;
+  final LuaRuntime _interpreter;
 
   @override
   Future<Object?> call(List<Object?> args) async {
@@ -263,7 +263,7 @@ class _CoroutineYield extends BuiltinFunction {
 class _CoroutineWrap extends BuiltinFunction {
   _CoroutineWrap(this._interpreter);
 
-  final Interpreter _interpreter;
+  final LuaRuntime _interpreter;
 
   @override
   Object? call(List<Object?> args) {

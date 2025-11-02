@@ -104,12 +104,7 @@ class LoopBytecodeCompiler {
       sBx: 0, // placeholder
     );
 
-    emitter.emitABC(
-      opcode: BytecodeOpcode.return0,
-      a: 0,
-      b: 0,
-      c: 0,
-    );
+    emitter.emitABC(opcode: BytecodeOpcode.return0, a: 0, b: 0, c: 0);
 
     // Patch FORPREP / FORLOOP offsets.
     final patchedForPrep = AsBxInstruction(
@@ -305,12 +300,7 @@ class LoopBytecodeCompiler {
     }
 
     if (node is GroupedExpression) {
-      return _compileExpression(
-        node.expr,
-        emitter,
-        protoBuilder,
-        allocator,
-      );
+      return _compileExpression(node.expr, emitter, protoBuilder, allocator);
     }
 
     if (node is BinaryExpression) {
@@ -341,12 +331,7 @@ class LoopBytecodeCompiler {
       if (opcode == null) {
         return null;
       }
-      emitter.emitABC(
-        opcode: opcode,
-        a: dest,
-        b: leftReg,
-        c: rightReg,
-      );
+      emitter.emitABC(opcode: opcode, a: dest, b: leftReg, c: rightReg);
       return dest;
     }
 
@@ -370,11 +355,7 @@ class LoopBytecodeCompiler {
       final reg = allocator.allocateTemp();
       final constant = _makeNumberConstant(node.value);
       final constIndex = protoBuilder.addConstant(constant);
-      emitter.emitABx(
-        opcode: BytecodeOpcode.loadK,
-        a: reg,
-        bx: constIndex,
-      );
+      emitter.emitABx(opcode: BytecodeOpcode.loadK, a: reg, bx: constIndex);
       return reg;
     }
 

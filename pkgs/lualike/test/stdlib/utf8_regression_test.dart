@@ -72,10 +72,10 @@ void main() {
         expect((lua.getGlobal('cp') as Value).raw, equals(128)); // U+0080
         expect((lua.getGlobal('off') as Value).raw, equals(1));
 
-      final codesVal = lua.getGlobal('codes') as Value;
-      final codesTable = codesVal.raw as Map;
-      expect(codesTable.length, equals(1));
-      expect((codesTable[1] as Value).raw, equals(128));
+        final codesVal = lua.getGlobal('codes') as Value;
+        final codesTable = codesVal.raw as Map;
+        expect(codesTable.length, equals(1));
+        expect((codesTable[1] as Value).raw, equals(128));
       });
     });
 

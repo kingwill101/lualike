@@ -36,7 +36,7 @@ class LoggingLibrary extends Library {
     context.define("set_category", _LoggingSetCategory());
     context.define("set_categories", _LoggingSetCategories());
     context.define("reset_filters", _LoggingResetFilters());
-    
+
     // Logging functions with full context support
     context.define("debug", _LoggingDebug());
     context.define("info", _LoggingInfo());
@@ -139,7 +139,8 @@ class _LoggingSetCategories extends BuiltinFunction {
     }
 
     final categoriesArg = args[0];
-    if (categoriesArg == null || (categoriesArg is Value && categoriesArg.raw == null)) {
+    if (categoriesArg == null ||
+        (categoriesArg is Value && categoriesArg.raw == null)) {
       Logger.setCategoryFilters(null);
       return Value(true);
     }
@@ -259,10 +260,7 @@ class _LoggingError extends BuiltinFunction {
   }
 }
 
-ctx.Level _extractLevel(
-  Object? arg, {
-  ctx.Level fallback = ctx.Level.info,
-}) {
+ctx.Level _extractLevel(Object? arg, {ctx.Level fallback = ctx.Level.info}) {
   final name = _extractString(arg, allowNull: true);
   if (name == null || name.isEmpty) {
     return fallback;
@@ -347,11 +345,11 @@ String _stringFromRaw(Object? raw) {
 /// Extract a set of categories from a Lua value (table/array)
 Set<String> _extractCategories(Object? arg) {
   final categories = <String>{};
-  
+
   if (arg == null) return categories;
-  
+
   final raw = arg is Value ? arg.raw : arg;
-  
+
   if (raw is Map) {
     // Iterate through table (array-like or key-value)
     for (final entry in raw.entries) {
@@ -374,7 +372,7 @@ Set<String> _extractCategories(Object? arg) {
       categories.add(str);
     }
   }
-  
+
   return categories;
 }
 
@@ -384,11 +382,7 @@ class _LogContext {
   final Set<String>? categories;
   final Map<String, Object?>? context;
 
-  _LogContext({
-    this.singleCategory,
-    this.categories,
-    this.context,
-  });
+  _LogContext({this.singleCategory, this.categories, this.context});
 }
 
 /// Extract log context from Lua options table
@@ -403,7 +397,7 @@ _LogContext _extractLogContext(Object? opts) {
   }
 
   final raw = opts is Value ? opts.raw : opts;
-  
+
   if (raw is! Map) {
     // Not a table, no context
     return _LogContext();
@@ -440,15 +434,15 @@ _LogContext _extractLogContext(Object? opts) {
 /// Convert Lua value to Dart value for context
 Object? _luaValueToDartValue(Object? raw) {
   if (raw == null) return null;
-  
+
   if (raw is String || raw is num || raw is bool) {
     return raw;
   }
-  
+
   if (raw is LuaString) {
     return raw.toString();
   }
-  
+
   if (raw is Map) {
     // Convert table to map
     final map = <String, Object?>{};
@@ -459,10 +453,12 @@ Object? _luaValueToDartValue(Object? raw) {
     }
     return map;
   }
-  
+
   if (raw is List) {
-    return raw.map((item) => _luaValueToDartValue(item is Value ? item.raw : item)).toList();
+    return raw
+        .map((item) => _luaValueToDartValue(item is Value ? item.raw : item))
+        .toList();
   }
-  
+
   return raw.toString();
 }

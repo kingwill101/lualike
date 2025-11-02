@@ -146,7 +146,7 @@ class Environment extends GCObject {
   bool isLoadIsolated;
 
   /// The interpreter associated with this environment.
-  Interpreter? interpreter;
+  LuaRuntime? interpreter;
 
   /// Creates a new Environment.
   ///
@@ -735,7 +735,7 @@ class Environment extends GCObject {
   }
 
   /// Creates a clone of this environment
-  Environment clone({Interpreter? interpreter}) {
+  Environment clone({LuaRuntime? interpreter}) {
     final cloned = Environment(
       parent: parent,
       interpreter: interpreter ?? this.interpreter,

@@ -36,7 +36,7 @@ class DebugLibrary extends Library {
     context.define("traceback", _Traceback());
     context.define("upvalueid", _UpvalueId());
     context.define("upvaluejoin", _UpvalueJoin());
-    
+
     // Memory debugging functions
     context.define("memtrace", _MemTrace());
     context.define("memtree", _MemTree());
@@ -81,7 +81,7 @@ class _GetHook extends BuiltinFunction {
 }
 
 class _GetLocal extends BuiltinFunction {
-  _GetLocal(Interpreter super.i);
+  _GetLocal(LuaRuntime super.i);
 
   @override
   Object? call(List<Object?> args) {
@@ -153,7 +153,7 @@ class _GetRegistry extends BuiltinFunction {
 }
 
 class _GetUpvalue extends BuiltinFunction {
-  _GetUpvalue(Interpreter super.i);
+  _GetUpvalue(LuaRuntime super.i);
 
   @override
   Object? call(List<Object?> args) {
@@ -558,8 +558,10 @@ class _GetInfoImpl extends BuiltinFunction {
                 );
               } else {
                 // For script paths without prefix, check if it's a binary chunk
-                final currentFunction = interpreterInstance
-                    .getCurrentFunction();
+                Value? currentFunction;
+                if (interpreterInstance is Interpreter) {
+                  currentFunction = interpreterInstance.getCurrentFunction();
+                }
                 bool isBinaryChunk = false;
 
                 if (currentFunction != null &&
@@ -786,12 +788,12 @@ String _formatSourceForLua(String rawSource) {
 
 /// Function to create a debug.getinfo function that correctly reports line numbers
 /// (kept for backwards compatibility)
-BuiltinFunction createGetInfoFunction(Interpreter? vm) {
+BuiltinFunction createGetInfoFunction(LuaRuntime? vm) {
   return _GetInfoImpl(vm);
 }
 
 /// Creates debug library functions with the given interpreter instance
-Map<String, BuiltinFunction> createDebugLib(Interpreter? astVm) {
+Map<String, BuiltinFunction> createDebugLib(LuaRuntime? astVm) {
   // Ensure we have a valid VM instance for debug functions
   if (astVm == null) {
     Logger.warning(
@@ -825,7 +827,7 @@ Map<String, BuiltinFunction> createDebugLib(Interpreter? astVm) {
     'traceback': _Traceback(),
     'upvalueid': _UpvalueId(),
     'upvaluejoin': _UpvalueJoin(),
-    
+
     // Memory debugging functions
     'memtrace': _MemTrace(),
     'memtree': _MemTree(),
@@ -837,12 +839,12 @@ Map<String, BuiltinFunction> createDebugLib(Interpreter? astVm) {
 ///
 /// This ensures the debug.getinfo function can access line information
 /// [env] - The environment to define the debug table in
-/// [astVm] - The interpreter instance to use for call stack access
+/// [vm] - The runtime instance to use for call stack access
 /// [bytecodeVm] - Optional bytecode VM for bytecode mode
-void defineDebugLibrary({required Environment env, Interpreter? astVm}) {
+void defineDebugLibrary({required Environment env, LuaRuntime? vm}) {
   // Store interpreter reference in environment for later access
-  if (astVm != null) {
-    env.interpreter = astVm;
+  if (vm != null) {
+    env.interpreter = vm;
     Logger.debug(
       'Setting interpreter reference in environment for debug library',
       category: 'Debug',
@@ -850,7 +852,7 @@ void defineDebugLibrary({required Environment env, Interpreter? astVm}) {
   }
 
   // Create and define the debug table
-  DebugLib.functions = createDebugLib(astVm);
+  DebugLib.functions = createDebugLib(vm);
   final debugTable = Value(DebugLib.functions);
   env.define("debug", debugTable);
 
@@ -879,7 +881,7 @@ void defineDebugLibrary({required Environment env, Interpreter? astVm}) {
   }
 
   Logger.debug(
-    'Debug library initialized with interpreter: ${astVm != null}',
+    'Debug library initialized with interpreter: ${vm != null}',
     category: 'Debug',
   );
 }
@@ -887,20 +889,20 @@ void defineDebugLibrary({required Environment env, Interpreter? astVm}) {
 /// Enable/disable memory allocation stack trace tracking
 class _MemTrace extends BuiltinFunction {
   _MemTrace() : super();
-  
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       return Value(MemoryCredits.enableStackTraces);
     }
-    
+
     final enable = args[0];
     if (enable is Value) {
       MemoryCredits.enableStackTraces = enable.raw == true;
     } else {
       MemoryCredits.enableStackTraces = enable == true;
     }
-    
+
     return Value(null);
   }
 }
@@ -908,7 +910,7 @@ class _MemTrace extends BuiltinFunction {
 /// Print memory allocation tree
 class _MemTree extends BuiltinFunction {
   _MemTree() : super();
-  
+
   @override
   Object? call(List<Object?> args) {
     MemoryCredits.instance.printAllocationTree();
@@ -919,7 +921,7 @@ class _MemTree extends BuiltinFunction {
 /// Clear tracked objects list for debugging specific allocations
 class _MemClear extends BuiltinFunction {
   _MemClear() : super();
-  
+
   @override
   Object? call(List<Object?> args) {
     MemoryCredits.instance.clearTrackedObjects();

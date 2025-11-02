@@ -26,7 +26,7 @@ class Upvalue extends GCObject {
   /// Stores the value at the time of closing if [_isOpen] becomes false.
   dynamic _closedValue;
 
-  Upvalue({required this.valueBox, this.name, Interpreter? interpreter})
+  Upvalue({required this.valueBox, this.name, LuaRuntime? interpreter})
     : _interpreter = interpreter {
     valueBox.retainUpvalue();
     // Auto-register with GC if interpreter is provided, otherwise use
@@ -117,9 +117,9 @@ class Upvalue extends GCObject {
   /// Reference to the upvalue this one is joined with, if any
   Upvalue? _joinedUpvalue;
 
-  /// Interpreter reference for GC registration (optional)
+  /// Runtime reference for GC registration (optional)
   // ignore: unused_field
-  final Interpreter? _interpreter;
+  final LuaRuntime? _interpreter;
 
   /// Whether this upvalue has been joined with another upvalue
   bool get isJoined => _joinedUpvalue != null;

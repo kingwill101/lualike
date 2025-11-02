@@ -1,6 +1,6 @@
 // Standard library initialization
 // All libraries have been migrated to the Library system
-import 'package:lualike/src/interpreter/interpreter.dart' show Interpreter;
+import 'package:lualike/src/runtime/lua_runtime.dart';
 
 import '../value.dart' show Value;
 import 'package:lualike/src/environment.dart' show Environment;
@@ -24,9 +24,9 @@ import 'metatables.dart';
 
 /// Initialize standard libraries using the Library system
 /// All libraries have been migrated to the new system with proper metamethod handling
-void initializeStandardLibrary({required Interpreter astVm}) {
+void initializeStandardLibrary({required LuaRuntime vm}) {
   // Register all libraries that have been converted to the new system
-  final registry = astVm.libraryRegistry;
+  final registry = vm.libraryRegistry;
 
   // Register the libraries we've created
   registry.register(PackageLibrary());
@@ -51,12 +51,14 @@ void initializeStandardLibrary({required Interpreter astVm}) {
   }
 
   // Initialize metatables
-  MetaTable.initialize(astVm);
+  MetaTable.initialize(vm);
 
-  final env = astVm.getCurrentEnv();
+  final env = vm.getCurrentEnv();
 
   // Install lazy stubs for namespaced libraries so they load on demand
-  for (final library in registry.libraries.where((lib) => lib.name.isNotEmpty)) {
+  for (final library in registry.libraries.where(
+    (lib) => lib.name.isNotEmpty,
+  )) {
     _installLazyLibraryStub(
       env: env,
       registry: registry,

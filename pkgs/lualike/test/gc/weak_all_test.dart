@@ -166,7 +166,6 @@ void main() {
       allWeakTable.setMetatable({'__mode': 'kv'});
 
       final valueObj1 = Value('value_obj1');
-      final valueObj2 = Value('value_obj2');
 
       // Mix of primitive and object keys/values
       // Primitive key with strong value survives under kv

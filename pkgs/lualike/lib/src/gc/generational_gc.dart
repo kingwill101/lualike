@@ -48,14 +48,14 @@ class Generation {
 /// above a limit, the collector does a stop-the-world major collection, which traverses
 /// all objects."
 class GenerationalGCManager {
-  /// Reference to the interpreter for accessing global state.
+  /// Reference to the runtime for accessing global state.
   // ignore: unused_field
-  final Interpreter _interpreter;
+  final LuaRuntime _runtime;
 
   static int totalRegistrations = 0;
   static final Map<Type, int> allocationHistogram = <Type, int>{};
 
-  GenerationalGCManager(this._interpreter);
+  GenerationalGCManager(this._runtime);
 
   /// Whether garbage collection is currently stopped.
   bool _isStopped = false;
@@ -457,7 +457,7 @@ class GenerationalGCManager {
     _sweepingIndex = 0;
 
     // Add root objects to marking queue
-    final roots = buildRootSet(_interpreter);
+    final roots = buildRootSet(_runtime);
     for (final root in roots) {
       if (root is GCObject && !_objectsToMark.contains(root)) {
         _objectsToMark.add(root);
@@ -917,7 +917,7 @@ class GenerationalGCManager {
   /// - Global environment and current stack frames
   /// - All live coroutines
   /// - VM singletons that hold GCObjects
-  List<Object?> buildRootSet(Interpreter vm) {
+  List<Object?> buildRootSet(LuaRuntime vm) {
     // Use the interpreter's existing getRoots method which includes:
     // - Current environment (globals)
     // - Call stack
@@ -2321,11 +2321,11 @@ class GenerationalGCManager {
       }
     }
 
-    unmark(_interpreter.getCurrentEnv());
-    unmark(_interpreter.callStack);
-    unmark(_interpreter.evalStack);
-    unmark(_interpreter.getCurrentCoroutine());
-    unmark(_interpreter.getMainThread());
+    unmark(_runtime.getCurrentEnv());
+    unmark(_runtime.callStack);
+    unmark(_runtime.evalStack);
+    unmark(_runtime.getCurrentCoroutine());
+    unmark(_runtime.getMainThread());
 
     void unmarkEnvChain(Environment? env) {
       final visited = HashSet<Environment>.identity();
@@ -2339,7 +2339,7 @@ class GenerationalGCManager {
       }
     }
 
-    unmarkEnvChain(_interpreter.getCurrentEnv());
+    unmarkEnvChain(_runtime.getCurrentEnv());
 
     Logger.debug(
       'Reset $clearedCount marks before major collection (young=${youngGen.objects.length}, old=${oldGen.objects.length})',
@@ -2390,7 +2390,7 @@ class GenerationalGCManager {
   /// Convenience method for major collection using the built root set.
   /// This is the main entry point for triggering major collections.
   Future<void> collectMajor() async {
-    final roots = buildRootSet(_interpreter);
+    final roots = buildRootSet(_runtime);
     await majorCollection(roots);
   }
 }

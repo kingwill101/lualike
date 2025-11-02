@@ -55,5 +55,10 @@ abstract interface class LuaRuntime {
   LibraryRegistry get libraryRegistry;
 
   // Diagnostics
-  void reportError(String message, {StackTrace? trace, Object? error});
+  void reportError(
+    String message, {
+    StackTrace? trace,
+    Object? error,
+    AstNode? node,
+  });
 }

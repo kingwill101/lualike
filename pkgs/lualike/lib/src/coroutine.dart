@@ -529,7 +529,7 @@ class Coroutine extends GCObject {
           interpreter.setCurrentEnv(_executionEnvironment);
         }
 
-        await stmt.accept(interpreter!); // Execute the statement
+        await interpreter!.evaluateAst(stmt); // Execute the statement
         Logger.debug(
           '_executeCoroutine: Statement $_programCounter executed. Current PC: $_programCounter',
           category: 'Coroutine',

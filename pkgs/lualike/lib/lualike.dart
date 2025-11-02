@@ -16,6 +16,7 @@ export 'src/logging/logging.dart';
 export 'src/lua_error.dart';
 export 'src/lua_stack_trace.dart';
 export 'src/lua_string.dart';
+export 'src/runtime/lua_runtime.dart';
 export 'src/number.dart';
 export 'src/number_utils.dart';
 export 'src/parse.dart' show parse;

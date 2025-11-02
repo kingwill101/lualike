@@ -24,7 +24,8 @@ class BytecodePrototypeBuilder {
   final List<BytecodeUpvalueDescriptor> upvalueDescriptors = [];
   BytecodeDebugInfo? debugInfo;
 
-  List<BytecodeInstruction> get instructions => List.unmodifiable(_instructions);
+  List<BytecodeInstruction> get instructions =>
+      List.unmodifiable(_instructions);
 
   int addInstruction(BytecodeInstruction instruction) {
     _instructions.add(instruction);
@@ -80,9 +81,7 @@ class BytecodePrototypeBuilder {
 }
 
 class BytecodeChunkBuilder {
-  BytecodeChunkBuilder({
-    this.flags = const BytecodeChunkFlags(),
-  });
+  BytecodeChunkBuilder({this.flags = const BytecodeChunkFlags()});
 
   BytecodeChunkFlags flags;
   final BytecodePrototypeBuilder mainPrototypeBuilder =

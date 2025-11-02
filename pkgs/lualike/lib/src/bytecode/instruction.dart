@@ -86,20 +86,16 @@ class AsBxInstruction extends BytecodeInstruction {
 
 /// Instruction using the Ax mode (25-bit unsigned operand).
 class AxInstruction extends BytecodeInstruction {
-  const AxInstruction({
-    required BytecodeOpcode opcode,
-    required this.ax,
-  }) : super(opcode);
+  const AxInstruction({required BytecodeOpcode opcode, required this.ax})
+    : super(opcode);
 
   final int ax;
 }
 
 /// Instruction using the sJ mode (25-bit signed jump offset).
 class AsJInstruction extends BytecodeInstruction {
-  const AsJInstruction({
-    required BytecodeOpcode opcode,
-    required this.sJ,
-  }) : super(opcode);
+  const AsJInstruction({required BytecodeOpcode opcode, required this.sJ})
+    : super(opcode);
 
   final int sJ;
 }

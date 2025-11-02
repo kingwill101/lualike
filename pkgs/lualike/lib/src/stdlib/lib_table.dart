@@ -12,7 +12,7 @@ class TableLibrary extends Library {
   String get name => "table";
 
   @override
-  Map<String, Function>? getMetamethods(Interpreter interpreter) => {
+  Map<String, Function>? getMetamethods(LuaRuntime interpreter) => {
     "__index": (List<Object?> args) {
       final _ = args[0] as Value;
       final key = args[1] as Value;

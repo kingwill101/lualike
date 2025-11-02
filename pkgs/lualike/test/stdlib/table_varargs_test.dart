@@ -153,7 +153,10 @@ void main() {
         grabbed = table.unpack(t, 1000, 1000)
       ''');
 
-      expect((lua.getGlobal('grabbed') as Value).raw.toString(), equals('value'));
+      expect(
+        (lua.getGlobal('grabbed') as Value).raw.toString(),
+        equals('value'),
+      );
     });
 
     test('table.pack creates table with n field', () async {

@@ -85,8 +85,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// Whether this value has been initialized (used for const variables)
   bool _isInitialized = false;
 
-  /// Interpreter instance (for functions)
-  Interpreter? interpreter;
+  /// Runtime instance (for functions)
+  LuaRuntime? interpreter;
 
   /// Whether this value is marked for garbage collection
   bool _marked = false;
@@ -246,7 +246,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// provided, a default metatable may be applied based on the value's type.
   /// [isConst] - Whether this value is a constant
   /// [isToBeClose] - Whether this value is a to-be-closed variable
-  /// [interpreter] - Interpreter instance (for functions/coroutines)
+  /// [interpreter] - Runtime instance (for functions/coroutines)
   /// [functionName] - Name of the function (for debugging/debug.getinfo)
   Value(
     dynamic raw, {
@@ -463,7 +463,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// Creates a to-be-closed value that will have its __close metamethod called when it goes out of scope
   ///
   /// ------------------------------------------------------------
-  /// Internal helper: resolve the active interpreter for this Value
+  /// Internal helper: resolve the active runtime for this Value
   /// ------------------------------------------------------------
   /// We look in the following order:
   /// 1. `this.interpreter` field (set by libraries for closures/builtins)
@@ -471,7 +471,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// 3. If `raw` is an AST Function node that captured an interpreter field
   /// 4. Otherwise, return null – callers must handle the unsupported case
   ///
-  Interpreter? _resolveInterpreter() {
+  LuaRuntime? _resolveInterpreter() {
     if (interpreter != null) return interpreter;
     if (raw is BuiltinFunction) {
       return (raw as BuiltinFunction).interpreter;

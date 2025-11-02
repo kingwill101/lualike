@@ -1572,7 +1572,7 @@ class _StringRep extends BuiltinFunction {
     if (count <= 0) {
       return StringInterning.createStringValue('');
     }
-    
+
     // For large allocations, suppress auto-GC to prevent premature collection
     // of transient objects before collectgarbage("count") can see them
     final isLargeAllocation = count > 1000000;
@@ -1623,14 +1623,14 @@ class _StringRep extends BuiltinFunction {
       if (isAsciiOnly) {
         // Safe to convert to regular string and intern
         final resultString = String.fromCharCodes(resultBytes);
-        
+
         // Mark small strings (<= 1KB) as temporary to avoid counting them in
         // collectgarbage("count"). This matches Lua C behavior where temp strings
         // for immediate use (like table lookups) don't allocate heap memory.
         final isSmallTemp = resultString.length <= 1024;
         final luaStr = StringInterning.intern(resultString);
         final result = Value(luaStr, isTempKey: isSmallTemp);
-        
+
         return result;
       } else {
         // Contains high bytes, preserve as LuaString
@@ -1642,12 +1642,12 @@ class _StringRep extends BuiltinFunction {
         // Mark small strings (<= 1KB) as temporary
         final isSmallTemp = resultLuaString.length <= 1024;
         final result = Value(resultLuaString, isTempKey: isSmallTemp);
-        
+
         // Re-enable auto-GC after large allocation completes
         if (isLargeAllocation) {
           interpreter?.gc.resumeAutoTrigger();
         }
-        
+
         return result;
       }
     } else {
@@ -1684,19 +1684,19 @@ class _StringRep extends BuiltinFunction {
 
       // Create the result string once and reuse it
       final resultString = buffer.toString();
-      
+
       // Mark small strings (<= 1KB) as temporary to avoid counting them in
       // collectgarbage("count"). This matches Lua C behavior where temp strings
       // for immediate use (like table lookups) don't allocate heap memory.
       final isSmallTemp = resultString.length <= 1024;
       final luaStr = StringInterning.intern(resultString);
       final result = Value(luaStr, isTempKey: isSmallTemp);
-      
+
       // Re-enable auto-GC after large allocation completes
       if (isLargeAllocation) {
         interpreter?.gc.resumeAutoTrigger();
       }
-      
+
       return result;
     }
   }

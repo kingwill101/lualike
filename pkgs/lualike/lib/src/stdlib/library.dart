@@ -2,7 +2,7 @@ import 'dart:collection';
 
 import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/environment.dart';
-import 'package:lualike/src/interpreter/interpreter.dart';
+import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/value.dart';
 import 'metatables.dart' show MetaTable;
 
@@ -14,11 +14,11 @@ abstract class Library {
   /// The name of this library (e.g., "string", "table", "math")
   String get name;
 
-  /// The interpreter instance associated with this library
-  Interpreter? interpreter;
+  /// The runtime instance associated with this library
+  LuaRuntime? interpreter;
 
   /// Optional: metamethods for this library's values
-  Map<String, Function>? getMetamethods(Interpreter interpreter) => null;
+  Map<String, Function>? getMetamethods(LuaRuntime interpreter) => null;
 
   /// Register all functions for this library.
   ///
@@ -30,12 +30,12 @@ abstract class Library {
 /// Context provided to libraries during registration
 class LibraryContext {
   final Environment environment;
-  final Interpreter? interpreter;
+  final LuaRuntime? interpreter;
 
   LibraryContext({required this.environment, this.interpreter});
 
   /// Get the appropriate interpreter instance
-  Interpreter? get vm => interpreter;
+  LuaRuntime? get vm => interpreter;
 }
 
 /// Helper class for building builtin functions with proper interpreter context
@@ -64,7 +64,7 @@ class BuiltinFunctionBuilder {
 class _BuiltinFunctionImpl extends BuiltinFunction {
   final Object? Function(List<Object?> args) _implementation;
 
-  _BuiltinFunctionImpl(Interpreter interpreter, this._implementation);
+  _BuiltinFunctionImpl(LuaRuntime interpreter, this._implementation);
 
   @override
   Object? call(List<Object?> args) {
@@ -77,7 +77,7 @@ class LibraryRegistry {
   final List<Library> _libraries = [];
   final Map<String, Library> _librariesByName = {};
   final Set<Library> _initialized = {};
-  final Interpreter _interpreter;
+  final LuaRuntime _interpreter;
 
   LibraryRegistry(this._interpreter);
 
@@ -191,7 +191,11 @@ class LibraryRegistry {
   }
 }
 
-void _updatePackageLoaded(Environment env, String libraryName, Value libraryValue) {
+void _updatePackageLoaded(
+  Environment env,
+  String libraryName,
+  Value libraryValue,
+) {
   if (libraryName.isEmpty) {
     return;
   }
