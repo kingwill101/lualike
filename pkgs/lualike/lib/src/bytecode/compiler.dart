@@ -60,6 +60,7 @@ class _PrototypeContext {
     this.isVararg = false,
   }) : emitter = BytecodeEmitter(builder),
        _localScopes = <Map<String, int>>[<String, int>{}],
+       _toBeClosedScopes = <List<int>>[<int>[]],
        _nextRegister = parameterNames.length,
        _maxRegister = parameterNames.length {
     builder.paramCount = parameterNames.length;
@@ -84,14 +85,26 @@ class _PrototypeContext {
   int _nextRegister;
   int _maxRegister;
   final List<Map<String, int>> _localScopes;
+  final List<List<int>> _toBeClosedScopes;
   final Map<String, int> _upvalues = <String, int>{};
 
   void _pushLocalScope() {
     _localScopes.add(<String, int>{});
+    _toBeClosedScopes.add(<int>[]);
   }
 
   void _popLocalScope() {
     assert(_localScopes.length > 1, 'Cannot pop the root scope');
+    final closables = _toBeClosedScopes.removeLast();
+    if (closables.isNotEmpty) {
+      closables.sort();
+      emitter.emitABC(
+        opcode: BytecodeOpcode.close,
+        a: closables.first,
+        b: 0,
+        c: 0,
+      );
+    }
     _localScopes.removeLast();
   }
 
@@ -107,6 +120,36 @@ class _PrototypeContext {
       }
     }
     return null;
+  }
+
+  void _recordToBeClosed(int register) {
+    _toBeClosedScopes.last.add(register);
+  }
+
+  int? _lowestActiveToBeClosedRegister() {
+    int? minReg;
+    for (final scope in _toBeClosedScopes) {
+      for (final reg in scope) {
+        if (minReg == null || reg < minReg) {
+          minReg = reg;
+        }
+      }
+    }
+    return minReg;
+  }
+
+  bool _emitCloseForActiveToBeClosed({bool clear = false}) {
+    final minReg = _lowestActiveToBeClosedRegister();
+    if (minReg == null) {
+      return false;
+    }
+    emitter.emitABC(opcode: BytecodeOpcode.close, a: minReg, b: 0, c: 0);
+    if (clear) {
+      for (final scope in _toBeClosedScopes) {
+        scope.clear();
+      }
+    }
+    return true;
   }
 
   void _emitVarargPrep(int fixedParamCount) {
@@ -225,6 +268,7 @@ class _PrototypeContext {
 
   void _emitReturn(ReturnStatement node) {
     hasExplicitReturn = true;
+    _emitCloseForActiveToBeClosed(clear: true);
 
     if (node.expr.isEmpty) {
       emitter.emitABC(opcode: BytecodeOpcode.return0, a: 0, b: 0, c: 0);
@@ -528,15 +572,37 @@ class _PrototypeContext {
   }
 
   void _emitLocalDeclaration(LocalDeclaration node) {
-    if (node.attributes.any((attribute) => attribute.isNotEmpty)) {
-      throw UnsupportedError(
-        'Bytecode compiler does not yet support local declaration attributes.',
-      );
-    }
-
     final nameCount = node.names.length;
     if (nameCount == 0) {
       return;
+    }
+
+    final closableIndices = <int>[];
+    for (var i = 0; i < node.attributes.length; i++) {
+      final attribute = node.attributes[i];
+      if (attribute.isEmpty) {
+        continue;
+      }
+      if (attribute == 'close') {
+        closableIndices.add(i);
+        continue;
+      }
+      throw UnsupportedError(
+        'Bytecode compiler does not yet support local declaration attribute '
+        '<$attribute>.',
+      );
+    }
+
+    if (closableIndices.length > 1) {
+      throw UnsupportedError(
+        'a list of variables can contain at most one to-be-closed variable',
+      );
+    }
+
+    if (closableIndices.isNotEmpty && closableIndices.first != nameCount - 1) {
+      throw UnsupportedError(
+        'to-be-closed variable must be the last name in the declaration.',
+      );
     }
 
     final targetRegs = <int>[];
@@ -562,6 +628,12 @@ class _PrototypeContext {
       } else {
         protected.add(valueReg);
       }
+    }
+
+    if (closableIndices.isNotEmpty) {
+      final reg = targetRegs[closableIndices.first];
+      emitter.emitABC(opcode: BytecodeOpcode.tbc, a: reg, b: 0, c: 0);
+      _recordToBeClosed(reg);
     }
 
     for (var i = result.temporaries.length - 1; i >= 0; i--) {
@@ -897,7 +969,7 @@ class _PrototypeContext {
 
     _pushLocalScope();
     _declareLocal(node.varName.name, controlReg);
-    _emitBlock(node.body);
+    _emitBlock(node.body, useNewScope: false);
     _popLocalScope();
 
     final forLoopIndex = emitter.emitAsBx(
@@ -979,7 +1051,7 @@ class _PrototypeContext {
     for (var i = 0; i < node.names.length; i++) {
       _declareLocal(node.names[i].name, loopVarRegs[i]);
     }
-    _emitBlock(node.body);
+    _emitBlock(node.body, useNewScope: false);
     _popLocalScope();
 
     final loopJumpIndex = _emitJumpPlaceholder();
@@ -1164,14 +1236,21 @@ class _PrototypeContext {
     return emitter.emitAsJ(opcode: BytecodeOpcode.jmp, sJ: 0);
   }
 
-  bool _emitBlock(List<AstNode> statements) {
+  bool _emitBlock(List<AstNode> statements, {bool useNewScope = true}) {
+    var returned = false;
+    if (useNewScope) {
+      _pushLocalScope();
+    }
     for (final statement in statements) {
-      final returned = emitStatement(statement);
-      if (returned) {
-        return true;
+      if (emitStatement(statement)) {
+        returned = true;
+        break;
       }
     }
-    return false;
+    if (useNewScope) {
+      _popLocalScope();
+    }
+    return returned;
   }
 
   int _emitLogicalBinaryExpression(BinaryExpression node, {int? target}) {
@@ -1503,10 +1582,31 @@ class _PrototypeContext {
     final literalValue = _literalValue(node.right);
     final leftReg = _emitExpression(node.left, target: target);
 
-    if (literalValue is num) {
+    if (literalValue case int intLiteral) {
+      if (node.op == '<<' && intLiteral >= 0 && intLiteral <= 255) {
+        emitter.emitABC(
+          opcode: BytecodeOpcode.shlI,
+          a: leftReg,
+          b: leftReg,
+          c: intLiteral & 0x1FF,
+        );
+        return leftReg;
+      }
+      if (node.op == '>>' && intLiteral >= 0 && intLiteral <= 255) {
+        emitter.emitABC(
+          opcode: BytecodeOpcode.shrI,
+          a: leftReg,
+          b: leftReg,
+          c: intLiteral & 0x1FF,
+        );
+        return leftReg;
+      }
+    }
+
+    if (literalValue case num numericValue) {
       final opcode = _opcodeForBinaryConstant(node.op);
       if (opcode != null) {
-        final constantIndex = _ensureConstantIndex(literalValue);
+        final constantIndex = _ensureConstantIndex(numericValue);
         emitter.emitABC(
           opcode: opcode,
           a: leftReg,
@@ -1674,6 +1774,9 @@ class _PrototypeContext {
       '%' => BytecodeOpcode.modK,
       '^' => BytecodeOpcode.powK,
       '//' => BytecodeOpcode.idivK,
+      '&' => BytecodeOpcode.bandK,
+      '|' => BytecodeOpcode.borK,
+      '~' => BytecodeOpcode.bxorK,
       _ => null,
     };
   }
@@ -1851,6 +1954,7 @@ class _PrototypeContext {
 
   void finalize() {
     if (!hasExplicitReturn) {
+      _emitCloseForActiveToBeClosed(clear: true);
       emitter.emitABC(opcode: BytecodeOpcode.return0, a: 0, b: 0, c: 0);
     }
 

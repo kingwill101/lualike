@@ -43,12 +43,18 @@ void main() {
       final proto = chunk.mainPrototype;
       final instructions = _stripVarArgPrep(proto);
 
-      expect(instructions, hasLength(4));
-      final band = instructions[2] as ABCInstruction;
-      expect(band.opcode, BytecodeOpcode.band);
+      expect(instructions, hasLength(3));
+      final constantIndex = proto.constants.indexWhere(
+        (constant) => constant is IntegerConstant && constant.value == 3,
+      );
+      expect(constantIndex, isNonNegative);
+
+      final band = instructions[1] as ABCInstruction;
+      expect(band.opcode, BytecodeOpcode.bandK);
       expect(band.a, equals(0));
       expect(band.b, equals(0));
-      expect(band.c, equals(1));
+      expect(band.c, equals(constantIndex));
+      expect(band.k, isTrue);
     });
 
     test('compiles unary not expression', () {
@@ -136,6 +142,20 @@ void main() {
       expect(concatInstr.a, equals(0));
       expect(concatInstr.b, equals(0));
       expect(concatInstr.c, equals(1));
+    });
+
+    test('compiles left shift with small literal into SHLI', () {
+      final program = parse('return value << 4');
+      final chunk = BytecodeCompiler().compile(program);
+      final proto = chunk.mainPrototype;
+      final instructions = _stripVarArgPrep(proto);
+
+      expect(instructions, hasLength(3));
+      final shl = instructions[1] as ABCInstruction;
+      expect(shl.opcode, BytecodeOpcode.shlI);
+      expect(shl.a, equals(0));
+      expect(shl.b, equals(0));
+      expect(shl.c, equals(4));
     });
   });
 }
