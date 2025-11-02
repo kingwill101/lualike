@@ -123,6 +123,20 @@ void main() {
       expect(powInstr.c, equals(constantIndex));
       expect(powInstr.k, isTrue);
     });
+
+    test('compiles string concatenation expression', () {
+      final program = parse('return a .. b');
+      final chunk = BytecodeCompiler().compile(program);
+      final proto = chunk.mainPrototype;
+      final instructions = _stripVarArgPrep(proto);
+
+      expect(instructions, hasLength(4));
+      final concatInstr = instructions[2] as ABCInstruction;
+      expect(concatInstr.opcode, BytecodeOpcode.concat);
+      expect(concatInstr.a, equals(0));
+      expect(concatInstr.b, equals(0));
+      expect(concatInstr.c, equals(1));
+    });
   });
 }
 
