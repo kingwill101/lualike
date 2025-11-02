@@ -133,6 +133,19 @@ void main() {
       expect((lua.getGlobal('packedLength') as Value).raw, equals(0));
     });
 
+    test('table.unpack rejects ranges at 32-bit boundary', () async {
+      await expectLater(
+        () async => await lua.execute('table.unpack({}, 1, 2147483647)'),
+        throwsA(
+          isA<LuaError>().having(
+            (error) => error.message,
+            'message',
+            contains('too many results'),
+          ),
+        ),
+      );
+    });
+
     test('table.unpack reads sparse numeric slot beyond array part', () async {
       await lua.execute('''
         t = {}

@@ -121,5 +121,15 @@ void main() {
       final keys = storage.keys.toList();
       expect(keys, containsAll(<int>[1, 0, -1]));
     });
+
+    test('setDense falls back to hash for very large indices', () {
+      final storage = TableStorage();
+      final int hugeIndex = 9223372036854775806; // near max 64-bit integer
+
+      storage.setDense(hugeIndex, 'huge');
+
+      expect(storage[hugeIndex], 'huge');
+      expect(storage.containsKey(hugeIndex), isTrue);
+    });
   });
 }

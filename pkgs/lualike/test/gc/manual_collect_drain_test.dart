@@ -28,7 +28,7 @@ void main() {
         expect(gc.isCycleActive, isTrue);
 
         final collectFn = CollectGarbageFunction(interpreter);
-        final result = await collectFn.call([]);
+        final result = collectFn.call([]);
         expect(result, isA<Value>());
         expect((result as Value).raw, isTrue);
         expect(gc.isCycleActive, isFalse);
