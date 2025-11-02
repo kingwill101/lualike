@@ -276,36 +276,8 @@ class _TableInsert extends BuiltinFunction {
     );
     final map = table.raw as Map;
 
-    // Check if table has a __len metamethod that returns non-integer
-    if (table.metatable != null) {
-      final lenMetamethod = table.metatable!['__len'];
-      if (lenMetamethod != null) {
-        try {
-          final lenResult = lenMetamethod.call([table]);
-          if (lenResult is Value) {
-            final lenValue = lenResult.raw;
-            Logger.debug(
-              "getTableLength: lenValue = $lenValue, type = ${lenValue.runtimeType}",
-            );
-            if (lenValue is! int && lenValue is! BigInt) {
-              throw LuaError("object length is not an integer");
-            }
-          } else if (lenResult is! int && lenResult is! BigInt) {
-            throw LuaError("object length is not an integer");
-          }
-        } catch (e) {
-          // If the metamethod throws an error, we should propagate it
-          rethrow;
-        }
-      }
-    }
-
-    // Find the array length (aux_getn)
-    int e = 0;
-    while (map.containsKey(e + 1)) {
-      e++;
-    }
-    final int firstEmpty = e + 1;
+    final int baseLength = await getTableLength(table, context: "table.insert");
+    final int firstEmpty = baseLength + 1;
 
     int pos;
     Object? value;
@@ -809,7 +781,7 @@ class _TableSort extends BuiltinFunction {
       category: 'TableSort',
     );
 
-    bool? _fastLessThan(dynamic lhs, dynamic rhs) {
+    bool? fastLessThan(dynamic lhs, dynamic rhs) {
       final left = lhs is Value ? lhs.raw : lhs;
       final right = rhs is Value ? rhs.raw : rhs;
 
@@ -873,8 +845,8 @@ class _TableSort extends BuiltinFunction {
 
         if (comp.isLessComparator || comp.isLessComparatorReversed) {
           final fast = comp.isLessComparator
-              ? _fastLessThan(valA, valB)
-              : _fastLessThan(valB, valA);
+              ? fastLessThan(valA, valB)
+              : fastLessThan(valB, valA);
           if (fast != null) {
             Logger.debug(
               "_sortComp: comparator hint fast result = $fast",
@@ -1161,63 +1133,9 @@ class _TableUnpack extends BuiltinFunction {
       );
     }
 
-    if (i is int && j is int) {
-      final int start = i;
-      final int end = j;
-      if (start > end) {
-        if (log) {
-          Logger.debug(
-            "_TableUnpack: Empty range (i > j), returning zero values",
-          );
-        }
-        return Value.multi(<dynamic>[]);
-      }
-
-      final int count = end - start + 1;
-      if (count < 0 || count > NumberLimits.maxInt32) {
-        if (log) {
-          Logger.debug(
-            "_TableUnpack: count=$count outside limits, throwing error",
-          );
-        }
-        throw LuaError("too many results to unpack");
-      }
-
-      final result = List<Value?>.filled(count, null, growable: false);
-      if (map is TableStorage) {
-        final storage = map as TableStorage;
-        for (var offset = 0; offset < count; offset++) {
-          final value = storage.arrayValueAt(start + offset);
-          if (value == null) {
-            result[offset] = Value(null);
-          } else if (value is Value) {
-            result[offset] = value;
-          } else {
-            result[offset] = Value(value);
-          }
-        }
-      } else {
-        for (var offset = 0; offset < count; offset++) {
-          final value = map[start + offset];
-          if (value == null || (value is Value && value.raw == null)) {
-            result[offset] = Value(null);
-          } else {
-            result[offset] = value is Value ? value : Value(value);
-          }
-        }
-      }
-
-      if (count == 0) {
-        return Value.multi(<dynamic>[]);
-      }
-      if (count == 1) {
-        return result[0]!;
-      }
-      return Value.multi(result.cast<Value>());
-    }
-
-    // Check for empty range
-    if (i > j) {
+    final int start = i;
+    final int end = j;
+    if (start > end) {
       if (log) {
         Logger.debug(
           "_TableUnpack: Empty range (i > j), returning zero values",
@@ -1226,79 +1144,49 @@ class _TableUnpack extends BuiltinFunction {
       return Value.multi(<dynamic>[]);
     }
 
-    // Check for "too many results to unpack"
-    // Use NumberUtils for safe arithmetic operations
-    if (log) {
-      Logger.debug("_TableUnpack: Calculating n = j - i + 1");
-    }
-
-    // Calculate n = j - i + 1 using NumberUtils to handle overflow
-    // Ensure consistent types by converting constants to BigInt when needed
-    final diff = NumberUtils.subtract(j, i);
-    if (log) {
-      Logger.debug("_TableUnpack: diff = $diff (${diff.runtimeType})");
-    }
-    final n = NumberUtils.add(diff, 1);
-    if (log) {
-      Logger.debug("_TableUnpack: n = $n (${n.runtimeType})");
-    }
-
-    // Check if n is valid (positive and not too large)
-    if (log) {
-      Logger.debug("_TableUnpack: Checking if n is valid");
-    }
-    final nCompare0 = NumberUtils.compare(n, 0);
-    if (log) {
-      Logger.debug("_TableUnpack: n compare 0: $nCompare0");
-    }
-    final nCompareMax = NumberUtils.compare(n, NumberLimits.maxInt32);
-    if (log) {
-      Logger.debug("_TableUnpack: n compare maxInt32: $nCompareMax");
-    }
-
-    if (nCompare0 < 0 || nCompareMax >= 0) {
+    final BigInt startBig = NumberUtils.toBigInt(start);
+    final BigInt endBig = NumberUtils.toBigInt(end);
+    final BigInt rawCount = endBig - startBig + BigInt.one;
+    if (rawCount.isNegative || rawCount >= BigInt.from(NumberLimits.maxInt32)) {
       if (log) {
-        Logger.debug("_TableUnpack: n is invalid, throwing error");
+        Logger.debug(
+          "_TableUnpack: count=$rawCount outside limits, throwing error",
+        );
       }
       throw LuaError("too many results to unpack");
     }
 
-    if (log) {
-      Logger.debug("_TableUnpack: n is valid, starting loop");
-    }
-    final result = <Value>[];
-
-    // Use NumberUtils for safe loop iteration
-    var k = i;
-    if (log) {
-      Logger.debug("_TableUnpack: Starting loop with k=$k (${k.runtimeType})");
-    }
-    while (NumberUtils.compare(k, j) <= 0) {
-      if (log) {
-        Logger.debug("_TableUnpack: Loop iteration, k=$k, j=$j");
-      }
-      final v = map[k];
-      if (v == null || (v is Value && v.raw == null)) {
-        result.add(Value(null));
-      } else {
-        result.add(v is Value ? v : Value(v));
-      }
-
-      // Use NumberUtils for safe increment
-      if (k == NumberLimits.maxInteger) {
-        if (log) {
-          Logger.debug("_TableUnpack: k reached maxInteger, breaking");
+    final int count = rawCount.toInt();
+    final result = List<Value?>.filled(count, null, growable: false);
+    if (map is TableStorage) {
+      final storage = map;
+      for (var offset = 0; offset < count; offset++) {
+        final value = storage.arrayValueAt(start + offset);
+        if (value == null) {
+          result[offset] = Value(null);
+        } else if (value is Value) {
+          result[offset] = value;
+        } else {
+          result[offset] = Value(value);
         }
-        break; // Can't increment further
       }
-      k = NumberUtils.add(k, 1);
-      if (log) {
-        Logger.debug("_TableUnpack: Incremented k to: $k (${k.runtimeType})");
+    } else {
+      for (var offset = 0; offset < count; offset++) {
+        final value = map[start + offset];
+        if (value == null || (value is Value && value.raw == null)) {
+          result[offset] = Value(null);
+        } else {
+          result[offset] = value is Value ? value : Value(value);
+        }
       }
     }
 
-    if (result.isEmpty) return Value.multi([]);
-    if (result.length == 1) return result[0];
-    return Value.multi(result);
+    if (count == 0) {
+      return Value.multi(<dynamic>[]);
+    }
+    if (count == 1) {
+      return result[0]!;
+    }
+    return Value.multi(result.cast<Value>());
   }
 }
