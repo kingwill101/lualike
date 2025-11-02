@@ -122,6 +122,43 @@ void main() {
           .toList();
       expect(setListInstructions.last.b, equals(0));
     });
+
+    test('emits sizing hints for NEWTABLE', () {
+      final program = parse('return {1, 2, foo = 3, [bar()] = 4}');
+      final chunk = BytecodeCompiler().compile(program);
+      final instructions = _stripVarArgPrep(chunk.mainPrototype);
+
+      final newTable = instructions.first as ABCInstruction;
+      expect(newTable.opcode, BytecodeOpcode.newTable);
+      expect(newTable.b, equals(2));
+      expect(newTable.c, equals(2));
+    });
+
+    test(
+      'splits large sequential constructor into multiple SETLIST batches',
+      () {
+        final literals = List<String>.generate(
+          60,
+          (index) => '${index + 1}',
+        ).join(', ');
+        final program = parse('return {$literals}');
+        final chunk = BytecodeCompiler().compile(program);
+        final instructions = _stripVarArgPrep(chunk.mainPrototype);
+
+        final setListInstructions = instructions
+            .where(
+              (instruction) => instruction.opcode == BytecodeOpcode.setList,
+            )
+            .cast<ABCInstruction>()
+            .toList();
+
+        expect(setListInstructions.length, equals(2));
+        expect(setListInstructions[0].b, equals(50));
+        expect(setListInstructions[0].c, equals(1));
+        expect(setListInstructions[1].b, equals(10));
+        expect(setListInstructions[1].c, equals(51));
+      },
+    );
   });
 }
 
