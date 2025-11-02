@@ -42,7 +42,9 @@ Future<Object?> executeCode(
   try {
     if (selectedMode == EngineMode.bytecode) {
       final chunk = BytecodeCompiler().compile(program);
-      final result = await BytecodeVm(environment: runtime.globals).execute(chunk);
+      final result = await BytecodeVm(
+        environment: runtime.globals,
+      ).execute(chunk);
       return result;
     }
 

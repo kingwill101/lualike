@@ -1,7 +1,5 @@
 import 'ast.dart';
 
-
-
 /// Helper for encoding/decoding AST nodes that implement [Dumpable].
 ///
 /// This is intentionally minimal and focused on nodes we need for

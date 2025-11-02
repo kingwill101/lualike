@@ -19,12 +19,15 @@ void main() {
     test('executes tailcall and returns result', () async {
       final chunk = BytecodeCompiler().compile(parse('return identity(value)'));
       final env = Environment()
-        ..define('identity', Value((List<Object?> args) {
-          if (args.isEmpty) {
-            return null;
-          }
-          return args.first;
-        }))
+        ..define(
+          'identity',
+          Value((List<Object?> args) {
+            if (args.isEmpty) {
+              return null;
+            }
+            return args.first;
+          }),
+        )
         ..define('value', Value(42));
 
       final result = await BytecodeVm(environment: env).execute(chunk);

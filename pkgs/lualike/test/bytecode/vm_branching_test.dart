@@ -29,7 +29,9 @@ void main() {
       final envFalse = Environment()
         ..define('cond', Value(false))
         ..define('tbl', Value.wrap({'value': 1}));
-      final resultFalse = await BytecodeVm(environment: envFalse).execute(chunk);
+      final resultFalse = await BytecodeVm(
+        environment: envFalse,
+      ).execute(chunk);
       expect(_unwrap(resultFalse), equals(0));
     });
 
@@ -54,13 +56,17 @@ void main() {
       final envAndTrue = Environment()
         ..define('cond', Value(true))
         ..define('arr', Value.wrap({1: 42}));
-      final andTrue = await BytecodeVm(environment: envAndTrue).execute(andChunk);
+      final andTrue = await BytecodeVm(
+        environment: envAndTrue,
+      ).execute(andChunk);
       expect(_unwrap(andTrue), equals(42));
 
       final envAndFalse = Environment()
         ..define('cond', Value(false))
         ..define('arr', Value.wrap({1: 42}));
-      final andFalse = await BytecodeVm(environment: envAndFalse).execute(andChunk);
+      final andFalse = await BytecodeVm(
+        environment: envAndFalse,
+      ).execute(andChunk);
       expect(_unwrap(andFalse), isFalse);
 
       final envOrTrue = Environment()
@@ -72,7 +78,9 @@ void main() {
       final envOrFalse = Environment()
         ..define('cond', Value(false))
         ..define('arr', Value.wrap({1: 7}));
-      final orFalse = await BytecodeVm(environment: envOrFalse).execute(orChunk);
+      final orFalse = await BytecodeVm(
+        environment: envOrFalse,
+      ).execute(orChunk);
       expect(_unwrap(orFalse), equals(7));
     });
   });

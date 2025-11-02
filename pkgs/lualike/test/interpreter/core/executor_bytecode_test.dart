@@ -154,18 +154,20 @@ void main() {
     });
 
     test('executes while loops', () async {
-      final result = _unwrap(await executeCode(
-        '''
+      final result = _unwrap(
+        await executeCode(
+          '''
           while state.i < 4 do
             state.i = state.i + 1
           end
           return state.i
         ''',
-        mode: EngineMode.bytecode,
-        onRuntimeSetup: (runtime) {
-          runtime.globals.define('state', Value.wrap({'i': 0}));
-        },
-      ));
+          mode: EngineMode.bytecode,
+          onRuntimeSetup: (runtime) {
+            runtime.globals.define('state', Value.wrap({'i': 0}));
+          },
+        ),
+      );
       expect(result, equals(4));
     });
 
@@ -259,7 +261,9 @@ void main() {
             final data = state is Value
                 ? state.raw as List<List<Object?>>
                 : state as List<List<Object?>>;
-            final currentIndex = control is Value ? control.raw as int? : control as int?;
+            final currentIndex = control is Value
+                ? control.raw as int?
+                : control as int?;
             final nextIndex = (currentIndex ?? 0) + 1;
             if (nextIndex > data.length) {
               return Value.multi(const []);
