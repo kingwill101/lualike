@@ -3,7 +3,9 @@ import 'dart:convert';
 
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/builtin_function.dart';
+import 'package:lualike/src/config.dart';
 import 'package:lualike/src/const_checker.dart';
+import 'package:lualike/src/executor.dart';
 import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/logging/logger.dart';
@@ -12,6 +14,7 @@ import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/stdlib/lib_debug.dart';
 import 'package:lualike/src/value.dart';
 import 'package:lualike/src/utils/file_system_utils.dart' as fs;
+import 'package:lualike/src/bytecode/runtime.dart';
 import 'package:path/path.dart' as path;
 
 /// Wrapper for Dart functions to make them callable from LuaLike.
@@ -180,8 +183,12 @@ class LuaLike {
 
   /// Creates a new bridge with a runtime instance.
   /// If none is provided, a fresh AST interpreter is created.
-  factory LuaLike({LuaRuntime? runtime}) =>
-      LuaLike._internal(runtime ?? Interpreter());
+  factory LuaLike({LuaRuntime? runtime}) {
+    runtime ??= LuaLikeConfig().defaultEngineMode == EngineMode.bytecode
+        ? BytecodeRuntime()
+        : Interpreter();
+    return LuaLike._internal(runtime);
+  }
 
   /// Internal constructor
   LuaLike._internal(LuaRuntime runtime) : vm = runtime;
@@ -199,23 +206,28 @@ class LuaLike {
   /// and ensuring the debug library has access to the interpreter
   Future<Object?> execute(String code, {String? scriptPath}) async {
     try {
-      // Set the interpreter reference in the environment
-      // This ensures debug.getinfo can access the interpreter for line info
-      vm.globals.interpreter = vm;
+      final mode = LuaLikeConfig().defaultEngineMode;
 
-      // Ensure the debug library has a reference to the interpreter
-      final debugLib = vm.globals.get('debug');
-      if (debugLib != null && debugLib.isTable) {
-        // Reinitialize debug library with the interpreter reference
-        defineDebugLibrary(env: vm.globals, vm: vm);
-        Logger.debug(
-          'Updated debug library with interpreter reference',
-          category: 'LineTracking',
-        );
+      if (scriptPath != null) {
+        _updateScriptMetadata(vm, scriptPath);
       }
 
-      // Use our evaluate method to handle line tracking correctly
-      final result = await evaluate(code, scriptPath: scriptPath);
+      final result = await executeCode(
+        code,
+        vm: vm,
+        mode: mode,
+        onRuntimeSetup: (runtime) {
+          runtime.globals.interpreter = runtime;
+          final debugLib = runtime.globals.get('debug');
+          if (debugLib != null && debugLib.isTable) {
+            defineDebugLibrary(env: runtime.globals, vm: runtime);
+            Logger.debug(
+              'Updated debug library with interpreter reference',
+              category: 'LineTracking',
+            );
+          }
+        },
+      );
 
       // If a multi-value was returned, unwrap it into a Dart List so callers
       // receive a simple List<Value> like the top-level runCode helper.
@@ -239,28 +251,46 @@ class LuaLike {
   /// while ensuring line information is correctly set
   Future<Object?> evaluate(String code, {String? scriptPath}) async {
     try {
-      // Parse the code to generate AST with line information
-      final program = parse(code, url: scriptPath);
-
-      // Set script path in environment if provided
       if (scriptPath != null) {
-        // Normalize using path library so code and tests see a consistent path format
-        final normalized = path.url.joinAll(
-          path.split(path.normalize(scriptPath)),
-        );
-        Logger.debug(
-          'LuaLike.evaluate: setting _SCRIPT_PATH (norm)=$normalized | original=$scriptPath',
-          category: 'Interpreter',
-        );
-        vm.globals.define('_SCRIPT_PATH', Value(normalized));
-        vm.callStack.setScriptPath(normalized);
+        _updateScriptMetadata(vm, scriptPath);
       }
 
-      // Run the program statements with line tracking
-      return await vm.runAst(program.statements);
+      return await executeCode(
+        code,
+        vm: vm,
+        mode: EngineMode.ast,
+        onRuntimeSetup: (runtime) {
+          runtime.globals.interpreter = runtime;
+          final debugLib = runtime.globals.get('debug');
+          if (debugLib != null && debugLib.isTable) {
+            defineDebugLibrary(env: runtime.globals, vm: runtime);
+          }
+        },
+      );
     } catch (e) {
       Logger.error("Error evaluating code: $e");
       rethrow;
+    }
+  }
+
+  void _updateScriptMetadata(LuaRuntime runtime, String scriptPath) {
+    final normalizedPath = path.url.joinAll(
+      path.split(path.normalize(scriptPath)),
+    );
+    Logger.debug(
+      'Setting script metadata _SCRIPT_PATH=$normalizedPath (original=$scriptPath)',
+      category: 'Interpreter',
+    );
+    runtime.globals.define('_SCRIPT_PATH', Value(normalizedPath));
+    runtime.callStack.setScriptPath(normalizedPath);
+
+    final scriptDir = path.dirname(scriptPath);
+    final normalizedDir = path.url.joinAll(
+      path.split(path.normalize(scriptDir)),
+    );
+    runtime.globals.define('_SCRIPT_DIR', Value(normalizedDir));
+    if (scriptDir.isNotEmpty) {
+      runtime.fileManager.addSearchPath(scriptDir);
     }
   }
 

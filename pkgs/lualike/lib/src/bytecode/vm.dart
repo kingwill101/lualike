@@ -2,8 +2,10 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:lualike/src/environment.dart';
+import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/number_utils.dart';
+import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/table_storage.dart';
 import 'package:lualike/src/value.dart';
 
@@ -13,16 +15,11 @@ import 'prototype.dart';
 
 const int _returnAll = -1;
 
-class _UpvalueCell {
-  _UpvalueCell.fromRegister(List<dynamic> registers, int index)
+class BytecodeUpvalueCell {
+  BytecodeUpvalueCell.fromRegister(List<dynamic> registers, int index)
     : _registers = registers,
       _index = index,
       _closedValue = registers[index];
-
-  _UpvalueCell.fromCell(_UpvalueCell other)
-    : _registers = other._registers,
-      _index = other._index,
-      _closedValue = other._closedValue;
 
   List<dynamic>? _registers;
   final int _index;
@@ -63,21 +60,21 @@ class _ToBeClosedRecord {
 class BytecodeClosure {
   BytecodeClosure({
     required this.prototype,
-    required List<_UpvalueCell> upvalues,
-  }) : upvalues = List<_UpvalueCell>.from(upvalues);
+    required List<BytecodeUpvalueCell> upvalues,
+  }) : upvalues = List<BytecodeUpvalueCell>.from(upvalues);
 
   final BytecodePrototype prototype;
-  final List<_UpvalueCell> upvalues;
+  final List<BytecodeUpvalueCell> upvalues;
 }
 
 class _BytecodeFrame {
   _BytecodeFrame({
     required this.prototype,
     required List<dynamic> args,
-    required List<_UpvalueCell> capturedUpvalues,
+    required List<BytecodeUpvalueCell> capturedUpvalues,
     required this.returnBase,
     required this.expectedResults,
-  }) : upvalues = List<_UpvalueCell>.from(capturedUpvalues),
+  }) : upvalues = List<BytecodeUpvalueCell>.from(capturedUpvalues),
        registers = List<dynamic>.filled(
          _initialRegisterCapacity(prototype, args),
          null,
@@ -94,13 +91,14 @@ class _BytecodeFrame {
 
   final BytecodePrototype prototype;
   final List<dynamic> registers;
-  final List<_UpvalueCell> upvalues;
+  final List<BytecodeUpvalueCell> upvalues;
   final List<dynamic> varargs;
   int pc = 0;
   int returnBase;
   int expectedResults;
   int top = 0;
-  final Map<int, _UpvalueCell> _registerUpvalues = <int, _UpvalueCell>{};
+  final Map<int, BytecodeUpvalueCell> _registerUpvalues =
+      <int, BytecodeUpvalueCell>{};
   final List<_ToBeClosedRecord> _toBeClosed = <_ToBeClosedRecord>[];
 
   dynamic getRegister(int index) {
@@ -135,10 +133,10 @@ class _BytecodeFrame {
     top = newTop;
   }
 
-  _UpvalueCell captureRegister(int index) {
+  BytecodeUpvalueCell captureRegister(int index) {
     return _registerUpvalues.putIfAbsent(
       index,
-      () => _UpvalueCell.fromRegister(registers, index),
+      () => BytecodeUpvalueCell.fromRegister(registers, index),
     );
   }
 
@@ -198,25 +196,106 @@ class _BytecodeFrame {
 /// produced by [BytecodeCompiler]. The implementation will expand as more AST
 /// features are lowered to bytecode.
 class BytecodeVm {
-  BytecodeVm({Environment? environment})
-    : environment = environment ?? Environment();
+  BytecodeVm({Environment? environment, LuaRuntime? runtime})
+    : environment = environment ?? Environment() {
+    this.runtime = runtime ?? this.environment.interpreter;
+  }
 
   final Environment environment;
+  late final LuaRuntime? runtime;
   static final Object _metamethodNotFound = Object();
 
+  void _logVm(
+    String Function() messageBuilder, {
+    Set<String>? categories,
+    Map<String, Object?> Function()? contextBuilder,
+  }) {
+    if (!Logger.enabled) {
+      return;
+    }
+    Logger.debugLazy(
+      messageBuilder,
+      category: 'BytecodeVm',
+      categories: categories,
+      contextBuilder: contextBuilder,
+    );
+  }
+
+  String _describeValue(dynamic value) {
+    if (value is BytecodeClosure) {
+      return 'BytecodeClosure(protoRegisters=${value.prototype.registerCount})';
+    }
+    if (value is Value) {
+      final raw = value.raw;
+      final typeName = raw == null ? 'nil' : raw.runtimeType.toString();
+      return 'Value<$typeName>';
+    }
+    if (value == null) {
+      return 'null';
+    }
+    return value.runtimeType.toString();
+  }
+
   Future<Object?> execute(BytecodeChunk chunk) async {
-    final frames = <_BytecodeFrame>[
+    _logVm(
+      () => 'Executing chunk',
+      categories: const {'Execute'},
+      contextBuilder: () => {
+        'registers': chunk.mainPrototype.registerCount,
+        'instructions': chunk.mainPrototype.instructions.length,
+        'constants': chunk.mainPrototype.constants.length,
+      },
+    );
+    final rawResults = await _runFrames(<_BytecodeFrame>[
       _BytecodeFrame(
         prototype: chunk.mainPrototype,
         args: const [],
-        capturedUpvalues: const <_UpvalueCell>[],
+        capturedUpvalues: const <BytecodeUpvalueCell>[],
         returnBase: 0,
         expectedResults: _returnAll,
       ),
-    ];
+    ], isMainChunk: true);
+    return _finalizeResults(rawResults);
+  }
+
+  Future<Object?> invokeClosure(
+    BytecodeClosure closure,
+    List<Object?> args, {
+    int expectedResults = _returnAll,
+  }) async {
+    _logVm(
+      () => 'Invoking bytecode closure',
+      categories: const {'Execute', 'Call'},
+      contextBuilder: () => {
+        'params': closure.prototype.paramCount,
+        'vararg': closure.prototype.isVararg,
+        'args': args.length,
+        'expected': expectedResults,
+      },
+    );
+    final rawResults = await _runFrames(<_BytecodeFrame>[
+      _BytecodeFrame(
+        prototype: closure.prototype,
+        args: args,
+        capturedUpvalues: closure.upvalues,
+        returnBase: 0,
+        expectedResults: expectedResults,
+      ),
+    ]);
+    return _finalizeResults(rawResults);
+  }
+
+  Future<List<dynamic>> _runFrames(
+    List<_BytecodeFrame> frames, {
+    bool isMainChunk = false,
+  }) async {
     List<dynamic>? finalResults;
 
-    int _signExtend(int value, int bitCount) {
+    if (frames.isNotEmpty) {
+      _pushCallStackFrame(frames.last, isMainChunk: isMainChunk);
+    }
+
+    int signExtend(int value, int bitCount) {
       final limit = 1 << (bitCount - 1);
       final mask = (1 << bitCount) - 1;
       final unsigned = value & mask;
@@ -241,6 +320,19 @@ class BytecodeVm {
       final instruction = instructions[frame.pc];
       frame.pc += 1;
 
+      _updateCallStackLine(frame, frame.pc - 1);
+
+      _logVm(
+        () => 'pc=${frame.pc - 1} opcode=${instruction.opcode.name}',
+        categories: const {'Opcode'},
+        contextBuilder: () => {
+          'frameDepth': frames.length,
+          'registerTop': frame.top,
+          'returnBase': frame.returnBase,
+          'expectedResults': frame.expectedResults,
+        },
+      );
+
       switch (instruction.opcode) {
         case BytecodeOpcode.move:
           final instr = instruction as ABCInstruction;
@@ -253,13 +345,13 @@ class BytecodeVm {
         case BytecodeOpcode.loadI:
           {
             final instr = instruction as ABCInstruction;
-            frame.setRegister(instr.a, _signExtend(instr.b, 8));
+            frame.setRegister(instr.a, signExtend(instr.b, 8));
             break;
           }
         case BytecodeOpcode.loadF:
           {
             final instr = instruction as ABCInstruction;
-            frame.setRegister(instr.a, _signExtend(instr.b, 8).toDouble());
+            frame.setRegister(instr.a, signExtend(instr.b, 8).toDouble());
             break;
           }
         case BytecodeOpcode.loadKx:
@@ -317,10 +409,10 @@ class BytecodeVm {
         case BytecodeOpcode.setTabUp:
           final instr = instruction as ABCInstruction;
           final key = _constantToKey(constants[instr.b]);
-          final value = instr.k
+          final rawValue = instr.k
               ? _resolveConstant(constants[instr.c])
               : registers[instr.c];
-          environment.define(key, value);
+          environment.define(key, _ensureValue(rawValue));
           break;
         case BytecodeOpcode.getTable:
           final instr = instruction as ABCInstruction;
@@ -427,6 +519,15 @@ class BytecodeVm {
             } else if (callee is Value && callee.raw is BytecodeClosure) {
               closure = callee.raw as BytecodeClosure;
             }
+            _logVm(
+              () =>
+                  'CALL base=$base args=${args.length} expected=$expectedResults',
+              categories: const {'Call'},
+              contextBuilder: () => {
+                'callee': _describeValue(callee),
+                'bytecode': closure != null,
+              },
+            );
             if (closure != null) {
               frames.add(
                 _BytecodeFrame(
@@ -437,12 +538,17 @@ class BytecodeVm {
                   expectedResults: expectedResults,
                 ),
               );
+              _pushCallStackFrame(frames.last);
               continue;
             }
             final results = await _normalizeResults(
               await _callValue(callee, args),
             );
             _storeResults(frame, base, expectedResults, results);
+            _logVm(
+              () => 'CALL completed results=${results.length}',
+              categories: const {'Call'},
+            );
             break;
           }
         case BytecodeOpcode.tailCall:
@@ -458,7 +564,17 @@ class BytecodeVm {
             } else if (callee is Value && callee.raw is BytecodeClosure) {
               closure = callee.raw as BytecodeClosure;
             }
+            _logVm(
+              () =>
+                  'TAILCALL base=${instr.a} args=${args.length} expected=$currentExpected',
+              categories: const {'Call', 'TailCall'},
+              contextBuilder: () => {
+                'callee': _describeValue(callee),
+                'bytecode': closure != null,
+              },
+            );
             if (closure != null) {
+              _popCallStackFrame();
               final completed = frames.removeLast();
               await completed.closeToBeClosed(0);
               completed.closeOpenUpvalues();
@@ -471,11 +587,13 @@ class BytecodeVm {
                   expectedResults: currentExpected,
                 ),
               );
+              _pushCallStackFrame(frames.last);
               continue;
             }
             final results = await _normalizeResults(
               await _callValue(callee, args),
             );
+            _popCallStackFrame();
             final completed = frames.removeLast();
             await completed.closeToBeClosed(0);
             completed.closeOpenUpvalues();
@@ -488,6 +606,10 @@ class BytecodeVm {
                 currentReturnBase,
                 currentExpected,
                 results,
+              );
+              _logVm(
+                () => 'TAILCALL fallback results=${results.length}',
+                categories: const {'Call', 'TailCall'},
               );
             }
             break;
@@ -554,7 +676,7 @@ class BytecodeVm {
           if (instr.b > 0) {
             tableStorage.ensureArrayCapacity(instr.b);
           }
-          registers[instr.a] = Value(tableStorage);
+          registers[instr.a] = _ensureValue(tableStorage);
           break;
         case BytecodeOpcode.add:
           await _applyBinaryOperation(
@@ -569,7 +691,7 @@ class BytecodeVm {
             await _applyBinaryImmediate(
               frame,
               instr,
-              _signExtend(instr.c, 9),
+              signExtend(instr.c, 9),
               '+',
             );
             break;
@@ -730,7 +852,7 @@ class BytecodeVm {
             await _applyBinaryImmediate(
               frame,
               instr,
-              _signExtend(instr.c, 9),
+              signExtend(instr.c, 9),
               '+',
             );
             break;
@@ -773,7 +895,7 @@ class BytecodeVm {
         case BytecodeOpcode.shlI:
           {
             final instr = instruction as ABCInstruction;
-            final imm = _signExtend(instr.c, 9);
+            final imm = signExtend(instr.c, 9);
             await _applyBinaryImmediate(frame, instr, imm, '<<');
             break;
           }
@@ -787,7 +909,7 @@ class BytecodeVm {
         case BytecodeOpcode.shrI:
           {
             final instr = instruction as ABCInstruction;
-            final imm = _signExtend(instr.c, 9);
+            final imm = signExtend(instr.c, 9);
             await _applyBinaryImmediate(frame, instr, imm, '>>');
             break;
           }
@@ -888,13 +1010,17 @@ class BytecodeVm {
           // Execution reaches here only if an instruction failed to process it.
           break;
         default:
+          _logVm(
+            () => 'Unsupported opcode ${instruction.opcode.name}',
+            categories: const {'Opcode', 'Error'},
+          );
           throw UnsupportedError(
             'Opcode ${instruction.opcode} not yet supported in BytecodeVm',
           );
       }
     }
 
-    return _finalizeResults(finalResults);
+    return finalResults ?? const <dynamic>[];
   }
 
   List<dynamic> _collectCallArguments(
@@ -910,14 +1036,14 @@ class BytecodeVm {
       ) {
         args.addAll(_expandValue(frame.registers[index]));
       }
-      return args;
+      return _prepareCallArguments(args);
     }
     final argCount = instruction.b - 1;
     final args = <dynamic>[];
     for (var i = 0; i < argCount; i++) {
       args.addAll(_expandValue(frame.registers[instruction.a + 1 + i]));
     }
-    return args;
+    return _prepareCallArguments(args);
   }
 
   void _storeResults(
@@ -948,10 +1074,27 @@ class BytecodeVm {
     int? returnBase,
     int? expectedResults,
   }) async {
+    if (Logger.enabled && frames.isNotEmpty) {
+      final frame = frames.last;
+      _logVm(
+        () => 'Returning ${results.length} value(s)',
+        categories: const {'Return'},
+        contextBuilder: () => {
+          'remainingFrames': frames.length - 1,
+          'returnBase': returnBase ?? frame.returnBase,
+          'expectedResults': expectedResults ?? frame.expectedResults,
+        },
+      );
+    }
     final completed = frames.removeLast();
+    _popCallStackFrame();
     await completed.closeToBeClosed(0);
     completed.closeOpenUpvalues();
     if (frames.isEmpty) {
+      _logVm(
+        () => 'Top-level return (${results.length} value(s))',
+        categories: const {'Return'},
+      );
       onTopLevel(results);
       return;
     }
@@ -965,7 +1108,7 @@ class BytecodeVm {
     if (value is Value && value.isMulti && value.raw is List) {
       return List<dynamic>.from(value.raw as List);
     }
-    if (value is List && value is! Value) {
+    if (value is List) {
       return List<dynamic>.from(value);
     }
     return <dynamic>[value];
@@ -988,9 +1131,118 @@ class BytecodeVm {
     return value;
   }
 
+  void _ensureInterpreterAttached(Value value) {
+    final runtime = environment.interpreter;
+    if (runtime != null && !identical(value.interpreter, runtime)) {
+      value.interpreter = runtime;
+    }
+  }
+
+  Value _ensureValue(dynamic raw) {
+    if (raw is Value) {
+      _ensureInterpreterAttached(raw);
+      return raw;
+    }
+    final value = Value(raw);
+    _ensureInterpreterAttached(value);
+    return value;
+  }
+
+  List<dynamic> _prepareCallArguments(List<dynamic> args) {
+    if (args.isEmpty) {
+      return const <dynamic>[];
+    }
+    return args.map(_prepareCallArgument).toList(growable: false);
+  }
+
+  dynamic _prepareCallArgument(dynamic arg) {
+    if (arg is Value) {
+      _ensureInterpreterAttached(arg);
+      return arg;
+    }
+    if (arg is BytecodeClosure) {
+      return _ensureValue(arg);
+    }
+    if (arg is List && arg is! Value) {
+      return arg.map(_prepareCallArgument).toList();
+    }
+    return _ensureValue(arg);
+  }
+
+  void _pushCallStackFrame(_BytecodeFrame frame, {bool isMainChunk = false}) {
+    final runtime = this.runtime;
+    if (runtime == null) {
+      return;
+    }
+    final debugPath = frame.prototype.debugInfo?.absoluteSourcePath;
+    final previousPath = runtime.callStack.scriptPath;
+    if (debugPath != null) {
+      runtime.callStack.setScriptPath(debugPath);
+    }
+    final name = isMainChunk
+        ? 'main_chunk'
+        : _prototypeDisplayName(frame.prototype);
+    runtime.callStack.push(name, env: environment);
+    if (debugPath != null) {
+      runtime.callStack.setScriptPath(previousPath);
+    }
+    final top = runtime.callStack.top;
+    if (top != null) {
+      final fallbackLine = frame.prototype.lineDefined > 0
+          ? frame.prototype.lineDefined
+          : 1;
+      if (fallbackLine > 0) {
+        top.currentLine = fallbackLine;
+      }
+    }
+    _updateCallStackLine(frame, frame.pc - 1);
+  }
+
+  void _popCallStackFrame() {
+    runtime?.callStack.pop();
+  }
+
+  void _updateCallStackLine(_BytecodeFrame frame, int instructionIndex) {
+    final runtime = this.runtime;
+    if (runtime == null) {
+      return;
+    }
+    final debugInfo = frame.prototype.debugInfo;
+    final top = runtime.callStack.top;
+    if (top != null) {
+      final fallbackLine = frame.prototype.lineDefined > 0
+          ? frame.prototype.lineDefined
+          : 1;
+      if (debugInfo == null ||
+          debugInfo.lineInfo.isEmpty ||
+          instructionIndex < 0 ||
+          instructionIndex >= debugInfo.lineInfo.length) {
+        if (fallbackLine > 0 && top.currentLine <= 0) {
+          top.currentLine = fallbackLine;
+        }
+        return;
+      }
+      final line = debugInfo.lineInfo[instructionIndex];
+      if (line <= 0) {
+        if (fallbackLine > 0 && top.currentLine <= 0) {
+          top.currentLine = fallbackLine;
+        }
+        return;
+      }
+      top.currentLine = line;
+    }
+  }
+
+  String _prototypeDisplayName(BytecodePrototype prototype) {
+    if (prototype.lineDefined <= 0) {
+      return 'function';
+    }
+    return 'function@${prototype.lineDefined}';
+  }
+
   BytecodeClosure _createClosure(_BytecodeFrame frame, int prototypeIndex) {
     final child = frame.prototype.prototypes[prototypeIndex];
-    final captured = <_UpvalueCell>[];
+    final captured = <BytecodeUpvalueCell>[];
     for (final descriptor in child.upvalueDescriptors) {
       if (descriptor.inStack == 1) {
         captured.add(frame.captureRegister(descriptor.index));
@@ -998,6 +1250,11 @@ class BytecodeVm {
         captured.add(frame.upvalues[descriptor.index]);
       }
     }
+    _logVm(
+      () =>
+          'Create closure prototype=$prototypeIndex captured=${captured.length}',
+      categories: const {'Closure'},
+    );
     return BytecodeClosure(prototype: child, upvalues: captured);
   }
 
@@ -1102,15 +1359,36 @@ class BytecodeVm {
       callee = rightValue;
     }
     if (callee == null) {
+      _logVm(
+        () => 'Metamethod $metamethod not found',
+        categories: const {'Metamethod'},
+      );
       return _metamethodNotFound;
     }
     try {
+      _logVm(
+        () => 'Metamethod $metamethod invoked',
+        categories: const {'Metamethod'},
+        contextBuilder: () => {
+          'callee': _describeValue(callee),
+          'left': _describeValue(leftValue),
+          'right': _describeValue(rightValue),
+        },
+      );
       final result = await callee.callMetamethodAsync(metamethod, <Value>[
         leftValue,
         rightValue,
       ]);
+      _logVm(
+        () => 'Metamethod $metamethod result ${_describeValue(result)}',
+        categories: const {'Metamethod'},
+      );
       return result;
     } on UnsupportedError {
+      _logVm(
+        () => 'Metamethod $metamethod unsupported',
+        categories: const {'Metamethod'},
+      );
       return _metamethodNotFound;
     }
   }
@@ -1251,16 +1529,19 @@ class BytecodeVm {
   }
 
   dynamic _tableGet(dynamic tableRef, dynamic key) {
-    final tableValue = tableRef is Value ? tableRef : Value(tableRef);
-    final keyValue = key is Value ? key : Value(key);
+    final tableValue = _ensureValue(tableRef);
+    final keyValue = _ensureValue(key);
     final result = tableValue[keyValue];
+    if (result is Value) {
+      _ensureInterpreterAttached(result);
+    }
     return result;
   }
 
   void _tableSet(dynamic tableRef, dynamic key, dynamic value) {
-    final tableValue = tableRef is Value ? tableRef : Value(tableRef);
-    final keyValue = key is Value ? key : Value(key);
-    final storedValue = value is Value ? value : Value(value);
+    final tableValue = _ensureValue(tableRef);
+    final keyValue = _ensureValue(key);
+    final storedValue = _ensureValue(value);
     tableValue[keyValue] = storedValue;
   }
 
@@ -1289,18 +1570,41 @@ class BytecodeVm {
   }
 
   Future<dynamic> _callValue(dynamic callable, List<Object?> args) async {
+    _logVm(
+      () => 'callValue target=${_describeValue(callable)} args=${args.length}',
+      categories: const {'Call', 'HostCall'},
+    );
     if (callable is Value) {
+      _ensureInterpreterAttached(callable);
       final raw = callable.unwrap();
       if (raw is Function) {
-        final result = raw(args);
-        return result is Future ? await result : result;
+        final normalizedArgs = args
+            .map((arg) => arg is Value ? arg.raw : arg)
+            .toList(growable: false);
+        final result = raw(normalizedArgs);
+        final awaited = result is Future ? await result : result;
+        _logVm(
+          () =>
+              'callValue result ${_describeValue(awaited)} (Value.raw Function)',
+          categories: const {'Call', 'HostCall'},
+        );
+        return awaited;
       }
-      final result = callable.call(args);
-      return result is Future ? await result : result;
+      final awaited = await callable.call(args);
+      _logVm(
+        () => 'callValue result ${_describeValue(awaited)} (Value.call)',
+        categories: const {'Call', 'HostCall'},
+      );
+      return awaited;
     }
     if (callable is Function) {
       final result = callable(args);
-      return result is Future ? await result : result;
+      final awaited = result is Future ? await result : result;
+      _logVm(
+        () => 'callValue result ${_describeValue(awaited)} (Function)',
+        categories: const {'Call', 'HostCall'},
+      );
+      return awaited;
     }
     throw LuaError.typeError('attempt to call a ${callable.runtimeType} value');
   }
@@ -1310,6 +1614,7 @@ class BytecodeVm {
       return const [];
     }
     if (result is Value) {
+      _ensureInterpreterAttached(result);
       if (result.isMulti) {
         final rawList = result.raw as List<Object?>;
         return List<dynamic>.from(rawList);
@@ -1317,7 +1622,14 @@ class BytecodeVm {
       return <dynamic>[result];
     }
     if (result is List) {
-      return List<dynamic>.from(result);
+      return List<dynamic>.from(
+        result.map((item) {
+          if (item is Value) {
+            _ensureInterpreterAttached(item);
+          }
+          return item;
+        }),
+      );
     }
     return <dynamic>[result];
   }
@@ -1352,8 +1664,8 @@ class BytecodeVm {
 
   bool _equals(dynamic left, dynamic right) {
     if (left is Value || right is Value) {
-      final leftValue = left is Value ? left : Value(left);
-      final rightValue = right is Value ? right : Value(right);
+      final leftValue = _ensureValue(left);
+      final rightValue = _ensureValue(right);
       return leftValue.equals(rightValue);
     }
 
@@ -1371,8 +1683,8 @@ class BytecodeVm {
 
   bool _lessThan(dynamic left, dynamic right) {
     if (left is Value || right is Value) {
-      final leftValue = left is Value ? left : Value(left);
-      final rightValue = right is Value ? right : Value(right);
+      final leftValue = _ensureValue(left);
+      final rightValue = _ensureValue(right);
       final result = leftValue < rightValue;
       if (result is Value) {
         return _isTruthy(result);
@@ -1401,8 +1713,8 @@ class BytecodeVm {
 
   bool _lessEqual(dynamic left, dynamic right) {
     if (left is Value || right is Value) {
-      final leftValue = left is Value ? left : Value(left);
-      final rightValue = right is Value ? right : Value(right);
+      final leftValue = _ensureValue(left);
+      final rightValue = _ensureValue(right);
       final result = leftValue <= rightValue;
       if (result is Value) {
         return _isTruthy(result);
@@ -1445,7 +1757,7 @@ class BytecodeVm {
       return value.length;
     }
     if (value is Map) {
-      return Value(value).length;
+      return _ensureValue(value).length;
     }
     throw LuaError.typeError('attempt to get length of a ${value.runtimeType}');
   }
@@ -1458,9 +1770,23 @@ class LoopBytecodeVm {
 
   final Environment environment;
 
-  Value _valueOf(dynamic raw) {
-    return raw is Value ? raw : Value(raw);
+  Value _ensureValue(dynamic raw) {
+    if (raw is Value) {
+      final runtime = environment.interpreter;
+      if (runtime != null && !identical(raw.interpreter, runtime)) {
+        raw.interpreter = runtime;
+      }
+      return raw;
+    }
+    final value = Value(raw);
+    final runtime = environment.interpreter;
+    if (runtime != null) {
+      value.interpreter = runtime;
+    }
+    return value;
   }
+
+  Value _valueOf(dynamic raw) => _ensureValue(raw);
 
   dynamic _applyBinaryOperation(dynamic left, dynamic right, String operation) {
     final leftValue = _valueOf(left);
@@ -1631,45 +1957,10 @@ class LoopBytecodeVm {
     return value is Value ? value.raw : value;
   }
 
-  dynamic _callValue(dynamic callable, List<Object?> args) {
-    if (callable is Value) {
-      final result = callable.call(args);
-      if (result is Future) {
-        throw LuaError('asynchronous iterators are not supported in bytecode');
-      }
-      return result;
-    }
-    if (callable is Function) {
-      final result = callable(args);
-      if (result is Future) {
-        throw LuaError('asynchronous iterators are not supported in bytecode');
-      }
-      return result;
-    }
-    throw LuaError.typeError('attempt to call a ${callable.runtimeType} value');
-  }
-
-  List<dynamic> _normalizeResults(dynamic result) {
-    if (result == null) {
-      return const [];
-    }
-    if (result is Value) {
-      if (result.isMulti) {
-        final rawList = result.raw as List<Object?>;
-        return List<dynamic>.from(rawList);
-      }
-      return <dynamic>[result];
-    }
-    if (result is List) {
-      return List<dynamic>.from(result);
-    }
-    return <dynamic>[result];
-  }
-
   void _setTable(dynamic tableRef, dynamic keyRef, dynamic valueRef) {
-    final tableValue = tableRef is Value ? tableRef : Value(tableRef);
-    final keyValue = keyRef is Value ? keyRef : Value(keyRef);
-    final storedValue = valueRef is Value ? valueRef : Value(valueRef);
+    final tableValue = _ensureValue(tableRef);
+    final keyValue = _ensureValue(keyRef);
+    final storedValue = _ensureValue(valueRef);
 
     if (tableValue.raw is Map) {
       tableValue[keyValue] = storedValue;

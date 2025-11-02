@@ -1,3 +1,5 @@
+import 'package:source_span/source_span.dart';
+
 import 'ast.dart';
 import 'lua_stack_trace.dart';
 import 'environment.dart';
@@ -36,9 +38,25 @@ class CallFrame {
 
   /// Creates a LuaStackFrame from this call frame.
   LuaStackFrame toLuaStackFrame() {
-    return callNode != null
-        ? LuaStackFrame.fromNode(callNode!, functionName)
-        : LuaStackFrame(functionName);
+    if (callNode != null) {
+      return LuaStackFrame.fromNode(
+        callNode!,
+        functionName,
+        scriptPath: scriptPath,
+      );
+    }
+    if (scriptPath != null && currentLine > 0) {
+      final uri = Uri.file(scriptPath!);
+      final location = SourceLocation(
+        0,
+        sourceUrl: uri,
+        line: currentLine - 1,
+        column: 0,
+      );
+      final span = SourceSpan(location, location, '');
+      return LuaStackFrame(functionName, span: span, scriptPath: scriptPath);
+    }
+    return LuaStackFrame(functionName, scriptPath: scriptPath);
   }
 }
 

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:contextual/contextual.dart' as ctx;
 import 'package:lualike/command/version_command.dart';
+import 'package:lualike/src/config.dart';
 import 'package:lualike/src/logging/logging.dart';
 
 import 'base_command.dart';
@@ -103,6 +104,16 @@ class LuaLikeCommandRunner extends CommandRunner {
       if (argResults['help'] as bool) {
         throw UsageException(usage, usage);
       }
+
+      final config = LuaLikeConfig();
+      final useBytecode = argResults['bytecode'] as bool;
+      final useAst = argResults['ast'] as bool;
+      if (useBytecode || !useAst) {
+        config.defaultEngineMode = EngineMode.bytecode;
+      } else {
+        config.defaultEngineMode = EngineMode.ast;
+      }
+      BaseCommand.resetBridge();
 
       // Handle debug mode
       if (argResults['debug'] as bool) {

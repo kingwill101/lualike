@@ -269,6 +269,7 @@ class _PrototypeContext {
   }
 
   void _emitReturn(ReturnStatement node) {
+    _trackSource(node);
     hasExplicitReturn = true;
     _emitCloseForActiveToBeClosed(clear: true);
 
@@ -360,6 +361,7 @@ class _PrototypeContext {
   }
 
   int _emitExpression(AstNode node, {int? target}) {
+    _trackSource(node);
     switch (node) {
       case NumberLiteral(:final value):
         final reg = _materializeRegister(target);
@@ -509,6 +511,7 @@ class _PrototypeContext {
   }
 
   void _emitAssignment(Assignment node) {
+    _trackSource(node);
     if (node.targets.length == 1 && node.exprs.length == 1) {
       _emitSingleAssignment(node.targets.single, node.exprs.single);
       return;
@@ -574,6 +577,7 @@ class _PrototypeContext {
   }
 
   void _emitLocalDeclaration(LocalDeclaration node) {
+    _trackSource(node);
     final nameCount = node.names.length;
     if (nameCount == 0) {
       return;
@@ -648,14 +652,17 @@ class _PrototypeContext {
   }
 
   bool _emitDoBlock(DoBlock node) {
+    _trackSource(node);
     return _emitBlock(node.body);
   }
 
   void _emitAssignmentIndexAccessExpr(AssignmentIndexAccessExpr node) {
+    _trackSource(node);
     _emitTableIndexAssignment(node.target, node.index, node.value);
   }
 
   int _emitTableConstructor(TableConstructor node, {int? target}) {
+    _trackSource(node);
     final hints = _computeTableConstructorHints(node);
     final tableReg = _materializeRegister(target);
     final arrayHint = hints.arraySlots.clamp(0, 0xFF).toInt();
@@ -908,6 +915,7 @@ class _PrototypeContext {
   }
 
   bool _emitIfStatement(IfStatement node) {
+    _trackSource(node);
     final exitJumps = <int>[];
     final falseJump = _emitConditionJump(node.cond, jumpWhenTrue: false);
     final thenReturns = _emitBlock(node.thenBlock);
@@ -943,6 +951,7 @@ class _PrototypeContext {
   }
 
   void _emitWhileStatement(WhileStatement node) {
+    _trackSource(node);
     final loopStart = _currentInstructionIndex;
     final exitJump = _emitConditionJump(node.cond, jumpWhenTrue: false);
     _emitBlock(node.body, useNewScope: true);
@@ -953,6 +962,7 @@ class _PrototypeContext {
   }
 
   void _emitForLoop(ForLoop node) {
+    _trackSource(node);
     final base = _allocateRegister();
     final limitReg = _allocateRegister();
     final stepReg = _allocateRegister();
@@ -1006,6 +1016,7 @@ class _PrototypeContext {
   }
 
   void _emitForInLoop(ForInLoop node) {
+    _trackSource(node);
     if (node.iterators.isEmpty || node.names.isEmpty) {
       throw UnsupportedError('Generic for loop requires iterators and names');
     }
@@ -1088,6 +1099,7 @@ class _PrototypeContext {
   }
 
   void _emitFunctionDef(FunctionDef node) {
+    _trackSource(node);
     final register = _allocateRegister();
     final prototypeIndex = _compileFunctionBody(node.body);
     emitter.emitABx(
@@ -1161,6 +1173,7 @@ class _PrototypeContext {
   }
 
   void _emitLocalFunctionDef(LocalFunctionDef node) {
+    _trackSource(node);
     final register = _allocateRegister();
     _declareLocal(node.name.name, register);
     final prototypeIndex = _compileFunctionBody(node.funcBody);
@@ -1260,6 +1273,7 @@ class _PrototypeContext {
   }
 
   int _emitLogicalBinaryExpression(BinaryExpression node, {int? target}) {
+    _trackSource(node);
     final isAnd = node.op == 'and';
     final resultReg = _emitExpression(node.left, target: target);
     emitter.emitABC(
@@ -1294,6 +1308,7 @@ class _PrototypeContext {
     bool captureAll = false,
     int? baseRegister,
   }) {
+    _trackSource(node);
     assert(
       !(captureAll && resultCount != null),
       'Cannot request a fixed result count when capturing all results.',
@@ -1375,6 +1390,7 @@ class _PrototypeContext {
     bool captureAll = false,
     int? baseRegister,
   }) {
+    _trackSource(node);
     final objectReg = _emitExpression(node.prefix);
     if (node.methodName is! Identifier) {
       throw UnsupportedError(
@@ -1577,6 +1593,7 @@ class _PrototypeContext {
   }
 
   int _emitBinaryExpression(BinaryExpression node, {int? target}) {
+    _trackSource(node);
     if (node.op == 'and' || node.op == 'or') {
       return _emitLogicalBinaryExpression(node, target: target);
     }
@@ -1966,6 +1983,36 @@ class _PrototypeContext {
 
     final registers = _maxRegister == 0 ? 1 : _maxRegister;
     builder.registerCount = registers;
+  }
+
+  void _trackSource(AstNode node) {
+    final span = node.span;
+    if (span == null) {
+      return;
+    }
+    final line = span.start.line + 1;
+    emitter.currentLine = line;
+    final url = span.sourceUrl;
+    if (url != null && builder.sourcePath == null) {
+      builder.sourcePath = _normalizeSourcePath(url);
+    }
+    if (builder.lineDefined == 0 && line > 0) {
+      builder.lineDefined = line;
+    }
+    if (line > builder.lastLineDefined) {
+      builder.lastLineDefined = line;
+    }
+  }
+
+  String _normalizeSourcePath(Uri url) {
+    if (url.scheme == 'file' || url.scheme.isEmpty) {
+      try {
+        return url.toFilePath();
+      } catch (_) {
+        // Fall back to string form below
+      }
+    }
+    return url.toString();
   }
 
   int _materializeRegister(int? target) {
