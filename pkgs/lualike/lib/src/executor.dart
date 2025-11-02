@@ -44,6 +44,7 @@ Future<Object?> executeCode(
       final chunk = BytecodeCompiler().compile(program);
       final result = await BytecodeVm(
         environment: runtime.globals,
+        runtime: runtime,
       ).execute(chunk);
       return result;
     }

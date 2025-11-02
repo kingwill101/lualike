@@ -16,6 +16,7 @@ class BytecodePrototypeBuilder {
   bool isVararg;
   int lineDefined;
   int lastLineDefined;
+  String? sourcePath;
 
   final List<BytecodeInstruction> _instructions = [];
   final List<BytecodeConstant> _constants = [];
@@ -23,12 +24,14 @@ class BytecodePrototypeBuilder {
   final List<BytecodePrototypeBuilder> _childBuilders = [];
   final List<BytecodeUpvalueDescriptor> upvalueDescriptors = [];
   BytecodeDebugInfo? debugInfo;
+  final List<int> _lineInfo = [];
 
   List<BytecodeInstruction> get instructions =>
       List.unmodifiable(_instructions);
 
-  int addInstruction(BytecodeInstruction instruction) {
+  int addInstruction(BytecodeInstruction instruction, {int? line}) {
     _instructions.add(instruction);
+    _lineInfo.add(line ?? 0);
     return _instructions.length - 1;
   }
 
@@ -50,12 +53,28 @@ class BytecodePrototypeBuilder {
 
   ChildPrototypeBuilder createChild() {
     final builder = BytecodePrototypeBuilder();
+    builder.sourcePath = sourcePath;
     final index = _childBuilders.length;
     _childBuilders.add(builder);
     return ChildPrototypeBuilder(builder: builder, index: index);
   }
 
   BytecodePrototype build() {
+    BytecodeDebugInfo? info = debugInfo;
+    if (_lineInfo.length < _instructions.length) {
+      _lineInfo.addAll(
+        List<int>.filled(_instructions.length - _lineInfo.length, 0),
+      );
+    }
+    if (info == null && (_lineInfo.isNotEmpty || sourcePath != null)) {
+      info = BytecodeDebugInfo(
+        lineInfo: List.unmodifiable(_lineInfo),
+        absoluteSourcePath: sourcePath,
+        localNames: const [],
+        upvalueNames: const [],
+      );
+    }
+
     return BytecodePrototype(
       registerCount: registerCount,
       paramCount: paramCount,
@@ -66,7 +85,7 @@ class BytecodePrototypeBuilder {
       prototypes: _childBuilders.map((b) => b.build()).toList(),
       lineDefined: lineDefined,
       lastLineDefined: lastLineDefined,
-      debugInfo: debugInfo,
+      debugInfo: info,
     );
   }
 

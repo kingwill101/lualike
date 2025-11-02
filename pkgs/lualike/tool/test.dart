@@ -13,12 +13,9 @@ import 'utils.dart';
 
 /// List of Lua test files to run
 final testFiles = [
-  // 'gc.lua',
-  // 'calls.lua',
   'attrib.lua',
   'goto.lua',
   'bitwise.lua',
-  'constructs.lua',
   'strings.lua',
   'literals.lua',
   'tpack.lua',
@@ -26,6 +23,9 @@ final testFiles = [
   'files.lua',
   'vararg.lua',
   'events.lua',
+  'calls.lua',
+  'gc.lua',
+  'constructs.lua',
   'sort.lua',
   'math.lua',
   'heavy.lua',
@@ -367,6 +367,11 @@ Future<void> main(List<String> args) async {
       'debug',
       negatable: false,
       help: 'Pass --debug flag to the lualike binary when running tests.',
+    )
+    ..addFlag(
+      'bytecode',
+      negatable: false,
+      help: 'Run tests using the bytecode engine (passes --bytecode).',
     );
 
   ArgResults r;
@@ -505,6 +510,7 @@ Future<void> main(List<String> args) async {
     soft: r['soft'] as bool, // default true  => _soft = true
     port: r['port'] as bool, // default true  => _port = true
     debug: debugEnabled, // new debug flag
+    bytecode: r['bytecode'] as bool,
   );
 
   printTestSummary(results);
@@ -555,6 +561,7 @@ Future<List<TestResult>> runTests({
   bool soft = true,
   bool port = true,
   bool debug = false, // new debug parameter
+  bool bytecode = false,
 }) async {
   final results = <TestResult>[];
   final testsToRun = tests.isEmpty ? testFiles : tests;
@@ -566,6 +573,8 @@ Future<List<TestResult>> runTests({
     console.write(file);
     console.resetColorAttributes();
     console.writeLine();
+    console.write('  Start time: ');
+    console.writeLine(DateTime.now().toIso8601String());
 
     final stopwatch = Stopwatch()..start();
 
@@ -615,6 +624,9 @@ Future<List<TestResult>> runTests({
     final processArgs = <String>[];
     if (debug) {
       processArgs.add('--debug');
+    }
+    if (bytecode) {
+      processArgs.add('--bytecode');
     }
     processArgs.add(targetPath);
 
