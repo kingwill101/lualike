@@ -207,21 +207,6 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     final baseToBeClosedLen = loopEnv.toBeClosedVars.length;
 
     Future<void> resetLoopEnvironment([Object? error]) async {
-      if (loopEnv.toBeClosedVars.length == baseToBeClosedLen &&
-          loopEnv.values.length == baseBindings.length) {
-        var allMatch = true;
-        for (final entry in baseBindings.entries) {
-          final current = loopEnv.values[entry.key];
-          if (!identical(current, entry.value)) {
-            allMatch = false;
-            break;
-          }
-        }
-        if (allMatch) {
-          return;
-        }
-      }
-
       if (loopEnv.toBeClosedVars.length > baseToBeClosedLen) {
         final namesToClose = <String>[];
         while (loopEnv.toBeClosedVars.length > baseToBeClosedLen) {
@@ -348,29 +333,28 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       (this as Interpreter).recordTrace(node);
     }
 
-    var start = await node.start.accept(this);
-    var end = await node.endExpr.accept(this);
-    var step = await node.stepExpr.accept(this);
+    final startResult = await node.start.accept(this);
+    final endResult = await node.endExpr.accept(this);
+    final stepResult = await node.stepExpr.accept(this);
+    num coerceToNumber(Object? value) {
+      if (value is num) {
+        return value;
+      }
+      if (value is Value && value.raw is num) {
+        return value.raw as num;
+      }
+      throw Exception("For loop bounds must be numbers");
+    }
+
+    final num start = coerceToNumber(startResult);
+    final num end = coerceToNumber(endResult);
+    final num step = coerceToNumber(stepResult);
+
     Logger.debug(
       'ForLoop start: $start, end: $end, step: $step',
       category: 'ControlFlow',
       context: {'start': start, 'end': end, 'step': step},
     );
-
-    if (start is Value && start.raw is num) {
-      start = start.unwrap();
-    }
-    if (end is Value && end.raw is num) {
-      end = end.unwrap();
-    }
-
-    if (step is Value && step.raw is num) {
-      step = step.unwrap();
-    }
-
-    if (start is! num || end is! num || step is! num) {
-      throw Exception("For loop bounds must be numbers");
-    }
 
     final loopEnv = Environment(
       parent: globals,
@@ -378,8 +362,27 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     );
     final prevEnv = globals;
     final loopVarName = node.varName.name;
-    loopEnv.declare(loopVarName, start);
+    loopEnv.declare(loopVarName, Value(start));
     final loopVarBox = loopEnv.values[loopVarName]!;
+
+    final compiler = LoopBytecodeCompiler(
+      loopVarName: loopVarName,
+      startValue: start,
+      endValue: end,
+      stepValue: step,
+    );
+    final bytecodeChunk = compiler.compile(node.body);
+    if (bytecodeChunk != null) {
+      final vm = LoopBytecodeVm(environment: loopEnv);
+      try {
+        setCurrentEnv(loopEnv);
+        vm.execute(bytecodeChunk);
+      } finally {
+        await loopEnv.closeVariables();
+        setCurrentEnv(prevEnv);
+      }
+      return null;
+    }
 
     final baseBindings = Map<String, Box<dynamic>>.from(loopEnv.values);
     final baseKeys = baseBindings.keys.toSet();
@@ -422,7 +425,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     num current = start;
     try {
       while (step > 0 ? current <= end : current >= end) {
-        loopVarBox.value = current;
+        loopVarBox.value = Value(current);
         Logger.debug(
           'ForLoop iteration: i = $current',
           category: 'ControlFlow',

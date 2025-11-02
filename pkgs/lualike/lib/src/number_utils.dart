@@ -13,14 +13,6 @@ import 'value.dart';
 class NumberUtils {
   NumberUtils._(); // Prevent instantiation
 
-  static final BigInt _mask64 = BigInt.parse(
-    'FFFFFFFFFFFFFFFF',
-    radix: 16,
-  ); // 64-bit mask
-  static final BigInt _twoPowSize = BigInt.one << NumberLimits.sizeInBits;
-  static final BigInt _maxInt64 = BigInt.from(NumberLimits.maxInteger);
-  static final BigInt _minInt64 = BigInt.from(NumberLimits.minInteger);
-
   /// Get type name for error messages
   static String typeName(dynamic value) {
     if (value == null) return 'nil';
@@ -128,7 +120,8 @@ class NumberUtils {
   static bool isInIntegerRange(dynamic number) {
     if (number is int) return true; // Dart ints are always in range
     if (number is BigInt) {
-      return number >= _minInt64 && number <= _maxInt64;
+      return number >= BigInt.from(NumberLimits.minInteger) &&
+          number <= BigInt.from(NumberLimits.maxInteger);
     }
     if (number is double) {
       return number >= NumberLimits.minInteger.toDouble() &&
@@ -150,7 +143,8 @@ class NumberUtils {
     if (value is int) {
       return value;
     } else if (value is BigInt) {
-      if (value <= _maxInt64 && value >= _minInt64) {
+      if (value <= BigInt.from(NumberLimits.maxInteger) &&
+          value >= BigInt.from(NumberLimits.minInteger)) {
         return value.toInt();
       }
       return null;
@@ -183,7 +177,8 @@ class NumberUtils {
       // Try to convert to BigInt to avoid floating point precision issues
       final bigIntRes = doubleToBigInt(result);
       // Check if it fits in int64 range
-      if (bigIntRes >= _minInt64 && bigIntRes <= _maxInt64) {
+      if (bigIntRes >= BigInt.from(NumberLimits.minInteger) &&
+          bigIntRes <= BigInt.from(NumberLimits.maxInteger)) {
         final intRes = bigIntRes.toInt();
         // Verify the conversion is exact
         if (intRes.toDouble() == result) {
@@ -209,7 +204,7 @@ class NumberUtils {
     BigInt mb = m is BigInt ? m : BigInt.from(m as int);
     BigInt nb = n is BigInt ? n : BigInt.from(n as int);
 
-    final BigInt mod = _twoPowSize;
+    final BigInt mod = BigInt.one << NumberLimits.sizeInBits;
     if (mb.isNegative) mb += mod;
     if (nb.isNegative) nb += mod;
 
@@ -239,7 +234,6 @@ class NumberUtils {
   }
 
   /// Perform addition with 64-bit signed integer wrap-around semantics
-  @pragma('vm:prefer-inline')
   static dynamic add(dynamic a, dynamic b) {
     if ((a is int || a is BigInt) && (b is int || b is BigInt)) {
       // If either operand is BigInt, preserve BigInt type and don't wrap
@@ -261,7 +255,6 @@ class NumberUtils {
   }
 
   /// Perform subtraction with 64-bit signed integer wrap-around semantics
-  @pragma('vm:prefer-inline')
   static dynamic subtract(dynamic a, dynamic b) {
     if ((a is int || a is BigInt) && (b is int || b is BigInt)) {
       // If either operand is BigInt, preserve BigInt type and don't wrap
@@ -278,7 +271,8 @@ class NumberUtils {
 
       // Special case: preserve large positive numbers ONLY for specific range calculations
       // like maxint - (minint + 1), not for basic cases like 0 - minint
-      if (result > _maxInt64 && result <= _mask64) {
+      if (result > BigInt.from(NumberLimits.maxInteger) &&
+          result <= BigInt.parse('FFFFFFFFFFFFFFFF', radix: 16)) {
         // Only preserve if it looks like a legitimate range calculation:
         // - The first operand should be near maxint
         // - The second operand should be near minint
@@ -297,16 +291,15 @@ class NumberUtils {
   }
 
   /// Helper method to wrap BigInt results to 64-bit signed integer range
-  @pragma('vm:prefer-inline')
   static int _wrapToInt64(BigInt value) {
     // Apply 64-bit signed integer wrap-around
-    final mask64 = _mask64; // 64-bit mask
+    final mask64 = BigInt.parse('FFFFFFFFFFFFFFFF', radix: 16); // 64-bit mask
     final masked = value & mask64;
 
     // Convert to signed 64-bit representation
-    if (masked > _maxInt64) {
+    if (masked > BigInt.from(NumberLimits.maxInteger)) {
       // If result is > maxInt64, subtract 2^NumberLimits.sizeInBits to get the wrapped negative value
-      final wrapped = masked - _twoPowSize;
+      final wrapped = masked - (BigInt.one << NumberLimits.sizeInBits);
       return wrapped.toInt();
     }
 
@@ -314,7 +307,6 @@ class NumberUtils {
   }
 
   /// Perform right shift with proper 64-bit signed integer semantics
-  @pragma('vm:prefer-inline')
   static dynamic rightShift(dynamic a, dynamic shiftAmount) {
     // Validate that both operands are valid integers
     if (a is double) {
@@ -344,7 +336,7 @@ class NumberUtils {
       }
     }
 
-    final mask64 = _mask64;
+    final mask64 = BigInt.parse('FFFFFFFFFFFFFFFF', radix: 16);
     final shiftBig = toBigInt(shiftAmount);
 
     if (shiftBig.abs() >= BigInt.from(NumberLimits.sizeInBits)) {
@@ -374,7 +366,6 @@ class NumberUtils {
   }
 
   /// Perform left shift with proper 64-bit signed integer wrap-around semantics
-  @pragma('vm:prefer-inline')
   static dynamic leftShift(dynamic a, dynamic shiftAmount) {
     // Validate that both operands are valid integers
     if (a is double) {
@@ -420,7 +411,7 @@ class NumberUtils {
         return rightShift(a, -shift);
       }
 
-      return (bigA << shift) & _mask64;
+      return (bigA << shift) & BigInt.parse('FFFFFFFFFFFFFFFF', radix: 16);
     }
 
     // For regular int, apply wrap-around semantics
@@ -434,17 +425,17 @@ class NumberUtils {
     // Perform the shift with proper 64-bit wrap-around
     final result = bigA << shift;
     if (useBigInt) {
-      return result & _mask64;
+      return result & BigInt.parse('FFFFFFFFFFFFFFFF', radix: 16);
     }
 
     // Apply 64-bit signed integer wrap-around by masking and converting
-    final mask64 = _mask64; // 64-bit mask
+    final mask64 = BigInt.parse('FFFFFFFFFFFFFFFF', radix: 16); // 64-bit mask
     final masked = result & mask64;
 
     // Convert to signed 64-bit representation
-    if (masked > _maxInt64) {
+    if (masked > BigInt.from(NumberLimits.maxInteger)) {
       // If result is > maxInt64, subtract 2^NumberLimits.sizeInBits to get the wrapped negative value
-      final wrapped = masked - _twoPowSize;
+      final wrapped = masked - (BigInt.one << NumberLimits.sizeInBits);
       return wrapped.toInt();
     }
 
@@ -512,7 +503,6 @@ class NumberUtils {
   }
 
   /// Perform multiplication with proper type handling
-  @pragma('vm:prefer-inline')
   static dynamic multiply(dynamic a, dynamic b) {
     if ((a is int || a is BigInt) && (b is int || b is BigInt)) {
       // If either operand is BigInt, preserve BigInt type
@@ -539,7 +529,6 @@ class NumberUtils {
   }
 
   /// Perform floor division
-  @pragma('vm:prefer-inline')
   static dynamic floorDivide(dynamic a, dynamic b) {
     // Check for division by zero for integer types
     if ((a is int || a is BigInt) && (b is int || b is BigInt) && isZero(b)) {
@@ -575,7 +564,6 @@ class NumberUtils {
   }
 
   /// Perform modulo operation with Lua semantics
-  @pragma('vm:prefer-inline')
   static dynamic modulo(dynamic a, dynamic b) {
     if ((a is int || a is BigInt) && (b is int || b is BigInt)) {
       if (a is BigInt || b is BigInt) {
@@ -613,7 +601,6 @@ class NumberUtils {
   }
 
   /// Perform exponentiation (always returns float)
-  @pragma('vm:prefer-inline')
   static double exponentiate(dynamic a, dynamic b) {
     final f1 = toDouble(a);
     final f2 = toDouble(b);
@@ -622,17 +609,15 @@ class NumberUtils {
 
   /// Convert a signed integer to its unsigned 64-bit representation
   /// This is used for formatting negative numbers as unsigned values (%u, %x, %o)
-  @pragma('vm:prefer-inline')
   static BigInt toUnsigned64(int value) {
     if (value >= 0) {
       return BigInt.from(value);
     }
     // For negative values, add 2^NumberLimits.sizeInBits to get the unsigned representation
-    return _twoPowSize + BigInt.from(value);
+    return (BigInt.one << NumberLimits.sizeInBits) + BigInt.from(value);
   }
 
   /// Perform bitwise AND with integer validation
-  @pragma('vm:prefer-inline')
   static dynamic bitwiseAnd(dynamic a, dynamic b) {
     final bigA = _validateAndConvertToInteger(a);
     final bigB = _validateAndConvertToInteger(b);
@@ -640,14 +625,15 @@ class NumberUtils {
     final result = bigA & bigB;
 
     // Return appropriate type
-    if ((a is int && b is int) && result >= _minInt64 && result <= _maxInt64) {
+    if ((a is int && b is int) &&
+        result >= BigInt.from(NumberLimits.minInteger) &&
+        result <= BigInt.from(NumberLimits.maxInteger)) {
       return result.toInt();
     }
     return result;
   }
 
   /// Perform bitwise OR with integer validation
-  @pragma('vm:prefer-inline')
   static dynamic bitwiseOr(dynamic a, dynamic b) {
     final bigA = _validateAndConvertToInteger(a);
     final bigB = _validateAndConvertToInteger(b);
@@ -655,14 +641,15 @@ class NumberUtils {
     final result = bigA | bigB;
 
     // Return appropriate type
-    if ((a is int && b is int) && result >= _minInt64 && result <= _maxInt64) {
+    if ((a is int && b is int) &&
+        result >= BigInt.from(NumberLimits.minInteger) &&
+        result <= BigInt.from(NumberLimits.maxInteger)) {
       return result.toInt();
     }
     return result;
   }
 
   /// Perform bitwise XOR with integer validation
-  @pragma('vm:prefer-inline')
   static dynamic bitwiseXor(dynamic a, dynamic b) {
     final bigA = _validateAndConvertToInteger(a);
     final bigB = _validateAndConvertToInteger(b);
@@ -670,14 +657,15 @@ class NumberUtils {
     final result = bigA ^ bigB;
 
     // Return appropriate type
-    if ((a is int && b is int) && result >= _minInt64 && result <= _maxInt64) {
+    if ((a is int && b is int) &&
+        result >= BigInt.from(NumberLimits.minInteger) &&
+        result <= BigInt.from(NumberLimits.maxInteger)) {
       return result.toInt();
     }
     return result;
   }
 
   /// Perform bitwise NOT with integer validation
-  @pragma('vm:prefer-inline')
   static dynamic bitwiseNot(dynamic a) {
     // Try to convert strings to numbers (Lua automatic conversion)
     if (a is String || a is LuaString) {
@@ -694,7 +682,9 @@ class NumberUtils {
     final result = ~bigA;
 
     // Return appropriate type
-    if (a is int && result >= _minInt64 && result <= _maxInt64) {
+    if (a is int &&
+        result >= BigInt.from(NumberLimits.minInteger) &&
+        result <= BigInt.from(NumberLimits.maxInteger)) {
       return result.toInt();
     }
     return result;
@@ -722,7 +712,8 @@ class NumberUtils {
         throw LuaError('number has no integer representation');
       }
       final bi = BigInt.parse(value.toStringAsFixed(0));
-      if (bi < _minInt64 || bi > _maxInt64) {
+      if (bi < BigInt.from(NumberLimits.minInteger) ||
+          bi > BigInt.from(NumberLimits.maxInteger)) {
         throw LuaError('number has no integer representation');
       }
       return bi;
@@ -732,9 +723,8 @@ class NumberUtils {
 
   /// Perform arithmetic operation with full Lua semantics including string conversion
   static dynamic performArithmetic(String op, dynamic r1, dynamic r2) {
-    Logger.debugLazy(
-      () =>
-          'ARITH: START op=$op, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
+    Logger.debug(
+      'ARITH: START op=$op, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
       category: 'NumberUtils',
     );
 
@@ -743,8 +733,8 @@ class NumberUtils {
       Logger.debug('ARITH: r1 is String, parsing...', category: 'NumberUtils');
       try {
         r1 = LuaNumberParser.parse(r1.toString());
-        Logger.debugLazy(
-          () => 'ARITH: r1 parsed to $r1 (${r1.runtimeType})',
+        Logger.debug(
+          'ARITH: r1 parsed to $r1 (${r1.runtimeType})',
           category: 'NumberUtils',
         );
       } catch (e) {
@@ -763,8 +753,8 @@ class NumberUtils {
       Logger.debug('ARITH: r2 is String, parsing...', category: 'NumberUtils');
       try {
         r2 = LuaNumberParser.parse(r2.toString());
-        Logger.debugLazy(
-          () => 'ARITH: r2 parsed to $r2 (${r2.runtimeType})',
+        Logger.debug(
+          'ARITH: r2 parsed to $r2 (${r2.runtimeType})',
           category: 'NumberUtils',
         );
       } catch (e) {
@@ -779,9 +769,8 @@ class NumberUtils {
       }
     }
 
-    Logger.debugLazy(
-      () =>
-          'ARITH: after string parse, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
+    Logger.debug(
+      'ARITH: after string parse, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
       category: 'NumberUtils',
     );
 
@@ -852,8 +841,8 @@ class NumberUtils {
       rethrow;
     }
 
-    Logger.debugLazy(
-      () => 'ARITH: result: $result (${result.runtimeType})',
+    Logger.debug(
+      'ARITH: result: $result (${result.runtimeType})',
       category: 'NumberUtils',
     );
     return result;

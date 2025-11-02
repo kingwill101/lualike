@@ -83,7 +83,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
             isTempKey: indexResult is String || indexResult is num,
           );
 
-    int? _positiveInteger(Value candidate) {
+    int? positiveInteger(Value candidate) {
       final raw = candidate.raw;
       if (raw is int) {
         return raw > 0 ? raw : null;
@@ -98,7 +98,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     }
 
     if (tableVal.raw is TableStorage && !tableVal.hasMetamethod('__index')) {
-      final denseIndex = _positiveInteger(indexVal);
+      final denseIndex = positiveInteger(indexVal);
       if (denseIndex != null) {
         final storage = tableVal.raw as TableStorage;
         final stored = storage.arrayValueAt(denseIndex);
@@ -528,7 +528,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     final indexVal = index is Value ? index : Value(index);
     final valueVal = value is Value ? value : Value(value);
 
-    int? _positiveInteger(Value candidate) {
+    int? positiveInteger(Value candidate) {
       final raw = candidate.raw;
       if (raw is int) {
         return raw > 0 ? raw : null;
@@ -552,7 +552,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
         }
         return true;
       }());
-      final denseIndex = _positiveInteger(indexVal);
+      final denseIndex = positiveInteger(indexVal);
       if (denseIndex != null) {
         targetVal.setNumericIndex(denseIndex, valueVal);
         return valueVal;
@@ -609,7 +609,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       return tbl;
     }
 
-    int _estimateArrayEntries() {
+    int estimateArrayEntries() {
       var count = 0;
       for (final entry in node.entries) {
         if (entry is TableEntryLiteral) {
@@ -628,7 +628,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     }
 
     final tableMap = TableStorage();
-    final estimatedArrayEntries = _estimateArrayEntries();
+    final estimatedArrayEntries = estimateArrayEntries();
     if (estimatedArrayEntries > 0) {
       tableMap.ensureArrayCapacity(estimatedArrayEntries);
     }

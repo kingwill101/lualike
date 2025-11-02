@@ -23,11 +23,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitExpressionStatement(ExpressionStatement node) async {
     if (Logger.enabled) {
-      Logger.debugLazy(
-        () => 'Visiting ExpressionStatement',
-        category: 'Expression',
-        contextBuilder: () => {},
-      );
+      Logger.debugLazy(() => 'Visiting ExpressionStatement', category: 'Expression', contextBuilder: () => {});
     }
     final result = await node.expr.accept(this);
     evalStack.push(
@@ -277,35 +273,6 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     }
 
     // If no metamethod found, use regular operators
-    if (leftVal.raw is num && rightVal.raw is num) {
-      final num leftNum = leftVal.raw as num;
-      final num rightNum = rightVal.raw as num;
-      dynamic fastResult;
-      switch (node.op) {
-        case '+':
-          fastResult = NumberUtils.add(leftNum, rightNum);
-          break;
-        case '-':
-          fastResult = NumberUtils.subtract(leftNum, rightNum);
-          break;
-        case '*':
-          fastResult = NumberUtils.multiply(leftNum, rightNum);
-          break;
-        case '/':
-          fastResult = NumberUtils.divide(leftNum, rightNum);
-          break;
-        case '//':
-          fastResult = NumberUtils.floorDivide(leftNum, rightNum);
-          break;
-        case '%':
-          fastResult = NumberUtils.modulo(leftNum, rightNum);
-          break;
-      }
-      if (fastResult != null) {
-        return fastResult is Value ? fastResult : Value(fastResult);
-      }
-    }
-
     if (node.op == '==') {
       if (Logger.enabled) {
         Logger.debug(
@@ -468,10 +435,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     };
 
     if (Logger.enabled) {
-      Logger.debugLazy(
-        () => 'UnaryExpression result: $result',
-        category: 'Expression',
-      );
+      Logger.debugLazy(() => 'UnaryExpression result: $result', category: 'Expression');
     }
     return result is Value ? result : Value(result);
   }
@@ -485,19 +449,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitIdentifier(Identifier node) async {
     if (Logger.enabled) {
-      Logger.debugLazy(
-        () => 'Visiting Identifier: ${node.name}',
-        category: 'Expression',
-      );
-    }
-
-    if (this is Interpreter) {
-      final fastLocals = (this as Interpreter).getCurrentFastLocals();
-      final box = fastLocals?[node.name];
-      if (box != null) {
-        final boxedValue = box.value;
-        return boxedValue is Value ? boxedValue : Value(boxedValue);
-      }
+      Logger.debugLazy(() => 'Visiting Identifier: ${node.name}', category: 'Expression');
     }
 
     // Special case: always look up _ENV and _G from the global environment directly
@@ -527,8 +479,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     // live in the root environment (which has no parent). Locals should take
     // precedence over entries in `_ENV`.
     // Search up the environment chain for a local variable with this name
-    final currentGlobals = globals;
-    Environment? env = currentGlobals;
+    Environment? env = globals;
     while (env != null) {
       if (env.values.containsKey(node.name) && env.values[node.name]!.isLocal) {
         final val = env.values[node.name]!.value;
@@ -559,17 +510,17 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     // Route global lookups through _ENV to match Lua semantics.
     // Use the current globals environment to get _ENV, not the root,
     // so that local _ENV assignments are respected.
-    Value? envValue = currentGlobals.values['_ENV']?.value;
-    Value? gValue = currentGlobals.values['_G']?.value;
+    Value? envValue = globals.values['_ENV']?.value;
+    Value? gValue = globals.values['_G']?.value;
 
     if (envValue == null) {
-      final fallbackEnv = currentGlobals.get('_ENV');
+      final fallbackEnv = globals.get('_ENV');
       if (fallbackEnv is Value) {
         envValue = fallbackEnv;
       }
     }
     if (gValue == null) {
-      final fallbackG = currentGlobals.get('_G');
+      final fallbackG = globals.get('_G');
       if (fallbackG is Value) {
         gValue = fallbackG;
       }
@@ -622,7 +573,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         // Fast path: when _ENV === _G, direct global lookups can bypass the
         // __index metamethod and read from the environment chain. This avoids
         // expensive async metamethod calls for common globals like 'assert'.
-        final direct = currentGlobals.get(node.name);
+        final direct = globals.get(node.name);
         if (direct != null) {
           final resolvedValue = direct is Value ? direct : Value(direct);
           if (canUseGlobalCache) {
@@ -651,7 +602,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     }
 
     // Fallback: look up in the current environment chain
-    final value = currentGlobals.get(node.name);
+    final value = globals.get(node.name);
     if (value == null) {
       if (Logger.enabled) {
         Logger.debug(
@@ -731,10 +682,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       return first is Value ? first : Value(first);
     }
     if (Logger.enabled) {
-      Logger.debugLazy(
-        () => 'GroupedExpression result: $result',
-        category: 'Expression',
-      );
+      Logger.debugLazy(() => 'GroupedExpression result: $result', category: 'Expression');
     }
     return result;
   }

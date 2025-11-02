@@ -10,6 +10,7 @@ import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_stack_trace.dart';
 import 'package:lualike/src/lua_string.dart';
+import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/stack.dart';
 import 'package:lualike/src/stdlib/init.dart' show initializeStandardLibrary;
 import 'package:lualike/src/stdlib/library.dart' show LibraryRegistry;
@@ -20,7 +21,8 @@ import 'package:lualike/src/value_class.dart';
 import 'package:lualike/src/table_storage.dart';
 import 'package:lualike/src/utils/file_system_utils.dart' as fs;
 import 'package:lualike/src/interpreter/upvalue_assignment.dart';
-import 'package:lualike/src/number_utils.dart';
+import 'package:lualike/src/bytecode/loop_compiler.dart';
+import 'package:lualike/src/bytecode/vm.dart';
 
 import '../exceptions.dart';
 import '../extensions/extensions.dart';
@@ -42,13 +44,14 @@ bool _errorReporting = false;
 /// the syntax tree. Handles all runtime operations including variable management,
 /// function calls, and control flow.
 class Interpreter extends AstVisitor<Object?>
+  
     with
         InterpreterFunctionMixin,
         InterpreterAssignmentMixin,
         InterpreterControlFlowMixin,
         InterpreterExpressionMixin,
         InterpreterLiteralMixin,
-        InterpreterTableMixin {
+        InterpreterTableMixin  implements LuaRuntime{
   /// Currently active coroutine
   Coroutine? _currentCoroutine;
 
@@ -59,9 +62,11 @@ class Interpreter extends AstVisitor<Object?>
   final Set<WeakReference<Coroutine>> _activeCoroutines = {};
 
   /// File manager for handling source code loading.
+  @override
   final FileManager fileManager;
 
   /// Library registry for this interpreter instance.
+  @override
   late final LibraryRegistry libraryRegistry = LibraryRegistry(this);
 
   /// Current environment for variable scope.
@@ -74,12 +79,14 @@ class Interpreter extends AstVisitor<Object?>
   Map<String, Box<dynamic>>? _currentFastLocals;
 
   /// Current script path being executed
+  @override
   String? currentScriptPath;
 
   /// Garbage collector for memory management (per-interpreter).
   ///
   /// This is an implementation of Lua's generational garbage collector
   /// as described in section 2.5.2 of the Lua 5.4 reference manual.
+  @override
   late final GenerationalGCManager gc;
 
   /// Per-interpreter intern pool for string literals.
@@ -213,6 +220,7 @@ class Interpreter extends AstVisitor<Object?>
   }
 
   /// Unregister a coroutine that has completed or been closed.
+  @override
   void unregisterCoroutine(Coroutine coroutine) {
     _activeCoroutines.removeWhere((ref) {
       final target = ref.target;
@@ -240,21 +248,25 @@ class Interpreter extends AstVisitor<Object?>
   );
   int _traceIndex = 0;
 
+  @override
   bool isYieldable = true;
 
   /// Stack of active protected call contexts
   final List<bool> _protectedCallStack = [];
 
   /// Check if we're currently in a protected call context
+  @override
   bool get isInProtectedCall =>
       _protectedCallStack.isNotEmpty && _protectedCallStack.last;
 
   /// Enter a protected call context
+  @override
   void enterProtectedCall() {
     _protectedCallStack.add(true);
   }
 
   /// Exit a protected call context
+  @override
   void exitProtectedCall() {
     if (_protectedCallStack.isNotEmpty) {
       _protectedCallStack.removeLast();
@@ -280,6 +292,7 @@ class Interpreter extends AstVisitor<Object?>
   /// This follows the principle described in section 2.5 of the Lua reference manual:
   /// "An object is considered dead as soon as the collector can be sure the object
   /// will not be accessed again in the normal execution of the program."
+  @override
   List<Object?> getRoots() {
     return [
       _currentEnv, // Current environment (includes globals)
@@ -475,6 +488,7 @@ class Interpreter extends AstVisitor<Object?>
   ///
   /// This method should only be used for actual errors, not control flow mechanisms
   /// like GotoException or ReturnException which are part of normal program execution.
+  @override
   void reportError(
     String message, {
     StackTrace? trace,
@@ -856,6 +870,7 @@ class Interpreter extends AstVisitor<Object?>
   }
 
   /// Add this method to the Interpreter class
+  @override
   Environment getCurrentEnv() {
     Logger.info(
       'Interpreter.getCurrentEnv() called',
@@ -866,6 +881,7 @@ class Interpreter extends AstVisitor<Object?>
   }
 
   /// Explicitly call a function with the given arguments
+  @override
   Future<Object?> callFunction(Value function, List<Object?> args) async {
     return await _callFunction(function, args);
   }

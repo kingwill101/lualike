@@ -4,6 +4,15 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
   // Required getters that must be implemented by the class using this mixin
   Environment get globals;
 
+  Value _detachPrimitiveValue(Value value) {
+    final raw = value.raw;
+    if (!value.isMulti &&
+        (raw == null || raw is num || raw is bool || raw is String || raw is LuaString)) {
+      return Value(raw);
+    }
+    return value;
+  }
+
   /// Handles assignment to a variable.
   ///
   /// Evaluates the right-hand side expression and assigns the resulting value
@@ -258,6 +267,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     );
 
     if (tableValue is Value) {
+      final storedValue = _detachPrimitiveValue(wrappedValue);
       if (tableValue.raw is Map) {
         if (target.index is! Identifier) {
           final table = await target.table.accept(this).toValue();
@@ -268,7 +278,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
               index = values.isNotEmpty ? values[0] : Value(null);
             }
             index = index is Value ? index : Value(index);
-            table[index] = wrappedValue;
+            table[index] = storedValue;
             return table;
           }
         }
@@ -287,7 +297,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
             final result = await tableValue.callMetamethodAsync('__newindex', [
               tableValue,
               Value((target.index as Identifier).name),
-              wrappedValue,
+              storedValue,
             ]);
             return result;
           }
@@ -329,14 +339,14 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           }
         }
 
-        await tableValue.setValueAsync(identifier, wrappedValue);
+        await tableValue.setValueAsync(identifier, storedValue);
 
         Logger.debug(
-          '_handleTableAccessAssignment: Assigned ${wrappedValue.raw} to ${(target.index as Identifier).name}',
+          '_handleTableAccessAssignment: Assigned ${storedValue.raw} to ${(target.index as Identifier).name}',
           category: 'Interpreter',
           context: {'key': (target.index as Identifier).name},
         );
-        return wrappedValue;
+        return storedValue;
       }
 
       throw LuaError("Cannot assign to field of non-table value", node: target);
@@ -364,17 +374,18 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       category: 'Interpreter',
       contextBuilder: () => {'name': name},
     );
+    final storedValue = _detachPrimitiveValue(wrappedValue);
 
     // Special handling for `_ENV`: if the current environment doesn't already
     // have a local `_ENV` binding, create one instead of modifying a parent
     // environment. This mirrors Lua's per-chunk `_ENV` semantics.
     if (name == '_ENV') {
       if (globals.values.containsKey('_ENV')) {
-        globals.define(name, wrappedValue);
+        globals.define(name, storedValue);
       } else {
-        globals.declare(name, wrappedValue);
+        globals.declare(name, storedValue);
       }
-      return wrappedValue;
+      return storedValue;
     }
 
     // Check if there's a custom _ENV that is different from the initial _G
@@ -445,8 +456,8 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
             category: 'Assignment',
             context: {'name': name, 'envHash': env.hashCode},
           );
-          env.define(name, wrappedValue);
-          return wrappedValue;
+          env.define(name, storedValue);
+          return storedValue;
         }
         env = env.parent;
       }
@@ -463,13 +474,13 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         context: {'name': name},
       );
       // This will correctly handle tables, metamethods, or throw for non-tables
-      await envValue.setValueAsync(name, wrappedValue);
+      await envValue.setValueAsync(name, storedValue);
       Logger.debug(
         'Assignment: setValueAsync completed for $name',
         category: 'Assignment',
         context: {'name': name},
       );
-      return wrappedValue;
+      return storedValue;
     }
 
     // Assignment Strategy for Local vs Global Variables:
@@ -485,13 +496,13 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     // Step 1: Check if this is a local variable assignment
     // updateLocal() searches only for variables with isLocal=true and updates
     // the first one found. Returns true if a local was updated.
-    if (globals.updateLocal(name, wrappedValue)) {
+    if (globals.updateLocal(name, storedValue)) {
       Logger.debugLazy(
         () => 'Updated local variable: $name',
         category: 'Assignment',
         contextBuilder: () => {'name': name},
       );
-      return wrappedValue;
+      return storedValue;
     }
 
     // Step 2: Check if this is an upvalue assignment
@@ -499,7 +510,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     final currentFunc = (this as Interpreter).getCurrentFunction();
     final upvalueAssigned = UpvalueAssignmentHandler.tryAssignToUpvalue(
       name,
-      wrappedValue,
+      storedValue,
       currentFunc,
     );
 
@@ -509,7 +520,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         category: 'Assignment',
         context: {'name': name},
       );
-      return wrappedValue;
+      return storedValue;
     }
 
     // Step 3: No local variable or upvalue found, this is a global assignment
@@ -517,7 +528,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     // updating global variables while ignoring any local variables with
     // the same name in the current scope chain.
     try {
-      globals.defineGlobal(name, wrappedValue);
+      globals.defineGlobal(name, storedValue);
       Logger.debug(
         'Assigned to global variable: $name',
         category: 'Assignment',
@@ -530,7 +541,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         node: target,
       );
     }
-    return wrappedValue;
+    return storedValue;
   }
 
   /// Handles assignment to a function.
@@ -580,6 +591,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
     if (tableValue is Value) {
       if (tableValue.raw is Map) {
+        final storedValue = _detachPrimitiveValue(wrappedValue);
         // For field access, always use the field name as literal string key
         final fieldKey = target.fieldName.name;
 
@@ -595,7 +607,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
             final result = await tableValue.callMetamethodAsync('__newindex', [
               tableValue,
               Value(fieldKey),
-              wrappedValue,
+              storedValue,
             ]);
             return result;
           }
@@ -605,22 +617,22 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         // Use Value's assignment operators to ensure table version is bumped
         // and GC/memory credits stay in sync for cache invalidation.
         if (keyExists) {
-          tableValue[fieldKey] = wrappedValue;
+          tableValue[fieldKey] = storedValue;
         } else {
-          await tableValue.setValueAsync(fieldKey, wrappedValue);
+          await tableValue.setValueAsync(fieldKey, storedValue);
         }
         if (this is Interpreter) {
           final interpreter = this as Interpreter;
-          wrappedValue.interpreter ??= interpreter;
-          interpreter.gc.ensureTracked(wrappedValue);
+          storedValue.interpreter ??= interpreter;
+          interpreter.gc.ensureTracked(storedValue);
         }
 
         Logger.debug(
-          '_handleTableFieldAssignment: Assigned ${wrappedValue.raw} to ${target.fieldName.name}',
+          '_handleTableFieldAssignment: Assigned ${storedValue.raw} to ${target.fieldName.name}',
           category: 'Interpreter',
           context: {'fieldName': target.fieldName.name},
         );
-        return wrappedValue;
+        return storedValue;
       }
 
       throw LuaError("Cannot assign to field of non-table value", node: target);
@@ -656,6 +668,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
     if (tableValue is Value) {
       if (tableValue.raw is Map) {
+        final storedValue = _detachPrimitiveValue(wrappedValue);
         // For index access, always evaluate the index expression
         var indexResult = preIndex ?? await target.index.accept<Object?>(this);
         if (indexResult is Value &&
@@ -686,12 +699,12 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           final result = await tableValue.callMetamethodAsync('__newindex', [
             tableValue,
             keyValue,
-            wrappedValue,
+            storedValue,
           ]);
           return result;
         }
 
-        int? _positiveInteger(Value candidate) {
+        int? positiveInteger(Value candidate) {
           final raw = candidate.raw;
           if (raw is int) {
             return raw > 0 ? raw : null;
@@ -708,37 +721,37 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         if (tableValue.raw is TableStorage &&
             (!hasNewIndexMeta || keyExists) &&
             !tableValue.hasMetamethod('__index')) {
-          final denseIndex = _positiveInteger(keyValue);
+          final denseIndex = positiveInteger(keyValue);
           if (denseIndex != null) {
-            tableValue.setNumericIndex(denseIndex, wrappedValue);
+            tableValue.setNumericIndex(denseIndex, storedValue);
             if (this is Interpreter) {
               final interpreter = this as Interpreter;
-              wrappedValue.interpreter ??= interpreter;
-              interpreter.gc.ensureTracked(wrappedValue);
+              storedValue.interpreter ??= interpreter;
+              interpreter.gc.ensureTracked(storedValue);
             }
             Logger.debug(
-              '_handleTableIndexAssignment: Assigned ${wrappedValue.raw} to dense index ${keyValue.raw}',
+              '_handleTableIndexAssignment: Assigned ${storedValue.raw} to dense index ${keyValue.raw}',
               category: 'Interpreter',
               context: {'keyType': keyValue.raw.runtimeType.toString()},
             );
-            return wrappedValue;
+            return storedValue;
           }
         }
 
         // No metamethod or key already exists - do regular assignment
-        tableValue[keyValue] = wrappedValue;
+        tableValue[keyValue] = storedValue;
         if (this is Interpreter) {
           final interpreter = this as Interpreter;
-          wrappedValue.interpreter ??= interpreter;
-          interpreter.gc.ensureTracked(wrappedValue);
+          storedValue.interpreter ??= interpreter;
+          interpreter.gc.ensureTracked(storedValue);
         }
 
         Logger.debug(
-          '_handleTableIndexAssignment: Assigned ${wrappedValue.raw} to index ${keyValue.raw}',
+          '_handleTableIndexAssignment: Assigned ${storedValue.raw} to index ${keyValue.raw}',
           category: 'Interpreter',
           context: {'keyType': keyValue.raw.runtimeType.toString()},
         );
-        return wrappedValue;
+        return storedValue;
       }
 
       throw LuaError("Cannot assign to field of non-table value", node: target);
@@ -1093,7 +1106,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       return result;
     }
 
-    int? _positiveInteger(Value candidate) {
+    int? positiveInteger(Value candidate) {
       final raw = candidate.raw;
       if (raw is int) {
         return raw > 0 ? raw : null;
@@ -1108,7 +1121,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     }
 
     if (map is TableStorage && (!hasNewindex || keyExists) && !hasIndexMeta) {
-      final denseIndex = _positiveInteger(indexVal);
+      final denseIndex = positiveInteger(indexVal);
       if (denseIndex != null) {
         targetVal.setNumericIndex(denseIndex, wrappedValue);
         return wrappedValue;
