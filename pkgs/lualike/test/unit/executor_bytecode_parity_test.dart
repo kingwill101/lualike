@@ -122,6 +122,15 @@ return x, y
       final bytecode = await executeCode(source, mode: EngineMode.bytecode);
       expect(_normalize(ast), equals(_normalize(bytecode)));
     });
+
+    test('table constructors match between engines', () async {
+      const source = '''
+return {1, key = "value", 3}
+''';
+      final ast = await executeCode(source, mode: EngineMode.ast);
+      final bytecode = await executeCode(source, mode: EngineMode.bytecode);
+      expect(_normalize(ast), equals(_normalize(bytecode)));
+    });
   });
 }
 

@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/number_utils.dart';
+import 'package:lualike/src/table_storage.dart';
 import 'package:lualike/src/value.dart';
 
 import 'instruction.dart';
@@ -390,6 +391,14 @@ class BytecodeVm {
               : registers[instr.c];
           _tableSet(registers[instr.a], instr.b, value);
           break;
+        case BytecodeOpcode.newTable:
+          final instr = instruction as ABCInstruction;
+          final tableStorage = TableStorage();
+          if (instr.b > 0) {
+            tableStorage.ensureArrayCapacity(instr.b);
+          }
+          registers[instr.a] = Value(tableStorage);
+          break;
         case BytecodeOpcode.add:
           _binaryArithmetic(frame, instruction as ABCInstruction, '+');
           break;
@@ -563,9 +572,9 @@ class BytecodeVm {
             for (var i = 0; i < fixedCount; i++) {
               results.add(frame.getRegister(instr.a + i));
             }
-            final varBase = instr.a + fixedCount;
-            for (var index = varBase; index < frame.top; index++) {
-              results.add(frame.getRegister(index));
+            final startIndex = instr.a + fixedCount;
+            for (var index = startIndex; index < frame.top; index++) {
+              results.addAll(_expandValue(frame.getRegister(index)));
             }
             _handleReturn(frames, results, handleTopLevelReturn);
           } else {
