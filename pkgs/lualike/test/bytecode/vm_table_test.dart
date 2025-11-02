@@ -32,5 +32,25 @@ void main() {
       final result = await BytecodeVm(environment: env).execute(chunk);
       expect(result is Value ? result.raw : result, equals(99));
     });
+
+    test('constructs table literal with sequential elements', () async {
+      final program = parse('return {1, 2, 3}');
+      final chunk = BytecodeCompiler().compile(program);
+      final result = await BytecodeVm().execute(chunk) as Value;
+
+      expect(result[Value(1)]?.raw, equals(1));
+      expect(result[Value(2)]?.raw, equals(2));
+      expect(result[Value(3)]?.raw, equals(3));
+    });
+
+    test('constructs table literal with keyed and indexed fields', () async {
+      final program = parse('return {foo = 5, [3] = 7, 9}');
+      final chunk = BytecodeCompiler().compile(program);
+      final result = await BytecodeVm().execute(chunk) as Value;
+
+      expect(result[Value('foo')]?.raw, equals(5));
+      expect(result[Value(3)]?.raw, equals(7));
+      expect(result[Value(1)]?.raw, equals(9));
+    });
   });
 }

@@ -402,6 +402,8 @@ class _PrototypeContext {
         return _emitTableFieldAccess(node, target: target);
       case TableIndexAccess():
         return _emitTableIndexAccess(node.table, node.index, target: target);
+      case TableConstructor():
+        return _emitTableConstructor(node, target: target);
       case FunctionCall():
         return _useCallResult(_emitFunctionCall(node), target: target);
       case MethodCall():
@@ -573,6 +575,76 @@ class _PrototypeContext {
 
   void _emitAssignmentIndexAccessExpr(AssignmentIndexAccessExpr node) {
     _emitTableIndexAssignment(node.target, node.index, node.value);
+  }
+
+  int _emitTableConstructor(TableConstructor node, {int? target}) {
+    final tableReg = _materializeRegister(target);
+    emitter.emitABC(opcode: BytecodeOpcode.newTable, a: tableReg, b: 0, c: 0);
+
+    var arrayIndex = 1;
+
+    for (final entry in node.entries) {
+      switch (entry) {
+        case TableEntryLiteral(:final expr):
+          final valueReg = _emitExpression(expr);
+          emitter.emitABC(
+            opcode: BytecodeOpcode.setI,
+            a: tableReg,
+            b: arrayIndex,
+            c: valueReg,
+          );
+          _releaseRegister(valueReg);
+          arrayIndex += 1;
+          break;
+        case KeyedTableEntry():
+          final key = entry.key;
+          int? fieldIndex;
+          int? keyReg;
+          if (key is Identifier) {
+            fieldIndex = _ensureConstantIndex(key.name);
+          } else {
+            keyReg = _emitExpression(key);
+          }
+          final valueReg = _emitExpression(entry.value);
+          if (fieldIndex != null) {
+            emitter.emitABC(
+              opcode: BytecodeOpcode.setField,
+              a: tableReg,
+              b: fieldIndex,
+              c: valueReg,
+            );
+            _releaseRegister(valueReg);
+          } else {
+            emitter.emitABC(
+              opcode: BytecodeOpcode.setTable,
+              a: tableReg,
+              b: keyReg!,
+              c: valueReg,
+            );
+            _releaseRegister(valueReg);
+            _releaseRegister(keyReg);
+          }
+          break;
+        case IndexedTableEntry():
+          final keyReg = _emitExpression(entry.key);
+          final valueReg = _emitExpression(entry.value);
+          emitter.emitABC(
+            opcode: BytecodeOpcode.setTable,
+            a: tableReg,
+            b: keyReg,
+            c: valueReg,
+          );
+          _releaseRegister(valueReg);
+          _releaseRegister(keyReg);
+          break;
+        default:
+          throw UnsupportedError(
+            'Unsupported table entry type: ${entry.runtimeType}',
+          );
+      }
+    }
+
+    return tableReg;
   }
 
   void _emitTableFieldAssignment(TableFieldAccess target, AstNode valueNode) {

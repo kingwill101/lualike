@@ -52,6 +52,52 @@ void main() {
       expect(getTable.b, equals(0));
       expect(getTable.c, equals(1));
     });
+
+    test('compiles empty table constructor', () {
+      final program = parse('return {}');
+      final chunk = BytecodeCompiler().compile(program);
+      final proto = chunk.mainPrototype;
+      final instructions = _stripVarArgPrep(proto);
+
+      final newTable = instructions[0] as ABCInstruction;
+      expect(newTable.opcode, BytecodeOpcode.newTable);
+      expect(newTable.a, equals(0));
+
+      final ret = instructions.last as ABCInstruction;
+      expect(ret.opcode, BytecodeOpcode.return1);
+      expect(ret.a, equals(0));
+    });
+
+    test('compiles mixed table constructor entries', () {
+      final program = parse('return {1, foo = 2, [bar()] = 3, 4}');
+      final chunk = BytecodeCompiler().compile(program);
+      final proto = chunk.mainPrototype;
+      final instructions = _stripVarArgPrep(proto);
+
+      expect(
+        instructions.any(
+          (instruction) => instruction.opcode == BytecodeOpcode.newTable,
+        ),
+        isTrue,
+      );
+      final setIIndices = instructions
+          .where((instruction) => instruction.opcode == BytecodeOpcode.setI)
+          .map((instruction) => (instruction as ABCInstruction).b);
+      expect(setIIndices, containsAll(<int>[1, 2]));
+
+      expect(
+        instructions.any(
+          (instruction) => instruction.opcode == BytecodeOpcode.setField,
+        ),
+        isTrue,
+      );
+      expect(
+        instructions.any(
+          (instruction) => instruction.opcode == BytecodeOpcode.setTable,
+        ),
+        isTrue,
+      );
+    });
   });
 }
 
