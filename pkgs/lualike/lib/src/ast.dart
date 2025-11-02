@@ -4,8 +4,16 @@ import 'parsers/string.dart';
 import 'ast_dump.dart';
 import 'logging/logger.dart';
 
+/// Mixin for AST nodes that can be serialized ("dumped") into a
+/// data structure and reconstructed ("undumped") later.
+abstract class Dumpable {
+  /// Returns a JSON-serializable representation of this AST node.
+  /// Implementations should include a 'type' field to assist decoding.
+  Map<String, dynamic> dump();
+}
+
 /// Base class for all ASFuture`<T>` nodes.
-abstract class AstNode {
+sealed class AstNode {
   // Optional span info for error reporting, debugging, traces, etc.
   SourceSpan? span;
 
@@ -226,7 +234,7 @@ abstract class AstVisitor<T> {
 }
 
 /// Grouped expression in parentheses: (expr)
-class GroupedExpression extends AstNode with Dumpable {
+class GroupedExpression extends AstNode implements Dumpable {
   final AstNode expr;
 
   GroupedExpression(this.expr);
@@ -255,7 +263,7 @@ class GroupedExpression extends AstNode with Dumpable {
   }
 }
 
-class DoBlock extends AstNode with Dumpable {
+class DoBlock extends AstNode implements Dumpable {
   final List<AstNode> body;
 
   DoBlock(this.body);
@@ -273,7 +281,9 @@ class DoBlock extends AstNode with Dumpable {
   Map<String, dynamic> dump() => {
     'type': 'DoBlock',
     'body': body
-        .map((s) => s is Dumpable ? (s).dump() : {'type': 'Unknown'})
+        .map(
+          (s) => s is Dumpable ? (s as Dumpable).dump() : {'type': 'Unknown'},
+        )
         .toList(),
     'span': dumpSpan(),
   };
@@ -288,7 +298,7 @@ class DoBlock extends AstNode with Dumpable {
   }
 }
 
-class VarArg extends AstNode with Dumpable {
+class VarArg extends AstNode implements Dumpable {
   VarArg();
 
   @override
@@ -309,7 +319,7 @@ class VarArg extends AstNode with Dumpable {
   }
 }
 
-class Label extends AstNode with Dumpable {
+class Label extends AstNode implements Dumpable {
   final Identifier label;
 
   Label(this.label);
@@ -331,7 +341,7 @@ class Label extends AstNode with Dumpable {
   }
 }
 
-class Break extends AstNode with Dumpable {
+class Break extends AstNode implements Dumpable {
   Break();
 
   @override
@@ -350,7 +360,7 @@ class Break extends AstNode with Dumpable {
   }
 }
 
-class Goto extends AstNode with Dumpable {
+class Goto extends AstNode implements Dumpable {
   final Identifier label;
 
   Goto(this.label);
@@ -373,7 +383,7 @@ class Goto extends AstNode with Dumpable {
 }
 
 /// Represents the top-level program.
-class Program extends AstNode with Dumpable {
+class Program extends AstNode implements Dumpable {
   final List<AstNode> statements;
 
   Program(this.statements);
@@ -388,7 +398,9 @@ class Program extends AstNode with Dumpable {
   Map<String, dynamic> dump() => {
     'type': 'Program',
     'statements': statements
-        .map((s) => s is Dumpable ? (s).dump() : {'type': 'Unknown'})
+        .map(
+          (s) => s is Dumpable ? (s as Dumpable).dump() : {'type': 'Unknown'},
+        )
         .toList(),
   };
 
@@ -401,7 +413,7 @@ class Program extends AstNode with Dumpable {
 }
 
 /// x = expr or k, v = next(t)
-class Assignment extends AstNode with Dumpable {
+class Assignment extends AstNode implements Dumpable {
   final List<AstNode> targets; // Changed from single target to list
   final List<AstNode> exprs;
 
@@ -420,10 +432,14 @@ class Assignment extends AstNode with Dumpable {
   Map<String, dynamic> dump() => {
     'type': 'Assignment',
     'targets': targets
-        .map((t) => t is Dumpable ? (t).dump() : {'type': 'Unknown'})
+        .map(
+          (t) => t is Dumpable ? (t as Dumpable).dump() : {'type': 'Unknown'},
+        )
         .toList(),
     'exprs': exprs
-        .map((e) => e is Dumpable ? (e).dump() : {'type': 'Unknown'})
+        .map(
+          (e) => e is Dumpable ? (e as Dumpable).dump() : {'type': 'Unknown'},
+        )
         .toList(),
   };
 
@@ -439,7 +455,7 @@ class Assignment extends AstNode with Dumpable {
 }
 
 /// local x = expr
-class LocalDeclaration extends AstNode with Dumpable {
+class LocalDeclaration extends AstNode implements Dumpable {
   final List<Identifier> names;
   final List<String> attributes; // "const", "close", or empty string
   final List<AstNode> exprs; // can be fewer, equal, or more than names
@@ -471,7 +487,9 @@ class LocalDeclaration extends AstNode with Dumpable {
     'names': names.map((n) => n.dump()).toList(),
     'attributes': attributes,
     'exprs': exprs
-        .map((e) => e is Dumpable ? (e).dump() : {'type': 'Unknown'})
+        .map(
+          (e) => e is Dumpable ? (e as Dumpable).dump() : {'type': 'Unknown'},
+        )
         .toList(),
   };
 
@@ -490,7 +508,7 @@ class LocalDeclaration extends AstNode with Dumpable {
 }
 
 /// if cond then thenBlock ... end
-class IfStatement extends AstNode with Dumpable {
+class IfStatement extends AstNode implements Dumpable {
   final AstNode cond;
   final List<AstNode> thenBlock;
   final List<ElseIfClause> elseIfs;
@@ -516,11 +534,15 @@ class IfStatement extends AstNode with Dumpable {
     'type': 'IfStatement',
     'cond': cond is Dumpable ? (cond as Dumpable).dump() : {'type': 'Unknown'},
     'thenBlock': thenBlock
-        .map((s) => s is Dumpable ? (s).dump() : {'type': 'Unknown'})
+        .map(
+          (s) => s is Dumpable ? (s as Dumpable).dump() : {'type': 'Unknown'},
+        )
         .toList(),
     'elseIfs': elseIfs.map((e) => (e as Dumpable).dump()).toList(),
     'elseBlock': elseBlock
-        .map((s) => s is Dumpable ? (s).dump() : {'type': 'Unknown'})
+        .map(
+          (s) => s is Dumpable ? (s as Dumpable).dump() : {'type': 'Unknown'},
+        )
         .toList(),
   };
 
@@ -539,7 +561,7 @@ class IfStatement extends AstNode with Dumpable {
   }
 }
 
-class ElseIfClause extends AstNode with Dumpable {
+class ElseIfClause extends AstNode implements Dumpable {
   final AstNode cond;
   final List<AstNode> thenBlock;
 
@@ -559,7 +581,9 @@ class ElseIfClause extends AstNode with Dumpable {
     'type': 'ElseIfClause',
     'cond': cond is Dumpable ? (cond as Dumpable).dump() : {'type': 'Unknown'},
     'thenBlock': thenBlock
-        .map((s) => s is Dumpable ? (s).dump() : {'type': 'Unknown'})
+        .map(
+          (s) => s is Dumpable ? (s as Dumpable).dump() : {'type': 'Unknown'},
+        )
         .toList(),
   };
 
@@ -573,7 +597,7 @@ class ElseIfClause extends AstNode with Dumpable {
 }
 
 /// while cond do body end
-class WhileStatement extends AstNode with Dumpable {
+class WhileStatement extends AstNode implements Dumpable {
   final AstNode cond;
   final List<AstNode> body;
 
@@ -594,7 +618,9 @@ class WhileStatement extends AstNode with Dumpable {
     'type': 'WhileStatement',
     'cond': cond is Dumpable ? (cond as Dumpable).dump() : {'type': 'Unknown'},
     'body': body
-        .map((s) => s is Dumpable ? (s).dump() : {'type': 'Unknown'})
+        .map(
+          (s) => s is Dumpable ? (s as Dumpable).dump() : {'type': 'Unknown'},
+        )
         .toList(),
   };
 
@@ -608,7 +634,7 @@ class WhileStatement extends AstNode with Dumpable {
 }
 
 /// for var = start, end [, step] do body end
-class ForLoop extends AstNode with Dumpable {
+class ForLoop extends AstNode implements Dumpable {
   final Identifier varName;
   final AstNode start;
   final AstNode endExpr;
@@ -640,7 +666,9 @@ class ForLoop extends AstNode with Dumpable {
         ? (stepExpr as Dumpable).dump()
         : {'type': 'Unknown'},
     'body': body
-        .map((s) => s is Dumpable ? (s).dump() : {'type': 'Unknown'})
+        .map(
+          (s) => s is Dumpable ? (s as Dumpable).dump() : {'type': 'Unknown'},
+        )
         .toList(),
   };
 
@@ -659,7 +687,7 @@ class ForLoop extends AstNode with Dumpable {
 }
 
 // ForInLoop(names, iterators, body)
-class ForInLoop extends AstNode with Dumpable {
+class ForInLoop extends AstNode implements Dumpable {
   final List<Identifier> names;
   final List<AstNode> iterators;
   final List<AstNode> body;
@@ -681,10 +709,14 @@ class ForInLoop extends AstNode with Dumpable {
     'type': 'ForInLoop',
     'names': names.map((n) => n.dump()).toList(),
     'iterators': iterators
-        .map((i) => i is Dumpable ? (i).dump() : {'type': 'Unknown'})
+        .map(
+          (i) => i is Dumpable ? (i as Dumpable).dump() : {'type': 'Unknown'},
+        )
         .toList(),
     'body': body
-        .map((s) => s is Dumpable ? (s).dump() : {'type': 'Unknown'})
+        .map(
+          (s) => s is Dumpable ? (s as Dumpable).dump() : {'type': 'Unknown'},
+        )
         .toList(),
   };
 
@@ -703,7 +735,7 @@ class ForInLoop extends AstNode with Dumpable {
 }
 
 /// repeat body until cond
-class RepeatUntilLoop extends AstNode with Dumpable {
+class RepeatUntilLoop extends AstNode implements Dumpable {
   final List<AstNode> body;
   final AstNode cond;
 
@@ -723,7 +755,9 @@ class RepeatUntilLoop extends AstNode with Dumpable {
   Map<String, dynamic> dump() => {
     'type': 'RepeatUntilLoop',
     'body': body
-        .map((s) => s is Dumpable ? (s).dump() : {'type': 'Unknown'})
+        .map(
+          (s) => s is Dumpable ? (s as Dumpable).dump() : {'type': 'Unknown'},
+        )
         .toList(),
     'cond': cond is Dumpable ? (cond as Dumpable).dump() : {'type': 'Unknown'},
   };
@@ -738,7 +772,7 @@ class RepeatUntilLoop extends AstNode with Dumpable {
 }
 
 /// function name(params) body end
-class FunctionDef extends AstNode with Dumpable {
+class FunctionDef extends AstNode implements Dumpable {
   final FunctionName name;
   final FunctionBody body;
   bool implicitSelf;
@@ -771,7 +805,7 @@ class FunctionDef extends AstNode with Dumpable {
 }
 
 //FunctionName(first, rest, method)
-class FunctionName extends AstNode with Dumpable {
+class FunctionName extends AstNode implements Dumpable {
   final Identifier first;
   final List<Identifier> rest;
   final Identifier? method;
@@ -808,7 +842,7 @@ class FunctionName extends AstNode with Dumpable {
 }
 
 // LocalFunctionDef(name, funcBody)
-class LocalFunctionDef extends AstNode with Dumpable {
+class LocalFunctionDef extends AstNode implements Dumpable {
   final Identifier name;
   final FunctionBody funcBody;
 
@@ -838,7 +872,7 @@ class LocalFunctionDef extends AstNode with Dumpable {
   }
 }
 
-class FunctionBody extends AstNode with Dumpable {
+class FunctionBody extends AstNode implements Dumpable {
   List<Identifier>? parameters;
   final bool isVararg;
   final List<AstNode> body;
@@ -867,7 +901,9 @@ class FunctionBody extends AstNode with Dumpable {
     'params': (parameters ?? const <Identifier>[]).map((p) => p.name).toList(),
     'vararg': isVararg,
     'body': body
-        .map((s) => s is Dumpable ? (s).dump() : {'type': 'Unknown'})
+        .map(
+          (s) => s is Dumpable ? (s as Dumpable).dump() : {'type': 'Unknown'},
+        )
         .toList(),
     'span': dumpSpan(),
   };
@@ -893,7 +929,7 @@ class FunctionBody extends AstNode with Dumpable {
   }
 }
 
-class FunctionLiteral extends AstNode with Dumpable {
+class FunctionLiteral extends AstNode implements Dumpable {
   final FunctionBody funcBody;
 
   FunctionLiteral(this.funcBody);
@@ -921,7 +957,7 @@ class FunctionLiteral extends AstNode with Dumpable {
 }
 
 /// return expr
-class ReturnStatement extends AstNode with Dumpable {
+class ReturnStatement extends AstNode implements Dumpable {
   final List<AstNode> expr;
 
   ReturnStatement(this.expr);
@@ -937,7 +973,9 @@ class ReturnStatement extends AstNode with Dumpable {
   Map<String, dynamic> dump() => {
     'type': 'ReturnStatement',
     'expr': expr
-        .map((e) => e is Dumpable ? (e).dump() : {'type': 'Unknown'})
+        .map(
+          (e) => e is Dumpable ? (e as Dumpable).dump() : {'type': 'Unknown'},
+        )
         .toList(),
   };
 
@@ -950,7 +988,7 @@ class ReturnStatement extends AstNode with Dumpable {
 }
 
 /// yield expr
-class YieldStatement extends AstNode with Dumpable {
+class YieldStatement extends AstNode implements Dumpable {
   final List<AstNode> expr;
 
   YieldStatement(this.expr);
@@ -966,7 +1004,9 @@ class YieldStatement extends AstNode with Dumpable {
   Map<String, dynamic> dump() => {
     'type': 'YieldStatement',
     'expr': expr
-        .map((e) => e is Dumpable ? (e).dump() : {'type': 'Unknown'})
+        .map(
+          (e) => e is Dumpable ? (e as Dumpable).dump() : {'type': 'Unknown'},
+        )
         .toList(),
   };
 
@@ -979,7 +1019,7 @@ class YieldStatement extends AstNode with Dumpable {
 }
 
 /// Expression used as a statement.
-class ExpressionStatement extends AstNode with Dumpable {
+class ExpressionStatement extends AstNode implements Dumpable {
   final AstNode expr;
 
   ExpressionStatement(this.expr);
@@ -1005,7 +1045,7 @@ class ExpressionStatement extends AstNode with Dumpable {
 
 /// `words[i] = 1`
 /// `words.value[i] = 1`
-class AssignmentIndexAccessExpr extends AstNode with Dumpable {
+class AssignmentIndexAccessExpr extends AstNode implements Dumpable {
   final AstNode target;
   final AstNode index;
   final AstNode value;
@@ -1045,7 +1085,7 @@ class AssignmentIndexAccessExpr extends AstNode with Dumpable {
 }
 
 /// Table field access expression (table.field) - dot notation
-class TableFieldAccess extends AstNode with Dumpable {
+class TableFieldAccess extends AstNode implements Dumpable {
   final AstNode table;
   final Identifier fieldName; // Always an identifier for field access
 
@@ -1077,7 +1117,7 @@ class TableFieldAccess extends AstNode with Dumpable {
 }
 
 /// Table index access expression (table[expr]) - bracket notation
-class TableIndexAccess extends AstNode with Dumpable {
+class TableIndexAccess extends AstNode implements Dumpable {
   final AstNode table;
   final AstNode index; // Any expression for index access
 
@@ -1110,7 +1150,7 @@ class TableIndexAccess extends AstNode with Dumpable {
 
 /// Legacy table access expression - kept for backward compatibility
 /// Will be deprecated in favor of TableFieldAccess and TableIndexAccess
-class TableAccessExpr extends AstNode with Dumpable {
+class TableAccessExpr extends AstNode implements Dumpable {
   final AstNode table;
   final AstNode index;
 
@@ -1141,7 +1181,7 @@ class TableAccessExpr extends AstNode with Dumpable {
 }
 
 /// Binary operation: left op right.
-class BinaryExpression extends AstNode with Dumpable {
+class BinaryExpression extends AstNode implements Dumpable {
   final AstNode left;
   final String op;
   final AstNode right;
@@ -1176,7 +1216,7 @@ class BinaryExpression extends AstNode with Dumpable {
 /// Unary operation: op expr.
 /// Example: -5, not true.
 
-class UnaryExpression extends AstNode with Dumpable {
+class UnaryExpression extends AstNode implements Dumpable {
   final String op;
   final AstNode expr;
 
@@ -1211,7 +1251,7 @@ class UnaryExpression extends AstNode with Dumpable {
 abstract class Call extends AstNode {}
 
 /// Function call: name(args).
-class FunctionCall extends Call with Dumpable {
+class FunctionCall extends Call implements Dumpable {
   final AstNode name;
   final List<AstNode> args;
 
@@ -1231,7 +1271,9 @@ class FunctionCall extends Call with Dumpable {
     'type': 'FunctionCall',
     'name': name is Dumpable ? (name as Dumpable).dump() : {'type': 'Unknown'},
     'args': args
-        .map((a) => a is Dumpable ? (a).dump() : {'type': 'Unknown'})
+        .map(
+          (a) => a is Dumpable ? (a as Dumpable).dump() : {'type': 'Unknown'},
+        )
         .toList(),
   };
 
@@ -1245,7 +1287,7 @@ class FunctionCall extends Call with Dumpable {
 }
 
 // MethodCall(prefix, methodName, args);
-class MethodCall extends Call with Dumpable {
+class MethodCall extends Call implements Dumpable {
   final AstNode prefix;
   final AstNode methodName;
   final List<AstNode> args;
@@ -1277,7 +1319,9 @@ class MethodCall extends Call with Dumpable {
         ? (methodName as Dumpable).dump()
         : {'type': 'Unknown'},
     'args': args
-        .map((a) => a is Dumpable ? (a).dump() : {'type': 'Unknown'})
+        .map(
+          (a) => a is Dumpable ? (a as Dumpable).dump() : {'type': 'Unknown'},
+        )
         .toList(),
     'implicitSelf': implicitSelf,
   };
@@ -1294,7 +1338,7 @@ class MethodCall extends Call with Dumpable {
 }
 
 /// Table constructor: { entries }.
-class TableConstructor extends AstNode with Dumpable {
+class TableConstructor extends AstNode implements Dumpable {
   final List<TableEntry> entries;
 
   TableConstructor(this.entries);
@@ -1331,7 +1375,7 @@ class TableConstructor extends AstNode with Dumpable {
 abstract class TableEntry extends AstNode {}
 
 // Keyed table entry: key = value (field assignment)
-class KeyedTableEntry extends TableEntry with Dumpable {
+class KeyedTableEntry extends TableEntry implements Dumpable {
   final AstNode key; // Identifier for field name
   final AstNode value;
 
@@ -1363,7 +1407,7 @@ class KeyedTableEntry extends TableEntry with Dumpable {
 }
 
 // Indexed table entry: [key] = value (index assignment)
-class IndexedTableEntry extends TableEntry with Dumpable {
+class IndexedTableEntry extends TableEntry implements Dumpable {
   final AstNode key; // Expression to be evaluated as key
   final AstNode value;
 
@@ -1395,7 +1439,7 @@ class IndexedTableEntry extends TableEntry with Dumpable {
 }
 
 /// Table entry given as a lone expression.
-class TableEntryLiteral extends TableEntry with Dumpable {
+class TableEntryLiteral extends TableEntry implements Dumpable {
   final AstNode expr;
 
   TableEntryLiteral(this.expr);
@@ -1423,7 +1467,7 @@ class TableEntryLiteral extends TableEntry with Dumpable {
 }
 
 /// Literal representing a nil value.
-class NilValue extends AstNode with Dumpable {
+class NilValue extends AstNode implements Dumpable {
   NilValue();
 
   @override
@@ -1441,7 +1485,7 @@ class NilValue extends AstNode with Dumpable {
 }
 
 /// Numeric literal.
-class NumberLiteral extends AstNode with Dumpable {
+class NumberLiteral extends AstNode implements Dumpable {
   final dynamic value;
 
   NumberLiteral(this.value) : assert(value is num || value is BigInt);
@@ -1463,7 +1507,7 @@ class NumberLiteral extends AstNode with Dumpable {
 }
 
 /// String literal.
-class StringLiteral extends AstNode with Dumpable {
+class StringLiteral extends AstNode implements Dumpable {
   final String value;
   final bool isLongString;
 
@@ -1506,7 +1550,7 @@ class StringLiteral extends AstNode with Dumpable {
 }
 
 /// Boolean literal.
-class BooleanLiteral extends AstNode with Dumpable {
+class BooleanLiteral extends AstNode implements Dumpable {
   final bool value;
 
   BooleanLiteral(this.value);
@@ -1527,7 +1571,7 @@ class BooleanLiteral extends AstNode with Dumpable {
 }
 
 /// Identifier.
-class Identifier extends AstNode with Dumpable {
+class Identifier extends AstNode implements Dumpable {
   final String name;
 
   Identifier(this.name);

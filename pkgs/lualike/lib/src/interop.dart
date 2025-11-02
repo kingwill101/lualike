@@ -152,14 +152,17 @@ extension VMInterop on LuaRuntime {
     // Create function call AST node
     final call = FunctionCall(
       Identifier(functionName),
-      args.map((arg) {
-        // Convert Dart values to LuaLike AST nodes
-        if (arg is num) return NumberLiteral(arg);
-        if (arg is String) return StringLiteral(arg);
-        if (arg is bool) return BooleanLiteral(arg);
-        if (arg == null) return NilValue();
-        throw LuaError('Unsupported argument type: ${arg.runtimeType}');
-      }).toList(),
+      args
+          .map((arg) {
+            // Convert Dart values to LuaLike AST nodes
+            if (arg is num) return NumberLiteral(arg);
+            if (arg is String) return StringLiteral(arg);
+            if (arg is bool) return BooleanLiteral(arg);
+            if (arg == null) return NilValue();
+            throw LuaError('Unsupported argument type: ${arg.runtimeType}');
+          })
+          .toList()
+          .cast<AstNode>(),
     );
 
     // Execute the function call
