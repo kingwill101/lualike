@@ -254,6 +254,8 @@ class _PrototypeContext {
           _releaseRegister(reg);
         }
         return false;
+      case DoBlock():
+        return _emitDoBlock(node);
       case AssignmentIndexAccessExpr():
         _emitAssignmentIndexAccessExpr(node);
         return false;
@@ -645,6 +647,10 @@ class _PrototypeContext {
     }
   }
 
+  bool _emitDoBlock(DoBlock node) {
+    return _emitBlock(node.body);
+  }
+
   void _emitAssignmentIndexAccessExpr(AssignmentIndexAccessExpr node) {
     _emitTableIndexAssignment(node.target, node.index, node.value);
   }
@@ -939,7 +945,7 @@ class _PrototypeContext {
   void _emitWhileStatement(WhileStatement node) {
     final loopStart = _currentInstructionIndex;
     final exitJump = _emitConditionJump(node.cond, jumpWhenTrue: false);
-    _emitBlock(node.body);
+    _emitBlock(node.body, useNewScope: true);
 
     final backJumpIndex = emitter.emitAsJ(opcode: BytecodeOpcode.jmp, sJ: 0);
     _patchJump(backJumpIndex, loopStart);
