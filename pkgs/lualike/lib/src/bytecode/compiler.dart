@@ -578,8 +578,16 @@ class _PrototypeContext {
   }
 
   int _emitTableConstructor(TableConstructor node, {int? target}) {
+    final hints = _computeTableConstructorHints(node);
     final tableReg = _materializeRegister(target);
-    emitter.emitABC(opcode: BytecodeOpcode.newTable, a: tableReg, b: 0, c: 0);
+    final arrayHint = hints.arraySlots.clamp(0, 0xFF).toInt();
+    final hashHint = hints.hashSlots.clamp(0, 0xFF).toInt();
+    emitter.emitABC(
+      opcode: BytecodeOpcode.newTable,
+      a: tableReg,
+      b: arrayHint,
+      c: hashHint,
+    );
 
     var arrayIndex = 1;
     var pendingCount = 0;
@@ -1866,6 +1874,38 @@ class _PrototypeContext {
     );
     _nextRegister -= 1;
   }
+}
+
+class _TableConstructorHints {
+  const _TableConstructorHints({
+    required this.arraySlots,
+    required this.hashSlots,
+  });
+
+  final int arraySlots;
+  final int hashSlots;
+}
+
+_TableConstructorHints _computeTableConstructorHints(TableConstructor node) {
+  var arraySlots = 0;
+  var hashSlots = 0;
+
+  for (var i = 0; i < node.entries.length; i++) {
+    final entry = node.entries[i];
+    if (entry is TableEntryLiteral) {
+      final expr = entry.expr;
+      final isTailExpandable =
+          i == node.entries.length - 1 &&
+          (expr is VarArg || expr is FunctionCall || expr is MethodCall);
+      if (!isTailExpandable) {
+        arraySlots += 1;
+      }
+    } else if (entry is KeyedTableEntry || entry is IndexedTableEntry) {
+      hashSlots += 1;
+    }
+  }
+
+  return _TableConstructorHints(arraySlots: arraySlots, hashSlots: hashSlots);
 }
 
 class _UpvalueReference {

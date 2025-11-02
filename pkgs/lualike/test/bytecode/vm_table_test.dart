@@ -70,5 +70,19 @@ return build(3, 4, 5)
       expect(result[Value(4)]?.raw, equals(4));
       expect(result[Value(5)]?.raw, equals(5));
     });
+
+    test('constructs large sequential table literal', () async {
+      final literals = List<String>.generate(
+        60,
+        (index) => '${index + 1}',
+      ).join(', ');
+      final program = parse('return {$literals}');
+      final chunk = BytecodeCompiler().compile(program);
+      final result = await BytecodeVm().execute(chunk) as Value;
+
+      for (var i = 1; i <= 60; i++) {
+        expect(result[Value(i)]?.raw, equals(i));
+      }
+    });
   });
 }
