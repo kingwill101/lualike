@@ -11,6 +11,7 @@ void main() {
       final program = parse('return tbl.value');
       final chunk = BytecodeCompiler().compile(program);
       final proto = chunk.mainPrototype;
+      final instructions = _stripVarArgPrep(proto);
 
       final fieldIndex = proto.constants.indexWhere(
         (constant) =>
@@ -18,7 +19,7 @@ void main() {
       );
       expect(fieldIndex, isNonNegative);
 
-      final getField = proto.instructions[1] as ABCInstruction;
+      final getField = instructions[1] as ABCInstruction;
       expect(getField.opcode, BytecodeOpcode.getField);
       expect(getField.b, equals(0));
       expect(getField.c, equals(fieldIndex));
@@ -28,8 +29,9 @@ void main() {
       final program = parse('return arr[1]');
       final chunk = BytecodeCompiler().compile(program);
       final proto = chunk.mainPrototype;
+      final instructions = _stripVarArgPrep(proto);
 
-      final getI = proto.instructions[1] as ABCInstruction;
+      final getI = instructions[1] as ABCInstruction;
       expect(getI.opcode, BytecodeOpcode.getI);
       expect(getI.a, equals(0));
       expect(getI.b, equals(0));
@@ -40,14 +42,24 @@ void main() {
       final program = parse('return arr[idx]');
       final chunk = BytecodeCompiler().compile(program);
       final proto = chunk.mainPrototype;
+      final instructions = _stripVarArgPrep(proto);
 
-      expect(proto.instructions, hasLength(4));
+      expect(instructions, hasLength(4));
 
-      final getTable = proto.instructions[2] as ABCInstruction;
+      final getTable = instructions[2] as ABCInstruction;
       expect(getTable.opcode, BytecodeOpcode.getTable);
       expect(getTable.a, equals(0));
       expect(getTable.b, equals(0));
       expect(getTable.c, equals(1));
     });
   });
+}
+
+List<BytecodeInstruction> _stripVarArgPrep(BytecodePrototype proto) {
+  final instructions = proto.instructions;
+  if (instructions.isNotEmpty &&
+      instructions.first.opcode == BytecodeOpcode.varArgPrep) {
+    return instructions.sublist(1);
+  }
+  return instructions;
 }

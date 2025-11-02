@@ -11,13 +11,14 @@ void main() {
       final program = parse('return a ~= 1');
       final chunk = BytecodeCompiler().compile(program);
       final proto = chunk.mainPrototype;
+      final instructions = _stripVarArgPrep(proto);
 
-      expect(proto.instructions, hasLength(4));
-      final eq = proto.instructions[1] as ABCInstruction;
+      expect(instructions, hasLength(4));
+      final eq = instructions[1] as ABCInstruction;
       expect(eq.opcode, BytecodeOpcode.eqI);
       expect(eq.c, equals(1));
 
-      final notInstr = proto.instructions[2] as ABCInstruction;
+      final notInstr = instructions[2] as ABCInstruction;
       expect(notInstr.opcode, BytecodeOpcode.notOp);
       expect(notInstr.a, equals(0));
       expect(notInstr.b, equals(0));
@@ -34,7 +35,9 @@ void main() {
       );
       expect(fooIndex, isNonNegative);
 
-      final eqInstr = proto.instructions[1] as ABCInstruction;
+      final instructions = _stripVarArgPrep(proto);
+
+      final eqInstr = instructions[1] as ABCInstruction;
       expect(eqInstr.opcode, BytecodeOpcode.eqK);
       expect(eqInstr.c, equals(fooIndex));
     });
@@ -43,8 +46,9 @@ void main() {
       final program = parse('return a == 5');
       final chunk = BytecodeCompiler().compile(program);
       final proto = chunk.mainPrototype;
+      final instructions = _stripVarArgPrep(proto);
 
-      final eqInstr = proto.instructions[1] as ABCInstruction;
+      final eqInstr = instructions[1] as ABCInstruction;
       expect(eqInstr.opcode, BytecodeOpcode.eqI);
       expect(eqInstr.c, equals(5));
     });
@@ -53,10 +57,20 @@ void main() {
       final program = parse('return a < 10');
       final chunk = BytecodeCompiler().compile(program);
       final proto = chunk.mainPrototype;
+      final instructions = _stripVarArgPrep(proto);
 
-      final ltInstr = proto.instructions[1] as ABCInstruction;
+      final ltInstr = instructions[1] as ABCInstruction;
       expect(ltInstr.opcode, BytecodeOpcode.ltI);
       expect(ltInstr.c, equals(10));
     });
   });
+}
+
+List<BytecodeInstruction> _stripVarArgPrep(BytecodePrototype proto) {
+  final instructions = proto.instructions;
+  if (instructions.isNotEmpty &&
+      instructions.first.opcode == BytecodeOpcode.varArgPrep) {
+    return instructions.sublist(1);
+  }
+  return instructions;
 }

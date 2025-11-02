@@ -7,9 +7,7 @@ import 'package:test/test.dart';
 void main() {
   group('BytecodeCompiler loops', () {
     test('numeric for loop emits forPrep and forLoop', () {
-      final program = parse(
-        'for i = 1, 3 do tbl.sum = tbl.sum + i end',
-      );
+      final program = parse('for i = 1, 3 do tbl.sum = tbl.sum + i end');
       final chunk = BytecodeCompiler().compile(program);
       final instructions = chunk.mainPrototype.instructions;
 
@@ -17,8 +15,8 @@ void main() {
         (instruction) => instruction.opcode == BytecodeOpcode.forPrep,
       );
       final forLoop = instructions.whereType<AsBxInstruction>().firstWhere(
-            (instruction) => instruction.opcode == BytecodeOpcode.forLoop,
-          );
+        (instruction) => instruction.opcode == BytecodeOpcode.forLoop,
+      );
 
       expect(hasForPrep, isTrue);
       expect(forLoop.sBx, lessThan(0));
@@ -32,8 +30,8 @@ void main() {
       final instructions = chunk.mainPrototype.instructions;
 
       final forLoop = instructions.whereType<AsBxInstruction>().firstWhere(
-            (instruction) => instruction.opcode == BytecodeOpcode.forLoop,
-          );
+        (instruction) => instruction.opcode == BytecodeOpcode.forLoop,
+      );
       expect(forLoop.sBx, lessThan(0));
     });
 

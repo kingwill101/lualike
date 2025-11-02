@@ -11,9 +11,10 @@ void main() {
       final program = parse('return a + 2');
       final chunk = BytecodeCompiler().compile(program);
       final proto = chunk.mainPrototype;
+      final instructions = _stripVarArgPrep(proto);
 
       expect(proto.registerCount, greaterThanOrEqualTo(1));
-      expect(proto.instructions, hasLength(3));
+      expect(instructions, hasLength(3));
 
       final nameIndex = proto.constants.indexWhere(
         (constant) => constant is ShortStringConstant && constant.value == 'a',
@@ -24,11 +25,11 @@ void main() {
       expect(nameIndex, isNonNegative);
       expect(twoIndex, isNonNegative);
 
-      final getTab = proto.instructions[0] as ABCInstruction;
+      final getTab = instructions[0] as ABCInstruction;
       expect(getTab.opcode, BytecodeOpcode.getTabUp);
       expect(getTab.c, equals(nameIndex));
 
-      final add = proto.instructions[1] as ABCInstruction;
+      final add = instructions[1] as ABCInstruction;
       expect(add.opcode, BytecodeOpcode.addK);
       expect(add.a, equals(0));
       expect(add.b, equals(0));
@@ -40,9 +41,10 @@ void main() {
       final program = parse('return a & 3');
       final chunk = BytecodeCompiler().compile(program);
       final proto = chunk.mainPrototype;
+      final instructions = _stripVarArgPrep(proto);
 
-      expect(proto.instructions, hasLength(4));
-      final band = proto.instructions[2] as ABCInstruction;
+      expect(instructions, hasLength(4));
+      final band = instructions[2] as ABCInstruction;
       expect(band.opcode, BytecodeOpcode.band);
       expect(band.a, equals(0));
       expect(band.b, equals(0));
@@ -53,9 +55,10 @@ void main() {
       final program = parse('return not flag');
       final chunk = BytecodeCompiler().compile(program);
       final proto = chunk.mainPrototype;
+      final instructions = _stripVarArgPrep(proto);
 
-      expect(proto.instructions, hasLength(3));
-      final notInstr = proto.instructions[1] as ABCInstruction;
+      expect(instructions, hasLength(3));
+      final notInstr = instructions[1] as ABCInstruction;
       expect(notInstr.opcode, BytecodeOpcode.notOp);
       expect(notInstr.a, equals(0));
       expect(notInstr.b, equals(0));
@@ -71,7 +74,9 @@ void main() {
       );
       expect(constantIndex, isNonNegative);
 
-      final modInstr = proto.instructions[1] as ABCInstruction;
+      final instructions = _stripVarArgPrep(proto);
+
+      final modInstr = instructions[1] as ABCInstruction;
       expect(modInstr.opcode, BytecodeOpcode.modK);
       expect(modInstr.a, equals(0));
       expect(modInstr.b, equals(0));
@@ -89,7 +94,9 @@ void main() {
       );
       expect(constantIndex, isNonNegative);
 
-      final idivInstr = proto.instructions[1] as ABCInstruction;
+      final instructions = _stripVarArgPrep(proto);
+
+      final idivInstr = instructions[1] as ABCInstruction;
       expect(idivInstr.opcode, BytecodeOpcode.idivK);
       expect(idivInstr.a, equals(0));
       expect(idivInstr.b, equals(0));
@@ -107,7 +114,9 @@ void main() {
       );
       expect(constantIndex, isNonNegative);
 
-      final powInstr = proto.instructions[1] as ABCInstruction;
+      final instructions = _stripVarArgPrep(proto);
+
+      final powInstr = instructions[1] as ABCInstruction;
       expect(powInstr.opcode, BytecodeOpcode.powK);
       expect(powInstr.a, equals(0));
       expect(powInstr.b, equals(0));
@@ -115,4 +124,13 @@ void main() {
       expect(powInstr.k, isTrue);
     });
   });
+}
+
+List<BytecodeInstruction> _stripVarArgPrep(BytecodePrototype proto) {
+  final instructions = proto.instructions;
+  if (instructions.isNotEmpty &&
+      instructions.first.opcode == BytecodeOpcode.varArgPrep) {
+    return instructions.sublist(1);
+  }
+  return instructions;
 }

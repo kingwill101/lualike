@@ -54,8 +54,12 @@ void main() {
       final iterator = Value((List<Object?> args) {
         final state = args[0];
         final control = args[1];
-        final data = state is Value ? state.raw as List<List<Object?>> : state as List<List<Object?>>;
-        final currentIndex = control is Value ? control.raw as int? : control as int?;
+        final data = state is Value
+            ? state.raw as List<List<Object?>>
+            : state as List<List<Object?>>;
+        final currentIndex = control is Value
+            ? control.raw as int?
+            : control as int?;
         final nextIndex = (currentIndex ?? 0) + 1;
         if (nextIndex > data.length) {
           return Value.multi(const []);

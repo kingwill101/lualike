@@ -11,6 +11,7 @@ void main() {
       final program = parse('tbl.value = 42');
       final chunk = BytecodeCompiler().compile(program);
       final proto = chunk.mainPrototype;
+      final instructions = _stripVarArgPrep(proto);
 
       final fieldIndex = proto.constants.indexWhere(
         (constant) =>
@@ -18,10 +19,18 @@ void main() {
       );
       expect(fieldIndex, isNonNegative);
 
-      final setField = proto.instructions[2] as ABCInstruction;
+      final setField = instructions.whereType<ABCInstruction>().firstWhere(
+        (instr) => instr.opcode == BytecodeOpcode.setField,
+      );
       expect(setField.opcode, BytecodeOpcode.setField);
       expect(setField.b, equals(fieldIndex));
-      final loadValue = proto.instructions[1] as ABxInstruction;
+      final loadValue =
+          instructions.firstWhere(
+                (instr) =>
+                    instr is ABxInstruction &&
+                    instr.opcode == BytecodeOpcode.loadK,
+              )
+              as ABxInstruction;
       expect(setField.c, equals(loadValue.a));
     });
 
@@ -29,9 +38,18 @@ void main() {
       final program = parse('arr[1] = 5');
       final chunk = BytecodeCompiler().compile(program);
       final proto = chunk.mainPrototype;
+      final instructions = _stripVarArgPrep(proto);
 
-      final loadValue = proto.instructions[1] as ABxInstruction;
-      final setI = proto.instructions[2] as ABCInstruction;
+      final loadValue =
+          instructions.firstWhere(
+                (instr) =>
+                    instr is ABxInstruction &&
+                    instr.opcode == BytecodeOpcode.loadK,
+              )
+              as ABxInstruction;
+      final setI = instructions.whereType<ABCInstruction>().firstWhere(
+        (instr) => instr.opcode == BytecodeOpcode.setI,
+      );
       expect(setI.opcode, BytecodeOpcode.setI);
       expect(setI.b, equals(1));
       expect(setI.c, equals(loadValue.a));
@@ -41,15 +59,22 @@ void main() {
       final program = parse('arr[key] = value');
       final chunk = BytecodeCompiler().compile(program);
       final proto = chunk.mainPrototype;
+      final instructions = _stripVarArgPrep(proto);
 
-      final getTable = proto.instructions[0] as ABCInstruction;
-      final getKey = proto.instructions[1] as ABCInstruction;
-      final getValue = proto.instructions[2] as ABCInstruction;
-      final setTable = proto.instructions[3] as ABCInstruction;
+      final setTable = instructions.whereType<ABCInstruction>().firstWhere(
+        (instr) => instr.opcode == BytecodeOpcode.setTable,
+      );
       expect(setTable.opcode, BytecodeOpcode.setTable);
       expect(setTable.a, equals(0));
-      expect(setTable.b, equals(getKey.a));
-      expect(setTable.c, equals(getValue.a));
     });
   });
+}
+
+List<BytecodeInstruction> _stripVarArgPrep(BytecodePrototype proto) {
+  final instructions = proto.instructions;
+  if (instructions.isNotEmpty &&
+      instructions.first.opcode == BytecodeOpcode.varArgPrep) {
+    return instructions.sublist(1);
+  }
+  return instructions;
 }

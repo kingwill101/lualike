@@ -15,12 +15,12 @@ import 'prototype.dart';
 class BytecodeCompiler {
   BytecodeChunk compile(Program program) {
     final chunkBuilder = BytecodeChunkBuilder();
-    final prototypeBuilder = chunkBuilder.mainPrototypeBuilder..isVararg = true;
-    final context = _PrototypeContext(prototypeBuilder);
+    final prototypeBuilder = chunkBuilder.mainPrototypeBuilder;
+    final context = _PrototypeContext(prototypeBuilder, isVararg: true);
 
     for (final statement in program.statements) {
-      context.emitStatement(statement);
-      if (context.hasExplicitReturn) {
+      final completed = context.emitStatement(statement);
+      if (completed) {
         break;
       }
     }
@@ -30,17 +30,61 @@ class BytecodeCompiler {
   }
 }
 
+class _CallEmissionResult {
+  const _CallEmissionResult({
+    required this.base,
+    required this.resultCount,
+    this.capturesAll = false,
+  });
+
+  final int base;
+  final int resultCount;
+  final bool capturesAll;
+}
+
+class _ExpressionListResult {
+  const _ExpressionListResult({
+    required this.registers,
+    required this.temporaries,
+  });
+
+  final List<int> registers;
+  final List<int> temporaries;
+}
+
 class _PrototypeContext {
-  _PrototypeContext(this.builder) : emitter = BytecodeEmitter(builder);
+  _PrototypeContext(
+    this.builder, {
+    this.parent,
+    List<String> parameterNames = const <String>[],
+    this.isVararg = false,
+  }) : emitter = BytecodeEmitter(builder),
+       _localScopes = <Map<String, int>>[<String, int>{}],
+       _nextRegister = parameterNames.length,
+       _maxRegister = parameterNames.length {
+    builder.paramCount = parameterNames.length;
+    builder.isVararg = isVararg;
+
+    for (var i = 0; i < parameterNames.length; i++) {
+      _localScopes.last[parameterNames[i]] = i;
+    }
+
+    if (isVararg) {
+      _emitVarargPrep(parameterNames.length);
+    }
+  }
 
   final BytecodePrototypeBuilder builder;
   final BytecodeEmitter emitter;
+  final _PrototypeContext? parent;
+  final bool isVararg;
 
   bool hasExplicitReturn = false;
 
-  int _nextRegister = 0;
-  int _maxRegister = 0;
-  final List<Map<String, int>> _localScopes = <Map<String, int>>[<String, int>{}];
+  int _nextRegister;
+  int _maxRegister;
+  final List<Map<String, int>> _localScopes;
+  final Map<String, int> _upvalues = <String, int>{};
 
   void _pushLocalScope() {
     _localScopes.add(<String, int>{});
@@ -65,47 +109,118 @@ class _PrototypeContext {
     return null;
   }
 
-  void emitStatement(AstNode node) {
-    if (hasExplicitReturn) {
-      return;
+  void _emitVarargPrep(int fixedParamCount) {
+    emitter.emitABC(
+      opcode: BytecodeOpcode.varArgPrep,
+      a: fixedParamCount,
+      b: 0,
+      c: 0,
+    );
+  }
+
+  void _ensureVarargAvailable() {
+    if (!isVararg) {
+      throw UnsupportedError(
+        'Varargs are not available in the current function context.',
+      );
+    }
+  }
+
+  int? _resolveUpvalueIndex(String name) {
+    final existing = _upvalues[name];
+    if (existing != null) {
+      return existing;
+    }
+    final resolved = parent?._ensureUpvalueForChild(name);
+    if (resolved == null) {
+      return null;
+    }
+    final index = builder.upvalueDescriptors.length;
+    builder.upvalueDescriptors.add(
+      BytecodeUpvalueDescriptor(
+        inStack: resolved.inStack ? 1 : 0,
+        index: resolved.index,
+      ),
+    );
+    _upvalues[name] = index;
+    return index;
+  }
+
+  _UpvalueReference? _ensureUpvalueForChild(String name) {
+    final localRegister = _lookupLocal(name);
+    if (localRegister != null) {
+      return _UpvalueReference(inStack: true, index: localRegister);
     }
 
+    final existing = _upvalues[name];
+    if (existing != null) {
+      return _UpvalueReference(inStack: false, index: existing);
+    }
+
+    final ancestor = parent?._ensureUpvalueForChild(name);
+    if (ancestor == null) {
+      return null;
+    }
+
+    final index = builder.upvalueDescriptors.length;
+    builder.upvalueDescriptors.add(
+      BytecodeUpvalueDescriptor(
+        inStack: ancestor.inStack ? 1 : 0,
+        index: ancestor.index,
+      ),
+    );
+    _upvalues[name] = index;
+    return _UpvalueReference(inStack: false, index: index);
+  }
+
+  bool emitStatement(AstNode node) {
     switch (node) {
       case ReturnStatement():
         _emitReturn(node);
-        return;
+        return true;
       case Assignment():
         _emitAssignment(node);
-        return;
+        return false;
       case IfStatement():
-        _emitIfStatement(node);
-        return;
+        return _emitIfStatement(node);
       case WhileStatement():
         _emitWhileStatement(node);
-        return;
+        return false;
       case ForLoop():
         _emitForLoop(node);
-        return;
+        return false;
       case ForInLoop():
         _emitForInLoop(node);
-        return;
+        return false;
+      case FunctionDef():
+        _emitFunctionDef(node);
+        return false;
+      case LocalFunctionDef():
+        _emitLocalFunctionDef(node);
+        return false;
+      case LocalDeclaration():
+        _emitLocalDeclaration(node);
+        return false;
       case ExpressionStatement(:final expr):
         if (expr is FunctionCall) {
           _emitFunctionCall(expr, discardResult: true);
+        } else if (expr is MethodCall) {
+          _emitMethodCall(expr, discardResult: true);
         } else {
           final reg = _emitExpression(expr);
           _releaseRegister(reg);
         }
-        return;
+        return false;
       case AssignmentIndexAccessExpr():
         _emitAssignmentIndexAccessExpr(node);
-        return;
+        return false;
       default:
         throw UnsupportedError(
           'Bytecode compiler does not yet support statement type: '
           '${node.runtimeType}',
         );
     }
+    return false;
   }
 
   void _emitReturn(ReturnStatement node) {
@@ -116,21 +231,86 @@ class _PrototypeContext {
       return;
     }
 
-    if (node.expr.length != 1) {
-      throw UnsupportedError(
-        'Multiple return values are not yet supported by the bytecode '
-        'compiler.',
-      );
-    }
+    if (node.expr.length == 1) {
+      final expression = node.expr.first;
+      if (expression is FunctionCall) {
+        _emitFunctionCall(expression, discardResult: false, asTailCall: true);
+        return;
+      }
 
-    final expression = node.expr.first;
-    if (expression is FunctionCall) {
-      _emitFunctionCall(expression, discardResult: false, asTailCall: true);
+      if (expression is MethodCall) {
+        _emitMethodCall(expression, discardResult: false, asTailCall: true);
+        return;
+      }
+
+      if (expression is VarArg) {
+        final reg = _emitVarArg(resultCount: 0);
+        emitter.emitABC(opcode: BytecodeOpcode.ret, a: reg, b: 0, c: 0);
+        return;
+      }
+
+      final reg = _emitExpression(expression, target: 0);
+      emitter.emitABC(opcode: BytecodeOpcode.return1, a: reg, b: 0, c: 0);
       return;
     }
 
-    final reg = _emitExpression(expression, target: 0);
-    emitter.emitABC(opcode: BytecodeOpcode.return1, a: reg, b: 0, c: 0);
+    final valueRegs = <int>[];
+    var capturesAll = false;
+
+    for (var i = 0; i < node.expr.length; i++) {
+      final expr = node.expr[i];
+      final isLast = i == node.expr.length - 1;
+
+      if (!isLast) {
+        final reg = _emitExpression(expr);
+        valueRegs.add(reg);
+        continue;
+      }
+
+      if (expr is FunctionCall) {
+        final call = _emitFunctionCall(expr, captureAll: true);
+        valueRegs.add(call.base);
+        capturesAll = true;
+        continue;
+      }
+
+      if (expr is MethodCall) {
+        final call = _emitMethodCall(expr, captureAll: true);
+        valueRegs.add(call.base);
+        capturesAll = true;
+        continue;
+      }
+
+      if (expr is VarArg) {
+        final reg = _emitVarArg(resultCount: 0);
+        valueRegs.add(reg);
+        capturesAll = true;
+        continue;
+      }
+
+      final reg = _emitExpression(expr);
+      valueRegs.add(reg);
+    }
+
+    final returnBase = valueRegs.first;
+    if (capturesAll) {
+      final fixedCount = valueRegs.length - 1;
+      emitter.emitABC(
+        opcode: BytecodeOpcode.ret,
+        a: returnBase,
+        b: 0,
+        c: fixedCount,
+      );
+      return;
+    }
+
+    final valueCount = valueRegs.length;
+    emitter.emitABC(
+      opcode: BytecodeOpcode.ret,
+      a: returnBase,
+      b: valueCount + 1,
+      c: 0,
+    );
   }
 
   int _emitExpression(AstNode node, {int? target}) {
@@ -189,6 +369,17 @@ class _PrototypeContext {
           );
           return temp;
         }
+        final upvalueIndex = _resolveUpvalueIndex(name);
+        if (upvalueIndex != null) {
+          final dest = _materializeRegister(target);
+          emitter.emitABC(
+            opcode: BytecodeOpcode.getUpval,
+            a: dest,
+            b: upvalueIndex,
+            c: 0,
+          );
+          return dest;
+        }
         final reg = _materializeRegister(target);
         final constant = name.length <= 40
             ? ShortStringConstant(name)
@@ -212,7 +403,9 @@ class _PrototypeContext {
       case TableIndexAccess():
         return _emitTableIndexAccess(node.table, node.index, target: target);
       case FunctionCall():
-        return _emitFunctionCall(node, target: target);
+        return _useCallResult(_emitFunctionCall(node), target: target);
+      case MethodCall():
+        return _useCallResult(_emitMethodCall(node), target: target);
       case TableAccessExpr():
         final index = node.index;
         if (index is Identifier) {
@@ -222,6 +415,10 @@ class _PrototypeContext {
           );
         }
         return _emitTableIndexAccess(node.table, index, target: target);
+      case FunctionLiteral():
+        return _emitFunctionLiteral(node, target: target);
+      case VarArg():
+        return _emitVarArg(target: target);
       default:
         throw UnsupportedError(
           'Bytecode compiler does not yet support expression type: '
@@ -230,21 +427,11 @@ class _PrototypeContext {
     }
   }
 
-  void _emitAssignment(Assignment node) {
-    if (node.targets.length != 1 || node.exprs.length != 1) {
-      throw UnsupportedError(
-        'Bytecode compiler does not yet support multi-target assignments.',
-      );
-    }
-    _emitTableAssignment(node.targets.single, node.exprs.single);
-  }
-
-  void _emitAssignmentIndexAccessExpr(AssignmentIndexAccessExpr node) {
-    _emitTableIndexAssignment(node.target, node.index, node.value);
-  }
-
-  void _emitTableAssignment(AstNode target, AstNode valueNode) {
+  void _emitSingleAssignment(AstNode target, AstNode valueNode) {
     switch (target) {
+      case Identifier(:final name):
+        _emitIdentifierAssignment(name, valueNode);
+        return;
       case TableFieldAccess():
         _emitTableFieldAssignment(target, valueNode);
         return;
@@ -273,9 +460,136 @@ class _PrototypeContext {
     }
   }
 
+  void _emitAssignment(Assignment node) {
+    if (node.targets.length == 1 && node.exprs.length == 1) {
+      _emitSingleAssignment(node.targets.single, node.exprs.single);
+      return;
+    }
+
+    if (node.targets.any((target) => target is! Identifier)) {
+      throw UnsupportedError(
+        'Bytecode compiler does not yet support multi-target assignments with '
+        'non-identifier targets.',
+      );
+    }
+
+    final identifiers = node.targets.cast<Identifier>();
+    final result = _emitAssignmentValues(node.exprs, identifiers.length);
+    final protected = <int>{};
+
+    for (var i = 0; i < identifiers.length; i++) {
+      final identifier = identifiers[i];
+      final valueReg = result.registers[i];
+      final name = identifier.name;
+      final localReg = _lookupLocal(name);
+      if (localReg != null) {
+        if (localReg != valueReg) {
+          emitter.emitABC(
+            opcode: BytecodeOpcode.move,
+            a: localReg,
+            b: valueReg,
+            c: 0,
+          );
+        } else {
+          protected.add(valueReg);
+        }
+        continue;
+      }
+
+      final upvalueIndex = _resolveUpvalueIndex(name);
+      if (upvalueIndex != null) {
+        emitter.emitABC(
+          opcode: BytecodeOpcode.setUpval,
+          a: 0,
+          b: upvalueIndex,
+          c: valueReg,
+        );
+        continue;
+      }
+
+      final constantIndex = _ensureConstantIndex(name);
+      emitter.emitABC(
+        opcode: BytecodeOpcode.setTabUp,
+        a: 0,
+        b: constantIndex,
+        c: valueReg,
+      );
+    }
+
+    for (var i = result.temporaries.length - 1; i >= 0; i--) {
+      final reg = result.temporaries[i];
+      if (protected.contains(reg)) {
+        continue;
+      }
+      _releaseRegister(reg);
+    }
+  }
+
+  void _emitLocalDeclaration(LocalDeclaration node) {
+    if (node.attributes.any((attribute) => attribute.isNotEmpty)) {
+      throw UnsupportedError(
+        'Bytecode compiler does not yet support local declaration attributes.',
+      );
+    }
+
+    final nameCount = node.names.length;
+    if (nameCount == 0) {
+      return;
+    }
+
+    final targetRegs = <int>[];
+    for (final identifier in node.names) {
+      final register = _allocateRegister();
+      _declareLocal(identifier.name, register);
+      targetRegs.add(register);
+    }
+
+    final result = _emitAssignmentValues(node.exprs, nameCount);
+    final protected = <int>{};
+
+    for (var i = 0; i < nameCount; i++) {
+      final targetReg = targetRegs[i];
+      final valueReg = result.registers[i];
+      if (targetReg != valueReg) {
+        emitter.emitABC(
+          opcode: BytecodeOpcode.move,
+          a: targetReg,
+          b: valueReg,
+          c: 0,
+        );
+      } else {
+        protected.add(valueReg);
+      }
+    }
+
+    for (var i = result.temporaries.length - 1; i >= 0; i--) {
+      final reg = result.temporaries[i];
+      if (protected.contains(reg)) {
+        continue;
+      }
+      _releaseRegister(reg);
+    }
+  }
+
+  void _emitAssignmentIndexAccessExpr(AssignmentIndexAccessExpr node) {
+    _emitTableIndexAssignment(node.target, node.index, node.value);
+  }
+
   void _emitTableFieldAssignment(TableFieldAccess target, AstNode valueNode) {
-    final tableReg = _emitExpression(target.table);
     final fieldIndex = _ensureConstantIndex(target.fieldName.name);
+    if (_isEnvIdentifier(target.table)) {
+      final valueReg = _emitExpression(valueNode);
+      emitter.emitABC(
+        opcode: BytecodeOpcode.setTabUp,
+        a: 0,
+        b: fieldIndex,
+        c: valueReg,
+      );
+      _releaseRegister(valueReg);
+      return;
+    }
+
+    final tableReg = _emitExpression(target.table);
     final valueReg = _emitExpression(valueNode);
     emitter.emitABC(
       opcode: BytecodeOpcode.setField,
@@ -307,6 +621,21 @@ class _PrototypeContext {
       return;
     }
 
+    if (_isEnvIdentifier(tableNode) && indexNode is StringLiteral) {
+      final fieldName = String.fromCharCodes(indexNode.bytes);
+      final fieldIndex = _ensureConstantIndex(fieldName);
+      final valueReg = _emitExpression(valueNode);
+      emitter.emitABC(
+        opcode: BytecodeOpcode.setTabUp,
+        a: 0,
+        b: fieldIndex,
+        c: valueReg,
+      );
+      _releaseRegister(valueReg);
+      _releaseRegister(tableReg);
+      return;
+    }
+
     final indexReg = _emitExpression(indexNode);
     final valueReg = _emitExpression(valueNode);
     emitter.emitABC(
@@ -320,31 +649,70 @@ class _PrototypeContext {
     _releaseRegister(tableReg);
   }
 
-  void _emitIfStatement(IfStatement node) {
+  void _emitIdentifierAssignment(String name, AstNode valueNode) {
+    final localReg = _lookupLocal(name);
+    if (localReg != null) {
+      _emitExpression(valueNode, target: localReg);
+      return;
+    }
+
+    final upvalueIndex = _resolveUpvalueIndex(name);
+    if (upvalueIndex != null) {
+      final valueReg = _emitExpression(valueNode);
+      emitter.emitABC(
+        opcode: BytecodeOpcode.setUpval,
+        a: 0,
+        b: upvalueIndex,
+        c: valueReg,
+      );
+      _releaseRegister(valueReg);
+      return;
+    }
+
+    final valueReg = _emitExpression(valueNode);
+    final constantIndex = _ensureConstantIndex(name);
+    emitter.emitABC(
+      opcode: BytecodeOpcode.setTabUp,
+      a: 0,
+      b: constantIndex,
+      c: valueReg,
+    );
+    _releaseRegister(valueReg);
+  }
+
+  bool _emitIfStatement(IfStatement node) {
     final exitJumps = <int>[];
     final falseJump = _emitConditionJump(node.cond, jumpWhenTrue: false);
-    _emitBlock(node.thenBlock);
+    final thenReturns = _emitBlock(node.thenBlock);
     exitJumps.add(_emitJumpPlaceholder());
     _patchJump(falseJump, _currentInstructionIndex);
+
+    var allBranchesReturn = thenReturns;
 
     for (final clause in node.elseIfs) {
       final clauseFalseJump = _emitConditionJump(
         clause.cond,
         jumpWhenTrue: false,
       );
-      _emitBlock(clause.thenBlock);
+      final clauseReturns = _emitBlock(clause.thenBlock);
+      allBranchesReturn = allBranchesReturn && clauseReturns;
       exitJumps.add(_emitJumpPlaceholder());
       _patchJump(clauseFalseJump, _currentInstructionIndex);
     }
 
     if (node.elseBlock.isNotEmpty) {
-      _emitBlock(node.elseBlock);
+      final elseReturns = _emitBlock(node.elseBlock);
+      allBranchesReturn = allBranchesReturn && elseReturns;
+    } else {
+      allBranchesReturn = false;
     }
 
     final endIndex = _currentInstructionIndex;
     for (final jump in exitJumps) {
       _patchJump(jump, endIndex);
     }
+
+    return allBranchesReturn;
   }
 
   void _emitWhileStatement(WhileStatement node) {
@@ -372,12 +740,7 @@ class _PrototypeContext {
       _loadNumberIntoRegister(stepReg, 1);
     }
 
-    emitter.emitABC(
-      opcode: BytecodeOpcode.move,
-      a: controlReg,
-      b: base,
-      c: 0,
-    );
+    emitter.emitABC(opcode: BytecodeOpcode.move, a: controlReg, b: base, c: 0);
 
     final forPrepIndex = emitter.emitAsBx(
       opcode: BytecodeOpcode.forPrep,
@@ -501,6 +864,143 @@ class _PrototypeContext {
     _releaseRegister(base);
   }
 
+  void _emitFunctionDef(FunctionDef node) {
+    final register = _allocateRegister();
+    final prototypeIndex = _compileFunctionBody(node.body);
+    emitter.emitABx(
+      opcode: BytecodeOpcode.closure,
+      a: register,
+      bx: prototypeIndex,
+    );
+
+    final rest = node.name.rest;
+    if (!node.implicitSelf && rest.isEmpty) {
+      final constantIndex = _ensureConstantIndex(node.name.first.name);
+      emitter.emitABC(
+        opcode: BytecodeOpcode.setTabUp,
+        a: 0,
+        b: constantIndex,
+        c: register,
+      );
+      _releaseRegister(register);
+      return;
+    }
+
+    late final String fieldName;
+    final tablePath = <Identifier>[];
+
+    if (node.implicitSelf) {
+      fieldName = node.name.method!.name;
+      tablePath.add(node.name.first);
+      tablePath.addAll(rest);
+    } else {
+      fieldName = rest.last.name;
+      tablePath.add(node.name.first);
+      tablePath.addAll(rest.take(rest.length - 1));
+    }
+
+    if (tablePath.isEmpty) {
+      final constantIndex = _ensureConstantIndex(fieldName);
+      emitter.emitABC(
+        opcode: BytecodeOpcode.setTabUp,
+        a: 0,
+        b: constantIndex,
+        c: register,
+      );
+      _releaseRegister(register);
+      return;
+    }
+
+    final usesEnv = tablePath.length == 1 && tablePath.first.name == '_ENV';
+    final fieldIndex = _ensureConstantIndex(fieldName);
+
+    if (usesEnv) {
+      emitter.emitABC(
+        opcode: BytecodeOpcode.setTabUp,
+        a: 0,
+        b: fieldIndex,
+        c: register,
+      );
+      _releaseRegister(register);
+      return;
+    }
+
+    final tableExpr = _buildTableExpression(tablePath);
+    final tableReg = _emitExpression(tableExpr);
+    emitter.emitABC(
+      opcode: BytecodeOpcode.setField,
+      a: tableReg,
+      b: fieldIndex,
+      c: register,
+    );
+    _releaseRegister(tableReg);
+    _releaseRegister(register);
+  }
+
+  void _emitLocalFunctionDef(LocalFunctionDef node) {
+    final register = _allocateRegister();
+    _declareLocal(node.name.name, register);
+    final prototypeIndex = _compileFunctionBody(node.funcBody);
+    emitter.emitABx(
+      opcode: BytecodeOpcode.closure,
+      a: register,
+      bx: prototypeIndex,
+    );
+  }
+
+  int _compileFunctionBody(FunctionBody body) {
+    final positionalParams = <String>[
+      for (final param in body.parameters ?? const <Identifier>[]) param.name,
+    ];
+
+    if (body.implicitSelf) {
+      if (positionalParams.isEmpty || positionalParams.first != 'self') {
+        positionalParams.insert(0, 'self');
+      }
+    }
+
+    final childBuilder = builder.createChild();
+    final childContext = _PrototypeContext(
+      childBuilder.builder,
+      parent: this,
+      parameterNames: positionalParams,
+      isVararg: body.isVararg,
+    );
+
+    for (final statement in body.body) {
+      childContext.emitStatement(statement);
+      if (childContext.hasExplicitReturn) {
+        break;
+      }
+    }
+    childContext.finalize();
+    return childBuilder.index;
+  }
+
+  int _emitFunctionLiteral(FunctionLiteral node, {int? target}) {
+    final register = _materializeRegister(target);
+    final prototypeIndex = _compileFunctionBody(node.funcBody);
+    emitter.emitABx(
+      opcode: BytecodeOpcode.closure,
+      a: register,
+      bx: prototypeIndex,
+    );
+    return register;
+  }
+
+  int _emitVarArg({int? target, int resultCount = 1}) {
+    _ensureVarargAvailable();
+    final register = _materializeRegister(target);
+    final bOperand = resultCount == 0 ? 0 : resultCount + 1;
+    emitter.emitABC(
+      opcode: BytecodeOpcode.varArg,
+      a: register,
+      b: bOperand,
+      c: 0,
+    );
+    return register;
+  }
+
   int _emitConditionJump(AstNode cond, {required bool jumpWhenTrue}) {
     final condReg = _emitExpression(cond);
     emitter.emitABC(
@@ -519,13 +1019,14 @@ class _PrototypeContext {
     return emitter.emitAsJ(opcode: BytecodeOpcode.jmp, sJ: 0);
   }
 
-  void _emitBlock(List<AstNode> statements) {
+  bool _emitBlock(List<AstNode> statements) {
     for (final statement in statements) {
-      emitStatement(statement);
-      if (hasExplicitReturn) {
-        break;
+      final returned = emitStatement(statement);
+      if (returned) {
+        return true;
       }
     }
+    return false;
   }
 
   int _emitLogicalBinaryExpression(BinaryExpression node, {int? target}) {
@@ -555,56 +1056,263 @@ class _PrototypeContext {
     );
   }
 
-  int _emitFunctionCall(
+  _CallEmissionResult _emitFunctionCall(
     FunctionCall node, {
-    int? target,
     bool discardResult = false,
     bool asTailCall = false,
+    int? resultCount,
+    bool captureAll = false,
+    int? baseRegister,
   }) {
-    final base = _allocateRegister();
+    assert(
+      !(captureAll && resultCount != null),
+      'Cannot request a fixed result count when capturing all results.',
+    );
+
+    final base = baseRegister != null
+        ? _ensureRegister(baseRegister)
+        : _allocateRegister();
     _emitExpression(node.name, target: base);
 
     final argRegs = <int>[];
-    for (final argument in node.args) {
+    for (var i = 0; i < node.args.length; i++) {
+      final argument = node.args[i];
       final reg = _allocateRegister();
       argRegs.add(reg);
-      _emitExpression(argument, target: reg);
+      final isLastArg = i == node.args.length - 1;
+      if (argument is VarArg) {
+        final requested = isLastArg ? 0 : 1;
+        _emitVarArg(target: reg, resultCount: requested);
+      } else {
+        _emitExpression(argument, target: reg);
+      }
     }
 
-    final b = argRegs.length + 1;
+    final bOperand = argRegs.length + 1;
     final opcode = asTailCall ? BytecodeOpcode.tailCall : BytecodeOpcode.call;
-    final c = asTailCall
-        ? 0
-        : discardResult
-            ? 1
-            : 2;
 
-    emitter.emitABC(opcode: opcode, a: base, b: b, c: c);
+    int producedResults = 0;
+    final int cOperand;
+    if (asTailCall) {
+      cOperand = 0;
+    } else if (discardResult) {
+      cOperand = 1;
+    } else if (captureAll) {
+      cOperand = 0;
+    } else {
+      final requested = resultCount ?? 1;
+      cOperand = requested + 1;
+      producedResults = requested;
+    }
+
+    emitter.emitABC(opcode: opcode, a: base, b: bOperand, c: cOperand);
 
     for (var i = argRegs.length - 1; i >= 0; i--) {
       _releaseRegister(argRegs[i]);
     }
 
+    if (asTailCall || discardResult) {
+      _releaseRegister(base);
+    } else if (!captureAll) {
+      final requested = resultCount ?? 1;
+      if (requested > 1) {
+        _ensureRegister(base + requested - 1);
+      }
+    }
+
+    return _CallEmissionResult(
+      base: base,
+      resultCount: producedResults,
+      capturesAll: captureAll || asTailCall,
+    );
+  }
+
+  _CallEmissionResult _emitMethodCall(
+    MethodCall node, {
+    bool discardResult = false,
+    bool asTailCall = false,
+    int? resultCount,
+    bool captureAll = false,
+    int? baseRegister,
+  }) {
+    final objectReg = _emitExpression(node.prefix);
+    if (node.methodName is! Identifier) {
+      throw UnsupportedError(
+        'Bytecode compiler requires identifier method names for method calls.',
+      );
+    }
+
+    final methodIdentifier = node.methodName as Identifier;
+    final funcReg = baseRegister != null
+        ? _ensureRegister(baseRegister)
+        : objectReg;
+    final fieldIndex = _ensureConstantIndex(methodIdentifier.name);
+
+    final argRegs = <int>[];
+    final selfReg = _allocateRegister();
+    emitter.emitABC(
+      opcode: BytecodeOpcode.move,
+      a: selfReg,
+      b: objectReg,
+      c: 0,
+    );
+    argRegs.add(selfReg);
+
+    emitter.emitABC(
+      opcode: BytecodeOpcode.getField,
+      a: funcReg,
+      b: selfReg,
+      c: fieldIndex,
+    );
+
+    for (var i = 0; i < node.args.length; i++) {
+      final reg = _allocateRegister();
+      argRegs.add(reg);
+      _emitExpression(node.args[i], target: reg);
+    }
+
+    final opcode = asTailCall ? BytecodeOpcode.tailCall : BytecodeOpcode.call;
+    final bOperand = argRegs.length + 1;
+
+    int producedResults = 0;
+    final int cOperand;
     if (asTailCall) {
-      _releaseRegister(base);
-      return base;
+      cOperand = 0;
+    } else if (discardResult) {
+      cOperand = 1;
+    } else if (captureAll) {
+      cOperand = 0;
+    } else {
+      final requested = resultCount ?? 1;
+      cOperand = requested + 1;
+      producedResults = requested;
     }
 
-    if (discardResult) {
-      _releaseRegister(base);
-      return base;
+    emitter.emitABC(opcode: opcode, a: funcReg, b: bOperand, c: cOperand);
+
+    for (var i = argRegs.length - 1; i >= 0; i--) {
+      _releaseRegister(argRegs[i]);
     }
 
+    if (asTailCall || discardResult) {
+      _releaseRegister(funcReg);
+    } else if (!captureAll) {
+      final requested = resultCount ?? 1;
+      if (requested > 1) {
+        _ensureRegister(funcReg + requested - 1);
+      }
+    }
+
+    return _CallEmissionResult(
+      base: funcReg,
+      resultCount: producedResults,
+      capturesAll: captureAll || asTailCall,
+    );
+  }
+
+  int _useCallResult(_CallEmissionResult call, {int? target}) {
+    final base = call.base;
     if (target != null) {
       final dest = _materializeRegister(target);
       if (dest != base) {
         emitter.emitABC(opcode: BytecodeOpcode.move, a: dest, b: base, c: 0);
+        _releaseRegister(base);
       }
-      _releaseRegister(base);
       return dest;
     }
-
     return base;
+  }
+
+  void _emitExpressionAndDiscard(AstNode expr) {
+    switch (expr) {
+      case FunctionCall():
+        _emitFunctionCall(expr, discardResult: true);
+        return;
+      case MethodCall():
+        _emitMethodCall(expr, discardResult: true);
+        return;
+      case VarArg():
+        final reg = _emitVarArg();
+        _releaseRegister(reg);
+        return;
+      default:
+        final reg = _emitExpression(expr);
+        _releaseRegister(reg);
+    }
+  }
+
+  _ExpressionListResult _emitAssignmentValues(
+    List<AstNode> exprs,
+    int targetCount,
+  ) {
+    final registers = <int>[];
+    final temporaries = <int>[];
+
+    for (var i = 0; i < exprs.length; i++) {
+      final expr = exprs[i];
+      final isLast = i == exprs.length - 1;
+      final needValue = registers.length < targetCount;
+      final remainingTargets = targetCount - registers.length;
+
+      if (!needValue) {
+        _emitExpressionAndDiscard(expr);
+        continue;
+      }
+
+      if (isLast && expr is FunctionCall) {
+        final call = _emitFunctionCall(expr, resultCount: remainingTargets);
+        final base = call.base;
+        if (remainingTargets > 1) {
+          _ensureRegister(base + remainingTargets - 1);
+        }
+        for (var offset = 0; offset < remainingTargets; offset++) {
+          registers.add(base + offset);
+          temporaries.add(base + offset);
+        }
+        continue;
+      }
+
+      if (isLast && expr is MethodCall) {
+        final call = _emitMethodCall(expr, resultCount: remainingTargets);
+        final base = call.base;
+        if (remainingTargets > 1) {
+          _ensureRegister(base + remainingTargets - 1);
+        }
+        for (var offset = 0; offset < remainingTargets; offset++) {
+          registers.add(base + offset);
+          temporaries.add(base + offset);
+        }
+        continue;
+      }
+
+      if (isLast && expr is VarArg) {
+        final resultReg = _emitVarArg(resultCount: remainingTargets);
+        if (remainingTargets > 1) {
+          _ensureRegister(resultReg + remainingTargets - 1);
+        }
+        for (var offset = 0; offset < remainingTargets; offset++) {
+          registers.add(resultReg + offset);
+          temporaries.add(resultReg + offset);
+        }
+        continue;
+      }
+
+      final reg = _emitExpression(expr);
+      registers.add(reg);
+      temporaries.add(reg);
+    }
+
+    while (registers.length < targetCount) {
+      final reg = _allocateRegister();
+      emitter.emitABC(opcode: BytecodeOpcode.loadNil, a: reg, b: 0, c: 0);
+      registers.add(reg);
+      temporaries.add(reg);
+    }
+
+    return _ExpressionListResult(
+      registers: registers,
+      temporaries: temporaries,
+    );
   }
 
   int _emitBinaryExpression(BinaryExpression node, {int? target}) {
@@ -853,6 +1561,21 @@ class _PrototypeContext {
     emitter.emitABx(opcode: BytecodeOpcode.loadK, a: register, bx: index);
   }
 
+  bool _isEnvIdentifier(AstNode node) {
+    return node is Identifier && node.name == '_ENV';
+  }
+
+  AstNode _buildTableExpression(List<Identifier> path) {
+    if (path.isEmpty) {
+      throw ArgumentError('Table path must contain at least one segment.');
+    }
+    AstNode expr = Identifier(path.first.name);
+    for (var i = 1; i < path.length; i++) {
+      expr = TableFieldAccess(expr, Identifier(path[i].name));
+    }
+    return expr;
+  }
+
   int _ensureConstantIndex(Object? value) {
     final constant = switch (value) {
       null => const NilConstant(),
@@ -971,4 +1694,11 @@ class _PrototypeContext {
     );
     _nextRegister -= 1;
   }
+}
+
+class _UpvalueReference {
+  const _UpvalueReference({required this.inStack, required this.index});
+
+  final bool inStack;
+  final int index;
 }
