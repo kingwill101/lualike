@@ -883,11 +883,7 @@ class _PrototypeContext {
     _emitExpression(node.start, target: base);
     _emitExpression(node.endExpr, target: limitReg);
 
-    if (node.stepExpr != null) {
-      _emitExpression(node.stepExpr!, target: stepReg);
-    } else {
-      _loadNumberIntoRegister(stepReg, 1);
-    }
+    _emitExpression(node.stepExpr, target: stepReg);
 
     emitter.emitABC(opcode: BytecodeOpcode.move, a: controlReg, b: base, c: 0);
 
@@ -1500,6 +1496,10 @@ class _PrototypeContext {
       return _emitLogicalBinaryExpression(node, target: target);
     }
 
+    if (node.op == '..') {
+      return _emitConcatenation(node, target: target);
+    }
+
     final literalValue = _literalValue(node.right);
     final leftReg = _emitExpression(node.left, target: target);
 
@@ -1606,6 +1606,46 @@ class _PrototypeContext {
     return leftReg;
   }
 
+  int _emitConcatenation(BinaryExpression node, {int? target}) {
+    final operands = <AstNode>[];
+
+    void collect(AstNode expr) {
+      if (expr is BinaryExpression && expr.op == '..') {
+        collect(expr.left);
+        collect(expr.right);
+      } else {
+        operands.add(expr);
+      }
+    }
+
+    collect(node);
+
+    if (operands.isEmpty) {
+      throw StateError('Concatenation requires at least one operand.');
+    }
+
+    final firstReg = _emitExpression(operands.first, target: target);
+    final tempRegs = <int>[];
+
+    for (var i = 1; i < operands.length; i++) {
+      tempRegs.add(_emitExpression(operands[i]));
+    }
+
+    final lastReg = tempRegs.isEmpty ? firstReg : tempRegs.last;
+    emitter.emitABC(
+      opcode: BytecodeOpcode.concat,
+      a: firstReg,
+      b: firstReg,
+      c: lastReg,
+    );
+
+    for (var i = tempRegs.length - 1; i >= 0; i--) {
+      _releaseRegister(tempRegs[i]);
+    }
+
+    return firstReg;
+  }
+
   BytecodeOpcode? _opcodeForBinary(String operatorToken) {
     return switch (operatorToken) {
       '+' => BytecodeOpcode.add,
@@ -1620,6 +1660,7 @@ class _PrototypeContext {
       '~' => BytecodeOpcode.bxor,
       '<<' => BytecodeOpcode.shl,
       '>>' => BytecodeOpcode.shr,
+      '..' => BytecodeOpcode.concat,
       _ => null,
     };
   }
@@ -1635,20 +1676,6 @@ class _PrototypeContext {
       '//' => BytecodeOpcode.idivK,
       _ => null,
     };
-  }
-
-  int? _numericConstantIndex(AstNode node) {
-    final numericValue = _numericLiteralValue(node);
-    if (numericValue == null) {
-      return null;
-    }
-    if (numericValue is int) {
-      return builder.addConstant(IntegerConstant(numericValue));
-    }
-    if (numericValue is double) {
-      return builder.addConstant(NumberConstant(numericValue));
-    }
-    return null;
   }
 
   num? _numericLiteralValue(AstNode node) {
@@ -1732,13 +1759,6 @@ class _PrototypeContext {
     }
     emitter.emitABC(opcode: opcode, a: leftReg, b: leftReg, c: value);
     return true;
-  }
-
-  void _loadNumberIntoRegister(int register, num value) {
-    final index = builder.addConstant(
-      value is int ? IntegerConstant(value) : NumberConstant(value.toDouble()),
-    );
-    emitter.emitABx(opcode: BytecodeOpcode.loadK, a: register, bx: index);
   }
 
   bool _isEnvIdentifier(AstNode node) {

@@ -53,6 +53,13 @@ class _UpvalueCell {
   }
 }
 
+class _ToBeClosedRecord {
+  _ToBeClosedRecord({required this.register, required this.value});
+
+  final int register;
+  final Value value;
+}
+
 class BytecodeClosure {
   BytecodeClosure({
     required this.prototype,
@@ -94,6 +101,7 @@ class _BytecodeFrame {
   int expectedResults;
   int top = 0;
   final Map<int, _UpvalueCell> _registerUpvalues = <int, _UpvalueCell>{};
+  final List<_ToBeClosedRecord> _toBeClosed = <_ToBeClosedRecord>[];
 
   dynamic getRegister(int index) {
     if (index >= registers.length) {
@@ -135,10 +143,43 @@ class _BytecodeFrame {
   }
 
   void closeOpenUpvalues() {
-    for (final cell in _registerUpvalues.values) {
-      cell.close();
+    closeOpenUpvaluesFrom();
+  }
+
+  void closeOpenUpvaluesFrom([int fromIndex = 0]) {
+    final keys =
+        _registerUpvalues.keys.where((key) => key >= fromIndex).toList()
+          ..sort((a, b) => b.compareTo(a));
+    for (final key in keys) {
+      final cell = _registerUpvalues.remove(key);
+      cell?.close();
     }
-    _registerUpvalues.clear();
+  }
+
+  void markToBeClosed(int registerIndex) {
+    final rawValue = getRegister(registerIndex);
+    try {
+      final closable = Value.toBeClose(rawValue);
+      setRegister(registerIndex, closable);
+      _toBeClosed.removeWhere((entry) => entry.register == registerIndex);
+      _toBeClosed.add(
+        _ToBeClosedRecord(register: registerIndex, value: closable),
+      );
+    } on UnsupportedError catch (error, stackTrace) {
+      final message = error.message ?? error.toString();
+      throw LuaError(message, cause: error, stackTrace: stackTrace);
+    }
+  }
+
+  Future<void> closeToBeClosed(int fromIndex, [dynamic error]) async {
+    for (var i = _toBeClosed.length - 1; i >= 0; i--) {
+      final entry = _toBeClosed[i];
+      if (entry.register < fromIndex) {
+        continue;
+      }
+      _toBeClosed.removeAt(i);
+      await entry.value.close(error);
+    }
   }
 
   static int _initialRegisterCapacity(
@@ -161,6 +202,7 @@ class BytecodeVm {
     : environment = environment ?? Environment();
 
   final Environment environment;
+  static final Object _metamethodNotFound = Object();
 
   Future<Object?> execute(BytecodeChunk chunk) async {
     final frames = <_BytecodeFrame>[
@@ -174,6 +216,13 @@ class BytecodeVm {
     ];
     List<dynamic>? finalResults;
 
+    int _signExtend(int value, int bitCount) {
+      final limit = 1 << (bitCount - 1);
+      final mask = (1 << bitCount) - 1;
+      final unsigned = value & mask;
+      return unsigned >= limit ? unsigned - (1 << bitCount) : unsigned;
+    }
+
     void handleTopLevelReturn(List<dynamic> results) {
       finalResults = results;
     }
@@ -185,7 +234,7 @@ class BytecodeVm {
       final registers = frame.registers;
 
       if (frame.pc >= instructions.length) {
-        _handleReturn(frames, const [], handleTopLevelReturn);
+        await _handleReturn(frames, const [], handleTopLevelReturn);
         continue;
       }
 
@@ -201,6 +250,35 @@ class BytecodeVm {
           final instr = instruction as ABxInstruction;
           frame.setRegister(instr.a, _resolveConstant(constants[instr.bx]));
           break;
+        case BytecodeOpcode.loadI:
+          {
+            final instr = instruction as ABCInstruction;
+            frame.setRegister(instr.a, _signExtend(instr.b, 8));
+            break;
+          }
+        case BytecodeOpcode.loadF:
+          {
+            final instr = instruction as ABCInstruction;
+            frame.setRegister(instr.a, _signExtend(instr.b, 8).toDouble());
+            break;
+          }
+        case BytecodeOpcode.loadKx:
+          {
+            final nextIndex = frame.pc;
+            if (nextIndex >= instructions.length) {
+              throw StateError('LOADKX missing EXTRAARG');
+            }
+            final extra = instructions[nextIndex];
+            if (extra is! AxInstruction) {
+              throw StateError(
+                'LOADKX expected EXTRAARG following instruction',
+              );
+            }
+            frame.pc += 1;
+            final instr = instruction as ABxInstruction;
+            frame.setRegister(instr.a, _resolveConstant(constants[extra.ax]));
+            break;
+          }
         case BytecodeOpcode.loadTrue:
           final instr = instruction as ABCInstruction;
           frame.setRegister(instr.a, true);
@@ -209,6 +287,13 @@ class BytecodeVm {
           final instr = instruction as ABCInstruction;
           frame.setRegister(instr.a, false);
           break;
+        case BytecodeOpcode.lFalseSkip:
+          {
+            final instr = instruction as ABCInstruction;
+            frame.setRegister(instr.a, false);
+            frame.pc += 1;
+            break;
+          }
         case BytecodeOpcode.loadNil:
           final instr = instruction as ABCInstruction;
           final count = instr.b;
@@ -249,6 +334,15 @@ class BytecodeVm {
           final key = _constantToKey(constants[instr.c]);
           frame.setRegister(instr.a, _tableGet(registers[instr.b], key));
           break;
+        case BytecodeOpcode.selfOp:
+          {
+            final instr = instruction as ABCInstruction;
+            final object = registers[instr.b];
+            final key = _constantToKey(constants[instr.c]);
+            frame.setRegister(instr.a + 1, object);
+            frame.setRegister(instr.a, _tableGet(object, key));
+            break;
+          }
         case BytecodeOpcode.getI:
           final instr = instruction as ABCInstruction;
           frame.setRegister(instr.a, _tableGet(registers[instr.b], instr.c));
@@ -272,6 +366,16 @@ class BytecodeVm {
             }
           }
           break;
+        case BytecodeOpcode.getVarArg:
+          {
+            final instr = instruction as ABCInstruction;
+            final requestedIndex = instr.c <= 0 ? 0 : instr.c - 1;
+            final value = requestedIndex < frame.varargs.length
+                ? frame.varargs[requestedIndex]
+                : null;
+            frame.setRegister(instr.a, value);
+            break;
+          }
         case BytecodeOpcode.test:
           final instr = instruction as ABCInstruction;
           final cond = _isTruthy(registers[instr.a]);
@@ -355,7 +459,9 @@ class BytecodeVm {
               closure = callee.raw as BytecodeClosure;
             }
             if (closure != null) {
-              frames.removeLast();
+              final completed = frames.removeLast();
+              await completed.closeToBeClosed(0);
+              completed.closeOpenUpvalues();
               frames.add(
                 _BytecodeFrame(
                   prototype: closure.prototype,
@@ -371,6 +477,7 @@ class BytecodeVm {
               await _callValue(callee, args),
             );
             final completed = frames.removeLast();
+            await completed.closeToBeClosed(0);
             completed.closeOpenUpvalues();
             if (frames.isEmpty) {
               handleTopLevelReturn(results);
@@ -410,7 +517,21 @@ class BytecodeVm {
         case BytecodeOpcode.setList:
           final instr = instruction as ABCInstruction;
           final table = registers[instr.a];
-          final startIndex = instr.c;
+          var startIndex = instr.c;
+          if (startIndex == 0) {
+            final extraIndex = frame.pc;
+            if (extraIndex >= instructions.length) {
+              throw StateError('SETLIST missing EXTRAARG');
+            }
+            final extra = instructions[extraIndex];
+            if (extra is! AxInstruction) {
+              throw StateError(
+                'SETLIST expected EXTRAARG following instruction',
+              );
+            }
+            frame.pc += 1;
+            startIndex = extra.ax;
+          }
           if (instr.b == 0) {
             final firstReg = instr.a + 1;
             var arraySlot = startIndex;
@@ -436,10 +557,25 @@ class BytecodeVm {
           registers[instr.a] = Value(tableStorage);
           break;
         case BytecodeOpcode.add:
-          _binaryArithmetic(frame, instruction as ABCInstruction, '+');
+          await _applyBinaryOperation(
+            frame,
+            instruction as ABCInstruction,
+            '+',
+          );
           break;
+        case BytecodeOpcode.addI:
+          {
+            final instr = instruction as ABCInstruction;
+            await _applyBinaryImmediate(
+              frame,
+              instr,
+              _signExtend(instr.c, 9),
+              '+',
+            );
+            break;
+          }
         case BytecodeOpcode.addK:
-          _binaryArithmeticConstant(
+          await _applyBinaryConstant(
             frame,
             instruction as ABCInstruction,
             constants,
@@ -447,10 +583,14 @@ class BytecodeVm {
           );
           break;
         case BytecodeOpcode.sub:
-          _binaryArithmetic(frame, instruction as ABCInstruction, '-');
+          await _applyBinaryOperation(
+            frame,
+            instruction as ABCInstruction,
+            '-',
+          );
           break;
         case BytecodeOpcode.subK:
-          _binaryArithmeticConstant(
+          await _applyBinaryConstant(
             frame,
             instruction as ABCInstruction,
             constants,
@@ -458,10 +598,14 @@ class BytecodeVm {
           );
           break;
         case BytecodeOpcode.mul:
-          _binaryArithmetic(frame, instruction as ABCInstruction, '*');
+          await _applyBinaryOperation(
+            frame,
+            instruction as ABCInstruction,
+            '*',
+          );
           break;
         case BytecodeOpcode.mulK:
-          _binaryArithmeticConstant(
+          await _applyBinaryConstant(
             frame,
             instruction as ABCInstruction,
             constants,
@@ -469,10 +613,14 @@ class BytecodeVm {
           );
           break;
         case BytecodeOpcode.div:
-          _binaryArithmetic(frame, instruction as ABCInstruction, '/');
+          await _applyBinaryOperation(
+            frame,
+            instruction as ABCInstruction,
+            '/',
+          );
           break;
         case BytecodeOpcode.divK:
-          _binaryArithmeticConstant(
+          await _applyBinaryConstant(
             frame,
             instruction as ABCInstruction,
             constants,
@@ -480,10 +628,14 @@ class BytecodeVm {
           );
           break;
         case BytecodeOpcode.mod:
-          _binaryArithmetic(frame, instruction as ABCInstruction, '%');
+          await _applyBinaryOperation(
+            frame,
+            instruction as ABCInstruction,
+            '%',
+          );
           break;
         case BytecodeOpcode.modK:
-          _binaryArithmeticConstant(
+          await _applyBinaryConstant(
             frame,
             instruction as ABCInstruction,
             constants,
@@ -491,10 +643,14 @@ class BytecodeVm {
           );
           break;
         case BytecodeOpcode.idiv:
-          _binaryArithmetic(frame, instruction as ABCInstruction, '//');
+          await _applyBinaryOperation(
+            frame,
+            instruction as ABCInstruction,
+            '//',
+          );
           break;
         case BytecodeOpcode.idivK:
-          _binaryArithmeticConstant(
+          await _applyBinaryConstant(
             frame,
             instruction as ABCInstruction,
             constants,
@@ -502,10 +658,14 @@ class BytecodeVm {
           );
           break;
         case BytecodeOpcode.pow:
-          _binaryArithmetic(frame, instruction as ABCInstruction, '^');
+          await _applyBinaryOperation(
+            frame,
+            instruction as ABCInstruction,
+            '^',
+          );
           break;
         case BytecodeOpcode.powK:
-          _binaryArithmeticConstant(
+          await _applyBinaryConstant(
             frame,
             instruction as ABCInstruction,
             constants,
@@ -513,40 +673,124 @@ class BytecodeVm {
           );
           break;
         case BytecodeOpcode.band:
-          _binaryBitwise(
+          await _applyBinaryOperation(
             frame,
             instruction as ABCInstruction,
-            NumberUtils.bitwiseAnd,
+            '&',
+          );
+          break;
+        case BytecodeOpcode.bandK:
+          await _applyBinaryConstant(
+            frame,
+            instruction as ABCInstruction,
+            constants,
+            '&',
           );
           break;
         case BytecodeOpcode.bor:
-          _binaryBitwise(
+          await _applyBinaryOperation(
             frame,
             instruction as ABCInstruction,
-            NumberUtils.bitwiseOr,
+            '|',
+          );
+          break;
+        case BytecodeOpcode.borK:
+          await _applyBinaryConstant(
+            frame,
+            instruction as ABCInstruction,
+            constants,
+            '|',
           );
           break;
         case BytecodeOpcode.bxor:
-          _binaryBitwise(
+          await _applyBinaryOperation(
             frame,
             instruction as ABCInstruction,
-            NumberUtils.bitwiseXor,
+            '~',
           );
           break;
+        case BytecodeOpcode.bxorK:
+          await _applyBinaryConstant(
+            frame,
+            instruction as ABCInstruction,
+            constants,
+            '~',
+          );
+          break;
+        case BytecodeOpcode.mmBin:
+          await _applyBinaryOperation(
+            frame,
+            instruction as ABCInstruction,
+            '+',
+          );
+          break;
+        case BytecodeOpcode.mmBinI:
+          {
+            final instr = instruction as ABCInstruction;
+            await _applyBinaryImmediate(
+              frame,
+              instr,
+              _signExtend(instr.c, 9),
+              '+',
+            );
+            break;
+          }
+        case BytecodeOpcode.mmBinK:
+          await _applyBinaryConstant(
+            frame,
+            instruction as ABCInstruction,
+            constants,
+            '+',
+          );
+          break;
+        case BytecodeOpcode.concat:
+          await _applyBinaryOperation(
+            frame,
+            instruction as ABCInstruction,
+            '..',
+          );
+          break;
+        case BytecodeOpcode.close:
+          {
+            final instr = instruction as ABCInstruction;
+            await frame.closeToBeClosed(instr.a);
+            frame.closeOpenUpvaluesFrom(instr.a);
+            break;
+          }
+        case BytecodeOpcode.tbc:
+          {
+            final instr = instruction as ABCInstruction;
+            frame.markToBeClosed(instr.a);
+            break;
+          }
         case BytecodeOpcode.shl:
-          _binaryBitwise(
+          await _applyBinaryOperation(
             frame,
             instruction as ABCInstruction,
-            NumberUtils.leftShift,
+            '<<',
           );
           break;
+        case BytecodeOpcode.shlI:
+          {
+            final instr = instruction as ABCInstruction;
+            final imm = _signExtend(instr.c, 9);
+            await _applyBinaryImmediate(frame, instr, imm, '<<');
+            break;
+          }
         case BytecodeOpcode.shr:
-          _binaryBitwise(
+          await _applyBinaryOperation(
             frame,
             instruction as ABCInstruction,
-            NumberUtils.rightShift,
+            '>>',
           );
           break;
+        case BytecodeOpcode.shrI:
+          {
+            final instr = instruction as ABCInstruction;
+            final imm = _signExtend(instr.c, 9);
+            await _applyBinaryImmediate(frame, instr, imm, '>>');
+            break;
+          }
         case BytecodeOpcode.eq:
           _binaryComparison(frame, instruction as ABCInstruction, _equals);
           break;
@@ -588,11 +832,7 @@ class BytecodeVm {
           _unaryNegate(frame, instruction as ABCInstruction);
           break;
         case BytecodeOpcode.bnot:
-          _unaryBitwise(
-            frame,
-            instruction as ABCInstruction,
-            NumberUtils.bitwiseNot,
-          );
+          _unaryBitwiseNot(frame, instruction as ABCInstruction);
           break;
         case BytecodeOpcode.notOp:
           _unaryBoolean(frame, instruction as ABCInstruction);
@@ -612,22 +852,22 @@ class BytecodeVm {
             for (var index = startIndex; index < frame.top; index++) {
               results.addAll(_expandValue(frame.getRegister(index)));
             }
-            _handleReturn(frames, results, handleTopLevelReturn);
+            await _handleReturn(frames, results, handleTopLevelReturn);
           } else {
             final count = instr.b - 1;
             final results = <dynamic>[];
             for (var i = 0; i < count; i++) {
               results.add(frame.getRegister(instr.a + i));
             }
-            _handleReturn(frames, results, handleTopLevelReturn);
+            await _handleReturn(frames, results, handleTopLevelReturn);
           }
           break;
         case BytecodeOpcode.return0:
-          _handleReturn(frames, const [], handleTopLevelReturn);
+          await _handleReturn(frames, const [], handleTopLevelReturn);
           break;
         case BytecodeOpcode.return1:
           final instr = instruction as ABCInstruction;
-          _handleReturn(frames, <dynamic>[
+          await _handleReturn(frames, <dynamic>[
             frame.getRegister(instr.a),
           ], handleTopLevelReturn);
           break;
@@ -642,6 +882,10 @@ class BytecodeVm {
           if (shouldContinue) {
             frame.pc += instr.sBx;
           }
+          break;
+        case BytecodeOpcode.extraArg:
+          // EXTRAARG is consumed by the preceding instruction (e.g., LOADKX).
+          // Execution reaches here only if an instruction failed to process it.
           break;
         default:
           throw UnsupportedError(
@@ -697,14 +941,15 @@ class BytecodeVm {
     }
   }
 
-  void _handleReturn(
+  Future<void> _handleReturn(
     List<_BytecodeFrame> frames,
     List<dynamic> results,
     void Function(List<dynamic>) onTopLevel, {
     int? returnBase,
     int? expectedResults,
-  }) {
+  }) async {
     final completed = frames.removeLast();
+    await completed.closeToBeClosed(0);
     completed.closeOpenUpvalues();
     if (frames.isEmpty) {
       onTopLevel(results);
@@ -731,9 +976,16 @@ class BytecodeVm {
       return null;
     }
     if (results.length == 1) {
-      return results.first;
+      return _finalizeValue(results.first);
     }
-    return List<dynamic>.from(results, growable: false);
+    return List<dynamic>.from(results.map(_finalizeValue), growable: false);
+  }
+
+  dynamic _finalizeValue(dynamic value) {
+    if (value is Value && value.isPrimitiveLike) {
+      return value.raw;
+    }
+    return value;
   }
 
   BytecodeClosure _createClosure(_BytecodeFrame frame, int prototypeIndex) {
@@ -768,44 +1020,169 @@ class BytecodeVm {
     };
   }
 
-  void _binaryArithmetic(
+  Value _valueOf(dynamic raw) {
+    return raw is Value ? raw : Value(raw);
+  }
+
+  Future<void> _applyBinaryOperation(
     _BytecodeFrame frame,
     ABCInstruction instruction,
     String operation,
-  ) {
-    final registers = frame.registers;
-    final left = _rawValue(registers[instruction.b]);
-    final right = _rawValue(registers[instruction.c]);
-    frame.setRegister(
-      instruction.a,
-      NumberUtils.performArithmetic(operation, left, right),
+  ) async {
+    final leftValue = _valueOf(frame.registers[instruction.b]);
+    final rightValue = _valueOf(frame.registers[instruction.c]);
+    final result = await _evaluateBinaryOperation(
+      leftValue,
+      rightValue,
+      operation,
     );
+    frame.setRegister(instruction.a, result);
   }
 
-  void _binaryArithmeticConstant(
+  Future<void> _applyBinaryConstant(
     _BytecodeFrame frame,
     ABCInstruction instruction,
     List<BytecodeConstant> constants,
     String operation,
-  ) {
-    final registers = frame.registers;
-    final left = _rawValue(registers[instruction.b]);
-    final constant = _resolveConstant(constants[instruction.c]);
-    frame.setRegister(
-      instruction.a,
-      NumberUtils.performArithmetic(operation, left, constant),
+  ) async {
+    final leftValue = _valueOf(frame.registers[instruction.b]);
+    final constantValue = _valueOf(_resolveConstant(constants[instruction.c]));
+    final result = await _evaluateBinaryOperation(
+      leftValue,
+      constantValue,
+      operation,
     );
+    frame.setRegister(instruction.a, result);
   }
 
-  void _binaryBitwise(
+  Future<void> _applyBinaryImmediate(
     _BytecodeFrame frame,
     ABCInstruction instruction,
-    dynamic Function(dynamic, dynamic) operation,
+    int immediate,
+    String operation,
+  ) async {
+    final leftValue = _valueOf(frame.registers[instruction.b]);
+    final rightValue = _valueOf(immediate);
+    final result = await _evaluateBinaryOperation(
+      leftValue,
+      rightValue,
+      operation,
+    );
+    frame.setRegister(instruction.a, result);
+  }
+
+  Future<dynamic> _evaluateBinaryOperation(
+    Value leftValue,
+    Value rightValue,
+    String operation,
+  ) async {
+    final metamethodName = _binaryMetamethodName(operation);
+    if (metamethodName != null) {
+      final metamethodResult = await _invokeBinaryMetamethod(
+        metamethodName,
+        leftValue,
+        rightValue,
+      );
+      if (!identical(metamethodResult, _metamethodNotFound)) {
+        return metamethodResult;
+      }
+    }
+    return _fallbackBinaryOperation(leftValue, rightValue, operation);
+  }
+
+  Future<dynamic> _invokeBinaryMetamethod(
+    String metamethod,
+    Value leftValue,
+    Value rightValue,
+  ) async {
+    Value? callee;
+    if (leftValue.hasMetamethod(metamethod)) {
+      callee = leftValue;
+    } else if (rightValue.hasMetamethod(metamethod)) {
+      callee = rightValue;
+    }
+    if (callee == null) {
+      return _metamethodNotFound;
+    }
+    try {
+      final result = await callee.callMetamethodAsync(metamethod, <Value>[
+        leftValue,
+        rightValue,
+      ]);
+      return result;
+    } on UnsupportedError {
+      return _metamethodNotFound;
+    }
+  }
+
+  dynamic _fallbackBinaryOperation(
+    Value leftValue,
+    Value rightValue,
+    String operation,
   ) {
-    final registers = frame.registers;
-    final left = _rawValue(registers[instruction.b]);
-    final right = _rawValue(registers[instruction.c]);
-    frame.setRegister(instruction.a, operation(left, right));
+    switch (operation) {
+      case '+':
+        return leftValue + rightValue;
+      case '-':
+        return leftValue - rightValue;
+      case '*':
+        return leftValue * rightValue;
+      case '/':
+        return leftValue / rightValue;
+      case '%':
+        return leftValue % rightValue;
+      case '^':
+        return leftValue.exp(rightValue);
+      case '//':
+        return leftValue ~/ rightValue;
+      case '&':
+        return leftValue & rightValue;
+      case '|':
+        return leftValue | rightValue;
+      case '~':
+        return leftValue ^ rightValue;
+      case '<<':
+        return leftValue << rightValue;
+      case '>>':
+        return leftValue >> rightValue;
+      case '..':
+        return leftValue.concat(rightValue);
+      default:
+        throw UnsupportedError('Unsupported operation $operation');
+    }
+  }
+
+  String? _binaryMetamethodName(String operation) {
+    switch (operation) {
+      case '+':
+        return '__add';
+      case '-':
+        return '__sub';
+      case '*':
+        return '__mul';
+      case '/':
+        return '__div';
+      case '%':
+        return '__mod';
+      case '^':
+        return '__pow';
+      case '//':
+        return '__idiv';
+      case '&':
+        return '__band';
+      case '|':
+        return '__bor';
+      case '~':
+        return '__bxor';
+      case '<<':
+        return '__shl';
+      case '>>':
+        return '__shr';
+      case '..':
+        return '__concat';
+      default:
+        return null;
+    }
   }
 
   void _binaryComparison(
@@ -888,17 +1265,13 @@ class BytecodeVm {
   }
 
   void _unaryNegate(_BytecodeFrame frame, ABCInstruction instruction) {
-    final value = _rawValue(frame.registers[instruction.b]);
-    frame.setRegister(instruction.a, NumberUtils.negate(value));
+    final value = _valueOf(frame.registers[instruction.b]);
+    frame.setRegister(instruction.a, -value);
   }
 
-  void _unaryBitwise(
-    _BytecodeFrame frame,
-    ABCInstruction instruction,
-    dynamic Function(dynamic) transform,
-  ) {
-    final value = _rawValue(frame.registers[instruction.b]);
-    frame.setRegister(instruction.a, transform(value));
+  void _unaryBitwiseNot(_BytecodeFrame frame, ABCInstruction instruction) {
+    final value = _valueOf(frame.registers[instruction.b]);
+    frame.setRegister(instruction.a, ~value);
   }
 
   void _unaryBoolean(_BytecodeFrame frame, ABCInstruction instruction) {
@@ -1085,6 +1458,22 @@ class LoopBytecodeVm {
 
   final Environment environment;
 
+  Value _valueOf(dynamic raw) {
+    return raw is Value ? raw : Value(raw);
+  }
+
+  dynamic _applyBinaryOperation(dynamic left, dynamic right, String operation) {
+    final leftValue = _valueOf(left);
+    return switch (operation) {
+      '+' => leftValue + right,
+      '-' => leftValue - right,
+      '*' => leftValue * right,
+      '/' => leftValue / right,
+      '%' => leftValue % right,
+      _ => throw UnsupportedError('Unsupported operation $operation'),
+    };
+  }
+
   void execute(BytecodeChunk chunk) {
     final prototype = chunk.mainPrototype;
     final registers = List<dynamic>.filled(
@@ -1167,9 +1556,9 @@ class LoopBytecodeVm {
     List<dynamic> registers,
     String operation,
   ) {
-    final left = _rawValue(registers[instr.b]);
-    final right = _rawValue(registers[instr.c]);
-    registers[instr.a] = NumberUtils.performArithmetic(operation, left, right);
+    final left = registers[instr.b];
+    final right = registers[instr.c];
+    registers[instr.a] = _applyBinaryOperation(left, right, operation);
   }
 
   void _executeForPrep(List<dynamic> registers, int base) {

@@ -35,6 +35,12 @@ void main() {
       expect(await BytecodeVm().execute(divChunk), equals(3));
     });
 
+    test('executes string concatenation', () async {
+      final chunk = BytecodeCompiler().compile(parse('return "foo" .. "bar"'));
+      final result = await BytecodeVm().execute(chunk);
+      expect(result, equals('foobar'));
+    });
+
     test('executes modulo, floor division, and exponent', () async {
       final modChunk = BytecodeCompiler().compile(parse('return 7 % 4'));
       final idivChunk = BytecodeCompiler().compile(parse('return 7 // 3'));
