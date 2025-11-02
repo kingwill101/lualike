@@ -10,9 +10,7 @@ import 'package:lualike/src/goto_validator.dart';
 import 'package:lualike/src/io/lua_file.dart';
 import 'package:lualike/src/upvalue.dart';
 import 'package:lualike/src/interpreter/upvalue_analyzer.dart';
-import 'package:lualike/src/table_storage.dart';
 import 'package:lualike/src/utils/file_system_utils.dart';
-import 'package:lualike/src/utils/platform_utils.dart';
 import 'package:lualike/src/utils/type.dart';
 import 'package:path/path.dart' as path;
 import 'package:source_span/source_span.dart';
@@ -1032,8 +1030,8 @@ class LoadFunction extends BuiltinFunction {
       // Centralized normalization happens in parse(); just pass source through.
       final ast = parse(source, url: chunkname);
       if (parseTimer != null) {
-        parseTimer!.stop();
-        parseDuration = parseTimer!.elapsed;
+        parseTimer.stop();
+        parseDuration = parseTimer.elapsed;
       }
 
       // Check for const variable assignment errors

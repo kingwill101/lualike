@@ -4,6 +4,7 @@ import 'package:lualike/src/gc/gc_weights.dart';
 // Per-interpreter GC available via Environment.interpreter.gc
 import 'package:lualike/src/gc/gc_access.dart';
 import 'package:lualike/src/gc/memory_credits.dart';
+import 'package:lualike/src/table_storage.dart';
 
 /// A generic box class that wraps a single value of type T.
 /// Used to create mutable references to values in the environment.
@@ -356,7 +357,9 @@ class Environment extends GCObject {
         );
         throw LuaError("attempt to assign to const variable '$name'");
       }
-      values[name]!.value = value;
+      if (!_tryFastReplaceBoxValue(values[name]!, value)) {
+        values[name]!.value = value;
+      }
       Logger.debug(
         "Updated closure variable '$name' to $value",
         category: 'Env',
@@ -381,13 +384,15 @@ class Environment extends GCObject {
           );
           throw LuaError("attempt to assign to const variable '$name'");
         }
-        current.values[name]!.value = value;
+        if (!_tryFastReplaceBoxValue(current.values[name]!, value)) {
+          current.values[name]!.value = value;
+        }
         Logger.debug(
           "Updated variable '$name' to $value in env (${current.hashCode})",
           category: 'Env',
         );
         if (current.parent == null) {
-          _syncGlobalTableEntry(name, value);
+          _syncGlobalTableEntry(name, current.values[name]!.value);
         }
         return;
       }
@@ -565,7 +570,8 @@ class Environment extends GCObject {
 
     // Check if global variable already exists
     if (rootEnv.values.containsKey(name)) {
-      final currentValue = rootEnv.values[name]!.value;
+      final box = rootEnv.values[name]!;
+      final currentValue = box.value;
       if (currentValue is Value && currentValue.isConst) {
         Logger.debug(
           "Attempt to modify const global variable '$name'",
@@ -573,7 +579,9 @@ class Environment extends GCObject {
         );
         throw LuaError("attempt to assign to const variable '$name'");
       }
-      rootEnv.values[name]!.value = value;
+      if (!_tryFastReplaceBoxValue(box, value)) {
+        box.value = value;
+      }
       Logger.debug(
         "Updated global variable '$name' to $value in root env (${rootEnv.hashCode})",
         category: 'Env',
@@ -594,7 +602,7 @@ class Environment extends GCObject {
     rootEnv._updateCredits();
 
     // Keep the underlying _G table in sync so reads via _G[k] see updates
-    _syncGlobalTableEntry(name, value);
+    _syncGlobalTableEntry(name, rootEnv.values[name]!.value);
 
     // Track to-be-closed variables in root environment
     if (value is Value && value.isToBeClose) {
@@ -620,6 +628,20 @@ class Environment extends GCObject {
     values.forEach((name, value) {
       define(name, value);
     });
+  }
+
+  /// Finds the [Box] associated with [name] in this environment chain.
+  /// Returns null if no binding exists.
+  Box<dynamic>? findBox(String name) {
+    Environment? current = this;
+    while (current != null) {
+      final box = current.values[name];
+      if (box != null) {
+        return box;
+      }
+      current = current.parent;
+    }
+    return null;
   }
 
   /// Closes all to-be-closed variables in this environment in reverse order of declaration.
@@ -740,4 +762,44 @@ class Environment extends GCObject {
     }
     return current;
   }
+}
+
+bool _tryFastReplaceBoxValue(Box<dynamic> box, dynamic incoming) {
+  if (incoming is! Value) {
+    return false;
+  }
+  final existing = box.value;
+  if (existing is! Value) {
+    return false;
+  }
+  if (existing.isConst || existing.isToBeClose) {
+    return false;
+  }
+  if (incoming.isMulti || incoming.isToBeClose) {
+    return false;
+  }
+  if (existing.metatable != null || incoming.metatable != null) {
+    return false;
+  }
+  if (incoming.upvalues != null || existing.upvalues != null) {
+    return false;
+  }
+  final raw = incoming.raw;
+  if (raw is Map || raw is List || raw is TableStorage || raw is Function) {
+    return false;
+  }
+
+  existing.raw = raw;
+  existing.isMulti = false;
+  existing.isTempKey = incoming.isTempKey;
+  existing.isNilReturningClosure = incoming.isNilReturningClosure;
+  existing.isLessComparator = incoming.isLessComparator;
+  existing.isLessComparatorReversed = incoming.isLessComparatorReversed;
+  existing.interpreter ??= incoming.interpreter;
+  existing.functionName = incoming.functionName;
+  existing.closureEnvironment = incoming.closureEnvironment;
+  existing.upvalues = incoming.upvalues;
+  existing.functionBody = incoming.functionBody;
+  existing.metatableRef = null;
+  return true;
 }

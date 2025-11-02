@@ -44,8 +44,9 @@ class ScriptCommand extends BaseCommand {
 
       // Execute with script path set for proper line number tracking
       await bridge.execute(sourceCode, scriptPath: absolutePath);
-    } catch (e) {
+    } catch (e, s) {
       safePrint('Error executing script "$scriptPath": $e');
+      safePrint(s.toString());
       rethrow;
     }
   }

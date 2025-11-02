@@ -26,6 +26,9 @@ class TableStorage extends MapBase<dynamic, dynamic> {
       return null;
     }
     if (key is num) {
+      if (key is double && !key.isFinite) {
+        return null;
+      }
       final intKey = key.toInt();
       if (intKey > 0 && intKey.toDouble() == key.toDouble()) {
         return intKey - 1;
@@ -101,7 +104,7 @@ class TableStorage extends MapBase<dynamic, dynamic> {
 
   @override
   void clear() {
-    _array..clear();
+    _array.clear();
     _occupied = Uint8List(0);
     _hash.clear();
     _arrayCount = 0;
@@ -120,6 +123,11 @@ class TableStorage extends MapBase<dynamic, dynamic> {
   /// Writes [value] at the (1-based) [index], leaving holes as necessary.
   /// Assumes [index] > 0.
   void setDense(int index, dynamic value) {
+    if (index <= 0 || index > _maxArraySize) {
+      _hash[index] = value;
+      return;
+    }
+
     final arrayIdx = index - 1;
     if (arrayIdx == _array.length) {
       _array.add(value);

@@ -958,6 +958,27 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   @override
   dynamic operator [](Object? key) {
+    if (raw is TableStorage) {
+      final denseIndex = _extractPositiveIndex(key);
+      if (denseIndex != null) {
+        final stored = (raw as TableStorage).denseValueAt(denseIndex);
+        if (stored != null) {
+          if (stored is Value) {
+            return stored;
+          }
+          final existing = _lookupTableIdentity(stored);
+          if (existing != null) {
+            return existing;
+          }
+          final wrapped = Value(stored);
+          if (wrapped.raw is Map) {
+            _tableIdentity[wrapped.raw as Map] = wrapped;
+          }
+          return wrapped;
+        }
+      }
+    }
+
     if (raw is Map) {
       final storageKey = _computeStorageKey(key);
       if ((raw as Map).containsKey(storageKey)) {
@@ -1034,6 +1055,27 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// metamethod results. This is needed when metamethods are implemented as
   /// Lua functions which return [Future]s.
   Future<dynamic> getValueAsync(Object? key) async {
+    if (raw is TableStorage) {
+      final denseIndex = _extractPositiveIndex(key);
+      if (denseIndex != null) {
+        final stored = (raw as TableStorage).denseValueAt(denseIndex);
+        if (stored != null) {
+          if (stored is Value) {
+            return stored;
+          }
+          final existing = _lookupTableIdentity(stored);
+          if (existing != null) {
+            return existing;
+          }
+          final wrapped = Value(stored);
+          if (wrapped.raw is Map) {
+            _tableIdentity[wrapped.raw as Map] = wrapped;
+          }
+          return wrapped;
+        }
+      }
+    }
+
     if (raw is Map) {
       final storageKey = _computeStorageKey(key);
       if (raw is TableStorage && key is Value) {
@@ -1338,6 +1380,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       return candidate > 0 ? candidate : null;
     }
     if (candidate is num) {
+      if (candidate is double && !candidate.isFinite) {
+        return null;
+      }
       final intKey = candidate.toInt();
       if (intKey > 0 && intKey.toDouble() == candidate.toDouble()) {
         return intKey;
