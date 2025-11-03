@@ -137,6 +137,8 @@ class BytecodePrototype {
     required this.lineDefined,
     required this.lastLineDefined,
     this.debugInfo,
+    required this.registerConstFlags,
+    required this.constSealPoints,
   });
 
   final int registerCount;
@@ -149,6 +151,8 @@ class BytecodePrototype {
   final int lineDefined;
   final int lastLineDefined;
   final BytecodeDebugInfo? debugInfo;
+  final List<bool> registerConstFlags;
+  final Map<int, List<int>> constSealPoints;
 
   int get upvalueCount => upvalueDescriptors.length;
 }

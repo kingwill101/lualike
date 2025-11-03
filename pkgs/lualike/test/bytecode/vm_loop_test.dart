@@ -2,10 +2,63 @@ import 'package:lualike/src/bytecode/compiler.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/parse.dart';
+import 'package:lualike/src/table_storage.dart';
 import 'package:lualike/src/value.dart';
 import 'package:test/test.dart';
 
 dynamic _unwrap(dynamic value) => value is Value ? value.raw : value;
+
+Value _testPairs() {
+  return Value((List<Object?> args) {
+    if (args.isEmpty) {
+      throw StateError('pairs requires a table argument');
+    }
+    final tableArg = args[0];
+    final table = tableArg is Value ? tableArg : Value.wrap(tableArg);
+    final rawTable = table.raw;
+    Iterable<dynamic> keyIterable;
+    if (rawTable is TableStorage) {
+      keyIterable = rawTable.keys;
+    } else if (rawTable is Map) {
+      keyIterable = rawTable.keys;
+    } else {
+      throw StateError('pairs requires a table argument');
+    }
+    final keys = keyIterable.toList();
+    final iterator = Value((List<Object?> iterArgs) {
+      final stateArg = iterArgs[0];
+      final controlArg = iterArgs.length > 1 ? iterArgs[1] : null;
+      final lastKey = controlArg is Value ? controlArg.raw : controlArg;
+      var nextIndex = 0;
+      if (lastKey != null) {
+        final matchIndex = keys.indexWhere((key) {
+          final rawKey = key is Value ? key.raw : key;
+          return rawKey == lastKey;
+        });
+        if (matchIndex >= 0) {
+          nextIndex = matchIndex + 1;
+        }
+      }
+      if (nextIndex >= keys.length) {
+        return Value(null);
+      }
+      final key = keys[nextIndex];
+      final normalizedKey = key is Value ? key.raw : key;
+      final stateRaw = stateArg is Value ? stateArg.raw : stateArg;
+      dynamic valueRaw;
+      if (stateRaw is TableStorage) {
+        valueRaw = stateRaw[normalizedKey];
+      } else if (stateRaw is Map) {
+        valueRaw = stateRaw[normalizedKey];
+      } else {
+        valueRaw = null;
+      }
+      final value = valueRaw is Value ? valueRaw : Value.wrap(valueRaw);
+      return Value.multi([Value(normalizedKey), value]);
+    });
+    return Value.multi([iterator, table, Value(null)]);
+  });
+}
 
 void main() {
   group('BytecodeVm numeric for loops', () {
@@ -39,7 +92,7 @@ void main() {
   group('BytecodeVm generic for loops', () {
     test('executes iterator-based loop', () async {
       final program = parse('''
-        for idx, value in iter, state, control do
+        for _, key, value in iter, state, control do
           tbl.sum = tbl.sum + value
         end
         return tbl.sum
@@ -76,6 +129,23 @@ void main() {
 
       final result = await BytecodeVm(environment: env).execute(chunk);
       expect(_unwrap(result), equals(30));
+    });
+
+    test('iterates using pairs-style protocol', () async {
+      final program = parse('''
+        local acc = 0
+        for _, value in pairs(items) do
+          acc = acc + value
+        end
+        return acc
+      ''');
+      final chunk = BytecodeCompiler().compile(program);
+      final env = Environment()
+        ..define('pairs', _testPairs())
+        ..define('items', Value.wrap({1: 10, 2: 20, 3: 5}));
+
+      final result = await BytecodeVm(environment: env).execute(chunk);
+      expect(_unwrap(result), equals(35));
     });
   });
 }
