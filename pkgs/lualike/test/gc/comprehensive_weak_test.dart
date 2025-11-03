@@ -9,8 +9,9 @@ void main() {
 
     setUp(() {
       interpreter = Interpreter();
-      GenerationalGCManager.initialize(interpreter);
-      gc = GenerationalGCManager.instance;
+      gc = interpreter.gc;
+      // Stop incremental GC to prevent it from sweeping test objects
+      gc.stop();
     });
 
     test('weak table modes detection and configuration', () {
@@ -244,9 +245,21 @@ void main() {
         table.metatable!['__index'] = metaFunction;
         table.metatable!['__newindex'] = metaFunction;
 
-        // Add table entry that will be cleared
-        final deadKey = Value('dead_key_$name');
-        final deadValue = Value('dead_value_$name');
+        // Add table entry that will be cleared. For weak-values tables,
+        // ensure the value is a collectable (a table), not a string, so
+        // weak semantics apply and the entry can be cleared.
+        // Use a collectable key for weak-keys tables, and a collectable value
+        // for weak-values tables, so the entry is eligible for clearing.
+        // Ensure entries are eligible for clearing under each mode:
+        // - weak_keys: collectable key
+        // - weak_values: collectable value
+        // - all_weak: make both sides collectable to avoid primitive survivors
+        final Value deadKey = (name == 'weak_keys' || name == 'all_weak')
+            ? Value(<dynamic, dynamic>{})
+            : Value('dead_key_$name');
+        final Value deadValue = (name == 'weak_values' || name == 'all_weak')
+            ? Value(<dynamic, dynamic>{})
+            : Value('dead_value_$name');
         table.raw[deadKey] = deadValue;
       }
 

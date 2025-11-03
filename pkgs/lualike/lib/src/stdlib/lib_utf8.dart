@@ -3,8 +3,7 @@ import 'dart:typed_data';
 
 import 'package:characters/characters.dart';
 import 'package:lualike/src/builtin_function.dart' show BuiltinFunction;
-
-import 'package:lualike/src/interpreter/interpreter.dart';
+import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_string.dart';
@@ -20,11 +19,11 @@ class UTF8Library extends Library {
   String get name => "utf8";
 
   @override
-  Map<String, Function>? getMetamethods(Interpreter interpreter) => {
+  Map<String, Function>? getMetamethods(LuaRuntime interpreter) => {
     "__len": (List<Object?> args) {
       final str = args[0] as Value;
       if (str.raw is! String && str.raw is! LuaString) {
-        throw Exception("utf8 operation on non-string value");
+        throw LuaError("utf8 operation on non-string value");
       }
       return Value(str.raw.toString().characters.length);
     },

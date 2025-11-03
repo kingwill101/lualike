@@ -1,5 +1,5 @@
 import 'package:lualike/src/builtin_function.dart';
-import 'package:lualike/src/interpreter/interpreter.dart';
+import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_string.dart';
@@ -18,35 +18,52 @@ class IOLibrary extends Library {
   String get name => "io";
 
   @override
-  Map<String, Function>? getMetamethods(Interpreter interpreter) => null;
+  Map<String, Function>? getMetamethods(LuaRuntime interpreter) => null;
 
   @override
   void registerFunctions(LibraryRegistrationContext context) {
-    // Register all IO functions directly
-    context.define("close", IOClose());
-    context.define("flush", IOFlush());
-    context.define("input", IOInput());
-    context.define("lines", IOLines());
-    context.define("open", IOOpen());
-    context.define("output", IOOutput());
-    context.define("popen", IOPopen());
-    context.define("read", IORead());
-    context.define("tmpfile", IOTmpfile());
-    context.define("type", IOType());
-    context.define("write", IOWrite());
+    final interpreter = context.interpreter;
+    if (interpreter == null) {
+      throw StateError('IO library requires interpreter instance');
+    }
+
+    // Register all IO functions directly with interpreter reference
+    context.define("close", IOClose(interpreter));
+    context.define("flush", IOFlush(interpreter));
+    context.define("input", IOInput(interpreter));
+    context.define("lines", IOLines(interpreter));
+    context.define("open", IOOpen(interpreter));
+    context.define("output", IOOutput(interpreter));
+    context.define("popen", IOPopen(interpreter));
+    context.define("read", IORead(interpreter));
+    context.define("tmpfile", IOTmpfile(interpreter));
+    context.define("type", IOType(interpreter));
+    context.define("write", IOWrite(interpreter));
 
     // Add standard streams
     context.define(
       "stdin",
-      createLuaFile(IOLib.stdinDevice, isStandardFile: true),
+      createLuaFile(
+        IOLib.stdinDevice,
+        isStandardFile: true,
+        interpreter: context.interpreter,
+      ),
     );
     context.define(
       "stdout",
-      createLuaFile(IOLib.stdoutDevice, isStandardFile: true),
+      createLuaFile(
+        IOLib.stdoutDevice,
+        isStandardFile: true,
+        interpreter: context.interpreter,
+      ),
     );
     context.define(
       "stderr",
-      createLuaFile(IOLib.stderrDevice, isStandardFile: true),
+      createLuaFile(
+        IOLib.stderrDevice,
+        isStandardFile: true,
+        interpreter: context.interpreter,
+      ),
     );
   }
 }
@@ -127,7 +144,8 @@ class IOLib {
         'Creating new default input with stdinDevice',
         category: 'IO',
       );
-      _defaultInput = createLuaFile(stdinDevice);
+      // Note: interpreter is set when initially registering stdin with the library
+      _defaultInput = createLuaFile(stdinDevice, isStandardFile: true);
       Logger.debug('Created default input: $_defaultInput', category: 'IO');
     } else {
       Logger.debug(
@@ -144,7 +162,8 @@ class IOLib {
 
   static Value get defaultOutput {
     Logger.debug('Getting default output');
-    _defaultOutput ??= createLuaFile(stdoutDevice);
+    // Note: interpreter is set when initially registering stdout with the library
+    _defaultOutput ??= createLuaFile(stdoutDevice, isStandardFile: true);
     return _defaultOutput!;
   }
 
@@ -173,6 +192,8 @@ class IOLib {
 }
 
 class IOClose extends BuiltinFunction {
+  IOClose([super.interpreter]);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debug('Executing IO close', category: 'IO');
@@ -241,6 +262,8 @@ class IOClose extends BuiltinFunction {
 }
 
 class IOFlush extends BuiltinFunction {
+  IOFlush([super.interpreter]);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debug('Executing IO flush', category: 'IO');
@@ -252,6 +275,8 @@ class IOFlush extends BuiltinFunction {
 }
 
 class IOInput extends BuiltinFunction {
+  IOInput([super.interpreter]);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debug('Executing IO input', category: 'IO');
@@ -272,7 +297,7 @@ class IOInput extends BuiltinFunction {
       Logger.debug('Opening file for input: $filename', category: 'IO');
       try {
         final device = await IOLib.fileSystemProvider.openFile(filename, "r");
-        newFile = createLuaFile(device);
+        newFile = createLuaFile(device, interpreter: interpreter);
         result = newFile;
       } catch (e) {
         Logger.debug('Error opening file: $e', category: 'IO');
@@ -291,6 +316,8 @@ class IOInput extends BuiltinFunction {
 }
 
 class IOLines extends BuiltinFunction {
+  IOLines([super.interpreter]);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debug('Executing IO lines with ${args.length} args', category: 'IO');
@@ -320,20 +347,20 @@ class IOLines extends BuiltinFunction {
       formats = ["l"];
       Logger.debug('About to call file.lines()...', category: 'IO');
       final luaFile = fileValue.raw as LuaFile;
-      return await luaFile.lines(formats);
+      return await luaFile.lines(formats, false);
     } else if (isLuaFile(args[0])) {
       Logger.debug('Using provided file for lines', category: 'IO');
       fileValue = args[0] as Value;
       final luaFile = fileValue.raw as LuaFile;
       formats = args.skip(1).map((e) => (e as Value).raw.toString()).toList();
       if (formats.isEmpty) formats = ["l"];
-      return await luaFile.lines(formats);
+      return await luaFile.lines(formats, false);
     } else if (args[0] is Value && (args[0] as Value).raw != null) {
       Logger.debug('Opening new file for lines', category: 'IO');
       final filename = (args[0] as Value).raw.toString();
       try {
         final device = await IOLib.fileSystemProvider.openFile(filename, "r");
-        fileValue = createLuaFile(device);
+        fileValue = createLuaFile(device, interpreter: interpreter);
         final luaFile = fileValue.raw as LuaFile;
         formats = args.skip(1).map((e) => (e as Value).raw.toString()).toList();
         if (formats.isEmpty) formats = ["l"];
@@ -366,12 +393,14 @@ class IOLines extends BuiltinFunction {
         'About to call file.lines() for nil case with formats: $formats...',
         category: 'IO',
       );
-      return await luaFile.lines(formats);
+      return await luaFile.lines(formats, false);
     }
   }
 }
 
 class IOOpen extends BuiltinFunction {
+  IOOpen([super.interpreter]);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debug('Executing IO open', category: 'IO');
@@ -386,7 +415,7 @@ class IOOpen extends BuiltinFunction {
 
     try {
       final device = await IOLib.fileSystemProvider.openFile(filename, mode);
-      return createLuaFile(device);
+      return createLuaFile(device, interpreter: interpreter);
     } catch (e) {
       Logger.debug('Error opening file: $e', category: 'IO');
 
@@ -403,6 +432,8 @@ class IOOpen extends BuiltinFunction {
 }
 
 class IOOutput extends BuiltinFunction {
+  IOOutput([super.interpreter]);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debug('IOOutput.call() started', category: 'IO');
@@ -427,7 +458,7 @@ class IOOutput extends BuiltinFunction {
         Logger.debug('fileSystemProvider.openFile succeeded', category: 'IO');
 
         Logger.debug('Creating LuaFile wrapper', category: 'IO');
-        newFile = createLuaFile(device);
+        newFile = createLuaFile(device, interpreter: interpreter);
         Logger.debug('File opening complete', category: 'IO');
       } catch (e) {
         Logger.debug('File opening failed: $e', category: 'IO');
@@ -437,12 +468,15 @@ class IOOutput extends BuiltinFunction {
 
     Logger.debug('About to handle current default output', category: 'IO');
     // Avoid hanging - just set the new output without closing problematic files
-    if (IOLib._defaultOutput != null &&
-        IOLib._defaultOutput!.raw is LuaFile &&
-        (IOLib._defaultOutput!.raw as LuaFile).device is! StdoutDevice) {
-      Logger.debug('Current output is not stdout - replacing', category: 'IO');
-      // Don't attempt to close - just replace the reference
-      IOLib._defaultOutput = null;
+    if (IOLib._defaultOutput != null && IOLib._defaultOutput!.raw is LuaFile) {
+      final currentFile = IOLib._defaultOutput!.raw as LuaFile;
+      if (currentFile.device is! StdoutDevice) {
+        Logger.debug(
+          'Closing previous default output before replacement',
+          category: 'IO',
+        );
+        await currentFile.close();
+      }
     }
 
     Logger.debug('Setting new default output', category: 'IO');
@@ -459,6 +493,8 @@ class IOOutput extends BuiltinFunction {
 }
 
 class IOPopen extends BuiltinFunction {
+  IOPopen([super.interpreter]);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debug('Executing IO popen', category: 'IO');
@@ -490,6 +526,8 @@ class IOPopen extends BuiltinFunction {
 }
 
 class IORead extends BuiltinFunction {
+  IORead([super.interpreter]);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debug('Executing IO read', category: 'IO');
@@ -564,12 +602,14 @@ class IORead extends BuiltinFunction {
 }
 
 class IOTmpfile extends BuiltinFunction {
+  IOTmpfile([super.interpreter]);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debug('Executing IO tmpfile', category: 'IO');
     try {
       final device = await IOLib.fileSystemProvider.createTempFile('lua_temp');
-      return createLuaFile(device);
+      return createLuaFile(device, interpreter: interpreter);
     } catch (e) {
       Logger.debug('Error creating temporary file: $e', category: 'IO');
       return Value.multi([null, e.toString()]);
@@ -578,6 +618,8 @@ class IOTmpfile extends BuiltinFunction {
 }
 
 class IOType extends BuiltinFunction {
+  IOType([super.interpreter]);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debug('Executing IO type', category: 'IO');
@@ -594,6 +636,8 @@ class IOType extends BuiltinFunction {
 }
 
 class IOWrite extends BuiltinFunction {
+  IOWrite([super.interpreter]);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debug('Executing IO write', category: 'IO');
@@ -670,6 +714,8 @@ class IOWrite extends BuiltinFunction {
 
 // File method implementations that work on LuaFile objects
 class FileClose extends BuiltinFunction {
+  FileClose([super.interpreter]);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debug('File method: close', category: 'IO');
@@ -721,6 +767,8 @@ class FileClose extends BuiltinFunction {
 }
 
 class FileFlush extends BuiltinFunction {
+  FileFlush([super.interpreter]);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debug('File method: flush', category: 'IO');
@@ -734,6 +782,8 @@ class FileFlush extends BuiltinFunction {
 }
 
 class FileRead extends BuiltinFunction {
+  FileRead([super.interpreter]);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debug('File method: read', category: 'IO');
@@ -778,6 +828,8 @@ class FileRead extends BuiltinFunction {
 }
 
 class FileWrite extends BuiltinFunction {
+  FileWrite([super.interpreter]);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debug('File method: write', category: 'IO');
@@ -817,6 +869,8 @@ class FileWrite extends BuiltinFunction {
 }
 
 class FileSeek extends BuiltinFunction {
+  FileSeek([super.interpreter]);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debug('File method: seek', category: 'IO');
@@ -840,6 +894,8 @@ class FileSeek extends BuiltinFunction {
 }
 
 class FileLines extends BuiltinFunction {
+  FileLines([super.interpreter]);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debug('File method: lines', category: 'IO');
@@ -854,12 +910,14 @@ class FileLines extends BuiltinFunction {
         ? actualArgs.map((e) => (e as Value).raw.toString()).toList()
         : ["l"];
 
-    final result = await extractLuaFile(file)!.lines(formats);
+    final result = await extractLuaFile(file)!.lines(formats, false);
     return result;
   }
 }
 
 class FileSetvbuf extends BuiltinFunction {
+  FileSetvbuf([super.interpreter]);
+
   @override
   Future<Object?> call(List<Object?> args) async {
     Logger.debug('File method: setvbuf', category: 'IO');

@@ -35,7 +35,21 @@ class InMemoryIODevice extends BaseIODevice {
   @override
   Future<void> close() async {
     if (!isClosed) {
-      await flush();
+      // Flush any remaining data before closing
+      if (_writeBuffer.isNotEmpty) {
+        final currentContent = _fileSystem[_path] ?? '';
+        if (mode.contains('w') && !mode.contains('+')) {
+          // Write mode - replace entire content
+          _fileSystem[_path] = _writeBuffer.toString();
+        } else if (mode.contains('a')) {
+          // Append mode
+          _fileSystem[_path] = currentContent + _writeBuffer.toString();
+        } else {
+          // Other modes with writing
+          _fileSystem[_path] = currentContent + _writeBuffer.toString();
+        }
+        _writeBuffer.clear();
+      }
       isClosed = true;
     }
   }

@@ -1,6 +1,10 @@
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart' show GCObject;
-import 'package:lualike/src/gc/generational_gc.dart' show GenerationalGCManager;
+import 'package:lualike/src/gc/gc_weights.dart';
+// Per-interpreter GC available via Environment.interpreter.gc
+import 'package:lualike/src/gc/gc_access.dart';
+import 'package:lualike/src/gc/memory_credits.dart';
+import 'package:lualike/src/table_storage.dart';
 
 /// A generic box class that wraps a single value of type T.
 /// Used to create mutable references to values in the environment.
@@ -11,22 +15,58 @@ class Box<T> extends GCObject {
   /// Whether this binding represents a local variable.
   final bool isLocal;
 
+  /// Whether this Box should be excluded from memory credit tracking.
+  /// Transient boxes (function parameters, local variables in executing functions)
+  /// are not counted to match Lua's behavior where the C stack isn't counted.
+  final bool isTransient;
+
+  /// Optional debug helper storing the symbol name backing this box.
+  String? debugName;
+
+  /// Count of upvalues that currently reference this box.
+  ///
+  /// Boxes with active upvalues cannot be cleared when exiting a scope
+  /// because closures still depend on their stored values.
+  int _upvalueRefCount = 0;
+
   /// Creates a new Box containing [value].
-  Box(this.value, {this.isLocal = false}) {
-    GenerationalGCManager.instance.register(this);
-    Logger.debug(
-      'Created new Box($value) and registered with GC',
-      category: 'GC',
-    );
+  Box(this.value, {this.isLocal = false, this.isTransient = false}) {
+    // Register with GC, but don't count allocation for transient boxes
+    final gc = GCAccess.fromEnv(null);
+    gc?.register(this, countAllocation: !isTransient);
   }
+
+  @override
+  int get estimatedSize => GcWeights.gcObjectHeader + GcWeights.boxBase;
 
   @override
   List<GCObject> getReferences() {
+    // Skip nil values to allow weak table collection
+    if (value == null) return [];
+    if (value is Value && value.isNil) return [];
     return value is GCObject ? [value as GCObject] : [];
   }
 
+  /// Marks this box as being referenced by an upvalue.
+  void retainUpvalue() {
+    _upvalueRefCount++;
+  }
+
+  /// Releases an upvalue reference from this box.
+  void releaseUpvalue() {
+    if (_upvalueRefCount > 0) {
+      _upvalueRefCount--;
+    }
+  }
+
+  /// Whether this box still has live upvalues referencing it.
+  bool get hasUpvalueReferences => _upvalueRefCount > 0;
+
   @override
-  String toString() => 'Box($value)';
+  String toString() {
+    final namePart = debugName != null ? '$debugName=' : '';
+    return 'Box($namePart$value)';
+  }
 }
 
 /// Represents a scope for variable bindings in the interpreter.
@@ -80,6 +120,10 @@ class Box<T> extends GCObject {
 /// leading to bugs where local variables in main scripts affected globals.
 /// The newer methods provide precise control over each scenario.
 class Environment extends GCObject {
+  static int totalCreated = 0;
+  static int totalFreed = 0;
+  static int maxActive = 0;
+
   /// Storage for variable bindings in this scope.
   final Map<String, Box<dynamic>> values = {};
 
@@ -102,7 +146,7 @@ class Environment extends GCObject {
   bool isLoadIsolated;
 
   /// The interpreter associated with this environment.
-  Interpreter? interpreter;
+  LuaRuntime? interpreter;
 
   /// Creates a new Environment.
   ///
@@ -115,11 +159,46 @@ class Environment extends GCObject {
     this.isClosure = false,
     this.isLoadIsolated = false,
   }) {
+    final gc = GCAccess.fromEnv(this);
+    gc?.register(this, countAllocation: false);
     Logger.debug(
       "Environment($hashCode) created. Parent: ${parent?.hashCode}",
       category: 'Env',
     );
   }
+
+  void _updateCredits() {
+    final gc = GCAccess.fromEnv(this);
+    if (gc != null) {
+      MemoryCredits.instance.recalculate(this);
+    }
+  }
+
+  void _syncGlobalTableEntry(String name, dynamic value) {
+    final rootEnv = root;
+    final gBox = rootEnv.values['_G'];
+    if (gBox == null) {
+      return;
+    }
+    final gValue = gBox.value;
+    if (gValue is! Value || gValue.raw is! Map) {
+      return;
+    }
+
+    final map = gValue.raw as Map;
+    if (value is Value ? value.raw == null : value == null) {
+      map.remove(name);
+    } else {
+      map[name] = value is Value ? value : Value(value);
+    }
+    gValue.markTableModified();
+  }
+
+  @override
+  int get estimatedSize =>
+      GcWeights.gcObjectHeader +
+      GcWeights.environmentBase +
+      values.length * GcWeights.environmentEntry;
 
   @override
   List<GCObject> getReferences() {
@@ -127,11 +206,20 @@ class Environment extends GCObject {
     if (parent != null) {
       refs.add(parent!);
     }
-    values.forEach((key, box) {
-      if (box.value is GCObject) {
-        refs.add(box.value as GCObject);
-      }
-    });
+    for (final entry in values.entries) {
+      final box = entry.value;
+      final boxedValue = box.value;
+
+      // Skip nil values - they don't need GC protection and shouldn't keep
+      // weak table entries alive. This allows proper weak table collection
+      // when variables are nil'ed.
+      if (boxedValue == null) continue;
+      if (boxedValue is Value && boxedValue.isNil) continue;
+
+      // Return the Box and any GCObject value it holds as references.
+      // Do not auto-enroll raw values directly; discovery proceeds via Box.
+      refs.add(box);
+    }
     return refs;
   }
 
@@ -194,33 +282,41 @@ class Environment extends GCObject {
   ///
   /// **Usage**: Variable lookups in expressions like `print(x)` or `y = x + 1`.
   dynamic get(String name) {
-    Logger.debug("Looking for '$name' in env ($hashCode)}", category: 'Env');
-    Logger.debug(
-      "Environment chain: ${_getEnvironmentChain()}",
-      category: 'Env',
-    );
+    if (Logger.enabled) {
+      Logger.debug("Looking for '$name' in env ($hashCode)}", category: 'Env');
+      Logger.debug(
+        "Environment chain: ${_getEnvironmentChain()}",
+        category: 'Env',
+      );
+    }
 
     if (values.containsKey(name)) {
       final val = values[name]!.value;
-      Logger.debug(
-        "Found '$name' = $val (type: ${val is Value ? val.raw.runtimeType : val.runtimeType}) in env ($hashCode)",
-        category: 'Env',
-      );
+      if (Logger.enabled) {
+        Logger.debug(
+          "Found '$name' = $val (type: ${val is Value ? val.raw.runtimeType : val.runtimeType}) in env ($hashCode)",
+          category: 'Env',
+        );
+      }
       return val;
     }
 
     if (parent != null) {
-      Logger.debug(
-        "'$name' not found in current env, checking parent env (${parent!.hashCode})",
-        category: 'Env',
-      );
+      if (Logger.enabled) {
+        Logger.debug(
+          "'$name' not found in current env, checking parent env (${parent!.hashCode})",
+          category: 'Env',
+        );
+      }
       return parent!.get(name);
     }
 
-    Logger.debug(
-      "'$name' not found in any environment in chain: ${_getEnvironmentChain()}",
-      category: 'Env',
-    );
+    if (Logger.enabled) {
+      Logger.debug(
+        "'$name' not found in any environment in chain: ${_getEnvironmentChain()}",
+        category: 'Env',
+      );
+    }
     return null;
   }
 
@@ -261,7 +357,9 @@ class Environment extends GCObject {
         );
         throw LuaError("attempt to assign to const variable '$name'");
       }
-      values[name]!.value = value;
+      if (!_tryFastReplaceBoxValue(values[name]!, value)) {
+        values[name]!.value = value;
+      }
       Logger.debug(
         "Updated closure variable '$name' to $value",
         category: 'Env',
@@ -286,11 +384,16 @@ class Environment extends GCObject {
           );
           throw LuaError("attempt to assign to const variable '$name'");
         }
-        current.values[name]!.value = value;
+        if (!_tryFastReplaceBoxValue(current.values[name]!, value)) {
+          current.values[name]!.value = value;
+        }
         Logger.debug(
           "Updated variable '$name' to $value in env (${current.hashCode})",
           category: 'Env',
         );
+        if (current.parent == null) {
+          _syncGlobalTableEntry(name, current.values[name]!.value);
+        }
         return;
       }
       current = current.parent;
@@ -299,11 +402,16 @@ class Environment extends GCObject {
     // If not found anywhere, create new binding in root environment
     // This ensures that global assignments from loaded code persist
     final rootEnv = root;
-    rootEnv.values[name] = Box(value);
+    // Mark as transient to match Lua behavior - variable bindings on the
+    // stack aren't counted toward memory usage
+    rootEnv.values[name] = Box(value, isTransient: true);
+    rootEnv._updateCredits();
     Logger.debug(
       "Created new binding for '$name' = $value in root env (${rootEnv.hashCode})",
       category: 'Env',
     );
+
+    _syncGlobalTableEntry(name, value);
 
     // Track to-be-closed variables
     if (value is Value && value.isToBeClose) {
@@ -343,7 +451,9 @@ class Environment extends GCObject {
     );
 
     // Create a fresh Box that shadows any previous binding
-    values[name] = Box(value, isLocal: true);
+    // Mark as transient since function-local variables aren't counted in Lua's memory
+    values[name] = Box(value, isLocal: true, isTransient: true);
+    _updateCredits();
 
     // Track to-be-closed variables
     if (value is Value && value.isToBeClose) {
@@ -460,7 +570,8 @@ class Environment extends GCObject {
 
     // Check if global variable already exists
     if (rootEnv.values.containsKey(name)) {
-      final currentValue = rootEnv.values[name]!.value;
+      final box = rootEnv.values[name]!;
+      final currentValue = box.value;
       if (currentValue is Value && currentValue.isConst) {
         Logger.debug(
           "Attempt to modify const global variable '$name'",
@@ -468,13 +579,19 @@ class Environment extends GCObject {
         );
         throw LuaError("attempt to assign to const variable '$name'");
       }
-      rootEnv.values[name]!.value = value;
+      if (!_tryFastReplaceBoxValue(box, value)) {
+        box.value = value;
+      }
       Logger.debug(
         "Updated global variable '$name' to $value in root env (${rootEnv.hashCode})",
         category: 'Env',
       );
     } else {
       // Create new global variable
+      Logger.debug(
+        "Creating new global variable '$name' with value type ${value.runtimeType} (is GCObject: ${value is GCObject})",
+        category: 'Env',
+      );
       rootEnv.values[name] = Box(value);
       Logger.debug(
         "Created new global variable '$name' = $value in root env (${rootEnv.hashCode})",
@@ -482,16 +599,10 @@ class Environment extends GCObject {
       );
     }
 
+    rootEnv._updateCredits();
+
     // Keep the underlying _G table in sync so reads via _G[k] see updates
-    final gVal = rootEnv.get('_G');
-    if (gVal is Value && gVal.raw is Map) {
-      final gMap = gVal.raw as Map;
-      if (value is Value ? value.isNil : value == null) {
-        gMap.remove(name);
-      } else {
-        gMap[name] = value is Value ? value : Value(value);
-      }
-    }
+    _syncGlobalTableEntry(name, rootEnv.values[name]!.value);
 
     // Track to-be-closed variables in root environment
     if (value is Value && value.isToBeClose) {
@@ -517,6 +628,20 @@ class Environment extends GCObject {
     values.forEach((name, value) {
       define(name, value);
     });
+  }
+
+  /// Finds the [Box] associated with [name] in this environment chain.
+  /// Returns null if no binding exists.
+  Box<dynamic>? findBox(String name) {
+    Environment? current = this;
+    while (current != null) {
+      final box = current.values[name];
+      if (box != null) {
+        return box;
+      }
+      current = current.parent;
+    }
+    return null;
   }
 
   /// Closes all to-be-closed variables in this environment in reverse order of declaration.
@@ -546,6 +671,17 @@ class Environment extends GCObject {
           Logger.debug("Error closing variable '$name': $e", category: 'Env');
           error ??= e;
         }
+      }
+    }
+
+    final gc = GCAccess.fromEnv(this);
+    if (gc != null) {
+      Logger.debug(
+        'Environment safe point debt check: debt=${gc.allocationDebt} threshold=${gc.autoTriggerDebtThreshold}',
+        category: 'Env',
+      );
+      if (gc.allocationDebt >= gc.autoTriggerDebtThreshold) {
+        gc.runPendingAutoTrigger();
       }
     }
   }
@@ -599,7 +735,7 @@ class Environment extends GCObject {
   }
 
   /// Creates a clone of this environment
-  Environment clone({Interpreter? interpreter}) {
+  Environment clone({LuaRuntime? interpreter}) {
     final cloned = Environment(
       parent: parent,
       interpreter: interpreter ?? this.interpreter,
@@ -613,6 +749,8 @@ class Environment extends GCObject {
     // Copy to-be-closed variables
     cloned.toBeClosedVars.addAll(toBeClosedVars);
 
+    cloned._updateCredits();
+
     return cloned;
   }
 
@@ -624,4 +762,44 @@ class Environment extends GCObject {
     }
     return current;
   }
+}
+
+bool _tryFastReplaceBoxValue(Box<dynamic> box, dynamic incoming) {
+  if (incoming is! Value) {
+    return false;
+  }
+  final existing = box.value;
+  if (existing is! Value) {
+    return false;
+  }
+  if (existing.isConst || existing.isToBeClose) {
+    return false;
+  }
+  if (incoming.isMulti || incoming.isToBeClose) {
+    return false;
+  }
+  if (existing.metatable != null || incoming.metatable != null) {
+    return false;
+  }
+  if (incoming.upvalues != null || existing.upvalues != null) {
+    return false;
+  }
+  final raw = incoming.raw;
+  if (raw is Map || raw is List || raw is TableStorage || raw is Function) {
+    return false;
+  }
+
+  existing.raw = raw;
+  existing.isMulti = false;
+  existing.isTempKey = incoming.isTempKey;
+  existing.isNilReturningClosure = incoming.isNilReturningClosure;
+  existing.isLessComparator = incoming.isLessComparator;
+  existing.isLessComparatorReversed = incoming.isLessComparatorReversed;
+  existing.interpreter ??= incoming.interpreter;
+  existing.functionName = incoming.functionName;
+  existing.closureEnvironment = incoming.closureEnvironment;
+  existing.upvalues = incoming.upvalues;
+  existing.functionBody = incoming.functionBody;
+  existing.metatableRef = null;
+  return true;
 }

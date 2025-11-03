@@ -251,7 +251,7 @@ class _StringFind extends BuiltinFunction {
       }
       return Value.multi(results);
     } catch (e) {
-      throw Exception('malformed pattern: $e');
+      throw LuaError('malformed pattern: $e');
     }
   }
 }
@@ -1395,25 +1395,20 @@ class _StringGsub extends BuiltinFunction {
           buffer.write(str.substring(lastEnd, match.start));
 
           String replacement = replStr;
-          bool captureReplaced = false;
 
           for (int i = 0; i <= match.captures.length; i++) {
             final capture = i == 0 ? match.match : match.captures[i - 1];
             final placeholder = '%$i';
             if (replacement.contains(placeholder)) {
               replacement = replacement.replaceAll(placeholder, capture ?? '');
-              captureReplaced = true;
             }
           }
 
           if (replacement.contains('%%')) {
             replacement = replacement.replaceAll('%%', '%');
-            captureReplaced = true;
           }
 
-          if (captureReplaced || replStr.isNotEmpty) {
-            count++;
-          }
+          count++;
 
           buffer.write(replacement);
           lastEnd = match.end;
@@ -1578,6 +1573,13 @@ class _StringRep extends BuiltinFunction {
       return StringInterning.createStringValue('');
     }
 
+    // For large allocations, suppress auto-GC to prevent premature collection
+    // of transient objects before collectgarbage("count") can see them
+    final isLargeAllocation = count > 1000000;
+    if (isLargeAllocation) {
+      interpreter?.gc.suppressAutoTrigger();
+    }
+
     // Handle LuaString specially to preserve byte representation
     if (value.raw is LuaString) {
       final luaStr = value.raw as LuaString;
@@ -1593,10 +1595,16 @@ class _StringRep extends BuiltinFunction {
               BigInt.from(math.max(0, count - 1)));
 
       if (totalLength > BigInt.from(1 << 30)) {
+        if (isLargeAllocation) {
+          interpreter?.gc.resumeAutoTrigger();
+        }
         throw LuaError('too large');
       }
 
       if (count == 1) {
+        if (isLargeAllocation) {
+          interpreter?.gc.resumeAutoTrigger();
+        }
         return value;
       }
 
@@ -1615,7 +1623,15 @@ class _StringRep extends BuiltinFunction {
       if (isAsciiOnly) {
         // Safe to convert to regular string and intern
         final resultString = String.fromCharCodes(resultBytes);
-        return StringInterning.createStringValue(resultString);
+
+        // Mark small strings (<= 1KB) as temporary to avoid counting them in
+        // collectgarbage("count"). This matches Lua C behavior where temp strings
+        // for immediate use (like table lookups) don't allocate heap memory.
+        final isSmallTemp = resultString.length <= 1024;
+        final luaStr = StringInterning.intern(resultString);
+        final result = Value(luaStr, isTempKey: isSmallTemp);
+
+        return result;
       } else {
         // Contains high bytes, preserve as LuaString
         final resultLuaString = LuaString.fromBytes(resultBytes);
@@ -1623,7 +1639,16 @@ class _StringRep extends BuiltinFunction {
         // For high-byte content, we cannot use StringInterning because it would
         // UTF-8 encode the Latin-1 string, corrupting the bytes
         // Instead, return the LuaString directly
-        return Value(resultLuaString);
+        // Mark small strings (<= 1KB) as temporary
+        final isSmallTemp = resultLuaString.length <= 1024;
+        final result = Value(resultLuaString, isTempKey: isSmallTemp);
+
+        // Re-enable auto-GC after large allocation completes
+        if (isLargeAllocation) {
+          interpreter?.gc.resumeAutoTrigger();
+        }
+
+        return result;
       }
     } else {
       // Handle regular strings
@@ -1636,10 +1661,16 @@ class _StringRep extends BuiltinFunction {
               BigInt.from(math.max(0, count - 1)));
 
       if (totalLength > BigInt.from(1 << 30)) {
+        if (isLargeAllocation) {
+          interpreter?.gc.resumeAutoTrigger();
+        }
         throw LuaError('too large');
       }
 
       if (count == 1) {
+        if (isLargeAllocation) {
+          interpreter?.gc.resumeAutoTrigger();
+        }
         return StringInterning.createStringValue(originalStr);
       }
 
@@ -1651,7 +1682,22 @@ class _StringRep extends BuiltinFunction {
         }
       }
 
-      return StringInterning.createStringValue(buffer.toString());
+      // Create the result string once and reuse it
+      final resultString = buffer.toString();
+
+      // Mark small strings (<= 1KB) as temporary to avoid counting them in
+      // collectgarbage("count"). This matches Lua C behavior where temp strings
+      // for immediate use (like table lookups) don't allocate heap memory.
+      final isSmallTemp = resultString.length <= 1024;
+      final luaStr = StringInterning.intern(resultString);
+      final result = Value(luaStr, isTempKey: isSmallTemp);
+
+      // Re-enable auto-GC after large allocation completes
+      if (isLargeAllocation) {
+        interpreter?.gc.resumeAutoTrigger();
+      }
+
+      return result;
     }
   }
 }

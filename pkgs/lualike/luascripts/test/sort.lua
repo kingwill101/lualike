@@ -247,7 +247,7 @@ perm{1,2,3,4,5}
 perm{1,2,3,3,5}
 perm{1,2,3,4,5,6}
 perm{2,2,3,3,5,6}
-
+print("250")
 local function timesort (a, n, func, msg, pre)
   local x = os.clock()
   table.sort(a, func)

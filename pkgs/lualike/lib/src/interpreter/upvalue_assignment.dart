@@ -20,6 +20,7 @@ class UpvalueAssignmentHandler {
         Logger.debug(
           'UpvalueAssignment: Updating upvalue $varName from ${upvalue.getValue()} to ${newValue.raw}',
           category: 'UpvalueAssignment',
+          context: {'varName': varName, 'hasValue': upvalue.getValue() != null},
         );
         upvalue.setValue(newValue.raw);
         return true;

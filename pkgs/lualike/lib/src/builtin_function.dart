@@ -1,4 +1,6 @@
-import 'package:lualike/src/interpreter/interpreter.dart';
+import 'dart:async' show FutureOr;
+
+import 'package:lualike/src/runtime/lua_runtime.dart';
 
 /// Abstract base class representing a built-in function in the interpreter.
 ///
@@ -8,7 +10,7 @@ import 'package:lualike/src/interpreter/interpreter.dart';
 abstract class BuiltinFunction {
   /// The interpreter instance that this builtin function belongs to.
   /// This is optional for backwards compatibility with existing functions.
-  final Interpreter? interpreter;
+  final LuaRuntime? interpreter;
 
   /// Creates a builtin function with optional interpreter reference.
   BuiltinFunction([this.interpreter]);
@@ -17,5 +19,5 @@ abstract class BuiltinFunction {
   ///
   /// [args] - The list of arguments passed to the function.
   /// Returns the result of the function call, which may be null.
-  Object? call(List<Object?> args);
+  FutureOr<Object?> call(List<Object?> args);
 }

@@ -1,6 +1,7 @@
 import 'package:lualike/lualike.dart';
 
 import 'package:lualike/src/coroutine.dart';
+import 'package:lualike/src/gc/memory_credits.dart';
 import 'package:lualike/src/io/lua_file.dart';
 import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
@@ -35,6 +36,10 @@ class DebugLibrary extends Library {
     context.define("traceback", _Traceback());
     context.define("upvalueid", _UpvalueId());
     context.define("upvaluejoin", _UpvalueJoin());
+
+    // Memory debugging functions
+    context.define("memtrace", _MemTrace());
+    context.define("memtree", _MemTree());
   }
 }
 
@@ -76,12 +81,12 @@ class _GetHook extends BuiltinFunction {
 }
 
 class _GetLocal extends BuiltinFunction {
-  _GetLocal(Interpreter super.i);
+  _GetLocal(LuaRuntime super.i);
 
   @override
   Object? call(List<Object?> args) {
     if (args.length < 2) {
-      throw Exception(
+      throw LuaError(
         "debug.getlocal requires thread/function and level arguments",
       );
     }
@@ -121,7 +126,7 @@ class _GetMetatable extends BuiltinFunction {
 
   @override
   Object? call(List<Object?> args) {
-    if (args.isEmpty) throw Exception("debug.getmetatable requires a value");
+    if (args.isEmpty) throw LuaError("debug.getmetatable requires a value");
     final value = args[0] as Value;
     final meta = value.getMetatable();
     if (meta == null) {
@@ -148,12 +153,12 @@ class _GetRegistry extends BuiltinFunction {
 }
 
 class _GetUpvalue extends BuiltinFunction {
-  _GetUpvalue(Interpreter super.i);
+  _GetUpvalue(LuaRuntime super.i);
 
   @override
   Object? call(List<Object?> args) {
     if (args.length < 2) {
-      throw Exception("debug.getupvalue requires function and index arguments");
+      throw LuaError("debug.getupvalue requires function and index arguments");
     }
 
     final functionArg = args[0] as Value;
@@ -205,7 +210,7 @@ class _GetUserValue extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.length < 2) {
-      throw Exception(
+      throw LuaError(
         "debug.getuservalue requires userdata and index arguments",
       );
     }
@@ -220,7 +225,7 @@ class _SetHook extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.length < 3) {
-      throw Exception("debug.sethook requires hook function, mask and count");
+      throw LuaError("debug.sethook requires hook function, mask and count");
     }
     // Set debug hook function
     return Value(null);
@@ -233,7 +238,7 @@ class _SetLocal extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.length < 3) {
-      throw Exception(
+      throw LuaError(
         "debug.setlocal requires thread/function, index and value",
       );
     }
@@ -248,7 +253,7 @@ class _SetMetatable extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.length < 2) {
-      throw Exception("debug.setmetatable requires value and metatable");
+      throw LuaError("debug.setmetatable requires value and metatable");
     }
     final value = args[0] as Value;
     final meta = args[1] as Value;
@@ -280,7 +285,7 @@ class _SetMetatable extends BuiltinFunction {
         return Value(true);
       }
     }
-    throw Exception("metatable must be a table or nil");
+    throw LuaError("metatable must be a table or nil");
   }
 
   String _typeOf(Object? raw) {
@@ -301,7 +306,7 @@ class _SetUpvalue extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.length < 3) {
-      throw Exception("debug.setupvalue requires function, index and value");
+      throw LuaError("debug.setupvalue requires function, index and value");
     }
 
     final functionArg = args[0] as Value;
@@ -320,6 +325,10 @@ class _SetUpvalue extends BuiltinFunction {
         index > 0 &&
         index <= functionArg.upvalues!.length) {
       final upvalue = functionArg.upvalues![index - 1];
+      Logger.debug(
+        'debug.setupvalue explicit: name=${upvalue.name} value=${newValue.raw} open=${upvalue.isOpen}',
+        category: 'DebugLib',
+      );
       final oldName = upvalue.name;
       upvalue.setValue(newValue.raw);
       return Value(oldName);
@@ -332,6 +341,10 @@ class _SetUpvalue extends BuiltinFunction {
           index > 0 &&
           index <= functionArg.upvalues!.length) {
         final upvalue = functionArg.upvalues![index - 1];
+        Logger.debug(
+          'debug.setupvalue raw: name=${upvalue.name} value=${newValue.raw} open=${upvalue.isOpen}',
+          category: 'DebugLib',
+        );
         final oldName = upvalue.name;
         upvalue.setValue(newValue.raw);
         return Value(oldName);
@@ -348,7 +361,7 @@ class _SetUserValue extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.length < 3) {
-      throw Exception("debug.setuservalue requires userdata, value and index");
+      throw LuaError("debug.setuservalue requires userdata, value and index");
     }
     // Set nth user value
     return Value(null);
@@ -382,13 +395,13 @@ class _UpvalueId extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.length < 2) {
-      throw Exception("debug.upvalueid requires function and index");
+      throw LuaError("debug.upvalueid requires function and index");
     }
     final functionArg = args[0] as Value;
     final indexArg = args[1] as Value;
 
     if (indexArg.raw is! num) {
-      throw Exception("debug.upvalueid index must be a number");
+      throw LuaError("debug.upvalueid index must be a number");
     }
 
     final index = (indexArg.raw as num).toInt();
@@ -412,7 +425,7 @@ class _UpvalueJoin extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     if (args.length < 4) {
-      throw Exception("debug.upvaluejoin requires f1,n1,f2,n2 arguments");
+      throw LuaError("debug.upvaluejoin requires f1,n1,f2,n2 arguments");
     }
 
     final f1Arg = args[0] as Value;
@@ -422,7 +435,7 @@ class _UpvalueJoin extends BuiltinFunction {
 
     // Validate that indices are numbers
     if (n1Arg.raw is! num || n2Arg.raw is! num) {
-      throw Exception("debug.upvaluejoin indices must be numbers");
+      throw LuaError("debug.upvaluejoin indices must be numbers");
     }
 
     final n1 = (n1Arg.raw as num).toInt();
@@ -430,15 +443,15 @@ class _UpvalueJoin extends BuiltinFunction {
 
     // Validate that both functions have upvalues
     if (f1Arg.upvalues == null || f2Arg.upvalues == null) {
-      throw Exception("debug.upvaluejoin: functions must have upvalues");
+      throw LuaError("debug.upvaluejoin: functions must have upvalues");
     }
 
     // Validate indices are within bounds
     if (n1 < 1 || n1 > f1Arg.upvalues!.length) {
-      throw Exception("debug.upvaluejoin: f1 upvalue index $n1 out of bounds");
+      throw LuaError("debug.upvaluejoin: f1 upvalue index $n1 out of bounds");
     }
     if (n2 < 1 || n2 > f2Arg.upvalues!.length) {
-      throw Exception("debug.upvaluejoin: f2 upvalue index $n2 out of bounds");
+      throw LuaError("debug.upvaluejoin: f2 upvalue index $n2 out of bounds");
     }
 
     // Join the upvalues by making f1's upvalue point to the same value box as f2's upvalue
@@ -545,8 +558,10 @@ class _GetInfoImpl extends BuiltinFunction {
                 );
               } else {
                 // For script paths without prefix, check if it's a binary chunk
-                final currentFunction = interpreterInstance
-                    .getCurrentFunction();
+                Value? currentFunction;
+                if (interpreterInstance is Interpreter) {
+                  currentFunction = interpreterInstance.getCurrentFunction();
+                }
                 bool isBinaryChunk = false;
 
                 if (currentFunction != null &&
@@ -773,12 +788,12 @@ String _formatSourceForLua(String rawSource) {
 
 /// Function to create a debug.getinfo function that correctly reports line numbers
 /// (kept for backwards compatibility)
-BuiltinFunction createGetInfoFunction(Interpreter? vm) {
+BuiltinFunction createGetInfoFunction(LuaRuntime? vm) {
   return _GetInfoImpl(vm);
 }
 
 /// Creates debug library functions with the given interpreter instance
-Map<String, BuiltinFunction> createDebugLib(Interpreter? astVm) {
+Map<String, BuiltinFunction> createDebugLib(LuaRuntime? astVm) {
   // Ensure we have a valid VM instance for debug functions
   if (astVm == null) {
     Logger.warning(
@@ -812,6 +827,11 @@ Map<String, BuiltinFunction> createDebugLib(Interpreter? astVm) {
     'traceback': _Traceback(),
     'upvalueid': _UpvalueId(),
     'upvaluejoin': _UpvalueJoin(),
+
+    // Memory debugging functions
+    'memtrace': _MemTrace(),
+    'memtree': _MemTree(),
+    'memclear': _MemClear(),
   };
 }
 
@@ -819,12 +839,12 @@ Map<String, BuiltinFunction> createDebugLib(Interpreter? astVm) {
 ///
 /// This ensures the debug.getinfo function can access line information
 /// [env] - The environment to define the debug table in
-/// [astVm] - The interpreter instance to use for call stack access
+/// [vm] - The runtime instance to use for call stack access
 /// [bytecodeVm] - Optional bytecode VM for bytecode mode
-void defineDebugLibrary({required Environment env, Interpreter? astVm}) {
+void defineDebugLibrary({required Environment env, LuaRuntime? vm}) {
   // Store interpreter reference in environment for later access
-  if (astVm != null) {
-    env.interpreter = astVm;
+  if (vm != null) {
+    env.interpreter = vm;
     Logger.debug(
       'Setting interpreter reference in environment for debug library',
       category: 'Debug',
@@ -832,7 +852,7 @@ void defineDebugLibrary({required Environment env, Interpreter? astVm}) {
   }
 
   // Create and define the debug table
-  DebugLib.functions = createDebugLib(astVm);
+  DebugLib.functions = createDebugLib(vm);
   final debugTable = Value(DebugLib.functions);
   env.define("debug", debugTable);
 
@@ -861,7 +881,50 @@ void defineDebugLibrary({required Environment env, Interpreter? astVm}) {
   }
 
   Logger.debug(
-    'Debug library initialized with interpreter: ${astVm != null}',
+    'Debug library initialized with interpreter: ${vm != null}',
     category: 'Debug',
   );
+}
+
+/// Enable/disable memory allocation stack trace tracking
+class _MemTrace extends BuiltinFunction {
+  _MemTrace() : super();
+
+  @override
+  Object? call(List<Object?> args) {
+    if (args.isEmpty) {
+      return Value(MemoryCredits.enableStackTraces);
+    }
+
+    final enable = args[0];
+    if (enable is Value) {
+      MemoryCredits.enableStackTraces = enable.raw == true;
+    } else {
+      MemoryCredits.enableStackTraces = enable == true;
+    }
+
+    return Value(null);
+  }
+}
+
+/// Print memory allocation tree
+class _MemTree extends BuiltinFunction {
+  _MemTree() : super();
+
+  @override
+  Object? call(List<Object?> args) {
+    MemoryCredits.instance.printAllocationTree();
+    return Value(null);
+  }
+}
+
+/// Clear tracked objects list for debugging specific allocations
+class _MemClear extends BuiltinFunction {
+  _MemClear() : super();
+
+  @override
+  Object? call(List<Object?> args) {
+    MemoryCredits.instance.clearTrackedObjects();
+    return Value(null);
+  }
 }

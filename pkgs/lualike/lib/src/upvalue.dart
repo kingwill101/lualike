@@ -1,6 +1,9 @@
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
-import 'package:lualike/src/gc/generational_gc.dart';
+import 'package:lualike/src/gc/gc_weights.dart';
+// Upvalue registration happens where created (analyzer/loader); no direct GC imports here.
+import 'package:lualike/src/gc/memory_credits.dart';
+import 'package:lualike/src/gc/gc_access.dart';
 
 /// Represents a reference to a variable in an outer scope (an "upvalue").
 ///
@@ -23,11 +26,25 @@ class Upvalue extends GCObject {
   /// Stores the value at the time of closing if [_isOpen] becomes false.
   dynamic _closedValue;
 
-  Upvalue({required this.valueBox, this.name}) {
-    // Register with GC for proper Lua-compatible lifecycle management
-    if (GenerationalGCManager.isInitialized) {
-      GenerationalGCManager.instance.register(this);
+  Upvalue({required this.valueBox, this.name, LuaRuntime? interpreter})
+    : _interpreter = interpreter {
+    valueBox.retainUpvalue();
+    // Auto-register with GC if interpreter is provided, otherwise use
+    // the default manager (set by the active Interpreter).
+    final manager = interpreter?.gc ?? GCAccess.defaultManager;
+    manager?.register(this);
+  }
+
+  @override
+  int get estimatedSize {
+    var size = GcWeights.gcObjectHeader + GcWeights.upvalueBase;
+    if (!_isOpen) {
+      size += GcWeights.upvalueClosedValue;
     }
+    if (name != null) {
+      size += name!.length * GcWeights.stringUnit;
+    }
+    return size;
   }
 
   /// Gets the current value of the upvalue.
@@ -60,11 +77,8 @@ class Upvalue extends GCObject {
       // TODO: Consider const checking here eventually, based on valueBox.isConst
       valueBox.value = newValue;
     } else {
-      // In standard Lua, assigning to a closed upvalue shouldn't happen
-      // because the variable itself is gone. We might refine this error.
-      throw LuaError(
-        'Cannot set value of a closed upvalue: ${name ?? 'unknown'}',
-      );
+      _closedValue = newValue;
+      valueBox.value = newValue;
     }
   }
 
@@ -77,6 +91,7 @@ class Upvalue extends GCObject {
     if (_isOpen) {
       _closedValue = valueBox.value;
       _isOpen = false;
+      MemoryCredits.instance.recalculate(this);
     }
   }
 
@@ -101,6 +116,10 @@ class Upvalue extends GCObject {
 
   /// Reference to the upvalue this one is joined with, if any
   Upvalue? _joinedUpvalue;
+
+  /// Runtime reference for GC registration (optional)
+  // ignore: unused_field
+  final LuaRuntime? _interpreter;
 
   /// Whether this upvalue has been joined with another upvalue
   bool get isJoined => _joinedUpvalue != null;
@@ -145,6 +164,7 @@ class Upvalue extends GCObject {
     if (_isOpen) {
       close();
     }
+    valueBox.releaseUpvalue();
 
     // Clear references for GC
     _joinedUpvalue = null;

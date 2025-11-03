@@ -1,5 +1,6 @@
 import 'package:lualike/lualike.dart';
 
+import 'package:lualike/src/table_storage.dart';
 import 'package:lualike/src/utils/type.dart';
 import 'library.dart';
 
@@ -11,7 +12,7 @@ class TableLibrary extends Library {
   String get name => "table";
 
   @override
-  Map<String, Function>? getMetamethods(Interpreter interpreter) => {
+  Map<String, Function>? getMetamethods(LuaRuntime interpreter) => {
     "__index": (List<Object?> args) {
       final _ = args[0] as Value;
       final key = args[1] as Value;
@@ -275,36 +276,8 @@ class _TableInsert extends BuiltinFunction {
     );
     final map = table.raw as Map;
 
-    // Check if table has a __len metamethod that returns non-integer
-    if (table.metatable != null) {
-      final lenMetamethod = table.metatable!['__len'];
-      if (lenMetamethod != null) {
-        try {
-          final lenResult = lenMetamethod.call([table]);
-          if (lenResult is Value) {
-            final lenValue = lenResult.raw;
-            Logger.debug(
-              "getTableLength: lenValue = $lenValue, type = ${lenValue.runtimeType}",
-            );
-            if (lenValue is! int && lenValue is! BigInt) {
-              throw LuaError("object length is not an integer");
-            }
-          } else if (lenResult is! int && lenResult is! BigInt) {
-            throw LuaError("object length is not an integer");
-          }
-        } catch (e) {
-          // If the metamethod throws an error, we should propagate it
-          rethrow;
-        }
-      }
-    }
-
-    // Find the array length (aux_getn)
-    int e = 0;
-    while (map.containsKey(e + 1)) {
-      e++;
-    }
-    final int firstEmpty = e + 1;
+    final int baseLength = await getTableLength(table, context: "table.insert");
+    final int firstEmpty = baseLength + 1;
 
     int pos;
     Object? value;
@@ -588,6 +561,92 @@ class _TableSort extends BuiltinFunction {
     // Validate the order function if provided
     await _validateOrderFunction(map, n, comp);
 
+    // Fast path: default comparator and homogeneous primitive array (numbers or strings)
+    final isDefaultComparator =
+        comp == null || (comp is Value && comp.raw == null);
+    if (isDefaultComparator) {
+      var allNums = true;
+      var allStrs = true;
+      var complex = false;
+
+      for (var i = 1; i <= n; i++) {
+        final v = map[i];
+        if (v is Value) {
+          if (v.metatable != null) {
+            complex = true;
+            break;
+          }
+          final raw = v.raw;
+          if (raw is num) {
+            allStrs = false;
+          } else if (raw is String || raw is LuaString) {
+            allNums = false;
+          } else {
+            complex = true;
+            break;
+          }
+        } else if (v is num) {
+          allStrs = false;
+        } else if (v is String || v is LuaString) {
+          allNums = false;
+        } else {
+          complex = true;
+          break;
+        }
+      }
+
+      if (!complex && (allNums || allStrs)) {
+        if (allNums) {
+          Logger.debug(
+            'table.sort fast path (numeric) length=$n',
+            category: 'TableSort',
+          );
+          final arr = List<double>.generate(n, (i) {
+            final vv = map[i + 1];
+            if (vv is Value) return (vv.raw as num).toDouble();
+            return (vv as num).toDouble();
+          });
+          arr.sort();
+          for (var i = 1; i <= n; i++) {
+            final orig = map[i];
+            final v = arr[i - 1];
+            if (orig is Value) {
+              orig.raw = v;
+              map[i] = orig;
+            } else {
+              map[i] = v;
+            }
+          }
+          return Value(null);
+        } else if (allStrs) {
+          Logger.debug(
+            'table.sort fast path (string) length=$n',
+            category: 'TableSort',
+          );
+          final arr = List<String>.generate(n, (i) {
+            final vv = map[i + 1];
+            if (vv is Value) {
+              final raw = vv.raw;
+              return raw is LuaString ? raw.toString() : raw.toString();
+            }
+            return vv is LuaString ? vv.toString() : vv.toString();
+          });
+          arr.sort();
+          for (var i = 1; i <= n; i++) {
+            final orig = map[i];
+            final v = arr[i - 1];
+            if (orig is Value) {
+              orig.raw = v;
+              map[i] = orig;
+            } else {
+              map[i] = v;
+            }
+          }
+          return Value(null);
+        }
+      }
+    }
+
     // Perform in-place quicksort using Lua's algorithm
     await _auxSort(map, 1, n, comp, 0);
 
@@ -722,6 +781,23 @@ class _TableSort extends BuiltinFunction {
       category: 'TableSort',
     );
 
+    bool? fastLessThan(dynamic lhs, dynamic rhs) {
+      final left = lhs is Value ? lhs.raw : lhs;
+      final right = rhs is Value ? rhs.raw : rhs;
+
+      if (left is num && right is num) {
+        return left < right;
+      }
+      if ((left is String || left is LuaString) &&
+          (right is String || right is LuaString)) {
+        final ls = left.toString();
+        final rs = right.toString();
+        return ls.compareTo(rs) < 0;
+      }
+
+      return null;
+    }
+
     // If either value is nil, raise an error (Lua behavior)
     if (valA == null ||
         (valA is Value && valA.raw == null) ||
@@ -732,6 +808,30 @@ class _TableSort extends BuiltinFunction {
 
     if (comp == null || (comp is Value && comp.raw == null)) {
       // no function?
+
+      // Fast path: number/number or string/string (including LuaString) comparisons
+      final aVal = valA is Value ? (valA).raw : valA;
+      final bVal = valB is Value ? (valB).raw : valB;
+      if (aVal is num && bVal is num) {
+        final res = aVal < bVal;
+        Logger.debug(
+          "_sortComp (fast num): $aVal < $bVal => $res",
+          category: 'TableSort',
+        );
+        return res;
+      }
+      if ((aVal is String || aVal is LuaString) &&
+          (bVal is String || bVal is LuaString)) {
+        final aStr = aVal.toString();
+        final bStr = bVal.toString();
+        final res = aStr.compareTo(bStr) < 0;
+        Logger.debug(
+          "_sortComp (fast str): '$aStr' < '$bStr' => $res",
+          category: 'TableSort',
+        );
+        return res;
+      }
+
       final result = await _compareValues(valA, valB) < 0; // a < b
       Logger.debug("_sortComp: result = $result", category: 'TableSort');
       return result;
@@ -739,6 +839,23 @@ class _TableSort extends BuiltinFunction {
       // function
       if (comp is Value &&
           (comp.raw is Function || comp.raw is BuiltinFunction)) {
+        if (comp.isNilReturningClosure) {
+          return false;
+        }
+
+        if (comp.isLessComparator || comp.isLessComparatorReversed) {
+          final fast = comp.isLessComparator
+              ? fastLessThan(valA, valB)
+              : fastLessThan(valB, valA);
+          if (fast != null) {
+            Logger.debug(
+              "_sortComp: comparator hint fast result = $fast",
+              category: 'TableSort',
+            );
+            return fast;
+          }
+        }
+
         final func = comp.raw;
         final result = await func([valA, valB]);
         final boolResult = result is Value
@@ -841,85 +958,49 @@ class _TableSort extends BuiltinFunction {
       final bStr = bVal.toString();
       return aStr.compareTo(bStr);
     } else {
-      // Check for metamethods
+      // Check for metamethods using the unified Value API
       final aValue = a is Value ? a : Value(a);
       final bValue = b is Value ? b : Value(b);
 
-      // Try to use __lt metamethod from a
-      if (aValue.metatable != null) {
-        final ltMetamethod = aValue.metatable!.raw['__lt'];
-        if (ltMetamethod != null) {
-          try {
-            final result = await ltMetamethod.call([aValue, bValue]);
-            Logger.debug(
-              "_compareValues: __lt metamethod result: $result (${result.runtimeType})",
-              category: 'TableSort',
-            );
-            if (result is Value) {
-              final boolResult = result.raw == true ? -1 : 1;
-              Logger.debug(
-                "_compareValues: returning $boolResult (Value case)",
-                category: 'TableSort',
-              );
-              return boolResult;
-            } else {
-              final boolResult = result == true ? -1 : 1;
-              Logger.debug(
-                "_compareValues: returning $boolResult (direct case)",
-                category: 'TableSort',
-              );
-              return boolResult;
-            }
-          } catch (e) {
-            Logger.debug(
-              "_compareValues: __lt metamethod failed for a: $e",
-              category: 'TableSort',
-            );
-            // If __lt metamethod fails, try the reverse
-            if (bValue.metatable != null) {
-              final bLtMetamethod = bValue.metatable!.raw['__lt'];
-              if (bLtMetamethod != null) {
-                try {
-                  final result = await bLtMetamethod.call([bValue, aValue]);
-                  if (result is Value) {
-                    return result.raw == true ? 1 : -1;
-                  } else {
-                    return result == true ? 1 : -1;
-                  }
-                } catch (e) {
-                  Logger.debug(
-                    "_compareValues: __lt metamethod failed for b: $e",
-                    category: 'TableSort',
-                  );
-                  // Both metamethods failed
-                }
-              }
-            }
-          }
+      // Prefer __lt from 'a'
+      if (aValue.hasMetamethod('__lt')) {
+        try {
+          final result = await aValue.callMetamethodAsync('__lt', [
+            aValue,
+            bValue,
+          ]);
+          final boolRes = result is Value
+              ? (result.raw == true)
+              : (result == true);
+          return boolRes ? -1 : 1;
+        } catch (e) {
+          Logger.debug(
+            "_compareValues: __lt metamethod failed for a: $e",
+            category: 'TableSort',
+          );
         }
       }
 
-      // Try to use __lt metamethod from b
-      if (bValue.metatable != null) {
-        final ltMetamethod = bValue.metatable!.raw['__lt'];
-        if (ltMetamethod != null) {
-          try {
-            final result = await ltMetamethod.call([bValue, aValue]);
-            if (result is Value) {
-              return result.raw == true ? 1 : -1;
-            } else {
-              return result == true ? 1 : -1;
-            }
-          } catch (e) {
-            Logger.debug(
-              "_compareValues: __lt metamethod failed for b (second attempt): $e",
-              category: 'TableSort',
-            );
-            // Metamethod failed
-          }
+      // Try __lt from 'b' (reverse)
+      if (bValue.hasMetamethod('__lt')) {
+        try {
+          final result = await bValue.callMetamethodAsync('__lt', [
+            bValue,
+            aValue,
+          ]);
+          final boolRes = result is Value
+              ? (result.raw == true)
+              : (result == true);
+          return boolRes ? 1 : -1;
+        } catch (e) {
+          Logger.debug(
+            "_compareValues: __lt metamethod failed for b: $e",
+            category: 'TableSort',
+          );
         }
       }
 
+      // No metamethods available
       throw LuaError.typeError("attempt to compare incompatible types");
     }
   }
@@ -955,7 +1036,10 @@ class _TableUnpack extends BuiltinFunction {
   _TableUnpack() : super();
   @override
   Object? call(List<Object?> args) async {
-    Logger.debug("_TableUnpack: Starting unpack with ${args.length} args");
+    final bool log = Logger.enabled;
+    if (log) {
+      Logger.debug("_TableUnpack: Starting unpack with ${args.length} args");
+    }
 
     if (args.isEmpty) {
       throw LuaError.typeError("table.unpack requires a table argument");
@@ -964,16 +1048,20 @@ class _TableUnpack extends BuiltinFunction {
     final table = args[0] is Value ? args[0] as Value : Value(args[0]);
     checktab(table, TablePermission.read);
     final map = table.raw as Map;
-    Logger.debug("_TableUnpack: Got table with ${map.length} entries");
+    if (log) {
+      Logger.debug("_TableUnpack: Got table with ${map.length} entries");
+    }
 
     int i, j;
 
     // Handle start index (default to 1)
     if (args.length > 1) {
       final startArg = args[1] as Value;
-      Logger.debug(
-        "_TableUnpack: Start arg raw value: ${startArg.raw}, type: ${startArg.raw.runtimeType}",
-      );
+      if (log) {
+        Logger.debug(
+          "_TableUnpack: Start arg raw value: ${startArg.raw}, type: ${startArg.raw.runtimeType}",
+        );
+      }
       if (startArg.raw == null) {
         throw LuaError.typeError(
           "bad argument #2 to 'unpack' (number expected, got nil)",
@@ -981,107 +1069,124 @@ class _TableUnpack extends BuiltinFunction {
       }
       try {
         i = NumberUtils.toInt(startArg.raw);
-        Logger.debug(
-          "_TableUnpack: Converted start index to: $i, type: ${i.runtimeType}",
-        );
+        if (log) {
+          Logger.debug(
+            "_TableUnpack: Converted start index to: $i, type: ${i.runtimeType}",
+          );
+        }
       } catch (e) {
-        Logger.debug("_TableUnpack: Error converting start index: $e");
+        if (log) {
+          Logger.debug("_TableUnpack: Error converting start index: $e");
+        }
         throw LuaError.typeError(
           "bad argument #2 to 'unpack' (number expected)",
         );
       }
     } else {
       i = 1;
-      Logger.debug("_TableUnpack: Using default start index: $i");
+      if (log) {
+        Logger.debug("_TableUnpack: Using default start index: $i");
+      }
     }
 
     // Handle end index (default to table length using Lua semantics)
     if (args.length > 2) {
       final endArg = args[2] as Value;
-      Logger.debug(
-        "_TableUnpack: End arg raw value: ${endArg.raw}, type: ${endArg.raw.runtimeType}",
-      );
+      if (log) {
+        Logger.debug(
+          "_TableUnpack: End arg raw value: ${endArg.raw}, type: ${endArg.raw.runtimeType}",
+        );
+      }
       if (endArg.raw == null) {
         // nil means use table length (same as not providing the argument)
-        Logger.debug("_TableUnpack: End arg is nil, getting table length");
+        if (log) {
+          Logger.debug("_TableUnpack: End arg is nil, getting table length");
+        }
         j = await getTableLength(table, context: null);
       } else {
         try {
           j = NumberUtils.toInt(endArg.raw);
-          Logger.debug(
-            "_TableUnpack: Converted end index to: $j, type: ${j.runtimeType}",
-          );
+          if (log) {
+            Logger.debug(
+              "_TableUnpack: Converted end index to: $j, type: ${j.runtimeType}",
+            );
+          }
         } catch (e) {
-          Logger.debug("_TableUnpack: Error converting end index: $e");
+          if (log) {
+            Logger.debug("_TableUnpack: Error converting end index: $e");
+          }
           throw LuaError.typeError(
             "bad argument #3 to 'unpack' (number expected)",
           );
         }
       }
     } else {
-      Logger.debug("_TableUnpack: No end arg, getting table length");
+      if (log) {
+        Logger.debug("_TableUnpack: No end arg, getting table length");
+      }
       j = await getTableLength(table, context: null);
     }
 
-    Logger.debug(
-      "_TableUnpack: i=$i (${i.runtimeType}), j=$j (${j.runtimeType})",
-    );
-
-    // Check for empty range
-    if (i > j) {
-      Logger.debug("_TableUnpack: Empty range (i > j), returning nil");
-      return Value(null);
+    if (log) {
+      Logger.debug(
+        "_TableUnpack: i=$i (${i.runtimeType}), j=$j (${j.runtimeType})",
+      );
     }
 
-    // Check for "too many results to unpack"
-    // Use NumberUtils for safe arithmetic operations
-    Logger.debug("_TableUnpack: Calculating n = j - i + 1");
+    final int start = i;
+    final int end = j;
+    if (start > end) {
+      if (log) {
+        Logger.debug(
+          "_TableUnpack: Empty range (i > j), returning zero values",
+        );
+      }
+      return Value.multi(<dynamic>[]);
+    }
 
-    // Calculate n = j - i + 1 using NumberUtils to handle overflow
-    // Ensure consistent types by converting constants to BigInt when needed
-    final diff = NumberUtils.subtract(j, i);
-    Logger.debug("_TableUnpack: diff = $diff (${diff.runtimeType})");
-    final n = NumberUtils.add(diff, 1);
-    Logger.debug("_TableUnpack: n = $n (${n.runtimeType})");
-
-    // Check if n is valid (positive and not too large)
-    Logger.debug("_TableUnpack: Checking if n is valid");
-    final nCompare0 = NumberUtils.compare(n, 0);
-    Logger.debug("_TableUnpack: n compare 0: $nCompare0");
-    final nCompareMax = NumberUtils.compare(n, NumberLimits.maxInt32);
-    Logger.debug("_TableUnpack: n compare maxInt32: $nCompareMax");
-
-    if (nCompare0 < 0 || nCompareMax >= 0) {
-      Logger.debug("_TableUnpack: n is invalid, throwing error");
+    final BigInt startBig = NumberUtils.toBigInt(start);
+    final BigInt endBig = NumberUtils.toBigInt(end);
+    final BigInt rawCount = endBig - startBig + BigInt.one;
+    if (rawCount.isNegative || rawCount >= BigInt.from(NumberLimits.maxInt32)) {
+      if (log) {
+        Logger.debug(
+          "_TableUnpack: count=$rawCount outside limits, throwing error",
+        );
+      }
       throw LuaError("too many results to unpack");
     }
 
-    Logger.debug("_TableUnpack: n is valid, starting loop");
-    final result = <Value>[];
-
-    // Use NumberUtils for safe loop iteration
-    var k = i;
-    Logger.debug("_TableUnpack: Starting loop with k=$k (${k.runtimeType})");
-    while (NumberUtils.compare(k, j) <= 0) {
-      Logger.debug("_TableUnpack: Loop iteration, k=$k, j=$j");
-      final v = map[k];
-      if (v == null || (v is Value && v.raw == null)) {
-        result.add(Value(null));
-      } else {
-        result.add(v is Value ? v : Value(v));
+    final int count = rawCount.toInt();
+    final result = List<Value?>.filled(count, null, growable: false);
+    if (map is TableStorage) {
+      final storage = map;
+      for (var offset = 0; offset < count; offset++) {
+        final value = storage.arrayValueAt(start + offset);
+        if (value == null) {
+          result[offset] = Value(null);
+        } else if (value is Value) {
+          result[offset] = value;
+        } else {
+          result[offset] = Value(value);
+        }
       }
-
-      // Use NumberUtils for safe increment
-      if (k == NumberLimits.maxInteger) {
-        Logger.debug("_TableUnpack: k reached maxInteger, breaking");
-        break; // Can't increment further
+    } else {
+      for (var offset = 0; offset < count; offset++) {
+        final value = map[start + offset];
+        if (value == null || (value is Value && value.raw == null)) {
+          result[offset] = Value(null);
+        } else {
+          result[offset] = value is Value ? value : Value(value);
+        }
       }
-      k = NumberUtils.add(k, 1);
-      Logger.debug("_TableUnpack: Incremented k to: $k (${k.runtimeType})");
     }
 
-    if (result.isEmpty) return Value.multi([]);
-    if (result.length == 1) return result[0];
-    return Value.multi(result);
+    if (count == 0) {
+      return Value.multi(<dynamic>[]);
+    }
+    if (count == 1) {
+      return result[0]!;
+    }
+    return Value.multi(result.cast<Value>());
   }
 }

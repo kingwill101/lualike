@@ -73,6 +73,11 @@ class CallStack {
     );
   }
 
+  /// Restores a previously captured frame onto the stack.
+  void pushFrame(CallFrame frame) {
+    _frames.add(frame);
+  }
+
   /// Pops the top frame from the call stack.
   CallFrame? pop() {
     return _frames.isNotEmpty ? _frames.removeLast() : null;
@@ -83,6 +88,9 @@ class CallStack {
 
   /// Returns the top frame of the call stack.
   CallFrame? get top => _frames.isNotEmpty ? _frames.last : null;
+
+  /// Exposes the current frames without allowing external mutation.
+  Iterable<CallFrame> get frames => List.unmodifiable(_frames);
 
   /// Clears the call stack.
   void clear() {

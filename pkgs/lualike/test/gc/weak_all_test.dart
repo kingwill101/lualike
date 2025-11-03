@@ -9,8 +9,29 @@ void main() {
 
     setUp(() {
       interpreter = Interpreter();
-      GenerationalGCManager.initialize(interpreter);
-      gc = GenerationalGCManager.instance;
+      gc = interpreter.gc;
+      // Stop incremental GC to prevent it from sweeping test objects
+      gc.stop();
+    });
+
+    test('all-weak table preserves primitive string entry', () async {
+      final allWeakTable = Value({});
+      allWeakTable.setMetatable({'__mode': 'kv'});
+
+      final stringKey = Value('sentinel');
+      final stringValue = Value('sentinel');
+      allWeakTable.raw[stringKey] = stringValue;
+
+      final rootEnv = Environment();
+      rootEnv.define('all_weak_table', Box<Value>(allWeakTable));
+
+      await gc.majorCollection([rootEnv]);
+      expect((allWeakTable.raw as Map).length, 1);
+      expect((allWeakTable.raw as Map)[stringKey], equals(stringValue));
+
+      await gc.majorCollection([rootEnv]);
+      expect((allWeakTable.raw as Map).length, 1);
+      expect((allWeakTable.raw as Map)[stringKey], equals(stringValue));
     });
 
     test('all-weak table removes entries with dead keys or values', () async {
@@ -20,9 +41,10 @@ void main() {
 
       // Add entries
       final strongKey = Value('strong_key');
-      final weakKey = Value('weak_key');
+      // Use collectable objects for the dead pair so kv semantics clear it.
+      final weakKey = Value(<dynamic, dynamic>{});
       final strongValue = Value('strong_value');
-      final weakValue = Value('weak_value');
+      final weakValue = Value(<dynamic, dynamic>{});
 
       allWeakTable.raw[strongKey] = strongValue;
       allWeakTable.raw[weakKey] = weakValue;
@@ -57,7 +79,8 @@ void main() {
         final allWeakTable = Value({});
         allWeakTable.setMetatable({'__mode': 'kv'});
 
-        final deadKey = Value('dead_key');
+        // Use a collectable key (table) so all-weak semantics can remove it
+        final deadKey = Value(<dynamic, dynamic>{});
         final strongValue = Value('strong_value');
         allWeakTable.raw[deadKey] = strongValue;
 
@@ -87,7 +110,8 @@ void main() {
         allWeakTable.setMetatable({'__mode': 'kv'});
 
         final strongKey = Value('strong_key');
-        final deadValue = Value('dead_value');
+        // Use collectable object for value so kv semantics clear it.
+        final deadValue = Value(<dynamic, dynamic>{});
         allWeakTable.raw[strongKey] = deadValue;
 
         // Create separate strong reference to the key
@@ -115,10 +139,11 @@ void main() {
         final allWeakTable = Value({});
         allWeakTable.setMetatable({'__mode': 'kv'});
 
-        final key1 = Value('key1');
-        final key2 = Value('key2');
-        final value1 = Value('value1');
-        final value2 = Value('value2');
+        // Use collectable objects for full clearing under kv semantics.
+        final key1 = Value(<dynamic, dynamic>{});
+        final key2 = Value(<dynamic, dynamic>{});
+        final value1 = Value(<dynamic, dynamic>{});
+        final value2 = Value(<dynamic, dynamic>{});
 
         allWeakTable.raw[key1] = value1;
         allWeakTable.raw[key2] = value2;
@@ -141,28 +166,28 @@ void main() {
       allWeakTable.setMetatable({'__mode': 'kv'});
 
       final valueObj1 = Value('value_obj1');
-      final valueObj2 = Value('value_obj2');
 
       // Mix of primitive and object keys/values
+      // Primitive key with strong value survives under kv
       allWeakTable.raw['string_key'] = valueObj1;
-      allWeakTable.raw[42] = valueObj2;
-      allWeakTable.raw[Value('obj_key')] = 'string_value';
-      allWeakTable.raw[Value('obj_key2')] = valueObj1;
+      // Avoid numeric primitive key to keep expectations deterministic vs Lua
+      // (numbers are immediate values and may also survive). Focus on object keys:
+      allWeakTable.raw[Value(<dynamic, dynamic>{})] = 'string_value';
+      allWeakTable.raw[Value(<dynamic, dynamic>{})] = valueObj1;
 
       // Root references only the table and one value
       final rootEnv = Environment();
       rootEnv.define('all_weak_table', Box<Value>(allWeakTable));
       rootEnv.define('strong_value_ref', Box<Value>(valueObj1));
 
-      expect((allWeakTable.raw as Map).length, 4);
+      expect((allWeakTable.raw as Map).length, 3);
 
       await gc.majorCollection([rootEnv]);
 
-      // Only entries with primitive keys AND strong values should remain
-      // string_key -> valueObj1 should remain (primitive key, strong value)
-      // 42 -> valueObj2 should be removed (primitive key, dead value)
-      // obj_key -> string_value should be removed (dead key, primitive value)
-      // obj_key2 -> valueObj1 should be removed (dead key, strong value)
+      // Only entries with primitive keys AND strong values should remain.
+      // string_key -> valueObj1 remains (primitive key, strong value)
+      // obj_key -> string_value removed (dead key, primitive value)
+      // obj_key2 -> valueObj1 removed (dead key, strong value)
       expect((allWeakTable.raw as Map).length, 1);
       expect((allWeakTable.raw as Map)['string_key'], equals(valueObj1));
     });
@@ -349,7 +374,8 @@ void main() {
       allWeakTable.setMetatable(metatable);
 
       final key = Value('key');
-      final value = Value('dead_value');
+      // Use collectable object so the entry is cleared, but metatable preserved.
+      final value = Value(<dynamic, dynamic>{});
       allWeakTable.raw[key] = value;
 
       // Root references only the table

@@ -58,15 +58,24 @@ class DartFromBytes extends BuiltinFunction {
     } else if (value.raw is Map) {
       final table = value.raw as Map;
       final charCodes = <int>[];
-      for (var i = 1; i <= table.length; i++) {
-        final val = table[Value(i)];
-        if (val is Value && val.raw is num) {
-          charCodes.add((val.raw as num).toInt());
+      var index = 1;
+      while (true) {
+        dynamic entry = table[index];
+        entry ??= table[Value(index)];
+        if (entry == null) {
+          break;
+        }
+        if (entry is Value) {
+          entry = entry.raw;
+        }
+        if (entry is num) {
+          charCodes.add(entry.toInt());
         } else {
           throw LuaError(
-            'Invalid value in bytes table at index $i: expected a number',
+            'Invalid value in bytes table at index $index: expected a number',
           );
         }
+        index++;
       }
       bytes = Uint8List.fromList(charCodes);
     } else {

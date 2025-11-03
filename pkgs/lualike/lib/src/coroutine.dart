@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'package:lualike/src/value.dart';
+import 'package:lualike/src/extensions/value_extension.dart';
 import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/gc/gc.dart';
-import 'package:lualike/src/gc/generational_gc.dart';
+import 'package:lualike/src/gc/gc_weights.dart';
+import 'package:lualike/src/call_stack.dart';
+// GC access occurs via environment.interpreter.gc
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/lua_error.dart';
 
@@ -26,11 +29,18 @@ enum CoroutineStatus {
 
 /// Represents a Lua coroutine that participates in garbage collection
 class Coroutine extends GCObject {
+  static final List<Coroutine> _activeStack = [];
+
+  static Coroutine? get active {
+    if (_activeStack.isEmpty) return null;
+    return _activeStack.last;
+  }
+
   /// The function that this coroutine executes (its Value wrapper)
   final Value functionValue;
 
   /// The AST node representing the function body
-  final FunctionBody functionBody;
+  final FunctionBody? functionBody;
 
   /// Current status of the coroutine
   CoroutineStatus status = CoroutineStatus.suspended;
@@ -55,6 +65,17 @@ class Coroutine extends GCObject {
   /// Error that caused the coroutine to die, if any
   Object? error;
 
+  /// Saved call stack frames when the coroutine is suspended.
+  List<CallFrame>? _savedCallStack;
+
+  /// Base call stack depth snapshot taken when the coroutine begins/resumes execution.
+  int _callStackBaseDepth = 0;
+
+  int get callStackBaseDepth => _callStackBaseDepth;
+
+  bool _unregistered = false;
+  bool _environmentCleared = false;
+
   /// Whether the coroutine is being finalized
   final bool beingFinalized = false;
 
@@ -65,7 +86,18 @@ class Coroutine extends GCObject {
       ), // Clone closureEnv for execution
       super() {
     // Register with garbage collector
-    GenerationalGCManager.instance.register(this);
+    closureEnvironment.interpreter?.gc.register(this);
+  }
+
+  @override
+  int get estimatedSize {
+    var size = GcWeights.gcObjectHeader + GcWeights.coroutineBase;
+    size += GcWeights.coroutineEnvironmentRef; // closure environment
+    size += GcWeights.coroutineEnvironmentRef; // execution environment snapshot
+    if (completer != null) {
+      size += GcWeights.coroutineEnvironmentRef;
+    }
+    return size;
   }
 
   /// Resumes the coroutine with the given arguments
@@ -99,10 +131,11 @@ class Coroutine extends GCObject {
     final previousEnv = interpreter?.getCurrentEnv();
 
     try {
+      _activeStack.add(this);
       // Set this coroutine as the current one
       if (interpreter != null) {
+        _restoreCallStack();
         interpreter.setCurrentCoroutine(this);
-
         // When resuming from a yield, restore the saved execution environment
         interpreter.setCurrentEnv(
           _executionEnvironment,
@@ -134,6 +167,11 @@ class Coroutine extends GCObject {
           'Coroutine.resume: _executionTask completed (initial)',
           category: 'Coroutine',
         );
+        if (status == CoroutineStatus.dead) {
+          _finalizeTermination();
+          return Value.multi(result);
+        }
+        _detachCallStack();
         return Value.multi([Value(true), ...result]);
       } else if (status == CoroutineStatus.suspended) {
         // Resuming from a yield point
@@ -166,6 +204,11 @@ class Coroutine extends GCObject {
           'Coroutine.resume: Next yield or completion received',
           category: 'Coroutine',
         );
+        if (status == CoroutineStatus.dead) {
+          _finalizeTermination();
+          return Value.multi(result);
+        }
+        _detachCallStack();
         return Value.multi([Value(true), ...result]);
       } else {
         // This shouldn't happen, but just in case
@@ -182,6 +225,7 @@ class Coroutine extends GCObject {
       );
       // The coroutine has yielded, it's now suspended. Return the yielded values.
       status = CoroutineStatus.suspended;
+      _detachCallStack();
       return Value.multi([Value(true), ...e.values]);
     } on ReturnException catch (e) {
       Logger.debug(
@@ -190,6 +234,7 @@ class Coroutine extends GCObject {
       );
       // Normal return from the coroutine function
       status = CoroutineStatus.dead;
+      _finalizeTermination();
       return _handleReturnValue(e.value);
     } catch (e) {
       Logger.error(
@@ -199,8 +244,14 @@ class Coroutine extends GCObject {
       // Unexpected error
       error = e;
       status = CoroutineStatus.dead;
+      _finalizeTermination();
       return Value.multi([Value(false), Value(e.toString())]);
     } finally {
+      if (_activeStack.isNotEmpty && identical(_activeStack.last, this)) {
+        _activeStack.removeLast();
+      } else {
+        _activeStack.removeWhere((c) => identical(c, this));
+      }
       Logger.debug(
         'Coroutine.resume: Finally block executed',
         category: 'Coroutine',
@@ -210,6 +261,10 @@ class Coroutine extends GCObject {
         interpreter.setCurrentCoroutine(previousCoroutine);
         if (previousEnv != null) {
           interpreter.setCurrentEnv(previousEnv);
+        }
+
+        if (previousCoroutine != null) {
+          previousCoroutine._callStackBaseDepth = interpreter.callStack.depth;
         }
 
         // If the previous coroutine exists, update its status
@@ -238,6 +293,41 @@ class Coroutine extends GCObject {
     } else {
       // Wrap raw value
       return Value.multi([Value(true), Value(value)]);
+    }
+  }
+
+  Future<void> _handleTailCallCompletion(TailCallException t) async {
+    final interpreter = closureEnvironment.interpreter;
+    if (interpreter == null) {
+      error = t;
+      status = CoroutineStatus.dead;
+      _finalizeTermination();
+      if (completer != null && !completer!.isCompleted) {
+        completer!.completeError(t);
+      }
+      return;
+    }
+
+    final callee = t.functionValue is Value
+        ? t.functionValue as Value
+        : Value(t.functionValue);
+    final normalizedArgs = t.args
+        .map((arg) => arg is Value ? arg : Value(arg))
+        .toList();
+    final callResult = await interpreter.callFunction(callee, normalizedArgs);
+    _completeWithReturn(callResult);
+  }
+
+  void _completeWithReturn(Object? value) {
+    status = CoroutineStatus.dead;
+    _finalizeTermination();
+    if (completer != null && !completer!.isCompleted) {
+      final handledResult = _handleReturnValue(value);
+      if (handledResult.isMulti) {
+        completer!.complete(handledResult.raw as List<Object?>);
+      } else {
+        completer!.complete([handledResult.raw]);
+      }
     }
   }
 
@@ -300,6 +390,75 @@ class Coroutine extends GCObject {
     return result;
   }
 
+  void _restoreCallStack() {
+    final interpreter = closureEnvironment.interpreter;
+    if (interpreter == null) {
+      return;
+    }
+    if (_savedCallStack != null && _savedCallStack!.isNotEmpty) {
+      for (final frame in _savedCallStack!) {
+        interpreter.callStack.pushFrame(frame);
+      }
+      _savedCallStack = null;
+    }
+    _callStackBaseDepth = interpreter.callStack.depth;
+  }
+
+  void _detachCallStack() {
+    final interpreter = closureEnvironment.interpreter;
+    if (interpreter == null) {
+      return;
+    }
+    final callStack = interpreter.callStack;
+    final base = _callStackBaseDepth;
+    if (callStack.depth <= base) {
+      return;
+    }
+    final frames = <CallFrame>[];
+    while (callStack.depth > base) {
+      final frame = callStack.pop();
+      if (frame != null) {
+        frames.insert(
+          0,
+          CallFrame(
+            frame.functionName,
+            callNode: frame.callNode,
+            scriptPath: frame.scriptPath,
+            currentLine: frame.currentLine,
+          ),
+        );
+      }
+    }
+    _savedCallStack = frames;
+    _callStackBaseDepth = callStack.depth;
+  }
+
+  void _finalizeTermination() {
+    if (_unregistered) {
+      return;
+    }
+    final interpreter = closureEnvironment.interpreter;
+    if (!_environmentCleared) {
+      _clearExecutionEnvironment();
+      _environmentCleared = true;
+    }
+    interpreter?.unregisterCoroutine(this);
+    _savedCallStack = null;
+    _unregistered = true;
+  }
+
+  void _clearExecutionEnvironment() {
+    try {
+      for (final box in _executionEnvironment.values.values) {
+        final current = box.value;
+        if (current is Value && current.isNil) {
+          continue;
+        }
+        box.value = Value(null);
+      }
+    } catch (_) {}
+  }
+
   /// Executes the coroutine function
   Future<void> _executeCoroutine(List<Object?> initialArgs) async {
     Logger.debug(
@@ -309,23 +468,42 @@ class Coroutine extends GCObject {
     // Create initial environment for function parameters and locals
     final interpreter = closureEnvironment.interpreter;
 
-    // No null check for functionBody needed here, as it's now non-nullable
-
     // Process arguments for the function call
     final processedArgs = initialArgs.map((arg) {
       return arg is Value ? arg : Value(arg);
     }).toList();
 
+    final body = functionBody;
+    if (body == null) {
+      try {
+        final interpreter = closureEnvironment.interpreter;
+        if (interpreter == null) {
+          throw LuaError('coroutine has no interpreter');
+        }
+        interpreter.setCurrentEnv(_executionEnvironment);
+        final result = await interpreter.callFunction(
+          functionValue,
+          processedArgs,
+        );
+        _completeWithReturn(result);
+      } on YieldException {
+        rethrow;
+      } on TailCallException catch (t) {
+        await _handleTailCallCompletion(t);
+      }
+      return;
+    }
+
     // Bind regular parameters
-    final hasVarargs = functionBody.isVararg;
-    int regularParamCount = functionBody.parameters?.length ?? 0;
+    final hasVarargs = body.isVararg;
+    int regularParamCount = body.parameters?.length ?? 0;
 
     for (var i = 0; i < regularParamCount; i++) {
-      final paramName = (functionBody.parameters![i]).name;
+      final paramName = (body.parameters![i]).name;
       if (i < processedArgs.length) {
-        _executionEnvironment.define(paramName, processedArgs[i]);
+        _executionEnvironment.declare(paramName, processedArgs[i]);
       } else {
-        _executionEnvironment.define(paramName, Value(null));
+        _executionEnvironment.declare(paramName, Value(null));
       }
     }
 
@@ -334,13 +512,13 @@ class Coroutine extends GCObject {
       List<Object?> varargs = processedArgs.length > regularParamCount
           ? processedArgs.sublist(regularParamCount)
           : [];
-      _executionEnvironment.define("...", Value.multi(varargs));
+      _executionEnvironment.declare("...", Value.multi(varargs));
     }
 
     try {
       // Execute statements from the current program counter
-      for (; _programCounter < functionBody.body.length; _programCounter++) {
-        final stmt = functionBody.body[_programCounter];
+      for (; _programCounter < body.body.length; _programCounter++) {
+        final stmt = body.body[_programCounter];
 
         Logger.debug(
           '_executeCoroutine: Executing statement $_programCounter: ${stmt.runtimeType}',
@@ -351,7 +529,7 @@ class Coroutine extends GCObject {
           interpreter.setCurrentEnv(_executionEnvironment);
         }
 
-        await stmt.accept(interpreter!); // Execute the statement
+        await interpreter!.evaluateAst(stmt); // Execute the statement
         Logger.debug(
           '_executeCoroutine: Statement $_programCounter executed. Current PC: $_programCounter',
           category: 'Coroutine',
@@ -364,6 +542,7 @@ class Coroutine extends GCObject {
         category: 'Coroutine',
       );
       status = CoroutineStatus.dead;
+      _finalizeTermination();
       if (completer != null && !completer!.isCompleted) {
         // Pass empty list as result for normal completion
         completer!.complete([]);
@@ -385,25 +564,23 @@ class Coroutine extends GCObject {
         '_executeCoroutine: Caught ReturnException',
         category: 'Coroutine',
       );
-      // Normal return from the coroutine function
-      status = CoroutineStatus.dead;
-      if (completer != null && !completer!.isCompleted) {
-        final handledResult = _handleReturnValue(e.value);
-        if (handledResult.isMulti) {
-          completer!.complete(handledResult.raw as List<Object?>);
-        } else {
-          completer!.complete([handledResult.raw]);
-        }
-        Logger.debug(
-          '_executeCoroutine: Completer completed with return value',
-          category: 'Coroutine',
-        );
-      }
+      _completeWithReturn(e.value);
+      Logger.debug(
+        '_executeCoroutine: Completer completed with return value',
+        category: 'Coroutine',
+      );
+    } on TailCallException catch (t) {
+      await _handleTailCallCompletion(t);
+      Logger.debug(
+        '_executeCoroutine: Completer completed with tail-call result',
+        category: 'Coroutine',
+      );
     } catch (e) {
       error = e;
       Logger.error('Error in _executeCoroutine: $e', category: 'Coroutine');
       // Set status to dead on unhandled exceptions
       status = CoroutineStatus.dead;
+      _finalizeTermination();
       if (completer != null && !completer!.isCompleted) {
         completer!.complete([
           Value(false),
@@ -424,6 +601,7 @@ class Coroutine extends GCObject {
         'Coroutine already dead, nothing to close',
         category: 'Coroutine',
       );
+      _finalizeTermination();
       return [Value(true)]; // Already dead, consider it successful close
     }
 
@@ -445,6 +623,7 @@ class Coroutine extends GCObject {
 
     // Set status to dead
     status = CoroutineStatus.dead;
+    _finalizeTermination();
 
     // Propagate the error if provided
     if (error != null) {
@@ -463,12 +642,15 @@ class Coroutine extends GCObject {
     status = CoroutineStatus.dead;
     completer = null;
     _executionTask = null;
+    _finalizeTermination();
   }
 
   /// Check if this coroutine is yieldable
   bool isYieldable(Coroutine mainThread) {
-    // A coroutine is yieldable if it's not the main thread
-    return this != mainThread;
+    if (identical(this, mainThread)) {
+      return false;
+    }
+    return status != CoroutineStatus.dead && status != CoroutineStatus.normal;
   }
 
   @override

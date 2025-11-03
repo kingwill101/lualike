@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/extensions/value_extension.dart';
+import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/interpreter/interpreter.dart';
 
 import 'package:lualike/src/lua_error.dart';
@@ -43,18 +44,18 @@ List<int> _toListInt(Value value) {
   throw LuaError('Expected Uint8List, List<int>, or a table of integers');
 }
 
-void defineConvertLibrary({required Environment env, Interpreter? astVm}) {
-  final vm = astVm ?? Interpreter();
+void defineConvertLibrary({required Environment env, LuaRuntime? vm}) {
+  final runtime = vm ?? Interpreter();
   final convertTable = {
-    'jsonEncode': JsonEncode(vm),
-    'jsonDecode': JsonDecode(vm),
-    'base64Encode': Base64Encode(vm),
-    'base64Decode': Base64Decode(vm),
-    'base64UrlEncode': Base64UrlEncode(vm),
-    'asciiEncode': AsciiEncode(vm),
-    'asciiDecode': AsciiDecode(vm),
-    'latin1Encode': Latin1Encode(vm),
-    'latin1Decode': Latin1Decode(vm),
+    'jsonEncode': JsonEncode(runtime),
+    'jsonDecode': JsonDecode(runtime),
+    'base64Encode': Base64Encode(runtime),
+    'base64Decode': Base64Decode(runtime),
+    'base64UrlEncode': Base64UrlEncode(runtime),
+    'asciiEncode': AsciiEncode(runtime),
+    'asciiDecode': AsciiDecode(runtime),
+    'latin1Encode': Latin1Encode(runtime),
+    'latin1Decode': Latin1Decode(runtime),
   };
   env.define('convert', Value(convertTable));
 }

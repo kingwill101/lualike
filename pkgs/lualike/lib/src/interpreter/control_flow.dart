@@ -17,7 +17,11 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitIfStatement(IfStatement node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
-    Logger.info('Entering if block', category: 'ControlFlow');
+    Logger.infoLazy(
+      () => 'Entering if block',
+      category: 'ControlFlow',
+      contextBuilder: () => {},
+    );
 
     this is Interpreter ? (this as Interpreter).recordTrace(node) : null;
 
@@ -29,10 +33,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       final vals = condition.raw as List;
       condition = vals.isNotEmpty ? vals.first : Value(null);
     }
-    Logger.debug(
-      'If condition evaluated to $condition',
-      category: 'ControlFlow',
-    );
+
     bool condValue = false;
 
     if (condition is bool) {
@@ -46,6 +47,12 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       }
     }
 
+    Logger.debug(
+      'If condition evaluated',
+      category: 'ControlFlow',
+      context: {'condValue': condValue},
+    );
+
     // Create a new environment for the block scope
     final blockEnv = Environment(
       parent: globals,
@@ -58,7 +65,11 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       setCurrentEnv(blockEnv);
 
       if (condValue) {
-        Logger.debug('Executing then block', category: 'ControlFlow');
+        Logger.debugLazy(
+          () => 'Executing then block',
+          category: 'ControlFlow',
+          contextBuilder: () => {},
+        );
         if (this is Interpreter) {
           await (this as Interpreter)._executeStatements(node.thenBlock);
         } else {
@@ -93,7 +104,11 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           }
 
           if (elseIfCondValue) {
-            Logger.debug('Executing elseif block', category: 'ControlFlow');
+            Logger.debugLazy(
+              () => 'Executing elseif block',
+              category: 'ControlFlow',
+              contextBuilder: () => {},
+            );
             if (this is Interpreter) {
               await (this as Interpreter)._executeStatements(elseIf.thenBlock);
             } else {
@@ -108,7 +123,11 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
 
         // If no elseif matched, execute the else block
         if (!elseIfMatched && node.elseBlock.isNotEmpty) {
-          Logger.debug('Executing else block', category: 'ControlFlow');
+          Logger.debugLazy(
+            () => 'Executing else block',
+            category: 'ControlFlow',
+            contextBuilder: () => {},
+          );
           if (this is Interpreter) {
             await (this as Interpreter)._executeStatements(node.elseBlock);
           } else {
@@ -118,7 +137,11 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           }
         }
       } else if (node.elseBlock.isNotEmpty) {
-        Logger.debug('Executing else block', category: 'ControlFlow');
+        Logger.debugLazy(
+          () => 'Executing else block',
+          category: 'ControlFlow',
+          contextBuilder: () => {},
+        );
         if (this is Interpreter) {
           await (this as Interpreter)._executeStatements(node.elseBlock);
         } else {
@@ -168,24 +191,62 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitWhileStatement(WhileStatement node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
-    Logger.info('Entering while loop', category: 'ControlFlow');
+    Logger.infoLazy(
+      () => 'Entering while loop',
+      category: 'ControlFlow',
+      contextBuilder: () => {},
+    );
 
-    // Record trace information
-    if (this is Interpreter) {
-      (this as Interpreter).recordTrace(node);
+    final loopEnv = Environment(
+      parent: globals,
+      interpreter: this as Interpreter,
+    );
+    final prevEnv = globals;
+    final baseBindings = Map<String, Box<dynamic>>.from(loopEnv.values);
+    final baseKeys = baseBindings.keys.toSet();
+    final baseToBeClosedLen = loopEnv.toBeClosedVars.length;
+
+    Future<void> resetLoopEnvironment([Object? error]) async {
+      if (loopEnv.toBeClosedVars.length > baseToBeClosedLen) {
+        final namesToClose = <String>[];
+        while (loopEnv.toBeClosedVars.length > baseToBeClosedLen) {
+          namesToClose.add(loopEnv.toBeClosedVars.removeLast());
+        }
+        for (final name in namesToClose) {
+          final box = loopEnv.values.remove(name);
+          final value = box?.value;
+          if (value is Value) {
+            try {
+              await value.close(error);
+            } catch (_) {}
+          }
+        }
+      }
+
+      if (loopEnv.values.length > baseKeys.length) {
+        final keysToRemove = <String>[];
+        loopEnv.values.forEach((key, _) {
+          if (!baseKeys.contains(key)) {
+            keysToRemove.add(key);
+          }
+        });
+        for (final key in keysToRemove) {
+          loopEnv.values.remove(key);
+        }
+      }
+
+      for (final entry in baseBindings.entries) {
+        loopEnv.values[entry.key] = entry.value;
+      }
     }
 
     while (true) {
-      // Record trace for condition evaluation
       if (this is Interpreter) {
         (this as Interpreter).recordTrace(node.cond);
       }
 
       final condition = await node.cond.accept(this);
-      Logger.debug(
-        'While condition evaluated to $condition',
-        category: 'ControlFlow',
-      );
+
       bool condValue = false;
 
       if (condition is bool) {
@@ -194,31 +255,33 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         if (condition.raw is bool) {
           condValue = condition.raw;
         } else if (condition.raw != null && condition.raw != false) {
-          // In Lua, anything that's not false or nil is considered true
           condValue = true;
         }
       }
+
+      Logger.debug(
+        'While condition evaluated',
+        category: 'ControlFlow',
+        context: {'condValue': condValue},
+      );
 
       if (!condValue) {
         Logger.debug(
           'While condition is false, breaking',
           category: 'ControlFlow',
+          context: {},
         );
         break;
       }
 
-      // Create a new environment for the loop body
-      final loopEnv = Environment(
-        parent: globals,
-        interpreter: this as Interpreter,
-      );
-      final prevEnv = globals;
+      setCurrentEnv(loopEnv);
 
       try {
-        // Set the loop environment as the current environment
-        setCurrentEnv(loopEnv);
-
-        Logger.debug('Executing while loop body', category: 'ControlFlow');
+        Logger.debugLazy(
+          () => 'Executing while loop body',
+          category: 'ControlFlow',
+          contextBuilder: () => {},
+        );
         if (this is Interpreter) {
           await (this as Interpreter)._executeStatements(node.body);
         } else {
@@ -227,44 +290,27 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           }
         }
       } on BreakException {
-        // Close variables before breaking
-        await loopEnv.closeVariables();
-        // Restore the previous environment
-        setCurrentEnv(prevEnv);
-        // Exit the while loop when a break statement is encountered
+        await resetLoopEnvironment();
         Logger.debug(
           'BreakException caught, breaking while loop',
           category: 'ControlFlow',
+          context: {},
         );
-        break;
+        return null;
       } on ReturnException {
-        // Close variables before re-throwing
-        await loopEnv.closeVariables();
-        // Restore the previous environment
-        setCurrentEnv(prevEnv);
-        // Re-throw ReturnException to be handled by the function
+        await resetLoopEnvironment();
         rethrow;
       } on GotoException {
-        // Close variables before re-throwing
-        await loopEnv.closeVariables();
-        // Restore the previous environment
-        setCurrentEnv(prevEnv);
-        // Re-throw GotoException to be handled by the enclosing scope
+        await resetLoopEnvironment();
         rethrow;
       } catch (e) {
-        // Close variables with the error
-        await loopEnv.closeVariables(e);
-        // Restore the previous environment
-        setCurrentEnv(prevEnv);
-        // Re-throw the error
+        await resetLoopEnvironment(e);
         rethrow;
       } finally {
-        // Close variables in normal loop iteration termination
-        await loopEnv.closeVariables();
-
-        // Restore the previous environment
         setCurrentEnv(prevEnv);
       }
+
+      await resetLoopEnvironment();
     }
 
     return null;
@@ -287,49 +333,107 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       (this as Interpreter).recordTrace(node);
     }
 
-    var start = await node.start.accept(this);
-    var end = await node.endExpr.accept(this);
-    var step = await node.stepExpr.accept(this);
-    Logger.debug(
-      'ForLoop start: $start, end: $end, step: $step',
-      category: 'ControlFlow',
-    );
-
-    if (start is Value && start.raw is num) {
-      start = start.unwrap();
-    }
-    if (end is Value && end.raw is num) {
-      end = end.unwrap();
-    }
-
-    if (step is Value && step.raw is num) {
-      step = step.unwrap();
-    }
-
-    if (start is! num || end is! num || step is! num) {
+    final startResult = await node.start.accept(this);
+    final endResult = await node.endExpr.accept(this);
+    final stepResult = await node.stepExpr.accept(this);
+    num coerceToNumber(Object? value) {
+      if (value is num) {
+        return value;
+      }
+      if (value is Value && value.raw is num) {
+        return value.raw as num;
+      }
       throw Exception("For loop bounds must be numbers");
     }
 
-    try {
-      for (var i = start; step > 0 ? i <= end : i >= end; i += step) {
-        Logger.debug('ForLoop iteration: i = $i', category: 'ControlFlow');
+    final num start = coerceToNumber(startResult);
+    final num end = coerceToNumber(endResult);
+    final num step = coerceToNumber(stepResult);
 
-        // Create a new environment for each loop iteration
-        // Use the current environment as parent to properly handle nested scopes
-        final loopEnv = Environment(
-          parent: globals, // globals represents the current environment
-          interpreter: this as Interpreter,
+    Logger.debug(
+      'ForLoop start: $start, end: $end, step: $step',
+      category: 'ControlFlow',
+      context: {'start': start, 'end': end, 'step': step},
+    );
+
+    final loopEnv = Environment(
+      parent: globals,
+      interpreter: this as Interpreter,
+    );
+    final prevEnv = globals;
+    final loopVarName = node.varName.name;
+    loopEnv.declare(loopVarName, Value(start));
+    final loopVarBox = loopEnv.values[loopVarName]!;
+
+    final compiler = LoopBytecodeCompiler(
+      loopVarName: loopVarName,
+      startValue: start,
+      endValue: end,
+      stepValue: step,
+    );
+    final bytecodeChunk = compiler.compile(node.body);
+    if (bytecodeChunk != null) {
+      final vm = LoopBytecodeVm(environment: loopEnv);
+      try {
+        setCurrentEnv(loopEnv);
+        vm.execute(bytecodeChunk);
+      } finally {
+        await loopEnv.closeVariables();
+        setCurrentEnv(prevEnv);
+      }
+      return null;
+    }
+
+    final baseBindings = Map<String, Box<dynamic>>.from(loopEnv.values);
+    final baseKeys = baseBindings.keys.toSet();
+    final baseToBeClosedLen = loopEnv.toBeClosedVars.length;
+
+    Future<void> resetLoopEnvironment([Object? error]) async {
+      if (loopEnv.toBeClosedVars.length > baseToBeClosedLen) {
+        final namesToClose = <String>[];
+        while (loopEnv.toBeClosedVars.length > baseToBeClosedLen) {
+          namesToClose.add(loopEnv.toBeClosedVars.removeLast());
+        }
+        for (final name in namesToClose) {
+          final box = loopEnv.values.remove(name);
+          final value = box?.value;
+          if (value is Value) {
+            try {
+              await value.close(error);
+            } catch (_) {}
+          }
+        }
+      }
+
+      if (loopEnv.values.length > baseKeys.length) {
+        final keysToRemove = <String>[];
+        loopEnv.values.forEach((key, _) {
+          if (!baseKeys.contains(key)) {
+            keysToRemove.add(key);
+          }
+        });
+        for (final key in keysToRemove) {
+          loopEnv.values.remove(key);
+        }
+      }
+
+      for (final entry in baseBindings.entries) {
+        loopEnv.values[entry.key] = entry.value;
+      }
+    }
+
+    num current = start;
+    try {
+      while (step > 0 ? current <= end : current >= end) {
+        loopVarBox.value = Value(current);
+        Logger.debug(
+          'ForLoop iteration: i = $current',
+          category: 'ControlFlow',
+          context: {'current': current},
         );
-        final prevEnv = globals;
+        setCurrentEnv(loopEnv);
 
         try {
-          // Set the loop environment as the current environment
-          setCurrentEnv(loopEnv);
-
-          // Declare the loop variable in the loop environment (creates new local scope)
-          loopEnv.declare(node.varName.name, Value(i));
-
-          // Execute the loop body
           if (this is Interpreter) {
             await (this as Interpreter)._executeStatements(node.body);
           } else {
@@ -338,51 +442,30 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
             }
           }
         } on BreakException {
-          // Close variables before breaking
-          await loopEnv.closeVariables();
-          // Restore the previous environment
-          setCurrentEnv(prevEnv);
-          // Exit the for loop when a break statement is encountered
+          await resetLoopEnvironment();
           Logger.debug(
             'BreakException caught, breaking for loop',
             category: 'ControlFlow',
           );
-          break;
+          return null;
         } on ReturnException {
-          // Close variables before re-throwing
-          await loopEnv.closeVariables();
-          // Restore the previous environment
-          setCurrentEnv(prevEnv);
-          // Re-throw ReturnException to be handled by the function
+          await resetLoopEnvironment();
           rethrow;
         } on GotoException {
-          // Close variables before re-throwing
-          await loopEnv.closeVariables();
-          // Restore the previous environment
-          setCurrentEnv(prevEnv);
-          // Re-throw GotoException to be handled by the enclosing scope
+          await resetLoopEnvironment();
           rethrow;
         } catch (e) {
-          // Close variables with the error
-          await loopEnv.closeVariables(e);
-          // Restore the previous environment
-          setCurrentEnv(prevEnv);
-          // Re-throw the error
+          await resetLoopEnvironment(e);
           rethrow;
         } finally {
-          // Close variables in normal loop iteration termination
-          await loopEnv.closeVariables();
-
-          // Restore the previous environment
           setCurrentEnv(prevEnv);
         }
+
+        await resetLoopEnvironment();
+        current += step;
       }
-    } on BreakException {
-      // This should not be reached as breaks are handled within the loop
-      Logger.warning(
-        'Unexpected BreakException caught outside loop',
-        category: 'ControlFlow',
-      );
+    } finally {
+      setCurrentEnv(prevEnv);
     }
 
     return null;
@@ -401,21 +484,57 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     Logger.info('Entering repeat-until loop', category: 'ControlFlow');
     bool condValue;
 
+    final loopEnv = Environment(
+      parent: globals,
+      interpreter: this as Interpreter,
+    );
+    final prevEnv = globals;
+    final baseBindings = Map<String, Box<dynamic>>.from(loopEnv.values);
+    final baseKeys = baseBindings.keys.toSet();
+    final baseToBeClosedLen = loopEnv.toBeClosedVars.length;
+
+    Future<void> resetLoopEnvironment([Object? error]) async {
+      if (loopEnv.toBeClosedVars.length > baseToBeClosedLen) {
+        final namesToClose = <String>[];
+        while (loopEnv.toBeClosedVars.length > baseToBeClosedLen) {
+          namesToClose.add(loopEnv.toBeClosedVars.removeLast());
+        }
+        for (final name in namesToClose) {
+          final box = loopEnv.values.remove(name);
+          final value = box?.value;
+          if (value is Value) {
+            try {
+              await value.close(error);
+            } catch (_) {}
+          }
+        }
+      }
+
+      if (loopEnv.values.length > baseKeys.length) {
+        final keysToRemove = <String>[];
+        loopEnv.values.forEach((key, _) {
+          if (!baseKeys.contains(key)) {
+            keysToRemove.add(key);
+          }
+        });
+        for (final key in keysToRemove) {
+          loopEnv.values.remove(key);
+        }
+      }
+
+      for (final entry in baseBindings.entries) {
+        loopEnv.values[entry.key] = entry.value;
+      }
+    }
+
     do {
-      // Create a new environment for each loop iteration
-      final loopEnv = Environment(
-        parent: globals,
-        interpreter: this as Interpreter,
-      );
-      final prevEnv = globals;
+      setCurrentEnv(loopEnv);
 
       try {
-        // Set the loop environment as the current environment
-        setCurrentEnv(loopEnv);
-
         Logger.debug(
           'Executing repeat-until loop body',
           category: 'ControlFlow',
+          context: {},
         );
         if (this is Interpreter) {
           await (this as Interpreter)._executeStatements(node.body);
@@ -426,10 +545,6 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         }
 
         final condition = await node.cond.accept(this);
-        Logger.debug(
-          'Repeat-until condition evaluated to $condition',
-          category: 'ControlFlow',
-        );
 
         if (condition is bool) {
           condValue = condition;
@@ -439,51 +554,39 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           } else if (condition.raw == null || condition.raw == false) {
             condValue = false;
           } else {
-            // Following Lua truthiness rules - anything else is true
             condValue = true;
           }
         } else {
           condValue = false;
         }
+
+        Logger.debug(
+          'Repeat-until condition evaluated',
+          category: 'ControlFlow',
+          context: {'condValue': condValue},
+        );
       } on BreakException {
-        // Close variables before breaking
-        await loopEnv.closeVariables();
-        // Restore the previous environment
-        setCurrentEnv(prevEnv);
-        // Exit the repeat-until loop when a break statement is encountered
+        await resetLoopEnvironment();
         Logger.debug(
           'BreakException caught, breaking repeat-until loop',
           category: 'ControlFlow',
+          context: {},
         );
-        return null; // Exit the loop completely
+        return null;
       } on ReturnException {
-        // Close variables before re-throwing
-        await loopEnv.closeVariables();
-        // Restore the previous environment
-        setCurrentEnv(prevEnv);
-        // Re-throw ReturnException to be handled by the function
+        await resetLoopEnvironment();
         rethrow;
       } on GotoException {
-        // Close variables before re-throwing
-        await loopEnv.closeVariables();
-        // Restore the previous environment
-        setCurrentEnv(prevEnv);
-        // Re-throw GotoException to be handled by the enclosing scope
+        await resetLoopEnvironment();
         rethrow;
       } catch (e) {
-        // Close variables with the error
-        await loopEnv.closeVariables(e);
-        // Restore the previous environment
-        setCurrentEnv(prevEnv);
-        // Re-throw the error
+        await resetLoopEnvironment(e);
         rethrow;
       } finally {
-        // Close variables in normal loop iteration termination
-        await loopEnv.closeVariables();
-
-        // Restore the previous environment
         setCurrentEnv(prevEnv);
       }
+
+      await resetLoopEnvironment();
     } while (!condValue);
 
     return null;
@@ -500,7 +603,11 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitForInLoop(ForInLoop node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
-    Logger.info('Entering for-in loop', category: 'ControlFlow');
+    Logger.infoLazy(
+      () => 'Entering for-in loop',
+      category: 'ControlFlow',
+      contextBuilder: () => {},
+    );
     // Get iterator components from node.iterators
     final iterComponents = await Future.wait(
       node.iterators.map((e) => e.accept(this)),
@@ -509,6 +616,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     Logger.debug(
       'ForInLoop: iterComponents: $iterComponents',
       category: 'ControlFlow',
+      context: {'componentsCount': iterComponents.length},
     );
 
     if (iterComponents.isEmpty) return null;
@@ -520,36 +628,87 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       Logger.debug(
         'ForInLoop: Direct table iteration',
         category: 'ControlFlow',
+        context: {'iterationType': 'direct_table'},
       );
       final table = (iterComponents[0] as Value).raw as Map;
       final entries = table.entries.toList();
 
+      final loopEnv = Environment(
+        parent: globals,
+        interpreter: this as Interpreter,
+      );
+      final prevEnv = globals;
+      final declaredNames = node.names.map((name) => name.name).toList();
+      for (final name in declaredNames) {
+        loopEnv.declare(name, null);
+      }
+
+      final baseBindings = Map<String, Box<dynamic>>.from(loopEnv.values);
+      final baseKeys = baseBindings.keys.toSet();
+      final baseToBeClosedLen = loopEnv.toBeClosedVars.length;
+
+      Future<void> resetLoopEnvironment([Object? error]) async {
+        if (loopEnv.toBeClosedVars.length > baseToBeClosedLen) {
+          final namesToClose = <String>[];
+          while (loopEnv.toBeClosedVars.length > baseToBeClosedLen) {
+            namesToClose.add(loopEnv.toBeClosedVars.removeLast());
+          }
+          for (final name in namesToClose) {
+            final box = loopEnv.values.remove(name);
+            final value = box?.value;
+            if (value is Value) {
+              try {
+                await value.close(error);
+              } catch (_) {}
+            }
+          }
+        }
+
+        if (loopEnv.values.length > baseKeys.length) {
+          final keysToRemove = <String>[];
+          loopEnv.values.forEach((key, _) {
+            if (!baseKeys.contains(key)) {
+              keysToRemove.add(key);
+            }
+          });
+          for (final key in keysToRemove) {
+            loopEnv.values.remove(key);
+          }
+        }
+
+        for (final entry in baseBindings.entries) {
+          loopEnv.values[entry.key] = entry.value;
+        }
+
+        for (final name in declaredNames) {
+          final box = loopEnv.values[name];
+          if (box != null) {
+            if (!box.hasUpvalueReferences) {
+              box.value = null;
+            }
+          }
+        }
+      }
+
+      void assignLoopValues(List<Object?> values) {
+        for (var i = 0; i < declaredNames.length; i++) {
+          final name = declaredNames[i];
+          final rawValue = i < values.length ? values[i] : null;
+          final box = loopEnv.values[name];
+          if (box != null) {
+            box.value = rawValue is Value ? rawValue : Value(rawValue);
+          }
+        }
+      }
+
       try {
-        for (var i = 0; i < entries.length; i++) {
-          final entry = entries[i];
-          final key = entry.key is Value ? entry.key : Value(entry.key);
-          final value = entry.value is Value ? entry.value : Value(entry.value);
+        for (final entry in entries) {
+          final key = entry.key is Value ? entry.key : entry.key;
+          final value = entry.value is Value ? entry.value : entry.value;
 
-          // Create a new environment for each loop iteration
-          final loopEnv = Environment(
-            parent: globals,
-            interpreter: this as Interpreter,
-          );
-          final prevEnv = globals;
-
+          setCurrentEnv(loopEnv);
           try {
-            // Set the loop environment as the current environment
-            setCurrentEnv(loopEnv);
-
-            // For table iteration, we have key, value pairs
-            if (node.names.isNotEmpty) {
-              loopEnv.declare(node.names[0].name, key);
-            }
-            if (node.names.length >= 2) {
-              loopEnv.declare(node.names[1].name, value);
-            }
-
-            // Execute loop body
+            assignLoopValues([key, value]);
             if (this is Interpreter) {
               await (this as Interpreter)._executeStatements(node.body);
             } else {
@@ -558,51 +717,30 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
               }
             }
           } on BreakException {
-            // Close variables before breaking
-            await loopEnv.closeVariables();
-            // Restore the previous environment
-            setCurrentEnv(prevEnv);
-            // Exit the for loop when a break statement is encountered
+            await resetLoopEnvironment();
             Logger.debug(
               'ForInLoop: Break encountered',
               category: 'ControlFlow',
+              context: {},
             );
-            return null; // Exit the loop completely
+            return null;
           } on ReturnException {
-            // Close variables before re-throwing
-            await loopEnv.closeVariables();
-            // Restore the previous environment
-            setCurrentEnv(prevEnv);
-            // Re-throw ReturnException to be handled by the function
+            await resetLoopEnvironment();
             rethrow;
           } on GotoException {
-            // Close variables before re-throwing
-            await loopEnv.closeVariables();
-            // Restore the previous environment
-            setCurrentEnv(prevEnv);
-            // Re-throw GotoException to be handled by the enclosing scope
+            await resetLoopEnvironment();
             rethrow;
           } catch (e) {
-            // Close variables with the error
-            await loopEnv.closeVariables(e);
-            // Restore the previous environment
-            setCurrentEnv(prevEnv);
-            // Re-throw the error
+            await resetLoopEnvironment(e);
             rethrow;
           } finally {
-            // Close variables in normal loop iteration termination
-            await loopEnv.closeVariables();
-
-            // Restore the previous environment
             setCurrentEnv(prevEnv);
           }
+
+          await resetLoopEnvironment();
         }
-      } on BreakException {
-        Logger.warning(
-          'ForInLoop: Break encountered outside loop body',
-          category: 'ControlFlow',
-        );
-        return null;
+      } finally {
+        setCurrentEnv(prevEnv);
       }
 
       return null;
@@ -614,17 +752,19 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       Logger.debug(
         'ForInLoop: Found Value.multi, unwrapping',
         category: 'ControlFlow',
+        context: {},
       );
       components = (iterComponents[0] as Value).raw as List<Object?>;
       Logger.debug(
         'ForInLoop: Unwrapped components: $components',
         category: 'ControlFlow',
+        context: {'componentsCount': components.length},
       );
     } else if (iterComponents[0] is List) {
-      // Handle the case where the first component is already a list (from __pairs metamethod)
       Logger.debug(
         'ForInLoop: First component is a List, using directly',
         category: 'ControlFlow',
+        context: {},
       );
       components = iterComponents[0] as List<Object?>;
     } else {
@@ -672,6 +812,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     Logger.debug(
       'ForInLoop: iterFunc: $iterFunc, state: $state, control: $control',
       category: 'ControlFlow',
+      context: {'hasIterFunc': iterFunc != null, 'hasState': state != null},
     );
 
     // Unwrap iterFunc if needed
@@ -679,6 +820,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       Logger.debug(
         'ForInLoop: Unwrapping iterFunc from Value',
         category: 'ControlFlow',
+        context: {},
       );
       iterFunc = iterFunc.raw;
     }
@@ -687,30 +829,94 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       Logger.warning(
         'ForInLoop: iterFunc is not a Function: ${iterFunc.runtimeType}',
         category: 'ControlFlow',
+        context: {'iterFuncType': iterFunc.runtimeType.toString()},
       );
       throw Exception("For-in loop requires function iterator");
     }
 
+    final loopEnv = Environment(
+      parent: globals,
+      interpreter: this as Interpreter,
+    );
+    final prevEnv = globals;
+    final declaredNames = node.names.map((name) => name.name).toList();
+    for (final name in declaredNames) {
+      loopEnv.declare(name, null);
+    }
+
+    final baseBindings = Map<String, Box<dynamic>>.from(loopEnv.values);
+    final baseKeys = baseBindings.keys.toSet();
+    final baseToBeClosedLen = loopEnv.toBeClosedVars.length;
+
+    Future<void> resetLoopEnvironment([Object? error]) async {
+      if (loopEnv.toBeClosedVars.length > baseToBeClosedLen) {
+        final namesToClose = <String>[];
+        while (loopEnv.toBeClosedVars.length > baseToBeClosedLen) {
+          namesToClose.add(loopEnv.toBeClosedVars.removeLast());
+        }
+        for (final name in namesToClose) {
+          final box = loopEnv.values.remove(name);
+          final value = box?.value;
+          if (value is Value) {
+            try {
+              await value.close(error);
+            } catch (_) {}
+          }
+        }
+      }
+
+      if (loopEnv.values.length > baseKeys.length) {
+        final keysToRemove = <String>[];
+        loopEnv.values.forEach((key, _) {
+          if (!baseKeys.contains(key)) {
+            keysToRemove.add(key);
+          }
+        });
+        for (final key in keysToRemove) {
+          loopEnv.values.remove(key);
+        }
+      }
+
+      for (final entry in baseBindings.entries) {
+        loopEnv.values[entry.key] = entry.value;
+      }
+
+      for (final name in declaredNames) {
+        final box = loopEnv.values[name];
+        if (box != null) {
+          if (!box.hasUpvalueReferences) {
+            box.value = null;
+          }
+        }
+      }
+    }
+
+    void assignLoopValues(List<Object?> values) {
+      for (var i = 0; i < declaredNames.length; i++) {
+        final name = declaredNames[i];
+        final rawValue = i < values.length ? values[i] : null;
+        final box = loopEnv.values[name];
+        if (box != null) {
+          box.value = rawValue is Value ? rawValue : rawValue;
+        }
+      }
+    }
+
     try {
       while (true) {
-        // Call iterator function with state and control variable
         Logger.debug(
           'ForInLoop: Calling iterator with state: $state, control: $control',
           category: 'ControlFlow',
+          context: {},
         );
 
         Object? items;
         try {
           items = await iterFunc([state, control]);
         } catch (e) {
-          // Check if we're in a protected call context (pcall)
           if (this is Interpreter && (this as Interpreter).isInProtectedCall) {
-            // Silently propagate the error to the surrounding pcall/xpcall
-            // without emitting a noisy log entry. The script that invoked
-            // pcall will handle the error object it receives.
             rethrow;
           } else {
-            // Re-throw if not in protected context
             rethrow;
           }
         }
@@ -718,6 +924,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         Logger.debug(
           'ForInLoop: Iterator returned: $items',
           category: 'ControlFlow',
+          context: {'itemsType': items?.runtimeType.toString() ?? 'null'},
         );
 
         if (items == null ||
@@ -726,8 +933,9 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           Logger.debug(
             'ForInLoop: Iterator returned null/empty, breaking loop',
             category: 'ControlFlow',
+            context: {},
           );
-          // Normal loop termination; close to-be-closed variable if present
+          await resetLoopEnvironment();
           if (toCloseVar != null) {
             try {
               await toCloseVar.close();
@@ -738,24 +946,24 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
 
         List<Object?> values;
         if (items is Value && items.isMulti) {
-          // Handle Value.multi return values
           Logger.debug(
             'ForInLoop: Unwrapping Value.multi result',
             category: 'ControlFlow',
+            context: {},
           );
           values = items.raw as List<Object?>;
         } else if (items is List) {
-          // Handle list return value
           Logger.debug(
             'ForInLoop: Using List result directly',
             category: 'ControlFlow',
+            context: {},
           );
           values = items;
         } else {
-          // Handle single return value
           Logger.debug(
             'ForInLoop: Wrapping single value in list',
             category: 'ControlFlow',
+            context: {},
           );
           values = [items];
         }
@@ -763,16 +971,16 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         Logger.debug(
           'ForInLoop: Values for this iteration: $values',
           category: 'ControlFlow',
+          context: {'valuesCount': values.length},
         );
 
-        // Update control variable for next iteration
         final rawControl = values.isNotEmpty ? values[0] : null;
         control = rawControl is Value ? rawControl : Value(rawControl);
         Logger.debug(
           'ForInLoop: Updated control to: $control',
           category: 'ControlFlow',
+          context: {},
         );
-        // Keep debug locals in sync (3rd state is control)
         if (frame != null && frame.debugLocals.length >= 3) {
           frame.debugLocals[2] = MapEntry('(for state)', control);
         }
@@ -781,7 +989,9 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           Logger.debug(
             'ForInLoop: Control is null, breaking loop',
             category: 'ControlFlow',
+            context: {},
           );
+          await resetLoopEnvironment();
           if (toCloseVar != null) {
             try {
               await toCloseVar.close();
@@ -790,29 +1000,9 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           break;
         }
 
-        // Create a new environment for each loop iteration
-        final loopEnv = Environment(
-          parent: globals,
-          interpreter: this as Interpreter,
-        );
-        final prevEnv = globals;
-
+        setCurrentEnv(loopEnv);
         try {
-          // Set the loop environment as the current environment
-          setCurrentEnv(loopEnv);
-
-          // Bind loop variables
-          for (var i = 0; i < node.names.length; i++) {
-            final rawValue = i < values.length ? values[i] : null;
-            final value = rawValue is Value ? rawValue : Value(rawValue);
-            Logger.debug(
-              'ForInLoop: Binding ${node.names[i].name} = $value',
-              category: 'ControlFlow',
-            );
-            loopEnv.declare(node.names[i].name, value);
-          }
-
-          // Execute loop body
+          assignLoopValues(values);
           if (this is Interpreter) {
             await (this as Interpreter)._executeStatements(node.body);
           } else {
@@ -821,49 +1011,32 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
             }
           }
         } on BreakException {
-          // Close variables before breaking
-          await loopEnv.closeVariables();
-          // Restore the previous environment
-          setCurrentEnv(prevEnv);
+          await resetLoopEnvironment();
           Logger.debug(
             'ForInLoop: Break encountered, exiting loop',
             category: 'ControlFlow',
+            context: {},
           );
-          // Close to-be-closed variable when breaking early
           if (toCloseVar != null) {
             try {
               await toCloseVar.close();
             } catch (_) {}
           }
-          return null; // Exit the loop completely
+          return null;
         } on ReturnException {
-          // Close variables before re-throwing
-          await loopEnv.closeVariables();
-          // Restore the previous environment
-          setCurrentEnv(prevEnv);
-          // Re-throw ReturnException to be handled by the function
+          await resetLoopEnvironment();
           rethrow;
         } on GotoException {
-          // Close variables before re-throwing
-          await loopEnv.closeVariables();
-          // Restore the previous environment
-          setCurrentEnv(prevEnv);
-          // Re-throw GotoException to be handled by the enclosing scope
+          await resetLoopEnvironment();
           rethrow;
         } catch (e) {
-          // Close variables with the error
-          await loopEnv.closeVariables(e);
-          // Restore the previous environment
-          setCurrentEnv(prevEnv);
-          // Re-throw the error
+          await resetLoopEnvironment(e);
           rethrow;
         } finally {
-          // Close variables in normal loop iteration termination
-          await loopEnv.closeVariables();
-
-          // Restore the previous environment
           setCurrentEnv(prevEnv);
         }
+
+        await resetLoopEnvironment();
       }
     } catch (e) {
       // Ensure resource is closed on unexpected errors leaving the loop
@@ -878,6 +1051,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           'ForInLoop: Error in for-in loop: $e',
           error: e,
           node: node,
+          context: {'errorType': e.runtimeType.toString()},
         );
       }
       rethrow;
@@ -930,7 +1104,11 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitDoBlock(DoBlock node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
-    Logger.info('Entering do block', category: 'ControlFlow');
+    Logger.infoLazy(
+      () => 'Entering do block',
+      category: 'ControlFlow',
+      contextBuilder: () => {},
+    );
 
     // Create a new environment for the block scope
     final blockEnv = Environment(
@@ -945,7 +1123,11 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       // Set the block environment as the current environment
       setCurrentEnv(blockEnv);
 
-      Logger.debug('Executing do block statements', category: 'ControlFlow');
+      Logger.debugLazy(
+        () => 'Executing do block statements',
+        category: 'ControlFlow',
+        contextBuilder: () => {},
+      );
       if (this is Interpreter) {
         result = await (this as Interpreter)._executeStatements(node.body);
       } else {
@@ -977,6 +1159,14 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       // Close variables in normal block termination
       await blockEnv.closeVariables();
 
+      // Clear all Box values in the block environment to allow GC
+      // This prevents old Box objects from keeping values alive after scope ends
+      for (final box in blockEnv.values.values) {
+        if (!box.hasUpvalueReferences) {
+          box.value = null;
+        }
+      }
+
       // Restore the previous environment
       setCurrentEnv(prevEnv);
     }
@@ -994,7 +1184,11 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitElseIfClause(ElseIfClause node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
-    Logger.info('Entering elseif clause', category: 'ControlFlow');
+    Logger.infoLazy(
+      () => 'Entering elseif clause',
+      category: 'ControlFlow',
+      contextBuilder: () => {},
+    );
     final condition = await node.cond.accept(this);
     Logger.debug(
       'ElseIf condition evaluated to $condition',

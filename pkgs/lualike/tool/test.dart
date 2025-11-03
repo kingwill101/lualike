@@ -2,8 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:archive/archive.dart';
 import 'package:args/args.dart';
 import 'package:dart_console/dart_console.dart';
+import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as path;
 
 import 'compiler.dart';
@@ -11,7 +13,8 @@ import 'utils.dart';
 
 /// List of Lua test files to run
 final testFiles = [
-  'calls.lua',
+  // 'gc.lua',
+  // 'calls.lua',
   'attrib.lua',
   'goto.lua',
   'bitwise.lua',
@@ -51,13 +54,135 @@ class TestResult {
 }
 
 /// Helper function to handle process output
-Future<List<String>> collectProcessOutput(Stream<List<int>> stream) async {
+/// If streaming is enabled, output will be printed in real-time
+Future<List<String>> collectProcessOutput(
+  Stream<List<int>> stream, {
+  bool streaming = false,
+  ConsoleColor? color,
+  String prefix = "  ", // Prefix for each line when streaming
+}) async {
   final output = <String>[];
   await for (final line
       in stream.transform(utf8.decoder).transform(const LineSplitter())) {
     output.add(line);
+
+    // If streaming is enabled, print the line immediately
+    if (streaming) {
+      if (color != null) {
+        console.setForegroundColor(color);
+      }
+      console.write(prefix);
+      console.writeLine(line);
+      if (color != null) {
+        console.resetColorAttributes();
+      }
+    }
   }
   return output;
+}
+
+/// Download and extract the Lua test suite
+Future<void> downloadLuaTestSuite({
+  String downloadUrl = 'https://www.lua.org/tests/lua-5.4.7-tests.tar.gz',
+  String testSuitePath = '.lua-tests',
+  bool force = false,
+}) async {
+  final url = Uri.parse(downloadUrl);
+  final destinationPath = Directory(testSuitePath);
+
+  if (destinationPath.existsSync() && !force) {
+    console.setForegroundColor(ConsoleColor.yellow);
+    console.write('Test suite already exists at ');
+    console.setTextStyle(bold: true);
+    console.write(destinationPath.path);
+    console.resetColorAttributes();
+    console.write(' (use --force to override)');
+    console.writeLine();
+    return;
+  }
+
+  if (force && destinationPath.existsSync()) {
+    console.setForegroundColor(ConsoleColor.yellow);
+    console.write('Removing existing test suite at ');
+    console.setTextStyle(bold: true);
+    console.write(destinationPath.path);
+    console.resetColorAttributes();
+    console.writeLine();
+    destinationPath.deleteSync(recursive: true);
+  }
+
+  console.setForegroundColor(ConsoleColor.cyan);
+  console.write('Downloading test suite from ');
+  console.setTextStyle(bold: true);
+  console.write(url.toString());
+  console.resetColorAttributes();
+  console.write(' to ');
+  console.setTextStyle(bold: true);
+  console.write(destinationPath.path);
+  console.resetColorAttributes();
+  console.writeLine();
+
+  try {
+    final request = http.Request('GET', url);
+    final streamedResponse = await http.Client().send(request);
+    if (streamedResponse.statusCode == 200) {
+      final bytes = await streamedResponse.stream.toBytes();
+      console.setForegroundColor(ConsoleColor.green);
+      console.write('✓ Download complete. ');
+      console.resetColorAttributes();
+      console.write('Extracting...');
+      console.writeLine();
+
+      // Create the destination directory if it doesn't exist
+      if (!destinationPath.existsSync()) {
+        destinationPath.createSync(recursive: true);
+      }
+
+      // Extract the archive
+      final archive = TarDecoder().decodeBytes(gzip.decode(bytes));
+      for (final file in archive) {
+        final filename = file.name;
+        // Extract only files from the tests folder
+        if (!filename.startsWith('lua-5.4.7-tests/')) {
+          continue;
+        }
+        final relativePath = filename.replaceFirst('lua-5.4.7-tests/', '');
+        if (file.isFile) {
+          final filePath = path.join(destinationPath.path, relativePath);
+          final outFile = File(filePath);
+          final parent = Directory(path.dirname(filePath));
+          if (!parent.existsSync()) {
+            parent.createSync(recursive: true);
+          }
+          outFile.writeAsBytesSync(file.content as List<int>);
+        } else {
+          final dirPath = path.join(destinationPath.path, relativePath);
+          final dir = Directory(dirPath);
+          dir.createSync(recursive: true);
+        }
+      }
+
+      console.setForegroundColor(ConsoleColor.green);
+      console.write('✓ Extraction complete.');
+      console.resetColorAttributes();
+      console.writeLine();
+    } else {
+      console.setForegroundColor(ConsoleColor.red);
+      console.write('✗ Error downloading test suite. Status code: ');
+      console.write(streamedResponse.statusCode.toString());
+      console.resetColorAttributes();
+      console.writeLine();
+      exit(1);
+    }
+  } catch (e, stackTrace) {
+    console.setForegroundColor(ConsoleColor.red);
+    console.write('✗ Error downloading or extracting test suite: ');
+    console.write(e.toString());
+    console.resetColorAttributes();
+    console.writeLine();
+    console.writeLine('Stack trace: $stackTrace');
+    exit(1);
+  }
 }
 
 /// Compile the lualike binary using smart compilation
@@ -164,16 +289,32 @@ Future<void> main(List<String> args) async {
       help: 'Show this help message.',
     )
     ..addFlag(
+      'force',
+      abbr: 'f',
+      negatable: false,
+      help: 'Force operations (compile, download) ignoring existing files',
+    )
+    ..addFlag(
+      'download-suite',
+      abbr: 'd',
+      negatable: false,
+      help: 'Download the Lua test suite',
+    )
+    ..addOption(
+      'suite-url',
+      help: 'URL to download the Lua test suite from',
+      defaultsTo: 'https://www.lua.org/tests/lua-5.4.7-tests.tar.gz',
+    )
+    ..addOption(
+      'suite-path',
+      help: 'Path where the test suite will be stored',
+      defaultsTo: '.lua-tests',
+    )
+    ..addFlag(
       'skip-compile',
       abbr: 's',
       negatable: false,
       help: 'Skip compile if lualike binary exists',
-    )
-    ..addFlag(
-      'force-compile',
-      abbr: 'f',
-      negatable: false,
-      help: 'Force recompilation ignoring cache',
     )
     ..addFlag(
       'verbose',
@@ -221,6 +362,11 @@ Future<void> main(List<String> args) async {
     ..addOption(
       'dart-path',
       help: 'Path to the Dart executable (defaults to "dart" in PATH)',
+    )
+    ..addFlag(
+      'debug',
+      negatable: false,
+      help: 'Pass --debug flag to the lualike binary when running tests.',
     );
 
   ArgResults r;
@@ -260,6 +406,16 @@ Future<void> main(List<String> args) async {
   }
 
   final dartPath = r['dart-path'] as String? ?? defaultDartPath;
+  final force = r['force'] as bool;
+  // Handle download-suite flag
+  if (r['download-suite'] as bool) {
+    await downloadLuaTestSuite(
+      downloadUrl: r['suite-url'] as String,
+      testSuitePath: r['suite-path'] as String,
+      force: force,
+    );
+    exit(0);
+  }
 
   // Handle compile-runner flag
   if (r['compile-runner'] as bool) {
@@ -269,10 +425,9 @@ Future<void> main(List<String> args) async {
 
   final binaryExists = File(getExecutableName('lualike')).existsSync();
   final shouldSkipCompile = (r['skip-compile'] as bool) && binaryExists;
-  final forceCompile = r['force-compile'] as bool;
 
   if (!shouldSkipCompile) {
-    await compile(force: forceCompile, dartPath: dartPath);
+    await compile(force: force, dartPath: dartPath);
   } else {
     console.setForegroundColor(ConsoleColor.yellow);
     console.write("Skip-compile flag specified, using existing binary");
@@ -331,11 +486,25 @@ Future<void> main(List<String> args) async {
     }
   }
 
+  bool verboseEnabled = r['verbose'] as bool;
+  final debugEnabled = r['debug'] as bool;
+
+  // If --debug flag is set, --verbose must also be enabled.
+  if (debugEnabled && !verboseEnabled) {
+    verboseEnabled = true;
+    console.setForegroundColor(ConsoleColor.yellow);
+    console.writeLine(
+      "Note: --debug implies --verbose. Live output streaming enabled.",
+    );
+    console.resetColorAttributes();
+  }
+
   final results = await runTests(
     tests: testsToRun,
-    verbose: r['verbose'] as bool,
+    verbose: verboseEnabled,
     soft: r['soft'] as bool, // default true  => _soft = true
     port: r['port'] as bool, // default true  => _port = true
+    debug: debugEnabled, // new debug flag
   );
 
   printTestSummary(results);
@@ -346,12 +515,46 @@ Future<void> main(List<String> args) async {
   }
 }
 
-/// Run the specified tests and return results
+/// Resolve a test entry to an absolute file path.
+/// Supports:
+/// - Known suite files (from [testFiles]) located under `luascripts/test/`
+/// - Arbitrary file paths (relative or absolute) anywhere in the repo
+String _resolveTestPath(String entry) {
+  // If entry is a known suite file, look under default scripts dir
+  if (testFiles.contains(entry)) {
+    final p = path.normalize(path.join('luascripts', 'test', entry));
+    if (File(p).existsSync()) return path.normalize(path.absolute(p));
+  }
+
+  // Otherwise, treat entry as a path. Try as-is (relative to CWD)
+  if (File(entry).existsSync()) return path.normalize(path.absolute(entry));
+
+  // Try relative to default scripts dir
+  final underDefault = path.normalize(path.join('luascripts', 'test', entry));
+  if (File(underDefault).existsSync()) {
+    return path.normalize(path.absolute(underDefault));
+  }
+
+  // Try under pkg path (common when calling from repo root)
+  final underPkg = path.normalize(
+    path.join('pkgs', 'lualike', 'luascripts', 'test', entry),
+  );
+  if (File(underPkg).existsSync()) {
+    return path.normalize(path.absolute(underPkg));
+  }
+
+  throw ArgumentError('Test not found: $entry');
+}
+
+/// Run the specified tests and return results.
+/// If a provided item in `tests` is not a known test name, it will be
+/// validated as a file path and executed directly.
 Future<List<TestResult>> runTests({
   List<String> tests = const [],
   bool verbose = false,
   bool soft = true,
   bool port = true,
+  bool debug = false, // new debug parameter
 }) async {
   final results = <TestResult>[];
   final testsToRun = tests.isEmpty ? testFiles : tests;
@@ -372,27 +575,80 @@ Future<List<TestResult>> runTests({
     initParts.add(soft ? '_soft = true' : '_soft = false');
     final luaInit = initParts.join('; ');
 
-    // Provide absolute path to compiled binary so child can resolve 'lualike'
+    // Resolve lualike binary and target test path
     final lualikeBinary = getExecutableName('lualike');
     final binaryPath = path.join(Directory.current.path, lualikeBinary);
+    late final String targetPath;
+    try {
+      targetPath = _resolveTestPath(file);
+    } catch (e) {
+      console.setForegroundColor(ConsoleColor.red);
+      console.write('✗ ');
+      console.setTextStyle(bold: true);
+      console.write('Test not found');
+      console.resetColorAttributes();
+      console.write(': ');
+      console.writeLine(file);
+      // Fail fast for missing files
+      results.add(
+        TestResult(
+          fileName: file,
+          exitCode: 1,
+          duration: Duration.zero,
+          output: const [],
+          errors: ['Test not found: $file'],
+        ),
+      );
+      continue;
+    }
 
     final environment = {
       'LUA_INIT': luaInit,
       'LUALIKE_BIN': binaryPath,
       ...Platform.environment,
     };
-    final workingDir = path.join('luascripts', 'test');
+    // Always run from repo root and pass absolute path to the script. This
+    // avoids duplicating the working directory prefix when tests are given
+    // as relative paths under luascripts/test/.
+    final workingDir = Directory.current.path;
+
+    final processArgs = <String>[];
+    if (debug) {
+      processArgs.add('--debug');
+    }
+    processArgs.add(targetPath);
 
     final process = await Process.start(
       binaryPath,
-      [file],
+      processArgs, // Pass built arguments
       environment: environment,
       workingDirectory: workingDir,
     );
 
+    // Set up streaming for verbose mode
+    final streamOutput = verbose;
+
+    // Print header for streamed output if verbose is enabled
+    if (streamOutput) {
+      console.writeLine();
+      console.setForegroundColor(ConsoleColor.cyan);
+      console.setTextStyle(bold: true);
+      console.write("Live output:");
+      console.resetColorAttributes();
+      console.writeLine();
+    }
+
     // Collect stdout and stderr
-    final stdoutFuture = collectProcessOutput(process.stdout);
-    final stderrFuture = collectProcessOutput(process.stderr);
+    final stdoutFuture = collectProcessOutput(
+      process.stdout,
+      streaming: streamOutput,
+      color: ConsoleColor.white,
+    );
+    final stderrFuture = collectProcessOutput(
+      process.stderr,
+      streaming: streamOutput,
+      color: ConsoleColor.red,
+    );
 
     // Wait for process to complete
     final exitCode = await process.exitCode;
@@ -426,8 +682,8 @@ Future<List<TestResult>> runTests({
       console.writeLine();
     }
 
-    // Print verbose output if requested
-    if (verbose) {
+    // Only print the collected output at the end if we weren't already streaming it
+    if (verbose && !streamOutput) {
       if (result.output.isNotEmpty) {
         console.writeLine();
         console.setForegroundColor(ConsoleColor.white);
@@ -435,7 +691,7 @@ Future<List<TestResult>> runTests({
         console.resetColorAttributes();
         console.writeLine();
         for (final line in result.output) {
-          console.writeLine("  $line");
+          console.writeLine(line);
         }
       }
 
@@ -446,11 +702,14 @@ Future<List<TestResult>> runTests({
         console.resetColorAttributes();
         console.writeLine();
         for (final line in result.errors) {
-          console.writeLine("  $line");
+          console.writeLine(line);
         }
       }
+    }
 
-      console.writeLine(); // Empty line for spacing
+    // Add an empty line for spacing between tests
+    if (verbose) {
+      console.writeLine();
     }
   }
 
