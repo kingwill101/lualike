@@ -7,6 +7,7 @@ import 'package:collection/collection.dart' show ListEquality;
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/binary_type_size.dart';
 import 'package:lualike/src/chunk_serializer.dart';
+import 'package:lualike/src/bytecode/vm.dart' show BytecodeClosure;
 import 'package:lualike/src/intern.dart';
 import 'package:lualike/src/number_limits.dart';
 import 'package:lualike/src/parsers/pattern.dart' as lpc;
@@ -1299,8 +1300,34 @@ class _StringGsub extends BuiltinFunction {
       final lp = lpc.LuaPattern.compile(pattern);
 
       String result;
-      if (repl.raw is Function) {
-        final replFunc = repl.raw as Function;
+      Future<dynamic> invokeCallable(Value callable, List<Value> captures) async {
+        try {
+          if (callable.raw is Function) {
+            final result = (callable.raw as Function)(captures);
+            return result is Future ? await result : result;
+          }
+          final runtime = interpreter;
+          if (runtime == null) {
+            throw LuaError.typeError("Invalid replacement type");
+          }
+          return await runtime.callFunction(callable, captures);
+        } on TailCallException catch (t) {
+          final runtime = interpreter;
+          if (runtime == null) rethrow;
+          final callee = t.functionValue is Value
+              ? t.functionValue as Value
+              : Value(t.functionValue);
+          final normalizedArgs = t.args
+              .map((a) => a is Value ? a : Value(a))
+              .toList();
+          return await runtime.callFunction(callee, normalizedArgs);
+        }
+      }
+
+      if (repl.raw is Function ||
+          repl.raw is BuiltinFunction ||
+          repl.raw is BytecodeClosure ||
+          repl.isCallable()) {
         final buffer = StringBuffer();
         var lastEnd = 0;
         final matches = lp.allMatches(str);
@@ -1320,23 +1347,7 @@ class _StringGsub extends BuiltinFunction {
             }
           }
 
-          dynamic replacement;
-          try {
-            replacement = replFunc(captures);
-            if (replacement is Future) {
-              replacement = await replacement;
-            }
-          } on TailCallException catch (t) {
-            final vm = interpreter;
-            if (vm == null) rethrow;
-            final callee = t.functionValue is Value
-                ? t.functionValue as Value
-                : Value(t.functionValue);
-            final normalizedArgs = t.args
-                .map((a) => a is Value ? a : Value(a))
-                .toList();
-            replacement = await vm.callFunction(callee, normalizedArgs);
-          }
+          final replacement = await invokeCallable(repl, captures);
 
           if (replacement == null ||
               (replacement is Value &&

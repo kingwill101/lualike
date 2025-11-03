@@ -43,4 +43,56 @@ void main() {
       expect(numeric, equals(42));
     });
   });
+
+  group('BytecodeRuntime load & stdlib integration', () {
+    late LuaLike bridge;
+    Object? unwrap(Object? candidate) {
+      if (candidate is Value) {
+        final raw = candidate.unwrap();
+        return raw is LuaString ? raw.toString() : raw;
+      }
+      if (candidate is LuaString) {
+        return candidate.toString();
+      }
+      return candidate;
+    }
+
+    setUp(() {
+      bridge = LuaLike(runtime: BytecodeRuntime());
+    });
+
+    test('loaded chunk can access math library', () async {
+      final result = await bridge.execute('''
+        local chunk = assert(load("return math.sqrt(49)"))
+        return chunk()
+      ''');
+      expect(unwrap(result), equals(7));
+    });
+
+    test('pcall surfaces math.huge shift error message', () async {
+      final result = await bridge.execute(r'''
+        local ok, err = pcall(function()
+          return math.huge << 1
+        end)
+        return ok, err
+      ''');
+
+      expect(result, isA<List>());
+      final values = (result as List).map(unwrap).toList();
+      expect(values, hasLength(2));
+
+      final okValue = values[0];
+      final errValue = values[1];
+
+      expect(okValue, isFalse);
+      expect(errValue, contains("field 'huge'"));
+    });
+
+    test('string colon methods resolve via bytecode runtime', () async {
+      final result = await bridge.execute(
+        r"return ('value %d'):format(21)",
+      );
+      expect(unwrap(result), equals('value 21'));
+    });
+  });
 }
