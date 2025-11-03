@@ -59,7 +59,9 @@ class BytecodeRuntime implements LuaRuntime {
         print('--- End Disassembly ---');
       }
     }
-    final vm = BytecodeVm(environment: globals, runtime: this);
+    final env = _interpreter.getCurrentEnv();
+    _ensureEnvironmentBinding(env);
+    final vm = BytecodeVm(environment: env, runtime: this);
     return vm.execute(chunk);
   }
 
@@ -79,7 +81,9 @@ class BytecodeRuntime implements LuaRuntime {
 
     final raw = callee.raw;
     if (raw is BytecodeClosure) {
-      final vm = BytecodeVm(environment: globals, runtime: this);
+      final env = _interpreter.getCurrentEnv();
+      _ensureEnvironmentBinding(env);
+      final vm = BytecodeVm(environment: env, runtime: this);
       return vm.invokeClosure(raw, args);
     }
 
