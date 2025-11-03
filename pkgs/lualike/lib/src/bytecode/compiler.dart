@@ -90,6 +90,27 @@ class _PrototypeContext {
   final Map<String, int> _labelPositions = <String, int>{};
   final List<_PendingGoto> _pendingGotos = <_PendingGoto>[];
 
+  bool _isRegisterOccupiedByLocal(int reg) {
+    for (final scope in _localScopes) {
+      if (scope.containsValue(reg)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  int _firstFreeRegister() {
+    var maxReg = -1;
+    for (final scope in _localScopes) {
+      for (final reg in scope.values) {
+        if (reg > maxReg) {
+          maxReg = reg;
+        }
+      }
+    }
+    return maxReg + 1;
+  }
+
   void _pushLocalScope() {
     _localScopes.add(<String, int>{});
     _toBeClosedScopes.add(<int>[]);
@@ -1401,9 +1422,14 @@ class _PrototypeContext {
       'Cannot request a fixed result count when capturing all results.',
     );
 
-    final base = baseRegister != null
+    var base = baseRegister != null
         ? _ensureRegister(baseRegister)
         : _allocateRegister();
+    if (baseRegister == null) {
+      while (_isRegisterOccupiedByLocal(base)) {
+        base = _allocateRegister();
+      }
+    }
     _emitExpression(node.name, target: base);
 
     final argRegs = <int>[];
@@ -1482,7 +1508,6 @@ class _PrototypeContext {
     int? baseRegister,
   }) {
     _trackSource(node);
-    final objectReg = _emitExpression(node.prefix);
     if (node.methodName is! Identifier) {
       throw UnsupportedError(
         'Bytecode compiler requires identifier method names for method calls.',
@@ -1490,31 +1515,31 @@ class _PrototypeContext {
     }
 
     final methodIdentifier = node.methodName as Identifier;
-    final funcReg = baseRegister != null
+    var funcReg = baseRegister != null
         ? _ensureRegister(baseRegister)
-        : objectReg;
+        : _allocateRegister();
+    if (baseRegister == null) {
+      while (_isRegisterOccupiedByLocal(funcReg)) {
+        funcReg = _allocateRegister();
+      }
+    }
     final fieldIndex = _ensureConstantIndex(methodIdentifier.name);
 
     final argRegs = <int>[];
     var hasVariadicArgs = false;
-    final selfReg = _allocateRegister();
+    _ensureRegister(funcReg + 1);
+    final objectReg = _emitExpression(node.prefix, target: funcReg + 1);
     emitter.emitABC(
-      opcode: BytecodeOpcode.move,
-      a: selfReg,
-      b: objectReg,
-      c: 0,
-    );
-    argRegs.add(selfReg);
-
-    emitter.emitABC(
-      opcode: BytecodeOpcode.getField,
+      opcode: BytecodeOpcode.selfOp,
       a: funcReg,
-      b: selfReg,
+      b: objectReg,
       c: fieldIndex,
     );
+    argRegs.add(funcReg + 1);
 
     for (var i = 0; i < node.args.length; i++) {
-      final reg = _allocateRegister();
+      final reg = funcReg + 2 + i;
+      _ensureRegister(reg);
       argRegs.add(reg);
       final argument = node.args[i];
       final isLastArg = i == node.args.length - 1;
@@ -1565,10 +1590,6 @@ class _PrototypeContext {
       if (requested > 1) {
         _ensureRegister(funcReg + requested - 1);
       }
-    }
-
-    if (funcReg != objectReg) {
-      _releaseRegister(objectReg);
     }
 
     return _CallEmissionResult(
@@ -2317,6 +2338,10 @@ class _PrototypeContext {
   }
 
   int _allocateRegister() {
+    final minFree = _firstFreeRegister();
+    if (_nextRegister < minFree) {
+      _nextRegister = minFree;
+    }
     final reg = _nextRegister;
     _nextRegister += 1;
     if (_nextRegister > _maxRegister) {
@@ -2344,6 +2369,10 @@ class _PrototypeContext {
       'Registers must be released in LIFO order',
     );
     _nextRegister -= 1;
+    final minFree = _firstFreeRegister();
+    if (_nextRegister < minFree) {
+      _nextRegister = minFree;
+    }
   }
 }
 

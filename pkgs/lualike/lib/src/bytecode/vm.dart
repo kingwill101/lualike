@@ -1568,13 +1568,13 @@ class BytecodeVm {
     final args = <Object?>[state, control];
     final results = await _normalizeResults(await _callValue(iterator, args));
     final controlRaw = results.isNotEmpty ? results.first : null;
-    final controlValue =
-        controlRaw == null ? null : _ensureValue(controlRaw);
+    final controlValue = controlRaw == null ? null : _ensureValue(controlRaw);
     frame.setRegister(base + 3, controlValue);
     for (var i = 0; i < resultCount; i++) {
       final resultIndex = i + 1;
-      final rawValue =
-          resultIndex < results.length ? results[resultIndex] : null;
+      final rawValue = resultIndex < results.length
+          ? results[resultIndex]
+          : null;
       final storedValue = rawValue == null ? null : _ensureValue(rawValue);
       frame.setRegister(base + 4 + i, storedValue);
     }
@@ -1583,11 +1583,50 @@ class BytecodeVm {
   dynamic _tableGet(dynamic tableRef, dynamic key) {
     final tableValue = _ensureValue(tableRef);
     final keyValue = _ensureValue(key);
-    final result = tableValue[keyValue];
-    if (result is Value) {
-      _ensureInterpreterAttached(result);
+    final lookup = tableValue[keyValue];
+    final resolved = _ensureMetamethodLookup(tableValue, keyValue, lookup);
+    if (resolved is Value) {
+      _ensureInterpreterAttached(resolved);
     }
-    return result;
+    return resolved;
+  }
+
+  dynamic _ensureMetamethodLookup(Value subject, Value key, dynamic result) {
+    final isNilResult =
+        result == null || (result is Value && result.raw == null);
+    if (!isNilResult) {
+      return result;
+    }
+    final stringLib = environment.get('string');
+    if (stringLib is! Value) {
+      return result;
+    }
+    final methodEntry = stringLib[Value(key.raw)];
+    if (methodEntry is! Value || methodEntry.raw == null) {
+      return result;
+    }
+    return Value((List<Object?> callArgs) async {
+      final normalizedArgs = callArgs.map(_prepareCallArgument).toList();
+      final hasSelf =
+          normalizedArgs.isNotEmpty &&
+          normalizedArgs.first is Value &&
+          (normalizedArgs.first as Value).raw == subject.raw;
+      _logVm(
+        () =>
+            'metamethod fallback key=${key.raw} hasSelf=$hasSelf args=${normalizedArgs.map(_describeValue).join(', ')}',
+        categories: const {'Metamethod', 'String'},
+      );
+      if (!hasSelf) {
+        normalizedArgs.insert(0, subject);
+        _logVm(
+          () =>
+              'metamethod fallback inserted subject -> ${normalizedArgs.map(_describeValue).join(', ')}',
+          categories: const {'Metamethod', 'String'},
+        );
+      }
+      final result = await _callValue(methodEntry, normalizedArgs);
+      return result;
+    });
   }
 
   void _tableSet(dynamic tableRef, dynamic key, dynamic value) {
@@ -1628,12 +1667,12 @@ class BytecodeVm {
     );
     if (callable is Value) {
       _ensureInterpreterAttached(callable);
+      final preparedArgs = args.isEmpty
+          ? const <Object?>[]
+          : args.map(_prepareCallArgument).toList(growable: false);
       final raw = callable.unwrap();
       if (raw is Function) {
-        final normalizedArgs = args
-            .map((arg) => arg is Value ? arg.raw : arg)
-            .toList(growable: false);
-        final result = raw(normalizedArgs);
+        final result = raw(preparedArgs);
         final awaited = result is Future ? await result : result;
         _logVm(
           () =>
@@ -1642,7 +1681,7 @@ class BytecodeVm {
         );
         return awaited;
       }
-      final awaited = await callable.call(args);
+      final awaited = await callable.call(preparedArgs);
       _logVm(
         () => 'callValue result ${_describeValue(awaited)} (Value.call)',
         categories: const {'Call', 'HostCall'},
@@ -1650,7 +1689,10 @@ class BytecodeVm {
       return awaited;
     }
     if (callable is Function) {
-      final result = callable(args);
+      final preparedArgs = args.isEmpty
+          ? const <Object?>[]
+          : args.map(_prepareCallArgument).toList(growable: false);
+      final result = callable(preparedArgs);
       final awaited = result is Future ? await result : result;
       _logVm(
         () => 'callValue result ${_describeValue(awaited)} (Function)',
