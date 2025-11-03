@@ -5,6 +5,7 @@ import 'package:lualike/src/chunk_serializer.dart';
 
 import 'package:lualike/lualike.dart';
 
+import 'package:lualike/src/bytecode/vm.dart' show BytecodeClosure;
 import 'package:lualike/src/const_checker.dart';
 import 'package:lualike/src/goto_validator.dart';
 import 'package:lualike/src/io/lua_file.dart';
@@ -1303,13 +1304,13 @@ class LoadFunction extends BuiltinFunction {
                   category: 'Load',
                 );
               } else {
-                // When no environment is provided (nil), create a restricted environment
-                // that only has access to the global _G table, not the local calling scope
-                loadEnv = Environment(
-                  parent: null,
-                  interpreter: interpreter,
-                  isLoadIsolated: true,
-                );
+              // When no environment is provided (nil), create a restricted environment
+              // that only has access to the global _G table, not the local calling scope
+              loadEnv = Environment(
+                parent: null,
+                interpreter: interpreter,
+                isLoadIsolated: true,
+              );
 
                 // Only provide access to the global _G table
                 final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G');
@@ -2060,7 +2061,8 @@ class PCAllFunction extends BuiltinFunction {
           func.raw is BuiltinFunction ||
           func.raw is Function ||
           func.raw is FunctionBody ||
-          func.raw is FunctionDef)) {
+          func.raw is FunctionDef ||
+          func.raw is BytecodeClosure)) {
         throw LuaError.typeError("attempt to call a ${getLuaType(func)} value");
       }
 
@@ -2195,13 +2197,17 @@ class XPCallFunction extends BuiltinFunction {
     final msgh = args[1] as Value;
     final callArgs = args.sublist(2);
 
-    if (func.raw is! Function && func.raw is! BuiltinFunction) {
+    if (func.raw is! Function &&
+        func.raw is! BuiltinFunction &&
+        func.raw is! BytecodeClosure) {
       throw LuaError.typeError(
         "xpcall requires a function as its first argument",
       );
     }
 
-    if (msgh.raw is! Function && msgh.raw is! BuiltinFunction) {
+    if (msgh.raw is! Function &&
+        msgh.raw is! BuiltinFunction &&
+        msgh.raw is! BytecodeClosure) {
       throw LuaError.typeError(
         "xpcall requires a function as its second argument",
       );

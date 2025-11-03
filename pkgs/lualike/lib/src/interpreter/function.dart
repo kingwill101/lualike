@@ -1422,6 +1422,38 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                   rethrow;
                 }
               }
+            } else if (func.raw is BytecodeClosure) {
+              if (Logger.enabled) {
+                Logger.debug(
+                  '>>> Calling bytecode closure via interpreter bridge',
+                  category: 'Interpreter',
+                );
+              }
+              final closure = func.raw as BytecodeClosure;
+              final LuaRuntime runtime =
+                  func.interpreter ?? (this as LuaRuntime);
+              final Environment env =
+                  this is Interpreter ? (this as Interpreter).getCurrentEnv() : globals;
+              final vm = BytecodeVm(
+                environment: env,
+                runtime: runtime,
+              );
+              final normalizedArgs = args
+                  .map((arg) => arg is Value ? arg : Value(arg))
+                  .toList(growable: false);
+              for (final arg in normalizedArgs) {
+                if (!identical(arg.interpreter, runtime)) {
+                  arg.interpreter = runtime;
+                }
+              }
+              final result = await vm.invokeClosure(closure, normalizedArgs);
+              if (Logger.enabled) {
+                Logger.debug(
+                  '>>> Bytecode closure result: $result',
+                  category: 'Interpreter',
+                );
+              }
+              return result;
             } else if (func.raw is String) {
               final funkLookup = globals.get(func.raw);
               if (funkLookup != null) {
