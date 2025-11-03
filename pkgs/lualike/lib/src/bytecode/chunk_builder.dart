@@ -25,6 +25,8 @@ class BytecodePrototypeBuilder {
   final List<BytecodeUpvalueDescriptor> upvalueDescriptors = [];
   BytecodeDebugInfo? debugInfo;
   final List<int> _lineInfo = [];
+  final Set<int> _constRegisters = <int>{};
+  final Map<int, List<int>> _constSealPoints = <int, List<int>>{};
 
   List<BytecodeInstruction> get instructions =>
       List.unmodifiable(_instructions);
@@ -59,6 +61,23 @@ class BytecodePrototypeBuilder {
     return ChildPrototypeBuilder(builder: builder, index: index);
   }
 
+  void markRegisterConst(int register) {
+    if (register >= 0) {
+      _constRegisters.add(register);
+    }
+  }
+
+  void scheduleConstSeal(int instructionIndex, int register) {
+    if (instructionIndex < 0) {
+      return;
+    }
+    final list = _constSealPoints.putIfAbsent(
+      instructionIndex,
+      () => <int>[],
+    );
+    list.add(register);
+  }
+
   BytecodePrototype build() {
     BytecodeDebugInfo? info = debugInfo;
     if (_lineInfo.length < _instructions.length) {
@@ -75,6 +94,13 @@ class BytecodePrototypeBuilder {
       );
     }
 
+    final constFlags = List<bool>.filled(registerCount, false);
+    for (final index in _constRegisters) {
+      if (index >= 0 && index < constFlags.length) {
+        constFlags[index] = true;
+      }
+    }
+
     return BytecodePrototype(
       registerCount: registerCount,
       paramCount: paramCount,
@@ -86,6 +112,10 @@ class BytecodePrototypeBuilder {
       lineDefined: lineDefined,
       lastLineDefined: lastLineDefined,
       debugInfo: info,
+      registerConstFlags: constFlags,
+      constSealPoints: _constSealPoints.map(
+        (key, value) => MapEntry(key, List<int>.unmodifiable(value)),
+      ),
     );
   }
 

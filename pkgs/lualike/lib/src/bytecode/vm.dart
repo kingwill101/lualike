@@ -16,36 +16,38 @@ import 'prototype.dart';
 const int _returnAll = -1;
 
 class BytecodeUpvalueCell {
-  BytecodeUpvalueCell.fromRegister(List<dynamic> registers, int index)
-    : _registers = registers,
+  BytecodeUpvalueCell.fromFrame(_BytecodeFrame frame, int index)
+    : _frame = frame,
       _index = index,
-      _closedValue = registers[index];
+      _closedValue = frame.getRegister(index);
 
-  List<dynamic>? _registers;
+  _BytecodeFrame? _frame;
   final int _index;
   dynamic _closedValue;
 
   dynamic get value {
-    final registers = _registers;
-    if (registers != null) {
-      return registers[_index];
+    final frame = _frame;
+    if (frame != null) {
+      return frame.getRegister(_index);
     }
     return _closedValue;
   }
 
   set value(dynamic newValue) {
-    final registers = _registers;
-    if (registers != null) {
-      registers[_index] = newValue;
+    final frame = _frame;
+    if (frame != null) {
+      frame.setRegister(_index, newValue);
+      _closedValue = frame.getRegister(_index);
+      return;
     }
     _closedValue = newValue;
   }
 
   void close() {
-    final registers = _registers;
-    if (registers != null) {
-      _closedValue = registers[_index];
-      _registers = null;
+    final frame = _frame;
+    if (frame != null) {
+      _closedValue = frame.getRegister(_index);
+      _frame = null;
     }
   }
 }
@@ -82,7 +84,12 @@ class _BytecodeFrame {
        ),
        varargs = prototype.isVararg && args.length > prototype.paramCount
            ? List<dynamic>.from(args.sublist(prototype.paramCount))
-           : <dynamic>[] {
+           : <dynamic>[],
+       _constFlags = List<bool>.from(prototype.registerConstFlags),
+       _constSealed = List<bool>.filled(
+         prototype.registerConstFlags.length,
+         false,
+       ) {
     final paramCount = prototype.paramCount;
     for (var i = 0; i < paramCount; i++) {
       setRegister(i, i < args.length ? args[i] : null);
@@ -93,6 +100,9 @@ class _BytecodeFrame {
   final List<dynamic> registers;
   final List<BytecodeUpvalueCell> upvalues;
   final List<dynamic> varargs;
+  final List<bool> _constFlags;
+  final List<bool> _constSealed;
+  int lastExecutedPc = -1;
   int pc = 0;
   int returnBase;
   int expectedResults;
@@ -112,9 +122,30 @@ class _BytecodeFrame {
     if (index >= registers.length) {
       registers.length = index + 1;
     }
+    if (index < _constFlags.length && _constFlags[index]) {
+      if (_constSealed[index]) {
+        final opcode =
+            lastExecutedPc >= 0 &&
+                lastExecutedPc < prototype.instructions.length
+            ? prototype.instructions[lastExecutedPc].opcode.name
+            : 'unknown';
+        // Temporary instrumentation
+        // ignore: avoid_print
+        print(
+          'Const write violation at register $index (pc=${lastExecutedPc}, opcode=$opcode)',
+        );
+        throw LuaError('attempt to assign to const variable');
+      }
+    }
     registers[index] = value;
     if (index >= top) {
       top = index + 1;
+    }
+  }
+
+  void sealConstRegister(int index) {
+    if (index >= 0 && index < _constSealed.length) {
+      _constSealed[index] = true;
     }
   }
 
@@ -136,7 +167,7 @@ class _BytecodeFrame {
   BytecodeUpvalueCell captureRegister(int index) {
     return _registerUpvalues.putIfAbsent(
       index,
-      () => BytecodeUpvalueCell.fromRegister(registers, index),
+      () => BytecodeUpvalueCell.fromFrame(this, index),
     );
   }
 
@@ -319,6 +350,7 @@ class BytecodeVm {
 
       final instruction = instructions[frame.pc];
       frame.pc += 1;
+      frame.lastExecutedPc = frame.pc - 1;
 
       _updateCallStackLine(frame, frame.pc - 1);
 
@@ -489,19 +521,28 @@ class BytecodeVm {
           frame.pc += instr.sJ;
           break;
         case BytecodeOpcode.tForPrep:
-          final instr = instruction as AsBxInstruction;
-          frame.pc += instr.sBx;
-          break;
+          {
+            final instr = instruction as AsBxInstruction;
+            final base = instr.a;
+            final closing = frame.getRegister(base + 3);
+            final control = frame.getRegister(base + 2);
+            frame.setRegister(base + 3, control);
+            frame.setRegister(base + 2, closing);
+            frame.pc += instr.sBx;
+            break;
+          }
         case BytecodeOpcode.tForCall:
           final instr = instruction as ABCInstruction;
           await _executeTForCall(frame, instr.a, instr.c);
           break;
         case BytecodeOpcode.tForLoop:
-          final instr = instruction as AsBxInstruction;
-          if (!_isTruthy(registers[instr.a + 2])) {
-            frame.pc += instr.sBx;
+          {
+            final instr = instruction as AsBxInstruction;
+            if (!_isTruthy(registers[instr.a + 3])) {
+              frame.pc += instr.sBx;
+            }
+            break;
           }
-          break;
         case BytecodeOpcode.closure:
           final instr = instruction as ABxInstruction;
           frame.setRegister(instr.a, _createClosure(frame, instr.bx));
@@ -1018,6 +1059,13 @@ class BytecodeVm {
             'Opcode ${instruction.opcode} not yet supported in BytecodeVm',
           );
       }
+
+      final seals = frame.prototype.constSealPoints[frame.lastExecutedPc];
+      if (seals != null) {
+        for (final reg in seals) {
+          frame.sealConstRegister(reg);
+        }
+      }
     }
 
     return finalResults ?? const <dynamic>[];
@@ -1515,16 +1563,20 @@ class BytecodeVm {
     final registers = frame.registers;
     final iterator = registers[base];
     final state = registers[base + 1];
-    final control = registers[base + 2];
+    final control = registers[base + 3];
 
     final args = <Object?>[state, control];
     final results = await _normalizeResults(await _callValue(iterator, args));
-
-    frame.setRegister(base + 2, results.isNotEmpty ? results.first : null);
+    final controlRaw = results.isNotEmpty ? results.first : null;
+    final controlValue =
+        controlRaw == null ? null : _ensureValue(controlRaw);
+    frame.setRegister(base + 3, controlValue);
     for (var i = 0; i < resultCount; i++) {
       final resultIndex = i + 1;
-      final value = resultIndex < results.length ? results[resultIndex] : null;
-      frame.setRegister(base + 3 + i, value);
+      final rawValue =
+          resultIndex < results.length ? results[resultIndex] : null;
+      final storedValue = rawValue == null ? null : _ensureValue(rawValue);
+      frame.setRegister(base + 4 + i, storedValue);
     }
   }
 

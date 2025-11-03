@@ -87,6 +87,8 @@ class _PrototypeContext {
   final List<Map<String, int>> _localScopes;
   final List<List<int>> _toBeClosedScopes;
   final Map<String, int> _upvalues = <String, int>{};
+  final Map<String, int> _labelPositions = <String, int>{};
+  final List<_PendingGoto> _pendingGotos = <_PendingGoto>[];
 
   void _pushLocalScope() {
     _localScopes.add(<String, int>{});
@@ -258,6 +260,13 @@ class _PrototypeContext {
         return _emitDoBlock(node);
       case AssignmentIndexAccessExpr():
         _emitAssignmentIndexAccessExpr(node);
+        return false;
+      case Label():
+        _trackSource(node);
+        _defineLabel(node.label.name);
+        return false;
+      case Goto():
+        _emitGoto(node);
         return false;
       default:
         throw UnsupportedError(
@@ -593,6 +602,11 @@ class _PrototypeContext {
         closableIndices.add(i);
         continue;
       }
+      if (attribute == 'const') {
+        // Const locals behave like regular locals in the VM today. Enforcement
+        // is handled by the interpreter when values escape to environments.
+        continue;
+      }
       throw UnsupportedError(
         'Bytecode compiler does not yet support local declaration attribute '
         '<$attribute>.',
@@ -617,13 +631,14 @@ class _PrototypeContext {
       _declareLocal(identifier.name, register);
       targetRegs.add(register);
     }
-
     final result = _emitAssignmentValues(node.exprs, nameCount);
     final protected = <int>{};
 
     for (var i = 0; i < nameCount; i++) {
       final targetReg = targetRegs[i];
       final valueReg = result.registers[i];
+      final attribute = node.attributes.length > i ? node.attributes[i] : '';
+      final isConst = attribute == 'const';
       if (targetReg != valueReg) {
         emitter.emitABC(
           opcode: BytecodeOpcode.move,
@@ -631,8 +646,19 @@ class _PrototypeContext {
           b: valueReg,
           c: 0,
         );
+        if (isConst) {
+          final sealPc = _currentInstructionIndex - 1;
+          builder.scheduleConstSeal(sealPc, targetReg);
+        }
       } else {
         protected.add(valueReg);
+        if (isConst) {
+          final sealPc = _currentInstructionIndex - 1;
+          builder.scheduleConstSeal(sealPc, targetReg);
+        }
+      }
+      if (isConst) {
+        builder.markRegisterConst(targetReg);
       }
     }
 
@@ -1029,18 +1055,50 @@ class _PrototypeContext {
     }
 
     final base = _allocateRegister();
-    final stateReg = _allocateRegister();
-    final controlReg = _allocateRegister();
+    final stateReg = _ensureRegister(base + 1);
+    final controlReg = _ensureRegister(base + 2);
+    final closingReg = _ensureRegister(base + 3);
     final loopVarRegs = <int>[];
+    final safeBase = base + 3 + node.names.length;
     for (var i = 0; i < node.names.length; i++) {
-      loopVarRegs.add(_allocateRegister());
+      loopVarRegs.add(_ensureRegister(safeBase + i));
     }
 
+    var filledSlots = 0;
     for (var i = 0; i < iteratorCount; i++) {
-      _emitExpression(node.iterators[i], target: base + i);
+      final iterator = node.iterators[i];
+      final targetReg = base + i;
+      final isFirstIterator = i == 0;
+      if (isFirstIterator) {
+        switch (iterator) {
+          case FunctionCall():
+            _emitFunctionCall(
+              iterator,
+              resultCount: 3,
+              baseRegister: targetReg,
+            );
+            filledSlots = 3;
+            continue;
+          case MethodCall():
+            _emitMethodCall(iterator, resultCount: 3, baseRegister: targetReg);
+            filledSlots = 3;
+            continue;
+          default:
+            break;
+        }
+      }
+      _emitExpression(iterator, target: targetReg);
+      filledSlots = i + 1;
     }
-    for (var i = iteratorCount; i < 3; i++) {
-      emitter.emitABC(opcode: BytecodeOpcode.loadNil, a: base + i, b: 0, c: 0);
+    if (filledSlots < 3) {
+      for (var i = filledSlots; i < 3; i++) {
+        emitter.emitABC(
+          opcode: BytecodeOpcode.loadNil,
+          a: base + i,
+          b: 0,
+          c: 0,
+        );
+      }
     }
 
     final tforPrepIndex = emitter.emitAsBx(
@@ -1063,6 +1121,15 @@ class _PrototypeContext {
     );
 
     final bodyStart = _currentInstructionIndex;
+
+    for (var i = node.names.length - 1; i >= 0; i--) {
+      emitter.emitABC(
+        opcode: BytecodeOpcode.move,
+        a: loopVarRegs[i],
+        b: base + 3 + i,
+        c: 0,
+      );
+    }
 
     _pushLocalScope();
     for (var i = 0; i < node.names.length; i++) {
@@ -1093,6 +1160,11 @@ class _PrototypeContext {
     for (var i = loopVarRegs.length - 1; i >= 0; i--) {
       _releaseRegister(loopVarRegs[i]);
     }
+    final resultReleaseStart = base + 3 + node.names.length - 1;
+    for (var reg = resultReleaseStart; reg >= base + 4; reg--) {
+      _releaseRegister(reg);
+    }
+    _releaseRegister(closingReg);
     _releaseRegister(controlReg);
     _releaseRegister(stateReg);
     _releaseRegister(base);
@@ -1275,18 +1347,33 @@ class _PrototypeContext {
   int _emitLogicalBinaryExpression(BinaryExpression node, {int? target}) {
     _trackSource(node);
     final isAnd = node.op == 'and';
-    final resultReg = _emitExpression(node.left, target: target);
+    final tempReg = _emitExpression(node.left);
     emitter.emitABC(
       opcode: BytecodeOpcode.test,
-      a: resultReg,
+      a: tempReg,
       b: 0,
       c: 0,
       k: !isAnd,
     );
     final jumpIndex = _emitJumpPlaceholder();
-    _emitExpression(node.right, target: resultReg);
+    _emitExpression(node.right, target: tempReg);
     _patchJump(jumpIndex, _currentInstructionIndex);
-    return resultReg;
+
+    if (target != null) {
+      final destination = _ensureRegister(target);
+      if (destination != tempReg) {
+        emitter.emitABC(
+          opcode: BytecodeOpcode.move,
+          a: destination,
+          b: tempReg,
+          c: 0,
+        );
+        _releaseRegister(tempReg);
+      }
+      return destination;
+    }
+
+    return tempReg;
   }
 
   int get _currentInstructionIndex => builder.instructions.length;
@@ -1323,7 +1410,9 @@ class _PrototypeContext {
     var hasVariadicArgs = false;
     for (var i = 0; i < node.args.length; i++) {
       final argument = node.args[i];
-      final reg = _allocateRegister();
+      final reg = baseRegister != null
+          ? _ensureRegister(base + i + 1)
+          : _allocateRegister();
       argRegs.add(reg);
       final isLastArg = i == node.args.length - 1;
       if (argument is VarArg) {
@@ -1356,8 +1445,10 @@ class _PrototypeContext {
 
     emitter.emitABC(opcode: opcode, a: base, b: bOperand, c: cOperand);
 
-    for (var i = argRegs.length - 1; i >= 0; i--) {
-      _releaseRegister(argRegs[i]);
+    if (baseRegister == null) {
+      for (var i = argRegs.length - 1; i >= 0; i--) {
+        _releaseRegister(argRegs[i]);
+      }
     }
 
     if (hasVariadicArgs) {
@@ -1602,10 +1693,140 @@ class _PrototypeContext {
       return _emitConcatenation(node, target: target);
     }
 
-    final literalValue = _literalValue(node.right);
-    final leftReg = _emitExpression(node.left, target: target);
+    final isComparison = const {
+      '==',
+      '~=',
+      '!=',
+      '<',
+      '>',
+      '<=',
+      '>=',
+    }.contains(node.op);
 
-    if (literalValue case int intLiteral) {
+    final leftReg = isComparison
+        ? _emitExpression(node.left)
+        : _emitExpression(node.left, target: target);
+    final resultReg = target != null ? _materializeRegister(target) : leftReg;
+
+    final literalInfo = _literalValue(node.right);
+    final literalValue = literalInfo.value;
+
+    if (isComparison) {
+      if (literalInfo.isLiteral) {
+        final handled = switch (node.op) {
+          '==' => _emitEqualityWithLiteral(
+            leftReg,
+            resultReg,
+            literalValue,
+            negate: false,
+          ),
+          '~=' || '!=' => _emitEqualityWithLiteral(
+            leftReg,
+            resultReg,
+            literalValue,
+            negate: true,
+          ),
+          '<' => _emitRelationalWithLiteral(
+            leftReg,
+            resultReg,
+            literalValue,
+            BytecodeOpcode.ltI,
+          ),
+          '<=' => _emitRelationalWithLiteral(
+            leftReg,
+            resultReg,
+            literalValue,
+            BytecodeOpcode.leI,
+          ),
+          '>' => _emitRelationalWithLiteral(
+            leftReg,
+            resultReg,
+            literalValue,
+            BytecodeOpcode.gtI,
+          ),
+          '>=' => _emitRelationalWithLiteral(
+            leftReg,
+            resultReg,
+            literalValue,
+            BytecodeOpcode.geI,
+          ),
+          _ => false,
+        };
+        if (handled) {
+          if (resultReg != leftReg) {
+            _releaseRegister(leftReg);
+          }
+          return resultReg;
+        }
+      }
+
+      final rightReg = _emitExpression(node.right);
+      switch (node.op) {
+        case '==':
+          emitter.emitABC(
+            opcode: BytecodeOpcode.eq,
+            a: resultReg,
+            b: leftReg,
+            c: rightReg,
+          );
+          break;
+        case '~=':
+        case '!=':
+          emitter.emitABC(
+            opcode: BytecodeOpcode.eq,
+            a: resultReg,
+            b: leftReg,
+            c: rightReg,
+          );
+          emitter.emitABC(
+            opcode: BytecodeOpcode.notOp,
+            a: resultReg,
+            b: resultReg,
+            c: 0,
+          );
+          break;
+        case '<':
+          emitter.emitABC(
+            opcode: BytecodeOpcode.lt,
+            a: resultReg,
+            b: leftReg,
+            c: rightReg,
+          );
+          break;
+        case '>':
+          emitter.emitABC(
+            opcode: BytecodeOpcode.lt,
+            a: resultReg,
+            b: rightReg,
+            c: leftReg,
+          );
+          break;
+        case '<=':
+          emitter.emitABC(
+            opcode: BytecodeOpcode.le,
+            a: resultReg,
+            b: leftReg,
+            c: rightReg,
+          );
+          break;
+        case '>=':
+          emitter.emitABC(
+            opcode: BytecodeOpcode.le,
+            a: resultReg,
+            b: rightReg,
+            c: leftReg,
+          );
+          break;
+      }
+      _releaseRegister(rightReg);
+      if (resultReg != leftReg) {
+        _releaseRegister(leftReg);
+      }
+      return resultReg;
+    }
+
+    if (literalInfo.isLiteral && literalValue is int) {
+      final intLiteral = literalValue;
       if (node.op == '<<' && intLiteral >= 0 && intLiteral <= 255) {
         emitter.emitABC(
           opcode: BytecodeOpcode.shlI,
@@ -1626,7 +1847,8 @@ class _PrototypeContext {
       }
     }
 
-    if (literalValue case num numericValue) {
+    if (literalInfo.isLiteral && literalValue is num) {
+      final numericValue = literalValue;
       final opcode = _opcodeForBinaryConstant(node.op);
       if (opcode != null) {
         final constantIndex = _ensureConstantIndex(numericValue);
@@ -1641,14 +1863,41 @@ class _PrototypeContext {
       }
     }
 
-    if (literalValue case final Object? value) {
+    if (literalInfo.isLiteral) {
+      final value = literalValue;
       final handled = switch (node.op) {
-        '==' => _emitEqualityWithLiteral(leftReg, value, negate: false),
-        '~=' || '!=' => _emitEqualityWithLiteral(leftReg, value, negate: true),
-        '<' => _emitRelationalWithLiteral(leftReg, value, BytecodeOpcode.ltI),
-        '<=' => _emitRelationalWithLiteral(leftReg, value, BytecodeOpcode.leI),
-        '>' => _emitRelationalWithLiteral(leftReg, value, BytecodeOpcode.gtI),
-        '>=' => _emitRelationalWithLiteral(leftReg, value, BytecodeOpcode.geI),
+        '==' => _emitEqualityWithLiteral(
+          leftReg,
+          leftReg,
+          value,
+          negate: false,
+        ),
+        '~=' ||
+        '!=' => _emitEqualityWithLiteral(leftReg, leftReg, value, negate: true),
+        '<' => _emitRelationalWithLiteral(
+          leftReg,
+          leftReg,
+          value,
+          BytecodeOpcode.ltI,
+        ),
+        '<=' => _emitRelationalWithLiteral(
+          leftReg,
+          leftReg,
+          value,
+          BytecodeOpcode.leI,
+        ),
+        '>' => _emitRelationalWithLiteral(
+          leftReg,
+          leftReg,
+          value,
+          BytecodeOpcode.gtI,
+        ),
+        '>=' => _emitRelationalWithLiteral(
+          leftReg,
+          leftReg,
+          value,
+          BytecodeOpcode.geI,
+        ),
         _ => false,
       };
       if (handled) {
@@ -1825,31 +2074,33 @@ class _PrototypeContext {
     }
   }
 
-  Object? _literalValue(AstNode node) {
+  ({bool isLiteral, Object? value}) _literalValue(AstNode node) {
     switch (node) {
       case NilValue():
-        return null;
+        return (isLiteral: true, value: null);
       case BooleanLiteral(value: final value):
-        return value;
+        return (isLiteral: true, value: value);
       case StringLiteral(:final bytes):
-        return String.fromCharCodes(bytes);
+        return (isLiteral: true, value: String.fromCharCodes(bytes));
       case NumberLiteral():
       case UnaryExpression():
-        return _numericLiteralValue(node);
+        final numeric = _numericLiteralValue(node);
+        return (isLiteral: numeric != null, value: numeric);
       default:
-        return null;
+        return (isLiteral: false, value: null);
     }
   }
 
   bool _emitEqualityWithLiteral(
     int leftReg,
+    int resultReg,
     Object? value, {
     required bool negate,
   }) {
     if (value is int) {
       emitter.emitABC(
         opcode: BytecodeOpcode.eqI,
-        a: leftReg,
+        a: resultReg,
         b: leftReg,
         c: value,
       );
@@ -1857,7 +2108,7 @@ class _PrototypeContext {
       final constantIndex = _ensureConstantIndex(value);
       emitter.emitABC(
         opcode: BytecodeOpcode.eqK,
-        a: leftReg,
+        a: resultReg,
         b: leftReg,
         c: constantIndex,
       );
@@ -1866,8 +2117,8 @@ class _PrototypeContext {
     if (negate) {
       emitter.emitABC(
         opcode: BytecodeOpcode.notOp,
-        a: leftReg,
-        b: leftReg,
+        a: resultReg,
+        b: resultReg,
         c: 0,
       );
     }
@@ -1877,13 +2128,14 @@ class _PrototypeContext {
 
   bool _emitRelationalWithLiteral(
     int leftReg,
+    int resultReg,
     Object? value,
     BytecodeOpcode opcode,
   ) {
     if (value is! int) {
       return false;
     }
-    emitter.emitABC(opcode: opcode, a: leftReg, b: leftReg, c: value);
+    emitter.emitABC(opcode: opcode, a: resultReg, b: leftReg, c: value);
     return true;
   }
 
@@ -1981,6 +2233,11 @@ class _PrototypeContext {
       emitter.emitABC(opcode: BytecodeOpcode.return0, a: 0, b: 0, c: 0);
     }
 
+    if (_pendingGotos.isNotEmpty) {
+      final unresolved = _pendingGotos.map((g) => g.label).toSet().join(', ');
+      throw UnsupportedError('no visible label for goto $unresolved');
+    }
+
     final registers = _maxRegister == 0 ? 1 : _maxRegister;
     builder.registerCount = registers;
   }
@@ -2013,6 +2270,43 @@ class _PrototypeContext {
       }
     }
     return url.toString();
+  }
+
+  void _emitGoto(Goto node) {
+    _trackSource(node);
+    final jumpIndex = emitter.emitAsJ(opcode: BytecodeOpcode.jmp, sJ: 0);
+    _pendingGotos.add(
+      _PendingGoto(label: node.label.name, jumpIndex: jumpIndex),
+    );
+    _resolveGoto(node.label.name);
+  }
+
+  void _defineLabel(String name) {
+    final position = _currentInstructionIndex;
+    _labelPositions[name] = position;
+    _resolveGoto(name);
+  }
+
+  void _resolveGoto(String label) {
+    final target = _labelPositions[label];
+    if (target == null) {
+      return;
+    }
+    for (var i = 0; i < _pendingGotos.length;) {
+      final entry = _pendingGotos[i];
+      if (entry.label != label) {
+        i += 1;
+        continue;
+      }
+      final instruction =
+          builder.instructions[entry.jumpIndex] as AsJInstruction;
+      final offset = target - entry.jumpIndex - 1;
+      builder.replaceInstruction(
+        entry.jumpIndex,
+        AsJInstruction(opcode: instruction.opcode, sJ: offset),
+      );
+      _pendingGotos.removeAt(i);
+    }
   }
 
   int _materializeRegister(int? target) {
@@ -2051,6 +2345,13 @@ class _PrototypeContext {
     );
     _nextRegister -= 1;
   }
+}
+
+class _PendingGoto {
+  const _PendingGoto({required this.label, required this.jumpIndex});
+
+  final String label;
+  final int jumpIndex;
 }
 
 class _TableConstructorHints {
