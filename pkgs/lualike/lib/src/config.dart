@@ -14,4 +14,7 @@ class LuaLikeConfig {
 
   /// Preferred execution engine when none is specified explicitly.
   EngineMode defaultEngineMode = EngineMode.ast;
+
+  /// When true, the bytecode runtime will print compiled instructions.
+  bool dumpBytecode = false;
 }
