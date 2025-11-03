@@ -54,6 +54,13 @@ class LuaLikeCommandRunner extends CommandRunner {
 
     argParser.addFlag('bytecode', help: 'Use bytecode VM', defaultsTo: false);
 
+    argParser.addFlag(
+      'dump-bytecode',
+      help: 'Print bytecode instructions after compilation (bytecode mode)',
+      negatable: false,
+      defaultsTo: false,
+    );
+
     // Add standard Lua options
     argParser.addMultiOption(
       'execute',
@@ -113,6 +120,7 @@ class LuaLikeCommandRunner extends CommandRunner {
       } else {
         config.defaultEngineMode = EngineMode.ast;
       }
+      config.dumpBytecode = argResults['dump-bytecode'] as bool;
       BaseCommand.resetBridge();
 
       // Handle debug mode

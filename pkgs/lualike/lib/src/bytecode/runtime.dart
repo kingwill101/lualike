@@ -1,7 +1,9 @@
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/bytecode/compiler.dart';
+import 'package:lualike/src/bytecode/disassembler.dart';
 import 'package:lualike/src/bytecode/vm.dart';
 import 'package:lualike/src/call_stack.dart';
+import 'package:lualike/src/config.dart';
 import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/file_manager.dart';
@@ -48,6 +50,15 @@ class BytecodeRuntime implements LuaRuntime {
   @override
   Future<Object?> runAst(List<AstNode> program) async {
     final chunk = BytecodeCompiler().compile(Program(program));
+    if (LuaLikeConfig().dumpBytecode) {
+      final disassembly = disassembleChunk(chunk);
+      if (disassembly.isNotEmpty) {
+        // Use print so output is visible even when logging is disabled.
+        print('--- Bytecode Disassembly ---');
+        print(disassembly);
+        print('--- End Disassembly ---');
+      }
+    }
     final vm = BytecodeVm(environment: globals, runtime: this);
     return vm.execute(chunk);
   }

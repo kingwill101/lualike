@@ -6,6 +6,7 @@ import 'parse.dart';
 import 'runtime/lua_runtime.dart';
 import 'config.dart';
 import 'bytecode/compiler.dart';
+import 'bytecode/disassembler.dart';
 import 'bytecode/vm.dart';
 
 typedef RuntimeSetupCallback = void Function(LuaRuntime);
@@ -42,6 +43,14 @@ Future<Object?> executeCode(
   try {
     if (selectedMode == EngineMode.bytecode) {
       final chunk = BytecodeCompiler().compile(program);
+      if (LuaLikeConfig().dumpBytecode) {
+        final disassembly = disassembleChunk(chunk);
+        if (disassembly.isNotEmpty) {
+          print('--- Bytecode Disassembly ---');
+          print(disassembly);
+          print('--- End Disassembly ---');
+        }
+      }
       final result = await BytecodeVm(
         environment: runtime.globals,
         runtime: runtime,
