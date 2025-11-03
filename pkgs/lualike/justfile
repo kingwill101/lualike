@@ -58,3 +58,6 @@ file +ARG:
 
 example +ARG:
     dart run example/{{ARG}}.dart
+
+download-luasuite:
+     dart tool/test.dart --download-suite --force

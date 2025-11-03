@@ -9,8 +9,9 @@ void main() {
 
     setUp(() {
       interpreter = Interpreter();
-      GenerationalGCManager.initialize(interpreter);
-      gc = GenerationalGCManager.instance;
+      gc = interpreter.gc;
+      // Stop incremental GC to prevent it from sweeping test objects
+      gc.stop();
     });
 
     test('weak keys table removes entries with dead keys', () async {
@@ -19,8 +20,9 @@ void main() {
       weakTable.setMetatable({'__mode': 'k'});
 
       // Add entries
-      final strongKey = Value('strong_key');
-      final weakKey = Value('weak_key');
+      // Use collectable keys (tables) so weak-keys semantics apply
+      final strongKey = Value(<dynamic, dynamic>{});
+      final weakKey = Value(<dynamic, dynamic>{});
       final value1 = Value('value1');
       final value2 = Value('value2');
 
@@ -56,7 +58,7 @@ void main() {
         final weakTable = Value({});
         weakTable.setMetatable({'__mode': 'k'});
 
-        final key = Value('key');
+        final key = Value(<dynamic, dynamic>{});
         final value = Value('value');
         final anotherValue = Value('another_value');
 
@@ -90,7 +92,7 @@ void main() {
         final weakTable = Value({});
         weakTable.setMetatable({'__mode': 'k'});
 
-        final key = Value('key');
+        final key = Value(<dynamic, dynamic>{});
         final value = Value('value');
 
         weakTable.raw[key] = value;
@@ -123,8 +125,8 @@ void main() {
       final weakTable2 = Value({});
       weakTable2.setMetatable({'__mode': 'k'});
 
-      final key1 = Value('key1');
-      final key2 = Value('key2');
+      final key1 = Value(<dynamic, dynamic>{});
+      final key2 = Value(<dynamic, dynamic>{});
       final value1 = Value('value1');
       final value2 = Value('value2');
 
@@ -135,8 +137,8 @@ void main() {
 
       // Make key2 the same as value1, and key1 the same as value2
       // This creates an ephemeron cycle that should converge
-      final cycleKey = Value('cycle_key');
-      final cycleValue = Value('cycle_value');
+      final cycleKey = Value(<dynamic, dynamic>{});
+      final cycleValue = Value(<dynamic, dynamic>{});
       weakTable1.raw[cycleKey] = cycleValue;
       weakTable2.raw[cycleValue] = cycleKey;
 
@@ -269,6 +271,57 @@ void main() {
       expect(strongRefs.contains(key), true);
       expect(strongRefs.contains(value), true);
     });
+
+    test(
+      'weak keys survive incremental marking only when still reachable',
+      () async {
+        final weakTable = Value({});
+        weakTable.setMetatable({'__mode': 'k'});
+
+        const lim = 5;
+        final ephemeralKeys = <Value>[];
+
+        for (var i = 1; i <= lim; i++) {
+          final key = Value({});
+          ephemeralKeys.add(key);
+          await weakTable.setValueAsync(key, Value(i));
+        }
+
+        for (var i = 1; i <= lim; i++) {
+          await weakTable.setValueAsync(Value(i), Value(i));
+        }
+
+        for (var i = 1; i <= lim; i++) {
+          final s = Value(List.filled(i, '@').join());
+          await weakTable.setValueAsync(s, Value('${s.raw}#'));
+        }
+
+        final rootEnv = Environment();
+        rootEnv.define('weak_table', Box<Value>(weakTable));
+
+        // Simulate incremental marking before a major collection.
+        gc.performIncrementalStep(8);
+
+        await gc.majorCollection([rootEnv]);
+
+        final tableMap = weakTable.raw as Map;
+        final survivingEphemeral = tableMap.entries
+            .where(
+              (entry) =>
+                  entry.key is Value &&
+                  ephemeralKeys.any((value) => identical(value, entry.key)),
+            )
+            .length;
+
+        expect(survivingEphemeral, 0);
+
+        for (var i = 1; i <= lim; i++) {
+          expect(tableMap[Value(i)], Value(i));
+          final s = List.filled(i, '@').join();
+          expect(tableMap[Value(s)], Value('$s#'));
+        }
+      },
+    );
 
     test('minor collections do not apply weak keys semantics', () async {
       final weakTable = Value({});

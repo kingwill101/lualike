@@ -12,7 +12,14 @@ class MetaTable {
   final Map<String, ValueClass> _typeMetatables = {};
   final Map<String, Value?> _typeMetatableRefs = {};
   bool _numberMetatableEnabled = false;
-  Interpreter? _interpreter;
+  LuaRuntime? _interpreter;
+
+  // Cache for stdlib methods to avoid repeated lookups and wrapper creation
+  final Map<String, dynamic> _cachedStringMethods = {};
+
+  // Cache method wrappers per-string-instance to avoid creating new closures
+  static final Expando<Map<String, Value>> _stringMethodCache =
+      Expando<Map<String, Value>>('stringMethodCache');
 
   factory MetaTable() {
     return _instance;
@@ -20,12 +27,21 @@ class MetaTable {
 
   MetaTable._internal();
 
-  static void initialize(Interpreter interpreter) {
+  static void initialize(LuaRuntime interpreter) {
     _instance._interpreter = interpreter;
     _instance._initialize(interpreter);
   }
 
-  void _initialize(Interpreter interpreter) {
+  static void refreshStringCache() {
+    final instance = _instance;
+    final interpreter = instance._interpreter;
+    if (interpreter == null) {
+      return;
+    }
+    instance._cacheStdlibMethods(interpreter, force: true);
+  }
+
+  void _initialize(LuaRuntime interpreter) {
     if (_initialized) {
       Logger.debug(
         'MetaTable already initialized, skipping',
@@ -58,56 +74,73 @@ class MetaTable {
         );
 
         if (key.raw is String) {
-          // Get string functions from the environment's string table
-          final stringTable = interpreter.globals.get('string');
-          if (stringTable is Value && stringTable.raw is Map) {
-            final stringMap = stringTable.raw as Map;
-            final method = stringMap[key.raw];
-            if (method != null) {
+          final keyStr = key.raw as String;
+
+          // Check if we've cached a wrapper for this string+method combination
+          var methodCache = _stringMethodCache[str];
+          if (methodCache != null) {
+            final cachedWrapper = methodCache[keyStr];
+            if (cachedWrapper != null) {
               Logger.debug(
-                'Found string method: ${key.raw}',
+                'Returning cached method wrapper for $keyStr',
+                category: 'Metatables',
+              );
+              return cachedWrapper;
+            }
+          }
+
+          // Use cached method lookup to avoid repeated string table access
+          final method = _cachedStringMethods[keyStr];
+          if (method != null) {
+            Logger.debug(
+              'Found cached string method: $keyStr',
+              category: 'Metatables',
+            );
+
+            // Create method wrapper and cache it on this string instance
+            final wrapper = Value((callArgs) {
+              Logger.debug(
+                'String method ${key.raw} called with ${callArgs.length} arguments',
                 category: 'Metatables',
               );
 
-              // Return a function that will be called later
-              return Value((callArgs) {
-                Logger.debug(
-                  'String method ${key.raw} called with ${callArgs.length} arguments',
-                  category: 'Metatables',
-                );
+              // was the method invoked with the string already as first arg?
+              final hasSelf = callArgs.isNotEmpty && callArgs.first == str;
 
-                // was the method invoked with the string already as first arg?
-                final hasSelf = callArgs.isNotEmpty && callArgs.first == str;
-
-                if (hasSelf) {
-                  if (method is BuiltinFunction) {
-                    return method.call(callArgs);
-                  } else if (method is Value && method.raw is BuiltinFunction) {
-                    return (method.raw as BuiltinFunction).call(callArgs);
-                  } else if (method is Function) {
-                    return method(callArgs);
-                  } else if (method is Value && method.raw is Function) {
-                    return (method.raw as Function)(callArgs);
-                  }
-                  return method; // not callable
-                }
-
-                // prepend the string itself (obj:func() syntax)
+              if (hasSelf) {
                 if (method is BuiltinFunction) {
-                  return method.call([str, ...callArgs]);
+                  return method.call(callArgs);
                 } else if (method is Value && method.raw is BuiltinFunction) {
-                  return (method.raw as BuiltinFunction).call([
-                    str,
-                    ...callArgs,
-                  ]);
-                } else if (method is Function) {
-                  return method([str, ...callArgs]);
+                  return (method.raw as BuiltinFunction).call(callArgs);
                 } else if (method is Value && method.raw is Function) {
-                  return (method.raw as Function)([str, ...callArgs]);
+                  return (method.raw as Function)(callArgs);
+                } else if (method is Function) {
+                  return method(callArgs);
                 }
-                return method;
-              });
+                return method; // not callable
+              }
+
+              // prepend the string itself (obj:func() syntax)
+              if (method is BuiltinFunction) {
+                return method.call([str, ...callArgs]);
+              } else if (method is Value && method.raw is BuiltinFunction) {
+                return (method.raw as BuiltinFunction).call([str, ...callArgs]);
+              } else if (method is Function) {
+                return method([str, ...callArgs]);
+              } else if (method is Value && method.raw is Function) {
+                return (method.raw as Function)([str, ...callArgs]);
+              }
+              return method;
+            }, isTempKey: true); // Don't count this wrapper in GC debt
+
+            // Cache the wrapper on this string instance
+            if (methodCache == null) {
+              methodCache = <String, Value>{};
+              _stringMethodCache[str] = methodCache;
             }
+            methodCache[keyStr] = wrapper;
+
+            return wrapper;
           }
         }
 
@@ -185,7 +218,7 @@ class MetaTable {
             'Error: Attempt to iterate over non-table value of type ${table.raw.runtimeType}',
             category: 'Metatables',
           );
-          throw Exception("attempt to iterate over non-table value");
+          throw LuaError("attempt to iterate over non-table value");
         }
 
         // Create a filtered map without nil values
@@ -304,7 +337,7 @@ class MetaTable {
           return result;
         }
 
-        throw Exception("attempt to call non-function value");
+        throw LuaError("attempt to call non-function value");
       },
     });
     Logger.debug('Function metatable initialized', category: 'Metatables');
@@ -375,11 +408,36 @@ class MetaTable {
     });
     Logger.debug('Userdata metatable initialized', category: 'Metatables');
 
+    // Pre-cache string table and methods to reduce wrapper creation
+    _cacheStdlibMethods(interpreter);
+
     _initialized = true;
     Logger.debug(
       'All default metatables initialized successfully',
       category: 'Metatables',
     );
+  }
+
+  /// Pre-cache stdlib methods to avoid creating temporary wrappers on each access
+  void _cacheStdlibMethods(LuaRuntime interpreter, {bool force = false}) {
+    if (!force && _cachedStringMethods.isNotEmpty) {
+      return;
+    }
+    // Cache string methods from the global string table
+    final stringTable = interpreter.globals.get('string');
+    if (stringTable is Value && stringTable.raw is Map) {
+      final stringMap = stringTable.raw as Map;
+
+      // Cache all string methods to avoid repeated map lookups
+      for (final entry in stringMap.entries) {
+        _cachedStringMethods[entry.key.toString()] = entry.value;
+      }
+
+      Logger.debug(
+        'Cached ${_cachedStringMethods.length} string methods',
+        category: 'Metatables',
+      );
+    }
   }
 
   /// Get metatable for a given type

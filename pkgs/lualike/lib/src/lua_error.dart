@@ -25,6 +25,9 @@ class LuaError implements Exception {
   /// The Lua call stack at the time the error occurred.
   final LuaStackTrace? luaStackTrace;
 
+  /// Tracks whether this error has already been reported to avoid duplicate output.
+  bool hasBeenReported;
+
   /// Creates a new Lua error with the given message and optional source information.
   LuaError(
     this.message, {
@@ -33,6 +36,7 @@ class LuaError implements Exception {
     this.cause,
     this.stackTrace,
     this.luaStackTrace,
+    this.hasBeenReported = false,
   });
 
   /// Creates a LuaError from an AST node and message.

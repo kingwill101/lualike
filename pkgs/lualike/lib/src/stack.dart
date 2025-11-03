@@ -28,4 +28,21 @@ class Stack<T> {
 
   /// The number of elements in the stack.
   int get length => _list.length;
+
+  /// Exposes the items currently on the stack without allowing mutation.
+  Iterable<T> get items => List.unmodifiable(_list);
+
+  /// Removes all elements from the stack.
+  void clear() => _list.clear();
+
+  /// Trims the stack to at most [maxLength] items, removing the oldest entries.
+  void trimTo(int maxLength) {
+    if (maxLength < 0) {
+      return;
+    }
+    final excess = _list.length - maxLength;
+    if (excess > 0) {
+      _list.removeRange(0, excess);
+    }
+  }
 }

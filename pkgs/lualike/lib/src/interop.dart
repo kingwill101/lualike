@@ -8,6 +8,7 @@ import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/parse.dart';
+import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/stdlib/lib_debug.dart';
 import 'package:lualike/src/value.dart';
 import 'package:lualike/src/utils/file_system_utils.dart' as fs;
@@ -48,7 +49,7 @@ class DartFunction extends BuiltinFunction {
 }
 
 /// Extension methods for the VM to add Dart interop capabilities
-extension VMInterop on Interpreter {
+extension VMInterop on LuaRuntime {
   /// Registers a Dart function to be callable from LuaLike.
   ///
   /// The function should either:
@@ -139,7 +140,7 @@ extension VMInterop on Interpreter {
     }
 
     // Just call run() directly and let any errors propagate up
-    return run(ast.statements);
+    return runAst(ast.statements);
   }
 
   /// Calls a LuaLike function from Dart.
@@ -162,7 +163,7 @@ extension VMInterop on Interpreter {
     );
 
     // Execute the function call
-    return await call.accept(this);
+    return await evaluateAst(call);
   }
 }
 
@@ -171,15 +172,16 @@ extension VMInterop on Interpreter {
 /// Provides a high-level interface for interacting with LuaLike code from Dart,
 /// including function registration, code execution, and value exchange.
 class LuaLike {
-  /// The underlying LuaLike interpreter instance.
-  final Interpreter vm;
+  /// The underlying LuaLike runtime instance.
+  final LuaRuntime vm;
 
-  /// Creates a new bridge with a fresh interpreter instance.
-  /// If an instance already exists, returns that instance.
-  factory LuaLike() => LuaLike._internal();
+  /// Creates a new bridge with a runtime instance.
+  /// If none is provided, a fresh AST interpreter is created.
+  factory LuaLike({LuaRuntime? runtime}) =>
+      LuaLike._internal(runtime ?? Interpreter());
 
   /// Internal constructor
-  LuaLike._internal() : vm = Interpreter();
+  LuaLike._internal(LuaRuntime runtime) : vm = runtime;
 
   /// Register a Dart function to be callable from LuaLike
   void expose(String name, Function function) {
@@ -202,7 +204,7 @@ class LuaLike {
       final debugLib = vm.globals.get('debug');
       if (debugLib != null && debugLib.isTable) {
         // Reinitialize debug library with the interpreter reference
-        defineDebugLibrary(env: vm.globals, astVm: vm);
+        defineDebugLibrary(env: vm.globals, vm: vm);
         Logger.debug(
           'Updated debug library with interpreter reference',
           category: 'LineTracking',
@@ -252,7 +254,7 @@ class LuaLike {
       }
 
       // Run the program statements with line tracking
-      return await vm.run(program.statements);
+      return await vm.runAst(program.statements);
     } catch (e) {
       Logger.error("Error evaluating code: $e");
       rethrow;
@@ -323,7 +325,7 @@ Future<List<Value>> runCode(
   String? filePath,
   Map<String, dynamic>? env,
 }) async {
-  final interpreter = Interpreter();
+  final LuaRuntime interpreter = Interpreter();
 
   // Create a new environment if one wasn't provided
   env ??= {};

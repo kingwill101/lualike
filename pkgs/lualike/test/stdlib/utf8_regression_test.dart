@@ -39,8 +39,10 @@ void main() {
         expect((lua.getGlobal('len1') as Value).raw, equals(5));
         expect((lua.getGlobal('len2') as Value).raw, equals(5));
 
-        final codes1 = (lua.getGlobal('codes1') as Value).raw as Map;
-        final codes2 = (lua.getGlobal('codes2') as Value).raw as Map;
+        final codes1Val = lua.getGlobal('codes1') as Value;
+        final codes2Val = lua.getGlobal('codes2') as Value;
+        final codes1 = codes1Val.raw as Map;
+        final codes2 = codes2Val.raw as Map;
         expect(codes1.length, equals(5));
         expect(codes2.length, equals(5));
 
@@ -70,9 +72,10 @@ void main() {
         expect((lua.getGlobal('cp') as Value).raw, equals(128)); // U+0080
         expect((lua.getGlobal('off') as Value).raw, equals(1));
 
-        final codes = (lua.getGlobal('codes') as Value).raw as Map;
-        expect(codes.length, equals(1));
-        expect((codes[Value(1)] as Value).raw, equals(128));
+        final codesVal = lua.getGlobal('codes') as Value;
+        final codesTable = codesVal.raw as Map;
+        expect(codesTable.length, equals(1));
+        expect((codesTable[1] as Value).raw, equals(128));
       });
     });
 
@@ -218,17 +221,17 @@ void main() {
         expect((lua.getGlobal('len1') as Value).raw, equals(3));
         final cp1 = (lua.getGlobal('cp1') as Value).raw as Map;
         expect([
-          (cp1[Value(1)] as Value).raw,
-          (cp1[Value(2)] as Value).raw,
-          (cp1[Value(3)] as Value).raw,
+          (cp1[1] as Value).raw,
+          (cp1[2] as Value).raw,
+          (cp1[3] as Value).raw,
         ], equals([65, 66, 67]));
 
         expect((lua.getGlobal('len2') as Value).raw, equals(3));
         final cp2 = (lua.getGlobal('cp2') as Value).raw as Map;
         expect([
-          (cp2[Value(1)] as Value).raw,
-          (cp2[Value(2)] as Value).raw,
-          (cp2[Value(3)] as Value).raw,
+          (cp2[1] as Value).raw,
+          (cp2[2] as Value).raw,
+          (cp2[3] as Value).raw,
         ], equals([0x80, 0x7FF, 0x800]));
 
         expect((lua.getGlobal('len3') as Value).raw, equals(0));
@@ -311,7 +314,8 @@ void main() {
 
         expect((lua.getGlobal('len') as Value).raw, equals(0));
 
-        final codes = (lua.getGlobal('codes') as Value).raw as Map;
+        final codesVal = lua.getGlobal('codes') as Value;
+        final codes = codesVal.raw as Map;
         expect(codes.length, equals(0));
 
         final cp = (lua.getGlobal('cp') as Value).raw as Map;

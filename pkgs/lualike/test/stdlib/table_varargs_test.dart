@@ -120,6 +120,45 @@ void main() {
       expect((lua.getGlobal('c') as Value).raw, equals(40));
     });
 
+    test('table.unpack returns zero values when range is empty', () async {
+      await lua.execute('''
+        count = select('#', table.unpack({1, 2, 3}, 4, 2))
+        firstValue = table.unpack({1, 2, 3}, 4, 2)
+        packed = {table.unpack({1, 2, 3}, 5, 4)}
+        packedLength = #packed
+      ''');
+
+      expect((lua.getGlobal('count') as Value).raw, equals(0));
+      expect((lua.getGlobal('firstValue') as Value).raw, isNull);
+      expect((lua.getGlobal('packedLength') as Value).raw, equals(0));
+    });
+
+    test('table.unpack rejects ranges at 32-bit boundary', () async {
+      await expectLater(
+        () async => await lua.execute('table.unpack({}, 1, 2147483647)'),
+        throwsA(
+          isA<LuaError>().having(
+            (error) => error.message,
+            'message',
+            contains('too many results'),
+          ),
+        ),
+      );
+    });
+
+    test('table.unpack reads sparse numeric slot beyond array part', () async {
+      await lua.execute('''
+        t = {}
+        t[1000] = 'value'
+        grabbed = table.unpack(t, 1000, 1000)
+      ''');
+
+      expect(
+        (lua.getGlobal('grabbed') as Value).raw.toString(),
+        equals('value'),
+      );
+    });
+
     test('table.pack creates table with n field', () async {
       // Test table.pack functionality
       await lua.execute('''

@@ -43,6 +43,7 @@ dev_dependencies:
   build_web_compilers: ^4.2.2
   lualike_test:
     path: ../test
+  nocterm: ^0.1.0
 
 funding:
   - https://www.buymeacoffee.com/kingwill101

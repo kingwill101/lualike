@@ -1,5 +1,14 @@
 part of 'interpreter.dart';
 
+class _IdentifierGlobalCache {
+  Value? env;
+  int envVersion = -1;
+  Value? value;
+}
+
+final Expando<_IdentifierGlobalCache> _identifierGlobalCache =
+    Expando<_IdentifierGlobalCache>('identifierGlobalCache');
+
 mixin InterpreterExpressionMixin on AstVisitor<Object?> {
   // Required getters that must be implemented by the class using this mixin
   Environment get globals;
@@ -13,15 +22,23 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
   /// Returns the literal value.
   @override
   Future<Object?> visitExpressionStatement(ExpressionStatement node) async {
-    Logger.debug('Visiting ExpressionStatement', category: 'Expression');
+    if (Logger.enabled) {
+      Logger.debugLazy(
+        () => 'Visiting ExpressionStatement',
+        category: 'Expression',
+        contextBuilder: () => {},
+      );
+    }
     final result = await node.expr.accept(this);
     evalStack.push(
       result,
     ); // Correctly push the evaluated result onto the evalStack
-    Logger.debug(
-      'Pushed result $result onto evalStack',
-      category: 'Expression',
-    );
+    if (Logger.enabled) {
+      Logger.debug(
+        'Pushed result $result onto evalStack',
+        category: 'Expression',
+      );
+    }
     return result;
   }
 
@@ -35,10 +52,12 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
   /// Returns the result of the binary operation.
   @override
   Future<Object?> visitBinaryExpression(BinaryExpression node) async {
-    Logger.debug(
-      'Visiting BinaryExpression: ${node.left} ${node.op} ${node.right}',
-      category: 'Expression',
-    );
+    if (Logger.enabled) {
+      Logger.debug(
+        'Visiting BinaryExpression: ${node.left} ${node.op} ${node.right}',
+        category: 'Expression',
+      );
+    }
     dynamic leftResult = await node.left.accept(this);
 
     // Short-circuit evaluation for logical operators
@@ -83,10 +102,12 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     // In a binary expression, if either operand is a function call returning multiple values,
     // only the first return value should be used
     if (leftResult is Value && leftResult.isMulti) {
-      Logger.debug(
-        'BinaryExpression: limiting left multi-value result to first value',
-        category: 'Expression',
-      );
+      if (Logger.enabled) {
+        Logger.debug(
+          'BinaryExpression: limiting left multi-value result to first value',
+          category: 'Expression',
+        );
+      }
       final multiValues = leftResult.raw as List;
       leftResult = multiValues.isNotEmpty ? multiValues[0] : Value(null);
     } else if (leftResult is List && leftResult.isNotEmpty) {
@@ -94,10 +115,12 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     }
 
     if (rightResult is Value && rightResult.isMulti) {
-      Logger.debug(
-        'BinaryExpression: limiting right multi-value result to first value',
-        category: 'Expression',
-      );
+      if (Logger.enabled) {
+        Logger.debug(
+          'BinaryExpression: limiting right multi-value result to first value',
+          category: 'Expression',
+        );
+      }
       final multiValues = rightResult.raw as List;
       rightResult = multiValues.isNotEmpty ? multiValues[0] : Value(null);
     } else if (rightResult is List && rightResult.isNotEmpty) {
@@ -107,10 +130,28 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     final leftVal = leftResult is Value ? leftResult : Value(leftResult);
     final rightVal = rightResult is Value ? rightResult : Value(rightResult);
 
-    Logger.debug(
-      'BinaryExpression operands before metamethod check: $leftVal (${leftVal.raw.runtimeType}) ${node.op} $rightVal (${rightVal.raw.runtimeType})',
-      category: 'Expression',
-    );
+    // Canonicalize table wrappers to preserve per-instance metatables
+    Value canon(Value v) {
+      if (v.raw is Map) {
+        final c = Value.lookupCanonicalTableWrapper(v.raw);
+        if (c != null) return c;
+      }
+      return v;
+    }
+
+    final leftValCanon = canon(leftVal);
+    final rightValCanon = canon(rightVal);
+
+    // Use canonicalized values for metamethod checks
+    final canonicalLeft = leftValCanon;
+    final canonicalRight = rightValCanon;
+
+    if (Logger.enabled) {
+      Logger.debug(
+        'BinaryExpression operands before metamethod check: $leftVal (${leftVal.raw.runtimeType}) ${node.op} $rightVal (${rightVal.raw.runtimeType})',
+        category: 'Expression',
+      );
+    }
 
     // Check for metamethods first
     final opMap = {
@@ -143,48 +184,63 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       Value? calleeValue;
 
       // Prefer left, then right for the direct mapping
-      if (leftVal.hasMetamethod(metamethodName)) {
-        calleeValue = leftVal;
-      } else if (rightVal.hasMetamethod(metamethodName)) {
-        calleeValue = rightVal;
+      if (canonicalLeft.hasMetamethod(metamethodName)) {
+        calleeValue = canonicalLeft;
+      } else if (canonicalRight.hasMetamethod(metamethodName)) {
+        calleeValue = canonicalRight;
+      }
+
+      if (Logger.enabled &&
+          (node.op == '<' ||
+              node.op == '>' ||
+              node.op == '<=' ||
+              node.op == '>=')) {
+        Logger.debug(
+          'Metamethod probe: op=${node.op}, left.type=${getLuaType(leftVal)}, right.type=${getLuaType(rightVal)}, left.has($metamethodName)=${leftVal.hasMetamethod(metamethodName)}, right.has($metamethodName)=${rightVal.hasMetamethod(metamethodName)}, callee=${calleeValue == leftVal ? 'left' : (calleeValue == rightVal ? 'right' : 'none')}',
+          category: 'Expression',
+        );
       }
 
       // Fallback mappings for comparisons when direct mapping not present
       if (calleeValue == null && node.op == '>') {
-        if (rightVal.hasMetamethod('__lt')) {
+        if (canonicalRight.hasMetamethod('__lt')) {
           metamethodName = '__lt';
-          calleeValue = rightVal;
+          calleeValue = canonicalRight;
           swapArgs = true;
         }
       } else if (calleeValue == null && node.op == '>=') {
-        if (leftVal.hasMetamethod('__le')) {
+        if (canonicalLeft.hasMetamethod('__le')) {
           metamethodName = '__le';
-          calleeValue = leftVal;
+          calleeValue = canonicalLeft;
           swapArgs = true;
-        } else if (rightVal.hasMetamethod('__le')) {
+        } else if (canonicalRight.hasMetamethod('__le')) {
           metamethodName = '__le';
-          calleeValue = rightVal;
+          calleeValue = canonicalRight;
           swapArgs = true;
-        } else if (rightVal.hasMetamethod('__lt')) {
+        } else if (canonicalRight.hasMetamethod('__lt')) {
           metamethodName = '__lt';
-          calleeValue = rightVal;
+          calleeValue = canonicalRight;
           swapArgs = true;
           invertResult = true;
-        } else if (leftVal.hasMetamethod('__lt')) {
+        } else if (canonicalLeft.hasMetamethod('__lt')) {
           metamethodName = '__lt';
-          calleeValue = leftVal;
+          calleeValue = canonicalLeft;
           // no swap here (left < right) and then invert
           invertResult = true;
         }
       }
 
       if (calleeValue != null) {
-        Logger.debug(
-          'Using metamethod $metamethodName for operation ${node.op}',
-          category: 'Expression',
-        );
+        if (Logger.enabled) {
+          Logger.debug(
+            'Using metamethod $metamethodName for operation ${node.op}',
+            category: 'Expression',
+          );
+        }
 
-        final callArgs = swapArgs ? [rightVal, leftVal] : [leftVal, rightVal];
+        final callArgs = swapArgs
+            ? [canonicalRight, canonicalLeft]
+            : [canonicalLeft, canonicalRight];
         var result = await calleeValue.callMetamethodAsync(
           metamethodName,
           callArgs,
@@ -222,47 +278,78 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
 
     // If no metamethod found, use regular operators
     if (node.op == '==') {
+      if (Logger.enabled) {
+        Logger.debug(
+          'Equality check: leftVal.raw type = ${leftVal.raw.runtimeType}, value = "${leftVal.raw}"',
+          category: 'Expression/Equality',
+        );
+        Logger.debug(
+          'Equality check: rightVal.raw type = ${rightVal.raw.runtimeType}, value = "${rightVal.raw}"',
+          category: 'Expression/Equality',
+        );
+      }
+    }
+    // If we are about to fall back to default operators for a comparison
+    // involving tables, emit a diagnostic when no metamethod was found.
+    if ((node.op == '<' ||
+            node.op == '>' ||
+            node.op == '<=' ||
+            node.op == '>=') &&
+        leftVal.raw is Map &&
+        rightVal.raw is Map) {
+      final hasLtLeft = leftVal.hasMetamethod('__lt');
+      final hasLtRight = rightVal.hasMetamethod('__lt');
+      final hasLeLeft = leftVal.hasMetamethod('__le');
+      final hasLeRight = rightVal.hasMetamethod('__le');
+      if (Logger.enabled) {
+        Logger.debug(
+          'Compare fallback (no metamethod): op=${node.op}, left.has(__lt)=$hasLtLeft, right.has(__lt)=$hasLtRight, left.has(__le)=$hasLeLeft, right.has(__le)=$hasLeRight',
+          category: 'Expression',
+        );
+      }
+    }
+
+    dynamic result;
+    try {
+      result = switch (node.op) {
+        '+' => leftVal + rightVal,
+        '-' => leftVal - rightVal,
+        '*' => leftVal * rightVal,
+        '/' => leftVal / rightVal,
+        '%' => leftVal % rightVal,
+        '^' => leftVal.exp(rightVal),
+        '//' => leftVal ~/ rightVal,
+        '&' => leftVal & rightVal,
+        '|' => leftVal | rightVal,
+        '~' => leftVal ^ rightVal,
+        '<<' => leftVal << rightVal,
+        '==' => leftVal == rightVal,
+        '~=' => leftVal != rightVal,
+        '!=' => leftVal != rightVal,
+        '>' => leftVal > rightVal,
+        '<' => leftVal < rightVal,
+        '>=' => leftVal >= rightVal,
+        '<=' => leftVal <= rightVal,
+        '>>' => leftVal >> rightVal,
+        '..' => leftVal.concat(rightVal),
+        'and' => leftVal.and(rightVal),
+        'or' => leftVal.or(rightVal),
+        _ => throw LuaError.typeError(
+          'Operation (${node.op}) not supported for these types [$leftVal, $rightVal]',
+        ),
+      };
+    } on UnsupportedError catch (e) {
+      // Normalize Dart-side UnsupportedError from direct Value operators into
+      // LuaError with the same message to preserve Lua semantics at runtime.
+      throw LuaError.typeError(e.message ?? e.toString());
+    }
+
+    if (Logger.enabled) {
       Logger.debug(
-        'Equality check: leftVal.raw type = ${leftVal.raw.runtimeType}, value = "${leftVal.raw}"',
-        category: 'Expression/Equality',
-      );
-      Logger.debug(
-        'Equality check: rightVal.raw type = ${rightVal.raw.runtimeType}, value = "${rightVal.raw}"',
-        category: 'Expression/Equality',
+        'BinaryExpression result: $result (raw: ${(result is Value ? result.raw : result).runtimeType})',
+        category: 'Expression',
       );
     }
-    var result = switch (node.op) {
-      '+' => leftVal + rightVal,
-      '-' => leftVal - rightVal,
-      '*' => leftVal * rightVal,
-      '/' => leftVal / rightVal,
-      '%' => leftVal % rightVal,
-      '^' => leftVal.exp(rightVal),
-      '//' => leftVal ~/ rightVal,
-      '&' => leftVal & rightVal,
-      '|' => leftVal | rightVal,
-      '~' => leftVal ^ rightVal,
-      '<<' => leftVal << rightVal,
-      '==' => leftVal == rightVal,
-      '~=' => leftVal != rightVal,
-      '!=' => leftVal != rightVal,
-      '>' => leftVal > rightVal,
-      '<' => leftVal < rightVal,
-      '>=' => leftVal >= rightVal,
-      '<=' => leftVal <= rightVal,
-      '>>' => leftVal >> rightVal,
-      '..' => leftVal.concat(rightVal),
-      'and' => leftVal.and(rightVal),
-      'or' => leftVal.or(rightVal),
-      _ => throw LuaError.typeError(
-        'Operation (${node.op}) not supported for these types [$leftVal, $rightVal]',
-      ),
-    };
-
-    Logger.debug(
-      'BinaryExpression result: $result (raw: ${(result is Value ? result.raw : result).runtimeType})',
-      category: 'Expression',
-    );
     return result is Value ? result : Value(result);
   }
 
@@ -276,19 +363,23 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
   /// Returns the result of the unary operation.
   @override
   Future<Object?> visitUnaryExpression(UnaryExpression node) async {
-    Logger.debug(
-      'Visiting UnaryExpression: ${node.op} ${node.expr}',
-      category: 'Expression',
-    );
+    if (Logger.enabled) {
+      Logger.debug(
+        'Visiting UnaryExpression: ${node.op} ${node.expr}',
+        category: 'Expression',
+      );
+    }
     dynamic operandResult = await node.expr.accept(this);
 
     // In a unary expression, if the operand is a function call returning multiple values,
     // only the first return value should be used
     if (operandResult is Value && operandResult.isMulti) {
-      Logger.debug(
-        'UnaryExpression: limiting multi-value result to first value',
-        category: 'Expression',
-      );
+      if (Logger.enabled) {
+        Logger.debug(
+          'UnaryExpression: limiting multi-value result to first value',
+          category: 'Expression',
+        );
+      }
       final multiValues = operandResult.raw as List;
 
       //special case for # operator
@@ -314,10 +405,12 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     final metamethodName = opMap[node.op];
     if (metamethodName != null) {
       if (operandWrapped.hasMetamethod(metamethodName)) {
-        Logger.debug(
-          'Using metamethod $metamethodName for unary operation ${node.op}',
-          category: 'Expression',
-        );
+        if (Logger.enabled) {
+          Logger.debug(
+            'Using metamethod $metamethodName for unary operation ${node.op}',
+            category: 'Expression',
+          );
+        }
 
         final args = [operandWrapped, operandWrapped];
         var result = await operandWrapped.callMetamethodAsync(
@@ -345,7 +438,12 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       _ => throw LuaError.typeError("Unknown unary operator ${node.op}"),
     };
 
-    Logger.debug('UnaryExpression result: $result', category: 'Expression');
+    if (Logger.enabled) {
+      Logger.debugLazy(
+        () => 'UnaryExpression result: $result',
+        category: 'Expression',
+      );
+    }
     return result is Value ? result : Value(result);
   }
 
@@ -357,23 +455,32 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
   /// Returns the value of the variable, or null if not found.
   @override
   Future<Object?> visitIdentifier(Identifier node) async {
-    Logger.debug('Visiting Identifier: ${node.name}', category: 'Expression');
+    if (Logger.enabled) {
+      Logger.debugLazy(
+        () => 'Visiting Identifier: ${node.name}',
+        category: 'Expression',
+      );
+    }
 
     // Special case: always look up _ENV and _G from the global environment directly
     // to avoid infinite recursion
     if (node.name == '_ENV' || node.name == '_G') {
       final value = globals.get(node.name);
       if (value == null) {
-        Logger.debug(
-          'Identifier ${node.name} not found, returning nil',
-          category: 'Expression',
-        );
+        if (Logger.enabled) {
+          Logger.debug(
+            'Identifier ${node.name} not found, returning nil',
+            category: 'Expression',
+          );
+        }
         return Value(null);
       }
-      Logger.debug(
-        'Identifier ${node.name} resolved to: $value (type: ${value.runtimeType})',
-        category: 'Expression',
-      );
+      if (Logger.enabled) {
+        Logger.debug(
+          'Identifier ${node.name} resolved to: $value (type: ${value.runtimeType})',
+          category: 'Expression',
+        );
+      }
       return value is Value ? value : Value(value);
     }
 
@@ -397,10 +504,12 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       if (currentFunction != null && currentFunction.upvalues != null) {
         for (final upvalue in currentFunction.upvalues!) {
           if (upvalue.name == node.name) {
-            Logger.debug(
-              'Resolving identifier ${node.name} via function upvalue',
-              category: 'Expression',
-            );
+            if (Logger.enabled) {
+              Logger.debug(
+                'Resolving identifier ${node.name} via function upvalue',
+                category: 'Expression',
+              );
+            }
             final value = upvalue.getValue();
             return value is Value ? value : Value(value);
           }
@@ -409,15 +518,90 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     }
 
     // Route global lookups through _ENV to match Lua semantics.
-    // In Lua 5.2+, chunks access globals via the upvalue `_ENV`.
-    // We emulate that here by always trying `_ENV[name]` after checking locals.
-    final envValue = globals.get('_ENV');
+    // Use the current globals environment to get _ENV, not the root,
+    // so that local _ENV assignments are respected.
+    Value? envValue = globals.values['_ENV']?.value;
+    Value? gValue = globals.values['_G']?.value;
+
+    if (envValue == null) {
+      final fallbackEnv = globals.get('_ENV');
+      if (fallbackEnv is Value) {
+        envValue = fallbackEnv;
+      }
+    }
+    if (gValue == null) {
+      final fallbackG = globals.get('_G');
+      if (fallbackG is Value) {
+        gValue = fallbackG;
+      }
+    }
+
+    final bool canUseGlobalCache =
+        envValue is Value &&
+        envValue.raw is Map &&
+        gValue is Value &&
+        identical(envValue, gValue);
+
+    _IdentifierGlobalCache? cache;
+    if (canUseGlobalCache) {
+      final map = envValue.raw as Map;
+      if (map.containsKey(node.name)) {
+        cache = _identifierGlobalCache[node];
+        if (cache != null &&
+            identical(cache.env, envValue) &&
+            cache.envVersion == envValue.tableVersion &&
+            cache.value != null) {
+          if (Logger.enabled) {
+            Logger.debug(
+              'Identifier ${node.name} resolved via cache',
+              category: 'Expression',
+            );
+          }
+          return cache.value;
+        }
+      }
+    }
+
     if (envValue is Value && envValue.raw != null) {
       if (envValue.raw is Map) {
-        Logger.debug(
-          'Resolving global via _ENV for: ${node.name}',
-          category: 'Expression',
-        );
+        final map = envValue.raw as Map;
+        if (map.containsKey(node.name)) {
+          final entry = map[node.name];
+          final resolvedValue = entry is Value ? entry : Value(entry);
+
+          if (canUseGlobalCache) {
+            cache ??= _IdentifierGlobalCache();
+            cache
+              ..env = envValue
+              ..envVersion = envValue.tableVersion
+              ..value = resolvedValue;
+            _identifierGlobalCache[node] = cache;
+          }
+
+          return resolvedValue;
+        }
+        // Fast path: when _ENV === _G, direct global lookups can bypass the
+        // __index metamethod and read from the environment chain. This avoids
+        // expensive async metamethod calls for common globals like 'assert'.
+        final direct = globals.get(node.name);
+        if (direct != null) {
+          final resolvedValue = direct is Value ? direct : Value(direct);
+          if (canUseGlobalCache) {
+            cache ??= _IdentifierGlobalCache();
+            cache
+              ..env = envValue
+              ..envVersion = envValue.tableVersion
+              ..value = resolvedValue;
+            _identifierGlobalCache[node] = cache;
+          }
+          return resolvedValue;
+        }
+        if (Logger.enabled) {
+          Logger.debug(
+            'Resolving global via _ENV for: ${node.name}',
+            category: 'Expression',
+          );
+        }
         final result = await envValue.getValueAsync(Value(node.name));
         return result is Value ? result : Value(result);
       } else {
@@ -430,16 +614,20 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     // Fallback: look up in the current environment chain
     final value = globals.get(node.name);
     if (value == null) {
-      Logger.debug(
-        'Identifier ${node.name} not found, returning nil',
-        category: 'Expression',
-      );
+      if (Logger.enabled) {
+        Logger.debug(
+          'Identifier ${node.name} not found, returning nil',
+          category: 'Expression',
+        );
+      }
       return Value(null);
     }
-    Logger.debug(
-      'Identifier ${node.name} resolved (fallback) to: $value (type: ${value.runtimeType})',
-      category: 'Expression',
-    );
+    if (Logger.enabled) {
+      Logger.debug(
+        'Identifier ${node.name} resolved (fallback) to: $value (type: ${value.runtimeType})',
+        category: 'Expression',
+      );
+    }
     return value is Value ? value : Value(value);
   }
 
@@ -470,10 +658,12 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
   /// Returns the result of evaluating the contained expression.
   @override
   Future<Object?> visitGroupedExpression(GroupedExpression node) async {
-    Logger.debug(
-      'Visiting GroupedExpression: (${node.expr})',
-      category: 'Expression',
-    );
+    if (Logger.enabled) {
+      Logger.debug(
+        'Visiting GroupedExpression: (${node.expr})',
+        category: 'Expression',
+      );
+    }
 
     final result = await node.expr.accept(this);
 
@@ -483,22 +673,30 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     if (result is Value && result.isMulti) {
       final values = result.raw as List;
       final first = values.isNotEmpty ? values.first : Value(null);
-      Logger.debug(
-        'GroupedExpression: collapsing multi to first: $first',
-        category: 'Expression',
-      );
+      if (Logger.enabled) {
+        Logger.debug(
+          'GroupedExpression: collapsing multi to first: $first',
+          category: 'Expression',
+        );
+      }
       return first is Value ? first : Value(first);
     }
     if (result is List) {
       final first = result.isNotEmpty ? result.first : Value(null);
-      Logger.debug(
-        'GroupedExpression: collapsing list to first: $first',
-        category: 'Expression',
-      );
+      if (Logger.enabled) {
+        Logger.debug(
+          'GroupedExpression: collapsing list to first: $first',
+          category: 'Expression',
+        );
+      }
       return first is Value ? first : Value(first);
     }
-
-    Logger.debug('GroupedExpression result: $result', category: 'Expression');
+    if (Logger.enabled) {
+      Logger.debugLazy(
+        () => 'GroupedExpression result: $result',
+        category: 'Expression',
+      );
+    }
     return result;
   }
 }

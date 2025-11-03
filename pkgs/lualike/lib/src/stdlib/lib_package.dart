@@ -6,7 +6,7 @@ import 'package:path/path.dart' as path_lib;
 import 'library.dart';
 
 class PackageLib {
-  final Interpreter vm;
+  final LuaRuntime vm;
   final FileManager fileManager;
 
   PackageLib(this.vm) : fileManager = vm.fileManager;
@@ -100,7 +100,7 @@ class _LoadLib extends BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 2) {
-      throw Exception("loadlib requires library path and function name");
+      throw LuaError("loadlib requires library path and function name");
     }
 
     final libpath = (args[0] as Value).raw.toString();
@@ -140,7 +140,7 @@ class _SearchPath extends BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 2) {
-      throw Exception('searchpath requires name and path');
+      throw LuaError('searchpath requires name and path');
     }
 
     final name = (args[0] as Value).raw.toString();
@@ -238,7 +238,7 @@ class _LuaLoader extends BuiltinFunction {
               "Source not found for module: $name at path: $modulePath",
               category: 'Package',
             );
-            throw Exception("cannot load module '$name': file not found");
+            throw LuaError("cannot load module '$name': file not found");
           }
 
           Logger.debug(
@@ -346,7 +346,7 @@ class _LuaLoader extends BuiltinFunction {
             try {
               // Run the module code
               Logger.debug("Running module code", category: 'Package');
-              await moduleInterpreter.run(ast.statements);
+              await moduleInterpreter.runAst(ast.statements);
               Logger.debug(
                 "Module code executed successfully",
                 category: 'Package',
@@ -407,11 +407,11 @@ class _LuaLoader extends BuiltinFunction {
               "Error parsing/executing module: $e",
               category: 'Package',
             );
-            throw Exception("error loading module '$name': $e");
+            throw LuaError("error loading module '$name': $e");
           }
         } catch (e) {
           Logger.error("Error loading module source: $e", category: 'Package');
-          throw Exception("error loading module '$name': $e");
+          throw LuaError("error loading module '$name': $e");
         }
       }),
       Value(path_lib.normalize(modulePath ?? '')),
@@ -451,7 +451,7 @@ class RequireFunction extends BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
-      throw Exception('require expects a module name');
+      throw LuaError('require expects a module name');
     }
 
     final name = (args[0] as Value).raw.toString();
@@ -505,12 +505,12 @@ class RequireFunction extends BuiltinFunction {
       }
     }
 
-    throw Exception("module '$name' not found");
+    throw LuaError("module '$name' not found");
   }
 }
 
-void definePackageLibrary({required Environment env, Interpreter? astVm}) {
-  final packageLib = PackageLib(astVm ?? Interpreter());
+void definePackageLibrary({required Environment env, LuaRuntime? vm}) {
+  final packageLib = PackageLib(vm ?? Interpreter());
 
   // Create package table with metamethods
   final packageTable = ValueClass.table();
@@ -536,7 +536,7 @@ void definePackageLibrary({required Environment env, Interpreter? astVm}) {
       final path = packageTable['path'] as Value;
 
       try {
-        final searcher = _SearchPath(packageLib.fileManager, astVm);
+        final searcher = _SearchPath(packageLib.fileManager, packageLib.vm);
         final filename = searcher.call([Value(name), path]);
 
         if (filename is Value && filename.raw != null) {
@@ -581,7 +581,7 @@ void definePackageLibrary({required Environment env, Interpreter? astVm}) {
   ];
   packageTable['searchers'] = Value(searchers);
 
-  astVm?.globals.define(
+  env.define(
     "package",
     Value(packageTable, metatable: packageLib.packageClass.metamethods),
   );

@@ -80,9 +80,6 @@ abstract class BaseCommand extends Command {
       argTable[0] = interpreterDisplay;
     }
 
-    print("Interpreter command: $interpreterDisplay");
-    // Note: We don't set arg.n as it's nil in actual Lua 5.4.8
-
     // Set the global arg table
     bridge.setGlobal('arg', argTable);
   }

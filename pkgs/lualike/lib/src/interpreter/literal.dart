@@ -1,14 +1,16 @@
 part of 'interpreter.dart';
 
-// Intern pool for string literals only.
-// This ensures identical literal strings in the same chunk share identity
-// (e.g., for string.format("%p", s)), while runtime-created strings via
-// concatenation or library functions remain distinct objects.
-final Map<String, LuaString> _literalStringInternPool = <String, LuaString>{};
-
 mixin InterpreterLiteralMixin on AstVisitor<Object?> {
   // Required getters that must be implemented by the class using this mixin
   Environment get globals;
+
+  /// Per-interpreter intern pool for string literals.
+  /// Ensures identical literal strings in the same chunk share identity.
+  Map<String, LuaString> get literalStringInternPool;
+
+  /// Per-interpreter cache of Value wrappers for string literals.
+  /// Avoids creating new Value objects on every literal reference.
+  Map<String, Value> get literalValueCache;
 
   /// Evaluates a nil literal.
   ///
@@ -19,7 +21,11 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitNilValue(NilValue node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
-    Logger.debug('Visiting NilValue', category: 'Literal');
+    Logger.debugLazy(
+      () => 'Visiting NilValue',
+      category: 'Literal',
+      contextBuilder: () => {},
+    );
     return Value(null);
   }
 
@@ -32,7 +38,11 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitBooleanLiteral(BooleanLiteral node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
-    Logger.debug('Visiting BooleanLiteral: ${node.value}', category: 'Literal');
+    Logger.debugLazy(
+      () => 'Visiting BooleanLiteral: ${node.value}',
+      category: 'Literal',
+      contextBuilder: () => {'value': node.value},
+    );
     return Value(node.value);
   }
 
@@ -45,7 +55,11 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitNumberLiteral(NumberLiteral node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
-    Logger.debug('Visiting NumberLiteral: ${node.value}', category: 'Literal');
+    Logger.debugLazy(
+      () => 'Visiting NumberLiteral: ${node.value}',
+      category: 'Literal',
+      contextBuilder: () => {'value': node.value},
+    );
     return Value(node.value);
   }
 
@@ -58,18 +72,34 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitStringLiteral(StringLiteral node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
-    Logger.debug('Visiting StringLiteral: ${node.value}', category: 'Literal');
+    Logger.debugLazy(
+      () => 'Visiting StringLiteral: ${node.value}',
+      category: 'Literal',
+      contextBuilder: () => {'value': node.value},
+    );
 
     // Always use LuaString for proper byte-level string handling, but
     // intern the object for literals so identical literals share identity.
     final bytes = node.bytes;
     final key = bytes.join(',');
-    final cached = _literalStringInternPool[key];
-    if (cached != null) {
-      return Value(cached);
+
+    // Check if we have a cached Value wrapper first to avoid creating new
+    // Value objects on every literal reference. This matches Lua C behavior.
+    final cachedValue = literalValueCache[key];
+    if (cachedValue != null) {
+      return cachedValue;
     }
-    final luaStr = LuaString.fromBytes(bytes);
-    _literalStringInternPool[key] = luaStr;
-    return Value(luaStr);
+
+    // Check for interned LuaString
+    var luaStr = literalStringInternPool[key];
+    if (luaStr == null) {
+      luaStr = LuaString.fromBytes(bytes);
+      literalStringInternPool[key] = luaStr;
+    }
+
+    // Create and cache the Value wrapper
+    final value = Value(luaStr);
+    literalValueCache[key] = value;
+    return value;
   }
 }

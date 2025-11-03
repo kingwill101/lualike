@@ -2,9 +2,10 @@ import 'const_checker.dart';
 import 'exceptions.dart';
 import 'file_manager.dart';
 import 'interpreter/interpreter.dart';
+import 'runtime/lua_runtime.dart';
 import 'parse.dart';
 
-typedef InterpreterSetupCallback = void Function(Interpreter);
+typedef RuntimeSetupCallback = void Function(LuaRuntime);
 
 /// Executes source code using the specified execution mode.
 ///
@@ -17,12 +18,12 @@ typedef InterpreterSetupCallback = void Function(Interpreter);
 Future<Object?> executeCode(
   String sourceCode, {
   FileManager? fileManager,
-  InterpreterSetupCallback? onInterpreterSetup,
-  Interpreter? vm,
+  RuntimeSetupCallback? onRuntimeSetup,
+  LuaRuntime? vm,
 }) async {
-  final interpreter = vm ?? Interpreter(fileManager: fileManager);
-  if (onInterpreterSetup != null) {
-    onInterpreterSetup(interpreter);
+  final runtime = vm ?? Interpreter(fileManager: fileManager);
+  if (onRuntimeSetup != null) {
+    onRuntimeSetup(runtime);
   }
   final program = parse(sourceCode);
 
@@ -34,7 +35,7 @@ Future<Object?> executeCode(
   }
 
   try {
-    return await interpreter.run(program.statements);
+    return await runtime.runAst(program.statements);
   } on ReturnException catch (e) {
     // Handle return statement at the top level
     return e.value;
@@ -45,7 +46,7 @@ Future<Object?> executeCode(
       errorMsg = errorMsg.substring('Exception: '.length);
     }
 
-    interpreter.reportError(errorMsg, trace: s);
+    runtime.reportError(errorMsg, trace: s, error: e);
     rethrow;
   }
 }

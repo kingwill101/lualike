@@ -637,7 +637,7 @@ class _OSTmpName extends BuiltinFunction {
   }
 }
 
-void defineOSLibrary({required Environment env, Interpreter? astVm}) {
+void defineOSLibrary({required Environment env, LuaRuntime? vm}) {
   final osTable = <String, dynamic>{};
   OSLibrary.functions.forEach((key, value) {
     osTable[key] = value;

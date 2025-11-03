@@ -10,8 +10,9 @@ void main() {
 
     setUp(() {
       interpreter = Interpreter();
-      GenerationalGCManager.initialize(interpreter);
-      gc = GenerationalGCManager.instance;
+      gc = interpreter.gc;
+      // Stop incremental GC to prevent it from sweeping test objects
+      gc.stop();
     });
 
     group('Upvalue GC Registration', () {

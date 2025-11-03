@@ -17,8 +17,8 @@ class FileManager {
   /// Base search paths for finding modules.
   final List<String> _searchPaths = ['.'];
 
-  /// Reference to the interpreter (may be null)
-  Interpreter? _interpreter;
+  /// Reference to the runtime (may be null)
+  LuaRuntime? _interpreter;
 
   /// Tracks resolved globs and their absolute paths for debugging
   final List<Map<String, String>> _resolvedGlobs = [];
@@ -31,8 +31,8 @@ class FileManager {
 
   /// Creates a new FileManager instance.
   ///
-  /// [interpreter] - Optional reference to the interpreter for accessing script paths
-  FileManager({Interpreter? interpreter}) : _interpreter = interpreter {
+  /// [interpreter] - Optional reference to the runtime for accessing script paths
+  FileManager({LuaRuntime? interpreter}) : _interpreter = interpreter {
     // Initialize with current directory as default search path
     _searchPaths.add('.');
 
@@ -133,7 +133,7 @@ class FileManager {
   /// Sets the interpreter reference.
   ///
   /// This allows the file manager to access the current script path.
-  void setInterpreter(Interpreter interpreter) {
+  void setInterpreter(LuaRuntime interpreter) {
     _interpreter = interpreter;
 
     // When interpreter is set, add the current script path to search paths if available
