@@ -302,6 +302,11 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
         ? ast.statements.first
         : null;
     final hasSimpleTopLevelFunctionDef = singleTopLevelStatement is FunctionDef;
+    final fastTopLevelLiteralFunction = switch (singleTopLevelStatement) {
+      FunctionDef definition =>
+        _matchSimpleTopLevelLiteralFunction(definition, runtime),
+      _ => null,
+    };
     final bodySpan = _wholeProgramSpan(ast);
     if (bodySpan != null) {
       actualBody.setSpan(bodySpan);
@@ -418,6 +423,17 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
       result = Value(
         (List<Object?> callArgs) async {
           try {
+            if (fastTopLevelLiteralFunction case final fastFunction?) {
+              _installLoadedFunction(
+                savedEnv: runtime.getCurrentEnv(),
+                providedEnv: providedEnv,
+                functionName: fastFunction.name,
+                functionValue: fastFunction.create(),
+              );
+              logProfile('success');
+              return null;
+            }
+
             final savedEnv = runtime.getCurrentEnv();
             final loadEnv = _createSourceLoadEnv(
               runtime: runtime,
@@ -738,4 +754,69 @@ String _shortSource(String source) {
   } catch (_) {
     return source;
   }
+}
+
+typedef _SimpleTopLevelLiteralFunctionFactory =
+    ({String name, Value Function() create});
+
+_SimpleTopLevelLiteralFunctionFactory? _matchSimpleTopLevelLiteralFunction(
+  FunctionDef definition,
+  LuaRuntime runtime,
+) {
+  if (definition.name.rest.isNotEmpty || definition.implicitSelf) {
+    return null;
+  }
+
+  final body = definition.body;
+  if (body.body.length != 1) {
+    return null;
+  }
+
+  final statement = body.body.first;
+  if (statement is! ReturnStatement || statement.expr.length != 1) {
+    return null;
+  }
+
+  final expression = statement.expr.first;
+  if (expression is! StringLiteral) {
+    return null;
+  }
+
+  final literal = LuaString.fromBytes(expression.bytes);
+  return (
+    name: definition.name.first.name,
+    create: () {
+      final functionValue = Value(
+        (List<Object?> _) async => Value(literal),
+        functionBody: body,
+        closureEnvironment: runtime.getCurrentEnv(),
+      );
+      functionValue.functionName = definition.name.first.name;
+      functionValue.interpreter = runtime;
+      functionValue.upvalues = const <Upvalue>[];
+      return functionValue;
+    },
+  );
+}
+
+void _installLoadedFunction({
+  required Environment savedEnv,
+  required Value? providedEnv,
+  required String functionName,
+  required Value functionValue,
+}) {
+  if (providedEnv case final env? when env.raw is Map) {
+    (env.raw as Map)[functionName] = functionValue;
+    env.markTableModified();
+    return;
+  }
+
+  final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G');
+  if (gValue is Value && gValue.raw is Map) {
+    (gValue.raw as Map)[functionName] = functionValue;
+    gValue.markTableModified();
+    return;
+  }
+
+  savedEnv.define(functionName, functionValue);
 }

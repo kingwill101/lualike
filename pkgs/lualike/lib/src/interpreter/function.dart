@@ -529,6 +529,11 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       category: 'Interpreter',
     );
 
+    final fastLiteralReturn = _fastStringLiteralReturn(node, closureEnv);
+    if (fastLiteralReturn case final literalResult?) {
+      return literalResult;
+    }
+
     // Analyze upvalues before creating the function
     final upvalues = await UpvalueAnalyzer.analyzeFunction(node, closureEnv);
 
@@ -901,6 +906,35 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     }
 
     return funcValue;
+  }
+
+  Value? _fastStringLiteralReturn(
+    FunctionBody node,
+    Environment closureEnv,
+  ) {
+    if (node.body.length != 1) {
+      return null;
+    }
+
+    final statement = node.body.first;
+    if (statement is! ReturnStatement || statement.expr.length != 1) {
+      return null;
+    }
+
+    final expression = statement.expr.first;
+    if (expression is! StringLiteral) {
+      return null;
+    }
+
+    final literalValue = LuaString.fromBytes(expression.bytes);
+    final functionValue = Value(
+      (List<Object?> _) async => Value(literalValue),
+      functionBody: node,
+      closureEnvironment: closureEnv,
+    );
+    functionValue.interpreter = this as Interpreter;
+    functionValue.upvalues = const <Upvalue>[];
+    return functionValue;
   }
 
   /// Creates a filtered environment that excludes specified local variables.
