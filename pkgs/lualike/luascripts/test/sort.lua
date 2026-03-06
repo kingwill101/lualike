@@ -264,7 +264,7 @@ a = {}
 for i=1,limit do
   a[i] = math.random()
 end
-
+print("line 267")
 timesort(a, limit, nil, "random")
 
 timesort(a, limit, nil, "sorted", "re-")

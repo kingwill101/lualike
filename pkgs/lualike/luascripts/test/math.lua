@@ -21,7 +21,7 @@ do
     floatbits = floatbits + 1
   end
 end
-
+print("line 24")
 local function isNaN (x)
   return (x ~= x)
 end
@@ -29,7 +29,7 @@ end
 assert(isNaN(0/0))
 assert(not isNaN(1/0))
 
-
+print("line 32")
 do
   local x = 2.0^floatbits
   assert(x > x - 1.0 and x == x + 1.0)
@@ -41,7 +41,7 @@ end
 assert(math.type(0) == "integer" and math.type(0.0) == "float"
        and not math.type("10"))
 
-
+print("line 44")
 local function checkerror (msg, f, ...)
   local s, err = pcall(f, ...)
   assert(not s and string.find(err, msg))
@@ -60,7 +60,7 @@ local function eq (a,b,limit)
   return a == b or math.abs(a-b) <= limit
 end
 
-
+print("line 63")
 -- equality with types
 local function eqT (a,b)
   return a == b and math.type(a) == math.type(b)
@@ -69,7 +69,7 @@ end
 
 -- basic float notation
 assert(0e12 == 0 and .0 == 0 and 0. == 0 and .2e2 == 20 and 2.E-1 == 0.2)
-
+print("line 72")
 do
   local a,b,c = "2", " 3e0 ", " 10  "
   assert(a+b == 5 and -b == -3 and b+"2" == 5 and "10"-c == 0)
@@ -86,7 +86,7 @@ do
   local t = {[0] = 10, 20, 30, 40, 50}
   assert(t[mz] == t[0] and t[-0] == t[0])
 end
-
+print("line 89")
 do   -- tests for 'modf'
   local a,b = math.modf(3.5)
   assert(a == 3.0 and b == 0.5)
@@ -107,7 +107,7 @@ do   -- tests for 'modf'
   a,b = math.modf(minint)
   assert(eqT(a, minint) and eqT(b, 0.0))
 end
-
+print("line 110")
 assert(math.huge > 10e30)
 assert(-math.huge < -10e30)
 
@@ -133,7 +133,7 @@ for _, i in pairs{-16, -15, -3, -2, -1, 0, 1, 2, 3, 15} do
     end
   end
 end
-
+print("line 136")
 assert(1//0.0 == 1/0)
 assert(-1 // 0.0 == -1/0)
 assert(eqT(3.5 // 1.5, 2.0))
@@ -839,7 +839,7 @@ do
   assert(eq(rand, 0x0.7a7040a5a323c9d6, 2^-floatbits))
   assert(rand * 2^floatbits == res)
 end
-
+print("line 842")
 do
   -- testing return of 'randomseed'
   local x, y = math.randomseed()
@@ -888,7 +888,7 @@ do   -- test random for floats
                       totalrounds, low, up))
 end
 
-
+print("line 891")
 do   -- test random for full integers
   local up = 0
   local low = 0
@@ -922,7 +922,7 @@ do   -- test random for full integers
       totalrounds, (minint - low) / minint * 1e6,
                    (maxint - up) / maxint * 1e6))
 end
-
+print("line 925")
 do
   -- test distribution for a dice
   local count = {0, 0, 0, 0, 0, 0}
@@ -940,7 +940,7 @@ do
     end
   end
 end
-
+print("line 943")
 do
   local function aux (x1, x2)     -- test random for small intervals
     local mark = {}; local count = 0   -- to check that all values appeared
@@ -957,7 +957,7 @@ do
     end
    ::ok::
   end
-
+print("line 960")
   aux(-10,0)
   aux(1, 6)
   aux(1, 2)
@@ -972,7 +972,7 @@ do
   aux(minint, minint + 9)
   aux(maxint - 3, maxint)
 end
-
+print("line 975")
 do
   local function aux(p1, p2)       -- test random for large intervals
     local max = minint
@@ -1011,7 +1011,7 @@ do
   aux(0, 1 << (intbits - 5))
 end
 
-
+print("line 1014")
 assert(not pcall(random, 1, 2, 3))    -- too many arguments
 
 -- empty interval
