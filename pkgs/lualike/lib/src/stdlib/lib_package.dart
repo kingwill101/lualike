@@ -271,16 +271,6 @@ class _LuaLoader extends BuiltinFunction {
               Value.multi([Value(name), Value(modulePath)]),
             );
 
-            // Execute the module code in the new environment
-            Logger.debug(
-              "Creating interpreter for module",
-              category: 'Package',
-            );
-            final moduleInterpreter = Interpreter(
-              environment: moduleEnv,
-              fileManager: fileManager,
-            );
-
             // Get the absolute path of the module
             String absoluteModulePath;
             if (path_lib.isAbsolute(modulePath)) {
@@ -343,10 +333,15 @@ class _LuaLoader extends BuiltinFunction {
             );
 
             Object? result;
+            final runtime = interpreter!;
+            final previousEnv = runtime.getCurrentEnv();
+            final previousScriptPath = runtime.currentScriptPath;
             try {
               // Run the module code
               Logger.debug("Running module code", category: 'Package');
-              await moduleInterpreter.runAst(ast.statements);
+              runtime.setCurrentEnv(moduleEnv);
+              runtime.currentScriptPath = absoluteModulePath;
+              await runtime.runAst(ast.statements);
               Logger.debug(
                 "Module code executed successfully",
                 category: 'Package',
@@ -357,6 +352,9 @@ class _LuaLoader extends BuiltinFunction {
               // Handle explicit return from module
               Logger.debug("Module returned a value", category: 'Package');
               result = e.value;
+            } finally {
+              runtime.setCurrentEnv(previousEnv);
+              runtime.currentScriptPath = previousScriptPath;
             }
 
             // If the module didn't return anything, return an empty table

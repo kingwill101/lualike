@@ -52,11 +52,11 @@ class LuaLikeCommandRunner extends CommandRunner {
       defaultsTo: true,
     );
 
-    argParser.addFlag('bytecode', help: 'Use bytecode VM', defaultsTo: false);
+    argParser.addFlag('ir', help: 'Use lualike IR runtime', defaultsTo: false);
 
     argParser.addFlag(
-      'dump-bytecode',
-      help: 'Print bytecode instructions after compilation (bytecode mode)',
+      'dump-ir',
+      help: 'Print IR instructions after compilation (IR mode)',
       negatable: false,
       defaultsTo: false,
     );
@@ -113,14 +113,14 @@ class LuaLikeCommandRunner extends CommandRunner {
       }
 
       final config = LuaLikeConfig();
-      final useBytecode = argResults['bytecode'] as bool;
+      final useIr = argResults['ir'] as bool;
       final useAst = argResults['ast'] as bool;
-      if (useBytecode || !useAst) {
-        config.defaultEngineMode = EngineMode.bytecode;
+      if (useIr || !useAst) {
+        config.defaultEngineMode = EngineMode.ir;
       } else {
         config.defaultEngineMode = EngineMode.ast;
       }
-      config.dumpBytecode = argResults['dump-bytecode'] as bool;
+      config.dumpIr = argResults['dump-ir'] as bool;
       BaseCommand.resetBridge();
 
       // Handle debug mode

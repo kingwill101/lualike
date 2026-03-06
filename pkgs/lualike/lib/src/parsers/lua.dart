@@ -88,9 +88,9 @@ class LuaGrammarDefinition extends GrammarDefinition {
         .flatten();
   }
 
-  /// Optional ESC (0x1B) marker used by our pseudo-binary chunks. Accepting it
-  /// here allows loader code to uniformly pass decoded text to the parser even
-  /// when a chunk starts with ESC.
+  /// Optional ESC (0x1B) marker used by the legacy AST/internal chunk path.
+  /// Accepting it here allows loader code to uniformly pass decoded text to
+  /// the parser even when a legacy chunk starts with ESC.
   Parser _escMarker() => (pattern('\u001B')).flatten();
 
   /// Optional UTF-8 BOM at the very start of a file. When present, it is
@@ -246,7 +246,7 @@ class LuaGrammarDefinition extends GrammarDefinition {
     final isFileChunk = urlStr.isNotEmpty && urlStr != '=(load)';
     final maybeShebang = isFileChunk ? ref0(_shebang).optional() : epsilon();
 
-    // Accept optional ESC marker after BOM/shebang for pseudo-binary chunks.
+    // Accept optional ESC marker after BOM/shebang for legacy AST chunks.
     final maybeEsc = ref0(_escMarker).optional();
 
     // Do not require .end() so trailing trivia is allowed, matching Lua.

@@ -177,8 +177,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       }
     }
     dynamic mode = mt['__mode'];
-    Logger.debug(
-      'tableWeakMode raw metatable __mode: $mode (${mode.runtimeType})',
+    Logger.debugLazy(
+      () =>
+          'tableWeakMode raw metatable __mode: $mode '
+          '(${mode.runtimeType})',
       category: 'Value',
     );
     if (mode is Value) {
@@ -512,17 +514,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     final closeMeta = getMetamethod('__close');
     if (closeMeta != null) {
       try {
-        dynamic result;
-        if (closeMeta is Function) {
-          result = closeMeta([this, error is Value ? error : Value(error)]);
-        } else if (closeMeta is Value && closeMeta.raw is Function) {
-          result = closeMeta.raw([this, error is Value ? error : Value(error)]);
-        }
-
-        // If the result is a Future, await it
-        if (result is Future) {
-          await result;
-        }
+        await callMetamethodAsync('__close', <Value>[
+          this,
+          error is Value ? error : Value(error),
+        ]);
       } catch (e) {
         // Log the error but continue closing other variables
         Logger.error(
@@ -734,8 +729,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// Checks if this value is callable (is a function or has __call metamethod)
   bool isCallable() {
     return raw is Function ||
+        raw is BuiltinFunction ||
         raw is FunctionDef ||
         raw is FunctionLiteral ||
+        raw is LuaCallableArtifact ||
         raw is FunctionBody ||
         hasMetamethod('__call');
   }
@@ -1210,6 +1207,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       if (newindexMeta != null) {
         visited ??= <Value>{};
         if (visited.contains(this)) {
+          Logger.debugLazy(
+            () => 'loop in settable triggered: table=$hashCode key=$key',
+            category: 'Value',
+          );
           throw LuaError('loop in settable');
         }
         visited.add(this);
@@ -1621,7 +1622,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
     final pairsMeta = getMetamethod('__pairs');
     if (pairsMeta != null) {
-      Logger.debug('Using __pairs metamethod for entries', category: 'Value');
+      Logger.debugLazy(
+        () => 'Using __pairs metamethod for entries',
+        category: 'Value',
+      );
 
       final entries = <MapEntry<String, dynamic>>[];
       final iter = callMetamethod('__pairs', [this]);
@@ -1721,8 +1725,11 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   /// Asynchronous version of callMetamethod for use in async contexts
   Future<Object?> callMetamethodAsync(String s, List<Value> list) async {
-    Logger.debug(
-      'callMetamethodAsync called with $s, args: ${list.map((e) => e.raw)}',
+    Logger.debugLazy(
+      () =>
+          'callMetamethodAsync called with $s, args: '
+          '${list.map((e) => e.raw)}',
+      category: 'Value',
     );
     final method = getMetamethod(s);
     if (method == null) {
@@ -1881,6 +1888,42 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           }
         }
         throw UnsupportedError("No interpreter available to call function");
+      } else if (method.raw is LuaCallableArtifact) {
+        final interpreter =
+            method._resolveInterpreter() ?? _resolveInterpreter();
+        if (interpreter != null) {
+          try {
+            final result = await interpreter.callFunction(method, list);
+            if (s == '__index') {
+              if (result is Value && result.isMulti && result.raw is List) {
+                final values = result.raw as List;
+                return values.isNotEmpty ? values.first : Value(null);
+              } else if (result is List && result.isNotEmpty) {
+                return result.first is Value
+                    ? result.first
+                    : Value(result.first);
+              }
+            }
+            return result;
+          } on TailCallException catch (t) {
+            final callee = t.functionValue is Value
+                ? t.functionValue as Value
+                : Value(t.functionValue);
+            final result = await callee.call(t.args);
+            if (s == '__index') {
+              if (result is Value && result.isMulti && result.raw is List) {
+                final values = result.raw as List;
+                return values.isNotEmpty ? values.first : Value(null);
+              } else if (result is List && result.isNotEmpty) {
+                return result.first is Value
+                    ? result.first
+                    : Value(result.first);
+              }
+            }
+            return result;
+          }
+        }
+        throw UnsupportedError("No interpreter available to call function");
       }
     } else if (method is FunctionDef) {
       // Handle direct FunctionDef nodes
@@ -1936,8 +1979,6 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       return method.call(list);
     } else if (method is Value) {
       if (method.raw is Function) {
-        // This is a Lua function - calling it directly returns a Future
-        // For synchronous contexts like toString(), we need to avoid this
         final result = (method.raw as Function)(list);
         return result;
       } else if (method.raw is BuiltinFunction) {
@@ -1945,24 +1986,21 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       } else if (method.raw is FunctionDef ||
           method.raw is FunctionLiteral ||
           method.raw is FunctionBody) {
-        // This is a Lua function defined as an AST node
-        // We need to call it using the interpreter
         final interpreter = _resolveInterpreter();
         if (interpreter != null) {
-          // Call the function directly using the interpreter
-          final result = interpreter.callFunction(method, list);
-
-          // Note: This may return a Future, which should be handled by callers
-          // For synchronous contexts, this will not work properly
-          return result;
+          return interpreter.callFunction(method, list);
+        }
+        throw UnsupportedError("No interpreter available to call function");
+      } else if (method.raw is LuaCallableArtifact) {
+        final interpreter = _resolveInterpreter();
+        if (interpreter != null) {
+          return interpreter.callFunction(method, list);
         }
         throw UnsupportedError("No interpreter available to call function");
       }
     } else if (method is FunctionDef) {
-      // Handle direct FunctionDef nodes
       final interpreter = _resolveInterpreter();
       if (interpreter != null) {
-        // Call the function directly using the interpreter
         return interpreter.callFunction(Value(method), list);
       }
       throw UnsupportedError("No interpreter available to call function");
@@ -2133,6 +2171,11 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     } else if (raw is BuiltinFunction) {
       final result = raw.call(args);
       return result is Future ? await result : result;
+    } else if (raw is LuaCallableArtifact) {
+      final interpreter = _resolveInterpreter();
+      if (interpreter != null) {
+        return await interpreter.callFunction(this, args);
+      }
     } else if (hasMetamethod('__call')) {
       // Use __call metamethod
       final callMethod = getMetamethod('__call');
@@ -2205,6 +2248,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       }
     } else if (raw is Value) {
       // Non-table Value containing another Value
+      refs.add(raw);
+    } else if (raw is GCObject) {
       refs.add(raw);
     } else if (raw is List) {
       // Value containing a List - traverse list items
@@ -2323,7 +2368,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   void free() {
     // Reset GC bookkeeping so stale values don't remain marked when
     // referenced from weak tables after they've otherwise been collected.
-    Logger.debug('Value.free() called for $hashCode', category: 'GC');
+    Logger.debugLazy(() => 'Value.free() called for $hashCode', category: 'GC');
     _marked = false;
     isOld = false;
     _isFreed = true;
@@ -2386,8 +2431,8 @@ extension OperatorExtension on Value {
     // Lua: NaN ~= anything is always true
     if ((raw is num && (raw as num).isNaN) ||
         (otherRaw is num && (otherRaw).isNaN)) {
-      Logger.debug(
-        'COMPARE ~=: NaN detected, returning true',
+      Logger.debugLazy(
+        () => 'COMPARE ~=: NaN detected, returning true',
         category: 'Value',
       );
       return true;
@@ -2395,8 +2440,8 @@ extension OperatorExtension on Value {
     // Lua: int ~= float if float does not exactly represent int
     if ((raw is int || raw is BigInt) && otherRaw is double) {
       if (!otherRaw.isFinite) {
-        Logger.debug(
-          'COMPARE ~=: int ~= non-finite double, returning true',
+        Logger.debugLazy(
+          () => 'COMPARE ~=: int ~= non-finite double, returning true',
           category: 'Value',
         );
         return true;
@@ -2415,8 +2460,10 @@ extension OperatorExtension on Value {
     }
     if (raw is double && (otherRaw is int || otherRaw is BigInt)) {
       if (!(raw).isFinite) {
-        Logger.debug(
-          'COMPARE ~=: double ~= int, but double is not finite, returning true',
+        Logger.debugLazy(
+          () =>
+              'COMPARE ~=: double ~= int, but double is not finite, '
+              'returning true',
           category: 'Value',
         );
         return true;
@@ -2520,21 +2567,18 @@ extension OperatorExtension on Value {
 
     // Regular string concatenation - return Dart strings for better interop
     if (raw is String) {
-      if (wrappedOther.raw is String) {
-        return Value(raw + wrappedOther.raw);
-      } else if (wrappedOther.raw is num) {
-        return Value(raw + wrappedOther.raw.toString());
-      }
-      return Value(raw + wrappedOther.raw.toString());
+      final otherRaw = wrappedOther.raw;
+      final combined =
+          raw + (otherRaw is String ? otherRaw : otherRaw.toString());
+      return Value(LuaString.fromDartString(combined));
     }
 
     if (raw is num) {
-      if (wrappedOther.raw is String) {
-        return Value(raw.toString() + wrappedOther.raw);
-      } else if (wrappedOther.raw is num) {
-        return Value(raw.toString() + wrappedOther.raw.toString());
-      }
-      return Value(raw.toString() + wrappedOther.raw.toString());
+      final otherRaw = wrappedOther.raw;
+      final combined =
+          raw.toString() +
+          (otherRaw is String ? otherRaw : otherRaw.toString());
+      return Value(LuaString.fromDartString(combined));
     }
 
     if (raw == null || other == null) {
@@ -2551,8 +2595,8 @@ extension OperatorExtension on Value {
     // Lua: NaN > anything is always false
     if ((raw is num && (raw as num).isNaN) ||
         (otherRaw is num && (otherRaw).isNaN)) {
-      Logger.debug(
-        'COMPARE >: NaN detected, returning false',
+      Logger.debugLazy(
+        () => 'COMPARE >: NaN detected, returning false',
         category: 'Value',
       );
       return false;
@@ -2574,8 +2618,10 @@ extension OperatorExtension on Value {
       final intVal = raw is BigInt ? raw as BigInt : BigInt.from(raw);
       final doubleVal = otherRaw;
       final doubleFromInt = intVal.toDouble();
-      Logger.debug(
-        'COMPARE >: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt',
+      Logger.debugLazy(
+        () =>
+            'COMPARE >: int=$intVal, double=$doubleVal, '
+            'doubleFromInt=$doubleFromInt',
         category: 'Value',
       );
       if (doubleFromInt == doubleVal) {
@@ -2601,8 +2647,10 @@ extension OperatorExtension on Value {
       final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
       final doubleVal = raw;
       final doubleFromInt = intVal.toDouble();
-      Logger.debug(
-        'COMPARE >: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt',
+      Logger.debugLazy(
+        () =>
+            'COMPARE >: double=$doubleVal, int=$intVal, '
+            'doubleFromInt=$doubleFromInt',
         category: 'Value',
       );
       if (doubleFromInt == doubleVal) {
@@ -2648,8 +2696,8 @@ extension OperatorExtension on Value {
     // Lua: NaN < anything is always false
     if ((raw is num && (raw as num).isNaN) ||
         (otherRaw is num && (otherRaw).isNaN)) {
-      Logger.debug(
-        'COMPARE <: NaN detected, returning false',
+      Logger.debugLazy(
+        () => 'COMPARE <: NaN detected, returning false',
         category: 'Value',
       );
       return false;
@@ -2670,8 +2718,10 @@ extension OperatorExtension on Value {
       final intVal = raw is BigInt ? raw as BigInt : BigInt.from(raw);
       final doubleVal = otherRaw;
       final doubleFromInt = intVal.toDouble();
-      Logger.debug(
-        'COMPARE <: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt',
+      Logger.debugLazy(
+        () =>
+            'COMPARE <: int=$intVal, double=$doubleVal, '
+            'doubleFromInt=$doubleFromInt',
         category: 'Value',
       );
       if (doubleFromInt == doubleVal) {
@@ -2692,8 +2742,10 @@ extension OperatorExtension on Value {
       final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
       final doubleVal = raw;
       final doubleFromInt = intVal.toDouble();
-      Logger.debug(
-        'COMPARE <: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt',
+      Logger.debugLazy(
+        () =>
+            'COMPARE <: double=$doubleVal, int=$intVal, '
+            'doubleFromInt=$doubleFromInt',
         category: 'Value',
       );
       if (doubleFromInt == doubleVal) {
@@ -2734,8 +2786,8 @@ extension OperatorExtension on Value {
     // Lua: NaN >= anything is always false
     if ((raw is num && (raw as num).isNaN) ||
         (otherRaw is num && (otherRaw).isNaN)) {
-      Logger.debug(
-        'COMPARE >=: NaN detected, returning false',
+      Logger.debugLazy(
+        () => 'COMPARE >=: NaN detected, returning false',
         category: 'Value',
       );
       return false;
@@ -2755,8 +2807,10 @@ extension OperatorExtension on Value {
       final intVal = raw is BigInt ? raw as BigInt : BigInt.from(raw);
       final doubleVal = otherRaw;
       final doubleFromInt = intVal.toDouble();
-      Logger.debug(
-        'COMPARE >=: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt',
+      Logger.debugLazy(
+        () =>
+            'COMPARE >=: int=$intVal, double=$doubleVal, '
+            'doubleFromInt=$doubleFromInt',
         category: 'Value',
       );
       if (doubleFromInt == doubleVal) {
@@ -2776,8 +2830,10 @@ extension OperatorExtension on Value {
       final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
       final doubleVal = raw;
       final doubleFromInt = intVal.toDouble();
-      Logger.debug(
-        'COMPARE >=: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt',
+      Logger.debugLazy(
+        () =>
+            'COMPARE >=: double=$doubleVal, int=$intVal, '
+            'doubleFromInt=$doubleFromInt',
         category: 'Value',
       );
       if (doubleFromInt == doubleVal) {
@@ -2818,8 +2874,8 @@ extension OperatorExtension on Value {
     // Lua: NaN <= anything is always false
     if ((raw is num && (raw as num).isNaN) ||
         (otherRaw is num && (otherRaw).isNaN)) {
-      Logger.debug(
-        'COMPARE <=: NaN detected, returning false',
+      Logger.debugLazy(
+        () => 'COMPARE <=: NaN detected, returning false',
         category: 'Value',
       );
       return false;
@@ -2839,8 +2895,10 @@ extension OperatorExtension on Value {
       final intVal = raw is BigInt ? raw as BigInt : BigInt.from(raw);
       final doubleVal = otherRaw;
       final doubleFromInt = intVal.toDouble();
-      Logger.debug(
-        'COMPARE <=: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt',
+      Logger.debugLazy(
+        () =>
+            'COMPARE <=: int=$intVal, double=$doubleVal, '
+            'doubleFromInt=$doubleFromInt',
         category: 'Value',
       );
       if (doubleFromInt == doubleVal) {
@@ -2860,8 +2918,10 @@ extension OperatorExtension on Value {
       final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
       final doubleVal = raw;
       final doubleFromInt = intVal.toDouble();
-      Logger.debug(
-        'COMPARE <=: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt',
+      Logger.debugLazy(
+        () =>
+            'COMPARE <=: double=$doubleVal, int=$intVal, '
+            'doubleFromInt=$doubleFromInt',
         category: 'Value',
       );
       if (doubleFromInt == doubleVal) {
@@ -2901,8 +2961,8 @@ extension OperatorExtension on Value {
     final otherRaw = other is Value ? other.raw : other;
     // Lua: NaN == anything is always false
     if ((raw is num && raw.isNaN) || (otherRaw is num && otherRaw.isNaN)) {
-      Logger.debug(
-        'COMPARE ==: NaN detected, returning false',
+      Logger.debugLazy(
+        () => 'COMPARE ==: NaN detected, returning false',
         category: 'Value',
       );
       return false;
@@ -2910,8 +2970,8 @@ extension OperatorExtension on Value {
     // Lua: int == float only if float is finite and exactly represents int
     if ((raw is int || raw is BigInt) && otherRaw is double) {
       if (!otherRaw.isFinite) {
-        Logger.debug(
-          'COMPARE ==: int == non-finite double, returning false',
+        Logger.debugLazy(
+          () => 'COMPARE ==: int == non-finite double, returning false',
           category: 'Value',
         );
         return false;
@@ -2946,8 +3006,10 @@ extension OperatorExtension on Value {
     }
     if (raw is double && (otherRaw is int || otherRaw is BigInt)) {
       if (!raw.isFinite) {
-        Logger.debug(
-          'COMPARE ==: double == int, but double is not finite, returning false',
+        Logger.debugLazy(
+          () =>
+              'COMPARE ==: double == int, but double is not finite, '
+              'returning false',
           category: 'Value',
         );
         return false;

@@ -253,8 +253,10 @@ class GenerationalGCManager {
     if (_isStopped || bytes <= 0 || !autoTriggerEnabled) return;
 
     _simulatedAllocationDebt += bytes;
-    Logger.debug(
-      'Simulated allocation: bytes=$bytes, debt=$_simulatedAllocationDebt',
+    Logger.debugLazy(
+      () =>
+          'Simulated allocation: bytes=$bytes, '
+          'debt=$_simulatedAllocationDebt',
       category: 'GC',
     );
 
@@ -265,12 +267,12 @@ class GenerationalGCManager {
   /// This should be called at safe points during execution.
   void triggerGCIfNeeded() {
     if (_simulatedAllocationDebt > 0 && !_isStopped && autoTriggerEnabled) {
-      if (Logger.enabled) {
-        Logger.debug(
-          'Manual triggerGCIfNeeded invoked with debt=$_simulatedAllocationDebt phase=$_currentPhase',
-          category: 'GC',
-        );
-      }
+      Logger.debugLazy(
+        () =>
+            'Manual triggerGCIfNeeded invoked with '
+            'debt=$_simulatedAllocationDebt phase=$_currentPhase',
+        category: 'GC',
+      );
       _autoTriggerRequested = true;
       runPendingAutoTrigger();
     }
@@ -286,8 +288,10 @@ class GenerationalGCManager {
     var remainingBudget = normalizedStepSize;
     var cycleComplete = false;
 
-    Logger.debug(
-      'Incremental GC step start: phase=$_currentPhase, stepSize=$normalizedStepSize, budget=$remainingBudget',
+    Logger.debugLazy(
+      () =>
+          'Incremental GC step start: phase=$_currentPhase, '
+          'stepSize=$normalizedStepSize, budget=$remainingBudget',
       category: 'GC',
     );
 
@@ -322,8 +326,10 @@ class GenerationalGCManager {
       }
     }
 
-    Logger.debug(
-      'Incremental GC step end: phase=$_currentPhase, budgetRemaining=$remainingBudget, cycleComplete=$cycleComplete',
+    Logger.debugLazy(
+      () =>
+          'Incremental GC step end: phase=$_currentPhase, '
+          'budgetRemaining=$remainingBudget, cycleComplete=$cycleComplete',
       category: 'GC',
     );
 
@@ -439,7 +445,10 @@ class GenerationalGCManager {
   }
 
   void _startIncrementalCollection() {
-    Logger.debug('Starting incremental collection cycle', category: 'GC');
+    Logger.debugLazy(
+      () => 'Starting incremental collection cycle',
+      category: 'GC',
+    );
     _cycleComplete = false;
     _currentPhase = GCPhase.marking;
 
@@ -464,15 +473,17 @@ class GenerationalGCManager {
       }
     }
 
-    Logger.debug(
-      'Initialized marking queue with ${_objectsToMark.length} root objects',
+    Logger.debugLazy(
+      () =>
+          'Initialized marking queue with ${_objectsToMark.length} '
+          'root objects',
       category: 'GC',
     );
 
     // If no roots to mark, skip to sweeping
     if (_objectsToMark.isEmpty) {
-      Logger.debug(
-        'No roots to mark, moving directly to sweeping',
+      Logger.debugLazy(
+        () => 'No roots to mark, moving directly to sweeping',
         category: 'GC',
       );
       _currentPhase = GCPhase.sweeping;
@@ -482,13 +493,18 @@ class GenerationalGCManager {
   }
 
   int _performMarkingWork(int stepSize, int budget) {
-    Logger.debug(
-      'Incremental marking work (${_objectsToMark.length} objects in queue, budget=$budget)',
+    Logger.debugLazy(
+      () =>
+          'Incremental marking work (${_objectsToMark.length} objects in '
+          'queue, budget=$budget)',
       category: 'GC',
     );
 
     if (_objectsToMark.isEmpty) {
-      Logger.debug('No objects to mark, switching to sweeping', category: 'GC');
+      Logger.debugLazy(
+        () => 'No objects to mark, switching to sweeping',
+        category: 'GC',
+      );
       _currentPhase = GCPhase.sweeping;
       if (_objectsToSweep.isEmpty) {
         _objectsToSweep = [...youngGen.objects, ...oldGen.objects];
@@ -505,8 +521,8 @@ class GenerationalGCManager {
 
       if (!obj.marked) {
         obj.marked = true;
-        Logger.debug(
-          'Marked: ${obj.runtimeType} ${obj.hashCode}',
+        Logger.debugLazy(
+          () => 'Marked: ${obj.runtimeType} ${obj.hashCode}',
           category: 'GC',
         );
 
@@ -521,14 +537,16 @@ class GenerationalGCManager {
       workDone++;
     }
 
-    Logger.debug(
-      'Marking work complete: processed=$workDone, remaining=${_objectsToMark.length}',
+    Logger.debugLazy(
+      () =>
+          'Marking work complete: processed=$workDone, '
+          'remaining=${_objectsToMark.length}',
       category: 'GC',
     );
 
     if (_objectsToMark.isEmpty) {
-      Logger.debug(
-        'Marking phase finished, preparing sweeping phase',
+      Logger.debugLazy(
+        () => 'Marking phase finished, preparing sweeping phase',
         category: 'GC',
       );
       _currentPhase = GCPhase.sweeping;
@@ -541,8 +559,10 @@ class GenerationalGCManager {
 
   int _performSweepingWork(int stepSize, int budget) {
     final remainingObjects = _objectsToSweep.length - _sweepingIndex;
-    Logger.debug(
-      'Incremental sweeping work ($remainingObjects objects remaining, budget=$budget)',
+    Logger.debugLazy(
+      () =>
+          'Incremental sweeping work ($remainingObjects objects '
+          'remaining, budget=$budget)',
       category: 'GC',
     );
 
@@ -563,15 +583,17 @@ class GenerationalGCManager {
         if (obj is Value &&
             obj.hasMetamethod('__gc') &&
             !_alreadyFinalized.contains(obj)) {
-          Logger.debug(
-            'Queued for finalization: ${obj.runtimeType} ${obj.hashCode}',
+          Logger.debugLazy(
+            () =>
+                'Queued for finalization: ${obj.runtimeType} '
+                '${obj.hashCode}',
             category: 'GC',
           );
           _toBeFinalized.add(obj);
         } else {
           objectsToFree.add(obj);
-          Logger.debug(
-            'Marked for freeing: ${obj.runtimeType} ${obj.hashCode}',
+          Logger.debugLazy(
+            () => 'Marked for freeing: ${obj.runtimeType} ${obj.hashCode}',
             category: 'GC',
           );
         }
@@ -581,8 +603,11 @@ class GenerationalGCManager {
       workDone++;
     }
 
-    Logger.debug(
-      'Sweeping work complete: processed=$workDone, toFree=${objectsToFree.length}, remaining=${_objectsToSweep.length - _sweepingIndex}',
+    Logger.debugLazy(
+      () =>
+          'Sweeping work complete: processed=$workDone, '
+          'toFree=${objectsToFree.length}, '
+          'remaining=${_objectsToSweep.length - _sweepingIndex}',
       category: 'GC',
     );
 
@@ -594,8 +619,8 @@ class GenerationalGCManager {
     }
 
     if (_sweepingIndex >= _objectsToSweep.length) {
-      Logger.debug(
-        'Sweeping phase complete, moving to finalizing',
+      Logger.debugLazy(
+        () => 'Sweeping phase complete, moving to finalizing',
         category: 'GC',
       );
       _currentPhase = GCPhase.finalizing;
@@ -620,7 +645,7 @@ class GenerationalGCManager {
   // Removed: _totalWorkBudget (unused)
 
   int _performFinalizingWork() {
-    Logger.debug('Incremental finalizing work', category: 'GC');
+    Logger.debugLazy(() => 'Incremental finalizing work', category: 'GC');
 
     if (_toBeFinalized.isNotEmpty) {
       _finalizerActive = true;
@@ -671,15 +696,18 @@ class GenerationalGCManager {
                 if (result is Future) {
                   // Allow asynchronous finalizers to complete without blocking.
                   result.catchError((error, stack) {
-                    Logger.debug(
-                      'Async finalizer error: $error',
+                    Logger.debugLazy(
+                      () => 'Async finalizer error: $error',
                       category: 'GC',
                     );
                   });
                 }
                 finalized = true;
               } catch (error) {
-                Logger.debug('Error in finalizer: $error', category: 'GC');
+                Logger.debugLazy(
+                  () => 'Error in finalizer: $error',
+                  category: 'GC',
+                );
               }
             } else {
               if (Logger.enabled) {
@@ -717,7 +745,10 @@ class GenerationalGCManager {
     _cycleComplete = true;
     _currentPhase = GCPhase.idle;
 
-    Logger.debug('Incremental collection cycle complete', category: 'GC');
+    Logger.debugLazy(
+      () => 'Incremental collection cycle complete',
+      category: 'GC',
+    );
     return 1;
   }
 
@@ -756,8 +787,10 @@ class GenerationalGCManager {
   void register(GCObject obj, {bool countAllocation = true}) {
     // Prevent duplicate registrations - if object is already tracked, skip
     if (youngGen.objects.contains(obj) || oldGen.objects.contains(obj)) {
-      Logger.debug(
-        'Skipping duplicate registration: ${obj.runtimeType} ${obj.hashCode}',
+      Logger.debugLazy(
+        () =>
+            'Skipping duplicate registration: '
+            '${obj.runtimeType} ${obj.hashCode}',
         category: 'GC',
       );
       return;
@@ -774,8 +807,10 @@ class GenerationalGCManager {
           .take(5)
           .map((entry) => '${entry.key}:${entry.value}')
           .join(', ');
-      Logger.debug(
-        'GC register stats: total=$totalRegistrations, debt=$_simulatedAllocationDebt, topTypes=[$summary]',
+      Logger.debugLazy(
+        () =>
+            'GC register stats: total=$totalRegistrations, '
+            'debt=$_simulatedAllocationDebt, topTypes=[$summary]',
         category: 'GC',
       );
     }
@@ -791,13 +826,13 @@ class GenerationalGCManager {
       _requestAutoTrigger();
     }
     if (obj is Value && obj.isTable) {
-      Logger.debug(
-        'Register table ${obj.hashCode} weakMode=${obj.tableWeakMode}',
+      Logger.debugLazy(
+        () => 'Register table ${obj.hashCode} weakMode=${obj.tableWeakMode}',
         category: 'GC',
       );
     }
-    Logger.debug(
-      'Register: ${obj.runtimeType} ${obj.hashCode}',
+    Logger.debugLazy(
+      () => 'Register: ${obj.runtimeType} ${obj.hashCode}',
       category: 'GC',
     );
   }
@@ -808,13 +843,18 @@ class GenerationalGCManager {
     }
     final triggerThreshold = _autoTriggerDebtThreshold();
     if (_simulatedAllocationDebt >= triggerThreshold) {
-      Logger.debug(
-        'Auto trigger request check: debt=$_simulatedAllocationDebt threshold=$triggerThreshold requested=$_autoTriggerRequested',
+      Logger.debugLazy(
+        () =>
+            'Auto trigger request check: debt=$_simulatedAllocationDebt '
+            'threshold=$triggerThreshold requested=$_autoTriggerRequested',
         category: 'GC',
       );
       if (!_autoTriggerRequested && Logger.enabled) {
-        Logger.debug(
-          'Auto trigger requested: debt=$_simulatedAllocationDebt threshold=$triggerThreshold (stepSize=$stepSize, multiplier=$_autoTriggerDebtMultiplier)',
+        Logger.debugLazy(
+          () =>
+              'Auto trigger requested: debt=$_simulatedAllocationDebt '
+              'threshold=$triggerThreshold (stepSize=$stepSize, '
+              'multiplier=$_autoTriggerDebtMultiplier)',
           category: 'GC',
         );
       }
@@ -826,20 +866,27 @@ class GenerationalGCManager {
   ///
   /// This should only be called from interpreter-designated safe points.
   void runPendingAutoTrigger() {
-    Logger.debug(
-      'runPendingAutoTrigger start: stopped=$_isStopped enabled=$autoTriggerEnabled requested=$_autoTriggerRequested debt=$_simulatedAllocationDebt collecting=$_isCollecting phase=$_currentPhase',
+    Logger.debugLazy(
+      () =>
+          'runPendingAutoTrigger start: stopped=$_isStopped '
+          'enabled=$autoTriggerEnabled requested=$_autoTriggerRequested '
+          'debt=$_simulatedAllocationDebt collecting=$_isCollecting '
+          'phase=$_currentPhase',
       category: 'GC',
     );
     if (_isStopped ||
         !autoTriggerEnabled ||
         !_autoTriggerRequested ||
         _simulatedAllocationDebt <= 0) {
-      Logger.debug('runPendingAutoTrigger bail', category: 'GC');
+      Logger.debugLazy(() => 'runPendingAutoTrigger bail', category: 'GC');
       return;
     }
 
     if (_isCollecting) {
-      Logger.debug('runPendingAutoTrigger already collecting', category: 'GC');
+      Logger.debugLazy(
+        () => 'runPendingAutoTrigger already collecting',
+        category: 'GC',
+      );
       return;
     }
 
@@ -858,8 +905,11 @@ class GenerationalGCManager {
 
     stopwatch.stop();
     if (Logger.enabled) {
-      Logger.debug(
-        'Auto GC safe point: phaseBefore=$phaseBefore, debtBefore=$debtBefore, debtAfter=$_simulatedAllocationDebt, duration=${stopwatch.elapsedMilliseconds}ms',
+      Logger.debugLazy(
+        () =>
+            'Auto GC safe point: phaseBefore=$phaseBefore, '
+            'debtBefore=$debtBefore, debtAfter=$_simulatedAllocationDebt, '
+            'duration=${stopwatch.elapsedMilliseconds}ms',
         category: 'GC',
       );
     }
@@ -893,18 +943,21 @@ class GenerationalGCManager {
   /// This happens when an object survives a minor collection cycle,
   /// indicating it may have a longer lifetime.
   void promote(GCObject obj) {
-    Logger.debug('Promote: ${obj.runtimeType} ${obj.hashCode}', category: 'GC');
+    Logger.debugLazy(
+      () => 'Promote: ${obj.runtimeType} ${obj.hashCode}',
+      category: 'GC',
+    );
     youngGen.remove(obj);
     oldGen.add(obj);
     obj.isOld = true;
     MemoryCredits.instance.onPromote(obj);
-    Logger.debug('Promoted object to old generation', category: 'GC');
+    Logger.debugLazy(() => 'Promoted object to old generation', category: 'GC');
   }
 
   /// Marks all live objects in a generation starting from the given roots.
   void _markGeneration(Generation gen, List<Object?> roots) {
-    Logger.debug(
-      'Marking generation (${gen == youngGen ? 'young' : 'old'})',
+    Logger.debugLazy(
+      () => 'Marking generation (${gen == youngGen ? 'young' : 'old'})',
       category: 'GC',
     );
     for (final root in roots) {
@@ -957,7 +1010,10 @@ class GenerationalGCManager {
       }
     } catch (_) {}
 
-    Logger.debug('Built root set with ${roots.length} roots', category: 'GC');
+    Logger.debugLazy(
+      () => 'Built root set with ${roots.length} roots',
+      category: 'GC',
+    );
     return roots;
   }
 
@@ -970,13 +1026,15 @@ class GenerationalGCManager {
       return;
     }
 
-    Logger.debug(
-      'Discover: ${obj.runtimeType} ${obj.hashCode} (inMajorCollection: $_inMajorCollection)',
+    Logger.debugLazy(
+      () =>
+          'Discover: ${obj.runtimeType} ${obj.hashCode} '
+          '(inMajorCollection: $_inMajorCollection)',
       category: 'GC',
     );
     if (obj is Box) {
-      Logger.debug(
-        'Discover Box name=${obj.debugName} value=${obj.value}',
+      Logger.debugLazy(
+        () => 'Discover Box name=${obj.debugName} value=${obj.value}',
         category: 'GC',
       );
     }
@@ -1002,8 +1060,8 @@ class GenerationalGCManager {
       obj.marked = true;
 
       if (obj is Value && obj.isTable) {
-        Logger.debug(
-          'Mark table ${obj.hashCode} weakMode=${obj.tableWeakMode}',
+        Logger.debugLazy(
+          () => 'Mark table ${obj.hashCode} weakMode=${obj.tableWeakMode}',
           category: 'GC',
         );
         if (_inMajorCollection) {
@@ -1042,8 +1100,10 @@ class GenerationalGCManager {
 
       if (!hasGCContent) return;
 
-      Logger.debug(
-        'Map traversal (non-Value owner): ${obj.runtimeType} ${obj.hashCode} with ${obj.length} entries',
+      Logger.debugLazy(
+        () =>
+            'Map traversal (non-Value owner): ${obj.runtimeType} '
+            '${obj.hashCode} with ${obj.length} entries',
         category: 'GC',
       );
 
@@ -1071,8 +1131,10 @@ class GenerationalGCManager {
 
       if (!hasGCContent) return;
 
-      Logger.debug(
-        'Iterable traversal: ${obj.runtimeType} ${obj.hashCode} with ${obj.length} items',
+      Logger.debugLazy(
+        () =>
+            'Iterable traversal: ${obj.runtimeType} ${obj.hashCode} '
+            'with ${obj.length} items',
         category: 'GC',
       );
       for (final item in obj) {
@@ -1083,8 +1145,8 @@ class GenerationalGCManager {
       return;
     }
 
-    Logger.debug(
-      'Ignoring non-GC object: ${obj.runtimeType} ${obj.hashCode}',
+    Logger.debugLazy(
+      () => 'Ignoring non-GC object: ${obj.runtimeType} ${obj.hashCode}',
       category: 'GC',
     );
   }
@@ -1096,14 +1158,18 @@ class GenerationalGCManager {
 
     final weakMode = table.tableWeakMode;
 
-    Logger.debug(
-      'Handling table traversal for table ${table.hashCode}, weak mode: $weakMode',
+    Logger.debugLazy(
+      () =>
+          'Handling table traversal for table ${table.hashCode}, weak '
+          'mode: $weakMode',
       category: 'GC',
     );
 
     if (weakMode == null) {
-      Logger.debug(
-        'Table ${table.hashCode} has no weak mode (metatable: ${table.metatable})',
+      Logger.debugLazy(
+        () =>
+            'Table ${table.hashCode} has no weak mode '
+            '(metatable: ${table.metatable})',
         category: 'GC',
       );
       // Strong table - traverse normally
@@ -1115,8 +1181,10 @@ class GenerationalGCManager {
       }
     } else if (weakMode == 'v') {
       // Weak values - traverse keys only, mark table for later clearing
-      Logger.debug(
-        'Table ${table.hashCode} has weak values, adding to tracking list',
+      Logger.debugLazy(
+        () =>
+            'Table ${table.hashCode} has weak values, adding to '
+            'tracking list',
         category: 'GC',
       );
       if (!weakValuesTables.contains(table)) {
@@ -1130,8 +1198,10 @@ class GenerationalGCManager {
       }
     } else if (weakMode == 'k') {
       // Weak keys (ephemeron) - special handling needed
-      Logger.debug(
-        'Table ${table.hashCode} has weak keys, adding to ephemeron list',
+      Logger.debugLazy(
+        () =>
+            'Table ${table.hashCode} has weak keys, adding to '
+            'ephemeron list',
         category: 'GC',
       );
       if (!ephemeronTables.contains(table)) {
@@ -1144,8 +1214,10 @@ class GenerationalGCManager {
           final key = entry.key;
           if (key is Value && key.marked) {
             key.marked = false;
-            Logger.debug(
-              'Unmarking weak key ${key.hashCode} for table ${table.hashCode}',
+            Logger.debugLazy(
+              () =>
+                  'Unmarking weak key ${key.hashCode} for table '
+                  '${table.hashCode}',
               category: 'GC',
             );
           }
@@ -1169,8 +1241,10 @@ class GenerationalGCManager {
       }
     } else if (weakMode == 'kv') {
       // All weak - don't traverse entries at all
-      Logger.debug(
-        'Table ${table.hashCode} is all-weak, adding to all-weak list',
+      Logger.debugLazy(
+        () =>
+            'Table ${table.hashCode} is all-weak, adding to '
+            'all-weak list',
         category: 'GC',
       );
       if (!allWeakTables.contains(table)) {
@@ -1188,8 +1262,10 @@ class GenerationalGCManager {
   /// Clears dead entries from weak-values tables.
   /// Called after marking phase during major collection.
   void _clearWeakValues() {
-    Logger.debug(
-      'Starting weak values clearing for ${weakValuesTables.length} tables',
+    Logger.debugLazy(
+      () =>
+          'Starting weak values clearing for ${weakValuesTables.length} '
+          'tables',
       category: 'GC',
     );
 
@@ -1197,8 +1273,10 @@ class GenerationalGCManager {
       final tableMap = table.raw as Map;
       final entriesToRemove = <dynamic>[];
 
-      Logger.debug(
-        'Checking weak table ${table.hashCode} with ${tableMap.length} entries',
+      Logger.debugLazy(
+        () =>
+            'Checking weak table ${table.hashCode} with ${tableMap.length} '
+            'entries',
         category: 'GC',
       );
 
@@ -1208,8 +1286,12 @@ class GenerationalGCManager {
         final keyMarked = (key is GCObject) ? key.marked : 'N/A';
         final valueMarked = (value is GCObject) ? value.marked : 'N/A';
 
-        Logger.debug(
-          'WeakValueCheck: table=${table.hashCode} keyType=${key.runtimeType} keyMarked=$keyMarked value=$value valueType=${value.runtimeType} valueMarked=$valueMarked isPrimitive=${value is Value ? value.isPrimitiveLike : false}',
+        Logger.debugLazy(
+          () =>
+              'WeakValueCheck: table=${table.hashCode} '
+              'keyType=${key.runtimeType} keyMarked=$keyMarked value=$value '
+              'valueType=${value.runtimeType} valueMarked=$valueMarked '
+              'isPrimitive=${value is Value ? value.isPrimitiveLike : false}',
           category: 'GC',
         );
 
@@ -1228,15 +1310,17 @@ class GenerationalGCManager {
                 (_isCollectableNonPrimitiveGC(value) &&
                     !(value as GCObject).marked))) {
           entriesToRemove.add(entry.key);
-          Logger.debug(
-            'Marking for removal: ${entry.key} -> $value',
+          Logger.debugLazy(
+            () => 'Marking for removal: ${entry.key} -> $value',
             category: 'GC',
           );
         }
       }
 
-      Logger.debug(
-        'Removing ${entriesToRemove.length} entries from table ${table.hashCode}',
+      Logger.debugLazy(
+        () =>
+            'Removing ${entriesToRemove.length} entries from table '
+            '${table.hashCode}',
         category: 'GC',
       );
 
@@ -1254,13 +1338,17 @@ class GenerationalGCManager {
           } else {
             // Key is not in any generation, add it to young generation
             youngGen.add(key);
-            Logger.debug(
-              'Added preserved key ${key.hashCode} back to young generation',
+            Logger.debugLazy(
+              () =>
+                  'Added preserved key ${key.hashCode} back to '
+                  'young generation',
               category: 'GC',
             );
           }
-          Logger.debug(
-            'Preserving weak table key ${key.hashCode} when clearing weak value',
+          Logger.debugLazy(
+            () =>
+                'Preserving weak table key ${key.hashCode} when clearing '
+                'weak value',
             category: 'GC',
           );
         }
@@ -1337,8 +1425,10 @@ class GenerationalGCManager {
   void _convergeEphemerons() {
     if (ephemeronTables.isEmpty) return;
 
-    Logger.debug(
-      'Starting ephemeron convergence for ${ephemeronTables.length} tables',
+    Logger.debugLazy(
+      () =>
+          'Starting ephemeron convergence for ${ephemeronTables.length} '
+          'tables',
       category: 'GC',
     );
 
@@ -1350,8 +1440,8 @@ class GenerationalGCManager {
       changed = false;
       iterations++;
 
-      Logger.debug(
-        'Ephemeron convergence iteration $iterations',
+      Logger.debugLazy(
+        () => 'Ephemeron convergence iteration $iterations',
         category: 'GC',
       );
 
@@ -1367,15 +1457,19 @@ class GenerationalGCManager {
           if ((key is GCObject && key.marked) || (key is Value && key.marked)) {
             if (_isCollectableNonPrimitiveGC(value) &&
                 !(value as GCObject).marked) {
-              Logger.debug(
-                'Ephemeron: marking value ${value.hashCode} due to marked key ${key.hashCode}',
+              Logger.debugLazy(
+                () =>
+                    'Ephemeron: marking value ${value.hashCode} due to '
+                    'marked key ${key.hashCode}',
                 category: 'GC',
               );
               _discover(value);
               changed = true;
             } else if (value is Value && !value.marked) {
-              Logger.debug(
-                'Ephemeron: marking value ${value.hashCode} due to marked key ${key.hashCode}',
+              Logger.debugLazy(
+                () =>
+                    'Ephemeron: marking value ${value.hashCode} due to '
+                    'marked key ${key.hashCode}',
                 category: 'GC',
               );
               _discover(value);
@@ -1386,14 +1480,14 @@ class GenerationalGCManager {
       }
     }
 
-    Logger.debug(
-      'Ephemeron convergence completed after $iterations iterations',
+    Logger.debugLazy(
+      () => 'Ephemeron convergence completed after $iterations iterations',
       category: 'GC',
     );
 
     if (iterations >= maxIterations) {
-      Logger.debug(
-        'Warning: Ephemeron convergence hit iteration limit',
+      Logger.debugLazy(
+        () => 'Warning: Ephemeron convergence hit iteration limit',
         category: 'GC',
       );
     }
@@ -1418,8 +1512,10 @@ class GenerationalGCManager {
       pending.forEach((table, keys) {
         final tableMap = table.raw as Map;
         for (final key in keys) {
-          Logger.debug(
-            'Applying pending removal for table ${table.hashCode} key=$key',
+          Logger.debugLazy(
+            () =>
+                'Applying pending removal for table ${table.hashCode} '
+                'key=$key',
             category: 'GC',
           );
           tableMap.remove(key);
@@ -1635,17 +1731,24 @@ class GenerationalGCManager {
     if (ephemeronTables.isEmpty) {
       _collectWeakTablesFromGenerations();
     }
-    Logger.debug(
-      'Starting weak keys clearing for ${ephemeronTables.length} tables',
+    Logger.debugLazy(
+      () =>
+          'Starting weak keys clearing for ${ephemeronTables.length} '
+          'tables',
       category: 'GC',
     );
-    Logger.debug('In major collection: $_inMajorCollection', category: 'GC');
+    Logger.debugLazy(
+      () => 'In major collection: $_inMajorCollection',
+      category: 'GC',
+    );
 
     for (final table in ephemeronTables) {
       final tableMap = table.raw as Map;
 
-      Logger.debug(
-        'Checking weak keys table ${table.hashCode} with ${tableMap.length} entries',
+      Logger.debugLazy(
+        () =>
+            'Checking weak keys table ${table.hashCode} with '
+            '${tableMap.length} entries',
         category: 'GC',
       );
 
@@ -1692,8 +1795,10 @@ class GenerationalGCManager {
   /// Separates objects in a generation into survivors and dead.
   /// Moves dead objects with finalizers to the _toBeFinalized list for later processing.
   void _separate(Generation gen) {
-    Logger.debug(
-      'Separate: ${gen == youngGen ? 'young' : 'old'} generation, ${gen.objects.length} objects',
+    Logger.debugLazy(
+      () =>
+          'Separate: ${gen == youngGen ? 'young' : 'old'} generation, '
+          '${gen.objects.length} objects',
       category: 'GC',
     );
     final survivors = <GCObject>[];
@@ -1810,16 +1915,16 @@ class GenerationalGCManager {
           // It's finalizable and has not been finalized yet.
           // Add to the finalization list and "resurrect" it for this cycle.
           // It will be collected in the next GC cycle if still unreachable.
-          Logger.debug(
-            'To be finalized: ${obj.runtimeType} ${obj.hashCode}',
+          Logger.debugLazy(
+            () => 'To be finalized: ${obj.runtimeType} ${obj.hashCode}',
             category: 'GC',
           );
           _toBeFinalized.add(obj);
           survivors.add(obj);
         } else {
           // It's truly dead (no finalizer or already finalized), so collect it.
-          Logger.debug(
-            'Free: ${obj.runtimeType} ${obj.hashCode}',
+          Logger.debugLazy(
+            () => 'Free: ${obj.runtimeType} ${obj.hashCode}',
             category: 'GC',
           );
           MemoryCredits.instance.onFree(obj);
@@ -1835,8 +1940,8 @@ class GenerationalGCManager {
 
   /// Calls finalizers for objects in the _toBeFinalized list.
   Future<void> _callFinalizersAsync() async {
-    Logger.debug(
-      'Calling finalizers for ${_toBeFinalized.length} objects',
+    Logger.debugLazy(
+      () => 'Calling finalizers for ${_toBeFinalized.length} objects',
       category: 'GC',
     );
     _finalizerActive = true;
@@ -1954,14 +2059,14 @@ class GenerationalGCManager {
         // if the object is resurrected and then becomes dead again.
         _alreadyFinalized.add(value);
         try {
-          Logger.debug(
-            'Run finalizer: ${value.runtimeType} ${value.hashCode}',
+          Logger.debugLazy(
+            () => 'Run finalizer: ${value.runtimeType} ${value.hashCode}',
             category: 'GC',
           );
           await value.callMetamethodAsync('__gc', [value]);
         } catch (e) {
           // Errors in finalizers are reported but not propagated.
-          Logger.debug('Error in finalizer: $e', category: 'GC');
+          Logger.debugLazy(() => 'Error in finalizer: $e', category: 'GC');
         }
       }
     } finally {
@@ -1977,7 +2082,7 @@ class GenerationalGCManager {
   ///
   /// Objects that survive a minor collection are promoted to the old generation.
   void minorCollection(List<Object?> roots) {
-    Logger.debug('Minor collection start', category: 'GC');
+    Logger.debugLazy(() => 'Minor collection start', category: 'GC');
     _cycleComplete = false;
     _currentPhase = GCPhase.idle;
 
@@ -2000,16 +2105,18 @@ class GenerationalGCManager {
             obj.hasMetamethod('__gc') &&
             !_alreadyFinalized.contains(obj);
         if (needsFinalizer) {
-          Logger.debug(
-            'Minor queued finalizer: ${obj.runtimeType} ${obj.hashCode}',
+          Logger.debugLazy(
+            () => 'Minor queued finalizer: ${obj.runtimeType} ${obj.hashCode}',
             category: 'GC',
           );
           _toBeFinalized.add(obj);
           survivors.add(obj);
         } else {
           final credits = obj.estimatedSize;
-          Logger.debug(
-            'Minor free: ${obj.runtimeType} ${obj.hashCode}, credits=${(credits / 1024).toStringAsFixed(2)} KB',
+          Logger.debugLazy(
+            () =>
+                'Minor free: ${obj.runtimeType} ${obj.hashCode}, '
+                'credits=${(credits / 1024).toStringAsFixed(2)} KB',
             category: 'GC',
           );
           MemoryCredits.instance.onFree(obj);
@@ -2028,8 +2135,8 @@ class GenerationalGCManager {
     _lastMinorBytes = estimateMemoryUse();
     _cycleComplete = true;
     _currentPhase = GCPhase.idle;
-    Logger.debug('Minor collection end', category: 'GC');
-    Logger.debug('Minor collection complete', category: 'GC');
+    Logger.debugLazy(() => 'Minor collection end', category: 'GC');
+    Logger.debugLazy(() => 'Minor collection complete', category: 'GC');
   }
 
   /// Performs a major collection, which traverses all objects in both generations.
@@ -2040,7 +2147,7 @@ class GenerationalGCManager {
   ///
   /// During a major collection, finalizers are run for objects with __gc metamethods.
   Future<void> majorCollection(List<Object?> roots) async {
-    Logger.debug('Major collection start', category: 'GC');
+    Logger.debugLazy(() => 'Major collection start', category: 'GC');
     _cycleComplete = false;
     _currentPhase = GCPhase.idle;
     _inMajorCollection = true;
@@ -2148,7 +2255,7 @@ class GenerationalGCManager {
     weakValuesTables.clear();
     ephemeronTables.clear();
     allWeakTables.clear();
-    Logger.debug('Major collection complete', category: 'GC');
+    Logger.debugLazy(() => 'Major collection complete', category: 'GC');
   }
 
   void _collectWeakTablesFromGenerations() {
@@ -2341,8 +2448,10 @@ class GenerationalGCManager {
 
     unmarkEnvChain(_runtime.getCurrentEnv());
 
-    Logger.debug(
-      'Reset $clearedCount marks before major collection (young=${youngGen.objects.length}, old=${oldGen.objects.length})',
+    Logger.debugLazy(
+      () =>
+          'Reset $clearedCount marks before major collection '
+          '(young=${youngGen.objects.length}, old=${oldGen.objects.length})',
       category: 'GC',
     );
   }

@@ -337,22 +337,26 @@ class Environment extends GCObject {
   /// **Note**: This is the original method that had scoping issues. New methods
   /// `updateLocal()` and `defineGlobal()` provide more precise control.
   void define(String name, dynamic value) {
-    Logger.debug(
-      "Defining/updating '$name' = $value (type: ${value.runtimeType}) in env ($hashCode)",
+    Logger.debugLazy(
+      () =>
+          "Defining/updating '$name' = $value "
+          "(type: ${value.runtimeType}) in env ($hashCode)",
       category: 'Env',
     );
 
     // First check current scope if this is a closure
     if (isClosure && values.containsKey(name)) {
       final currentValue = values[name]!.value;
-      Logger.debug(
-        "Found existing value in closure scope: '$name' = $currentValue",
+      Logger.debugLazy(
+        () =>
+            "Found existing value in closure scope: '$name' = "
+            '$currentValue',
         category: 'Env',
       );
       if (currentValue is Value &&
           (currentValue.isConst || currentValue.isToBeClose)) {
-        Logger.debug(
-          "Attempt to modify const variable '$name'",
+        Logger.debugLazy(
+          () => "Attempt to modify const variable '$name'",
           category: 'Env',
         );
         throw LuaError("attempt to assign to const variable '$name'");
@@ -360,8 +364,8 @@ class Environment extends GCObject {
       if (!_tryFastReplaceBoxValue(values[name]!, value)) {
         values[name]!.value = value;
       }
-      Logger.debug(
-        "Updated closure variable '$name' to $value",
+      Logger.debugLazy(
+        () => "Updated closure variable '$name' to $value",
         category: 'Env',
       );
       return;
@@ -372,14 +376,16 @@ class Environment extends GCObject {
     while (current != null) {
       if (current.values.containsKey(name)) {
         final currentValue = current.values[name]!.value;
-        Logger.debug(
-          "Found existing value in env (${current.hashCode}): '$name' = $currentValue",
+        Logger.debugLazy(
+          () =>
+              "Found existing value in env (${current.hashCode}): "
+              "'$name' = $currentValue",
           category: 'Env',
         );
         if (currentValue is Value &&
             (currentValue.isConst || currentValue.isToBeClose)) {
-          Logger.debug(
-            "Attempt to modify const variable '$name'",
+          Logger.debugLazy(
+            () => "Attempt to modify const variable '$name'",
             category: 'Env',
           );
           throw LuaError("attempt to assign to const variable '$name'");
@@ -387,8 +393,10 @@ class Environment extends GCObject {
         if (!_tryFastReplaceBoxValue(current.values[name]!, value)) {
           current.values[name]!.value = value;
         }
-        Logger.debug(
-          "Updated variable '$name' to $value in env (${current.hashCode})",
+        Logger.debugLazy(
+          () =>
+              "Updated variable '$name' to $value in env "
+              '(${current.hashCode})',
           category: 'Env',
         );
         if (current.parent == null) {
@@ -406,8 +414,10 @@ class Environment extends GCObject {
     // stack aren't counted toward memory usage
     rootEnv.values[name] = Box(value, isTransient: true);
     rootEnv._updateCredits();
-    Logger.debug(
-      "Created new binding for '$name' = $value in root env (${rootEnv.hashCode})",
+    Logger.debugLazy(
+      () =>
+          "Created new binding for '$name' = $value in root env "
+          '(${rootEnv.hashCode})',
       category: 'Env',
     );
 
@@ -416,8 +426,8 @@ class Environment extends GCObject {
     // Track to-be-closed variables
     if (value is Value && value.isToBeClose) {
       rootEnv.toBeClosedVars.add(name);
-      Logger.debug(
-        "Added '$name' to to-be-closed variables list in root env",
+      Logger.debugLazy(
+        () => "Added '$name' to to-be-closed variables list in root env",
         category: 'Env',
       );
     }
@@ -445,8 +455,10 @@ class Environment extends GCObject {
   /// print(x)         -- Prints "local"
   /// ```
   void declare(String name, dynamic value) {
-    Logger.debug(
-      "Declaring new '$name' = $value (type: ${value.runtimeType}) in env ($hashCode)",
+    Logger.debugLazy(
+      () =>
+          "Declaring new '$name' = $value "
+          "(type: ${value.runtimeType}) in env ($hashCode)",
       category: 'Env',
     );
 
@@ -458,8 +470,8 @@ class Environment extends GCObject {
     // Track to-be-closed variables
     if (value is Value && value.isToBeClose) {
       toBeClosedVars.add(name);
-      Logger.debug(
-        "Added '$name' to to-be-closed variables list",
+      Logger.debugLazy(
+        () => "Added '$name' to to-be-closed variables list",
         category: 'Env',
       );
     }
@@ -494,8 +506,8 @@ class Environment extends GCObject {
   /// x = 2          -- updateLocal() should update the local, not create global
   /// ```
   bool updateLocal(String name, dynamic value) {
-    Logger.debug(
-      "Attempting to update local variable '$name' = $value",
+    Logger.debugLazy(
+      () => "Attempting to update local variable '$name' = $value",
       category: 'Env',
     );
 
@@ -503,23 +515,25 @@ class Environment extends GCObject {
     while (current != null) {
       if (current.values.containsKey(name) && current.values[name]!.isLocal) {
         final currentValue = current.values[name]!.value;
-        Logger.debug(
-          "Found local variable '$name' in env (${current.hashCode})",
+        Logger.debugLazy(
+          () => "Found local variable '$name' in env (${current.hashCode})",
           category: 'Env',
         );
 
         if (currentValue is Value &&
             (currentValue.isConst || currentValue.isToBeClose)) {
-          Logger.debug(
-            "Attempt to modify const variable '$name'",
+          Logger.debugLazy(
+            () => "Attempt to modify const variable '$name'",
             category: 'Env',
           );
           throw LuaError("attempt to assign to const variable '$name'");
         }
 
         current.values[name]!.value = value;
-        Logger.debug(
-          "Updated local variable '$name' to $value in env (${current.hashCode})",
+        Logger.debugLazy(
+          () =>
+              "Updated local variable '$name' to $value in env "
+              '(${current.hashCode})',
           category: 'Env',
         );
         return true;
@@ -527,8 +541,8 @@ class Environment extends GCObject {
       current = current.parent;
     }
 
-    Logger.debug(
-      "No local variable '$name' found in environment chain",
+    Logger.debugLazy(
+      () => "No local variable '$name' found in environment chain",
       category: 'Env',
     );
     return false;
@@ -564,7 +578,10 @@ class Environment extends GCObject {
   /// **Note**: This is used when assignment logic determines that a global
   /// assignment is intended (e.g., no local variable exists to update).
   void defineGlobal(String name, dynamic value) {
-    Logger.debug("Defining global variable '$name' = $value", category: 'Env');
+    Logger.debugLazy(
+      () => "Defining global variable '$name' = $value",
+      category: 'Env',
+    );
 
     final rootEnv = root;
 
@@ -573,8 +590,8 @@ class Environment extends GCObject {
       final box = rootEnv.values[name]!;
       final currentValue = box.value;
       if (currentValue is Value && currentValue.isConst) {
-        Logger.debug(
-          "Attempt to modify const global variable '$name'",
+        Logger.debugLazy(
+          () => "Attempt to modify const global variable '$name'",
           category: 'Env',
         );
         throw LuaError("attempt to assign to const variable '$name'");
@@ -582,19 +599,25 @@ class Environment extends GCObject {
       if (!_tryFastReplaceBoxValue(box, value)) {
         box.value = value;
       }
-      Logger.debug(
-        "Updated global variable '$name' to $value in root env (${rootEnv.hashCode})",
+      Logger.debugLazy(
+        () =>
+            "Updated global variable '$name' to $value in root env "
+            '(${rootEnv.hashCode})',
         category: 'Env',
       );
     } else {
       // Create new global variable
-      Logger.debug(
-        "Creating new global variable '$name' with value type ${value.runtimeType} (is GCObject: ${value is GCObject})",
+      Logger.debugLazy(
+        () =>
+            "Creating new global variable '$name' with value type "
+            '${value.runtimeType} (is GCObject: ${value is GCObject})',
         category: 'Env',
       );
       rootEnv.values[name] = Box(value);
-      Logger.debug(
-        "Created new global variable '$name' = $value in root env (${rootEnv.hashCode})",
+      Logger.debugLazy(
+        () =>
+            "Created new global variable '$name' = $value in root env "
+            '(${rootEnv.hashCode})',
         category: 'Env',
       );
     }
@@ -607,8 +630,8 @@ class Environment extends GCObject {
     // Track to-be-closed variables in root environment
     if (value is Value && value.isToBeClose) {
       rootEnv.toBeClosedVars.add(name);
-      Logger.debug(
-        "Added '$name' to to-be-closed variables list in root env",
+      Logger.debugLazy(
+        () => "Added '$name' to to-be-closed variables list in root env",
         category: 'Env',
       );
     }

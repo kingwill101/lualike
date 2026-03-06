@@ -284,7 +284,7 @@ void printUsage() {
 Usage: lualike_test_runner [options]
 Options:
   --ast                Run tests using AST interpreter (default)
-  --bytecode           Run tests using bytecode VM
+  --ir                 Run tests using lualike IR runtime
   --internal           Enable internal tests (requires specific build)
   --path <path>        Specify the path to the test suite (default: .lua-tests)
   --log-path <path>    Specify the path for log files

@@ -116,6 +116,28 @@ void main() {
       expect(lua.getGlobal('wrappedIterResult').unwrap(), equals('2'));
     });
 
+    test('wrap preserves tail calls through __call chains', () async {
+      await lua.execute(r'''
+        local n = 10000
+
+        local function foo()
+          if n == 0 then return 1023
+          else n = n - 1; return foo()
+          end
+        end
+
+        for i = 1, 100 do
+          foo = setmetatable({}, {__call = foo})
+        end
+
+        tailCallChainResult = coroutine.wrap(function()
+          return foo()
+        end)()
+      ''');
+
+      expect(lua.getGlobal('tailCallChainResult').unwrap(), equals(1023));
+    });
+
     test('wrap supports recursive generators using yield', () async {
       await lua.execute(r'''
         local x = {"=", "[", "]", "\n"}
@@ -164,6 +186,70 @@ void main() {
       expect(lua.getGlobal('errorCloseOk').unwrap(), isFalse);
       expect(lua.getGlobal('errorCloseMsg').unwrap(), equals('fatal'));
     });
+
+    test('resume reports main-thread and dead-thread errors', () async {
+      await lua.execute(r'''
+        mainThread = select(1, coroutine.running())
+        mainResumeOk, mainResumeErr = coroutine.resume(mainThread)
+
+        finished = coroutine.create(function()
+          return 1
+        end)
+        firstOk, firstValue = coroutine.resume(finished)
+        secondOk, secondErr = coroutine.resume(finished)
+      ''');
+
+      expect(lua.getGlobal('mainResumeOk').unwrap(), isFalse);
+      expect(
+        lua.getGlobal('mainResumeErr').unwrap(),
+        equals('cannot resume main thread'),
+      );
+      expect(lua.getGlobal('firstOk').unwrap(), isTrue);
+      expect(lua.getGlobal('firstValue').unwrap(), equals(1));
+      expect(lua.getGlobal('secondOk').unwrap(), isFalse);
+      expect(
+        lua.getGlobal('secondErr').unwrap(),
+        equals('cannot resume dead coroutine'),
+      );
+    });
+
+    test(
+      'weak-value tables release unreachable coroutines after collection',
+      () async {
+        await lua.execute(r'''
+        weakFresh = setmetatable({}, { __mode = 'v' })
+        do
+          local transient = coroutine.create(function()
+            return 1
+          end)
+          weakFresh.thread = transient
+          transient = nil
+        end
+
+        collectgarbage('collect')
+        collectgarbage('collect')
+        freshCollected = weakFresh.thread == nil
+
+        weakClosed = setmetatable({}, { __mode = 'v' })
+        do
+          local transient = coroutine.create(function()
+            coroutine.yield('pause')
+          end)
+          weakClosed.thread = transient
+          coroutine.resume(transient)
+          coroutine.close(transient)
+          transient = nil
+        end
+
+        collectgarbage('collect')
+        collectgarbage('collect')
+        closedCollected = weakClosed.thread == nil
+      ''');
+
+        expect(lua.getGlobal('freshCollected').unwrap(), isTrue);
+        expect(lua.getGlobal('closedCollected').unwrap(), isTrue);
+      },
+    );
 
     test('self-referenced threads do not overflow at modest counts', () async {
       await lua.execute(r'''

@@ -8,11 +8,14 @@ Future<void> main(List<String> args) async {
 
   try {
     await runner.run(args);
-  } catch (e) {
+    print("something");
+  } catch (e, s) {
+    print(s);
     // if (runner.debugMode) {
     //   Logger.error('Error: $e');
     //   Logger.error('Stack trace: $stackTrace');
     // }
     exit(1);
   }
+  exit(0);
 }

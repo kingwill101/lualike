@@ -1,4 +1,4 @@
-enum EngineMode { ast, bytecode }
+enum EngineMode { ast, ir }
 
 /// Global configuration settings for the LuaLike interpreter
 class LuaLikeConfig {
@@ -15,6 +15,6 @@ class LuaLikeConfig {
   /// Preferred execution engine when none is specified explicitly.
   EngineMode defaultEngineMode = EngineMode.ast;
 
-  /// When true, the bytecode runtime will print compiled instructions.
-  bool dumpBytecode = false;
+  /// When true, the IR runtime will print compiled instructions.
+  bool dumpIr = false;
 }

@@ -5,16 +5,17 @@ import 'interpreter/interpreter.dart';
 import 'parse.dart';
 import 'runtime/lua_runtime.dart';
 import 'config.dart';
-import 'bytecode/compiler.dart';
-import 'bytecode/disassembler.dart';
-import 'bytecode/vm.dart';
+import 'ir/compiler.dart';
+import 'ir/disassembler.dart';
+import 'ir/runtime.dart';
+import 'ir/vm.dart';
 
 typedef RuntimeSetupCallback = void Function(LuaRuntime);
 
 /// Executes source code using the specified execution mode.
 ///
 /// [sourceCode] - The source code to execute
-/// [mode] - Whether to use AST interpretation or bytecode compilation
+/// [mode] - Whether to use AST interpretation or IR compilation
 /// [environment] - Optional environment for variable scope
 /// [fileManager] - Optional file manager for I/O operations
 ///
@@ -27,7 +28,11 @@ Future<Object?> executeCode(
   EngineMode? mode,
 }) async {
   final selectedMode = mode ?? LuaLikeConfig().defaultEngineMode;
-  final runtime = vm ?? Interpreter(fileManager: fileManager);
+  final runtime =
+      vm ??
+      (selectedMode == EngineMode.ir
+          ? LualikeIrRuntime(fileManager: fileManager)
+          : Interpreter(fileManager: fileManager));
   if (onRuntimeSetup != null) {
     onRuntimeSetup(runtime);
   }
@@ -41,17 +46,17 @@ Future<Object?> executeCode(
   }
 
   try {
-    if (selectedMode == EngineMode.bytecode) {
-      final chunk = BytecodeCompiler().compile(program);
-      if (LuaLikeConfig().dumpBytecode) {
+    if (selectedMode == EngineMode.ir) {
+      final chunk = LualikeIrCompiler().compile(program);
+      if (LuaLikeConfig().dumpIr) {
         final disassembly = disassembleChunk(chunk);
         if (disassembly.isNotEmpty) {
-          print('--- Bytecode Disassembly ---');
+          print('--- IR Disassembly ---');
           print(disassembly);
-          print('--- End Disassembly ---');
+          print('--- End IR Disassembly ---');
         }
       }
-      final result = await BytecodeVm(
+      final result = await LualikeIrVm(
         environment: runtime.globals,
         runtime: runtime,
       ).execute(chunk);

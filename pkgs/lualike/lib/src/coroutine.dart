@@ -102,21 +102,21 @@ class Coroutine extends GCObject {
 
   /// Resumes the coroutine with the given arguments
   Future<Value> resume(List<Object?> args) async {
-    Logger.debug(
-      'Coroutine.resume: Called with status: $status, args: $args',
+    Logger.debugLazy(
+      () => 'Coroutine.resume: Called with status: $status, args: $args',
       category: 'Coroutine',
     );
     if (status == CoroutineStatus.dead) {
-      Logger.debug(
-        'Coroutine.resume: Coroutine is dead',
+      Logger.debugLazy(
+        () => 'Coroutine.resume: Coroutine is dead',
         category: 'Coroutine',
       );
       return Value.multi([Value(false), Value("cannot resume dead coroutine")]);
     }
 
     if (status == CoroutineStatus.running) {
-      Logger.debug(
-        'Coroutine.resume: Coroutine is running',
+      Logger.debugLazy(
+        () => 'Coroutine.resume: Coroutine is running',
         category: 'Coroutine',
       );
       return Value.multi([
@@ -140,16 +140,18 @@ class Coroutine extends GCObject {
         interpreter.setCurrentEnv(
           _executionEnvironment,
         ); // Restore the saved environment
-        Logger.debug(
-          'Coroutine.resume: Restored saved execution environment: ${interpreter.getCurrentEnv().hashCode}',
+        Logger.debugLazy(
+          () =>
+              'Coroutine.resume: Restored saved execution environment: '
+              '${interpreter.getCurrentEnv().hashCode}',
           category: 'Coroutine',
         );
       }
 
       if (status == CoroutineStatus.suspended && _executionTask == null) {
         // Initial execution
-        Logger.debug(
-          'Coroutine.resume: Initial execution',
+        Logger.debugLazy(
+          () => 'Coroutine.resume: Initial execution',
           category: 'Coroutine',
         );
         status = CoroutineStatus.running;
@@ -158,13 +160,15 @@ class Coroutine extends GCObject {
         _executionTask = _executeCoroutine(args);
 
         completer = Completer<List<Object?>>();
-        Logger.debug(
-          'Coroutine.resume: Waiting for _executionTask completion (initial)',
+        Logger.debugLazy(
+          () =>
+              'Coroutine.resume: Waiting for _executionTask completion '
+              '(initial)',
           category: 'Coroutine',
         );
         final result = await completer!.future;
-        Logger.debug(
-          'Coroutine.resume: _executionTask completed (initial)',
+        Logger.debugLazy(
+          () => 'Coroutine.resume: _executionTask completed (initial)',
           category: 'Coroutine',
         );
         if (status == CoroutineStatus.dead) {
@@ -175,8 +179,8 @@ class Coroutine extends GCObject {
         return Value.multi([Value(true), ...result]);
       } else if (status == CoroutineStatus.suspended) {
         // Resuming from a yield point
-        Logger.debug(
-          'Coroutine.resume: Resuming from yield',
+        Logger.debugLazy(
+          () => 'Coroutine.resume: Resuming from yield',
           category: 'Coroutine',
         );
         status = CoroutineStatus.running;
@@ -188,20 +192,22 @@ class Coroutine extends GCObject {
         // Process arguments for consistency
         final processedArgs = _normalizeValues(args);
 
-        Logger.debug(
-          'Coroutine.resume: Completing previous completer with: $processedArgs',
+        Logger.debugLazy(
+          () =>
+              'Coroutine.resume: Completing previous completer with: '
+              '$processedArgs',
           category: 'Coroutine',
         );
         currentCompleter?.complete(processedArgs);
 
         // Wait for the next yield or completion
-        Logger.debug(
-          'Coroutine.resume: Waiting for next yield or completion',
+        Logger.debugLazy(
+          () => 'Coroutine.resume: Waiting for next yield or completion',
           category: 'Coroutine',
         );
         final result = await completer!.future;
-        Logger.debug(
-          'Coroutine.resume: Next yield or completion received',
+        Logger.debugLazy(
+          () => 'Coroutine.resume: Next yield or completion received',
           category: 'Coroutine',
         );
         if (status == CoroutineStatus.dead) {
@@ -212,15 +218,15 @@ class Coroutine extends GCObject {
         return Value.multi([Value(true), ...result]);
       } else {
         // This shouldn't happen, but just in case
-        Logger.debug(
-          'Coroutine.resume: Unexpected state: $status',
+        Logger.debugLazy(
+          () => 'Coroutine.resume: Unexpected state: $status',
           category: 'Coroutine',
         );
         return Value.multi([Value(false), Value("unexpected coroutine state")]);
       }
     } on YieldException catch (e) {
-      Logger.debug(
-        'Coroutine.resume: Caught YieldException',
+      Logger.debugLazy(
+        () => 'Coroutine.resume: Caught YieldException',
         category: 'Coroutine',
       );
       // The coroutine has yielded, it's now suspended. Return the yielded values.
@@ -228,8 +234,8 @@ class Coroutine extends GCObject {
       _detachCallStack();
       return Value.multi([Value(true), ...e.values]);
     } on ReturnException catch (e) {
-      Logger.debug(
-        'Coroutine.resume: Caught ReturnException',
+      Logger.debugLazy(
+        () => 'Coroutine.resume: Caught ReturnException',
         category: 'Coroutine',
       );
       // Normal return from the coroutine function
@@ -252,8 +258,8 @@ class Coroutine extends GCObject {
       } else {
         _activeStack.removeWhere((c) => identical(c, this));
       }
-      Logger.debug(
-        'Coroutine.resume: Finally block executed',
+      Logger.debugLazy(
+        () => 'Coroutine.resume: Finally block executed',
         category: 'Coroutine',
       );
       // Restore the previous coroutine and environment
@@ -318,6 +324,28 @@ class Coroutine extends GCObject {
     _completeWithReturn(callResult);
   }
 
+  Future<void> _handleTailCallSignalCompletion(TailCallSignal t) async {
+    final interpreter = closureEnvironment.interpreter;
+    if (interpreter == null) {
+      error = t;
+      status = CoroutineStatus.dead;
+      _finalizeTermination();
+      if (completer != null && !completer!.isCompleted) {
+        completer!.completeError(t);
+      }
+      return;
+    }
+
+    final callee = t.functionValue is Value
+        ? t.functionValue as Value
+        : Value(t.functionValue);
+    final normalizedArgs = t.args
+        .map((arg) => arg is Value ? arg : Value(arg))
+        .toList();
+    final callResult = await interpreter.callFunction(callee, normalizedArgs);
+    _completeWithReturn(callResult);
+  }
+
   void _completeWithReturn(Object? value) {
     status = CoroutineStatus.dead;
     _finalizeTermination();
@@ -341,8 +369,10 @@ class Coroutine extends GCObject {
     final interpreter = closureEnvironment.interpreter;
     if (interpreter != null) {
       _executionEnvironment = interpreter.getCurrentEnv();
-      Logger.debug(
-        'Coroutine.yield_: Saved current execution environment: ${_executionEnvironment.hashCode}',
+      Logger.debugLazy(
+        () =>
+            'Coroutine.yield_: Saved current execution environment: '
+            '${_executionEnvironment.hashCode}',
         category: 'Coroutine',
       );
     }
@@ -461,8 +491,8 @@ class Coroutine extends GCObject {
 
   /// Executes the coroutine function
   Future<void> _executeCoroutine(List<Object?> initialArgs) async {
-    Logger.debug(
-      '_executeCoroutine: Starting execution, PC: $_programCounter',
+    Logger.debugLazy(
+      () => '_executeCoroutine: Starting execution, PC: $_programCounter',
       category: 'Coroutine',
     );
     // Create initial environment for function parameters and locals
@@ -520,8 +550,10 @@ class Coroutine extends GCObject {
       for (; _programCounter < body.body.length; _programCounter++) {
         final stmt = body.body[_programCounter];
 
-        Logger.debug(
-          '_executeCoroutine: Executing statement $_programCounter: ${stmt.runtimeType}',
+        Logger.debugLazy(
+          () =>
+              '_executeCoroutine: Executing statement $_programCounter: '
+              '${stmt.runtimeType}',
           category: 'Coroutine',
         );
         // Ensure the interpreter's environment is set to this coroutine's execution environment
@@ -529,16 +561,27 @@ class Coroutine extends GCObject {
           interpreter.setCurrentEnv(_executionEnvironment);
         }
 
-        await interpreter!.evaluateAst(stmt); // Execute the statement
-        Logger.debug(
-          '_executeCoroutine: Statement $_programCounter executed. Current PC: $_programCounter',
+        final result = await interpreter!.evaluateAst(stmt);
+        if (result is TailCallSignal) {
+          await _handleTailCallSignalCompletion(result);
+          Logger.debugLazy(
+            () =>
+                '_executeCoroutine: Completer completed with tail-call signal result',
+            category: 'Coroutine',
+          );
+          return;
+        }
+        Logger.debugLazy(
+          () =>
+              '_executeCoroutine: Statement $_programCounter executed. '
+              'Current PC: $_programCounter',
           category: 'Coroutine',
         );
       }
 
       // Coroutine completed normally
-      Logger.debug(
-        '_executeCoroutine: Coroutine completed normally',
+      Logger.debugLazy(
+        () => '_executeCoroutine: Coroutine completed normally',
         category: 'Coroutine',
       );
       status = CoroutineStatus.dead;
@@ -546,33 +589,33 @@ class Coroutine extends GCObject {
       if (completer != null && !completer!.isCompleted) {
         // Pass empty list as result for normal completion
         completer!.complete([]);
-        Logger.debug(
-          '_executeCoroutine: Completer completed with empty list',
+        Logger.debugLazy(
+          () => '_executeCoroutine: Completer completed with empty list',
           category: 'Coroutine',
         );
       }
     } on YieldException {
-      Logger.debug(
-        '_executeCoroutine: Caught YieldException',
+      Logger.debugLazy(
+        () => '_executeCoroutine: Caught YieldException',
         category: 'Coroutine',
       );
       // YieldException is thrown by yield_ to pause execution.
       // It should be re-thrown here so resume can catch it and manage state.
       rethrow;
     } on ReturnException catch (e) {
-      Logger.debug(
-        '_executeCoroutine: Caught ReturnException',
+      Logger.debugLazy(
+        () => '_executeCoroutine: Caught ReturnException',
         category: 'Coroutine',
       );
       _completeWithReturn(e.value);
-      Logger.debug(
-        '_executeCoroutine: Completer completed with return value',
+      Logger.debugLazy(
+        () => '_executeCoroutine: Completer completed with return value',
         category: 'Coroutine',
       );
     } on TailCallException catch (t) {
       await _handleTailCallCompletion(t);
-      Logger.debug(
-        '_executeCoroutine: Completer completed with tail-call result',
+      Logger.debugLazy(
+        () => '_executeCoroutine: Completer completed with tail-call result',
         category: 'Coroutine',
       );
     } catch (e) {
@@ -586,8 +629,8 @@ class Coroutine extends GCObject {
           Value(false),
           Value(e.toString()),
         ]); // Return error to caller
-        Logger.debug(
-          '_executeCoroutine: Completer completed with error',
+        Logger.debugLazy(
+          () => '_executeCoroutine: Completer completed with error',
           category: 'Coroutine',
         );
       }
@@ -597,16 +640,16 @@ class Coroutine extends GCObject {
   /// Called to close the coroutine
   Future<List<Object?>> close([dynamic error]) async {
     if (status == CoroutineStatus.dead) {
-      Logger.debug(
-        'Coroutine already dead, nothing to close',
+      Logger.debugLazy(
+        () => 'Coroutine already dead, nothing to close',
         category: 'Coroutine',
       );
       _finalizeTermination();
       return [Value(true)]; // Already dead, consider it successful close
     }
 
-    Logger.debug(
-      'Closing coroutine with status: $status',
+    Logger.debugLazy(
+      () => 'Closing coroutine with status: $status',
       category: 'Coroutine',
     );
 

@@ -1,5 +1,264 @@
 part of 'interpreter.dart';
 
+typedef _SimpleNumericSelfTailLoopPlan = ({
+  int paramIndex,
+  num threshold,
+  num step,
+});
+
+typedef _SimpleCapturedCounterSelfTailLoopPlan = ({
+  String upvalueName,
+  num threshold,
+  num step,
+});
+
+_SimpleNumericSelfTailLoopPlan? _matchSimpleNumericSelfTailLoopPlan(
+  FunctionBody node,
+  List<String> parameterNames,
+  String? functionName,
+) {
+  if (functionName == null ||
+      parameterNames.isEmpty ||
+      node.body.length != 1 ||
+      node.body.first is! IfStatement) {
+    return null;
+  }
+
+  final ifStatement = node.body.first as IfStatement;
+  if (ifStatement.elseIfs.isNotEmpty ||
+      ifStatement.thenBlock.length != 1 ||
+      ifStatement.elseBlock.length != 1 ||
+      ifStatement.cond is! BinaryExpression) {
+    return null;
+  }
+
+  final condition = ifStatement.cond as BinaryExpression;
+  if (condition.op != '>' ||
+      condition.left is! Identifier ||
+      condition.right is! NumberLiteral) {
+    return null;
+  }
+
+  final parameterName = (condition.left as Identifier).name;
+  final paramIndex = parameterNames.indexOf(parameterName);
+  if (paramIndex == -1) {
+    return null;
+  }
+
+  final thresholdLiteral = (condition.right as NumberLiteral).value;
+  if (thresholdLiteral is! num) {
+    return null;
+  }
+
+  final thenReturn = ifStatement.thenBlock.first;
+  final elseReturn = ifStatement.elseBlock.first;
+  if (thenReturn is! ReturnStatement ||
+      thenReturn.expr.length != 1 ||
+      elseReturn is! ReturnStatement ||
+      elseReturn.expr.length != 1) {
+    return null;
+  }
+
+  final thenExpr = thenReturn.expr.first;
+  BinaryExpression? recursiveStep;
+
+  if (thenExpr is FunctionCall &&
+      parameterNames.length == 1 &&
+      thenExpr.name is Identifier &&
+      (thenExpr.name as Identifier).name == functionName &&
+      thenExpr.args.length == 1 &&
+      thenExpr.args.first is BinaryExpression) {
+    recursiveStep = thenExpr.args.first as BinaryExpression;
+  } else if (thenExpr is MethodCall &&
+      parameterNames.length == 2 &&
+      parameterNames.first == 'self' &&
+      paramIndex == 1 &&
+      thenExpr.implicitSelf &&
+      thenExpr.prefix is Identifier &&
+      (thenExpr.prefix as Identifier).name == 'self' &&
+      thenExpr.methodName is Identifier &&
+      (thenExpr.methodName as Identifier).name == functionName &&
+      thenExpr.args.length == 1 &&
+      thenExpr.args.first is BinaryExpression) {
+    recursiveStep = thenExpr.args.first as BinaryExpression;
+  } else {
+    return null;
+  }
+
+  if (recursiveStep.op != '-' ||
+      recursiveStep.left is! Identifier ||
+      recursiveStep.right is! NumberLiteral ||
+      (recursiveStep.left as Identifier).name != parameterName) {
+    return null;
+  }
+
+  final stepLiteral = (recursiveStep.right as NumberLiteral).value;
+  if (stepLiteral is! num || stepLiteral <= 0) {
+    return null;
+  }
+
+  return (
+    paramIndex: paramIndex,
+    threshold: thresholdLiteral,
+    step: stepLiteral,
+  );
+}
+
+List<Object?> _applySimpleNumericSelfTailLoopPlan(
+  _SimpleNumericSelfTailLoopPlan plan,
+  List<Object?> args,
+) {
+  if (plan.paramIndex >= args.length) {
+    return args;
+  }
+
+  final original = args[plan.paramIndex];
+  final raw = original is Value ? original.raw : original;
+  if (raw is! num || raw <= plan.threshold) {
+    return args;
+  }
+
+  num reduced;
+  if (raw is int && plan.threshold is int && plan.step is int) {
+    final threshold = plan.threshold as int;
+    final step = plan.step as int;
+    final distance = raw - threshold;
+    final steps = (distance + step - 1) ~/ step;
+    reduced = raw - (steps * step);
+  } else {
+    final threshold = plan.threshold.toDouble();
+    final step = plan.step.toDouble();
+    final distance = raw.toDouble() - threshold;
+    final steps = (distance / step).ceil();
+    reduced = raw.toDouble() - (steps * step);
+  }
+
+  final nextArgs = List<Object?>.from(args, growable: false);
+  nextArgs[plan.paramIndex] = Value(reduced);
+  return nextArgs;
+}
+
+_SimpleCapturedCounterSelfTailLoopPlan?
+_matchSimpleCapturedCounterSelfTailLoopPlan(
+  FunctionBody node,
+  List<String> parameterNames,
+  String? functionName,
+) {
+  if (functionName == null ||
+      parameterNames.isNotEmpty ||
+      node.body.length != 1 ||
+      node.body.first is! IfStatement) {
+    return null;
+  }
+
+  final ifStatement = node.body.first as IfStatement;
+  if (ifStatement.elseIfs.isNotEmpty ||
+      ifStatement.thenBlock.length != 1 ||
+      ifStatement.elseBlock.length != 2 ||
+      ifStatement.cond is! BinaryExpression) {
+    return null;
+  }
+
+  final condition = ifStatement.cond as BinaryExpression;
+  if (condition.op != '==' ||
+      condition.left is! Identifier ||
+      condition.right is! NumberLiteral) {
+    return null;
+  }
+
+  final upvalueName = (condition.left as Identifier).name;
+  final thresholdLiteral = (condition.right as NumberLiteral).value;
+  if (thresholdLiteral is! num) {
+    return null;
+  }
+
+  final elseAssignment = ifStatement.elseBlock.first;
+  final elseReturn = ifStatement.elseBlock.last;
+  if (elseAssignment is! Assignment ||
+      elseAssignment.targets.length != 1 ||
+      elseAssignment.exprs.length != 1 ||
+      elseAssignment.targets.first is! Identifier ||
+      elseReturn is! ReturnStatement ||
+      elseReturn.expr.length != 1) {
+    return null;
+  }
+
+  final assignmentTarget = elseAssignment.targets.first as Identifier;
+  if (assignmentTarget.name != upvalueName ||
+      elseAssignment.exprs.first is! BinaryExpression) {
+    return null;
+  }
+
+  final assignmentExpr = elseAssignment.exprs.first as BinaryExpression;
+  if (assignmentExpr.op != '-' ||
+      assignmentExpr.left is! Identifier ||
+      assignmentExpr.right is! NumberLiteral ||
+      (assignmentExpr.left as Identifier).name != upvalueName) {
+    return null;
+  }
+
+  final stepLiteral = (assignmentExpr.right as NumberLiteral).value;
+  if (stepLiteral is! num || stepLiteral <= 0) {
+    return null;
+  }
+
+  final returnExpr = elseReturn.expr.first;
+  if (returnExpr is! FunctionCall ||
+      returnExpr.name is! Identifier ||
+      (returnExpr.name as Identifier).name != functionName ||
+      returnExpr.args.isNotEmpty) {
+    return null;
+  }
+
+  return (
+    upvalueName: upvalueName,
+    threshold: thresholdLiteral,
+    step: stepLiteral,
+  );
+}
+
+void _applySimpleCapturedCounterSelfTailLoopPlan(
+  _SimpleCapturedCounterSelfTailLoopPlan plan,
+  Value functionValue,
+) {
+  Upvalue? upvalue;
+  final upvalues = functionValue.upvalues;
+  if (upvalues != null) {
+    for (final candidate in upvalues) {
+      if (candidate.name == plan.upvalueName) {
+        upvalue = candidate;
+        break;
+      }
+    }
+  }
+  if (upvalue == null) {
+    return;
+  }
+
+  final current = upvalue.getValue();
+  final raw = current is Value ? current.raw : current;
+  if (raw is! num || raw <= plan.threshold) {
+    return;
+  }
+
+  num reduced;
+  if (raw is int && plan.threshold is int && plan.step is int) {
+    final threshold = plan.threshold as int;
+    final step = plan.step as int;
+    final distance = raw - threshold;
+    final steps = (distance + step - 1) ~/ step;
+    reduced = raw - (steps * step);
+  } else {
+    final threshold = plan.threshold.toDouble();
+    final step = plan.step.toDouble();
+    final distance = raw.toDouble() - threshold;
+    final steps = (distance / step).ceil();
+    reduced = raw.toDouble() - (steps * step);
+  }
+
+  upvalue.setValue(Value(reduced));
+}
+
 mixin InterpreterFunctionMixin on AstVisitor<Object?> {
   // Required getters that must be implemented by the class using this mixin
   Environment get globals;
@@ -106,6 +365,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       setCurrentEnv(methodEnv);
       final closure = await node.body.accept(this);
       setCurrentEnv(prevEnv);
+      if (closure is Value) {
+        closure.functionName = methodName;
+      }
 
       // Install the function on the resolved target table
       (targetTable.raw as Map)[methodName] = closure;
@@ -337,6 +599,16 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     late Value self;
 
     Future<Object?> regularCall(List<Object?> args) async {
+      final simpleCapturedCounterPlan =
+          _matchSimpleCapturedCounterSelfTailLoopPlan(
+            node,
+            parameterNames,
+            self.functionName,
+          );
+      if (simpleCapturedCounterPlan case final plan?) {
+        _applySimpleCapturedCounterSelfTailLoopPlan(plan, self);
+      }
+
       Environment execEnv;
       if (hasJoinedUpvalues) {
         final joinedUpvalueNames = joinedUpvalues.map((u) => u.name!).toSet();
@@ -427,6 +699,11 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
       var args = initialArgs;
       final interpreter = this as Interpreter;
+      final simpleNumericSelfTailLoopPlan = _matchSimpleNumericSelfTailLoopPlan(
+        node,
+        parameterNames,
+        self.functionName,
+      );
       Environment? reusableEnv;
       final paramBoxes = List<Box<dynamic>?>.filled(
         regularParamCount,
@@ -440,6 +717,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
       try {
         while (true) {
+          if (simpleNumericSelfTailLoopPlan case final plan?) {
+            args = _applySimpleNumericSelfTailLoopPlan(plan, args);
+          }
+
           final bool reuse = reusableEnv != null;
           final execEnv = reuse
               ? reusableEnv
@@ -529,6 +810,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             );
 
             result = await interpreter._executeStatements(node.body);
+            if (result is TailCallSignal) {
+              if (identical(result.functionValue, self)) {
+                args = result.args;
+                selfTailCall = true;
+              }
+            }
           } on ReturnException catch (e) {
             result = e.value;
           } on TailCallException catch (t) {
@@ -1079,7 +1366,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         }
 
         final args = await evalArgs(e.args);
-        throw TailCallException(func, args);
+        return TailCallSignal(func, args);
       } else if (e is MethodCall) {
         // Prepare method call as a tail call
         final recv = await e.prefix.accept(this);
@@ -1114,7 +1401,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         func = func is Value ? func : Value(func);
 
         final callArgs = e.implicitSelf ? args : [obj, ...args];
-        throw TailCallException(
+        return TailCallSignal(
           func,
           callArgs.map((x) => x is Value ? x : Value(x)).toList(),
         );
@@ -1248,6 +1535,15 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     callStack.push(functionName, callNode: callNode);
 
     try {
+      bool rebindTailCall(Object? result) {
+        if (result is! TailCallSignal) {
+          return false;
+        }
+        func = result.functionValue;
+        args = result.args;
+        return true;
+      }
+
       while (true) {
         try {
           if (func is Value) {
@@ -1266,6 +1562,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                     '>>> Dart function returned: $result (${result.runtimeType})',
                     category: 'Interpreter',
                   );
+                }
+                if (rebindTailCall(result)) {
+                  continue;
                 }
                 return result;
               } on TailCallException {
@@ -1304,6 +1603,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                     category: 'Interpreter',
                   );
                 }
+                if (rebindTailCall(result)) {
+                  continue;
+                }
                 return result;
               } catch (e) {
                 if (Logger.enabled) {
@@ -1338,6 +1640,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                       '>>> LuaLike function result: $result',
                       category: 'Interpreter',
                     );
+                  }
+                  if (rebindTailCall(result)) {
+                    continue;
                   }
                   return result;
                 } catch (e) {
@@ -1375,6 +1680,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                       category: 'Interpreter',
                     );
                   }
+                  if (rebindTailCall(result)) {
+                    continue;
+                  }
                   return result;
                 } catch (e) {
                   if (Logger.enabled) {
@@ -1411,6 +1719,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                       category: 'Interpreter',
                     );
                   }
+                  if (rebindTailCall(result)) {
+                    continue;
+                  }
                   return result;
                 } catch (e) {
                   if (Logger.enabled) {
@@ -1422,22 +1733,15 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                   rethrow;
                 }
               }
-            } else if (func.raw is BytecodeClosure) {
+            } else if (func.raw is LuaCallableArtifact) {
               if (Logger.enabled) {
                 Logger.debug(
-                  '>>> Calling bytecode closure via interpreter bridge',
+                  '>>> Delegating compiled callable to owning runtime',
                   category: 'Interpreter',
                 );
               }
-              final closure = func.raw as BytecodeClosure;
               final LuaRuntime runtime =
                   func.interpreter ?? (this as LuaRuntime);
-              final Environment env =
-                  this is Interpreter ? (this as Interpreter).getCurrentEnv() : globals;
-              final vm = BytecodeVm(
-                environment: env,
-                runtime: runtime,
-              );
               final normalizedArgs = args
                   .map((arg) => arg is Value ? arg : Value(arg))
                   .toList(growable: false);
@@ -1446,12 +1750,15 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                   arg.interpreter = runtime;
                 }
               }
-              final result = await vm.invokeClosure(closure, normalizedArgs);
+              final result = await runtime.callFunction(func, normalizedArgs);
               if (Logger.enabled) {
                 Logger.debug(
-                  '>>> Bytecode closure result: $result',
+                  '>>> Compiled callable result: $result',
                   category: 'Interpreter',
                 );
+              }
+              if (rebindTailCall(result)) {
+                continue;
               }
               return result;
             } else if (func.raw is String) {
@@ -1501,6 +1808,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                   category: 'Interpreter',
                 );
               }
+              if (rebindTailCall(result)) {
+                continue;
+              }
               return result;
             } catch (e) {
               if (Logger.enabled) {
@@ -1536,6 +1846,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                     category: 'Interpreter',
                   );
                 }
+                if (rebindTailCall(result)) {
+                  continue;
+                }
                 return result;
               } catch (e) {
                 Logger.debug(
@@ -1563,6 +1876,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                   '>>> Direct LuaLike function body result: $result',
                   category: 'Interpreter',
                 );
+                if (rebindTailCall(result)) {
+                  continue;
+                }
                 return result;
               } catch (e) {
                 Logger.debug(
@@ -1590,6 +1906,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                   '>>> Direct LuaLike function literal result: $result',
                   category: 'Interpreter',
                 );
+                if (rebindTailCall(result)) {
+                  continue;
+                }
                 return result;
               } catch (e) {
                 Logger.debug(
@@ -1611,6 +1930,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                 '>>> Builtin function result: $result',
                 category: 'Interpreter',
               );
+              if (rebindTailCall(result)) {
+                continue;
+              }
               return result;
             } catch (e) {
               Logger.debug(
