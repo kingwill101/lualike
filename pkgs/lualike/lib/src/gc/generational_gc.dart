@@ -17,18 +17,37 @@ enum GCPhase { idle, marking, sweeping, finalizing }
 class Generation {
   /// The objects belonging to this generation.
   final List<GCObject> objects = [];
+  final Set<GCObject> _tracked = HashSet<GCObject>.identity();
 
   /// The age of this generation, incremented after each collection cycle.
   int age = 0;
 
   /// Adds an object to this generation.
   void add(GCObject obj) {
-    objects.add(obj);
+    if (_tracked.add(obj)) {
+      objects.add(obj);
+    }
   }
 
   /// Removes an object from this generation.
   void remove(GCObject obj) {
-    objects.remove(obj);
+    if (_tracked.remove(obj)) {
+      objects.remove(obj);
+    }
+  }
+
+  bool contains(GCObject obj) => _tracked.contains(obj);
+
+  void clear() {
+    objects.clear();
+    _tracked.clear();
+  }
+
+  void replaceAll(Iterable<GCObject> next) {
+    clear();
+    for (final obj in next) {
+      add(obj);
+    }
   }
 }
 
@@ -753,7 +772,7 @@ class GenerationalGCManager {
   }
 
   void ensureTracked(GCObject obj) {
-    if (youngGen.objects.contains(obj) || oldGen.objects.contains(obj)) {
+    if (youngGen.contains(obj) || oldGen.contains(obj)) {
       return;
     }
 
@@ -778,7 +797,7 @@ class GenerationalGCManager {
   }
 
   bool _isTracked(GCObject obj) {
-    return youngGen.objects.contains(obj) || oldGen.objects.contains(obj);
+    return youngGen.contains(obj) || oldGen.contains(obj);
   }
 
   /// Registers a new object with the garbage collector.
@@ -786,7 +805,7 @@ class GenerationalGCManager {
   /// New objects are always placed in the young generation (nursery).
   void register(GCObject obj, {bool countAllocation = true}) {
     // Prevent duplicate registrations - if object is already tracked, skip
-    if (youngGen.objects.contains(obj) || oldGen.objects.contains(obj)) {
+    if (youngGen.contains(obj) || oldGen.contains(obj)) {
       Logger.debugLazy(
         () =>
             'Skipping duplicate registration: '
@@ -1044,6 +1063,9 @@ class GenerationalGCManager {
       // participate in separation/promotion and appear in generations. This
       // restores previous behavior used by the Lua GC integration tests.
       if (obj is Value) {
+        if (obj.isFreed) {
+          obj.revive();
+        }
         ensureTracked(obj);
       }
 
@@ -1331,9 +1353,9 @@ class GenerationalGCManager {
           // Re-mark the key to keep it alive during this collection
           key.marked = true;
           // Add the key back to the appropriate generation so it survives separation
-          if (youngGen.objects.contains(key)) {
+          if (youngGen.contains(key)) {
             // Key is already in young generation, just keep it marked
-          } else if (oldGen.objects.contains(key)) {
+          } else if (oldGen.contains(key)) {
             // Key is already in old generation, just keep it marked
           } else {
             // Key is not in any generation, add it to young generation
@@ -1934,8 +1956,7 @@ class GenerationalGCManager {
     }
 
     // Update the generation with only the survivors (including resurrected objects).
-    gen.objects.clear();
-    gen.objects.addAll(survivors);
+    gen.replaceAll(survivors);
   }
 
   /// Calls finalizers for objects in the _toBeFinalized list.
@@ -2130,7 +2151,7 @@ class GenerationalGCManager {
       promote(obj);
     }
 
-    youngGen.objects.clear();
+    youngGen.clear();
 
     _lastMinorBytes = estimateMemoryUse();
     _cycleComplete = true;

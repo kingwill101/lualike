@@ -273,8 +273,6 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
       }
     }
 
-    final sourceFile = path.url.joinAll(path.split(path.normalize(chunkname)));
-
     var hasDirectAst = false;
     AstNode? directAstNode;
     List<String>? originalUpvalueNames;
@@ -304,11 +302,9 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
         ? ast.statements.first
         : null;
     final hasSimpleTopLevelFunctionDef = singleTopLevelStatement is FunctionDef;
-    try {
-      final file = SourceFile.fromString(source, url: sourceFile);
-      actualBody.setSpan(file.span(0, source.length));
-    } catch (_) {
-      // Leave span null if SourceFile cannot be constructed.
+    final bodySpan = _wholeProgramSpan(ast);
+    if (bodySpan != null) {
+      actualBody.setSpan(bodySpan);
     }
 
     final Value result;
@@ -724,6 +720,16 @@ String _cleanLoadError(Object error) {
     errorMsg = errorMsg.substring('Exception: '.length);
   }
   return errorMsg;
+}
+
+SourceSpan? _wholeProgramSpan(Program program) {
+  if (program.span case final span?) {
+    return span;
+  }
+  if (program.statements.isEmpty) {
+    return null;
+  }
+  return program.statements.first.span;
 }
 
 String _shortSource(String source) {
