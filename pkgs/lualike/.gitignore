@@ -13,7 +13,9 @@ debug_*.lua
 test_*.lua
 *_test.lua
 .cursor
-.idea
-.vscode
+*/.idea/
+/*.vscode/
 build/
 .kiro/
+
+benchmarks/
