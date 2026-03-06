@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:convert' as convert;
 import 'dart:convert';
 import 'dart:math' as math;
@@ -12,6 +13,25 @@ import 'package:lualike/src/parsers/pattern.dart' as lpc;
 import 'package:lualike/src/stdlib/lib_utf8.dart' show UTF8Lib;
 
 import 'library.dart';
+
+const int _luaPatternCacheSize = 128;
+final LinkedHashMap<String, lpc.LuaPattern> _luaPatternCache =
+    LinkedHashMap<String, lpc.LuaPattern>();
+
+lpc.LuaPattern _compileLuaPatternCached(String pattern) {
+  final cached = _luaPatternCache.remove(pattern);
+  if (cached != null) {
+    _luaPatternCache[pattern] = cached;
+    return cached;
+  }
+
+  final compiled = lpc.LuaPattern.compile(pattern);
+  _luaPatternCache[pattern] = compiled;
+  if (_luaPatternCache.length > _luaPatternCacheSize) {
+    _luaPatternCache.remove(_luaPatternCache.keys.first);
+  }
+  return compiled;
+}
 
 /// String library implementation using the new Library system
 class StringLibrary extends Library {
@@ -184,7 +204,7 @@ class _StringFind extends BuiltinFunction {
     }
 
     try {
-      final lp = lpc.LuaPattern.compile(pattern);
+      final lp = _compileLuaPatternCached(pattern);
       final match = lp.firstMatch(str, start);
       if (match == null) return Value(null);
 
@@ -1149,7 +1169,7 @@ class _StringGmatch extends BuiltinFunction {
     }
 
     try {
-      final lp = lpc.LuaPattern.compile(pattern);
+      final lp = _compileLuaPatternCached(pattern);
       final matches = lp.allMatches(str).toList();
       var currentIndex = 0;
 
@@ -1244,7 +1264,7 @@ class _StringGsub extends BuiltinFunction {
 
     try {
       var count = 0;
-      final lp = lpc.LuaPattern.compile(pattern);
+      final lp = _compileLuaPatternCached(pattern);
 
       String result;
       Future<dynamic> invokeCallable(
@@ -1488,7 +1508,7 @@ class _StringMatch extends BuiltinFunction {
       bool isEscaped(int index) =>
           index > 0 && pattern[index - 1] == '%' && !isEscaped(index - 1);
       final anchoredStart = pattern.startsWith('^') && !isEscaped(0);
-      final lp = lpc.LuaPattern.compile(pattern);
+      final lp = _compileLuaPatternCached(pattern);
       final resultMatch = lp.firstMatch(str, init);
       if (resultMatch == null) {
         return Value(null);

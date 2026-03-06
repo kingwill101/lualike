@@ -912,9 +912,18 @@ class GenerationalGCManager {
     final debtBefore = _simulatedAllocationDebt;
     final phaseBefore = _currentPhase;
     final stopwatch = Stopwatch()..start();
+    final iterationScale = math.max(
+      1,
+      debtBefore ~/ math.max(1, _autoTriggerDebtThreshold()),
+    );
+    final phaseMultiplier = _currentPhase == GCPhase.idle ? 1 : 2;
+    final iterationBudget = math.min(
+      256,
+      math.max(16, iterationScale * 16 * phaseMultiplier),
+    );
 
     _autoTriggerRequested = false;
-    _processSimulatedAllocationDebt(iterationBudget: 16);
+    _processSimulatedAllocationDebt(iterationBudget: iterationBudget);
 
     final requeueThreshold = _autoTriggerDebtThreshold();
     if (!_isStopped && _simulatedAllocationDebt >= requeueThreshold) {
@@ -928,6 +937,7 @@ class GenerationalGCManager {
         () =>
             'Auto GC safe point: phaseBefore=$phaseBefore, '
             'debtBefore=$debtBefore, debtAfter=$_simulatedAllocationDebt, '
+            'iterationBudget=$iterationBudget, '
             'duration=${stopwatch.elapsedMilliseconds}ms',
         category: 'GC',
       );
@@ -1376,6 +1386,10 @@ class GenerationalGCManager {
         }
         tableMap.remove(key);
       }
+      for (final entry in tableMap.entries) {
+        _preserveWeakSurvivor(entry.key);
+        _preserveWeakSurvivor(entry.value);
+      }
       // Recalculate credits after removing entries to update total tracked memory
       if (entriesToRemove.isNotEmpty) {
         MemoryCredits.instance.recalculate(table);
@@ -1416,13 +1430,10 @@ class GenerationalGCManager {
         if (keyDead || valueDead) {
           keysToRemove.add(entry.key);
         } else {
-          // Entry survives - ensure key and value are marked to survive sweep
-          if (key is GCObject) {
-            key.marked = true;
-          }
-          if (value is GCObject) {
-            value.marked = true;
-          }
+          // Entry survives. Primitive-like Value wrappers can exist only
+          // through the weak table itself, so revive and re-track them here.
+          _preserveWeakSurvivor(key);
+          _preserveWeakSurvivor(value);
         }
       }
       for (final k in keysToRemove) {
@@ -1808,10 +1819,28 @@ class GenerationalGCManager {
             );
           }
           _scheduleWeakKeyRemoval(table, entry.key);
+        } else {
+          _preserveWeakSurvivor(key);
+          _preserveWeakSurvivor(value);
         }
       }
     }
     ephemeronTables.clear();
+  }
+
+  void _preserveWeakSurvivor(Object? candidate) {
+    if (candidate is! GCObject) {
+      return;
+    }
+
+    if (candidate is Value) {
+      if (candidate.isFreed) {
+        candidate.revive();
+      }
+      ensureTracked(candidate);
+    }
+
+    candidate.marked = true;
   }
 
   /// Separates objects in a generation into survivors and dead.

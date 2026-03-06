@@ -17,5 +17,7 @@ test_*.lua
 /*.vscode/
 build/
 .kiro/
+lualike
+test_runner
 
 benchmarks/
