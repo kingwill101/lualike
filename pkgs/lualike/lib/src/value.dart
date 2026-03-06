@@ -2377,6 +2377,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// Whether this value has been freed by the GC.
   bool get isFreed => _isFreed;
 
+  /// Clear a stale freed marker when this value is rediscovered from a live
+  /// root in a later collection cycle.
+  void revive() {
+    _isFreed = false;
+  }
+
   @override
   bool get marked => _marked;
 

@@ -24,7 +24,11 @@ class LuaGrammarDefinition extends GrammarDefinition {
   Parser whiteSpaceAndCommentsForTest() => _whiteSpaceAndComments();
 
   /// Source file used for span annotations.
-  final SourceFile _sourceFile;
+  SourceFile _sourceFile;
+
+  void updateSourceFile(SourceFile sourceFile) {
+    _sourceFile = sourceFile;
+  }
 
   // ---------- Helpers -------------------------------------------------------
 
@@ -1323,9 +1327,8 @@ Program parse(String source, {Uri? url}) {
 
   // Build a SourceFile so we can provide detailed spans on errors.
   final sourceFile = SourceFile.fromString(normalizedSource, url: url);
-
-  final definition = LuaGrammarDefinition(sourceFile);
-  final parser = definition.build();
+  _sharedLuaParser.definition.updateSourceFile(sourceFile);
+  final parser = _sharedLuaParser.parser;
 
   Result result;
   try {
@@ -1351,7 +1354,9 @@ Program parse(String source, {Uri? url}) {
   }
 
   if (result is Success) {
-    return result.value as Program;
+    final program = result.value as Program;
+    program.setSpan(sourceFile.span(0, normalizedSource.length));
+    return program;
   }
 
   final failure = result as Failure;
@@ -1426,3 +1431,11 @@ Program parse(String source, {Uri? url}) {
   final formatted = "$chunkName:$line: $luaErrorMsg";
   throw FormatException(formatted);
 }
+
+final ({
+  LuaGrammarDefinition definition,
+  Parser parser,
+}) _sharedLuaParser = () {
+  final definition = LuaGrammarDefinition(SourceFile.fromString(''));
+  return (definition: definition, parser: definition.build());
+}();
