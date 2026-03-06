@@ -3,6 +3,13 @@
 
 print("testing functions and calls")
 
+local _clock_prev = os.clock()
+local function clockmark(label)
+  local now = os.clock()
+  print("[clock]", label, string.format("%.3f", now), string.format("+%.3f", now - _clock_prev))
+  _clock_prev = now
+end
+
 local debug = require "debug"
 
 -- get the opportunity to test 'type' too ;)
@@ -62,6 +69,7 @@ assert(a.b.c.f1(4) == 5)
 a.b.c:f2('k', 12); assert(a.b.c.k == 12)
 
 print('+')
+clockmark("basic function calls")
 
 t = nil   -- 'declare' t
 function f(a,b,c) local d = 'a'; t={a,b,c,d} end
@@ -87,6 +95,7 @@ local a,b = a()
 assert(a == 120 and b == 3)
 fat = nil
 print('+')
+clockmark("load recursion")
 
 local function err_on_n (n)
   if n==0 then error(); exit(1);
@@ -118,9 +127,11 @@ print"testing tail calls"
 
 function deep (n) if n>0 then return deep(n-1) else return 101 end end
 assert(deep(30000) == 101)
+clockmark("tail calls: deep(30000)")
 a = {}
 function a:deep (n) if n>0 then return self:deep(n-1) else return 101 end end
 assert(a:deep(30000) == 101)
+clockmark("tail calls: method deep(30000)")
 
 do   -- tail calls x varargs
   local function foo (x, ...) local a = {...}; return x, a[1], a[2] end
@@ -155,6 +166,7 @@ do   -- tail calls x varargs
   a, b, c = foo1(10, 20, 30)
   assert(X == 10 and Y == 20 and #A == 1 and A[1] == 30)
 end
+clockmark("tail calls: varargs and simple __call")
 
 
 do   -- C-stack overflow while handling C-stack overflow
@@ -165,6 +177,7 @@ do   -- C-stack overflow while handling C-stack overflow
   local err, msg = xpcall(loop, loop)
   assert(not err and string.find(msg, "error"))
 end
+clockmark("tail calls: c stack overflow handling")
 
 
 
@@ -186,8 +199,10 @@ do   -- tail calls x chain of __call
   -- (to ensure stack is not preallocated)
   assert(coroutine.wrap(function() return foo() end)() == 1023)
 end
+clockmark("tail calls: coroutine __call chain")
 
 print('+')
+clockmark("tail calls and __call chains")
 
 
 do  -- testing chains of '__call'
@@ -247,6 +262,7 @@ local f = g(10)
 assert(f(9, 16) == 10+11+12+13+10+9+16+10)
 
 print('+')
+clockmark("closures")
 
 -- testing multiple returns
 
@@ -290,6 +306,7 @@ rawget({}, "x", 1)
 rawset({}, "x", 1, 2)
 assert(math.sin(1,2) == math.sin(1))
 table.sort({10,9,8,4,19,23,0,0}, function (a,b) return a<b end, "extra arg")
+clockmark("multiple returns and arg adjustment")
 
 
 -- test for generic load
@@ -315,6 +332,7 @@ assert(debug.getinfo(a).source == "modname")
 -- cannot read text in binary mode
 cannotload("attempt to load a text chunk", load(read1(x), "modname", "b", {}))
 cannotload("attempt to load a text chunk", load(x, "modname", "b"))
+clockmark("load block: reader text mode")
 
 a = assert(load(function () return nil end))
 a()  -- empty chunk
@@ -330,6 +348,7 @@ assert(f() == nil)   -- should read the empty chunk
 -- another small bug (in 5.2.1)
 f = load(string.dump(function () return 1 end), nil, "b", {})
 assert(type(f) == "function" and f() == 1)
+clockmark("load block: empty chunks and simple binary load")
 
 
 do   -- another bug (in 5.4.0)
@@ -340,6 +359,7 @@ do   -- another bug (in 5.4.0)
   f = load(read1(f))
   assert(f() == '01234567890123456789012345678901234567890123456789')
 end
+clockmark("load block: long binary string via reader")
 
 
 x = string.dump(load("x = 1; return x"))
@@ -348,6 +368,7 @@ assert(a() == 1 and _G.x == 1)
 cannotload("attempt to load a binary chunk", load(read1(x), nil, "t"))
 cannotload("attempt to load a binary chunk", load(x, nil, "t"))
 _G.x = nil
+clockmark("load block: dumped source chunk roundtrip")
 
 assert(not pcall(string.dump, print))  -- no dump of C functions
 
@@ -357,6 +378,7 @@ cannotload("hhi", load(function () error("hhi") end))
 
 -- any value is valid for _ENV
 assert(load("return _ENV", nil, nil, 123)() == 123)
+clockmark("load block: error handling and env")
 
 
 -- load when _ENV is not first upvalue
@@ -373,6 +395,8 @@ assert(x() == 123)
 
 assert(assert(load("return XX + ...", nil, nil, {XX = 13}))(4) == 17)
 XX = nil
+clockmark("load block: _ENV upvalues")
+clockmark("generic load and binary load")
 
 -- test generic load with nested functions
 x = [[
@@ -391,6 +415,7 @@ assert(a()(2)(3)(10) == 15)
 x = string.dump(a)
 a = assert(load(read1(x), "read", "b"))
 assert(a()(2)(3)(10) == 15)
+clockmark("load block: nested functions text and binary")
 
 
 -- test for dump/undump with upvalues
@@ -409,6 +434,7 @@ x("set")
 assert(x() == 23)
 x("set")
 assert(x() == 24)
+clockmark("load block: dump undump with upvalues")
 
 -- test for dump/undump with many upvalues
 do
@@ -433,6 +459,8 @@ do
   end
   assert(f() == 10 * nup)
 end
+clockmark("load block: many upvalues and upvaluejoin")
+clockmark("dump load and upvalues")
 
 -- test for long method names
 do
@@ -448,6 +476,7 @@ end
 assert((function () return nil end)(4) == nil)
 assert((function () local a; return a end)(4) == nil)
 assert((function (a) return a end)() == nil)
+clockmark("method names and parameter adjustment")
 
 
 print("testing binary chunks")
@@ -492,6 +521,7 @@ do
     assert(not st and string.find(msg, "truncated"))
   end
 end
+clockmark("binary chunks")
 
 print('OK')
 return deep
