@@ -10,7 +10,62 @@ import 'package:lualike/src/stdlib/library.dart';
 import 'package:lualike/src/stack.dart';
 import 'package:lualike/src/value.dart';
 
-/// Shared runtime capabilities required by stdlib, bytecode VM, and the AST interpreter.
+/// Result of loading a chunk through the active runtime engine.
+class LuaChunkLoadResult {
+  const LuaChunkLoadResult.success(this.chunk) : errorMessage = null;
+
+  const LuaChunkLoadResult.failure(this.errorMessage) : chunk = null;
+
+  final Value? chunk;
+  final String? errorMessage;
+
+  bool get isSuccess => chunk != null;
+}
+
+/// Request for loading source or binary chunk input through the active engine.
+class LuaChunkLoadRequest {
+  const LuaChunkLoadRequest({
+    required this.source,
+    required this.chunkName,
+    this.mode = 'bt',
+    this.environment,
+  });
+
+  final Value source;
+  final String chunkName;
+  final String mode;
+  final Value? environment;
+}
+
+/// Engine-neutral callable artifact marker for compiled runtime closures.
+abstract interface class LuaCallableArtifact {
+  LuaFunctionDebugInfo? get debugInfo;
+}
+
+/// Function metadata that debug helpers can consume without engine-specific casts.
+class LuaFunctionDebugInfo {
+  const LuaFunctionDebugInfo({
+    required this.source,
+    required this.shortSource,
+    this.what = 'Lua',
+    this.lineDefined = -1,
+    this.lastLineDefined = -1,
+    this.nups = 0,
+    this.nparams = 0,
+    this.isVararg = true,
+  });
+
+  final String source;
+  final String shortSource;
+  final String what;
+  final int lineDefined;
+  final int lastLineDefined;
+  final int nups;
+  final int nparams;
+  final bool isVararg;
+}
+
+/// Shared runtime capabilities required by stdlib, lualike IR VM, and the AST interpreter.
 ///
 /// This interface will be implemented by both execution engines, allowing shared
 /// components (stdlib, values, GC helpers) to interact without depending on a
@@ -25,6 +80,9 @@ abstract interface class LuaRuntime {
   Future<Object?> runAst(List<AstNode> program);
   Future<Object?> callFunction(Value function, List<Object?> args);
   Future<Object?> evaluateAst(AstNode node);
+  Future<LuaChunkLoadResult> loadChunk(LuaChunkLoadRequest request);
+  Object? dumpFunction(Value function);
+  LuaFunctionDebugInfo? debugInfoForFunction(Value function);
 
   // Call stack & debugging
   CallStack get callStack;

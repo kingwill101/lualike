@@ -9,20 +9,25 @@ import 'package:lualike/src/gc/gc_access.dart';
 import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_stack_trace.dart';
+import 'package:lualike/src/lua_bytecode/runtime.dart';
 import 'package:lualike/src/lua_string.dart';
+import 'package:lualike/src/runtime/compiled_artifact_support.dart';
+import 'package:lualike/src/runtime/chunk_loading_support.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/stack.dart';
 import 'package:lualike/src/stdlib/init.dart' show initializeStandardLibrary;
 import 'package:lualike/src/stdlib/library.dart' show LibraryRegistry;
 import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:lualike/src/utils/type.dart';
+import 'package:lualike/src/upvalue.dart';
 import 'package:lualike/src/value.dart';
 import 'package:lualike/src/value_class.dart';
 import 'package:lualike/src/table_storage.dart';
 import 'package:lualike/src/utils/file_system_utils.dart' as fs;
 import 'package:lualike/src/interpreter/upvalue_assignment.dart';
-import 'package:lualike/src/bytecode/loop_compiler.dart';
-import 'package:lualike/src/bytecode/vm.dart';
+import 'package:lualike/src/ir/loop_compiler.dart';
+import 'package:lualike/src/ir/serialization.dart';
+import 'package:lualike/src/ir/vm.dart';
 
 import '../exceptions.dart';
 import '../extensions/extensions.dart';
@@ -60,6 +65,10 @@ class Interpreter extends AstVisitor<Object?>
 
   /// Weak set of active coroutines for bookkeeping (not used as GC roots).
   final Set<WeakReference<Coroutine>> _activeCoroutines = {};
+
+  void _pruneDeadCoroutineRefs() {
+    _activeCoroutines.removeWhere((ref) => ref.target == null);
+  }
 
   /// File manager for handling source code loading.
   @override
@@ -179,6 +188,7 @@ class Interpreter extends AstVisitor<Object?>
   /// Gets the main thread coroutine
   @override
   Coroutine getMainThread() {
+    _pruneDeadCoroutineRefs();
     Logger.infoLazy(
       () => 'getMainThread() called',
       categories: {'Interpreter', 'Coroutine'},
@@ -211,10 +221,11 @@ class Interpreter extends AstVisitor<Object?>
   /// Register a coroutine with the interpreter
   @override
   void registerCoroutine(Coroutine coroutine) {
-    Logger.info(
-      'Interpreter.registerCoroutine() called, registering coroutine',
+    _pruneDeadCoroutineRefs();
+    Logger.infoLazy(
+      () => 'Interpreter.registerCoroutine() called, registering coroutine',
       category: 'Coroutine',
-      context: {'coroutine_hash': coroutine.hashCode},
+      contextBuilder: () => {'coroutine_hash': coroutine.hashCode},
     );
     _activeCoroutines.add(WeakReference(coroutine));
   }
@@ -222,6 +233,7 @@ class Interpreter extends AstVisitor<Object?>
   /// Unregister a coroutine that has completed or been closed.
   @override
   void unregisterCoroutine(Coroutine coroutine) {
+    _pruneDeadCoroutineRefs();
     _activeCoroutines.removeWhere((ref) {
       final target = ref.target;
       return target == null || identical(target, coroutine);
@@ -310,10 +322,13 @@ class Interpreter extends AstVisitor<Object?>
   /// during function calls.
   @override
   void setCurrentEnv(Environment env) {
-    Logger.debug(
-      'Interpreter.setCurrentEnv() called, changing environment',
+    Logger.debugLazy(
+      () => 'Interpreter.setCurrentEnv() called, changing environment',
       category: 'Interpreter',
-      context: {'from_hash': _currentEnv.hashCode, 'to_hash': env.hashCode},
+      contextBuilder: () => {
+        'from_hash': _currentEnv.hashCode,
+        'to_hash': env.hashCode,
+      },
     );
     _currentEnv = env;
   }
@@ -325,10 +340,10 @@ class Interpreter extends AstVisitor<Object?>
 
   /// Sets the current function being executed.
   void setCurrentFunction(Value? function) {
-    Logger.debug(
-      'Setting current function',
+    Logger.debugLazy(
+      () => 'Setting current function',
       category: 'Interpreter',
-      context: {
+      contextBuilder: () => {
         'from_hash': _currentFunction?.hashCode,
         'to_hash': function?.hashCode,
       },
@@ -457,18 +472,18 @@ class Interpreter extends AstVisitor<Object?>
   /// Returns true if the exception was handled, false otherwise.
   bool handleControlFlow(Object exception, {AstNode? node}) {
     if (exception is GotoException) {
-      Logger.info(
-        'GotoException caught',
+      Logger.infoLazy(
+        () => 'GotoException caught',
         category: 'ControlFlow',
-        context: {'label': exception.label},
+        contextBuilder: () => {'label': exception.label},
         node: node,
       );
       return true;
     } else if (exception is ReturnException) {
-      Logger.info(
-        'ReturnException caught',
+      Logger.infoLazy(
+        () => 'ReturnException caught',
         category: 'ControlFlow',
-        context: {'hasValue': exception.value != null},
+        contextBuilder: () => {'hasValue': exception.value != null},
         node: node,
       );
       return true;
@@ -647,10 +662,10 @@ class Interpreter extends AstVisitor<Object?>
   /// [program] - List of AST nodes representing the program to execute
   /// Returns the result of the last executed statement, or null.
   Future<Object?> run(List<AstNode> program) async {
-    Logger.info(
-      'Running program',
+    Logger.infoLazy(
+      () => 'Running program',
       category: 'Interpreter',
-      context: {'statementsCount': program.length},
+      contextBuilder: () => {'statementsCount': program.length},
     );
 
     // Set the script path in the call stack if available
@@ -683,24 +698,56 @@ class Interpreter extends AstVisitor<Object?>
     // Push a top-level frame to track currentline via AST spans, bound to script env
     callStack.push(currentScriptPath ?? 'chunk', env: _currentEnv);
 
+    void pushTopLevelResult(Object? callResult) {
+      if (callResult == null) {
+        return;
+      }
+      if (callResult is Value) {
+        evalStack.push(callResult);
+      } else if (callResult is List) {
+        if (callResult.isEmpty) {
+          evalStack.push(Value(null));
+        } else if (callResult.length == 1) {
+          final v = callResult[0];
+          evalStack.push(v is Value ? v : Value(v));
+        } else {
+          evalStack.push(Value.multi(callResult));
+        }
+      } else {
+        evalStack.push(Value(callResult));
+      }
+    }
+
     try {
-      await _executeStatements(program);
+      final executionResult = await _executeStatements(program);
+      if (executionResult is TailCallSignal) {
+        Logger.debugLazy(
+          () => 'Top-level tail return detected; invoking callee',
+          category: 'Interpreter',
+          contextBuilder: () => {'argsCount': executionResult.args.length},
+        );
+        final callee = executionResult.functionValue is Value
+            ? executionResult.functionValue as Value
+            : Value(executionResult.functionValue);
+        final normalizedArgs = executionResult.args
+            .map((a) => a is Value ? a : Value(a))
+            .toList();
+        pushTopLevelResult(await callFunction(callee, normalizedArgs));
+      }
     } on ReturnException catch (e) {
-      Logger.debug(
-        'Top-level return',
+      Logger.debugLazy(
+        () => 'Top-level return',
         category: 'Interpreter',
-        context: {'hasValue': e.value != null},
+        contextBuilder: () => {'hasValue': e.value != null},
       );
       // Handle top-level return statements - this is valid in Lua
       // Push the return value to eval stack so it can be retrieved
-      if (e.value != null) {
-        evalStack.push(e.value);
-      }
+      pushTopLevelResult(e.value);
     } on TailCallException catch (t) {
-      Logger.debug(
-        'Top-level tail return detected; invoking callee',
+      Logger.debugLazy(
+        () => 'Top-level tail return detected; invoking callee',
         category: 'Interpreter',
-        context: {'argsCount': t.args.length},
+        contextBuilder: () => {'argsCount': t.args.length},
       );
       // Handle top-level tail return: execute callee and use its result
       final callee = t.functionValue is Value
@@ -709,23 +756,7 @@ class Interpreter extends AstVisitor<Object?>
       final normalizedArgs = t.args
           .map((a) => a is Value ? a : Value(a))
           .toList();
-      final callResult = await callFunction(callee, normalizedArgs);
-      if (callResult != null) {
-        if (callResult is Value) {
-          evalStack.push(callResult);
-        } else if (callResult is List) {
-          if (callResult.isEmpty) {
-            evalStack.push(Value(null));
-          } else if (callResult.length == 1) {
-            final v = callResult[0];
-            evalStack.push(v is Value ? v : Value(v));
-          } else {
-            evalStack.push(Value.multi(callResult));
-          }
-        } else {
-          evalStack.push(Value(callResult));
-        }
-      }
+      pushTopLevelResult(await callFunction(callee, normalizedArgs));
     } on GotoException catch (e) {
       Logger.warningLazy(
         () => 'Undefined label',
@@ -773,10 +804,13 @@ class Interpreter extends AstVisitor<Object?>
     while (index < statements.length) {
       final node = statements[index];
       final currentIndex = index;
-      Logger.debug(
-        'Visiting node',
+      Logger.debugLazy(
+        () => 'Visiting node',
         category: 'Interpreter',
-        context: {'nodeType': node.runtimeType.toString(), 'index': index},
+        contextBuilder: () => {
+          'nodeType': node.runtimeType.toString(),
+          'index': index,
+        },
       );
       recordTrace(node);
       var statementCompleted = false;
@@ -787,7 +821,6 @@ class Interpreter extends AstVisitor<Object?>
       try {
         result = await node.accept(this);
         statementCompleted = true;
-        index++;
       } on GotoException catch (e) {
         if (!labelMap.containsKey(e.label)) {
           // Propagate to outer scope for resolution
@@ -843,6 +876,14 @@ class Interpreter extends AstVisitor<Object?>
           _runAutoGCAtSafePoint();
         }
       }
+
+      if (result is TailCallSignal) {
+        return result;
+      }
+
+      if (statementCompleted) {
+        index++;
+      }
     }
     return result;
   }
@@ -872,10 +913,10 @@ class Interpreter extends AstVisitor<Object?>
   /// Add this method to the Interpreter class
   @override
   Environment getCurrentEnv() {
-    Logger.info(
-      'Interpreter.getCurrentEnv() called',
+    Logger.infoLazy(
+      () => 'Interpreter.getCurrentEnv() called',
       category: 'Interpreter',
-      context: {'env_hash': _currentEnv.hashCode},
+      contextBuilder: () => {'env_hash': _currentEnv.hashCode},
     );
     return _currentEnv;
   }
@@ -891,6 +932,42 @@ class Interpreter extends AstVisitor<Object?>
 
   @override
   Future<Object?> evaluateAst(AstNode node) => node.accept(this);
+
+  @override
+  Future<LuaChunkLoadResult> loadChunk(LuaChunkLoadRequest request) async {
+    final normalized = await normalizeChunkLoadRequest(this, request);
+    if (normalized.failure case final failure?) {
+      return failure;
+    }
+
+    final normalizedRequest = normalized.request;
+    final binarySource = compiledArtifactSourceBytes(normalizedRequest.source);
+    if (binarySource != null && looksLikeLualikeIrBytes(binarySource)) {
+      return const LuaChunkLoadResult.failure(
+        'lualike_ir artifacts require the IR runtime',
+      );
+    }
+
+    final luaBytecodeResult = tryLoadLuaBytecodeArtifact(
+      this,
+      normalizedRequest,
+    );
+    if (luaBytecodeResult != null) {
+      return luaBytecodeResult;
+    }
+
+    return loadChunkWithLegacyAstSupport(this, normalizedRequest);
+  }
+
+  @override
+  Object? dumpFunction(Value function) {
+    return dumpFunctionWithLegacyAstTransport(function);
+  }
+
+  @override
+  LuaFunctionDebugInfo? debugInfoForFunction(Value function) {
+    return defaultDebugInfoForFunction(this, function);
+  }
 
   void _runAutoGCAtSafePoint() {
     final threshold = gc.autoTriggerDebtThreshold;

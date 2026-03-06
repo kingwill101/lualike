@@ -206,7 +206,11 @@ Future<void> compile({bool force = false, String? dartPath}) async {
 /// Get the absolute path to the Dart executable
 String _getDartExecutablePath() {
   // Use Platform.script to get the Dart executable that's running this script
-  return Platform.executable;
+  final executable = Platform.executable;
+  if (path.basename(executable).startsWith('test_runner')) {
+    return getExecutableName('dart');
+  }
+  return executable;
 }
 
 /// Compile the test runner itself into a standalone executable
@@ -354,6 +358,11 @@ Future<void> main(List<String> args) async {
       help: 'Alias for --test; accepts comma-separated names',
       splitCommas: true,
     )
+    ..addOption(
+      'exec',
+      abbr: 'e',
+      help: 'Execute inline Lua code (bypasses test list).',
+    )
     ..addFlag(
       'compile-runner',
       negatable: false,
@@ -369,9 +378,9 @@ Future<void> main(List<String> args) async {
       help: 'Pass --debug flag to the lualike binary when running tests.',
     )
     ..addFlag(
-      'bytecode',
+      'ir',
       negatable: false,
-      help: 'Run tests using the bytecode engine (passes --bytecode).',
+      help: 'Run tests using the IR engine (passes --ir).',
     );
 
   ArgResults r;
@@ -410,7 +419,10 @@ Future<void> main(List<String> args) async {
     exit(0);
   }
 
-  final dartPath = r['dart-path'] as String? ?? defaultDartPath;
+  var dartPath = r['dart-path'] as String? ?? defaultDartPath;
+  if (path.basename(dartPath).startsWith('test_runner')) {
+    dartPath = _getDartExecutablePath();
+  }
   final force = r['force'] as bool;
   // Handle download-suite flag
   if (r['download-suite'] as bool) {
@@ -447,6 +459,8 @@ Future<void> main(List<String> args) async {
   console.resetColorAttributes();
   console.writeLine();
 
+  final execCode = r['exec'] as String?;
+
   final t1 = (r['test'] as List<String>?) ?? const <String>[];
   final t2 = (r['tests'] as List<String>?) ?? const <String>[];
   final combinedTests = <String>[...t1, ...t2];
@@ -461,7 +475,7 @@ Future<void> main(List<String> args) async {
   final skipHeavy = r['skip-heavy'] as bool;
   const heavyTests = {'heavy.lua'};
 
-  if (combinedTests.isEmpty && (isCI || skipHeavy)) {
+  if (execCode == null && combinedTests.isEmpty && (isCI || skipHeavy)) {
     final skipped = testsToRun.where((t) => heavyTests.contains(t)).toList();
     if (skipped.isNotEmpty) {
       testsToRun = testsToRun.where((t) => !heavyTests.contains(t)).toList();
@@ -505,12 +519,13 @@ Future<void> main(List<String> args) async {
   }
 
   final results = await runTests(
-    tests: testsToRun,
+    tests: execCode == null ? testsToRun : const <String>[],
+    inlineCode: execCode,
     verbose: verboseEnabled,
     soft: r['soft'] as bool, // default true  => _soft = true
     port: r['port'] as bool, // default true  => _port = true
     debug: debugEnabled, // new debug flag
-    bytecode: r['bytecode'] as bool,
+    ir: r['ir'] as bool,
   );
 
   printTestSummary(results);
@@ -557,14 +572,17 @@ String _resolveTestPath(String entry) {
 /// validated as a file path and executed directly.
 Future<List<TestResult>> runTests({
   List<String> tests = const [],
+  String? inlineCode,
   bool verbose = false,
   bool soft = true,
   bool port = true,
   bool debug = false, // new debug parameter
-  bool bytecode = false,
+  bool ir = false,
 }) async {
   final results = <TestResult>[];
-  final testsToRun = tests.isEmpty ? testFiles : tests;
+  final testsToRun = inlineCode == null
+      ? (tests.isEmpty ? testFiles : tests)
+      : const <String>['<inline>'];
 
   for (final file in testsToRun) {
     console.setForegroundColor(ConsoleColor.cyan);
@@ -578,44 +596,43 @@ Future<List<TestResult>> runTests({
 
     final stopwatch = Stopwatch()..start();
 
-    // Build LUA_INIT to set flags in the Lua environment
+    // Build init code to set flags in the Lua environment
     final initParts = <String>[];
     initParts.add(port ? '_port = true' : '_port = false');
     initParts.add(soft ? '_soft = true' : '_soft = false');
-    final luaInit = initParts.join('; ');
+    initParts.add("package.path = 'luascripts/test/?.lua;' .. package.path");
+    final initCode = initParts.join('; ');
 
     // Resolve lualike binary and target test path
     final lualikeBinary = getExecutableName('lualike');
     final binaryPath = path.join(Directory.current.path, lualikeBinary);
-    late final String targetPath;
-    try {
-      targetPath = _resolveTestPath(file);
-    } catch (e) {
-      console.setForegroundColor(ConsoleColor.red);
-      console.write('✗ ');
-      console.setTextStyle(bold: true);
-      console.write('Test not found');
-      console.resetColorAttributes();
-      console.write(': ');
-      console.writeLine(file);
-      // Fail fast for missing files
-      results.add(
-        TestResult(
-          fileName: file,
-          exitCode: 1,
-          duration: Duration.zero,
-          output: const [],
-          errors: ['Test not found: $file'],
-        ),
-      );
-      continue;
+    String? targetPath;
+    if (inlineCode == null) {
+      try {
+        targetPath = _resolveTestPath(file);
+      } catch (e) {
+        console.setForegroundColor(ConsoleColor.red);
+        console.write('✗ ');
+        console.setTextStyle(bold: true);
+        console.write('Test not found');
+        console.resetColorAttributes();
+        console.write(': ');
+        console.writeLine(file);
+        // Fail fast for missing files
+        results.add(
+          TestResult(
+            fileName: file,
+            exitCode: 1,
+            duration: Duration.zero,
+            output: const [],
+            errors: ['Test not found: $file'],
+          ),
+        );
+        continue;
+      }
     }
 
-    final environment = {
-      'LUA_INIT': luaInit,
-      'LUALIKE_BIN': binaryPath,
-      ...Platform.environment,
-    };
+    final environment = {'LUALIKE_BIN': binaryPath, ...Platform.environment};
     // Always run from repo root and pass absolute path to the script. This
     // avoids duplicating the working directory prefix when tests are given
     // as relative paths under luascripts/test/.
@@ -625,10 +642,18 @@ Future<List<TestResult>> runTests({
     if (debug) {
       processArgs.add('--debug');
     }
-    if (bytecode) {
-      processArgs.add('--bytecode');
+    if (ir) {
+      processArgs.add('--ir');
     }
-    processArgs.add(targetPath);
+    final initSnippet = inlineCode == null
+        ? "$initCode; dofile('$targetPath')"
+        : initCode;
+    processArgs.add('-e');
+    processArgs.add(initSnippet);
+    if (inlineCode != null) {
+      processArgs.add('-e');
+      processArgs.add(inlineCode);
+    }
 
     final process = await Process.start(
       binaryPath,

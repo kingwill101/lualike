@@ -723,18 +723,23 @@ class NumberUtils {
 
   /// Perform arithmetic operation with full Lua semantics including string conversion
   static dynamic performArithmetic(String op, dynamic r1, dynamic r2) {
-    Logger.debug(
-      'ARITH: START op=$op, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
+    Logger.debugLazy(
+      () =>
+          'ARITH: START op=$op, r1=$r1 (${r1.runtimeType}), '
+          'r2=$r2 (${r2.runtimeType})',
       category: 'NumberUtils',
     );
 
     // Try to convert strings to numbers (Lua automatic conversion)
     if (r1 is String || r1 is LuaString) {
-      Logger.debug('ARITH: r1 is String, parsing...', category: 'NumberUtils');
+      Logger.debugLazy(
+        () => 'ARITH: r1 is String, parsing...',
+        category: 'NumberUtils',
+      );
       try {
         r1 = LuaNumberParser.parse(r1.toString());
-        Logger.debug(
-          'ARITH: r1 parsed to $r1 (${r1.runtimeType})',
+        Logger.debugLazy(
+          () => 'ARITH: r1 parsed to $r1 (${r1.runtimeType})',
           category: 'NumberUtils',
         );
       } catch (e) {
@@ -750,11 +755,14 @@ class NumberUtils {
     }
 
     if (r2 is String || r2 is LuaString) {
-      Logger.debug('ARITH: r2 is String, parsing...', category: 'NumberUtils');
+      Logger.debugLazy(
+        () => 'ARITH: r2 is String, parsing...',
+        category: 'NumberUtils',
+      );
       try {
         r2 = LuaNumberParser.parse(r2.toString());
-        Logger.debug(
-          'ARITH: r2 parsed to $r2 (${r2.runtimeType})',
+        Logger.debugLazy(
+          () => 'ARITH: r2 parsed to $r2 (${r2.runtimeType})',
           category: 'NumberUtils',
         );
       } catch (e) {
@@ -769,8 +777,10 @@ class NumberUtils {
       }
     }
 
-    Logger.debug(
-      'ARITH: after string parse, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
+    Logger.debugLazy(
+      () =>
+          'ARITH: after string parse, r1=$r1 (${r1.runtimeType}), '
+          'r2=$r2 (${r2.runtimeType})',
       category: 'NumberUtils',
     );
 
@@ -841,8 +851,8 @@ class NumberUtils {
       rethrow;
     }
 
-    Logger.debug(
-      'ARITH: result: $result (${result.runtimeType})',
+    Logger.debugLazy(
+      () => 'ARITH: result: $result (${result.runtimeType})',
       category: 'NumberUtils',
     );
     return result;

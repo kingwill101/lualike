@@ -7,6 +7,21 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
   // Required method that must be implemented by the class using this mixin
   void setCurrentEnv(Environment env);
 
+  Future<Object?> _executeBlockStatements(List<AstNode> statements) async {
+    if (this is Interpreter) {
+      return await (this as Interpreter)._executeStatements(statements);
+    }
+
+    Object? result;
+    for (final stmt in statements) {
+      result = await stmt.accept(this);
+      if (result is TailCallSignal) {
+        return result;
+      }
+    }
+    return result;
+  }
+
   /// Evaluates an if statement.
   ///
   /// Evaluates the condition and executes either the then branch
@@ -59,6 +74,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       interpreter: this as Interpreter,
     );
     final prevEnv = globals;
+    Object? result;
 
     try {
       // Set the block environment as the current environment
@@ -70,12 +86,9 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           category: 'ControlFlow',
           contextBuilder: () => {},
         );
-        if (this is Interpreter) {
-          await (this as Interpreter)._executeStatements(node.thenBlock);
-        } else {
-          for (final stmt in node.thenBlock) {
-            await stmt.accept(this);
-          }
+        result = await _executeBlockStatements(node.thenBlock);
+        if (result is TailCallSignal) {
+          return result;
         }
       } else if (node.elseIfs.isNotEmpty) {
         // Handle elseif clauses
@@ -109,12 +122,9 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
               category: 'ControlFlow',
               contextBuilder: () => {},
             );
-            if (this is Interpreter) {
-              await (this as Interpreter)._executeStatements(elseIf.thenBlock);
-            } else {
-              for (final stmt in elseIf.thenBlock) {
-                await stmt.accept(this);
-              }
+            result = await _executeBlockStatements(elseIf.thenBlock);
+            if (result is TailCallSignal) {
+              return result;
             }
             elseIfMatched = true;
             break;
@@ -128,12 +138,9 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
             category: 'ControlFlow',
             contextBuilder: () => {},
           );
-          if (this is Interpreter) {
-            await (this as Interpreter)._executeStatements(node.elseBlock);
-          } else {
-            for (final stmt in node.elseBlock) {
-              await stmt.accept(this);
-            }
+          result = await _executeBlockStatements(node.elseBlock);
+          if (result is TailCallSignal) {
+            return result;
           }
         }
       } else if (node.elseBlock.isNotEmpty) {
@@ -142,12 +149,9 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           category: 'ControlFlow',
           contextBuilder: () => {},
         );
-        if (this is Interpreter) {
-          await (this as Interpreter)._executeStatements(node.elseBlock);
-        } else {
-          for (final stmt in node.elseBlock) {
-            await stmt.accept(this);
-          }
+        result = await _executeBlockStatements(node.elseBlock);
+        if (result is TailCallSignal) {
+          return result;
         }
       }
     } on BreakException {
@@ -178,7 +182,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       setCurrentEnv(prevEnv);
     }
 
-    return null;
+    return result;
   }
 
   /// Executes a while loop.
@@ -282,12 +286,10 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           category: 'ControlFlow',
           contextBuilder: () => {},
         );
-        if (this is Interpreter) {
-          await (this as Interpreter)._executeStatements(node.body);
-        } else {
-          for (final stmt in node.body) {
-            await stmt.accept(this);
-          }
+        final bodyResult = await _executeBlockStatements(node.body);
+        if (bodyResult is TailCallSignal) {
+          await resetLoopEnvironment();
+          return bodyResult;
         }
       } on BreakException {
         await resetLoopEnvironment();
@@ -365,7 +367,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     loopEnv.declare(loopVarName, Value(start));
     final loopVarBox = loopEnv.values[loopVarName]!;
 
-    final compiler = LoopBytecodeCompiler(
+    final compiler = LoopIrCompiler(
       loopVarName: loopVarName,
       startValue: start,
       endValue: end,
@@ -373,7 +375,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     );
     final bytecodeChunk = compiler.compile(node.body);
     if (bytecodeChunk != null) {
-      final vm = LoopBytecodeVm(environment: loopEnv);
+      final vm = LoopIrVm(environment: loopEnv);
       try {
         setCurrentEnv(loopEnv);
         vm.execute(bytecodeChunk);
@@ -434,12 +436,10 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         setCurrentEnv(loopEnv);
 
         try {
-          if (this is Interpreter) {
-            await (this as Interpreter)._executeStatements(node.body);
-          } else {
-            for (final stmt in node.body) {
-              await stmt.accept(this);
-            }
+          final bodyResult = await _executeBlockStatements(node.body);
+          if (bodyResult is TailCallSignal) {
+            await resetLoopEnvironment();
+            return bodyResult;
           }
         } on BreakException {
           await resetLoopEnvironment();
@@ -536,12 +536,10 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           category: 'ControlFlow',
           context: {},
         );
-        if (this is Interpreter) {
-          await (this as Interpreter)._executeStatements(node.body);
-        } else {
-          for (final stmt in node.body) {
-            await stmt.accept(this);
-          }
+        final bodyResult = await _executeBlockStatements(node.body);
+        if (bodyResult is TailCallSignal) {
+          await resetLoopEnvironment();
+          return bodyResult;
         }
 
         final condition = await node.cond.accept(this);
@@ -709,12 +707,10 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           setCurrentEnv(loopEnv);
           try {
             assignLoopValues([key, value]);
-            if (this is Interpreter) {
-              await (this as Interpreter)._executeStatements(node.body);
-            } else {
-              for (final stmt in node.body) {
-                await stmt.accept(this);
-              }
+            final bodyResult = await _executeBlockStatements(node.body);
+            if (bodyResult is TailCallSignal) {
+              await resetLoopEnvironment();
+              return bodyResult;
             }
           } on BreakException {
             await resetLoopEnvironment();
@@ -1003,12 +999,15 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         setCurrentEnv(loopEnv);
         try {
           assignLoopValues(values);
-          if (this is Interpreter) {
-            await (this as Interpreter)._executeStatements(node.body);
-          } else {
-            for (final stmt in node.body) {
-              await stmt.accept(this);
+          final bodyResult = await _executeBlockStatements(node.body);
+          if (bodyResult is TailCallSignal) {
+            await resetLoopEnvironment();
+            if (toCloseVar != null) {
+              try {
+                await toCloseVar.close();
+              } catch (_) {}
             }
+            return bodyResult;
           }
         } on BreakException {
           await resetLoopEnvironment();
@@ -1128,13 +1127,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         category: 'ControlFlow',
         contextBuilder: () => {},
       );
-      if (this is Interpreter) {
-        result = await (this as Interpreter)._executeStatements(node.body);
-      } else {
-        for (final stmt in node.body) {
-          result = await stmt.accept(this);
-        }
-      }
+      result = await _executeBlockStatements(node.body);
     } on BreakException {
       // Close variables before re-throwing
       await blockEnv.closeVariables();
@@ -1225,15 +1218,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           'Executing elseif block statements',
           category: 'ControlFlow',
         );
-        if (this is Interpreter) {
-          result = await (this as Interpreter)._executeStatements(
-            node.thenBlock,
-          );
-        } else {
-          for (final stmt in node.thenBlock) {
-            result = await stmt.accept(this);
-          }
-        }
+        result = await _executeBlockStatements(node.thenBlock);
       } on BreakException {
         // Close variables before re-throwing
         await blockEnv.closeVariables();

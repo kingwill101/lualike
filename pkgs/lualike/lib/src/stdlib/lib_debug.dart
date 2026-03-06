@@ -557,7 +557,8 @@ class _GetInfoImpl extends BuiltinFunction {
                   category: 'DebugLib',
                 );
               } else {
-                // For script paths without prefix, check if it's a binary chunk
+                // For unprefixed script paths, check whether the active
+                // function came from a loaded chunk-like artifact.
                 Value? currentFunction;
                 if (interpreterInstance is Interpreter) {
                   currentFunction = interpreterInstance.getCurrentFunction();
@@ -573,7 +574,8 @@ class _GetInfoImpl extends BuiltinFunction {
                   );
 
                   if (span != null && span.sourceUrl != null) {
-                    // Use the original function's source location (binary chunk)
+                    // Preserve the source location carried by the loaded
+                    // function artifact when one is available.
                     final rawSource = span.sourceUrl!.toString();
                     sourceValue = _formatSourceForLua(rawSource);
                     shortSrc = sourceValue.startsWith('@')
@@ -585,7 +587,8 @@ class _GetInfoImpl extends BuiltinFunction {
                       category: 'DebugLib',
                     );
                   } else {
-                    // Try to extract source from child nodes (binary chunk)
+                    // Fall back to source spans attached to child nodes when
+                    // the loaded function body does not have a direct span.
                     String? childSource = _extractSourceFromChildren(
                       currentFunction.functionBody!,
                     );
@@ -603,7 +606,8 @@ class _GetInfoImpl extends BuiltinFunction {
                   }
                 }
 
-                // If not a binary chunk, use script path as string chunk name
+                // If the current function does not carry loaded-chunk source
+                // metadata, use the raw script path as the chunk name.
                 if (!isBinaryChunk) {
                   sourceValue = scriptPath;
                   shortSrc = scriptPath;
@@ -644,25 +648,10 @@ class _GetInfoImpl extends BuiltinFunction {
     }
 
     // Function-based lookup
-    if (firstArg.raw is Function || firstArg.raw is BuiltinFunction) {
-      String src = "=[C]";
-      String whatKind = "C";
-      // Try to use function body span or interpreter script path if available
-      if (firstArg.functionBody != null) {
-        final span = firstArg.functionBody!.span;
-        if (span != null && span.sourceUrl != null) {
-          src = span.sourceUrl!.toString();
-          whatKind = "Lua";
-        } else if (interpreterInstance != null &&
-            interpreterInstance.currentScriptPath != null) {
-          src = interpreterInstance.currentScriptPath!;
-          whatKind = "Lua";
-        }
-      } else if (interpreterInstance != null &&
-          interpreterInstance.currentScriptPath != null) {
-        src = interpreterInstance.currentScriptPath!;
-        whatKind = "Lua";
-      }
+    if (firstArg.isCallable()) {
+      final metadata = interpreterInstance?.debugInfoForFunction(firstArg);
+      String src = metadata?.source ?? "=[C]";
+      String whatKind = metadata?.what ?? "C";
 
       // For compatibility with tests (calls.lua), do not prefix '@'
       final debugInfo = <String, Value>{
@@ -671,14 +660,15 @@ class _GetInfoImpl extends BuiltinFunction {
         'what': Value(whatKind),
         'source': Value(src),
         'short_src': Value(
-          src.split('/').isNotEmpty ? src.split('/').last : src,
+          metadata?.shortSource ??
+              (src.split('/').isNotEmpty ? src.split('/').last : src),
         ),
         'currentline': Value(-1),
-        'linedefined': Value(-1),
-        'lastlinedefined': Value(-1),
-        'nups': Value(0),
-        'nparams': Value(0),
-        'isvararg': Value(true),
+        'linedefined': Value(metadata?.lineDefined ?? -1),
+        'lastlinedefined': Value(metadata?.lastLineDefined ?? -1),
+        'nups': Value(metadata?.nups ?? 0),
+        'nparams': Value(metadata?.nparams ?? 0),
+        'isvararg': Value(metadata?.isVararg ?? true),
         'istailcall': Value(false),
       };
       return Value(debugInfo);
@@ -840,7 +830,6 @@ Map<String, BuiltinFunction> createDebugLib(LuaRuntime? astVm) {
 /// This ensures the debug.getinfo function can access line information
 /// [env] - The environment to define the debug table in
 /// [vm] - The runtime instance to use for call stack access
-/// [bytecodeVm] - Optional bytecode VM for bytecode mode
 void defineDebugLibrary({required Environment env, LuaRuntime? vm}) {
   // Store interpreter reference in environment for later access
   if (vm != null) {

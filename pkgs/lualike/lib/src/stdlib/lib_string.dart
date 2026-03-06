@@ -6,8 +6,6 @@ import 'dart:typed_data';
 import 'package:collection/collection.dart' show ListEquality;
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/binary_type_size.dart';
-import 'package:lualike/src/chunk_serializer.dart';
-import 'package:lualike/src/bytecode/vm.dart' show BytecodeClosure;
 import 'package:lualike/src/intern.dart';
 import 'package:lualike/src/number_limits.dart';
 import 'package:lualike/src/parsers/pattern.dart' as lpc;
@@ -133,65 +131,14 @@ class _StringDump extends BuiltinFunction {
     }
 
     final func = args[0] as Value;
-    if (func.raw is! Function && func.raw is! BuiltinFunction) {
+    if (!func.isCallable()) {
       throw LuaError.typeError("string.dump requires a function argument");
     }
-
-    // Check if it's a built-in (C) function
-    if (func.raw is BuiltinFunction) {
-      throw LuaError("unable to dump given function");
+    final runtime = interpreter;
+    if (runtime == null) {
+      throw LuaError("No interpreter context available");
     }
-
-    final fb = func.functionBody;
-
-    if (fb != null) {
-      // Debug logging to check span information
-      Logger.debug(
-        'string.dump: function has functionBody, span=${fb.span}, sourceUrl=${fb.span?.sourceUrl}',
-        category: 'StringLib',
-      );
-
-      // Extract upvalue names and values from the function
-      List<String>? upvalueNames;
-      List<dynamic>? upvalueValues;
-      if (func.upvalues != null && func.upvalues!.isNotEmpty) {
-        upvalueNames = func.upvalues!
-            .map((upvalue) => upvalue.name ?? '')
-            .where((name) => name.isNotEmpty)
-            .toList();
-        upvalueValues = func.upvalues!.map((upvalue) {
-          final value = upvalue.getValue();
-          // Convert Value objects to their raw values for JSON encoding
-          final rawValue = value is Value ? value.raw : value;
-          // Ensure the value is JSON-serializable
-          if (rawValue is String ||
-              rawValue is num ||
-              rawValue is bool ||
-              rawValue == null) {
-            return rawValue;
-          } else {
-            // For non-JSON-serializable values, convert to string
-            return rawValue.toString();
-          }
-        }).toList();
-      }
-
-      // Use ChunkSerializer for consistent dump/load handling
-      final serialized = ChunkSerializer.serializeFunctionAsLuaString(
-        fb,
-        upvalueNames,
-        upvalueValues,
-      );
-      return Value(serialized);
-    }
-
-    // Final fallback for functions without functionBody
-    final source = "return function(...) end";
-    final payload = utf8.encode(source);
-    final bytes = Uint8List(payload.length + 1);
-    bytes[0] = 0x1B; // ESC
-    bytes.setRange(1, bytes.length, payload);
-    return Value(String.fromCharCodes(bytes));
+    return Value(runtime.dumpFunction(func));
   }
 }
 
@@ -1300,7 +1247,10 @@ class _StringGsub extends BuiltinFunction {
       final lp = lpc.LuaPattern.compile(pattern);
 
       String result;
-      Future<dynamic> invokeCallable(Value callable, List<Value> captures) async {
+      Future<dynamic> invokeCallable(
+        Value callable,
+        List<Value> captures,
+      ) async {
         try {
           if (callable.raw is Function) {
             final result = (callable.raw as Function)(captures);
@@ -1324,10 +1274,7 @@ class _StringGsub extends BuiltinFunction {
         }
       }
 
-      if (repl.raw is Function ||
-          repl.raw is BuiltinFunction ||
-          repl.raw is BytecodeClosure ||
-          repl.isCallable()) {
+      if (repl.isCallable()) {
         final buffer = StringBuffer();
         var lastEnd = 0;
         final matches = lp.allMatches(str);

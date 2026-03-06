@@ -14,7 +14,7 @@ import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/stdlib/lib_debug.dart';
 import 'package:lualike/src/value.dart';
 import 'package:lualike/src/utils/file_system_utils.dart' as fs;
-import 'package:lualike/src/bytecode/runtime.dart';
+import 'package:lualike/src/ir/runtime.dart';
 import 'package:path/path.dart' as path;
 
 /// Wrapper for Dart functions to make them callable from LuaLike.
@@ -184,8 +184,8 @@ class LuaLike {
   /// Creates a new bridge with a runtime instance.
   /// If none is provided, a fresh AST interpreter is created.
   factory LuaLike({LuaRuntime? runtime}) {
-    runtime ??= LuaLikeConfig().defaultEngineMode == EngineMode.bytecode
-        ? BytecodeRuntime()
+    runtime ??= LuaLikeConfig().defaultEngineMode == EngineMode.ir
+        ? LualikeIrRuntime()
         : Interpreter();
     return LuaLike._internal(runtime);
   }

@@ -1,10 +1,10 @@
 import 'package:lualike_test/test.dart';
-import 'package:lualike/src/bytecode/loop_compiler.dart';
+import 'package:lualike/src/ir/loop_compiler.dart';
 
 void main() {
-  group('Loop bytecode compiler', () {
+  group('Loop lualike IR compiler', () {
     test('compiles simple numeric for loop assignments', () {
-      final compiler = LoopBytecodeCompiler(
+      final compiler = LoopIrCompiler(
         loopVarName: 'i',
         startValue: 1,
         endValue: 3,
@@ -22,7 +22,7 @@ void main() {
     });
 
     test('returns null for unsupported statements', () {
-      final compiler = LoopBytecodeCompiler(
+      final compiler = LoopIrCompiler(
         loopVarName: 'i',
         startValue: 1,
         endValue: 3,
@@ -36,7 +36,7 @@ void main() {
     });
 
     test('compiles table index assignment', () {
-      final compiler = LoopBytecodeCompiler(
+      final compiler = LoopIrCompiler(
         loopVarName: 'i',
         startValue: 1,
         endValue: 3,

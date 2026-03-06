@@ -8,7 +8,7 @@ String getLuaType(Object? value) {
     String() || LuaString() => 'string',
     num() || BigInt() => 'number',
     bool() => 'boolean',
-    Function() || BuiltinFunction() => 'function',
+    Function() || BuiltinFunction() || LuaCallableArtifact() => 'function',
     Map() || List() => 'table',
     Coroutine() => 'thread',
     _ => 'userdata',

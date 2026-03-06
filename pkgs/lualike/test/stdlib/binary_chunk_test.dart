@@ -1,8 +1,11 @@
+@Tags(['legacy_chunk'])
+library;
+
 import 'package:test/test.dart';
 import 'package:lualike/lualike.dart';
 
 void main() {
-  group('Binary Chunk Tests', () {
+  group('Legacy AST/Internal Chunk Transport', () {
     late LuaLike bridge;
 
     setUp(() {
@@ -70,7 +73,7 @@ void main() {
       });
     });
 
-    group('binary chunk with different modes', () {
+    group('legacy chunk mode handling', () {
       test('load with binary mode "b"', () async {
         await bridge.execute('''
           f = function() return 123 end
@@ -108,7 +111,7 @@ void main() {
       });
     });
 
-    group('reader functions with binary chunks', () {
+    group('reader functions with legacy chunks', () {
       test('reader function byte-by-byte', () async {
         await bridge.execute('''
           function read1(x)
@@ -265,7 +268,7 @@ void main() {
       });
     });
 
-    group('loadfile with binary chunks', () {
+    group('loadfile with legacy chunks', () {
       test('loadfile with simple binary function', () async {
         await bridge.execute('''
           -- Create a temporary file with binary chunk
@@ -466,8 +469,9 @@ void main() {
           result = loaded()
         ''');
 
-        // Reference Lua behavior: binary chunks preserve original source location,
-        // custom chunkname is not used for debug.getinfo
+        // This is legacy AST/internal transport behavior, not a real
+        // upstream Lua bytecode contract. Today the loaded function falls
+        // back to a C-style source marker in this environment.
         expect(
           (bridge.getGlobal('result') as Value?)?.raw,
           equals('=[C]'), // Test environment fallback
@@ -482,8 +486,9 @@ void main() {
           result = loaded()
         ''');
 
-        // Reference Lua behavior: binary chunks preserve original source location,
-        // default chunkname is not used for debug.getinfo
+        // This is legacy AST/internal transport behavior, not a real
+        // upstream Lua bytecode contract. Today the loaded function falls
+        // back to a C-style source marker in this environment.
         expect(
           (bridge.getGlobal('result') as Value?)?.raw,
           equals('=[C]'),

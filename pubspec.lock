@@ -101,10 +101,10 @@ packages:
     dependency: transitive
     description:
       name: build_modules
-      sha256: b4f8d74125ab53869e63d488b8df2a036a7136d3b6d1759d3247e4d8d2e8f379
+      sha256: "2e30f22597d45fd49058bb29f47e947d3a045db2a72d3fec27a064cb2164337e"
       url: "https://pub.dev"
     source: hosted
-    version: "5.0.15"
+    version: "5.1.7"
   build_resolvers:
     dependency: transitive
     description:
@@ -133,10 +133,10 @@ packages:
     dependency: transitive
     description:
       name: build_web_compilers
-      sha256: "7a6bb81907c3cdcc538af003db497cb9af37c94991bc960f9f25affd7a15df15"
+      sha256: a70897a160d2bc5f9cea01d68a4fc5437f7672ecb3ba1c1cf2328d07ce73c9fe
       url: "https://pub.dev"
     source: hosted
-    version: "4.2.2"
+    version: "4.4.9"
   built_collection:
     dependency: transitive
     description:
@@ -525,10 +525,10 @@ packages:
     dependency: transitive
     description:
       name: scratch_space
-      sha256: "816989dd0a1f92cd5f0db012ed330035571034956dc3593fba66aaa6ee6a7e43"
+      sha256: "3417e014d20b12cebc5bfb1c0b1f63806054177158596cc31cc4d9aaca767a60"
       url: "https://pub.dev"
     source: hosted
-    version: "1.1.0"
+    version: "1.2.0"
   shelf:
     dependency: transitive
     description:
@@ -673,6 +673,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.2.2"
+  uuid:
+    dependency: transitive
+    description:
+      name: uuid
+      sha256: a11b666489b1954e01d992f3d601b1804a33937b5a8fe677bd26b8a9f96f96e8
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.5.2"
   vm_service:
     dependency: transitive
     description:
@@ -754,4 +762,4 @@ packages:
     source: hosted
     version: "0.0.6"
 sdks:
-  dart: ">=3.9.0 <3.10.0-z"
+  dart: ">=3.9.0 <3.12.0-z"

@@ -39,6 +39,21 @@ class TailCallException extends ControlFlowException {
       "TailCallException(${functionValue.runtimeType}, ${args.length} args)";
 }
 
+/// Non-exception tail-call handoff used by the AST interpreter.
+///
+/// This lets tail calls propagate through blocks and loops without repeatedly
+/// paying Dart exception costs for hot recursive paths such as `deep(30000)`.
+class TailCallSignal {
+  final dynamic functionValue;
+  final List<Object?> args;
+
+  const TailCallSignal(this.functionValue, this.args);
+
+  @override
+  String toString() =>
+      "TailCallSignal(${functionValue.runtimeType}, ${args.length} args)";
+}
+
 /// Exception thrown for 'break' statements.
 class BreakException extends ControlFlowException {}
 
