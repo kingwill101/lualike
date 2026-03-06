@@ -1,565 +1,112 @@
 <!-- OPENSPEC:START -->
 # OpenSpec Instructions
 
-Instructions for AI coding assistants using OpenSpec for spec-driven development.
-
-## TL;DR Quick Checklist
-
-- Search existing work: `openspec spec list --long`, `openspec list` (use `rg` only for full-text search)
-- Decide scope: new capability vs modify existing capability
-- Pick a unique `change-id`: kebab-case, verb-led (`add-`, `update-`, `remove-`, `refactor-`)
-- Scaffold: `proposal.md`, `tasks.md`, `design.md` (only if needed), and delta specs per affected capability
-- Write deltas: use `## ADDED|MODIFIED|REMOVED|RENAMED Requirements`; include at least one `#### Scenario:` per requirement
-- Validate: `openspec validate [change-id] --strict` and fix issues
-- Request approval: Do not start implementation until proposal is approved
-
-## Three-Stage Workflow
-
-### Stage 1: Creating Changes
-Create proposal when you need to:
-- Add features or functionality
-- Make breaking changes (API, schema)
-- Change architecture or patterns  
-- Optimize performance (changes behavior)
-- Update security patterns
-
-Triggers (examples):
-- "Help me create a change proposal"
-- "Help me plan a change"
-- "Help me create a proposal"
-- "I want to create a spec proposal"
-- "I want to create a spec"
-
-Loose matching guidance:
-- Contains one of: `proposal`, `change`, `spec`
-- With one of: `create`, `plan`, `make`, `start`, `help`
-
-Skip proposal for:
-- Bug fixes (restore intended behavior)
-- Typos, formatting, comments
-- Dependency updates (non-breaking)
-- Configuration changes
-- Tests for existing behavior
-
-**Workflow**
-1. Review `openspec/project.md`, `openspec list`, and `openspec list --specs` to understand current context.
-2. Choose a unique verb-led `change-id` and scaffold `proposal.md`, `tasks.md`, optional `design.md`, and spec deltas under `openspec/changes/<id>/`.
-3. Draft spec deltas using `## ADDED|MODIFIED|REMOVED Requirements` with at least one `#### Scenario:` per requirement.
-4. Run `openspec validate <id> --strict` and resolve any issues before sharing the proposal.
-
-### Stage 2: Implementing Changes
-1. **Read proposal.md** - Understand what's being built
-2. **Read design.md** (if exists) - Review technical decisions
-3. **Read tasks.md** - Get implementation checklist
-4. **Implement tasks sequentially** - Complete in order
-5. **Mark complete immediately** - Update `- [x]` after each task
-6. **Approval gate** - Do not start implementation until the proposal is reviewed and approved
-
-### Stage 3: Archiving Changes
-After deployment, create separate PR to:
-- Move `changes/[name]/` → `changes/archive/YYYY-MM-DD-[name]/`
-- Update `specs/` if capabilities changed
-- Use `openspec archive [change] --skip-specs` for tooling-only changes
-- Run `openspec validate --strict` to confirm the archived change passes checks
-
-## Before Any Task
-
-**Context Checklist:**
-- [ ] Read relevant specs in `specs/[capability]/spec.md`
-- [ ] Check pending changes in `changes/` for conflicts
-- [ ] Read `openspec/project.md` for conventions
-- [ ] Run `openspec list` to see active changes
-- [ ] Run `openspec list --specs` to see existing capabilities
-
-**Before Creating Specs:**
-- Always check if capability already exists
-- Prefer modifying existing specs over creating duplicates
-- Use `openspec show [spec]` to review current state
-- If request is ambiguous, ask 1–2 clarifying questions before scaffolding
-
-### Search Guidance
-- Enumerate specs: `openspec spec list --long` (or `--json` for scripts)
-- Enumerate changes: `openspec list` (or `openspec change list --json` - deprecated but available)
-- Show details:
-  - Spec: `openspec show <spec-id> --type spec` (use `--json` for filters)
-  - Change: `openspec show <change-id> --json --deltas-only`
-- Full-text search (use ripgrep): `rg -n "Requirement:|Scenario:" openspec/specs`
-
-## Quick Start
-
-### CLI Commands
-
-```bash
-# Essential commands
-openspec list                  # List active changes
-openspec list --specs          # List specifications
-openspec show [item]           # Display change or spec
-openspec diff [change]         # Show spec differences
-openspec validate [item]       # Validate changes or specs
-openspec archive [change]      # Archive after deployment
-
-# Project management
-openspec init [path]           # Initialize OpenSpec
-openspec update [path]         # Update instruction files
-
-# Interactive mode
-openspec show                  # Prompts for selection
-openspec validate              # Bulk validation mode
-
-# Debugging
-openspec show [change] --json --deltas-only
-openspec validate [change] --strict
-```
-
-### Command Flags
-
-- `--json` - Machine-readable output
-- `--type change|spec` - Disambiguate items
-- `--strict` - Comprehensive validation
-- `--no-interactive` - Disable prompts
-- `--skip-specs` - Archive without spec updates
-
-## Directory Structure
-
-```
-openspec/
-├── project.md              # Project conventions
-├── specs/                  # Current truth - what IS built
-│   └── [capability]/       # Single focused capability
-│       ├── spec.md         # Requirements and scenarios
-│       └── design.md       # Technical patterns
-├── changes/                # Proposals - what SHOULD change
-│   ├── [change-name]/
-│   │   ├── proposal.md     # Why, what, impact
-│   │   ├── tasks.md        # Implementation checklist
-│   │   ├── design.md       # Technical decisions (optional; see criteria)
-│   │   └── specs/          # Delta changes
-│   │       └── [capability]/
-│   │           └── spec.md # ADDED/MODIFIED/REMOVED
-│   └── archive/            # Completed changes
-```
-
-## Creating Change Proposals
-
-### Decision Tree
-
-```
-New request?
-├─ Bug fix restoring spec behavior? → Fix directly
-├─ Typo/format/comment? → Fix directly  
-├─ New feature/capability? → Create proposal
-├─ Breaking change? → Create proposal
-├─ Architecture change? → Create proposal
-└─ Unclear? → Create proposal (safer)
-```
-
-### Proposal Structure
-
-1. **Create directory:** `changes/[change-id]/` (kebab-case, verb-led, unique)
-
-2. **Write proposal.md:**
-```markdown
-## Why
-[1-2 sentences on problem/opportunity]
-
-## What Changes
-- [Bullet list of changes]
-- [Mark breaking changes with **BREAKING**]
-
-## Impact
-- Affected specs: [list capabilities]
-- Affected code: [key files/systems]
-```
-
-3. **Create spec deltas:** `specs/[capability]/spec.md`
-```markdown
-## ADDED Requirements
-### Requirement: New Feature
-The system SHALL provide...
-
-#### Scenario: Success case
-- **WHEN** user performs action
-- **THEN** expected result
-
-## MODIFIED Requirements
-### Requirement: Existing Feature
-[Complete modified requirement]
-
-## REMOVED Requirements
-### Requirement: Old Feature
-**Reason**: [Why removing]
-**Migration**: [How to handle]
-```
-If multiple capabilities are affected, create multiple delta files under `changes/[change-id]/specs/<capability>/spec.md`—one per capability.
-
-4. **Create tasks.md:**
-```markdown
-## 1. Implementation
-- [ ] 1.1 Create database schema
-- [ ] 1.2 Implement API endpoint
-- [ ] 1.3 Add frontend component
-- [ ] 1.4 Write tests
-```
-
-5. **Create design.md when needed:**
-Create `design.md` if any of the following apply; otherwise omit it:
-- Cross-cutting change (multiple services/modules) or a new architectural pattern
-- New external dependency or significant data model changes
-- Security, performance, or migration complexity
-- Ambiguity that benefits from technical decisions before coding
-
-Minimal `design.md` skeleton:
-```markdown
-## Context
-[Background, constraints, stakeholders]
-
-## Goals / Non-Goals
-- Goals: [...]
-- Non-Goals: [...]
-
-## Decisions
-- Decision: [What and why]
-- Alternatives considered: [Options + rationale]
-
-## Risks / Trade-offs
-- [Risk] → Mitigation
-
-## Migration Plan
-[Steps, rollback]
-
-## Open Questions
-- [...]
-```
-
-## Spec File Format
-
-### Critical: Scenario Formatting
-
-**CORRECT** (use #### headers):
-```markdown
-#### Scenario: User login success
-- **WHEN** valid credentials provided
-- **THEN** return JWT token
-```
-
-**WRONG** (don't use bullets or bold):
-```markdown
-- **Scenario: User login**  ❌
-**Scenario**: User login     ❌
-### Scenario: User login      ❌
-```
-
-Every requirement MUST have at least one scenario.
-
-### Requirement Wording
-- Use SHALL/MUST for normative requirements (avoid should/may unless intentionally non-normative)
-
-### Delta Operations
-
-- `## ADDED Requirements` - New capabilities
-- `## MODIFIED Requirements` - Changed behavior
-- `## REMOVED Requirements` - Deprecated features
-- `## RENAMED Requirements` - Name changes
-
-Headers matched with `trim(header)` - whitespace ignored.
-
-#### When to use ADDED vs MODIFIED
-- ADDED: Introduces a new capability or sub-capability that can stand alone as a requirement. Prefer ADDED when the change is orthogonal (e.g., adding "Slash Command Configuration") rather than altering the semantics of an existing requirement.
-- MODIFIED: Changes the behavior, scope, or acceptance criteria of an existing requirement. Always paste the full, updated requirement content (header + all scenarios). The archiver will replace the entire requirement with what you provide here; partial deltas will drop previous details.
-- RENAMED: Use when only the name changes. If you also change behavior, use RENAMED (name) plus MODIFIED (content) referencing the new name.
-
-Common pitfall: Using MODIFIED to add a new concern without including the previous text. This causes loss of detail at archive time. If you aren’t explicitly changing the existing requirement, add a new requirement under ADDED instead.
-
-Authoring a MODIFIED requirement correctly:
-1) Locate the existing requirement in `openspec/specs/<capability>/spec.md`.
-2) Copy the entire requirement block (from `### Requirement: ...` through its scenarios).
-3) Paste it under `## MODIFIED Requirements` and edit to reflect the new behavior.
-4) Ensure the header text matches exactly (whitespace-insensitive) and keep at least one `#### Scenario:`.
-
-Example for RENAMED:
-```markdown
-## RENAMED Requirements
-- FROM: `### Requirement: Login`
-- TO: `### Requirement: User Authentication`
-```
-
-## Troubleshooting
-
-### Common Errors
-
-**"Change must have at least one delta"**
-- Check `changes/[name]/specs/` exists with .md files
-- Verify files have operation prefixes (## ADDED Requirements)
-
-**"Requirement must have at least one scenario"**
-- Check scenarios use `#### Scenario:` format (4 hashtags)
-- Don't use bullet points or bold for scenario headers
-
-**Silent scenario parsing failures**
-- Exact format required: `#### Scenario: Name`
-- Debug with: `openspec show [change] --json --deltas-only`
-
-### Validation Tips
-
-```bash
-# Always use strict mode for comprehensive checks
-openspec validate [change] --strict
-
-# Debug delta parsing
-openspec show [change] --json | jq '.deltas'
-
-# Check specific requirement
-openspec show [spec] --json -r 1
-```
-
-## Happy Path Script
-
-```bash
-# 1) Explore current state
-openspec spec list --long
-openspec list
-# Optional full-text search:
-# rg -n "Requirement:|Scenario:" openspec/specs
-# rg -n "^#|Requirement:" openspec/changes
-
-# 2) Choose change id and scaffold
-CHANGE=add-two-factor-auth
-mkdir -p openspec/changes/$CHANGE/{specs/auth}
-printf "## Why\n...\n\n## What Changes\n- ...\n\n## Impact\n- ...\n" > openspec/changes/$CHANGE/proposal.md
-printf "## 1. Implementation\n- [ ] 1.1 ...\n" > openspec/changes/$CHANGE/tasks.md
-
-# 3) Add deltas (example)
-cat > openspec/changes/$CHANGE/specs/auth/spec.md << 'EOF'
-## ADDED Requirements
-### Requirement: Two-Factor Authentication
-Users MUST provide a second factor during login.
-
-#### Scenario: OTP required
-- **WHEN** valid credentials are provided
-- **THEN** an OTP challenge is required
-EOF
-
-# 4) Validate
-openspec validate $CHANGE --strict
-```
-
-## Multi-Capability Example
-
-```
-openspec/changes/add-2fa-notify/
-├── proposal.md
-├── tasks.md
-└── specs/
-    ├── auth/
-    │   └── spec.md   # ADDED: Two-Factor Authentication
-    └── notifications/
-        └── spec.md   # ADDED: OTP email notification
-```
-
-auth/spec.md
-```markdown
-## ADDED Requirements
-### Requirement: Two-Factor Authentication
-...
-```
-
-notifications/spec.md
-```markdown
-## ADDED Requirements
-### Requirement: OTP Email Notification
-...
-```
-
-## Best Practices
-
-### Simplicity First
-- Default to <100 lines of new code
-- Single-file implementations until proven insufficient
-- Avoid frameworks without clear justification
-- Choose boring, proven patterns
-
-### Complexity Triggers
-Only add complexity with:
-- Performance data showing current solution too slow
-- Concrete scale requirements (>1000 users, >100MB data)
-- Multiple proven use cases requiring abstraction
-
-### Clear References
-- Use `file.ts:42` format for code locations
-- Reference specs as `specs/auth/spec.md`
-- Link related changes and PRs
-
-### Capability Naming
-- Use verb-noun: `user-auth`, `payment-capture`
-- Single purpose per capability
-- 10-minute understandability rule
-- Split if description needs "AND"
-
-### Change ID Naming
-- Use kebab-case, short and descriptive: `add-two-factor-auth`
-- Prefer verb-led prefixes: `add-`, `update-`, `remove-`, `refactor-`
-- Ensure uniqueness; if taken, append `-2`, `-3`, etc.
-
-## Tool Selection Guide
-
-| Task | Tool | Why |
-|------|------|-----|
-| Find files by pattern | Glob | Fast pattern matching |
-| Search code content | Grep | Optimized regex search |
-| Read specific files | Read | Direct file access |
-| Explore unknown scope | Task | Multi-step investigation |
-
-## Error Recovery
-
-### Change Conflicts
-1. Run `openspec list` to see active changes
-2. Check for overlapping specs
-3. Coordinate with change owners
-4. Consider combining proposals
-
-### Validation Failures
-1. Run with `--strict` flag
-2. Check JSON output for details
-3. Verify spec file format
-4. Ensure scenarios properly formatted
-
-### Missing Context
-1. Read project.md first
-2. Check related specs
-3. Review recent archives
-4. Ask for clarification
-
-## Quick Reference
-
-### Stage Indicators
-- `changes/` - Proposed, not yet built
-- `specs/` - Built and deployed
-- `archive/` - Completed changes
-
-### File Purposes
-- `proposal.md` - Why and what
-- `tasks.md` - Implementation steps
-- `design.md` - Technical decisions
-- `spec.md` - Requirements and behavior
-
-### CLI Essentials
-```bash
-openspec list              # What's in progress?
-openspec show [item]       # View details
-openspec diff [change]     # What's changing?
-openspec validate --strict # Is it correct?
-openspec archive [change]  # Mark complete
-```
-
-Remember: Specs are truth. Changes are proposals. Keep them in sync.
+These instructions are for AI assistants working in this project.
+
+Always open `@/openspec/AGENTS.md` when the request:
+- Mentions planning or proposals (words like proposal, spec, change, plan)
+- Introduces new capabilities, breaking changes, architecture shifts, or big performance/security work
+- Sounds ambiguous and you need the authoritative spec before coding
+
+Use `@/openspec/AGENTS.md` to learn:
+- How to create and apply change proposals
+- Spec format and conventions
+- Project structure and guidelines
+
+Keep this managed block so 'openspec update' can refresh the instructions.
 
 <!-- OPENSPEC:END -->
 
-Lualike is a lua interpreter written in Dart. It is designed to be a drop-in replacement for Lua, allowing you to run Lua scripts with minimal changes.
+# Lualike Project Instructions
 
-1. **Always run the full Dart test suite**
-   Before submitting or merging any code changes, ensure that the entire Dart test suite passes. This helps catch regressions and unintended side effects.
+Lualike is a Lua interpreter written in Dart, designed as a drop-in replacement for Lua with minimal script changes.
 
-2. **Verify nothing is broken**
-   After making changes, confirm that all existing functionality works as expected. Do not assume that passing a subset of tests is sufficient.
+## Development Workflow
 
-3. **Address test failures individually**
-   If any test fails, address each failure one at a time.
-   Add useful debug output to make it easier to understand what's happening.
-   Logger class has a Logger.setEnabled(false);
-   - which works with --debug flag when using the interpreter (dart run bin/main.dart) Note it can be very noisy.
-   - You can use the `LOGGING_ENABLED` environment variable when running tests, e.g., `LOGGING_ENABLED=true dart test test/stdlib/base_test.dart`.
+### Testing
+- **Always run full test suite** before submitting/merging changes to catch regressions.
+- **Verify functionality** after changes; don't assume subset testing is sufficient.
+- **Address failures individually** with debug output.
+  - Enable logging: `Logger.setEnabled(false)` (verbose with `--debug` flag).
+  - Environment: `LOGGING_ENABLED=true dart test test/path/test.dart`.
+- **Compare with reference Lua** when uncertain; supports same CLI arguments.
+- **Use targeted tests** for bugs: create minimal test cases instead of full suite runs.
+- **Write regression tests** for complex bugs.
 
-   Compare results with the reference lua interpreter when uncertain. our interpreter supports the same cli arguments as the reference lua interpreter.
-
-4. **Prefer targeted test cases**
-   When fixing bugs or investigating issues, write dedicated test cases that isolate the failing expression or behavior.
-   - Avoid repeatedly running the full test suite/complete lua script just to reproduce a single error.
-   - Construct minimal test cases that include all necessary functions, variables, and context to trigger the issue.
-   - When testing lua scripts,  write test cases for hard bugs so we do not regress on them in the future.
-
-5. **General best practices**
-   - Keep code changes minimal and focused.
-   - Document any non-obvious decisions or workarounds in code comments.
-   - Communicate clearly in pull requests or code reviews about the changes made and why.
-   - there is a docs directory, update it where necessary.
-
-6. **Use the dartfmt tool**
-   - Use the dartfmt tool to format your code according to the Dart style guide.
-   - run dart fix --apply to apply any fixes suggested by the tool.
-7. **Follow Dart's style guide**
-   Adhere to the Dart style guide for code formatting and organization. This ensures consistency and readability across the codebase.
+### Best Practices
+- Keep changes minimal and focused.
+- Document non-obvious decisions in comments.
+- Update `docs/` directory as needed.
+- Use `dart format .` and `dart fix --apply` for code formatting.
+- Follow Dart style guide for consistency.
 
 ## Commands
 - `dart test` - Run all tests
 - `dart test test/path/specific_test.dart` - Run single test file
 - `dart test --name "test name"` - Run specific test by name
 - `LOGGING_ENABLED=true dart test test/path/test.dart` - Run test with debug logging
+- `dart tool/test.dart --compile_runner && ./test_runner` - Run integration tests
 - `dart format .` - Format all code
 - `dart fix --apply` - Apply automated fixes
 - `dart analyze` - Static analysis (uses package:lints/recommended.yaml)
-- `just integrate` - Run integration tests (see justfile for variants) (not currently working)
+- `just integrate` - Run integration tests (see justfile; currently not working)
 - `dart run bin/main.dart --debug` - Run interpreter with debug logging
 
 ## Architecture
-**Core:** Lua interpreter written in Dart. Grammar in `lib/src/parsers/lua.dart`, AST in `lib/src/ast.dart`, interpreter engine in `lib/src/interpreter/`.
-**Key modules:** `lib/src/value.dart` (Lua values), `lib/src/stdlib/` (standard library), `lib/src/environment.dart` (scoping).
-**Tests:** Organized by category (stdlib, interop, interpreter) with tags in dart_test.yaml.
+- **Core**: Lua interpreter in Dart.
+  - Grammar: `lib/src/parsers/lua.dart`
+  - AST: `lib/src/ast.dart`
+  - Interpreter: `lib/src/interpreter/`
+- **Key Modules**:
+  - `lib/src/value.dart` - Lua values
+  - `lib/src/stdlib/` - Standard library
+  - `lib/src/environment.dart` - Scoping
+- **Tests**: Categorized (stdlib, interop, interpreter) with tags in `dart_test.yaml`.
 
-## Code Style (Cursor Rules Applied)
-- Follow Dart style guide: lowerCamelCase variables/methods, UpperCamelCase classes
-- dart: imports first, then package: imports, then relative imports
-- Lines ≤80 chars, use dart format
-- Use curly braces for all flow control
-- Constants in lowerCamelCase (not SCREAMING_CAPS)
-- File/package names: lowercase_with_underscores
+## Code Style
+- Follow Dart style: `lowerCamelCase` variables/methods, `UpperCamelCase` classes.
+- Import order: `dart:`, then `package:`, then relative.
+- Lines ≤80 chars; use `dart format`.
+- Use curly braces for all control flow.
+- Constants: `lowerCamelCase` (not `SCREAMING_CAPS`).
+- File/package names: `lowercase_with_underscores`.
 
-## Lualike Documentation
-- Focus on user perspective, not implementation details
-- Never mention Dart internals, class names, or file structure
-- Use small Lua code examples to illustrate features
-- Refer to language as "lualike", not "Lua"
+## Documentation Guidelines
+- Focus on user perspective, not implementation.
+- Never mention Dart internals, class names, or file structure.
+- Use small Lua code examples.
+- Refer to language as "lualike", not "Lua".
 
 ## Command-Line Interface (CLI)
 
-The lualike CLI is a drop-in replacement for the Lua CLI, supporting similar arguments and additional features for debugging and logging.
+Lualike CLI is a drop-in replacement for Lua CLI with additional debugging features.
 
 ### Common Flags
-- `--ast`         : Run using AST interpreter (default)
-- `--bytecode`    : Run using bytecode VM
-- `-e code`       : Execute string 'code' inline
-- `--debug`       : Enable debug mode (and set logging to FINE level for all categories)
-- `--level LEVEL` : Set log level. Valid levels: `ALL`, `FINEST`, `FINER`, `FINE`, `CONFIG`, `INFO`, `WARNING`, `SEVERE`, `SHOUT`, `OFF`. Invalid levels default to `WARNING`.
-- `--category CAT`: Set log category to filter (only logs for this category)
-- `--help`        : Show help message
+- `--ast` - Run using AST interpreter (default)
+- `--ir` - Run using the lualike IR runtime
+- `-e code` - Execute string 'code' inline
+- `--debug` - Enable debug mode (FINE level logging)
+- `--level LEVEL` - Set log level (ALL, FINEST, FINER, FINE, CONFIG, INFO, WARNING, SEVERE, SHOUT, OFF)
+- `--category CAT` - Filter logs by category
+- `--help` - Show help message
 
-If no script or code is provided, starts REPL mode.
+Starts REPL mode if no script/code provided.
 
 ### Logging and Filtering
-- Use `--debug` for verbose logging (all categories, FINE level) and to activate general debug features.
-- Use `--level` to set the minimum log level (e.g., `--level WARNING`).
-- Use `--category` to filter logs to a specific category (e.g., `--category Value`).
-- You can combine `--level` and `--category` for fine-grained log control.
+- `--debug`: Verbose logging and debug features.
+- `--level`: Set minimum log level (e.g., `--level WARNING`).
+- `--category`: Filter by category (e.g., `--category Value`).
+- Combine `--level` and `--category` for fine control.
 - Environment variables:
-  - `LOGGING_ENABLED=true` enables logging in all modes (including tests).
-  - `LOGGING_LEVEL=FINE` sets the default log level.
+  - `LOGGING_ENABLED=true` - Enable logging everywhere
+  - `LOGGING_LEVEL=FINE` - Set default log level
 
 ### Examples
-- Run a script with debug logging:
-  ```sh
-  lualike --debug myscript.lua
-  ```
-- Run inline code and show only Value logs at FINE level:
-  ```sh
-  lualike --category Value --level FINE -e "1+1 >> 100"
-  ```
-- Run in REPL mode with warnings only:
-  ```sh
-  lualike --level WARNING
-  ```
-- Run with environment variable logging:
-  ```sh
-  LOGGING_ENABLED=true LOGGING_LEVEL=INFO lualike myscript.lua
-  ```
+```sh
+lualike --debug myscript.lua                    # Debug script
+lualike --category Value --level FINE -e "1+1"  # Filtered inline code
+lualike --level WARNING                        # REPL with warnings
+LOGGING_ENABLED=true lualike myscript.lua       # Env logging
+```
 
-See the CLI documentation in `docs/cli.md` for more details and advanced usage.
+See `docs/cli.md` for advanced usage.

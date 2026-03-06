@@ -47,7 +47,28 @@ Lualike is a lua interpreter written in Dart. It is designed to be a drop-in rep
 ## Architecture
 **Core:** Lua interpreter written in Dart. Grammar in `lib/src/parsers/lua.dart`, AST in `lib/src/ast.dart`, interpreter engine in `lib/src/interpreter/`.
 **Key modules:** `lib/src/value.dart` (Lua values), `lib/src/stdlib/` (standard library), `lib/src/environment.dart` (scoping).
-**Tests:** Organized by category (stdlib, interop, interpreter) with tags in dart_test.yaml.
+**Artifact families:**
+- `AST / interpreter`: source parsing and AST execution.
+- `lualike_ir`: internal compiled/runtime path under `lib/src/ir/`.
+- `lua_bytecode`: real upstream chunk parsing and execution under `lib/src/lua_bytecode/`.
+- `legacy AST chunk transport`: compatibility path for AST-backed `string.dump` / `load`, implemented in `lib/src/legacy_ast_chunk_transport.dart`.
+**Rule:** Do not describe `lualike_ir` or legacy AST chunks as upstream Lua bytecode. Any real bytecode claim must be backed by `lib/src/lua_bytecode/` plus upstream-generated chunk tests.
+**Current `lua_bytecode` subset:** real-chunk parsing, disassembly, routing,
+closures/upvalues, loops, varargs, arithmetic/bitwise/unary/concat families,
+open-result `CALL`/`RETURN`/`TAILCALL` flow, raw comparison semantics plus the
+supported `__eq`/`__lt`/`__le` comparison subset, supported table access/store,
+constructor, and length semantics, supported `CLOSE`/`TBC` semantics, and
+`SELF`/method-call execution are in scope. Remaining
+unsupported areas should stay explicitly diagnostic until implemented.
+**Tests:** Organized by artifact family and category with tags in `dart_test.yaml`; see `test/README.md`.
+**Coroutine runtime:** The coroutine stdlib path is exercised from
+`test/stdlib/coroutine_library_test.dart`. Lifecycle regressions should
+prefer focused coroutine tests, especially around weak-table reachability,
+`collectgarbage`, and resume/close edge cases.
+**Logging in hot paths:** In GC and coroutine internals, use
+`Logger.debugLazy` / `Logger.infoLazy` or guard eager logs with
+`Logger.enabled`. Do not add interpolated `Logger.debug(...)` calls inside
+allocation, mark/sweep, or resume/yield loops.
 
 ## Code Style (Cursor Rules Applied)
 - Follow Dart style guide: lowerCamelCase variables/methods, UpperCamelCase classes
@@ -69,7 +90,7 @@ The lualike CLI is a drop-in replacement for the Lua CLI, supporting similar arg
 
 ### Common Flags
 - `--ast`         : Run using AST interpreter (default)
-- `--bytecode`    : Run using bytecode VM
+- `--ir`          : Run using the lualike IR runtime
 - `-e code`       : Execute string 'code' inline
 - `--debug`       : Enable debug mode (and set logging to FINE level for all categories)
 - `--level LEVEL` : Set log level. Valid levels: `ALL`, `FINEST`, `FINER`, `FINE`, `CONFIG`, `INFO`, `WARNING`, `SEVERE`, `SHOUT`, `OFF`. Invalid levels default to `WARNING`.
