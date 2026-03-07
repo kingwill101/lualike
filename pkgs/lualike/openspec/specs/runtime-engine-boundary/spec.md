@@ -17,6 +17,13 @@ engine-facing contracts instead of direct engine-specific coupling.
 - **AND** it does not depend directly on another engine's internal
   representations
 
+#### Scenario: The engine boundary supports emitted source-bytecode execution
+- **WHEN** a caller selects the source-backed `lua_bytecode` engine path
+- **THEN** shared runtime services such as loading, execution, and
+  supported dump/debug hooks operate through the engine boundary
+- **AND** stdlib and higher-level tooling do not need direct knowledge of
+  AST-specific or IR-specific implementation details for that path
+
 ### Requirement: Stdlib Behavior Is Reused Across Engines Without Engine Leakage
 The system SHALL allow stdlib behavior to be reused across AST,
 `lualike_ir`, and `lua_bytecode` execution paths without requiring the
