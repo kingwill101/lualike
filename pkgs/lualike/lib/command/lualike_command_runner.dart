@@ -55,6 +55,12 @@ class LuaLikeCommandRunner extends CommandRunner {
     argParser.addFlag('ir', help: 'Use lualike IR runtime', defaultsTo: false);
 
     argParser.addFlag(
+      'lua-bytecode',
+      help: 'Use the opt-in lua_bytecode source engine',
+      defaultsTo: false,
+    );
+
+    argParser.addFlag(
       'dump-ir',
       help: 'Print IR instructions after compilation (IR mode)',
       negatable: false,
@@ -114,8 +120,11 @@ class LuaLikeCommandRunner extends CommandRunner {
 
       final config = LuaLikeConfig();
       final useIr = argResults['ir'] as bool;
+      final useLuaBytecode = argResults['lua-bytecode'] as bool;
       final useAst = argResults['ast'] as bool;
-      if (useIr || !useAst) {
+      if (useLuaBytecode) {
+        config.defaultEngineMode = EngineMode.luaBytecode;
+      } else if (useIr || !useAst) {
         config.defaultEngineMode = EngineMode.ir;
       } else {
         config.defaultEngineMode = EngineMode.ast;

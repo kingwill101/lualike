@@ -1,4 +1,4 @@
-enum EngineMode { ast, ir }
+enum EngineMode { ast, ir, luaBytecode }
 
 /// Global configuration settings for the LuaLike interpreter
 class LuaLikeConfig {

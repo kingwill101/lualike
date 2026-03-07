@@ -10,6 +10,7 @@ import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/parse.dart';
+import 'package:lualike/src/lua_bytecode/runtime.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/stdlib/lib_debug.dart';
 import 'package:lualike/src/value.dart';
@@ -184,9 +185,11 @@ class LuaLike {
   /// Creates a new bridge with a runtime instance.
   /// If none is provided, a fresh AST interpreter is created.
   factory LuaLike({LuaRuntime? runtime}) {
-    runtime ??= LuaLikeConfig().defaultEngineMode == EngineMode.ir
-        ? LualikeIrRuntime()
-        : Interpreter();
+    runtime ??= switch (LuaLikeConfig().defaultEngineMode) {
+      EngineMode.ir => LualikeIrRuntime(),
+      EngineMode.luaBytecode => LuaBytecodeRuntime(),
+      EngineMode.ast => Interpreter(),
+    };
     return LuaLike._internal(runtime);
   }
 
