@@ -12,6 +12,15 @@ import 'package:lualike/src/lua_error.dart';
 
 import 'exceptions.dart';
 
+/// Engine-owned suspended execution state for a coroutine.
+abstract interface class CoroutineContinuation {
+  Future<Object?> resume(List<Object?> args);
+
+  Future<void> close([Object? error]);
+
+  Iterable<GCObject> getReferences();
+}
+
 /// Represents a coroutine status as defined in Lua
 enum CoroutineStatus {
   /// The coroutine is running (it is the one that called status)
@@ -75,15 +84,18 @@ class Coroutine extends GCObject {
 
   bool _unregistered = false;
   bool _environmentCleared = false;
+  CoroutineContinuation? _continuation;
 
   /// Whether the coroutine is being finalized
   final bool beingFinalized = false;
 
   /// Constructor
   Coroutine(this.functionValue, this.functionBody, this.closureEnvironment)
-    : _executionEnvironment = closureEnvironment.clone(
-        interpreter: closureEnvironment.interpreter,
-      ), // Clone closureEnv for execution
+    : _executionEnvironment = functionBody == null
+          ? closureEnvironment
+          : closureEnvironment.clone(
+              interpreter: closureEnvironment.interpreter,
+            ),
       super() {
     // Register with garbage collector
     closureEnvironment.interpreter?.gc.register(this);
@@ -157,9 +169,8 @@ class Coroutine extends GCObject {
         status = CoroutineStatus.running;
 
         // Start the coroutine function with initial arguments
-        _executionTask = _executeCoroutine(args);
-
         completer = Completer<List<Object?>>();
+        _executionTask = _executeCoroutine(args);
         Logger.debugLazy(
           () =>
               'Coroutine.resume: Waiting for _executionTask completion '
@@ -185,12 +196,20 @@ class Coroutine extends GCObject {
         );
         status = CoroutineStatus.running;
 
+        // Process arguments for consistency
+        final processedArgs = _normalizeValues(args);
+
+        final continuation = takeContinuation();
+        if (continuation != null) {
+          final result = await continuation.resume(processedArgs);
+          status = CoroutineStatus.dead;
+          _finalizeTermination();
+          return _handleReturnValue(result);
+        }
+
         // Resume execution by completing the completer
         final currentCompleter = completer;
         completer = Completer<List<Object?>>();
-
-        // Process arguments for consistency
-        final processedArgs = _normalizeValues(args);
 
         Logger.debugLazy(
           () =>
@@ -394,6 +413,7 @@ class Coroutine extends GCObject {
     throw YieldException(
       values.cast<Value>(), // Cast to List<Value>
       completer!.future, // The future to await on next resume
+      this,
     );
   }
 
@@ -467,6 +487,7 @@ class Coroutine extends GCObject {
     if (_unregistered) {
       return;
     }
+    _continuation = null;
     final interpreter = closureEnvironment.interpreter;
     if (!_environmentCleared) {
       _clearExecutionEnvironment();
@@ -478,6 +499,9 @@ class Coroutine extends GCObject {
   }
 
   void _clearExecutionEnvironment() {
+    if (identical(_executionEnvironment, closureEnvironment)) {
+      return;
+    }
     try {
       for (final box in _executionEnvironment.values.values) {
         final current = box.value;
@@ -517,7 +541,7 @@ class Coroutine extends GCObject {
         );
         _completeWithReturn(result);
       } on YieldException {
-        rethrow;
+        return;
       } on TailCallException catch (t) {
         await _handleTailCallCompletion(t);
       }
@@ -653,6 +677,20 @@ class Coroutine extends GCObject {
       category: 'Coroutine',
     );
 
+    final continuation = takeContinuation();
+    if (continuation != null) {
+      try {
+        await continuation.close(error);
+      } catch (caughtError) {
+        status = CoroutineStatus.dead;
+        _finalizeTermination();
+        if (caughtError is LuaError) {
+          return [Value(false), Value(caughtError.message)];
+        }
+        return [Value(false), Value(caughtError.toString())];
+      }
+    }
+
     // If there's an active execution task, complete its completer with an error
     // so that the awaited future in resume() will throw
     if (completer != null && !completer!.isCompleted) {
@@ -702,6 +740,10 @@ class Coroutine extends GCObject {
     refs.add(functionValue);
     refs.add(closureEnvironment);
     refs.add(_executionEnvironment);
+    final continuation = _continuation;
+    if (continuation != null) {
+      refs.addAll(continuation.getReferences());
+    }
     // if (_originalArgs != null) {
     //   refs.addAll(_originalArgs!);
     // }
@@ -713,6 +755,7 @@ class Coroutine extends GCObject {
     // Clean up resources
     completer = null;
     _executionTask = null;
+    _continuation = null;
   }
 
   /// Records an error that occurred in the coroutine
@@ -730,8 +773,22 @@ class Coroutine extends GCObject {
     status = CoroutineStatus.suspended;
     completer = null;
     _executionTask = null;
+    _continuation = null;
     _programCounter = 0; // Reset program counter
     // _executionEnvironment should be re-initialized from closureEnvironment
     // or explicitly cleared if not reused directly.
+  }
+
+  bool get hasContinuation => _continuation != null;
+
+  CoroutineContinuation? takeContinuation() {
+    final continuation = _continuation;
+    _continuation = null;
+    return continuation;
+  }
+
+  void installContinuation(CoroutineContinuation continuation) {
+    _continuation = continuation;
+    completer = null;
   }
 }

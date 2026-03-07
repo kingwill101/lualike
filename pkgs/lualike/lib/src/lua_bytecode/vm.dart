@@ -1,5 +1,8 @@
 import 'package:lualike/src/builtin_function.dart';
+import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/environment.dart';
+import 'package:lualike/src/exceptions.dart';
+import 'package:lualike/src/gc/gc.dart';
 import 'package:lualike/src/lua_bytecode/chunk.dart';
 import 'package:lualike/src/lua_bytecode/instruction.dart';
 import 'package:lualike/src/lua_bytecode/opcode.dart';
@@ -120,6 +123,11 @@ final class LuaBytecodeVm {
       arguments: args,
     );
 
+    return _runFrame(frame);
+  }
+
+  Future<List<Value>> _runFrame(_LuaBytecodeFrame frame) async {
+    final closure = frame.closure;
     final previousEnv = runtime.getCurrentEnv();
     final previousScriptPath = runtime.currentScriptPath;
     runtime.setCurrentEnv(closure.environment);
@@ -129,15 +137,29 @@ final class LuaBytecodeVm {
       env: closure.environment,
     );
 
+    var suspended = false;
     try {
       return await _executeFrame(frame);
+    } on YieldException catch (error) {
+      final coroutine = error.coroutine ?? runtime.getCurrentCoroutine();
+      if (coroutine == null || !coroutine.hasContinuation) {
+        throw LuaError(
+          _opcodeDiagnostic(
+            frame,
+            'YIELD',
+            detail: 'yield across unsupported lua_bytecode coroutine path',
+          ),
+        );
+      }
+      suspended = true;
+      rethrow;
     } catch (error) {
       if (!frame.closed) {
         await frame.closeResources(fromRegister: 0, error: error);
       }
       rethrow;
     } finally {
-      if (!frame.closed) {
+      if (!suspended && !frame.closed) {
         await frame.closeResources(fromRegister: 0);
       }
       runtime.callStack.pop();
@@ -149,6 +171,7 @@ final class LuaBytecodeVm {
   Future<List<Value>> _executeFrame(_LuaBytecodeFrame frame) async {
     final prototype = frame.closure.prototype;
     while (frame.pc < prototype.code.length) {
+      _syncCurrentCoroutine();
       int? nextOpenTop;
       final lineNumber = prototype.lineForPc(frame.pc);
       if (lineNumber != null) {
@@ -861,15 +884,23 @@ final class LuaBytecodeVm {
           }
         case 'CALL':
           {
-            final results = await _callAt(frame, word);
-            nextOpenTop = _storeCallResults(frame, word.a, word.c, results);
+            try {
+              final results = await _callAt(frame, word);
+              nextOpenTop = _storeCallResults(frame, word.a, word.c, results);
+            } on YieldException catch (error) {
+              _suspendCall(frame, word.a, word.c, error);
+            }
             break;
           }
         case 'TAILCALL':
           {
-            final call = _resolveCall(frame, word);
-            await frame.closeResources(fromRegister: 0);
-            return _invokePreparedCall(call);
+            try {
+              final call = _resolveCall(frame, word);
+              await frame.closeResources(fromRegister: 0);
+              return _invokePreparedCall(call);
+            } on YieldException catch (error) {
+              _suspendTailCall(frame, word, error);
+            }
           }
         case 'RETURN':
           {
@@ -916,11 +947,15 @@ final class LuaBytecodeVm {
           }
         case 'TFORCALL':
           {
-            final results = await _genericForCall(frame, word.a, word.c);
-            for (var index = 0; index < results.length; index++) {
-              frame.setRegister(word.a + 3 + index, results[index]);
+            try {
+              final results = await _genericForCall(frame, word.a, word.c);
+              for (var index = 0; index < results.length; index++) {
+                frame.setRegister(word.a + 3 + index, results[index]);
+              }
+              frame.top = word.a + 3 + results.length;
+            } on YieldException catch (error) {
+              _suspendTForCall(frame, word.a, word.c, error);
             }
-            frame.top = word.a + 3 + results.length;
             break;
           }
         case 'TFORLOOP':
@@ -992,6 +1027,15 @@ final class LuaBytecodeVm {
 
     await frame.closeResources(fromRegister: 0);
     return const <Value>[];
+  }
+
+  void _syncCurrentCoroutine() {
+    if (Coroutine.active case final active?) {
+      runtime.setCurrentCoroutine(active);
+      return;
+    }
+
+    runtime.setCurrentCoroutine(runtime.getMainThread());
   }
 
   LuaBytecodeClosure _createClosure(
@@ -1281,6 +1325,81 @@ final class LuaBytecodeVm {
     ({Value callee, List<Value> args}) call,
   ) {
     return _invokeValue(call.callee, call.args);
+  }
+
+  Never _suspendCall(
+    _LuaBytecodeFrame frame,
+    int register,
+    int resultSpec,
+    YieldException error,
+  ) {
+    final coroutine = _requireCoroutineForYield(frame, error);
+    final child = coroutine.takeContinuation();
+    coroutine.installContinuation(
+      _LuaBytecodeCallSuspension(
+        vm: this,
+        frame: frame,
+        register: register,
+        resultSpec: resultSpec,
+        child: child,
+      ),
+    );
+    throw YieldException(error.values, error.resumeFuture, coroutine);
+  }
+
+  Never _suspendTailCall(
+    _LuaBytecodeFrame frame,
+    LuaBytecodeInstructionWord word,
+    YieldException error,
+  ) {
+    final coroutine = _requireCoroutineForYield(frame, error);
+    final child = coroutine.takeContinuation();
+    coroutine.installContinuation(
+      _LuaBytecodeTailCallSuspension(
+        vm: this,
+        frame: frame,
+        word: word,
+        child: child,
+      ),
+    );
+    throw YieldException(error.values, error.resumeFuture, coroutine);
+  }
+
+  Never _suspendTForCall(
+    _LuaBytecodeFrame frame,
+    int base,
+    int resultCount,
+    YieldException error,
+  ) {
+    final coroutine = _requireCoroutineForYield(frame, error);
+    final child = coroutine.takeContinuation();
+    coroutine.installContinuation(
+      _LuaBytecodeTForCallSuspension(
+        vm: this,
+        frame: frame,
+        base: base,
+        resultCount: resultCount,
+        child: child,
+      ),
+    );
+    throw YieldException(error.values, error.resumeFuture, coroutine);
+  }
+
+  Coroutine _requireCoroutineForYield(
+    _LuaBytecodeFrame frame,
+    YieldException error,
+  ) {
+    final coroutine = error.coroutine ?? runtime.getCurrentCoroutine();
+    if (coroutine != null) {
+      return coroutine;
+    }
+    throw LuaError(
+      _opcodeDiagnostic(
+        frame,
+        'YIELD',
+        detail: 'attempt to yield without an active coroutine',
+      ),
+    );
   }
 
   Future<List<Value>> _invokeValue(Value callee, List<Value> args) async {
@@ -1639,6 +1758,16 @@ final class _LuaBytecodeFrame {
     }
   }
 
+  Iterable<GCObject> gcReferences() sync* {
+    yield closure.environment;
+    for (final value in registers) {
+      yield value;
+    }
+    for (final value in varargs) {
+      yield value;
+    }
+  }
+
   Value _prepareAssignedValue(int index, Value value) {
     value.interpreter ??= runtime;
     if (!_toBeClosedRegisters.contains(index)) {
@@ -1652,6 +1781,227 @@ final class _LuaBytecodeFrame {
     final prepared = value.isToBeClose ? value : Value.toBeClose(value);
     prepared.interpreter ??= runtime;
     return prepared;
+  }
+}
+
+final class _LuaBytecodeCallSuspension implements CoroutineContinuation {
+  const _LuaBytecodeCallSuspension({
+    required this.vm,
+    required this.frame,
+    required this.register,
+    required this.resultSpec,
+    this.child,
+  });
+
+  final LuaBytecodeVm vm;
+  final _LuaBytecodeFrame frame;
+  final int register;
+  final int resultSpec;
+  final CoroutineContinuation? child;
+
+  @override
+  Future<Object?> resume(List<Object?> args) async {
+    try {
+      final results = await _resumeResults(args);
+      frame.openTop = vm._storeCallResults(
+        frame,
+        register,
+        resultSpec,
+        results,
+      );
+      final resumedResults = await vm._runFrame(frame);
+      return _packCallResults(vm.runtime, resumedResults);
+    } on YieldException catch (error) {
+      final coroutine = error.coroutine ?? vm.runtime.getCurrentCoroutine();
+      if (coroutine != null) {
+        final nestedChild = coroutine.takeContinuation();
+        coroutine.installContinuation(
+          _LuaBytecodeCallSuspension(
+            vm: vm,
+            frame: frame,
+            register: register,
+            resultSpec: resultSpec,
+            child: nestedChild,
+          ),
+        );
+        throw YieldException(error.values, error.resumeFuture, coroutine);
+      }
+      rethrow;
+    }
+  }
+
+  Future<List<Value>> _resumeResults(List<Object?> args) async {
+    if (child case final nested?) {
+      final result = await nested.resume(args);
+      return vm._normalizeResults(result);
+    }
+    return args
+        .map((arg) => _runtimeValue(vm.runtime, arg))
+        .toList(growable: false);
+  }
+
+  @override
+  Future<void> close([Object? error]) async {
+    if (child case final nested?) {
+      await nested.close(error);
+    }
+    if (!frame.closed) {
+      await frame.closeResources(fromRegister: 0, error: error);
+    }
+  }
+
+  @override
+  Iterable<GCObject> getReferences() sync* {
+    yield* frame.gcReferences();
+    if (child case final nested?) {
+      yield* nested.getReferences();
+    }
+  }
+}
+
+final class _LuaBytecodeTailCallSuspension implements CoroutineContinuation {
+  const _LuaBytecodeTailCallSuspension({
+    required this.vm,
+    required this.frame,
+    required this.word,
+    this.child,
+  });
+
+  final LuaBytecodeVm vm;
+  final _LuaBytecodeFrame frame;
+  final LuaBytecodeInstructionWord word;
+  final CoroutineContinuation? child;
+
+  @override
+  Future<Object?> resume(List<Object?> args) async {
+    try {
+      final results = await _resumeResults(args);
+      await frame.closeResources(fromRegister: 0);
+      return _packCallResults(vm.runtime, results);
+    } on YieldException catch (error) {
+      final coroutine = error.coroutine ?? vm.runtime.getCurrentCoroutine();
+      if (coroutine != null) {
+        final nestedChild = coroutine.takeContinuation();
+        coroutine.installContinuation(
+          _LuaBytecodeTailCallSuspension(
+            vm: vm,
+            frame: frame,
+            word: word,
+            child: nestedChild,
+          ),
+        );
+        throw YieldException(error.values, error.resumeFuture, coroutine);
+      }
+      rethrow;
+    }
+  }
+
+  Future<List<Value>> _resumeResults(List<Object?> args) async {
+    if (child case final nested?) {
+      final result = await nested.resume(args);
+      return vm._normalizeResults(result);
+    }
+    return args
+        .map((arg) => _runtimeValue(vm.runtime, arg))
+        .toList(growable: false);
+  }
+
+  @override
+  Future<void> close([Object? error]) async {
+    if (child case final nested?) {
+      await nested.close(error);
+    }
+    if (!frame.closed) {
+      await frame.closeResources(fromRegister: 0, error: error);
+    }
+  }
+
+  @override
+  Iterable<GCObject> getReferences() sync* {
+    yield* frame.gcReferences();
+    if (child case final nested?) {
+      yield* nested.getReferences();
+    }
+  }
+}
+
+final class _LuaBytecodeTForCallSuspension implements CoroutineContinuation {
+  const _LuaBytecodeTForCallSuspension({
+    required this.vm,
+    required this.frame,
+    required this.base,
+    required this.resultCount,
+    this.child,
+  });
+
+  final LuaBytecodeVm vm;
+  final _LuaBytecodeFrame frame;
+  final int base;
+  final int resultCount;
+  final CoroutineContinuation? child;
+
+  @override
+  Future<Object?> resume(List<Object?> args) async {
+    try {
+      final results = await _resumeResults(args);
+      for (var index = 0; index < results.length; index++) {
+        frame.setRegister(base + 3 + index, results[index]);
+      }
+      frame.top = base + 3 + results.length;
+      final resumedResults = await vm._runFrame(frame);
+      return _packCallResults(vm.runtime, resumedResults);
+    } on YieldException catch (error) {
+      final coroutine = error.coroutine ?? vm.runtime.getCurrentCoroutine();
+      if (coroutine != null) {
+        final nestedChild = coroutine.takeContinuation();
+        coroutine.installContinuation(
+          _LuaBytecodeTForCallSuspension(
+            vm: vm,
+            frame: frame,
+            base: base,
+            resultCount: resultCount,
+            child: nestedChild,
+          ),
+        );
+        throw YieldException(error.values, error.resumeFuture, coroutine);
+      }
+      rethrow;
+    }
+  }
+
+  Future<List<Value>> _resumeResults(List<Object?> args) async {
+    if (child case final nested?) {
+      final result = await nested.resume(args);
+      return vm._normalizeResults(result);
+    }
+    final resumed = args
+        .map((arg) => _runtimeValue(vm.runtime, arg))
+        .toList(growable: false);
+    return List<Value>.generate(
+      resultCount,
+      (index) => index < resumed.length
+          ? resumed[index]
+          : _runtimeValue(vm.runtime, null),
+      growable: false,
+    );
+  }
+
+  @override
+  Future<void> close([Object? error]) async {
+    if (child case final nested?) {
+      await nested.close(error);
+    }
+    if (!frame.closed) {
+      await frame.closeResources(fromRegister: 0, error: error);
+    }
+  }
+
+  @override
+  Iterable<GCObject> getReferences() sync* {
+    yield* frame.gcReferences();
+    if (child case final nested?) {
+      yield* nested.getReferences();
+    }
   }
 }
 

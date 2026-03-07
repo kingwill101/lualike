@@ -135,6 +135,31 @@ return first(10, 20, 30)
       expect(results, equals(<Object?>[10, 20, 30]));
     }, skip: skipReason);
 
+    test(
+      'executes coroutine yield and resume for bytecode closures',
+      () async {
+        final results = await _executeFixture(luacBinary!, '''
+local co = coroutine.create(function(a)
+  local resumed = coroutine.yield(a + 1)
+  return a + resumed
+end)
+
+local ok1, yielded = coroutine.resume(co, 4)
+local midStatus = coroutine.status(co)
+local ok2, finalValue = coroutine.resume(co, 6)
+local finalStatus = coroutine.status(co)
+
+return ok1, yielded, midStatus, ok2, finalValue, finalStatus
+''');
+
+        expect(
+          results,
+          equals(<Object?>[true, 5, 'suspended', true, 10, 'dead']),
+        );
+      },
+      skip: skipReason,
+    );
+
     test('executes arithmetic and bitwise opcode families', () async {
       final results = await _executeFixture(luacBinary!, '''
 local function sample(a, b, c)
