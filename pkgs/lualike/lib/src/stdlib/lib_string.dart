@@ -242,6 +242,33 @@ String _applyPadding(String text, _FormatContext ctx) {
   return text;
 }
 
+Object? _tryFormatBareString(_FormatContext ctx) {
+  if (ctx.flags.isNotEmpty || ctx.width.isNotEmpty || ctx.precision.isNotEmpty) {
+    return null;
+  }
+
+  final value = ctx.value;
+  final rawValue = value is Value ? value.raw : value;
+  if (value is Value) {
+    if (value.hasMetamethod('__tostring')) {
+      return null;
+    }
+    if (rawValue is Map && value.getMetamethod('__name') != null) {
+      return null;
+    }
+  }
+
+  return switch (rawValue) {
+    LuaString raw => raw,
+    String raw => raw,
+    null => 'nil',
+    bool raw => raw.toString(),
+    Map _ => 'table: ${rawValue.hashCode.toRadixString(16)}',
+    Function _ => 'function: ${rawValue.hashCode.toRadixString(16)}',
+    _ => rawValue.toString(),
+  };
+}
+
 Future<Object> _formatString(_FormatContext ctx) async {
   final value = ctx.value;
 
@@ -875,7 +902,7 @@ class _StringFormat extends BuiltinFunction {
 
     List<FormatPart> formatParts;
     try {
-      final parsedParts = FormatStringParser.parse(formatString);
+      final parsedParts = FormatStringParser.parseCached(formatString);
       formatParts = parsedParts;
     } catch (e) {
       if (e is FormatException) {
@@ -959,7 +986,7 @@ class _StringFormat extends BuiltinFunction {
             formatted = _formatCharacter(ctx);
             break;
           case 's':
-            formatted = await _formatString(ctx);
+            formatted = _tryFormatBareString(ctx) ?? await _formatString(ctx);
             break;
           case 'q':
             formatted = _formatQuoted(ctx);

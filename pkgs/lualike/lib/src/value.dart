@@ -2625,54 +2625,30 @@ extension OperatorExtension on Value {
 
   // Overload the concatenation operator
   Value concat(dynamic other) {
-    // Wrap the other value if needed
-    final wrappedOther = other is Value ? other : Value.wrap(other);
+    final otherRaw = other is Value ? other.raw : other;
 
-    // Handle LuaString concatenation
-    if (raw is LuaString) {
-      if (wrappedOther.raw is LuaString) {
-        return Value((raw as LuaString) + (wrappedOther.raw as LuaString));
-      } else if (wrappedOther.raw is num) {
-        final otherStr = LuaString.fromDartString(wrappedOther.raw.toString());
-        return Value((raw as LuaString) + otherStr);
-      } else {
-        final otherStr = LuaString.fromDartString(wrappedOther.raw.toString());
-        return Value((raw as LuaString) + otherStr);
-      }
-    }
-
-    if (wrappedOther.raw is LuaString) {
-      if (raw is num) {
-        final thisStr = LuaString.fromDartString(raw.toString());
-        return Value(thisStr + (wrappedOther.raw as LuaString));
-      } else {
-        final thisStr = LuaString.fromDartString(raw.toString());
-        return Value(thisStr + (wrappedOther.raw as LuaString));
-      }
-    }
-
-    // Regular string concatenation - return Dart strings for better interop
-    if (raw is String) {
-      final otherRaw = wrappedOther.raw;
-      final combined =
-          raw + (otherRaw is String ? otherRaw : otherRaw.toString());
-      return Value(LuaString.fromDartString(combined));
-    }
-
-    if (raw is num) {
-      final otherRaw = wrappedOther.raw;
-      final combined =
-          raw.toString() +
-          (otherRaw is String ? otherRaw : otherRaw.toString());
-      return Value(LuaString.fromDartString(combined));
-    }
-
-    if (raw == null || other == null) {
+    if (raw == null || otherRaw == null) {
       throw LuaError.typeError('Attempt to concatenate a nil value');
     }
 
+    LuaString toLuaString(dynamic value) {
+      return switch (value) {
+        LuaString string => string,
+        String string => LuaString.fromDartString(string),
+        num number => LuaString.fromDartString(number.toString()),
+        _ => LuaString.fromDartString(value.toString()),
+      };
+    }
+
+    final leftIsConcatable = raw is LuaString || raw is String || raw is num;
+    final rightIsConcatable =
+        otherRaw is LuaString || otherRaw is String || otherRaw is num;
+    if (leftIsConcatable || rightIsConcatable) {
+      return Value(toLuaString(raw) + toLuaString(otherRaw));
+    }
+
     throw LuaError.typeError(
-      'Concatenation not supported for these types ${raw.runtimeType} and ${wrappedOther.raw.runtimeType}',
+      'Concatenation not supported for these types ${raw.runtimeType} and ${otherRaw.runtimeType}',
     );
   }
 
