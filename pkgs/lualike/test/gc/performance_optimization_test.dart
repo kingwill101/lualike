@@ -15,6 +15,29 @@ void main() {
       gc.stop();
     });
 
+    group('Generation bookkeeping', () {
+      test('remove keeps membership and list state consistent', () {
+        final generation = Generation();
+        final a = Value('a');
+        final b = Value('b');
+        final c = Value('c');
+
+        generation.add(a);
+        generation.add(b);
+        generation.add(c);
+
+        generation.remove(b);
+
+        expect(generation.contains(a), isTrue);
+        expect(generation.contains(b), isFalse);
+        expect(generation.contains(c), isTrue);
+        expect(generation.objects.length, 2);
+        expect(generation.objects.contains(a), isTrue);
+        expect(generation.objects.contains(b), isFalse);
+        expect(generation.objects.contains(c), isTrue);
+      });
+    });
+
     group('Map Traversal Filtering', () {
       test('empty maps are skipped during traversal', () async {
         // Create an empty map that would normally be traversed
