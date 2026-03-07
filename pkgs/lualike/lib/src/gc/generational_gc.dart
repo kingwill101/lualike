@@ -142,6 +142,8 @@ class GenerationalGCManager {
   /// Incremental GC state tracking
   GCPhase _currentPhase = GCPhase.idle;
   List<GCObject> _objectsToMark = [];
+  final Set<GCObject> _queuedToMark = HashSet<GCObject>();
+  int _markingIndex = 0;
   List<GCObject> _objectsToSweep = [];
   int _sweepingIndex = 0;
   int _simulatedAllocationDebt = 0;
@@ -480,6 +482,29 @@ class GenerationalGCManager {
     return normalizedStep * 1024;
   }
 
+  void _resetMarkingQueue() {
+    _objectsToMark = [];
+    _queuedToMark.clear();
+    _markingIndex = 0;
+  }
+
+  bool _hasPendingMarkingWork() => _markingIndex < _objectsToMark.length;
+
+  void _enqueueForMarking(GCObject obj) {
+    if (_queuedToMark.add(obj)) {
+      _objectsToMark.add(obj);
+    }
+  }
+
+  GCObject _dequeueForMarking() {
+    final obj = _objectsToMark[_markingIndex++];
+    _queuedToMark.remove(obj);
+    if (_markingIndex >= _objectsToMark.length) {
+      _resetMarkingQueue();
+    }
+    return obj;
+  }
+
   void _startIncrementalCollection() {
     Logger.debugLazy(
       () => 'Starting incremental collection cycle',
@@ -497,15 +522,15 @@ class GenerationalGCManager {
     }
 
     // Prepare objects to mark (start with roots)
-    _objectsToMark = [];
+    _resetMarkingQueue();
     _objectsToSweep = [];
     _sweepingIndex = 0;
 
     // Add root objects to marking queue
     final roots = buildRootSet(_runtime);
     for (final root in roots) {
-      if (root is GCObject && !_objectsToMark.contains(root)) {
-        _objectsToMark.add(root);
+      if (root is GCObject) {
+        _enqueueForMarking(root);
       }
     }
 
@@ -517,7 +542,7 @@ class GenerationalGCManager {
     );
 
     // If no roots to mark, skip to sweeping
-    if (_objectsToMark.isEmpty) {
+    if (!_hasPendingMarkingWork()) {
       Logger.debugLazy(
         () => 'No roots to mark, moving directly to sweeping',
         category: 'GC',
@@ -532,11 +557,11 @@ class GenerationalGCManager {
     Logger.debugLazy(
       () =>
           'Incremental marking work (${_objectsToMark.length} objects in '
-          'queue, budget=$budget)',
+          'queue, pending=${_objectsToMark.length - _markingIndex}, budget=$budget)',
       category: 'GC',
     );
 
-    if (_objectsToMark.isEmpty) {
+    if (!_hasPendingMarkingWork()) {
       Logger.debugLazy(
         () => 'No objects to mark, switching to sweeping',
         category: 'GC',
@@ -552,8 +577,8 @@ class GenerationalGCManager {
     var workDone = 0;
     final maxWorkPerStep = math.min(budget, _markingWorkQuota(stepSize));
 
-    while (_objectsToMark.isNotEmpty && workDone < maxWorkPerStep) {
-      final obj = _objectsToMark.removeAt(0);
+    while (_hasPendingMarkingWork() && workDone < maxWorkPerStep) {
+      final obj = _dequeueForMarking();
 
       if (!obj.marked) {
         obj.marked = true;
@@ -564,8 +589,8 @@ class GenerationalGCManager {
 
         // Add referenced objects to marking queue
         for (final ref in obj.getReferences()) {
-          if (ref is GCObject && !ref.marked && !_objectsToMark.contains(ref)) {
-            _objectsToMark.add(ref);
+          if (ref is GCObject && !ref.marked) {
+            _enqueueForMarking(ref);
           }
         }
       }
@@ -576,11 +601,11 @@ class GenerationalGCManager {
     Logger.debugLazy(
       () =>
           'Marking work complete: processed=$workDone, '
-          'remaining=${_objectsToMark.length}',
+          'remaining=${_objectsToMark.length - _markingIndex}',
       category: 'GC',
     );
 
-    if (_objectsToMark.isEmpty) {
+    if (!_hasPendingMarkingWork()) {
       Logger.debugLazy(
         () => 'Marking phase finished, preparing sweeping phase',
         category: 'GC',
@@ -773,7 +798,7 @@ class GenerationalGCManager {
     _simulatedAllocationDebt = 0;
 
     // Clean up state
-    _objectsToMark.clear();
+    _resetMarkingQueue();
     _objectsToSweep.clear();
     _sweepingIndex = 0;
 
@@ -988,7 +1013,7 @@ class GenerationalGCManager {
     if (_currentPhase == GCPhase.idle) {
       return;
     }
-    _objectsToMark.clear();
+    _resetMarkingQueue();
     _objectsToSweep.clear();
     _sweepingIndex = 0;
     _toBeFinalized.clear();
@@ -2168,6 +2193,7 @@ class GenerationalGCManager {
     Logger.debugLazy(() => 'Minor collection start', category: 'GC');
     _cycleComplete = false;
     _currentPhase = GCPhase.idle;
+    _resetMarkingQueue();
 
     // In a real generational GC, we'd need a write barrier to track pointers
     // from the old generation to the young generation. For now, we'll just
@@ -2217,6 +2243,7 @@ class GenerationalGCManager {
 
     _lastMinorBytes = estimateMemoryUse();
     _cycleComplete = true;
+    _resetMarkingQueue();
     _currentPhase = GCPhase.idle;
     Logger.debugLazy(() => 'Minor collection end', category: 'GC');
     Logger.debugLazy(() => 'Minor collection complete', category: 'GC');
@@ -2233,6 +2260,7 @@ class GenerationalGCManager {
     Logger.debugLazy(() => 'Major collection start', category: 'GC');
     _cycleComplete = false;
     _currentPhase = GCPhase.idle;
+    _resetMarkingQueue();
     _inMajorCollection = true;
     if (Logger.enabled) {
       Logger.debug(
@@ -2332,6 +2360,7 @@ class GenerationalGCManager {
     _lastMajorBytes = estimateMemoryUse();
     _cycleComplete =
         true; // The full cycle (including finalization) is now complete
+    _resetMarkingQueue();
     _currentPhase = GCPhase.idle;
     _inMajorCollection = false;
     // Ensure tracking lists are empty post-collection per tests and spec
