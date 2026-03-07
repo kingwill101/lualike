@@ -18,6 +18,7 @@ class Generation {
   /// The objects belonging to this generation.
   final List<GCObject> objects = [];
   final Set<GCObject> _tracked = HashSet<GCObject>.identity();
+  final Map<GCObject, int> _indexes = HashMap<GCObject, int>.identity();
 
   /// The age of this generation, incremented after each collection cycle.
   int age = 0;
@@ -25,14 +26,27 @@ class Generation {
   /// Adds an object to this generation.
   void add(GCObject obj) {
     if (_tracked.add(obj)) {
+      _indexes[obj] = objects.length;
       objects.add(obj);
     }
   }
 
   /// Removes an object from this generation.
   void remove(GCObject obj) {
-    if (_tracked.remove(obj)) {
-      objects.remove(obj);
+    if (!_tracked.remove(obj)) {
+      return;
+    }
+
+    final index = _indexes.remove(obj);
+    if (index == null) {
+      return;
+    }
+
+    final lastIndex = objects.length - 1;
+    final lastObject = objects.removeLast();
+    if (index < lastIndex) {
+      objects[index] = lastObject;
+      _indexes[lastObject] = index;
     }
   }
 
@@ -41,6 +55,7 @@ class Generation {
   void clear() {
     objects.clear();
     _tracked.clear();
+    _indexes.clear();
   }
 
   void replaceAll(Iterable<GCObject> next) {
