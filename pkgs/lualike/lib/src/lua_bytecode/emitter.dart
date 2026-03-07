@@ -205,6 +205,8 @@ final class _LuaBytecodeStructuredCompiler {
         _compileIfStatement(statement);
       case WhileStatement():
         _compileWhileStatement(statement);
+      case DoBlock():
+        _compileScopedBlock(statement.body);
       case ForLoop():
         _compileForLoop(statement);
       case ForInLoop():
@@ -232,12 +234,26 @@ final class _LuaBytecodeStructuredCompiler {
     LocalDeclaration statement, {
     required int statementIndex,
   }) {
-    for (final attribute in statement.attributes) {
-      if (attribute.isNotEmpty) {
-        throw UnsupportedError(
-          'lua_bytecode emitter does not support local attributes',
-        );
+    final closableIndices = <int>[];
+    for (var index = 0; index < statement.attributes.length; index++) {
+      final attribute = statement.attributes[index];
+      if (attribute.isEmpty || attribute == 'const') {
+        continue;
       }
+      if (attribute == 'close') {
+        closableIndices.add(index);
+        continue;
+      }
+      throw UnsupportedError(
+        'lua_bytecode emitter does not support local declaration attribute '
+        '<$attribute>',
+      );
+    }
+
+    if (closableIndices.isNotEmpty) {
+      throw UnsupportedError(
+        'lua_bytecode emitter does not yet support local <close> attributes',
+      );
     }
 
     final pendingLocals = <_LuaBytecodeStructuredLocal>[];
@@ -274,9 +290,9 @@ final class _LuaBytecodeStructuredCompiler {
         continue;
       }
 
-      if (isLastExpression && _isCallExpression(expr)) {
-        _emitFixedResultCall(
-          _unwrapExpression(expr) as Call,
+      if (isLastExpression && _isOpenResultExpression(expr)) {
+        _emitFixedResultExpression(
+          expr,
           baseRegister: pendingLocals[localIndex].register,
           resultCount: remainingLocals,
         );
@@ -377,14 +393,21 @@ final class _LuaBytecodeStructuredCompiler {
         _prototype.emitOpenReturn(firstRegister: base);
         return;
       }
+
+      if (expr case VarArg()) {
+        final base = _reserveTempBlock(1);
+        _emitVarArgExpression(base, resultCount: 0);
+        _prototype.emitOpenReturn(firstRegister: base);
+        return;
+      }
     }
 
     final lastExpression = _unwrapExpression(statement.expr.last);
-    final prefixCount = _isCallExpression(lastExpression)
+    final prefixCount = _isOpenResultExpression(lastExpression)
         ? statement.expr.length - 1
         : statement.expr.length;
-    final reservedWidth = _isCallExpression(lastExpression)
-        ? prefixCount + _callRegisterWidth(lastExpression as Call)
+    final reservedWidth = _isOpenResultExpression(lastExpression)
+        ? prefixCount + _openResultRegisterWidth(lastExpression)
         : prefixCount;
     final returnBase = _reserveTempBlock(math.max(reservedWidth, 1));
 
@@ -392,9 +415,9 @@ final class _LuaBytecodeStructuredCompiler {
       _emitExpressionToRegister(statement.expr[index], returnBase + index);
     }
 
-    if (lastExpression case Call()) {
+    if (_isOpenResultExpression(lastExpression)) {
       final callBase = returnBase + prefixCount;
-      _emitOpenResultCall(lastExpression, baseRegister: callBase);
+      _emitOpenResultExpression(lastExpression, baseRegister: callBase);
       _prototype.emitOpenReturn(firstRegister: returnBase);
       return;
     }
@@ -685,46 +708,48 @@ final class _LuaBytecodeStructuredCompiler {
       return;
     }
 
+    final stagingBase = _reserveTempBlock(valueCount);
     var valueIndex = 0;
-    for (var exprIndex = 0; exprIndex < expressions.length; exprIndex++) {
-      final expr = expressions[exprIndex];
-      final isLastExpression = exprIndex == expressions.length - 1;
-      final remainingValues = valueCount - valueIndex;
+    try {
+      for (var exprIndex = 0; exprIndex < expressions.length; exprIndex++) {
+        final expr = expressions[exprIndex];
+        final isLastExpression = exprIndex == expressions.length - 1;
+        final remainingValues = valueCount - valueIndex;
 
-      if (remainingValues <= 0) {
-        if (isLastExpression && _isCallExpression(expr)) {
-          _emitDiscardedCall(_unwrapExpression(expr) as Call);
-        } else {
-          final scratch = _reserveTempBlock(1);
-          _emitExpressionToRegister(expr, scratch);
-          _releaseTempBlock(scratch, 1);
+        if (remainingValues <= 0) {
+          if (isLastExpression && _isCallExpression(expr)) {
+            _emitDiscardedCall(_unwrapExpression(expr) as Call);
+          } else {
+            final scratch = _reserveTempBlock(1);
+            _emitExpressionToRegister(expr, scratch);
+            _releaseTempBlock(scratch, 1);
+          }
+          continue;
         }
-        continue;
+
+        if (isLastExpression && _isOpenResultExpression(expr)) {
+          _emitFixedResultExpression(
+            expr,
+            baseRegister: stagingBase + valueIndex,
+            resultCount: remainingValues,
+          );
+          valueIndex = valueCount;
+          continue;
+        }
+
+        _emitExpressionToRegister(expr, stagingBase + valueIndex);
+        valueIndex += 1;
       }
 
-      if (isLastExpression && _isCallExpression(expr)) {
-        final emitted = _emitCallToTemporary(
-          _unwrapExpression(expr) as Call,
-          resultCount: remainingValues,
-        );
-        for (var offset = 0; offset < remainingValues; offset++) {
-          onValue(valueIndex + offset, emitted.base + offset);
-        }
-        _releaseTempBlock(emitted.base, emitted.width);
-        valueIndex = valueCount;
-        continue;
+      for (var index = 0; index < valueIndex; index++) {
+        onValue(index, stagingBase + index);
       }
-
-      final scratch = _reserveTempBlock(1);
-      _emitExpressionToRegister(expr, scratch);
-      onValue(valueIndex, scratch);
-      _releaseTempBlock(scratch, 1);
-      valueIndex += 1;
-    }
-
-    while (valueIndex < valueCount) {
-      onNil(valueIndex);
-      valueIndex += 1;
+      while (valueIndex < valueCount) {
+        onNil(valueIndex);
+        valueIndex += 1;
+      }
+    } finally {
+      _releaseTempBlock(stagingBase, valueCount);
     }
   }
 
@@ -738,47 +763,76 @@ final class _LuaBytecodeStructuredCompiler {
   }
 
   void _emitExpressionToRegister(AstNode node, int targetRegister) {
-    switch (_unwrapExpression(node)) {
-      case NilValue():
-        _prototype.emitLoadNil(target: targetRegister);
-      case BooleanLiteral(value: final value):
-        _prototype.emitLoadLiteral(target: targetRegister, literal: value);
-      case NumberLiteral(value: final value):
-        _prototype.emitLoadLiteral(target: targetRegister, literal: value);
-      case StringLiteral(value: final value):
-        _prototype.emitLoadLiteral(target: targetRegister, literal: value);
-      case Identifier(name: final name):
-        _emitIdentifierToRegister(name, targetRegister);
-      case UnaryExpression(op: final op, expr: final expr):
-        _emitUnaryExpression(op, expr, targetRegister);
-      case BinaryExpression(op: '..'):
-        _emitConcatExpression(node, targetRegister);
-      case BinaryExpression(left: final left, op: final op, right: final right):
-        _emitBinaryExpression(left, op, right, targetRegister);
-      case TableFieldAccess(table: final table, fieldName: final fieldName):
-        _emitTableFieldAccess(table, fieldName.name, targetRegister);
-      case TableIndexAccess(table: final table, index: final index):
-        _emitTableIndexAccess(table, index, targetRegister);
-      case TableAccessExpr(table: final table, index: final index):
-        _emitLegacyTableAccess(table, index, targetRegister);
-      case TableConstructor(entries: final entries):
-        _emitTableConstructor(entries, targetRegister);
-      case FunctionCall():
-        _emitSingleResultCall(
-          _unwrapExpression(node) as FunctionCall,
-          targetRegister: targetRegister,
+    final savedTemp = _nextTemp;
+    final tempFloor = math.max(_nextTemp, targetRegister + 1);
+    _nextTemp = tempFloor;
+    try {
+      switch (_unwrapExpression(node)) {
+        case NilValue():
+          _prototype.emitLoadNil(target: targetRegister);
+        case BooleanLiteral(value: final value):
+          _prototype.emitLoadLiteral(target: targetRegister, literal: value);
+        case NumberLiteral(value: final value):
+          _prototype.emitLoadLiteral(target: targetRegister, literal: value);
+        case StringLiteral(bytes: final bytes):
+          _prototype.emitLoadLiteral(
+            target: targetRegister,
+            literal: String.fromCharCodes(bytes),
+          );
+        case Identifier(name: final name):
+          _emitIdentifierToRegister(name, targetRegister);
+        case VarArg():
+          _emitVarArgExpression(targetRegister);
+        case UnaryExpression(op: final op, expr: final expr):
+          _emitUnaryExpression(op, expr, targetRegister);
+        case BinaryExpression(
+          left: final left,
+          op: final op,
+          right: final right,
+        ) when op == 'and' || op == 'or':
+          _emitLogicalBinaryExpression(left, op, right, targetRegister);
+        case BinaryExpression(op: '..'):
+          _emitConcatExpression(node, targetRegister);
+        case BinaryExpression(
+          left: final left,
+          op: final op,
+          right: final right,
+        ):
+          _emitBinaryExpression(left, op, right, targetRegister);
+        case TableFieldAccess(table: final table, fieldName: final fieldName):
+          _emitTableFieldAccess(table, fieldName.name, targetRegister);
+        case TableIndexAccess(table: final table, index: final index):
+          _emitTableIndexAccess(table, index, targetRegister);
+        case TableAccessExpr(table: final table, index: final index):
+          _emitLegacyTableAccess(table, index, targetRegister);
+        case TableConstructor(entries: final entries):
+          _emitTableConstructor(entries, targetRegister);
+        case FunctionCall():
+          _emitSingleResultCall(
+            _unwrapExpression(node) as FunctionCall,
+            targetRegister: targetRegister,
+          );
+        case MethodCall():
+          _emitSingleResultCall(
+            _unwrapExpression(node) as MethodCall,
+            targetRegister: targetRegister,
+          );
+        case FunctionLiteral(funcBody: final funcBody):
+          _emitFunctionBodyToRegister(funcBody, targetRegister);
+        default:
+          throw UnsupportedError(
+            'lua_bytecode emitter does not support '
+            '${node.runtimeType} expressions',
+          );
+      }
+    } finally {
+      if (_nextTemp != tempFloor) {
+        throw StateError(
+          'lua_bytecode emitter leaked temporaries while lowering '
+          '${node.runtimeType}: expected $tempFloor, found $_nextTemp',
         );
-      case MethodCall():
-        _emitSingleResultCall(
-          _unwrapExpression(node) as MethodCall,
-          targetRegister: targetRegister,
-        );
-      case FunctionLiteral(funcBody: final funcBody):
-        _emitFunctionBodyToRegister(funcBody, targetRegister);
-      default:
-        throw UnsupportedError(
-          'lua_bytecode emitter does not support ${node.runtimeType} expressions',
-        );
+      }
+      _nextTemp = savedTemp;
     }
   }
 
@@ -803,12 +857,176 @@ final class _LuaBytecodeStructuredCompiler {
         kind: _LuaBytecodeStructuredResolvedVariableKind.global,
         name: final globalName,
       ):
-        _prototype.emitGetTabUp(
-          target: targetRegister,
-          upvalue: _environmentUpvalueIndex,
-          constantIndex: _prototype.addStringConstant(globalName!),
+        _emitGlobalAccessToRegister(globalName!, targetRegister);
+    }
+  }
+
+  void _emitGlobalAccessToRegister(String name, int targetRegister) {
+    switch (_resolveVariable('_ENV')) {
+      case _LuaBytecodeStructuredResolvedVariable(
+        kind: _LuaBytecodeStructuredResolvedVariableKind.local,
+        register: final register,
+      ):
+        _emitFieldAccessToRegister(
+          tableRegister: register!,
+          fieldName: name,
+          targetRegister: targetRegister,
+        );
+        return;
+      case _LuaBytecodeStructuredResolvedVariable(
+        kind: _LuaBytecodeStructuredResolvedVariableKind.upvalue,
+      ):
+        break;
+      default:
+        throw UnsupportedError(
+          'lua_bytecode emitter requires an accessible _ENV binding for global access',
         );
     }
+
+    final constantIndex = _prototype.addStringConstant(name);
+    if (_fitsShortStringOperand(constantIndex)) {
+      _prototype.emitGetTabUp(
+        target: targetRegister,
+        upvalue: _environmentUpvalueIndex,
+        constantIndex: constantIndex,
+      );
+      return;
+    }
+
+    final keyRegister = _reserveTempBlock(1);
+    _prototype.emitGetUpvalue(
+      target: targetRegister,
+      upvalue: _environmentUpvalueIndex,
+    );
+    _prototype.emitLoadLiteral(target: keyRegister, literal: name);
+    _prototype.emitGetTable(
+      target: targetRegister,
+      table: targetRegister,
+      key: keyRegister,
+    );
+    _releaseTempBlock(keyRegister, 1);
+  }
+
+  void _emitFieldAccessToRegister({
+    required int tableRegister,
+    required String fieldName,
+    required int targetRegister,
+  }) {
+    final constantIndex = _prototype.addStringConstant(fieldName);
+    if (_fitsShortStringOperand(constantIndex)) {
+      _prototype.emitGetField(
+        target: targetRegister,
+        table: tableRegister,
+        constantIndex: constantIndex,
+      );
+      return;
+    }
+
+    final keyRegister = _reserveTempBlock(1);
+    _prototype.emitLoadLiteral(target: keyRegister, literal: fieldName);
+    _prototype.emitGetTable(
+      target: targetRegister,
+      table: tableRegister,
+      key: keyRegister,
+    );
+    _releaseTempBlock(keyRegister, 1);
+  }
+
+  void _emitFieldStore({
+    required int tableRegister,
+    required String fieldName,
+    required int sourceRegister,
+  }) {
+    final constantIndex = _prototype.addStringConstant(fieldName);
+    if (_fitsShortStringOperand(constantIndex)) {
+      _prototype.emitSetField(
+        table: tableRegister,
+        constantIndex: constantIndex,
+        source: sourceRegister,
+      );
+      return;
+    }
+
+    final keyRegister = _reserveTempBlock(1);
+    _prototype.emitLoadLiteral(target: keyRegister, literal: fieldName);
+    _prototype.emitSetTable(
+      table: tableRegister,
+      key: keyRegister,
+      source: sourceRegister,
+    );
+    _releaseTempBlock(keyRegister, 1);
+  }
+
+  void _emitGlobalStore(String name, int sourceRegister) {
+    switch (_resolveVariable('_ENV')) {
+      case _LuaBytecodeStructuredResolvedVariable(
+        kind: _LuaBytecodeStructuredResolvedVariableKind.local,
+        register: final register,
+      ):
+        _emitFieldStore(
+          tableRegister: register!,
+          fieldName: name,
+          sourceRegister: sourceRegister,
+        );
+        return;
+      case _LuaBytecodeStructuredResolvedVariable(
+        kind: _LuaBytecodeStructuredResolvedVariableKind.upvalue,
+      ):
+        break;
+      default:
+        throw UnsupportedError(
+          'lua_bytecode emitter requires an accessible _ENV binding for global stores',
+        );
+    }
+
+    final constantIndex = _prototype.addStringConstant(name);
+    if (_fitsShortStringOperand(constantIndex)) {
+      _prototype.emitSetTabUp(
+        upvalue: _environmentUpvalueIndex,
+        constantIndex: constantIndex,
+        source: sourceRegister,
+      );
+      return;
+    }
+
+    final tempBase = _reserveTempBlock(2);
+    _prototype.emitGetUpvalue(
+      target: tempBase,
+      upvalue: _environmentUpvalueIndex,
+    );
+    _prototype.emitLoadLiteral(target: tempBase + 1, literal: name);
+    _prototype.emitSetTable(
+      table: tempBase,
+      key: tempBase + 1,
+      source: sourceRegister,
+    );
+    _releaseTempBlock(tempBase, 2);
+  }
+
+  void _emitSelfLookup({
+    required int receiverRegister,
+    required String methodName,
+    required int targetRegister,
+  }) {
+    final constantIndex = _prototype.addStringConstant(methodName);
+    if (_fitsShortStringOperand(constantIndex)) {
+      _prototype.emitSelf(
+        target: targetRegister,
+        receiver: receiverRegister,
+        constantIndex: constantIndex,
+      );
+      return;
+    }
+
+    _prototype.emitMove(
+      target: targetRegister + 1,
+      source: receiverRegister,
+    );
+    _emitFieldAccessToRegister(
+      tableRegister: receiverRegister,
+      fieldName: methodName,
+      targetRegister: targetRegister,
+    );
   }
 
   void _emitUnaryExpression(String op, AstNode expr, int targetRegister) {
@@ -831,6 +1049,27 @@ final class _LuaBytecodeStructuredCompiler {
     };
     _prototype.emitAbc(opcode, a: targetRegister, b: operandRegister, c: 0);
     _releaseTempBlock(operandRegister, 1);
+  }
+
+  void _emitVarArgExpression(int targetRegister, {int resultCount = 1}) {
+    _ensureVarargAvailable();
+    _prototype.emitVararg(target: targetRegister, resultCount: resultCount);
+  }
+
+  void _emitLogicalBinaryExpression(
+    AstNode left,
+    String op,
+    AstNode right,
+    int targetRegister,
+  ) {
+    _emitExpressionToRegister(left, targetRegister);
+    _prototype.emitTest(register: targetRegister, kFlag: op == 'or');
+    final jumpPc = _prototype.emitJumpPlaceholder();
+    _emitExpressionToRegister(right, targetRegister);
+    _prototype.patchJumpTarget(
+      instructionPc: jumpPc,
+      targetPc: _prototype.currentPc,
+    );
   }
 
   void _emitBinaryExpression(
@@ -858,10 +1097,19 @@ final class _LuaBytecodeStructuredCompiler {
     _emitExpressionToRegister(right, operandBase + 1);
     _prototype.emitAbc(
       _binaryOpcodeFor(op),
-      a: targetRegister,
+      a: operandBase,
       b: operandBase,
       c: operandBase + 1,
     );
+    _prototype.emitAbc(
+      'MMBIN',
+      a: operandBase,
+      b: operandBase + 1,
+      c: _binaryMetamethodEventFor(op),
+    );
+    if (operandBase != targetRegister) {
+      _prototype.emitMove(target: targetRegister, source: operandBase);
+    }
     _releaseTempBlock(operandBase, 2);
   }
 
@@ -918,10 +1166,10 @@ final class _LuaBytecodeStructuredCompiler {
     int targetRegister,
   ) {
     _emitExpressionToRegister(table, targetRegister);
-    _prototype.emitGetField(
-      target: targetRegister,
-      table: targetRegister,
-      constantIndex: _prototype.addStringConstant(fieldName),
+    _emitFieldAccessToRegister(
+      tableRegister: targetRegister,
+      fieldName: fieldName,
+      targetRegister: targetRegister,
     );
   }
 
@@ -1014,10 +1262,14 @@ final class _LuaBytecodeStructuredCompiler {
         switch (entry) {
           case TableEntryLiteral(expr: final expr):
             final isLastEntry = index == entries.length - 1;
-            final openCall = isLastEntry ? _unwrapExpression(expr) : null;
-            if (openCall is Call) {
+            final openExpression = isLastEntry ? _unwrapExpression(expr) : null;
+            if (openExpression != null &&
+                _isOpenResultExpression(openExpression)) {
               flushPendingArrayEntries();
-              _emitOpenResultCall(openCall, baseRegister: valueBase);
+              _emitOpenResultExpression(
+                openExpression,
+                baseRegister: valueBase,
+              );
               _prototype.emitSetList(
                 table: tableRegister,
                 count: 0,
@@ -1042,10 +1294,10 @@ final class _LuaBytecodeStructuredCompiler {
             }
             final valueRegister = _reserveTempBlock(1);
             _emitExpressionToRegister(value, valueRegister);
-            _prototype.emitSetField(
-              table: tableRegister,
-              constantIndex: _prototype.addStringConstant(field.name),
-              source: valueRegister,
+            _emitFieldStore(
+              tableRegister: tableRegister,
+              fieldName: field.name,
+              sourceRegister: valueRegister,
             );
             _releaseTempBlock(valueRegister, 1);
           case IndexedTableEntry(key: final key, value: final value):
@@ -1089,10 +1341,10 @@ final class _LuaBytecodeStructuredCompiler {
           }
           final valueRegister = _reserveTempBlock(1);
           _emitExpressionToRegister(value, valueRegister);
-          _prototype.emitSetField(
-            table: tableRegister,
-            constantIndex: _prototype.addStringConstant(field.name),
-            source: valueRegister,
+          _emitFieldStore(
+            tableRegister: tableRegister,
+            fieldName: field.name,
+            sourceRegister: valueRegister,
           );
           _releaseTempBlock(valueRegister, 1);
         case IndexedTableEntry(key: final key, value: final value):
@@ -1168,10 +1420,10 @@ final class _LuaBytecodeStructuredCompiler {
 
     final tableRegister = _reserveTempBlock(1);
     _emitQualifiedTablePathToRegister(tablePath, tableRegister);
-    _prototype.emitSetField(
-      table: tableRegister,
-      constantIndex: _prototype.addStringConstant(fieldName),
-      source: sourceRegister,
+    _emitFieldStore(
+      tableRegister: tableRegister,
+      fieldName: fieldName,
+      sourceRegister: sourceRegister,
     );
     _releaseTempBlock(tableRegister, 1);
   }
@@ -1188,10 +1440,10 @@ final class _LuaBytecodeStructuredCompiler {
 
     _emitIdentifierToRegister(path.first.name, targetRegister);
     for (final segment in path.skip(1)) {
-      _prototype.emitGetField(
-        target: targetRegister,
-        table: targetRegister,
-        constantIndex: _prototype.addStringConstant(segment.name),
+      _emitFieldAccessToRegister(
+        tableRegister: targetRegister,
+        fieldName: segment.name,
+        targetRegister: targetRegister,
       );
     }
   }
@@ -1250,13 +1502,25 @@ final class _LuaBytecodeStructuredCompiler {
     switch (call) {
       case FunctionCall(name: final name, args: final args):
         _emitExpressionToRegister(name, baseRegister);
-        for (var index = 0; index < args.length; index++) {
+        final openArgs = _hasTrailingOpenExpression(args);
+        final fixedArgs = openArgs ? args.length - 1 : args.length;
+        for (var index = 0; index < fixedArgs; index++) {
           _emitExpressionToRegister(args[index], baseRegister + index + 1);
         }
-        _prototype.emitCallWithOpenResults(
-          baseRegister: baseRegister,
-          argumentCount: args.length,
-        );
+        if (openArgs) {
+          _emitOpenResultExpression(
+            args.last,
+            baseRegister: baseRegister + args.length,
+          );
+          _prototype.emitCallWithOpenArgumentsAndResults(
+            baseRegister: baseRegister,
+          );
+        } else {
+          _prototype.emitCallWithOpenResults(
+            baseRegister: baseRegister,
+            argumentCount: args.length,
+          );
+        }
       case MethodCall(
         prefix: final prefix,
         methodName: final methodName,
@@ -1269,18 +1533,30 @@ final class _LuaBytecodeStructuredCompiler {
           );
         }
         _emitExpressionToRegister(prefix, baseRegister);
-        _prototype.emitSelf(
-          target: baseRegister,
-          receiver: baseRegister,
-          constantIndex: _prototype.addStringConstant(method.name),
+        _emitSelfLookup(
+          receiverRegister: baseRegister,
+          methodName: method.name,
+          targetRegister: baseRegister,
         );
-        for (var index = 0; index < args.length; index++) {
+        final openArgs = _hasTrailingOpenExpression(args);
+        final fixedArgs = openArgs ? args.length - 1 : args.length;
+        for (var index = 0; index < fixedArgs; index++) {
           _emitExpressionToRegister(args[index], baseRegister + index + 2);
         }
-        _prototype.emitCallWithOpenResults(
-          baseRegister: baseRegister,
-          argumentCount: args.length + 1,
-        );
+        if (openArgs) {
+          _emitOpenResultExpression(
+            args.last,
+            baseRegister: baseRegister + args.length + 1,
+          );
+          _prototype.emitCallWithOpenArgumentsAndResults(
+            baseRegister: baseRegister,
+          );
+        } else {
+          _prototype.emitCallWithOpenResults(
+            baseRegister: baseRegister,
+            argumentCount: args.length + 1,
+          );
+        }
     }
   }
 
@@ -1292,14 +1568,27 @@ final class _LuaBytecodeStructuredCompiler {
     switch (call) {
       case FunctionCall(name: final name, args: final args):
         _emitExpressionToRegister(name, baseRegister);
-        for (var index = 0; index < args.length; index++) {
+        final openArgs = _hasTrailingOpenExpression(args);
+        final fixedArgs = openArgs ? args.length - 1 : args.length;
+        for (var index = 0; index < fixedArgs; index++) {
           _emitExpressionToRegister(args[index], baseRegister + index + 1);
         }
-        _prototype.emitCall(
-          baseRegister: baseRegister,
-          argumentCount: args.length,
-          resultCount: resultCount,
-        );
+        if (openArgs) {
+          _emitOpenResultExpression(
+            args.last,
+            baseRegister: baseRegister + args.length,
+          );
+          _prototype.emitCallWithOpenArguments(
+            baseRegister: baseRegister,
+            resultCount: resultCount,
+          );
+        } else {
+          _prototype.emitCall(
+            baseRegister: baseRegister,
+            argumentCount: args.length,
+            resultCount: resultCount,
+          );
+        }
       case MethodCall(
         prefix: final prefix,
         methodName: final methodName,
@@ -1312,19 +1601,32 @@ final class _LuaBytecodeStructuredCompiler {
           );
         }
         _emitExpressionToRegister(prefix, baseRegister);
-        _prototype.emitSelf(
-          target: baseRegister,
-          receiver: baseRegister,
-          constantIndex: _prototype.addStringConstant(method.name),
+        _emitSelfLookup(
+          receiverRegister: baseRegister,
+          methodName: method.name,
+          targetRegister: baseRegister,
         );
-        for (var index = 0; index < args.length; index++) {
+        final openArgs = _hasTrailingOpenExpression(args);
+        final fixedArgs = openArgs ? args.length - 1 : args.length;
+        for (var index = 0; index < fixedArgs; index++) {
           _emitExpressionToRegister(args[index], baseRegister + index + 2);
         }
-        _prototype.emitCall(
-          baseRegister: baseRegister,
-          argumentCount: args.length + 1,
-          resultCount: resultCount,
-        );
+        if (openArgs) {
+          _emitOpenResultExpression(
+            args.last,
+            baseRegister: baseRegister + args.length + 1,
+          );
+          _prototype.emitCallWithOpenArguments(
+            baseRegister: baseRegister,
+            resultCount: resultCount,
+          );
+        } else {
+          _prototype.emitCall(
+            baseRegister: baseRegister,
+            argumentCount: args.length + 1,
+            resultCount: resultCount,
+          );
+        }
     }
   }
 
@@ -1332,17 +1634,63 @@ final class _LuaBytecodeStructuredCompiler {
     _emitFixedResultCall(call, baseRegister: baseRegister, resultCount: 0);
   }
 
+  void _emitFixedResultExpression(
+    AstNode node, {
+    required int baseRegister,
+    required int resultCount,
+  }) {
+    switch (_unwrapExpression(node)) {
+      case final Call call:
+        _emitFixedResultCall(
+          call,
+          baseRegister: baseRegister,
+          resultCount: resultCount,
+        );
+      case VarArg():
+        _emitVarArgExpression(baseRegister, resultCount: resultCount);
+      case final expr:
+        throw UnsupportedError(
+          'lua_bytecode emitter does not support open-result '
+          '${expr.runtimeType} expressions',
+        );
+    }
+  }
+
+  void _emitOpenResultExpression(AstNode node, {required int baseRegister}) {
+    switch (_unwrapExpression(node)) {
+      case final Call call:
+        _emitOpenResultCall(call, baseRegister: baseRegister);
+      case VarArg():
+        _emitVarArgExpression(baseRegister, resultCount: 0);
+      case final expr:
+        throw UnsupportedError(
+          'lua_bytecode emitter does not support open-result '
+          '${expr.runtimeType} expressions',
+        );
+    }
+  }
+
   void _emitTailCall(Call call, {required int baseRegister}) {
     switch (call) {
       case FunctionCall(name: final name, args: final args):
         _emitExpressionToRegister(name, baseRegister);
-        for (var index = 0; index < args.length; index++) {
+        final openArgs = _hasTrailingOpenExpression(args);
+        final fixedArgs = openArgs ? args.length - 1 : args.length;
+        for (var index = 0; index < fixedArgs; index++) {
           _emitExpressionToRegister(args[index], baseRegister + index + 1);
         }
-        _prototype.emitTailCall(
-          baseRegister: baseRegister,
-          argumentCount: args.length,
-        );
+        if (openArgs) {
+          _emitOpenResultExpression(
+            args.last,
+            baseRegister: baseRegister + args.length,
+          );
+          _prototype.emitTailCallWithOpenArguments(baseRegister: baseRegister);
+        } else {
+          _prototype.emitTailCall(
+            baseRegister: baseRegister,
+            argumentCount: args.length,
+          );
+        }
       case MethodCall(
         prefix: final prefix,
         methodName: final methodName,
@@ -1355,18 +1703,28 @@ final class _LuaBytecodeStructuredCompiler {
           );
         }
         _emitExpressionToRegister(prefix, baseRegister);
-        _prototype.emitSelf(
-          target: baseRegister,
-          receiver: baseRegister,
-          constantIndex: _prototype.addStringConstant(method.name),
+        _emitSelfLookup(
+          receiverRegister: baseRegister,
+          methodName: method.name,
+          targetRegister: baseRegister,
         );
-        for (var index = 0; index < args.length; index++) {
+        final openArgs = _hasTrailingOpenExpression(args);
+        final fixedArgs = openArgs ? args.length - 1 : args.length;
+        for (var index = 0; index < fixedArgs; index++) {
           _emitExpressionToRegister(args[index], baseRegister + index + 2);
         }
-        _prototype.emitTailCall(
-          baseRegister: baseRegister,
-          argumentCount: args.length + 1,
-        );
+        if (openArgs) {
+          _emitOpenResultExpression(
+            args.last,
+            baseRegister: baseRegister + args.length + 1,
+          );
+          _prototype.emitTailCallWithOpenArguments(baseRegister: baseRegister);
+        } else {
+          _prototype.emitTailCall(
+            baseRegister: baseRegister,
+            argumentCount: args.length + 1,
+          );
+        }
     }
   }
 
@@ -1404,10 +1762,17 @@ final class _LuaBytecodeStructuredCompiler {
       case Identifier(name: final name):
         final resolved = _resolveVariable(name);
         return switch (resolved.kind) {
-          _LuaBytecodeStructuredResolvedVariableKind.local =>
-            _LuaBytecodeStructuredStoreTarget.local(
+          _LuaBytecodeStructuredResolvedVariableKind.local => (() {
+            final local = _lookupLocal(name)!;
+            if (local.attribute == 'const') {
+              throw UnsupportedError(
+                'lua_bytecode emitter cannot assign to const local $name',
+              );
+            }
+            return _LuaBytecodeStructuredStoreTarget.local(
               register: resolved.register!,
-            ),
+            );
+          })(),
           _LuaBytecodeStructuredResolvedVariableKind.upvalue =>
             _LuaBytecodeStructuredStoreTarget.upvalue(
               upvalueIndex: resolved.upvalueIndex!,
@@ -1475,16 +1840,12 @@ final class _LuaBytecodeStructuredCompiler {
           upvalue: target.upvalueIndex!,
         );
       case _LuaBytecodeStructuredStoreTargetKind.global:
-        _prototype.emitSetTabUp(
-          upvalue: _environmentUpvalueIndex,
-          constantIndex: _prototype.addStringConstant(target.name!),
-          source: sourceRegister,
-        );
+        _emitGlobalStore(target.name!, sourceRegister);
       case _LuaBytecodeStructuredStoreTargetKind.field:
-        _prototype.emitSetField(
-          table: target.tableRegister!,
-          constantIndex: _prototype.addStringConstant(target.name!),
-          source: sourceRegister,
+        _emitFieldStore(
+          tableRegister: target.tableRegister!,
+          fieldName: target.name!,
+          sourceRegister: sourceRegister,
         );
       case _LuaBytecodeStructuredStoreTargetKind.immediateIndex:
         _prototype.emitSetI(
@@ -1560,6 +1921,16 @@ final class _LuaBytecodeStructuredCompiler {
 
   bool get _prototypeHasVarargs =>
       (_prototype.flags & LuaBytecodePrototypeFlags.hasHiddenVarargs) != 0;
+
+  void _ensureVarargAvailable() {
+    if (_isTopLevel || _prototypeHasVarargs) {
+      return;
+    }
+    throw UnsupportedError(
+      'lua_bytecode emitter cannot use vararg expressions outside a '
+      'vararg function',
+    );
+  }
 
   _LuaBytecodeStructuredLocal? _lookupLocal(String name) {
     final candidates = _localsByName[name];
@@ -1952,6 +2323,24 @@ AstNode _unwrapExpression(AstNode node) => switch (node) {
 
 bool _isCallExpression(AstNode node) => _unwrapExpression(node) is Call;
 
+bool _isOpenResultExpression(AstNode node) => switch (_unwrapExpression(node)) {
+  Call() || VarArg() => true,
+  _ => false,
+};
+
+bool _hasTrailingOpenExpression(List<AstNode> args) =>
+    args.isNotEmpty && _isOpenResultExpression(args.last);
+
+int _openResultRegisterWidth(AstNode node) => switch (_unwrapExpression(node)) {
+  FunctionCall(args: final args) => args.length + 1,
+  MethodCall(args: final args) => args.length + 2,
+  VarArg() => 1,
+  final expr => throw UnsupportedError(
+    'lua_bytecode emitter does not support open-result '
+    '${expr.runtimeType} expressions',
+  ),
+};
+
 bool _isComparisonOperator(String op) => switch (op) {
   '==' || '~=' || '<' || '<=' || '>' || '>=' => true,
   _ => false,
@@ -1970,6 +2359,24 @@ String _binaryOpcodeFor(String op) => switch (op) {
   '~' => 'BXOR',
   '<<' => 'SHL',
   '>>' => 'SHR',
+  _ => throw UnsupportedError(
+    'lua_bytecode emitter does not support binary operator $op',
+  ),
+};
+
+int _binaryMetamethodEventFor(String op) => switch (op) {
+  '+' => 6,
+  '-' => 7,
+  '*' => 8,
+  '%' => 9,
+  '^' => 10,
+  '/' => 11,
+  '//' => 12,
+  '&' => 13,
+  '|' => 14,
+  '~' => 15,
+  '<<' => 16,
+  '>>' => 17,
   _ => throw UnsupportedError(
     'lua_bytecode emitter does not support binary operator $op',
   ),
@@ -2004,4 +2411,8 @@ int? _immediateIndex(AstNode node) {
     return null;
   }
   return value;
+}
+
+bool _fitsShortStringOperand(int constantIndex) {
+  return constantIndex <= LuaBytecodeInstructionLayout.maxArgC;
 }

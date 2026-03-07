@@ -140,7 +140,9 @@ void _ensureGlobalTable(Environment env) {
     },
   };
 
-  final gValue = Value(gBacking)..setMetatable(proxyMetatable);
+  final gValue = Value(gBacking)
+    ..setMetatable(proxyMetatable)
+    ..globalProxyEnvironment = env;
 
   // self-reference
   gBacking['_G'] = gValue;

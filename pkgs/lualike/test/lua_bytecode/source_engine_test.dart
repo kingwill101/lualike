@@ -62,6 +62,140 @@ return i
       },
     );
 
+    test('executeCode runs do blocks via emitted chunks', () async {
+      final result = await executeCode('''
+local x = 1
+do
+  local y = 4
+  x = x + y
+end
+return x
+''', mode: EngineMode.luaBytecode);
+
+      expect(_unwrap(result), equals(5));
+    });
+
+    test(
+      'executeCode preserves open-result calls used as outer call arguments',
+      () async {
+        final result = await executeCode('''
+local function c12(...)
+  return 55, 2
+end
+
+local call = function (f, args)
+  return f(table.unpack(args, 1, args.n))
+end
+
+local a, b = assert(call(c12, {1, 2}))
+return a, b
+''', mode: EngineMode.luaBytecode);
+
+        expect(_flatten(result), equals(<Object?>[55, 2]));
+      },
+    );
+
+    test('executeCode runs const local declarations via emitted chunks', () async {
+      final result = await executeCode('''
+local prefix <const> = "byte"
+local suffix <const> = "code"
+return prefix .. suffix
+''', mode: EngineMode.luaBytecode);
+
+      expect(_unwrap(result), equals('bytecode'));
+    });
+
+    test(
+      'executeCode preserves escaped string literal bytes via emitted chunks',
+      () async {
+        final result = await executeCode(r'''
+local replaced = string.gsub("a\nb", "\n", "|")
+local folded = "a\z
+  b"
+return replaced, folded, string.byte("\t", 1), string.byte("\n", 1)
+''', mode: EngineMode.luaBytecode);
+
+        expect(_flatten(result), equals(<Object?>['a|b', 'ab', 9, 10]));
+      },
+    );
+
+    test(
+      'executeCode emits arithmetic metamethod follow-up opcodes',
+      () async {
+        final result = await executeCode(r'''
+local smt = getmetatable("")
+smt.__band = function(x, y) return 42 end
+return "x" & "y"
+''', mode: EngineMode.luaBytecode);
+
+        expect(_unwrap(result), equals(42));
+      },
+    );
+
+    test(
+      'executeCode widens fixed-result assignment for final calls',
+      () async {
+        final result = await executeCode(r'''
+local function oneless(a, ...) return ... end
+
+local function f(n, a, ...)
+  local b
+  if n == 0 then
+    local b, c, d = ...
+    return a, b, c, d, oneless(oneless(oneless(...)))
+  end
+
+  n, b, a = n - 1, ..., a
+  return f(n, a, ...)
+end
+
+local a, b, c, d, e = f(4)
+return a == nil, b == nil, c == nil, d == nil, e == nil
+''', mode: EngineMode.luaBytecode);
+
+        expect(
+          _flatten(result),
+          equals(<Object?>[true, true, true, true, true]),
+        );
+      },
+    );
+
+    test(
+      'executeCode clears globals assigned from an empty fixed-result call',
+      () async {
+        final result = await executeCode(r'''
+local function g(...) return ... end
+
+a, b, c = assert(g(1, 2, 3))
+a, b, c = g()
+
+return a, b, c, rawget(_G, 'a'), rawget(_G, 'b'), rawget(_G, 'c')
+''', mode: EngineMode.luaBytecode);
+
+        expect(
+          _flatten(result),
+          equals(<Object?>[null, null, null, null, null, null]),
+        );
+      },
+    );
+
+    test('executeCode rejects assignment to const locals in emitted chunks', () async {
+      await expectLater(
+        executeCode('''
+local x <const> = 1
+x = 2
+return x
+''', mode: EngineMode.luaBytecode),
+        throwsA(
+          predicate(
+            (Object? error) => error.toString().contains(
+              "attempt to assign to const variable 'x'",
+            ),
+          ),
+        ),
+      );
+    });
+
     test('config-selected bridge uses LuaBytecodeRuntime', () async {
       LuaLikeConfig().defaultEngineMode = EngineMode.luaBytecode;
       final bridge = LuaLike();
@@ -151,6 +285,63 @@ return ok1, yielded, midStatus, ok2, finalValue, finalStatus
         equals(<Object?>[true, 5, 'suspended', true, 10, 'dead']),
       );
     });
+
+    test('executeCode passes loader arguments to required source chunks', () async {
+      final tempDir = await Directory.systemTemp.createTemp('lbc_require_');
+      addTearDown(() async {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
+
+      final moduleFile = File('${tempDir.path}/names.lua');
+      await moduleFile.writeAsString('return {...}\n');
+
+      final modulePath = moduleFile.path.replaceAll('\\', '/');
+      final searchPath = '${tempDir.path.replaceAll('\\', '/')}/?.lua';
+
+      final result = await executeCode('''
+package.path = ${_luaStringLiteral(searchPath)}
+local loaded = require("names")
+return loaded[1], loaded[2]
+''', mode: EngineMode.luaBytecode);
+
+      expect(_flatten(result), equals(<Object?>['names', modulePath]));
+    });
+
+    test('executeCode stores globals through a local _ENV table', () async {
+      final result = await executeCode(r'''
+local loader = function (...)
+  local _ENV = {...}
+  function xuxu(x)
+    return x + 20
+  end
+  return _ENV
+end
+
+local pl = loader("pl", ":preload:")
+return pl[1], pl[2], pl.xuxu(10)
+''', mode: EngineMode.luaBytecode);
+
+      expect(_flatten(result), equals(<Object?>['pl', ':preload:', 30]));
+    });
+
+    test(
+      'executeCode snapshots right-hand values before mixed assignment stores',
+      () async {
+        final result = await executeCode(r'''
+function f(a) return a end
+
+local a, b, c
+a = {10, 9, [f] = print}
+a[1], f(a)[2], b, c = {alo = assert}, 10, a[1], a[f], 6, 10
+
+return a[2], b, c == print, a[1].alo == assert
+''', mode: EngineMode.luaBytecode);
+
+        expect(_flatten(result), equals(<Object?>[10, 10, true, true]));
+      },
+    );
 
     test('load and string.dump use the emitted lua_bytecode path', () async {
       LuaLikeConfig().defaultEngineMode = EngineMode.luaBytecode;
@@ -263,7 +454,8 @@ String? _resolveLuacBinary() {
 
 Object? _unwrap(Object? value) {
   return switch (value) {
-    final Value wrapped => wrapped.raw,
+    final Value wrapped => _unwrap(wrapped.raw),
+    final LuaString wrapped => wrapped.toLatin1String(),
     _ => value,
   };
 }
@@ -276,6 +468,13 @@ List<Object?> _flatten(Object? value) {
     final List<Object?> values => values.map(_unwrap).toList(growable: false),
     _ => <Object?>[_unwrap(value)],
   };
+}
+
+String _luaStringLiteral(String value) {
+  final escaped = value
+      .replaceAll(r'\', r'\\')
+      .replaceAll("'", r"\'");
+  return "'$escaped'";
 }
 
 String _setlistBackedConstructorSource() {

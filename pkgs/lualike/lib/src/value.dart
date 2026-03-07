@@ -51,6 +51,13 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// Captured environment for Lua functions to support coroutine cloning.
   Environment? closureEnvironment;
 
+  /// Backing environment for the canonical `_G` proxy table.
+  ///
+  /// Raw writes to `_G` can bypass the proxy metatable when the key already
+  /// exists. Keeping this reference lets those writes mirror the environment
+  /// binding so subsequent `__index` fallback reads stay consistent.
+  Environment? globalProxyEnvironment;
+
   /// The name of the function, if this value is a named function.
   String? functionName;
 
@@ -1341,6 +1348,29 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
             (_tableStringKeyBytes[map] ?? 0) - keyLen(storageKey);
       }
     } catch (_) {}
+
+    _syncGlobalProxyBinding(storageKey, valueToSet);
+  }
+
+  void _syncGlobalProxyBinding(Object? storageKey, Value value) {
+    final env = globalProxyEnvironment;
+    if (env == null || storageKey is! String) {
+      return;
+    }
+
+    final rootEnv = env.root;
+    if (value.isNil) {
+      rootEnv.values.remove(storageKey);
+      return;
+    }
+
+    final existing = rootEnv.values[storageKey];
+    if (existing == null) {
+      rootEnv.values[storageKey] = Box(value, isTransient: true);
+      return;
+    }
+
+    existing.value = value;
   }
 
   /// Marks the underlying table as modified so cached lookups can be
