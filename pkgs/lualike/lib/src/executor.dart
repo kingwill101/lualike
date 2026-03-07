@@ -9,6 +9,7 @@ import 'ir/compiler.dart';
 import 'ir/disassembler.dart';
 import 'ir/runtime.dart';
 import 'ir/vm.dart';
+import 'lua_bytecode/runtime.dart';
 
 typedef RuntimeSetupCallback = void Function(LuaRuntime);
 
@@ -30,9 +31,11 @@ Future<Object?> executeCode(
   final selectedMode = mode ?? LuaLikeConfig().defaultEngineMode;
   final runtime =
       vm ??
-      (selectedMode == EngineMode.ir
-          ? LualikeIrRuntime(fileManager: fileManager)
-          : Interpreter(fileManager: fileManager));
+      switch (selectedMode) {
+        EngineMode.ir => LualikeIrRuntime(fileManager: fileManager),
+        EngineMode.luaBytecode => LuaBytecodeRuntime(fileManager: fileManager),
+        EngineMode.ast => Interpreter(fileManager: fileManager),
+      };
   if (onRuntimeSetup != null) {
     onRuntimeSetup(runtime);
   }
