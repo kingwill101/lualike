@@ -1,10 +1,4 @@
-## Purpose
-
-Define the contract for coroutine support in the interpreter runtime,
-including creation, resumption, yielding, lifecycle inspection, wrapping,
-and close behavior.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Coroutine Creation And Resumption
 The coroutine library SHALL expose `create` and `resume` so that:
@@ -62,8 +56,7 @@ The coroutine library SHALL support cooperative yielding and state inspection so
 - **GIVEN** a supported coroutine body running through the `lua_bytecode` engine path
 - **WHEN** that body calls `coroutine.yield(...)`
 - **THEN** the resumer receives the yielded values
-- **AND** `coroutine.status`, `coroutine.running`, and `coroutine.isyieldable`
-  report the same lifecycle semantics as the AST runtime for the supported subset
+- **AND** `coroutine.status`, `coroutine.running`, and `coroutine.isyieldable` report the same lifecycle semantics as the AST runtime for the supported subset
 
 ### Requirement: Coroutine Wrap And Close
 The coroutine library SHALL provide helpers for wrapping and closing coroutines so that:

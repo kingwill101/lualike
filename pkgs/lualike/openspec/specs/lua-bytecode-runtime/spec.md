@@ -74,6 +74,21 @@ line.
   metamethod semantics for those comparisons
 - **AND** the result matches upstream execution
 
+#### Scenario: Supported bytecode coroutines yield and resume
+- **WHEN** a supported upstream chunk creates a coroutine from a supported
+  `lua_bytecode` closure and that closure calls `coroutine.yield(...)`
+- **THEN** the runtime suspends the bytecode execution state instead of
+  treating the yield as a terminal error
+- **AND** a later `coroutine.resume(...)` continues from the saved bytecode
+  state with the resume arguments delivered back into the yield boundary
+
+#### Scenario: Supported bytecode coroutine paths are validated with real chunks
+- **WHEN** the runtime claims support for a coroutine-related bytecode path
+- **THEN** that path is validated with targeted chunks produced by the
+  tracked upstream `luac`
+- **AND** the tests assert real execution results for
+  create/resume/yield/wrap/close behavior in the supported subset
+
 ### Requirement: Lua Bytecode Compatibility Claims Are Backed By Real Chunk Behavior
 The system SHALL only claim upstream Lua bytecode compatibility for
 artifacts and loaders that operate on real chunk structures for the
@@ -100,3 +115,10 @@ tracked release line.
   is still outside the current `lua_bytecode` runtime subset
 - **THEN** the runtime fails with an explicit `lua_bytecode` diagnostic
 - **AND** it does not silently fall back to host-language comparison rules
+
+#### Scenario: Unsupported bytecode coroutine paths fail explicitly
+- **WHEN** a real upstream chunk reaches a coroutine-related bytecode path
+  still outside the supported subset
+- **THEN** the runtime fails with an explicit `lua_bytecode` coroutine
+  diagnostic
+- **AND** it does not silently continue with corrupted execution state

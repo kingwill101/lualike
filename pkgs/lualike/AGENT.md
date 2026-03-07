@@ -83,6 +83,10 @@ oracle coverage exists.
 `test/stdlib/coroutine_library_test.dart`. Lifecycle regressions should
 prefer focused coroutine tests, especially around weak-table reachability,
 `collectgarbage`, and resume/close edge cases.
+**Bytecode coroutines:** `lua_bytecode` coroutine coverage lives in
+`test/lua_bytecode/execution_test.dart` and
+`test/lua_bytecode/source_engine_test.dart`. Validate both upstream-chunk
+and source-engine paths before claiming new bytecode coroutine support.
 **Logging in hot paths:** In GC and coroutine internals, use
 `Logger.debugLazy` / `Logger.infoLazy` or guard eager logs with
 `Logger.enabled`. Do not add interpolated `Logger.debug(...)` calls inside
