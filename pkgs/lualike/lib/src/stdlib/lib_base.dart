@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:lualike/lualike.dart';
 
 import 'package:lualike/src/io/lua_file.dart';
+import 'package:lualike/src/runtime/runtime_hints.dart';
 import 'package:lualike/src/table_storage.dart';
 import 'package:lualike/src/utils/file_system_utils.dart';
 import 'package:lualike/src/utils/type.dart';
@@ -1382,22 +1383,37 @@ class CollectGarbageFunction extends BuiltinFunction {
         case "collect":
           // "collect": Performs a full garbage-collection cycle
           final gcManager = interpreter!.gc;
+          final insideSortComparator = isInsideSortComparator(interpreter!);
           if (gcManager.isFinalizerActive) {
             // Lua returns false when collection is in a finalizer to prevent
             // re-entrancy (the finalizer may attempt another collect).
             return Value(false);
           }
           if (gcManager.isCycleActive) {
-            final drained = gcManager.drainCurrentIncrementalCycle(
-              maxIterations: 8192,
-              stepSize: 512,
-            );
-            if (!drained && Logger.enabled) {
-              Logger.debug(
-                'collectgarbage("collect") could not drain incremental cycle before manual collect (phase=${gcManager.currentPhase})',
-                category: 'Base',
+            if (insideSortComparator) {
+              gcManager.abandonIncrementalCycleForMajorCollect();
+              if (Logger.enabled) {
+                Logger.debug(
+                  'collectgarbage("collect") abandoned incremental cycle inside sort comparator',
+                  category: 'Base',
+                );
+              }
+            } else {
+              final drained = gcManager.drainCurrentIncrementalCycle(
+                maxIterations: 8192,
+                stepSize: 512,
               );
+              if (!drained && Logger.enabled) {
+                Logger.debug(
+                  'collectgarbage("collect") could not drain incremental cycle before manual collect (phase=${gcManager.currentPhase})',
+                  category: 'Base',
+                );
+              }
             }
+          }
+          if (insideSortComparator && gcManager.shouldThrottleManualCollect()) {
+            gcManager.noteManualCollectSkip();
+            return Value(true);
           }
           if (!gcManager.tryEnterManualCollect()) {
             return Value(false);
@@ -1609,15 +1625,7 @@ class PairsFunction extends BuiltinFunction {
     }
     final nextFunc = interpreter!.globals.get('next');
     final nextValue = nextFunc is Value ? nextFunc : Value(nextFunc);
-
-    final iterator = Value((List<Object?> iterArgs) async {
-      final normalizedArgs = iterArgs
-          .map((arg) => arg is Value ? arg : Value(arg))
-          .toList();
-      return await interpreter!.callFunction(nextValue, normalizedArgs);
-    });
-
-    return Value.multi([iterator, table, Value(null)]);
+    return Value.multi([nextValue, table, Value(null)]);
   }
 }
 

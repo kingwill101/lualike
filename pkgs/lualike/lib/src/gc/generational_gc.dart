@@ -181,7 +181,9 @@ class GenerationalGCManager {
     final newRegistrations =
         totalRegistrations - _registrationsAtLastManualCollect;
 
-    if (_manualCollectCooldown > 0 && newRegistrations < maxNewRegistrations) {
+    if (_manualCollectCooldown > 0 &&
+        newRegistrations < maxNewRegistrations &&
+        !hasPendingFinalizers) {
       _manualCollectCooldown--;
       return true;
     }
@@ -965,6 +967,22 @@ class GenerationalGCManager {
       }
     }
     return _currentPhase == GCPhase.idle;
+  }
+
+  void abandonIncrementalCycleForMajorCollect() {
+    if (_currentPhase == GCPhase.idle) {
+      return;
+    }
+    _objectsToMark.clear();
+    _objectsToSweep.clear();
+    _sweepingIndex = 0;
+    _toBeFinalized.clear();
+    weakValuesTables.clear();
+    ephemeronTables.clear();
+    allWeakTables.clear();
+    _pendingWeakKeyRemovals.clear();
+    _currentPhase = GCPhase.idle;
+    _cycleComplete = true;
   }
 
   /// Promotes an object from the young generation to the old generation.

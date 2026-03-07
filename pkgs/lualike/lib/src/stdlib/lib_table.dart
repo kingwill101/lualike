@@ -1,5 +1,6 @@
 import 'package:lualike/lualike.dart';
 
+import 'package:lualike/src/runtime/runtime_hints.dart';
 import 'package:lualike/src/table_storage.dart';
 import 'package:lualike/src/utils/type.dart';
 import 'library.dart';
@@ -50,7 +51,7 @@ class TableLibrary extends Library {
     context.define("concat", _TableConcat());
     context.define("move", _TableMove());
     context.define("pack", _TablePack());
-    context.define("sort", _TableSort());
+    context.define("sort", _TableSort(context.vm));
     context.define("unpack", _TableUnpack());
   }
 }
@@ -447,7 +448,7 @@ class _TableMove extends BuiltinFunction {
 }
 
 class _TableSort extends BuiltinFunction {
-  _TableSort() : super();
+  _TableSort([super.interpreter]);
   @override
   Object? call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -815,7 +816,18 @@ class _TableSort extends BuiltinFunction {
         }
 
         final func = comp.raw;
-        final result = await func([valA, valB]);
+        final runtime = interpreter;
+        if (runtime != null) {
+          enterSortComparator(runtime);
+        }
+        late final Object? result;
+        try {
+          result = await func([valA, valB]);
+        } finally {
+          if (runtime != null) {
+            exitSortComparator(runtime);
+          }
+        }
         final boolResult = result is Value
             ? result.raw == true
             : result == true;
@@ -878,7 +890,18 @@ class _TableSort extends BuiltinFunction {
         final valB = map[i + 1];
 
         if (valA != null && valB != null) {
-          final result = await func([valA, valB]);
+          final runtime = interpreter;
+          if (runtime != null) {
+            enterSortComparator(runtime);
+          }
+          late final Object? result;
+          try {
+            result = await func([valA, valB]);
+          } finally {
+            if (runtime != null) {
+              exitSortComparator(runtime);
+            }
+          }
           final boolResult = result is Value
               ? result.raw == true
               : result == true;
@@ -902,7 +925,18 @@ class _TableSort extends BuiltinFunction {
         final valB = map[1];
 
         if (valA != null && valB != null) {
-          final result = await func([valA, valB]);
+          final runtime = interpreter;
+          if (runtime != null) {
+            enterSortComparator(runtime);
+          }
+          late final Object? result;
+          try {
+            result = await func([valA, valB]);
+          } finally {
+            if (runtime != null) {
+              exitSortComparator(runtime);
+            }
+          }
           final boolResult = result is Value
               ? result.raw == true
               : result == true;

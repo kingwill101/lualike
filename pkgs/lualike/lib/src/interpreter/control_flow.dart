@@ -775,6 +775,11 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     var state = components.length > 1 ? components[1] : null;
     var control = components.length > 2 ? components[2] : Value(null);
 
+    final directPairsState = _directPairsState(iterFunc, state);
+    if (directPairsState case final Value table) {
+      return await _executeDirectPairsLoop(node, table);
+    }
+
     // Optional 4th component: a to-be-closed variable (Lua 5.4 semantics)
     // Used by io.lines(filename) to close the file when the loop ends.
     Value? toCloseVar;
@@ -811,17 +816,19 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       context: {'hasIterFunc': iterFunc != null, 'hasState': state != null},
     );
 
-    // Unwrap iterFunc if needed
+    Value? iterCallable;
     if (iterFunc is Value) {
       Logger.debug(
-        'ForInLoop: Unwrapping iterFunc from Value',
+        'ForInLoop: Using iterator Value directly',
         category: 'ControlFlow',
         context: {},
       );
-      iterFunc = iterFunc.raw;
+      iterCallable = iterFunc;
+    } else if (iterFunc is Function || iterFunc is BuiltinFunction) {
+      iterCallable = Value(iterFunc);
     }
 
-    if (iterFunc is! Function) {
+    if (iterCallable == null) {
       Logger.warning(
         'ForInLoop: iterFunc is not a Function: ${iterFunc.runtimeType}',
         category: 'ControlFlow',
@@ -908,7 +915,10 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
 
         Object? items;
         try {
-          items = await iterFunc([state, control]);
+          items = await (this as Interpreter)._callFunction(iterCallable, [
+            state,
+            control,
+          ]);
         } catch (e) {
           if (this is Interpreter && (this as Interpreter).isInProtectedCall) {
             rethrow;
@@ -1248,6 +1258,146 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       }
 
       return result;
+    }
+
+    return null;
+  }
+
+  Value? _directPairsState(Object? iterFunc, Object? state) {
+    if (state is! Value || state.raw is! Map || state.tableWeakMode != null) {
+      return null;
+    }
+
+    final nextGlobal = globals.get('next');
+    final nextValue = nextGlobal is Value ? nextGlobal : Value(nextGlobal);
+    return switch (iterFunc) {
+      final Value value
+          when identical(value, nextValue) ||
+              identical(value.raw, nextValue.raw) =>
+        state,
+      _ => null,
+    };
+  }
+
+  List<MapEntry<dynamic, dynamic>> _snapshotPairsEntries(Value table) {
+    final raw = table.raw;
+    if (raw case final TableStorage storage) {
+      final entries = <MapEntry<dynamic, dynamic>>[];
+      for (var index = 1; index <= storage.arrayLength; index++) {
+        final value = storage.denseValueAt(index);
+        if (value != null) {
+          entries.add(MapEntry(index, value));
+        }
+      }
+      entries.addAll(storage.hashEntries);
+      return entries;
+    }
+
+    if (raw is Map) {
+      return raw.entries.toList(growable: false);
+    }
+
+    return const <MapEntry<dynamic, dynamic>>[];
+  }
+
+  Future<Object?> _executeDirectPairsLoop(ForInLoop node, Value table) async {
+    final entries = _snapshotPairsEntries(table);
+    final loopEnv = Environment(
+      parent: globals,
+      interpreter: this as Interpreter,
+    );
+    final prevEnv = globals;
+    final declaredNames = node.names.map((name) => name.name).toList();
+    for (final name in declaredNames) {
+      loopEnv.declare(name, null);
+    }
+
+    final baseBindings = Map<String, Box<dynamic>>.from(loopEnv.values);
+    final baseKeys = baseBindings.keys.toSet();
+    final baseToBeClosedLen = loopEnv.toBeClosedVars.length;
+
+    Future<void> resetLoopEnvironment([Object? error]) async {
+      if (loopEnv.toBeClosedVars.length > baseToBeClosedLen) {
+        final namesToClose = <String>[];
+        while (loopEnv.toBeClosedVars.length > baseToBeClosedLen) {
+          namesToClose.add(loopEnv.toBeClosedVars.removeLast());
+        }
+        for (final name in namesToClose) {
+          final box = loopEnv.values.remove(name);
+          final value = box?.value;
+          if (value is Value) {
+            try {
+              await value.close(error);
+            } catch (_) {}
+          }
+        }
+      }
+
+      if (loopEnv.values.length > baseKeys.length) {
+        final keysToRemove = <String>[];
+        loopEnv.values.forEach((key, _) {
+          if (!baseKeys.contains(key)) {
+            keysToRemove.add(key);
+          }
+        });
+        for (final key in keysToRemove) {
+          loopEnv.values.remove(key);
+        }
+      }
+
+      for (final entry in baseBindings.entries) {
+        loopEnv.values[entry.key] = entry.value;
+      }
+
+      for (final name in declaredNames) {
+        final box = loopEnv.values[name];
+        if (box != null && !box.hasUpvalueReferences) {
+          box.value = null;
+        }
+      }
+    }
+
+    void assignLoopValues(List<Object?> values) {
+      for (var i = 0; i < declaredNames.length; i++) {
+        final name = declaredNames[i];
+        final rawValue = i < values.length ? values[i] : null;
+        final box = loopEnv.values[name];
+        if (box != null) {
+          box.value = rawValue is Value ? rawValue : Value(rawValue);
+        }
+      }
+    }
+
+    try {
+      for (final entry in entries) {
+        setCurrentEnv(loopEnv);
+        try {
+          assignLoopValues([entry.key, entry.value]);
+          final bodyResult = await _executeBlockStatements(node.body);
+          if (bodyResult is TailCallSignal) {
+            await resetLoopEnvironment();
+            return bodyResult;
+          }
+        } on BreakException {
+          await resetLoopEnvironment();
+          return null;
+        } on ReturnException {
+          await resetLoopEnvironment();
+          rethrow;
+        } on GotoException {
+          await resetLoopEnvironment();
+          rethrow;
+        } catch (e) {
+          await resetLoopEnvironment(e);
+          rethrow;
+        } finally {
+          setCurrentEnv(prevEnv);
+        }
+
+        await resetLoopEnvironment();
+      }
+    } finally {
+      setCurrentEnv(prevEnv);
     }
 
     return null;
