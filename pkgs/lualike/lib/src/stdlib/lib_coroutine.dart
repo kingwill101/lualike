@@ -65,7 +65,7 @@ bool _isTrue(Object? value) {
 
 String _statusToString(LuaRuntime interpreter, Coroutine coroutine) {
   final Coroutine main = interpreter.getMainThread();
-  final Coroutine? current = interpreter.getCurrentCoroutine();
+  final Coroutine? current = Coroutine.active;
 
   if (identical(coroutine, main)) {
     return coroutine.status == CoroutineStatus.dead ? "dead" : "running";
@@ -149,9 +149,8 @@ class _CoroutineRunning extends BuiltinFunction {
 
   @override
   Object? call(List<Object?> args) {
-    final Coroutine current =
-        _interpreter.getCurrentCoroutine() ?? _interpreter.getMainThread();
     final Coroutine main = _interpreter.getMainThread();
+    final Coroutine current = Coroutine.active ?? main;
     final isMain = identical(current, main);
     return Value.multi([_threadValue(_interpreter, current), Value(isMain)]);
   }
@@ -351,7 +350,7 @@ class _CoroutineIsYieldable extends BuiltinFunction {
     final Coroutine main = interpreter!.getMainThread();
 
     if (args.isEmpty) {
-      final Coroutine current = interpreter!.getCurrentCoroutine() ?? main;
+      final Coroutine current = Coroutine.active ?? main;
       return Value(current.isYieldable(main));
     }
 

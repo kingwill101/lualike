@@ -2075,19 +2075,20 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         );
       }
 
-      // Ensure coroutine status is suspended after yield
-      if (ye.coroutine != null) {
+      final resumedCoroutine = ye.coroutine;
+      if (resumedCoroutine != null &&
+          resumedCoroutine.status != CoroutineStatus.dead) {
         if (Logger.enabled) {
           Logger.debug(
-            '>>> Forcing coroutine status to suspended after yield (interpreter)',
+            '>>> Restoring resumed coroutine after yield (interpreter)',
             category: 'Coroutine',
           );
         }
-        ye.coroutine!.status = CoroutineStatus.suspended;
+        resumedCoroutine.status = CoroutineStatus.running;
+        interpreter.setCurrentCoroutine(resumedCoroutine);
+      } else {
+        interpreter.setCurrentCoroutine(prevCoroutine);
       }
-
-      // Restore the previous coroutine (main thread or previous)
-      interpreter.setCurrentCoroutine(prevCoroutine);
 
       // Return the resume arguments as the result of this function call
       return _normalizeReturnValue(resumeArgs);

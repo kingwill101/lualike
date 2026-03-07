@@ -124,6 +124,27 @@ return t.a.b.add(3), t.a.b:scale(5)
       },
     );
 
+    test('executeCode runs coroutine yield and resume via bytecode', () async {
+      final result = await executeCode('''
+local co = coroutine.create(function(a)
+  local resumed = coroutine.yield(a + 1)
+  return a + resumed
+end)
+
+local ok1, yielded = coroutine.resume(co, 4)
+local midStatus = coroutine.status(co)
+local ok2, finalValue = coroutine.resume(co, 6)
+local finalStatus = coroutine.status(co)
+
+return ok1, yielded, midStatus, ok2, finalValue, finalStatus
+''', mode: EngineMode.luaBytecode);
+
+      expect(
+        _flatten(result),
+        equals(<Object?>[true, 5, 'suspended', true, 10, 'dead']),
+      );
+    });
+
     test('load and string.dump use the emitted lua_bytecode path', () async {
       LuaLikeConfig().defaultEngineMode = EngineMode.luaBytecode;
       final bridge = LuaLike();
