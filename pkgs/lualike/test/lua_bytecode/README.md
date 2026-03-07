@@ -45,6 +45,9 @@ The executable `lua_bytecode` VM currently has oracle-backed coverage for:
   dictionary-style tables, and table `__len`
 - supported `CLOSE` / `TBC` / to-be-closed execution paths, including generic
   `for` close slots and invalid close-value diagnostics
+- coroutine create/resume/yield/status/wrap/close behavior for the current
+  supported bytecode subset, including source-emitted and upstream chunk
+  coverage
 
 Still unsupported in the runtime subset:
 
