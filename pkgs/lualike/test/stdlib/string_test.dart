@@ -203,6 +203,27 @@ void main() {
       expect((bridge.getGlobal('n') as Value).unwrap(), equals(4));
     });
 
+    test('string.gsub callable replacement resolves tail calls', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        local function incd (n)
+          local s = string.format("%d", n)
+          s = string.gsub(s, "%d$", function (d)
+            return string.char(string.byte(d) + 1)
+          end)
+          return s
+        end
+
+        incd_result = incd(math.maxinteger)
+        incd_ok = incd_result == "9223372036854775808"
+        tonumber_ok = tonumber(incd_result) == math.maxinteger + 1.0
+      ''');
+
+      expect((bridge.getGlobal('incd_result') as Value).unwrap(), equals("9223372036854775808"));
+      expect((bridge.getGlobal('incd_ok') as Value).unwrap(), isTrue);
+      expect((bridge.getGlobal('tonumber_ok') as Value).unwrap(), isTrue);
+    });
+
     test('string.gmatch', () async {
       final bridge = LuaLike();
       await bridge.execute('''

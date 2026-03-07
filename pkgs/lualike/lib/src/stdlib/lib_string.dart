@@ -1267,6 +1267,20 @@ class _StringGsub extends BuiltinFunction {
       final lp = _compileLuaPatternCached(pattern);
 
       String result;
+      Future<Object?> resolveTailSignal(Object? value) async {
+        final runtime = interpreter;
+        if (runtime == null || value is! TailCallSignal) {
+          return value;
+        }
+        final callee = value.functionValue is Value
+            ? value.functionValue as Value
+            : Value(value.functionValue);
+        final normalizedArgs = value.args
+            .map((arg) => arg is Value ? arg : Value(arg))
+            .toList();
+        return runtime.callFunction(callee, normalizedArgs);
+      }
+
       Future<dynamic> invokeCallable(
         Value callable,
         List<Value> captures,
@@ -1274,7 +1288,8 @@ class _StringGsub extends BuiltinFunction {
         try {
           if (callable.raw is Function) {
             final result = (callable.raw as Function)(captures);
-            return result is Future ? await result : result;
+            final awaited = result is Future ? await result : result;
+            return resolveTailSignal(awaited);
           }
           final runtime = interpreter;
           if (runtime == null) {
