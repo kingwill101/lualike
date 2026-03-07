@@ -413,7 +413,7 @@ class Coroutine extends GCObject {
     throw YieldException(
       values.cast<Value>(), // Cast to List<Value>
       completer!.future, // The future to await on next resume
-      this,
+      functionBody == null ? this : null,
     );
   }
 
