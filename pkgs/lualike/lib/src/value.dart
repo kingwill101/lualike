@@ -482,6 +482,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     return null;
   }
 
+  bool _isLuaClosureValue() {
+    return functionBody != null ||
+        closureEnvironment != null ||
+        (upvalues?.isNotEmpty ?? false);
+  }
+
   factory Value.toBeClose(dynamic value, {Map<String, dynamic>? metatable}) {
     if (value != null && value != false) {
       // Verify the value has a __close metamethod
@@ -1501,6 +1507,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
 
     final map = raw as Map;
+    if (map case final TableStorage storage) {
+      return storage.highestPositiveIntegerKey();
+    }
+
     // Lua's length is undefined for tables with holes; adopt a practical rule:
     // use the highest positive integer index whose value is non-nil. This
     // lets callers iterate 1..#t across sparse results (e.g., unpack) while
@@ -1767,10 +1777,31 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       }
     }
 
+    Future<Object?> normalizeTailCallSignal(Object? result) async {
+      if (result is! TailCallSignal) {
+        return result;
+      }
+
+      final interpreter =
+          (result.functionValue is Value
+              ? (result.functionValue as Value)._resolveInterpreter()
+              : null) ??
+          _resolveInterpreter();
+      if (interpreter == null) {
+        return result;
+      }
+
+      final callee = result.functionValue is Value
+          ? result.functionValue as Value
+          : Value(result.functionValue);
+      return interpreter.callFunction(callee, result.args);
+    }
+
     if (method is Function) {
       try {
         var result = method(list);
         if (result is Future) result = await result;
+        result = await normalizeTailCallSignal(result);
         return result;
       } on TailCallException catch (t) {
         final callee = t.functionValue is Value
@@ -1791,6 +1822,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       try {
         var result = method.call(list);
         if (result is Future) result = await result;
+        result = await normalizeTailCallSignal(result);
         return result;
       } on TailCallException catch (t) {
         final callee = t.functionValue is Value
@@ -1809,9 +1841,17 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       }
     } else if (method is Value) {
       if (method.raw is Function) {
+        final interpreter =
+            method._resolveInterpreter() ?? _resolveInterpreter();
+        if (interpreter != null && method._isLuaClosureValue()) {
+          var result = await interpreter.callFunction(method, list);
+          result = await normalizeTailCallSignal(result);
+          return result;
+        }
         try {
           var result = (method.raw as Function)(list);
           if (result is Future) result = await result;
+          result = await normalizeTailCallSignal(result);
           return result;
         } on TailCallException catch (t) {
           final callee = t.functionValue is Value
@@ -1953,6 +1993,26 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       throw UnsupportedError("attempt to call a nil value");
     }
 
+    Object? normalizeTailCallSignal(Object? result) {
+      if (result is! TailCallSignal) {
+        return result;
+      }
+
+      final interpreter =
+          (result.functionValue is Value
+              ? (result.functionValue as Value)._resolveInterpreter()
+              : null) ??
+          _resolveInterpreter();
+      if (interpreter == null) {
+        return result;
+      }
+
+      final callee = result.functionValue is Value
+          ? result.functionValue as Value
+          : Value(result.functionValue);
+      return interpreter.callFunction(callee, result.args);
+    }
+
     // Special handling for __index and __newindex when they are tables
     if (s == '__index' && method is Value && method.raw is Map) {
       // __index is a table, so do lookup through that table
@@ -1974,15 +2034,22 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
 
     if (method is Function) {
-      return method(list);
+      return normalizeTailCallSignal(method(list));
     } else if (method is BuiltinFunction) {
-      return method.call(list);
+      return normalizeTailCallSignal(method.call(list));
     } else if (method is Value) {
       if (method.raw is Function) {
+        final interpreter =
+            method._resolveInterpreter() ?? _resolveInterpreter();
+        if (interpreter != null && method._isLuaClosureValue()) {
+          return interpreter.callFunction(method, list);
+        }
         final result = (method.raw as Function)(list);
-        return result;
+        return normalizeTailCallSignal(result);
       } else if (method.raw is BuiltinFunction) {
-        return (method.raw as BuiltinFunction).call(list);
+        return normalizeTailCallSignal(
+          (method.raw as BuiltinFunction).call(list),
+        );
       } else if (method.raw is FunctionDef ||
           method.raw is FunctionLiteral ||
           method.raw is FunctionBody) {

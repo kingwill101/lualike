@@ -1,6 +1,8 @@
 import 'dart:collection';
 import 'dart:typed_data';
 
+import 'package:lualike/src/value.dart';
+
 class TableStorage extends MapBase<dynamic, dynamic> {
   TableStorage();
 
@@ -272,6 +274,38 @@ class TableStorage extends MapBase<dynamic, dynamic> {
       return _occupied[idx] != 0 ? _array[idx] : null;
     }
     return null;
+  }
+
+  int highestPositiveIntegerKey() {
+    var maxIndex = 0;
+
+    for (var index = _array.length - 1; index >= 0; index--) {
+      if (index >= _occupied.length || _occupied[index] == 0) {
+        continue;
+      }
+      final value = _array[index];
+      final isNil = value == null || (value is Value && value.raw == null);
+      if (!isNil) {
+        maxIndex = index + 1;
+        break;
+      }
+    }
+
+    for (final MapEntry(key: key, value: value) in _hash.entries) {
+      final isNil = value == null || (value is Value && value.raw == null);
+      if (isNil) {
+        continue;
+      }
+      final arrayIndex = _arrayIndexFor(key);
+      if (arrayIndex != null) {
+        final oneBasedIndex = arrayIndex + 1;
+        if (oneBasedIndex > maxIndex) {
+          maxIndex = oneBasedIndex;
+        }
+      }
+    }
+
+    return maxIndex;
   }
 
   Iterable<MapEntry<dynamic, dynamic>> get hashEntries => _hash.entries;

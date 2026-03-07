@@ -908,10 +908,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     return funcValue;
   }
 
-  Value? _fastStringLiteralReturn(
-    FunctionBody node,
-    Environment closureEnv,
-  ) {
+  Value? _fastStringLiteralReturn(FunctionBody node, Environment closureEnv) {
     if (node.body.length != 1) {
       return null;
     }
@@ -926,7 +923,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       return null;
     }
 
-    final literalValue = LuaString.fromBytes(expression.bytes);
+    final literalValue = _sharedLiteralLuaString(expression.bytes);
     final functionValue = Value(
       (List<Object?> _) async => Value(literalValue),
       functionBody: node,
@@ -935,6 +932,15 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     functionValue.interpreter = this as Interpreter;
     functionValue.upvalues = const <Upvalue>[];
     return functionValue;
+  }
+
+  LuaString _sharedLiteralLuaString(List<int> bytes) {
+    final interpreter = this as Interpreter;
+    final key = bytes.join(',');
+    return interpreter.literalStringInternPool.putIfAbsent(
+      key,
+      () => LuaString.fromBytes(bytes),
+    );
   }
 
   /// Creates a filtered environment that excludes specified local variables.

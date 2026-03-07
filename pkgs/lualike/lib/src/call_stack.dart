@@ -8,19 +8,19 @@ import 'value.dart';
 /// Represents a call frame in the interpreter's call stack.
 class CallFrame {
   /// The name of the function being called.
-  final String functionName;
+  String functionName;
 
   /// The AST node representing the function call.
-  final AstNode? callNode;
+  AstNode? callNode;
 
   /// The script path, if known
-  final String? scriptPath;
+  String? scriptPath;
 
   /// The most recent line number executed within this frame (1-based). -1 when unknown.
   int currentLine;
 
   /// The environment active for this frame (if any)
-  final Environment? env;
+  Environment? env;
 
   /// Debug locals for this frame, in enumeration order (1-based for Lua)
   /// Each entry stores the visible name and the underlying Value
