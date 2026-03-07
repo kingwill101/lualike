@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'chunk.dart';
 import 'instruction.dart';
+import '../number_limits.dart';
+import '../number_utils.dart';
 import 'opcode.dart';
 
 const int luaBytecodeMaxShortStringLength = 40;
@@ -513,12 +515,12 @@ bool _canUseSignedBxLiteral(int value) {
 }
 
 int _toLuaInteger(BigInt value) {
-  const minInt64 = -9223372036854775808;
-  const maxInt64 = 9223372036854775807;
-  if (value < BigInt.from(minInt64) || value > BigInt.from(maxInt64)) {
+  final integer = NumberUtils.toBigInt(value);
+  if (integer < BigInt.from(NumberLimits.minInteger) ||
+      integer > BigInt.from(NumberLimits.maxInteger)) {
     throw UnsupportedError(
       'Lua bytecode foundation only supports 64-bit integer literals',
     );
   }
-  return value.toInt();
+  return integer.toInt();
 }

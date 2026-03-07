@@ -3,6 +3,8 @@ library;
 
 import 'package:lualike/src/lua_bytecode/chunk.dart';
 import 'package:lualike/src/lua_bytecode/instruction.dart';
+import 'package:lualike/src/lua_bytecode/parser.dart';
+import 'package:lualike/src/lua_bytecode/serializer.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -69,6 +71,33 @@ void main() {
         equals(LuaBytecodeUpvalueKind.toBeClosed),
       );
       expect(prototype.upvalues.single.name, equals('_ENV'));
+    });
+
+    test('serializer round-trips mininteger constants', () {
+      final chunk = LuaBytecodeBinaryChunk(
+        header: const LuaBytecodeChunkHeader.official(),
+        rootUpvalueCount: 1,
+        mainPrototype: const LuaBytecodePrototype(
+          lineDefined: 0,
+          lastLineDefined: 0,
+          parameterCount: 0,
+          flags: 0,
+          maxStackSize: 2,
+          constants: <LuaBytecodeConstant>[
+            LuaBytecodeIntegerConstant(-9223372036854775808),
+          ],
+        ),
+      );
+
+      final bytes = serializeLuaBytecodeChunk(chunk);
+      final parsed = const LuaBytecodeParser().parse(bytes);
+
+      final parsedConstant =
+          parsed.mainPrototype.constants.single as LuaBytecodeIntegerConstant;
+      expect(
+        parsedConstant.value,
+        equals(-9223372036854775808),
+      );
     });
 
     test('line mapping follows absolute checkpoints and deltas', () {

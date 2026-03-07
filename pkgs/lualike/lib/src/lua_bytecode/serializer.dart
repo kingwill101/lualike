@@ -1,6 +1,8 @@
 import 'dart:typed_data';
 
 import 'chunk.dart';
+import '../number_limits.dart';
+import '../number_utils.dart';
 
 Uint8List serializeLuaBytecodeChunk(LuaBytecodeBinaryChunk chunk) {
   final writer = _LuaBytecodeWriter();
@@ -134,19 +136,37 @@ final class _LuaBytecodeWriter {
   }
 
   void _writeLuaInteger(int value) {
-    final encoded = value >= 0 ? value << 1 : ((~value) << 1) | 1;
-    _writeVarint(encoded);
+    final bigValue = NumberUtils.toBigInt(value);
+    if (bigValue < BigInt.from(NumberLimits.minInteger) ||
+        bigValue > BigInt.from(NumberLimits.maxInteger)) {
+      throw RangeError.value(
+        value,
+        'value',
+        'Lua bytecode integer constants must fit in signed ${NumberLimits.sizeInBits}-bit range',
+      );
+    }
+    final encoded = bigValue >= BigInt.zero
+        ? bigValue << 1
+        : (((-bigValue) - BigInt.one) << 1) | BigInt.one;
+    _writeBigVarint(encoded);
   }
 
   void _writeVarint(int value) {
     if (value < 0) {
       throw RangeError.value(value, 'value', 'Varint must be non-negative');
     }
+    _writeBigVarint(BigInt.from(value));
+  }
 
-    final groups = <int>[value & 0x7f];
+  void _writeBigVarint(BigInt value) {
+    if (value.isNegative) {
+      throw ArgumentError.value(value, 'value', 'Varint must be non-negative');
+    }
+
+    final groups = <int>[(value & BigInt.from(0x7f)).toInt()];
     var remaining = value >> 7;
-    while (remaining > 0) {
-      groups.add(remaining & 0x7f);
+    while (remaining > BigInt.zero) {
+      groups.add((remaining & BigInt.from(0x7f)).toInt());
       remaining >>= 7;
     }
 

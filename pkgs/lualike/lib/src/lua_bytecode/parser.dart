@@ -2,6 +2,8 @@ import 'dart:typed_data';
 
 import 'chunk.dart';
 import 'instruction.dart';
+import '../number_limits.dart';
+import '../number_utils.dart';
 
 typedef _PrototypeDebugInfo = ({
   List<int> lineInfo,
@@ -277,18 +279,28 @@ final class _LuaBytecodeReader {
   }
 
   int _readLuaInteger() {
-    final encoded = _readVarint();
-    if (encoded.isOdd) {
-      return ~(encoded >> 1);
+    final encoded = _readBigVarint();
+    final integer = encoded.isOdd
+        ? -((encoded >> 1) + BigInt.one)
+        : (encoded >> 1);
+    if (integer < BigInt.from(NumberLimits.minInteger) ||
+        integer > BigInt.from(NumberLimits.maxInteger)) {
+      throw _formatError(
+        'Lua integer constant exceeds signed ${NumberLimits.sizeInBits}-bit range',
+      );
     }
-    return encoded >> 1;
+    return NumberUtils.toInt(integer);
   }
 
   int _readVarint() {
-    var value = 0;
+    return _readBigVarint().toInt();
+  }
+
+  BigInt _readBigVarint() {
+    var value = BigInt.zero;
     while (true) {
       final byte = _readByte();
-      value = (value << 7) | (byte & 0x7f);
+      value = (value << 7) | BigInt.from(byte & 0x7f);
       if ((byte & 0x80) == 0) {
         return value;
       }
