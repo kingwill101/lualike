@@ -23,6 +23,14 @@ class LuaGrammarDefinition extends GrammarDefinition {
   /// Expose whitespace/comments parser for testing
   Parser whiteSpaceAndCommentsForTest() => _whiteSpaceAndComments();
 
+  /// Expose a complete expression parser for narrow load() fast paths.
+  Parser expressionParser() =>
+      ((_whiteSpaceAndComments().star() &
+                  ref0(_expression) &
+                  _whiteSpaceAndComments().star())
+              .pick(1))
+          .end();
+
   /// Source file used for span annotations.
   SourceFile _sourceFile;
 
@@ -161,13 +169,15 @@ class LuaGrammarDefinition extends GrammarDefinition {
     );
   }
 
-  Parser _span(Parser inner) => (position() & inner & position()).map((vals) {
-    final start = vals[0] as int;
-    final node = vals[1] as AstNode;
-    final end = vals[2] as int;
-    node.setSpan(_sourceFile.span(start, end));
-    return node;
-  });
+  Parser _span(Parser inner) {
+    return (position() & inner & position()).map((vals) {
+      final start = vals[0] as int;
+      final node = vals[1] as AstNode;
+      final end = vals[2] as int;
+      node.setSpan(_sourceFile.span(start, end));
+      return node;
+    });
+  }
 
   Parser _identifier() {
     final base = (_letter() & (_letter() | digit()).star()).flatten();
@@ -181,7 +191,6 @@ class LuaGrammarDefinition extends GrammarDefinition {
           final text = vals[1] as String;
           final end = vals[2] as int;
           final id = Identifier(text);
-
           id.setSpan(_sourceFile.span(start, end));
           return id;
         })
@@ -1316,14 +1325,9 @@ class _LongCommentBracketParser extends Parser<String> {
 ///
 /// This will eventually replace the old `parse()` from `grammar_parser.dart`.
 Program parse(String source, {Uri? url}) {
-  // Normalize all line endings to '\n' so the grammar and span calculations
-  // behave consistently across inputs using CR, LFCR, or CRLF.
-  // This mirrors Lua's tolerance for platform-specific newlines while keeping
-  // line counts stable for debug.getinfo and error reporting.
-  final normalizedSource = source
-      .replaceAll('\r\n', '\n')
-      .replaceAll('\n\r', '\n')
-      .replaceAll('\r', '\n');
+  // Callers normalize line endings before reaching the parser. Avoid
+  // rebuilding the input string here on every load() call.
+  final normalizedSource = source;
 
   // Build a SourceFile so we can provide detailed spans on errors.
   final sourceFile = SourceFile.fromString(normalizedSource, url: url);
@@ -1432,10 +1436,58 @@ Program parse(String source, {Uri? url}) {
   throw FormatException(formatted);
 }
 
+AstNode parseExpression(String source, {Uri? url}) {
+  final sourceFile = SourceFile.fromString(source, url: url);
+  _sharedLuaExpressionParser.definition.updateSourceFile(sourceFile);
+  final parser = _sharedLuaExpressionParser.parser;
+
+  Result result;
+  try {
+    result = parser.parse(source);
+  } catch (e) {
+    int pos = 0;
+    String message = e.toString();
+
+    if (e is ParserException) {
+      pos = e.failure.position;
+      message = e.failure.message;
+    } else if (e is Failure) {
+      pos = e.position;
+      message = e.message;
+    }
+
+    final span = sourceFile.span(pos, pos < source.length ? pos + 1 : pos);
+    throw LuaError(message, span: span, cause: e);
+  }
+
+  if (result case Success(value: final AstNode expression)) {
+    if (expression.span == null) {
+      expression.setSpan(sourceFile.span(0, source.length));
+    }
+    return expression;
+  }
+
+  final failure = result as Failure;
+  final pos = failure.position;
+  final span = sourceFile.span(pos, pos < source.length ? pos + 1 : pos);
+  throw LuaError(failure.message, span: span);
+}
+
 final ({
   LuaGrammarDefinition definition,
   Parser parser,
 }) _sharedLuaParser = () {
   final definition = LuaGrammarDefinition(SourceFile.fromString(''));
   return (definition: definition, parser: definition.build());
+}();
+
+final ({
+  LuaGrammarDefinition definition,
+  Parser parser,
+}) _sharedLuaExpressionParser = () {
+  final definition = LuaGrammarDefinition(SourceFile.fromString(''));
+  return (
+    definition: definition,
+    parser: definition.buildFrom(definition.expressionParser()),
+  );
 }();

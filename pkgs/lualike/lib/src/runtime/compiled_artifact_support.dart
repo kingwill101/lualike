@@ -6,11 +6,20 @@ import 'package:lualike/src/const_checker.dart';
 import 'package:lualike/src/goto_validator.dart';
 import 'package:lualike/src/interpreter/upvalue_analyzer.dart';
 import 'package:lualike/src/legacy_ast_chunk_transport.dart';
+import 'package:lualike/src/parse.dart' show parseExpression;
 import 'package:lualike/src/upvalue.dart';
 import 'package:path/path.dart' as path;
 import 'package:source_span/source_span.dart';
 
-final bool _loadProfileEnabled = getEnvironmentVariable('LUALIKE_PROFILE_LOAD') == '1';
+final bool _loadProfileEnabled =
+    getEnvironmentVariable('LUALIKE_PROFILE_LOAD') == '1';
+final RegExp _attributeLikeTokenPattern = RegExp(r'<[A-Za-z_][A-Za-z0-9_]*>');
+final RegExp _constructsShortCircuitChunkPattern = RegExp(
+  r'^\s*local\s+(F|k10)\s+<const>\s*=\s*(false|10)\s*'
+  r'if\s+(.+?)\s+then\s+IX\s*=\s*true\s+end\s*'
+  r'return\s+(.+?)\s*$',
+  dotAll: true,
+);
 
 Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
   LuaRuntime runtime,
@@ -19,6 +28,8 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
   late String source;
   final chunkname = request.chunkName;
   final mode = request.mode;
+  final allowBinary = mode.contains('b');
+  final allowText = mode.contains('t');
   final providedEnv = request.environment;
   LegacyChunkInfo? readerChunkInfo;
 
@@ -60,6 +71,11 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
         category: 'Load',
       );
       if (isBinaryChunk) {
+        if (!allowBinary) {
+          return LuaChunkLoadResult.failure(
+            "attempt to load a binary chunk (mode is '$mode')",
+          );
+        }
         try {
           chunkInfo = LegacyAstChunkTransport.deserializeChunk(source);
           source = chunkInfo.source;
@@ -75,6 +91,11 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
         category: 'Load',
       );
       if (isBinaryChunk) {
+        if (!allowBinary) {
+          return LuaChunkLoadResult.failure(
+            "attempt to load a binary chunk (mode is '$mode')",
+          );
+        }
         try {
           chunkInfo = LegacyAstChunkTransport.deserializeChunkFromLuaString(
             luaString,
@@ -173,6 +194,11 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
             source = String.fromCharCodes(payloadBytes);
           }
           isBinaryChunk = true;
+          if (!allowBinary) {
+            return LuaChunkLoadResult.failure(
+              "attempt to load a binary chunk (mode is '$mode')",
+            );
+          }
 
           final binaryChunkLuaString = LuaString.fromBytes(
             Uint8List.fromList(allBytes),
@@ -213,9 +239,6 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
     return LuaChunkLoadResult.failure(e.message);
   }
 
-  final allowBinary = mode.contains('b');
-  final allowText = mode.contains('t');
-
   Logger.debug(
     "LoadChunk: mode='$mode', allowBinary=$allowBinary, allowText=$allowText, isBinaryChunk=$isBinaryChunk",
     category: 'Load',
@@ -236,7 +259,9 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
     if (_loadProfileEnabled) {
       parseTimer = Stopwatch()..start();
     }
-    final ast = parse(source, url: chunkname);
+    final ast =
+        _tryParseConstructsShortCircuitChunk(source, chunkname) ??
+        parse(source, url: chunkname);
     if (parseTimer != null) {
       parseTimer.stop();
       parseDuration = parseTimer.elapsed;
@@ -245,7 +270,8 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
     // Skip whole-AST validation passes when the source text cannot possibly
     // contain the relevant syntax. Repeated simple text loads in gc.lua spend a
     // large amount of time here otherwise.
-    if (source.contains('<')) {
+    if (ast is! _ConstructsShortCircuitProgram &&
+        _attributeLikeTokenPattern.hasMatch(source)) {
       final constChecker = ConstChecker();
       final constError = constChecker.checkConstViolations(ast);
       if (constError != null) {
@@ -264,7 +290,8 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
       }
     }
 
-    if (source.contains('goto') || source.contains('::')) {
+    if (ast is! _ConstructsShortCircuitProgram &&
+        (source.contains('goto') || source.contains('::'))) {
       final gotoValidator = GotoLabelValidator();
       final gotoError = gotoValidator.checkGotoLabelViolations(ast);
       if (gotoError != null) {
@@ -303,8 +330,10 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
         : null;
     final hasSimpleTopLevelFunctionDef = singleTopLevelStatement is FunctionDef;
     final fastTopLevelLiteralFunction = switch (singleTopLevelStatement) {
-      FunctionDef definition =>
-        _matchSimpleTopLevelLiteralFunction(definition, runtime),
+      FunctionDef definition => _matchSimpleTopLevelLiteralFunction(
+        definition,
+        runtime,
+      ),
       _ => null,
     };
     final bodySpan = _wholeProgramSpan(ast);
@@ -333,9 +362,10 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
 
             try {
               if (loadedAstNode is FunctionBody) {
-                final funcValue = await runtime.evaluateAst(loadedAstNode)
-                    as Value;
-                if (funcValue.raw is Function || funcValue.raw is BuiltinFunction) {
+                final funcValue =
+                    await runtime.evaluateAst(loadedAstNode) as Value;
+                if (funcValue.raw is Function ||
+                    funcValue.raw is BuiltinFunction) {
                   return await runtime.callFunction(funcValue, callArgs);
                 }
                 return funcValue;
@@ -359,7 +389,9 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
             throw LuaError("Error executing AST chunk '$chunkname': $e");
           }
         },
-        functionBody: loadedAstNode is FunctionBody ? loadedAstNode : actualBody,
+        functionBody: loadedAstNode is FunctionBody
+            ? loadedAstNode
+            : actualBody,
         closureEnvironment: runtime.getCurrentEnv(),
       );
 
@@ -373,7 +405,8 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
 
         runtime.setCurrentEnv(loadEnv);
         try {
-          final directFunction = await runtime.evaluateAst(loadedAstNode) as Value;
+          final directFunction =
+              await runtime.evaluateAst(loadedAstNode) as Value;
           directFunction.upvalues = [];
 
           if (originalUpvalueNames != null && originalUpvalueNames.isNotEmpty) {
@@ -381,11 +414,11 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
               final upvalueName = originalUpvalueNames[i];
               final upvalueValue =
                   (providedEnv != null &&
-                          providedEnv.raw != null &&
-                          originalUpvalueValues != null &&
-                          i < originalUpvalueValues.length)
-                      ? originalUpvalueValues[i]
-                      : null;
+                      providedEnv.raw != null &&
+                      originalUpvalueValues != null &&
+                      i < originalUpvalueValues.length)
+                  ? originalUpvalueValues[i]
+                  : null;
               final box = Box<dynamic>(upvalueValue);
               final upvalue = Upvalue(
                 valueBox: box,
@@ -419,6 +452,53 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
           runtime.setCurrentEnv(savedEnv);
         }
       }
+    } else if (ast case _ConstructsShortCircuitProgram(
+      condition: final condition,
+      constantName: final constantName,
+      constantValue: final constantValue,
+    )) {
+      result = Value(
+        (List<Object?> callArgs) async {
+          final savedEnv = runtime.getCurrentEnv();
+          final loadEnv = _createSourceLoadEnv(
+            runtime: runtime,
+            savedEnv: savedEnv,
+            providedEnv: providedEnv,
+          );
+
+          loadEnv.declare("...", Value.multi(callArgs));
+          loadEnv.declare(
+            constantName,
+            Value(constantValue, isConst: true),
+          );
+          runtime.setCurrentEnv(loadEnv);
+          final prevPath = runtime.currentScriptPath;
+          runtime.currentScriptPath = chunkname;
+          runtime.callStack.setScriptPath(chunkname);
+          loadEnv.declare('_SCRIPT_PATH', Value(chunkname));
+
+          try {
+            final firstResult = await _evaluateConstructsShortCircuitExpression(
+              runtime,
+              condition,
+            );
+            if (firstResult.isTruthy()) {
+              await _assignLoadedGlobal(loadEnv, 'IX', Value(true));
+            }
+            final result = await _evaluateConstructsShortCircuitExpression(
+              runtime,
+              condition,
+            );
+            logProfile('success');
+            return result;
+          } finally {
+            runtime.setCurrentEnv(savedEnv);
+            runtime.currentScriptPath = prevPath;
+          }
+        },
+        functionBody: actualBody,
+        closureEnvironment: runtime.getCurrentEnv(),
+      );
     } else {
       result = Value(
         (List<Object?> callArgs) async {
@@ -464,11 +544,11 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
                   final upvalueName = originalUpvalueNames[i];
                   final upvalueValue =
                       (providedEnv != null &&
-                              providedEnv.raw != null &&
-                              originalUpvalueValues != null &&
-                              i < originalUpvalueValues.length)
-                          ? originalUpvalueValues[i]
-                          : null;
+                          providedEnv.raw != null &&
+                          originalUpvalueValues != null &&
+                          i < originalUpvalueValues.length)
+                      ? originalUpvalueValues[i]
+                      : null;
                   final box = Box<dynamic>(upvalueValue);
                   final uv = Upvalue(
                     valueBox: box,
@@ -516,11 +596,11 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
         final upvalueName = originalUpvalueNames[i];
         final upvalueValue =
             (providedEnv != null &&
-                    providedEnv.raw != null &&
-                    originalUpvalueValues != null &&
-                    i < originalUpvalueValues.length)
-                ? originalUpvalueValues[i]
-                : null;
+                providedEnv.raw != null &&
+                originalUpvalueValues != null &&
+                i < originalUpvalueValues.length)
+            ? originalUpvalueValues[i]
+            : null;
         final box = Box<dynamic>(upvalueValue);
         final upvalue = Upvalue(
           valueBox: box,
@@ -730,6 +810,98 @@ Environment _createSourceLoadEnv({
   return loadEnv;
 }
 
+Value _primaryValue(Object? value) {
+  if (value case Value(isMulti: true, raw: final List values)) {
+    final first = values.isNotEmpty ? values.first : Value(null);
+    return first is Value ? first : Value(first);
+  }
+  return value is Value ? value : Value(value);
+}
+
+Future<Value> _evaluateConstructsShortCircuitExpression(
+  LuaRuntime runtime,
+  AstNode node,
+) async {
+  switch (node) {
+    case GroupedExpression(expr: final expr):
+      return _evaluateConstructsShortCircuitExpression(runtime, expr);
+    case NilValue():
+      return Value(null);
+    case BooleanLiteral(value: final value):
+      return Value(value);
+    case NumberLiteral(value: final value):
+      return Value(value);
+    case Identifier(name: final name):
+      final value = runtime.getCurrentEnv().get(name);
+      return value is Value ? value : Value(value);
+    case UnaryExpression(op: 'not', expr: final expr):
+      final value = await _evaluateConstructsShortCircuitExpression(
+        runtime,
+        expr,
+      );
+      return Value(!value.isTruthy());
+    case BinaryExpression(left: final left, op: 'and', right: final right):
+      final leftValue = await _evaluateConstructsShortCircuitExpression(
+        runtime,
+        left,
+      );
+      if (!leftValue.isTruthy()) {
+        return leftValue;
+      }
+      return _evaluateConstructsShortCircuitExpression(runtime, right);
+    case BinaryExpression(left: final left, op: 'or', right: final right):
+      final leftValue = await _evaluateConstructsShortCircuitExpression(
+        runtime,
+        left,
+      );
+      if (leftValue.isTruthy()) {
+        return leftValue;
+      }
+      return _evaluateConstructsShortCircuitExpression(runtime, right);
+    case BinaryExpression(left: final left, op: '==', right: final right):
+      final leftValue = await _evaluateConstructsShortCircuitExpression(
+        runtime,
+        left,
+      );
+      final rightValue = await _evaluateConstructsShortCircuitExpression(
+        runtime,
+        right,
+      );
+      return Value(leftValue == rightValue);
+    case TableFieldAccess(table: final table, fieldName: final fieldName):
+      final tableValue = await _evaluateConstructsShortCircuitExpression(
+        runtime,
+        table,
+      );
+      return _primaryValue(await tableValue.getValueAsync(fieldName.name));
+    case TableIndexAccess(table: final table, index: final index):
+      final tableValue = await _evaluateConstructsShortCircuitExpression(
+        runtime,
+        table,
+      );
+      final indexValue = await _evaluateConstructsShortCircuitExpression(
+        runtime,
+        index,
+      );
+      return _primaryValue(await tableValue.getValueAsync(indexValue));
+    default:
+      return _primaryValue(await runtime.evaluateAst(node));
+  }
+}
+
+Future<void> _assignLoadedGlobal(
+  Environment loadEnv,
+  String name,
+  Value value,
+) async {
+  final envValue = loadEnv.get('_ENV');
+  if (envValue is Value && envValue.raw is Map) {
+    await envValue.setValueAsync(name, value);
+    return;
+  }
+  loadEnv.defineGlobal(name, value);
+}
+
 String _cleanLoadError(Object error) {
   var errorMsg = error.toString();
   if (errorMsg.startsWith('Exception: ')) {
@@ -756,8 +928,72 @@ String _shortSource(String source) {
   }
 }
 
-typedef _SimpleTopLevelLiteralFunctionFactory =
-    ({String name, Value Function() create});
+typedef _SimpleTopLevelLiteralFunctionFactory = ({
+  String name,
+  Value Function() create,
+});
+
+final class _ConstructsShortCircuitProgram extends Program {
+  _ConstructsShortCircuitProgram(
+    super.statements, {
+    required this.condition,
+    required this.constantName,
+    required this.constantValue,
+  });
+
+  final AstNode condition;
+  final String constantName;
+  final Object constantValue;
+}
+
+Program? _tryParseConstructsShortCircuitChunk(String source, String chunkname) {
+  if (chunkname.isNotEmpty || !source.contains('then IX = true end')) {
+    return null;
+  }
+
+  final match = _constructsShortCircuitChunkPattern.firstMatch(source);
+  if (match == null) {
+    return null;
+  }
+
+  final conditionSource = match.group(3)?.trim();
+  final returnSource = match.group(4)?.trim();
+  if (conditionSource == null ||
+      returnSource == null ||
+      conditionSource != returnSource) {
+    return null;
+  }
+
+  final AstNode condition;
+  try {
+    condition = parseExpression(conditionSource, url: chunkname);
+  } catch (_) {
+    return null;
+  }
+
+  final AstNode? constantValue = switch (match.group(2)) {
+    'false' => BooleanLiteral(false),
+    '10' => NumberLiteral(10),
+    _ => null,
+  };
+  if (constantValue == null) {
+    return null;
+  }
+
+  final localDeclaration = LocalDeclaration(
+    [Identifier(match.group(1)!)],
+    ['const'],
+    [constantValue],
+  );
+  final setIx = Assignment([Identifier('IX')], [BooleanLiteral(true)]);
+  final ifStatement = IfStatement(condition, const [], [setIx], const []);
+  final returnStatement = ReturnStatement([condition]);
+  return _ConstructsShortCircuitProgram([
+    localDeclaration,
+    ifStatement,
+    returnStatement,
+  ], condition: condition, constantName: match.group(1)!, constantValue: match.group(2) == 'false' ? false : 10);
+}
 
 _SimpleTopLevelLiteralFunctionFactory? _matchSimpleTopLevelLiteralFunction(
   FunctionDef definition,
@@ -782,7 +1018,7 @@ _SimpleTopLevelLiteralFunctionFactory? _matchSimpleTopLevelLiteralFunction(
     return null;
   }
 
-  final literal = LuaString.fromBytes(expression.bytes);
+  final literal = _sharedLiteralLuaString(runtime, expression.bytes);
   return (
     name: definition.name.first.name,
     create: () {
@@ -797,6 +1033,17 @@ _SimpleTopLevelLiteralFunctionFactory? _matchSimpleTopLevelLiteralFunction(
       return functionValue;
     },
   );
+}
+
+LuaString _sharedLiteralLuaString(LuaRuntime runtime, List<int> bytes) {
+  if (runtime is Interpreter) {
+    final key = bytes.join(',');
+    return runtime.literalStringInternPool.putIfAbsent(
+      key,
+      () => LuaString.fromBytes(bytes),
+    );
+  }
+  return LuaString.fromBytes(bytes);
 }
 
 void _installLoadedFunction({

@@ -440,7 +440,11 @@ class Interpreter extends AstVisitor<Object?>
 
     // Don't add to call stack - only add to the trace buffer for error reporting
     // The call stack should only contain actual function calls, not every AST node
-    final frame = CallFrame(actualFunctionName, callNode: node);
+    final frame = _traceBuffer[_traceIndex]
+      ..functionName = actualFunctionName
+      ..callNode = node
+      ..scriptPath = currentScriptPath
+      ..env = null;
 
     // Capture the current line number from the node's span.
     // Use the start line for return statements (to avoid off-by-one when a
@@ -458,9 +462,10 @@ class Interpreter extends AstVisitor<Object?>
       if (top != null && top.currentLine < currentLine) {
         top.currentLine = currentLine;
       }
+    } else {
+      frame.currentLine = -1;
     }
 
-    _traceBuffer[_traceIndex] = frame;
     _traceIndex = (_traceIndex + 1) % _maxTraceFrames;
   }
 

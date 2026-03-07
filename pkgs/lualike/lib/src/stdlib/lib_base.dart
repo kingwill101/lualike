@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:lualike/lualike.dart';
 
 import 'package:lualike/src/io/lua_file.dart';
+import 'package:lualike/src/table_storage.dart';
 import 'package:lualike/src/utils/file_system_utils.dart';
 import 'package:lualike/src/utils/type.dart';
 import 'package:path/path.dart' as path;
@@ -924,6 +925,13 @@ class NextFunction extends BuiltinFunction {
     final keyValue = args.length > 1 ? args[1] as Value : null;
     final keyRaw = keyValue?.raw;
 
+    if (map case final TableStorage storage) {
+      final storageNext = _nextFromTableStorage(table, storage, keyValue, keyRaw);
+      if (storageNext != null) {
+        return storageNext;
+      }
+    }
+
     var returnNext = keyValue == null || keyRaw == null;
     for (final entry in map.entries) {
       if (!returnNext) {
@@ -983,6 +991,107 @@ class NextFunction extends BuiltinFunction {
     }
 
     return Value(null);
+  }
+
+  Object? _nextFromTableStorage(
+    Value table,
+    TableStorage storage,
+    Value? keyValue,
+    dynamic keyRaw,
+  ) {
+    final previousDenseIndex = _denseIndex(keyRaw);
+    final previousKeyWasDense = switch (previousDenseIndex) {
+      final index?
+          when index > 0 &&
+              index <= storage.arrayLength &&
+              storage.denseValueAt(index) != null =>
+        true,
+      _ => false,
+    };
+
+    final denseStart = switch (previousDenseIndex) {
+      final index? when index > 0 => index + 1,
+      _ when keyValue == null || keyRaw == null => 1,
+      _ => null,
+    };
+
+    if (denseStart case final int startIndex) {
+      for (var index = startIndex; index <= storage.arrayLength; index++) {
+        final entryValue = storage.denseValueAt(index);
+        if (entryValue == null) {
+          continue;
+        }
+        final wrapped = _wrapNextResult(index, entryValue);
+        return Value.multi([wrapped.$1, wrapped.$2]);
+      }
+
+      final hashKeyValue = previousKeyWasDense ? null : keyValue;
+      final hashKeyRaw = previousKeyWasDense ? null : keyRaw;
+      return _nextFromEntries(storage.hashEntries, table, hashKeyValue, hashKeyRaw);
+    }
+
+    return _nextFromEntries(storage.hashEntries, table, keyValue, keyRaw);
+  }
+
+  Object? _nextFromEntries(
+    Iterable<MapEntry<dynamic, dynamic>> entries,
+    Value table,
+    Value? keyValue,
+    dynamic keyRaw,
+  ) {
+    var returnNext = keyValue == null || keyRaw == null;
+    for (final entry in entries) {
+      if (!returnNext) {
+        if (_keysMatch(entry.key, keyValue, keyRaw)) {
+          returnNext = true;
+        }
+        continue;
+      }
+
+      final wrapped = _wrapNextResult(entry.key, entry.value);
+      if (_shouldSkipWeakKey(table, wrapped.$1)) {
+        continue;
+      }
+      return Value.multi([wrapped.$1, wrapped.$2]);
+    }
+    return null;
+  }
+
+  (Value, Value) _wrapNextResult(dynamic key, dynamic value) {
+    final nextKey = key is Value ? key : Value(key);
+    final nextValue = value is Value ? value : Value(value);
+    return (nextKey, nextValue);
+  }
+
+  bool _shouldSkipWeakKey(Value table, Value nextKey) {
+    if (table.tableWeakMode == null || (!table.hasWeakKeys && !table.isAllWeak)) {
+      return false;
+    }
+
+    final vm = interpreter!;
+    if (vm.gc.isFinalizing || nextKey.isPrimitiveLike) {
+      return false;
+    }
+
+    final inYoung = vm.gc.youngGen.objects.contains(nextKey);
+    final inOld = vm.gc.oldGen.objects.contains(nextKey);
+    return (!inYoung && !inOld) || nextKey.isFreed;
+  }
+
+  int? _denseIndex(dynamic keyRaw) {
+    if (keyRaw is int) {
+      return keyRaw > 0 ? keyRaw : null;
+    }
+    if (keyRaw is num) {
+      if (keyRaw is double && !keyRaw.isFinite) {
+        return null;
+      }
+      final dense = keyRaw.toInt();
+      if (dense > 0 && dense.toDouble() == keyRaw.toDouble()) {
+        return dense;
+      }
+    }
+    return null;
   }
 
   bool _keysMatch(dynamic candidate, Value? keyValue, dynamic keyRaw) {
