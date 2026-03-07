@@ -38,8 +38,12 @@ class LuaString {
   LuaString slice(int start, [int? end]) =>
       LuaString(bytes.sublist(start, end));
 
-  LuaString operator +(LuaString other) =>
-      LuaString(Uint8List.fromList([...bytes, ...other.bytes]));
+  LuaString operator +(LuaString other) {
+    final combined = Uint8List(bytes.length + other.bytes.length);
+    combined.setRange(0, bytes.length, bytes);
+    combined.setRange(bytes.length, combined.length, other.bytes);
+    return LuaString(combined);
+  }
 
   @override
   bool operator ==(Object other) {
