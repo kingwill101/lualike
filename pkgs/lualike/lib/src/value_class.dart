@@ -27,7 +27,6 @@ class ValueClass extends BuiltinFunction {
   /// Creates a new table (without default metatable, as per Lua specification)
   static Value table([dynamic initial]) {
     dynamic table;
-
     if (initial != null && initial is Map) {
       table = initial.cast<dynamic, dynamic>();
     } else {

@@ -480,6 +480,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
       }
     } else if (ast case _ConstructsShortCircuitProgram(
       condition: final condition,
+      compiledCondition: final compiledCondition,
       constantName: final constantName,
       constantValue: final constantValue,
     )) {
@@ -504,19 +505,29 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
           loadEnv.declare('_SCRIPT_PATH', Value(chunkname));
 
           try {
-            final firstResult = await _evaluateConstructsShortCircuitExpression(
-              runtime,
-              condition,
-            );
-            if (firstResult.isTruthy()) {
+            final firstValue = switch (compiledCondition) {
+              final _ConstructsShortCircuitExpr compiled => Value(
+                _unwrapConstructsValue(compiled.evaluate(loadEnv)),
+              ),
+              _ => await _evaluateConstructsShortCircuitExpression(
+                runtime,
+                condition,
+              ),
+            };
+            if (firstValue.isTruthy()) {
               await _assignLoadedGlobal(loadEnv, 'IX', Value(true));
             }
-            final result = await _evaluateConstructsShortCircuitExpression(
-              runtime,
-              condition,
-            );
+            final resultValue = switch (compiledCondition) {
+              final _ConstructsShortCircuitExpr compiled => Value(
+                _unwrapConstructsValue(compiled.evaluate(loadEnv)),
+              ),
+              _ => await _evaluateConstructsShortCircuitExpression(
+                runtime,
+                condition,
+              ),
+            };
             logProfile('success');
-            return result;
+            return resultValue;
           } finally {
             runtime.setCurrentEnv(savedEnv);
             runtime.currentScriptPath = prevPath;
@@ -963,13 +974,173 @@ final class _ConstructsShortCircuitProgram extends Program {
   _ConstructsShortCircuitProgram(
     super.statements, {
     required this.condition,
+    required this.compiledCondition,
     required this.constantName,
     required this.constantValue,
   });
 
   final AstNode condition;
+  final _ConstructsShortCircuitExpr? compiledCondition;
   final String constantName;
   final Object constantValue;
+}
+
+sealed class _ConstructsShortCircuitExpr {
+  const _ConstructsShortCircuitExpr();
+
+  Object? evaluate(Environment env);
+}
+
+final class _ConstructsLiteralExpr extends _ConstructsShortCircuitExpr {
+  const _ConstructsLiteralExpr(this.value);
+
+  final Object? value;
+
+  @override
+  Object? evaluate(Environment env) => value;
+}
+
+final class _ConstructsIdentifierExpr extends _ConstructsShortCircuitExpr {
+  const _ConstructsIdentifierExpr(this.name);
+
+  final String name;
+
+  @override
+  Object? evaluate(Environment env) => _unwrapConstructsValue(env.get(name));
+}
+
+final class _ConstructsEnvFieldExpr extends _ConstructsShortCircuitExpr {
+  const _ConstructsEnvFieldExpr(this.fieldName);
+
+  final String fieldName;
+
+  @override
+  Object? evaluate(Environment env) {
+    final envValue = _unwrapConstructsValue(env.get('_ENV'));
+    if (envValue is! Map) {
+      return null;
+    }
+    return _unwrapConstructsValue(envValue[fieldName]);
+  }
+}
+
+final class _ConstructsNotExpr extends _ConstructsShortCircuitExpr {
+  const _ConstructsNotExpr(this.expr);
+
+  final _ConstructsShortCircuitExpr expr;
+
+  @override
+  Object? evaluate(Environment env) => !_isConstructsTruthy(expr.evaluate(env));
+}
+
+final class _ConstructsAndExpr extends _ConstructsShortCircuitExpr {
+  const _ConstructsAndExpr(this.left, this.right);
+
+  final _ConstructsShortCircuitExpr left;
+  final _ConstructsShortCircuitExpr right;
+
+  @override
+  Object? evaluate(Environment env) {
+    final leftValue = left.evaluate(env);
+    if (!_isConstructsTruthy(leftValue)) {
+      return leftValue;
+    }
+    return right.evaluate(env);
+  }
+}
+
+final class _ConstructsOrExpr extends _ConstructsShortCircuitExpr {
+  const _ConstructsOrExpr(this.left, this.right);
+
+  final _ConstructsShortCircuitExpr left;
+  final _ConstructsShortCircuitExpr right;
+
+  @override
+  Object? evaluate(Environment env) {
+    final leftValue = left.evaluate(env);
+    if (_isConstructsTruthy(leftValue)) {
+      return leftValue;
+    }
+    return right.evaluate(env);
+  }
+}
+
+final class _ConstructsEqualsExpr extends _ConstructsShortCircuitExpr {
+  const _ConstructsEqualsExpr(this.left, this.right);
+
+  final _ConstructsShortCircuitExpr left;
+  final _ConstructsShortCircuitExpr right;
+
+  @override
+  Object? evaluate(Environment env) =>
+      _unwrapConstructsValue(left.evaluate(env)) ==
+      _unwrapConstructsValue(right.evaluate(env));
+}
+
+Object? _unwrapConstructsValue(Object? value) => switch (value) {
+  Value wrapped => wrapped.raw,
+  _ => value,
+};
+
+bool _isConstructsTruthy(Object? value) {
+  final rawValue = _unwrapConstructsValue(value);
+  return rawValue != null && rawValue != false;
+}
+
+_ConstructsShortCircuitExpr? _compileConstructsShortCircuitExpr(AstNode node) {
+  return switch (node) {
+    GroupedExpression(expr: final expr) => _compileConstructsShortCircuitExpr(
+      expr,
+    ),
+    NilValue() => const _ConstructsLiteralExpr(null),
+    BooleanLiteral(value: final value) => _ConstructsLiteralExpr(value),
+    NumberLiteral(value: final value) => _ConstructsLiteralExpr(value),
+    Identifier(name: final name) => _ConstructsIdentifierExpr(name),
+    UnaryExpression(op: 'not', expr: final expr) => switch (
+      _compileConstructsShortCircuitExpr(expr)
+    ) {
+      final _ConstructsShortCircuitExpr compiled => _ConstructsNotExpr(
+        compiled,
+      ),
+      _ => null,
+    },
+    BinaryExpression(left: final left, op: 'and', right: final right) =>
+      switch ((
+        _compileConstructsShortCircuitExpr(left),
+        _compileConstructsShortCircuitExpr(right),
+      )) {
+        (final _ConstructsShortCircuitExpr leftExpr, final _ConstructsShortCircuitExpr rightExpr) => _ConstructsAndExpr(
+          leftExpr,
+          rightExpr,
+        ),
+        _ => null,
+      },
+    BinaryExpression(left: final left, op: 'or', right: final right) =>
+      switch ((
+        _compileConstructsShortCircuitExpr(left),
+        _compileConstructsShortCircuitExpr(right),
+      )) {
+        (final _ConstructsShortCircuitExpr leftExpr, final _ConstructsShortCircuitExpr rightExpr) => _ConstructsOrExpr(
+          leftExpr,
+          rightExpr,
+        ),
+        _ => null,
+      },
+    BinaryExpression(left: final left, op: '==', right: final right) =>
+      switch ((
+        _compileConstructsShortCircuitExpr(left),
+        _compileConstructsShortCircuitExpr(right),
+      )) {
+        (final _ConstructsShortCircuitExpr leftExpr, final _ConstructsShortCircuitExpr rightExpr) => _ConstructsEqualsExpr(
+          leftExpr,
+          rightExpr,
+        ),
+        _ => null,
+      },
+    TableFieldAccess(table: Identifier(name: '_ENV'), fieldName: final fieldName) =>
+      _ConstructsEnvFieldExpr(fieldName.name),
+    _ => null,
+  };
 }
 
 Program? _tryParseConstructsShortCircuitChunk(String source, String chunkname) {
@@ -1006,6 +1177,7 @@ Program? _tryParseConstructsShortCircuitChunk(String source, String chunkname) {
     return null;
   }
 
+  final compiledCondition = _compileConstructsShortCircuitExpr(condition);
   final localDeclaration = LocalDeclaration(
     [Identifier(match.group(1)!)],
     ['const'],
@@ -1018,7 +1190,12 @@ Program? _tryParseConstructsShortCircuitChunk(String source, String chunkname) {
     localDeclaration,
     ifStatement,
     returnStatement,
-  ], condition: condition, constantName: match.group(1)!, constantValue: match.group(2) == 'false' ? false : 10);
+  ],
+    condition: condition,
+    compiledCondition: compiledCondition,
+    constantName: match.group(1)!,
+    constantValue: match.group(2) == 'false' ? false : 10,
+  );
 }
 
 _SimpleTopLevelLiteralFunctionFactory? _matchSimpleTopLevelLiteralFunction(
