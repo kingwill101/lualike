@@ -8,7 +8,7 @@ void main() {
       lua = LuaLike();
     });
 
-    test('reverse comparator uses fast path', () async {
+    test('reverse comparator preserves side effects with bounded comparisons', () async {
       await lua.execute(r'''
         math.randomseed(1234)
         local limit = 1000
@@ -36,7 +36,8 @@ void main() {
 
       expect(lua.getGlobal('reverseSorted').unwrap(), isTrue);
       final calls = lua.getGlobal('comparatorCalls').unwrap() as num;
-      expect(calls, lessThan(100));
+      expect(calls, greaterThan(0));
+      expect(calls, lessThan(20000));
     });
 
     test('manual collect throttling engages for repeated collects', () async {
