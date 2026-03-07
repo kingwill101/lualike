@@ -60,6 +60,24 @@ supported `__eq`/`__lt`/`__le` comparison subset, supported table access/store,
 constructor, and length semantics, supported `CLOSE`/`TBC` semantics, and
 `SELF`/method-call execution are in scope. Remaining
 unsupported areas should stay explicitly diagnostic until implemented.
+**Current `lua_bytecode` emitter subset:** direct AST ->
+`lib/src/lua_bytecode/` lowering now covers the foundation, expression
+slice, and the first structured source subset: literal/local/global
+expressions, unary/binary/concat, table access, method selection/calls,
+supported call expressions, call expression statements, open-result return
+lowering, identifier assignments, `if`, `while`, numeric `for`, generic
+`for`, `repeat ... until`, `break`, labels/goto, simple and qualified
+`function` / `local function` lowering, nested function literals, captured
+local upvalues, supported table constructors, `SETLIST`-backed constructor
+batches, trailing open-result constructor entries, and field/index
+assignment targets. The supported subset is now wired into an opt-in
+source engine via `EngineMode.luaBytecode` and `--lua-bytecode`, and
+supported emitted functions dump to real `lua_bytecode` chunks through the
+runtime boundary. It remains a real chunk emitter backed by the same
+binary serializer/parser/runtime stack and must not lower through
+`lualike_ir`. Unsupported control-flow forms and unsupported goto
+visibility cases should stay explicitly diagnostic until their runtime and
+oracle coverage exists.
 **Tests:** Organized by artifact family and category with tags in `dart_test.yaml`; see `test/README.md`.
 **Coroutine runtime:** The coroutine stdlib path is exercised from
 `test/stdlib/coroutine_library_test.dart`. Lifecycle regressions should
@@ -91,6 +109,7 @@ The lualike CLI is a drop-in replacement for the Lua CLI, supporting similar arg
 ### Common Flags
 - `--ast`         : Run using AST interpreter (default)
 - `--ir`          : Run using the lualike IR runtime
+- `--lua-bytecode`: Run supported source through the opt-in `lua_bytecode` engine
 - `-e code`       : Execute string 'code' inline
 - `--debug`       : Enable debug mode (and set logging to FINE level for all categories)
 - `--level LEVEL` : Set log level. Valid levels: `ALL`, `FINEST`, `FINER`, `FINE`, `CONFIG`, `INFO`, `WARNING`, `SEVERE`, `SHOUT`, `OFF`. Invalid levels default to `WARNING`.
