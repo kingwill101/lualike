@@ -447,4 +447,13 @@ abstract final class LuaBytecodeOpcodes {
     }
     return table[code];
   }
+
+  static LuaBytecodeOpcodeInfo byName(String name) {
+    for (final opcode in table) {
+      if (opcode.name == name) {
+        return opcode;
+      }
+    }
+    throw ArgumentError.value(name, 'name', 'Unknown lua bytecode opcode');
+  }
 }
