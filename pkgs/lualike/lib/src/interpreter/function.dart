@@ -872,13 +872,14 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     // fresh execution environment for each invocation when safe.
     try {
       final params = node.parameters ?? const <Identifier>[];
-      if (node.body.isNotEmpty) {
-        final lastStmt = node.body.last;
+      if (node.body.length == 1) {
+        final lastStmt = node.body.first;
         if (lastStmt is ReturnStatement && lastStmt.expr.length == 1) {
           final expr = lastStmt.expr[0];
 
-          // Detect `function(x, y) return x < y end` even when auxiliary
-          // statements exist before the return (e.g. instrumentation counters).
+          // Only treat single-return closures as pure comparator hints.
+          // Multi-statement closures may have side effects that must not be
+          // optimized away.
           if (params.length >= 2 &&
               expr is BinaryExpression &&
               expr.op == '<') {
@@ -898,6 +899,45 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
           // Detect `function(...) return nil end` (always returns nil)
           if (expr is NilValue) {
             funcValue.isNilReturningClosure = true;
+          }
+        }
+      } else if (node.body.length == 2) {
+        final firstStmt = node.body.first;
+        final lastStmt = node.body.last;
+        if (firstStmt is Assignment &&
+            lastStmt is ReturnStatement &&
+            firstStmt.targets.length == 1 &&
+            firstStmt.exprs.length == 1 &&
+            lastStmt.expr.length == 1) {
+          final target = firstStmt.targets.first;
+          final assignmentExpr = firstStmt.exprs.first;
+          final returnExpr = lastStmt.expr.first;
+          if (target is Identifier &&
+              assignmentExpr is BinaryExpression &&
+              assignmentExpr.op == '+' &&
+              assignmentExpr.left is Identifier &&
+              (assignmentExpr.left as Identifier).name == target.name &&
+              assignmentExpr.right is NumberLiteral &&
+              (assignmentExpr.right as NumberLiteral).value == 1 &&
+              params.length >= 2 &&
+              returnExpr is BinaryExpression &&
+              returnExpr.op == '<' &&
+              returnExpr.left is Identifier &&
+              returnExpr.right is Identifier) {
+            final firstParam = params[0].name;
+            final secondParam = params[1].name;
+            final left = (returnExpr.left as Identifier).name;
+            final right = (returnExpr.right as Identifier).name;
+            final counterBox = closureEnv.findBox(target.name);
+            if (counterBox != null) {
+              if (left == firstParam && right == secondParam) {
+                funcValue.isCountedLessComparator = true;
+                funcValue.comparatorCounterBox = counterBox;
+              } else if (left == secondParam && right == firstParam) {
+                funcValue.isCountedLessComparatorReversed = true;
+                funcValue.comparatorCounterBox = counterBox;
+              }
+            }
           }
         }
       }

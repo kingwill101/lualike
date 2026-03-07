@@ -818,6 +818,10 @@ bool _tryFastReplaceBoxValue(Box<dynamic> box, dynamic incoming) {
   existing.isNilReturningClosure = incoming.isNilReturningClosure;
   existing.isLessComparator = incoming.isLessComparator;
   existing.isLessComparatorReversed = incoming.isLessComparatorReversed;
+  existing.isCountedLessComparator = incoming.isCountedLessComparator;
+  existing.isCountedLessComparatorReversed =
+      incoming.isCountedLessComparatorReversed;
+  existing.comparatorCounterBox = incoming.comparatorCounterBox;
   existing.interpreter ??= incoming.interpreter;
   existing.functionName = incoming.functionName;
   existing.closureEnvironment = incoming.closureEnvironment;

@@ -82,6 +82,19 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// checks in tight loops.
   bool isLessComparatorReversed = false;
 
+  /// Hint for a comparator of the form
+  /// `function(x, y) counter = counter + 1; return x < y end`.
+  /// This preserves the counter side effect while still allowing the sort
+  /// path to bypass a full Lua closure call for primitive comparisons.
+  bool isCountedLessComparator = false;
+
+  /// Hint for a comparator of the form
+  /// `function(x, y) counter = counter + 1; return y < x end`.
+  bool isCountedLessComparatorReversed = false;
+
+  /// Captured counter box for counted comparator fast paths.
+  Box<dynamic>? comparatorCounterBox;
+
   /// Whether this value has been initialized (used for const variables)
   bool _isInitialized = false;
 
