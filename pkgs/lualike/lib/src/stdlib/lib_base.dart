@@ -926,10 +926,8 @@ class NextFunction extends BuiltinFunction {
     final keyRaw = keyValue?.raw;
 
     if (map case final TableStorage storage) {
-      final storageNext = _nextFromTableStorage(table, storage, keyValue, keyRaw);
-      if (storageNext != null) {
-        return storageNext;
-      }
+      return _nextFromTableStorage(table, storage, keyValue, keyRaw) ??
+          Value(null);
     }
 
     var returnNext = keyValue == null || keyRaw == null;
@@ -999,6 +997,7 @@ class NextFunction extends BuiltinFunction {
     Value? keyValue,
     dynamic keyRaw,
   ) {
+    final hashEntries = storage.hashEntries.toList(growable: false);
     final previousDenseIndex = _denseIndex(keyRaw);
     final previousKeyWasDense = switch (previousDenseIndex) {
       final index?
@@ -1010,7 +1009,7 @@ class NextFunction extends BuiltinFunction {
     };
 
     final denseStart = switch (previousDenseIndex) {
-      final index? when index > 0 => index + 1,
+      final index? when index > 0 && index <= storage.arrayLength => index + 1,
       _ when keyValue == null || keyRaw == null => 1,
       _ => null,
     };
@@ -1027,10 +1026,10 @@ class NextFunction extends BuiltinFunction {
 
       final hashKeyValue = previousKeyWasDense ? null : keyValue;
       final hashKeyRaw = previousKeyWasDense ? null : keyRaw;
-      return _nextFromEntries(storage.hashEntries, table, hashKeyValue, hashKeyRaw);
+      return _nextFromEntries(hashEntries, table, hashKeyValue, hashKeyRaw);
     }
 
-    return _nextFromEntries(storage.hashEntries, table, keyValue, keyRaw);
+    return _nextFromEntries(hashEntries, table, keyValue, keyRaw);
   }
 
   Object? _nextFromEntries(
