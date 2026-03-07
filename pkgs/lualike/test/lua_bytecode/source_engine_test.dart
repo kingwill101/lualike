@@ -1,12 +1,19 @@
 @Tags(['lua_bytecode'])
 library;
 
+import 'dart:io';
+
 import 'package:lualike/lualike.dart';
 import 'package:lualike/command/lualike_command_runner.dart';
 import 'package:lualike/src/lua_bytecode/runtime.dart';
 import 'package:test/test.dart';
 
 void main() {
+  final luacBinary = _resolveLuacBinary();
+  final skipReason = luacBinary == null
+      ? 'luac55 not available for lua_bytecode CLI chunk tests'
+      : null;
+
   group('lua_bytecode source engine', () {
     late EngineMode originalMode;
 
@@ -186,6 +193,36 @@ return ok1, yielded, midStatus, ok2, finalValue, finalStatus
       expect(LuaLikeConfig().defaultEngineMode, EngineMode.luaBytecode);
     });
 
+    test('CLI runs raw luac chunks under --lua-bytecode', () async {
+      final tempDir = Directory.systemTemp.createTempSync(
+        'lualike_lua_bytecode_cli_',
+      );
+      final sourceFile = File('${tempDir.path}/fixture.lua');
+      final chunkFile = File('${tempDir.path}/fixture.luac');
+
+      try {
+        sourceFile.writeAsStringSync("print('bytecode cli ok')");
+        final compile = Process.runSync(luacBinary!, <String>[
+          '-o',
+          chunkFile.path,
+          sourceFile.path,
+        ]);
+        expect(compile.exitCode, equals(0), reason: '${compile.stderr}');
+
+        final result = await Process.run(Platform.resolvedExecutable, <String>[
+          'run',
+          'bin/main.dart',
+          '--lua-bytecode',
+          chunkFile.path,
+        ], workingDirectory: 'pkgs/lualike');
+
+        expect(result.exitCode, equals(0), reason: '${result.stderr}');
+        expect(result.stdout as String, contains('bytecode cli ok'));
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
+    }, skip: skipReason);
+
     test(
       'unsupported source subsets fail explicitly without AST fallback',
       () async {
@@ -204,6 +241,24 @@ return ok1, yielded, midStatus, ok2, finalValue, finalStatus
       },
     );
   });
+}
+
+String? _resolveLuacBinary() {
+  const candidates = <String>[
+    '/home/kingwill101/Downloads/lua-5.5.0_Linux68_64_bin/luac55',
+  ];
+  for (final candidate in candidates) {
+    if (File(candidate).existsSync()) {
+      return candidate;
+    }
+  }
+
+  final result = Process.runSync('sh', const [
+    '-lc',
+    'command -v luac55 || command -v luac',
+  ]);
+  final path = (result.stdout as String).trim();
+  return path.isEmpty ? null : path;
 }
 
 Object? _unwrap(Object? value) {
