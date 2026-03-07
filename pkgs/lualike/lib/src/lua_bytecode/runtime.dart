@@ -188,7 +188,7 @@ class LuaBytecodeRuntime implements LuaRuntime {
       chunkName: chunkName,
       environment: env,
     );
-    return closure.call(const []);
+    return closure.call(_currentChunkArgs(env));
   }
 
   @override
@@ -357,6 +357,16 @@ class LuaBytecodeRuntime implements LuaRuntime {
     if (!identical(value.interpreter, this)) {
       value.interpreter = this;
     }
+  }
+
+  List<Object?> _currentChunkArgs(Environment env) {
+    final varargs = env.get('...');
+    return switch (varargs) {
+      Value(isMulti: true, raw: final List values) => List<Object?>.from(values),
+      Value(raw: null) || null => const <Object?>[],
+      final Value value => <Object?>[value],
+      _ => <Object?>[varargs],
+    };
   }
 
   void _attachInterpreterToArgs(List<Object?> args) {

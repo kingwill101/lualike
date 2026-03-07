@@ -87,6 +87,36 @@ end
       await expectEmittedMatchesSource(openReturnSource, prelude: prelude);
     });
 
+    test('emits logical and/or expressions with operand semantics', () async {
+      const source = '''
+return false and 1, true and 7, nil or 4, false or 9, "x" and "y", "x" or "y"
+''';
+
+      await expectEmittedMatchesSource(source);
+    });
+
+    test(
+      'emits vararg expressions in calls, constructors, and returns',
+      () async {
+        const source = '''
+local function passthrough(...)
+  return ...
+end
+
+local function sample(...)
+  local packed = {n = select('#', ...), ...}
+  local direct = ...
+  local a, b, c = passthrough("head", ...)
+  return direct, packed.n, packed[1], packed[2], packed[3], a, b, c
+end
+
+return sample("x", "y")
+''';
+
+        await expectEmittedMatchesSource(source);
+      },
+    );
+
     test('emits table constructors and field/index stores', () async {
       const source = '''
 local key = "y"
@@ -148,23 +178,18 @@ return t[1], t[2], t.x, t[key]
 
     test('fails explicitly for unsupported expression families', () {
       expect(
-        () => const LuaBytecodeEmitter().compileSource('return a and b'),
-        throwsA(
-          predicate(
-            (Object? error) =>
-                error is UnsupportedError &&
-                error.message.toString().contains('binary operator and'),
-          ),
-        ),
-      );
-      expect(
-        () => const LuaBytecodeEmitter().compileSource('return ...'),
+        () => const LuaBytecodeEmitter().compileSource('''
+local function sample()
+  return ...
+end
+return sample()
+'''),
         throwsA(
           predicate(
             (Object? error) =>
                 error is UnsupportedError &&
                 error.message.toString().contains(
-                  'does not support VarArg expressions',
+                  'cannot use vararg expressions outside a vararg function',
                 ),
           ),
         ),

@@ -342,14 +342,47 @@ final class LuaBytecodePrototypeBuilder {
     emitAbc('CALL', a: baseRegister, b: argumentCount + 1, c: 0);
   }
 
+  void emitCallWithOpenArguments({
+    required int baseRegister,
+    required int resultCount,
+  }) {
+    ensureStack(baseRegister + 1);
+    emitAbc(
+      'CALL',
+      a: baseRegister,
+      b: 0,
+      c: resultCount == 0 ? 1 : resultCount + 1,
+    );
+  }
+
+  void emitCallWithOpenArgumentsAndResults({required int baseRegister}) {
+    ensureStack(baseRegister + 1);
+    emitAbc('CALL', a: baseRegister, b: 0, c: 0);
+  }
+
   void emitTailCall({required int baseRegister, required int argumentCount}) {
     ensureStack(baseRegister + argumentCount + 1);
     emitAbc('TAILCALL', a: baseRegister, b: argumentCount + 1, c: 1);
   }
 
+  void emitTailCallWithOpenArguments({required int baseRegister}) {
+    ensureStack(baseRegister + 1);
+    emitAbc('TAILCALL', a: baseRegister, b: 0, c: 1);
+  }
+
   void emitOpenReturn({required int firstRegister}) {
     ensureStack(firstRegister + 1);
     emitAbc('RETURN', a: firstRegister, b: 0, c: 1);
+  }
+
+  void emitVararg({required int target, required int resultCount}) {
+    ensureStack(target + math.max(resultCount, 1));
+    emitAbc(
+      'VARARG',
+      a: target,
+      b: 0,
+      c: resultCount == 0 ? 0 : resultCount + 1,
+    );
   }
 
   int emitTForPrepPlaceholder({required int baseRegister}) {
