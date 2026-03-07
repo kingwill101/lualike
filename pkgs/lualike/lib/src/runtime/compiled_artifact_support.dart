@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -20,6 +21,10 @@ final RegExp _constructsShortCircuitChunkPattern = RegExp(
   r'return\s+(.+?)\s*$',
   dotAll: true,
 );
+const int _maxCachedAnonymousTextLoads = 128;
+const int _maxCachedAnonymousTextLoadSourceLength = 512;
+final Expando<_AnonymousTextLoadCache> _anonymousTextLoadCaches =
+    Expando<_AnonymousTextLoadCache>('anonymousTextLoadCaches');
 
 Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
   LuaRuntime runtime,
@@ -256,21 +261,37 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
   }
 
   try {
+    final anonymousLoadCacheKey =
+        !isBinaryChunk &&
+            _shouldCacheAnonymousTextLoad(chunkname: chunkname, source: source)
+        ? (chunkName: chunkname, source: source)
+        : null;
+    final cachedAnonymousProgram = anonymousLoadCacheKey == null
+        ? null
+        : _anonymousTextLoadCacheFor(
+            runtime,
+          ).lookup(anonymousLoadCacheKey);
+    final loadedFromAnonymousCache = cachedAnonymousProgram != null;
+
     if (_loadProfileEnabled) {
       parseTimer = Stopwatch()..start();
     }
     final ast =
+        cachedAnonymousProgram ??
         _tryParseConstructsShortCircuitChunk(source, chunkname) ??
         parse(source, url: chunkname);
     if (parseTimer != null) {
       parseTimer.stop();
       parseDuration = parseTimer.elapsed;
+    } else if (loadedFromAnonymousCache) {
+      parseDuration = Duration.zero;
     }
 
     // Skip whole-AST validation passes when the source text cannot possibly
     // contain the relevant syntax. Repeated simple text loads in gc.lua spend a
     // large amount of time here otherwise.
-    if (ast is! _ConstructsShortCircuitProgram &&
+    if (!loadedFromAnonymousCache &&
+        ast is! _ConstructsShortCircuitProgram &&
         _attributeLikeTokenPattern.hasMatch(source)) {
       final constChecker = ConstChecker();
       final constError = constChecker.checkConstViolations(ast);
@@ -290,7 +311,8 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
       }
     }
 
-    if (ast is! _ConstructsShortCircuitProgram &&
+    if (!loadedFromAnonymousCache &&
+        ast is! _ConstructsShortCircuitProgram &&
         (source.contains('goto') || source.contains('::'))) {
       final gotoValidator = GotoLabelValidator();
       final gotoError = gotoValidator.checkGotoLabelViolations(ast);
@@ -298,6 +320,10 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
         logProfile('goto-error', error: gotoError);
         return LuaChunkLoadResult.failure(gotoError);
       }
+    }
+    if (anonymousLoadCacheKey case final key?
+        when !loadedFromAnonymousCache) {
+      _anonymousTextLoadCacheFor(runtime).store(key, ast);
     }
 
     var hasDirectAst = false;
@@ -1066,4 +1092,39 @@ void _installLoadedFunction({
   }
 
   savedEnv.define(functionName, functionValue);
+}
+
+typedef _AnonymousTextLoadCacheKey = ({String chunkName, String source});
+
+bool _shouldCacheAnonymousTextLoad({
+  required String chunkname,
+  required String source,
+}) {
+  return chunkname.isEmpty &&
+      source.length <= _maxCachedAnonymousTextLoadSourceLength;
+}
+
+_AnonymousTextLoadCache _anonymousTextLoadCacheFor(LuaRuntime runtime) {
+  return _anonymousTextLoadCaches[runtime] ??= _AnonymousTextLoadCache();
+}
+
+final class _AnonymousTextLoadCache {
+  final LinkedHashMap<_AnonymousTextLoadCacheKey, Program> _entries =
+      LinkedHashMap<_AnonymousTextLoadCacheKey, Program>();
+
+  Program? lookup(_AnonymousTextLoadCacheKey key) {
+    final program = _entries.remove(key);
+    if (program != null) {
+      _entries[key] = program;
+    }
+    return program;
+  }
+
+  void store(_AnonymousTextLoadCacheKey key, Program program) {
+    _entries.remove(key);
+    _entries[key] = program;
+    if (_entries.length > _maxCachedAnonymousTextLoads) {
+      _entries.remove(_entries.keys.first);
+    }
+  }
 }
