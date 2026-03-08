@@ -1058,8 +1058,24 @@ class NextFunction extends BuiltinFunction {
   }
 
   (Value, Value) _wrapNextResult(dynamic key, dynamic value) {
-    final nextKey = key is Value ? key : Value(key);
-    final nextValue = value is Value ? value : Value(value);
+    final nextKey = switch (key) {
+      final Value value => value,
+      final String value => Value(value, isTempKey: true),
+      final LuaString value => Value(value, isTempKey: true),
+      final num value => Value(value, isTempKey: true),
+      final bool value => Value(value, isTempKey: true),
+      null => Value(null, isTempKey: true),
+      _ => Value(key),
+    };
+    final nextValue = switch (value) {
+      final Value wrapped => wrapped,
+      final String value => Value(value, isTempKey: true),
+      final LuaString value => Value(value, isTempKey: true),
+      final num value => Value(value, isTempKey: true),
+      final bool value => Value(value, isTempKey: true),
+      null => Value(null, isTempKey: true),
+      _ => Value(value),
+    };
     return (nextKey, nextValue);
   }
 
@@ -1380,18 +1396,22 @@ class CollectGarbageFunction extends BuiltinFunction {
         case "collect":
           // "collect": Performs a full garbage-collection cycle
           final gcManager = interpreter!.gc;
-          final insideSortComparator = isInsideSortComparator(interpreter!);
+          final runtime = interpreter!;
+          final insideSortComparator = isInsideSortComparator(runtime);
+          final shouldAbandonIncrementalCycle =
+              insideSortComparator ||
+              runtime.shouldAbandonIncrementalCycleBeforeManualCollect;
           if (gcManager.isFinalizerActive) {
             // Lua returns false when collection is in a finalizer to prevent
             // re-entrancy (the finalizer may attempt another collect).
             return Value(false);
           }
           if (gcManager.isCycleActive) {
-            if (insideSortComparator) {
+            if (shouldAbandonIncrementalCycle) {
               gcManager.abandonIncrementalCycleForMajorCollect();
               if (Logger.enabled) {
                 Logger.debug(
-                  'collectgarbage("collect") abandoned incremental cycle inside sort comparator',
+                  'collectgarbage("collect") abandoned incremental cycle before manual collect',
                   category: 'Base',
                 );
               }

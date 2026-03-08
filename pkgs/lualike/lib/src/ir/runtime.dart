@@ -211,6 +211,9 @@ class LualikeIrRuntime implements LuaRuntime {
   List<Object?> getRoots() => _interpreter.getRoots();
 
   @override
+  bool get shouldAbandonIncrementalCycleBeforeManualCollect => false;
+
+  @override
   FileManager get fileManager => _interpreter.fileManager;
 
   @override

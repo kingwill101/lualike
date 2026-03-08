@@ -139,6 +139,7 @@ String _cleanEmitterFailure(Object error) {
 class LuaBytecodeRuntime implements LuaRuntime {
   LuaBytecodeRuntime({FileManager? fileManager})
     : _interpreter = Interpreter(fileManager: fileManager) {
+    _interpreter.gc.bindRuntime(this);
     _libraryRegistry = LibraryRegistry(this);
     final runtimeEnv = Environment(interpreter: this);
     _interpreter.setCurrentEnv(runtimeEnv);
@@ -340,6 +341,9 @@ class LuaBytecodeRuntime implements LuaRuntime {
   ];
 
   @override
+  bool get shouldAbandonIncrementalCycleBeforeManualCollect => true;
+
+  @override
   FileManager get fileManager => _interpreter.fileManager;
 
   @override
@@ -368,6 +372,41 @@ class LuaBytecodeRuntime implements LuaRuntime {
 
   void popActiveFrameRoots(LuaBytecodeGCRootProvider provider) {
     _activeFrameRoots.remove(provider);
+  }
+
+  void runAutoGcAtSafePoint() {
+    if (gc.isStopped || !gc.autoTriggerEnabled) {
+      return;
+    }
+    final debt = gc.allocationDebt;
+    final cycleComplete = gc.isCollectionCycleComplete();
+    if (debt <= 0 && cycleComplete) {
+      return;
+    }
+    final (stepSize, maxIterations) = switch (cycleComplete) {
+      true => (512, 8),
+      false => (1 << 16, 256),
+    };
+    for (var iteration = 0; iteration < maxIterations; iteration++) {
+      if (gc.performIncrementalStep(stepSize)) {
+        break;
+      }
+    }
+  }
+
+  Future<void> runLoopGcAtSafePoint(int loopCounter) async {
+    if (gc.isStopped || !gc.autoTriggerEnabled) {
+      return;
+    }
+    final debt = gc.allocationDebt;
+    if (debt <= 0 && gc.isCollectionCycleComplete()) {
+      return;
+    }
+    if (loopCounter % 128 == 0) {
+      await gc.collectMajor();
+      return;
+    }
+    runAutoGcAtSafePoint();
   }
 
   Value _resolveCallable(Value original) {

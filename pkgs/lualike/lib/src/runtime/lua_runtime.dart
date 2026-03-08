@@ -108,6 +108,7 @@ abstract interface class LuaRuntime {
   // Garbage collection
   GenerationalGCManager get gc;
   List<Object?> getRoots();
+  bool get shouldAbandonIncrementalCycleBeforeManualCollect;
 
   // IO / modules
   FileManager get fileManager;

@@ -331,6 +331,9 @@ class Interpreter extends AstVisitor<Object?>
     ];
   }
 
+  @override
+  bool get shouldAbandonIncrementalCycleBeforeManualCollect => false;
+
   /// Sets the current environment.
   ///
   /// Required by the function mixin to update the current environment

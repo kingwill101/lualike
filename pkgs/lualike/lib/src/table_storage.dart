@@ -200,10 +200,18 @@ class TableStorage extends MapBase<dynamic, dynamic> {
     final arrayIdx = _arrayIndexFor(key);
     if (arrayIdx != null) {
       if (arrayIdx >= _array.length) {
-        return _hash.remove(key);
+        final removed = _hash.remove(key);
+        if (_hash.isEmpty) {
+          _hash.clear();
+        }
+        return removed;
       }
       if (arrayIdx >= _occupied.length || _occupied[arrayIdx] == 0) {
-        return _hash.remove(key);
+        final removed = _hash.remove(key);
+        if (_hash.isEmpty) {
+          _hash.clear();
+        }
+        return removed;
       }
       final current = _array[arrayIdx];
       _array[arrayIdx] = null;
@@ -212,7 +220,11 @@ class TableStorage extends MapBase<dynamic, dynamic> {
       _trimArray();
       return current;
     }
-    return _hash.remove(key);
+    final removed = _hash.remove(key);
+    if (_hash.isEmpty) {
+      _hash.clear();
+    }
+    return removed;
   }
 
   void _trimArray() {
