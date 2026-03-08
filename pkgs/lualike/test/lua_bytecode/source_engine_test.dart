@@ -336,6 +336,25 @@ return count
     );
 
     test(
+      'executeCode preserves primitive weak keys during active bytecode execution',
+      () async {
+        final result = await executeCode(r'''
+local a = setmetatable({}, {__mode = "vk"})
+local x, y, z = {}, {}, {}
+
+a[1] = x
+a[2] = y
+a[3] = z
+a[string.rep("$", 11)] = string.rep("$", 11)
+
+return a[1] == x, a[2] == y, a[3] == z, a[string.rep("$", 11)] == string.rep("$", 11)
+''', mode: EngineMode.luaBytecode);
+
+        expect(_flatten(result), equals(<Object?>[true, true, true, true]));
+      },
+    );
+
+    test(
       'executeCode emits arithmetic metamethod follow-up opcodes',
       () async {
         final result = await executeCode(r'''

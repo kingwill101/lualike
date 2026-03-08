@@ -1348,10 +1348,6 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       }
     }
     _incrementTableVersion();
-    final gcLocal4 = GCAccess.fromValue(this);
-    if (gcLocal4 != null) {
-      MemoryCredits.instance.recalculate(this);
-    }
     // Maintain string-key credits incrementally when keys are Strings.
     try {
       int keyLen(Object k) {
@@ -1367,12 +1363,18 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       if (valueToSet.isNil &&
           existed &&
           (storageKey is String || storageKey is LuaString)) {
-        _tableStringKeyBytes[map] =
-            (_tableStringKeyBytes[map] ?? 0) - keyLen(storageKey);
+        // Removals after weak-table cleanup can invalidate incremental byte
+        // accounting assumptions. Force a rescan on the next size read instead
+        // of trying to maintain the cache subtractively.
+        _tableStringKeyBytes[map] = null;
       }
     } catch (_) {}
 
     _syncGlobalProxyBinding(storageKey, valueToSet);
+    final gcLocal4 = GCAccess.fromValue(this);
+    if (gcLocal4 != null) {
+      MemoryCredits.instance.recalculate(this);
+    }
   }
 
   void _syncGlobalProxyBinding(Object? storageKey, Value value) {
@@ -2454,11 +2456,21 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     if (key is Value) {
       final rawKey = key.raw;
 
-      // For weak-key tables, ALWAYS preserve the Value wrapper so GC can track it.
-      // Otherwise inline expressions like a[string.rep(...)] will unwrap to raw
-      // strings, the Value wrapper gets freed, and credits are lost.
+      // For weak-key tables, preserve wrappers only for collectable keys.
+      // Lua treats primitive keys (numbers/strings/booleans) as non-collectable,
+      // so storing them as Value wrappers makes them act like weak keys and they
+      // can disappear mid-execution under auto-GC.
       if (tableWeakMode != null && tableWeakMode!.contains('k')) {
-        // Weak keys: keep Value wrapper for GC tracking
+        if (rawKey is LuaString) {
+          return rawKey.toString();
+        }
+        if (rawKey is num) {
+          return rawKey == 0 ? 0.0 : rawKey;
+        }
+        if (_isPrimitiveKey(rawKey)) {
+          return rawKey;
+        }
+        // Weak keys: keep collectable keys wrapped for GC tracking.
         return key;
       }
 

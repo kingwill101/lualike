@@ -84,12 +84,16 @@ class Generation {
 class GenerationalGCManager {
   /// Reference to the runtime for accessing global state.
   // ignore: unused_field
-  final LuaRuntime _runtime;
+  LuaRuntime _runtime;
 
   static int totalRegistrations = 0;
   static final Map<Type, int> allocationHistogram = <Type, int>{};
 
   GenerationalGCManager(this._runtime);
+
+  void bindRuntime(LuaRuntime runtime) {
+    _runtime = runtime;
+  }
 
   /// Whether garbage collection is currently stopped.
   bool _isStopped = false;
@@ -525,6 +529,10 @@ class GenerationalGCManager {
     _resetMarkingQueue();
     _objectsToSweep = [];
     _sweepingIndex = 0;
+    weakValuesTables.clear();
+    ephemeronTables.clear();
+    allWeakTables.clear();
+    _pendingWeakKeyRemovals.clear();
 
     // Add root objects to marking queue
     final roots = buildRootSet(_runtime);
@@ -587,12 +595,7 @@ class GenerationalGCManager {
           category: 'GC',
         );
 
-        // Add referenced objects to marking queue
-        for (final ref in obj.getReferences()) {
-          if (ref is GCObject && !ref.marked) {
-            _enqueueForMarking(ref);
-          }
-        }
+        _enqueueIncrementalReferences(obj);
       }
 
       workDone++;
@@ -798,9 +801,13 @@ class GenerationalGCManager {
     _simulatedAllocationDebt = 0;
 
     // Clean up state
+    _applyPendingWeakRemovals();
     _resetMarkingQueue();
     _objectsToSweep.clear();
     _sweepingIndex = 0;
+    weakValuesTables.clear();
+    ephemeronTables.clear();
+    allWeakTables.clear();
 
     // Complete the cycle
     _cycleComplete = true;
@@ -811,6 +818,57 @@ class GenerationalGCManager {
       category: 'GC',
     );
     return 1;
+  }
+
+  void _enqueueIncrementalReferences(GCObject obj) {
+    Iterable<Object?> references;
+    if (obj case final Value value when value.isTable) {
+      final weakMode = value.tableWeakMode;
+      switch (weakMode) {
+        case null:
+          references = value.getReferencesForGC(
+            strongKeys: true,
+            strongValues: true,
+          );
+        case 'v':
+          if (!weakValuesTables.contains(value)) {
+            weakValuesTables.add(value);
+          }
+          references = value.getReferencesForGC(
+            strongKeys: true,
+            strongValues: false,
+          );
+        case 'k':
+          if (!ephemeronTables.contains(value)) {
+            ephemeronTables.add(value);
+          }
+          references = <Object?>[
+            if (value.metatable != null) value.metatable,
+            if (value.upvalues != null) ...value.upvalues!,
+          ];
+        case 'kv':
+          if (!allWeakTables.contains(value)) {
+            allWeakTables.add(value);
+          }
+          references = value.getReferencesForGC(
+            strongKeys: false,
+            strongValues: false,
+          );
+        default:
+          references = value.getReferencesForGC(
+            strongKeys: true,
+            strongValues: true,
+          );
+      }
+    } else {
+      references = obj.getReferences();
+    }
+
+    for (final ref in references) {
+      if (ref is GCObject && !ref.marked) {
+        _enqueueForMarking(ref);
+      }
+    }
   }
 
   void ensureTracked(GCObject obj) {
@@ -836,6 +894,7 @@ class GenerationalGCManager {
         MemoryCredits.instance.onAllocate(obj, space: GCGenerationSpace.young);
       }
     }
+    _considerTrackedObjectDuringMarking(obj);
   }
 
   bool _isTracked(GCObject obj) {
@@ -896,6 +955,14 @@ class GenerationalGCManager {
       () => 'Register: ${obj.runtimeType} ${obj.hashCode}',
       category: 'GC',
     );
+    _considerTrackedObjectDuringMarking(obj);
+  }
+
+  void _considerTrackedObjectDuringMarking(GCObject obj) {
+    if (!_isCollecting || _currentPhase != GCPhase.marking || obj.marked) {
+      return;
+    }
+    _enqueueForMarking(obj);
   }
 
   void _requestAutoTrigger() {
@@ -1071,13 +1138,14 @@ class GenerationalGCManager {
       roots.addAll(vm.evalStack.items);
     }
 
-    // Include environments and locals referenced by call frames
+    // Include environments referenced by call frames. Do not treat
+    // `debugLocals` snapshots as GC roots: they are for debugging/UI and can
+    // legitimately lag behind the live local state (for example after `k = nil`
+    // and before the next debug sync), which would otherwise retain dead
+    // values across explicit `collectgarbage()` calls.
     for (final frame in vm.callStack.frames) {
       if (frame.env != null) {
         roots.add(frame.env);
-      }
-      for (final entry in frame.debugLocals) {
-        roots.add(entry.value);
       }
     }
 
@@ -1294,19 +1362,24 @@ class GenerationalGCManager {
             'ephemeron list',
         category: 'GC',
       );
-      if (!ephemeronTables.contains(table)) {
+      final isNewEphemeronTable = !ephemeronTables.contains(table);
+      if (isNewEphemeronTable) {
         ephemeronTables.add(table);
       }
 
-      if (_inMajorCollection) {
+      if (_inMajorCollection && isNewEphemeronTable) {
         final tableMap = table.raw as Map;
         for (final entry in tableMap.entries) {
           final key = entry.key;
-          if (key is Value && key.marked) {
-            key.marked = false;
+          if (key is Value) {
+            final canonicalKey = _canonicalWeakKey(key);
+            if (!canonicalKey.marked) {
+              continue;
+            }
+            canonicalKey.marked = false;
             Logger.debugLazy(
               () =>
-                  'Unmarking weak key ${key.hashCode} for table '
+                  'Unmarking weak key ${canonicalKey.hashCode} for table '
                   '${table.hashCode}',
               category: 'GC',
             );
@@ -1418,26 +1491,27 @@ class GenerationalGCManager {
         // Before removing the entry, preserve the key if it's a Value object
         // This ensures the key survives the collection cycle as per Lua semantics
         if (key is Value && !key.isPrimitiveLike) {
+          final preservedKey = _canonicalWeakKey(key);
           // Re-mark the key to keep it alive during this collection
-          key.marked = true;
+          preservedKey.marked = true;
           // Add the key back to the appropriate generation so it survives separation
-          if (youngGen.contains(key)) {
+          if (youngGen.contains(preservedKey)) {
             // Key is already in young generation, just keep it marked
-          } else if (oldGen.contains(key)) {
+          } else if (oldGen.contains(preservedKey)) {
             // Key is already in old generation, just keep it marked
           } else {
             // Key is not in any generation, add it to young generation
-            youngGen.add(key);
+            youngGen.add(preservedKey);
             Logger.debugLazy(
               () =>
-                  'Added preserved key ${key.hashCode} back to '
+                  'Added preserved key ${preservedKey.hashCode} back to '
                   'young generation',
               category: 'GC',
             );
           }
           Logger.debugLazy(
             () =>
-                'Preserving weak table key ${key.hashCode} when clearing '
+                'Preserving weak table key ${preservedKey.hashCode} when clearing '
                 'weak value',
             category: 'GC',
           );
@@ -1471,7 +1545,9 @@ class GenerationalGCManager {
         // reachable through the weak table. This matches Lua's behavior that
         // allows string->string survivors in kv tables.
         final keyDead =
-            (key is Value && !key.isPrimitiveLike && !key.marked) ||
+            (key is Value &&
+                !key.isPrimitiveLike &&
+                !_isMarkedWeakKey(key)) ||
             (_isCollectableNonPrimitiveGC(key) && !(key as GCObject).marked);
         var valueDead =
             (value is Value &&
@@ -1525,7 +1601,7 @@ class GenerationalGCManager {
 
     bool changed = true;
     int iterations = 0;
-    const maxIterations = 100; // Safety limit to prevent infinite loops
+    const maxIterations = 1000; // Safety limit to prevent infinite loops
 
     while (changed && iterations < maxIterations) {
       changed = false;
@@ -1545,7 +1621,7 @@ class GenerationalGCManager {
 
           // If key is marked (strongly reachable) and value is not yet marked,
           // mark the value and propagate from it
-          if ((key is GCObject && key.marked) || (key is Value && key.marked)) {
+          if (_isMarkedWeakKey(key)) {
             if (_isCollectableNonPrimitiveGC(value) &&
                 !(value as GCObject).marked) {
               Logger.debugLazy(
@@ -1596,6 +1672,34 @@ class GenerationalGCManager {
 
   bool _isCollectableNonPrimitiveGC(Object? value) {
     return value is GCObject && value is! Value && value is! LuaString;
+  }
+
+  Value _canonicalWeakKey(Value key) {
+    if (key.isPrimitiveLike) {
+      return key;
+    }
+    final canonical = Value.lookupCanonicalTableWrapper(key.raw);
+    return canonical ?? key;
+  }
+
+  bool _isMarkedWeakKey(Object? key) {
+    return switch (key) {
+      final Value value when !value.isPrimitiveLike =>
+        _canonicalWeakKey(value).marked,
+      final Value value => value.marked,
+      final GCObject object => object.marked,
+      _ => false,
+    };
+  }
+
+  bool _isTrackedWeakKey(Object? key) {
+    return switch (key) {
+      final Value value when !value.isPrimitiveLike =>
+        _isTracked(_canonicalWeakKey(value)),
+      final Value value => _isTracked(value),
+      final GCObject object => _isTracked(object),
+      _ => false,
+    };
   }
 
   void _applyPendingWeakRemovals() {
@@ -1846,7 +1950,7 @@ class GenerationalGCManager {
       for (final entry in tableMap.entries) {
         final key = entry.key;
         final value = entry.value;
-        final keyMarked = (key is GCObject) ? key.marked : false;
+        final keyMarked = _isMarkedWeakKey(key);
         final valueMarked = (value is GCObject) ? value.marked : false;
 
         if (Logger.enabled) {
@@ -1861,8 +1965,8 @@ class GenerationalGCManager {
         // unmarked OR not tracked by generations, consider it dead.
         bool schedule = false;
         if (key is Value && !key.isPrimitiveLike) {
-          final tracked = _isTracked(key);
-          if (!key.marked || !tracked) {
+          final tracked = _isTrackedWeakKey(key);
+          if (!_isMarkedWeakKey(key) || !tracked) {
             schedule = true;
           }
         } else if (key is GCObject && key is! Value) {

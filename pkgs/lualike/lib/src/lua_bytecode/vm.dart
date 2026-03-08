@@ -125,7 +125,7 @@ final class LuaBytecodeClosure extends BuiltinFunction
   @override
   Future<Object?> call(List<Object?> args) async {
     final vm = LuaBytecodeVm(runtime);
-    final results = await vm.invoke(this, args);
+    final results = await vm.invoke(this, args, isEntryFrame: true);
     return _packCallResults(runtime, results);
   }
 }
@@ -138,11 +138,12 @@ final class LuaBytecodeVm {
   Future<List<Value>> invoke(
     LuaBytecodeClosure closure,
     List<Object?> args,
-    {String? callName}
+    {String? callName, bool isEntryFrame = false}
   ) async {
     var currentClosure = closure;
     var currentArgs = args;
     var currentCallName = callName;
+    var currentIsEntryFrame = isEntryFrame;
 
     while (true) {
       final callStackBaseDepth =
@@ -157,6 +158,7 @@ final class LuaBytecodeVm {
         closure: currentClosure,
         arguments: currentArgs,
         callName: currentCallName,
+        isEntryFrame: currentIsEntryFrame,
       );
 
       try {
@@ -274,6 +276,10 @@ final class LuaBytecodeVm {
     while (frame.pc < prototype.code.length) {
       _syncCurrentCoroutine();
       _syncDebugLocals(frame);
+      if (++frame.safePointCounter >= 64) {
+        frame.safePointCounter = 0;
+        (runtime as dynamic).runAutoGcAtSafePoint();
+      }
       int? nextOpenTop;
       final lineNumber = prototype.lineForPc(frame.pc);
       if (lineNumber != null) {
@@ -847,6 +853,9 @@ final class LuaBytecodeVm {
         case 'JMP':
           {
             frame.pc += word.sJ;
+            if (word.sJ < 0) {
+              await _runGcLoopSafePoint(runtime, frame);
+            }
             break;
           }
         case 'EQ':
@@ -1038,6 +1047,7 @@ final class LuaBytecodeVm {
           {
             if (_forLoop(frame, word.a)) {
               frame.pc -= word.bx;
+              await _runGcLoopSafePoint(runtime, frame);
             }
             break;
           }
@@ -1068,6 +1078,7 @@ final class LuaBytecodeVm {
           {
             if (!_isNil(frame.register(word.a + 3))) {
               frame.pc -= word.bx;
+              await _runGcLoopSafePoint(runtime, frame);
             }
             break;
           }
@@ -1834,6 +1845,7 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     required this.closure,
     required List<Object?> arguments,
     this.callName,
+    required this.isEntryFrame,
   }) : registers = List<Value>.generate(
          closure.prototype.maxStackSize,
          (_) => _runtimeValue(runtime, null),
@@ -1859,6 +1871,7 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
   final LuaRuntime runtime;
   final LuaBytecodeClosure closure;
   final String? callName;
+  final bool isEntryFrame;
   final List<Value> registers;
   final List<Value> varargs;
   final List<_LuaBytecodeUpvalue> _openUpvalues = <_LuaBytecodeUpvalue>[];
@@ -1867,6 +1880,8 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
   var pc = 0;
   var top = 0;
   int? openTop;
+  var safePointCounter = 0;
+  var loopGcCounter = 0;
   var closed = false;
 
   int get effectiveTop => openTop ?? top;
@@ -1972,7 +1987,14 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
   @override
   Iterable<GCObject> gcReferences() sync* {
     yield closure.environment;
+    final reservedLocalLimit = isEntryFrame
+        ? -1
+        : closure.prototype.localVariables
+              .map((local) => local.register)
+              .whereType<int>()
+              .fold<int>(-1, (limit, register) => register > limit ? register : limit);
     final liveRegisters = <int>{
+      for (var index = 0; index <= reservedLocalLimit; index++) index,
       if (openTop case final openTop?)
         for (var index = 0; index < openTop; index++) index,
       for (final upvalue in _openUpvalues)
@@ -1980,7 +2002,7 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
       ..._toBeClosedRegisters,
       for (final local in closure.prototype.localVariables)
         if (local.register case final register? when
-            local.startPc <= pc && pc < local.endPc)
+            local.startPc <= pc + 1 && pc + 1 < local.endPc)
           register,
     };
     for (final registerIndex in liveRegisters.toList()..sort()) {
@@ -2677,6 +2699,15 @@ int _signedB(LuaBytecodeInstructionWord word) =>
 
 int _signedC(LuaBytecodeInstructionWord word) =>
     word.c - LuaBytecodeInstructionLayout.offsetSC;
+
+Future<void> _runGcLoopSafePoint(
+  LuaRuntime runtime,
+  _LuaBytecodeFrame frame,
+) async {
+  final dynamicRuntime = runtime as dynamic;
+  frame.loopGcCounter += 1;
+  await dynamicRuntime.runLoopGcAtSafePoint(frame.loopGcCounter);
+}
 
 int _forIntegerLimit(int initial, Value limitValue, int step) {
   final raw = limitValue.raw;
