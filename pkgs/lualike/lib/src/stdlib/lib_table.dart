@@ -166,6 +166,21 @@ int _getTableLength(Map map) {
   return luaTableLengthFromMap(map.cast<dynamic, dynamic>());
 }
 
+Value _wrapSequenceValue(Object? value) => switch (value) {
+  final Value wrapped => wrapped,
+  _ => Value(value),
+};
+
+Future<Value> _tableSequenceReadAsync(Value table, int index) async {
+  final value = await table.getValueAsync(index);
+  return _wrapSequenceValue(value);
+}
+
+Future<void> _tableSequenceWriteAsync(Value table, int index, Object? value) {
+  final wrapped = value is Value ? value : Value(value);
+  return table.setValueAsync(index, wrapped);
+}
+
 class TableLib {
   static final Map<String, BuiltinFunction> functions = {
     "insert": _TableInsert(),
@@ -228,8 +243,6 @@ class _TableInsert extends BuiltinFunction {
       table,
       TablePermission.read | TablePermission.write | TablePermission.length,
     );
-    final map = table.raw as Map;
-
     final int baseLength = await getTableLength(table, context: "table.insert");
     final int firstEmpty = baseLength + 1;
 
@@ -249,10 +262,11 @@ class _TableInsert extends BuiltinFunction {
       }
       // Move up elements: for (i = firstEmpty; i > pos; i--) t[i] = t[i-1]
       for (var i = firstEmpty; i > pos; i--) {
-        map[i] = map[i - 1];
+        final shifted = await _tableSequenceReadAsync(table, i - 1);
+        await _tableSequenceWriteAsync(table, i, shifted);
       }
     }
-    map[pos] = value;
+    await _tableSequenceWriteAsync(table, pos, value);
     return Value(null);
   }
 }
@@ -260,23 +274,15 @@ class _TableInsert extends BuiltinFunction {
 class _TableRemove extends BuiltinFunction {
   _TableRemove() : super();
   @override
-  Object? call(List<Object?> args) {
+  Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
       throw LuaError.typeError("table.remove requires a table argument");
     }
     final table = args[0] is Value ? args[0] as Value : Value(args[0]);
     checktab(table, TablePermission.read | TablePermission.write);
 
-    final map = table.raw as Map;
-    final size = switch (map) {
-      final TableStorage storage => storage.luaLengthBoundary(),
-      _ => luaTableLengthFromMap(map.cast<dynamic, dynamic>()),
-    };
+    final size = await getTableLength(table);
     final pos = args.length > 1 ? (args[1] as Value).raw as int : size;
-
-    if (map.isEmpty) {
-      return Value(null);
-    }
 
     if (pos == 0 && size > 0) {
       throw LuaError("bad argument #2 to 'remove' (position out of bounds)");
@@ -286,32 +292,34 @@ class _TableRemove extends BuiltinFunction {
       return Value(null);
     }
 
-    final removed = map[pos];
+    final removed = await _tableSequenceReadAsync(table, pos);
 
     // Shift elements
     for (var i = pos; i < size; i++) {
-      map[i] = map[i + 1];
+      final shifted = await _tableSequenceReadAsync(table, i + 1);
+      await _tableSequenceWriteAsync(table, i, shifted);
     }
-    map.remove(size);
+    await _tableSequenceWriteAsync(table, size, Value(null));
 
-    return removed is Value ? removed : Value(removed);
+    return removed;
   }
 }
 
 class _TableConcat extends BuiltinFunction {
   _TableConcat() : super();
   @override
-  Object? call(List<Object?> args) {
+  Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
       throw LuaError.typeError("table expected");
     }
     final table = args[0] is Value ? args[0] as Value : Value(args[0]);
     checktab(table, TablePermission.read);
 
-    final map = table.raw as Map;
     final sep = args.length > 1 ? (args[1] as Value).raw.toString() : "";
     final start = args.length > 2 ? (args[2] as Value).raw as int : 1;
-    final end = args.length > 3 ? (args[3] as Value).raw as int : map.length;
+    final end = args.length > 3
+        ? (args[3] as Value).raw as int
+        : await getTableLength(table);
 
     // If start > end, return empty string (Lua behavior)
     if (start > end) {
@@ -324,14 +332,14 @@ class _TableConcat extends BuiltinFunction {
       if (NumberUtils.compare(i, start) > 0) {
         buffer.write(sep);
       }
-      final value = map[i];
-      if (value == null || (value is Value && value.raw == null)) {
+      final value = await _tableSequenceReadAsync(table, i);
+      if (value.raw == null) {
         // Lua throws an error when encountering nil values in the range
         throw LuaError("invalid value (nil) at index $i in table for 'concat'");
       }
 
       // Validate that the value is a string or number
-      final rawValue = (value as Value).raw;
+      final rawValue = value.raw;
       NumberUtils.validateStringOrNumber(rawValue, 'concat', i);
 
       buffer.write(rawValue.toString());
@@ -462,9 +470,12 @@ class _TableSort extends BuiltinFunction {
     final arg0 = args[0];
     final table = arg0 is Value ? arg0 : Value(arg0);
     checktab(table, TablePermission.read | TablePermission.write);
-
-    final map = table.raw as Map;
     final comp = args.length > 1 ? args[1] : null;
+    final rawSequenceTable =
+        table.raw is Map &&
+        table.getMetamethod('__index') == null &&
+        table.getMetamethod('__newindex') == null;
+    final map = rawSequenceTable ? table.raw as Map : null;
 
     // Validate comparison function if provided
     if (comp != null && comp is! Value) {
@@ -491,17 +502,18 @@ class _TableSort extends BuiltinFunction {
 
     // Validate the order function if provided
     if (_shouldValidateOrderFunction(comp)) {
-      await _validateOrderFunction(map, n, comp);
+      await _validateOrderFunction(table, n, comp);
     }
 
     final primitiveSortDirection = _primitiveSortDirection(comp);
     if (primitiveSortDirection != 0 &&
+        map != null &&
         _trySortPrimitiveArray(map, n, primitiveSortDirection)) {
       return Value(null);
     }
 
     // Perform in-place quicksort using Lua's algorithm
-    await _auxSort(map, 1, n, comp, 0);
+    await _auxSort(table, 1, n, comp, 0);
 
     return Value(null);
   }
@@ -591,7 +603,7 @@ class _TableSort extends BuiltinFunction {
   }
 
   // Simple in-place quicksort implementation
-  Future<void> _auxSort(Map map, int lo, int up, Object? comp, int rnd) async {
+  Future<void> _auxSort(Value table, int lo, int up, Object? comp, int rnd) async {
     Logger.debugLazy(
       () => "_auxSort: lo=$lo, up=$up",
       category: 'TableSort',
@@ -611,7 +623,7 @@ class _TableSort extends BuiltinFunction {
       bool alwaysFalse = true;
       // Test a few comparisons to see if they all return false
       for (int i = 0; i < 3 && alwaysFalse; i++) {
-        final testResult = await _sortComp(map, lo + i, lo + i + 1, comp);
+        final testResult = await _sortComp(table, lo + i, lo + i + 1, comp);
         if (testResult) {
           alwaysFalse = false;
         }
@@ -624,7 +636,7 @@ class _TableSort extends BuiltinFunction {
         );
         // For degenerate cases, just run a minimal sort to maintain compatibility
         // but use insertion sort which is efficient for this case
-        await _insertionSort(map, lo, up, comp);
+        await _insertionSort(table, lo, up, comp);
         return;
       }
     }
@@ -635,7 +647,7 @@ class _TableSort extends BuiltinFunction {
         () => "_auxSort: using insertion sort for small array",
         category: 'TableSort',
       );
-      await _insertionSort(map, lo, up, comp);
+      await _insertionSort(table, lo, up, comp);
       return;
     }
 
@@ -647,19 +659,19 @@ class _TableSort extends BuiltinFunction {
     );
 
     // Move pivot to end
-    _set2(map, pivot, up);
+    await _set2(table, pivot, up);
 
     // Partition
     int i = lo - 1;
     for (int j = lo; j < up; j++) {
-      final compResult = await _sortComp(map, j, up, comp);
+      final compResult = await _sortComp(table, j, up, comp);
       Logger.debugLazy(
         () => "_auxSort: comparing indices $j and $up, result=$compResult",
         category: 'TableSort',
       );
       if (compResult) {
         i++;
-        _set2(map, i, j);
+        await _set2(table, i, j);
         Logger.debugLazy(
           () => "_auxSort: swapped elements at indices $i and $j",
           category: 'TableSort',
@@ -668,7 +680,7 @@ class _TableSort extends BuiltinFunction {
     }
 
     // Move pivot to correct position
-    _set2(map, i + 1, up);
+    await _set2(table, i + 1, up);
     pivot = i + 1;
     Logger.debugLazy(
       () => "_auxSort: pivot moved to position $pivot",
@@ -683,42 +695,42 @@ class _TableSort extends BuiltinFunction {
         category: 'TableSort',
       );
       // Pivot is at the beginning, sort the rest
-      await _auxSort(map, lo + 1, up, comp, rnd);
+      await _auxSort(table, lo + 1, up, comp, rnd);
     } else if (pivot >= up) {
       Logger.debugLazy(
         () => "_auxSort: degenerate case - pivot at end, sorting rest",
         category: 'TableSort',
       );
       // Pivot is at the end, sort the rest
-      await _auxSort(map, lo, up - 1, comp, rnd);
+      await _auxSort(table, lo, up - 1, comp, rnd);
     } else {
       Logger.debugLazy(
         () => "_auxSort: normal case - sorting left and right parts",
         category: 'TableSort',
       );
       // Normal case: recursively sort left and right parts
-      await _auxSort(map, lo, pivot - 1, comp, rnd);
-      await _auxSort(map, pivot + 1, up, comp, rnd);
+      await _auxSort(table, lo, pivot - 1, comp, rnd);
+      await _auxSort(table, pivot + 1, up, comp, rnd);
     }
   }
 
   // Insertion sort for small arrays or degenerate cases
-  Future<void> _insertionSort(Map map, int lo, int up, Object? comp) async {
+  Future<void> _insertionSort(Value table, int lo, int up, Object? comp) async {
     for (int i = lo + 1; i <= up; i++) {
-      for (int j = i; j > lo && await _sortComp(map, j, j - 1, comp); j--) {
+      for (int j = i; j > lo && await _sortComp(table, j, j - 1, comp); j--) {
         Logger.debugLazy(
           () => "_insertionSort: should swap? j=$j, result=true",
           category: 'TableSort',
         );
-        _set2(map, j, j - 1);
+        await _set2(table, j, j - 1);
       }
     }
   }
 
   // Return true iff value at index 'a' is less than the value at index 'b'
-  Future<bool> _sortComp(Map map, int a, int b, Object? comp) async {
-    final valA = map[a];
-    final valB = map[b];
+  Future<bool> _sortComp(Value table, int a, int b, Object? comp) async {
+    final valA = await _tableSequenceReadAsync(table, a);
+    final valB = await _tableSequenceReadAsync(table, b);
 
     Logger.debugLazy(
       () =>
@@ -744,10 +756,7 @@ class _TableSort extends BuiltinFunction {
     }
 
     // If either value is nil, raise an error (Lua behavior)
-    if (valA == null ||
-        (valA is Value && valA.raw == null) ||
-        valB == null ||
-        (valB is Value && valB.raw == null)) {
+    if (valA.raw == null || valB.raw == null) {
       throw LuaError.typeError("attempt to compare nil value");
     }
 
@@ -755,8 +764,8 @@ class _TableSort extends BuiltinFunction {
       // no function?
 
       // Fast path: number/number or string/string (including LuaString) comparisons
-      final aVal = valA is Value ? (valA).raw : valA;
-      final bVal = valB is Value ? (valB).raw : valB;
+      final aVal = valA.raw;
+      final bVal = valB.raw;
       if (aVal is num && bVal is num) {
         final res = aVal < bVal;
         Logger.debugLazy(
@@ -877,7 +886,7 @@ class _TableSort extends BuiltinFunction {
   }
 
   // Validate that the comparison function provides a consistent ordering
-  Future<void> _validateOrderFunction(Map map, int n, Object? comp) async {
+  Future<void> _validateOrderFunction(Value table, int n, Object? comp) async {
     if (comp == null || n < 2) return;
 
     if (comp is Value &&
@@ -890,10 +899,10 @@ class _TableSort extends BuiltinFunction {
       final maxTests = n < 10 ? n : 10; // Test up to 10 pairs or all if n < 10
 
       for (int i = 1; i < maxTests; i++) {
-        final valA = map[i];
-        final valB = map[i + 1];
+        final valA = await _tableSequenceReadAsync(table, i);
+        final valB = await _tableSequenceReadAsync(table, i + 1);
 
-        if (valA != null && valB != null) {
+        if (valA.raw != null && valB.raw != null) {
           final runtime = interpreter;
           if (runtime != null) {
             enterSortComparator(runtime);
@@ -925,10 +934,10 @@ class _TableSort extends BuiltinFunction {
       // Functions that always return false or nil are valid (they just don't change the order)
       if (testCount >= 2 && firstResult == true) {
         // Test one more pair in reverse order to confirm
-        final valA = map[2];
-        final valB = map[1];
+        final valA = await _tableSequenceReadAsync(table, 2);
+        final valB = await _tableSequenceReadAsync(table, 1);
 
-        if (valA != null && valB != null) {
+        if (valA.raw != null && valB.raw != null) {
           final runtime = interpreter;
           if (runtime != null) {
             enterSortComparator(runtime);
@@ -1036,14 +1045,15 @@ class _TableSort extends BuiltinFunction {
   }
 
   // Swap two elements in the map
-  void _set2(Map map, int i, int j) {
+  Future<void> _set2(Value table, int i, int j) async {
     Logger.debugLazy(
       () => "_set2: swapping elements at indices $i and $j",
       category: 'TableSort',
     );
-    final temp = map[i];
-    map[i] = map[j];
-    map[j] = temp;
+    final temp = await _tableSequenceReadAsync(table, i);
+    final other = await _tableSequenceReadAsync(table, j);
+    await _tableSequenceWriteAsync(table, i, other);
+    await _tableSequenceWriteAsync(table, j, temp);
   }
 
   // Partition function (similar to C implementation)
@@ -1077,9 +1087,8 @@ class _TableUnpack extends BuiltinFunction {
 
     final table = args[0] is Value ? args[0] as Value : Value(args[0]);
     checktab(table, TablePermission.read);
-    final map = table.raw as Map;
     if (log) {
-      Logger.debug("_TableUnpack: Got table with ${map.length} entries");
+      Logger.debug("_TableUnpack: Got table value ${table.raw.runtimeType}");
     }
 
     int i, j;
@@ -1188,27 +1197,8 @@ class _TableUnpack extends BuiltinFunction {
 
     final int count = rawCount.toInt();
     final result = List<Value?>.filled(count, null, growable: false);
-    if (map is TableStorage) {
-      final storage = map;
-      for (var offset = 0; offset < count; offset++) {
-        final value = storage.arrayValueAt(start + offset);
-        if (value == null) {
-          result[offset] = Value(null);
-        } else if (value is Value) {
-          result[offset] = value;
-        } else {
-          result[offset] = Value(value);
-        }
-      }
-    } else {
-      for (var offset = 0; offset < count; offset++) {
-        final value = map[start + offset];
-        if (value == null || (value is Value && value.raw == null)) {
-          result[offset] = Value(null);
-        } else {
-          result[offset] = value is Value ? value : Value(value);
-        }
-      }
+    for (var offset = 0; offset < count; offset++) {
+      result[offset] = await _tableSequenceReadAsync(table, start + offset);
     }
 
     if (count == 0) {

@@ -619,5 +619,45 @@ void main() {
         expect((e.value as Value).raw, equals(0));
       }
     });
+
+    test('table library sequence operations respect proxy metamethods', () async {
+      final bridge = LuaLike();
+
+      try {
+        await bridge.execute('''
+          local t = {}
+          local proxy = setmetatable({}, {
+            __len = function() return #t end,
+            __index = t,
+            __newindex = t,
+          })
+
+          for i = 1, 5 do
+            table.insert(proxy, 1, i)
+          end
+
+          local before = table.concat(proxy, ",")
+          table.sort(proxy)
+          local after = table.concat(proxy, ",")
+          local r1 = table.remove(proxy, 1)
+          local r2 = table.remove(proxy)
+          local a, b, c, d = table.unpack(proxy)
+
+          return before, after, #proxy, #t, r1, r2, a, b, c, d
+        ''');
+      } on ReturnException catch (e) {
+        final result = (e.value as Value).unwrap();
+        expect(result[0], equals('5,4,3,2,1'));
+        expect(result[1], equals('1,2,3,4,5'));
+        expect(result[2], equals(3));
+        expect(result[3], equals(3));
+        expect(result[4], equals(1));
+        expect(result[5], equals(5));
+        expect(result[6], equals(2));
+        expect(result[7], equals(3));
+        expect(result[8], equals(4));
+        expect(result[9], isNull);
+      }
+    });
   });
 }
