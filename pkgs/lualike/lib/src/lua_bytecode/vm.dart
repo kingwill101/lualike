@@ -18,6 +18,10 @@ import 'package:lualike/src/utils/type.dart' show getLuaType;
 import 'package:lualike/src/value.dart';
 import 'package:path/path.dart' as path;
 
+abstract interface class LuaBytecodeGCRootProvider {
+  Iterable<GCObject> gcReferences();
+}
+
 enum _LuaBinaryOperation {
   add('+'),
   sub('-'),
@@ -224,6 +228,7 @@ final class LuaBytecodeVm {
     final closure = frame.closure;
     final previousEnv = runtime.getCurrentEnv();
     final previousScriptPath = runtime.currentScriptPath;
+    (runtime as dynamic).pushActiveFrameRoots(frame);
     runtime.setCurrentEnv(closure.environment);
     runtime.currentScriptPath = closure.prototype.source ?? previousScriptPath;
     runtime.callStack.push(
@@ -254,6 +259,7 @@ final class LuaBytecodeVm {
       }
       rethrow;
     } finally {
+      (runtime as dynamic).popActiveFrameRoots(frame);
       if (!suspended && !frame.closed) {
         await frame.closeResources(fromRegister: 0);
       }
@@ -1822,7 +1828,7 @@ final class LuaBytecodeVm {
   }
 }
 
-final class _LuaBytecodeFrame {
+final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
   _LuaBytecodeFrame({
     required this.runtime,
     required this.closure,
@@ -1963,10 +1969,24 @@ final class _LuaBytecodeFrame {
     }
   }
 
+  @override
   Iterable<GCObject> gcReferences() sync* {
     yield closure.environment;
-    for (final value in registers) {
-      yield value;
+    final liveRegisters = <int>{
+      if (openTop case final openTop?)
+        for (var index = 0; index < openTop; index++) index,
+      for (final upvalue in _openUpvalues)
+        if (upvalue.isOpen) upvalue.registerIndex,
+      ..._toBeClosedRegisters,
+      for (final local in closure.prototype.localVariables)
+        if (local.register case final register? when
+            local.startPc <= pc && pc < local.endPc)
+          register,
+    };
+    for (final registerIndex in liveRegisters.toList()..sort()) {
+      if (registerIndex < registers.length) {
+        yield registers[registerIndex];
+      }
     }
     for (final value in varargs) {
       yield value;

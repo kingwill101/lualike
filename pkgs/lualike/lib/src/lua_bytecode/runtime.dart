@@ -150,6 +150,8 @@ class LuaBytecodeRuntime implements LuaRuntime {
 
   final Interpreter _interpreter;
   late final LibraryRegistry _libraryRegistry;
+  final List<LuaBytecodeGCRootProvider> _activeFrameRoots =
+      <LuaBytecodeGCRootProvider>[];
 
   Environment get _globals => _interpreter.globals;
 
@@ -332,7 +334,10 @@ class LuaBytecodeRuntime implements LuaRuntime {
   GenerationalGCManager get gc => _interpreter.gc;
 
   @override
-  List<Object?> getRoots() => _interpreter.getRoots();
+  List<Object?> getRoots() => <Object?>[
+    ..._interpreter.getRoots(),
+    for (final provider in _activeFrameRoots) ...provider.gcReferences(),
+  ];
 
   @override
   FileManager get fileManager => _interpreter.fileManager;
@@ -355,6 +360,14 @@ class LuaBytecodeRuntime implements LuaRuntime {
     if (!identical(root.interpreter, this)) {
       root.interpreter = this;
     }
+  }
+
+  void pushActiveFrameRoots(LuaBytecodeGCRootProvider provider) {
+    _activeFrameRoots.add(provider);
+  }
+
+  void popActiveFrameRoots(LuaBytecodeGCRootProvider provider) {
+    _activeFrameRoots.remove(provider);
   }
 
   Value _resolveCallable(Value original) {
