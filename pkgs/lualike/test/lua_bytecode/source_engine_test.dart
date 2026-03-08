@@ -228,6 +228,23 @@ return f()
     );
 
     test(
+      'executeCode preserves local function names in debug info',
+      () async {
+        final result = await executeCode(r'''
+local debug = require 'debug'
+
+local function F(a)
+  return debug.getinfo(1, "n").name, a
+end
+
+return F(1)
+''', mode: EngineMode.luaBytecode);
+
+        expect(_flatten(result), equals(<Object?>['F', 1]));
+      },
+    );
+
+    test(
       'executeCode reuses identical emitted string literal identities',
       () async {
         final result = await executeCode(r'''

@@ -134,9 +134,11 @@ final class LuaBytecodeVm {
   Future<List<Value>> invoke(
     LuaBytecodeClosure closure,
     List<Object?> args,
+    {String? callName}
   ) async {
     var currentClosure = closure;
     var currentArgs = args;
+    var currentCallName = callName;
 
     while (true) {
       final callStackBaseDepth =
@@ -150,6 +152,7 @@ final class LuaBytecodeVm {
         runtime: runtime,
         closure: currentClosure,
         arguments: currentArgs,
+        callName: currentCallName,
       );
 
       try {
@@ -168,9 +171,14 @@ final class LuaBytecodeVm {
         if (callee.raw case final LuaBytecodeClosure nextClosure) {
           currentClosure = nextClosure;
           currentArgs = prepared.args;
+          currentCallName = tail.callName ?? currentCallName;
           continue;
         }
-        return _invokeValue(callee, prepared.args);
+        return _invokeValueWithName(
+          callee,
+          prepared.args,
+          callName: tail.callName ?? currentCallName,
+        );
       }
     }
   }
@@ -219,7 +227,7 @@ final class LuaBytecodeVm {
     runtime.setCurrentEnv(closure.environment);
     runtime.currentScriptPath = closure.prototype.source ?? previousScriptPath;
     runtime.callStack.push(
-      closure.debugInfo.shortSource,
+      frame.callName ?? closure.debugInfo.shortSource,
       env: closure.environment,
     );
     _syncDebugLocals(frame);
@@ -985,7 +993,11 @@ final class LuaBytecodeVm {
             try {
               final call = _resolveCall(frame, word);
               await frame.closeResources(fromRegister: 0);
-              throw TailCallException(call.callee, call.args);
+              throw TailCallException(
+                call.callee,
+                call.args,
+                callName: _callSiteName(frame, word.a, call.callee),
+              );
             } on YieldException catch (error) {
               _suspendTailCall(frame, word, error);
             }
@@ -1423,16 +1435,26 @@ final class LuaBytecodeVm {
     _LuaBytecodeFrame frame,
     LuaBytecodeInstructionWord word,
   ) async {
-    return _invokePreparedCall(_resolveCall(frame, word), frame: frame);
+    final call = _resolveCall(frame, word);
+    return _invokePreparedCall(
+      call,
+      frame: frame,
+      callName: _callSiteName(frame, word.a, call.callee),
+    );
   }
 
   Future<List<Value>> _invokePreparedCall(
     ({Value callee, List<Value> args}) call, {
     _LuaBytecodeFrame? frame,
     String opcodeName = 'CALL',
+    String? callName,
   }) async {
     try {
-      return await _invokeValue(call.callee, call.args);
+      return await _invokeValueWithName(
+        call.callee,
+        call.args,
+        callName: callName,
+      );
     } on LuaError catch (error) {
       if (frame != null) {
         throw LuaError(
@@ -1534,13 +1556,17 @@ final class LuaBytecodeVm {
     );
   }
 
-  Future<List<Value>> _invokeValue(Value callee, List<Value> args) async {
+  Future<List<Value>> _invokeValueWithName(
+    Value callee,
+    List<Value> args, {
+    String? callName,
+  }) async {
     callee.interpreter ??= runtime;
     if (callee.raw case final LuaBytecodeClosure closure) {
-      return invoke(closure, args);
+      return invoke(closure, args, callName: callName);
     }
     runtime.callStack.push(
-      _callableName(callee),
+      callName ?? _callableName(callee),
       env: runtime.getCurrentEnv(),
     );
     try {
@@ -1555,6 +1581,32 @@ final class LuaBytecodeVm {
     return switch (callee.raw) {
       final String name => name,
       _ => 'function',
+    };
+  }
+
+  String? _callSiteName(_LuaBytecodeFrame frame, int register, Value callee) {
+    final currentPc = frame.pc;
+    for (final local in frame.closure.prototype.localVariables) {
+      if (!(local.startPc <= currentPc && currentPc < local.endPc)) {
+        continue;
+      }
+      final name = local.name;
+      if (name == null || name.isEmpty || name.startsWith('(')) {
+        continue;
+      }
+      if (local.register == register) {
+        return name;
+      }
+      if (local.register case final localRegister?) {
+        final localValue = frame.register(localRegister);
+        if (identical(localValue, callee) || identical(localValue.raw, callee.raw)) {
+          return name;
+        }
+      }
+    }
+    return switch (callee.raw) {
+      final String name => name,
+      _ => null,
     };
   }
 
@@ -1775,6 +1827,7 @@ final class _LuaBytecodeFrame {
     required this.runtime,
     required this.closure,
     required List<Object?> arguments,
+    this.callName,
   }) : registers = List<Value>.generate(
          closure.prototype.maxStackSize,
          (_) => _runtimeValue(runtime, null),
@@ -1799,6 +1852,7 @@ final class _LuaBytecodeFrame {
 
   final LuaRuntime runtime;
   final LuaBytecodeClosure closure;
+  final String? callName;
   final List<Value> registers;
   final List<Value> varargs;
   final List<_LuaBytecodeUpvalue> _openUpvalues = <_LuaBytecodeUpvalue>[];
