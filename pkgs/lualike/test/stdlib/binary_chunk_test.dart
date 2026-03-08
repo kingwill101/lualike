@@ -17,6 +17,30 @@ void main() {
     });
 
     group('string.dump basic functionality', () {
+      test('dumped chunk uses Lua 5.5-compatible header', () async {
+        await bridge.execute(r'''
+          f = function() return 42 end
+          dumped = string.dump(f)
+          header = string.pack("c4BBc6Bi4BI4BjBn",
+            "\27Lua",
+            0x55,
+            0,
+            "\x19\x93\r\n\x1a\n",
+            string.packsize("i4"),
+            -0x5678,
+            string.packsize("I4"),
+            0x12345678,
+            string.packsize("j"),
+            -0x5678,
+            string.packsize("n"),
+            -370.5
+          )
+          matches_header = string.sub(dumped, 1, #header) == header
+        ''');
+
+        expect((bridge.getGlobal('matches_header') as Value?)?.raw, isTrue);
+      });
+
       test('simple function with no parameters', () async {
         await bridge.execute('''
           f = function() return 42 end

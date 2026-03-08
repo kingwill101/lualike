@@ -45,6 +45,38 @@ bool looksLikeTrackedLuaBytecodeBytes(List<int> bytes) {
     }
   }
 
+  const officialHeaderSize = 40;
+  if (bytes.length >= officialHeaderSize + 4) {
+    final payloadOffset = officialHeaderSize;
+    if (_matchesLegacyPayloadMarker(bytes, payloadOffset, <int>[
+      0x41,
+      0x53,
+      0x54,
+      0x3A,
+    ]) ||
+        _matchesLegacyPayloadMarker(bytes, payloadOffset, <int>[
+          0x53,
+          0x52,
+          0x43,
+          0x3A,
+        ])) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+bool _matchesLegacyPayloadMarker(
+  List<int> bytes,
+  int offset,
+  List<int> marker,
+) {
+  for (var index = 0; index < marker.length; index++) {
+    if (bytes[offset + index] != marker[index]) {
+      return false;
+    }
+  }
   return true;
 }
 

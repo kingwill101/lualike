@@ -6,16 +6,36 @@ import 'ast.dart';
 import 'ast_dump.dart';
 import 'lua_string.dart';
 import 'binary_type_size.dart';
+import 'lua_bytecode/chunk.dart';
 import 'logging/logger.dart';
 
 /// Legacy AST/internal chunk transport used by `string.dump`/`load`.
 ///
 /// This preserves the current AST-backed compatibility path. It is not the
-/// `lualike_ir` serialization format and it is not real Lua 5.4 bytecode.
+/// `lualike_ir` serialization format and it is not real Lua bytecode.
 class LegacyAstChunkTransport {
   static const int _binaryPrefix = 0x1B; // ESC character
   static const String _astMarker = "AST:";
   static const String _sourceMarker = "SRC:";
+  static const int _legacyLua54HeaderSize =
+      15 + BinaryTypeSize.j + BinaryTypeSize.n;
+  static final List<int> _legacyLua54HeaderPrefix = <int>[
+    0x1B,
+    0x4C,
+    0x75,
+    0x61,
+    0x54,
+    0x00,
+    0x19,
+    0x93,
+    0x0D,
+    0x0A,
+    0x1A,
+    0x0A,
+    BinaryTypeSize.i,
+    BinaryTypeSize.j,
+    BinaryTypeSize.n,
+  ];
 
   /// Recursively removes spans from a map to avoid JSON encoding issues
   static void _removeSpansFromMap(Map<String, dynamic> map) {
@@ -132,6 +152,11 @@ class LegacyAstChunkTransport {
     }
   }
 
+  /// Serializes raw source fallback through the same legacy transport envelope.
+  static LuaString serializeSourceAsLuaString(String source) {
+    return _createLuaCompatibleChunkAsLuaString(_sourceMarker + source);
+  }
+
   /// Deserializes a legacy AST/internal chunk [LuaString] back to Lua source.
   ///
   /// Returns a [LegacyChunkInfo] containing the reconstructed source and
@@ -148,76 +173,57 @@ class LegacyAstChunkTransport {
       );
     }
 
+    final bytes = binaryChunk.bytes;
     String payload;
 
     // Check if this is a truncated chunk-like payload (starts with ESC but too short)
-    if (binaryChunk.bytes.isNotEmpty &&
-        binaryChunk.bytes.length < 15 &&
-        binaryChunk.bytes[0] == 0x1B) {
+    if (_looksLikeTruncatedLuaHeader(bytes)) {
       throw Exception("Invalid binary chunk: truncated (too short)");
     }
 
-    // Check if this legacy transport is using the Lua-compatible header shape.
-    if (binaryChunk.bytes.length >= 15 &&
-        binaryChunk.bytes[0] == 0x1B &&
-        binaryChunk.bytes[1] == 0x4C &&
-        binaryChunk.bytes[2] == 0x75 &&
-        binaryChunk.bytes[3] == 0x61 &&
-        binaryChunk.bytes[4] == 0x54 && // Version
-        binaryChunk.bytes[5] == 0x00 && // Format
-        binaryChunk.bytes[6] == 0x19 && // Data signature
-        binaryChunk.bytes[7] == 0x93 &&
-        binaryChunk.bytes[8] == 0x0D &&
-        binaryChunk.bytes[9] == 0x0A &&
-        binaryChunk.bytes[10] == 0x1A &&
-        binaryChunk.bytes[11] == 0x0A &&
-        binaryChunk.bytes[12] == BinaryTypeSize.i && // Instruction size
-        binaryChunk.bytes[13] == BinaryTypeSize.j && // Integer size
-        binaryChunk.bytes[14] == BinaryTypeSize.n) {
-      // Number size
-      // Skip the Lua header (15 bytes) + LUAC_INT + LUAC_NUM = 15 + 8 + 8 = 31 bytes total
-      final totalHeaderSize = 15 + BinaryTypeSize.j + BinaryTypeSize.n;
-      if (binaryChunk.bytes.length < totalHeaderSize) {
+    if (_hasOfficialLua55Header(bytes)) {
+      final totalHeaderSize = _officialLua55HeaderBytes().length;
+      if (bytes.length < totalHeaderSize) {
         throw Exception("Invalid binary chunk: truncated (too short)");
       }
 
       // Check if there's any payload after the header (minimum 4 bytes for "AST:" or "SRC:")
-      if (binaryChunk.bytes.length < totalHeaderSize + 4) {
+      if (bytes.length < totalHeaderSize + 4) {
+        throw Exception("Invalid binary chunk: truncated (no payload)");
+      }
+      payload = String.fromCharCodes(bytes.sublist(totalHeaderSize));
+    } else if (_hasLegacyLua54Header(bytes)) {
+      if (bytes.length < _legacyLua54HeaderSize) {
+        throw Exception("Invalid binary chunk: truncated (too short)");
+      }
+      if (bytes.length < _legacyLua54HeaderSize + 4) {
         throw Exception("Invalid binary chunk: truncated (no payload)");
       }
 
-      // Validate LUAC_INT and LUAC_NUM values for endianness verification
       final luacIntStart = 15;
       final luacIntEnd = luacIntStart + BinaryTypeSize.j;
       final luacNumStart = luacIntEnd;
       final luacNumEnd = luacNumStart + BinaryTypeSize.n;
 
-      final luacIntBytes = binaryChunk.bytes.sublist(luacIntStart, luacIntEnd);
-      final luacNumBytes = binaryChunk.bytes.sublist(luacNumStart, luacNumEnd);
+      final luacIntBytes = bytes.sublist(luacIntStart, luacIntEnd);
+      final luacNumBytes = bytes.sublist(luacNumStart, luacNumEnd);
 
-      // Check LUAC_INT: should be 0x5678 (22136) as little-endian 8-byte integer
-      final expectedLuacInt = _createLuacIntBytes();
-      if (!_bytesEqual(luacIntBytes, expectedLuacInt)) {
+      if (!_bytesEqual(luacIntBytes, _createLegacyLuacIntBytes())) {
         throw Exception("Invalid binary chunk: truncated (LUAC_INT mismatch)");
       }
-
-      // Check LUAC_NUM: should be 370.5 as IEEE 754 double precision (little-endian)
-      final expectedLuacNum = _createLuacNumBytes();
-      if (!_bytesEqual(luacNumBytes, expectedLuacNum)) {
+      if (!_bytesEqual(luacNumBytes, _createLegacyLuacNumBytes())) {
         throw Exception("Invalid binary chunk: truncated (LUAC_NUM mismatch)");
       }
 
-      payload = String.fromCharCodes(
-        binaryChunk.bytes.sublist(totalHeaderSize),
-      );
-    } else if (binaryChunk.bytes[0] == _binaryPrefix) {
+      payload = String.fromCharCodes(bytes.sublist(_legacyLua54HeaderSize));
+    } else if (bytes[0] == _binaryPrefix) {
       // Any chunk starting with ESC should be treated as binary
-      if (binaryChunk.bytes.length < 2) {
+      if (bytes.length < 2) {
         throw Exception("Invalid binary chunk: truncated (too short)");
       }
 
       // Legacy fallback format: ESC + marker + payload
-      payload = String.fromCharCodes(binaryChunk.bytes.sublist(1));
+      payload = String.fromCharCodes(bytes.sublist(1));
     } else {
       // Not a binary chunk, return as-is
       return LegacyChunkInfo(
@@ -300,30 +306,31 @@ class LegacyAstChunkTransport {
       );
     }
 
+    final bytes = binaryChunk.codeUnits;
     String payload;
 
     // Check if this is a truncated chunk-like payload (starts with ESC but too short)
-    if (binaryChunk.isNotEmpty &&
-        binaryChunk.length < 4 &&
-        binaryChunk.codeUnitAt(0) == 0x1B) {
+    if (_looksLikeTruncatedLuaHeader(bytes)) {
       throw Exception("Invalid binary chunk: truncated (too short)");
     }
 
-    // Check if this legacy transport is using the Lua-compatible header shape.
-    if (binaryChunk.length >= 4 &&
-        binaryChunk.codeUnitAt(0) == 0x1B &&
-        binaryChunk.substring(1, 4) == "Lua") {
-      // Skip the Lua header (15 bytes) + LUAC_INT (8 bytes) + LUAC_NUM (8 bytes) = 31 bytes total
-      if (binaryChunk.length < 31) {
+    if (_hasOfficialLua55Header(bytes)) {
+      final totalHeaderSize = _officialLua55HeaderBytes().length;
+      if (bytes.length < totalHeaderSize) {
         throw Exception("Invalid binary chunk: truncated (too short)");
       }
-
-      // Check if there's any payload after the header (minimum 4 bytes for "AST:" or "SRC:")
-      if (binaryChunk.length < 35) {
+      if (bytes.length < totalHeaderSize + 4) {
         throw Exception("Invalid binary chunk: truncated (no payload)");
       }
-
-      payload = binaryChunk.substring(31);
+      payload = String.fromCharCodes(bytes.sublist(totalHeaderSize));
+    } else if (_hasLegacyLua54Header(bytes)) {
+      if (bytes.length < _legacyLua54HeaderSize) {
+        throw Exception("Invalid binary chunk: truncated (too short)");
+      }
+      if (bytes.length < _legacyLua54HeaderSize + 4) {
+        throw Exception("Invalid binary chunk: truncated (no payload)");
+      }
+      payload = String.fromCharCodes(bytes.sublist(_legacyLua54HeaderSize));
     } else if (binaryChunk.codeUnitAt(0) == _binaryPrefix) {
       // Legacy fallback format: ESC + marker + payload
       payload = binaryChunk.substring(1);
@@ -401,14 +408,113 @@ class LegacyAstChunkTransport {
     return true;
   }
 
-  /// Creates LUAC_INT bytes: 0x5678 (22136) as little-endian 8-byte integer
-  static List<int> _createLuacIntBytes() {
+  /// Creates the legacy 5.4-style LUAC_INT bytes used by older AST dumps.
+  static List<int> _createLegacyLuacIntBytes() {
     return <int>[0x78, 0x56, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
   }
 
-  /// Creates LUAC_NUM bytes: 370.5 as IEEE 754 double precision (little-endian)
-  static List<int> _createLuacNumBytes() {
+  /// Creates the legacy 5.4-style LUAC_NUM bytes used by older AST dumps.
+  static List<int> _createLegacyLuacNumBytes() {
     return <int>[0x00, 0x00, 0x00, 0x00, 0x00, 0x28, 0x77, 0x40];
+  }
+
+  static bool _hasOfficialLua55Header(List<int> bytes) {
+    final header = _officialLua55HeaderBytes();
+    return bytes.length >= header.length && _bytesEqual(bytes.take(header.length).toList(), header);
+  }
+
+  static bool _hasLegacyLua54Header(List<int> bytes) {
+    return bytes.length >= _legacyLua54HeaderPrefix.length &&
+        _matchesHeaderPrefix(bytes, _legacyLua54HeaderPrefix);
+  }
+
+  static bool _looksLikeTruncatedLuaHeader(List<int> bytes) {
+    if (bytes.isEmpty || bytes[0] != _binaryPrefix) {
+      return false;
+    }
+
+    final officialHeader = _officialLua55HeaderBytes();
+    return (bytes.length < officialHeader.length &&
+            _matchesHeaderPrefix(bytes, officialHeader)) ||
+        (bytes.length < _legacyLua54HeaderPrefix.length &&
+            _matchesHeaderPrefix(bytes, _legacyLua54HeaderPrefix));
+  }
+
+  static bool _matchesHeaderPrefix(List<int> bytes, List<int> header) {
+    if (bytes.length > header.length) {
+      return false;
+    }
+    for (var index = 0; index < bytes.length; index++) {
+      if (bytes[index] != header[index]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  static List<int> _officialLua55HeaderBytes() {
+    return <int>[
+      ...LuaBytecodeChunkSentinels.signature,
+      LuaBytecodeChunkSentinels.officialVersion,
+      LuaBytecodeChunkSentinels.officialFormat,
+      ...LuaBytecodeChunkSentinels.luacData,
+      LuaBytecodeChunkSentinels.intSize,
+      ..._signedFixedIntBytes(
+        LuaBytecodeChunkSentinels.luacInt,
+        LuaBytecodeChunkSentinels.intSize,
+      ),
+      LuaBytecodeChunkSentinels.instructionSize,
+      ..._unsignedFixedIntBytes(
+        LuaBytecodeChunkSentinels.luacInstruction,
+        LuaBytecodeChunkSentinels.instructionSize,
+      ),
+      LuaBytecodeChunkSentinels.luaIntegerSize,
+      ..._signedFixedIntBytes(
+        LuaBytecodeChunkSentinels.luacInt,
+        LuaBytecodeChunkSentinels.luaIntegerSize,
+      ),
+      LuaBytecodeChunkSentinels.luaNumberSize,
+      ..._fixedDoubleBytes(
+        LuaBytecodeChunkSentinels.luacNumber,
+        LuaBytecodeChunkSentinels.luaNumberSize,
+      ),
+    ];
+  }
+
+  static List<int> _signedFixedIntBytes(int value, int size) {
+    final data = ByteData(size);
+    switch (size) {
+      case 4:
+        data.setInt32(0, value, Endian.little);
+        return data.buffer.asUint8List();
+      case 8:
+        data.setInt64(0, value, Endian.little);
+        return data.buffer.asUint8List();
+      default:
+        throw ArgumentError.value(size, 'size', 'unsupported signed int size');
+    }
+  }
+
+  static List<int> _unsignedFixedIntBytes(int value, int size) {
+    final data = ByteData(size);
+    switch (size) {
+      case 4:
+        data.setUint32(0, value, Endian.little);
+        return data.buffer.asUint8List();
+      case 8:
+        data.setUint64(0, value, Endian.little);
+        return data.buffer.asUint8List();
+      default:
+        throw ArgumentError.value(size, 'size', 'unsupported unsigned int size');
+    }
+  }
+
+  static List<int> _fixedDoubleBytes(double value, int size) {
+    if (size != 8) {
+      throw ArgumentError.value(size, 'size', 'unsupported float size');
+    }
+    final data = ByteData(size)..setFloat64(0, value, Endian.little);
+    return data.buffer.asUint8List();
   }
 
   /// Creates a legacy AST/internal chunk with a Lua-compatible header.
@@ -416,28 +522,9 @@ class LegacyAstChunkTransport {
   /// This keeps the historical AST payload while mimicking Lua's binary-chunk
   /// header shape for compatibility with the current `load` path.
   static String _createLuaCompatibleChunk(String payload) {
-    // Create the Lua binary header format using the same format as the test
-    // string.pack("c4BBc6BBB", "\27Lua", 0x54, 0, "\x19\x93\r\n\x1a\n", 4, 8, 8)
-    final header = <int>[
-      // c4: 4-byte string "\27Lua"
-      0x1B, 0x4C, 0x75, 0x61,
-      // BB: version (0x54) and format (0x00)
-      0x54, 0x00,
-      // c6: 6-byte data signature "\x19\x93\r\n\x1a\n"
-      0x19, 0x93, 0x0D, 0x0A, 0x1A, 0x0A,
-      // BBB: instruction size (4), integer size (8), number size (8)
-      BinaryTypeSize.i, BinaryTypeSize.j, BinaryTypeSize.n,
-    ];
-
-    // Add LUAC_INT and LUAC_NUM values (used for endianness verification)
-    final luacInt = _createLuacIntBytes();
-    final luacNum = _createLuacNumBytes();
-
     // Combine header, LUAC values, and our legacy AST payload.
     final allBytes = <int>[
-      ...header,
-      ...luacInt,
-      ...luacNum,
+      ..._officialLua55HeaderBytes(),
       ...payload.codeUnits,
     ];
     // Use String.fromCharCodes to preserve raw bytes
@@ -447,28 +534,9 @@ class LegacyAstChunkTransport {
   /// Creates a legacy AST/internal chunk [LuaString] with a Lua-compatible
   /// header.
   static LuaString _createLuaCompatibleChunkAsLuaString(String payload) {
-    // Create the Lua binary header format using the same format as the test
-    // string.pack("c4BBc6BBB", "\27Lua", 0x54, 0, "\x19\x93\r\n\x1a\n", 4, 8, 8)
-    final header = <int>[
-      // c4: 4-byte string "\27Lua"
-      0x1B, 0x4C, 0x75, 0x61,
-      // BB: version (0x54) and format (0x00)
-      0x54, 0x00,
-      // c6: 6-byte data signature "\x19\x93\r\n\x1a\n"
-      0x19, 0x93, 0x0D, 0x0A, 0x1A, 0x0A,
-      // BBB: instruction size (4), integer size (8), number size (8)
-      BinaryTypeSize.i, BinaryTypeSize.j, BinaryTypeSize.n,
-    ];
-
-    // Add LUAC_INT and LUAC_NUM values (used for endianness verification)
-    final luacInt = _createLuacIntBytes();
-    final luacNum = _createLuacNumBytes();
-
     // Combine header, LUAC values, and our legacy AST payload as raw bytes.
     final allBytes = <int>[
-      ...header,
-      ...luacInt,
-      ...luacNum,
+      ..._officialLua55HeaderBytes(),
       ...payload.codeUnits,
     ];
     return LuaString.fromBytes(Uint8List.fromList(allBytes));
