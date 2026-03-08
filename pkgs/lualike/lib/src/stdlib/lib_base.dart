@@ -1185,11 +1185,8 @@ class PCAllFunction extends BuiltinFunction {
         () => 'pcall caught error: $e (${e.runtimeType})',
         category: 'Debug',
       );
-      // If the error is a Value object, return its raw value
-      // If it's a LuaError, return just the message
-      // Otherwise, convert to string
       final errorValue = e is Value
-          ? e.raw
+          ? e
           : e is LuaError
           ? e.message
           : e.toString();

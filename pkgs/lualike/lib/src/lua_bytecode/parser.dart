@@ -238,6 +238,7 @@ final class _LuaBytecodeReader {
           name: _readString(),
           startPc: _readVarint(),
           endPc: _readVarint(),
+          register: null,
         ),
     ];
 

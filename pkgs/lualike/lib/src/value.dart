@@ -1045,10 +1045,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       // Key doesn't exist, check for __index metamethod
       final indexMeta = getMetamethod('__index');
       if (indexMeta != null) {
-        final result = callMetamethod('__index', [
+        final result = _normalizeIndexMetamethodResult(callMetamethod('__index', [
           this,
           key is Value ? key : Value(key),
-        ]);
+        ]));
 
         return result is Value ? result : Value(result);
       }
@@ -1059,10 +1059,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       // Not a table, but might have an __index metamethod
       final indexMeta = getMetamethod('__index');
       if (indexMeta != null) {
-        final result = callMetamethod('__index', [
+        final result = _normalizeIndexMetamethodResult(callMetamethod('__index', [
           this,
           key is Value ? key : Value(key),
-        ]);
+        ]));
         if (result is Value) return result;
         final existing = _lookupTableIdentity(result);
         if (existing != null) return existing;
@@ -1142,10 +1142,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
       final indexMeta = getMetamethod('__index');
       if (indexMeta != null) {
-        var result = await callMetamethodAsync('__index', [
+        var result = _normalizeIndexMetamethodResult(
+          await callMetamethodAsync('__index', [
           this,
           key is Value ? key : Value(key),
-        ]);
+        ]),
+        );
         if (result is Value) return result;
         final existing = _lookupTableIdentity(result);
         if (existing != null) return existing;
@@ -1160,10 +1162,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     } else {
       final indexMeta = getMetamethod('__index');
       if (indexMeta != null) {
-        var result = await callMetamethodAsync('__index', [
+        var result = _normalizeIndexMetamethodResult(
+          await callMetamethodAsync('__index', [
           this,
           key is Value ? key : Value(key),
-        ]);
+        ]),
+        );
         if (result is Value) return result;
         final existing = _lookupTableIdentity(result);
         if (existing != null) return existing;
@@ -1172,6 +1176,25 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       final tname = NumberUtils.typeName(raw);
       throw LuaError.typeError('attempt to index a $tname value');
     }
+  }
+
+  dynamic _normalizeIndexMetamethodResult(Object? result) {
+    if (result is Value && result.isMulti && result.raw is List) {
+      final values = result.raw as List;
+      if (values.isEmpty) {
+        return Value(null);
+      }
+      final first = values.first;
+      return first is Value ? first : Value(first);
+    }
+    if (result is List) {
+      if (result.isEmpty) {
+        return Value(null);
+      }
+      final first = result.first;
+      return first is Value ? first : Value(first);
+    }
+    return result;
   }
 
   @override

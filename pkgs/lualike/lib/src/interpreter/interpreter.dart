@@ -78,6 +78,21 @@ class Interpreter extends AstVisitor<Object?>
   @override
   late final LibraryRegistry libraryRegistry = LibraryRegistry(this);
 
+  @override
+  Value constantStringValue(List<int> bytes) {
+    final key = bytes.join(',');
+    final cached = literalValueCache[key];
+    if (cached != null) {
+      cached.interpreter ??= this;
+      return cached;
+    }
+
+    final luaString = literalStringInternPool[key] ??= LuaString.fromBytes(bytes);
+    final value = Value(luaString)..interpreter = this;
+    literalValueCache[key] = value;
+    return value;
+  }
+
   /// Current environment for variable scope.
   Environment _currentEnv;
 

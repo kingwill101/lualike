@@ -83,6 +83,7 @@ abstract interface class LuaRuntime {
   Future<LuaChunkLoadResult> loadChunk(LuaChunkLoadRequest request);
   Object? dumpFunction(Value function);
   LuaFunctionDebugInfo? debugInfoForFunction(Value function);
+  Value constantStringValue(List<int> bytes);
 
   // Call stack & debugging
   CallStack get callStack;

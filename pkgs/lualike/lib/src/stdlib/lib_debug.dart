@@ -3,6 +3,7 @@ import 'package:lualike/lualike.dart';
 import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/gc/memory_credits.dart';
 import 'package:lualike/src/io/lua_file.dart';
+import 'package:lualike/src/lua_bytecode/vm.dart';
 import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/upvalue.dart';
@@ -171,6 +172,16 @@ class _GetUpvalue extends BuiltinFunction {
 
     final index = (indexArg.raw as num).toInt();
 
+    if (functionArg.raw case final LuaBytecodeClosure closure) {
+      if (index < 1 || index > closure.upvalueCount) {
+        return Value.multi([Value(null), Value(null)]);
+      }
+      return Value.multi([
+        Value(closure.upvalueName(index - 1)),
+        closure.readUpvalue(index - 1),
+      ]);
+    }
+
     // Check if the function has explicit upvalues first
     if (functionArg.upvalues != null &&
         index > 0 &&
@@ -320,6 +331,15 @@ class _SetUpvalue extends BuiltinFunction {
 
     final index = (indexArg.raw as num).toInt();
 
+    if (functionArg.raw case final LuaBytecodeClosure closure) {
+      if (index < 1 || index > closure.upvalueCount) {
+        return Value(null);
+      }
+      final oldName = closure.upvalueName(index - 1);
+      closure.writeUpvalue(index - 1, newValue);
+      return Value(oldName);
+    }
+
     // Check if the function has explicit upvalues
     if (functionArg.upvalues != null &&
         index > 0 &&
@@ -409,6 +429,13 @@ class _UpvalueId extends BuiltinFunction {
       return Value(null);
     }
 
+    if (functionArg.raw case final LuaBytecodeClosure closure) {
+      if (index > closure.upvalueCount) {
+        return Value(null);
+      }
+      return Value(closure.upvalueIdentity(index - 1));
+    }
+
     final upvalues = functionArg.upvalues;
     if (upvalues == null || index > upvalues.length) {
       return Value(null);
@@ -440,6 +467,23 @@ class _UpvalueJoin extends BuiltinFunction {
 
     final n1 = (n1Arg.raw as num).toInt();
     final n2 = (n2Arg.raw as num).toInt();
+
+    if (f1Arg.raw case final LuaBytecodeClosure f1Closure) {
+      if (f2Arg.raw is! LuaBytecodeClosure) {
+        throw LuaError(
+          "debug.upvaluejoin: functions must both be bytecode closures",
+        );
+      }
+      final f2Closure = f2Arg.raw as LuaBytecodeClosure;
+      if (n1 < 1 || n1 > f1Closure.upvalueCount) {
+        throw LuaError("debug.upvaluejoin: f1 upvalue index $n1 out of bounds");
+      }
+      if (n2 < 1 || n2 > f2Closure.upvalueCount) {
+        throw LuaError("debug.upvaluejoin: f2 upvalue index $n2 out of bounds");
+      }
+      f1Closure.joinUpvalueWith(n1 - 1, f2Closure, n2 - 1);
+      return Value(null);
+    }
 
     // Validate that both functions have upvalues
     if (f1Arg.upvalues == null || f2Arg.upvalues == null) {
