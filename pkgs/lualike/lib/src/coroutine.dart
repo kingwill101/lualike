@@ -169,7 +169,8 @@ class Coroutine extends GCObject {
         status = CoroutineStatus.running;
 
         // Start the coroutine function with initial arguments
-        completer = Completer<List<Object?>>();
+        final initialCompleter = Completer<List<Object?>>();
+        completer = initialCompleter;
         _executionTask = _executeCoroutine(args);
         Logger.debugLazy(
           () =>
@@ -177,7 +178,7 @@ class Coroutine extends GCObject {
               '(initial)',
           category: 'Coroutine',
         );
-        final result = await completer!.future;
+        final result = await initialCompleter.future;
         Logger.debugLazy(
           () => 'Coroutine.resume: _executionTask completed (initial)',
           category: 'Coroutine',
@@ -209,7 +210,8 @@ class Coroutine extends GCObject {
 
         // Resume execution by completing the completer
         final currentCompleter = completer;
-        completer = Completer<List<Object?>>();
+        final nextCompleter = Completer<List<Object?>>();
+        completer = nextCompleter;
 
         Logger.debugLazy(
           () =>
@@ -224,7 +226,7 @@ class Coroutine extends GCObject {
           () => 'Coroutine.resume: Waiting for next yield or completion',
           category: 'Coroutine',
         );
-        final result = await completer!.future;
+        final result = await nextCompleter.future;
         Logger.debugLazy(
           () => 'Coroutine.resume: Next yield or completion received',
           category: 'Coroutine',
@@ -401,18 +403,28 @@ class Coroutine extends GCObject {
 
     // Complete the current completer with the yielded values
     final currentCompleter = completer;
-    completer = Completer<List<Object?>>();
+    final nextCompleter = Completer<List<Object?>>();
+    completer = nextCompleter;
 
     if (currentCompleter != null && !currentCompleter.isCompleted) {
       // Normalize values before yielding
       final normalizedValues = _normalizeValues(values);
       currentCompleter.complete(normalizedValues);
+      final yieldedValues = normalizedValues
+          .map((value) => value is Value ? value : Value(value))
+          .toList(growable: false);
+
+      // Throw YieldException to pause execution and return control
+      throw YieldException(
+        yieldedValues,
+        nextCompleter.future,
+        functionBody == null ? this : null,
+      );
     }
 
-    // Throw YieldException to pause execution and return control
     throw YieldException(
-      values.cast<Value>(), // Cast to List<Value>
-      completer!.future, // The future to await on next resume
+      const <Value>[],
+      nextCompleter.future,
       functionBody == null ? this : null,
     );
   }

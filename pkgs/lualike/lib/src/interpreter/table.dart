@@ -112,13 +112,19 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     }
 
     if (tableVal.raw is! Map) {
+      final sourceLabel = _sourceLabelForAst(globals, node.table);
+      final type = getLuaType(tableVal);
       if (tableVal.raw == null) {
-        throw LuaError.typeError('attempt to index a nil value');
+        throw LuaError.typeError(
+          sourceLabel != null
+              ? "attempt to index $sourceLabel (a nil value)"
+              : 'attempt to index a nil value',
+        );
       }
-      // If the value is not a table, throw a type error with details
-      // Debug print to locate source of invalid indexing.
       throw LuaError.typeError(
-        'attempt to index a ${tableVal.raw.runtimeType} value',
+        sourceLabel != null
+            ? "attempt to index $sourceLabel (a $type value)"
+            : 'attempt to index a $type value',
       );
     }
 
@@ -162,6 +168,8 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     final bool tableIsOriginalValue = identical(tableVal, table);
 
     if (tableVal.raw is! Map) {
+      final sourceLabel = _sourceLabelForAst(globals, node.table);
+      final type = getLuaType(tableVal);
       if (tableVal.hasMetamethod('__index')) {
         final result = await tableVal.callMetamethodAsync('__index', [
           tableVal,
@@ -170,10 +178,16 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
         return result;
       }
       if (tableVal.raw == null) {
-        throw LuaError.typeError('attempt to index a nil value');
+        throw LuaError.typeError(
+          sourceLabel != null
+              ? "attempt to index $sourceLabel (a nil value)"
+              : 'attempt to index a nil value',
+        );
       }
       throw LuaError.typeError(
-        'attempt to index a ${tableVal.raw.runtimeType} value',
+        sourceLabel != null
+            ? "attempt to index $sourceLabel (a $type value)"
+            : 'attempt to index a $type value',
       );
     }
 
@@ -373,6 +387,8 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     }
 
     if (tableVal.raw is! Map) {
+      final sourceLabel = _sourceLabelForAst(globals, node.table);
+      final type = getLuaType(tableVal);
       if (tableVal.hasMetamethod('__index')) {
         final result = await tableVal.callMetamethodAsync('__index', [
           tableVal,
@@ -381,10 +397,16 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
         return result;
       }
       if (tableVal.raw == null) {
-        throw LuaError.typeError('attempt to index a nil value');
+        throw LuaError.typeError(
+          sourceLabel != null
+              ? "attempt to index $sourceLabel (a nil value)"
+              : 'attempt to index a nil value',
+        );
       }
       throw LuaError.typeError(
-        'attempt to index a ${tableVal.raw.runtimeType} value',
+        sourceLabel != null
+            ? "attempt to index $sourceLabel (a $type value)"
+            : 'attempt to index a $type value',
       );
     }
 
@@ -804,70 +826,6 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
           final value = await entry.expr.accept(this);
           final valueVal = value is Value ? value : Value(value);
           tableMap[arrayIndex++] = valueVal;
-        }
-      }
-    }
-
-    // Special case: single entry that is a function call
-    // This handles cases like {table.unpack(t)} where the entire result should be expanded
-    if (node.entries.length == 1) {
-      final entry = node.entries[0];
-      if (entry is TableEntryLiteral &&
-          (entry.expr is FunctionCall || entry.expr is MethodCall)) {
-        try {
-          final result = await entry.expr.accept(this);
-          if (result is Value && result.isMulti) {
-            final values = result.raw as List;
-            // Return the expanded values directly if they form a proper table
-            final expandedTable = ValueClass.table();
-            if (this is Interpreter) {
-              expandedTable.interpreter = this as Interpreter;
-              (this as Interpreter).gc.register(expandedTable);
-            }
-            final rawExpanded = expandedTable.raw;
-            if (rawExpanded is TableStorage && values.isNotEmpty) {
-              rawExpanded.ensureArrayCapacity(values.length);
-            }
-            for (var j = 0; j < values.length; j++) {
-              expandedTable[Value(j + 1)] = values[j] is Value
-                  ? values[j]
-                  : Value(values[j]);
-            }
-            return expandedTable;
-          } else if (result is List) {
-            // Direct list of values - expand into table
-            final expandedTable = ValueClass.table();
-            if (this is Interpreter) {
-              expandedTable.interpreter = this as Interpreter;
-              (this as Interpreter).gc.register(expandedTable);
-            }
-            final rawExpanded = expandedTable.raw;
-            if (rawExpanded is TableStorage && result.isNotEmpty) {
-              rawExpanded.ensureArrayCapacity(result.length);
-            }
-            for (var j = 0; j < result.length; j++) {
-              expandedTable[Value(j + 1)] = result[j] is Value
-                  ? result[j]
-                  : Value(result[j]);
-            }
-            return expandedTable;
-          }
-        } on YieldException catch (ye) {
-          // After resumption, insert yielded values as array elements
-          final values = ye.values;
-          final yieldTable = ValueClass.table();
-          if (this is Interpreter) {
-            yieldTable.interpreter = this as Interpreter;
-            (this as Interpreter).gc.register(yieldTable);
-          }
-          final rawYield = yieldTable.raw;
-          if (rawYield is TableStorage && values.isNotEmpty) {
-            rawYield.ensureArrayCapacity(values.length);
-          }
-          for (var j = 0; j < values.length; j++) {
-            yieldTable[Value(j + 1)] = values[j];
-          }
-          return yieldTable;
         }
       }
     }

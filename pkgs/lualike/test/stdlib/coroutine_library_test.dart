@@ -116,6 +116,51 @@ void main() {
       expect(lua.getGlobal('wrappedIterResult').unwrap(), equals('2'));
     });
 
+    test('resume preserves yielded table.unpack arity', () async {
+      await lua.execute(r'''
+        yielded = nil
+        local function worker(a, ...)
+          local arg = {...}
+          for i = 1, #arg do
+            yielded = {coroutine.yield(table.unpack(arg[i]))}
+          end
+          return table.unpack(a)
+        end
+
+        co = coroutine.create(worker)
+        ok1, a1 = coroutine.resume(co, {1, 2, 3}, {}, {1}, {'a', 'b', 'c'})
+        ok2, a2, b2 = coroutine.resume(co)
+        yieldedIsNil2 = yielded == nil
+        yieldedLen2 = yielded and #yielded or -1
+        yieldedFirst2 = yielded and yielded[1] or nil
+        ok3, a3, b3, c3, d3 = coroutine.resume(co, 1, 2, 3)
+        yieldedIsNil3 = yielded == nil
+        yieldedLen3 = yielded and #yielded or -1
+        yieldedFirst3 = yielded and yielded[1] or nil
+        yieldedSecond3 = yielded and yielded[2] or nil
+        yieldedThird3 = yielded and yielded[3] or nil
+      ''');
+
+      expect(lua.getGlobal('ok1').unwrap(), isTrue);
+      expect(lua.getGlobal('a1').unwrap(), isNull);
+      expect(lua.getGlobal('ok2').unwrap(), isTrue);
+      expect(lua.getGlobal('a2').unwrap(), equals(1));
+      expect(lua.getGlobal('b2').unwrap(), isNull);
+      expect(lua.getGlobal('yieldedIsNil2').unwrap(), isFalse);
+      expect(lua.getGlobal('yieldedLen2').unwrap(), equals(0));
+      expect(lua.getGlobal('yieldedFirst2').unwrap(), isNull);
+      expect(lua.getGlobal('ok3').unwrap(), isTrue);
+      expect(lua.getGlobal('a3').unwrap(), equals('a'));
+      expect(lua.getGlobal('b3').unwrap(), equals('b'));
+      expect(lua.getGlobal('c3').unwrap(), equals('c'));
+      expect(lua.getGlobal('d3').unwrap(), isNull);
+      expect(lua.getGlobal('yieldedIsNil3').unwrap(), isFalse);
+      expect(lua.getGlobal('yieldedLen3').unwrap(), equals(3));
+      expect(lua.getGlobal('yieldedFirst3').unwrap(), equals(1));
+      expect(lua.getGlobal('yieldedSecond3').unwrap(), equals(2));
+      expect(lua.getGlobal('yieldedThird3').unwrap(), equals(3));
+    });
+
     test('wrap preserves tail calls through __call chains', () async {
       await lua.execute(r'''
         local n = 10000
