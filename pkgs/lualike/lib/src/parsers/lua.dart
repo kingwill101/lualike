@@ -973,23 +973,27 @@ class LuaGrammarDefinition extends GrammarDefinition {
   // ----------------- Local Declaration ------------------------------------
 
   Parser _localDeclaration() => _span(
-    (_token('local') & _attNameList() & (_token('=') & _explist()).optional()).map((
-      vals,
-    ) {
+    (_token('local') &
+            _attrib().optional() &
+            _attNameList() &
+            (_token('=') & _explist()).optional())
+        .map((vals) {
+      final defaultAttribute = vals[1] as String? ?? '';
       // _attNameList now returns a List of [Identifier, attribute] pairs in order
-      final pairList = vals[1] as List<List>;
+      final pairList = vals[2] as List<List>;
 
       // Separate into parallel name/attribute lists while preserving duplicates and order
       final names = <Identifier>[];
       final attributes = <String>[];
       for (final pair in pairList) {
         names.add(pair[0] as Identifier);
-        attributes.add(pair[1] as String);
+        final attribute = pair[1] as String;
+        attributes.add(attribute.isNotEmpty ? attribute : defaultAttribute);
       }
 
-      final exprs = vals[2] == null
+      final exprs = vals[3] == null
           ? <AstNode>[]
-          : (vals[2] as List)[1] as List<AstNode>; // [ '=', explist ]
+          : (vals[3] as List)[1] as List<AstNode>; // [ '=', explist ]
 
       return LocalDeclaration(names, attributes, exprs);
     }),
@@ -1376,7 +1380,96 @@ class _LongCommentBracketParser extends Parser<String> {
 /// Parse [source] into an [AST] using the **new PetitParser** implementation.
 ///
 /// This will eventually replace the old `parse()` from `grammar_parser.dart`.
-Program parse(String source, {Uri? url}) {
+const int _luaIdSize = 60;
+
+String _luaChunkId(String source) {
+  if (source.isEmpty) {
+    return '[string ""]';
+  }
+  if (source.startsWith('=')) {
+    final literal = source.substring(1);
+    return literal.length <= _luaIdSize
+        ? literal
+        : literal.substring(0, _luaIdSize - 1);
+  }
+  if (source.startsWith('@')) {
+    final fileName = source.substring(1);
+    if (fileName.length <= _luaIdSize) {
+      return fileName;
+    }
+    final keep = _luaIdSize - 3;
+    return '...${fileName.substring(fileName.length - keep)}';
+  }
+
+  const prefix = '[string "';
+  const suffix = '"]';
+  final newline = source.indexOf('\n');
+  final singleLineSource = newline == -1 ? source : source.substring(0, newline);
+  final budget = _luaIdSize - prefix.length - suffix.length - 3 - 1;
+  if (newline == -1 && singleLineSource.length <= budget) {
+    return '$prefix$singleLineSource$suffix';
+  }
+  final clipped = singleLineSource.length > budget
+      ? singleLineSource.substring(0, budget)
+      : singleLineSource;
+  return '$prefix$clipped...$suffix';
+}
+
+int? _findUnclosedBraceLine(String source) {
+  final stack = <int>[];
+  String? quote;
+  var escape = false;
+  var inLineComment = false;
+  var line = 1;
+
+  for (var i = 0; i < source.length; i++) {
+    final ch = source[i];
+    if (ch == '\n') {
+      line++;
+      inLineComment = false;
+    }
+
+    if (inLineComment) {
+      continue;
+    }
+
+    if (quote != null) {
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (ch == r'\') {
+        escape = true;
+        continue;
+      }
+      if (ch == quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (ch == '"' || ch == "'") {
+      quote = ch;
+      continue;
+    }
+    if (ch == '-' && i + 1 < source.length && source[i + 1] == '-') {
+      inLineComment = true;
+      i++;
+      continue;
+    }
+    if (ch == '{') {
+      stack.add(line);
+      continue;
+    }
+    if (ch == '}' && stack.isNotEmpty) {
+      stack.removeLast();
+    }
+  }
+
+  return stack.isEmpty ? null : stack.last;
+}
+
+Program parse(String source, {Object? url, String? sourceName}) {
   // Callers normalize line endings before reaching the parser. Avoid
   // rebuilding the input string here on every load() call.
   final normalizedSource = source;
@@ -1466,6 +1559,21 @@ Program parse(String source, {Uri? url}) {
     );
   }
 
+  final unclosedBraceLine = _findUnclosedBraceLine(normalizedSource);
+  if (unclosedBraceLine != null &&
+      (failMsg == 'end of input expected' ||
+          pos >= normalizedSource.length ||
+          normalizedSource.trimRight().endsWith('{4'))) {
+    final chunkId = _luaChunkId(sourceName ?? url?.toString() ?? '');
+    final eofLine = sourceFile.span(
+      normalizedSource.length,
+      normalizedSource.length,
+    ).start.line + 1;
+    throw FormatException(
+      "$chunkId:$eofLine: '}' expected (to close '{' at line $unclosedBraceLine) near <eof>",
+    );
+  }
+
   // Generate Lua-compatible error messages
   String luaErrorMsg;
 
@@ -1476,19 +1584,19 @@ Program parse(String source, {Uri? url}) {
     luaErrorMsg = "unexpected symbol near '$ch'";
   }
 
-  // For load() calls, return simple error message without location
-  if (url != null && url.toString().contains('=(load)')) {
+  // For reader-based load() calls, keep the simpler legacy message shape.
+  if (sourceName != null && sourceName.contains('=(load)')) {
     throw FormatException(luaErrorMsg);
   }
 
   // For files and other contexts, include location info
   final line = span.start.line + 1;
-  final chunkName = url?.toString() ?? "string";
+  final chunkName = _luaChunkId(sourceName ?? url?.toString() ?? '');
   final formatted = "$chunkName:$line: $luaErrorMsg";
   throw FormatException(formatted);
 }
 
-AstNode parseExpression(String source, {Uri? url}) {
+AstNode parseExpression(String source, {Object? url, String? sourceName}) {
   final sourceFile = SourceFile.fromString(source, url: url);
   _sharedLuaExpressionParser.definition.updateSourceFile(sourceFile);
   final parser = _sharedLuaExpressionParser.parser;
