@@ -19,6 +19,7 @@ final _space = whitespace();
 final _punct = pattern('!-/:-@\\[-`{-~');
 final _control = _predicate((c) => c < 32 || c == 127);
 final _graph = pattern('!-~');
+final _zero = char('\x00');
 // %w in Lua also includes the underscore character
 final _alnum = pattern('0-9A-Za-z_');
 
@@ -44,6 +45,8 @@ Parser<String> _classFor(String letter) {
       return _alnum;
     case 'x':
       return _xdigit;
+    case 'z':
+      return _zero;
     default:
       throw ArgumentError('Unknown %\$letter class');
   }
@@ -63,6 +66,19 @@ class _BalancedParser extends Parser<String> {
     var pos = context.position;
     if (pos >= buffer.length || buffer[pos] != open) {
       return context.failure('Expected $open');
+    }
+    if (open == close) {
+      pos++;
+      while (pos < buffer.length) {
+        if (buffer[pos] == close) {
+          return context.success(
+            buffer.substring(context.position, pos + 1),
+            pos + 1,
+          );
+        }
+        pos++;
+      }
+      return context.failure('Unbalanced $open$close');
     }
     var depth = 1;
     pos++;
@@ -233,31 +249,58 @@ class _LuaPatternParser extends Parser<String> {
 
 Parser<String> _bracketClass(String spec, {required bool negate}) {
   final allowed = <Parser<String>>[];
-  var i = 0;
-  while (i < spec.length) {
-    final ch = spec[i];
+  ({
+    Parser<String> parser,
+    int nextIndex,
+    int? literalCodeUnit,
+  }) readToken(int index) {
+    if (index >= spec.length) {
+      throw FormatException('Malformed set: \$spec');
+    }
+    final ch = spec[index];
     if (ch == '%') {
-      if (i + 1 >= spec.length) {
+      if (index + 1 >= spec.length) {
         throw FormatException('Malformed set: \$spec');
       }
-      final letter = spec[i + 1];
-      final base = _classFor(letter.toLowerCase());
-      final cls = letter == letter.toUpperCase() ? _negate(base) : base;
-      allowed.add(cls);
-      i += 2;
-      continue;
-    }
-    if (i + 2 < spec.length && spec[i + 1] == '-') {
-      final start = spec.codeUnitAt(i);
-      final end = spec.codeUnitAt(i + 2);
-      allowed.add(
-        pattern('${String.fromCharCode(start)}-${String.fromCharCode(end)}'),
+      final letter = spec[index + 1];
+      if (RegExp(r'[a-zA-Z]').hasMatch(letter)) {
+        final base = _classFor(letter.toLowerCase());
+        final cls = letter == letter.toUpperCase() ? _negate(base) : base;
+        return (parser: cls, nextIndex: index + 2, literalCodeUnit: null);
+      }
+      return (
+        parser: char(letter),
+        nextIndex: index + 2,
+        literalCodeUnit: letter.codeUnitAt(0),
       );
-      i += 3;
-      continue;
     }
-    allowed.add(char(ch));
-    i += 1;
+    return (
+      parser: char(ch),
+      nextIndex: index + 1,
+      literalCodeUnit: ch.codeUnitAt(0),
+    );
+  }
+
+  var index = 0;
+  while (index < spec.length) {
+    final token = readToken(index);
+    if (token.literalCodeUnit != null &&
+        token.nextIndex < spec.length &&
+        spec[token.nextIndex] == '-' &&
+        token.nextIndex + 1 < spec.length) {
+      final rangeEnd = readToken(token.nextIndex + 1);
+      if (rangeEnd.literalCodeUnit != null) {
+        final startCode = token.literalCodeUnit!;
+        final endCode = rangeEnd.literalCodeUnit!;
+        final lower = startCode <= endCode ? startCode : endCode;
+        final upper = startCode <= endCode ? endCode : startCode;
+        allowed.add(_predicate((c) => c >= lower && c <= upper));
+        index = rangeEnd.nextIndex;
+        continue;
+      }
+    }
+    allowed.add(token.parser);
+    index = token.nextIndex;
   }
   final union = allowed.length == 1 ? allowed.single : ChoiceParser(allowed);
   return negate ? _negate(union) : union;
@@ -270,6 +313,9 @@ class LuaPatternCompiler {
   int _pos = 0;
   final List<Parser> _captures = [];
   final List<String?> _captureValues = [];
+  final List<bool> _completedCaptures = [];
+  final Set<int> _positionCaptureIndexes = <int>{};
+  final List<int> _openCaptures = [];
 
   Parser<String> compile() {
     if (_pattern.startsWith('^') && !_isEscaped(0)) {
@@ -284,6 +330,63 @@ class LuaPatternCompiler {
 
   bool _isEscaped(int index) =>
       index > 0 && _pattern[index - 1] == '%' && !_isEscaped(index - 1);
+
+  int _findBracketEndFrom(int index) {
+    var i = index;
+    if (i < _pattern.length && _pattern[i] == ']') {
+      i++;
+    }
+    while (i < _pattern.length) {
+      if (_pattern[i] == '%' && i + 1 < _pattern.length) {
+        i += 2;
+        continue;
+      }
+      if (_pattern[i] == ']') {
+        return i;
+      }
+      i++;
+    }
+    throw FormatException("malformed pattern (missing ']')");
+  }
+
+  String _readBracketSpecAt(int index) {
+    final end = _findBracketEndFrom(index);
+    if (end < index) {
+      throw FormatException("malformed pattern (missing ']')");
+    }
+    return _pattern.substring(index, end);
+  }
+
+  Parser _parseLookaheadSequenceFrom(
+    int index, {
+    bool stopOnRightParen = false,
+    bool closeCurrentCapture = false,
+  }) {
+    final savedPos = _pos;
+    final savedCapturesLength = _captures.length;
+    final savedCompletedCapturesLength = _completedCaptures.length;
+    final savedOpenCapturesLength = _openCaptures.length;
+    int? temporarilyClosedCapture;
+    _pos = index;
+    if (closeCurrentCapture && _openCaptures.isNotEmpty) {
+      temporarilyClosedCapture = _openCaptures.removeLast();
+    }
+    final parser = _parseSequence(stopOnRightParen: stopOnRightParen);
+    _pos = savedPos;
+    if (_captures.length > savedCapturesLength) {
+      _captures.length = savedCapturesLength;
+    }
+    if (_completedCaptures.length > savedCompletedCapturesLength) {
+      _completedCaptures.length = savedCompletedCapturesLength;
+    }
+    if (_openCaptures.length > savedOpenCapturesLength) {
+      _openCaptures.length = savedOpenCapturesLength;
+    }
+    if (temporarilyClosedCapture case final capture?) {
+      _openCaptures.add(capture);
+    }
+    return parser;
+  }
 
   Parser<String>? _lookaheadItem(int index) {
     if (index >= _pattern.length) return null;
@@ -300,13 +403,8 @@ class LuaPatternCompiler {
       if (next == 'f' &&
           index + 2 < _pattern.length &&
           _pattern[index + 2] == '[') {
-        final buffer = StringBuffer();
         var i = index + 3;
-        while (i < _pattern.length && _pattern[i] != ']') {
-          buffer.write(_pattern[i]);
-          i++;
-        }
-        return pattern(buffer.toString());
+        return pattern(_readBracketSpecAt(i));
       }
       return char(next);
     } else if (ch == '(') {
@@ -318,12 +416,7 @@ class LuaPatternCompiler {
         negate = true;
         i++;
       }
-      final buffer = StringBuffer();
-      while (i < _pattern.length && _pattern[i] != ']') {
-        buffer.write(_pattern[i]);
-        i++;
-      }
-      return _bracketClass(buffer.toString(), negate: negate);
+      return _bracketClass(_readBracketSpecAt(i), negate: negate);
     } else if (ch == '.') {
       return any();
     } else if (ch == '^' || ch == '\$' || ch == ')') {
@@ -349,6 +442,9 @@ class LuaPatternCompiler {
 
     if (stopOnRightParen && ch == ')') {
       return null;
+    }
+    if (ch == ')') {
+      throw FormatException('invalid pattern capture');
     }
     if (ch == '\$' && _pos == _pattern.length - 1 && !_isEscaped(_pos)) {
       _pos++;
@@ -390,8 +486,21 @@ class LuaPatternCompiler {
     Parser result;
     if (isEmpty) {
       Parser? limit;
+      var trailingEndAnchor = false;
       if (stopOnRightParen && _pos < _pattern.length && _pattern[_pos] == ')') {
-        limit = _lookaheadItem(_pos + 1);
+        limit = _parseLookaheadSequenceFrom(
+          _pos + 1,
+          stopOnRightParen: true,
+          closeCurrentCapture: true,
+        );
+      } else if (_pos < _pattern.length &&
+          _pattern[_pos] == '\$' &&
+          !_isEscaped(_pos)) {
+        // A trailing unescaped '$' becomes an end-of-input constraint in
+        // [compile()]. Lazy repetition must still see that constraint here,
+        // otherwise patterns like '^.-$' stop immediately at the empty match.
+        limit = epsilon().end();
+        trailingEndAnchor = true;
       }
       if (limit != null) {
         switch (op) {
@@ -405,7 +514,9 @@ class LuaPatternCompiler {
             result = base.optional();
             break;
           case '-':
-            result = base.starLazy(limit);
+            result = trailingEndAnchor
+                ? base.starGreedy(limit)
+                : base.starLazy(limit);
             break;
           default:
             throw StateError('Unhandled repetition $op');
@@ -456,9 +567,12 @@ class LuaPatternCompiler {
       throw FormatException("malformed pattern (ends with '%')");
     }
     final next = _pattern[_pos];
+    if (next == '0') {
+      throw FormatException('invalid capture index %0');
+    }
     if ('123456789'.contains(next)) {
       final index = int.parse(next) - 1;
-      if (index >= _captures.length) {
+      if (index >= _captures.length || _openCaptures.contains(index)) {
         throw FormatException('invalid capture index %$next');
       }
       _pos++;
@@ -479,16 +593,13 @@ class LuaPatternCompiler {
         throw FormatException("missing '[' after '%f' in pattern");
       }
       _pos++; // skip [
-      final buffer = StringBuffer();
-      while (_pos < _pattern.length && _pattern[_pos] != ']') {
-        buffer.write(_pattern[_pos]);
+      var negate = false;
+      if (_pos < _pattern.length && _pattern[_pos] == '^') {
+        negate = true;
         _pos++;
       }
-      if (_pos >= _pattern.length) {
-        throw FormatException("malformed pattern (missing ']')");
-      }
-      _pos++; // consume ]
-      final set = _bracketClass(buffer.toString(), negate: false);
+      final set = _bracketClass(_readBracketSpecAt(_pos), negate: negate);
+      _pos = _findBracketEndFrom(_pos) + 1;
       return _FrontierParser(set);
     }
     if (RegExp(r'[a-zA-Z]').hasMatch(next)) {
@@ -509,16 +620,9 @@ class LuaPatternCompiler {
       negate = true;
       _pos++;
     }
-    final buffer = StringBuffer();
-    while (_pos < _pattern.length && _pattern[_pos] != ']') {
-      buffer.write(_pattern[_pos]);
-      _pos++;
-    }
-    if (_pos >= _pattern.length) {
-      throw FormatException("malformed pattern (missing ']')");
-    }
-    _pos++;
-    return _bracketClass(buffer.toString(), negate: negate);
+    final set = _bracketClass(_readBracketSpecAt(_pos), negate: negate);
+    _pos = _findBracketEndFrom(_pos) + 1;
+    return set;
   }
 
   Parser _parseCapture() {
@@ -526,15 +630,20 @@ class LuaPatternCompiler {
     _pos++;
     final index = _captures.length;
     _captures.add(epsilon().map((_) => ''));
+    _completedCaptures.add(false);
+    _openCaptures.add(index);
 
     if (_pattern[_pos] == ')') {
       _pos++;
+      _positionCaptureIndexes.add(index);
       final capture = _RecordCaptureParser(
         _PositionCaptureParser(),
         index,
         _captureValues,
       );
       _captures[index] = capture;
+      _completedCaptures[index] = true;
+      _openCaptures.removeLast();
       return capture;
     }
 
@@ -550,6 +659,8 @@ class LuaPatternCompiler {
       _captureValues,
     );
     _captures[index] = capture;
+    _completedCaptures[index] = true;
+    _openCaptures.removeLast();
     return capture;
   }
 }
@@ -559,35 +670,53 @@ Parser<String> compileLuaPattern(String pattern) =>
 
 /// Result of a single Lua pattern match.
 class LuaMatch {
-  LuaMatch(this.start, this.end, this.match, this.captures);
+  LuaMatch(
+    this.start,
+    this.end,
+    this.match,
+    this.captures,
+    this.positionCaptureIndexes,
+  );
 
   final int start;
   final int end;
   final String match;
   final List<String?> captures;
+  final Set<int> positionCaptureIndexes;
 }
 
 /// Compiled Lua pattern that can search within strings.
 class LuaPattern {
-  LuaPattern._(this._parser, this._captures);
+  LuaPattern._(this._parser, this._captures, this._positionCaptureIndexes);
 
   final _LuaPatternParser _parser;
   final List<String?> _captures;
+  final Set<int> _positionCaptureIndexes;
 
   /// Compile [pattern] into a [LuaPattern].
   factory LuaPattern.compile(String pattern) {
     final compiler = LuaPatternCompiler(pattern);
     final parser = compiler.compile() as _LuaPatternParser;
-    return LuaPattern._(parser, compiler._captureValues);
+    return LuaPattern._(
+      parser,
+      compiler._captureValues,
+      Set<int>.from(compiler._positionCaptureIndexes),
+    );
   }
 
   /// Find the first match in [input] starting from [start].
   LuaMatch? firstMatch(String input, [int start = 0]) {
     for (var pos = start; pos <= input.length; pos++) {
       final result = _parser.parseOn(Context(input, pos));
-      if (result is Success<String>) {
+      if (result is Success) {
         final captures = List<String?>.from(_captures);
-        return LuaMatch(pos, result.position, result.value, captures);
+        return LuaMatch(
+          pos,
+          result.position,
+          result.value?.toString() ?? '',
+          captures,
+          _positionCaptureIndexes,
+        );
       }
     }
     return null;
@@ -598,9 +727,15 @@ class LuaPattern {
     var pos = start;
     while (pos <= input.length) {
       final result = _parser.parseOn(Context(input, pos));
-      if (result is Success<String>) {
+      if (result is Success) {
         final captures = List<String?>.from(_captures);
-        yield LuaMatch(pos, result.position, result.value, captures);
+        yield LuaMatch(
+          pos,
+          result.position,
+          result.value?.toString() ?? '',
+          captures,
+          _positionCaptureIndexes,
+        );
         pos = result.position > pos ? result.position : pos + 1;
       } else {
         pos++;
