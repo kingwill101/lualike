@@ -331,6 +331,9 @@ class _PrototypeContext {
       case LocalDeclaration():
         _emitLocalDeclaration(node);
         return false;
+      case GlobalDeclaration():
+        _emitGlobalDeclaration(node);
+        return false;
       case ExpressionStatement(:final expr):
         if (expr is FunctionCall) {
           _emitFunctionCall(expr, discardResult: true);
@@ -899,6 +902,36 @@ class _PrototypeContext {
         continue;
       }
       _releaseRegister(reg);
+    }
+  }
+
+  void _emitGlobalDeclaration(GlobalDeclaration node) {
+    _trackSource(node);
+    if (node.isWildcard || node.names.isEmpty) {
+      return;
+    }
+
+    final result = _emitAssignmentValues(node.exprs, node.names.length);
+    try {
+      for (var index = 0; index < node.names.length; index++) {
+        final name = node.names[index].name;
+        final valueReg = result.registers[index];
+        _ensureRegister(valueReg);
+        if (_emitEnvFieldWrite(name, valueReg)) {
+          continue;
+        }
+        final constantIndex = _ensureConstantIndex(name);
+        emitter.emitABC(
+          opcode: LualikeIrOpcode.setTabUp,
+          a: 0,
+          b: constantIndex,
+          c: valueReg,
+        );
+      }
+    } finally {
+      for (var i = result.temporaries.length - 1; i >= 0; i--) {
+        _releaseRegister(result.temporaries[i]);
+      }
     }
   }
 

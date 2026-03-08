@@ -157,6 +157,8 @@ abstract class AstVisitor<T> {
 
   Future<T> visitLocalDeclaration(LocalDeclaration node);
 
+  Future<T> visitGlobalDeclaration(GlobalDeclaration node);
+
   Future<T> visitIfStatement(IfStatement node);
 
   Future<T> visitWhileStatement(WhileStatement node);
@@ -507,6 +509,85 @@ class LocalDeclaration extends AstNode implements Dumpable {
   }
 }
 
+/// global * / global name list / global name list = exprs
+class GlobalDeclaration extends AstNode implements Dumpable {
+  final String defaultAttribute;
+  final bool isWildcard;
+  final List<Identifier> names;
+  final List<String> attributes;
+  final List<AstNode> exprs;
+
+  GlobalDeclaration({
+    required this.defaultAttribute,
+    required this.isWildcard,
+    required this.names,
+    required this.attributes,
+    required this.exprs,
+  });
+
+  @override
+  Future<T> accept<T>(AstVisitor<T> visitor) =>
+      visitor.visitGlobalDeclaration(this);
+
+  @override
+  String toSource() {
+    final prefixAttribute = defaultAttribute.isNotEmpty
+        ? ' <$defaultAttribute>'
+        : '';
+    if (isWildcard) {
+      return 'global$prefixAttribute *';
+    }
+
+    final nameAttribPairs = List.generate(names.length, (i) {
+      final name = names[i].toSource();
+      final attribute = i < attributes.length ? attributes[i] : '';
+      return attribute.isNotEmpty ? '$name <$attribute>' : name;
+    }).join(', ');
+
+    if (exprs.isEmpty) {
+      return 'global$prefixAttribute $nameAttribPairs';
+    }
+    final exprsStr = exprs.map((e) => e.toSource()).join(', ');
+    return 'global$prefixAttribute $nameAttribPairs = $exprsStr';
+  }
+
+  @override
+  Map<String, dynamic> dump() => {
+    'type': 'GlobalDeclaration',
+    'defaultAttribute': defaultAttribute,
+    'isWildcard': isWildcard,
+    'names': names.map((n) => n.dump()).toList(),
+    'attributes': attributes,
+    'exprs': exprs
+        .map(
+          (e) => e is Dumpable ? (e as Dumpable).dump() : {'type': 'Unknown'},
+        )
+        .toList(),
+    'span': dumpSpan(),
+  };
+
+  static GlobalDeclaration fromDump(Map<String, dynamic> data) {
+    final names = (data['names'] as List? ?? const <dynamic>[])
+        .map((n) => Identifier.fromDump(Map<String, dynamic>.from(n)))
+        .toList();
+    final attributes = (data['attributes'] as List? ?? const <dynamic>[])
+        .map((a) => a as String)
+        .toList();
+    final exprs = (data['exprs'] as List? ?? const <dynamic>[])
+        .map((e) => undumpAst(Map<String, dynamic>.from(e)))
+        .toList();
+    final globalDeclaration = GlobalDeclaration(
+      defaultAttribute: data['defaultAttribute'] as String? ?? '',
+      isWildcard: data['isWildcard'] as bool? ?? false,
+      names: names,
+      attributes: attributes,
+      exprs: exprs,
+    );
+    globalDeclaration.restoreSpan(data['span'] as Map<String, dynamic>?, null);
+    return globalDeclaration;
+  }
+}
+
 /// if cond then thenBlock ... end
 class IfStatement extends AstNode implements Dumpable {
   final AstNode cond;
@@ -776,14 +857,28 @@ class FunctionDef extends AstNode implements Dumpable {
   final FunctionName name;
   final FunctionBody body;
   bool implicitSelf;
+  final bool explicitGlobal;
 
-  FunctionDef(this.name, this.body, {this.implicitSelf = false});
+  FunctionDef(
+    this.name,
+    this.body, {
+    this.implicitSelf = false,
+    this.explicitGlobal = false,
+  });
 
   @override
   Future<T> accept<T>(AstVisitor<T> visitor) => visitor.visitFunctionDef(this);
 
   @override
-  String toSource() => "function ${name.toSource()} ${body.toSource()}";
+  String toSource() {
+    if (explicitGlobal &&
+        !implicitSelf &&
+        name.rest.isEmpty &&
+        name.method == null) {
+      return "global function ${name.first.toSource()} ${body.toSource()}";
+    }
+    return "function ${name.toSource()} ${body.toSource()}";
+  }
 
   @override
   Map<String, dynamic> dump() => {
@@ -791,6 +886,7 @@ class FunctionDef extends AstNode implements Dumpable {
     'name': name.dump(),
     'body': body.dump(),
     'implicitSelf': implicitSelf,
+    'explicitGlobal': explicitGlobal,
     'span': dumpSpan(),
   };
 
@@ -798,7 +894,13 @@ class FunctionDef extends AstNode implements Dumpable {
     final name = FunctionName.fromDump(Map<String, dynamic>.from(data['name']));
     final body = FunctionBody.fromDump(Map<String, dynamic>.from(data['body']));
     final implicitSelf = data['implicitSelf'] as bool? ?? false;
-    final functionDef = FunctionDef(name, body, implicitSelf: implicitSelf);
+    final explicitGlobal = data['explicitGlobal'] as bool? ?? false;
+    final functionDef = FunctionDef(
+      name,
+      body,
+      implicitSelf: implicitSelf,
+      explicitGlobal: explicitGlobal,
+    );
     functionDef.restoreSpan(data['span'] as Map<String, dynamic>?, null);
     return functionDef;
   }

@@ -548,6 +548,27 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     return storedValue;
   }
 
+  Future<Object?> _handleExplicitGlobalAssignment(
+    String name,
+    Value wrappedValue,
+  ) async {
+    final storedValue = _detachPrimitiveValue(wrappedValue);
+
+    if (name == '_ENV') {
+      globals.defineGlobal(name, storedValue);
+      return storedValue;
+    }
+
+    final envValue = globals.get('_ENV');
+    if (envValue is Value && envValue.raw != null) {
+      await envValue.setValueAsync(name, storedValue);
+      return storedValue;
+    }
+
+    globals.defineGlobal(name, storedValue);
+    return storedValue;
+  }
+
   /// Handles assignment to a function.
   ///
   /// Assigns a value to a function name in the global environment.
@@ -1019,6 +1040,118 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         globals.declare(name, valueWithAttributes);
         updateFastLocalBinding(name);
       }
+    }
+
+    return null;
+  }
+
+  @override
+  Future<Object?> visitGlobalDeclaration(GlobalDeclaration node) async {
+    Logger.debug(
+      'Visiting GlobalDeclaration: ${node.names}',
+      category: 'Interpreter',
+      context: {
+        'namesCount': node.names.length,
+        'isWildcard': node.isWildcard,
+        'defaultAttribute': node.defaultAttribute,
+      },
+    );
+
+    if (node.isWildcard) {
+      return null;
+    }
+
+    final values = <Object?>[];
+    for (final expr in node.exprs) {
+      Object? value;
+
+      if (expr is GroupedExpression) {
+        value = await expr.expr.accept(this);
+        if (value is Future) {
+          value = await value;
+        } else if (value is Value && value.raw is Future) {
+          value = Value(await value.raw);
+        }
+
+        if (value is Value && value.isMulti) {
+          final multiValues = value.raw as List;
+          values.add(multiValues.isNotEmpty ? multiValues.first : Value(null));
+        } else if (value is List && value.isNotEmpty) {
+          values.add(value.first);
+        } else {
+          values.add(value is Value ? value : Value(value));
+        }
+      } else if (expr is FunctionCall || expr is MethodCall) {
+        value = await expr.accept(this);
+        if (value is Future) {
+          value = await value;
+        } else if (value is Value && value.raw is Future) {
+          value = Value(await value.raw);
+        }
+
+        if (value is List) {
+          values.addAll(value);
+        } else if (value is Value && value.isMulti) {
+          values.addAll(value.raw);
+        } else {
+          values.add(value);
+        }
+      } else {
+        value = await expr.accept(this);
+        if (value is Future) {
+          value = await value;
+        } else if (value is Value && value.raw is Future) {
+          value = Value(await value.raw);
+        }
+
+        if (value is List) {
+          values.addAll(value);
+        } else {
+          if (value is! Value) {
+            value = Value(value);
+          }
+          final val = value;
+          if (val.isMulti) {
+            values.addAll(val.raw);
+          } else {
+            values.add(val);
+          }
+        }
+      }
+    }
+
+    for (var index = 0; index < node.names.length; index++) {
+      final name = node.names[index].name;
+      final rawValue = index < values.length ? values[index] : Value(null);
+      final attribute =
+          index < node.attributes.length && node.attributes[index].isNotEmpty
+          ? node.attributes[index]
+          : node.defaultAttribute;
+
+      final baseValue = rawValue is Value ? rawValue : Value(rawValue);
+      final valueWithAttributes = switch (attribute) {
+        'const' => Value(
+          baseValue.raw,
+          metatable: baseValue.metatable,
+          isConst: true,
+        ),
+        'close' => throw UnsupportedError(
+          'global variables cannot be to-be-closed',
+        ),
+        _ => baseValue.isConst || baseValue.isToBeClose
+            ? Value(
+                baseValue.raw,
+                metatable: baseValue.metatable,
+                upvalues: baseValue.upvalues,
+                interpreter: baseValue.interpreter,
+                functionBody: baseValue.functionBody,
+                closureEnvironment: baseValue.closureEnvironment,
+                functionName: baseValue.functionName,
+              )
+            : baseValue,
+      };
+
+      await _handleExplicitGlobalAssignment(name, valueWithAttributes);
     }
 
     return null;
