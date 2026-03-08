@@ -150,7 +150,7 @@ Future<int> getTableLength(Value table, {String? context}) async {
 
   // No __len metamethod, use regular table length calculation
   return switch (table.raw) {
-    final TableStorage storage => storage.highestPositiveIntegerKey(),
+    final TableStorage storage => storage.luaLengthBoundary(),
     final Map<dynamic, dynamic> map => _getTableLength(map),
     _ => throw LuaError.typeError("table expected"),
   };
@@ -161,56 +161,9 @@ Future<int> getTableLength(Value table, {String? context}) async {
 /// and t[n+1] is nil
 int _getTableLength(Map map) {
   if (map case final TableStorage storage) {
-    return storage.highestPositiveIntegerKey();
+    return storage.luaLengthBoundary();
   }
-
-  var length = 0;
-
-  // Find the largest integer key with a non-nil value
-  for (final MapEntry(key: key, value: value) in map.entries) {
-    if (key is int &&
-        key > 0 &&
-        value != null &&
-        !(value is Value && value.raw == null) &&
-        NumberUtils.compare(key, length) > 0) {
-      length = key;
-    }
-  }
-
-  // Now check if t[length+1] is nil to confirm the boundary
-  final nextKey = NumberUtils.add(length, 1);
-  final nextValue = map[nextKey];
-  final nextIsNil =
-      nextValue == null || (nextValue is Value && nextValue.raw == null);
-
-  // If t[length+1] is not nil, we need to find the actual boundary
-  if (!nextIsNil) {
-    // Find the actual boundary by checking consecutive keys
-    var boundary = length;
-    var checkKey = NumberUtils.add(boundary, 1);
-
-    // Limit the search to prevent infinite loops
-    final maxSearch = 1000;
-    var searchCount = 0;
-
-    while (searchCount < maxSearch) {
-      final checkValue = map[checkKey];
-      final checkIsNil =
-          checkValue == null || (checkValue is Value && checkValue.raw == null);
-
-      if (checkIsNil) {
-        break;
-      }
-
-      boundary = checkKey;
-      checkKey = NumberUtils.add(checkKey, 1);
-      searchCount++;
-    }
-
-    length = boundary;
-  }
-
-  return NumberUtils.toInt(length);
+  return luaTableLengthFromMap(map.cast<dynamic, dynamic>());
 }
 
 class TableLib {
@@ -315,19 +268,31 @@ class _TableRemove extends BuiltinFunction {
     checktab(table, TablePermission.read | TablePermission.write);
 
     final map = table.raw as Map;
-    final pos = args.length > 1 ? (args[1] as Value).raw as int : map.length;
+    final size = switch (map) {
+      final TableStorage storage => storage.luaLengthBoundary(),
+      _ => luaTableLengthFromMap(map.cast<dynamic, dynamic>()),
+    };
+    final pos = args.length > 1 ? (args[1] as Value).raw as int : size;
 
     if (map.isEmpty) {
+      return Value(null);
+    }
+
+    if (pos == 0 && size > 0) {
+      throw LuaError("bad argument #2 to 'remove' (position out of bounds)");
+    }
+
+    if (pos < 0 || pos > size) {
       return Value(null);
     }
 
     final removed = map[pos];
 
     // Shift elements
-    for (var i = pos; i < map.length; i++) {
+    for (var i = pos; i < size; i++) {
       map[i] = map[i + 1];
     }
-    map.remove(map.length);
+    map.remove(size);
 
     return removed is Value ? removed : Value(removed);
   }

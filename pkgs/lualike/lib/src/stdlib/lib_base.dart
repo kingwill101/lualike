@@ -404,9 +404,13 @@ class IPairsFunction extends BuiltinFunction {
 
   @override
   Object? call(List<Object?> args) {
-    if (args.isEmpty) throw LuaError("ipairs requires a table");
+    if (args.isEmpty) {
+      throw LuaError(_badTableArgumentMessage('ipairs', null));
+    }
     final table = args[0] as Value;
-    if (table.raw is! Map) throw LuaError("ipairs requires a table");
+    if (table.raw is! Map) {
+      throw LuaError(_badTableArgumentMessage('ipairs', table));
+    }
 
     // Return iterator function, table, and initial control value (0) using Value.multi
     // This matches Lua's behavior: ipairs(t) returns iterator, t, 0
@@ -880,6 +884,11 @@ class NextFunction extends BuiltinFunction {
 
     final keyValue = args.length > 1 ? args[1] as Value : null;
     final keyRaw = keyValue?.raw;
+    if (keyValue != null &&
+        keyRaw != null &&
+        !_containsIterationKey(map, keyValue, keyRaw)) {
+      throw LuaError("invalid key to 'next'");
+    }
 
     if (map case final TableStorage storage) {
       return _nextFromTableStorage(table, storage, keyValue, keyRaw) ??
@@ -1086,6 +1095,19 @@ class NextFunction extends BuiltinFunction {
       return true;
     }
 
+    return false;
+  }
+
+  bool _containsIterationKey(Map<dynamic, dynamic> map, Value keyValue, dynamic keyRaw) {
+    if (map case final TableStorage storage) {
+      return storage.containsKey(keyRaw) || storage.containsKey(keyValue);
+    }
+
+    for (final entry in map.entries) {
+      if (_keysMatch(entry.key, keyValue, keyRaw)) {
+        return true;
+      }
+    }
     return false;
   }
 }
@@ -1584,7 +1606,7 @@ class PairsFunction extends BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
-      throw LuaError("pairs requires a table argument");
+      throw LuaError(_badTableArgumentMessage('pairs', null));
     }
 
     final table = args[0] as Value;
@@ -1593,12 +1615,20 @@ class PairsFunction extends BuiltinFunction {
     }
 
     if (table.raw is! Map) {
-      throw LuaError("pairs requires a table argument");
+      throw LuaError(_badTableArgumentMessage('pairs', table));
     }
     final nextFunc = interpreter!.globals.get('next');
     final nextValue = nextFunc is Value ? nextFunc : Value(nextFunc);
     return Value.multi([nextValue, table, Value(null)]);
   }
+}
+
+String _badTableArgumentMessage(String functionName, Value? value) {
+  final typeName = switch (value) {
+    null => 'no value',
+    final Value value => getLuaType(value.raw),
+  };
+  return "bad argument #1 to '$functionName' (table expected, got $typeName)";
 }
 
 class RequireFunction extends BuiltinFunction {

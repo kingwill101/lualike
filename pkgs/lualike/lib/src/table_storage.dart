@@ -1,7 +1,70 @@
 import 'dart:collection';
 import 'dart:typed_data';
 
+import 'package:lualike/src/number_limits.dart';
 import 'package:lualike/src/value.dart';
+
+bool isLuaNilValue(Object? value) =>
+    value == null || (value is Value && value.raw == null);
+
+int luaTableLengthBoundary(bool Function(int index) hasValueAt) {
+  if (!hasValueAt(1)) {
+    return 0;
+  }
+
+  var lower = 1;
+
+  // Prefer an early local border when a table has holes near the start.
+  const linearProbeLimit = 64;
+  while (lower < linearProbeLimit) {
+    final nextIndex = lower + 1;
+    if (!hasValueAt(nextIndex)) {
+      return lower;
+    }
+    lower = nextIndex;
+  }
+
+  var upper = lower;
+  while (upper < NumberLimits.maxInteger) {
+    final nextUpper = upper > (NumberLimits.maxInteger ~/ 2)
+        ? NumberLimits.maxInteger
+        : upper * 2;
+    if (!hasValueAt(nextUpper)) {
+      upper = nextUpper;
+      break;
+    }
+    if (nextUpper == NumberLimits.maxInteger) {
+      return NumberLimits.maxInteger;
+    }
+    lower = nextUpper;
+    upper = nextUpper;
+  }
+
+  while (upper - lower > 1) {
+    final middle = lower + ((upper - lower) >> 1);
+    if (hasValueAt(middle)) {
+      lower = middle;
+    } else {
+      upper = middle;
+    }
+  }
+
+  return lower;
+}
+
+int luaTableLengthFromMap(Map<dynamic, dynamic> map) {
+  bool hasValueAt(int index) {
+    final directValue = map[index];
+    if (!isLuaNilValue(directValue)) {
+      return true;
+    }
+
+    final numericValue = map[index.toDouble()];
+    return !isLuaNilValue(numericValue);
+  }
+
+  return luaTableLengthBoundary(hasValueAt);
+}
 
 class TableStorage extends MapBase<dynamic, dynamic> {
   TableStorage();
@@ -287,6 +350,24 @@ class TableStorage extends MapBase<dynamic, dynamic> {
     }
     return null;
   }
+
+  bool hasPositiveIntegerValueAt(int oneBasedIndex) {
+    if (oneBasedIndex <= 0) {
+      return false;
+    }
+
+    final idx = oneBasedIndex - 1;
+    if (idx < _array.length &&
+        idx < _occupied.length &&
+        _occupied[idx] != 0 &&
+        !isLuaNilValue(_array[idx])) {
+      return true;
+    }
+
+    return !isLuaNilValue(_hash[oneBasedIndex]);
+  }
+
+  int luaLengthBoundary() => luaTableLengthBoundary(hasPositiveIntegerValueAt);
 
   int highestPositiveIntegerKey() {
     var maxIndex = 0;
