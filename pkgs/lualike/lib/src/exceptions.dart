@@ -8,6 +8,8 @@ library;
 import 'dart:async';
 
 import 'package:lualike/src/coroutine.dart' show Coroutine;
+import 'package:lualike/src/ast.dart' show AstNode;
+import 'package:lualike/src/environment.dart' show Environment;
 import 'package:lualike/src/value.dart';
 
 /// Base class for exceptions used by the interpreter for control flow.
@@ -47,8 +49,17 @@ class TailCallException extends ControlFlowException {
 class TailCallSignal {
   final dynamic functionValue;
   final List<Object?> args;
+  final AstNode? callNode;
+  final String? callName;
+  final Environment? callEnv;
 
-  const TailCallSignal(this.functionValue, this.args);
+  const TailCallSignal(
+    this.functionValue,
+    this.args, {
+    this.callNode,
+    this.callName,
+    this.callEnv,
+  });
 
   @override
   String toString() =>

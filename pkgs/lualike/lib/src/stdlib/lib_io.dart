@@ -5,6 +5,7 @@ import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/number_utils.dart';
 import 'package:lualike/src/utils/io_abstractions.dart' as io_abs;
+import 'package:lualike/src/utils/type.dart' show getLuaType;
 import 'package:lualike/src/value.dart';
 
 import '../io/filesystem_provider.dart';
@@ -306,7 +307,13 @@ class IOInput extends BuiltinFunction {
       newFile = args[0] as Value;
       result = args[0];
     } else {
-      final filename = (args[0] as Value).raw.toString();
+      final argument = args[0] as Value;
+      if (argument.raw is! String && argument.raw is! LuaString) {
+        throw LuaError.typeError(
+          "bad argument #1 to 'input' (FILE* expected, got ${getLuaType(argument)})",
+        );
+      }
+      final filename = argument.raw.toString();
       Logger.debug('Opening file for input: $filename', category: 'IO');
       try {
         final device = await IOLib.fileSystemProvider.openFile(filename, "r");
@@ -462,7 +469,13 @@ class IOOutput extends BuiltinFunction {
       Logger.debug('Arg is LuaFile - setting as output', category: 'IO');
       newFile = args[0] as Value;
     } else {
-      final filename = (args[0] as Value).raw.toString();
+      final argument = args[0] as Value;
+      if (argument.raw is! String && argument.raw is! LuaString) {
+        throw LuaError.typeError(
+          "bad argument #1 to 'output' (FILE* expected, got ${getLuaType(argument)})",
+        );
+      }
+      final filename = argument.raw.toString();
       Logger.debug('Arg is filename: $filename - opening file', category: 'IO');
 
       Logger.debug('About to call fileSystemProvider.openFile', category: 'IO');
@@ -689,7 +702,7 @@ class IOWrite extends BuiltinFunction {
             );
             return Value.multi(result);
           }
-        } else {
+        } else if (val.raw is String || val.raw is num || val.raw is BigInt) {
           final str = val.raw.toString();
           Logger.debug('Writing string: $str', category: 'IO');
           final result = await luaFile.write(str);
@@ -697,6 +710,10 @@ class IOWrite extends BuiltinFunction {
             Logger.debug('Error writing: ${result[1]}', category: 'IO');
             return Value.multi(result);
           }
+        } else {
+          throw LuaError.typeError(
+            "bad argument #1 to 'io.write' (string expected, got ${getLuaType(val)})",
+          );
         }
       } catch (e) {
         // Catch device-level errors and convert to expected error message

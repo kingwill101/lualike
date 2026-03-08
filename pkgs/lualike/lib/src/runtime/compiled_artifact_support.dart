@@ -6,7 +6,8 @@ import 'package:lualike/lualike.dart';
 import 'package:lualike/src/goto_validator.dart';
 import 'package:lualike/src/interpreter/upvalue_analyzer.dart';
 import 'package:lualike/src/legacy_ast_chunk_transport.dart';
-import 'package:lualike/src/parse.dart' show parseExpression;
+import 'package:lualike/src/parse.dart'
+    show looksLikeLuaFilePath, luaChunkId, parseExpression;
 import 'package:lualike/src/semantic_checker.dart';
 import 'package:lualike/src/upvalue.dart';
 import 'package:path/path.dart' as path;
@@ -270,9 +271,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
         : null;
     final cachedAnonymousProgram = anonymousLoadCacheKey == null
         ? null
-        : _anonymousTextLoadCacheFor(
-            runtime,
-          ).lookup(anonymousLoadCacheKey);
+        : _anonymousTextLoadCacheFor(runtime).lookup(anonymousLoadCacheKey);
     final loadedFromAnonymousCache = cachedAnonymousProgram != null;
 
     if (_loadProfileEnabled) {
@@ -322,8 +321,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
         return LuaChunkLoadResult.failure(gotoError);
       }
     }
-    if (anonymousLoadCacheKey case final key?
-        when !loadedFromAnonymousCache) {
+    if (anonymousLoadCacheKey case final key? when !loadedFromAnonymousCache) {
       _anonymousTextLoadCacheFor(runtime).store(key, ast);
     }
 
@@ -331,6 +329,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
     AstNode? directAstNode;
     List<String>? originalUpvalueNames;
     List<dynamic>? originalUpvalueValues;
+    var strippedDebugInfo = false;
 
     if (isBinaryChunk && chunkInfo != null) {
       if (chunkInfo.originalFunctionBody != null) {
@@ -338,9 +337,11 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
         directAstNode = chunkInfo.originalFunctionBody;
         originalUpvalueNames = chunkInfo.upvalueNames;
         originalUpvalueValues = chunkInfo.upvalueValues;
+        strippedDebugInfo = chunkInfo.strippedDebugInfo;
       } else {
         originalUpvalueNames = chunkInfo.upvalueNames;
         originalUpvalueValues = chunkInfo.upvalueValues;
+        strippedDebugInfo = chunkInfo.strippedDebugInfo;
       }
     }
 
@@ -349,6 +350,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
       hasDirectAst = true;
       directAstNode = readerChunkInfo.originalFunctionBody;
       originalUpvalueNames = readerChunkInfo.upvalueNames;
+      strippedDebugInfo = readerChunkInfo.strippedDebugInfo;
     }
 
     final actualBody = FunctionBody([], ast.statements, false);
@@ -431,6 +433,9 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
         );
 
         runtime.setCurrentEnv(loadEnv);
+        final prevPath = runtime.currentScriptPath;
+        runtime.currentScriptPath = chunkname;
+        loadEnv.declare('_SCRIPT_PATH', Value(chunkname));
         try {
           final directFunction =
               await runtime.evaluateAst(loadedAstNode) as Value;
@@ -473,9 +478,15 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
           }
 
           directFunction.interpreter = runtime;
+          if (strippedDebugInfo) {
+            return LuaChunkLoadResult.success(
+              _wrapStrippedLegacyFunction(runtime, directFunction),
+            );
+          }
           logProfile('success');
           return LuaChunkLoadResult.success(directFunction);
         } finally {
+          runtime.currentScriptPath = prevPath;
           runtime.setCurrentEnv(savedEnv);
         }
       }
@@ -495,10 +506,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
           );
 
           loadEnv.declare("...", Value.multi(callArgs));
-          loadEnv.declare(
-            constantName,
-            Value(constantValue, isConst: true),
-          );
+          loadEnv.declare(constantName, Value(constantValue, isConst: true));
           runtime.setCurrentEnv(loadEnv);
           final prevPath = runtime.currentScriptPath;
           runtime.currentScriptPath = chunkname;
@@ -618,6 +626,9 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
             logProfile('success');
             return value;
           } catch (e) {
+            if (e is LuaError || e is Value) {
+              rethrow;
+            }
             throw LuaError("Error executing loaded chunk '$chunkname': $e");
           }
         },
@@ -649,15 +660,12 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
         upvalues.add(upvalue);
       }
     } else {
-      final placeholder = Upvalue(
-        valueBox: Box<dynamic>(null),
-        name: null,
-        interpreter: runtime,
-      );
-      placeholder.close();
-      upvalues.add(placeholder);
-
-      final envValue = currentEnv.get('_ENV') ?? currentEnv.get('_G');
+      final envValue =
+          providedEnv ??
+          currentEnv.get('_G') ??
+          currentEnv.root.get('_G') ??
+          currentEnv.get('_ENV') ??
+          currentEnv.root.get('_ENV');
       if (envValue != null) {
         final envBox = Box<dynamic>(envValue);
         final envUpvalue = Upvalue(
@@ -684,7 +692,10 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
   }
 }
 
-Object? dumpFunctionWithLegacyAstTransport(Value function) {
+Object? dumpFunctionWithLegacyAstTransport(
+  Value function, {
+  bool stripDebugInfo = false,
+}) {
   if (function.raw is BuiltinFunction) {
     throw LuaError(
       "unable to dump given function (${function.raw.runtimeType})",
@@ -722,11 +733,48 @@ Object? dumpFunctionWithLegacyAstTransport(Value function) {
       fb,
       upvalueNames,
       upvalueValues,
+      stripDebugInfo,
     );
   }
 
   final source = "return function(...) end";
   return LegacyAstChunkTransport.serializeSourceAsLuaString(source);
+}
+
+Value _wrapStrippedLegacyFunction(LuaRuntime runtime, Value innerFunction) {
+  String normalize(String message) {
+    final withoutLabels = message
+        .replaceAllMapped(
+          RegExp(
+            r"attempt to perform arithmetic on (?:local|global|upvalue|field|method) '[^']+' \(a ([^)]+) value\)",
+          ),
+          (match) =>
+              'attempt to perform arithmetic on a ${match.group(1)} value',
+        )
+        .replaceAllMapped(
+          RegExp(
+            r"attempt to perform bitwise operation on (?:local|global|upvalue|field|method) '[^']+' \(a ([^)]+) value\)",
+          ),
+          (match) =>
+              'attempt to perform bitwise operation on a ${match.group(1)} value',
+        );
+    if (withoutLabels.startsWith('?:?:')) {
+      return withoutLabels;
+    }
+    return '?:?: $withoutLabels';
+  }
+
+  return Value(
+    (List<Object?> args) async {
+      try {
+        return await runtime.callFunction(innerFunction, args);
+      } on LuaError catch (error) {
+        throw LuaError.typeError(normalize(error.message));
+      }
+    },
+    interpreter: runtime,
+    closureEnvironment: innerFunction.closureEnvironment,
+  );
 }
 
 LuaFunctionDebugInfo? defaultDebugInfoForFunction(
@@ -741,27 +789,26 @@ LuaFunctionDebugInfo? defaultDebugInfoForFunction(
   final functionBody = function.functionBody;
   if (functionBody != null) {
     final span = functionBody.span;
-    final source = span?.sourceUrl?.toString() ?? runtime.currentScriptPath;
-    if (source != null) {
-      return LuaFunctionDebugInfo(
-        source: source,
-        shortSource: _shortSource(source),
-        lineDefined: span != null ? span.start.line + 1 : -1,
-        lastLineDefined: span != null ? span.end.line + 1 : -1,
-        nups: function.upvalues?.length ?? 0,
-        nparams: functionBody.parameters?.length ?? 0,
-        isVararg: functionBody.isVararg,
-      );
-    }
-  }
-
-  if (runtime.currentScriptPath != null) {
-    final source = runtime.currentScriptPath!;
+    final spanSource = span?.sourceUrl?.toString();
+    final closureEnvSource = function.closureEnvironment
+        ?.get('_SCRIPT_PATH')
+        .raw
+        ?.toString();
+    final source =
+        (spanSource == null || spanSource == 'null' ? null : spanSource) ??
+        closureEnvSource ??
+        runtime.currentScriptPath ??
+        '=[string]';
+    final lineDefined = span != null ? span.start.line + 1 : -1;
+    final lastLineDefined = _lastFunctionBodyLine(functionBody);
     return LuaFunctionDebugInfo(
       source: source,
       shortSource: _shortSource(source),
-      what: 'Lua',
+      lineDefined: lineDefined,
+      lastLineDefined: lastLineDefined,
       nups: function.upvalues?.length ?? 0,
+      nparams: functionBody.parameters?.length ?? 0,
+      isVararg: functionBody.isVararg,
     );
   }
 
@@ -774,7 +821,41 @@ LuaFunctionDebugInfo? defaultDebugInfoForFunction(
     );
   }
 
+  if (runtime.currentScriptPath != null) {
+    final source = runtime.currentScriptPath!;
+    return LuaFunctionDebugInfo(
+      source: source,
+      shortSource: _shortSource(source),
+      what: 'Lua',
+      nups: function.upvalues?.length ?? 0,
+    );
+  }
+
   return null;
+}
+
+int _lastFunctionBodyLine(FunctionBody body) {
+  final bodySpan = body.span;
+  if (bodySpan != null && bodySpan.end.line > 0) {
+    return bodySpan.end.line + 1;
+  }
+
+  var maxLine = -1;
+  for (final statement in body.body) {
+    final span = statement.span;
+    if (span != null) {
+      final endLine = span.end.line + 1;
+      if (endLine > maxLine) {
+        maxLine = endLine;
+      }
+    }
+  }
+
+  if (maxLine > 0) {
+    return maxLine;
+  }
+
+  return -1;
 }
 
 Environment _createDirectAstExecutionEnv({
@@ -957,8 +1038,25 @@ SourceSpan? _wholeProgramSpan(Program program) {
 }
 
 String _shortSource(String source) {
+  if (source.startsWith('file:///')) {
+    try {
+      return path.basename(Uri.parse(source).path);
+    } catch (_) {
+      return source;
+    }
+  }
+  if (source.startsWith('@') || source.startsWith('=')) {
+    return luaChunkId(source);
+  }
+  if (looksLikeLuaFilePath(source)) {
+    try {
+      return path.basename(source);
+    } catch (_) {
+      return source;
+    }
+  }
   try {
-    return path.basename(source);
+    return luaChunkId(source);
   } catch (_) {
     return source;
   }
@@ -1095,23 +1193,23 @@ _ConstructsShortCircuitExpr? _compileConstructsShortCircuitExpr(AstNode node) {
     BooleanLiteral(value: final value) => _ConstructsLiteralExpr(value),
     NumberLiteral(value: final value) => _ConstructsLiteralExpr(value),
     Identifier(name: final name) => _ConstructsIdentifierExpr(name),
-    UnaryExpression(op: 'not', expr: final expr) => switch (
-      _compileConstructsShortCircuitExpr(expr)
-    ) {
-      final _ConstructsShortCircuitExpr compiled => _ConstructsNotExpr(
-        compiled,
-      ),
-      _ => null,
-    },
+    UnaryExpression(op: 'not', expr: final expr) =>
+      switch (_compileConstructsShortCircuitExpr(expr)) {
+        final _ConstructsShortCircuitExpr compiled => _ConstructsNotExpr(
+          compiled,
+        ),
+        _ => null,
+      },
     BinaryExpression(left: final left, op: 'and', right: final right) =>
       switch ((
         _compileConstructsShortCircuitExpr(left),
         _compileConstructsShortCircuitExpr(right),
       )) {
-        (final _ConstructsShortCircuitExpr leftExpr, final _ConstructsShortCircuitExpr rightExpr) => _ConstructsAndExpr(
-          leftExpr,
-          rightExpr,
-        ),
+        (
+          final _ConstructsShortCircuitExpr leftExpr,
+          final _ConstructsShortCircuitExpr rightExpr,
+        ) =>
+          _ConstructsAndExpr(leftExpr, rightExpr),
         _ => null,
       },
     BinaryExpression(left: final left, op: 'or', right: final right) =>
@@ -1119,10 +1217,11 @@ _ConstructsShortCircuitExpr? _compileConstructsShortCircuitExpr(AstNode node) {
         _compileConstructsShortCircuitExpr(left),
         _compileConstructsShortCircuitExpr(right),
       )) {
-        (final _ConstructsShortCircuitExpr leftExpr, final _ConstructsShortCircuitExpr rightExpr) => _ConstructsOrExpr(
-          leftExpr,
-          rightExpr,
-        ),
+        (
+          final _ConstructsShortCircuitExpr leftExpr,
+          final _ConstructsShortCircuitExpr rightExpr,
+        ) =>
+          _ConstructsOrExpr(leftExpr, rightExpr),
         _ => null,
       },
     BinaryExpression(left: final left, op: '==', right: final right) =>
@@ -1130,13 +1229,17 @@ _ConstructsShortCircuitExpr? _compileConstructsShortCircuitExpr(AstNode node) {
         _compileConstructsShortCircuitExpr(left),
         _compileConstructsShortCircuitExpr(right),
       )) {
-        (final _ConstructsShortCircuitExpr leftExpr, final _ConstructsShortCircuitExpr rightExpr) => _ConstructsEqualsExpr(
-          leftExpr,
-          rightExpr,
-        ),
+        (
+          final _ConstructsShortCircuitExpr leftExpr,
+          final _ConstructsShortCircuitExpr rightExpr,
+        ) =>
+          _ConstructsEqualsExpr(leftExpr, rightExpr),
         _ => null,
       },
-    TableFieldAccess(table: Identifier(name: '_ENV'), fieldName: final fieldName) =>
+    TableFieldAccess(
+      table: Identifier(name: '_ENV'),
+      fieldName: final fieldName,
+    ) =>
       _ConstructsEnvFieldExpr(fieldName.name),
     _ => null,
   };
@@ -1185,11 +1288,8 @@ Program? _tryParseConstructsShortCircuitChunk(String source, String chunkname) {
   final setIx = Assignment([Identifier('IX')], [BooleanLiteral(true)]);
   final ifStatement = IfStatement(condition, const [], [setIx], const []);
   final returnStatement = ReturnStatement([condition]);
-  return _ConstructsShortCircuitProgram([
-    localDeclaration,
-    ifStatement,
-    returnStatement,
-  ],
+  return _ConstructsShortCircuitProgram(
+    [localDeclaration, ifStatement, returnStatement],
     condition: condition,
     compiledCondition: compiledCondition,
     constantName: match.group(1)!,

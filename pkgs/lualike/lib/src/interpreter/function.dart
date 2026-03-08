@@ -12,6 +12,115 @@ typedef _SimpleCapturedCounterSelfTailLoopPlan = ({
   num step,
 });
 
+Value _packVarargsTable(List<Object?> varargs) {
+  final table = TableStorage();
+  for (var i = 0; i < varargs.length; i++) {
+    final value = varargs[i];
+    final wrapped = value is Value ? value : Value(value);
+    if (!wrapped.isNil) {
+      table.setDense(i + 1, wrapped);
+    }
+  }
+  table['n'] = Value(varargs.length);
+  return ValueClass.table(table);
+}
+
+String _bindingScopeLabel(Environment env, String name) {
+  Environment? current = env;
+  while (current != null) {
+    final box = current.values[name] ?? current.declaredGlobals[name];
+    if (box != null) {
+      if (box.isLocal) {
+        return identical(current, env) ? "local '$name'" : "upvalue '$name'";
+      }
+      return "global '$name'";
+    }
+    current = current.parent;
+  }
+  return "global '$name'";
+}
+
+void _ensureClosureDebugSpan(
+  Value closure,
+  AstNode definitionNode,
+  FunctionBody functionBody,
+) {
+  if (closure.functionBody?.span != null) {
+    return;
+  }
+
+  final nodeSpan = definitionNode.span;
+  if (nodeSpan is FileSpan) {
+    final lastStatementSpan = functionBody.body.isNotEmpty
+        ? functionBody.body.last.span
+        : null;
+    if (lastStatementSpan is FileSpan) {
+      closure.functionBody!.span = nodeSpan.file.span(
+        nodeSpan.start.offset,
+        lastStatementSpan.end.offset,
+      );
+      return;
+    }
+  }
+
+  if (nodeSpan != null) {
+    closure.functionBody!.span = nodeSpan;
+  }
+}
+
+String? _sourceLabelForAst(Environment env, AstNode node) => switch (node) {
+  Identifier(name: final name) => _bindingScopeLabel(env, name),
+  TableFieldAccess(fieldName: final Identifier fieldName) =>
+    "field '${fieldName.name}'",
+  MethodCall(methodName: final Identifier methodName) =>
+    "method '${methodName.name}'",
+  _ => null,
+};
+
+bool _hasPendingToBeClosed(Environment? env) {
+  var current = env;
+  while (current != null) {
+    if (current.toBeClosedVars.isNotEmpty ||
+        current.pendingImplicitToBeClosed > 0) {
+      return true;
+    }
+    current = current.parent;
+  }
+  return false;
+}
+
+Object? _snapshotReturnPayload(Object? value) {
+  Value cloneValue(Value original) => Value(
+    original.raw,
+    metatable: original.metatable != null ? Map.from(original.metatable!) : null,
+    isConst: original.isConst,
+    isToBeClose: original.isToBeClose,
+    upvalues: original.upvalues,
+    interpreter: original.interpreter,
+    functionBody: original.functionBody,
+    closureEnvironment: original.closureEnvironment,
+    functionName: original.functionName,
+  );
+
+  return switch (value) {
+    Value(isMulti: true, raw: final List rawValues) =>
+      Value.multi(rawValues.map((entry) {
+        if (entry is Value) {
+          return cloneValue(entry);
+        }
+        return Value(entry);
+      }).toList()),
+    final Value scalar => cloneValue(scalar),
+    final List values => values.map((entry) {
+      if (entry is Value) {
+        return cloneValue(entry);
+      }
+      return Value(entry);
+    }).toList(),
+    _ => value,
+  };
+}
+
 _SimpleNumericSelfTailLoopPlan? _matchSimpleNumericSelfTailLoopPlan(
   FunctionBody node,
   List<String> parameterNames,
@@ -367,6 +476,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       setCurrentEnv(prevEnv);
       if (closure is Value) {
         closure.functionName = methodName;
+        _ensureClosureDebugSpan(closure, node, node.body);
       }
 
       // Install the function on the resolved target table
@@ -398,6 +508,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     final closure = await node.body.accept(this);
     if (closure is Value) {
       closure.functionName = node.name.first.name;
+      _ensureClosureDebugSpan(closure, node, node.body);
     }
 
     final envVal = globals.get('_ENV');
@@ -491,16 +602,21 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       category: 'Interpreter',
     );
 
+    globals.declare(node.name.name, Value(null));
+    final localBox = globals.values[node.name.name];
+
     // Create function closure
     final closure = await node.funcBody.accept(this);
 
     // Set function name on the closure for debugging
     if (closure is Value) {
       closure.functionName = node.name.name;
+      _ensureClosureDebugSpan(closure, node, node.funcBody);
     }
 
-    // Define in current scope
-    globals.declare(node.name.name, closure);
+    if (localBox != null) {
+      localBox.value = closure is Value ? closure : Value(closure);
+    }
     Logger.debug(
       'Defined local function ${node.name.name}',
       category: 'Interpreter',
@@ -535,8 +651,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       category: 'Interpreter',
     );
 
-    // Capture definition-time environment
-    final closureEnv = globals;
+    // Capture only the bindings visible at definition time. This keeps
+    // closures linked to the live boxes for current locals while hiding
+    // locals declared later in the same block.
+    final closureEnv = _createFilteredEnvironment(globals, const <String>{});
     Logger.debug(
       'Captured environment: ${closureEnv.hashCode}',
       category: 'Interpreter',
@@ -557,6 +675,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
     // Precompute parameter metadata for both execution paths.
     final bool hasVarargs = node.isVararg;
+    final String? namedVararg = node.varargName?.name;
     final int regularParamCount = node.parameters?.length ?? 0;
     final List<String> parameterNames = node.parameters == null
         ? const <String>[]
@@ -674,6 +793,14 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         if (varargBox != null) {
           fastLocals['...'] = varargBox;
         }
+        if (namedVararg != null) {
+          final packedVarargs = _packVarargsTable(varargs);
+          execEnv.declare(namedVararg, packedVarargs);
+          final namedVarargBox = execEnv.values[namedVararg];
+          if (namedVarargBox != null) {
+            fastLocals[namedVararg] = namedVarargBox;
+          }
+        }
       }
 
       final interpreter = this as Interpreter;
@@ -682,6 +809,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       final prevFastLocals = interpreter.getCurrentFastLocals();
 
       Object? result;
+      var hadExplicitReturn = false;
+      Object? deferredError;
+      StackTrace? deferredStackTrace;
       try {
         interpreter._functionBodyDepth++;
         interpreter.setCurrentEnv(execEnv);
@@ -689,14 +819,23 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         interpreter.setCurrentFastLocals(
           fastLocals.isEmpty ? null : fastLocals,
         );
+        if (interpreter.callStack.top case final CallFrame frame?) {
+          frame.env = execEnv;
+        }
         Logger.debug(
           "Set current environment to execEnv and current function for function execution",
           category: 'Interpreter',
         );
 
         result = await interpreter._executeStatements(node.body);
+        await execEnv.closeVariables();
       } on ReturnException catch (e) {
-        result = e.value;
+        result = _snapshotReturnPayload(e.value);
+        await execEnv.closeVariables();
+        hadExplicitReturn = true;
+      } catch (e, s) {
+        deferredError = e;
+        deferredStackTrace = s;
       } finally {
         interpreter.setCurrentFastLocals(prevFastLocals);
         interpreter.setCurrentEnv(savedEnv);
@@ -704,9 +843,30 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         interpreter._functionBodyDepth = interpreter._functionBodyDepth > 0
             ? interpreter._functionBodyDepth - 1
             : 0;
+        if (deferredError != null) {
+          interpreter.hideDebugFrameEnv(execEnv);
+          try {
+            await execEnv.closeVariables(deferredError);
+          } catch (closeError, closeStackTrace) {
+            deferredError = closeError;
+            deferredStackTrace = closeStackTrace;
+          } finally {
+            interpreter.unhideDebugFrameEnv(execEnv);
+          }
+        }
       }
 
-      return result;
+      if (deferredError != null) {
+        Error.throwWithStackTrace(deferredError!, deferredStackTrace!);
+      }
+
+      if (result is TailCallSignal) {
+        return result;
+      }
+      if (hadExplicitReturn) {
+        return result;
+      }
+      return Value(null);
     }
 
     Future<Object?> optimizedSelfTailLoop(List<Object?> initialArgs) async {
@@ -729,6 +889,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         growable: false,
       );
       Box<dynamic>? varargBox;
+      Box<dynamic>? namedVarargBox;
       final fastLocals = <String, Box<dynamic>>{};
       final prevFastLocals = interpreter.getCurrentFastLocals();
       var fastLocalsInitialized = false;
@@ -805,6 +966,18 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                 box.value = Value.multi(varargs);
               }
             }
+            if (namedVararg != null) {
+              final packedVarargs = _packVarargsTable(varargs);
+              if (!reuse || namedVarargBox == null) {
+                execEnv.declare(namedVararg, packedVarargs);
+                namedVarargBox = execEnv.values[namedVararg];
+                if (namedVarargBox != null) {
+                  fastLocals[namedVararg] = namedVarargBox;
+                }
+              } else {
+                namedVarargBox.value = packedVarargs;
+              }
+            }
           }
 
           final savedEnv = interpreter.getCurrentEnv();
@@ -812,6 +985,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
           Object? result;
           var selfTailCall = false;
+          var hadExplicitReturn = false;
+          Object? deferredError;
+          StackTrace? deferredStackTrace;
 
           try {
             if (!fastLocalsInitialized && fastLocals.isNotEmpty) {
@@ -822,6 +998,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             interpreter._functionBodyDepth++;
             interpreter.setCurrentEnv(execEnv);
             interpreter.setCurrentFunction(self);
+            if (interpreter.callStack.top case final CallFrame frame?) {
+              frame.env = execEnv;
+            }
             Logger.debug(
               "Set current environment to execEnv and current function for function execution",
               category: 'Interpreter',
@@ -834,28 +1013,56 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                 selfTailCall = true;
               }
             }
+            await execEnv.closeVariables();
           } on ReturnException catch (e) {
-            result = e.value;
+            result = _snapshotReturnPayload(e.value);
+            await execEnv.closeVariables();
+            hadExplicitReturn = true;
           } on TailCallException catch (t) {
+            await execEnv.closeVariables();
             if (identical(t.functionValue, self)) {
               args = t.args;
               selfTailCall = true;
             } else {
               rethrow;
             }
+          } catch (e, s) {
+            deferredError = e;
+            deferredStackTrace = s;
           } finally {
             interpreter.setCurrentEnv(savedEnv);
             interpreter.setCurrentFunction(savedFunction);
             interpreter._functionBodyDepth = interpreter._functionBodyDepth > 0
                 ? interpreter._functionBodyDepth - 1
                 : 0;
+            if (deferredError != null) {
+              interpreter.hideDebugFrameEnv(execEnv);
+              try {
+                await execEnv.closeVariables(deferredError);
+              } catch (closeError, closeStackTrace) {
+                deferredError = closeError;
+                deferredStackTrace = closeStackTrace;
+              } finally {
+                interpreter.unhideDebugFrameEnv(execEnv);
+              }
+            }
+          }
+
+          if (deferredError != null) {
+            Error.throwWithStackTrace(deferredError!, deferredStackTrace!);
           }
 
           if (selfTailCall) {
             continue;
           }
 
-          return result;
+          if (result is TailCallSignal) {
+            return result;
+          }
+          if (hadExplicitReturn) {
+            return result;
+          }
+          return Value(null);
         }
       } finally {
         interpreter.setCurrentFastLocals(prevFastLocals);
@@ -1016,6 +1223,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     for (final entry in sourceEnv.values.entries) {
       if (!excludeNames.contains(entry.key)) {
         filteredEnv.values[entry.key] = entry.value;
+      }
+    }
+
+    for (final entry in sourceEnv.declaredGlobals.entries) {
+      if (!excludeNames.contains(entry.key)) {
+        filteredEnv.declaredGlobals[entry.key] = entry.value;
       }
     }
 
@@ -1356,6 +1569,19 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       }
     }
 
+    if (objVal.raw is! Map) {
+      final sourceLabel = _sourceLabelForAst(
+        (this as Interpreter).getCurrentEnv(),
+        node.prefix,
+      );
+      final type = getLuaType(objVal);
+      throw LuaError.typeError(
+        sourceLabel != null
+            ? "attempt to index $sourceLabel (a $type value)"
+            : "attempt to index a $type value",
+      );
+    }
+
     // Look up the method
     dynamic func;
     if (objVal.containsKey(methodName)) {
@@ -1413,91 +1639,129 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     // and signal the caller to invoke it without growing the stack.
     if (node.expr.length == 1) {
       final e = node.expr[0];
-
-      // Helper to normalize args into Value-wrapped items, expanding multi-values
-      Future<List<Object?>> evalArgs(List<AstNode> argNodes) async {
-        final out = <Object?>[];
-        for (int i = 0; i < argNodes.length; i++) {
-          final v = await argNodes[i].accept(this);
-          final isLast = i == argNodes.length - 1;
-          if (isLast) {
-            if (v is Value && v.isMulti) {
-              out.addAll(
-                (v.raw as List<Object?>).map((x) => x is Value ? x : Value(x)),
-              );
-            } else if (v is List) {
-              out.addAll(v.map((x) => x is Value ? x : Value(x)));
-            } else {
-              out.add(v is Value ? v : Value(v));
-            }
-          } else {
-            if (v is Value && v.isMulti) {
-              final multi = v.raw as List;
-              out.add(
-                multi.isNotEmpty
-                    ? (multi.first is Value ? multi.first : Value(multi.first))
-                    : Value(null),
-              );
-            } else if (v is List && v.isNotEmpty) {
-              out.add(v[0] is Value ? v[0] : Value(v[0]));
-            } else {
-              out.add(v is Value ? v : Value(v));
-            }
-          }
-        }
-        return out;
-      }
-
-      if (e is FunctionCall) {
-        // Evaluate callee without invoking
-        dynamic func = await e.name.accept(this);
-        if (func is Value && func.isMulti) {
-          final multi = func.raw as List;
-          func = multi.isNotEmpty ? multi.first : Value(null);
-        } else if (func is List && func.isNotEmpty) {
-          func = func.first;
-        }
-
-        final args = await evalArgs(e.args);
-        return TailCallSignal(func, args);
-      } else if (e is MethodCall) {
-        // Prepare method call as a tail call
-        final recv = await e.prefix.accept(this);
-        final obj = recv is Value ? recv : Value(recv);
-        var args = await evalArgs(e.args);
-        if (e.implicitSelf) {
-          args = [obj, ...args];
-        }
-
-        // Determine method function
-        final methodName = e.methodName is Identifier
-            ? (e.methodName as Identifier).name
-            : e.methodName.toString();
-
-        dynamic func;
-        if (obj.hasMetamethod('__index')) {
-          final aFunc = await obj.callMetamethodAsync('__index', [
-            obj,
-            Value(methodName),
-          ]);
-          if (aFunc is Value && aFunc.isCallable()) {
-            func = aFunc;
-          }
-        }
-        if (func == null) {
-          // Direct lookup
-          if (obj.raw is Map && (obj).containsKey(methodName)) {
-            func = (obj)[methodName];
-          }
-        }
-
-        func = func is Value ? func : Value(func);
-
-        final callArgs = e.implicitSelf ? args : [obj, ...args];
-        return TailCallSignal(
-          func,
-          callArgs.map((x) => x is Value ? x : Value(x)).toList(),
+      final currentEnv = (this as Interpreter).getCurrentEnv();
+      if (_hasPendingToBeClosed(currentEnv)) {
+        Logger.debug(
+          'Skipping tail-call optimization because an active scope has pending to-be-closed variables',
+          category: 'Interpreter',
         );
+      } else {
+
+        String tailCallTypeError(dynamic func, AstNode callExpr) {
+          final type = getLuaType(func);
+          final targetLabel = switch (callExpr) {
+            FunctionCall(name: final AstNode name) => _sourceLabelForAst(
+              currentEnv,
+              name,
+            ),
+            MethodCall() => _sourceLabelForAst(currentEnv, callExpr),
+            _ => null,
+          };
+          return targetLabel != null
+              ? "attempt to call $targetLabel (a $type value)"
+              : "attempt to call a $type value";
+        }
+
+        // Helper to normalize args into Value-wrapped items, expanding multi-values
+        Future<List<Object?>> evalArgs(List<AstNode> argNodes) async {
+          final out = <Object?>[];
+          for (int i = 0; i < argNodes.length; i++) {
+            final v = await argNodes[i].accept(this);
+            final isLast = i == argNodes.length - 1;
+            if (isLast) {
+              if (v is Value && v.isMulti) {
+                out.addAll(
+                  (v.raw as List<Object?>).map((x) => x is Value ? x : Value(x)),
+                );
+              } else if (v is List) {
+                out.addAll(v.map((x) => x is Value ? x : Value(x)));
+              } else {
+                out.add(v is Value ? v : Value(v));
+              }
+            } else {
+              if (v is Value && v.isMulti) {
+                final multi = v.raw as List;
+                out.add(
+                  multi.isNotEmpty
+                      ? (multi.first is Value ? multi.first : Value(multi.first))
+                      : Value(null),
+                );
+              } else if (v is List && v.isNotEmpty) {
+                out.add(v[0] is Value ? v[0] : Value(v[0]));
+              } else {
+                out.add(v is Value ? v : Value(v));
+              }
+            }
+          }
+          return out;
+        }
+
+        if (e is FunctionCall) {
+          // Evaluate callee without invoking
+          dynamic func = await e.name.accept(this);
+          if (func is Value && func.isMulti) {
+            final multi = func.raw as List;
+            func = multi.isNotEmpty ? multi.first : Value(null);
+          } else if (func is List && func.isNotEmpty) {
+            func = func.first;
+          }
+
+          final args = await evalArgs(e.args);
+          if (!func.isCallable()) {
+            throw LuaError.typeError(tailCallTypeError(func, e));
+          }
+          return TailCallSignal(
+            func,
+            args,
+            callNode: e,
+            callName: e.name is Identifier ? (e.name as Identifier).name : null,
+            callEnv: currentEnv,
+          );
+        } else if (e is MethodCall) {
+          // Prepare method call as a tail call
+          final recv = await e.prefix.accept(this);
+          final obj = recv is Value ? recv : Value(recv);
+          var args = await evalArgs(e.args);
+          if (e.implicitSelf) {
+            args = [obj, ...args];
+          }
+
+          // Determine method function
+          final methodName = e.methodName is Identifier
+              ? (e.methodName as Identifier).name
+              : e.methodName.toString();
+
+          dynamic func;
+          if (obj.hasMetamethod('__index')) {
+            final aFunc = await obj.callMetamethodAsync('__index', [
+              obj,
+              Value(methodName),
+            ]);
+            if (aFunc is Value && aFunc.isCallable()) {
+              func = aFunc;
+            }
+          }
+          if (func == null) {
+            // Direct lookup
+            if (obj.raw is Map && (obj).containsKey(methodName)) {
+              func = (obj)[methodName];
+            }
+          }
+
+          final callable = func is Value ? func : Value(func);
+          if (!callable.isCallable()) {
+            throw LuaError.typeError(tailCallTypeError(callable, e));
+          }
+
+          final callArgs = e.implicitSelf ? args : [obj, ...args];
+          return TailCallSignal(
+            callable,
+            callArgs.map((x) => x is Value ? x : Value(x)).toList(),
+            callNode: e,
+            callName: methodName,
+            callEnv: currentEnv,
+          );
+        }
       }
     }
 
@@ -1584,8 +1848,11 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     String functionName = callerFunctionName ?? 'function';
 
     if (func is Value) {
-      if (func.functionName != null) {
-        // Use stored function name for debugging
+      if (callerFunctionName != null) {
+        functionName = callerFunctionName;
+      } else if (func.functionName != null) {
+        // Use stored function name for debugging when there is no better
+        // call-site label.
         functionName = func.functionName!;
       } else if (func.raw is FunctionDef) {
         final funcDef = func.raw as FunctionDef;
@@ -1625,15 +1892,46 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     if ((callStack.depth - callStackBaseDepth) >= Interpreter.maxCallDepth) {
       throw LuaError('C stack overflow');
     }
-    callStack.push(functionName, callNode: callNode);
+    callStack.push(
+      functionName,
+      callNode: callNode,
+      env: interpreter.getCurrentEnv(),
+    );
 
     try {
+      String callTypeErrorMessage() {
+        final env = interpreter.getCurrentEnv();
+        final targetLabel = switch (callNode) {
+          MethodCall() => _sourceLabelForAst(env, callNode!),
+          FunctionCall(name: final AstNode name) => _sourceLabelForAst(
+            env,
+            name,
+          ),
+          _ => null,
+        };
+
+        final type = getLuaType(func);
+        if (targetLabel != null) {
+          return "attempt to call $targetLabel (a $type value)";
+        }
+        return "attempt to call a $type value";
+      }
+
       bool rebindTailCall(Object? result) {
         if (result is! TailCallSignal) {
           return false;
         }
         func = result.functionValue;
         args = result.args;
+        callNode = result.callNode ?? callNode;
+        if (result.callName case final String callName) {
+          functionName = callName;
+        }
+        if (callStack.top case final CallFrame frame?) {
+          frame.functionName = functionName;
+          frame.callNode = callNode;
+          frame.env = result.callEnv ?? frame.env;
+        }
         return true;
       }
 
@@ -2041,9 +2339,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             '>>> Could not call value as function: $func (${func.runtimeType}), functionName="$functionName"',
             category: 'Interpreter',
           );
-          throw LuaError.typeError(
-            "attempt to call a ${getLuaType(func)} value",
-          );
+          throw LuaError.typeError(callTypeErrorMessage());
         } on TailCallException catch (t) {
           // Rebind callee/args and continue without pushing a new frame
           if (Logger.enabled) {

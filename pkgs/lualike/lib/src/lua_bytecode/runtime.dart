@@ -282,7 +282,7 @@ class LuaBytecodeRuntime implements LuaRuntime {
   }
 
   @override
-  Object? dumpFunction(Value function) {
+  Object? dumpFunction(Value function, {bool stripDebugInfo = false}) {
     _ensureValueInterpreter(function);
     if (function.raw case final LuaBytecodeClosure closure) {
       final chunk = LuaBytecodeBinaryChunk(
@@ -292,7 +292,10 @@ class LuaBytecodeRuntime implements LuaRuntime {
       );
       return LuaString.fromBytes(Uint8List.fromList(serializeLuaBytecodeChunk(chunk)));
     }
-    return dumpFunctionWithLegacyAstTransport(function);
+    return dumpFunctionWithLegacyAstTransport(
+      function,
+      stripDebugInfo: stripDebugInfo,
+    );
   }
 
   @override

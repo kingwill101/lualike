@@ -140,7 +140,10 @@ final class _LuaBytecodeStructuredCompiler {
     Set<String> declaredGlobals = const <String>{},
   }) : _nextRegister = _prototype.parameterCount,
        _nextTemp = _prototype.parameterCount,
-       _declaredGlobals = <String>{...?_parent?._declaredGlobals, ...declaredGlobals} {
+       _declaredGlobals = <String>{
+         ...?_parent?._declaredGlobals,
+         ...declaredGlobals,
+       } {
     _enterScope();
     for (var index = 0; index < parameters.length; index++) {
       _declareParameter(parameters[index].name, register: index);
@@ -707,9 +710,7 @@ final class _LuaBytecodeStructuredCompiler {
         : _visibleLocals();
     final existing = _labelsByName[name];
     if (existing != null && existing.isNotEmpty) {
-      throw UnsupportedError(
-        "label '$name' already defined",
-      );
+      throw UnsupportedError("label '$name' already defined");
     }
     final label = _LuaBytecodeStructuredLabel(
       name: name,
@@ -919,10 +920,11 @@ final class _LuaBytecodeStructuredCompiler {
           case UnaryExpression(op: final op, expr: final expr):
             _emitUnaryExpression(op, expr, targetRegister);
           case BinaryExpression(
-            left: final left,
-            op: final op,
-            right: final right,
-          ) when op == 'and' || op == 'or':
+                left: final left,
+                op: final op,
+                right: final right,
+              )
+              when op == 'and' || op == 'or':
             _emitLogicalBinaryExpression(left, op, right, targetRegister);
           case BinaryExpression(op: '..'):
             _emitConcatExpression(node, targetRegister);
@@ -1161,10 +1163,7 @@ final class _LuaBytecodeStructuredCompiler {
       return;
     }
 
-    _prototype.emitMove(
-      target: targetRegister + 1,
-      source: receiverRegister,
-    );
+    _prototype.emitMove(target: targetRegister + 1, source: receiverRegister);
     _emitFieldAccessToRegister(
       tableRegister: receiverRegister,
       fieldName: methodName,
@@ -1274,7 +1273,11 @@ final class _LuaBytecodeStructuredCompiler {
     List<AstNode> operands,
   ) {
     switch (_unwrapExpression(node)) {
-      case BinaryExpression(left: final left, op: final nestedOp, right: final right)
+      case BinaryExpression(
+            left: final left,
+            op: final nestedOp,
+            right: final right,
+          )
           when nestedOp == op:
         _collectLeftLinearBinaryOperands(left, op, operands);
         operands.add(_unwrapExpression(right));
@@ -1470,9 +1473,11 @@ final class _LuaBytecodeStructuredCompiler {
             if (openExpression != null &&
                 _isOpenResultExpression(openExpression)) {
               final pendingPrefixCount = pendingArrayEntries.length;
-              for (var pendingIndex = 0;
-                  pendingIndex < pendingPrefixCount;
-                  pendingIndex++) {
+              for (
+                var pendingIndex = 0;
+                pendingIndex < pendingPrefixCount;
+                pendingIndex++
+              ) {
                 _emitExpressionToRegister(
                   pendingArrayEntries[pendingIndex],
                   valueBase + pendingIndex,
@@ -1637,6 +1642,11 @@ final class _LuaBytecodeStructuredCompiler {
     if (body.implicitSelf && !implicitSelf) {
       throw UnsupportedError(
         'lua_bytecode emitter does not support implicit-self function bodies',
+      );
+    }
+    if (body.varargName != null) {
+      throw UnsupportedError(
+        'lua_bytecode emitter does not support named vararg tables yet',
       );
     }
     final parameterList = <Identifier>[...?body.parameters];
@@ -1985,12 +1995,10 @@ final class _LuaBytecodeStructuredCompiler {
   }
 
   int _callRegisterWidth(Call call) => switch (call) {
-    FunctionCall(args: final args)
-        when _hasTrailingOpenExpression(args) =>
+    FunctionCall(args: final args) when _hasTrailingOpenExpression(args) =>
       args.length + _openResultRegisterWidth(args.last),
     FunctionCall(args: final args) => args.length + 1,
-    MethodCall(args: final args)
-        when _hasTrailingOpenExpression(args) =>
+    MethodCall(args: final args) when _hasTrailingOpenExpression(args) =>
       args.length + 1 + _openResultRegisterWidth(args.last),
     MethodCall(args: final args) => args.length + 2,
     _ => throw UnsupportedError(
@@ -2431,14 +2439,13 @@ final class _LuaBytecodeStructuredCompiler {
       final resolution = _resolveGotoToLabelResult(pending, label);
       switch (resolution) {
         case _LuaBytecodeGotoResolution.noMatch:
-        index += 1;
+          index += 1;
           continue;
         case _LuaBytecodeGotoResolution.jumpsIntoScope:
           final missing = label.visibleLocals
               .difference(pending.visibleLocals)
               .reduce(
-                (best, local) =>
-                    local.register < best.register ? local : best,
+                (best, local) => local.register < best.register ? local : best,
               );
           throw UnsupportedError(
             "<goto ${pending.label}> at line ${pending.line} jumps into the "
@@ -2773,12 +2780,10 @@ bool _hasTrailingOpenExpression(List<AstNode> args) =>
     args.isNotEmpty && _isOpenResultExpression(args.last);
 
 int _openResultRegisterWidth(AstNode node) => switch (_unwrapExpression(node)) {
-  FunctionCall(args: final args)
-      when _hasTrailingOpenExpression(args) =>
+  FunctionCall(args: final args) when _hasTrailingOpenExpression(args) =>
     args.length + _openResultRegisterWidth(args.last),
   FunctionCall(args: final args) => args.length + 1,
-  MethodCall(args: final args)
-      when _hasTrailingOpenExpression(args) =>
+  MethodCall(args: final args) when _hasTrailingOpenExpression(args) =>
     args.length + 1 + _openResultRegisterWidth(args.last),
   MethodCall(args: final args) => args.length + 2,
   VarArg() => 1,

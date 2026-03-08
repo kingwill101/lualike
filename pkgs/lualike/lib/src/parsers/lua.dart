@@ -978,25 +978,25 @@ class LuaGrammarDefinition extends GrammarDefinition {
             _attNameList() &
             (_token('=') & _explist()).optional())
         .map((vals) {
-      final defaultAttribute = vals[1] as String? ?? '';
-      // _attNameList now returns a List of [Identifier, attribute] pairs in order
-      final pairList = vals[2] as List<List>;
+          final defaultAttribute = vals[1] as String? ?? '';
+          // _attNameList now returns a List of [Identifier, attribute] pairs in order
+          final pairList = vals[2] as List<List>;
 
-      // Separate into parallel name/attribute lists while preserving duplicates and order
-      final names = <Identifier>[];
-      final attributes = <String>[];
-      for (final pair in pairList) {
-        names.add(pair[0] as Identifier);
-        final attribute = pair[1] as String;
-        attributes.add(attribute.isNotEmpty ? attribute : defaultAttribute);
-      }
+          // Separate into parallel name/attribute lists while preserving duplicates and order
+          final names = <Identifier>[];
+          final attributes = <String>[];
+          for (final pair in pairList) {
+            names.add(pair[0] as Identifier);
+            final attribute = pair[1] as String;
+            attributes.add(attribute.isNotEmpty ? attribute : defaultAttribute);
+          }
 
-      final exprs = vals[3] == null
-          ? <AstNode>[]
-          : (vals[3] as List)[1] as List<AstNode>; // [ '=', explist ]
+          final exprs = vals[3] == null
+              ? <AstNode>[]
+              : (vals[3] as List)[1] as List<AstNode>; // [ '=', explist ]
 
-      return LocalDeclaration(names, attributes, exprs);
-    }),
+          return LocalDeclaration(names, attributes, exprs);
+        }),
   );
 
   Parser _attNameList() =>
@@ -1036,12 +1036,12 @@ class LuaGrammarDefinition extends GrammarDefinition {
   Parser _globalStat() => _span(
     (_token('global') &
             ((_token('function') & _identifier() & _funcBody()).map((vals) {
-              return FunctionDef(
-                FunctionName(vals[1] as Identifier, const [], null),
-                vals[2] as FunctionBody,
-                explicitGlobal: true,
-              );
-            }) |
+                  return FunctionDef(
+                    FunctionName(vals[1] as Identifier, const [], null),
+                    vals[2] as FunctionBody,
+                    explicitGlobal: true,
+                  );
+                }) |
                 (_attrib().optional() &
                         (_token('*') |
                             (_attNameList() &
@@ -1224,24 +1224,45 @@ class LuaGrammarDefinition extends GrammarDefinition {
               _token('end'))
           .map((vals) {
             final parResult =
-                vals[1] as Map? ?? {'params': <Identifier>[], 'vararg': false};
+                vals[1] as Map? ??
+                {'params': <Identifier>[], 'vararg': false, 'varargName': null};
             final params = parResult['params'] as List<Identifier>;
             final hasVararg = parResult['vararg'] as bool;
+            final varargName = parResult['varargName'] as Identifier?;
             final body = vals[3] as List<AstNode>;
-            return FunctionBody(params, body, hasVararg);
+            return FunctionBody(
+              params,
+              body,
+              hasVararg,
+              varargName: varargName,
+            );
           });
 
   Parser _parlist() {
-    final varargOnly = _token(
-      '...',
-    ).map((_) => {'params': <Identifier>[], 'vararg': true});
+    final namedVararg = (_token('...') & ref0(_identifier)).map((values) {
+      final name = values[1] as Identifier;
+      return {'params': <Identifier>[], 'vararg': true, 'varargName': name};
+    });
+
+    final varargOnly = _token('...').map(
+      (_) => {'params': <Identifier>[], 'vararg': true, 'varargName': null},
+    );
+
+    final namesWithNamedVararg =
+        (_namelist() & _token(',') & _token('...') & ref0(_identifier)).map((
+          vals,
+        ) {
+          final ids = vals[0] as List<Identifier>;
+          final name = vals[3] as Identifier;
+          return {'params': ids, 'vararg': true, 'varargName': name};
+        });
 
     // names followed by ',', '...'
     final namesWithVararg = (_namelist() & _token(',') & _token('...')).map((
       vals,
     ) {
       final ids = vals[0] as List<Identifier>;
-      return {'params': ids, 'vararg': true};
+      return {'params': ids, 'vararg': true, 'varargName': null};
     });
 
     // names only (no vararg) — but *must not* be immediately followed by
@@ -1249,10 +1270,18 @@ class LuaGrammarDefinition extends GrammarDefinition {
     // "function f(a, b ...)" (missing comma before `...`). We add a
     // negative look-ahead (`not()`) for the ellipsis.
     final namesOnly = (_namelist() & _token('...').not()).map(
-      (vals) => {'params': (vals[0] as List<Identifier>), 'vararg': false},
+      (vals) => {
+        'params': (vals[0] as List<Identifier>),
+        'vararg': false,
+        'varargName': null,
+      },
     );
 
-    return namesWithVararg | namesOnly | varargOnly;
+    return namesWithNamedVararg |
+        namesWithVararg |
+        namedVararg |
+        namesOnly |
+        varargOnly;
   }
 
   // Utility to annotate a literal node with span
@@ -1382,7 +1411,7 @@ class _LongCommentBracketParser extends Parser<String> {
 /// This will eventually replace the old `parse()` from `grammar_parser.dart`.
 const int _luaIdSize = 60;
 
-String _luaChunkId(String source) {
+String luaChunkId(String source) {
   if (source.isEmpty) {
     return '[string ""]';
   }
@@ -1404,7 +1433,9 @@ String _luaChunkId(String source) {
   const prefix = '[string "';
   const suffix = '"]';
   final newline = source.indexOf('\n');
-  final singleLineSource = newline == -1 ? source : source.substring(0, newline);
+  final singleLineSource = newline == -1
+      ? source
+      : source.substring(0, newline);
   final budget = _luaIdSize - prefix.length - suffix.length - 3 - 1;
   if (newline == -1 && singleLineSource.length <= budget) {
     return '$prefix$singleLineSource$suffix';
@@ -1564,11 +1595,13 @@ Program parse(String source, {Object? url, String? sourceName}) {
       (failMsg == 'end of input expected' ||
           pos >= normalizedSource.length ||
           normalizedSource.trimRight().endsWith('{4'))) {
-    final chunkId = _luaChunkId(sourceName ?? url?.toString() ?? '');
-    final eofLine = sourceFile.span(
-      normalizedSource.length,
-      normalizedSource.length,
-    ).start.line + 1;
+    final chunkId = luaChunkId(sourceName ?? url?.toString() ?? '');
+    final eofLine =
+        sourceFile
+            .span(normalizedSource.length, normalizedSource.length)
+            .start
+            .line +
+        1;
     throw FormatException(
       "$chunkId:$eofLine: '}' expected (to close '{' at line $unclosedBraceLine) near <eof>",
     );
@@ -1591,7 +1624,7 @@ Program parse(String source, {Object? url, String? sourceName}) {
 
   // For files and other contexts, include location info
   final line = span.start.line + 1;
-  final chunkName = _luaChunkId(sourceName ?? url?.toString() ?? '');
+  final chunkName = luaChunkId(sourceName ?? url?.toString() ?? '');
   final formatted = "$chunkName:$line: $luaErrorMsg";
   throw FormatException(formatted);
 }
@@ -1633,18 +1666,13 @@ AstNode parseExpression(String source, {Object? url, String? sourceName}) {
   throw LuaError(failure.message, span: span);
 }
 
-final ({
-  LuaGrammarDefinition definition,
-  Parser parser,
-}) _sharedLuaParser = () {
+final ({LuaGrammarDefinition definition, Parser parser}) _sharedLuaParser = () {
   final definition = LuaGrammarDefinition(SourceFile.fromString(''));
   return (definition: definition, parser: definition.build());
 }();
 
-final ({
-  LuaGrammarDefinition definition,
-  Parser parser,
-}) _sharedLuaExpressionParser = () {
+final ({LuaGrammarDefinition definition, Parser parser})
+_sharedLuaExpressionParser = () {
   final definition = LuaGrammarDefinition(SourceFile.fromString(''));
   return (
     definition: definition,

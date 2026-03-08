@@ -19,11 +19,12 @@ class GotoLabelValidator {
   /// Validates a nested [FunctionBody]. Used when function literals or
   /// declarations appear inside a chunk.
   String? checkFunctionBody(FunctionBody body) {
+    final parameters = <Identifier>[
+      ...?body.parameters,
+      if (body.varargName case final Identifier name) name,
+    ];
     final state = _ValidatorState();
-    return state.validateChunk(
-      body.body,
-      parameters: body.parameters ?? const <Identifier>[],
-    );
+    return state.validateChunk(body.body, parameters: parameters);
   }
 }
 
@@ -369,8 +370,9 @@ class _ValidatorState {
 
     for (_BlockContext? ctx = block; ctx != null; ctx = ctx.parent) {
       final current = ctx;
-      if (current.labels.containsKey(name)) {
-        final line = _line(label.span);
+      final existing = current.labels[name];
+      if (existing != null) {
+        final line = _line(existing.span);
         return "label '$name' already defined at line $line";
       }
     }

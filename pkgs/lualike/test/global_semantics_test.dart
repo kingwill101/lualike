@@ -113,6 +113,28 @@ return foo, _ENV.foo(4)
           expect(_flatten(result), equals([20, 16]));
         });
 
+        test('global function honors lexical _ENV for reads and writes', () async {
+          final result = await executeCode('''
+global <const> *
+do
+  local mt = {_G = _G}
+  local foo, x
+  global A; A = false
+  do local _ENV = mt
+    function foo (x)
+      A = x
+      do local _ENV = _G; A = 1000 end
+      return function (x) return A .. x end
+    end
+  end
+  x = foo('hi')
+  return mt.A, A, x('*')
+end
+''', mode: mode);
+
+          expect(_flatten(result), equals(['hi', 1000, 'hi*']));
+        });
+
         test('plain function definition still needs declaration after global none', () async {
           await expectLater(
             () => executeCode('''

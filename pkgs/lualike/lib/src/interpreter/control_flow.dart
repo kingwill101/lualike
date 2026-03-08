@@ -342,7 +342,14 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     final rawEnd = endResult is Value ? endResult.raw : endResult;
     final rawStep = stepResult is Value ? stepResult.raw : stepResult;
 
-    dynamic parseNumericValue(dynamic rawValue) {
+    Never throwForLoopTypeError(String role, Object? value) {
+      throw LuaError(
+        "bad 'for' $role (number expected, got ${NumberUtils.typeName(value)})",
+      );
+    }
+
+    dynamic parseNumericValue(Object? value, String role) {
+      final rawValue = value is Value ? value.raw : value;
       if (rawValue is num) {
         return rawValue;
       }
@@ -366,7 +373,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           // Fall through to the Lua-style error below.
         }
       }
-      throw Exception("For loop bounds must be numbers");
+      throwForLoopTypeError(role, value);
     }
 
     int? exactIntegerValue(dynamic rawValue) {
@@ -380,11 +387,11 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     }
 
     ({bool skip, int limit}) coerceIntegerLimit(
-      dynamic rawLimit,
+      Object? limitValue,
       int init,
       int step,
     ) {
-      final numericLimit = parseNumericValue(rawLimit);
+      final numericLimit = parseNumericValue(limitValue, 'limit');
       if (numericLimit is int) {
         return (
           skip: step > 0 ? init > numericLimit : init < numericLimit,
@@ -431,7 +438,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         final limit = step < 0 ? numericLimit.ceil() : numericLimit.floor();
         return (skip: step > 0 ? init > limit : init < limit, limit: limit);
       }
-      throw Exception("For loop bounds must be numbers");
+      throwForLoopTypeError('limit', limitValue);
     }
 
     BigInt unsignedDifference(BigInt left, BigInt right) {
@@ -453,9 +460,9 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
 
     if (integerLoop) {
       if (integerStep == 0) {
-        throw Exception("'for' step is zero");
+        throw LuaError("'for' step is zero");
       }
-      final limitInfo = coerceIntegerLimit(rawEnd, integerStart, integerStep);
+      final limitInfo = coerceIntegerLimit(endResult, integerStart, integerStep);
       if (limitInfo.skip) {
         return null;
       }
@@ -482,9 +489,9 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       end = limit;
       step = integerStep;
     } else {
-      final coercedStart = parseNumericValue(rawStart);
-      final coercedEnd = parseNumericValue(rawEnd);
-      final coercedStep = parseNumericValue(rawStep);
+      final coercedStart = parseNumericValue(startResult, 'initial value');
+      final coercedEnd = parseNumericValue(endResult, 'limit');
+      final coercedStep = parseNumericValue(stepResult, 'step');
       final floatLoop = coercedStart is double || coercedStep is double;
       start = floatLoop
           ? NumberUtils.toDouble(coercedStart)
@@ -496,7 +503,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           ? NumberUtils.toDouble(coercedStep)
           : coercedStep as num;
       if (step == 0) {
-        throw Exception("'for' step is zero");
+        throw LuaError("'for' step is zero");
       }
     }
 
@@ -933,11 +940,6 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     var state = components.length > 1 ? components[1] : null;
     var control = components.length > 2 ? components[2] : Value(null);
 
-    final directPairsState = _directPairsState(iterFunc, state);
-    if (directPairsState case final Value table) {
-      return await _executeDirectPairsLoop(node, table);
-    }
-
     // Optional 4th component: a to-be-closed variable (Lua 5.4 semantics)
     // Used by io.lines(filename) to close the file when the loop ends.
     Value? toCloseVar;
@@ -950,6 +952,26 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
             : Value(components[3]);
         if (v.isToBeClose || v.hasMetamethod('__close')) {
           toCloseVar = v;
+        }
+      }
+    }
+
+    final directPairsState = _directPairsState(iterFunc, state);
+    if (directPairsState case final Value table) {
+      try {
+        return await _executeDirectPairsLoop(node, table);
+      } catch (e) {
+        if (toCloseVar != null) {
+          try {
+            await toCloseVar.close(e);
+          } catch (_) {}
+        }
+        rethrow;
+      } finally {
+        if (toCloseVar != null) {
+          try {
+            await toCloseVar.close();
+          } catch (_) {}
         }
       }
     }
@@ -1005,6 +1027,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       parent: globals,
       interpreter: this as Interpreter,
     );
+    loopEnv.pendingImplicitToBeClosed = toCloseVar != null ? 1 : 0;
     final prevEnv = globals;
     final declaredNames = node.names.map((name) => name.name).toList();
     for (final name in declaredNames) {

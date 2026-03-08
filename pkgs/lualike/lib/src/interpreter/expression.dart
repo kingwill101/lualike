@@ -9,6 +9,36 @@ class _IdentifierGlobalCache {
 final Expando<_IdentifierGlobalCache> _identifierGlobalCache =
     Expando<_IdentifierGlobalCache>('identifierGlobalCache');
 
+Value? _activeFunctionUpvalueValue(Interpreter interpreter, String name) {
+  final currentFunction = interpreter.getCurrentFunction();
+  if (currentFunction?.upvalues case final upvalues?) {
+    for (final upvalue in upvalues) {
+      if (upvalue.name != name) {
+        continue;
+      }
+      final value = upvalue.getValue();
+      return value is Value ? value : Value(value);
+    }
+  }
+  return null;
+}
+
+Value? _resolveActiveEnvValue(Interpreter interpreter) {
+  return switch (interpreter.getCurrentEnv().get('_ENV')) {
+        final Value value => value,
+        final Object? value? => Value(value),
+        _ => _activeFunctionUpvalueValue(interpreter, '_ENV'),
+      };
+}
+
+Value? _resolveActiveGlobalValue(Interpreter interpreter) {
+  return switch (interpreter.getCurrentEnv().get('_G')) {
+    final Value value => value,
+    final Object? value? => Value(value),
+    _ => null,
+  };
+}
+
 mixin InterpreterExpressionMixin on AstVisitor<Object?> {
   // Required getters that must be implemented by the class using this mixin
   Environment get globals;
@@ -241,10 +271,17 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         final callArgs = swapArgs
             ? [canonicalRight, canonicalLeft]
             : [canonicalLeft, canonicalRight];
-        var result = await calleeValue.callMetamethodAsync(
-          metamethodName,
-          callArgs,
-        );
+        Object? result;
+        try {
+          result = await calleeValue.callMetamethodAsync(metamethodName, callArgs);
+        } on UnsupportedError catch (_) {
+          final metamethod = metamethodName.startsWith('__')
+              ? metamethodName.substring(2)
+              : metamethodName;
+          throw LuaError.typeError(
+            "attempt to call a non-function metamethod '$metamethod'",
+          );
+        }
 
         // Metamethods can return multiple values, but binary operations only use
         // the first result. Normalize here to match Lua semantics.
@@ -310,6 +347,69 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     }
 
     dynamic result;
+    String? nilSourceLabel(AstNode expr, Value value) {
+      if (value.raw != null) {
+        return null;
+      }
+      return _sourceLabelForAst((this as Interpreter).getCurrentEnv(), expr);
+    }
+
+    bool shouldLabelArithmeticOperand(Value value, AstNode expr) {
+      if (_sourceLabelForAst((this as Interpreter).getCurrentEnv(), expr) ==
+          null) {
+        return false;
+      }
+      final raw = value.raw;
+      return raw == null || raw is Map || raw is TableStorage;
+    }
+
+    ({String label, Value value})? arithmeticSourceOperand() {
+      if (shouldLabelArithmeticOperand(leftVal, node.left)) {
+        final label = _sourceLabelForAst(
+          (this as Interpreter).getCurrentEnv(),
+          node.left,
+        );
+        if (label != null) {
+          return (label: label, value: leftVal);
+        }
+      }
+      if (shouldLabelArithmeticOperand(rightVal, node.right)) {
+        final label = _sourceLabelForAst(
+          (this as Interpreter).getCurrentEnv(),
+          node.right,
+        );
+        if (label != null) {
+          return (label: label, value: rightVal);
+        }
+      }
+      return null;
+    }
+
+    String? integerRepresentationLabel() {
+      for (final (expr, value) in [
+        (node.left, leftVal),
+        (node.right, rightVal),
+      ]) {
+        final sourceLabel = _sourceLabelForAst(
+          (this as Interpreter).getCurrentEnv(),
+          expr,
+        );
+        final raw = value.raw;
+        if (sourceLabel != null &&
+            (raw is num || raw is BigInt || raw is String || raw is LuaString) &&
+            NumberUtils.tryToInteger(raw) == null) {
+          return sourceLabel;
+        }
+      }
+      return null;
+    }
+
+    bool shouldRewriteNamedSourceType(String type) => switch (type) {
+      'nil' || 'boolean' || 'number' || 'string' || 'table' || 'function' ||
+      'thread' || 'userdata' || 'light userdata' => true,
+      _ => false,
+    };
+
     try {
       result = switch (node.op) {
         '+' => leftVal + rightVal,
@@ -342,6 +442,47 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       // Normalize Dart-side UnsupportedError from direct Value operators into
       // LuaError with the same message to preserve Lua semantics at runtime.
       throw LuaError.typeError(e.message ?? e.toString());
+    } on LuaError catch (e) {
+      final arithmeticOperand = arithmeticSourceOperand();
+      final message = e.message;
+      if (arithmeticOperand != null &&
+          message.contains('attempt to perform arithmetic on a ')) {
+        final type = getLuaType(arithmeticOperand.value);
+        if (!shouldRewriteNamedSourceType(type)) {
+          rethrow;
+        }
+        throw LuaError.typeError(
+          "attempt to perform arithmetic on ${arithmeticOperand.label} (a $type value)",
+        );
+      }
+      if (arithmeticOperand != null &&
+          message.contains('attempt to perform bitwise operation on a ')) {
+        final type = getLuaType(arithmeticOperand.value);
+        if (!shouldRewriteNamedSourceType(type)) {
+          rethrow;
+        }
+        throw LuaError.typeError(
+          "attempt to perform bitwise operation on ${arithmeticOperand.label} (a $type value)",
+        );
+      }
+      final integerLabel = integerRepresentationLabel();
+      if (integerLabel != null &&
+          message.contains('number has no integer representation')) {
+        final normalizedLabel = integerLabel.replaceAll("'", '');
+        throw LuaError.typeError(
+          "number ($normalizedLabel) has no integer representation",
+        );
+      }
+      final sourceLabel =
+          nilSourceLabel(node.left, leftVal) ??
+          nilSourceLabel(node.right, rightVal);
+      if (sourceLabel != null &&
+          e.message.contains('attempt to perform arithmetic on a nil value')) {
+        throw LuaError.typeError(
+          "attempt to perform arithmetic on $sourceLabel (a nil value)",
+        );
+      }
+      rethrow;
     }
 
     if (Logger.enabled) {
@@ -394,6 +535,12 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         ? operandResult
         : Value(operandResult);
 
+    bool shouldRewriteNamedSourceType(String type) => switch (type) {
+      'nil' || 'boolean' || 'number' || 'string' || 'table' || 'function' ||
+      'thread' || 'userdata' || 'light userdata' => true,
+      _ => false,
+    };
+
     // Check for metamethods first
     final opMap = {
       '-': '__unm',
@@ -430,13 +577,54 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     }
 
     // If no metamethod found, use regular operators
-    var result = switch (node.op) {
-      "-" => -operandWrapped,
-      "not" => Value(!operandWrapped.isTruthy()),
-      "~" => ~operandWrapped,
-      "#" => operandWrapped.length,
-      _ => throw LuaError.typeError("Unknown unary operator ${node.op}"),
-    };
+    Object? result;
+    try {
+      result = switch (node.op) {
+        "-" => -operandWrapped,
+        "not" => Value(!operandWrapped.isTruthy()),
+        "~" => ~operandWrapped,
+        "#" => operandWrapped.length,
+        _ => throw LuaError.typeError("Unknown unary operator ${node.op}"),
+      };
+    } on UnsupportedError catch (e) {
+      throw LuaError.typeError(e.message ?? e.toString());
+    } on LuaError catch (e) {
+      final sourceLabel = _sourceLabelForAst(
+        (this as Interpreter).getCurrentEnv(),
+        node.expr,
+      );
+      final message = e.message;
+      if (sourceLabel != null &&
+          node.op == '-' &&
+          (message.contains('attempt to perform arithmetic on a ') ||
+              message.startsWith('Unary negation not supported for type '))) {
+        final type = message.startsWith('Unary negation not supported for type ')
+            ? getLuaType(operandWrapped)
+            : message
+                  .replaceFirst('attempt to perform arithmetic on a ', '')
+                  .replaceFirst(' value', '');
+        if (!shouldRewriteNamedSourceType(type)) {
+          rethrow;
+        }
+        throw LuaError.typeError(
+          "attempt to perform arithmetic on $sourceLabel (a $type value)",
+        );
+      }
+      if (sourceLabel != null &&
+          node.op == '~' &&
+          message.contains('attempt to perform bitwise operation on a ')) {
+        final type = message
+            .replaceFirst('attempt to perform bitwise operation on a ', '')
+            .replaceFirst(' value', '');
+        if (!shouldRewriteNamedSourceType(type)) {
+          rethrow;
+        }
+        throw LuaError.typeError(
+          "attempt to perform bitwise operation on $sourceLabel (a $type value)",
+        );
+      }
+      rethrow;
+    }
 
     if (Logger.enabled) {
       Logger.debugLazy(
@@ -465,7 +653,12 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     // Special case: always look up _ENV and _G from the global environment directly
     // to avoid infinite recursion
     if (node.name == '_ENV' || node.name == '_G') {
-      final value = globals.get(node.name);
+      final interpreter = this as Interpreter;
+      final value = switch (node.name) {
+        '_ENV' => _resolveActiveEnvValue(interpreter),
+        '_G' => _resolveActiveGlobalValue(interpreter),
+        _ => null,
+      };
       if (value == null) {
         if (Logger.enabled) {
           Logger.debug(
@@ -489,6 +682,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     // live in the root environment (which has no parent). Locals should take
     // precedence over entries in `_ENV`.
     // Search up the environment chain for a local variable with this name
+    var declaredGlobalInScope = false;
     Environment? env = globals;
     while (env != null) {
       if (env.values.containsKey(node.name) && env.values[node.name]!.isLocal) {
@@ -496,14 +690,14 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         return val is Value ? val : Value(val);
       }
       if (env.declaredGlobals.containsKey(node.name)) {
-        final val = env.declaredGlobals[node.name]!.value;
-        return val is Value ? val : Value(val);
+        declaredGlobalInScope = true;
+        break;
       }
       env = env.parent;
     }
 
     // Check current function's upvalues if we're executing within a function
-    if (this is Interpreter) {
+    if (!declaredGlobalInScope && this is Interpreter) {
       final currentFunction = (this as Interpreter).getCurrentFunction();
       if (currentFunction != null && currentFunction.upvalues != null) {
         for (final upvalue in currentFunction.upvalues!) {
@@ -524,21 +718,9 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     // Route global lookups through _ENV to match Lua semantics.
     // Use the current globals environment to get _ENV, not the root,
     // so that local _ENV assignments are respected.
-    Value? envValue = globals.values['_ENV']?.value;
-    Value? gValue = globals.values['_G']?.value;
-
-    if (envValue == null) {
-      final fallbackEnv = globals.get('_ENV');
-      if (fallbackEnv is Value) {
-        envValue = fallbackEnv;
-      }
-    }
-    if (gValue == null) {
-      final fallbackG = globals.get('_G');
-      if (fallbackG is Value) {
-        gValue = fallbackG;
-      }
-    }
+    final interpreter = this as Interpreter;
+    Value? envValue = _resolveActiveEnvValue(interpreter);
+    Value? gValue = _resolveActiveGlobalValue(interpreter);
 
     final bool canUseGlobalCache =
         envValue is Value &&
