@@ -44,6 +44,8 @@ AstNode undumpAst(Map<String, dynamic> data) {
       return Assignment.fromDump(data);
     case 'LocalDeclaration':
       return LocalDeclaration.fromDump(data);
+    case 'GlobalDeclaration':
+      return GlobalDeclaration.fromDump(data);
     case 'IfStatement':
       return IfStatement.fromDump(data);
     case 'ElseIfClause':

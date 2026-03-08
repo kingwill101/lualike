@@ -291,6 +291,7 @@ class LuaGrammarDefinition extends GrammarDefinition {
   // stat ::= empty ';' or assignment or expression statement
   Parser _stat() =>
       _token(';').map((_) => null) |
+      ref0(_globalStat) |
       ref0(_localFunctionDefStat) |
       ref0(_functionDefStat) |
       ref0(_localDeclaration) |
@@ -1027,6 +1028,57 @@ class LuaGrammarDefinition extends GrammarDefinition {
     }
     return attributeName;
   });
+
+  Parser _globalStat() => _span(
+    (_token('global') &
+            ((_token('function') & _identifier() & _funcBody()).map((vals) {
+              return FunctionDef(
+                FunctionName(vals[1] as Identifier, const [], null),
+                vals[2] as FunctionBody,
+                explicitGlobal: true,
+              );
+            }) |
+                (_attrib().optional() &
+                        (_token('*') |
+                            (_attNameList() &
+                                (_token('=') & _explist()).optional())))
+                    .map((vals) {
+                      final defaultAttribute = vals[0] as String? ?? '';
+                      final declaration = vals[1];
+
+                      if (declaration == '*') {
+                        return GlobalDeclaration(
+                          defaultAttribute: defaultAttribute,
+                          isWildcard: true,
+                          names: const <Identifier>[],
+                          attributes: const <String>[],
+                          exprs: const <AstNode>[],
+                        );
+                      }
+
+                      final parts = declaration as List;
+                      final pairList = parts[0] as List<List>;
+                      final exprs = parts[1] == null
+                          ? <AstNode>[]
+                          : (parts[1] as List)[1] as List<AstNode>;
+
+                      final names = <Identifier>[];
+                      final attributes = <String>[];
+                      for (final pair in pairList) {
+                        names.add(pair[0] as Identifier);
+                        attributes.add(pair[1] as String);
+                      }
+
+                      return GlobalDeclaration(
+                        defaultAttribute: defaultAttribute,
+                        isWildcard: false,
+                        names: names,
+                        attributes: attributes,
+                        exprs: exprs,
+                      );
+                    })))
+        .pick(1),
+  );
 
   // ----------------- For Loops -------------------------------------------
 

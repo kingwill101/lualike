@@ -253,6 +253,8 @@ final class _LuaBytecodeStructuredCompiler {
       switch (statement) {
         case LocalDeclaration():
           _compileLocalDeclaration(statement, statementIndex: statementIndex);
+        case GlobalDeclaration():
+          _compileGlobalDeclaration(statement);
         case Assignment():
           _compileAssignment(statement);
         case ExpressionStatement():
@@ -767,12 +769,36 @@ final class _LuaBytecodeStructuredCompiler {
     );
 
     if (!statement.implicitSelf && statement.name.rest.isEmpty) {
-      final target = _resolveStoreTarget(statement.name.first);
-      _storeRegisterToTarget(scratch, target);
+      if (statement.explicitGlobal) {
+        _emitGlobalStore(statement.name.first.name, scratch);
+      } else {
+        final target = _resolveStoreTarget(statement.name.first);
+        _storeRegisterToTarget(scratch, target);
+      }
     } else {
       _storeRegisterToFunctionNamePath(statement.name, scratch);
     }
     _releaseTempBlock(scratch, 1);
+  }
+
+  void _compileGlobalDeclaration(GlobalDeclaration statement) {
+    if (statement.isWildcard || statement.names.isEmpty) {
+      return;
+    }
+
+    _emitValueList(
+      statement.exprs,
+      valueCount: statement.names.length,
+      onValue: (index, register) {
+        _emitGlobalStore(statement.names[index].name, register);
+      },
+      onNil: (index) {
+        final scratch = _reserveTempBlock(1);
+        _prototype.emitLoadNil(target: scratch);
+        _emitGlobalStore(statement.names[index].name, scratch);
+        _releaseTempBlock(scratch, 1);
+      },
+    );
   }
 
   void _compileScopedBlock(List<AstNode> statements) {

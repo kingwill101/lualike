@@ -120,6 +120,21 @@ class _ValidatorState {
       return null;
     }
 
+    if (node is GlobalDeclaration) {
+      if (node.isWildcard) {
+        _addLocal('*', node.span, block);
+      } else {
+        for (final name in node.names) {
+          _addLocal(name.name, name.span ?? node.span, block);
+        }
+      }
+      for (final expr in node.exprs) {
+        final error = _visitExpression(expr, block);
+        if (error != null) return error;
+      }
+      return null;
+    }
+
     if (node is LocalFunctionDef) {
       _addLocal(node.name.name, node.name.span ?? node.span, block);
       return _validateFunctionBody(node.funcBody);

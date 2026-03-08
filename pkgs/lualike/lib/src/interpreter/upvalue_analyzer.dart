@@ -146,6 +146,13 @@ class UpvalueAnalyzer extends AstVisitor<void> {
   }
 
   @override
+  Future<void> visitGlobalDeclaration(GlobalDeclaration node) async {
+    for (final expr in node.exprs) {
+      await expr.accept(this);
+    }
+  }
+
+  @override
   Future<void> visitAssignment(Assignment node) async {
     // Visit the expressions first to catch references
     for (final expr in node.exprs) {

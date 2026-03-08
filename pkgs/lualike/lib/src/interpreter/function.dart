@@ -397,23 +397,25 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     final envVal = globals.get('_ENV');
     final gVal = globals.get('_G');
 
-    // Check if there is an existing local variable with this name
-    Environment? localEnv = globals;
-    while (localEnv != null) {
-      if (localEnv.values.containsKey(node.name.first.name) &&
-          localEnv.values[node.name.first.name]!.isLocal) {
-        Logger.debugLazy(
-          () => 'Updating existing local function',
-          categories: {'Interpreter', 'Function'},
-          contextBuilder: () => {
-            'function_name': node.name.first.name,
-            'is_local': true,
-          },
-        );
-        localEnv.define(node.name.first.name, closure);
-        return closure;
+    if (!node.explicitGlobal) {
+      // Check if there is an existing local variable with this name
+      Environment? localEnv = globals;
+      while (localEnv != null) {
+        if (localEnv.values.containsKey(node.name.first.name) &&
+            localEnv.values[node.name.first.name]!.isLocal) {
+          Logger.debugLazy(
+            () => 'Updating existing local function',
+            categories: {'Interpreter', 'Function'},
+            contextBuilder: () => {
+              'function_name': node.name.first.name,
+              'is_local': true,
+            },
+          );
+          localEnv.define(node.name.first.name, closure);
+          return closure;
+        }
+        localEnv = localEnv.parent;
       }
-      localEnv = localEnv.parent;
     }
 
     if (envVal is Value && gVal is Value && envVal != gVal) {
@@ -448,6 +450,11 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         gVal.markTableModified();
         return closure;
       }
+    }
+
+    if (node.explicitGlobal) {
+      globals.defineGlobal(node.name.first.name, closure);
+      return closure;
     }
 
     globals.define(node.name.first.name, closure);
