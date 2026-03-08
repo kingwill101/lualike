@@ -28,6 +28,7 @@ final testFiles = [
   'constructs.lua',
   'sort.lua',
   'math.lua',
+  'nextvar.lua',
   'heavy.lua',
 ];
 
