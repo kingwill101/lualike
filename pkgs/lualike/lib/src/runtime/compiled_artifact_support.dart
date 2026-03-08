@@ -725,11 +725,7 @@ Object? dumpFunctionWithLegacyAstTransport(Value function) {
   }
 
   final source = "return function(...) end";
-  final payload = utf8.encode(source);
-  final bytes = Uint8List(payload.length + 1);
-  bytes[0] = 0x1B;
-  bytes.setRange(1, bytes.length, payload);
-  return String.fromCharCodes(bytes);
+  return LegacyAstChunkTransport.serializeSourceAsLuaString(source);
 }
 
 LuaFunctionDebugInfo? defaultDebugInfoForFunction(
