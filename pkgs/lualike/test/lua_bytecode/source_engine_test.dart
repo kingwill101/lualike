@@ -309,6 +309,33 @@ return type(binops[1][1]), binops[1][1], type(binops[1][2]), binops[2][1]
     );
 
     test(
+      'executeCode collects weak values while a bytecode frame is active',
+      () async {
+        final result = await executeCode(r'''
+local lim=3
+local undef=nil
+local a={}
+setmetatable(a,{__mode="v"})
+a[1]=string.rep("b",21)
+collectgarbage()
+a[1]=undef
+for i=1,lim do a[i]={} end
+for i=1,lim do a[i.."x"]={} end
+for i=1,lim do local t={}; a[t]=t end
+for i=1,lim do a[i+lim]=i.."x" end
+collectgarbage()
+local count = 0
+for k, v in pairs(a) do
+  count = count + 1
+end
+return count
+''', mode: EngineMode.luaBytecode);
+
+        expect(_unwrap(result), equals(6));
+      },
+    );
+
+    test(
       'executeCode emits arithmetic metamethod follow-up opcodes',
       () async {
         final result = await executeCode(r'''
