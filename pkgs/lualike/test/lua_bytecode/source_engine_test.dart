@@ -62,6 +62,75 @@ return i
       },
     );
 
+    test(
+      'executeCode closes <close> locals when goto leaves their scope',
+      () async {
+        final result = await executeCode(r'''
+local closed = false
+do
+  local a <close> = setmetatable({}, {
+    __close = function()
+      closed = true
+    end
+  })
+  goto done
+end
+::done::
+return closed
+''', mode: EngineMode.luaBytecode);
+
+        expect(_unwrap(result), isTrue);
+      },
+    );
+
+    test(
+      'executeCode preserves upvalue identities across goto-created closures',
+      () async {
+        final result = await executeCode(r'''
+local debug = require 'debug'
+
+local function foo ()
+  local t = {}
+  do
+    local i = 1
+    local a, b, c, d
+    t[1] = function () return a, b, c, d end
+    ::l1::
+    local b
+    do
+      local c
+      t[#t + 1] = function () return a, b, c, d end
+      if i > 2 then goto l2 end
+      do
+        local d
+        t[#t + 1] = function () return a, b, c, d end
+        i = i + 1
+        local a
+        goto l1
+      end
+    end
+  end
+  ::l2:: return t
+end
+
+local a = foo()
+
+return
+  #a,
+  debug.upvalueid(a[1], 1) == debug.upvalueid(a[2], 1),
+  debug.upvalueid(a[1], 1) == debug.upvalueid(a[6], 1),
+  debug.upvalueid(a[1], 2) ~= debug.upvalueid(a[2], 2),
+  debug.upvalueid(a[3], 2) == debug.upvalueid(a[2], 2),
+  debug.upvalueid(a[3], 2) ~= debug.upvalueid(a[4], 2)
+''', mode: EngineMode.luaBytecode);
+
+        expect(
+          _flatten(result),
+          equals(<Object?>[6, true, true, true, true, true]),
+        );
+      },
+    );
+
     test('executeCode runs do blocks via emitted chunks', () async {
       final result = await executeCode('''
 local x = 1
@@ -116,6 +185,71 @@ return replaced, folded, string.byte("\t", 1), string.byte("\n", 1)
 ''', mode: EngineMode.luaBytecode);
 
         expect(_flatten(result), equals(<Object?>['a|b', 'ab', 9, 10]));
+      },
+    );
+
+    test(
+      'executeCode preserves high-byte string literal escapes via emitted chunks',
+      () async {
+        final result = await executeCode(r'''
+local s = "\0\255\0"
+local a, b, c = string.byte(s, 1, 3)
+return a, b, c, string.char(0, 255, 0) == s
+''', mode: EngineMode.luaBytecode);
+
+        expect(_flatten(result), equals(<Object?>[0, 255, 0, true]));
+      },
+    );
+
+    test(
+      'executeCode preserves utf8 string literals through load and %q',
+      () async {
+        final result = await executeCode(r'''
+local x = "\"�lo\"\n\\"
+return assert(load(string.format('return %q', x)))() == x
+''', mode: EngineMode.luaBytecode);
+
+        expect(_unwrap(result), isTrue);
+      },
+    );
+
+    test(
+      'executeCode reports currentline for loaded bytecode source chunks',
+      () async {
+        final result = await executeCode(r'''
+local source = "return 'abc\z  
+   efg', require'debug'.getinfo(1).currentline"
+local f = assert(load(source, ''))
+return f()
+''', mode: EngineMode.luaBytecode);
+
+        expect(_flatten(result), equals(<Object?>['abcefg', 2]));
+      },
+    );
+
+    test(
+      'executeCode reuses identical emitted string literal identities',
+      () async {
+        final result = await executeCode(r'''
+local function getadd(s) return string.format("%p", s) end
+local s1 <const> = "01234567890123456789012345678901234567890123456789"
+local s2 <const> = "01234567890123456789012345678901234567890123456789"
+local function foo() return "01234567890123456789012345678901234567890123456789" end
+return getadd(s1) == getadd(s2), getadd(s1) == getadd(foo())
+''', mode: EngineMode.luaBytecode);
+
+        expect(_flatten(result), equals(<Object?>[true, true]));
+      },
+    );
+
+    test(
+      'executeCode resolves string methods through bytecode SELF lookups',
+      () async {
+        final result = await executeCode(r'''
+return ("abc"):sub(2), ("alo(.)alo"):find("(.)", 1, true)
+''', mode: EngineMode.luaBytecode);
+
+        expect(_flatten(result), equals(<Object?>['bc', 4, 6]));
       },
     );
 
