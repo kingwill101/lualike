@@ -142,6 +142,36 @@ void main() {
       );
     });
 
+    test('_G iteration includes registered globals', () async {
+      final bridge = LuaLike();
+      await bridge.execute('''
+        sawPrint = false
+        sawAssert = false
+        for k, v in pairs(_G) do
+          if k == "print" then
+            sawPrint = (v == print)
+          elseif k == "assert" then
+            sawAssert = (v == assert)
+          end
+        end
+      ''');
+
+      expect((bridge.getGlobal('sawPrint') as Value).unwrap(), isTrue);
+      expect((bridge.getGlobal('sawAssert') as Value).unwrap(), isTrue);
+    });
+
+    test('package.loaded contains the package table itself', () async {
+      final bridge = LuaLike();
+      await bridge.execute('''
+        packageSelfLoaded = (package.loaded["package"] == package)
+      ''');
+
+      expect(
+        (bridge.getGlobal('packageSelfLoaded') as Value).unwrap(),
+        isTrue,
+      );
+    });
+
     group("setmetatable", () {
       test('setmetatable with function', () async {
         final bridge = LuaLike();
@@ -588,6 +618,37 @@ result = tostring(t)
       expect(keys.length, equals(2));
       expect(values.length, equals(2));
       expect((bridge.getGlobal('isEmpty') as Value).raw, isTrue);
+    });
+
+    test('next rejects invalid keys', () async {
+      final bridge = LuaLike();
+
+      try {
+        await bridge.execute('''
+          next({10, 20}, 3)
+        ''');
+        fail('Expected invalid key error');
+      } on LuaError catch (e) {
+        expect(e.message, contains("invalid key"));
+      }
+    });
+
+    test('pairs and ipairs report bad argument for missing table', () async {
+      final bridge = LuaLike();
+
+      try {
+        await bridge.execute('pairs()');
+        fail('Expected pairs() to fail');
+      } on LuaError catch (e) {
+        expect(e.message, contains('bad argument'));
+      }
+
+      try {
+        await bridge.execute('ipairs()');
+        fail('Expected ipairs() to fail');
+      } on LuaError catch (e) {
+        expect(e.message, contains('bad argument'));
+      }
     });
 
     test('pairs', () async {

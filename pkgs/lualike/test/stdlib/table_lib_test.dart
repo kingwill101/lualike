@@ -93,6 +93,36 @@ void main() {
       }
     });
 
+    test('table.remove defaults to zero border for zero-index table', () async {
+      final bridge = LuaLike();
+
+      try {
+        await bridge.execute('''
+          local t = {[0] = "ban"}
+          local removed = table.remove(t)
+          return #t, removed, t[0]
+        ''');
+      } on ReturnException catch (e) {
+        final results = (e.value as Value).unwrap();
+        expect(results[0], equals(0));
+        expect(results[1], equals("ban"));
+        expect(results[2], isNull);
+      }
+    });
+
+    test('table.remove rejects position zero for non-empty sequences', () async {
+      final bridge = LuaLike();
+
+      try {
+        await bridge.execute('''
+          table.remove({10, 20, 30}, 0)
+        ''');
+        fail('Expected position out of bounds error');
+      } on LuaError catch (e) {
+        expect(e.message, contains('position out of bounds'));
+      }
+    });
+
     test('table.concat', () async {
       final bridge = LuaLike();
 
@@ -543,6 +573,50 @@ void main() {
         expect(results[0], equals(10));
         expect(results[1], equals(20));
         expect(results[2], equals(30));
+      }
+    });
+
+    test('table length returns a usable border for sparse powers of two', () async {
+      final bridge = LuaLike();
+
+      try {
+        await bridge.execute('''
+          local t = {}
+          for i = 20, 0, -1 do
+            t[2 ^ i] = true
+          end
+          local n = #t
+          return n, t[n] ~= nil, t[n + 1] == nil
+        ''');
+      } on ReturnException catch (e) {
+        final results = (e.value as Value).unwrap();
+        expect(results[0], lessThan(1000));
+        expect(results[1], isTrue);
+        expect(results[2], isTrue);
+      }
+    });
+
+    test('table length for random sparse tables returns a valid border', () async {
+      final bridge = LuaLike();
+
+      try {
+        await bridge.execute('''
+          math.randomseed(1234)
+          local failures = 0
+          for i = 1, 200 do
+            local t = table.create(math.random(64))
+            for j = 1, math.random(64) do
+              t[math.random(64)] = true
+            end
+            local n = #t
+            if not (n == 0 or (t[n] and t[n + 1] == nil)) then
+              failures = failures + 1
+            end
+          end
+          return failures
+        ''');
+      } on ReturnException catch (e) {
+        expect((e.value as Value).raw, equals(0));
       }
     });
   });
