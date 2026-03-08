@@ -203,6 +203,17 @@ result = tostring(t)
       // We can't easily test the output, but at least we can verify it doesn't throw errors
     });
 
+    test('ipairs returns a stable iterator function', () async {
+      final bridge = LuaLike();
+      await bridge.execute('''
+        local iter1 = ipairs({})
+        local iter2 = ipairs({})
+        sameIterator = (iter1 == iter2)
+      ''');
+
+      expect((bridge.getGlobal('sameIterator') as Value).unwrap(), isTrue);
+    });
+
     test('type', () async {
       final bridge = LuaLike();
       await bridge.execute('''
