@@ -1371,9 +1371,12 @@ final class _LuaBytecodeStructuredCompiler {
 
     final workingWidth = math.max(
       _maxConstructorArrayBatchWidth(entries),
-      trailingOpenEntry == null ? 0 : _callRegisterWidth(trailingOpenEntry),
+      trailingOpenEntry == null
+          ? 0
+          : _pendingWidthBeforeTrailingOpen(entries) +
+                _callRegisterWidth(trailingOpenEntry),
     );
-    final reuseTargetRegister = targetRegister >= _nextRegister;
+    final reuseTargetRegister = targetRegister + 1 >= _nextTemp;
     final tempBase = reuseTargetRegister
         ? _reserveTempBlock(workingWidth)
         : _reserveTempBlock(workingWidth + 1);
@@ -1420,17 +1423,26 @@ final class _LuaBytecodeStructuredCompiler {
             final openExpression = isLastEntry ? _unwrapExpression(expr) : null;
             if (openExpression != null &&
                 _isOpenResultExpression(openExpression)) {
-              flushPendingArrayEntries();
+              final pendingPrefixCount = pendingArrayEntries.length;
+              for (var pendingIndex = 0;
+                  pendingIndex < pendingPrefixCount;
+                  pendingIndex++) {
+                _emitExpressionToRegister(
+                  pendingArrayEntries[pendingIndex],
+                  valueBase + pendingIndex,
+                );
+              }
+              pendingArrayEntries.clear();
               _emitOpenResultExpression(
                 openExpression,
-                baseRegister: valueBase,
+                baseRegister: valueBase + pendingPrefixCount,
               );
               _prototype.emitSetList(
                 table: tableRegister,
                 count: 0,
                 startIndex: nextArrayIndex,
               );
-              nextArrayIndex += 1;
+              nextArrayIndex += pendingPrefixCount + 1;
               continue;
             }
 
@@ -1499,6 +1511,23 @@ final class _LuaBytecodeStructuredCompiler {
       }
     }
     return math.max(maxWidth, currentRun);
+  }
+
+  int _pendingWidthBeforeTrailingOpen(List<TableEntry> entries) {
+    if (_trailingOpenResultConstructorEntry(entries) == null) {
+      return 0;
+    }
+
+    var currentRun = 0;
+    for (var index = 0; index < entries.length - 1; index++) {
+      switch (entries[index]) {
+        case TableEntryLiteral():
+          currentRun += 1;
+        case KeyedTableEntry() || IndexedTableEntry():
+          currentRun = 0;
+      }
+    }
+    return currentRun;
   }
 
   void _emitTableConstructorKeyedEntries(
@@ -2317,10 +2346,22 @@ final class _LuaBytecodeStructuredCompiler {
         _localsByName.remove(local.name);
       }
     }
+    _nextRegister = _activeRegisterTop();
+    _nextTemp = _nextRegister;
   }
 
   Set<_LuaBytecodeStructuredLocal> _visibleLocals() {
     return <_LuaBytecodeStructuredLocal>{for (final scope in _scopes) ...scope};
+  }
+
+  int _activeRegisterTop() {
+    var top = _prototype.parameterCount;
+    for (final scope in _scopes) {
+      for (final local in scope) {
+        top = math.max(top, local.register + 1);
+      }
+    }
+    return top;
   }
 
   void _resolvePendingGotos(String name) {
