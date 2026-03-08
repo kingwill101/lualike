@@ -390,7 +390,7 @@ final class _LuaBytecodeReader {
 
   void _ensureAvailable(int count) {
     if (_offset + count > _bytes.length) {
-      throw _formatError('Unexpected end of Lua chunk');
+      throw _formatError('truncated Lua chunk');
     }
   }
 
