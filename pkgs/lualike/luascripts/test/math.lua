@@ -1,10 +1,17 @@
 -- $Id: testes/math.lua $
--- See Copyright Notice in file all.lua
+-- See Copyright Notice in file lua.h
 
 print("testing numbers and math lib")
 
-local minint <const> = math.mininteger
-local maxint <const> = math.maxinteger
+local math = require "math"
+local string = require "string"
+
+global none
+
+global<const> print, assert, pcall, type, pairs, load
+global<const> tonumber, tostring, select
+
+local<const> minint, maxint = math.mininteger, math.maxinteger
 
 local intbits <const> = math.floor(math.log(maxint, 2) + 0.5) + 1
 assert((1 << intbits) == 0)
@@ -21,7 +28,19 @@ do
     floatbits = floatbits + 1
   end
 end
-print("line 24")
+
+
+-- maximum exponent for a floating-point number
+local maxexp = 0
+do
+  local p = 2.0
+  while p < math.huge do
+    maxexp = maxexp + 1
+    p = p + p
+  end
+end
+
+
 local function isNaN (x)
   return (x ~= x)
 end
@@ -29,19 +48,19 @@ end
 assert(isNaN(0/0))
 assert(not isNaN(1/0))
 
-print("line 32")
+
 do
   local x = 2.0^floatbits
   assert(x > x - 1.0 and x == x + 1.0)
 
-  print(string.format("%d-bit integers, %d-bit (mantissa) floats",
-                       intbits, floatbits))
+  local msg = "  %d-bit integers, %d-bit*2^%d floats"
+  print(string.format(msg, intbits, floatbits, maxexp))
 end
 
 assert(math.type(0) == "integer" and math.type(0.0) == "float"
        and not math.type("10"))
 
-print("line 44")
+
 local function checkerror (msg, f, ...)
   local s, err = pcall(f, ...)
   assert(not s and string.find(err, msg))
@@ -60,7 +79,7 @@ local function eq (a,b,limit)
   return a == b or math.abs(a-b) <= limit
 end
 
-print("line 63")
+
 -- equality with types
 local function eqT (a,b)
   return a == b and math.type(a) == math.type(b)
@@ -69,7 +88,7 @@ end
 
 -- basic float notation
 assert(0e12 == 0 and .0 == 0 and 0. == 0 and .2e2 == 20 and 2.E-1 == 0.2)
-print("line 72")
+
 do
   local a,b,c = "2", " 3e0 ", " 10  "
   assert(a+b == 5 and -b == -3 and b+"2" == 5 and "10"-c == 0)
@@ -86,7 +105,7 @@ do
   local t = {[0] = 10, 20, 30, 40, 50}
   assert(t[mz] == t[0] and t[-0] == t[0])
 end
-print("line 89")
+
 do   -- tests for 'modf'
   local a,b = math.modf(3.5)
   assert(a == 3.0 and b == 0.5)
@@ -107,7 +126,7 @@ do   -- tests for 'modf'
   a,b = math.modf(minint)
   assert(eqT(a, minint) and eqT(b, 0.0))
 end
-print("line 110")
+
 assert(math.huge > 10e30)
 assert(-math.huge < -10e30)
 
@@ -133,14 +152,14 @@ for _, i in pairs{-16, -15, -3, -2, -1, 0, 1, 2, 3, 15} do
     end
   end
 end
-print("line 136")
+
 assert(1//0.0 == 1/0)
 assert(-1 // 0.0 == -1/0)
 assert(eqT(3.5 // 1.5, 2.0))
 assert(eqT(3.5 // -1.5, -3.0))
 
 do   -- tests for different kinds of opcodes
-  local x, y
+  local x, y 
   x = 1; assert(x // 0.0 == 1/0)
   x = 1.0; assert(x // 0 == 1/0)
   x = 3.5; assert(eqT(x // 1, 3.0))
@@ -172,7 +191,7 @@ do
   for i = -3, 3 do    -- variables avoid constant folding
       for j = -3, 3 do
         -- domain errors (0^(-n)) are not portable
-        if not _port or i ~= 0 or j > 0 then
+        if not _ENV._port or i ~= 0 or j > 0 then
           assert(eq(i^j, 1 / i^(-j)))
        end
     end
@@ -418,7 +437,7 @@ for i = 2,36 do
   assert(tonumber('\t10000000000\t', i) == i10)
 end
 
-if not _soft then
+if not _ENV._soft then
   -- tests with very long numerals
   assert(tonumber("0x"..string.rep("f", 13)..".0") == 2.0^(4*13) - 1)
   assert(tonumber("0x"..string.rep("f", 150)..".0") == 2.0^(4*150) - 1)
@@ -618,9 +637,9 @@ assert(minint % -1 == 0)
 assert(minint % -2 == 0)
 assert(maxint % -2 == -1)
 
--- non-portable tests because Windows C library cannot compute
+-- non-portable tests because Windows C library cannot compute 
 -- fmod(1, huge) correctly
-if not _port then
+if not _ENV._port then
   local function anan (x) assert(isNaN(x)) end   -- assert Not a Number
   anan(0.0 % 0)
   anan(1.3 % 0)
@@ -664,6 +683,18 @@ assert(eq(math.log(2, 2), 1))
 assert(eq(math.log(9, 3), 2))
 assert(eq(math.exp(0), 1))
 assert(eq(math.sin(10), math.sin(10%(2*math.pi))))
+
+
+do  print("testing ldexp/frexp")
+  global ipairs
+  for _, x in ipairs{0, 10, 32, -math.pi, 1e10, 1e-10, math.huge, -math.huge} do
+    local m, p = math.frexp(x)
+    assert(math.ldexp(m, p) == x)
+    local am = math.abs(m)
+    assert(m == x or (0.5 <= am and am < 1))
+  end
+
+end
 
 
 assert(tonumber(' 1.3e-2 ') == 1.3e-2)
@@ -767,6 +798,7 @@ assert(a == '10' and b == '20')
 
 do
   print("testing -0 and NaN")
+  global rawset, undef
   local mz <const> = -0.0
   local z <const> = 0.0
   assert(mz == z)
@@ -803,7 +835,11 @@ do
 end
 
 
-print("testing 'math.random'")
+--
+-- [[==================================================================
+      print("testing 'math.random'")
+-- -===================================================================
+--
 
 local random, max, min = math.random, math.max, math.min
 
@@ -839,7 +875,7 @@ do
   assert(eq(rand, 0x0.7a7040a5a323c9d6, 2^-floatbits))
   assert(rand * 2^floatbits == res)
 end
-print("line 842")
+
 do
   -- testing return of 'randomseed'
   local x, y = math.randomseed()
@@ -888,7 +924,7 @@ do   -- test random for floats
                       totalrounds, low, up))
 end
 
-print("line 891")
+
 do   -- test random for full integers
   local up = 0
   local low = 0
@@ -922,7 +958,7 @@ do   -- test random for full integers
       totalrounds, (minint - low) / minint * 1e6,
                    (maxint - up) / maxint * 1e6))
 end
-print("line 925")
+
 do
   -- test distribution for a dice
   local count = {0, 0, 0, 0, 0, 0}
@@ -940,7 +976,7 @@ do
     end
   end
 end
-print("line 943")
+
 do
   local function aux (x1, x2)     -- test random for small intervals
     local mark = {}; local count = 0   -- to check that all values appeared
@@ -957,7 +993,7 @@ do
     end
    ::ok::
   end
-print("line 960")
+
   aux(-10,0)
   aux(1, 6)
   aux(1, 2)
@@ -972,7 +1008,7 @@ print("line 960")
   aux(minint, minint + 9)
   aux(maxint - 3, maxint)
 end
-print("line 975")
+
 do
   local function aux(p1, p2)       -- test random for large intervals
     local max = minint
@@ -1011,7 +1047,7 @@ do
   aux(0, 1 << (intbits - 5))
 end
 
-print("line 1014")
+
 assert(not pcall(random, 1, 2, 3))    -- too many arguments
 
 -- empty interval
@@ -1019,6 +1055,91 @@ assert(not pcall(random, minint + 1, minint))
 assert(not pcall(random, maxint, maxint - 1))
 assert(not pcall(random, maxint, minint))
 
+-- ]]==================================================================
+
+
+--
+-- [[==================================================================
+    print("testing precision of 'tostring'")
+-- -===================================================================
+--
+
+-- number of decimal digits supported by float precision
+local decdig = math.floor(floatbits * math.log(2, 10))
+print(string.format("  %d-digit float numbers with full precision",
+                    decdig))
+-- number of decimal digits supported by integer precision
+local Idecdig = math.floor(math.log(maxint, 10))
+print(string.format("  %d-digit integer numbers with full precision",
+                    Idecdig))
+
+do
+  -- Any number should print so that reading it back gives itself:
+  -- tonumber(tostring(x)) == x
+
+  -- Mersenne fractions
+  local p = 1.0
+  for i = 1, maxexp do
+    p = p + p
+    local x = 1 / (p - 1)
+    assert(x == tonumber(tostring(x)))
+  end
+
+  -- some random numbers in [0,1)
+  for i = 1, 100 do
+    local x = math.random()
+    assert(x == tonumber(tostring(x)))
+  end
+
+  -- different numbers should print differently.
+  -- check pairs of floats with minimum detectable difference
+  local p = floatbits - 1
+  global ipairs
+  for i = 1, maxexp - 1 do
+    for _, i in ipairs{-i, i} do
+      local x = 2^i
+      local diff = 2^(i - p)   -- least significant bit for 'x'
+      local y = x + diff
+      local fy = tostring(y)
+      assert(x ~= y and tostring(x) ~= fy)
+      assert(tonumber(fy) == y)
+    end
+  end
+
+
+  -- "reasonable" numerals should be printed like themselves
+
+  -- create random float numerals with 5 digits, with a decimal point
+  -- inserted in all places. (With more than 5, things like "0.00001"
+  -- reformats like "1e-5".)
+  for i = 1, 1000 do
+    -- random numeral with 5 digits
+    local x = string.format("%.5d", math.random(0, 99999))
+    for i = 2, #x do
+      -- insert decimal point at position 'i'
+      local y = string.sub(x, 1, i - 1) .. "." .. string.sub(x, i, -1)
+      y = string.gsub(y, "^0*(%d.-%d)0*$", "%1")   -- trim extra zeros
+      assert(y == tostring(tonumber(y)))
+    end
+  end
+
+  -- all-random floats
+  local Fsz = string.packsize("n")   -- size of floats in bytes
+
+  for i = 1, 400 do
+    local s = string.pack("j", math.random(0))   -- a random string of bits
+    while #s < Fsz do   -- make 's' long enough
+      s = s .. string.pack("j", math.random(0))
+    end
+    local n = string.unpack("n", s)   -- read 's' as a float
+    s = tostring(n)
+    if string.find(s, "^%-?%d") then   -- avoid NaN, inf, -inf
+      assert(tonumber(s) == n)
+    end
+  end
+
+end
+-- ]]==================================================================
 
 
 print('OK')
