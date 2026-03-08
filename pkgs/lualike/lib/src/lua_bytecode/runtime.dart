@@ -122,7 +122,7 @@ List<int>? _sourceBytes(Value source) {
 String? _sourceText(Value source) {
   return switch (source.raw) {
     final String text => text,
-    final LuaString luaString => luaString.toLatin1String(),
+    final LuaString luaString => luaString.toString(),
     _ => null,
   };
 }
@@ -261,6 +261,22 @@ class LuaBytecodeRuntime implements LuaRuntime {
   }
 
   @override
+  Value constantStringValue(List<int> bytes) {
+    final key = bytes.join(',');
+    final cached = _interpreter.literalValueCache[key];
+    if (cached != null) {
+      _ensureValueInterpreter(cached);
+      return cached;
+    }
+
+    final luaString =
+        _interpreter.literalStringInternPool[key] ??= LuaString.fromBytes(bytes);
+    final value = Value(luaString)..interpreter = this;
+    _interpreter.literalValueCache[key] = value;
+    return value;
+  }
+
+  @override
   CallStack get callStack => _interpreter.callStack;
 
   @override
@@ -388,6 +404,7 @@ class LuaBytecodeRuntime implements LuaRuntime {
       final artifact = const LuaBytecodeEmitter().compileSource(
         source,
         chunkName: request.chunkName,
+        sourceName: request.chunkName,
       );
       final closure = LuaBytecodeClosure.main(
         runtime: this,

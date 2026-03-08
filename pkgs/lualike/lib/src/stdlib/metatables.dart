@@ -73,8 +73,13 @@ class MetaTable {
           category: 'Metatables',
         );
 
-        if (key.raw is String) {
-          final keyStr = key.raw as String;
+        final keyStr = switch (key.raw) {
+          final String stringValue => stringValue,
+          final LuaString stringValue => stringValue.toString(),
+          _ => null,
+        };
+
+        if (keyStr != null) {
 
           // Check if we've cached a wrapper for this string+method combination
           var methodCache = _stringMethodCache[str];

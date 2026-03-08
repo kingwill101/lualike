@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/lua_error.dart';
+import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/value.dart';
 
 import '../stdlib/lib_io.dart';
@@ -103,8 +104,12 @@ final fileMetamethods = {
       category: 'IO',
     );
 
-    if (key.raw is String) {
-      final keyStr = key.raw as String;
+    final keyStr = switch (key.raw) {
+      final String stringValue => stringValue,
+      final LuaString stringValue => stringValue.toString(),
+      _ => null,
+    };
+    if (keyStr != null) {
 
       // Handle file methods
       final method = LuaFile.fileMethods[keyStr];
@@ -183,6 +188,17 @@ class LuaFile {
       category: 'LuaFile',
     );
   }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        other is LuaFile &&
+            identical(device, other.device) &&
+            isStandardFile == other.isStandardFile;
+  }
+
+  @override
+  int get hashCode => Object.hash(identityHashCode(device), isStandardFile);
 
   static final Map<String, BuiltinFunction> fileMethods = {
     "close": FileClose(),

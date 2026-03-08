@@ -685,7 +685,9 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
 
 Object? dumpFunctionWithLegacyAstTransport(Value function) {
   if (function.raw is BuiltinFunction) {
-    throw LuaError("unable to dump given function");
+    throw LuaError(
+      "unable to dump given function (${function.raw.runtimeType})",
+    );
   }
 
   final fb = function.functionBody;

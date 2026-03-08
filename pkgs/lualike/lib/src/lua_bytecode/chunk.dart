@@ -202,11 +202,13 @@ final class LuaBytecodeLocalVariableDebugInfo {
     required this.name,
     required this.startPc,
     required this.endPc,
+    this.register,
   });
 
   final String? name;
   final int startPc;
   final int endPc;
+  final int? register;
 }
 
 final class LuaBytecodePrototype {

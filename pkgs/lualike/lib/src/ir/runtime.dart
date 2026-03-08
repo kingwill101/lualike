@@ -148,6 +148,11 @@ class LualikeIrRuntime implements LuaRuntime {
   }
 
   @override
+  Value constantStringValue(List<int> bytes) {
+    return _interpreter.constantStringValue(bytes)..interpreter = this;
+  }
+
+  @override
   CallStack get callStack => _interpreter.callStack;
 
   @override

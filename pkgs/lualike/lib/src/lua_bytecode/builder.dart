@@ -61,6 +61,7 @@ final class LuaBytecodePrototypeBuilder {
   final int flags;
   final String source;
   final List<LuaBytecodeInstructionWord> _code = <LuaBytecodeInstructionWord>[];
+  final List<int> _instructionLines = <int>[];
   final List<LuaBytecodeConstant> _constants = <LuaBytecodeConstant>[];
   final List<LuaBytecodeUpvalueDescriptor> upvalues =
       <LuaBytecodeUpvalueDescriptor>[];
@@ -70,9 +71,15 @@ final class LuaBytecodePrototypeBuilder {
       <LuaBytecodeLocalVariableDebugInfo>[];
   final Map<Object, int> _constantIndexes = <Object, int>{};
   var _maxStackSize = 2;
+  int? _currentSourceLine;
 
   int get currentPc => _code.length;
   int get maxStackSize => _maxStackSize;
+  int? get currentSourceLine => _currentSourceLine;
+
+  set currentSourceLine(int? value) {
+    _currentSourceLine = value != null && value > 0 ? value : null;
+  }
 
   void ensureStack(int registers) {
     _maxStackSize = math.max(_maxStackSize, math.max(2, registers));
@@ -92,12 +99,14 @@ final class LuaBytecodePrototypeBuilder {
     required String name,
     required int startPc,
     required int endPc,
+    int? register,
   }) {
     _localVariables.add(
       LuaBytecodeLocalVariableDebugInfo(
         name: name,
         startPc: startPc,
         endPc: endPc,
+        register: register,
       ),
     );
   }
@@ -407,6 +416,11 @@ final class LuaBytecodePrototypeBuilder {
     emitAbc('CLOSE', a: fromRegister, b: 0, c: 0);
   }
 
+  void emitToBeClosed({required int register}) {
+    ensureStack(register + 1);
+    emitAbc('TBC', a: register, b: 0, c: 0);
+  }
+
   void emitTest({required int register, required bool kFlag}) {
     ensureStack(register + 1);
     emitAbc('TEST', a: register, b: 0, c: 0, k: kFlag);
@@ -419,13 +433,40 @@ final class LuaBytecodePrototypeBuilder {
 
   void emitJump(int offset) {
     final opcode = LuaBytecodeOpcodes.byName('JMP');
-    _code.add(LuaBytecodeInstructionWord.sj(opcode: opcode.code, sJ: offset));
+    _appendInstruction(
+      LuaBytecodeInstructionWord.sj(opcode: opcode.code, sJ: offset),
+    );
   }
 
   int emitJumpPlaceholder() {
     final pc = currentPc;
     emitJump(0);
     return pc;
+  }
+
+  void overwriteJump({
+    required int instructionPc,
+    required int targetPc,
+  }) {
+    final opcode = LuaBytecodeOpcodes.byName('JMP');
+    _code[instructionPc] = LuaBytecodeInstructionWord.sj(
+      opcode: opcode.code,
+      sJ: targetPc - instructionPc - 1,
+    );
+  }
+
+  void overwriteClose({
+    required int instructionPc,
+    required int fromRegister,
+  }) {
+    final opcode = LuaBytecodeOpcodes.byName('CLOSE');
+    _code[instructionPc] = LuaBytecodeInstructionWord.abc(
+      opcode: opcode.code,
+      a: fromRegister,
+      b: 0,
+      c: 0,
+      k: false,
+    );
   }
 
   int emitAbxPlaceholder(String opcodeName, {required int a}) {
@@ -459,7 +500,7 @@ final class LuaBytecodePrototypeBuilder {
     bool k = false,
   }) {
     final opcode = LuaBytecodeOpcodes.byName(opcodeName);
-    _code.add(
+    _appendInstruction(
       LuaBytecodeInstructionWord.abc(
         opcode: opcode.code,
         a: a,
@@ -472,7 +513,7 @@ final class LuaBytecodePrototypeBuilder {
 
   void emitAbx(String opcodeName, {required int a, required int bx}) {
     final opcode = LuaBytecodeOpcodes.byName(opcodeName);
-    _code.add(
+    _appendInstruction(
       LuaBytecodeInstructionWord.abx(opcode: opcode.code, a: a, bx: bx),
     );
   }
@@ -485,7 +526,7 @@ final class LuaBytecodePrototypeBuilder {
     bool k = false,
   }) {
     final opcode = LuaBytecodeOpcodes.byName(opcodeName);
-    _code.add(
+    _appendInstruction(
       LuaBytecodeInstructionWord.vabc(
         opcode: opcode.code,
         a: a,
@@ -498,17 +539,20 @@ final class LuaBytecodePrototypeBuilder {
 
   void emitExtraArg({required int ax}) {
     final opcode = LuaBytecodeOpcodes.byName('EXTRAARG');
-    _code.add(LuaBytecodeInstructionWord.ax(opcode: opcode.code, ax: ax));
+    _appendInstruction(
+      LuaBytecodeInstructionWord.ax(opcode: opcode.code, ax: ax),
+    );
   }
 
   void emitAsBx(String opcodeName, {required int a, required int sBx}) {
     final opcode = LuaBytecodeOpcodes.byName(opcodeName);
-    _code.add(
+    _appendInstruction(
       LuaBytecodeInstructionWord.asBx(opcode: opcode.code, a: a, sBx: sBx),
     );
   }
 
   LuaBytecodePrototype build() {
+    final debugLines = _buildDebugLines();
     return LuaBytecodePrototype(
       lineDefined: lineDefined,
       lastLineDefined: lastLineDefined,
@@ -522,12 +566,60 @@ final class LuaBytecodePrototypeBuilder {
         for (final child in children) child.build(),
       ]),
       source: source,
+      lineInfo: debugLines.lineInfo,
+      absoluteLineInfo: debugLines.absoluteLineInfo,
       localVariables: List<LuaBytecodeLocalVariableDebugInfo>.unmodifiable(
         _localVariables,
       ),
       upvalueNames: List<String?>.unmodifiable([
         for (final upvalue in upvalues) upvalue.name,
       ]),
+    );
+  }
+
+  void _appendInstruction(LuaBytecodeInstructionWord word) {
+    _code.add(word);
+    _instructionLines.add(
+      _currentSourceLine ??
+          (_instructionLines.isNotEmpty
+              ? _instructionLines.last
+              : (lineDefined > 0 ? lineDefined : 0)),
+    );
+  }
+
+  ({
+    List<int> lineInfo,
+    List<LuaBytecodeAbsLineInfo> absoluteLineInfo,
+  })
+  _buildDebugLines() {
+    if (_instructionLines.isEmpty || !_instructionLines.any((line) => line > 0)) {
+      return (
+        lineInfo: const <int>[],
+        absoluteLineInfo: const <LuaBytecodeAbsLineInfo>[],
+      );
+    }
+
+    final lineInfo = List<int>.filled(_instructionLines.length, 0);
+    final absoluteLineInfo = <LuaBytecodeAbsLineInfo>[
+      LuaBytecodeAbsLineInfo(pc: 0, line: _instructionLines.first),
+    ];
+
+    for (var index = 1; index < _instructionLines.length; index++) {
+      if (index % LuaBytecodeDebugLayout.maxInstructionsWithoutAbsoluteLineInfo ==
+          0) {
+        absoluteLineInfo.add(
+          LuaBytecodeAbsLineInfo(pc: index, line: _instructionLines[index]),
+        );
+        continue;
+      }
+      lineInfo[index] = _instructionLines[index] - _instructionLines[index - 1];
+    }
+
+    return (
+      lineInfo: List<int>.unmodifiable(lineInfo),
+      absoluteLineInfo: List<LuaBytecodeAbsLineInfo>.unmodifiable(
+        absoluteLineInfo,
+      ),
     );
   }
 }

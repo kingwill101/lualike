@@ -154,7 +154,7 @@ class _StringDump extends BuiltinFunction {
     if (!func.isCallable()) {
       throw LuaError.typeError("string.dump requires a function argument");
     }
-    final runtime = interpreter;
+    final runtime = func.interpreter ?? interpreter;
     if (runtime == null) {
       throw LuaError("No interpreter context available");
     }

@@ -43,7 +43,7 @@ class IOLibrary extends Library {
     // Add standard streams
     context.define(
       "stdin",
-      createLuaFile(
+      IOLib._stdinValue = createLuaFile(
         IOLib.stdinDevice,
         isStandardFile: true,
         interpreter: context.interpreter,
@@ -51,7 +51,7 @@ class IOLibrary extends Library {
     );
     context.define(
       "stdout",
-      createLuaFile(
+      IOLib._stdoutValue = createLuaFile(
         IOLib.stdoutDevice,
         isStandardFile: true,
         interpreter: context.interpreter,
@@ -90,6 +90,8 @@ class IOLib {
   static StdinDevice? _stdinDevice;
   static StdoutDevice? _stdoutDevice;
   static StdoutDevice? _stderrDevice;
+  static Value? _stdinValue;
+  static Value? _stdoutValue;
 
   // File system provider - defaults to local file system
   static FileSystemProvider? _fileSystemProvider;
@@ -130,11 +132,19 @@ class IOLib {
   }
 
   // Setters to allow custom devices (similar to what you mentioned exists for stdio)
-  static set stdinDevice(StdinDevice device) => _stdinDevice = device;
+  static set stdinDevice(StdinDevice device) {
+    _stdinDevice = device;
+    _stdinValue = null;
+  }
 
-  static set stdoutDevice(StdoutDevice device) => _stdoutDevice = device;
+  static set stdoutDevice(StdoutDevice device) {
+    _stdoutDevice = device;
+    _stdoutValue = null;
+  }
 
-  static set stderrDevice(StdoutDevice device) => _stderrDevice = device;
+  static set stderrDevice(StdoutDevice device) {
+    _stderrDevice = device;
+  }
 
   static Value get defaultInput {
     Logger.debug('Getting default input', category: 'IO');
@@ -144,8 +154,8 @@ class IOLib {
         'Creating new default input with stdinDevice',
         category: 'IO',
       );
-      // Note: interpreter is set when initially registering stdin with the library
-      _defaultInput = createLuaFile(stdinDevice, isStandardFile: true);
+      _defaultInput =
+          _stdinValue ?? createLuaFile(stdinDevice, isStandardFile: true);
       Logger.debug('Created default input: $_defaultInput', category: 'IO');
     } else {
       Logger.debug(
@@ -163,7 +173,8 @@ class IOLib {
   static Value get defaultOutput {
     Logger.debug('Getting default output');
     // Note: interpreter is set when initially registering stdout with the library
-    _defaultOutput ??= createLuaFile(stdoutDevice, isStandardFile: true);
+    _defaultOutput ??=
+        _stdoutValue ?? createLuaFile(stdoutDevice, isStandardFile: true);
     return _defaultOutput!;
   }
 
@@ -188,6 +199,8 @@ class IOLib {
     }
     _defaultOutput = null;
     _defaultOutputExplicitlyClosed = false;
+    _stdinValue = null;
+    _stdoutValue = null;
   }
 }
 
