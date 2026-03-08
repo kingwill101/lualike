@@ -1605,6 +1605,11 @@ class _PrototypeContext {
   }
 
   int _compileFunctionBody(FunctionBody body) {
+    if (body.varargName != null) {
+      throw UnsupportedError(
+        'lualike IR compiler does not support named vararg tables yet',
+      );
+    }
     final positionalParams = <String>[
       for (final param in body.parameters ?? const <Identifier>[]) param.name,
     ];

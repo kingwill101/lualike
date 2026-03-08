@@ -16,13 +16,34 @@ String _normalizeLineEndings(String source) {
       .replaceAll('\r', '\n');
 }
 
+bool _looksLikeFilePath(String urlString) {
+  if (urlString.isEmpty) {
+    return false;
+  }
+  if (urlString.startsWith('/') ||
+      urlString.startsWith('./') ||
+      urlString.startsWith('../')) {
+    return true;
+  }
+  return RegExp(
+    r'^[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$',
+  ).hasMatch(urlString);
+}
+
+Object? _sourceFileUrl(Object? url) => switch (url) {
+  null => null,
+  Uri value => value,
+  _ when _looksLikeFilePath(url.toString()) => Uri.file(url.toString()),
+  _ => null,
+};
+
 String _normalizeFilePreamble(String source, Object? url) {
   if (url == null) {
     return source;
   }
 
   final urlString = url.toString();
-  if (urlString.isEmpty || urlString == '=(load)') {
+  if (!_looksLikeFilePath(urlString)) {
     return source;
   }
 
@@ -44,21 +65,23 @@ String _normalizeFilePreamble(String source, Object? url) {
 }
 
 Program parse(String source, {Object? url}) {
-  final Uri? uri = switch (url) {
-    null => null,
-    Uri value => value,
-    _ => Uri.file(url.toString()),
-  };
   final normalized = _normalizeFilePreamble(_normalizeLineEndings(source), url);
-  return lua.parse(normalized, url: uri);
+  return lua.parse(
+    normalized,
+    url: _sourceFileUrl(url),
+    sourceName: url?.toString(),
+  );
 }
 
 AstNode parseExpression(String source, {Object? url}) {
-  final Uri? uri = switch (url) {
-    null => null,
-    Uri value => value,
-    _ => Uri.file(url.toString()),
-  };
   final normalized = _normalizeLineEndings(source);
-  return lua.parseExpression(normalized, url: uri);
+  return lua.parseExpression(
+    normalized,
+    url: _sourceFileUrl(url),
+    sourceName: url?.toString(),
+  );
 }
+
+String luaChunkId(String source) => lua.luaChunkId(source);
+
+bool looksLikeLuaFilePath(String source) => _looksLikeFilePath(source);

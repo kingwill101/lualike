@@ -21,6 +21,29 @@ class UpvalueAnalyzer extends AstVisitor<void> {
   /// Whether the function accesses globals (needs _ENV)
   bool _accessesGlobals = false;
 
+  static Object? _resolveCapturedEnvValue(Environment currentEnv) {
+    final envBox = currentEnv.findBox('_ENV');
+    if (envBox != null && envBox.isLocal && envBox.value != null) {
+      return envBox.value;
+    }
+
+    final runtime = currentEnv.interpreter;
+    if (runtime != null) {
+      try {
+        final currentFunction = (runtime as dynamic).getCurrentFunction();
+        if (currentFunction?.upvalues case final upvalues?) {
+          for (final upvalue in upvalues) {
+            if (upvalue.name == '_ENV') {
+              return upvalue.getValue();
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    return currentEnv.get('_ENV');
+  }
+
   /// Analyzes a function body and returns the upvalues it needs
   static Future<List<Upvalue>> analyzeFunction(
     FunctionBody functionBody,
@@ -33,6 +56,9 @@ class UpvalueAnalyzer extends AstVisitor<void> {
       for (final param in functionBody.parameters!) {
         analyzer._parameters.add(param.name);
       }
+    }
+    if (functionBody.varargName case final Identifier name) {
+      analyzer._localVars.add(name.name);
     }
 
     // Analyze the function body
@@ -93,7 +119,7 @@ class UpvalueAnalyzer extends AstVisitor<void> {
     // Only add _ENV as upvalue if the function actually accesses globals
     // Don't add it just because there are other upvalues
     if (analyzer._accessesGlobals) {
-      final envValue = currentEnv.get('_ENV');
+      final envValue = _resolveCapturedEnvValue(currentEnv);
       if (envValue != null) {
         // Create a synthetic box for _ENV
         final envBox = Box<dynamic>(envValue);
@@ -176,7 +202,6 @@ class UpvalueAnalyzer extends AstVisitor<void> {
   @override
   Future<void> visitMethodCall(MethodCall node) async {
     await node.prefix.accept(this);
-    await node.methodName.accept(this);
     for (final arg in node.args) {
       await arg.accept(this);
     }
@@ -191,7 +216,6 @@ class UpvalueAnalyzer extends AstVisitor<void> {
   @override
   Future<void> visitTableFieldAccess(TableFieldAccess node) async {
     await node.table.accept(this);
-    await node.fieldName.accept(this);
   }
 
   @override
@@ -391,12 +415,6 @@ class UpvalueAnalyzer extends AstVisitor<void> {
   @override
   Future<void> visitFunctionName(FunctionName node) async {
     await node.first.accept(this);
-    for (final part in node.rest) {
-      await part.accept(this);
-    }
-    if (node.method != null) {
-      await node.method!.accept(this);
-    }
   }
 
   @override

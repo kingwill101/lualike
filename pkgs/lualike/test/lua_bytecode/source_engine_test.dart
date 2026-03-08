@@ -431,6 +431,22 @@ return x
       );
     });
 
+    test(
+      'executeCode allows assignment to generic for loop variables',
+      () async {
+        final result = await executeCode('''
+local sum = 0
+for _, value in ipairs({1, 2, 3}) do
+  value = value + 1
+  sum = sum + value
+end
+return sum
+''', mode: EngineMode.luaBytecode);
+
+        expect(_unwrap(result), equals(9));
+      },
+    );
+
     test('config-selected bridge uses LuaBytecodeRuntime', () async {
       LuaLikeConfig().defaultEngineMode = EngineMode.luaBytecode;
       final bridge = LuaLike();

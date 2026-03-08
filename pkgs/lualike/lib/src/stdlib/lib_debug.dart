@@ -7,6 +7,7 @@ import 'package:lualike/src/lua_bytecode/vm.dart';
 import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/upvalue.dart';
+import 'package:lualike/src/utils/type.dart' show getLuaType;
 import 'library.dart';
 
 class DebugLib {
@@ -193,20 +194,17 @@ class _GetUpvalue extends BuiltinFunction {
       return Value.multi([Value(name), value]);
     }
 
-    // For AST-based interpreter, we simulate standard Lua upvalue behavior
-    // In Lua, functions typically have _ENV as an upvalue for global access
+    // For AST-based interpreter, expose the implicit `_ENV` capture in the
+    // first upvalue slot when the function does not already surface explicit
+    // captures. This matches the upstream 5.5 tests for loaded chunks and
+    // plain Lua closures.
     if (functionArg.raw is Function) {
-      // For any Dart function (with or without functionBody), simulate standard upvalue structure
-      if (index == 2) {
-        // Second upvalue is typically _ENV in Lua
+      if (index == 1) {
         final envValue =
             interpreter?.getCurrentEnv().get('_ENV') ??
             interpreter?.getCurrentEnv().get('_G') ??
             Value(interpreter?.getCurrentEnv());
         return Value.multi([Value('_ENV'), envValue]);
-      } else if (index == 1) {
-        // First upvalue could be any captured variable, return nil for now
-        return Value.multi([Value(null), Value(null)]);
       }
     }
 
@@ -380,11 +378,53 @@ class _SetUserValue extends BuiltinFunction {
 
   @override
   Object? call(List<Object?> args) {
-    if (args.length < 3) {
-      throw LuaError("debug.setuservalue requires userdata, value and index");
+    if (args.length < 2) {
+      throw LuaError("debug.setuservalue requires userdata and value");
     }
-    // Set nth user value
-    return Value(null);
+
+    final target = args[0];
+    final userValue = args[1];
+    final index = switch (args.length > 2 ? args[2] : null) {
+      final Value value when value.raw is num => (value.raw as num).toInt(),
+      final num value => value.toInt(),
+      null => 1,
+      _ => throw LuaError("debug.setuservalue index must be a number"),
+    };
+
+    if (target is! Value || !_isFullUserdata(target)) {
+      throw LuaError.typeError(
+        "bad argument #1 to 'setuservalue' (userdata expected, got ${getLuaType(target)})",
+      );
+    }
+
+    if (index < 1) {
+      return Value(null);
+    }
+
+    if (target.raw is Map) {
+      final rawMap = target.raw as Map<dynamic, dynamic>;
+      rawMap['__uservalue$index'] = userValue is Value ? userValue : Value(userValue);
+    }
+    return target;
+  }
+
+  bool _isFullUserdata(Value value) {
+    final raw = value.raw;
+    if (raw == null ||
+        raw is bool ||
+        raw is num ||
+        raw is BigInt ||
+        raw is String ||
+        raw is LuaString ||
+        raw is Map ||
+        raw is List ||
+        raw is Coroutine ||
+        raw is Function ||
+        raw is BuiltinFunction ||
+        raw is LuaCallableArtifact) {
+      return false;
+    }
+    return getLuaType(value) != 'light userdata';
   }
 }
 
@@ -527,7 +567,12 @@ class _GetInfoImpl extends BuiltinFunction {
     final firstArg = args[0] as Value;
     String? what = args.length > 1
         ? (args[1] as Value).raw.toString()
-        : "flnStu";
+        : "flnSrtu";
+
+    final optionError = _validateGetInfoOptions(what);
+    if (optionError != null) {
+      throw LuaError(optionError);
+    }
 
     // Log that debug.getinfo was called to help with troubleshooting
     Logger.debug(
@@ -547,13 +592,16 @@ class _GetInfoImpl extends BuiltinFunction {
     // Handle level-based lookup (when first arg is a number)
     if (firstArg.raw is num) {
       final level = (firstArg.raw as num).toInt();
-      final actualLevel = level + 1; // skip getinfo's own frame
+      if (level < 0) {
+        return Value(null);
+      }
+      final actualLevel = level + 1;
 
       if (interpreterInstance != null) {
-        // Get the frame from the call stack, fallback to top frame if level is out of bounds
-        final frame =
-            interpreterInstance.callStack.getFrameAtLevel(actualLevel) ??
-            interpreterInstance.callStack.top;
+        // Get the frame from the call stack; invalid levels return nil.
+        final frame = interpreterInstance is Interpreter
+            ? interpreterInstance.getVisibleFrameAtLevel(actualLevel)
+            : interpreterInstance.callStack.getFrameAtLevel(actualLevel);
 
         if (frame != null) {
           Logger.debug(
@@ -561,16 +609,12 @@ class _GetInfoImpl extends BuiltinFunction {
             category: 'DebugLib',
           );
 
-          String? functionName = frame.functionName;
-          if (functionName == "unknown" || functionName == "function") {
-            functionName = null;
-          }
-
           final debugInfo = <String, Value>{};
+          final frameNameInfo = _inferFrameNameInfo(frame);
 
           if (what.contains('n')) {
-            debugInfo['name'] = Value(functionName);
-            debugInfo['namewhat'] = Value(functionName != null ? "local" : "");
+            debugInfo['name'] = Value(frameNameInfo.name);
+            debugInfo['namewhat'] = Value(frameNameInfo.namewhat);
           }
           if (what.contains('S')) {
             debugInfo['what'] = Value("Lua");
@@ -653,7 +697,7 @@ class _GetInfoImpl extends BuiltinFunction {
                 // If the current function does not carry loaded-chunk source
                 // metadata, use the raw script path as the chunk name.
                 if (!isBinaryChunk) {
-                  sourceValue = scriptPath;
+                  sourceValue = _formatSourceForLua(scriptPath);
                   shortSrc = scriptPath;
                   Logger.debug(
                     'debug.getinfo: using script path as string chunk: $sourceValue',
@@ -676,6 +720,7 @@ class _GetInfoImpl extends BuiltinFunction {
           }
           if (what.contains('t')) {
             debugInfo['istailcall'] = Value(false);
+            debugInfo['extraargs'] = Value(0);
           }
           if (what.contains('u')) {
             debugInfo['nups'] = Value(0);
@@ -689,6 +734,8 @@ class _GetInfoImpl extends BuiltinFunction {
           return Value(debugInfo);
         }
       }
+
+      return Value(null);
     }
 
     // Function-based lookup
@@ -697,24 +744,43 @@ class _GetInfoImpl extends BuiltinFunction {
       String src = metadata?.source ?? "=[C]";
       String whatKind = metadata?.what ?? "C";
 
-      // For compatibility with tests (calls.lua), do not prefix '@'
-      final debugInfo = <String, Value>{
-        'name': Value(null),
-        'namewhat': Value(""),
-        'what': Value(whatKind),
-        'source': Value(src),
-        'short_src': Value(
+      final debugInfo = <String, Value>{};
+      if (what.contains('n')) {
+        debugInfo['name'] = Value(null);
+        debugInfo['namewhat'] = Value("");
+      }
+      if (what.contains('S')) {
+        debugInfo['what'] = Value(whatKind);
+        debugInfo['source'] = Value(src);
+        debugInfo['short_src'] = Value(
           metadata?.shortSource ??
               (src.split('/').isNotEmpty ? src.split('/').last : src),
-        ),
-        'currentline': Value(-1),
-        'linedefined': Value(metadata?.lineDefined ?? -1),
-        'lastlinedefined': Value(metadata?.lastLineDefined ?? -1),
-        'nups': Value(metadata?.nups ?? 0),
-        'nparams': Value(metadata?.nparams ?? 0),
-        'isvararg': Value(metadata?.isVararg ?? true),
-        'istailcall': Value(false),
-      };
+        );
+        debugInfo['linedefined'] = Value(metadata?.lineDefined ?? -1);
+        debugInfo['lastlinedefined'] = Value(metadata?.lastLineDefined ?? -1);
+      }
+      if (what.contains('l')) {
+        debugInfo['currentline'] = Value(-1);
+      }
+      if (what.contains('u')) {
+        debugInfo['nups'] = Value(metadata?.nups ?? 0);
+        debugInfo['nparams'] = Value(metadata?.nparams ?? 0);
+        debugInfo['isvararg'] = Value(metadata?.isVararg ?? true);
+      }
+      if (what.contains('r')) {
+        debugInfo['ftransfer'] = Value(0);
+        debugInfo['ntransfer'] = Value(0);
+      }
+      if (what.contains('t')) {
+        debugInfo['istailcall'] = Value(false);
+        debugInfo['extraargs'] = Value(0);
+      }
+      if (what.contains('f')) {
+        debugInfo['func'] = firstArg;
+      }
+      if (what.contains('L')) {
+        debugInfo['activelines'] = _collectActiveLines(firstArg);
+      }
       return Value(debugInfo);
     }
 
@@ -734,6 +800,64 @@ class _GetInfoImpl extends BuiltinFunction {
       'istailcall': Value(false),
     });
   }
+}
+
+String? _validateGetInfoOptions(String what) {
+  if (what.startsWith('>')) {
+    return "bad argument #2 to 'debug.getinfo' (invalid option '>')";
+  }
+
+  const allowed = 'flnSrtuL';
+  for (final codeUnit in what.codeUnits) {
+    final option = String.fromCharCode(codeUnit);
+    if (!allowed.contains(option)) {
+      return "bad argument #2 to 'debug.getinfo' (invalid option)";
+    }
+  }
+  return null;
+}
+
+Value _collectActiveLines(Value function) {
+  final body = function.functionBody;
+  if (body == null) {
+    return Value(null);
+  }
+
+  final lines = <Object?, Object?>{};
+  void markLine(int? line) {
+    if (line == null || line <= 0) {
+      return;
+    }
+    lines[line] = Value(true);
+  }
+
+  for (final statement in body.body) {
+    final span = statement.span;
+    markLine(span?.start.line != null ? span!.start.line + 1 : null);
+  }
+  markLine(_lastFunctionBodyLine(body));
+
+  return Value(lines);
+}
+
+int _lastFunctionBodyLine(FunctionBody body) {
+  var maxLine = -1;
+  for (final statement in body.body) {
+    final span = statement.span;
+    if (span != null) {
+      final endLine = span.end.line + 1;
+      if (endLine > maxLine) {
+        maxLine = endLine;
+      }
+    }
+  }
+
+  if (maxLine > 0) {
+    return maxLine;
+  }
+
+  final span = body.span;
+  return span != null ? span.end.line + 1 : -1;
 }
 
 /// Helper method to extract source URL from child AST nodes
@@ -917,6 +1041,56 @@ void defineDebugLibrary({required Environment env, LuaRuntime? vm}) {
     'Debug library initialized with interpreter: ${vm != null}',
     category: 'Debug',
   );
+}
+
+({String? name, String namewhat}) _inferFrameNameInfo(CallFrame frame) {
+  final callNode = frame.callNode;
+  final env = frame.env;
+
+  if (callNode case MethodCall(methodName: final Identifier methodName)) {
+    return (name: methodName.name, namewhat: 'method');
+  }
+
+  if (callNode case FunctionCall(name: final AstNode callee)) {
+    if (callee case Identifier(name: final name)) {
+      return (name: name, namewhat: _inferIdentifierNameWhat(env, name));
+    }
+    if (callee case TableFieldAccess(fieldName: final Identifier fieldName)) {
+      return (name: fieldName.name, namewhat: 'field');
+    }
+  }
+
+  final fallbackName = switch (frame.functionName) {
+    'unknown' || 'function' => null,
+    final name => name,
+  };
+  return (
+    name: fallbackName,
+    namewhat: fallbackName != null
+        ? _inferIdentifierNameWhat(env, fallbackName)
+        : '',
+  );
+}
+
+String _inferIdentifierNameWhat(Environment? env, String name) {
+  Environment? current = env;
+  while (current != null) {
+    if (current.values.containsKey(name)) {
+      final box = current.values[name]!;
+      if (!box.isLocal) {
+        return 'global';
+      }
+      // For active call-site naming, Lua reports identifiers resolved through
+      // enclosing lexical blocks as "local" too; they are still called by a
+      // local name, even if that binding lives in a parent environment frame.
+      return 'local';
+    }
+    if (current.declaredGlobals.containsKey(name)) {
+      return 'global';
+    }
+    current = current.parent;
+  }
+  return 'global';
 }
 
 /// Enable/disable memory allocation stack trace tracking

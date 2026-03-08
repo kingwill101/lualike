@@ -12,6 +12,7 @@ import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/number.dart';
 import 'package:lualike/src/number_utils.dart';
+import 'package:lualike/src/parse.dart' show looksLikeLuaFilePath, luaChunkId;
 import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/table_storage.dart';
 import 'package:lualike/src/utils/type.dart' show getLuaType;
@@ -2455,8 +2456,25 @@ _LuaBinaryOperation _binaryOperationForMetamethod(String metamethod) {
 }
 
 String _shortSource(String source) {
+  if (source.startsWith('file:///')) {
+    try {
+      return path.basename(Uri.parse(source).path);
+    } catch (_) {
+      return source;
+    }
+  }
+  if (source.startsWith('@') || source.startsWith('=')) {
+    return luaChunkId(source);
+  }
+  if (looksLikeLuaFilePath(source)) {
+    try {
+      return path.basename(source);
+    } catch (_) {
+      return source;
+    }
+  }
   try {
-    return path.basename(source);
+    return luaChunkId(source);
   } catch (_) {
     return source;
   }

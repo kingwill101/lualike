@@ -117,6 +117,7 @@ sealed class AstNode {
     if (this is FunctionBody) {
       final fb = this as FunctionBody;
       findSpans(fb.parameters);
+      findSpans(fb.varargName);
       findSpans(fb.body);
     }
 
@@ -977,6 +978,7 @@ class LocalFunctionDef extends AstNode implements Dumpable {
 class FunctionBody extends AstNode implements Dumpable {
   List<Identifier>? parameters;
   final bool isVararg;
+  final Identifier? varargName;
   final List<AstNode> body;
   bool implicitSelf;
 
@@ -984,6 +986,7 @@ class FunctionBody extends AstNode implements Dumpable {
     this.parameters,
     this.body,
     this.isVararg, {
+    this.varargName,
     this.implicitSelf = false,
   });
 
@@ -992,7 +995,11 @@ class FunctionBody extends AstNode implements Dumpable {
 
   @override
   String toSource() {
-    final paramsSrc = parameters?.map((p) => p.toSource()).join(", ") ?? "";
+    final params = <String>[
+      ...?parameters?.map((p) => p.toSource()),
+      if (isVararg) varargName == null ? '...' : '...${varargName!.toSource()}',
+    ];
+    final paramsSrc = params.join(", ");
     final bodySrc = body.map((s) => s.toSource()).join("\n");
     return "function ($paramsSrc)\n$bodySrc\nend";
   }
@@ -1002,6 +1009,7 @@ class FunctionBody extends AstNode implements Dumpable {
     'type': 'FunctionBody',
     'params': (parameters ?? const <Identifier>[]).map((p) => p.name).toList(),
     'vararg': isVararg,
+    if (varargName != null) 'varargName': varargName!.name,
     'body': body
         .map(
           (s) => s is Dumpable ? (s as Dumpable).dump() : {'type': 'Unknown'},
@@ -1018,7 +1026,16 @@ class FunctionBody extends AstNode implements Dumpable {
         .map((e) => undumpAst(Map<String, dynamic>.from(e)))
         .toList();
     final isVararg = data['vararg'] as bool? ?? false;
-    final functionBody = FunctionBody(params, bodyNodes, isVararg);
+    final varargName = switch (data['varargName']) {
+      final String name => Identifier(name),
+      _ => null,
+    };
+    final functionBody = FunctionBody(
+      params,
+      bodyNodes,
+      isVararg,
+      varargName: varargName,
+    );
 
     // Restore span information
     final spanData = data['span'] as Map<String, dynamic>?;

@@ -136,6 +136,10 @@ class Environment extends GCObject {
   /// Tracks the order in which to-be-closed variables were declared
   final List<String> toBeClosedVars = [];
 
+  /// Tracks pending implicit to-be-closed resources that are active for this
+  /// scope but are not represented as normal local bindings.
+  int pendingImplicitToBeClosed = 0;
+
   /// The parent environment in the scope chain, if any.
   final Environment? parent;
 
@@ -745,9 +749,15 @@ class Environment extends GCObject {
       category: 'Env',
     );
 
-    // Close variables in reverse order of declaration
-    for (var i = toBeClosedVars.length - 1; i >= 0; i--) {
-      final name = toBeClosedVars[i];
+    final namesToClose = List<String>.from(toBeClosedVars.reversed);
+    toBeClosedVars.clear();
+    var currentError = error;
+    var closeErrorSeen = false;
+
+    // Close variables in reverse order of declaration.
+    // Drain the list first so reentrant safe points do not close the same
+    // variables again while a __close metamethod is still running.
+    for (final name in namesToClose) {
       final value = values[name]?.value;
 
       Logger.debug(
@@ -757,11 +767,12 @@ class Environment extends GCObject {
 
       if (value is Value) {
         try {
-          await value.close(error);
+          await value.close(currentError);
           Logger.debug("Successfully closed variable '$name'", category: 'Env');
         } catch (e) {
           Logger.debug("Error closing variable '$name': $e", category: 'Env');
-          error ??= e;
+          currentError = e;
+          closeErrorSeen = true;
         }
       }
     }
@@ -775,6 +786,10 @@ class Environment extends GCObject {
       if (gc.allocationDebt >= gc.autoTriggerDebtThreshold) {
         gc.runPendingAutoTrigger();
       }
+    }
+
+    if (closeErrorSeen) {
+      throw currentError!;
     }
   }
 
@@ -817,7 +832,7 @@ class Environment extends GCObject {
     };
 
     envValue.setMetatable(proxyHandler);
-    moduleEnv.define("_ENV", envValue);
+    moduleEnv.declare("_ENV", envValue);
 
     Logger.debug(
       "Module environment created with id (${moduleEnv.hashCode})",

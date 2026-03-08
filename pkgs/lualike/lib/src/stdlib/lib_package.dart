@@ -301,11 +301,11 @@ class _LuaLoader extends BuiltinFunction {
             final normalizedModuleDir = path_lib.url.joinAll(
               path_lib.split(path_lib.normalize(moduleDir)),
             );
-            moduleEnv.define('_SCRIPT_PATH', Value(normalizedModulePath));
-            moduleEnv.define('_SCRIPT_DIR', Value(normalizedModuleDir));
+            moduleEnv.declare('_SCRIPT_PATH', Value(normalizedModulePath));
+            moduleEnv.declare('_SCRIPT_DIR', Value(normalizedModuleDir));
 
             // Also set _MODULE_NAME global
-            moduleEnv.define('_MODULE_NAME', Value(name));
+            moduleEnv.declare('_MODULE_NAME', Value(name));
 
             Logger.debug(
               "Module environment set up with _SCRIPT_PATH=$absoluteModulePath, _SCRIPT_DIR=$moduleDir, _MODULE_NAME=$name",

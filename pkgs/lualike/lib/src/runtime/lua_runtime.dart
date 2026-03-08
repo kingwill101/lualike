@@ -81,7 +81,7 @@ abstract interface class LuaRuntime {
   Future<Object?> callFunction(Value function, List<Object?> args);
   Future<Object?> evaluateAst(AstNode node);
   Future<LuaChunkLoadResult> loadChunk(LuaChunkLoadRequest request);
-  Object? dumpFunction(Value function);
+  Object? dumpFunction(Value function, {bool stripDebugInfo = false});
   LuaFunctionDebugInfo? debugInfoForFunction(Value function);
   Value constantStringValue(List<int> bytes);
 

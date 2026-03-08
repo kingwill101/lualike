@@ -32,6 +32,7 @@ import 'package:lualike/src/interpreter/upvalue_assignment.dart';
 import 'package:lualike/src/ir/loop_compiler.dart';
 import 'package:lualike/src/ir/serialization.dart';
 import 'package:lualike/src/ir/vm.dart';
+import 'package:source_span/source_span.dart';
 
 import '../exceptions.dart';
 import '../extensions/extensions.dart';
@@ -149,6 +150,10 @@ class Interpreter extends AstVisitor<Object?>
   @override
   final CallStack callStack = CallStack();
 
+  /// Frames whose environments are unwinding via deferred close handlers
+  /// should be hidden from debug.getinfo level lookups.
+  final Set<Environment> _hiddenDebugFrameEnvs = <Environment>{};
+
   /// Maximum call depth for non-tail calls to simulate Lua's C stack limits.
   /// Tail calls do not grow the stack thanks to tail-call optimization.
   ///
@@ -202,6 +207,39 @@ class Interpreter extends AstVisitor<Object?>
         'current_status': _currentCoroutine?.status.toString(),
       },
     );
+  }
+
+  void hideDebugFrameEnv(Environment env) {
+    _hiddenDebugFrameEnvs.add(env);
+  }
+
+  void unhideDebugFrameEnv(Environment env) {
+    _hiddenDebugFrameEnvs.remove(env);
+  }
+
+  CallFrame? getVisibleFrameAtLevel(int level) {
+    if (level <= 0) {
+      return null;
+    }
+
+    var visibleLevel = 0;
+    for (final frame in callStack.frames.toList().reversed) {
+      final env = frame.env;
+      if (env != null && _hiddenDebugFrameEnvs.contains(env)) {
+        continue;
+      }
+      visibleLevel++;
+      if (visibleLevel == level) {
+        return frame;
+      }
+    }
+    return null;
+  }
+
+  CallFrame? get lastRecordedTraceFrame {
+    final index = (_traceIndex - 1 + _maxTraceFrames) % _maxTraceFrames;
+    final frame = _traceBuffer[index];
+    return frame.callNode != null ? frame : null;
   }
 
   /// Gets the main thread coroutine
@@ -993,8 +1031,11 @@ class Interpreter extends AstVisitor<Object?>
   }
 
   @override
-  Object? dumpFunction(Value function) {
-    return dumpFunctionWithLegacyAstTransport(function);
+  Object? dumpFunction(Value function, {bool stripDebugInfo = false}) {
+    return dumpFunctionWithLegacyAstTransport(
+      function,
+      stripDebugInfo: stripDebugInfo,
+    );
   }
 
   @override

@@ -114,6 +114,31 @@ void main() {
       expect((status as Value).unwrap(), equals("active"));
     });
 
+    test('require keeps top-level _ENV aligned with _G', () async {
+      final bridge = LuaLike();
+
+      bridge.vm.fileManager.registerVirtualFile('tracegc.lua', '''
+        local M = {}
+
+        function M.start()
+          return true
+        end
+
+        return M
+      ''');
+
+      await bridge.execute('''
+        before = (_ENV == _G)
+        local tracegc = require("tracegc")
+        during = tracegc.start()
+        after = (_ENV == _G)
+      ''');
+
+      expect((bridge.getGlobal('before') as Value).unwrap(), isTrue);
+      expect((bridge.getGlobal('during') as Value).unwrap(), isTrue);
+      expect((bridge.getGlobal('after') as Value).unwrap(), isTrue);
+    });
+
     // SKIP: Our implementation doesn't support method chaining
     test('module with method chaining (workaround)', () async {
       final bridge = LuaLike();

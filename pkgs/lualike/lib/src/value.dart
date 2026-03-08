@@ -15,6 +15,14 @@ import 'table_storage.dart';
 /// Represents an asynchronous function that can be called with a list of arguments.
 typedef AsyncFunction = Future<Object?> Function(List<Object?> args);
 
+String _comparisonTypeError(Object? leftRaw, Object? rightRaw) {
+  final leftType = getLuaType(Value(leftRaw));
+  final rightType = getLuaType(Value(rightRaw));
+  return leftType == rightType
+      ? 'attempt to compare two $leftType values'
+      : 'attempt to compare $leftType with $rightType';
+}
+
 /// Represents a value in the LuaLike runtime system.
 ///
 /// Values can hold any Dart object and optionally have an associated metatable
@@ -537,13 +545,23 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       return; // Only close to-be-closed variables with non-false values
     }
 
+    isToBeClose = false;
     final closeMeta = getMetamethod('__close');
+    if (closeMeta == null && raw != null && raw != false) {
+      throw LuaError("attempt to call a nil value (metamethod 'close')");
+    }
+    if (closeMeta is Value && !closeMeta.isCallable()) {
+      throw LuaError(
+        "attempt to call a ${getLuaType(closeMeta)} value (metamethod 'close')",
+      );
+    }
     if (closeMeta != null) {
       try {
-        await callMetamethodAsync('__close', <Value>[
-          this,
-          error is Value ? error : Value(error),
-        ]);
+        final args = <Value>[this];
+        if (error != null) {
+          args.add(error is Value ? error : Value(error));
+        }
+        await callMetamethodAsync('__close', args);
       } catch (e) {
         // Log the error but continue closing other variables
         Logger.error(
@@ -551,7 +569,26 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           category: 'Value',
           error: e,
         );
-        // Re-throw the error after closing
+        if (e is LuaError) {
+          final message = e.message;
+          if (!message.contains("in metamethod 'close'")) {
+            throw LuaError(
+              "$message\nin metamethod 'close'",
+              span: e.span,
+              node: e.node,
+              cause: e.cause,
+              stackTrace: e.stackTrace,
+              luaStackTrace: e.luaStackTrace,
+              hasBeenReported: e.hasBeenReported,
+            );
+          }
+        } else if (e is Value &&
+            (e.raw is String || e.raw is LuaString)) {
+          final message = e.raw.toString();
+          if (!message.contains("in metamethod 'close'")) {
+            throw LuaError("$message\nin metamethod 'close'");
+          }
+        }
         rethrow;
       }
     }
@@ -937,6 +974,15 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       } finally {
         _toStringGuard.remove(objectId);
       }
+    }
+
+    final typeNameMeta = getMetamethod('__name');
+    final rawTypeName = typeNameMeta is Value ? typeNameMeta.raw : typeNameMeta;
+    switch (rawTypeName) {
+      case final String stringName:
+        return "$stringName: ${raw.hashCode}";
+      case final LuaString stringName:
+        return "${stringName.toString()}: ${raw.hashCode}";
     }
 
     if (raw == null) return "Value:<nil>";
@@ -1571,7 +1617,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
 
     if (raw is! Map) {
-      throw LuaError.typeError('attempt to get length of a ${raw.runtimeType}');
+      throw LuaError.typeError(
+        'attempt to get length of a ${getLuaType(raw)} value',
+      );
     }
 
     final map = raw as Map;
@@ -1846,6 +1894,34 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       return interpreter.callFunction(callee, result.args);
     }
 
+    if (method is Value) {
+      if (s == '__index') {
+        if (method.raw is Map) {
+          if (list.length >= 2) {
+            final key = list[1];
+            return method.getValueAsync(key);
+          }
+        } else if (!method.isCallable()) {
+          throw LuaError.typeError(
+            'attempt to index a ${getLuaType(method)} value',
+          );
+        }
+      } else if (s == '__newindex') {
+        if (method.raw is Map) {
+          if (list.length >= 3) {
+            final key = list[1];
+            final value = list[2];
+            await method.setValueAsync(key, value, <Value>{this});
+            return null;
+          }
+        } else if (!method.isCallable()) {
+          throw LuaError.typeError(
+            'attempt to index a ${getLuaType(method)} value',
+          );
+        }
+      }
+    }
+
     if (method is Function) {
       try {
         var result = method(list);
@@ -2062,23 +2138,31 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       return interpreter.callFunction(callee, result.args);
     }
 
-    // Special handling for __index and __newindex when they are tables
-    if (s == '__index' && method is Value && method.raw is Map) {
-      // __index is a table, so do lookup through that table
-      if (list.length >= 2) {
-        final key = list[1];
-        // Use the Value's indexing mechanism to handle potential metamethods
-        final result = method[key];
-
-        return result;
-      }
-    } else if (s == '__newindex' && method is Value && method.raw is Map) {
-      // __newindex is a table, so repeat the assignment on that table and
-      // propagate any asynchronous result up to the caller.
-      if (list.length >= 3) {
-        final key = list[1];
-        final value = list[2];
-        return method.setValueAsync(key, value, <Value>{this});
+    // Special handling for __index and __newindex when they are tables.
+    if (method is Value) {
+      if (s == '__index') {
+        if (method.raw is Map) {
+          if (list.length >= 2) {
+            final key = list[1];
+            return method[key];
+          }
+        } else if (!method.isCallable()) {
+          throw LuaError.typeError(
+            'attempt to index a ${getLuaType(method)} value',
+          );
+        }
+      } else if (s == '__newindex') {
+        if (method.raw is Map) {
+          if (list.length >= 3) {
+            final key = list[1];
+            final value = list[2];
+            return method.setValueAsync(key, value, <Value>{this});
+          }
+        } else if (!method.isCallable()) {
+          throw LuaError.typeError(
+            'attempt to index a ${getLuaType(method)} value',
+          );
+        }
       }
     }
 
@@ -2674,7 +2758,7 @@ extension OperatorExtension on Value {
     final otherRaw = other is Value ? other.raw : other;
 
     if (raw == null || otherRaw == null) {
-      throw LuaError.typeError('Attempt to concatenate a nil value');
+      throw LuaError.typeError('attempt to concatenate a nil value');
     }
 
     LuaString toLuaString(dynamic value) {
@@ -2689,12 +2773,13 @@ extension OperatorExtension on Value {
     final leftIsConcatable = raw is LuaString || raw is String || raw is num;
     final rightIsConcatable =
         otherRaw is LuaString || otherRaw is String || otherRaw is num;
-    if (leftIsConcatable || rightIsConcatable) {
+    if (leftIsConcatable && rightIsConcatable) {
       return Value(toLuaString(raw) + toLuaString(otherRaw));
     }
 
+    final badValue = !leftIsConcatable ? raw : otherRaw;
     throw LuaError.typeError(
-      'Concatenation not supported for these types ${raw.runtimeType} and ${otherRaw.runtimeType}',
+      'attempt to concatenate a ${getLuaType(badValue)} value',
     );
   }
 
@@ -2794,9 +2879,7 @@ extension OperatorExtension on Value {
     if (raw is String && otherRaw is LuaString) {
       return LuaString.fromDartString(raw) > otherRaw;
     }
-    throw UnsupportedError(
-      'attempt to compare ${getLuaType(Value(raw))} with ${getLuaType(Value(otherRaw))}',
-    );
+    throw UnsupportedError(_comparisonTypeError(raw, otherRaw));
   }
 
   dynamic operator <(Object other) {
@@ -2884,9 +2967,7 @@ extension OperatorExtension on Value {
     if (raw is String && otherRaw is LuaString) {
       return LuaString.fromDartString(raw) < otherRaw;
     }
-    throw UnsupportedError(
-      'attempt to compare ${getLuaType(Value(raw))} with ${getLuaType(Value(otherRaw))}',
-    );
+    throw UnsupportedError(_comparisonTypeError(raw, otherRaw));
   }
 
   dynamic operator >=(Object other) {
@@ -2972,9 +3053,7 @@ extension OperatorExtension on Value {
     if (raw is String && otherRaw is LuaString) {
       return LuaString.fromDartString(raw) >= otherRaw;
     }
-    throw UnsupportedError(
-      'attempt to compare ${getLuaType(Value(raw))} with ${getLuaType(Value(otherRaw))}',
-    );
+    throw UnsupportedError(_comparisonTypeError(raw, otherRaw));
   }
 
   dynamic operator <=(Object other) {
@@ -3060,9 +3139,7 @@ extension OperatorExtension on Value {
     if (raw is String && otherRaw is LuaString) {
       return LuaString.fromDartString(raw) <= otherRaw;
     }
-    throw UnsupportedError(
-      'attempt to compare ${getLuaType(Value(raw))} with ${getLuaType(Value(otherRaw))}',
-    );
+    throw UnsupportedError(_comparisonTypeError(raw, otherRaw));
   }
 
   bool equals(Object other) {

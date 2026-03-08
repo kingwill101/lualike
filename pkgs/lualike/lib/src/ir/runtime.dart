@@ -126,7 +126,7 @@ class LualikeIrRuntime implements LuaRuntime {
   }
 
   @override
-  Object? dumpFunction(Value function) {
+  Object? dumpFunction(Value function, {bool stripDebugInfo = false}) {
     _ensureValueInterpreter(function);
     switch (function.raw) {
       case LualikeIrClosure(:final prototype):
@@ -144,7 +144,10 @@ class LualikeIrRuntime implements LuaRuntime {
           ),
         );
     }
-    return dumpFunctionWithLegacyAstTransport(function);
+    return dumpFunctionWithLegacyAstTransport(
+      function,
+      stripDebugInfo: stripDebugInfo,
+    );
   }
 
   @override

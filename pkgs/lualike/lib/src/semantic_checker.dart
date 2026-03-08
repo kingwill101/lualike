@@ -64,6 +64,20 @@ final class GlobalChecker {
       return error;
     }
 
+    final closeIndexes = <int>[];
+    for (var index = 0; index < statement.names.length; index++) {
+      final attribute = index < statement.attributes.length
+          ? statement.attributes[index]
+          : '';
+      if (attribute == 'close') {
+        closeIndexes.add(index);
+      }
+    }
+
+    if (closeIndexes.length > 1) {
+      return ":${_lineOf(statement)}: multiple to-be-closed variables in local declaration";
+    }
+
     for (var index = 0; index < statement.names.length; index++) {
       final attribute = index < statement.attributes.length
           ? statement.attributes[index]
@@ -198,7 +212,7 @@ final class GlobalChecker {
 
     _enterScope();
     for (final name in statement.names) {
-      _currentScope.locals[name.name] = 'const';
+      _currentScope.locals[name.name] = '';
     }
     final bodyError = _visitStatements(statement.body);
     _exitScope();
@@ -248,16 +262,16 @@ final class GlobalChecker {
     return _visitFunctionBody(statement.funcBody);
   }
 
-  String? _visitFunctionBody(
-    FunctionBody body, {
-    bool implicitSelf = false,
-  }) {
+  String? _visitFunctionBody(FunctionBody body, {bool implicitSelf = false}) {
     _enterFunction();
     if (implicitSelf) {
       _currentScope.locals['self'] = '';
     }
     for (final parameter in body.parameters ?? const <Identifier>[]) {
       _currentScope.locals[parameter.name] = '';
+    }
+    if (body.varargName case final Identifier name) {
+      _currentScope.locals[name.name] = '';
     }
     final error = _visitStatements(body.body);
     _exitFunction();
@@ -381,8 +395,10 @@ final class GlobalChecker {
       final resolution = _resolveName(target.name);
       return switch (resolution.kind) {
         _ResolvedNameKind.undeclared => _undeclaredError(target),
-        _ when _isImmutable(resolution.attribute) =>
-          _constAssignmentError(target, target.name),
+        _ when _isImmutable(resolution.attribute) => _constAssignmentError(
+          target,
+          target.name,
+        ),
         _ => null,
       };
     })(),

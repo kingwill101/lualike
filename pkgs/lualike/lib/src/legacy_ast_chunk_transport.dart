@@ -17,6 +17,7 @@ class LegacyAstChunkTransport {
   static const int _binaryPrefix = 0x1B; // ESC character
   static const String _astMarker = "AST:";
   static const String _sourceMarker = "SRC:";
+  static const String _stripDebugInfoKey = "__stripDebugInfo";
   static const int _legacyLua54HeaderSize =
       15 + BinaryTypeSize.j + BinaryTypeSize.n;
   static final List<int> _legacyLua54HeaderPrefix = <int>[
@@ -112,6 +113,7 @@ class LegacyAstChunkTransport {
     FunctionBody functionBody, [
     List<String>? upvalueNames,
     List<dynamic>? upvalueValues,
+    bool stripDebugInfo = false,
   ]) {
     try {
       // Use AST serialization as the source of truth
@@ -128,6 +130,9 @@ class LegacyAstChunkTransport {
       if (upvalueNames != null && upvalueNames.isNotEmpty) {
         dumpData['upvalueNames'] = upvalueNames;
         dumpData['upvalueValues'] = upvalueValues;
+      }
+      if (stripDebugInfo) {
+        dumpData[_stripDebugInfoKey] = true;
       }
 
       final jsonString = jsonEncode(dumpData);
@@ -170,6 +175,7 @@ class LegacyAstChunkTransport {
         originalFunctionBody: null,
         upvalueNames: null,
         upvalueValues: null,
+        strippedDebugInfo: false,
       );
     }
 
@@ -232,6 +238,7 @@ class LegacyAstChunkTransport {
         originalFunctionBody: null,
         upvalueNames: null,
         upvalueValues: null,
+        strippedDebugInfo: false,
       );
     }
 
@@ -244,11 +251,13 @@ class LegacyAstChunkTransport {
         // Extract upvalue information if present
         List<String>? upvalueNames;
         List<dynamic>? upvalueValues;
+        final strippedDebugInfo = data[_stripDebugInfoKey] == true;
         if (data.containsKey('upvalueNames') &&
             data.containsKey('upvalueValues')) {
           upvalueNames = List<String>.from(data['upvalueNames']);
           upvalueValues = data['upvalueValues'];
         }
+        data.remove(_stripDebugInfoKey);
 
         // Reconstruct the function body from the AST data
         final functionBody = undumpAst(data) as FunctionBody;
@@ -259,6 +268,7 @@ class LegacyAstChunkTransport {
           originalFunctionBody: functionBody,
           upvalueNames: upvalueNames,
           upvalueValues: upvalueValues,
+          strippedDebugInfo: strippedDebugInfo,
         );
       } catch (e) {
         Logger.error(
@@ -277,6 +287,7 @@ class LegacyAstChunkTransport {
         originalFunctionBody: null,
         upvalueNames: null,
         upvalueValues: null,
+        strippedDebugInfo: false,
       );
     } else {
       // Unknown format, treat as source code
@@ -286,6 +297,7 @@ class LegacyAstChunkTransport {
         originalFunctionBody: null,
         upvalueNames: null,
         upvalueValues: null,
+        strippedDebugInfo: false,
       );
     }
   }
@@ -303,6 +315,7 @@ class LegacyAstChunkTransport {
         originalFunctionBody: null,
         upvalueNames: null,
         upvalueValues: null,
+        strippedDebugInfo: false,
       );
     }
 
@@ -342,6 +355,7 @@ class LegacyAstChunkTransport {
         originalFunctionBody: null,
         upvalueNames: null,
         upvalueValues: null,
+        strippedDebugInfo: false,
       );
     }
 
@@ -354,10 +368,12 @@ class LegacyAstChunkTransport {
         // Extract upvalue information if present
         final upvalueNames = (data['upvalueNames'] as List?)?.cast<String>();
         final upvalueValues = data['upvalueValues'] as List<dynamic>?;
+        final strippedDebugInfo = data[_stripDebugInfoKey] == true;
 
         // Remove upvalue data from the AST data
         data.remove('upvalueNames');
         data.remove('upvalueValues');
+        data.remove(_stripDebugInfoKey);
 
         // Reconstruct the function body from AST
         final functionBody = FunctionBody.fromDump(data);
@@ -372,6 +388,7 @@ class LegacyAstChunkTransport {
           originalFunctionBody: functionBody,
           upvalueNames: upvalueNames,
           upvalueValues: upvalueValues,
+          strippedDebugInfo: strippedDebugInfo,
         );
       } catch (e) {
         // Since this is a binary chunk, any failure should be treated as truncated
@@ -386,6 +403,7 @@ class LegacyAstChunkTransport {
         originalFunctionBody: null,
         upvalueNames: null,
         upvalueValues: null,
+        strippedDebugInfo: false,
       );
     } else {
       // Unknown format, treat as source
@@ -395,6 +413,7 @@ class LegacyAstChunkTransport {
         originalFunctionBody: null,
         upvalueNames: null,
         upvalueValues: null,
+        strippedDebugInfo: false,
       );
     }
   }
@@ -550,6 +569,7 @@ class LegacyChunkInfo {
   final FunctionBody? originalFunctionBody;
   final List<String>? upvalueNames;
   final List<dynamic>? upvalueValues;
+  final bool strippedDebugInfo;
 
   LegacyChunkInfo({
     required this.source,
@@ -557,11 +577,13 @@ class LegacyChunkInfo {
     required this.originalFunctionBody,
     required this.upvalueNames,
     required this.upvalueValues,
+    required this.strippedDebugInfo,
   });
 
   @override
   String toString() {
     return 'LegacyChunkInfo(source: $source, isStringDumpFunction: $isStringDumpFunction, '
-        'upvalueNames: $upvalueNames, upvalueValues: $upvalueValues)';
+        'upvalueNames: $upvalueNames, upvalueValues: $upvalueValues, '
+        'strippedDebugInfo: $strippedDebugInfo)';
   }
 }

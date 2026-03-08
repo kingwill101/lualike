@@ -4,6 +4,21 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
   // Required getters that must be implemented by the class using this mixin
   Environment get globals;
 
+  Never _throwTableAssignmentTypeError(
+    AstNode tableExpr,
+    Value tableValue,
+    AstNode node,
+  ) {
+    final sourceLabel = _sourceLabelForAst(globals, tableExpr);
+    final type = getLuaType(tableValue);
+    throw LuaError(
+      sourceLabel != null
+          ? "attempt to index $sourceLabel (a $type value)"
+          : "attempt to index a $type value",
+      node: node,
+    );
+  }
+
   Value _detachPrimitiveValue(Value value) {
     final raw = value.raw;
     if (!value.isMulti &&
@@ -353,7 +368,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         return storedValue;
       }
 
-      throw LuaError("Cannot assign to field of non-table value", node: target);
+      _throwTableAssignmentTypeError(target.table, tableValue, target);
     }
 
     throw LuaError("Cannot assign to field of non-Value", node: target);
@@ -393,8 +408,9 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     }
 
     // Check if there's a custom _ENV that is different from the initial _G
-    final envValue = globals.get('_ENV');
-    final gValue = globals.get('_G');
+    final interpreter = this as Interpreter;
+    final envValue = _resolveActiveEnvValue(interpreter);
+    final gValue = _resolveActiveGlobalValue(interpreter);
     Logger.debug(
       "ENV assign context: name=$name, _ENV=$envValue (rawType: ${envValue is Value ? envValue.raw.runtimeType : envValue?.runtimeType}), _G=$gValue (rawType: ${gValue is Value ? gValue.raw.runtimeType : gValue?.runtimeType})",
       category: 'Assignment',
@@ -428,13 +444,8 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     }
 
     final bool useCustomEnv =
-        (isInLoadIsolatedContext &&
-            envValue is Value &&
-            envValue.raw != null) ||
-        (envValue is Value &&
-            envValue.raw != null &&
-            gValue is Value &&
-            envValue != gValue);
+        (isInLoadIsolatedContext && envValue?.raw != null) ||
+        (envValue?.raw != null && gValue != null && envValue != gValue);
     Logger.debug(
       "Assignment: isLoadIsolated=${globals.isLoadIsolated}, isInLoadIsolatedContext=$isInLoadIsolatedContext, envValue is Value=${envValue is Value}, gValue is Value=${gValue is Value}, envValue != gValue=${envValue is Value && gValue is Value ? envValue != gValue : 'N/A'}, useCustomEnv=$useCustomEnv",
       category: 'Assignment',
@@ -466,6 +477,14 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         env = env.parent;
       }
 
+      final envTarget = envValue;
+      if (envTarget == null || envTarget.raw == null) {
+        throw LuaError(
+          "attempt to index a nil value ('_ENV')",
+          node: target,
+        );
+      }
+
       // If no local variable found, use _ENV for global assignment
       Logger.debug(
         'Using custom _ENV for variable assignment: $name',
@@ -478,7 +497,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         context: {'name': name},
       );
       // This will correctly handle tables, metamethods, or throw for non-tables
-      await envValue.setValueAsync(name, storedValue);
+      await envTarget.setValueAsync(name, storedValue);
       Logger.debug(
         'Assignment: setValueAsync completed for $name',
         category: 'Assignment',
@@ -660,7 +679,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         return storedValue;
       }
 
-      throw LuaError("Cannot assign to field of non-table value", node: target);
+      _throwTableAssignmentTypeError(target.table, tableValue, target);
     }
 
     throw LuaError("Cannot assign to field of non-Value", node: target);
@@ -779,7 +798,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         return storedValue;
       }
 
-      throw LuaError("Cannot assign to field of non-table value", node: target);
+      _throwTableAssignmentTypeError(target.table, tableValue, target);
     }
 
     throw LuaError("Cannot assign to field of non-Value", node: target);
@@ -940,9 +959,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         // Verify the value has a __close metamethod if it's not nil or false
         if (rawValue.raw != null && rawValue.raw != false) {
           if (!valueWithAttributes.hasMetamethod('__close')) {
-            throw UnsupportedError(
-              "to-be-closed variable value must have a __close metamethod",
-            );
+            throw LuaError("variable '$name' got a non-closable value");
           }
         }
       } else {
@@ -999,9 +1016,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
             // Verify the value has a __close metamethod if it's not nil or false
             if (rawValue.raw != null && rawValue.raw != false) {
               if (!valueWithAttributes.hasMetamethod('__close')) {
-                throw UnsupportedError(
-                  "to-be-closed variable value must have a __close metamethod",
-                );
+                throw LuaError("variable '$name' got a non-closable value");
               }
             }
           } else {
@@ -1010,9 +1025,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
             // Verify the value has a __close metamethod if it's not nil or false
             if (rawValue != null && rawValue != false) {
               if (!valueWithAttributes.hasMetamethod('__close')) {
-                throw UnsupportedError(
-                  "to-be-closed variable value must have a __close metamethod",
-                );
+                throw LuaError("variable '$name' got a non-closable value");
               }
             }
           }

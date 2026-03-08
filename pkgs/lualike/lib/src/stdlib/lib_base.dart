@@ -319,6 +319,43 @@ class AssertFunction extends BuiltinFunction {
 // Static flag to track if an error is already being reported
 bool _errorReporting = false;
 
+Object? _normalizeProtectedCallError(Object error) {
+  if (error is Value) {
+    if (error.raw is Value) {
+      return _normalizeProtectedCallError(error.raw);
+    }
+    return error.raw == null ? "<no error object>" : error;
+  }
+  if (error is LuaError) {
+    return error.message;
+  }
+  return error.toString();
+}
+
+String _formatProtectedCallMessage(LuaRuntime interpreter, String message) {
+  final topFrame = interpreter.callStack.top;
+  final traceFrame = interpreter is Interpreter
+      ? interpreter.lastRecordedTraceFrame
+      : null;
+  final line = switch (topFrame?.currentLine) {
+    final currentLine when currentLine != null && currentLine > 0 => currentLine,
+    _ => traceFrame?.currentLine ?? -1,
+  };
+  final scriptPath =
+      topFrame?.scriptPath ??
+      traceFrame?.scriptPath ??
+      interpreter.callStack.scriptPath ??
+      interpreter.currentScriptPath;
+
+  if (scriptPath != null && line > 0) {
+    return '$scriptPath:$line: $message';
+  }
+  if (scriptPath != null) {
+    return '$scriptPath: $message';
+  }
+  return message;
+}
+
 class ErrorFunction extends BuiltinFunction {
   ErrorFunction(super.interpreter);
 
@@ -332,17 +369,37 @@ class ErrorFunction extends BuiltinFunction {
     // Get the error value
     final errorValue = args[0] as Value;
 
-    // If we're in a protected call (pcall/xpcall), always throw the Value directly
-    if (interpreter != null && interpreter!.isInProtectedCall) {
-      throw errorValue;
-    }
-
     // If the error value is a table, preserve it
     if (errorValue.raw is Map) {
       throw errorValue; // Throw the Value directly instead of converting to Exception
     }
 
     final message = errorValue.raw.toString();
+    final level = args.length > 1 && args[1] is Value
+        ? (args[1] as Value).raw
+        : null;
+    final suppressLocation = switch (level) {
+      final int numericLevel => numericLevel <= 0,
+      final double numericLevel => numericLevel <= 0,
+      _ => false,
+    };
+
+    if (suppressLocation) {
+      throw LuaError(message);
+    }
+
+    // In protected calls, preserve table-like error objects directly, but keep
+    // string errors in their usual Lua "file:line: message" form unless the
+    // caller explicitly suppressed location with level 0.
+    if (interpreter != null && interpreter!.isInProtectedCall) {
+      if (errorValue.raw is Map) {
+        throw errorValue;
+      }
+      if (errorValue.raw is String || errorValue.raw is LuaString) {
+        throw LuaError(_formatProtectedCallMessage(interpreter!, message));
+      }
+      throw errorValue;
+    }
 
     // If we're already reporting an error, just throw the exception
     // without calling reportError again
@@ -600,6 +657,14 @@ class ToStringFunction extends BuiltinFunction {
     if (value.raw is String || value.raw is LuaString) {
       return Value(value.raw.toString());
     }
+    final typeNameMeta = value.getMetamethod('__name');
+    final rawTypeName = typeNameMeta is Value ? typeNameMeta.raw : typeNameMeta;
+    switch (rawTypeName) {
+      case final String stringName:
+        return Value("$stringName: ${value.raw.hashCode}");
+      case final LuaString stringName:
+        return Value("${stringName.toString()}: ${value.raw.hashCode}");
+    }
     if (value.raw is Map) return Value("table: ${value.raw.hashCode}");
     if (value.raw is Function || value.raw is BuiltinFunction) {
       return Value("function: ${value.raw.hashCode}");
@@ -678,13 +743,23 @@ class LoadFunction extends BuiltinFunction {
     if (source is! Value) {
       throw LuaError("load() first argument must be a string");
     }
-    final chunkname = args.length > 1
-        ? (args[1] as Value).raw.toString()
-        : "=(load)";
-    final mode = args.length > 2
-        ? ((args[2] as Value).raw?.toString() ?? 'bt')
-        : 'bt';
-    final providedEnv = args.length > 3 ? args[3] as Value : null;
+    final nameArg = args.length > 1 ? args[1] as Value : null;
+    final modeArg = args.length > 2 ? args[2] as Value : null;
+    final envArg = args.length > 3 ? args[3] as Value : null;
+
+    final defaultChunkName = switch (source.raw) {
+      String() || LuaString() => source.raw.toString(),
+      _ => "=(load)",
+    };
+    final chunkname = switch (nameArg?.raw) {
+      null => defaultChunkName,
+      _ => nameArg!.raw.toString(),
+    };
+    final mode = switch (modeArg?.raw) {
+      null => 'bt',
+      _ => modeArg!.raw.toString(),
+    };
+    final providedEnv = envArg?.isNil ?? true ? null : envArg;
     final runtime = interpreter;
     if (runtime == null) {
       throw LuaError("No interpreter context available");
@@ -1171,11 +1246,7 @@ class PCAllFunction extends BuiltinFunction {
         () => 'pcall caught error: $e (${e.runtimeType})',
         category: 'Debug',
       );
-      final errorValue = e is Value
-          ? e
-          : e is LuaError
-          ? e.message
-          : e.toString();
+      final errorValue = _normalizeProtectedCallError(e);
       return Value.multi([false, errorValue]);
     } finally {
       // Exit protected call context
@@ -1320,9 +1391,10 @@ class XPCallFunction extends BuiltinFunction {
     } catch (e) {
       // Call the message handler with the error (protected)
       try {
-        final errorValue = e is Value
-            ? (e.raw is Value ? e.raw : e)
-            : Value(e.toString());
+        final normalizedError = _normalizeProtectedCallError(e);
+        final errorValue = normalizedError is Value
+            ? normalizedError
+            : Value(normalizedError);
         final handlerResult = await interpreter!.callFunction(msgh, [
           errorValue,
         ]);
@@ -1854,12 +1926,12 @@ class RequireFunction extends BuiltinFunction {
           Logger.debug(
             'Require: setting module env paths _SCRIPT_PATH(norm)=$normalizedModulePath, _SCRIPT_DIR(norm)=$normalizedModuleDir | originals: path=$absoluteModulePath, dir=$moduleDir',
           );
-          moduleEnv.define('_SCRIPT_PATH', Value(normalizedModulePath));
-          moduleEnv.define('_SCRIPT_DIR', Value(normalizedModuleDir));
+          moduleEnv.declare('_SCRIPT_PATH', Value(normalizedModulePath));
+          moduleEnv.declare('_SCRIPT_DIR', Value(normalizedModuleDir));
 
           // Also set _MODULE_NAME global
-          moduleEnv.define('_MODULE_NAME', Value(moduleName));
-          moduleEnv.define('_MAIN_CHUNK', Value(false));
+          moduleEnv.declare('_MODULE_NAME', Value(moduleName));
+          moduleEnv.declare('_MAIN_CHUNK', Value(false));
 
           // Preserve existing varargs and provide new ones with module name and path
           final oldVarargs = moduleEnv.contains('...')

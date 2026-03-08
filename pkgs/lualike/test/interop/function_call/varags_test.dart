@@ -88,6 +88,46 @@ void main() {
         expect((result2 as Value).unwrap(), equals(3));
       });
 
+      test('named vararg table packs values and count', () async {
+        final bridge = LuaLike();
+
+        await bridge.execute('''
+          function namedVarargs(...t)
+            return select("#", ...), t.n, t[1], t[2] == nil, t[3]
+          end
+
+          countArgs, countTable, first, secondIsNil, third = namedVarargs(10, nil, 30)
+        ''');
+
+        expect((bridge.getGlobal('countArgs') as Value).unwrap(), equals(3));
+        expect((bridge.getGlobal('countTable') as Value).unwrap(), equals(3));
+        expect((bridge.getGlobal('first') as Value).unwrap(), equals(10));
+        expect(
+          (bridge.getGlobal('secondIsNil') as Value).unwrap(),
+          equals(true),
+        );
+        expect((bridge.getGlobal('third') as Value).unwrap(), equals(30));
+      });
+
+      test('debug.getinfo counts named vararg tables as vararg only', () async {
+        final bridge = LuaLike();
+
+        await bridge.execute('''
+          local info = debug.getinfo(function(a, b, ...t)
+            t.n = 2
+            return t[a]
+          end, "u")
+
+          nparams = info.nparams
+          isvararg = info.isvararg
+          nups = info.nups
+        ''');
+
+        expect((bridge.getGlobal('nparams') as Value).unwrap(), equals(2));
+        expect((bridge.getGlobal('isvararg') as Value).unwrap(), equals(true));
+        expect((bridge.getGlobal('nups') as Value).unwrap(), equals(0));
+      });
+
       test('named parameters with comma before vararg', () async {
         final bridge = LuaLike();
 
