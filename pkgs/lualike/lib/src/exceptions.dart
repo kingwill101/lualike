@@ -31,8 +31,9 @@ class ReturnException extends ControlFlowException {
 class TailCallException extends ControlFlowException {
   final dynamic functionValue; // Value | Function* variants | BuiltinFunction
   final List<Object?> args; // Already normalized argument list
+  final String? callName;
 
-  TailCallException(this.functionValue, this.args);
+  TailCallException(this.functionValue, this.args, {this.callName});
 
   @override
   String toString() =>
