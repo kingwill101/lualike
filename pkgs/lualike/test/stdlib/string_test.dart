@@ -142,6 +142,72 @@ void main() {
       ); // "o." not found as plain text
     });
 
+    test('string.find honors anchored start patterns', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        start_i, start_j = string.find("alo123alo", "^12")
+        any_i, any_j = string.find("alo123alo", "12")
+      ''');
+
+      expect((bridge.getGlobal('start_i') as Value).raw, isNull);
+      expect((bridge.getGlobal('start_j') as Value).raw, isNull);
+      expect((bridge.getGlobal('any_i') as Value).raw, equals(4));
+      expect((bridge.getGlobal('any_j') as Value).raw, equals(5));
+    });
+
+    test('string.match handles lazy repetition with end anchor', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        lazy_all = string.match("aaa", "^.-$")
+      ''');
+
+      expect((bridge.getGlobal('lazy_all') as Value).raw, equals("aaa"));
+    });
+
+    test('pattern helpers preserve utf8 bytes through gsub and find', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        local function PU(p)
+          p = string.gsub(p, "(" .. utf8.charpattern .. ")%?", function (c)
+            return string.gsub(c, ".", "%0?")
+          end)
+          p = string.gsub(p, "%.", utf8.charpattern)
+          return p
+        end
+
+        local p = PU("á?")
+        utf8_find_i, utf8_find_j = string.find("á", p)
+      ''');
+
+      expect((bridge.getGlobal('utf8_find_i') as Value).raw, equals(1));
+      expect((bridge.getGlobal('utf8_find_j') as Value).raw, equals(2));
+    });
+
+    test('string.find allows ] as the first character in a bracket class', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        bracket_match = string.match("]]]áb", "[^]]+")
+      ''');
+
+      expect(
+        (bridge.getGlobal('bracket_match') as Value).raw.toString(),
+        equals("áb"),
+      );
+    });
+
+    test('string balanced patterns support identical delimiters', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        balanced_i, balanced_j = string.find("alo 'oi' alo", "%b''")
+        balanced_gsub, balanced_count = string.gsub("alo 'oi' alo", "%b''", '"')
+      ''');
+
+      expect((bridge.getGlobal('balanced_i') as Value).raw, equals(5));
+      expect((bridge.getGlobal('balanced_j') as Value).raw, equals(8));
+      expect((bridge.getGlobal('balanced_gsub') as Value).unwrap(), equals('alo " alo'));
+      expect((bridge.getGlobal('balanced_count') as Value).unwrap(), equals(1));
+    });
+
     test('string.find with captures', () async {
       final bridge = LuaLike();
       await bridge.execute('''
@@ -194,6 +260,16 @@ void main() {
       expect((bridge.getGlobal('n3') as Value).raw, equals(4));
     });
 
+    test('string.gsub uses whole match for %1 when there are no captures', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        s, n = string.gsub("abc", "%w", "%1%0")
+      ''');
+
+      expect((bridge.getGlobal('s') as Value).unwrap().toString(), equals("aabbcc"));
+      expect((bridge.getGlobal('n') as Value).unwrap(), equals(3));
+    });
+
     test('string.gsub zero-length pattern', () async {
       final bridge = LuaLike();
       await bridge.execute('''
@@ -222,6 +298,24 @@ void main() {
       expect((bridge.getGlobal('incd_result') as Value).unwrap(), equals("9223372036854775808"));
       expect((bridge.getGlobal('incd_ok') as Value).unwrap(), isTrue);
       expect((bridge.getGlobal('tonumber_ok') as Value).unwrap(), isTrue);
+    });
+
+    test('string.gsub callable replacement preserves original text on nil return', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        seen = {}
+        original, replacements = string.gsub("a alo jose  joao", "()(%w+)()", function (a, w, b)
+          seen[a] = b - a
+        end)
+      ''');
+
+      expect((bridge.getGlobal('original') as Value).unwrap(), equals("a alo jose  joao"));
+      expect((bridge.getGlobal('replacements') as Value).unwrap(), equals(4));
+      final seen = (bridge.getGlobal('seen') as Value).raw as Map;
+      expect((seen[1] as Value).raw, equals(1));
+      expect((seen[3] as Value).raw, equals(3));
+      expect((seen[7] as Value).raw, equals(4));
+      expect((seen[13] as Value).raw, equals(4));
     });
 
     test('string.gmatch', () async {

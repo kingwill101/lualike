@@ -33,6 +33,412 @@ lpc.LuaPattern _compileLuaPatternCached(String pattern) {
   return compiled;
 }
 
+bool _isAnchoredLazyWholeStringPattern(String pattern) => pattern == r'^.-$';
+
+bool _isAnchoredWhitespaceTrimCapturePattern(String pattern) =>
+    pattern == r'^%s*(.-)%s*$';
+
+Match? _matchAnchoredWhitespaceTrimCapture(String input) =>
+    RegExp(r'^\s*(.*?)\s*$', dotAll: true).firstMatch(input);
+
+bool _containsNonAscii(String value) => value.codeUnits.any((unit) => unit > 0x7F);
+
+bool _shouldUseBytePatternProcessing(dynamic subject, dynamic pattern) =>
+    subject is LuaString ||
+    pattern is LuaString ||
+    (subject is String && _containsNonAscii(subject)) ||
+    (pattern is String && _containsNonAscii(pattern));
+
+String _toPatternProcessingString(dynamic value, {required bool byteLevel}) {
+  if (!byteLevel) {
+    return value is LuaString ? value.toString() : value.toString();
+  }
+
+  final bytes = switch (value) {
+    LuaString luaString => luaString.bytes,
+    String string => Uint8List.fromList(convert.utf8.encode(string)),
+    _ => Uint8List.fromList(convert.utf8.encode(value.toString())),
+  };
+  return String.fromCharCodes(bytes);
+}
+
+String _stringifyPatternReplacement(dynamic value, {required bool byteLevel}) {
+  final raw = value is Value ? value.raw : value;
+  if (!byteLevel) {
+    return raw.toString();
+  }
+  return _toPatternProcessingString(raw, byteLevel: true);
+}
+
+dynamic _collapsePatternReplacementResult(dynamic value) {
+  if (value is Value && value.isMulti) {
+    final raw = value.raw;
+    if (raw is List && raw.isNotEmpty) {
+      return raw.first;
+    }
+    return Value(null);
+  }
+  if (value is List) {
+    return value.isNotEmpty ? value.first : Value(null);
+  }
+  return value;
+}
+
+String _gsubReplacementTypeName(dynamic value) {
+  final raw = value is Value ? value.raw : value;
+  return switch (raw) {
+    Map _ => 'table',
+    Function _ => 'function',
+    bool _ => 'boolean',
+    null => 'nil',
+    _ => NumberUtils.typeName(raw),
+  };
+}
+
+dynamic _validateGsubReplacementValue(dynamic value) {
+  final raw = value is Value ? value.raw : value;
+  if (raw == null || raw == false) {
+    return raw;
+  }
+  if (raw is String || raw is LuaString || raw is num || raw is BigInt) {
+    return raw;
+  }
+  throw LuaError(
+    'invalid replacement value (a ${_gsubReplacementTypeName(raw)})',
+  );
+}
+
+String _applyGsubReplacementTemplate(String template, lpc.LuaMatch match) {
+  final buffer = StringBuffer();
+  var index = 0;
+  while (index < template.length) {
+    final ch = template[index];
+    if (ch != '%') {
+      buffer.write(ch);
+      index++;
+      continue;
+    }
+    if (index + 1 >= template.length) {
+      throw LuaError("invalid use of '%'");
+    }
+    final next = template[index + 1];
+    if (next == '%') {
+      buffer.write('%');
+      index += 2;
+      continue;
+    }
+    final digit = int.tryParse(next);
+    if (digit == null) {
+      throw LuaError("invalid use of '%'");
+    }
+    final replacement = switch (digit) {
+      0 => match.match,
+      1 when match.captures.isEmpty => match.match,
+      _ when digit > match.captures.length =>
+        throw LuaError('invalid capture index %$digit'),
+      _ => match.captures[digit - 1] ?? '',
+    };
+    buffer.write(replacement);
+    index += 2;
+  }
+  return buffer.toString();
+}
+
+Value _valueFromPatternSlice(String value, {required bool byteLevel}) {
+  if (!byteLevel) {
+    return Value(value);
+  }
+  return Value(LuaString.fromBytes(Uint8List.fromList(value.codeUnits)));
+}
+
+class _RegexBackreferencePattern {
+  _RegexBackreferencePattern(this.regex, this.positionCaptureKinds);
+
+  final RegExp regex;
+  final Map<int, _PositionCaptureKind> positionCaptureKinds;
+}
+
+enum _PositionCaptureKind { start, end }
+
+String? _regexClassForLuaClass(String letter) {
+  final lower = letter.toLowerCase();
+  final cls = switch (lower) {
+    'a' => 'A-Za-z',
+    'd' => '0-9',
+    'l' => 'a-z',
+    'u' => 'A-Z',
+    'w' => '0-9A-Za-z_',
+    'x' => '0-9A-Fa-f',
+    'z' => r'\x00',
+    's' => r'\s',
+    'p' => r"""!-/:-@\[-`{-~""",
+    _ => null,
+  };
+  if (cls == null) {
+    return null;
+  }
+  if (lower == 's') {
+    return letter == lower ? cls : r'\S';
+  }
+  return letter == lower ? '[$cls]' : '[^$cls]';
+}
+
+_RegexBackreferencePattern? _translateLuaBackreferencePattern(String pattern) {
+  final regex = StringBuffer();
+  final positionCaptureKinds = <int, _PositionCaptureKind>{};
+  var captureCount = 0;
+  var index = 0;
+
+  while (index < pattern.length) {
+    final ch = pattern[index];
+
+    if (ch == '[') {
+      final classBuffer = StringBuffer('[');
+      index++;
+      if (index < pattern.length && pattern[index] == '^') {
+        classBuffer.write('^');
+        index++;
+      }
+      if (index < pattern.length && pattern[index] == ']') {
+        classBuffer.write(r'\]');
+        index++;
+      }
+      while (index < pattern.length && pattern[index] != ']') {
+        if (pattern[index] == '%' && index + 1 < pattern.length) {
+          final translated = _regexClassForLuaClass(pattern[index + 1]);
+          if (translated != null) {
+            final classBody = translated.startsWith('[')
+                ? translated.substring(1, translated.length - 1)
+                : translated;
+            classBuffer.write(classBody);
+            index += 2;
+            continue;
+          }
+          classBuffer.write(RegExp.escape(pattern[index + 1]));
+          index += 2;
+          continue;
+        }
+        classBuffer.write(pattern[index]);
+        index++;
+      }
+      if (index >= pattern.length) {
+        return null;
+      }
+      classBuffer.write(']');
+      regex.write(classBuffer.toString());
+      index++;
+      continue;
+    }
+
+    if (ch == '%') {
+      if (index + 1 >= pattern.length) {
+        return null;
+      }
+      final next = pattern[index + 1];
+      if (RegExp(r'[1-9]').hasMatch(next)) {
+        regex.write(r'\');
+        regex.write(next);
+        index += 2;
+        continue;
+      }
+      final translated = _regexClassForLuaClass(next);
+      if (translated != null) {
+        regex.write(translated);
+        index += 2;
+        continue;
+      }
+      if (next == 'b' || next == 'f') {
+        return null;
+      }
+      regex.write(RegExp.escape(next));
+      index += 2;
+      continue;
+    }
+
+    if (ch == '(') {
+      if (index + 1 < pattern.length && pattern[index + 1] == ')') {
+        captureCount++;
+        final remaining = pattern.substring(index + 2);
+        final atLeadingPosition = regex.isEmpty || regex.toString() == '^';
+        final atTrailingPosition = remaining.isEmpty || remaining == r'$';
+        if (!atLeadingPosition && !atTrailingPosition) {
+          return null;
+        }
+        positionCaptureKinds[captureCount] = atLeadingPosition
+            ? _PositionCaptureKind.start
+            : _PositionCaptureKind.end;
+        regex.write('()');
+        index += 2;
+        continue;
+      }
+      captureCount++;
+      regex.write('(');
+      index++;
+      continue;
+    }
+
+    if (ch == ')') {
+      regex.write(')');
+      index++;
+      continue;
+    }
+
+    if (ch == '.') {
+      regex.write(r'[\s\S]');
+      index++;
+      continue;
+    }
+
+    if (ch == '*') {
+      regex.write('*');
+      index++;
+      continue;
+    }
+
+    if (ch == '+') {
+      regex.write('+');
+      index++;
+      continue;
+    }
+
+    if (ch == '?') {
+      regex.write('?');
+      index++;
+      continue;
+    }
+
+    if (ch == '-') {
+      regex.write('*?');
+      index++;
+      continue;
+    }
+
+    if (ch == '^' && index == 0) {
+      regex.write('^');
+      index++;
+      continue;
+    }
+
+    if (ch == r'$' && index == pattern.length - 1) {
+      regex.write(r'$');
+      index++;
+      continue;
+    }
+
+    regex.write(RegExp.escape(ch));
+    index++;
+  }
+
+  return _RegexBackreferencePattern(
+    RegExp(regex.toString(), dotAll: true),
+    positionCaptureKinds,
+  );
+}
+
+bool _shouldPreferRegexPatternEngine({
+  required String subject,
+  required String pattern,
+  required bool byteLevel,
+}) =>
+    !byteLevel &&
+    subject.length >= 8192 &&
+    _translateLuaBackreferencePattern(pattern) != null;
+
+({bool supported, int? start, int? end})? _tryFastAnchoredLiteralTailFind(
+  String subject,
+  String pattern, {
+  required int start,
+}) {
+  if (start != 0 || !pattern.startsWith('^') || !pattern.endsWith(r'$')) {
+    return null;
+  }
+  if (pattern.length case final len when len != 6 && len != 7) {
+    return null;
+  }
+  final repeatedLiteral = pattern[1];
+  final repetition = pattern[2];
+  if ((repetition != '*' && repetition != '-') ||
+      pattern[3] != '.' ||
+      pattern[4] != '?') {
+    return null;
+  }
+
+  bool allButMaybeLastMatch() {
+    if (subject.isEmpty) {
+      return true;
+    }
+    for (var index = 0; index < subject.length - 1; index++) {
+      if (subject[index] != repeatedLiteral) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  if (pattern.length == 6) {
+    return allButMaybeLastMatch()
+        ? (supported: true, start: 1, end: subject.length)
+        : (supported: true, start: null, end: null);
+  }
+
+  final suffixLiteral = pattern[5];
+  if (subject.isEmpty || subject[subject.length - 1] != suffixLiteral) {
+    return (supported: true, start: null, end: null);
+  }
+  if (subject.length == 1) {
+    return (supported: true, start: 1, end: 1);
+  }
+
+  for (var index = 0; index < subject.length - 2; index++) {
+    if (subject[index] != repeatedLiteral) {
+      return (supported: true, start: null, end: null);
+    }
+  }
+  return (supported: true, start: 1, end: subject.length);
+}
+
+List<Value> _capturesFromRegexMatch(
+  Match match,
+  _RegexBackreferencePattern translation, {
+  required bool byteLevel,
+}) {
+  final captures = <Value>[];
+  for (var groupIndex = 1; groupIndex <= match.groupCount; groupIndex++) {
+    final positionKind = translation.positionCaptureKinds[groupIndex];
+    if (positionKind != null) {
+      captures.add(
+        Value(
+          switch (positionKind) {
+            _PositionCaptureKind.start => match.start + 1,
+            _PositionCaptureKind.end => match.end + 1,
+          },
+        ),
+      );
+      continue;
+    }
+    final capture = match.group(groupIndex);
+    captures.add(
+      capture == null
+          ? Value(null)
+          : _valueFromPatternSlice(capture, byteLevel: byteLevel),
+    );
+  }
+  return captures;
+}
+
+int _requireIntegerRepresentation(dynamic value) {
+  final integer = NumberUtils.tryToInteger(value);
+  if (integer != null) {
+    return integer;
+  }
+  if (value is num || value is BigInt || value is String || value is LuaString) {
+    throw LuaError('number has no integer representation');
+  }
+  throw LuaError.typeError(
+    'number expected, got ${NumberUtils.typeName(value)}',
+  );
+}
+
 /// String library implementation using the new Library system
 class StringLibrary extends Library {
   @override
@@ -158,7 +564,11 @@ class _StringDump extends BuiltinFunction {
     if (runtime == null) {
       throw LuaError("No interpreter context available");
     }
-    return Value(runtime.dumpFunction(func));
+    final stripDebugInfo =
+        args.length > 1 && (args[1] as Value).isTruthy();
+    return Value(
+      runtime.dumpFunction(func, stripDebugInfo: stripDebugInfo),
+    );
   }
 }
 
@@ -171,15 +581,14 @@ class _StringFind extends BuiltinFunction {
       throw LuaError.typeError("string.find requires a string and a pattern");
     }
 
-    // Use toLatin1String for pattern processing to preserve raw bytes
     final strValue = (args[0] as Value).raw;
-    final str = strValue is LuaString
-        ? strValue.toLatin1String()
-        : strValue.toString();
     final patternValue = (args[1] as Value).raw;
-    final pattern = patternValue is LuaString
-        ? patternValue.toLatin1String()
-        : patternValue.toString();
+    final useByteLevel = _shouldUseBytePatternProcessing(strValue, patternValue);
+    final str = _toPatternProcessingString(strValue, byteLevel: useByteLevel);
+    final pattern = _toPatternProcessingString(
+      patternValue,
+      byteLevel: useByteLevel,
+    );
     var init = args.length > 2 ? NumberUtils.toInt((args[2] as Value).raw) : 1;
     var start = init < 0 ? str.length + init + 1 : init;
     if (start < 1) start = 1;
@@ -197,6 +606,34 @@ class _StringFind extends BuiltinFunction {
       return Value.multi([Value(start + 1), Value(start)]);
     }
 
+    if (_isAnchoredLazyWholeStringPattern(pattern)) {
+      return Value.multi([Value(start + 1), Value(str.length)]);
+    }
+
+    final fastFind = _tryFastAnchoredLiteralTailFind(
+      str,
+      pattern,
+      start: start,
+    );
+    if (fastFind case final match?) {
+      if (match.start == null || match.end == null) {
+        return Value(null);
+      }
+      return Value.multi([Value(match.start!), Value(match.end!)]);
+    }
+
+    if (_isAnchoredWhitespaceTrimCapturePattern(pattern) && start == 0) {
+      final trimMatch = _matchAnchoredWhitespaceTrimCapture(str);
+      if (trimMatch == null) {
+        return Value(null);
+      }
+      return Value.multi([
+        Value(1),
+        Value(str.length),
+        _valueFromPatternSlice(trimMatch.group(1) ?? '', byteLevel: useByteLevel),
+      ]);
+    }
+
     if (plain) {
       final index = str.indexOf(pattern, start);
       if (index == -1) return Value(null);
@@ -204,15 +641,89 @@ class _StringFind extends BuiltinFunction {
     }
 
     try {
+      bool isEscaped(int index) =>
+          index > 0 && pattern[index - 1] == '%' && !isEscaped(index - 1);
+      final anchoredStart = pattern.startsWith('^') && !isEscaped(0);
+      final preferredRegex = _shouldPreferRegexPatternEngine(
+        subject: str,
+        pattern: pattern,
+        byteLevel: useByteLevel,
+      )
+          ? _translateLuaBackreferencePattern(pattern)
+          : null;
+      if (preferredRegex != null) {
+        final regexMatch =
+            preferredRegex.regex.matchAsPrefix(str, start) ??
+            preferredRegex.regex.firstMatch(str.substring(start));
+        if (regexMatch == null) {
+          return Value(null);
+        }
+        final absoluteStart =
+            regexMatch.start + (regexMatch.input == str ? 0 : start);
+        final absoluteEnd = regexMatch.end + (regexMatch.input == str ? 0 : start);
+        if (anchoredStart && absoluteStart != start) {
+          return Value(null);
+        }
+        if (regexMatch.groupCount == 0) {
+          return Value.multi([Value(absoluteStart + 1), Value(absoluteEnd)]);
+        }
+        final captures = _capturesFromRegexMatch(
+          regexMatch,
+          preferredRegex,
+          byteLevel: useByteLevel,
+        );
+        return Value.multi([
+          Value(absoluteStart + 1),
+          Value(absoluteEnd),
+          ...captures,
+        ]);
+      }
       final lp = _compileLuaPatternCached(pattern);
       final match = lp.firstMatch(str, start);
-      if (match == null) return Value(null);
+      if (match == null) {
+        final regexBackref = _translateLuaBackreferencePattern(pattern);
+        if (regexBackref == null) {
+          return Value(null);
+        }
+        final regexMatch =
+            regexBackref.regex.matchAsPrefix(str, start) ??
+            regexBackref.regex.firstMatch(str.substring(start));
+        if (regexMatch == null) {
+          return Value(null);
+        }
+        final absoluteStart =
+            regexMatch.start + (regexMatch.input == str ? 0 : start);
+        final absoluteEnd = regexMatch.end + (regexMatch.input == str ? 0 : start);
+        if (regexMatch.groupCount == 0) {
+          return Value.multi([Value(absoluteStart + 1), Value(absoluteEnd)]);
+        }
+        final captures = _capturesFromRegexMatch(
+          regexMatch,
+          regexBackref,
+          byteLevel: useByteLevel,
+        );
+        return Value.multi([
+          Value(absoluteStart + 1),
+          Value(absoluteEnd),
+          ...captures,
+        ]);
+      }
+      if (anchoredStart && match.start != start) {
+        return Value(null);
+      }
 
       final startPos = match.start + 1;
       final endPos = match.end;
       final results = [Value(startPos), Value(endPos)];
-      for (final cap in match.captures) {
-        results.add(cap == null ? Value(null) : Value(cap));
+      for (var index = 0; index < match.captures.length; index++) {
+        final cap = match.captures[index];
+        results.add(
+          cap == null
+              ? Value(null)
+              : match.positionCaptureIndexes.contains(index)
+              ? Value(int.parse(cap))
+              : _valueFromPatternSlice(cap, byteLevel: useByteLevel),
+        );
       }
       if (match.captures.isNotEmpty) {
         return Value.multi(results);
@@ -1095,6 +1606,7 @@ class _StringGmatch extends BuiltinFunction {
 
     final strValue = (args[0] as Value).raw;
     final patternValue = (args[1] as Value).raw;
+    var init = args.length > 2 ? NumberUtils.toInt((args[2] as Value).raw) : 1;
 
     // Helper function to check if LuaString contains valid UTF-8
     bool isValidUtf8(LuaString luaStr) {
@@ -1152,7 +1664,8 @@ class _StringGmatch extends BuiltinFunction {
           : convert.utf8.encode(strValue.toString());
 
       // Iterator state.
-      int pos = 0;
+      int pos = init > 0 ? init - 1 : bytes.length + init;
+      if (pos < 0) pos = 0;
 
       return Value((List<Object?> _) {
         if (pos >= bytes.length) return Value(null);
@@ -1197,68 +1710,74 @@ class _StringGmatch extends BuiltinFunction {
 
     try {
       final lp = _compileLuaPatternCached(pattern);
-      final matches = lp.allMatches(str).toList();
-      var currentIndex = 0;
+      bool isEscaped(int index) =>
+          index > 0 && pattern[index - 1] == '%' && !isEscaped(index - 1);
+      final anchoredStart = pattern.startsWith('^') && !isEscaped(0);
+      var currentPosition = init > 0 ? init - 1 : str.length + init;
+      if (currentPosition < 0) currentPosition = 0;
+      int? lastMatchEnd;
 
       // Return iterator function that follows Lua's behavior
       return Value((List<Object?> iterArgs) {
-        if (currentIndex >= matches.length) {
+        if (currentPosition > str.length) {
           return Value(null);
         }
-
-        final match = matches[currentIndex++];
-        if (match.captures.isEmpty) {
-          // Return the match preserving the original encoding
-          if (useByteLevel && match.match.isNotEmpty) {
-            // Convert back to bytes and create LuaString for byte-level matches
-            final matchBytes = match.match.codeUnits
-                .map((c) => c & 0xFF)
-                .toList();
-            return Value(LuaString.fromBytes(Uint8List.fromList(matchBytes)));
-          } else {
-            return Value(match.match);
-          }
-        }
-
-        final captures = <Value>[];
-        for (var idx = 0; idx < match.captures.length; idx++) {
-          final cap = match.captures[idx];
-
-          if (cap == null) {
-            captures.add(Value(null));
-            continue;
-          }
-
-          // Only treat the very first capture (position capture produced by
-          // plain '()' in patterns like "()pattern") as a numeric value. All
-          // subsequent captures must **always** be returned as strings, even
-          // when they happen to consist solely of digits (e.g. the character
-          // "4"). This mimics Lua's semantics and prevents accidental type
-          // conversion that breaks code relying on string values.
-          if (idx == 0) {
-            final numericPosition = int.tryParse(cap);
-            if (numericPosition != null) {
-              captures.add(Value(numericPosition));
-              continue;
+        while (true) {
+          final match = lp.firstMatch(str, currentPosition);
+          if (match != null &&
+              match.start == currentPosition &&
+              match.end != lastMatchEnd) {
+            currentPosition = lastMatchEnd = match.end;
+            if (match.captures.isEmpty) {
+              if (useByteLevel && match.match.isNotEmpty) {
+                final matchBytes = match.match.codeUnits
+                    .map((c) => c & 0xFF)
+                    .toList();
+                return Value(LuaString.fromBytes(Uint8List.fromList(matchBytes)));
+              }
+              return Value(match.match);
             }
+
+            final captures = <Value>[];
+            for (var idx = 0; idx < match.captures.length; idx++) {
+              final cap = match.captures[idx];
+
+              if (cap == null) {
+                captures.add(Value(null));
+                continue;
+              }
+
+              if (match.positionCaptureIndexes.contains(idx)) {
+                captures.add(Value(int.parse(cap)));
+                continue;
+              }
+
+              if (useByteLevel && cap.isNotEmpty) {
+                final captureBytes = cap.codeUnits
+                    .map((code) => code & 0xFF)
+                    .toList();
+                captures.add(
+                  Value(LuaString.fromBytes(Uint8List.fromList(captureBytes))),
+                );
+              } else {
+                captures.add(Value(cap));
+              }
+            }
+
+            if (captures.length == 1) {
+              return captures[0];
+            }
+            return Value.multi(captures);
           }
 
-          if (useByteLevel && cap.isNotEmpty) {
-            final captureBytes = cap.codeUnits
-                .map((code) => code & 0xFF)
-                .toList();
-            captures.add(
-              Value(LuaString.fromBytes(Uint8List.fromList(captureBytes))),
-            );
-          } else {
-            captures.add(Value(cap));
+          if (currentPosition >= str.length) {
+            return Value(null);
           }
-        }
 
-        if (captures.length == 1) {
-          return captures[0];
-        } else {
-          return Value.multi(captures);
+          currentPosition++;
+          if (anchoredStart) {
+            return Value(null);
+          }
         }
       });
     } catch (e) {
@@ -1277,21 +1796,54 @@ class _StringGsub extends BuiltinFunction {
         "string.gsub requires string, pattern, and replacement",
       );
     }
-    // Use toLatin1String for pattern processing to preserve raw bytes
     final strValue = (args[0] as Value).raw;
-    final str = strValue is LuaString
-        ? strValue.toLatin1String()
-        : strValue.toString();
     final patternValue = (args[1] as Value).raw;
-    final pattern = patternValue is LuaString
-        ? patternValue.toLatin1String()
-        : patternValue.toString();
+    final useByteLevel = _shouldUseBytePatternProcessing(strValue, patternValue);
+    final str = _toPatternProcessingString(strValue, byteLevel: useByteLevel);
+    final pattern = _toPatternProcessingString(
+      patternValue,
+      byteLevel: useByteLevel,
+    );
     final repl = args[2] as Value;
     final n = args.length > 3 ? NumberUtils.toInt((args[3] as Value).raw) : -1;
 
     try {
       var count = 0;
+      var didSubstitute = false;
+      if (_isAnchoredWhitespaceTrimCapturePattern(pattern) &&
+          (repl.raw is String || repl.raw is LuaString)) {
+        final trimMatch = _matchAnchoredWhitespaceTrimCapture(str);
+        if (trimMatch == null || n == 0) {
+          return Value.multi([
+            _valueFromPatternSlice(str, byteLevel: useByteLevel),
+            Value(0),
+          ]);
+        }
+        var replacement = _stringifyPatternReplacement(
+          repl,
+          byteLevel: useByteLevel,
+        );
+        replacement = replacement.replaceAll('%1', trimMatch.group(1) ?? '');
+        if (replacement.contains('%%')) {
+          replacement = replacement.replaceAll('%%', '%');
+        }
+        return Value.multi([
+          _valueFromPatternSlice(replacement, byteLevel: useByteLevel),
+          Value(1),
+        ]);
+      }
       final lp = _compileLuaPatternCached(pattern);
+      bool isEscaped(int index) =>
+          index > 0 && pattern[index - 1] == '%' && !isEscaped(index - 1);
+      final anchoredStart = pattern.startsWith('^') && !isEscaped(0);
+
+      lpc.LuaMatch? matchAtCurrentPosition(int srcPos, int? lastMatchEnd) {
+        final match = lp.firstMatch(str, srcPos);
+        if (match == null || match.start != srcPos || match.end == lastMatchEnd) {
+          return null;
+        }
+        return match;
+      }
 
       String result;
       Future<Object?> resolveTailSignal(Object? value) async {
@@ -1338,119 +1890,173 @@ class _StringGsub extends BuiltinFunction {
 
       if (repl.isCallable()) {
         final buffer = StringBuffer();
-        var lastEnd = 0;
-        final matches = lp.allMatches(str);
+        var srcPos = 0;
+        int? lastMatchEnd;
 
-        for (final match in matches) {
-          if (n != -1 && count >= n) {
+        while (n == -1 || count < n) {
+          final match = matchAtCurrentPosition(srcPos, lastMatchEnd);
+          if (match != null) {
+            buffer.write(str.substring(srcPos, match.start));
+            count++;
+
+            final captures = <Value>[];
+            if (match.captures.isEmpty) {
+              captures.add(
+                _valueFromPatternSlice(match.match, byteLevel: useByteLevel),
+              );
+            } else {
+              for (var index = 0; index < match.captures.length; index++) {
+                final cap = match.captures[index];
+                captures.add(
+                  cap == null
+                      ? Value(null)
+                      : match.positionCaptureIndexes.contains(index)
+                      ? Value(int.parse(cap))
+                      : _valueFromPatternSlice(cap, byteLevel: useByteLevel),
+                );
+              }
+            }
+
+            final replacement = _collapsePatternReplacementResult(
+              await invokeCallable(repl, captures),
+            );
+
+            if (replacement == null ||
+                (replacement is Value &&
+                    (replacement.isNil || replacement.raw == false))) {
+              buffer.write(match.match);
+            } else {
+              didSubstitute = true;
+              final validatedReplacement = _validateGsubReplacementValue(
+                replacement,
+              );
+              buffer.write(
+                _stringifyPatternReplacement(
+                  validatedReplacement,
+                  byteLevel: useByteLevel,
+                ),
+              );
+            }
+            srcPos = lastMatchEnd = match.end;
+          } else if (srcPos < str.length) {
+            buffer.write(str.substring(srcPos, srcPos + 1));
+            srcPos++;
+          } else {
             break;
           }
-          buffer.write(str.substring(lastEnd, match.start));
-
-          final captures = <Value>[];
-          if (match.captures.isEmpty) {
-            captures.add(Value(match.match));
-          } else {
-            for (final cap in match.captures) {
-              captures.add(cap == null ? Value(null) : Value(cap));
-            }
+          if (anchoredStart) {
+            break;
           }
-
-          final replacement = await invokeCallable(repl, captures);
-
-          if (replacement == null ||
-              (replacement is Value &&
-                  (replacement.isNil || replacement.raw == false))) {
-            buffer.write(match.match);
-          } else {
-            buffer.write(replacement is Value ? replacement.raw : replacement);
-            count++;
-          }
-          lastEnd = match.end;
         }
-
-        if (lastEnd < str.length) {
-          buffer.write(str.substring(lastEnd));
+        if (srcPos < str.length) {
+          buffer.write(str.substring(srcPos));
         }
         result = buffer.toString();
       } else if (repl.raw is Map) {
-        final replTable = repl.raw as Map;
         final buffer = StringBuffer();
-        var lastEnd = 0;
+        var srcPos = 0;
+        int? lastMatchEnd;
 
-        for (final match in lp.allMatches(str)) {
-          if (n != -1 && count >= n) {
+        while (n == -1 || count < n) {
+          final match = matchAtCurrentPosition(srcPos, lastMatchEnd);
+          if (match != null) {
+            buffer.write(str.substring(srcPos, match.start));
+            count++;
+
+            final key = match.captures.isEmpty
+                ? _valueFromPatternSlice(match.match, byteLevel: useByteLevel)
+                : (match.positionCaptureIndexes.contains(0)
+                      ? Value(int.parse(match.captures.first!))
+                      : _valueFromPatternSlice(
+                          match.captures.first!,
+                          byteLevel: useByteLevel,
+                        ));
+            var replacement = await repl.getValueAsync(key);
+
+            if (replacement is Value) {
+              replacement = replacement.isNil ? null : replacement.raw;
+            }
+
+            if (replacement != null && replacement != false) {
+              didSubstitute = true;
+              final validatedReplacement = _validateGsubReplacementValue(
+                replacement,
+              );
+              buffer.write(
+                _stringifyPatternReplacement(
+                  validatedReplacement,
+                  byteLevel: useByteLevel,
+                ),
+              );
+            } else {
+              buffer.write(match.match);
+            }
+            srcPos = lastMatchEnd = match.end;
+          } else if (srcPos < str.length) {
+            buffer.write(str.substring(srcPos, srcPos + 1));
+            srcPos++;
+          } else {
             break;
           }
-          buffer.write(str.substring(lastEnd, match.start));
-
-          final key = Value(match.match);
-          var replacement = replTable[key];
-
-          if (replacement is Value) {
-            replacement = replacement.raw;
+          if (anchoredStart) {
+            break;
           }
-
-          if (replacement != null && replacement != false) {
-            buffer.write(replacement.toString());
-            count++;
-          } else {
-            buffer.write(match.match);
-          }
-          lastEnd = match.end;
         }
 
-        if (lastEnd < str.length) {
-          buffer.write(str.substring(lastEnd));
+        if (srcPos < str.length) {
+          buffer.write(str.substring(srcPos));
         }
         result = buffer.toString();
       } else if (repl.raw is String || repl.raw is LuaString) {
-        final replStr = repl.raw.toString();
+        final replStr = _stringifyPatternReplacement(
+          repl,
+          byteLevel: useByteLevel,
+        );
         final buffer = StringBuffer();
-        var lastEnd = 0;
+        var srcPos = 0;
+        int? lastMatchEnd;
 
-        for (final match in lp.allMatches(str)) {
-          if (n != -1 && count >= n) break;
+        while (n == -1 || count < n) {
+          final match = matchAtCurrentPosition(srcPos, lastMatchEnd);
+          if (match != null) {
+            buffer.write(str.substring(srcPos, match.start));
 
-          buffer.write(str.substring(lastEnd, match.start));
+            final replacement = _applyGsubReplacementTemplate(replStr, match);
 
-          String replacement = replStr;
+            count++;
+            didSubstitute = true;
 
-          for (int i = 0; i <= match.captures.length; i++) {
-            final capture = i == 0 ? match.match : match.captures[i - 1];
-            final placeholder = '%$i';
-            if (replacement.contains(placeholder)) {
-              replacement = replacement.replaceAll(placeholder, capture ?? '');
-            }
+            buffer.write(replacement);
+            srcPos = lastMatchEnd = match.end;
+          } else if (srcPos < str.length) {
+            buffer.write(str.substring(srcPos, srcPos + 1));
+            srcPos++;
+          } else {
+            break;
           }
-
-          if (replacement.contains('%%')) {
-            replacement = replacement.replaceAll('%%', '%');
+          if (anchoredStart) {
+            break;
           }
-
-          count++;
-
-          buffer.write(replacement);
-          lastEnd = match.end;
         }
 
-        if (lastEnd < str.length) {
-          buffer.write(str.substring(lastEnd));
+        if (srcPos < str.length) {
+          buffer.write(str.substring(srcPos));
         }
         result = buffer.toString();
       } else {
         throw LuaError.typeError("Invalid replacement type");
       }
 
-      // Preserve byte representation for LuaString inputs, use regular String for String inputs
-      final resultValue = strValue is LuaString
-          ? Value(
-              LuaString.fromBytes(
-                result.codeUnits.map((c) => c & 0xFF).toList(),
-              ),
-            )
-          : Value(result);
-      return [resultValue, Value(count)];
+      final resultValue = !didSubstitute
+          ? (args[0] as Value)
+          : (strValue is LuaString || useByteLevel
+                ? Value(
+                    LuaString.fromBytes(
+                      result.codeUnits.map((c) => c & 0xFF).toList(),
+                    ),
+                  )
+                : Value(result));
+      return Value.multi([resultValue, Value(count)]);
     } catch (e) {
       throw LuaError.typeError("Error in string.gsub: $e");
     }
@@ -1528,15 +2134,14 @@ class _StringMatch extends BuiltinFunction {
       throw LuaError.typeError("string.match requires a string and a pattern");
     }
 
-    // Use toLatin1String for pattern processing to preserve raw bytes
     final strValue = (args[0] as Value).raw;
-    final str = strValue is LuaString
-        ? strValue.toLatin1String()
-        : strValue.toString();
     final patternValue = (args[1] as Value).raw;
-    final pattern = patternValue is LuaString
-        ? patternValue.toLatin1String()
-        : patternValue.toString();
+    final useByteLevel = _shouldUseBytePatternProcessing(strValue, patternValue);
+    final str = _toPatternProcessingString(strValue, byteLevel: useByteLevel);
+    final pattern = _toPatternProcessingString(
+      patternValue,
+      byteLevel: useByteLevel,
+    );
     var init = args.length > 2 ? NumberUtils.toInt((args[2] as Value).raw) : 1;
 
     // Convert to 0-based index and handle negative indices
@@ -1546,14 +2151,99 @@ class _StringMatch extends BuiltinFunction {
       return Value(null);
     }
 
+    if (_isAnchoredLazyWholeStringPattern(pattern)) {
+      return Value(str.substring(init));
+    }
+
+    final fastFind = _tryFastAnchoredLiteralTailFind(
+      str,
+      pattern,
+      start: init,
+    );
+    if (fastFind case final match?) {
+      if (match.start == null || match.end == null) {
+        return Value(null);
+      }
+      return _valueFromPatternSlice(
+        str.substring(match.start! - 1, match.end!),
+        byteLevel: useByteLevel,
+      );
+    }
+
+    if (_isAnchoredWhitespaceTrimCapturePattern(pattern) && init == 0) {
+      final trimMatch = _matchAnchoredWhitespaceTrimCapture(str);
+      if (trimMatch == null) {
+        return Value(null);
+      }
+      return _valueFromPatternSlice(
+        trimMatch.group(1) ?? '',
+        byteLevel: useByteLevel,
+      );
+    }
+
     try {
       bool isEscaped(int index) =>
           index > 0 && pattern[index - 1] == '%' && !isEscaped(index - 1);
       final anchoredStart = pattern.startsWith('^') && !isEscaped(0);
+      final preferredRegex = _shouldPreferRegexPatternEngine(
+        subject: str,
+        pattern: pattern,
+        byteLevel: useByteLevel,
+      )
+          ? _translateLuaBackreferencePattern(pattern)
+          : null;
+      if (preferredRegex != null) {
+        final regexMatch =
+            preferredRegex.regex.matchAsPrefix(str, init) ??
+            preferredRegex.regex.firstMatch(str.substring(init));
+        if (regexMatch == null) {
+          return Value(null);
+        }
+        final absoluteStart =
+            regexMatch.start + (regexMatch.input == str ? 0 : init);
+        if (anchoredStart && absoluteStart != init) {
+          return Value(null);
+        }
+        final captures = _capturesFromRegexMatch(
+          regexMatch,
+          preferredRegex,
+          byteLevel: useByteLevel,
+        );
+        if (captures.isEmpty) {
+          final matched = regexMatch.group(0) ?? '';
+          return _valueFromPatternSlice(matched, byteLevel: useByteLevel);
+        }
+        if (captures.length == 1) {
+          return captures.first;
+        }
+        return Value.multi(captures);
+      }
       final lp = _compileLuaPatternCached(pattern);
       final resultMatch = lp.firstMatch(str, init);
       if (resultMatch == null) {
-        return Value(null);
+        final regexBackref = _translateLuaBackreferencePattern(pattern);
+        if (regexBackref == null) {
+          return Value(null);
+        }
+        final regexMatch =
+            regexBackref.regex.matchAsPrefix(str, init) ??
+            regexBackref.regex.firstMatch(str.substring(init));
+        if (regexMatch == null) {
+          return Value(null);
+        }
+        final captures = _capturesFromRegexMatch(
+          regexMatch,
+          regexBackref,
+          byteLevel: useByteLevel,
+        );
+        if (captures.isEmpty) {
+          final matched = regexMatch.group(0) ?? '';
+          return _valueFromPatternSlice(matched, byteLevel: useByteLevel);
+        }
+        if (captures.length == 1) {
+          return captures.first;
+        }
+        return Value.multi(captures);
       }
       if (anchoredStart && resultMatch.start != init) {
         return Value(null);
@@ -1561,7 +2251,17 @@ class _StringMatch extends BuiltinFunction {
 
       if (resultMatch.captures.isNotEmpty) {
         final captures = resultMatch.captures
-            .map((c) => c == null ? Value(null) : Value(c))
+            .indexed
+            .map((entry) {
+              final (index, capture) = entry;
+              if (capture == null) {
+                return Value(null);
+              }
+              if (resultMatch.positionCaptureIndexes.contains(index)) {
+                return Value(int.parse(capture));
+              }
+              return _valueFromPatternSlice(capture, byteLevel: useByteLevel);
+            })
             .toList();
         if (captures.length == 1) {
           return captures[0];
@@ -1569,7 +2269,10 @@ class _StringMatch extends BuiltinFunction {
         return Value.multi(captures);
       }
 
-      return Value(resultMatch.match);
+      return _valueFromPatternSlice(
+        resultMatch.match,
+        byteLevel: useByteLevel,
+      );
     } catch (e) {
       throw LuaError.typeError("malformed pattern: $e");
     }
@@ -1586,7 +2289,7 @@ class _StringRep extends BuiltinFunction {
     }
 
     final value = args[0] as Value;
-    final count = NumberUtils.toInt((args[1] as Value).raw);
+    final count = _requireIntegerRepresentation((args[1] as Value).raw);
     final separatorValue = args.length > 2 ? (args[2] as Value) : null;
 
     if (count <= 0) {
@@ -1759,9 +2462,11 @@ class _StringSub extends BuiltinFunction {
         ? strValue.toLatin1String()
         : strValue.toString();
 
-    var start = args.length > 1 ? NumberUtils.toInt((args[1] as Value).raw) : 1;
+    var start = args.length > 1
+        ? _requireIntegerRepresentation((args[1] as Value).raw)
+        : 1;
     var end = args.length > 2
-        ? NumberUtils.toInt((args[2] as Value).raw)
+        ? _requireIntegerRepresentation((args[2] as Value).raw)
         : str.length;
 
     // Handle negative indices
