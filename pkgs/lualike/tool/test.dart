@@ -381,6 +381,11 @@ Future<void> main(List<String> args) async {
       'ir',
       negatable: false,
       help: 'Run tests using the IR engine (passes --ir).',
+    )
+    ..addFlag(
+      'lua-bytecode',
+      negatable: false,
+      help: 'Run tests using the lua_bytecode engine (passes --lua-bytecode).',
     );
 
   ArgResults r;
@@ -526,6 +531,7 @@ Future<void> main(List<String> args) async {
     port: r['port'] as bool, // default true  => _port = true
     debug: debugEnabled, // new debug flag
     ir: r['ir'] as bool,
+    luaBytecode: r['lua-bytecode'] as bool,
   );
 
   printTestSummary(results);
@@ -578,6 +584,7 @@ Future<List<TestResult>> runTests({
   bool port = true,
   bool debug = false, // new debug parameter
   bool ir = false,
+  bool luaBytecode = false,
 }) async {
   final results = <TestResult>[];
   final testsToRun = inlineCode == null
@@ -644,6 +651,9 @@ Future<List<TestResult>> runTests({
     }
     if (ir) {
       processArgs.add('--ir');
+    }
+    if (luaBytecode) {
+      processArgs.add('--lua-bytecode');
     }
     final initSnippet = inlineCode == null
         ? "$initCode; dofile('$targetPath')"
