@@ -8,9 +8,25 @@ import 'package:lualike/src/gc/gc_weights.dart';
 import 'package:lualike/src/call_stack.dart';
 // GC access occurs via environment.interpreter.gc
 import 'package:lualike/src/ast.dart';
+import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/lua_error.dart';
+import 'package:lualike/src/table_storage.dart';
+import 'package:lualike/src/value_class.dart';
 
 import 'exceptions.dart';
+
+Value _packCoroutineVarargsTable(List<Object?> varargs) {
+  final table = TableStorage();
+  for (var i = 0; i < varargs.length; i++) {
+    final value = varargs[i];
+    final wrapped = value is Value ? value : Value(value);
+    if (!wrapped.isNil) {
+      table.setDense(i + 1, wrapped);
+    }
+  }
+  table['n'] = Value(varargs.length);
+  return ValueClass.table(table);
+}
 
 /// Engine-owned suspended execution state for a coroutine.
 abstract interface class CoroutineContinuation {
@@ -342,7 +358,7 @@ class Coroutine extends GCObject {
         .map((arg) => arg is Value ? arg : Value(arg))
         .toList();
     final callResult = await interpreter.callFunction(callee, normalizedArgs);
-    _completeWithReturn(callResult);
+    await _completeWithReturn(callResult);
   }
 
   Future<void> _handleTailCallSignalCompletion(TailCallSignal t) async {
@@ -364,11 +380,19 @@ class Coroutine extends GCObject {
         .map((arg) => arg is Value ? arg : Value(arg))
         .toList();
     final callResult = await interpreter.callFunction(callee, normalizedArgs);
-    _completeWithReturn(callResult);
+    await _completeWithReturn(callResult);
   }
 
-  void _completeWithReturn(Object? value) {
+  Future<void> _closeCoroutineScope([dynamic error]) async {
+    if (_environmentCleared || functionBody == null) {
+      return;
+    }
+    await _executionEnvironment.closeVariables(error);
+  }
+
+  Future<void> _completeWithReturn(Object? value) async {
     status = CoroutineStatus.dead;
+    await _closeCoroutineScope();
     _finalizeTermination();
     if (completer != null && !completer!.isCompleted) {
       final handledResult = _handleReturnValue(value);
@@ -514,8 +538,25 @@ class Coroutine extends GCObject {
     if (identical(_executionEnvironment, closureEnvironment)) {
       return;
     }
+    final sharedBoxes = <Box<dynamic>>{
+      ...closureEnvironment.values.values,
+      ...closureEnvironment.declaredGlobals.values,
+    };
     try {
       for (final box in _executionEnvironment.values.values) {
+        if (sharedBoxes.contains(box)) {
+          continue;
+        }
+        final current = box.value;
+        if (current is Value && current.isNil) {
+          continue;
+        }
+        box.value = Value(null);
+      }
+      for (final box in _executionEnvironment.declaredGlobals.values) {
+        if (sharedBoxes.contains(box)) {
+          continue;
+        }
         final current = box.value;
         if (current is Value && current.isNil) {
           continue;
@@ -533,143 +574,166 @@ class Coroutine extends GCObject {
     );
     // Create initial environment for function parameters and locals
     final interpreter = closureEnvironment.interpreter;
-
-    // Process arguments for the function call
-    final processedArgs = initialArgs.map((arg) {
-      return arg is Value ? arg : Value(arg);
-    }).toList();
-
-    final body = functionBody;
-    if (body == null) {
-      try {
-        final interpreter = closureEnvironment.interpreter;
-        if (interpreter == null) {
-          throw LuaError('coroutine has no interpreter');
-        }
-        interpreter.setCurrentEnv(_executionEnvironment);
-        final result = await interpreter.callFunction(
-          functionValue,
-          processedArgs,
-        );
-        _completeWithReturn(result);
-      } on YieldException {
-        return;
-      } on TailCallException catch (t) {
-        await _handleTailCallCompletion(t);
-      }
-      return;
-    }
-
-    // Bind regular parameters
-    final hasVarargs = body.isVararg;
-    int regularParamCount = body.parameters?.length ?? 0;
-
-    for (var i = 0; i < regularParamCount; i++) {
-      final paramName = (body.parameters![i]).name;
-      if (i < processedArgs.length) {
-        _executionEnvironment.declare(paramName, processedArgs[i]);
-      } else {
-        _executionEnvironment.declare(paramName, Value(null));
-      }
-    }
-
-    // Handle varargs if present
-    if (hasVarargs) {
-      List<Object?> varargs = processedArgs.length > regularParamCount
-          ? processedArgs.sublist(regularParamCount)
-          : [];
-      _executionEnvironment.declare("...", Value.multi(varargs));
+    final astInterpreter = interpreter is Interpreter ? interpreter : null;
+    final savedFunction = astInterpreter?.getCurrentFunction();
+    if (astInterpreter != null) {
+      astInterpreter.setCurrentFunction(functionValue);
     }
 
     try {
-      // Execute statements from the current program counter
-      for (; _programCounter < body.body.length; _programCounter++) {
-        final stmt = body.body[_programCounter];
+      // Process arguments for the function call
+      final processedArgs = initialArgs.map((arg) {
+        return arg is Value ? arg : Value(arg);
+      }).toList();
 
-        Logger.debugLazy(
-          () =>
-              '_executeCoroutine: Executing statement $_programCounter: '
-              '${stmt.runtimeType}',
-          category: 'Coroutine',
-        );
-        // Ensure the interpreter's environment is set to this coroutine's execution environment
-        if (interpreter != null) {
+      final body = functionBody;
+      if (body == null) {
+        try {
+          final interpreter = closureEnvironment.interpreter;
+          if (interpreter == null) {
+            throw LuaError('coroutine has no interpreter');
+          }
           interpreter.setCurrentEnv(_executionEnvironment);
+          final result = await interpreter.callFunction(
+            functionValue,
+            processedArgs,
+          );
+          await _completeWithReturn(result);
+        } on YieldException {
+          return;
+        } on TailCallException catch (t) {
+          await _handleTailCallCompletion(t);
         }
+        return;
+      }
 
-        final result = await interpreter!.evaluateAst(stmt);
-        if (result is TailCallSignal) {
-          await _handleTailCallSignalCompletion(result);
+      // Bind regular parameters
+      final hasVarargs = body.isVararg;
+      final namedVararg = body.varargName?.name;
+      int regularParamCount = body.parameters?.length ?? 0;
+
+      for (var i = 0; i < regularParamCount; i++) {
+        final paramName = (body.parameters![i]).name;
+        if (i < processedArgs.length) {
+          _executionEnvironment.declare(paramName, processedArgs[i]);
+        } else {
+          _executionEnvironment.declare(paramName, Value(null));
+        }
+      }
+
+      // Handle varargs if present
+      if (hasVarargs) {
+        List<Object?> varargs = processedArgs.length > regularParamCount
+            ? processedArgs.sublist(regularParamCount)
+            : [];
+        _executionEnvironment.declare("...", Value.multi(varargs));
+        if (namedVararg != null) {
+          _executionEnvironment.declare(
+            namedVararg,
+            _packCoroutineVarargsTable(varargs),
+          );
+        }
+      }
+
+      try {
+        // Execute statements from the current program counter
+        for (; _programCounter < body.body.length; _programCounter++) {
+          final stmt = body.body[_programCounter];
+
           Logger.debugLazy(
             () =>
-                '_executeCoroutine: Completer completed with tail-call signal result',
+                '_executeCoroutine: Executing statement $_programCounter: '
+                '${stmt.runtimeType}',
             category: 'Coroutine',
           );
-          return;
-        }
-        Logger.debugLazy(
-          () =>
-              '_executeCoroutine: Statement $_programCounter executed. '
-              'Current PC: $_programCounter',
-          category: 'Coroutine',
-        );
-      }
+          // Ensure the interpreter's environment is set to this coroutine's execution environment
+          if (interpreter != null) {
+            interpreter.setCurrentEnv(_executionEnvironment);
+          }
 
-      // Coroutine completed normally
-      Logger.debugLazy(
-        () => '_executeCoroutine: Coroutine completed normally',
-        category: 'Coroutine',
-      );
-      status = CoroutineStatus.dead;
-      _finalizeTermination();
-      if (completer != null && !completer!.isCompleted) {
-        // Pass empty list as result for normal completion
-        completer!.complete([]);
+          final result = await interpreter!.evaluateAst(stmt);
+          if (result is TailCallSignal) {
+            await _handleTailCallSignalCompletion(result);
+            Logger.debugLazy(
+              () =>
+                  '_executeCoroutine: Completer completed with tail-call signal result',
+              category: 'Coroutine',
+            );
+            return;
+          }
+          Logger.debugLazy(
+            () =>
+                '_executeCoroutine: Statement $_programCounter executed. '
+                'Current PC: $_programCounter',
+            category: 'Coroutine',
+          );
+        }
+
+        // Coroutine completed normally
         Logger.debugLazy(
-          () => '_executeCoroutine: Completer completed with empty list',
+          () => '_executeCoroutine: Coroutine completed normally',
           category: 'Coroutine',
         );
-      }
-    } on YieldException {
-      Logger.debugLazy(
-        () => '_executeCoroutine: Caught YieldException',
-        category: 'Coroutine',
-      );
-      // YieldException is thrown by yield_ to pause execution.
-      // It should be re-thrown here so resume can catch it and manage state.
-      rethrow;
-    } on ReturnException catch (e) {
-      Logger.debugLazy(
-        () => '_executeCoroutine: Caught ReturnException',
-        category: 'Coroutine',
-      );
-      _completeWithReturn(e.value);
-      Logger.debugLazy(
-        () => '_executeCoroutine: Completer completed with return value',
-        category: 'Coroutine',
-      );
-    } on TailCallException catch (t) {
-      await _handleTailCallCompletion(t);
-      Logger.debugLazy(
-        () => '_executeCoroutine: Completer completed with tail-call result',
-        category: 'Coroutine',
-      );
-    } catch (e) {
-      error = e;
-      Logger.error('Error in _executeCoroutine: $e', category: 'Coroutine');
-      // Set status to dead on unhandled exceptions
-      status = CoroutineStatus.dead;
-      _finalizeTermination();
-      if (completer != null && !completer!.isCompleted) {
-        completer!.complete([
-          Value(false),
-          Value(e.toString()),
-        ]); // Return error to caller
+        status = CoroutineStatus.dead;
+        await _closeCoroutineScope();
+        _finalizeTermination();
+        if (completer != null && !completer!.isCompleted) {
+          // Pass empty list as result for normal completion
+          completer!.complete([]);
+          Logger.debugLazy(
+            () => '_executeCoroutine: Completer completed with empty list',
+            category: 'Coroutine',
+          );
+        }
+      } on YieldException {
         Logger.debugLazy(
-          () => '_executeCoroutine: Completer completed with error',
+          () => '_executeCoroutine: Caught YieldException',
           category: 'Coroutine',
         );
+        // YieldException is thrown by yield_ to pause execution.
+        // It should be re-thrown here so resume can catch it and manage state.
+        rethrow;
+      } on ReturnException catch (e) {
+        Logger.debugLazy(
+          () => '_executeCoroutine: Caught ReturnException',
+          category: 'Coroutine',
+        );
+        await _completeWithReturn(e.value);
+        Logger.debugLazy(
+          () => '_executeCoroutine: Completer completed with return value',
+          category: 'Coroutine',
+        );
+      } on TailCallException catch (t) {
+        await _handleTailCallCompletion(t);
+        Logger.debugLazy(
+          () => '_executeCoroutine: Completer completed with tail-call result',
+          category: 'Coroutine',
+        );
+      } catch (e) {
+        var finalError = e;
+        try {
+          await _closeCoroutineScope(e);
+        } catch (closeError) {
+          finalError = closeError;
+        }
+        error = finalError;
+        Logger.error('Error in _executeCoroutine: $e', category: 'Coroutine');
+        // Set status to dead on unhandled exceptions
+        status = CoroutineStatus.dead;
+        _finalizeTermination();
+        if (completer != null && !completer!.isCompleted) {
+          completer!.complete([
+            Value(false),
+            Value(finalError.toString()),
+          ]); // Return error to caller
+          Logger.debugLazy(
+            () => '_executeCoroutine: Completer completed with error',
+            category: 'Coroutine',
+          );
+        }
       }
+    } finally {
+      astInterpreter?.setCurrentFunction(savedFunction);
     }
   }
 
@@ -716,6 +780,11 @@ class Coroutine extends GCObject {
 
     // Set status to dead
     status = CoroutineStatus.dead;
+    try {
+      await _closeCoroutineScope(error);
+    } catch (caughtError) {
+      error = caughtError;
+    }
     _finalizeTermination();
 
     // Propagate the error if provided
