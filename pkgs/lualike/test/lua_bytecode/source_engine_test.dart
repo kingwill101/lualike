@@ -254,6 +254,44 @@ return ("abc"):sub(2), ("alo(.)alo"):find("(.)", 1, true)
     );
 
     test(
+      'executeCode preserves trailing open results in table constructors',
+      () async {
+        final result = await executeCode(r'''
+local function unlpack(t, i)
+  i = i or 1
+  return t[i], t[i + 1], t[i + 2], t[i + 3]
+end
+
+local t = { unlpack{1, 2, 3}, unlpack{3, 2, 1}, unlpack{"a", "b"} }
+return t[1], t[2], t[3], t[4], t[5], t[6]
+''', mode: EngineMode.luaBytecode);
+
+        expect(
+          _flatten(result),
+          equals(<Object?>[1, 3, 'a', 'b', null, null]),
+        );
+      },
+    );
+
+    test(
+      'executeCode preserves nested table constructor values under temp pressure',
+      () async {
+        final result = await executeCode(r'''
+local binops = {
+  {" and ", function(a, b) if not a then return a else return b end end},
+  {" or ", function(a, b) if a then return a else return b end end},
+}
+return type(binops[1][1]), binops[1][1], type(binops[1][2]), binops[2][1]
+''', mode: EngineMode.luaBytecode);
+
+        expect(
+          _flatten(result),
+          equals(<Object?>['string', ' and ', 'function', ' or ']),
+        );
+      },
+    );
+
+    test(
       'executeCode emits arithmetic metamethod follow-up opcodes',
       () async {
         final result = await executeCode(r'''
