@@ -290,7 +290,7 @@ class _TableRemove extends BuiltinFunction {
     }
     map.remove(map.length);
 
-    return removed as Value;
+    return removed is Value ? removed : Value(removed);
   }
 }
 
