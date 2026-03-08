@@ -59,5 +59,17 @@ void main() {
       final returned = program.statements.last as ReturnStatement;
       expect((returned.expr.single as Identifier).name, equals('global'));
     });
+
+    test('parses local<const> compact default attributes', () {
+      final program = parse('local<const> foo, bar <close>, baz = 1, 2, 3');
+      final declaration = program.statements.single as LocalDeclaration;
+
+      expect(
+        declaration.names.map((identifier) => identifier.name).toList(),
+        equals(['foo', 'bar', 'baz']),
+      );
+      expect(declaration.attributes, equals(['const', 'close', 'const']));
+      expect(declaration.exprs, hasLength(3));
+    });
   });
 }

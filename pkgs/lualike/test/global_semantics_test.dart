@@ -127,6 +127,22 @@ function XX () end
             ),
           );
         });
+
+        test('local<const> compact syntax applies default attributes', () async {
+          await expectLater(
+            () => executeCode('''
+local<const> foo = 10
+foo = 11
+''', mode: mode),
+            throwsA(
+              predicate(
+                (error) => error
+                    .toString()
+                    .contains("attempt to assign to const variable 'foo'"),
+              ),
+            ),
+          );
+        });
       });
     }
   });
