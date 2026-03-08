@@ -20,6 +20,26 @@ void main() {
       }
     });
 
+    test('table.create', () async {
+      final bridge = LuaLike();
+
+      try {
+        await bridge.execute('''
+          local t = table.create(4, 8)
+          t[1] = "a"
+          t[4] = "d"
+          t.x = 10
+          return #t, t[1], t[4], t.x
+        ''');
+      } on ReturnException catch (e) {
+        final result = (e.value as Value).unwrap();
+        expect(result[0], equals(4));
+        expect(result[1], equals("a"));
+        expect(result[2], equals("d"));
+        expect(result[3], equals(10));
+      }
+    });
+
     test('table.insert at end', () async {
       final bridge = LuaLike();
 

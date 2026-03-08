@@ -369,93 +369,48 @@ class ErrorFunction extends BuiltinFunction {
 class IPairsFunction extends BuiltinFunction {
   IPairsFunction(super.interpreter);
 
+  late final Value _iteratorFunction = Value((List<Object?> iterArgs) {
+    if (iterArgs.length < 2) {
+      throw LuaError("iterator requires a table and an index");
+    }
+
+    final t = iterArgs[0] as Value;
+
+    if (t.raw is! Map) {
+      throw LuaError("iterator requires a table as first argument");
+    }
+
+    final map = t.raw as Map;
+
+    if (iterArgs[1] is! Value || (iterArgs[1] as Value).raw is! num) {
+      throw LuaError("iterator index must be a number");
+    }
+
+    final index = (iterArgs[1] as Value).raw as num;
+    final nextIndex = index + 1;
+
+    if (!map.containsKey(nextIndex)) {
+      return Value(null);
+    }
+
+    final value = map[nextIndex];
+    if (value == null || (value is Value && value.raw == null)) {
+      return Value(null);
+    }
+
+    final nextValue = value is Value ? value : Value(value);
+    return Value.multi([Value(nextIndex), nextValue]);
+  });
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) throw LuaError("ipairs requires a table");
     final table = args[0] as Value;
     if (table.raw is! Map) throw LuaError("ipairs requires a table");
 
-    // Debug logging disabled for performance
-    // Logger.debug(
-    //   'IPairsFunction: Creating iterator for table: ${table.raw}',
-    //   category: 'Base',
-    // );
-
-    // Create a function that returns the next index and value
-    final iteratorFunction = Value((List<Object?> iterArgs) {
-      if (iterArgs.length < 2) {
-        throw LuaError("iterator requires a table and an index");
-      }
-
-      final t = iterArgs[0] as Value;
-
-      if (t.raw is! Map) {
-        throw LuaError("iterator requires a table as first argument");
-      }
-
-      final map = t.raw as Map;
-
-      // The second argument must be a number
-      if (iterArgs[1] is! Value || (iterArgs[1] as Value).raw is! num) {
-        throw LuaError("iterator index must be a number");
-      }
-
-      final index = (iterArgs[1] as Value).raw as num;
-
-      // Debug logging disabled for performance
-      // Logger.debug(
-      //   'IPairsFunction.iterator: Called with index: $index',
-      //   category: 'Base',
-      // );
-
-      // In Lua, ipairs iterates over consecutive integer keys starting from 1
-      // It stops at the first nil value or non-integer key
-      final nextIndex = index + 1;
-
-      // Check if the next index exists in the table
-      if (!map.containsKey(nextIndex)) {
-        // Debug logging disabled for performance
-        // Logger.debug(
-        //   'IPairsFunction.iterator: No next index, returning nil',
-        //   category: 'Base',
-        // );
-        return Value(null);
-      }
-
-      // Get the value at the next index
-      final value = map[nextIndex];
-
-      // If the value is nil, stop iteration
-      if (value == null || (value is Value && value.raw == null)) {
-        // Debug logging disabled for performance
-        // Logger.debug(
-        //   'IPairsFunction.iterator: Value at index $nextIndex is nil, returning nil',
-        //   category: 'Base',
-        // );
-        return Value(null);
-      }
-
-      final nextValue = value is Value ? value : Value(value);
-
-      // Debug logging disabled for performance
-      // Logger.debug(
-      //   'IPairsFunction.iterator: Found next index: $nextIndex, value: $nextValue',
-      //   category: 'Base',
-      // );
-
-      // Return the index and value as multiple values
-      return Value.multi([Value(nextIndex), nextValue]);
-    });
-
-    // Debug logging disabled for performance
-    // Logger.debug(
-    //   'IPairsFunction: Returning iterator components via Value.multi',
-    //   category: 'Base',
-    // );
-
     // Return iterator function, table, and initial control value (0) using Value.multi
     // This matches Lua's behavior: ipairs(t) returns iterator, t, 0
-    return Value.multi([iteratorFunction, table, Value(0)]);
+    return Value.multi([_iteratorFunction, table, Value(0)]);
   }
 }
 

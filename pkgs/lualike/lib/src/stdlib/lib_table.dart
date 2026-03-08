@@ -25,6 +25,8 @@ class TableLibrary extends Library {
       switch (keyStr) {
         case "concat":
           return _TableConcat();
+        case "create":
+          return _TableCreate();
         case "insert":
           return _TableInsert();
         case "move":
@@ -49,6 +51,7 @@ class TableLibrary extends Library {
     context.define("insert", _TableInsert());
     context.define("remove", _TableRemove());
     context.define("concat", _TableConcat());
+    context.define("create", _TableCreate());
     context.define("move", _TableMove());
     context.define("pack", _TablePack());
     context.define("sort", _TableSort(context.vm));
@@ -215,11 +218,47 @@ class TableLib {
     "insert": _TableInsert(),
     "remove": _TableRemove(),
     "concat": _TableConcat(),
+    "create": _TableCreate(),
     "move": _TableMove(),
     "pack": _TablePack(),
     "sort": _TableSort(),
     "unpack": _TableUnpack(),
   };
+}
+
+class _TableCreate extends BuiltinFunction {
+  _TableCreate() : super();
+
+  @override
+  Object? call(List<Object?> args) {
+    if (args.length > 2) {
+      throw LuaError("wrong number of arguments to 'create'");
+    }
+
+    int parseSize(Object? value, String label) {
+      final raw = value is Value ? value.raw : value;
+      if (raw == null) {
+        return 0;
+      }
+      if (raw is! num && raw is! BigInt) {
+        throw LuaError("bad argument to 'table.create' ($label must be an integer)");
+      }
+      final size = NumberUtils.toInt(raw);
+      if (size < 0) {
+        throw LuaError("bad argument to 'table.create' ($label must be non-negative)");
+      }
+      return size;
+    }
+
+    final arraySize = args.isEmpty ? 0 : parseSize(args[0], 'array size');
+    final _ = args.length < 2 ? 0 : parseSize(args[1], 'hash size');
+
+    final table = TableStorage();
+    if (arraySize > 0) {
+      table.ensureArrayCapacity(arraySize);
+    }
+    return ValueClass.table(table);
+  }
 }
 
 class _TableInsert extends BuiltinFunction {
