@@ -198,7 +198,7 @@ final class GlobalChecker {
 
     _enterScope();
     for (final name in statement.names) {
-      _currentScope.locals[name.name] = '';
+      _currentScope.locals[name.name] = 'const';
     }
     final bodyError = _visitStatements(statement.body);
     _exitScope();

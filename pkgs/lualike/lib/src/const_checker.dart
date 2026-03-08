@@ -137,6 +137,7 @@ class ConstChecker {
 
   String? _checkForLoop(ForLoop stmt) {
     final savedConsts = Set<String>.from(_constVariables);
+    _constVariables.add(stmt.varName.name);
     for (final s in stmt.body) {
       final error = _checkStatement(s);
       if (error != null) {
@@ -152,6 +153,9 @@ class ConstChecker {
 
   String? _checkForInLoop(ForInLoop stmt) {
     final savedConsts = Set<String>.from(_constVariables);
+    for (final name in stmt.names) {
+      _constVariables.add(name.name);
+    }
     for (final s in stmt.body) {
       final error = _checkStatement(s);
       if (error != null) {

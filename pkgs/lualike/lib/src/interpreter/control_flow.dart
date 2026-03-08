@@ -338,19 +338,167 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     final startResult = await node.start.accept(this);
     final endResult = await node.endExpr.accept(this);
     final stepResult = await node.stepExpr.accept(this);
-    num coerceToNumber(Object? value) {
-      if (value is num) {
-        return value;
+    final rawStart = startResult is Value ? startResult.raw : startResult;
+    final rawEnd = endResult is Value ? endResult.raw : endResult;
+    final rawStep = stepResult is Value ? stepResult.raw : stepResult;
+
+    dynamic parseNumericValue(dynamic rawValue) {
+      if (rawValue is num) {
+        return rawValue;
       }
-      if (value is Value && value.raw is num) {
-        return value.raw as num;
+      if (rawValue is BigInt) {
+        return NumberUtils.isInIntegerRange(rawValue)
+            ? rawValue.toInt()
+            : rawValue.toDouble();
+      }
+      if (rawValue is String || rawValue is LuaString) {
+        try {
+          final parsed = LuaNumberParser.parse(rawValue.toString());
+          if (parsed is num) {
+            return parsed;
+          }
+          if (parsed is BigInt) {
+            return NumberUtils.isInIntegerRange(parsed)
+                ? parsed.toInt()
+                : parsed.toDouble();
+          }
+        } on FormatException {
+          // Fall through to the Lua-style error below.
+        }
       }
       throw Exception("For loop bounds must be numbers");
     }
 
-    final num start = coerceToNumber(startResult);
-    final num end = coerceToNumber(endResult);
-    final num step = coerceToNumber(stepResult);
+    int? exactIntegerValue(dynamic rawValue) {
+      if (rawValue is int) {
+        return rawValue;
+      }
+      if (rawValue is BigInt && NumberUtils.isInIntegerRange(rawValue)) {
+        return rawValue.toInt();
+      }
+      return null;
+    }
+
+    ({bool skip, int limit}) coerceIntegerLimit(
+      dynamic rawLimit,
+      int init,
+      int step,
+    ) {
+      final numericLimit = parseNumericValue(rawLimit);
+      if (numericLimit is int) {
+        return (
+          skip: step > 0 ? init > numericLimit : init < numericLimit,
+          limit: numericLimit,
+        );
+      }
+      if (numericLimit is BigInt) {
+        if (NumberUtils.isInIntegerRange(numericLimit)) {
+          final limit = numericLimit.toInt();
+          return (skip: step > 0 ? init > limit : init < limit, limit: limit);
+        }
+        if (numericLimit.isNegative) {
+          return step > 0
+              ? (skip: true, limit: NumberLimits.minInteger)
+              : (skip: false, limit: NumberLimits.minInteger);
+        }
+        return step < 0
+            ? (skip: true, limit: NumberLimits.maxInteger)
+            : (skip: false, limit: NumberLimits.maxInteger);
+      }
+      if (numericLimit is double) {
+        if (!numericLimit.isFinite) {
+          if (numericLimit.isNegative) {
+            return step > 0
+                ? (skip: true, limit: NumberLimits.minInteger)
+                : (skip: false, limit: NumberLimits.minInteger);
+          }
+          return step < 0
+              ? (skip: true, limit: NumberLimits.maxInteger)
+              : (skip: false, limit: NumberLimits.maxInteger);
+        }
+
+        if (numericLimit < NumberLimits.minInteger) {
+          return step > 0
+              ? (skip: true, limit: NumberLimits.minInteger)
+              : (skip: false, limit: NumberLimits.minInteger);
+        }
+        if (numericLimit > NumberLimits.maxInteger) {
+          return step < 0
+              ? (skip: true, limit: NumberLimits.maxInteger)
+              : (skip: false, limit: NumberLimits.maxInteger);
+        }
+
+        final limit = step < 0 ? numericLimit.ceil() : numericLimit.floor();
+        return (skip: step > 0 ? init > limit : init < limit, limit: limit);
+      }
+      throw Exception("For loop bounds must be numbers");
+    }
+
+    BigInt unsignedDifference(BigInt left, BigInt right) {
+      var difference = left - right;
+      if (difference.isNegative) {
+        difference += BigInt.one << NumberLimits.sizeInBits;
+      }
+      return difference;
+    }
+
+    final integerStart = exactIntegerValue(rawStart);
+    final integerStep = exactIntegerValue(rawStep);
+    final integerLoop = integerStart != null && integerStep != null;
+
+    late final num start;
+    late final num end;
+    late final num step;
+    BigInt? integerCount;
+
+    if (integerLoop) {
+      if (integerStep == 0) {
+        throw Exception("'for' step is zero");
+      }
+      final limitInfo = coerceIntegerLimit(rawEnd, integerStart, integerStep);
+      if (limitInfo.skip) {
+        return null;
+      }
+
+      final limit = limitInfo.limit;
+      if (integerStep > 0) {
+        integerCount = unsignedDifference(
+          NumberUtils.toUnsigned64(limit),
+          NumberUtils.toUnsigned64(integerStart),
+        );
+        if (integerStep != 1) {
+          integerCount ~/= NumberUtils.toUnsigned64(integerStep);
+        }
+      } else {
+        integerCount = unsignedDifference(
+          NumberUtils.toUnsigned64(integerStart),
+          NumberUtils.toUnsigned64(limit),
+        );
+        integerCount ~/=
+            NumberUtils.toUnsigned64(-(integerStep + 1)) + BigInt.one;
+      }
+
+      start = integerStart;
+      end = limit;
+      step = integerStep;
+    } else {
+      final coercedStart = parseNumericValue(rawStart);
+      final coercedEnd = parseNumericValue(rawEnd);
+      final coercedStep = parseNumericValue(rawStep);
+      final floatLoop = coercedStart is double || coercedStep is double;
+      start = floatLoop
+          ? NumberUtils.toDouble(coercedStart)
+          : coercedStart as num;
+      end = floatLoop
+          ? NumberUtils.toDouble(coercedEnd)
+          : coercedEnd as num;
+      step = floatLoop
+          ? NumberUtils.toDouble(coercedStep)
+          : coercedStep as num;
+      if (step == 0) {
+        throw Exception("'for' step is zero");
+      }
+    }
 
     Logger.debug(
       'ForLoop start: $start, end: $end, step: $step',
@@ -367,13 +515,14 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     loopEnv.declare(loopVarName, Value(start));
     final loopVarBox = loopEnv.values[loopVarName]!;
 
-    final compiler = LoopIrCompiler(
-      loopVarName: loopVarName,
-      startValue: start,
-      endValue: end,
-      stepValue: step,
-    );
-    final bytecodeChunk = compiler.compile(node.body);
+    final bytecodeChunk = integerLoop
+        ? null
+        : LoopIrCompiler(
+            loopVarName: loopVarName,
+            startValue: start,
+            endValue: end,
+            stepValue: step,
+          ).compile(node.body);
     if (bytecodeChunk != null) {
       final vm = LoopIrVm(environment: loopEnv);
       try {
@@ -425,8 +574,9 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     }
 
     num current = start;
+    var remainingIntegerIterations = integerCount;
     try {
-      while (step > 0 ? current <= end : current >= end) {
+      while (integerLoop || (step > 0 ? current <= end : current >= end)) {
         loopVarBox.value = Value(current);
         Logger.debug(
           'ForLoop iteration: i = $current',
@@ -462,7 +612,15 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         }
 
         await resetLoopEnvironment();
-        current += step;
+        if (integerLoop) {
+          if (remainingIntegerIterations == BigInt.zero) {
+            break;
+          }
+          current = NumberUtils.add(current, step) as int;
+          remainingIntegerIterations = remainingIntegerIterations! - BigInt.one;
+        } else {
+          current += step;
+        }
       }
     } finally {
       setCurrentEnv(prevEnv);
@@ -783,10 +941,16 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     // Optional 4th component: a to-be-closed variable (Lua 5.4 semantics)
     // Used by io.lines(filename) to close the file when the loop ends.
     Value? toCloseVar;
-    if (components.length > 3 && components[3] is Value) {
-      final v = components[3] as Value;
-      if (v.isToBeClose || v.hasMetamethod('__close')) {
-        toCloseVar = v;
+    if (components.length > 3) {
+      try {
+        toCloseVar = Value.toBeClose(components[3]);
+      } on UnsupportedError {
+        final v = components[3] is Value
+            ? components[3] as Value
+            : Value(components[3]);
+        if (v.isToBeClose || v.hasMetamethod('__close')) {
+          toCloseVar = v;
+        }
       }
     }
 
