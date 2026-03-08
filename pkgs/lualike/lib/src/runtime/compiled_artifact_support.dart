@@ -3,11 +3,11 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:lualike/lualike.dart';
-import 'package:lualike/src/const_checker.dart';
 import 'package:lualike/src/goto_validator.dart';
 import 'package:lualike/src/interpreter/upvalue_analyzer.dart';
 import 'package:lualike/src/legacy_ast_chunk_transport.dart';
 import 'package:lualike/src/parse.dart' show parseExpression;
+import 'package:lualike/src/semantic_checker.dart';
 import 'package:lualike/src/upvalue.dart';
 import 'package:path/path.dart' as path;
 import 'package:source_span/source_span.dart';
@@ -15,6 +15,7 @@ import 'package:source_span/source_span.dart';
 final bool _loadProfileEnabled =
     getEnvironmentVariable('LUALIKE_PROFILE_LOAD') == '1';
 final RegExp _attributeLikeTokenPattern = RegExp(r'<[A-Za-z_][A-Za-z0-9_]*>');
+final RegExp _globalLikeTokenPattern = RegExp(r'(^|[^A-Za-z0-9_])global\b');
 final RegExp _constructsShortCircuitChunkPattern = RegExp(
   r'^\s*local\s+(F|k10)\s+<const>\s*=\s*(false|10)\s*'
   r'if\s+(.+?)\s+then\s+IX\s*=\s*true\s+end\s*'
@@ -292,13 +293,13 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
     // large amount of time here otherwise.
     if (!loadedFromAnonymousCache &&
         ast is! _ConstructsShortCircuitProgram &&
-        _attributeLikeTokenPattern.hasMatch(source)) {
-      final constChecker = ConstChecker();
-      final constError = constChecker.checkConstViolations(ast);
-      if (constError != null) {
-        var adjustedError = constError;
+        (_attributeLikeTokenPattern.hasMatch(source) ||
+            _globalLikeTokenPattern.hasMatch(source))) {
+      final semanticError = validateProgramSemantics(ast);
+      if (semanticError != null) {
+        var adjustedError = semanticError;
         if (source.startsWith('\n')) {
-          adjustedError = constError.replaceAllMapped(RegExp(r':(\d+):'), (
+          adjustedError = semanticError.replaceAllMapped(RegExp(r':(\d+):'), (
             match,
           ) {
             final lineNum = int.parse(match.group(1)!);
@@ -306,7 +307,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
             return ':$adjustedLine:';
           });
         }
-        logProfile('const-error', error: adjustedError);
+        logProfile('semantic-error', error: adjustedError);
         return LuaChunkLoadResult.failure(adjustedError);
       }
     }

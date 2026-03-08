@@ -4,7 +4,6 @@ import 'dart:convert';
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/config.dart';
-import 'package:lualike/src/const_checker.dart';
 import 'package:lualike/src/executor.dart';
 import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/lua_error.dart';
@@ -12,6 +11,7 @@ import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/parse.dart';
 import 'package:lualike/src/lua_bytecode/runtime.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
+import 'package:lualike/src/semantic_checker.dart';
 import 'package:lualike/src/stdlib/lib_debug.dart';
 import 'package:lualike/src/value.dart';
 import 'package:lualike/src/utils/file_system_utils.dart' as fs;
@@ -79,11 +79,9 @@ extension VMInterop on LuaRuntime {
   Future<Object?> evaluate(String code, {String? scriptPath}) async {
     final ast = parse(code, url: scriptPath); // Assuming parse() is available
 
-    // Check for const variable assignment errors
-    final constChecker = ConstChecker();
-    final constError = constChecker.checkConstViolations(ast);
-    if (constError != null) {
-      throw Exception(constError);
+    final semanticError = validateProgramSemantics(ast);
+    if (semanticError != null) {
+      throw Exception(semanticError);
     }
 
     // Store the script path in the interpreter

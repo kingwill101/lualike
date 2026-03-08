@@ -127,6 +127,7 @@ const Set<String> _leftLinearBinaryOps = <String>{
 final class _LuaBytecodeStructuredCompiler {
   _LuaBytecodeStructuredCompiler.topLevel(this._prototype)
     : _parent = null,
+      _declaredGlobals = <String>{},
       _nextRegister = 0,
       _nextTemp = 0 {
     _enterScope();
@@ -136,8 +137,10 @@ final class _LuaBytecodeStructuredCompiler {
     this._prototype,
     this._parent, {
     required List<Identifier> parameters,
+    Set<String> declaredGlobals = const <String>{},
   }) : _nextRegister = _prototype.parameterCount,
-       _nextTemp = _prototype.parameterCount {
+       _nextTemp = _prototype.parameterCount,
+       _declaredGlobals = <String>{...?_parent?._declaredGlobals, ...declaredGlobals} {
     _enterScope();
     for (var index = 0; index < parameters.length; index++) {
       _declareParameter(parameters[index].name, register: index);
@@ -146,6 +149,7 @@ final class _LuaBytecodeStructuredCompiler {
 
   final LuaBytecodePrototypeBuilder _prototype;
   final _LuaBytecodeStructuredCompiler? _parent;
+  final Set<String> _declaredGlobals;
   final Map<String, List<_LuaBytecodeStructuredLocal>> _localsByName =
       <String, List<_LuaBytecodeStructuredLocal>>{};
   final List<List<_LuaBytecodeStructuredLocal>> _scopes =
@@ -761,11 +765,23 @@ final class _LuaBytecodeStructuredCompiler {
   }
 
   void _compileFunctionDef(FunctionDef statement) {
+    final declaresSimpleGlobal =
+        statement.explicitGlobal &&
+        !statement.implicitSelf &&
+        statement.name.rest.isEmpty &&
+        statement.name.method == null;
+    if (declaresSimpleGlobal) {
+      _declaredGlobals.add(statement.name.first.name);
+    }
+
     final scratch = _reserveTempBlock(1);
     _emitFunctionBodyToRegister(
       statement.body,
       scratch,
       implicitSelf: statement.implicitSelf,
+      declaredGlobals: declaresSimpleGlobal
+          ? <String>{statement.name.first.name}
+          : const <String>{},
     );
 
     if (!statement.implicitSelf && statement.name.rest.isEmpty) {
@@ -799,6 +815,10 @@ final class _LuaBytecodeStructuredCompiler {
         _releaseTempBlock(scratch, 1);
       },
     );
+
+    for (final name in statement.names) {
+      _declaredGlobals.add(name.name);
+    }
   }
 
   void _compileScopedBlock(List<AstNode> statements) {
@@ -1612,6 +1632,7 @@ final class _LuaBytecodeStructuredCompiler {
     FunctionBody body,
     int targetRegister, {
     bool implicitSelf = false,
+    Set<String> declaredGlobals = const <String>{},
   }) {
     if (body.implicitSelf && !implicitSelf) {
       throw UnsupportedError(
@@ -1634,6 +1655,7 @@ final class _LuaBytecodeStructuredCompiler {
       childPrototype,
       this,
       parameters: parameterList,
+      declaredGlobals: declaredGlobals,
     );
     childCompiler.compileFunctionBody(body.body);
     final childIndex = _prototype.addChildPrototype(childPrototype);
@@ -1983,6 +2005,10 @@ final class _LuaBytecodeStructuredCompiler {
         name: name,
         register: local.register,
       );
+    }
+
+    if (_declaredGlobals.contains(name)) {
+      return _LuaBytecodeStructuredResolvedVariable.global(name: name);
     }
 
     final capture = _provideCapture(name);

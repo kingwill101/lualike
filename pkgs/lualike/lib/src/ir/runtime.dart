@@ -16,6 +16,7 @@ import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/runtime/compiled_artifact_support.dart';
 import 'package:lualike/src/runtime/chunk_loading_support.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
+import 'package:lualike/src/semantic_checker.dart';
 import 'package:lualike/src/stack.dart';
 import 'package:lualike/src/stdlib/init.dart';
 import 'package:lualike/src/stdlib/library.dart';
@@ -62,7 +63,12 @@ class LualikeIrRuntime implements LuaRuntime {
 
   @override
   Future<Object?> runAst(List<AstNode> program) async {
-    final chunk = LualikeIrCompiler().compile(Program(program));
+    final ast = Program(program);
+    final semanticError = validateProgramSemantics(ast);
+    if (semanticError != null) {
+      throw Exception(semanticError);
+    }
+    final chunk = LualikeIrCompiler().compile(ast);
     _dumpDisassemblyIfEnabled(chunk);
     return _executeChunk(chunk);
   }
