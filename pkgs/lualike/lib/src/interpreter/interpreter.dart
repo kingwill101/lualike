@@ -14,6 +14,7 @@ import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/runtime/compiled_artifact_support.dart';
 import 'package:lualike/src/runtime/chunk_loading_support.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
+import 'package:lualike/src/semantic_checker.dart';
 import 'package:lualike/src/stack.dart';
 import 'package:lualike/src/stdlib/init.dart' show initializeStandardLibrary;
 import 'package:lualike/src/stdlib/library.dart' show LibraryRegistry;
@@ -951,7 +952,13 @@ class Interpreter extends AstVisitor<Object?>
   }
 
   @override
-  Future<Object?> runAst(List<AstNode> program) => run(program);
+  Future<Object?> runAst(List<AstNode> program) {
+    final semanticError = validateProgramSemantics(Program(program));
+    if (semanticError != null) {
+      throw Exception(semanticError);
+    }
+    return run(program);
+  }
 
   @override
   Future<Object?> evaluateAst(AstNode node) => node.accept(this);

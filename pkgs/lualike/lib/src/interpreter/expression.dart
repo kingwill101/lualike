@@ -495,6 +495,10 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         final val = env.values[node.name]!.value;
         return val is Value ? val : Value(val);
       }
+      if (env.declaredGlobals.containsKey(node.name)) {
+        final val = env.declaredGlobals[node.name]!.value;
+        return val is Value ? val : Value(val);
+      }
       env = env.parent;
     }
 

@@ -1121,6 +1121,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     }
 
     for (var index = 0; index < node.names.length; index++) {
+      globals.declareGlobalBinding(node.names[index].name);
+    }
+
+    for (var index = 0; index < node.names.length; index++) {
       final name = node.names[index].name;
       final rawValue = index < values.length ? values[index] : Value(null);
       final attribute =

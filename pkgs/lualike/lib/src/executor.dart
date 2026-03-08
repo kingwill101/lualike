@@ -1,8 +1,8 @@
-import 'const_checker.dart';
 import 'exceptions.dart';
 import 'file_manager.dart';
 import 'interpreter/interpreter.dart';
 import 'parse.dart';
+import 'semantic_checker.dart';
 import 'runtime/lua_runtime.dart';
 import 'config.dart';
 import 'ir/compiler.dart';
@@ -41,11 +41,9 @@ Future<Object?> executeCode(
   }
   final program = parse(sourceCode);
 
-  // Check for const variable assignment errors
-  final constChecker = ConstChecker();
-  final constError = constChecker.checkConstViolations(program);
-  if (constError != null) {
-    throw Exception(constError);
+  final semanticError = validateProgramSemantics(program);
+  if (semanticError != null) {
+    throw Exception(semanticError);
   }
 
   try {

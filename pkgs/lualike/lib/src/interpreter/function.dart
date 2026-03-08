@@ -388,6 +388,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       return closure;
     }
 
+    if (node.explicitGlobal &&
+        node.name.rest.isEmpty &&
+        node.name.method == null) {
+      globals.declareGlobalBinding(node.name.first.name);
+    }
+
     // Regular function definition
     final closure = await node.body.accept(this);
     if (closure is Value) {

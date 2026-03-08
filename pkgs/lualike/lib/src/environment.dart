@@ -127,6 +127,12 @@ class Environment extends GCObject {
   /// Storage for variable bindings in this scope.
   final Map<String, Box<dynamic>> values = {};
 
+  /// Names explicitly declared as globals in this lexical scope.
+  ///
+  /// These shadow outer locals for name resolution while still targeting the
+  /// root global binding.
+  final Map<String, Box<dynamic>> declaredGlobals = {};
+
   /// Tracks the order in which to-be-closed variables were declared
   final List<String> toBeClosedVars = [];
 
@@ -198,7 +204,7 @@ class Environment extends GCObject {
   int get estimatedSize =>
       GcWeights.gcObjectHeader +
       GcWeights.environmentBase +
-      values.length * GcWeights.environmentEntry;
+      (values.length + declaredGlobals.length) * GcWeights.environmentEntry;
 
   @override
   List<GCObject> getReferences() {
@@ -218,6 +224,9 @@ class Environment extends GCObject {
 
       // Return the Box and any GCObject value it holds as references.
       // Do not auto-enroll raw values directly; discovery proceeds via Box.
+      refs.add(box);
+    }
+    for (final box in declaredGlobals.values) {
       refs.add(box);
     }
     return refs;
@@ -250,6 +259,14 @@ class Environment extends GCObject {
     if (values.containsKey(name)) {
       Logger.debug(
         "Variable '$name' found in current env ($hashCode)",
+        category: 'Env',
+      );
+      return true;
+    }
+
+    if (declaredGlobals.containsKey(name)) {
+      Logger.debug(
+        "Declared global '$name' found in current env ($hashCode)",
         category: 'Env',
       );
       return true;
@@ -295,6 +312,17 @@ class Environment extends GCObject {
       if (Logger.enabled) {
         Logger.debug(
           "Found '$name' = $val (type: ${val is Value ? val.raw.runtimeType : val.runtimeType}) in env ($hashCode)",
+          category: 'Env',
+        );
+      }
+      return val;
+    }
+
+    if (declaredGlobals.containsKey(name)) {
+      final val = declaredGlobals[name]!.value;
+      if (Logger.enabled) {
+        Logger.debug(
+          "Found declared global '$name' = $val in env ($hashCode)",
           category: 'Env',
         );
       }
@@ -368,6 +396,24 @@ class Environment extends GCObject {
         () => "Updated closure variable '$name' to $value",
         category: 'Env',
       );
+      return;
+    }
+
+    if (declaredGlobals.containsKey(name)) {
+      final box = declaredGlobals[name]!;
+      final currentValue = box.value;
+      if (currentValue is Value &&
+          (currentValue.isConst || currentValue.isToBeClose)) {
+        Logger.debugLazy(
+          () => "Attempt to modify const declared global '$name'",
+          category: 'Env',
+        );
+        throw LuaError("attempt to assign to const variable '$name'");
+      }
+      if (!_tryFastReplaceBoxValue(box, value)) {
+        box.value = value;
+      }
+      root._syncGlobalTableEntry(name, box.value);
       return;
     }
 
@@ -637,6 +683,25 @@ class Environment extends GCObject {
     }
   }
 
+  /// Declares [name] as an explicit global in this lexical scope.
+  ///
+  /// Subsequent lookups in this scope and nested scopes resolve through the
+  /// shared root global binding, even when an outer local with the same name
+  /// exists.
+  void declareGlobalBinding(String name) {
+    if (declaredGlobals.containsKey(name)) {
+      return;
+    }
+
+    final rootEnv = root;
+    final box =
+        rootEnv.values[name] ??= Box<dynamic>(null, isTransient: true)
+          ..debugName = name;
+    declaredGlobals[name] = box;
+    rootEnv._updateCredits();
+    rootEnv._syncGlobalTableEntry(name, box.value);
+  }
+
   /// Defines multiple variables in the current environment.
   ///
   /// Takes a map of variable names to values and defines each in this environment
@@ -661,6 +726,10 @@ class Environment extends GCObject {
       final box = current.values[name];
       if (box != null) {
         return box;
+      }
+      final declaredGlobal = current.declaredGlobals[name];
+      if (declaredGlobal != null) {
+        return declaredGlobal;
       }
       current = current.parent;
     }
