@@ -1,6 +1,6 @@
 -- $Id: testes/constructs.lua $
--- See Copyright Notice in file all.lua
-_soft = true
+-- See Copyright Notice in file lua.h
+
 ;;print "testing syntax";;
 
 local debug = require "debug"
@@ -60,7 +60,7 @@ assert((x>y) and x or y == 2);
 
 assert(1234567890 == tonumber('1234567890') and 1234567890+1 == 1234567891)
 
-do   -- testing operators with diffent kinds of constants
+do   -- testing operators with different kinds of constants
   -- operands to consider:
   --  * fit in register
   --  * constant doesn't fit in register
@@ -136,7 +136,6 @@ local function f (i)
 end
 
 x = {f(3), f(5), f(10);};
-print("x[1]", x[1], "x[2]", x[2], "x[3]", x[3], "x[4]", x[4], "x[12]", x[12])
 assert(x[1] == 3 and x[2] == 5 and x[3] == 10 and x[4] == 9 and x[12] == 1);
 assert(x[nil] == nil)
 x = {f'alo', f'xixi', nil};
@@ -270,7 +269,7 @@ end , { a = 1 , b = 2 >= 1 , } or { 1 };
 f = string.gsub(f, "%s+", "\n");   -- force a SETLINE between opcodes
 f,a = load(f)();
 assert(a.a == 1 and a.b)
-print("at 273")
+
 function g (a,b,c,d,e)
   if not (a>=b or c or d and e or nil) then return 0; else return 1; end;
 end
@@ -377,15 +376,14 @@ local function createcases (n)
   end
   return res
 end
-print("at 380")
+
 -- do not do too many combinations for soft tests
 local level = _soft and 3 or 4
 
 cases[1] = basiccases
-print("after cases[1]", cases[1])
 for i = 2, level do cases[i] = createcases(i) end
 print("+")
-print("at 387")
+
 local i = 0
 for n = 1, level do
   for _, v in pairs(cases[n]) do
