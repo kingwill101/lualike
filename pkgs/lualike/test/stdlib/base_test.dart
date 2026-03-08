@@ -172,6 +172,161 @@ void main() {
       );
     });
 
+    test('load rejects assignment to const for-control variables', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        st1, msg1 = load("for i = 1, 10 do i = 10 end")
+        st2, msg2 = load("for v, k in pairs{} do v = 10 end")
+
+        ok1 = (st1 == nil) and (string.find(msg1, "assign to const variable 'i'") ~= nil)
+        ok2 = (st2 == nil) and (string.find(msg2, "assign to const variable 'v'") ~= nil)
+      ''');
+
+      expect((bridge.getGlobal('ok1') as Value).unwrap(), isTrue);
+      expect((bridge.getGlobal('ok2') as Value).unwrap(), isTrue);
+    });
+
+    test('numeric for coerces string bounds', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        count = 0
+        for i = "10", "1", "-2" do
+          count = count + 1
+        end
+      ''');
+
+      expect((bridge.getGlobal('count') as Value).unwrap(), equals(5));
+    });
+
+    test('numeric for preserves float control variables', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        a = {}
+        for i = 1.0, 3 do
+          a[#a + 1] = math.type(i)
+        end
+
+        b = {}
+        for i = -1, -3, -1.0 do
+          b[#b + 1] = math.type(i)
+        end
+
+        typesA = table.concat(a, ",")
+        typesB = table.concat(b, ",")
+      ''');
+
+      expect(
+        (bridge.getGlobal('typesA') as Value).unwrap(),
+        equals('float,float,float'),
+      );
+      expect(
+        (bridge.getGlobal('typesB') as Value).unwrap(),
+        equals('float,float,float'),
+      );
+    });
+
+    test('numeric for handles wrapped integer ranges', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        local maxi = math.maxinteger
+        local mini = math.mininteger
+
+        ca = 0
+        for i = mini, maxi, maxi do
+          ca = ca + 1
+          if ca == 1 then a1 = i end
+          if ca == 2 then a2 = i end
+          if ca == 3 then a3 = i end
+        end
+
+        cb = 0
+        for i = maxi, mini, -maxi do
+          cb = cb + 1
+          if cb == 1 then b1 = i end
+          if cb == 2 then b2 = i end
+          if cb == 3 then b3 = i end
+        end
+      ''');
+
+      expect((bridge.getGlobal('ca') as Value).unwrap(), equals(3));
+      expect(
+        (bridge.getGlobal('a1') as Value).unwrap(),
+        equals(-9223372036854775808),
+      );
+      expect((bridge.getGlobal('a2') as Value).unwrap(), equals(-1));
+      expect(
+        (bridge.getGlobal('a3') as Value).unwrap(),
+        equals(9223372036854775806),
+      );
+
+      expect((bridge.getGlobal('cb') as Value).unwrap(), equals(3));
+      expect(
+        (bridge.getGlobal('b1') as Value).unwrap(),
+        equals(9223372036854775807),
+      );
+      expect((bridge.getGlobal('b2') as Value).unwrap(), equals(0));
+      expect(
+        (bridge.getGlobal('b3') as Value).unwrap(),
+        equals(-9223372036854775807),
+      );
+    });
+
+    test('pairs closes 4th iterator result with __close', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        local closed = false
+        local a = {}
+
+        local function foo(e, i)
+          if i <= 3 then
+            return i + 1, i + 2
+          end
+        end
+
+        setmetatable(a, {
+          __pairs = function(x)
+            local tbc = setmetatable({}, {
+              __close = function() closed = true end
+            })
+            return foo, x, 0, tbc
+          end
+        })
+
+        local count = 0
+        for k, v in pairs(a) do
+          count = count + 1
+        end
+
+        closedResult = closed
+        countResult = count
+      ''');
+
+      expect((bridge.getGlobal('closedResult') as Value).unwrap(), isTrue);
+      expect((bridge.getGlobal('countResult') as Value).unwrap(), equals(4));
+    });
+
+    test('ipairs respects __index metamethods', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        local a = {n = 5}
+        setmetatable(a, {
+          __index = function(t, k)
+            if k <= t.n then
+              return k * 10
+            end
+          end
+        })
+
+        count = 0
+        for k, v in ipairs(a) do
+          count = count + 1
+          assert(k == count and v == k * 10)
+        end
+      ''');
+
+      expect((bridge.getGlobal('count') as Value).unwrap(), equals(5));
+    });
+
     group("setmetatable", () {
       test('setmetatable with function', () async {
         final bridge = LuaLike();

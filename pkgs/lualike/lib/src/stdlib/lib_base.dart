@@ -369,7 +369,7 @@ class ErrorFunction extends BuiltinFunction {
 class IPairsFunction extends BuiltinFunction {
   IPairsFunction(super.interpreter);
 
-  late final Value _iteratorFunction = Value((List<Object?> iterArgs) {
+  late final Value _iteratorFunction = Value((List<Object?> iterArgs) async {
     if (iterArgs.length < 2) {
       throw LuaError("iterator requires a table and an index");
     }
@@ -380,20 +380,13 @@ class IPairsFunction extends BuiltinFunction {
       throw LuaError("iterator requires a table as first argument");
     }
 
-    final map = t.raw as Map;
-
     if (iterArgs[1] is! Value || (iterArgs[1] as Value).raw is! num) {
       throw LuaError("iterator index must be a number");
     }
 
     final index = (iterArgs[1] as Value).raw as num;
     final nextIndex = index + 1;
-
-    if (!map.containsKey(nextIndex)) {
-      return Value(null);
-    }
-
-    final value = map[nextIndex];
+    final value = await t.getValueAsync(Value(nextIndex));
     if (value == null || (value is Value && value.raw == null)) {
       return Value(null);
     }

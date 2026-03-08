@@ -14,8 +14,9 @@ import 'package:source_span/source_span.dart';
 
 final bool _loadProfileEnabled =
     getEnvironmentVariable('LUALIKE_PROFILE_LOAD') == '1';
-final RegExp _attributeLikeTokenPattern = RegExp(r'<[A-Za-z_][A-Za-z0-9_]*>');
-final RegExp _globalLikeTokenPattern = RegExp(r'(^|[^A-Za-z0-9_])global\b');
+final RegExp _semanticLikeTokenPattern = RegExp(
+  r'<[A-Za-z_][A-Za-z0-9_]*>|(^|[^A-Za-z0-9_])global\b|\bfor\b',
+);
 final RegExp _constructsShortCircuitChunkPattern = RegExp(
   r'^\s*local\s+(F|k10)\s+<const>\s*=\s*(false|10)\s*'
   r'if\s+(.+?)\s+then\s+IX\s*=\s*true\s+end\s*'
@@ -293,8 +294,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
     // large amount of time here otherwise.
     if (!loadedFromAnonymousCache &&
         ast is! _ConstructsShortCircuitProgram &&
-        (_attributeLikeTokenPattern.hasMatch(source) ||
-            _globalLikeTokenPattern.hasMatch(source))) {
+        _semanticLikeTokenPattern.hasMatch(source)) {
       final semanticError = validateProgramSemantics(ast);
       if (semanticError != null) {
         var adjustedError = semanticError;
