@@ -160,6 +160,7 @@ final class _LuaBytecodeStructuredCompiler {
       <String, List<_LuaBytecodeStructuredLocal>>{};
   final List<List<_LuaBytecodeStructuredLocal>> _scopes =
       <List<_LuaBytecodeStructuredLocal>>[];
+  final List<bool> _scopesInsideToBeClosed = <bool>[];
   final List<List<_LuaBytecodeStructuredLabel>> _labelScopes =
       <List<_LuaBytecodeStructuredLabel>>[];
   final List<int> _scopeIds = <int>[];
@@ -384,6 +385,9 @@ final class _LuaBytecodeStructuredCompiler {
         register: pendingLocals[closableIndex].register,
       );
     }
+    if (closableIndices.isNotEmpty) {
+      _markCurrentScopeInsideToBeClosed();
+    }
   }
 
   void _compileAssignment(Assignment statement) {
@@ -460,7 +464,11 @@ final class _LuaBytecodeStructuredCompiler {
 
       if (expr is Call) {
         final base = _reserveTempBlock(_callRegisterWidth(expr));
-        _emitTailCall(expr, baseRegister: base);
+        if (_isInsideToBeClosedScope) {
+          _emitOpenResultExpression(expr, baseRegister: base);
+        } else {
+          _emitTailCall(expr, baseRegister: base);
+        }
         _prototype.emitOpenReturn(firstRegister: base);
         return;
       }
@@ -686,6 +694,7 @@ final class _LuaBytecodeStructuredCompiler {
       register: baseRegister + 3,
       startPc: hiddenStateStartPc,
     );
+    _markCurrentScopeInsideToBeClosed();
     for (var index = 0; index < statement.names.length; index++) {
       _bindAllocatedRegister(
         statement.names[index].name,
@@ -892,7 +901,7 @@ final class _LuaBytecodeStructuredCompiler {
     _emitValueList(
       statement.exprs,
       valueCount: statement.names.length,
-      onValue: (_, __) {},
+      onValue: (_, _) {},
       onNil: (_) {},
       onComplete: (realizedCount, stagingBase) {
         for (final name in statement.names) {
@@ -2529,6 +2538,7 @@ final class _LuaBytecodeStructuredCompiler {
 
   void _enterScope() {
     _scopes.add(<_LuaBytecodeStructuredLocal>[]);
+    _scopesInsideToBeClosed.add(_isInsideToBeClosedScope);
     _labelScopes.add(<_LuaBytecodeStructuredLabel>[]);
     _scopeIds.add(_nextScopeId++);
   }
@@ -2574,6 +2584,7 @@ final class _LuaBytecodeStructuredCompiler {
     }
 
     _scopeIds.removeLast();
+    _scopesInsideToBeClosed.removeLast();
     final leavingLocals = _scopes.removeLast();
     for (final local in leavingLocals) {
       if (!local.hasStorage) {
@@ -2602,6 +2613,17 @@ final class _LuaBytecodeStructuredCompiler {
 
   Set<_LuaBytecodeStructuredLocal> _visibleLocals() {
     return <_LuaBytecodeStructuredLocal>{for (final scope in _scopes) ...scope};
+  }
+
+  bool get _isInsideToBeClosedScope =>
+      _scopesInsideToBeClosed.isNotEmpty &&
+      _scopesInsideToBeClosed.last;
+
+  void _markCurrentScopeInsideToBeClosed() {
+    if (_scopesInsideToBeClosed.isEmpty || _scopesInsideToBeClosed.last) {
+      return;
+    }
+    _scopesInsideToBeClosed[_scopesInsideToBeClosed.length - 1] = true;
   }
 
   int _activeRegisterTop() {

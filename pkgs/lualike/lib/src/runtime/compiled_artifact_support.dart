@@ -29,6 +29,32 @@ const int _maxCachedAnonymousTextLoadSourceLength = 512;
 final Expando<_AnonymousTextLoadCache> _anonymousTextLoadCaches =
     Expando<_AnonymousTextLoadCache>('anonymousTextLoadCaches');
 
+void _restoreAmbientEnvironment(LuaRuntime runtime, Environment env) {
+  if (runtime case Interpreter interpreter) {
+    interpreter.restoreCurrentEnv(env);
+    return;
+  }
+  runtime.setCurrentEnv(env);
+}
+
+void _rebindActiveLoadedChunkFrame(
+  LuaRuntime runtime,
+  Value callable, {
+  required String chunkName,
+  required Environment env,
+}) {
+  if (runtime case Interpreter interpreter) {
+    final frame =
+        interpreter.callStack.top?.callable != null
+            ? interpreter.callStack.top
+            : interpreter.findFrameForCallable(callable);
+    if (frame != null) {
+      frame.scriptPath = chunkName;
+      frame.env = env;
+    }
+  }
+}
+
 Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
   LuaRuntime runtime,
   LuaChunkLoadRequest request,
@@ -264,6 +290,44 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
   }
 
   try {
+    var hasDirectAst = false;
+    AstNode? directAstNode;
+    List<String>? originalUpvalueNames;
+    List<dynamic>? originalUpvalueValues;
+    var strippedDebugInfo = false;
+    var shouldWrapParsedChunkAsDirectAst = false;
+    final embeddedSourceName =
+        chunkInfo?.sourceName ?? readerChunkInfo?.sourceName;
+    final effectiveChunkName =
+        embeddedSourceName != null && embeddedSourceName.isNotEmpty
+        ? embeddedSourceName
+        : chunkname;
+
+    if (isBinaryChunk && chunkInfo != null) {
+      if (chunkInfo.originalFunctionBody != null) {
+        hasDirectAst = true;
+        directAstNode = chunkInfo.originalFunctionBody;
+      } else if (chunkInfo.strippedDebugInfo) {
+        shouldWrapParsedChunkAsDirectAst = true;
+      }
+      originalUpvalueNames = chunkInfo.upvalueNames;
+      originalUpvalueValues = chunkInfo.upvalueValues;
+      strippedDebugInfo = chunkInfo.strippedDebugInfo;
+    }
+
+    if (readerChunkInfo != null) {
+      if (readerChunkInfo.originalFunctionBody != null) {
+        hasDirectAst = true;
+        directAstNode = readerChunkInfo.originalFunctionBody;
+      } else if (readerChunkInfo.strippedDebugInfo) {
+        shouldWrapParsedChunkAsDirectAst = true;
+      }
+      originalUpvalueNames ??= readerChunkInfo.upvalueNames;
+      originalUpvalueValues ??= readerChunkInfo.upvalueValues;
+      strippedDebugInfo =
+          strippedDebugInfo || readerChunkInfo.strippedDebugInfo;
+    }
+
     final anonymousLoadCacheKey =
         !isBinaryChunk &&
             _shouldCacheAnonymousTextLoad(chunkname: chunkname, source: source)
@@ -277,80 +341,63 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
     if (_loadProfileEnabled) {
       parseTimer = Stopwatch()..start();
     }
-    final ast =
-        cachedAnonymousProgram ??
-        _tryParseConstructsShortCircuitChunk(source, chunkname) ??
-        parse(source, url: chunkname);
-    if (parseTimer != null) {
-      parseTimer.stop();
-      parseDuration = parseTimer.elapsed;
-    } else if (loadedFromAnonymousCache) {
-      parseDuration = Duration.zero;
-    }
-
-    // Skip whole-AST validation passes when the source text cannot possibly
-    // contain the relevant syntax. Repeated simple text loads in gc.lua spend a
-    // large amount of time here otherwise.
-    if (!loadedFromAnonymousCache &&
-        ast is! _ConstructsShortCircuitProgram &&
-        _semanticLikeTokenPattern.hasMatch(source)) {
-      final semanticError = validateProgramSemantics(ast);
-      if (semanticError != null) {
-        var adjustedError = semanticError;
-        if (source.startsWith('\n')) {
-          adjustedError = semanticError.replaceAllMapped(RegExp(r':(\d+):'), (
-            match,
-          ) {
-            final lineNum = int.parse(match.group(1)!);
-            final adjustedLine = lineNum > 1 ? lineNum - 1 : lineNum;
-            return ':$adjustedLine:';
-          });
-        }
-        logProfile('semantic-error', error: adjustedError);
-        return LuaChunkLoadResult.failure(adjustedError);
-      }
-    }
-
-    if (!loadedFromAnonymousCache &&
-        ast is! _ConstructsShortCircuitProgram &&
-        (source.contains('goto') || source.contains('::'))) {
-      final gotoValidator = GotoLabelValidator();
-      final gotoError = gotoValidator.checkGotoLabelViolations(ast);
-      if (gotoError != null) {
-        logProfile('goto-error', error: gotoError);
-        return LuaChunkLoadResult.failure(gotoError);
-      }
-    }
-    if (anonymousLoadCacheKey case final key? when !loadedFromAnonymousCache) {
-      _anonymousTextLoadCacheFor(runtime).store(key, ast);
-    }
-
-    var hasDirectAst = false;
-    AstNode? directAstNode;
-    List<String>? originalUpvalueNames;
-    List<dynamic>? originalUpvalueValues;
-    var strippedDebugInfo = false;
-
-    if (isBinaryChunk && chunkInfo != null) {
-      if (chunkInfo.originalFunctionBody != null) {
-        hasDirectAst = true;
-        directAstNode = chunkInfo.originalFunctionBody;
-        originalUpvalueNames = chunkInfo.upvalueNames;
-        originalUpvalueValues = chunkInfo.upvalueValues;
-        strippedDebugInfo = chunkInfo.strippedDebugInfo;
+    final Program ast;
+    if (hasDirectAst && directAstNode != null) {
+      if (parseTimer != null) {
+        parseTimer.stop();
+        parseDuration = parseTimer.elapsed;
       } else {
-        originalUpvalueNames = chunkInfo.upvalueNames;
-        originalUpvalueValues = chunkInfo.upvalueValues;
-        strippedDebugInfo = chunkInfo.strippedDebugInfo;
+        parseDuration = Duration.zero;
       }
-    }
+      ast = Program(const <AstNode>[]);
+    } else {
+      ast =
+          cachedAnonymousProgram ??
+          _tryParseConstructsShortCircuitChunk(source, effectiveChunkName) ??
+          parse(source, url: effectiveChunkName);
+      if (parseTimer != null) {
+        parseTimer.stop();
+        parseDuration = parseTimer.elapsed;
+      } else if (loadedFromAnonymousCache) {
+        parseDuration = Duration.zero;
+      }
 
-    if (readerChunkInfo != null &&
-        readerChunkInfo.originalFunctionBody != null) {
-      hasDirectAst = true;
-      directAstNode = readerChunkInfo.originalFunctionBody;
-      originalUpvalueNames = readerChunkInfo.upvalueNames;
-      strippedDebugInfo = readerChunkInfo.strippedDebugInfo;
+      // Skip whole-AST validation passes when the source text cannot possibly
+      // contain the relevant syntax. Repeated simple text loads in gc.lua spend a
+      // large amount of time here otherwise.
+      if (!loadedFromAnonymousCache &&
+          ast is! _ConstructsShortCircuitProgram &&
+          _semanticLikeTokenPattern.hasMatch(source)) {
+        final semanticError = validateProgramSemantics(ast);
+        if (semanticError != null) {
+          var adjustedError = semanticError;
+          if (source.startsWith('\n')) {
+            adjustedError = semanticError.replaceAllMapped(RegExp(r':(\d+):'), (
+              match,
+            ) {
+              final lineNum = int.parse(match.group(1)!);
+              final adjustedLine = lineNum > 1 ? lineNum - 1 : lineNum;
+              return ':$adjustedLine:';
+            });
+          }
+          logProfile('semantic-error', error: adjustedError);
+          return LuaChunkLoadResult.failure(adjustedError);
+        }
+      }
+
+      if (!loadedFromAnonymousCache &&
+          ast is! _ConstructsShortCircuitProgram &&
+          (source.contains('goto') || source.contains('::'))) {
+        final gotoValidator = GotoLabelValidator();
+        final gotoError = gotoValidator.checkGotoLabelViolations(ast);
+        if (gotoError != null) {
+          logProfile('goto-error', error: gotoError);
+          return LuaChunkLoadResult.failure(gotoError);
+        }
+      }
+      if (anonymousLoadCacheKey case final key? when !loadedFromAnonymousCache) {
+        _anonymousTextLoadCacheFor(runtime).store(key, ast);
+      }
     }
 
     final actualBody = FunctionBody([], ast.statements, false);
@@ -369,8 +416,12 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
     if (bodySpan != null) {
       actualBody.setSpan(bodySpan);
     }
+    if (!hasDirectAst && shouldWrapParsedChunkAsDirectAst) {
+      hasDirectAst = true;
+      directAstNode = actualBody;
+    }
 
-    final Value result;
+    late final Value result;
     if (hasDirectAst && directAstNode != null) {
       final loadedAstNode = directAstNode;
       result = Value(
@@ -386,8 +437,14 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
             loadEnv.declare("...", Value.multi(callArgs));
             runtime.setCurrentEnv(loadEnv);
             final prevPath = runtime.currentScriptPath;
-            runtime.currentScriptPath = chunkname;
-            runtime.callStack.setScriptPath(chunkname);
+            runtime.currentScriptPath = effectiveChunkName;
+            runtime.callStack.setScriptPath(effectiveChunkName);
+            _rebindActiveLoadedChunkFrame(
+              runtime,
+              result,
+              chunkName: effectiveChunkName,
+              env: loadEnv,
+            );
 
             try {
               if (loadedAstNode is FunctionBody) {
@@ -401,8 +458,9 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
               }
               return await runtime.evaluateAst(loadedAstNode);
             } finally {
-              runtime.setCurrentEnv(savedEnv);
+              _restoreAmbientEnvironment(runtime, savedEnv);
               runtime.currentScriptPath = prevPath;
+              runtime.callStack.setScriptPath(prevPath);
             }
           } on ReturnException catch (e) {
             return e.value;
@@ -415,7 +473,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
                 .toList();
             return await runtime.callFunction(callee, normalizedArgs);
           } catch (e) {
-            throw LuaError("Error executing AST chunk '$chunkname': $e");
+            throw LuaError("Error executing AST chunk '$effectiveChunkName': $e");
           }
         },
         functionBody: loadedAstNode is FunctionBody
@@ -434,8 +492,9 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
 
         runtime.setCurrentEnv(loadEnv);
         final prevPath = runtime.currentScriptPath;
-        runtime.currentScriptPath = chunkname;
-        loadEnv.declare('_SCRIPT_PATH', Value(chunkname));
+        runtime.currentScriptPath = effectiveChunkName;
+        runtime.callStack.setScriptPath(effectiveChunkName);
+        loadEnv.declare('_SCRIPT_PATH', Value(effectiveChunkName));
         try {
           final directFunction =
               await runtime.evaluateAst(loadedAstNode) as Value;
@@ -478,6 +537,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
           }
 
           directFunction.interpreter = runtime;
+          directFunction.strippedDebugInfo = strippedDebugInfo;
           if (strippedDebugInfo) {
             return LuaChunkLoadResult.success(
               _wrapStrippedLegacyFunction(runtime, directFunction),
@@ -487,7 +547,8 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
           return LuaChunkLoadResult.success(directFunction);
         } finally {
           runtime.currentScriptPath = prevPath;
-          runtime.setCurrentEnv(savedEnv);
+          runtime.callStack.setScriptPath(prevPath);
+          _restoreAmbientEnvironment(runtime, savedEnv);
         }
       }
     } else if (ast case _ConstructsShortCircuitProgram(
@@ -509,9 +570,15 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
           loadEnv.declare(constantName, Value(constantValue, isConst: true));
           runtime.setCurrentEnv(loadEnv);
           final prevPath = runtime.currentScriptPath;
-          runtime.currentScriptPath = chunkname;
-          runtime.callStack.setScriptPath(chunkname);
-          loadEnv.declare('_SCRIPT_PATH', Value(chunkname));
+          runtime.currentScriptPath = effectiveChunkName;
+          runtime.callStack.setScriptPath(effectiveChunkName);
+          _rebindActiveLoadedChunkFrame(
+            runtime,
+            result,
+            chunkName: effectiveChunkName,
+            env: loadEnv,
+          );
+          loadEnv.declare('_SCRIPT_PATH', Value(effectiveChunkName));
 
           try {
             final firstValue = switch (compiledCondition) {
@@ -538,8 +605,9 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
             logProfile('success');
             return resultValue;
           } finally {
-            runtime.setCurrentEnv(savedEnv);
+            _restoreAmbientEnvironment(runtime, savedEnv);
             runtime.currentScriptPath = prevPath;
+            runtime.callStack.setScriptPath(prevPath);
           }
         },
         functionBody: actualBody,
@@ -570,9 +638,15 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
             loadEnv.declare("...", Value.multi(callArgs));
             runtime.setCurrentEnv(loadEnv);
             final prevPath = runtime.currentScriptPath;
-            runtime.currentScriptPath = chunkname;
-            runtime.callStack.setScriptPath(chunkname);
-            loadEnv.declare('_SCRIPT_PATH', Value(chunkname));
+            runtime.currentScriptPath = effectiveChunkName;
+            runtime.callStack.setScriptPath(effectiveChunkName);
+            _rebindActiveLoadedChunkFrame(
+              runtime,
+              result,
+              chunkName: effectiveChunkName,
+              env: loadEnv,
+            );
+            loadEnv.declare('_SCRIPT_PATH', Value(effectiveChunkName));
 
             try {
               Object? executionResult;
@@ -609,8 +683,9 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
               logProfile('success');
               return executionResult;
             } finally {
-              runtime.setCurrentEnv(savedEnv);
+              _restoreAmbientEnvironment(runtime, savedEnv);
               runtime.currentScriptPath = prevPath;
+              runtime.callStack.setScriptPath(prevPath);
             }
           } on ReturnException catch (e) {
             logProfile('success');
@@ -629,7 +704,9 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
             if (e is LuaError || e is Value) {
               rethrow;
             }
-            throw LuaError("Error executing loaded chunk '$chunkname': $e");
+            throw LuaError(
+              "Error executing loaded chunk '$effectiveChunkName': $e",
+            );
           }
         },
         functionBody: actualBody,
@@ -680,6 +757,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
 
     result.upvalues = upvalues;
     result.interpreter = runtime;
+    result.strippedDebugInfo = strippedDebugInfo;
     logProfile('success');
     return LuaChunkLoadResult.success(result);
   } catch (e) {
@@ -702,7 +780,7 @@ Object? dumpFunctionWithLegacyAstTransport(
     );
   }
 
-  final fb = function.functionBody;
+    final fb = function.functionBody;
   if (fb != null) {
     Logger.debug(
       'string.dump: function has functionBody, span=${fb.span}, sourceUrl=${fb.span?.sourceUrl}',
@@ -729,16 +807,49 @@ Object? dumpFunctionWithLegacyAstTransport(
       }).toList();
     }
 
+    final compactSourceDump = _compactLegacySourceDumpInfo(fb);
+    if (compactSourceDump != null &&
+        _canUseCompactLegacySourceDump(upvalueNames)) {
+      return LegacyAstChunkTransport.serializeSourceWithNameAsLuaString(
+        compactSourceDump.source,
+        sourceName:
+            (stripDebugInfo || function.strippedDebugInfo)
+            ? null
+            : compactSourceDump.sourceName,
+        strippedDebugInfo: stripDebugInfo || function.strippedDebugInfo,
+      );
+    }
+
     return LegacyAstChunkTransport.serializeFunctionAsLuaString(
       fb,
       upvalueNames,
       upvalueValues,
-      stripDebugInfo,
+      stripDebugInfo || function.strippedDebugInfo,
     );
   }
 
   final source = "return function(...) end";
   return LegacyAstChunkTransport.serializeSourceAsLuaString(source);
+}
+
+({String source, String? sourceName})? _compactLegacySourceDumpInfo(
+  FunctionBody functionBody,
+) {
+  if (!_isTopLevelChunk(functionBody)) {
+    return null;
+  }
+  final source = functionBody.span?.text;
+  if (source == null || source.isEmpty) {
+    return null;
+  }
+  return (source: source, sourceName: functionBody.span?.sourceUrl?.toString());
+}
+
+bool _canUseCompactLegacySourceDump(List<String>? upvalueNames) {
+  if (upvalueNames == null || upvalueNames.isEmpty) {
+    return true;
+  }
+  return upvalueNames.every((name) => name == '_ENV');
 }
 
 Value _wrapStrippedLegacyFunction(LuaRuntime runtime, Value innerFunction) {
@@ -774,6 +885,7 @@ Value _wrapStrippedLegacyFunction(LuaRuntime runtime, Value innerFunction) {
     },
     interpreter: runtime,
     closureEnvironment: innerFunction.closureEnvironment,
+    strippedDebugInfo: true,
   );
 }
 
@@ -781,6 +893,25 @@ LuaFunctionDebugInfo? defaultDebugInfoForFunction(
   LuaRuntime runtime,
   Value function,
 ) {
+  if (function.strippedDebugInfo) {
+    final lineDefined = switch (function.debugLineDefined) {
+      final int line => line + 1,
+      _ => 1,
+    };
+    return LuaFunctionDebugInfo(
+      source: '=?',
+      shortSource: '?',
+      what: 'Lua',
+      lineDefined: lineDefined,
+      lastLineDefined: lineDefined,
+      nups:
+          function.upvalues?.length ??
+          (function.closureEnvironment != null ? 1 : 0),
+      nparams: function.functionBody?.parameters?.length ?? 0,
+      isVararg: function.functionBody?.isVararg ?? true,
+    );
+  }
+
   final raw = function.raw;
   if (raw is LuaCallableArtifact && raw.debugInfo != null) {
     return raw.debugInfo;
@@ -802,20 +933,51 @@ LuaFunctionDebugInfo? defaultDebugInfoForFunction(
         closureEnvSource ??
         runtime.currentScriptPath ??
         '=[string]';
-    final lineDefined = span != null ? span.start.line + 1 : -1;
+    final isTopLevelChunk = _isTopLevelChunk(functionBody);
+    final lineDefined = isTopLevelChunk
+        ? 0
+        : span != null
+        ? span.start.line + 1
+        : switch (function.debugLineDefined) {
+            final int line => line + 1,
+            _ => -1,
+          };
     final lastLineDefined = _lastFunctionBodyLine(functionBody);
     return LuaFunctionDebugInfo(
       source: source,
       shortSource: _shortSource(source),
       lineDefined: lineDefined,
       lastLineDefined: lastLineDefined,
-      nups: function.upvalues?.length ?? 0,
+      nups:
+          function.upvalues?.length ??
+          (function.closureEnvironment != null ? 1 : 0),
       nparams: functionBody.parameters?.length ?? 0,
       isVararg: functionBody.isVararg,
     );
   }
 
   if (raw is Function || raw is BuiltinFunction) {
+    final luaDefinedLine = switch (function.debugLineDefined) {
+      final int line => line + 1,
+      _ => -1,
+    };
+    final looksLikeLuaFunction =
+        function.closureEnvironment != null ||
+        function.upvalues != null ||
+        luaDefinedLine > 0;
+    if (looksLikeLuaFunction) {
+      return LuaFunctionDebugInfo(
+        source: '=?',
+        shortSource: '?',
+        what: 'Lua',
+        lineDefined: luaDefinedLine > 0 ? luaDefinedLine : 1,
+        lastLineDefined: luaDefinedLine > 0 ? luaDefinedLine : 1,
+        nups:
+            function.upvalues?.length ??
+            (function.closureEnvironment != null ? 1 : 0),
+        isVararg: true,
+      );
+    }
     return const LuaFunctionDebugInfo(
       source: '=[C]',
       shortSource: '[C]',
@@ -859,6 +1021,14 @@ int _lastFunctionBodyLine(FunctionBody body) {
   }
 
   return -1;
+}
+
+bool _isTopLevelChunk(FunctionBody body) {
+  final text = body.span?.text.trimLeft();
+  if (text == null || text.isEmpty) {
+    return false;
+  }
+  return !(text.startsWith('function') || text.startsWith('local function'));
 }
 
 Environment _createDirectAstExecutionEnv({

@@ -17,6 +17,7 @@ class LegacyAstChunkTransport {
   static const int _binaryPrefix = 0x1B; // ESC character
   static const String _astMarker = "AST:";
   static const String _sourceMarker = "SRC:";
+  static const String _sourceWithNameMarker = "SRCJ:";
   static const String _stripDebugInfoKey = "__stripDebugInfo";
   static const int _legacyLua54HeaderSize =
       15 + BinaryTypeSize.j + BinaryTypeSize.n;
@@ -53,6 +54,22 @@ class LegacyAstChunkTransport {
       } else if (value is SourceSpan) {
         // Remove span information
         map.remove(key);
+      }
+    }
+  }
+
+  static void _removeDebugMetadata(Map<String, dynamic> map) {
+    map.remove('span');
+    for (final entry in map.entries.toList()) {
+      final value = entry.value;
+      if (value is Map<String, dynamic>) {
+        _removeDebugMetadata(value);
+      } else if (value is List) {
+        for (final item in value) {
+          if (item is Map<String, dynamic>) {
+            _removeDebugMetadata(item);
+          }
+        }
       }
     }
   }
@@ -132,6 +149,7 @@ class LegacyAstChunkTransport {
         dumpData['upvalueValues'] = upvalueValues;
       }
       if (stripDebugInfo) {
+        _removeDebugMetadata(dumpData);
         dumpData[_stripDebugInfoKey] = true;
       }
 
@@ -160,6 +178,20 @@ class LegacyAstChunkTransport {
   /// Serializes raw source fallback through the same legacy transport envelope.
   static LuaString serializeSourceAsLuaString(String source) {
     return _createLuaCompatibleChunkAsLuaString(_sourceMarker + source);
+  }
+
+  /// Serializes source plus its original chunk name through the legacy envelope.
+  static LuaString serializeSourceWithNameAsLuaString(
+    String source, {
+    String? sourceName,
+    bool strippedDebugInfo = false,
+  }) {
+    final payload = jsonEncode(<String, dynamic>{
+      'source': source,
+      'sourceName': sourceName,
+      'strippedDebugInfo': strippedDebugInfo,
+    });
+    return _createLuaCompatibleChunkAsLuaString(_sourceWithNameMarker + payload);
   }
 
   /// Deserializes a legacy AST/internal chunk [LuaString] back to Lua source.
@@ -289,6 +321,22 @@ class LegacyAstChunkTransport {
         upvalueValues: null,
         strippedDebugInfo: false,
       );
+    } else if (payload.startsWith(_sourceWithNameMarker)) {
+      final jsonString = payload.substring(_sourceWithNameMarker.length);
+      try {
+        final data = jsonDecode(jsonString) as Map<String, dynamic>;
+        return LegacyChunkInfo(
+          source: data['source'] as String? ?? '',
+          sourceName: data['sourceName'] as String?,
+          isStringDumpFunction: true,
+          originalFunctionBody: null,
+          upvalueNames: null,
+          upvalueValues: null,
+          strippedDebugInfo: data['strippedDebugInfo'] == true,
+        );
+      } catch (_) {
+        throw Exception("Invalid binary chunk: truncated (malformed payload)");
+      }
     } else {
       // Unknown format, treat as source code
       return LegacyChunkInfo(
@@ -405,6 +453,22 @@ class LegacyAstChunkTransport {
         upvalueValues: null,
         strippedDebugInfo: false,
       );
+    } else if (payload.startsWith(_sourceWithNameMarker)) {
+      final jsonString = payload.substring(_sourceWithNameMarker.length);
+      try {
+        final data = jsonDecode(jsonString) as Map<String, dynamic>;
+        return LegacyChunkInfo(
+          source: data['source'] as String? ?? '',
+          sourceName: data['sourceName'] as String?,
+          isStringDumpFunction: true,
+          originalFunctionBody: null,
+          upvalueNames: null,
+          upvalueValues: null,
+          strippedDebugInfo: data['strippedDebugInfo'] == true,
+        );
+      } catch (_) {
+        throw Exception("Invalid binary chunk: truncated (malformed payload)");
+      }
     } else {
       // Unknown format, treat as source
       return LegacyChunkInfo(
@@ -565,6 +629,7 @@ class LegacyAstChunkTransport {
 /// Information about a deserialized legacy AST/internal chunk.
 class LegacyChunkInfo {
   final String source;
+  final String? sourceName;
   final bool isStringDumpFunction;
   final FunctionBody? originalFunctionBody;
   final List<String>? upvalueNames;
@@ -573,6 +638,7 @@ class LegacyChunkInfo {
 
   LegacyChunkInfo({
     required this.source,
+    this.sourceName,
     required this.isStringDumpFunction,
     required this.originalFunctionBody,
     required this.upvalueNames,

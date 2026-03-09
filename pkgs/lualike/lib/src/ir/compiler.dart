@@ -68,8 +68,8 @@ class _IdentifierAssignmentPlan extends _AssignmentTargetPlan {
 class _EnvFieldAssignmentPlan extends _AssignmentTargetPlan {
   _EnvFieldAssignmentPlan({
     required this.fieldConstIndex,
-    List<int> temporaries = const [],
-  }) : super(temporaries: temporaries);
+    super.temporaries = const [],
+  });
 
   final int fieldConstIndex;
 }
@@ -78,8 +78,8 @@ class _TableFieldAssignmentPlan extends _AssignmentTargetPlan {
   _TableFieldAssignmentPlan({
     required this.tableReg,
     required this.fieldConstIndex,
-    List<int> temporaries = const [],
-  }) : super(temporaries: temporaries);
+    super.temporaries = const [],
+  });
 
   final int tableReg;
   final int fieldConstIndex;
@@ -90,8 +90,8 @@ class _TableIndexAssignmentPlan extends _AssignmentTargetPlan {
     required this.tableReg,
     this.indexReg,
     this.numericIndex,
-    List<int> temporaries = const [],
-  }) : super(temporaries: temporaries);
+    super.temporaries = const [],
+  });
 
   final int tableReg;
   final int? indexReg;
@@ -362,7 +362,6 @@ class _PrototypeContext {
           '${node.runtimeType}',
         );
     }
-    return false;
   }
 
   void _emitReturn(ReturnStatement node) {

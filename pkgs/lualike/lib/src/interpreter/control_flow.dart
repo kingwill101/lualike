@@ -39,7 +39,11 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     );
 
     this is Interpreter ? (this as Interpreter).recordTrace(node) : null;
-
+    if (this is Interpreter) {
+      final interpreter = this as Interpreter;
+      interpreter.recordTrace(node.cond);
+      await interpreter.maybeFireStatementDebugHooks(node.cond);
+    }
     dynamic condition = await node.cond.accept(this);
     // In expression context, varargs/functions returning multiple values collapse
     // to their first value. Apply that here so 'if (...) then' is falsey when
@@ -96,7 +100,9 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         for (final elseIf in node.elseIfs) {
           // Record trace for each elseif condition
           if (this is Interpreter) {
-            (this as Interpreter).recordTrace(elseIf.cond);
+            final interpreter = this as Interpreter;
+            interpreter.recordTrace(elseIf.cond);
+            await interpreter.maybeFireStatementDebugHooks(elseIf.cond);
           }
 
           dynamic elseIfCond = await elseIf.cond.accept(this);
@@ -246,7 +252,9 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
 
     while (true) {
       if (this is Interpreter) {
-        (this as Interpreter).recordTrace(node.cond);
+        final interpreter = this as Interpreter;
+        interpreter.recordTrace(node.cond);
+        await interpreter.maybeFireStatementDebugHooks(node.cond);
       }
 
       final condition = await node.cond.accept(this);
@@ -293,6 +301,9 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         }
       } on BreakException {
         await resetLoopEnvironment();
+        if (this is Interpreter) {
+          (this as Interpreter).suppressPostExecutionHook(node);
+        }
         Logger.debug(
           'BreakException caught, breaking while loop',
           category: 'ControlFlow',
@@ -462,7 +473,11 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       if (integerStep == 0) {
         throw LuaError("'for' step is zero");
       }
-      final limitInfo = coerceIntegerLimit(endResult, integerStart, integerStep);
+      final limitInfo = coerceIntegerLimit(
+        endResult,
+        integerStart,
+        integerStep,
+      );
       if (limitInfo.skip) {
         return null;
       }
@@ -496,12 +511,8 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       start = floatLoop
           ? NumberUtils.toDouble(coercedStart)
           : coercedStart as num;
-      end = floatLoop
-          ? NumberUtils.toDouble(coercedEnd)
-          : coercedEnd as num;
-      step = floatLoop
-          ? NumberUtils.toDouble(coercedStep)
-          : coercedStep as num;
+      end = floatLoop ? NumberUtils.toDouble(coercedEnd) : coercedEnd as num;
+      step = floatLoop ? NumberUtils.toDouble(coercedStep) : coercedStep as num;
       if (step == 0) {
         throw LuaError("'for' step is zero");
       }
@@ -582,8 +593,19 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
 
     num current = start;
     var remainingIntegerIterations = integerCount;
+    final headerLine = node.span?.start.line;
+    if (this is Interpreter) {
+      await (this as Interpreter).maybeFireCountDebugHook();
+    }
     try {
       while (integerLoop || (step > 0 ? current <= end : current >= end)) {
+        if (this is Interpreter && headerLine != null) {
+          final interpreter = this as Interpreter;
+          await interpreter.maybeFireCountDebugHook();
+          interpreter.recordTrace(node);
+          await interpreter.maybeFireLineDebugHook(headerLine + 1, force: true);
+        }
+
         loopVarBox.value = Value(current);
         Logger.debug(
           'ForLoop iteration: i = $current',
@@ -628,6 +650,13 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         } else {
           current += step;
         }
+      }
+
+      if (this is Interpreter && headerLine != null) {
+        final interpreter = this as Interpreter;
+        await interpreter.maybeFireCountDebugHook();
+        interpreter.recordTrace(node);
+        await interpreter.maybeFireLineDebugHook(headerLine + 1);
       }
     } finally {
       setCurrentEnv(prevEnv);
@@ -707,6 +736,12 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           return bodyResult;
         }
 
+        if (this is Interpreter) {
+          final interpreter = this as Interpreter;
+          interpreter.recordTrace(node.cond);
+          await interpreter.maybeFireStatementDebugHooks(node.cond);
+        }
+
         final condition = await node.cond.accept(this);
 
         if (condition is bool) {
@@ -783,6 +818,16 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     );
 
     if (iterComponents.isEmpty) return null;
+    final headerLine = node.span?.start.line;
+
+    Future<void> fireHeaderHook({required bool force}) async {
+      if (this is Interpreter && headerLine != null) {
+        final interpreter = this as Interpreter;
+        await interpreter.maybeFireCountDebugHook();
+        interpreter.recordTrace(node);
+        await interpreter.maybeFireLineDebugHook(headerLine + 1, force: force);
+      }
+    }
 
     // Handle direct table iteration case
     if (iterComponents.length == 1 &&
@@ -866,6 +911,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
 
       try {
         for (final entry in entries) {
+          await fireHeaderHook(force: true);
           final key = entry.key is Value ? entry.key : entry.key;
           final value = entry.value is Value ? entry.value : entry.value;
 
@@ -900,6 +946,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
 
           await resetLoopEnvironment();
         }
+        await fireHeaderHook(force: false);
       } finally {
         setCurrentEnv(prevEnv);
       }
@@ -1038,6 +1085,9 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       interpreter: this as Interpreter,
     );
     loopEnv.pendingImplicitToBeClosed = toCloseVar != null ? 1 : 0;
+    if (toCloseVar != null) {
+      loopEnv.implicitToBeClosedValues.add(toCloseVar);
+    }
     final prevEnv = globals;
     final declaredNames = node.names.map((name) => name.name).toList();
     for (final name in declaredNames) {
@@ -1081,6 +1131,13 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         loopEnv.values[entry.key] = entry.value;
       }
 
+      if (loopEnv.implicitToBeClosedValues.length > 1) {
+        loopEnv.implicitToBeClosedValues.removeRange(
+          1,
+          loopEnv.implicitToBeClosedValues.length,
+        );
+      }
+
       for (final name in declaredNames) {
         final box = loopEnv.values[name];
         if (box != null) {
@@ -1115,7 +1172,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           items = await (this as Interpreter)._callFunction(iterCallable, [
             state,
             control,
-          ]);
+          ], debugNameOverride: 'for iterator');
         } catch (e) {
           if (this is Interpreter && (this as Interpreter).isInProtectedCall) {
             rethrow;
@@ -1187,10 +1244,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         if (frame != null && frame.debugLocals.length >= 3) {
           final controlIndex = toCloseVar != null ? 3 : 2;
           if (frame.debugLocals.length > controlIndex) {
-            frame.debugLocals[controlIndex] = MapEntry(
-              '(for state)',
-              control,
-            );
+            frame.debugLocals[controlIndex] = MapEntry('(for state)', control);
           }
         }
 
@@ -1206,9 +1260,11 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
               await toCloseVar.close();
             } catch (_) {}
           }
+          await fireHeaderHook(force: false);
           break;
         }
 
+        await fireHeaderHook(force: true);
         setCurrentEnv(loopEnv);
         try {
           assignLoopValues(values);
@@ -1505,6 +1561,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
 
   Future<Object?> _executeDirectPairsLoop(ForInLoop node, Value table) async {
     final entries = _snapshotPairsEntries(table);
+    final headerLine = node.span?.start.line;
     final loopEnv = Environment(
       parent: globals,
       interpreter: this as Interpreter,
@@ -1571,8 +1628,17 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       }
     }
 
+    Future<void> fireHeaderHook({required bool force}) async {
+      if (this is Interpreter && headerLine != null) {
+        final interpreter = this as Interpreter;
+        interpreter.recordTrace(node);
+        await interpreter.maybeFireLineDebugHook(headerLine + 1, force: force);
+      }
+    }
+
     try {
       for (final entry in entries) {
+        await fireHeaderHook(force: true);
         setCurrentEnv(loopEnv);
         try {
           assignLoopValues([entry.key, entry.value]);
@@ -1599,6 +1665,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
 
         await resetLoopEnvironment();
       }
+      await fireHeaderHook(force: false);
     } finally {
       setCurrentEnv(prevEnv);
     }

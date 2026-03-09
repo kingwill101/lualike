@@ -1,15 +1,28 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:lualike/src/builtin_function.dart';
+import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_string.dart';
+import 'package:lualike/src/upvalue.dart';
 import 'package:lualike/src/value.dart';
+import 'package:lualike/src/gc/gc.dart';
 
 import '../stdlib/lib_io.dart';
 import 'io_device.dart';
 
 // Create metamethods for the wrapped file
+final bool _debugFileOps =
+    Platform.environment['LUALIKE_DEBUG_FILE_OPS'] == '1';
+
+void _debugFileLog(String message) {
+  if (_debugFileOps) {
+    print('[file-debug] $message');
+  }
+}
+
 final fileMetamethods = {
   "__name": "FILE*",
   "__gc": (List<Object?> args) async {
@@ -19,6 +32,11 @@ final fileMetamethods = {
       throw LuaError.typeError("file expected");
     }
     final luaFile = fileValue.raw as LuaFile;
+    _debugFileLog(
+      '__gc fileValue=${identityHashCode(fileValue)} '
+      'raw=${identityHashCode(luaFile)} '
+      'device=${identityHashCode(luaFile.device)} closed=${luaFile.isClosed}',
+    );
 
     Logger.debug(
       'GC: About to close file: ${luaFile.toString()}, isClosed: ${luaFile.isClosed}',
@@ -27,11 +45,15 @@ final fileMetamethods = {
 
     final isDefaultFile = IOLib.isCurrentDefaultFile(luaFile);
 
-    Logger.debug('GC: Is this a current default file? $isDefaultFile', category: 'IO');
+    Logger.debug(
+      'GC: Is this a current default file? $isDefaultFile',
+      category: 'IO',
+    );
 
     // Don't close if already closed
     if (luaFile.isClosed) {
       Logger.debug('GC: File already closed, skipping', category: 'IO');
+      IOLib.unregisterOpenFile(args[0] as Value);
       return Value(null);
     }
 
@@ -56,6 +78,7 @@ final fileMetamethods = {
 
     // Not a default file and not closed, safe to close
     await luaFile.close();
+    IOLib.unregisterOpenFile(args[0] as Value);
     Logger.debug('GC: File closed successfully', category: 'IO');
     return Value(null);
   },
@@ -64,7 +87,15 @@ final fileMetamethods = {
     final fileValue = args[0];
     if (fileValue is Value && fileValue.raw is LuaFile) {
       final file = fileValue.raw as LuaFile;
+      _debugFileLog(
+        '__close fileValue=${identityHashCode(fileValue)} '
+        'raw=${identityHashCode(file)} '
+        'device=${identityHashCode(file.device)} closed=${file.isClosed}',
+      );
       final result = await file.close();
+      if (result.isNotEmpty && result[0] == true) {
+        IOLib.unregisterOpenFile(fileValue);
+      }
       return Value.multi(result);
     } else {
       throw LuaError.typeError("file expected");
@@ -94,33 +125,11 @@ final fileMetamethods = {
       _ => null,
     };
     if (keyStr != null) {
-
       // Handle file methods
       final method = LuaFile.fileMethods[keyStr];
       if (method != null) {
         Logger.debug('Found file method: $keyStr', category: 'IO');
-
-        // Return a bound method that checks for proper self argument
-        return Value((callArgs) {
-          Logger.debug(
-            'File method $keyStr called with ${callArgs.length} arguments',
-            category: 'IO',
-          );
-
-          // If called without arguments, it should fail
-          if (callArgs.isEmpty) {
-            // This is the case: local f = io.stdin.close; f()
-            return method.call(callArgs); // Let method handle the error
-          }
-
-          // If first argument is this file, call method normally
-          if (callArgs.isNotEmpty && callArgs.first == fileValue) {
-            return method.call(callArgs);
-          }
-
-          // Otherwise, prepend the file as self (for io.stdin.close() syntax)
-          return method.call([fileValue, ...callArgs]);
-        });
+        return Value(method);
       }
 
       // Handle file properties
@@ -357,6 +366,7 @@ class LuaFile {
   Future<Value> lines([
     List<String> formats = const ["l"],
     bool closeOnEof = false,
+    Value? owner,
   ]) async {
     Logger.debug(
       "Creating file line iterator for $this with formats: $formats",
@@ -373,142 +383,23 @@ class LuaFile {
         throw LuaError("Cannot read from write-only file");
       });
     }
-
-    bool hasBeenClosed = false;
-    int iterationCount = 0;
-
-    return Value((List<Object?> args) async {
-      iterationCount++;
-      Logger.debug(
-        "Line iterator call #$iterationCount for $this",
-        category: 'IO',
-      );
-
-      if (hasBeenClosed) {
-        Logger.debug(
-          "Line iterator called after file $this was closed (iteration #$iterationCount)",
-          category: 'IO',
-        );
-        throw LuaError("file is already closed");
-      }
-
-      if (isClosed) {
-        Logger.debug(
-          "Line iterator called but file $this is closed (iteration #$iterationCount)",
-          category: 'IO',
-        );
-        hasBeenClosed = true;
-        throw LuaError("file is already closed");
-      }
-
-      Logger.debug(
-        "Line iterator checking EOF for $this (iteration #$iterationCount)",
-        category: 'IO',
-      );
-      final isAtEOF = await device.isEOF();
-      Logger.debug(
-        "EOF check result: $isAtEOF for $this (iteration #$iterationCount)",
-        category: 'IO',
-      );
-
-      if (isAtEOF) {
-        Logger.debug(
-          "Reached EOF in line iterator for $this, closeOnEof=$closeOnEof (iteration #$iterationCount)",
-          category: 'IO',
-        );
-        if (closeOnEof) {
-          await close();
-          hasBeenClosed = true;
-          Logger.debug(
-            "File closed due to closeOnEof=true, returning null to end iteration (iteration #$iterationCount)",
-            category: 'IO',
-          );
-        } else {
-          Logger.debug(
-            "EOF reached but closeOnEof=false, returning null to end iteration without closing (iteration #$iterationCount)",
-            category: 'IO',
-          );
-        }
-        return Value(null);
-      }
-
-      // Read all formats in a single call and return multiple values
-      final results = <Object?>[];
-      for (final format in formats) {
-        Logger.debug(
-          "Line iterator reading format: $format from $this (iteration #$iterationCount)",
-          category: 'IO',
-        );
-
-        final result = await device.read(format);
-        Logger.debug(
-          "Read result: success=${result.isSuccess}, value=${result.value}, error=${result.error} (iteration #$iterationCount)",
-          category: 'IO',
-        );
-
-        if (!result.isSuccess) {
-          Logger.debug(
-            "Line iterator read failed for $this: ${result.error} (iteration #$iterationCount)",
-            category: 'IO',
-          );
-          if (closeOnEof) {
-            Logger.debug(
-              "closeOnEof=true, marking iterator closed after read error (iteration #$iterationCount)",
-              category: 'IO',
-            );
-            hasBeenClosed = true;
-          }
-          throw LuaError(result.error ?? "file read error");
-        }
-
-        if (result.value == null) {
-          Logger.debug(
-            "Line iterator reached EOF for $this (iteration #$iterationCount)",
-            category: 'IO',
-          );
-          hasBeenClosed = true;
-          if (closeOnEof) {
-            Logger.debug(
-              "closeOnEof=true, deferring close to to-be-closed variable (iteration #$iterationCount)",
-              category: 'IO',
-            );
-          } else {
-            Logger.debug(
-              "closeOnEof=false, iterator marked closed but file remains open for manual close (iteration #$iterationCount)",
-              category: 'IO',
-            );
-          }
-          return Value(null);
-        }
-
-        results.add(result.value);
-      }
-
-      Logger.debug(
-        "Line iterator read successful for $this: ${results.length} values (iteration #$iterationCount)",
-        category: 'IO',
-      );
-
-      // Log what we're about to return
-      if (results.length == 1) {
-        Logger.debug(
-          "Returning single value: ${results[0]} (iteration #$iterationCount)",
-          category: 'IO',
-        );
-      } else {
-        Logger.debug(
-          "Returning multi values: $results (iteration #$iterationCount)",
-          category: 'IO',
-        );
-      }
-
-      // Return multiple values if there are multiple formats
-      if (results.length == 1) {
-        return Value(results[0]);
-      } else {
-        return Value.multi(results);
-      }
-    });
+    final iteratorValue = Value(
+      _LuaFileLineIterator(
+        file: this,
+        formats: formats,
+        closeOnEof: closeOnEof,
+        owner: owner,
+      ),
+    );
+    if (owner != null) {
+      iteratorValue.upvalues = [
+        Upvalue(
+          valueBox: Box<dynamic>(owner, isTransient: true),
+          interpreter: owner.interpreter,
+        ),
+      ];
+    }
+    return iteratorValue;
   }
 
   @override
@@ -517,13 +408,177 @@ class LuaFile {
   }
 }
 
+final class _LuaFileLineIterator extends BuiltinFunction implements GCObject {
+  _LuaFileLineIterator({
+    required this.file,
+    required this.formats,
+    required this.closeOnEof,
+    required this.owner,
+  });
+
+  final LuaFile file;
+  final List<String> formats;
+  final bool closeOnEof;
+  final Value? owner;
+
+  bool hasBeenClosed = false;
+  int iterationCount = 0;
+
+  @override
+  bool marked = false;
+
+  @override
+  bool isOld = false;
+
+  @override
+  int get estimatedSize => 96;
+
+  @override
+  List<Object?> getReferences() => [if (owner != null) owner];
+
+  @override
+  void free() {}
+
+  @override
+  Future<Object?> call(List<Object?> args) async {
+    iterationCount++;
+    Logger.debug(
+      "Line iterator call #$iterationCount for $file",
+      category: 'IO',
+    );
+
+    if (hasBeenClosed) {
+      Logger.debug(
+        "Line iterator called after file $file was closed (iteration #$iterationCount)",
+        category: 'IO',
+      );
+      throw LuaError("file is already closed");
+    }
+
+    if (file.isClosed) {
+      Logger.debug(
+        "Line iterator called but file $file is closed (iteration #$iterationCount)",
+        category: 'IO',
+      );
+      hasBeenClosed = true;
+      throw LuaError("file is already closed");
+    }
+
+    Logger.debug(
+      "Line iterator checking EOF for $file (iteration #$iterationCount)",
+      category: 'IO',
+    );
+    final isAtEOF = await file.device.isEOF();
+    Logger.debug(
+      "EOF check result: $isAtEOF for $file (iteration #$iterationCount)",
+      category: 'IO',
+    );
+
+    if (isAtEOF) {
+      Logger.debug(
+        "Reached EOF in line iterator for $file, closeOnEof=$closeOnEof (iteration #$iterationCount)",
+        category: 'IO',
+      );
+      if (closeOnEof) {
+        await file.close();
+        hasBeenClosed = true;
+        Logger.debug(
+          "File closed due to closeOnEof=true, returning null to end iteration (iteration #$iterationCount)",
+          category: 'IO',
+        );
+      } else {
+        Logger.debug(
+          "EOF reached but closeOnEof=false, returning null to end iteration without closing (iteration #$iterationCount)",
+          category: 'IO',
+        );
+      }
+      return Value(null);
+    }
+
+    final results = <Object?>[];
+    for (final format in formats) {
+      Logger.debug(
+        "Line iterator reading format: $format from $file (iteration #$iterationCount)",
+        category: 'IO',
+      );
+
+      final result = await file.device.read(format);
+      Logger.debug(
+        "Read result: success=${result.isSuccess}, value=${result.value}, error=${result.error} (iteration #$iterationCount)",
+        category: 'IO',
+      );
+
+      if (!result.isSuccess) {
+        Logger.debug(
+          "Line iterator read failed for $file: ${result.error} (iteration #$iterationCount)",
+          category: 'IO',
+        );
+        if (closeOnEof) {
+          Logger.debug(
+            "closeOnEof=true, marking iterator closed after read error (iteration #$iterationCount)",
+            category: 'IO',
+          );
+          hasBeenClosed = true;
+        }
+        throw LuaError(result.error ?? "file read error");
+      }
+
+      if (result.value == null) {
+        Logger.debug(
+          "Line iterator reached EOF for $file (iteration #$iterationCount)",
+          category: 'IO',
+        );
+        hasBeenClosed = true;
+        if (closeOnEof) {
+          Logger.debug(
+            "closeOnEof=true, deferring close to to-be-closed variable (iteration #$iterationCount)",
+            category: 'IO',
+          );
+        } else {
+          Logger.debug(
+            "closeOnEof=false, iterator marked closed but file remains open for manual close (iteration #$iterationCount)",
+            category: 'IO',
+          );
+        }
+        return Value(null);
+      }
+
+      results.add(result.value);
+    }
+
+    Logger.debug(
+      "Line iterator read successful for $file: ${results.length} values (iteration #$iterationCount)",
+      category: 'IO',
+    );
+
+    if (results.length == 1) {
+      Logger.debug(
+        "Returning single value: ${results[0]} (iteration #$iterationCount)",
+        category: 'IO',
+      );
+      return Value(results[0]);
+    }
+
+    Logger.debug(
+      "Returning multi values: $results (iteration #$iterationCount)",
+      category: 'IO',
+    );
+    return Value.multi(results);
+  }
+}
+
 /// Helper function to create a LuaFile wrapped in a Value with proper metamethods
+Value wrapLuaFileValue(LuaFile luaFile) {
+  final fileValue = Value(luaFile, metatable: fileMetamethods);
+  IOLib.registerOpenFile(fileValue);
+  return fileValue;
+}
+
 Value createLuaFile(
   IODevice device, {
   bool isStandardFile = false,
   Object? interpreter,
 }) {
   final luaFile = LuaFile(device, isStandardFile: isStandardFile);
-
-  return Value(luaFile, metatable: fileMetamethods);
+  return wrapLuaFileValue(luaFile);
 }

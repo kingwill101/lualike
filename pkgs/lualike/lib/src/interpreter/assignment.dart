@@ -32,6 +32,26 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     return value;
   }
 
+  Value _cloneValueForLocalBinding(
+    Value value, {
+    bool isConst = false,
+    bool isToBeClose = false,
+  }) {
+    return Value(
+      value.raw,
+      metatable: value.metatable,
+      isConst: isConst,
+      isToBeClose: isToBeClose,
+      upvalues: value.upvalues,
+      interpreter: value.interpreter,
+      functionBody: value.functionBody,
+      closureEnvironment: value.closureEnvironment,
+      functionName: value.functionName,
+      debugLineDefined: value.debugLineDefined,
+      strippedDebugInfo: value.strippedDebugInfo,
+    );
+  }
+
   /// Handles assignment to a variable.
   ///
   /// Evaluates the right-hand side expression and assigns the resulting value
@@ -975,15 +995,13 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       // Apply attributes
       Value valueWithAttributes;
       if (attribute == 'const') {
-        valueWithAttributes = Value(
-          rawValue.raw,
-          metatable: rawValue.metatable,
+        valueWithAttributes = _cloneValueForLocalBinding(
+          rawValue,
           isConst: true,
         );
       } else if (attribute == 'close') {
-        valueWithAttributes = Value(
-          rawValue.raw,
-          metatable: rawValue.metatable,
+        valueWithAttributes = _cloneValueForLocalBinding(
+          rawValue,
           isToBeClose: true,
         );
 
@@ -994,23 +1012,9 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           }
         }
       } else {
-        // Reuse the existing Value if it doesn't have const/close attributes
-        // to avoid double-wrapping (which causes double allocation + GC overhead)
-        if (rawValue.isConst == false && rawValue.isToBeClose == false) {
-          valueWithAttributes = rawValue;
-        } else {
-          // Create a new Value to avoid inheriting const/close attributes from source
-          valueWithAttributes = Value(
-            rawValue.raw,
-            metatable: rawValue.metatable,
-            // Explicitly do not copy isConst or isToBeClose
-            upvalues: rawValue.upvalues,
-            interpreter: rawValue.interpreter,
-            functionBody: rawValue.functionBody,
-            closureEnvironment: rawValue.closureEnvironment,
-            functionName: rawValue.functionName,
-          );
-        }
+        // Local declarations must create a fresh binding wrapper. Reusing the
+        // source Value aliases later in-place assignment updates across locals.
+        valueWithAttributes = _cloneValueForLocalBinding(rawValue);
       }
 
       globals.declare(name, valueWithAttributes);
@@ -1028,9 +1032,8 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         Value valueWithAttributes;
         if (attribute == 'const') {
           if (rawValue is Value) {
-            valueWithAttributes = Value(
-              rawValue.raw,
-              metatable: rawValue.metatable,
+            valueWithAttributes = _cloneValueForLocalBinding(
+              rawValue,
               isConst: true,
             );
           } else {
@@ -1038,9 +1041,8 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           }
         } else if (attribute == 'close') {
           if (rawValue is Value) {
-            valueWithAttributes = Value(
-              rawValue.raw,
-              metatable: rawValue.metatable,
+            valueWithAttributes = _cloneValueForLocalBinding(
+              rawValue,
               isToBeClose: true,
             );
 
@@ -1061,13 +1063,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
             }
           }
         } else {
-          // Create a new Value to avoid inheriting const/close attributes from source
+          // Create a fresh Value wrapper so locals never alias the source
+          // binding, while preserving the underlying raw object identity.
           if (rawValue is Value) {
-            valueWithAttributes = Value(
-              rawValue.raw,
-              metatable: rawValue.metatable,
-              // Explicitly do not copy isConst or isToBeClose
-            );
+            valueWithAttributes = _cloneValueForLocalBinding(rawValue);
           } else {
             valueWithAttributes = Value(rawValue);
           }

@@ -299,7 +299,7 @@ class LibraryRegistrationContext extends LibraryContext {
     // This prevents temporary Value allocations that affect collectgarbage("count").
     if ((function is BuiltinFunction || function is Function) &&
         function is! Value) {
-      _functionMap[name] = Value(function);
+      _functionMap[name] = Value(function, functionName: name);
     } else {
       _functionMap[name] = function;
     }

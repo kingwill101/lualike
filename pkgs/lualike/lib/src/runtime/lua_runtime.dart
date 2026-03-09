@@ -78,7 +78,12 @@ abstract interface class LuaRuntime {
 
   // Execution & invocation
   Future<Object?> runAst(List<AstNode> program);
-  Future<Object?> callFunction(Value function, List<Object?> args);
+  Future<Object?> callFunction(
+    Value function,
+    List<Object?> args, {
+    String? debugName,
+    String debugNameWhat = '',
+  });
   Future<Object?> evaluateAst(AstNode node);
   Future<LuaChunkLoadResult> loadChunk(LuaChunkLoadRequest request);
   Object? dumpFunction(Value function, {bool stripDebugInfo = false});
@@ -88,6 +93,7 @@ abstract interface class LuaRuntime {
   // Call stack & debugging
   CallStack get callStack;
   Stack get evalStack;
+  Value get debugRegistry;
   String? get currentScriptPath;
   set currentScriptPath(String? value);
 

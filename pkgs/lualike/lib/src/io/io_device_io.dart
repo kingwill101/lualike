@@ -11,18 +11,37 @@ import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:lualike/src/utils/command_parser.dart';
 import 'package:lualike/src/utils/file_system_utils.dart';
 
+final bool _debugFileOps =
+    Platform.environment['LUALIKE_DEBUG_FILE_OPS'] == '1';
+
+void _debugFileLog(String message) {
+  if (_debugFileOps) {
+    print('[file-debug] $message');
+  }
+}
+
 /// Implementation for real files using dart:io
 class FileIODevice extends BaseIODevice {
   RandomAccessFile? _file;
   int _eofCallCount = 0;
   final List<int> _writeBuffer = <int>[];
   final String? _path;
+  Future<void> _pendingOperation = Future<void>.value();
 
   FileIODevice._(RandomAccessFile file, String mode, {String? path})
     : _path = path,
       super(mode) {
     _file = file;
     Logger.debug('Created FileIODevice with mode: $mode', category: 'IO');
+  }
+
+  Future<T> _runExclusive<T>(Future<T> Function() action) {
+    final next = _pendingOperation.then<T>(
+      (_) => action(),
+      onError: (_) => action(),
+    );
+    _pendingOperation = next.then<void>((_) {}, onError: (_, __) {});
+    return next;
   }
 
   static Future<FileIODevice> open(String path, String mode) async {
@@ -97,297 +116,342 @@ class FileIODevice extends BaseIODevice {
 
   @override
   Future<void> close() async {
-    Logger.debug('Closing file', category: 'IO');
-    if (!isClosed && _file != null) {
-      // Flush any pending buffered data before closing
+    await _runExclusive(() async {
+      Logger.debug('Closing file', category: 'IO');
+      _debugFileLog(
+        'close path=${_path ?? '<unknown>'} isClosed=$isClosed '
+        'buffered=${_writeBuffer.length} file=${_file?.hashCode}',
+      );
+      if (!isClosed && _file != null) {
+        // Flush any pending buffered data before closing
+        if (_writeBuffer.isNotEmpty) {
+          final pendingBytes = List<int>.of(_writeBuffer);
+          _writeBuffer.clear();
+          await _file!.writeFrom(pendingBytes);
+        }
+        await _file!.close();
+        _file = null;
+        isClosed = true;
+        Logger.debug('File closed successfully', category: 'IO');
+      } else {
+        Logger.debug('File already closed or null', category: 'IO');
+      }
+    });
+  }
+
+  @override
+  Future<void> flush() async {
+    await _runExclusive(() async {
+      Logger.debug('Flushing file', category: 'IO');
+      checkOpen();
+      // Write any buffered data first according to buffering mode
       if (_writeBuffer.isNotEmpty) {
         final pendingBytes = List<int>.of(_writeBuffer);
         _writeBuffer.clear();
         await _file!.writeFrom(pendingBytes);
       }
-      await _file!.close();
-      _file = null;
-      isClosed = true;
-      Logger.debug('File closed successfully', category: 'IO');
-    } else {
-      Logger.debug('File already closed or null', category: 'IO');
-    }
-  }
-
-  @override
-  Future<void> flush() async {
-    Logger.debug('Flushing file', category: 'IO');
-    checkOpen();
-    // Write any buffered data first according to buffering mode
-    if (_writeBuffer.isNotEmpty) {
-      final pendingBytes = List<int>.of(_writeBuffer);
-      _writeBuffer.clear();
-      await _file!.writeFrom(pendingBytes);
-    }
-    try {
-      await _file?.flush();
-    } on FileSystemException catch (error) {
-      // On Linux, flushing /dev/null can report EINVAL even though Lua treats
-      // it as a successful flush for writable handles.
-      final shouldIgnore =
-          _path == '/dev/null' &&
-          (mode == 'w' || mode == 'a' || mode == 'w+' || mode == 'a+');
-      if (!shouldIgnore) {
-        rethrow;
+      try {
+        await _file?.flush();
+      } on FileSystemException catch (error) {
+        // On Linux, flushing /dev/null can report EINVAL even though Lua treats
+        // it as a successful flush for writable handles.
+        final shouldIgnore =
+            _path == '/dev/null' &&
+            (mode == 'w' || mode == 'a' || mode == 'w+' || mode == 'a+');
+        if (!shouldIgnore) {
+          rethrow;
+        }
+        Logger.debug(
+          'Ignoring flush failure for writable /dev/null: $error',
+          category: 'IO',
+        );
       }
-      Logger.debug(
-        'Ignoring flush failure for writable /dev/null: $error',
-        category: 'IO',
-      );
-    }
-    Logger.debug('File flushed successfully', category: 'IO');
+      Logger.debug('File flushed successfully', category: 'IO');
+    });
   }
 
   @override
   Future<ReadResult> read([String format = "l"]) async {
-    Logger.debug('Reading file with format: $format', category: 'IO');
-    checkOpen();
-    validateReadFormat(format);
-
-    // Check if file was opened for reading
-    if (mode == "w" || mode == "a") {
-      Logger.debug(
-        'Cannot read from write-only file with mode: $mode',
-        category: 'IO',
+    return _runExclusive(() async {
+      Logger.debug('Reading file with format: $format', category: 'IO');
+      _debugFileLog(
+        'read path=${_path ?? '<unknown>'} format=$format '
+        'buffered=${_writeBuffer.length} file=${_file?.hashCode}',
       );
-      return ReadResult(null, "Cannot read from write-only file", 9);
-    }
+      checkOpen();
+      validateReadFormat(format);
 
-    final normalizedFormat = normalizeReadFormat(format);
+      // Check if file was opened for reading
+      if (mode == "w" || mode == "a") {
+        Logger.debug(
+          'Cannot read from write-only file with mode: $mode',
+          category: 'IO',
+        );
+        return ReadResult(null, "Cannot read from write-only file", 9);
+      }
 
-    try {
-      if (normalizedFormat == "a") {
-        // Read entire file
-        Logger.debug('Reading entire file', category: 'IO');
-        final length = await _file!.length();
-        Logger.debug('File length: $length bytes', category: 'IO');
-        final bytes = await _file!.read(length);
-        Logger.debug('Read ${bytes.length} bytes from file', category: 'IO');
-        return ReadResult(LuaString.fromBytes(bytes));
-      } else if (normalizedFormat == "l" || normalizedFormat == "L") {
-        // Read line
-        Logger.debug('Reading line from file', category: 'IO');
-        final buffer = <int>[];
-        int byte;
-        bool foundContent = false;
+      final normalizedFormat = normalizeReadFormat(format);
 
-        while ((byte = await _file!.readByte()) != -1) {
-          if (byte == 10) {
-            // \n - newline character
-            Logger.debug('Found newline character', category: 'IO');
-            if (foundContent) {
-              // We have content, this newline ends the line
-              if (normalizedFormat == "L") buffer.add(byte);
-              break;
+      try {
+        if (normalizedFormat == "a") {
+          // Read entire file
+          Logger.debug('Reading entire file', category: 'IO');
+          final length = await _file!.length();
+          Logger.debug('File length: $length bytes', category: 'IO');
+          final bytes = await _file!.read(length);
+          Logger.debug('Read ${bytes.length} bytes from file', category: 'IO');
+          return ReadResult(LuaString.fromBytes(bytes));
+        } else if (normalizedFormat == "l" || normalizedFormat == "L") {
+          // Read line
+          Logger.debug('Reading line from file', category: 'IO');
+          final buffer = <int>[];
+          int byte;
+          bool foundContent = false;
+
+          while ((byte = await _file!.readByte()) != -1) {
+            if (byte == 10) {
+              // \n - newline character
+              Logger.debug('Found newline character', category: 'IO');
+              if (foundContent) {
+                // We have content, this newline ends the line
+                if (normalizedFormat == "L") buffer.add(byte);
+                break;
+              } else {
+                // This is an empty line, return empty string
+                if (normalizedFormat == "L") buffer.add(byte);
+                break;
+              }
+            }
+            foundContent = true;
+            buffer.add(byte);
+          }
+
+          Logger.debug('Read ${buffer.length} bytes for line', category: 'IO');
+          if (buffer.isEmpty && byte == -1) {
+            Logger.debug('Read empty line (EOF)', category: 'IO');
+            return ReadResult(null);
+          }
+          return ReadResult(LuaString.fromBytes(buffer));
+        } else if (normalizedFormat == "n") {
+          // Read number - following Lua's C implementation algorithm
+          Logger.debug('Reading number from file', category: 'IO');
+
+          final buffer = <int>[];
+          int count = 0;
+          bool hex = false;
+          bool invalidNumber = false;
+          const maxLenNum = 200; // L_MAXLENNUM from Lua's C implementation
+
+          // Skip leading whitespace
+          int lookAhead;
+          do {
+            lookAhead = await _file!.readByte();
+          } while (lookAhead != -1 && _isWhitespace(lookAhead));
+
+          if (lookAhead == -1) {
+            Logger.debug('No number found (EOF)', category: 'IO');
+            return ReadResult(null);
+          }
+
+          // Helper function to add character with length check
+          bool addChar(int byte) {
+            if (buffer.length >= maxLenNum) {
+              // Match Lua's nextc(): invalidate the numeral but leave the
+              // current lookahead unread so the caller can still see it.
+              buffer.clear();
+              invalidNumber = true;
+              return false;
+            }
+            buffer.add(byte);
+            return true;
+          }
+
+          // Optional sign
+          if (lookAhead == 45 || lookAhead == 43) {
+            // '-' or '+'
+            if (!addChar(lookAhead)) {
+              final currentPos = await _file!.position();
+              await _file!.setPosition(currentPos - 1);
+              return ReadResult(null);
+            }
+            lookAhead = await _file!.readByte();
+          }
+
+          // Check for hex prefix
+          if (lookAhead == 48) {
+            // '0'
+            if (!addChar(lookAhead)) {
+              final currentPos = await _file!.position();
+              await _file!.setPosition(currentPos - 1);
+              return ReadResult(null);
+            }
+            lookAhead = await _file!.readByte();
+            if (lookAhead == 120 || lookAhead == 88) {
+              // 'x' or 'X'
+              if (!addChar(lookAhead)) {
+                final currentPos = await _file!.position();
+                await _file!.setPosition(currentPos - 1);
+                return ReadResult(null);
+              }
+              lookAhead = await _file!.readByte();
+              hex = true;
             } else {
-              // This is an empty line, return empty string
-              if (normalizedFormat == "L") buffer.add(byte);
-              break;
+              count = 1; // count initial '0' as valid digit
             }
           }
-          foundContent = true;
-          buffer.add(byte);
-        }
 
-        Logger.debug('Read ${buffer.length} bytes for line', category: 'IO');
-        if (buffer.isEmpty && byte == -1) {
-          Logger.debug('Read empty line (EOF)', category: 'IO');
-          return ReadResult(null);
-        }
-        return ReadResult(LuaString.fromBytes(buffer));
-      } else if (normalizedFormat == "n") {
-        // Read number - following Lua's C implementation algorithm
-        Logger.debug('Reading number from file', category: 'IO');
-
-        final buffer = <int>[];
-        int count = 0;
-        bool hex = false;
-        const maxLenNum = 200; // L_MAXLENNUM from Lua's C implementation
-
-        // Skip leading whitespace
-        int lookAhead;
-        do {
-          lookAhead = await _file!.readByte();
-        } while (lookAhead != -1 && _isWhitespace(lookAhead));
-
-        if (lookAhead == -1) {
-          Logger.debug('No number found (EOF)', category: 'IO');
-          return ReadResult(null);
-        }
-
-        // Helper function to add character with length check
-        bool addChar(int byte) {
-          if (buffer.length >= maxLenNum) {
-            // Buffer overflow - invalidate result
-            buffer.clear();
-            return false;
-          }
-          buffer.add(byte);
-          return true;
-        }
-
-        // Optional sign
-        if (lookAhead == 45 || lookAhead == 43) {
-          // '-' or '+'
-          if (!addChar(lookAhead)) return ReadResult(null);
-          lookAhead = await _file!.readByte();
-        }
-
-        // Check for hex prefix
-        if (lookAhead == 48) {
-          // '0'
-          if (!addChar(lookAhead)) return ReadResult(null);
-          lookAhead = await _file!.readByte();
-          if (lookAhead == 120 || lookAhead == 88) {
-            // 'x' or 'X'
-            if (!addChar(lookAhead)) return ReadResult(null);
-            lookAhead = await _file!.readByte();
-            hex = true;
-          } else {
-            count = 1; // count initial '0' as valid digit
-          }
-        }
-
-        // Read integral part
-        while (lookAhead != -1 &&
-            (hex ? _isHexDigit(lookAhead) : _isDigit(lookAhead))) {
-          if (!addChar(lookAhead)) return ReadResult(null);
-          lookAhead = await _file!.readByte();
-          count++;
-        }
-
-        // Decimal point?
-        if (lookAhead == 46) {
-          // '.'
-          if (!addChar(lookAhead)) return ReadResult(null);
-          lookAhead = await _file!.readByte();
-          // Read fractional part
+          // Read integral part
           while (lookAhead != -1 &&
               (hex ? _isHexDigit(lookAhead) : _isDigit(lookAhead))) {
-            if (!addChar(lookAhead)) return ReadResult(null);
+            if (!addChar(lookAhead)) break;
             lookAhead = await _file!.readByte();
             count++;
           }
-        }
 
-        // Exponent mark?
-        if (count > 0 &&
-            (hex
-                ? (lookAhead == 112 || lookAhead == 80)
-                : (lookAhead == 101 || lookAhead == 69))) {
-          // 'pP' for hex, 'eE' for decimal
-          if (!addChar(lookAhead)) return ReadResult(null);
-          lookAhead = await _file!.readByte();
-          // Optional exponent sign
-          if (lookAhead == 45 || lookAhead == 43) {
-            // '-' or '+'
-            if (!addChar(lookAhead)) return ReadResult(null);
-            lookAhead = await _file!.readByte();
+          // Decimal point?
+          if (lookAhead == 46) {
+            // '.'
+            if (!addChar(lookAhead)) {
+              invalidNumber = true;
+            } else {
+              lookAhead = await _file!.readByte();
+            }
+            // Read fractional part
+            while (!invalidNumber &&
+                lookAhead != -1 &&
+                (hex ? _isHexDigit(lookAhead) : _isDigit(lookAhead))) {
+              if (!addChar(lookAhead)) break;
+              lookAhead = await _file!.readByte();
+              count++;
+            }
           }
-          // Read exponent digits (always decimal)
-          while (lookAhead != -1 && _isDigit(lookAhead)) {
-            if (!addChar(lookAhead)) return ReadResult(null);
-            lookAhead = await _file!.readByte();
+
+          // Exponent mark?
+          if (!invalidNumber &&
+              count > 0 &&
+              (hex
+                  ? (lookAhead == 112 || lookAhead == 80)
+                  : (lookAhead == 101 || lookAhead == 69))) {
+            // 'pP' for hex, 'eE' for decimal
+            if (!addChar(lookAhead)) {
+              invalidNumber = true;
+            } else {
+              lookAhead = await _file!.readByte();
+            }
+            // Optional exponent sign
+            if (!invalidNumber && (lookAhead == 45 || lookAhead == 43)) {
+              // '-' or '+'
+              if (!addChar(lookAhead)) {
+                invalidNumber = true;
+              } else {
+                lookAhead = await _file!.readByte();
+              }
+            }
+            // Read exponent digits (always decimal)
+            while (!invalidNumber && lookAhead != -1 && _isDigit(lookAhead)) {
+              if (!addChar(lookAhead)) break;
+              lookAhead = await _file!.readByte();
+            }
           }
-        }
 
-        // Put back the lookahead character
-        if (lookAhead != -1) {
-          final currentPos = await _file!.position();
-          await _file!.setPosition(currentPos - 1);
-        }
+          // Put back the lookahead character
+          if (lookAhead != -1) {
+            final currentPos = await _file!.position();
+            await _file!.setPosition(currentPos - 1);
+          }
 
-        if (buffer.isEmpty) {
-          Logger.debug('No valid number found', category: 'IO');
-          return ReadResult(null);
-        }
+          if (invalidNumber || buffer.isEmpty) {
+            Logger.debug('No valid number found', category: 'IO');
+            return ReadResult(null);
+          }
 
-        final numberStr = utf8.decode(buffer);
-        Logger.debug(
-          'Parsing number with ${numberStr.length} characters',
-          category: 'IO',
-        );
+          final numberStr = utf8.decode(buffer);
+          Logger.debug(
+            'Parsing number with ${numberStr.length} characters',
+            category: 'IO',
+          );
 
-        try {
-          final number = LuaNumberParser.parse(numberStr);
-          Logger.debug('Parsed number: $number', category: 'IO');
-          return ReadResult(number);
-        } catch (e) {
-          Logger.debug('Failed to parse as number: $e', category: 'IO');
-          return ReadResult(null);
-        }
-      } else {
-        // Read n bytes
-        final n = int.parse(normalizedFormat);
-        Logger.debug('Reading $n bytes from file', category: 'IO');
-        if (n == 0) {
+          try {
+            final number = LuaNumberParser.parse(numberStr);
+            Logger.debug('Parsed number: $number', category: 'IO');
+            return ReadResult(number);
+          } catch (e) {
+            Logger.debug('Failed to parse as number: $e', category: 'IO');
+            return ReadResult(null);
+          }
+        } else {
+          // Read n bytes
+          final n = int.parse(normalizedFormat);
+          Logger.debug('Reading $n bytes from file', category: 'IO');
+          if (n == 0) {
+            final currentPos = await _file!.position();
+            final length = await _file!.length();
+            final atEof = currentPos >= length;
+            Logger.debug(
+              'Zero-byte read: pos=$currentPos, length=$length, atEOF=$atEof',
+              category: 'IO',
+            );
+            return atEof ? ReadResult(null) : ReadResult("");
+          }
+
+          // Check for EOF before reading n bytes
           final currentPos = await _file!.position();
           final length = await _file!.length();
-          final atEof = currentPos >= length;
-          Logger.debug(
-            'Zero-byte read: pos=$currentPos, length=$length, atEOF=$atEof',
-            category: 'IO',
-          );
-          return atEof ? ReadResult(null) : ReadResult("");
+          if (currentPos >= length) {
+            Logger.debug(
+              'At EOF, returning nil for n-byte read',
+              category: 'IO',
+            );
+            return ReadResult(null);
+          }
+
+          final bytes = await _file!.read(n);
+          Logger.debug('Read ${bytes.length} bytes', category: 'IO');
+
+          // If we read 0 bytes but expected more, we hit EOF
+          if (bytes.isEmpty) {
+            Logger.debug(
+              'Read 0 bytes when expecting $n, at EOF',
+              category: 'IO',
+            );
+            return ReadResult(null);
+          }
+
+          return ReadResult(LuaString.fromBytes(bytes));
         }
-
-        // Check for EOF before reading n bytes
-        final currentPos = await _file!.position();
-        final length = await _file!.length();
-        if (currentPos >= length) {
-          Logger.debug('At EOF, returning nil for n-byte read', category: 'IO');
-          return ReadResult(null);
-        }
-
-        final bytes = await _file!.read(n);
-        Logger.debug('Read ${bytes.length} bytes', category: 'IO');
-
-        // If we read 0 bytes but expected more, we hit EOF
-        if (bytes.isEmpty) {
-          Logger.debug(
-            'Read 0 bytes when expecting $n, at EOF',
-            category: 'IO',
-          );
-          return ReadResult(null);
-        }
-
-        return ReadResult(LuaString.fromBytes(bytes));
+      } catch (e) {
+        Logger.debug('Error reading from file: $e', category: 'IO');
+        return ReadResult(null, e.toString());
       }
-    } catch (e) {
-      Logger.debug('Error reading from file: $e', category: 'IO');
-      return ReadResult(null, e.toString());
-    }
+    });
   }
 
   @override
   Future<WriteResult> write(String data) async {
-    Logger.debug(
-      'Writing to file: "${data.length} characters"',
-      category: 'IO',
-    );
-    checkOpen();
-    try {
-      // Disallow writes in read-only modes
-      if (!(mode.contains('w') || mode.contains('a') || mode.contains('+'))) {
-        return WriteResult(false, "Cannot write to read-only file", 9);
+    return _runExclusive(() async {
+      Logger.debug(
+        'Writing to file: "${data.length} characters"',
+        category: 'IO',
+      );
+      checkOpen();
+      try {
+        // Disallow writes in read-only modes
+        if (!(mode.contains('w') || mode.contains('a') || mode.contains('+'))) {
+          return WriteResult(false, "Cannot write to read-only file", 9);
+        }
+        final bytes = utf8.encode(data);
+        Logger.debug('Encoded ${bytes.length} bytes to write', category: 'IO');
+        await _bufferedWrite(bytes);
+        return WriteResult(true);
+      } catch (e) {
+        Logger.debug('Error writing to file: $e', category: 'IO');
+        int errorCode = 0;
+        if (e is FileSystemException && e.osError != null) {
+          errorCode = e.osError!.errorCode;
+        }
+        return WriteResult(false, e.toString(), errorCode);
       }
-      final bytes = utf8.encode(data);
-      Logger.debug('Encoded ${bytes.length} bytes to write', category: 'IO');
-      await _bufferedWrite(bytes);
-      return WriteResult(true);
-    } catch (e) {
-      Logger.debug('Error writing to file: $e', category: 'IO');
-      int errorCode = 0;
-      if (e is FileSystemException && e.osError != null) {
-        errorCode = e.osError!.errorCode;
-      }
-      return WriteResult(false, e.toString(), errorCode);
-    }
+    });
   }
 
   Future<void> _bufferedWrite(List<int> bytes) async {
@@ -421,126 +485,149 @@ class FileIODevice extends BaseIODevice {
 
   @override
   Future<WriteResult> writeBytes(List<int> bytes) async {
-    Logger.debug('Writing raw ${bytes.length} bytes to file', category: 'IO');
-    checkOpen();
-    try {
-      if (!(mode.contains('w') || mode.contains('a') || mode.contains('+'))) {
-        return WriteResult(false, "Cannot write to read-only file", 9);
+    return _runExclusive(() async {
+      Logger.debug('Writing raw ${bytes.length} bytes to file', category: 'IO');
+      _debugFileLog(
+        'writeBytes path=${_path ?? '<unknown>'} bytes=${bytes.length} '
+        'mode=$mode bufferMode=$bufferMode bufferedBefore=${_writeBuffer.length} '
+        'file=${_file?.hashCode}',
+      );
+      checkOpen();
+      try {
+        if (!(mode.contains('w') || mode.contains('a') || mode.contains('+'))) {
+          return WriteResult(false, "Cannot write to read-only file", 9);
+        }
+        await _bufferedWrite(bytes);
+        _debugFileLog(
+          'writeBytes-done path=${_path ?? '<unknown>'} bytes=${bytes.length} '
+          'bufferedAfter=${_writeBuffer.length} file=${_file?.hashCode}',
+        );
+        Logger.debug(
+          'Buffered/ wrote ${bytes.length} raw bytes',
+          category: 'IO',
+        );
+        return WriteResult(true);
+      } catch (e) {
+        Logger.debug('Error writing raw bytes to file: $e', category: 'IO');
+        int errorCode = 0;
+        if (e is FileSystemException && e.osError != null) {
+          errorCode = e.osError!.errorCode;
+        }
+        return WriteResult(false, e.toString(), errorCode);
       }
-      await _bufferedWrite(bytes);
-      Logger.debug('Buffered/ wrote ${bytes.length} raw bytes', category: 'IO');
-      return WriteResult(true);
-    } catch (e) {
-      Logger.debug('Error writing raw bytes to file: $e', category: 'IO');
-      int errorCode = 0;
-      if (e is FileSystemException && e.osError != null) {
-        errorCode = e.osError!.errorCode;
-      }
-      return WriteResult(false, e.toString(), errorCode);
-    }
+    });
   }
 
   @override
   Future<int> seek(SeekWhence whence, int offset) async {
-    Logger.debug(
-      'Seeking in file: whence=$whence, offset=$offset',
-      category: 'IO',
-    );
-    checkOpen();
-    // For write buffering modes, flush pending data before seeking to
-    // ensure consistent position semantics (like C stdio).
-    if (bufferMode != BufferMode.none && _writeBuffer.isNotEmpty) {
-      await _file!.writeFrom(_writeBuffer);
-      _writeBuffer.clear();
-    }
-    switch (whence) {
-      case SeekWhence.set:
-        Logger.debug('Seeking to absolute position: $offset', category: 'IO');
-        await _file!.setPosition(offset);
-        final pos = await _file!.position();
-        Logger.debug('New position: $pos', category: 'IO');
-        return pos;
-      case SeekWhence.cur:
-        final currentPos = await _file!.position();
-        Logger.debug('Current position: $currentPos', category: 'IO');
-        final newPos = currentPos + offset;
-        Logger.debug('Seeking to relative position: $newPos', category: 'IO');
-        await _file!.setPosition(newPos);
-        final pos = await _file!.position();
-        Logger.debug('New position: $pos', category: 'IO');
-        return pos;
-      case SeekWhence.end:
-        final length = await _file!.length();
-        Logger.debug('File length: $length', category: 'IO');
-        final newPos = length + offset;
-        Logger.debug(
-          'Seeking to end-relative position: $newPos',
-          category: 'IO',
-        );
-        await _file!.setPosition(newPos);
-        final pos = await _file!.position();
-        Logger.debug('New position: $pos', category: 'IO');
-        return pos;
-    }
+    return _runExclusive(() async {
+      Logger.debug(
+        'Seeking in file: whence=$whence, offset=$offset',
+        category: 'IO',
+      );
+      _debugFileLog(
+        'seek path=${_path ?? '<unknown>'} whence=$whence offset=$offset '
+        'buffered=${_writeBuffer.length} file=${_file?.hashCode}',
+      );
+      checkOpen();
+      // For write buffering modes, flush pending data before seeking to
+      // ensure consistent position semantics (like C stdio).
+      if (bufferMode != BufferMode.none && _writeBuffer.isNotEmpty) {
+        final pendingBytes = List<int>.of(_writeBuffer);
+        _writeBuffer.clear();
+        await _file!.writeFrom(pendingBytes);
+      }
+      switch (whence) {
+        case SeekWhence.set:
+          Logger.debug('Seeking to absolute position: $offset', category: 'IO');
+          await _file!.setPosition(offset);
+          final pos = await _file!.position();
+          Logger.debug('New position: $pos', category: 'IO');
+          return pos;
+        case SeekWhence.cur:
+          final currentPos = await _file!.position();
+          Logger.debug('Current position: $currentPos', category: 'IO');
+          final newPos = currentPos + offset;
+          Logger.debug('Seeking to relative position: $newPos', category: 'IO');
+          await _file!.setPosition(newPos);
+          final pos = await _file!.position();
+          Logger.debug('New position: $pos', category: 'IO');
+          return pos;
+        case SeekWhence.end:
+          final length = await _file!.length();
+          Logger.debug('File length: $length', category: 'IO');
+          final newPos = length + offset;
+          Logger.debug(
+            'Seeking to end-relative position: $newPos',
+            category: 'IO',
+          );
+          await _file!.setPosition(newPos);
+          final pos = await _file!.position();
+          Logger.debug('New position: $pos', category: 'IO');
+          return pos;
+      }
+    });
   }
 
   @override
   Future<int> getPosition() async {
-    Logger.debug('Getting file position', category: 'IO');
-    checkOpen();
-    var pos = await _file!.position();
-    // Include buffered bytes in current position for full/line buffering
-    if (bufferMode != BufferMode.none && _writeBuffer.isNotEmpty) {
-      pos += _writeBuffer.length;
-    }
-    Logger.debug('Current position: $pos', category: 'IO');
-    return pos;
+    return _runExclusive(() async {
+      Logger.debug('Getting file position', category: 'IO');
+      checkOpen();
+      var pos = await _file!.position();
+      // Include buffered bytes in current position for full/line buffering
+      if (bufferMode != BufferMode.none && _writeBuffer.isNotEmpty) {
+        pos += _writeBuffer.length;
+      }
+      Logger.debug('Current position: $pos', category: 'IO');
+      return pos;
+    });
   }
 
   @override
   Future<bool> isEOF() async {
-    checkOpen();
-    final currentPos = await _file!.position();
-    final length = await _file!.length();
-    final isEof = currentPos >= length;
+    return _runExclusive(() async {
+      checkOpen();
+      final currentPos = await _file!.position();
+      final length = await _file!.length();
+      final isEof = currentPos >= length;
 
-    // Log every 100th call to avoid spam
+      _eofCallCount++;
+      if (_eofCallCount % 100 == 1) {
+        Logger.debug(
+          'EOF check #$_eofCallCount: pos=$currentPos, length=$length, EOF=$isEof',
+          category: 'IO',
+        );
+      }
 
-    _eofCallCount++;
-    if (_eofCallCount % 100 == 1) {
-      Logger.debug(
-        'EOF check #$_eofCallCount: pos=$currentPos, length=$length, EOF=$isEof',
-        category: 'IO',
-      );
-    }
-
-    // Additional check - try to peek at next byte
-    if (!isEof) {
-      try {
-        final savedPos = currentPos;
-        final peekByte = await _file!.readByte();
-        await _file!.setPosition(savedPos);
-        if (_eofCallCount % 100 == 1) {
-          Logger.debug(
-            'Peek byte check #$_eofCallCount: peekByte=$peekByte, actualEOF=${peekByte == -1}',
-            category: 'IO',
-          );
-        }
-        if (peekByte == -1) {
-          Logger.debug(
-            'Peek byte indicates EOF despite position check at call #$_eofCallCount',
-            category: 'IO',
-          );
-          return true;
-        }
-      } catch (e) {
-        if (_eofCallCount % 100 == 1) {
-          Logger.debug('Error during peek byte check: $e', category: 'IO');
+      // Additional check - try to peek at next byte
+      if (!isEof) {
+        try {
+          final savedPos = currentPos;
+          final peekByte = await _file!.readByte();
+          await _file!.setPosition(savedPos);
+          if (_eofCallCount % 100 == 1) {
+            Logger.debug(
+              'Peek byte check #$_eofCallCount: peekByte=$peekByte, actualEOF=${peekByte == -1}',
+              category: 'IO',
+            );
+          }
+          if (peekByte == -1) {
+            Logger.debug(
+              'Peek byte indicates EOF despite position check at call #$_eofCallCount',
+              category: 'IO',
+            );
+            return true;
+          }
+        } catch (e) {
+          if (_eofCallCount % 100 == 1) {
+            Logger.debug('Error during peek byte check: $e', category: 'IO');
+          }
         }
       }
-    }
 
-    return isEof;
+      return isEof;
+    });
   }
 
   // Helper methods for number parsing

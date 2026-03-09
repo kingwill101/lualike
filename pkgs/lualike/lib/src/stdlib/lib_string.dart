@@ -7,10 +7,12 @@ import 'dart:typed_data';
 import 'package:collection/collection.dart' show ListEquality;
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/binary_type_size.dart';
+import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/intern.dart';
 import 'package:lualike/src/number_limits.dart';
 import 'package:lualike/src/parsers/pattern.dart' as lpc;
 import 'package:lualike/src/stdlib/lib_utf8.dart' show UTF8Lib;
+import 'package:lualike/src/upvalue.dart';
 
 import 'library.dart';
 
@@ -41,7 +43,8 @@ bool _isAnchoredWhitespaceTrimCapturePattern(String pattern) =>
 Match? _matchAnchoredWhitespaceTrimCapture(String input) =>
     RegExp(r'^\s*(.*?)\s*$', dotAll: true).firstMatch(input);
 
-bool _containsNonAscii(String value) => value.codeUnits.any((unit) => unit > 0x7F);
+bool _containsNonAscii(String value) =>
+    value.codeUnits.any((unit) => unit > 0x7F);
 
 bool _shouldUseBytePatternProcessing(dynamic subject, dynamic pattern) =>
     subject is LuaString ||
@@ -134,8 +137,9 @@ String _applyGsubReplacementTemplate(String template, lpc.LuaMatch match) {
     final replacement = switch (digit) {
       0 => match.match,
       1 when match.captures.isEmpty => match.match,
-      _ when digit > match.captures.length =>
-        throw LuaError('invalid capture index %$digit'),
+      _ when digit > match.captures.length => throw LuaError(
+        'invalid capture index %$digit',
+      ),
       _ => match.captures[digit - 1] ?? '',
     };
     buffer.write(replacement);
@@ -407,12 +411,10 @@ List<Value> _capturesFromRegexMatch(
     final positionKind = translation.positionCaptureKinds[groupIndex];
     if (positionKind != null) {
       captures.add(
-        Value(
-          switch (positionKind) {
-            _PositionCaptureKind.start => match.start + 1,
-            _PositionCaptureKind.end => match.end + 1,
-          },
-        ),
+        Value(switch (positionKind) {
+          _PositionCaptureKind.start => match.start + 1,
+          _PositionCaptureKind.end => match.end + 1,
+        }),
       );
       continue;
     }
@@ -431,7 +433,10 @@ int _requireIntegerRepresentation(dynamic value) {
   if (integer != null) {
     return integer;
   }
-  if (value is num || value is BigInt || value is String || value is LuaString) {
+  if (value is num ||
+      value is BigInt ||
+      value is String ||
+      value is LuaString) {
     throw LuaError('number has no integer representation');
   }
   throw LuaError.typeError(
@@ -564,11 +569,8 @@ class _StringDump extends BuiltinFunction {
     if (runtime == null) {
       throw LuaError("No interpreter context available");
     }
-    final stripDebugInfo =
-        args.length > 1 && (args[1] as Value).isTruthy();
-    return Value(
-      runtime.dumpFunction(func, stripDebugInfo: stripDebugInfo),
-    );
+    final stripDebugInfo = args.length > 1 && (args[1] as Value).isTruthy();
+    return Value(runtime.dumpFunction(func, stripDebugInfo: stripDebugInfo));
   }
 }
 
@@ -583,7 +585,10 @@ class _StringFind extends BuiltinFunction {
 
     final strValue = (args[0] as Value).raw;
     final patternValue = (args[1] as Value).raw;
-    final useByteLevel = _shouldUseBytePatternProcessing(strValue, patternValue);
+    final useByteLevel = _shouldUseBytePatternProcessing(
+      strValue,
+      patternValue,
+    );
     final str = _toPatternProcessingString(strValue, byteLevel: useByteLevel);
     final pattern = _toPatternProcessingString(
       patternValue,
@@ -630,7 +635,10 @@ class _StringFind extends BuiltinFunction {
       return Value.multi([
         Value(1),
         Value(str.length),
-        _valueFromPatternSlice(trimMatch.group(1) ?? '', byteLevel: useByteLevel),
+        _valueFromPatternSlice(
+          trimMatch.group(1) ?? '',
+          byteLevel: useByteLevel,
+        ),
       ]);
     }
 
@@ -644,11 +652,12 @@ class _StringFind extends BuiltinFunction {
       bool isEscaped(int index) =>
           index > 0 && pattern[index - 1] == '%' && !isEscaped(index - 1);
       final anchoredStart = pattern.startsWith('^') && !isEscaped(0);
-      final preferredRegex = _shouldPreferRegexPatternEngine(
-        subject: str,
-        pattern: pattern,
-        byteLevel: useByteLevel,
-      )
+      final preferredRegex =
+          _shouldPreferRegexPatternEngine(
+            subject: str,
+            pattern: pattern,
+            byteLevel: useByteLevel,
+          )
           ? _translateLuaBackreferencePattern(pattern)
           : null;
       if (preferredRegex != null) {
@@ -660,7 +669,8 @@ class _StringFind extends BuiltinFunction {
         }
         final absoluteStart =
             regexMatch.start + (regexMatch.input == str ? 0 : start);
-        final absoluteEnd = regexMatch.end + (regexMatch.input == str ? 0 : start);
+        final absoluteEnd =
+            regexMatch.end + (regexMatch.input == str ? 0 : start);
         if (anchoredStart && absoluteStart != start) {
           return Value(null);
         }
@@ -693,7 +703,8 @@ class _StringFind extends BuiltinFunction {
         }
         final absoluteStart =
             regexMatch.start + (regexMatch.input == str ? 0 : start);
-        final absoluteEnd = regexMatch.end + (regexMatch.input == str ? 0 : start);
+        final absoluteEnd =
+            regexMatch.end + (regexMatch.input == str ? 0 : start);
         if (regexMatch.groupCount == 0) {
           return Value.multi([Value(absoluteStart + 1), Value(absoluteEnd)]);
         }
@@ -754,7 +765,9 @@ String _applyPadding(String text, _FormatContext ctx) {
 }
 
 Object? _tryFormatBareString(_FormatContext ctx) {
-  if (ctx.flags.isNotEmpty || ctx.width.isNotEmpty || ctx.precision.isNotEmpty) {
+  if (ctx.flags.isNotEmpty ||
+      ctx.width.isNotEmpty ||
+      ctx.precision.isNotEmpty) {
     return null;
   }
 
@@ -1667,7 +1680,7 @@ class _StringGmatch extends BuiltinFunction {
       int pos = init > 0 ? init - 1 : bytes.length + init;
       if (pos < 0) pos = 0;
 
-      return Value((List<Object?> _) {
+      final iterator = Value((List<Object?> _) {
         if (pos >= bytes.length) return Value(null);
 
         // Decode next UTF-8 character (lax allows 5/6-byte sequences etc.)
@@ -1685,6 +1698,13 @@ class _StringGmatch extends BuiltinFunction {
         pos += seqLen;
         return Value(LuaString(slice));
       });
+      iterator.upvalues = [
+        Upvalue(
+          valueBox: Box<dynamic>(bytes, isTransient: true),
+          interpreter: interpreter,
+        ),
+      ];
+      return iterator;
     }
 
     final String str;
@@ -1718,7 +1738,7 @@ class _StringGmatch extends BuiltinFunction {
       int? lastMatchEnd;
 
       // Return iterator function that follows Lua's behavior
-      return Value((List<Object?> iterArgs) {
+      final iterator = Value((List<Object?> iterArgs) {
         if (currentPosition > str.length) {
           return Value(null);
         }
@@ -1733,7 +1753,9 @@ class _StringGmatch extends BuiltinFunction {
                 final matchBytes = match.match.codeUnits
                     .map((c) => c & 0xFF)
                     .toList();
-                return Value(LuaString.fromBytes(Uint8List.fromList(matchBytes)));
+                return Value(
+                  LuaString.fromBytes(Uint8List.fromList(matchBytes)),
+                );
               }
               return Value(match.match);
             }
@@ -1780,6 +1802,13 @@ class _StringGmatch extends BuiltinFunction {
           }
         }
       });
+      iterator.upvalues = [
+        Upvalue(
+          valueBox: Box<dynamic>(str, isTransient: true),
+          interpreter: interpreter,
+        ),
+      ];
+      return iterator;
     } catch (e) {
       throw LuaError.typeError("malformed pattern: $e");
     }
@@ -1798,7 +1827,10 @@ class _StringGsub extends BuiltinFunction {
     }
     final strValue = (args[0] as Value).raw;
     final patternValue = (args[1] as Value).raw;
-    final useByteLevel = _shouldUseBytePatternProcessing(strValue, patternValue);
+    final useByteLevel = _shouldUseBytePatternProcessing(
+      strValue,
+      patternValue,
+    );
     final str = _toPatternProcessingString(strValue, byteLevel: useByteLevel);
     final pattern = _toPatternProcessingString(
       patternValue,
@@ -1839,7 +1871,9 @@ class _StringGsub extends BuiltinFunction {
 
       lpc.LuaMatch? matchAtCurrentPosition(int srcPos, int? lastMatchEnd) {
         final match = lp.firstMatch(str, srcPos);
-        if (match == null || match.start != srcPos || match.end == lastMatchEnd) {
+        if (match == null ||
+            match.start != srcPos ||
+            match.end == lastMatchEnd) {
           return null;
         }
         return match;
@@ -2136,7 +2170,10 @@ class _StringMatch extends BuiltinFunction {
 
     final strValue = (args[0] as Value).raw;
     final patternValue = (args[1] as Value).raw;
-    final useByteLevel = _shouldUseBytePatternProcessing(strValue, patternValue);
+    final useByteLevel = _shouldUseBytePatternProcessing(
+      strValue,
+      patternValue,
+    );
     final str = _toPatternProcessingString(strValue, byteLevel: useByteLevel);
     final pattern = _toPatternProcessingString(
       patternValue,
@@ -2155,11 +2192,7 @@ class _StringMatch extends BuiltinFunction {
       return Value(str.substring(init));
     }
 
-    final fastFind = _tryFastAnchoredLiteralTailFind(
-      str,
-      pattern,
-      start: init,
-    );
+    final fastFind = _tryFastAnchoredLiteralTailFind(str, pattern, start: init);
     if (fastFind case final match?) {
       if (match.start == null || match.end == null) {
         return Value(null);
@@ -2185,11 +2218,12 @@ class _StringMatch extends BuiltinFunction {
       bool isEscaped(int index) =>
           index > 0 && pattern[index - 1] == '%' && !isEscaped(index - 1);
       final anchoredStart = pattern.startsWith('^') && !isEscaped(0);
-      final preferredRegex = _shouldPreferRegexPatternEngine(
-        subject: str,
-        pattern: pattern,
-        byteLevel: useByteLevel,
-      )
+      final preferredRegex =
+          _shouldPreferRegexPatternEngine(
+            subject: str,
+            pattern: pattern,
+            byteLevel: useByteLevel,
+          )
           ? _translateLuaBackreferencePattern(pattern)
           : null;
       if (preferredRegex != null) {
@@ -2250,29 +2284,23 @@ class _StringMatch extends BuiltinFunction {
       }
 
       if (resultMatch.captures.isNotEmpty) {
-        final captures = resultMatch.captures
-            .indexed
-            .map((entry) {
-              final (index, capture) = entry;
-              if (capture == null) {
-                return Value(null);
-              }
-              if (resultMatch.positionCaptureIndexes.contains(index)) {
-                return Value(int.parse(capture));
-              }
-              return _valueFromPatternSlice(capture, byteLevel: useByteLevel);
-            })
-            .toList();
+        final captures = resultMatch.captures.indexed.map((entry) {
+          final (index, capture) = entry;
+          if (capture == null) {
+            return Value(null);
+          }
+          if (resultMatch.positionCaptureIndexes.contains(index)) {
+            return Value(int.parse(capture));
+          }
+          return _valueFromPatternSlice(capture, byteLevel: useByteLevel);
+        }).toList();
         if (captures.length == 1) {
           return captures[0];
         }
         return Value.multi(captures);
       }
 
-      return _valueFromPatternSlice(
-        resultMatch.match,
-        byteLevel: useByteLevel,
-      );
+      return _valueFromPatternSlice(resultMatch.match, byteLevel: useByteLevel);
     } catch (e) {
       throw LuaError.typeError("malformed pattern: $e");
     }

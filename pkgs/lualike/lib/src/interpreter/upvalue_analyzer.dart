@@ -70,8 +70,6 @@ class UpvalueAnalyzer extends AstVisitor<void> {
     analyzer._accessesGlobals = false;
 
     final upvalues = <Upvalue>[];
-    final upvalueNames = <String>{};
-
     // For each referenced variable, determine if it's an upvalue
     for (final varName in analyzer._referencedVars) {
       // Skip if it's a parameter or local variable declared within the function
@@ -101,7 +99,6 @@ class UpvalueAnalyzer extends AstVisitor<void> {
               interpreter: currentEnv.interpreter,
             );
             upvalues.add(upvalue);
-            upvalueNames.add(varName);
             foundAsUpvalue = true;
 
             break;
@@ -131,21 +128,6 @@ class UpvalueAnalyzer extends AstVisitor<void> {
         upvalues.add(envUpvalue);
       }
     }
-
-    // Sort upvalues to match Lua's ordering behavior
-    // In Lua, regular upvalues come first in declaration order, then _ENV comes last
-    upvalues.sort((a, b) {
-      final nameA = a.name ?? '';
-      final nameB = b.name ?? '';
-
-      // _ENV should always come last
-      if (nameA == '_ENV' && nameB != '_ENV') return 1;
-      if (nameB == '_ENV' && nameA != '_ENV') return -1;
-      if (nameA == '_ENV' && nameB == '_ENV') return 0;
-
-      // For regular upvalues, sort by name (which generally matches declaration order)
-      return nameA.compareTo(nameB);
-    });
 
     return upvalues;
   }

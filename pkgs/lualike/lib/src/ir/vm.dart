@@ -177,7 +177,7 @@ class _IrFrame {
         // Temporary instrumentation
         // ignore: avoid_print
         print(
-          'Const write violation at register $index (pc=${lastExecutedPc}, opcode=$opcode)',
+          'Const write violation at register $index (pc=$lastExecutedPc, opcode=$opcode)',
         );
         throw LuaError('attempt to assign to const variable');
       }
@@ -2498,7 +2498,7 @@ class LualikeIrVm {
         frame.setRegister(target, value);
       });
     }
-    frame.setRegister(target, result as bool);
+    frame.setRegister(target, result);
     return null;
   }
 

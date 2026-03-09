@@ -10,6 +10,122 @@ import 'package:lualike/src/upvalue.dart';
 import 'package:lualike/src/utils/type.dart' show getLuaType;
 import 'library.dart';
 
+String? _debugFrameSourceKey(CallFrame frame) {
+  return frame.callable?.functionBody?.span?.sourceUrl?.toString() ??
+      frame.scriptPath;
+}
+
+Interpreter? _resolveDebugInterpreter(LuaRuntime? runtime) {
+  if (runtime case final Interpreter interpreter) {
+    return interpreter;
+  }
+  if (runtime == null) {
+    return null;
+  }
+  try {
+    final debugInterpreter = (runtime as dynamic).debugInterpreter;
+    if (debugInterpreter is Interpreter) {
+      return debugInterpreter;
+    }
+  } catch (_) {
+    // Fall through to environment-bound interpreter discovery.
+  }
+  final envInterpreter = runtime.getCurrentEnv().interpreter;
+  return envInterpreter is Interpreter ? envInterpreter : null;
+}
+
+bool _hasStrippedDebugInfo(Value? callable) => callable?.strippedDebugInfo == true;
+
+bool _frameHasStrippedDebugInfo(CallFrame frame) =>
+    _hasStrippedDebugInfo(frame.callable);
+
+bool _isInheritedClosureBinding(
+  CallFrame frame,
+  Environment env,
+  String name,
+  Box<dynamic> box,
+) {
+  final closureEnv = frame.callable?.closureEnvironment;
+  if (closureEnv == null || identical(env, closureEnv)) {
+    return false;
+  }
+  final inherited = closureEnv.values[name];
+  return inherited != null && identical(inherited, box);
+}
+
+CallFrame? _resolveDebugCoroutineFrame(Coroutine coroutine, int level) {
+  var resolvedLevel = level;
+  final initialFrame = coroutine.debugFrameAtLevel(level);
+  if (initialFrame == null) {
+    return null;
+  }
+  final originalFrame = initialFrame;
+  var frame = initialFrame;
+  while (frame.callable != null && frame.callable?.functionBody == null) {
+    final nextFrame = coroutine.debugFrameAtLevel(resolvedLevel + 1);
+    if (nextFrame == null) {
+      break;
+    }
+    frame = nextFrame;
+    resolvedLevel += 1;
+  }
+  if (frame.callable == null && frame.env != null) {
+    final lexicalFrame = coroutine.debugFrameAtLevel(resolvedLevel + 1);
+    if (lexicalFrame != null &&
+        lexicalFrame.callable?.functionBody != null &&
+        _debugFrameSourceKey(lexicalFrame) == _debugFrameSourceKey(frame)) {
+      frame = lexicalFrame;
+      resolvedLevel += 1;
+    }
+  }
+  if (frame.callable?.functionBody != null &&
+      originalFrame != null &&
+      originalFrame.callable == null &&
+      _debugFrameSourceKey(originalFrame) == _debugFrameSourceKey(frame) &&
+      originalFrame.currentLine > 0 &&
+      originalFrame.currentLine > frame.currentLine) {
+    frame.currentLine = originalFrame.currentLine;
+  }
+  if (frame.currentLine <= 0 &&
+      coroutine.functionBody != null &&
+      coroutine.debugCurrentLine > 0 &&
+      (level == 1 || frame.callable?.functionBody != null)) {
+    frame.currentLine = coroutine.debugCurrentLine;
+  }
+  if (level == 1 && coroutine.functionBody != null) {
+    final wrappedEnv = frame.env ?? coroutine.debugEnvironment;
+    final wrappedCallable =
+        frame.callable?.functionBody != null
+      ? frame.callable!
+            : Value(
+              () => null,
+              closureEnvironment: coroutine.closureEnvironment,
+              functionBody: coroutine.functionBody,
+              functionName: coroutine.functionValue.functionName,
+              strippedDebugInfo: coroutine.functionValue.strippedDebugInfo,
+            );
+    frame = CallFrame(
+      coroutine.functionValue.functionName ?? frame.functionName,
+      callNode: frame.callNode,
+      scriptPath: frame.scriptPath,
+      currentLine: frame.currentLine,
+      env: wrappedEnv,
+      debugName: null,
+      debugNameWhat: '',
+      callable: wrappedCallable,
+      lastDebugHookLine: frame.lastDebugHookLine,
+      debugLocals: List<MapEntry<String, Value>>.from(frame.debugLocals),
+      ftransfer: 0,
+      ntransfer: 0,
+      transferValues: const <Value>[],
+      extraArgs: frame.extraArgs,
+      isDebugHook: frame.isDebugHook,
+      isTailCall: frame.isTailCall,
+    );
+  }
+  return frame;
+}
+
 class DebugLib {
   static Map<String, BuiltinFunction> functions = {};
 }
@@ -27,15 +143,15 @@ class DebugLibrary extends Library {
     context.define("getinfo", _GetInfoImpl(interpreter!));
     context.define("getlocal", _GetLocal(interpreter!));
     context.define("getmetatable", _GetMetatable());
-    context.define("getregistry", _GetRegistry());
+    context.define("getregistry", _GetRegistry(interpreter));
     context.define("getupvalue", _GetUpvalue(interpreter!));
     context.define("getuservalue", _GetUserValue());
     context.define("sethook", _SetHook(interpreter));
-    context.define("setlocal", _SetLocal());
+    context.define("setlocal", _SetLocal(interpreter!));
     context.define("setmetatable", _SetMetatable());
     context.define("setupvalue", _SetUpvalue());
     context.define("setuservalue", _SetUserValue());
-    context.define("traceback", _Traceback());
+    context.define("traceback", _Traceback(interpreter));
     context.define("upvalueid", _UpvalueId());
     context.define("upvaluejoin", _UpvalueJoin());
 
@@ -77,24 +193,259 @@ class _GetHook extends BuiltinFunction {
 
   @override
   Object? call(List<Object?> args) {
-    if (interpreter is! Interpreter) {
+    final runtime = _resolveDebugInterpreter(interpreter);
+    if (runtime == null) {
       return Value.multi([Value(null), Value(null), Value(0)]);
     }
-    final runtime = interpreter! as Interpreter;
-    final hook = runtime.debugHookFunction;
+    Coroutine? thread;
+    if (args.isNotEmpty &&
+        args[0] is Value &&
+        (args[0] as Value).raw is Coroutine) {
+      thread = (args[0] as Value).raw as Coroutine;
+    } else {
+      final current = runtime.getCurrentCoroutine();
+      final main = runtime.getMainThread();
+      if (current != null && !identical(current, main)) {
+        thread = current;
+      }
+    }
+    final hook = thread?.debugHookFunction ?? runtime.debugHookFunction;
     if (hook == null) {
       return Value.multi([Value(null), Value(null), Value(0)]);
     }
     return Value.multi([
       hook,
-      Value(runtime.debugHookMask),
-      Value(runtime.debugHookCount),
+      Value(thread?.debugHookMask ?? runtime.debugHookMask),
+      Value(thread?.debugHookCount ?? runtime.debugHookCount),
     ]);
   }
 }
 
 class _GetLocal extends BuiltinFunction {
   _GetLocal(LuaRuntime super.i);
+
+  String? _frameSourceKey(CallFrame frame) {
+    return frame.callable?.functionBody?.span?.sourceUrl?.toString() ??
+        frame.scriptPath;
+  }
+
+  int _requireInt(Value value, String name) {
+    if (value.raw is! num) {
+      throw LuaError("bad argument to 'debug.getlocal' ($name expected)");
+    }
+    return (value.raw as num).toInt();
+  }
+
+  CallFrame _requireFrame(Interpreter runtime, int level) {
+    final frame = runtime.getVisibleFrameAtLevel(
+      level + 1,
+      hideEnclosingDebugHooks: true,
+    );
+    if (frame == null) {
+      throw LuaError("bad argument #1 to 'debug.getlocal' (level out of range)");
+    }
+    return frame;
+  }
+
+  CallFrame _resolveVisibleFrame(
+    Interpreter runtime,
+    int level, {
+    required String functionName,
+    required int argNumber,
+  }) {
+    final originalFrame = runtime.getVisibleFrameAtLevel(
+      level + 1,
+      hideEnclosingDebugHooks: true,
+    );
+    var frame = originalFrame;
+    if (frame == null) {
+      throw LuaError(
+        "bad argument #$argNumber to '$functionName' (level out of range)",
+      );
+    }
+    if (frame.callable == null && frame.env != null) {
+      final lexicalFrame = runtime.getVisibleFrameAtLevel(
+        level + 2,
+        hideEnclosingDebugHooks: true,
+      );
+      if (lexicalFrame != null &&
+          lexicalFrame.callable?.functionBody != null &&
+          _frameSourceKey(lexicalFrame) == _frameSourceKey(frame)) {
+        frame = lexicalFrame;
+      }
+    }
+    if (frame.callable?.functionBody != null) {
+      final wrapperFrame =
+          originalFrame != null &&
+              originalFrame.callable == null &&
+              _frameSourceKey(originalFrame) == _frameSourceKey(frame)
+          ? originalFrame
+          : runtime.getVisibleFrameAtLevel(
+              level,
+              hideEnclosingDebugHooks: true,
+            );
+      if (wrapperFrame != null &&
+          wrapperFrame.callable == null &&
+          _frameSourceKey(wrapperFrame) == _frameSourceKey(frame) &&
+          wrapperFrame.currentLine > 0 &&
+          wrapperFrame.currentLine > frame.currentLine) {
+        frame.currentLine = wrapperFrame.currentLine;
+      }
+    }
+    return frame;
+  }
+
+  List<MapEntry<String, Value>> _enumerateFrameLocals(CallFrame frame) {
+    if (_frameHasStrippedDebugInfo(frame)) {
+      final locals = <MapEntry<String, Value>>[];
+      final envs = _activeLocalEnvironments(frame);
+      final preferred = <String>{};
+      Value? visibleLocalValue(String name) {
+        for (final env in envs) {
+          final box = env.values[name];
+          if (box == null || !box.isLocal) {
+            continue;
+          }
+          if (_isInheritedClosureBinding(frame, env, name, box)) {
+            continue;
+          }
+          final rawValue = box.value;
+          return rawValue is Value ? rawValue : Value(rawValue);
+        }
+        return null;
+      }
+      bool envHasVisibleLocal(String name) {
+        return envs.any((env) {
+          final box = env.values[name];
+          return box != null &&
+              box.isLocal &&
+              !_isInheritedClosureBinding(frame, env, name, box);
+        });
+      }
+      if (frame.callable?.functionBody?.isVararg == true &&
+          envs.any((env) => env.values.containsKey('...'))) {
+        locals.add(MapEntry('(vararg table)', Value(null)));
+      }
+      for (final entry in frame.debugLocals) {
+        locals.add(
+          MapEntry('(temporary)', visibleLocalValue(entry.key) ?? entry.value),
+        );
+        preferred.add(entry.key);
+      }
+      for (final env in envs) {
+        for (final entry in env.values.entries) {
+          final box = entry.value;
+          if (!box.isLocal) continue;
+          if (_isInheritedClosureBinding(frame, env, entry.key, box)) {
+            continue;
+          }
+          if (entry.key == '...' ||
+              entry.key == '_ENV' ||
+              entry.key == '_G' ||
+              entry.key == '_SCRIPT_PATH' ||
+              preferred.contains(entry.key)) {
+            continue;
+          }
+          final rawValue = box.value;
+          final value = rawValue is Value ? rawValue : Value(rawValue);
+          locals.add(MapEntry('(temporary)', value));
+        }
+      }
+      for (final entry in _staticFrameLocals(frame)) {
+        if (entry.key != '(temporary)' &&
+            (preferred.contains(entry.key) || envHasVisibleLocal(entry.key))) {
+          continue;
+        }
+        locals.add(MapEntry('(temporary)', entry.value));
+      }
+      if (frame.ntransfer > 0) {
+        for (var i = 0; i < frame.ntransfer; i++) {
+          locals.add(MapEntry('(temporary)', frame.transferValues[i]));
+        }
+      }
+      return locals;
+    }
+
+    final locals = <MapEntry<String, Value>>[];
+    final envs = _activeLocalEnvironments(frame);
+    final preferred = <String>{};
+    final exposesVarargTable =
+        frame.callable?.functionBody?.isVararg == true &&
+        envs.any((env) => env.values.containsKey('...'));
+    bool envHasVisibleLocal(String name) {
+      return envs.any((env) {
+        final box = env.values[name];
+        return box != null &&
+            box.isLocal &&
+            !_isInheritedClosureBinding(frame, env, name, box);
+      });
+    }
+    if (exposesVarargTable) {
+      locals.add(MapEntry('(vararg table)', Value(null)));
+    }
+    for (final entry in frame.debugLocals) {
+      locals.add(entry);
+      preferred.add(entry.key);
+    }
+    for (final env in envs) {
+      for (final entry in env.values.entries) {
+        if (!entry.value.isLocal) continue;
+        if (_isInheritedClosureBinding(frame, env, entry.key, entry.value)) {
+          continue;
+        }
+        if (entry.key == '...') continue;
+        if (entry.key == '_ENV' ||
+            entry.key == '_G' ||
+            entry.key == '_SCRIPT_PATH') {
+          continue;
+        }
+        if (preferred.contains(entry.key)) continue;
+        final rawValue = entry.value.value;
+        final value = rawValue is Value ? rawValue : Value(rawValue);
+        locals.add(MapEntry(entry.key, value));
+      }
+    }
+    for (final entry in _staticFrameLocals(frame)) {
+      if (entry.key != '(temporary)' &&
+          (preferred.contains(entry.key) || envHasVisibleLocal(entry.key))) {
+        continue;
+      }
+      locals.add(entry);
+    }
+    return locals;
+  }
+
+  List<Object?>? _frameVarargs(CallFrame frame) {
+    final rawValue = _findFrameVarargValue(frame);
+    if (rawValue is Value && rawValue.isMulti && rawValue.raw is List) {
+      return List<Object?>.from(rawValue.raw as List);
+    }
+    return null;
+  }
+
+  Value? _functionLocalName(Value functionValue, int index) {
+    if (index <= 0) {
+      return null;
+    }
+    final functionBody =
+        functionValue.functionBody ??
+        switch (functionValue.raw) {
+          final FunctionDef def => def.body,
+          final FunctionLiteral literal => literal.funcBody,
+          final FunctionBody body => body,
+          _ => null,
+        };
+    final parameters = functionBody?.parameters;
+    if (parameters == null || index > parameters.length) {
+      return null;
+    }
+    return Value(parameters[index - 1].name);
+  }
+
+  Value _transferLocalName(CallFrame frame) {
+    final isLuaFrame = frame.callable?.functionBody != null;
+    return Value(isLuaFrame ? '(temporary)' : '(C temporary)');
+  }
 
   @override
   Object? call(List<Object?> args) {
@@ -103,34 +454,112 @@ class _GetLocal extends BuiltinFunction {
         "debug.getlocal requires thread/function and level arguments",
       );
     }
-
-    final levelArg = args[0] as Value;
-    final indexArg = args[1] as Value;
-
-    // Only support numeric level lookups (common case in tests)
-    if (levelArg.raw is! num || indexArg.raw is! num) {
+    final runtime = _resolveDebugInterpreter(interpreter);
+    if (runtime == null) {
       return Value.multi([Value(null), Value(null)]);
     }
 
-    final level = (levelArg.raw as num).toInt();
-    final index = (indexArg.raw as num).toInt();
-
-    // Map Lua levels to our call stack: skip this C function's own frame
-    final frame = interpreter?.callStack.getFrameAtLevel(level + 1);
-    if (frame == null) {
-      return Value.multi([Value(null), Value(null)]);
+    Value threadArg;
+    Value targetArg;
+    Value indexArg;
+    final hasThread = args.length >= 3;
+    if (hasThread) {
+      threadArg = args[0] as Value;
+      targetArg = args[1] as Value;
+      indexArg = args[2] as Value;
+    } else {
+      threadArg = Value(null);
+      targetArg = args[0] as Value;
+      indexArg = args[1] as Value;
     }
 
-    // Enumerate debug locals recorded for the frame
-    final locals = frame.debugLocals;
-    if (index <= 0 || index > locals.length) {
-      return Value.multi([Value(null), Value(null)]);
+    final index = _requireInt(indexArg, 'number');
+
+    if (!hasThread && targetArg.raw is num) {
+      final level = _requireInt(targetArg, 'number');
+      if (level == 0) {
+        if (index <= 0 || index > args.length) {
+          return Value.multi([Value(null), Value(null)]);
+        }
+        return Value.multi([Value("(C temporary)"), args[index - 1] as Value]);
+      }
+      final frame = _resolveVisibleFrame(
+        runtime,
+        level,
+        functionName: 'debug.getlocal',
+        argNumber: 1,
+      );
+      if (index < 0) {
+        final varargs = _frameVarargs(frame);
+        final varargIndex = -index;
+        if (varargs == null || varargIndex > varargs.length) {
+          return Value.multi([Value(null), Value(null)]);
+        }
+        final value = varargs[varargIndex - 1];
+        return Value.multi([
+          Value('(vararg)'),
+          value is Value ? value : Value(value),
+        ]);
+      }
+      if (frame.ntransfer > 0 &&
+          index >= frame.ftransfer &&
+          index < frame.ftransfer + frame.ntransfer) {
+        final transferValue = frame.transferValues[index - frame.ftransfer];
+        return Value.multi([_transferLocalName(frame), transferValue]);
+      }
+      final locals = _enumerateFrameLocals(frame);
+      if (index <= 0 || index > locals.length) {
+        return Value.multi([Value(null), Value(null)]);
+      }
+      final entry = locals[index - 1];
+      return Value.multi([Value(entry.key), entry.value]);
     }
 
-    final entry = locals[index - 1];
-    final name = entry.key;
-    final value = entry.value;
-    return Value.multi([Value(name), value]);
+    if (hasThread && threadArg.raw is Coroutine && targetArg.raw is num) {
+      final level = _requireInt(targetArg, 'number');
+      if (level <= 0) {
+        throw LuaError("bad argument #2 to 'debug.getlocal' (level out of range)");
+      }
+      final frame = _resolveDebugCoroutineFrame(
+        threadArg.raw as Coroutine,
+        level,
+      );
+      if (frame == null) {
+        throw LuaError("bad argument #2 to 'debug.getlocal' (level out of range)");
+      }
+      if (index > 0 &&
+          frame.ntransfer > 0 &&
+          index >= frame.ftransfer &&
+          index < frame.ftransfer + frame.ntransfer) {
+        final transferValue = frame.transferValues[index - frame.ftransfer];
+        return Value.multi([_transferLocalName(frame), transferValue]);
+      }
+      if (index < 0) {
+        final varargs = _frameVarargs(frame);
+        final varargIndex = -index;
+        if (varargs == null || varargIndex > varargs.length) {
+          return Value.multi([Value(null), Value(null)]);
+        }
+        final value = varargs[varargIndex - 1];
+        return Value.multi([
+          Value('(vararg)'),
+          value is Value ? value : Value(value),
+        ]);
+      }
+      final locals = _enumerateFrameLocals(frame);
+      if (index <= 0 || index > locals.length) {
+        return Value.multi([Value(null), Value(null)]);
+      }
+      final entry = locals[index - 1];
+      return Value.multi([Value(entry.key), entry.value]);
+    }
+
+    final functionValue = hasThread ? targetArg : targetArg;
+    final name = _functionLocalName(functionValue, index);
+    if (name == null) {
+      return Value.multi([Value(null), Value(null)]);
+    }
+    return Value.multi([name, Value(null)]);
   }
 }
 
@@ -156,12 +585,11 @@ class _GetMetatable extends BuiltinFunction {
 }
 
 class _GetRegistry extends BuiltinFunction {
-  _GetRegistry() : super();
+  _GetRegistry(super.interpreter);
 
   @override
   Object? call(List<Object?> args) {
-    // Return the registry table
-    return Value({});
+    return interpreter?.debugRegistry ?? Value({});
   }
 }
 
@@ -189,7 +617,9 @@ class _GetUpvalue extends BuiltinFunction {
         return Value.multi([Value(null), Value(null)]);
       }
       return Value.multi([
-        Value(closure.upvalueName(index - 1)),
+        Value(
+          functionArg.strippedDebugInfo ? '(no name)' : closure.upvalueName(index - 1),
+        ),
         closure.readUpvalue(index - 1),
       ]);
     }
@@ -202,21 +632,29 @@ class _GetUpvalue extends BuiltinFunction {
       final name = upvalue.name;
       final rawValue = upvalue.getValue();
       final value = rawValue is Value ? rawValue : Value(rawValue);
-      return Value.multi([Value(name), value]);
+      return Value.multi([
+        Value(functionArg.strippedDebugInfo ? '(no name)' : (name ?? '')),
+        value,
+      ]);
     }
 
     // For AST-based interpreter, expose the implicit `_ENV` capture in the
     // first upvalue slot when the function does not already surface explicit
     // captures. This matches the upstream 5.5 tests for loaded chunks and
     // plain Lua closures.
-    if (functionArg.raw is Function) {
-      if (index == 1) {
-        final envValue =
-            interpreter?.getCurrentEnv().get('_ENV') ??
-            interpreter?.getCurrentEnv().get('_G') ??
-            Value(interpreter?.getCurrentEnv());
-        return Value.multi([Value('_ENV'), envValue]);
-      }
+    if (index == 1 &&
+        functionArg.closureEnvironment != null &&
+        (functionArg.upvalues == null || functionArg.upvalues!.isEmpty)) {
+      final envValue =
+          functionArg.closureEnvironment?.get('_ENV') ??
+          functionArg.closureEnvironment?.get('_G') ??
+          interpreter?.getCurrentEnv().get('_ENV') ??
+          interpreter?.getCurrentEnv().get('_G') ??
+          Value(functionArg.closureEnvironment);
+      return Value.multi([
+        Value(functionArg.strippedDebugInfo ? '(no name)' : '_ENV'),
+        envValue,
+      ]);
     }
 
     // For functions without upvalues, return null
@@ -244,43 +682,163 @@ class _SetHook extends BuiltinFunction {
 
   @override
   Object? call(List<Object?> args) {
-    if (interpreter is! Interpreter) {
+    final runtime = _resolveDebugInterpreter(interpreter);
+    if (runtime == null) {
       return Value(null);
     }
-    final runtime = interpreter! as Interpreter;
+    Coroutine? thread;
+    var index = 0;
 
-    if (args.isEmpty || (args[0] is Value && (args[0] as Value).isNil)) {
-      runtime.debugHookFunction = null;
-      runtime.debugHookMask = '';
-      runtime.debugHookCount = 0;
+    if (args.isNotEmpty &&
+        args[0] is Value &&
+        (args[0] as Value).raw is Coroutine) {
+      thread = (args[0] as Value).raw as Coroutine;
+      index = 1;
+    } else {
+      final current = runtime.getCurrentCoroutine();
+      final main = runtime.getMainThread();
+      if (current != null && !identical(current, main)) {
+        thread = current;
+      }
+    }
+
+    final targetHook = index < args.length ? args[index] : null;
+    if (targetHook == null ||
+        (targetHook is Value && (targetHook.isNil || targetHook.raw == null))) {
+      if (thread != null) {
+        thread.debugHookFunction = null;
+        thread.debugHookMask = '';
+        thread.debugHookCount = 0;
+        thread.debugHookCountRemaining = 0;
+      } else {
+        runtime.debugHookFunction = null;
+        runtime.debugHookMask = '';
+        runtime.debugHookCount = 0;
+        runtime.debugHookCountRemaining = 0;
+        runtime.rememberDebugHookLine(-1);
+      }
       return Value(null);
     }
 
-    if (args[0] is! Value || !(args[0] as Value).isCallable()) {
+    if (targetHook is! Value || !targetHook.isCallable()) {
       throw LuaError("debug.sethook requires a hook function");
     }
 
-    final hook = args[0] as Value;
-    final mask = switch (args.length > 1 ? args[1] : null) {
+    final hook = targetHook;
+    final mask = switch (args.length > index + 1 ? args[index + 1] : null) {
       final Value value when value.raw != null => value.raw.toString(),
       null => '',
       _ => throw LuaError("debug.sethook mask must be a string"),
     };
-    final count = switch (args.length > 2 ? args[2] : null) {
+    final count = switch (args.length > index + 2 ? args[index + 2] : null) {
       final Value value when value.raw is num => (value.raw as num).toInt(),
       null => 0,
       _ => throw LuaError("debug.sethook count must be a number"),
     };
 
-    runtime.debugHookFunction = hook;
-    runtime.debugHookMask = mask;
-    runtime.debugHookCount = count;
+    if (thread != null) {
+      thread.debugHookFunction = hook;
+      thread.debugHookMask = mask;
+      thread.debugHookCount = count;
+      thread.resetDebugHookCounter();
+    } else {
+      runtime.debugHookFunction = hook;
+      runtime.debugHookMask = mask;
+      runtime.debugHookCount = count;
+      runtime.resetDebugHookCounter();
+      if (runtime.callStack.getFrameAtLevel(2) case final CallFrame frame?) {
+        frame.lastDebugHookLine = frame.currentLine;
+        runtime.rememberDebugHookLine(
+          frame.currentLine,
+          source: frame.scriptPath ?? runtime.currentScriptPath,
+        );
+      }
+    }
     return Value(null);
   }
 }
 
 class _SetLocal extends BuiltinFunction {
-  _SetLocal() : super();
+  _SetLocal(LuaRuntime super.interpreter);
+
+  int _requireInt(Value value) {
+    if (value.raw is! num) {
+      throw LuaError("bad argument to 'debug.setlocal' (number expected)");
+    }
+    return (value.raw as num).toInt();
+  }
+
+  CallFrame _requireFrame(Interpreter runtime, int level, {int argNumber = 1}) {
+    final frame = runtime.getVisibleFrameAtLevel(
+      level + 1,
+      hideEnclosingDebugHooks: true,
+    );
+    if (frame == null) {
+      throw LuaError(
+        "bad argument #$argNumber to 'debug.setlocal' (level out of range)",
+      );
+    }
+    return frame;
+  }
+
+  CallFrame _resolveVisibleFrame(Interpreter runtime, int level) {
+    final frame = runtime.getVisibleFrameAtLevel(
+      level + 1,
+      hideEnclosingDebugHooks: true,
+    );
+    if (frame == null) {
+      throw LuaError("bad argument #1 to 'debug.setlocal' (level out of range)");
+    }
+    return frame;
+  }
+
+  List<MapEntry<String, Value>> _enumerateFrameLocals(CallFrame frame) {
+    final locals = <MapEntry<String, Value>>[];
+    final envs = _activeLocalEnvironments(frame);
+    final preferred = <String>{};
+    bool envHasVisibleLocal(String name) {
+      return envs.any((env) {
+        final box = env.values[name];
+        return box != null &&
+            box.isLocal &&
+            !_isInheritedClosureBinding(frame, env, name, box);
+      });
+    }
+    if (frame.callable?.functionBody?.isVararg == true &&
+        envs.any((env) => env.values.containsKey('...'))) {
+      locals.add(MapEntry('(vararg table)', Value(null)));
+    }
+    for (final entry in frame.debugLocals) {
+      locals.add(entry);
+      preferred.add(entry.key);
+    }
+    for (final env in envs) {
+      for (final entry in env.values.entries) {
+        if (!entry.value.isLocal) continue;
+        if (_isInheritedClosureBinding(frame, env, entry.key, entry.value)) {
+          continue;
+        }
+        if (entry.key == '...') continue;
+        if (entry.key == '_ENV' ||
+            entry.key == '_G' ||
+            entry.key == '_SCRIPT_PATH') {
+          continue;
+        }
+        if (preferred.contains(entry.key)) continue;
+        final rawValue = entry.value.value;
+        final value = rawValue is Value ? rawValue : Value(rawValue);
+        locals.add(MapEntry(entry.key, value));
+      }
+    }
+    for (final entry in _staticFrameLocals(frame)) {
+      if (entry.key != '(temporary)' &&
+          (preferred.contains(entry.key) || envHasVisibleLocal(entry.key))) {
+        continue;
+      }
+      locals.add(entry);
+    }
+    return locals;
+  }
 
   @override
   Object? call(List<Object?> args) {
@@ -289,9 +847,185 @@ class _SetLocal extends BuiltinFunction {
         "debug.setlocal requires thread/function, index and value",
       );
     }
-    // Set local variable value
+    final runtime = _resolveDebugInterpreter(interpreter);
+    if (runtime == null) {
+      return Value(null);
+    }
+
+    Value targetArg;
+    Value indexArg;
+    Value valueArg;
+    CallFrame? frame;
+
+    if (args.length >= 4 && (args[0] as Value).raw is Coroutine) {
+      final thread = args[0] as Value;
+      targetArg = args[1] as Value;
+      indexArg = args[2] as Value;
+      valueArg = args[3] as Value;
+      if (targetArg.raw is! num) {
+        return Value(null);
+      }
+      final level = _requireInt(targetArg);
+      if (level <= 0) {
+        throw LuaError("bad argument #2 to 'debug.setlocal' (level out of range)");
+      }
+      frame = _resolveDebugCoroutineFrame(thread.raw as Coroutine, level);
+      if (frame == null) {
+        throw LuaError("bad argument #2 to 'debug.setlocal' (level out of range)");
+      }
+    } else {
+      targetArg = args[0] as Value;
+      indexArg = args[1] as Value;
+      valueArg = args[2] as Value;
+      if (targetArg.raw is! num) {
+        return Value(null);
+      }
+      final level = _requireInt(targetArg);
+      if (level <= 0) {
+        throw LuaError("bad argument #1 to 'debug.setlocal' (level out of range)");
+      }
+      frame = _resolveVisibleFrame(runtime, level);
+    }
+
+    final index = _requireInt(indexArg);
+    if (index < 0) {
+      final rawVarargs = _findFrameVarargValue(frame);
+      if (rawVarargs is! Value || !rawVarargs.isMulti || rawVarargs.raw is! List) {
+        return Value(null);
+      }
+      final list = List<Object?>.from(rawVarargs.raw as List);
+      final varargIndex = -index;
+      if (varargIndex <= 0 || varargIndex > list.length) {
+        return Value(null);
+      }
+      list[varargIndex - 1] = valueArg;
+      rawVarargs.raw = list;
+      return Value('(vararg)');
+    }
+
+    final locals = _enumerateFrameLocals(frame);
+    if (index <= 0 || index > locals.length) {
+      return Value(null);
+    }
+    final entry = locals[index - 1];
+    final envBox = frame.env?.values[entry.key];
+    if (envBox != null) {
+      envBox.value = valueArg;
+      for (var i = 0; i < frame.debugLocals.length; i++) {
+        if (frame.debugLocals[i].key == entry.key) {
+          frame.debugLocals[i] = MapEntry(entry.key, valueArg);
+        }
+      }
+      return Value(entry.key);
+    }
+
+    for (var i = 0; i < frame.debugLocals.length; i++) {
+      final local = frame.debugLocals[i];
+      if (local.key == entry.key && identical(local.value, entry.value)) {
+        local.value.raw = valueArg.raw;
+        local.value.metatable = valueArg.metatable;
+        local.value.metatableRef = valueArg.metatableRef;
+        local.value.upvalues = valueArg.upvalues;
+        local.value.interpreter = valueArg.interpreter;
+        local.value.functionBody = valueArg.functionBody;
+        local.value.closureEnvironment = valueArg.closureEnvironment;
+        local.value.functionName = valueArg.functionName;
+        local.value.debugLineDefined = valueArg.debugLineDefined;
+        frame.debugLocals[i] = MapEntry(entry.key, valueArg);
+        return Value(entry.key);
+      }
+    }
+
     return Value(null);
   }
+}
+
+List<MapEntry<String, Value>> _staticFrameLocals(CallFrame frame) {
+  final functionBody = frame.callable?.functionBody;
+  final currentLine = frame.currentLine;
+  if (functionBody == null || currentLine <= 0) {
+    return const <MapEntry<String, Value>>[];
+  }
+
+  final locals = <MapEntry<String, Value>>[];
+
+  void collect(List<AstNode> statements) {
+    for (final statement in statements) {
+      final startLine = statement.span?.start.line == null
+          ? null
+          : statement.span!.start.line + 1;
+      final span = statement.span;
+      final endLine = switch (span) {
+        null => null,
+        _ when span.end.column == 0 && span.end.line > span.start.line =>
+          span.end.line,
+        _ => span.end.line + 1,
+      };
+      if (startLine != null && startLine > currentLine) {
+        continue;
+      }
+
+      switch (statement) {
+        case LocalDeclaration(names: final names, exprs: final exprs):
+          for (var i = 0; i < names.length; i++) {
+            final name = names[i];
+            final expr = i < exprs.length ? exprs[i] : null;
+            if (expr is FunctionLiteral &&
+                endLine != null &&
+                currentLine < endLine) {
+              locals.add(MapEntry('(temporary)', Value(null)));
+            } else {
+              locals.add(MapEntry(name.name, Value(null)));
+            }
+          }
+        case LocalFunctionDef(name: final name):
+          if (endLine != null && currentLine < endLine) {
+            locals.add(MapEntry('(temporary)', Value(null)));
+          } else {
+            locals.add(MapEntry(name.name, Value(null)));
+          }
+        default:
+          break;
+      }
+    }
+  }
+
+  collect(functionBody.body);
+  return locals;
+}
+
+List<Environment> _activeLocalEnvironments(CallFrame frame) {
+  final currentEnv = frame.env;
+  if (currentEnv == null) {
+    return const <Environment>[];
+  }
+
+  final closureEnv = frame.callable?.closureEnvironment;
+  final chain = <Environment>[];
+  Environment? env = currentEnv;
+  while (env != null) {
+    final isClosureBoundary = identical(env, closureEnv);
+    if (isClosureBoundary && chain.isNotEmpty) {
+      break;
+    }
+    chain.add(env);
+    if (isClosureBoundary || identical(env.parent, closureEnv)) {
+      break;
+    }
+    env = env.parent;
+  }
+
+  return chain.reversed.toList(growable: false);
+}
+
+dynamic _findFrameVarargValue(CallFrame frame) {
+  for (final env in _activeLocalEnvironments(frame).reversed) {
+    final value = env.values['...']?.value;
+    if (value != null) {
+      return value;
+    }
+  }
+  return null;
 }
 
 class _SetMetatable extends BuiltinFunction {
@@ -373,7 +1107,7 @@ class _SetUpvalue extends BuiltinFunction {
       }
       final oldName = closure.upvalueName(index - 1);
       closure.writeUpvalue(index - 1, newValue);
-      return Value(oldName);
+      return Value(functionArg.strippedDebugInfo ? '(no name)' : oldName);
     }
 
     // Check if the function has explicit upvalues
@@ -385,9 +1119,9 @@ class _SetUpvalue extends BuiltinFunction {
         'debug.setupvalue explicit: name=${upvalue.name} value=${newValue.raw} open=${upvalue.isOpen}',
         category: 'DebugLib',
       );
-      final oldName = upvalue.name;
+      final oldName = upvalue.name ?? '';
       upvalue.setValue(newValue.raw);
-      return Value(oldName);
+      return Value(functionArg.strippedDebugInfo ? '(no name)' : oldName);
     }
 
     // For AST-based interpreter, only modify existing upvalues
@@ -401,9 +1135,9 @@ class _SetUpvalue extends BuiltinFunction {
           'debug.setupvalue raw: name=${upvalue.name} value=${newValue.raw} open=${upvalue.isOpen}',
           category: 'DebugLib',
         );
-        final oldName = upvalue.name;
+        final oldName = upvalue.name ?? '';
         upvalue.setValue(newValue.raw);
-        return Value(oldName);
+        return Value(functionArg.strippedDebugInfo ? '(no name)' : oldName);
       }
     }
 
@@ -430,9 +1164,7 @@ class _SetUserValue extends BuiltinFunction {
     };
 
     if (target is! Value || !_isFullUserdata(target)) {
-      throw LuaError.typeError(
-        "bad argument #1 to 'setuservalue' (userdata expected, got ${getLuaType(target)})",
-      );
+      return Value(null);
     }
 
     if (index < 1) {
@@ -456,6 +1188,7 @@ class _SetUserValue extends BuiltinFunction {
         raw is LuaString ||
         raw is Map ||
         raw is List ||
+        raw is LuaFile ||
         raw is Coroutine ||
         raw is Function ||
         raw is BuiltinFunction ||
@@ -467,23 +1200,303 @@ class _SetUserValue extends BuiltinFunction {
 }
 
 class _Traceback extends BuiltinFunction {
-  _Traceback() : super();
+  _Traceback(super.interpreter);
+
+  int _intArg(Value value, int fallback) {
+    final raw = value.raw;
+    if (raw == null) {
+      return fallback;
+    }
+    if (raw is! num) {
+      throw LuaError("bad argument to 'debug.traceback' (number expected)");
+    }
+    return raw.toInt();
+  }
+
+  Iterable<CallFrame> _currentFrames(Interpreter runtime, int startLevel) sync* {
+    for (var level = startLevel;; level++) {
+      final frame = runtime.getVisibleFrameAtLevel(level);
+      if (frame == null) {
+        return;
+      }
+      yield frame;
+    }
+  }
+
+  Iterable<CallFrame> _coroutineFrames(
+    Coroutine coroutine,
+    int startLevel,
+  ) sync* {
+    for (var level = startLevel;; level++) {
+      final frame = _resolveDebugCoroutineFrame(coroutine, level);
+      if (frame == null) {
+        return;
+      }
+      yield frame;
+    }
+  }
+
+  static const int _tracebackHeadLevels = 10;
+  static const int _tracebackTailLevels = 11;
+
+  void _appendTracebackFrames(
+    StringBuffer trace,
+    List<CallFrame> frames,
+  ) {
+    final visibleFrames = frames
+        .where(_includeTracebackFrame)
+        .toList(growable: false);
+
+    if (visibleFrames.length <= _tracebackHeadLevels + _tracebackTailLevels) {
+      for (final frame in visibleFrames) {
+        trace.writeln("\t${_formatFrame(frame)}");
+      }
+      return;
+    }
+
+    for (final frame in visibleFrames.take(_tracebackHeadLevels)) {
+      trace.writeln("\t${_formatFrame(frame)}");
+    }
+
+    final skipped =
+        visibleFrames.length - _tracebackHeadLevels - _tracebackTailLevels;
+    trace.writeln("\t...\t(skipping $skipped levels)");
+
+    for (final frame in visibleFrames.skip(
+      visibleFrames.length - _tracebackTailLevels,
+    )) {
+      trace.writeln("\t${_formatFrame(frame)}");
+    }
+  }
+
+  bool _includeTracebackFrame(CallFrame frame) {
+    final callable = frame.callable;
+    final rawCallable = callable?.raw;
+    final hasOpaqueName =
+        frame.functionName.isEmpty ||
+        frame.functionName == 'function' ||
+        frame.functionName == 'unknown';
+    final hasDebugName =
+        (frame.debugName?.isNotEmpty ?? false) || frame.debugNameWhat.isNotEmpty;
+    final looksSyntheticWrapper =
+        !hasDebugName && hasOpaqueName && frame.currentLine > 0;
+
+    // Hide synthetic Dart wrapper closures such as the coroutine.wrap thunk.
+    // These are implementation details in lualike and should not surface in
+    // Lua-visible tracebacks.
+    if (rawCallable is Function &&
+        callable?.functionBody == null &&
+        looksSyntheticWrapper) {
+      return false;
+    }
+
+    // Some internal wrapper transitions do not retain a callable at all but
+    // still materialize as a source-bearing "?" frame in tracebacks.
+    if (callable == null &&
+        looksSyntheticWrapper &&
+        frame.callNode == null) {
+      return false;
+    }
+
+    return true;
+  }
+
+  String _tracebackStringChunk(String raw) {
+    final decoded = Uri.decodeFull(raw).replaceAll('\n', ' ');
+    final compact = decoded.replaceAll(RegExp(r'\s+'), ' ').trim();
+    final preview = compact.length > 60
+        ? '${compact.substring(0, 57)}...'
+        : compact;
+    return '[string "$preview"]';
+  }
+
+  String _tracebackShortSource(String? rawSource) {
+    if (rawSource == null || rawSource.isEmpty) {
+      return '[C]';
+    }
+
+    final source = _formatSourceForLua(rawSource);
+    if (source == '=[C]') {
+      return '[C]';
+    }
+    if (source.startsWith('=')) {
+      final raw = source.substring(1);
+      if (raw.contains('\n') ||
+          raw.length > 120 ||
+          raw.contains('%0A') ||
+          raw.contains('%20')) {
+        return _tracebackStringChunk(raw);
+      }
+      return raw;
+    }
+    if (source.startsWith('@')) {
+      final raw = source.substring(1);
+      if (raw.contains('\n') ||
+          raw.length > 120 ||
+          raw.contains('%0A') ||
+          raw.contains('%20')) {
+        return _tracebackStringChunk(raw);
+      }
+      return raw.split('/').last;
+    }
+    if (source.startsWith('[string')) {
+      return source;
+    }
+    if (source.contains('\n') || source.length > 120) {
+      return _tracebackStringChunk(source);
+    }
+    return source;
+  }
+
+  String _formatFrame(CallFrame frame) {
+    final source = _tracebackShortSource(
+      frame.scriptPath ??
+          frame.callNode?.span?.sourceUrl?.toString() ??
+          frame.callable?.functionBody?.span?.sourceUrl?.toString(),
+    );
+    final line = frame.currentLine > 0
+        ? frame.currentLine
+        : (frame.callNode?.span?.start.line ?? -1) + 1;
+    final info = _inferFrameNameInfo(frame);
+    final candidateName = switch (info.name) {
+      null || '' || 'unknown' || 'function' || 'anonymous' =>
+        frame.functionName,
+      final name => name,
+    };
+    final displayName = switch (candidateName) {
+      '' || 'unknown' || 'function' || 'anonymous' => '?',
+      final name => name,
+    };
+    final functionBody = frame.callable?.functionBody;
+    final functionLine = switch (frame.callable?.debugLineDefined) {
+      final int line when line > 0 => line,
+      _ when functionBody?.span != null => functionBody!.span!.start.line + 1,
+      _ => line,
+    };
+
+    final buffer = StringBuffer();
+    if (source == '[C]' || line <= 0) {
+      buffer.write(source);
+    } else {
+      buffer.write('$source:$line');
+    }
+    buffer.write(': in ');
+    if (displayName == '?' ||
+        frame.functionName == '_MAIN_CHUNK' ||
+        frame.functionName == 'main' ||
+        frame.functionName == 'main_chunk') {
+      if (frame.functionName == '_MAIN_CHUNK' ||
+          frame.functionName == 'main' ||
+          frame.functionName == 'main_chunk') {
+        buffer.write('main chunk');
+      } else if (functionBody != null && functionLine > 0) {
+        buffer.write('function <$source:$functionLine>');
+      } else {
+        buffer.write('?');
+      }
+    } else {
+      buffer.write("function '$displayName'");
+    }
+    return buffer.toString();
+  }
 
   @override
   Object? call(List<Object?> args) {
-    final message = args.isNotEmpty ? (args[0] as Value).raw.toString() : "";
-    //level
-    final _ = args.length > 1 ? (args[1] as Value).raw as int : 1;
+    Coroutine? thread;
+    Value? messageArg;
+    var level = 1;
 
+    if (args.isNotEmpty && (args[0] as Value).raw is Coroutine) {
+      thread = (args[0] as Value).raw as Coroutine;
+      messageArg = args.length > 1 ? args[1] as Value : null;
+      level = args.length > 2 ? _intArg(args[2] as Value, 0) : 0;
+    } else {
+      messageArg = args.isNotEmpty ? args[0] as Value : null;
+      level = args.length > 1 ? _intArg(args[1] as Value, 1) : 1;
+    }
+
+    if (messageArg != null &&
+        messageArg.raw != null &&
+        messageArg.raw is! String &&
+        messageArg.raw is! LuaString) {
+      return messageArg;
+    }
+
+    final message = messageArg?.raw?.toString() ?? "";
     final trace = StringBuffer();
     if (message.isNotEmpty) {
       trace.writeln(message);
     }
     trace.writeln("stack traceback:");
-    // Add dummy stack trace for now
-    trace.writeln("\t[C]: in function 'traceback'");
 
-    return Value(trace.toString());
+    if (thread case final Coroutine coroutine) {
+      final coroutineError = coroutine.error;
+      if (coroutine.status == CoroutineStatus.dead &&
+          level <= 0 &&
+          coroutine.rawDebugFrameAtLevel(1) == null &&
+          coroutineError is LuaError &&
+          coroutineError.luaStackTrace != null) {
+        final formatted = coroutineError.luaStackTrace!.format();
+        if (message.isEmpty) {
+          return Value(formatted);
+        }
+        return Value('$message\n$formatted');
+      }
+      final rawTopFrame = coroutine.rawDebugFrameAtLevel(1);
+      final rawTopIsYield =
+          rawTopFrame != null &&
+          rawTopFrame.callable?.functionBody == null &&
+          (rawTopFrame.functionName == 'yield' ||
+              rawTopFrame.callable?.functionName == 'yield');
+      final rawTopIsError =
+          rawTopFrame != null &&
+          rawTopFrame.callable?.functionBody == null &&
+          (rawTopFrame.functionName == 'error' ||
+              rawTopFrame.callable?.functionName == 'error');
+      if (coroutine.status == CoroutineStatus.suspended &&
+          rawTopFrame != null &&
+          level <= 0) {
+        trace.writeln("\t[C]: in function 'yield'");
+      }
+      if (coroutine.status == CoroutineStatus.dead &&
+          rawTopFrame != null &&
+          level <= 0 &&
+          rawTopIsError) {
+        trace.writeln("\t${_formatFrame(rawTopFrame)}");
+      }
+      final startLevel = level <= 1 ? 1 : level;
+      _appendTracebackFrames(
+        trace,
+        _coroutineFrames(coroutine, startLevel).toList(growable: false),
+      );
+      return Value(trace.toString().trimRight());
+    }
+
+    final runtime = _resolveDebugInterpreter(interpreter);
+    if (runtime == null) {
+      return Value(trace.toString().trimRight());
+    }
+    final currentCoroutine = runtime.getCurrentCoroutine();
+    final mainCoroutine = runtime.getMainThread();
+    if (thread == null &&
+        currentCoroutine != null &&
+        !identical(currentCoroutine, mainCoroutine)) {
+      thread = currentCoroutine;
+    }
+    if (thread case final Coroutine coroutine) {
+      final startLevel = level <= 1 ? 1 : level;
+      _appendTracebackFrames(
+        trace,
+        _coroutineFrames(coroutine, startLevel).toList(growable: false),
+      );
+      return Value(trace.toString().trimRight());
+    }
+    final startLevel = (level < 0 ? 0 : level) + 1;
+    _appendTracebackFrames(
+      trace,
+      _currentFrames(runtime, startLevel).toList(growable: false),
+    );
+    return Value(trace.toString().trimRight());
   }
 }
 
@@ -596,15 +1609,34 @@ class _UpvalueJoin extends BuiltinFunction {
 class _GetInfoImpl extends BuiltinFunction {
   _GetInfoImpl(super.interpreter);
 
+  String? _frameSourceKey(CallFrame frame) {
+    return _debugFrameSourceKey(frame);
+  }
+
+  CallFrame? _resolveCoroutineFrame(Coroutine coroutine, int level) {
+    return _resolveDebugCoroutineFrame(coroutine, level);
+  }
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw ArgumentError('debug.getinfo requires at least one argument');
     }
 
-    final firstArg = args[0] as Value;
-    String? what = args.length > 1
-        ? (args[1] as Value).raw.toString()
+    var argIndex = 0;
+    Coroutine? thread;
+    final firstValue = args[0] is Value ? args[0] as Value : Value(args[0]);
+    if (firstValue.raw is Coroutine) {
+      thread = firstValue.raw as Coroutine;
+      argIndex = 1;
+      if (args.length <= argIndex) {
+        throw ArgumentError('debug.getinfo requires a level or function');
+      }
+    }
+
+    final firstArg = args[argIndex] as Value;
+    String? what = args.length > argIndex + 1
+        ? (args[argIndex + 1] as Value).raw.toString()
         : "flnSrtu";
 
     final optionError = _validateGetInfoOptions(what);
@@ -619,7 +1651,8 @@ class _GetInfoImpl extends BuiltinFunction {
     );
 
     // If we don't have an interpreter instance, try to get one
-    final interpreterInstance = interpreter;
+    final debugInterpreter = _resolveDebugInterpreter(interpreter);
+    final interpreterInstance = debugInterpreter ?? interpreter;
     if (interpreterInstance == null) {
       Logger.warning(
         'No interpreter instance available for debug.getinfo',
@@ -633,18 +1666,22 @@ class _GetInfoImpl extends BuiltinFunction {
       if (level < 0) {
         return Value(null);
       }
-      final actualLevel = level + 1;
+      final actualLevel = thread != null ? level : level + 1;
 
-    if (interpreterInstance != null) {
+      if (interpreterInstance != null) {
         // Get the frame from the call stack; invalid levels return nil.
-        final hookAdjustedLevel =
-            interpreterInstance is Interpreter &&
-                interpreterInstance.callStack.top?.isDebugHook == true
-            ? level
-            : actualLevel;
-        final frame = interpreterInstance is Interpreter
-            ? interpreterInstance.getVisibleFrameAtLevel(hookAdjustedLevel)
-            : interpreterInstance.callStack.getFrameAtLevel(actualLevel);
+        final frame = switch (thread) {
+          final Coroutine coroutine => _resolveCoroutineFrame(
+            coroutine,
+            actualLevel,
+          ),
+          null when debugInterpreter != null =>
+            debugInterpreter.getVisibleFrameAtLevel(
+              actualLevel,
+              hideEnclosingDebugHooks: true,
+            ),
+          _ => interpreterInstance.callStack.getFrameAtLevel(actualLevel),
+        };
 
         if (frame != null) {
           Logger.debug(
@@ -654,124 +1691,203 @@ class _GetInfoImpl extends BuiltinFunction {
 
           final debugInfo = <String, Value>{};
           final frameNameInfo = _inferFrameNameInfo(frame);
+          final currentFunction = interpreterInstance is Interpreter
+              ? interpreterInstance.getCurrentFunction()
+              : null;
+          final coroutineCallable =
+              thread != null &&
+                  actualLevel == 1 &&
+                  (frame.callable == null ||
+                      frame.callable?.functionBody == null)
+              ? Value(
+                  () => null,
+                  closureEnvironment: thread.closureEnvironment,
+                  functionBody: thread.functionBody,
+                  functionName: thread.functionValue.functionName,
+                  strippedDebugInfo: thread.functionValue.strippedDebugInfo,
+                )
+              : null;
+          final isMainChunkFrame =
+              thread == null &&
+              frame.env != null &&
+              (frame.callable == null ||
+                  frame.functionName == '_MAIN_CHUNK' ||
+                  frame.functionName == 'main' ||
+                  frame.functionName == 'main_chunk');
+          final syntheticMainCallable = isMainChunkFrame && frame.env != null
+              ? Value(
+                  () => null,
+                  closureEnvironment: frame.env,
+                  functionName: '_MAIN_CHUNK',
+                )
+              : null;
+          final callableValue =
+              coroutineCallable ??
+              ((isMainChunkFrame && currentFunction != null)
+                  ? currentFunction
+                  : (frame.callable ?? syntheticMainCallable));
+          final metadata = callableValue == null
+              ? null
+              : interpreterInstance.debugInfoForFunction(callableValue);
 
           if (what.contains('n')) {
             debugInfo['name'] = Value(frameNameInfo.name);
             debugInfo['namewhat'] = Value(frameNameInfo.namewhat);
           }
           if (what.contains('S')) {
-            debugInfo['what'] = Value("Lua");
+            debugInfo['what'] = Value(
+              isMainChunkFrame ? 'main' : (metadata?.what ?? 'Lua'),
+            );
 
             // Check if we can get source from current function first
             String sourceValue = "=[C]";
             String shortSrc = "[C]";
 
-            // First, check script path for explicit chunk names (string chunks)
-            final scriptPath =
-                frame.scriptPath ?? interpreterInstance.callStack.scriptPath;
-            Logger.debug(
-              'debug.getinfo: frame.scriptPath=${frame.scriptPath}, callStack.scriptPath=${interpreterInstance.callStack.scriptPath}',
-              category: 'DebugLib',
-            );
+            if (_frameHasStrippedDebugInfo(frame)) {
+              sourceValue = "=?";
+              shortSrc = "?";
+            } else {
+              // First, check script path for explicit chunk names (string chunks)
+              final scriptPath =
+                  frame.scriptPath ?? interpreterInstance.callStack.scriptPath;
+              Logger.debug(
+                'debug.getinfo: frame.scriptPath=${frame.scriptPath}, callStack.scriptPath=${interpreterInstance.callStack.scriptPath}',
+                category: 'DebugLib',
+              );
 
-            if (scriptPath != null) {
-              // For string chunks, use script path directly
-              if (scriptPath.startsWith('@') ||
-                  scriptPath.startsWith('=') ||
-                  scriptPath.startsWith('[')) {
-                sourceValue = scriptPath;
-                shortSrc = scriptPath.startsWith('@')
-                    ? scriptPath.substring(1)
-                    : scriptPath;
-                Logger.debug(
-                  'debug.getinfo: using scriptPath as-is: $sourceValue',
-                  category: 'DebugLib',
-                );
-              } else {
-                // For unprefixed script paths, check whether the active
-                // function came from a loaded chunk-like artifact.
-                Value? currentFunction;
-                if (interpreterInstance is Interpreter) {
-                  currentFunction = interpreterInstance.getCurrentFunction();
-                }
-                bool isBinaryChunk = false;
-
-                if (currentFunction != null &&
-                    currentFunction.functionBody != null) {
-                  final span = currentFunction.functionBody!.span;
+              if (scriptPath != null) {
+                // For string chunks, use script path directly
+                if (scriptPath.startsWith('@') ||
+                    scriptPath.startsWith('=') ||
+                    scriptPath.startsWith('[')) {
+                  sourceValue = scriptPath;
+                  shortSrc = scriptPath.startsWith('@')
+                      ? scriptPath.substring(1)
+                      : scriptPath;
                   Logger.debug(
-                    'debug.getinfo: currentFunction has functionBody, span=$span, sourceUrl=${span?.sourceUrl}',
+                    'debug.getinfo: using scriptPath as-is: $sourceValue',
                     category: 'DebugLib',
                   );
+                } else {
+                  // For unprefixed script paths, check whether the active
+                  // function came from a loaded chunk-like artifact.
+                  Value? currentFunction;
+                  if (interpreterInstance is Interpreter) {
+                    currentFunction = interpreterInstance.getCurrentFunction();
+                  }
+                  bool isBinaryChunk = false;
 
-                  if (span != null && span.sourceUrl != null) {
-                    // Preserve the source location carried by the loaded
-                    // function artifact when one is available.
-                    final rawSource = span.sourceUrl!.toString();
-                    sourceValue = _formatSourceForLua(rawSource);
-                    shortSrc = sourceValue.startsWith('@')
-                        ? sourceValue.substring(1)
-                        : sourceValue;
-                    isBinaryChunk = true;
+                  if (currentFunction != null &&
+                      currentFunction.functionBody != null) {
+                    final span = currentFunction.functionBody!.span;
                     Logger.debug(
-                      'debug.getinfo: using current function source: $sourceValue',
+                      'debug.getinfo: currentFunction has functionBody, span=$span, sourceUrl=${span?.sourceUrl}',
                       category: 'DebugLib',
                     );
-                  } else {
-                    // Fall back to source spans attached to child nodes when
-                    // the loaded function body does not have a direct span.
-                    String? childSource = _extractSourceFromChildren(
-                      currentFunction.functionBody!,
-                    );
-                    if (childSource != null) {
-                      sourceValue = _formatSourceForLua(childSource);
+
+                    if (span != null && span.sourceUrl != null) {
+                      final rawSource = span.sourceUrl!.toString();
+                      sourceValue = _formatSourceForLua(rawSource);
                       shortSrc = sourceValue.startsWith('@')
                           ? sourceValue.substring(1)
                           : sourceValue;
                       isBinaryChunk = true;
                       Logger.debug(
-                        'debug.getinfo: using source from child nodes: $sourceValue',
+                        'debug.getinfo: using current function source: $sourceValue',
                         category: 'DebugLib',
                       );
+                    } else {
+                      String? childSource = _extractSourceFromChildren(
+                        currentFunction.functionBody!,
+                      );
+                      if (childSource != null) {
+                        sourceValue = _formatSourceForLua(childSource);
+                        shortSrc = sourceValue.startsWith('@')
+                            ? sourceValue.substring(1)
+                            : sourceValue;
+                        isBinaryChunk = true;
+                        Logger.debug(
+                          'debug.getinfo: using source from child nodes: $sourceValue',
+                          category: 'DebugLib',
+                        );
+                      }
                     }
                   }
-                }
 
-                // If the current function does not carry loaded-chunk source
-                // metadata, use the raw script path as the chunk name.
-                if (!isBinaryChunk) {
-                  sourceValue = _formatSourceForLua(scriptPath);
-                  shortSrc = scriptPath;
-                  Logger.debug(
-                    'debug.getinfo: using script path as string chunk: $sourceValue',
-                    category: 'DebugLib',
-                  );
+                  if (!isBinaryChunk) {
+                    sourceValue = _formatSourceForLua(scriptPath);
+                    shortSrc = scriptPath;
+                    isBinaryChunk = true;
+                    Logger.debug(
+                      'debug.getinfo: using script path as string chunk: $sourceValue',
+                      category: 'DebugLib',
+                    );
+                  }
                 }
               }
             }
 
             debugInfo['source'] = Value(sourceValue);
             debugInfo['short_src'] = Value(shortSrc);
-            debugInfo['linedefined'] = Value(-1);
-            debugInfo['lastlinedefined'] = Value(-1);
+            final strippedLineDefined = metadata?.lineDefined ?? 1;
+            final strippedLastLineDefined =
+                metadata?.lastLineDefined ?? metadata?.lineDefined ?? 1;
+            debugInfo['linedefined'] = Value(
+              isMainChunkFrame
+                  ? 0
+                  : (_frameHasStrippedDebugInfo(frame)
+                      ? (strippedLineDefined > 0 ? strippedLineDefined : 1)
+                      : (metadata?.lineDefined ?? -1)),
+            );
+            debugInfo['lastlinedefined'] = Value(
+              isMainChunkFrame
+                  ? 0
+                  : (_frameHasStrippedDebugInfo(frame)
+                      ? (strippedLastLineDefined > 0
+                          ? strippedLastLineDefined
+                          : 1)
+                      : (metadata?.lastLineDefined ?? -1)),
+            );
           }
           if (what.contains('l')) {
-            // Report the current line from the requested frame directly.
-            // This matches expectations in lexstring tests (literals.lua).
-            final line = frame.currentLine > 0 ? frame.currentLine : -1;
+            final line = _frameHasStrippedDebugInfo(frame)
+                ? -1
+                : switch (frame.currentLine) {
+                    > 0 => frame.currentLine,
+                    _ when frame.callNode?.span != null =>
+                      frame.callNode!.span!.start.line + 1,
+                    _ => -1,
+                  };
             debugInfo['currentline'] = Value(line);
           }
           if (what.contains('t')) {
-            debugInfo['istailcall'] = Value(false);
+            debugInfo['istailcall'] = Value(frame.isTailCall);
             debugInfo['extraargs'] = Value(frame.extraArgs);
           }
           if (what.contains('u')) {
-            debugInfo['nups'] = Value(0);
-            debugInfo['nparams'] = Value(0);
-            debugInfo['isvararg'] = Value(true);
+            debugInfo['nups'] = Value(metadata?.nups ?? 0);
+            debugInfo['nparams'] = Value(metadata?.nparams ?? 0);
+            debugInfo['isvararg'] = Value(metadata?.isVararg ?? true);
+          }
+          if (what.contains('r')) {
+            debugInfo['ftransfer'] = Value(frame.ftransfer);
+            debugInfo['ntransfer'] = Value(frame.ntransfer);
           }
           if (what.contains('f')) {
-            debugInfo['func'] = Value(null);
+            debugInfo['func'] = callableValue ?? Value(null);
+          }
+          if (what.contains('L')) {
+            final activeLines =
+                callableValue == null || _frameHasStrippedDebugInfo(frame)
+                ? Value(null)
+                : _collectActiveLines(callableValue);
+            final whatKind =
+                isMainChunkFrame ? 'main' : (metadata?.what ?? 'Lua');
+            if (activeLines.raw == null && whatKind != 'C') {
+              debugInfo['activelines'] = Value(<Object?, Object?>{});
+            } else {
+              debugInfo['activelines'] = activeLines;
+            }
           }
 
           return Value(debugInfo);
@@ -822,7 +1938,14 @@ class _GetInfoImpl extends BuiltinFunction {
         debugInfo['func'] = firstArg;
       }
       if (what.contains('L')) {
-        debugInfo['activelines'] = _collectActiveLines(firstArg);
+        final activeLines = firstArg.strippedDebugInfo
+            ? Value(<Object?, Object?>{})
+            : _collectActiveLines(firstArg);
+        if (activeLines.raw == null && (whatKind != 'C')) {
+          debugInfo['activelines'] = Value(<Object?, Object?>{});
+        } else {
+          debugInfo['activelines'] = activeLines;
+        }
       }
       return Value(debugInfo);
     }
@@ -861,46 +1984,197 @@ String? _validateGetInfoOptions(String what) {
 }
 
 Value _collectActiveLines(Value function) {
+  if (function.strippedDebugInfo) {
+    return Value(<Object?, Object?>{});
+  }
   final body = function.functionBody;
   if (body == null) {
     return Value(null);
   }
 
-  final lines = <Object?, Object?>{};
+  final lines = <int>{};
+  var hasDebugInfo = false;
+
   void markLine(int? line) {
     if (line == null || line <= 0) {
       return;
     }
-    lines[line] = Value(true);
+    hasDebugInfo = true;
+    lines.add(line);
   }
 
-  for (final statement in body.body) {
-    final span = statement.span;
-    markLine(span?.start.line != null ? span!.start.line + 1 : null);
+  void markSpanStart(AstNode? node) {
+    final span = node?.span;
+    if (span == null) {
+      return;
+    }
+    markLine(span.start.line + 1);
   }
-  markLine(_lastFunctionBodyLine(body));
 
-  return Value(lines);
-}
+  void visitExpression(AstNode? node) {
+    if (node == null) {
+      return;
+    }
 
-int _lastFunctionBodyLine(FunctionBody body) {
-  var maxLine = -1;
-  for (final statement in body.body) {
-    final span = statement.span;
-    if (span != null) {
-      final endLine = span.end.line + 1;
-      if (endLine > maxLine) {
-        maxLine = endLine;
-      }
+    markSpanStart(node);
+
+    switch (node) {
+      case GroupedExpression(:final expr):
+        visitExpression(expr);
+      case BinaryExpression(
+        :final left,
+        :final right,
+        :final int? operatorLine,
+      ):
+        if (operatorLine != null) {
+          markLine(operatorLine + 1);
+        }
+        visitExpression(left);
+        visitExpression(right);
+      case UnaryExpression(:final expr):
+        visitExpression(expr);
+      case TableFieldAccess(:final table):
+        visitExpression(table);
+      case TableIndexAccess(:final table, :final index):
+        visitExpression(table);
+        visitExpression(index);
+      case TableAccessExpr(:final table, :final index):
+        visitExpression(table);
+        visitExpression(index);
+      case FunctionCall(:final name, :final args):
+        visitExpression(name);
+        for (final arg in args) {
+          visitExpression(arg);
+        }
+      case MethodCall(:final prefix, :final args):
+        visitExpression(prefix);
+        for (final arg in args) {
+          visitExpression(arg);
+        }
+      case TableConstructor(:final entries):
+        for (final entry in entries) {
+          visitExpression(entry);
+        }
+      case KeyedTableEntry(:final key, :final value):
+        visitExpression(key);
+        visitExpression(value);
+      case IndexedTableEntry(:final key, :final value):
+        visitExpression(key);
+        visitExpression(value);
+      case TableEntryLiteral(:final expr):
+        visitExpression(expr);
+      case FunctionLiteral():
+        // Nested function bodies have their own active-line tables.
+        return;
+      default:
+        return;
     }
   }
 
-  if (maxLine > 0) {
-    return maxLine;
+  void visitStatement(AstNode statement) {
+    markSpanStart(statement);
+
+    switch (statement) {
+      case Assignment(:final targets, :final exprs):
+        for (final target in targets) {
+          visitExpression(target);
+        }
+        for (final expr in exprs) {
+          visitExpression(expr);
+        }
+      case LocalDeclaration(:final exprs):
+        for (final expr in exprs) {
+          visitExpression(expr);
+        }
+      case GlobalDeclaration(:final exprs):
+        for (final expr in exprs) {
+          visitExpression(expr);
+        }
+      case IfStatement(
+        :final cond,
+        :final thenBlock,
+        :final elseIfs,
+        :final elseBlock,
+      ):
+        visitExpression(cond);
+        for (final branchStatement in thenBlock) {
+          visitStatement(branchStatement);
+        }
+        for (final elseIf in elseIfs) {
+          markSpanStart(elseIf);
+          visitExpression(elseIf.cond);
+          for (final branchStatement in elseIf.thenBlock) {
+            visitStatement(branchStatement);
+          }
+        }
+        for (final branchStatement in elseBlock) {
+          visitStatement(branchStatement);
+        }
+      case WhileStatement(:final cond, :final body):
+        visitExpression(cond);
+        for (final bodyStatement in body) {
+          visitStatement(bodyStatement);
+        }
+      case ForLoop(:final start, :final endExpr, :final stepExpr, :final body):
+        visitExpression(start);
+        visitExpression(endExpr);
+        visitExpression(stepExpr);
+        for (final bodyStatement in body) {
+          visitStatement(bodyStatement);
+        }
+      case ForInLoop(:final iterators, :final body):
+        for (final iterator in iterators) {
+          visitExpression(iterator);
+        }
+        for (final bodyStatement in body) {
+          visitStatement(bodyStatement);
+        }
+      case RepeatUntilLoop(:final body, :final cond):
+        for (final bodyStatement in body) {
+          visitStatement(bodyStatement);
+        }
+        visitExpression(cond);
+      case FunctionDef():
+        // Nested function bodies have their own active-line tables.
+        return;
+      case LocalFunctionDef():
+        return;
+      case ReturnStatement(:final expr):
+        for (final returnExpr in expr) {
+          visitExpression(returnExpr);
+        }
+      case YieldStatement(:final expr):
+        for (final yieldedExpr in expr) {
+          visitExpression(yieldedExpr);
+        }
+      case ExpressionStatement(:final expr):
+        visitExpression(expr);
+      case DoBlock(:final body):
+        for (final bodyStatement in body) {
+          visitStatement(bodyStatement);
+        }
+      default:
+        return;
+    }
   }
 
-  final span = body.span;
-  return span != null ? span.end.line + 1 : -1;
+  for (final statement in body.body) {
+    visitStatement(statement);
+  }
+
+  if (body.span != null) {
+    markLine(body.span!.end.line + 1);
+  }
+
+  if (!hasDebugInfo) {
+    return Value(<Object?, Object?>{});
+  }
+
+  final activeLines = <Object?, Object?>{};
+  for (final line in lines.toList()..sort()) {
+    activeLines[line] = Value(true);
+  }
+  return Value(activeLines);
 }
 
 /// Helper method to extract source URL from child AST nodes
@@ -1017,15 +2291,15 @@ Map<String, BuiltinFunction> createDebugLib(LuaRuntime? astVm) {
     'getinfo': createGetInfoFunction(astVm), // Use new optimized implementation
     'getlocal': _GetLocal(astVm!),
     'getmetatable': _GetMetatable(),
-    'getregistry': _GetRegistry(),
+    'getregistry': _GetRegistry(astVm),
     'getupvalue': _GetUpvalue(astVm),
     'getuservalue': _GetUserValue(),
     'sethook': _SetHook(astVm),
-    'setlocal': _SetLocal(),
+    'setlocal': _SetLocal(astVm),
     'setmetatable': _SetMetatable(),
     'setupvalue': _SetUpvalue(),
     'setuservalue': _SetUserValue(),
-    'traceback': _Traceback(),
+    'traceback': _Traceback(astVm),
     'upvalueid': _UpvalueId(),
     'upvaluejoin': _UpvalueJoin(),
 
@@ -1091,6 +2365,10 @@ void defineDebugLibrary({required Environment env, LuaRuntime? vm}) {
     return (name: 'hook', namewhat: 'hook');
   }
 
+  if ((frame.debugName?.isNotEmpty ?? false) || frame.debugNameWhat.isNotEmpty) {
+    return (name: frame.debugName, namewhat: frame.debugNameWhat);
+  }
+
   final callNode = frame.callNode;
   final env = frame.env;
 
@@ -1107,7 +2385,7 @@ void defineDebugLibrary({required Environment env, LuaRuntime? vm}) {
     }
   }
 
-  final fallbackName = switch (frame.functionName) {
+  final fallbackName = switch (frame.functionName ?? frame.callable?.functionName) {
     'unknown' || 'function' => null,
     final name => name,
   };

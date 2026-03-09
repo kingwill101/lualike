@@ -1304,8 +1304,9 @@ class BinaryExpression extends AstNode implements Dumpable {
   final AstNode left;
   final String op;
   final AstNode right;
+  final int? operatorLine;
 
-  BinaryExpression(this.left, this.op, this.right);
+  BinaryExpression(this.left, this.op, this.right, {this.operatorLine});
 
   @override
   Future<T> accept<T>(AstVisitor<T> visitor) =>
@@ -1322,13 +1323,19 @@ class BinaryExpression extends AstNode implements Dumpable {
     'right': right is Dumpable
         ? (right as Dumpable).dump()
         : {'type': 'Unknown'},
+    if (operatorLine != null) 'operatorLine': operatorLine,
   };
 
   static BinaryExpression fromDump(Map<String, dynamic> data) {
     final left = undumpAst(Map<String, dynamic>.from(data['left']));
     final op = data['op'] as String;
     final right = undumpAst(Map<String, dynamic>.from(data['right']));
-    return BinaryExpression(left, op, right);
+    return BinaryExpression(
+      left,
+      op,
+      right,
+      operatorLine: data['operatorLine'] as int?,
+    );
   }
 }
 

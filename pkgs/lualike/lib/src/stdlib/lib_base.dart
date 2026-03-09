@@ -4,6 +4,8 @@ import 'dart:typed_data';
 
 import 'package:lualike/lualike.dart';
 
+import 'package:lualike/src/coroutine.dart';
+import 'package:lualike/src/gc/gc.dart';
 import 'package:lualike/src/io/lua_file.dart';
 import 'package:lualike/src/runtime/runtime_hints.dart';
 import 'package:lualike/src/table_storage.dart';
@@ -255,6 +257,18 @@ class RawSetFunction extends BuiltinFunction {
 class AssertFunction extends BuiltinFunction {
   AssertFunction(super.interpreter);
 
+  Object? _normalizeSuccessfulArg(Object? value) {
+    if (value case Value(isMulti: false, raw: final raw)
+        when raw == null ||
+            raw is num ||
+            raw is bool ||
+            raw is String ||
+            raw is LuaString) {
+      return Value(raw);
+    }
+    return value;
+  }
+
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) throw LuaError("assert requires at least one argument");
@@ -310,9 +324,11 @@ class AssertFunction extends BuiltinFunction {
     // first return value in callee position when writing patterns like
     // assert(load(x), "")().
     if (args.length <= 1) {
-      return args.isEmpty ? Value(null) : args[0];
+      return args.isEmpty ? Value(null) : _normalizeSuccessfulArg(args[0]);
     }
-    return Value.multi(args);
+    return Value.multi(
+      args.map<Object?>((arg) => _normalizeSuccessfulArg(arg)).toList(),
+    );
   }
 }
 
@@ -361,6 +377,201 @@ String _formatProtectedCallMessage(LuaRuntime interpreter, String message) {
     return '$scriptPath: $message';
   }
   return message;
+}
+
+Object? _packProtectedCallSuccess(Object? result) {
+  if (result case Value(isMulti: true, raw: final List<Object?> multiValues)) {
+    return Value.multi(<Object?>[
+      Value(true),
+      ...multiValues.map((value) => value is Value ? value : Value(value)),
+    ]);
+  }
+
+  return Value.multi(<Object?>[
+    Value(true),
+    result is Value ? result : Value(result),
+  ]);
+}
+
+Object? _packProtectedCallFailure(Object error) {
+  final normalizedError = _normalizeProtectedCallError(error);
+  return Value.multi(<Object?>[
+    Value(false),
+    normalizedError is Value ? normalizedError : Value(normalizedError),
+  ]);
+}
+
+Object? _packXProtectedCallFailure(Object? result) {
+  if (result case Value(isMulti: true, raw: final List<Object?> multiValues)) {
+    return Value.multi(<Object?>[
+      Value(false),
+      ...multiValues.map((value) => value is Value ? value : Value(value)),
+    ]);
+  }
+
+  return Value.multi(<Object?>[
+    Value(false),
+    result is Value ? result : Value(result),
+  ]);
+}
+
+Object? _packXProtectedErrorHandlerFailure(Object error) {
+  return Value.multi(<Object?>[
+    Value(false),
+    Value("Error in error handler: $error"),
+  ]);
+}
+
+enum _ProtectedCallPhase { call, errorHandler }
+
+final class _ProtectedCallSuspension implements CoroutineContinuation {
+  const _ProtectedCallSuspension({
+    required this.runtime,
+    this.child,
+    this.messageHandler,
+    this.phase = _ProtectedCallPhase.call,
+  });
+
+  final LuaRuntime runtime;
+  final CoroutineContinuation? child;
+  final Value? messageHandler;
+  final _ProtectedCallPhase phase;
+
+  @override
+  Future<Object?> resume(List<Object?> args) async {
+    final previousYieldable = runtime.isYieldable;
+    runtime.isYieldable = false;
+    runtime.enterProtectedCall();
+
+    try {
+      return switch (phase) {
+        _ProtectedCallPhase.call => _resumeCall(args),
+        _ProtectedCallPhase.errorHandler => _resumeErrorHandler(args),
+      };
+    } finally {
+      runtime.exitProtectedCall();
+      runtime.isYieldable = previousYieldable;
+    }
+  }
+
+  Future<Object?> _resumeCall(List<Object?> args) async {
+    try {
+      final result = await _resumeChild(args);
+      return _packProtectedCallSuccess(result);
+    } on YieldException catch (error) {
+      _reinstall(error, phase: _ProtectedCallPhase.call);
+      rethrow;
+    } catch (error) {
+      if (messageHandler == null) {
+        return _packProtectedCallFailure(error);
+      }
+      return _invokeErrorHandler(error);
+    }
+  }
+
+  Future<Object?> _resumeErrorHandler(List<Object?> args) async {
+    try {
+      final result = await _resumeChild(args);
+      return _packXProtectedCallFailure(result);
+    } on YieldException catch (error) {
+      _reinstall(error, phase: _ProtectedCallPhase.errorHandler);
+      rethrow;
+    } catch (error) {
+      return _packXProtectedErrorHandlerFailure(error);
+    }
+  }
+
+  Future<Object?> _invokeErrorHandler(Object error) async {
+    final handler = messageHandler;
+    if (handler == null) {
+      return _packProtectedCallFailure(error);
+    }
+
+    final normalizedError = _normalizeProtectedCallError(error);
+    final errorValue = normalizedError is Value
+        ? normalizedError
+        : Value(normalizedError);
+
+    try {
+      final handlerResult = await runtime.callFunction(handler, <Object?>[
+        errorValue,
+      ]);
+      return _packXProtectedCallFailure(handlerResult);
+    } on YieldException catch (error) {
+      _reinstall(error, phase: _ProtectedCallPhase.errorHandler);
+      rethrow;
+    } catch (handlerError) {
+      return _packXProtectedErrorHandlerFailure(handlerError);
+    }
+  }
+
+  Future<Object?> _resumeChild(List<Object?> args) async {
+    if (child case final nested?) {
+      return nested.resume(args);
+    }
+
+    final values = args
+        .map<Object?>((arg) => arg is Value ? arg : Value(arg))
+        .toList(growable: false);
+    return Value.multi(values);
+  }
+
+  void _reinstall(YieldException error, {required _ProtectedCallPhase phase}) {
+    final coroutine = error.coroutine ?? runtime.getCurrentCoroutine();
+    if (coroutine == null) {
+      return;
+    }
+
+    final nextChild = coroutine.takeContinuation();
+    coroutine.installContinuation(
+      _ProtectedCallSuspension(
+        runtime: runtime,
+        child: nextChild,
+        messageHandler: messageHandler,
+        phase: phase,
+      ),
+    );
+  }
+
+  @override
+  Future<void> close([Object? error]) async {
+    if (child case final nested?) {
+      await nested.close(error);
+    }
+  }
+
+  @override
+  Iterable<GCObject> getReferences() sync* {
+    if (child case final nested?) {
+      yield* nested.getReferences();
+    }
+    if (messageHandler?.raw case final GCObject handlerObject) {
+      yield handlerObject;
+    }
+    if (messageHandler?.metatableRef?.raw case final GCObject metatableObject) {
+      yield metatableObject;
+    }
+  }
+}
+
+void _installProtectedCallContinuation(
+  LuaRuntime runtime,
+  YieldException error, {
+  Value? messageHandler,
+}) {
+  final coroutine = error.coroutine ?? runtime.getCurrentCoroutine();
+  if (coroutine == null) {
+    return;
+  }
+
+  final child = coroutine.takeContinuation();
+  coroutine.installContinuation(
+    _ProtectedCallSuspension(
+      runtime: runtime,
+      child: child,
+      messageHandler: messageHandler,
+    ),
+  );
 }
 
 class ErrorFunction extends BuiltinFunction {
@@ -418,6 +629,8 @@ class ErrorFunction extends BuiltinFunction {
     _errorReporting = true;
 
     try {
+      Coroutine.active?.captureCurrentCallStack();
+      interpreter?.getCurrentCoroutine()?.captureCurrentCallStack();
       // Let the interpreter handle the error reporting with proper stack trace
       final luaError = LuaError(message);
       interpreter!.reportError(message, error: luaError);
@@ -755,7 +968,13 @@ class LoadFunction extends BuiltinFunction {
     final envArg = args.length > 3 ? args[3] as Value : null;
 
     final defaultChunkName = switch (source.raw) {
-      String() || LuaString() => source.raw.toString(),
+      String text => text.isNotEmpty && text.codeUnitAt(0) == 0x1B
+          ? "=(load)"
+          : text,
+      LuaString luaString =>
+        luaString.bytes.isNotEmpty && luaString.bytes.first == 0x1B
+            ? "=(load)"
+            : luaString.toString(),
       _ => "=(load)",
     };
     final chunkname = switch (nameArg?.raw) {
@@ -1282,15 +1501,7 @@ class PCAllFunction extends BuiltinFunction {
       }
 
       final callResult = await interpreter!.callFunction(func, callArgs);
-
-      if (callResult is Value && callResult.isMulti) {
-        final multiValues = callResult.raw as List;
-        return Value.multi([true, ...multiValues]);
-      }
-      return Value.multi([
-        true,
-        callResult is Value ? callResult.raw : callResult,
-      ]);
+      return _packProtectedCallSuccess(callResult);
     } on TailCallException catch (t) {
       // Perform the tail call using the interpreter and return as success
       final callee = t.functionValue is Value
@@ -1303,22 +1514,16 @@ class PCAllFunction extends BuiltinFunction {
         callee,
         normalizedArgs,
       );
-      if (awaitedResult is Value && awaitedResult.isMulti) {
-        final multiValues = awaitedResult.raw as List;
-        return Value.multi([true, ...multiValues]);
-      } else {
-        return Value.multi([
-          true,
-          awaitedResult is Value ? awaitedResult.raw : awaitedResult,
-        ]);
-      }
+      return _packProtectedCallSuccess(awaitedResult);
+    } on YieldException catch (error) {
+      _installProtectedCallContinuation(interpreter!, error);
+      rethrow;
     } catch (e) {
       Logger.debugLazy(
         () => 'pcall caught error: $e (${e.runtimeType})',
         category: 'Debug',
       );
-      final errorValue = _normalizeProtectedCallError(e);
-      return Value.multi([false, errorValue]);
+      return _packProtectedCallFailure(e);
     } finally {
       // Exit protected call context
       interpreter!.exitProtectedCall();
@@ -1429,16 +1634,7 @@ class XPCallFunction extends BuiltinFunction {
     try {
       // Execute the function via interpreter to honor tail calls/yields
       final callResult = await interpreter!.callFunction(func, callArgs);
-
-      // Normalize return for success: true + results
-      if (callResult is Value && callResult.isMulti) {
-        final multiValues = callResult.raw as List;
-        return Value.multi([Value(true), ...multiValues]);
-      }
-      return Value.multi([
-        Value(true),
-        callResult is Value ? callResult.raw : callResult,
-      ]);
+      return _packProtectedCallSuccess(callResult);
     } on TailCallException catch (t) {
       // Complete the tail call and still report success
       final callee = t.functionValue is Value
@@ -1451,14 +1647,14 @@ class XPCallFunction extends BuiltinFunction {
         callee,
         normalizedArgs,
       );
-      if (awaitedResult is Value && awaitedResult.isMulti) {
-        final multiValues = awaitedResult.raw as List;
-        return Value.multi([Value(true), ...multiValues]);
-      }
-      return Value.multi([
-        Value(true),
-        awaitedResult is Value ? awaitedResult.raw : awaitedResult,
-      ]);
+      return _packProtectedCallSuccess(awaitedResult);
+    } on YieldException catch (error) {
+      _installProtectedCallContinuation(
+        interpreter!,
+        error,
+        messageHandler: msgh,
+      );
+      rethrow;
     } catch (e) {
       // Call the message handler with the error (protected)
       try {
@@ -1469,20 +1665,9 @@ class XPCallFunction extends BuiltinFunction {
         final handlerResult = await interpreter!.callFunction(msgh, [
           errorValue,
         ]);
-
-        if (handlerResult is Value && handlerResult.isMulti) {
-          final multiValues = handlerResult.raw as List;
-          return Value.multi([Value(false), ...multiValues]);
-        }
-        return Value.multi([
-          Value(false),
-          handlerResult is Value ? handlerResult : Value(handlerResult),
-        ]);
+        return _packXProtectedCallFailure(handlerResult);
       } catch (e2) {
-        return Value.multi([
-          Value(false),
-          Value("Error in error handler: $e2"),
-        ]);
+        return _packXProtectedErrorHandlerFailure(e2);
       }
     } finally {
       // Exit protected-call context and restore state
@@ -1996,15 +2181,6 @@ class RequireFunction extends BuiltinFunction {
           // Parse the module code
           final ast = parse(source, url: modulePathStr);
 
-          // Execute module code in an isolated module environment.
-          // After execution, propagate specific globals expected by tests.
-          final moduleEnv = Environment.createModuleEnvironment(
-            interpreter!.globals,
-          )..interpreter = interpreter!;
-
-          // We'll execute the module code using the current interpreter to
-          // ensure package.loaded is shared.
-
           // Resolve the absolute path for the module
           String absoluteModulePath;
           if (path.isAbsolute(modulePathStr)) {
@@ -2023,27 +2199,24 @@ class RequireFunction extends BuiltinFunction {
             path.split(path.normalize(moduleDir)),
           );
 
-          // Temporarily switch to the module environment
           final prevEnv = interpreter!.getCurrentEnv();
+          final moduleEnv = Environment(
+            parent: prevEnv,
+            interpreter: interpreter!,
+          );
           final prevPath = interpreter!.currentScriptPath;
           interpreter!.setCurrentEnv(moduleEnv);
           interpreter!.currentScriptPath = absoluteModulePath;
 
-          // Store the script path in the module environment (normalized)
           Logger.debug(
             'Require: setting module env paths _SCRIPT_PATH(norm)=$normalizedModulePath, _SCRIPT_DIR(norm)=$normalizedModuleDir | originals: path=$absoluteModulePath, dir=$moduleDir',
           );
           moduleEnv.declare('_SCRIPT_PATH', Value(normalizedModulePath));
           moduleEnv.declare('_SCRIPT_DIR', Value(normalizedModuleDir));
 
-          // Also set _MODULE_NAME global
           moduleEnv.declare('_MODULE_NAME', Value(moduleName));
           moduleEnv.declare('_MAIN_CHUNK', Value(false));
 
-          // Preserve existing varargs and provide new ones with module name and path
-          final oldVarargs = moduleEnv.contains('...')
-              ? moduleEnv.get('...') as Value
-              : null;
           moduleEnv.declare(
             '...',
             Value.multi([Value(moduleName), Value(modulePathStr)]),
@@ -2071,16 +2244,8 @@ class RequireFunction extends BuiltinFunction {
                 .toList();
             result = await interpreter!.callFunction(callee, normalizedArgs);
           } finally {
-            // Restore previous environment and script path
             interpreter!.setCurrentEnv(prevEnv);
             interpreter!.currentScriptPath = prevPath;
-
-            // Restore previous varargs
-            if (oldVarargs != null) {
-              moduleEnv.declare('...', oldVarargs);
-            } else {
-              moduleEnv.declare('...', Value(null));
-            }
           }
 
           // If the module didn't return anything, Lua stores 'true'

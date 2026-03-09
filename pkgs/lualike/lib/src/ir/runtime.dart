@@ -56,6 +56,9 @@ class LualikeIrRuntime implements LuaRuntime {
   }
 
   @override
+  Value get debugRegistry => _interpreter.debugRegistry;
+
+  @override
   void setCurrentEnv(Environment env) {
     _ensureEnvironmentBinding(env);
     _interpreter.setCurrentEnv(env);
@@ -82,7 +85,12 @@ class LualikeIrRuntime implements LuaRuntime {
   }
 
   @override
-  Future<Object?> callFunction(Value function, List<Object?> args) async {
+  Future<Object?> callFunction(
+    Value function,
+    List<Object?> args, {
+    String? debugName,
+    String debugNameWhat = '',
+  }) async {
     final callee = _resolveCallable(function);
     _ensureValueInterpreter(callee);
     _attachInterpreterToArgs(args);

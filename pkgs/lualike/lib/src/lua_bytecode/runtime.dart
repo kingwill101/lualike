@@ -6,6 +6,7 @@ import 'package:lualike/src/call_stack.dart';
 import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/file_manager.dart';
+import 'package:lualike/src/gc/gc.dart';
 import 'package:lualike/src/gc/generational_gc.dart';
 import 'package:lualike/src/goto_validator.dart';
 import 'package:lualike/src/interpreter/interpreter.dart';
@@ -67,6 +68,13 @@ bool looksLikeTrackedLuaBytecodeBytes(List<int> bytes) {
           0x53,
           0x52,
           0x43,
+          0x3A,
+        ]) ||
+        _matchesLegacyPayloadMarker(bytes, payloadOffset, <int>[
+          0x53,
+          0x52,
+          0x43,
+          0x4A,
           0x3A,
         ])) {
       return false;
@@ -203,6 +211,8 @@ class LuaBytecodeRuntime implements LuaRuntime {
   @override
   Value get debugRegistry => _interpreter.debugRegistry;
 
+  Interpreter get debugInterpreter => _interpreter;
+
   Environment get _globals => _globalEnvironment;
 
   @override
@@ -257,12 +267,35 @@ class LuaBytecodeRuntime implements LuaRuntime {
   }
 
   @override
-  Future<Object?> callFunction(Value function, List<Object?> args) async {
+  Future<Object?> callFunction(
+    Value function,
+    List<Object?> args, {
+    String? debugName,
+    String debugNameWhat = '',
+  }) async {
     final prepared = _prepareCallable(function, args);
     final callee = prepared.callee;
     args = prepared.args;
     _ensureValueInterpreter(callee);
     _attachInterpreterToArgs(args);
+    if (callee.raw case final LuaBytecodeClosure closure) {
+      final vm = LuaBytecodeVm(this);
+      final results = await vm.invoke(
+        closure,
+        args,
+        callName: callee.functionName,
+        isEntryFrame: true,
+      );
+      if (results.isEmpty) {
+        return Value(null);
+      }
+      if (results.length == 1) {
+        return results.single;
+      }
+      final packed = Value.multi(results);
+      packed.interpreter ??= this;
+      return packed;
+    }
     return callee.call(args);
   }
 
@@ -432,7 +465,7 @@ class LuaBytecodeRuntime implements LuaRuntime {
 
   void pushActiveFrameRoots(LuaBytecodeGCRootProvider provider) {
     _activeFrameRoots.add(provider);
-    final rootProvider = () => provider.gcReferences();
+    Iterable<GCObject> rootProvider() => provider.gcReferences();
     _interpreterRootProviders[provider] = rootProvider;
     _interpreter.pushExternalGcRoots(rootProvider);
   }

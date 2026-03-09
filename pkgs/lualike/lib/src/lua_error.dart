@@ -23,7 +23,7 @@ class LuaError implements Exception {
   final StackTrace? stackTrace;
 
   /// The Lua call stack at the time the error occurred.
-  final LuaStackTrace? luaStackTrace;
+  LuaStackTrace? luaStackTrace;
 
   /// Tracks whether this error has already been reported to avoid duplicate output.
   bool hasBeenReported;
