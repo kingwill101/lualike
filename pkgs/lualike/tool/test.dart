@@ -31,6 +31,7 @@ final testFiles = [
   'nextvar.lua',
   'code.lua',
   'coroutine.lua',
+  'pm.lua',
   'heavy.lua',
 ];
 
