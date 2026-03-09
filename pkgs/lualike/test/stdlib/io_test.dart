@@ -11,7 +11,7 @@ class _CountingIODevice extends BaseIODevice {
   static int openCount = 0;
   static int closeCount = 0;
 
-  _CountingIODevice(String path, String mode) : super(mode) {
+  _CountingIODevice(String path, super.mode) {
     openCount++;
   }
 
@@ -199,9 +199,8 @@ void main() {
 
         // Read lines
         final lines = <String>[];
-        final func = iterator.raw as Function;
         while (true) {
-          final result = await func([]);
+          final result = await iterator.call([]) as Value;
           if (result.raw == null) break;
           lines.add(result.raw.toString());
         }
@@ -274,17 +273,20 @@ void main() {
         }
       });
 
-      test('batched auto gc drains discarded io.lines(filename) handles', () async {
-        final previousProvider = IOLib.fileSystemProvider;
-        _CountingIODevice.reset();
-        IOLib.fileSystemProvider = FileSystemProvider(
-          ioDeviceFactory: (path, mode) async => _CountingIODevice(path, mode),
-          providerName: 'CountingIODevice',
-        );
+      test(
+        'batched auto gc drains discarded io.lines(filename) handles',
+        () async {
+          final previousProvider = IOLib.fileSystemProvider;
+          _CountingIODevice.reset();
+          IOLib.fileSystemProvider = FileSystemProvider(
+            ioDeviceFactory: (path, mode) async =>
+                _CountingIODevice(path, mode),
+            providerName: 'CountingIODevice',
+          );
 
-        try {
-          final bridge = LuaLike();
-          await bridge.execute(r'''
+          try {
+            final bridge = LuaLike();
+            await bridge.execute(r'''
             for i = 1, 60 do
               io.lines("counting.txt")
               if i % 5 == 0 then
@@ -294,22 +296,50 @@ void main() {
             collectgarbage()
           ''');
 
-          expect(_CountingIODevice.openCount, equals(60));
-          expect(_CountingIODevice.closeCount, equals(60));
-        } finally {
-          IOLib.fileSystemProvider = previousProvider;
-        }
-      });
+            expect(_CountingIODevice.openCount, equals(60));
+            expect(_CountingIODevice.closeCount, equals(60));
+          } finally {
+            IOLib.fileSystemProvider = previousProvider;
+          }
+        },
+      );
 
-      test('type reports default streams as userdata while io.type reports file', () async {
+      test('io.lines(filename) survives gc during iteration', () async {
         final bridge = LuaLike();
-        final result = await bridge.execute(
-          'return type(io.input()), io.type(io.output())',
-        ) as List<Object?>;
+        await bridge.execute(r'''
+          local file = os.tmpname()
+          local f = assert(io.open(file, "w"))
+          f:write("one\n", "two\n", "three\n")
+          f:close()
 
-        expect((result[0] as Value).unwrap(), equals('userdata'));
-        expect((result[1] as Value).unwrap(), equals('file'));
+          local lines = {}
+          for line in io.lines(file) do
+            lines[#lines + 1] = line
+            collectgarbage()
+          end
+
+          assert(#lines == 3)
+          assert(lines[1] == "one")
+          assert(lines[2] == "two")
+          assert(lines[3] == "three")
+          assert(os.remove(file))
+        ''');
       });
+
+      test(
+        'type reports default streams as userdata while io.type reports file',
+        () async {
+          final bridge = LuaLike();
+          final result =
+              await bridge.execute(
+                    'return type(io.input()), io.type(io.output())',
+                  )
+                  as List<Object?>;
+
+          expect((result[0] as Value).unwrap(), equals('userdata'));
+          expect((result[1] as Value).unwrap(), equals('file'));
+        },
+      );
 
       test('File operations', () async {
         final filePath = '$tempPath/test.txt';

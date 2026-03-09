@@ -100,6 +100,29 @@ return outer(40)(2)
       expect(results, equals(<Object?>[42]));
     }, skip: skipReason);
 
+    test(
+      'executes local recursive closures that shadow declared globals',
+      () async {
+        final results = await _executeFixture(luacBinary!, '''
+global <const> *
+global fact = false
+do
+  local res = 1
+  local function fact(n)
+    if n == 0 then
+      return res
+    end
+    return n * fact(n - 1)
+  end
+  return fact(5), fact == false
+end
+''');
+
+        expect(results, equals(<Object?>[120, false]));
+      },
+      skip: skipReason,
+    );
+
     test('executes numeric for loops', () async {
       final results = await _executeFixture(luacBinary!, '''
 local sum = 0
@@ -421,7 +444,7 @@ return f()
         throwsA(
           predicate(
             (Object? error) => error.toString().contains(
-              'to-be-closed variable value must have a __close metamethod',
+              "variable 'value' got a non-closable value",
             ),
           ),
         ),
