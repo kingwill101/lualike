@@ -16,8 +16,11 @@ class FileIODevice extends BaseIODevice {
   RandomAccessFile? _file;
   int _eofCallCount = 0;
   final List<int> _writeBuffer = <int>[];
+  final String? _path;
 
-  FileIODevice._(RandomAccessFile file, String mode) : super(mode) {
+  FileIODevice._(RandomAccessFile file, String mode, {String? path})
+    : _path = path,
+      super(mode) {
     _file = file;
     Logger.debug('Created FileIODevice with mode: $mode', category: 'IO');
   }
@@ -82,7 +85,7 @@ class FileIODevice extends BaseIODevice {
       }
       final file = await File(normalizedPath).open(mode: fileMode);
       Logger.debug('Successfully opened file: $normalizedPath', category: 'IO');
-      return FileIODevice._(file, mode);
+      return FileIODevice._(file, mode, path: normalizedPath);
     } catch (e, s) {
       Logger.debug(
         'Failed to open file: $normalizedPath, error: $e',
@@ -98,8 +101,9 @@ class FileIODevice extends BaseIODevice {
     if (!isClosed && _file != null) {
       // Flush any pending buffered data before closing
       if (_writeBuffer.isNotEmpty) {
-        await _file!.writeFrom(_writeBuffer);
+        final pendingBytes = List<int>.of(_writeBuffer);
         _writeBuffer.clear();
+        await _file!.writeFrom(pendingBytes);
       }
       await _file!.close();
       _file = null;
@@ -116,10 +120,26 @@ class FileIODevice extends BaseIODevice {
     checkOpen();
     // Write any buffered data first according to buffering mode
     if (_writeBuffer.isNotEmpty) {
-      await _file!.writeFrom(_writeBuffer);
+      final pendingBytes = List<int>.of(_writeBuffer);
       _writeBuffer.clear();
+      await _file!.writeFrom(pendingBytes);
     }
-    await _file?.flush();
+    try {
+      await _file?.flush();
+    } on FileSystemException catch (error) {
+      // On Linux, flushing /dev/null can report EINVAL even though Lua treats
+      // it as a successful flush for writable handles.
+      final shouldIgnore =
+          _path == '/dev/null' &&
+          (mode == 'w' || mode == 'a' || mode == 'w+' || mode == 'a+');
+      if (!shouldIgnore) {
+        rethrow;
+      }
+      Logger.debug(
+        'Ignoring flush failure for writable /dev/null: $error',
+        category: 'IO',
+      );
+    }
     Logger.debug('File flushed successfully', category: 'IO');
   }
 

@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/call_stack.dart';
@@ -20,6 +22,7 @@ import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/semantic_checker.dart';
 import 'package:lualike/src/stack.dart';
 import 'package:lualike/src/stdlib/init.dart' show initializeStandardLibrary;
+import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:lualike/src/stdlib/library.dart' show LibraryRegistry;
 import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:lualike/src/utils/type.dart';
@@ -370,6 +373,7 @@ class Interpreter extends AstVisitor<Object?>
       _traceBuffer, // The circular buffer
       _currentCoroutine, // Currently executing coroutine
       _mainThread, // Main thread coroutine
+      ...IOLib.gcRoots, // Current/default I/O handles live outside environments
     ];
   }
 
@@ -891,7 +895,13 @@ class Interpreter extends AstVisitor<Object?>
           // Propagate to outer scope for resolution
           throw GotoException(e.label);
         }
-        index = labelMap[e.label]!;
+        final targetIndex = labelMap[e.label]!;
+        await _rewindLocalsForGoto(
+          statements,
+          targetIndex: targetIndex,
+          currentIndex: currentIndex,
+        );
+        index = targetIndex;
       } finally {
         if (statementStopwatch != null) {
           statementStopwatch.stop();
@@ -938,7 +948,7 @@ class Interpreter extends AstVisitor<Object?>
               evalStack.pop();
             }
           }
-          _runAutoGCAtSafePoint();
+          await _runAutoGCAtSafePoint();
         }
       }
 
@@ -951,6 +961,50 @@ class Interpreter extends AstVisitor<Object?>
       }
     }
     return result;
+  }
+
+  Future<void> _rewindLocalsForGoto(
+    List<AstNode> statements, {
+    required int targetIndex,
+    required int currentIndex,
+  }) async {
+    if (targetIndex >= currentIndex) {
+      return;
+    }
+
+    final namesToDiscard = <String>{};
+    for (var i = targetIndex + 1; i <= currentIndex; i++) {
+      final statement = statements[i];
+      switch (statement) {
+        case LocalDeclaration(:final names):
+          for (final name in names) {
+            namesToDiscard.add(name.name);
+          }
+        case LocalFunctionDef(:final name):
+          namesToDiscard.add(name.name);
+        default:
+          break;
+      }
+    }
+
+    for (final name in namesToDiscard) {
+      final box = _currentEnv.values[name];
+      if (box == null || !box.isLocal) {
+        continue;
+      }
+
+      if (_currentEnv.toBeClosedVars.remove(name)) {
+        final value = box.value;
+        if (value is Value) {
+          await value.close();
+        }
+      }
+
+      if (!box.hasUpvalueReferences) {
+        box.value = null;
+      }
+      _currentEnv.values.remove(name);
+    }
   }
 
   /// Evaluates a program.
@@ -1043,7 +1097,7 @@ class Interpreter extends AstVisitor<Object?>
     return defaultDebugInfoForFunction(this, function);
   }
 
-  void _runAutoGCAtSafePoint() {
+  Future<void> _runAutoGCAtSafePoint() async {
     final threshold = gc.autoTriggerDebtThreshold;
     final debt = gc.allocationDebt;
     if (Logger.enabled) {
@@ -1053,9 +1107,14 @@ class Interpreter extends AstVisitor<Object?>
         context: {'debt': debt, 'threshold': threshold},
       );
     }
-    if (debt < threshold) {
+    if (debt < threshold && !gc.hasPendingAsyncFinalizers) {
       return;
     }
-    gc.runPendingAutoTrigger();
+    if (debt >= threshold) {
+      gc.runPendingAutoTrigger();
+    }
+    if (gc.hasPendingAsyncFinalizers) {
+      await gc.drainPendingAsyncFinalizers();
+    }
   }
 }

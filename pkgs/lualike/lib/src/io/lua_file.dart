@@ -20,30 +20,14 @@ final fileMetamethods = {
     }
     final luaFile = fileValue.raw as LuaFile;
 
-    if (fileValue.isToBeClose) {
-      Logger.debug(
-        'GC: File is managed by to-be-closed variable, skipping auto close',
-        category: 'IO',
-      );
-      return Value(null);
-    }
     Logger.debug(
       'GC: About to close file: ${luaFile.toString()}, isClosed: ${luaFile.isClosed}',
       category: 'IO',
     );
 
-    // Check if this is a default file before closing
-    final isDefaultOutput = IOLib.defaultOutput.raw == luaFile;
-    final isDefaultInput = IOLib.defaultInput.raw == luaFile;
+    final isDefaultFile = IOLib.isCurrentDefaultFile(luaFile);
 
-    Logger.debug(
-      'GC: Is this the default output? $isDefaultOutput',
-      category: 'IO',
-    );
-    Logger.debug(
-      'GC: Is this the default input? $isDefaultInput',
-      category: 'IO',
-    );
+    Logger.debug('GC: Is this a current default file? $isDefaultFile', category: 'IO');
 
     // Don't close if already closed
     if (luaFile.isClosed) {
@@ -52,7 +36,7 @@ final fileMetamethods = {
     }
 
     // For default files that are being GC'd, we need to be more careful
-    if (isDefaultOutput || isDefaultInput) {
+    if (isDefaultFile) {
       // Check if this is a standard file that should never be closed
       if (luaFile.device == IOLib.stdoutDevice ||
           luaFile.device == IOLib.stderrDevice ||
@@ -174,6 +158,7 @@ final fileMetamethods = {
 /// Represents a Lua file object
 class LuaFile {
   final IODevice device;
+  Future<List<Object?>>? _closeFuture;
 
   bool get isClosed => device.isClosed;
 
@@ -212,18 +197,30 @@ class LuaFile {
 
   /// Close the file
   Future<List<Object?>> close() async {
+    final inFlight = _closeFuture;
+    if (inFlight != null) {
+      return inFlight;
+    }
+
     Logger.debug(
       "Closing file: $this (device: ${device.runtimeType})",
       category: 'LuaFile',
     );
-    try {
-      await device.close();
-      Logger.debug("File closed successfully", category: 'LuaFile');
-      return [true];
-    } catch (e, st) {
-      Logger.error("Error closing file: $e", error: 'LuaFile', trace: st);
-      return [null, e.toString()];
-    }
+    _closeFuture = () async {
+      if (device.isClosed) {
+        Logger.debug("File already closed", category: 'LuaFile');
+        return [true];
+      }
+      try {
+        await device.close();
+        Logger.debug("File closed successfully", category: 'LuaFile');
+        return [true];
+      } catch (e, st) {
+        Logger.error("Error closing file: $e", error: 'LuaFile', trace: st);
+        return [null, e.toString()];
+      }
+    }();
+    return _closeFuture!;
   }
 
   /// Flush any buffered output

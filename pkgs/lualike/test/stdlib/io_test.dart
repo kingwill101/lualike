@@ -7,6 +7,49 @@ import 'package:lualike/src/io/filesystem_provider.dart';
 import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:lualike_test/test.dart';
 
+class _CountingIODevice extends BaseIODevice {
+  static int openCount = 0;
+  static int closeCount = 0;
+
+  _CountingIODevice(String path, String mode) : super(mode) {
+    openCount++;
+  }
+
+  static void reset() {
+    openCount = 0;
+    closeCount = 0;
+  }
+
+  @override
+  Future<void> close() async {
+    if (isClosed) return;
+    await Future<void>.delayed(Duration.zero);
+    isClosed = true;
+    closeCount++;
+  }
+
+  @override
+  Future<void> flush() async {}
+
+  @override
+  Future<int> getPosition() async => 0;
+
+  @override
+  Future<bool> isEOF() async => true;
+
+  @override
+  Future<ReadResult> read([String format = "l"]) async => ReadResult(null);
+
+  @override
+  Future<int> seek(SeekWhence whence, int offset) async => 0;
+
+  @override
+  Future<WriteResult> write(String data) async => WriteResult(true);
+
+  @override
+  Future<WriteResult> writeBytes(List<int> bytes) async => WriteResult(true);
+}
+
 void main() {
   group('IO library', () {
     late Directory tempDir;
@@ -68,9 +111,32 @@ void main() {
         var writeResult = await device.write('test');
         expect(writeResult.success, true);
       });
+
+      test('FileIODevice flush treats writable /dev/null as success', () async {
+        if (!Platform.isLinux) {
+          return;
+        }
+
+        final device = await FileIODevice.open('/dev/null', 'w');
+        final writeResult = await device.write('test');
+        expect(writeResult.success, true);
+
+        await device.flush();
+        await device.close();
+      });
     });
 
     group('LuaFile', () {
+      test('createLuaFile marks file values as finalizer eligible', () async {
+        final filePath = '$tempPath/test.txt';
+        final device = await FileIODevice.open(filePath, 'w');
+        final fileValue = createLuaFile(device);
+
+        expect(fileValue.finalizerEligible, isTrue);
+
+        await (fileValue.raw as LuaFile).close();
+      });
+
       test('Basic file operations', () async {
         final filePath = '$tempPath/test.txt';
 
@@ -96,6 +162,22 @@ void main() {
         // Close test
         await file.close();
         expect(file.isClosed, true);
+      });
+
+      test('closing /dev/full succeeds after a failed flush', () async {
+        if (!Platform.isLinux) {
+          return;
+        }
+
+        final device = await FileIODevice.open('/dev/full', 'w');
+        final file = LuaFile(device);
+
+        expect((await file.write('abcd'))[0], true);
+        final flushResult = await file.flush();
+        expect(flushResult[0], isNull);
+
+        final closeResult = await file.close();
+        expect(closeResult[0], true);
       });
 
       test('Lines iterator', () async {
@@ -142,6 +224,91 @@ void main() {
       test('Default streams', () {
         expect(IOLib.defaultInput, isNotNull);
         expect(IOLib.defaultOutput, isNotNull);
+      });
+
+      test('gc roots retain current default input handle', () async {
+        final previousProvider = IOLib.fileSystemProvider;
+        _CountingIODevice.reset();
+        IOLib.fileSystemProvider = FileSystemProvider(
+          ioDeviceFactory: (path, mode) async => _CountingIODevice(path, mode),
+          providerName: 'CountingIODevice',
+        );
+
+        try {
+          final bridge = LuaLike();
+          await bridge.execute(r'''
+            for i = 1, 40 do
+              io.input("counting.txt")
+              collectgarbage()
+            end
+          ''');
+
+          expect(_CountingIODevice.openCount, equals(40));
+          expect(_CountingIODevice.closeCount, equals(39));
+        } finally {
+          IOLib.fileSystemProvider = previousProvider;
+        }
+      });
+
+      test('discarded io.lines(filename) iterators are finalized', () async {
+        final previousProvider = IOLib.fileSystemProvider;
+        _CountingIODevice.reset();
+        IOLib.fileSystemProvider = FileSystemProvider(
+          ioDeviceFactory: (path, mode) async => _CountingIODevice(path, mode),
+          providerName: 'CountingIODevice',
+        );
+
+        try {
+          final bridge = LuaLike();
+          await bridge.execute(r'''
+            for i = 1, 40 do
+              io.lines("counting.txt")
+              collectgarbage()
+            end
+          ''');
+
+          expect(_CountingIODevice.openCount, equals(40));
+          expect(_CountingIODevice.closeCount, equals(40));
+        } finally {
+          IOLib.fileSystemProvider = previousProvider;
+        }
+      });
+
+      test('batched auto gc drains discarded io.lines(filename) handles', () async {
+        final previousProvider = IOLib.fileSystemProvider;
+        _CountingIODevice.reset();
+        IOLib.fileSystemProvider = FileSystemProvider(
+          ioDeviceFactory: (path, mode) async => _CountingIODevice(path, mode),
+          providerName: 'CountingIODevice',
+        );
+
+        try {
+          final bridge = LuaLike();
+          await bridge.execute(r'''
+            for i = 1, 60 do
+              io.lines("counting.txt")
+              if i % 5 == 0 then
+                collectgarbage()
+              end
+            end
+            collectgarbage()
+          ''');
+
+          expect(_CountingIODevice.openCount, equals(60));
+          expect(_CountingIODevice.closeCount, equals(60));
+        } finally {
+          IOLib.fileSystemProvider = previousProvider;
+        }
+      });
+
+      test('type reports default streams as userdata while io.type reports file', () async {
+        final bridge = LuaLike();
+        final result = await bridge.execute(
+          'return type(io.input()), io.type(io.output())',
+        ) as List<Object?>;
+
+        expect((result[0] as Value).unwrap(), equals('userdata'));
+        expect((result[1] as Value).unwrap(), equals('file'));
       });
 
       test('File operations', () async {
