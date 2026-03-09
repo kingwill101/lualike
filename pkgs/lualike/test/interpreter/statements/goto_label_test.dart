@@ -114,5 +114,41 @@ void main() {
       expect(vm.globals.get('x'), equals(Value(3)));
       expect(vm.globals.get('y'), equals(Value(0)));
     });
+
+    test('backward goto drops locals declared after target label', () async {
+      final bridge = LuaLike();
+      await bridge.execute('''
+do
+  global *
+
+  local function newobj (var)
+    _ENV[var] = true
+    return setmetatable({}, {__close = function ()
+      _ENV[var] = nil
+    end})
+  end
+
+  goto L1
+
+  ::L4::
+  result = (not varX) and (X == nil)
+  goto L5
+
+  ::L1::
+  local varX <close> = newobj("X")
+  goto L2
+
+  ::L3::
+  goto L4
+
+  ::L2::
+  goto L3
+
+  ::L5::
+end
+''');
+
+      expect((bridge.getGlobal('result') as Value).raw, isTrue);
+    });
   });
 }

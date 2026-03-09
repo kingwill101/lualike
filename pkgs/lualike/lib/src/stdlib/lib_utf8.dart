@@ -500,6 +500,51 @@ class _UTF8Len extends BuiltinFunction {
 
 class _UTF8Offset extends BuiltinFunction {
   _UTF8Offset() : super();
+
+  Value _offsetResult(int start, int end) => Value.multi([
+    Value(start),
+    Value(end),
+  ]);
+
+  int? _scanCharacterLength(Uint8List bytes, int start) {
+    final decoded = LuaStringParser.decodeUtf8Character(bytes, start, lax: true);
+    if (decoded != null) {
+      return decoded.sequenceLength;
+    }
+
+    if (start >= bytes.length) {
+      return null;
+    }
+
+    final first = bytes[start];
+    int expectedLength;
+    if (first <= 0x7F) {
+      return 1;
+    } else if (first >= 0xC2 && first <= 0xDF) {
+      expectedLength = 2;
+    } else if (first >= 0xE0 && first <= 0xEF) {
+      expectedLength = 3;
+    } else if (first >= 0xF0 && first <= 0xF7) {
+      expectedLength = 4;
+    } else if (first >= 0xF8 && first <= 0xFB) {
+      expectedLength = 5;
+    } else if (first >= 0xFC && first <= 0xFD) {
+      expectedLength = 6;
+    } else {
+      return null;
+    }
+
+    var length = 1;
+    while (length < expectedLength && start + length < bytes.length) {
+      final byte = bytes[start + length];
+      if ((byte & 0xC0) != 0x80) {
+        break;
+      }
+      length++;
+    }
+    return length;
+  }
+
   @override
   Object? call(List<Object?> args) {
     if (args.length < 2) {
@@ -559,9 +604,13 @@ class _UTF8Offset extends BuiltinFunction {
         while (pos > 0 && (bytes[pos] & 0xC0) == 0x80) {
           pos--; // Move backwards past continuation bytes
         }
-        return Value(pos + 1); // Convert back to 1-based index
+        final length = _scanCharacterLength(bytes, pos);
+        if (length == null) {
+          return Value(null);
+        }
+        return _offsetResult(pos + 1, pos + length);
       }
-      return Value(i); // At end position, return as-is
+      return _offsetResult(i, i); // At end position, return as-is
     }
 
     // Check if starting position is a continuation byte (only for n != 0)
@@ -586,25 +635,21 @@ class _UTF8Offset extends BuiltinFunction {
           // byte offsets. This mirrors Lua's behaviour, where utf8.offset
           // only checks for *syntactic* correctness of the byte sequence
           // and ignores code-point validity.
-          final result = LuaStringParser.decodeUtf8Character(
-            bytes,
-            pos,
-            lax: true,
-          );
-          if (result == null) {
+          final length = _scanCharacterLength(bytes, pos);
+          if (length == null) {
             return Value(null); // Invalid UTF-8
           }
           charCount++;
           if (charCount == n) {
-            return Value(pos + 1); // Convert back to 1-based
+            return _offsetResult(pos + 1, pos + length);
           }
-          pos += result.sequenceLength;
+          pos += length;
         }
 
         // If we've counted all characters and n is asking for one more,
         // return position after the last byte
         if (charCount + 1 == n) {
-          return Value(bytes.length + 1);
+          return _offsetResult(bytes.length + 1, bytes.length + 1);
         }
 
         // Otherwise, we don't have enough characters
@@ -613,22 +658,30 @@ class _UTF8Offset extends BuiltinFunction {
         // Find the nth character backward from position i
         final targetCount = -n;
 
+        if (i == bytes.length + 1 && bytes.isNotEmpty) {
+          var probe = bytes.length - 1;
+          while (probe >= 0 && (bytes[probe] & 0xC0) == 0x80) {
+            probe--;
+          }
+          if (probe < 0) {
+            throw LuaError("initial position is a continuation byte");
+          }
+        }
+
         // Need to find character boundaries by decoding from the beginning
         final positions = <int>[];
+        final ends = <int>[];
         int pos = 0;
 
         // Build a list of character start positions
         while (pos < bytes.length) {
           positions.add(pos + 1); // Store 1-based positions
-          final result = LuaStringParser.decodeUtf8Character(
-            bytes,
-            pos,
-            lax: true,
-          );
-          if (result == null) {
+          final length = _scanCharacterLength(bytes, pos);
+          if (length == null) {
             return Value(null); // Invalid UTF-8
           }
-          pos += result.sequenceLength;
+          ends.add(pos + length);
+          pos += length;
         }
 
         // Find which character index corresponds to position i
@@ -649,11 +702,13 @@ class _UTF8Offset extends BuiltinFunction {
         final targetIndex = currentCharIndex - targetCount;
 
         if (targetIndex >= 0 && targetIndex < positions.length) {
-          return Value(positions[targetIndex]);
+          return _offsetResult(positions[targetIndex], ends[targetIndex]);
         }
 
         return Value(null); // Not enough characters to go backward
       }
+    } on LuaError {
+      rethrow;
     } catch (e) {
       return Value(null);
     }

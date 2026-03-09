@@ -83,6 +83,22 @@ return table.maxn({})
           expect(_unwrap(result), equals(42));
         });
 
+        test(
+          'global<const> * still allows rebinding explicit global functions',
+          () async {
+            final result = await executeCode('''
+global<const> *
+global function fat (x)
+  return x
+end
+fat = nil
+return fat
+''', mode: mode);
+
+            expect(_unwrap(result), isNull);
+          },
+        );
+
         test('global initialization uses pre-declaration scope for rhs', () async {
           final result = await executeCode('''
 local a, b = 100, 200
@@ -133,6 +149,63 @@ end
 ''', mode: mode);
 
           expect(_flatten(result), equals(['hi', 1000, 'hi*']));
+        });
+
+        test('explicit global assignment does not overwrite outer local', () async {
+          final result = await executeCode('''
+do
+  local X = 10
+  do
+    global X
+    X = 20
+  end
+  return X, _ENV.X
+end
+''', mode: mode);
+
+          expect(_flatten(result), equals([10, 20]));
+        });
+
+
+        test('redeclaring globals in the same scope refreshes nil bindings', () async {
+          final result = await executeCode('''
+do
+  global<const> a, b, c = 10, 20, 30
+  _ENV.a = nil; _ENV.b = nil; _ENV.c = nil
+
+  global<const> a, b, c = 10
+  return _ENV.a, b, c
+end
+''', mode: mode);
+
+          expect(_flatten(result), equals([10, null, null]));
+        });
+
+        test('global initialization rejects already defined names', () async {
+          await expectLater(
+            () => executeCode('global print = 10', mode: mode),
+            throwsA(
+              predicate(
+                (error) =>
+                    error.toString().contains("global 'print' already defined"),
+              ),
+            ),
+          );
+
+          await expectLater(
+            () => executeCode('''
+do
+  local _ENV = {AA = false}
+  global AA = 10
+end
+''', mode: mode),
+            throwsA(
+              predicate(
+                (error) =>
+                    error.toString().contains("global 'AA' already defined"),
+              ),
+            ),
+          );
         });
 
         test('plain function definition still needs declaration after global none', () async {

@@ -455,6 +455,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         'useCustomEnv': useCustomEnv,
       },
     );
+    if (globals.resolvesThroughDeclaredGlobal(name)) {
+      return _handleExplicitGlobalAssignment(name, wrappedValue);
+    }
+
     if (useCustomEnv) {
       // In isolated environments (load with custom env), we need to be careful about
       // local vs global variable assignment. Local variables declared within the loaded
@@ -572,20 +576,59 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     Value wrappedValue,
   ) async {
     final storedValue = _detachPrimitiveValue(wrappedValue);
+    final declaredGlobalBox = globals.findDeclaredGlobalBox(name);
+    final rootGlobalValue = globals.root.get('_G');
 
     if (name == '_ENV') {
       globals.defineGlobal(name, storedValue);
+      if (declaredGlobalBox != null) {
+        declaredGlobalBox.value = storedValue;
+      }
       return storedValue;
     }
 
     final envValue = globals.get('_ENV');
+    final writesToRootGlobals =
+        envValue is Value &&
+        rootGlobalValue is Value &&
+        identical(envValue.raw, rootGlobalValue.raw);
+    if (writesToRootGlobals) {
+      globals.defineGlobal(name, storedValue);
+      if (declaredGlobalBox != null) {
+        declaredGlobalBox.value = storedValue;
+      }
+      return storedValue;
+    }
+
     if (envValue is Value && envValue.raw != null) {
       await envValue.setValueAsync(name, storedValue);
+      if (declaredGlobalBox != null) {
+        declaredGlobalBox.value = storedValue;
+      }
       return storedValue;
     }
 
     globals.defineGlobal(name, storedValue);
+    if (declaredGlobalBox != null) {
+      declaredGlobalBox.value = storedValue;
+    }
     return storedValue;
+  }
+
+  Future<bool> _explicitGlobalIsAlreadyDefined(String name) async {
+    if (name == '_ENV') {
+      final current = globals.root.get(name);
+      return current != null && current is! Value || (current is Value && !current.isNil);
+    }
+
+    final envValue = globals.get('_ENV');
+    if (envValue is Value && envValue.raw != null) {
+      final current = await envValue.getValueAsync(name);
+      return current is Value ? !current.isNil : current != null;
+    }
+
+    final current = globals.readRootGlobal(name);
+    return current is Value ? !current.isNil : current != null;
   }
 
   /// Handles assignment to a function.
@@ -1133,8 +1176,20 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       }
     }
 
+    if (node.exprs.isNotEmpty) {
+      for (final name in node.names) {
+        if (await _explicitGlobalIsAlreadyDefined(name.name)) {
+          throw LuaError("global '${name.name}' already defined", node: name);
+        }
+      }
+    }
+
     for (var index = 0; index < node.names.length; index++) {
       globals.declareGlobalBinding(node.names[index].name);
+    }
+
+    if (node.exprs.isEmpty) {
+      return null;
     }
 
     for (var index = 0; index < node.names.length; index++) {

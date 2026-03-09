@@ -184,6 +184,16 @@ class Environment extends GCObject {
     }
   }
 
+  int _countedBindingEntries(Iterable<Box<dynamic>> boxes) {
+    var count = 0;
+    for (final box in boxes) {
+      if (!box.isTransient || box.hasUpvalueReferences) {
+        count++;
+      }
+    }
+    return count;
+  }
+
   void _syncGlobalTableEntry(String name, dynamic value) {
     final rootEnv = root;
     final gBox = rootEnv.values['_G'];
@@ -208,7 +218,9 @@ class Environment extends GCObject {
   int get estimatedSize =>
       GcWeights.gcObjectHeader +
       GcWeights.environmentBase +
-      (values.length + declaredGlobals.length) * GcWeights.environmentEntry;
+      (_countedBindingEntries(values.values) +
+              _countedBindingEntries(declaredGlobals.values)) *
+          GcWeights.environmentEntry;
 
   @override
   List<GCObject> getReferences() {
@@ -693,17 +705,66 @@ class Environment extends GCObject {
   /// shared root global binding, even when an outer local with the same name
   /// exists.
   void declareGlobalBinding(String name) {
-    if (declaredGlobals.containsKey(name)) {
-      return;
+    final rootEnv = root;
+    Box<dynamic>? box;
+    Environment? current = this;
+    while (current != null) {
+      final declared = current.declaredGlobals[name];
+      if (declared != null) {
+        box = declared;
+        break;
+      }
+      current = current.parent;
     }
 
-    final rootEnv = root;
-    final box =
-        rootEnv.values[name] ??= Box<dynamic>(null, isTransient: true)
-          ..debugName = name;
+    final rootBox = rootEnv.values[name];
+    if (box == null && rootBox != null && !rootBox.isLocal) {
+      box = rootBox;
+    }
+
+    var existingValue = box?.value;
+    if (existingValue == null) {
+      final gValue = rootEnv.values['_G']?.value;
+      if (gValue is Value && gValue.raw is Map) {
+        existingValue = (gValue.raw as Map)[name];
+      }
+    }
+    box ??= Box<dynamic>(existingValue, isTransient: true);
+    box.debugName ??= name;
     declaredGlobals[name] = box;
-    rootEnv._updateCredits();
-    rootEnv._syncGlobalTableEntry(name, box.value);
+    _updateCredits();
+    if (identical(rootBox, box)) {
+      rootEnv._updateCredits();
+      rootEnv._syncGlobalTableEntry(name, box.value);
+    }
+  }
+
+  /// Finds the nearest explicit-global binding for [name] in this lexical chain.
+  Box<dynamic>? findDeclaredGlobalBox(String name) {
+    Environment? current = this;
+    while (current != null) {
+      final box = current.declaredGlobals[name];
+      if (box != null) {
+        return box;
+      }
+      current = current.parent;
+    }
+    return null;
+  }
+
+  /// Reads the root global binding for [name], ignoring local variables.
+  dynamic readRootGlobal(String name) {
+    final rootEnv = root;
+    final box = rootEnv.values[name];
+    if (box != null && !box.isLocal) {
+      return box.value;
+    }
+
+    final gValue = rootEnv.values['_G']?.value;
+    if (gValue is Value && gValue.raw is Map) {
+      return (gValue.raw as Map)[name];
+    }
+    return null;
   }
 
   /// Defines multiple variables in the current environment.
@@ -738,6 +799,22 @@ class Environment extends GCObject {
       current = current.parent;
     }
     return null;
+  }
+
+  /// Returns whether [name] resolves through an explicit global declaration
+  /// before any local binding when walking the lexical scope chain.
+  bool resolvesThroughDeclaredGlobal(String name) {
+    Environment? current = this;
+    while (current != null) {
+      if (current.values.containsKey(name)) {
+        return false;
+      }
+      if (current.declaredGlobals.containsKey(name)) {
+        return true;
+      }
+      current = current.parent;
+    }
+    return false;
   }
 
   /// Closes all to-be-closed variables in this environment in reverse order of declaration.

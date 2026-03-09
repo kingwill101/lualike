@@ -211,19 +211,28 @@ class _TableCreate extends BuiltinFunction {
       if (raw is! num && raw is! BigInt) {
         throw LuaError("bad argument to 'table.create' ($label must be an integer)");
       }
-      final size = NumberUtils.toInt(raw);
-      if (size < 0) {
+      final sizeBig = NumberUtils.toBigInt(raw);
+      if (sizeBig < BigInt.zero) {
         throw LuaError("bad argument to 'table.create' ($label must be non-negative)");
       }
-      return size;
+      if (sizeBig > BigInt.from(NumberLimits.maxInt32)) {
+        throw LuaError("bad argument to 'table.create' ($label out of range)");
+      }
+      if (sizeBig == BigInt.from(NumberLimits.maxInt32)) {
+        throw LuaError('table overflow');
+      }
+      return sizeBig.toInt();
     }
 
     final arraySize = args.isEmpty ? 0 : parseSize(args[0], 'array size');
-    final _ = args.length < 2 ? 0 : parseSize(args[1], 'hash size');
+    final hashSize = args.length < 2 ? 0 : parseSize(args[1], 'hash size');
 
     final table = TableStorage();
     if (arraySize > 0) {
       table.ensureArrayCapacity(arraySize);
+    }
+    if (hashSize > 0) {
+      table.reserveHashCapacity(hashSize);
     }
     return ValueClass.table(table);
   }
@@ -1063,11 +1072,15 @@ class _TablePack extends BuiltinFunction {
   _TablePack() : super();
   @override
   Object? call(List<Object?> args) {
-    final table = <dynamic, dynamic>{};
+    final table = TableStorage();
     for (var i = 0; i < args.length; i++) {
-      table[i + 1] = args[i];
+      final value = args[i];
+      if (isLuaNilValue(value)) {
+        continue;
+      }
+      table.setDense(i + 1, value is Value ? value : Value(value));
     }
-    table['n'] = args.length;
+    table['n'] = Value(args.length);
     return ValueClass.table(table);
   }
 }

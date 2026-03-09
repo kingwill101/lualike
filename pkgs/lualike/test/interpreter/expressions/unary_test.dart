@@ -46,5 +46,17 @@ void main() {
       var result = await expr.accept(vm);
       expect(result, equals(Value(3)));
     });
+
+    test('length operator uses first value from multi-return call', () async {
+      final bridge = LuaLike();
+      await bridge.execute('''
+        function f()
+          return "abc", 123
+        end
+        result = #f()
+      ''');
+
+      expect((bridge.getGlobal('result') as Value).raw, equals(3));
+    });
   });
 }

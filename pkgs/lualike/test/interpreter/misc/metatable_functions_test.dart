@@ -87,5 +87,25 @@ void main() {
         ),
       );
     });
+
+    test('metamethod returns preserve table metatable identity', () async {
+      final lua = LuaLike();
+
+      await lua.execute('''
+        local t = {}
+        local function f(op)
+          return function (...)
+            return (...)
+          end
+        end
+
+        local b = setmetatable({}, t)
+        t.__sub = f("sub")
+        b = b - 3
+        preserved = getmetatable(b) == t
+      ''');
+
+      expect(lua.getGlobal('preserved').unwrap(), isTrue);
+    });
   });
 }

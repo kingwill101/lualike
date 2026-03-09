@@ -720,7 +720,7 @@ class _GetInfoImpl extends BuiltinFunction {
           }
           if (what.contains('t')) {
             debugInfo['istailcall'] = Value(false);
-            debugInfo['extraargs'] = Value(0);
+            debugInfo['extraargs'] = Value(frame.extraArgs);
           }
           if (what.contains('u')) {
             debugInfo['nups'] = Value(0);

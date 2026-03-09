@@ -40,6 +40,23 @@ void main() {
       }
     });
 
+    test('table.create reserves memory in collectgarbage count', () async {
+      final bridge = LuaLike();
+
+      try {
+        await bridge.execute('''
+          collectgarbage("collect")
+          local before = collectgarbage("count") * 1024
+          local arr = table.create(256, 128)
+          local after = collectgarbage("count") * 1024
+          return after - before
+        ''');
+      } on ReturnException catch (e) {
+        final memDiff = ((e.value as Value).unwrap() as num).toDouble();
+        expect(memDiff, greaterThan(256 * 4));
+      }
+    });
+
     test('table.insert at end', () async {
       final bridge = LuaLike();
 

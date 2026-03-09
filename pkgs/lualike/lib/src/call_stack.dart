@@ -26,6 +26,9 @@ class CallFrame {
   /// Each entry stores the visible name and the underlying Value
   final List<MapEntry<String, Value>> debugLocals;
 
+  /// Number of hidden extra arguments introduced by __call metamethod hops.
+  int extraArgs;
+
   /// Creates a new call frame with the given function name and call node.
   CallFrame(
     this.functionName, {
@@ -34,6 +37,7 @@ class CallFrame {
     this.currentLine = -1,
     this.env,
     List<MapEntry<String, Value>>? debugLocals,
+    this.extraArgs = 0,
   }) : debugLocals = debugLocals ?? <MapEntry<String, Value>>[];
 
   /// Creates a LuaStackFrame from this call frame.

@@ -65,5 +65,22 @@ void main() {
       ''');
       expect(lua.getGlobal('result').unwrap(), equals(123));
     });
+
+    test('__call chain too long raises an error', () async {
+      await expectLater(
+        () => lua.execute('''
+          local f = function () return 1 end
+          for _ = 1, 16 do
+            f = setmetatable({}, {__call = f})
+          end
+          return f()
+        '''),
+        throwsA(
+          predicate(
+            (error) => error.toString().contains("'__call' chain too long"),
+          ),
+        ),
+      );
+    });
   });
 }
