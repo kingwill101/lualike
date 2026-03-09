@@ -209,6 +209,22 @@ void main() {
       expect(lua.getGlobal("result").unwrap(), equals(9));
     });
 
+    test('load allows assignment to secondary generic for variables', () async {
+      await lua.execute('''
+        local chunk, err = load([[
+          local sum = 0
+          for _, value in ipairs({1, 2, 3}) do
+            value = value + 1
+            sum = sum + value
+          end
+          result = sum
+        ]])
+        assert(chunk and err == nil)
+        chunk()
+      ''');
+      expect(lua.getGlobal("result").unwrap(), equals(9));
+    });
+
     test('const variables with complex expressions', () async {
       await lua.execute('''
         local a <const> = 10 + 20 * 2

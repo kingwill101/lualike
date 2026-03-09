@@ -252,5 +252,36 @@ void main() {
         equals("hello world"),
       ); // str should be "hello world"
     });
+
+    test('preserves Lua upvalue slot ordering for shared upvalues', () async {
+      const script = '''
+        local a, b, c = 1, 2, 3
+        local function foo1(a) b = a; return c end
+        local function foo2(x) a = x; return c + b end
+
+        assert(debug.setupvalue(foo1, 1, "xuxu") == "b")
+        local name, value = debug.getupvalue(foo2, 3)
+        return {name, value}
+      ''';
+
+      final result = await lua.evaluate(script);
+      final values = result.raw as Map;
+
+      expect(values[1].raw, equals('b'));
+      expect(values[2].raw.toString(), equals('xuxu'));
+    });
+
+    test('C closures expose empty-string upvalue names', () async {
+      const script = '''
+        local name, value = debug.getupvalue(string.gmatch("x", "x"), 1)
+        return {name, value}
+      ''';
+
+      final result = await lua.evaluate(script);
+      final values = result.raw as Map;
+
+      expect(values[1].raw, equals(''));
+      expect(values[2].raw.toString(), equals('x'));
+    });
   });
 }

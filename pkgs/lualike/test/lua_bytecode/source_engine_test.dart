@@ -258,6 +258,225 @@ return st1 == nil and string.find(msg1, "variable 'X'", 1, true) ~= nil,
       },
     );
 
+    test('executeCode disables tail calls inside close-local scopes', () async {
+      final result = await executeCode(r'''
+local function func2close(f)
+  return setmetatable({}, {__close = f})
+end
+
+local X, Y
+
+local function foo ()
+  local _ <close> = func2close(function () Y = 10 end)
+  return X == true and Y == nil, 1, 2, 3
+end
+
+local function bar ()
+  local _ <close> = func2close(function () X = false end)
+  X = true
+  return foo()
+end
+
+local ok, a, b, c = bar()
+return ok, a, b, c, X, Y
+''', mode: EngineMode.luaBytecode);
+
+      expect(_flatten(result), equals(<Object?>[true, 1, 2, 3, false, 10]));
+    });
+
+    test(
+      'executeCode disables tail calls inside generic for close scopes',
+      () async {
+        final result = await executeCode(r'''
+local function func2close(f)
+  return setmetatable({}, {__close = f})
+end
+
+local closed = false
+
+local function foo ()
+  return function () return true end, 0, 0,
+         func2close(function () closed = true end)
+end
+
+local function tail() return closed end
+
+local function foo1 ()
+  for k in foo() do
+    return tail()
+  end
+end
+
+return foo1(), closed
+''', mode: EngineMode.luaBytecode);
+
+        expect(_flatten(result), equals(<Object?>[false, true]));
+      },
+    );
+
+    test(
+      'executeCode threads close errors through later bytecode close handlers',
+      () async {
+        final result = await executeCode(r'''
+local function func2close(f)
+  return setmetatable({}, {__close = f})
+end
+
+local function foo ()
+  local x <close> =
+    func2close(function (self, msg)
+      assert(string.find(msg, "@y"))
+      error("@x")
+    end)
+
+  local y <close> =
+    func2close(function (self, msg)
+      assert(string.find(msg, "@z"))
+      error("@y")
+    end)
+
+  local z <close> =
+    func2close(function (self, msg)
+      assert(msg == nil)
+      error("@z")
+    end)
+
+  return 200
+end
+
+local ok, msg = pcall(foo)
+return ok, string.find(msg, "@x", 1, true) ~= nil
+''', mode: EngineMode.luaBytecode);
+
+        expect(_flatten(result), equals(<Object?>[false, true]));
+      },
+    );
+
+    test(
+      'executeCode hides failing bytecode frames before error close handlers',
+      () async {
+        final result = await executeCode(r'''
+local function func2close(f)
+  return setmetatable({}, {__close = f})
+end
+
+local function foo ()
+  local x1 <close> =
+    func2close(function (self, msg)
+      assert(debug.getinfo(2).name == "pcall")
+      assert(string.find(msg, "@y"))
+      error("@x1")
+    end)
+
+  local y <close> =
+    func2close(function (self, msg)
+      assert(debug.getinfo(2).name == "pcall")
+      assert(string.find(msg, "@z"))
+      error("@y")
+    end)
+
+  local first = true
+  local z <close> =
+    func2close(function (self, msg)
+      assert(debug.getinfo(2).name == "pcall")
+      assert(first and msg == 4)
+      first = false
+      error("@z")
+    end)
+
+  error(4)
+end
+
+local ok, msg = pcall(foo)
+return ok, string.find(msg, "@x1", 1, true) ~= nil
+''', mode: EngineMode.luaBytecode);
+
+        expect(_flatten(result), equals(<Object?>[false, true]));
+      },
+    );
+
+    test(
+      'executeCode preserves raw close errors for xpcall traceback handlers',
+      () async {
+        final result = await executeCode(r'''
+local function func2close(f)
+  return setmetatable({}, {__close = f})
+end
+
+local function foo ()
+  do
+    local x1 <close> =
+      func2close(function (self, msg)
+        assert(string.find(msg, "@X"))
+        error("@Y")
+      end)
+
+    local x123 <close> =
+      func2close(function (_, msg)
+        assert(msg == nil)
+        error("@X")
+      end)
+  end
+  os.exit(false)
+end
+
+local st, msg = xpcall(foo, debug.traceback)
+return st, string.match(msg, "^[^ ]* @Y") ~= nil
+''', mode: EngineMode.luaBytecode);
+
+        expect(_flatten(result), equals(<Object?>[false, true]));
+      },
+    );
+
+    test(
+      'executeCode preserves nested dofile script paths in xpcall close tracebacks',
+      () async {
+        final tempDir = await Directory.systemTemp.createTemp(
+          'lualike-bytecode-dofile-',
+        );
+        final nestedFile = File('${tempDir.path}/nested.lua');
+        try {
+          await nestedFile.writeAsString(r'''
+local function func2close(f)
+  return setmetatable({}, {__close = f})
+end
+
+local function foo (...)
+  do
+    local x1 <close> =
+      func2close(function (self, msg)
+        assert(string.find(msg, "@X"))
+        error("@Y")
+      end)
+
+    local x123 <close> =
+      func2close(function (_, msg)
+        assert(msg == nil)
+        error("@X")
+      end)
+  end
+  os.exit(false)
+end
+
+local st, msg = xpcall(foo, debug.traceback)
+return st, string.match(msg, "^[^ ]* @Y") ~= nil
+''');
+
+          final scriptPath = nestedFile.path.replaceAll(r'\', r'\\');
+          final result = await executeCode(
+            "return dofile('$scriptPath')",
+            mode: EngineMode.luaBytecode,
+          );
+
+          expect(_flatten(result), equals(<Object?>[false, true]));
+        } finally {
+          if (await tempDir.exists()) {
+            await tempDir.delete(recursive: true);
+          }
+        }
+      },
+    );
+
     test(
       'executeCode coerces numeric-for string bounds in emitted chunks',
       () async {
@@ -807,6 +1026,44 @@ return ok1, yielded, midStatus, ok2, finalValue, finalStatus
         equals(<Object?>[true, 5, 'suspended', true, 10, 'dead']),
       );
     });
+
+    test(
+      'executeCode preserves pcall results across close yields in bytecode',
+      () async {
+        final result = await executeCode(r'''
+local function func2close(f)
+  return setmetatable({}, {__close = f})
+end
+
+local co = coroutine.wrap(function ()
+  local x <close> = func2close(function ()
+    coroutine.yield("x")
+  end)
+
+  return pcall(function ()
+    do
+      local z <close> = func2close(function ()
+        coroutine.yield("z")
+      end)
+    end
+
+    local y <close> = func2close(function ()
+      coroutine.yield("y")
+    end)
+
+    return 10, 20, 30
+  end)
+end)
+
+return co(), co(), co(), co()
+''', mode: EngineMode.luaBytecode);
+
+        expect(
+          _flatten(result),
+          equals(<Object?>['z', 'y', 'x', true, 10, 20, 30]),
+        );
+      },
+    );
 
     test(
       'executeCode allows dofile to yield via bytecode coroutines',

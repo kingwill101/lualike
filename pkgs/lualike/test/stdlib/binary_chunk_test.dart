@@ -95,6 +95,41 @@ void main() {
         expect((bridge.getGlobal('b') as Value?)?.raw.toString(), equals('y'));
         expect((bridge.getGlobal('c') as Value?)?.raw.toString(), equals('z'));
       });
+
+      test('top-level loaded chunks do not repeat source in dump', () async {
+        final expectedName = List.filled(1000, 'x').join();
+        await bridge.execute(r'''
+          prog = [[
+            return function (x)
+              return function (y)
+                return x + y
+              end
+            end
+          ]]
+          name = string.rep("x", 1000)
+          p = assert(load(prog, name))
+          dumped = string.dump(p)
+          dumped_len = #dumped
+          f = assert(load(dumped))
+          g = f()
+          h = g(3)
+          result = h(5)
+          f_source = debug.getinfo(f).source
+          g_source = debug.getinfo(g).source
+          h_source = debug.getinfo(h).source
+
+          stripped = string.dump(p, true)
+          stripped_len = #stripped
+        ''');
+
+        expect((bridge.getGlobal('dumped_len') as Value?)?.raw, greaterThan(1000));
+        expect((bridge.getGlobal('dumped_len') as Value?)?.raw, lessThan(2000));
+        expect((bridge.getGlobal('result') as Value?)?.raw, equals(8));
+        expect((bridge.getGlobal('f_source') as Value?)?.raw, equals(expectedName));
+        expect((bridge.getGlobal('g_source') as Value?)?.raw, equals(expectedName));
+        expect((bridge.getGlobal('h_source') as Value?)?.raw, equals(expectedName));
+        expect((bridge.getGlobal('stripped_len') as Value?)?.raw, lessThan(500));
+      });
     });
 
     group('legacy chunk mode handling', () {

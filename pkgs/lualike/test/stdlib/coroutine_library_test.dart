@@ -333,6 +333,32 @@ void main() {
       },
     );
 
+    test(
+      'reachable suspended coroutines survive explicit collection',
+      () async {
+        await lua.execute(r'''
+        local co = coroutine.create(function (x)
+          local a = 1
+          coroutine.yield(x)
+          return a
+        end)
+
+        local ok, value = coroutine.resume(co, 10)
+        assert(ok and value == 10)
+        beforeStatus = coroutine.status(co)
+        collectgarbage('collect')
+        collectgarbage('collect')
+        afterStatus = coroutine.status(co)
+        resumedOk, resumedValue = coroutine.resume(co)
+      ''');
+
+        expect(lua.getGlobal('beforeStatus').unwrap(), equals('suspended'));
+        expect(lua.getGlobal('afterStatus').unwrap(), equals('suspended'));
+        expect(lua.getGlobal('resumedOk').unwrap(), isTrue);
+        expect(lua.getGlobal('resumedValue').unwrap(), equals(1));
+      },
+    );
+
     test('self-referenced threads do not overflow at modest counts', () async {
       await lua.execute(r'''
         local thread_id = 0

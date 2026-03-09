@@ -33,6 +33,7 @@ final testFiles = [
   'coroutine.lua',
   'pm.lua',
   'locals.lua',
+  'db.lua',
   'heavy.lua',
 ];
 
