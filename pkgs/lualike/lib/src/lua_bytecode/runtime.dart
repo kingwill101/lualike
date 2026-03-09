@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:lualike/src/ast.dart';
+import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/call_stack.dart';
 import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/environment.dart';
@@ -8,6 +9,7 @@ import 'package:lualike/src/file_manager.dart';
 import 'package:lualike/src/gc/generational_gc.dart';
 import 'package:lualike/src/goto_validator.dart';
 import 'package:lualike/src/interpreter/interpreter.dart';
+import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_bytecode/chunk.dart';
 import 'package:lualike/src/lua_bytecode/emitter.dart';
 import 'package:lualike/src/lua_bytecode/parser.dart';
@@ -181,6 +183,7 @@ class LuaBytecodeRuntime implements LuaRuntime {
     _interpreter.gc.bindRuntime(this);
     _libraryRegistry = LibraryRegistry(this);
     final runtimeEnv = Environment(interpreter: this);
+    _globalEnvironment = runtimeEnv;
     _interpreter.setCurrentEnv(runtimeEnv);
     gc.register(runtimeEnv);
     initializeStandardLibrary(vm: this);
@@ -189,11 +192,18 @@ class LuaBytecodeRuntime implements LuaRuntime {
   }
 
   final Interpreter _interpreter;
+  late final Environment _globalEnvironment;
   late final LibraryRegistry _libraryRegistry;
   final List<LuaBytecodeGCRootProvider> _activeFrameRoots =
       <LuaBytecodeGCRootProvider>[];
+  final Map<LuaBytecodeGCRootProvider, Iterable<Object?> Function()>
+  _interpreterRootProviders =
+      <LuaBytecodeGCRootProvider, Iterable<Object?> Function()>{};
 
-  Environment get _globals => _interpreter.globals;
+  @override
+  Value get debugRegistry => _interpreter.debugRegistry;
+
+  Environment get _globals => _globalEnvironment;
 
   @override
   Environment get globals {
@@ -248,7 +258,9 @@ class LuaBytecodeRuntime implements LuaRuntime {
 
   @override
   Future<Object?> callFunction(Value function, List<Object?> args) async {
-    final callee = _resolveCallable(function);
+    final prepared = _prepareCallable(function, args);
+    final callee = prepared.callee;
+    args = prepared.args;
     _ensureValueInterpreter(callee);
     _attachInterpreterToArgs(args);
     return callee.call(args);
@@ -420,30 +432,36 @@ class LuaBytecodeRuntime implements LuaRuntime {
 
   void pushActiveFrameRoots(LuaBytecodeGCRootProvider provider) {
     _activeFrameRoots.add(provider);
+    final rootProvider = () => provider.gcReferences();
+    _interpreterRootProviders[provider] = rootProvider;
+    _interpreter.pushExternalGcRoots(rootProvider);
   }
 
   void popActiveFrameRoots(LuaBytecodeGCRootProvider provider) {
     _activeFrameRoots.remove(provider);
+    if (_interpreterRootProviders.remove(provider) case final rootProvider?) {
+      _interpreter.popExternalGcRoots(rootProvider);
+    }
+  }
+
+  void pushExternalGcRoots(Iterable<Object?> Function() provider) {
+    _interpreter.pushExternalGcRoots(provider);
+  }
+
+  void popExternalGcRoots(Iterable<Object?> Function() provider) {
+    _interpreter.popExternalGcRoots(provider);
   }
 
   void runAutoGcAtSafePoint() {
     if (gc.isStopped || !gc.autoTriggerEnabled) {
       return;
     }
+    final threshold = gc.autoTriggerDebtThreshold;
     final debt = gc.allocationDebt;
-    final cycleComplete = gc.isCollectionCycleComplete();
-    if (debt <= 0 && cycleComplete) {
+    if (debt < threshold) {
       return;
     }
-    final (stepSize, maxIterations) = switch (cycleComplete) {
-      true => (512, 8),
-      false => (1 << 16, 256),
-    };
-    for (var iteration = 0; iteration < maxIterations; iteration++) {
-      if (gc.performIncrementalStep(stepSize)) {
-        break;
-      }
-    }
+    gc.runPendingAutoTrigger();
   }
 
   Future<void> runLoopGcAtSafePoint(int loopCounter) async {
@@ -451,26 +469,57 @@ class LuaBytecodeRuntime implements LuaRuntime {
       return;
     }
     final debt = gc.allocationDebt;
-    if (debt <= 0 && gc.isCollectionCycleComplete()) {
-      return;
-    }
-    if (loopCounter % 128 == 0) {
-      await gc.collectMajor();
+    if (debt <= 0) {
       return;
     }
     runAutoGcAtSafePoint();
   }
 
-  Value _resolveCallable(Value original) {
+  ({Value callee, List<Object?> args}) _prepareCallable(
+    Value original,
+    List<Object?> args,
+  ) {
     var callee = original;
-    final raw = callee.raw;
-    if (raw is String) {
-      final lookup = globals.get(raw);
-      if (lookup != null) {
-        callee = lookup is Value ? lookup : Value(lookup);
+    var normalizedArgs = List<Object?>.from(args, growable: false);
+    var extraArgs = 0;
+
+    while (true) {
+      final raw = callee.raw;
+      if (raw is String) {
+        final lookup = globals.get(raw);
+        if (lookup != null) {
+          callee = lookup is Value ? lookup : Value(lookup);
+          continue;
+        }
       }
+
+      if (raw is Function ||
+          raw is BuiltinFunction ||
+          raw is FunctionDef ||
+          raw is FunctionLiteral ||
+          raw is LuaCallableArtifact ||
+          raw is FunctionBody ||
+          raw is LuaBytecodeClosure) {
+        return (callee: callee, args: normalizedArgs);
+      }
+
+      if (!callee.hasMetamethod('__call')) {
+        return (callee: callee, args: normalizedArgs);
+      }
+
+      final callMeta = callee.getMetamethod('__call');
+      if (callMeta == null) {
+        return (callee: callee, args: normalizedArgs);
+      }
+      if (extraArgs >= 15) {
+        throw LuaError("'__call' chain too long");
+      }
+
+      final originalCallee = callee;
+      callee = callMeta is Value ? callMeta : Value(callMeta);
+      normalizedArgs = <Object?>[originalCallee, ...normalizedArgs];
+      extraArgs += 1;
     }
-    return callee;
   }
 
   void _ensureValueInterpreter(Value value) {

@@ -59,9 +59,18 @@ class _ValidatorState {
   }
 
   String? _processBlock(List<AstNode> statements, _BlockContext block) {
+    return _processBlockWithOptions(statements, block);
+  }
+
+  String? _processBlockWithOptions(
+    List<AstNode> statements,
+    _BlockContext block, {
+    bool allowTerminalLabels = true,
+  }) {
     for (var index = 0; index < statements.length; index++) {
       final stmt = statements[index];
       final terminalLabelInScope =
+          allowTerminalLabels &&
           stmt is Label &&
           statements.skip(index + 1).every((statement) => statement is Label);
       final error = _visitStatement(
@@ -214,7 +223,11 @@ class _ValidatorState {
     }
 
     if (node is RepeatUntilLoop) {
-      final bodyError = _withChildBlock(node.body, block);
+      final bodyError = _withChildBlock(
+        node.body,
+        block,
+        allowTerminalLabels: false,
+      );
       if (bodyError != null) return bodyError;
       return _visitExpression(node.cond, block);
     }
@@ -293,6 +306,7 @@ class _ValidatorState {
   String? _withChildBlock(
     List<AstNode> statements,
     _BlockContext parent, {
+    bool allowTerminalLabels = true,
     void Function(_BlockContext child)? onEnter,
   }) {
     final child = _BlockContext(
@@ -303,7 +317,11 @@ class _ValidatorState {
 
     onEnter?.call(child);
 
-    final error = _processBlock(statements, child);
+    final error = _processBlockWithOptions(
+      statements,
+      child,
+      allowTerminalLabels: allowTerminalLabels,
+    );
     if (error != null) {
       return error;
     }

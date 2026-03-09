@@ -195,10 +195,12 @@ Future<void> compile({
   bool force = false,
   String? dartPath,
   String? binaryPath,
+  String cacheDir = '.build_cache',
 }) async {
   final compiler = SmartCompiler(
     projectRoot: '.',
     dartPath: dartPath ?? getExecutableName('dart'),
+    cacheDir: cacheDir,
     binaryName: binaryPath ?? 'lualike',
   );
 
@@ -387,6 +389,11 @@ Future<void> main(List<String> args) async {
       help:
           'Path to the lualike executable to compile/use instead of ./lualike',
     )
+    ..addOption(
+      'lualike-cache-dir',
+      help: 'Directory to store compiled lualike binary cache metadata',
+      defaultsTo: '.build_cache',
+    )
     ..addFlag(
       'debug',
       negatable: false,
@@ -451,6 +458,7 @@ Future<void> main(List<String> args) async {
               ? configuredBinary
               : path.join(Directory.current.path, configuredBinary),
         );
+  final lualikeCacheDir = r['lualike-cache-dir'] as String;
   final force = r['force'] as bool;
   // Handle download-suite flag
   if (r['download-suite'] as bool) {
@@ -476,6 +484,7 @@ Future<void> main(List<String> args) async {
       force: force,
       dartPath: dartPath,
       binaryPath: lualikeBinaryPath,
+      cacheDir: lualikeCacheDir,
     );
   } else {
     console.setForegroundColor(ConsoleColor.yellow);

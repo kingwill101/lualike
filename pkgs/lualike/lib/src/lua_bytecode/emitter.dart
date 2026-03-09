@@ -542,12 +542,39 @@ final class _LuaBytecodeStructuredCompiler {
     final exitJumpPc = _emitFalseJumpForCondition(statement.cond);
     _breakFixups.add(<int>[]);
     _loopDepth += 1;
-    _compileScopedBlock(statement.body);
+    _enterScope();
+    _compileStatementList(statement.body, trackStatementIndexes: false);
+    final closeFrom = _minimumCloseRegisterForLocals(_scopes.last);
+    int? breakClosePc;
+    int? breakExitJumpPc;
+    if (closeFrom != null && _breakFixups.last.isNotEmpty) {
+      breakClosePc = _prototype.currentPc;
+      _prototype.emitClose(fromRegister: closeFrom);
+      breakExitJumpPc = _prototype.emitJumpPlaceholder();
+    }
+    _exitScope(endPc: _prototype.currentPc + 1, emitCloseInstruction: false);
     _loopDepth -= 1;
+    if (closeFrom != null) {
+      _prototype.emitClose(fromRegister: closeFrom);
+    }
     _prototype.emitJump(loopStartPc - _prototype.currentPc - 1);
     final endPc = _prototype.currentPc;
     _prototype.patchJumpTarget(instructionPc: exitJumpPc, targetPc: endPc);
-    for (final breakJump in _breakFixups.removeLast()) {
+    final breakFixups = _breakFixups.removeLast();
+    if (breakClosePc != null && breakExitJumpPc != null) {
+      _prototype.patchJumpTarget(
+        instructionPc: breakExitJumpPc,
+        targetPc: endPc,
+      );
+      for (final breakJump in breakFixups) {
+        _prototype.patchJumpTarget(
+          instructionPc: breakJump,
+          targetPc: breakClosePc,
+        );
+      }
+      return;
+    }
+    for (final breakJump in breakFixups) {
       _prototype.patchJumpTarget(instructionPc: breakJump, targetPc: endPc);
     }
   }
@@ -562,6 +589,20 @@ final class _LuaBytecodeStructuredCompiler {
     final bodyStartPc = _prototype.currentPc;
 
     _enterScope();
+    final hiddenStateStartPc = bodyStartPc + 1;
+    _bindSyntheticLocal(
+      '(for state)',
+      register: baseRegister,
+      startPc: hiddenStateStartPc,
+    );
+    _bindSyntheticLocal(
+      '(for state)',
+      register: baseRegister + 1,
+      startPc: hiddenStateStartPc,
+    );
+    _breakFixups.add(<int>[]);
+    _loopDepth += 1;
+    _enterScope();
     _bindAllocatedRegister(
       statement.varName.name,
       register: baseRegister + 2,
@@ -569,13 +610,12 @@ final class _LuaBytecodeStructuredCompiler {
       attribute: '',
       startPc: bodyStartPc + 1,
     );
-    _breakFixups.add(<int>[]);
-    _loopDepth += 1;
     _compileStatementList(
       statement.body,
       trackStatementIndexes: false,
       allowTerminalLabels: false,
     );
+    _exitScope(endPc: _prototype.currentPc + 1);
     _loopDepth -= 1;
 
     final forLoopPc = _prototype.currentPc;
@@ -584,10 +624,12 @@ final class _LuaBytecodeStructuredCompiler {
       a: baseRegister,
       bx: forLoopPc + 1 - bodyStartPc,
     );
+    final closePc = _prototype.currentPc;
+    _prototype.emitClose(fromRegister: baseRegister);
     final endPc = _prototype.currentPc;
-    _prototype.patchBx(instructionPc: forPrepPc, bx: endPc - forPrepPc - 2);
+    _prototype.patchBx(instructionPc: forPrepPc, bx: closePc - forPrepPc - 2);
     for (final breakJump in _breakFixups.removeLast()) {
-      _prototype.patchJumpTarget(instructionPc: breakJump, targetPc: endPc);
+      _prototype.patchJumpTarget(instructionPc: breakJump, targetPc: closePc);
     }
     _exitScope(endPc: endPc + 1);
   }
@@ -633,12 +675,12 @@ final class _LuaBytecodeStructuredCompiler {
     );
     _bindSyntheticLocal(
       '(for state)',
-      register: baseRegister + 3,
+      register: baseRegister + 2,
       startPc: hiddenStateStartPc,
     );
     _bindSyntheticLocal(
       '(for state)',
-      register: baseRegister + 2,
+      register: baseRegister + 3,
       startPc: hiddenStateStartPc,
     );
     for (var index = 0; index < statement.names.length; index++) {
@@ -693,15 +735,36 @@ final class _LuaBytecodeStructuredCompiler {
     _loopDepth -= 1;
 
     final retryJumpPc = _emitFalseJumpForCondition(statement.cond);
+    final closeFrom = _minimumCloseRegisterForLocals(_scopes.last);
+    final scopeEndPc = _prototype.currentPc + (closeFrom != null ? 1 : 0);
+    _exitScope(endPc: scopeEndPc, emitCloseInstruction: false);
+
+    int? exitClosePc;
+    int? exitJumpPc;
+    int? retryClosePc;
+    if (closeFrom != null) {
+      exitClosePc = _prototype.currentPc;
+      _prototype.emitClose(fromRegister: closeFrom);
+      exitJumpPc = _prototype.emitJumpPlaceholder();
+      retryClosePc = _prototype.currentPc;
+      _prototype.emitClose(fromRegister: closeFrom);
+      _prototype.emitJump(loopStartPc - _prototype.currentPc - 1);
+    }
     final endPc = _prototype.currentPc;
+    if (exitJumpPc != null) {
+      _prototype.patchJumpTarget(instructionPc: exitJumpPc, targetPc: endPc);
+    }
+
     _prototype.patchJumpTarget(
       instructionPc: retryJumpPc,
-      targetPc: loopStartPc,
+      targetPc: retryClosePc ?? loopStartPc,
     );
     for (final breakJump in _breakFixups.removeLast()) {
-      _prototype.patchJumpTarget(instructionPc: breakJump, targetPc: endPc);
+      _prototype.patchJumpTarget(
+        instructionPc: breakJump,
+        targetPc: exitClosePc ?? endPc,
+      );
     }
-    _exitScope(endPc: endPc + 1);
   }
 
   void _compileLabel(Label statement, {required bool terminalInScope}) {
@@ -2089,6 +2152,7 @@ final class _LuaBytecodeStructuredCompiler {
     if (currentFunctionBinding != null) {
       return currentFunctionBinding;
     }
+
     if (_declaredGlobals.contains(name)) {
       return _LuaBytecodeStructuredResolvedVariable.global(name: name);
     }
@@ -2099,10 +2163,6 @@ final class _LuaBytecodeStructuredCompiler {
         name: name,
         upvalueIndex: capture.index,
       );
-    }
-
-    if (_declaredGlobals.contains(name)) {
-      return _LuaBytecodeStructuredResolvedVariable.global(name: name);
     }
 
     return _LuaBytecodeStructuredResolvedVariable.global(name: name);
