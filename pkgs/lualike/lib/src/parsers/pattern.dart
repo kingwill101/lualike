@@ -361,6 +361,7 @@ class LuaPatternCompiler {
     int index, {
     bool stopOnRightParen = false,
     bool closeCurrentCapture = false,
+    int transparentRightParensRemaining = 0,
   }) {
     final savedPos = _pos;
     final savedCapturesLength = _captures.length;
@@ -371,7 +372,13 @@ class LuaPatternCompiler {
     if (closeCurrentCapture && _openCaptures.isNotEmpty) {
       temporarilyClosedCapture = _openCaptures.removeLast();
     }
-    final parser = _parseSequence(stopOnRightParen: stopOnRightParen);
+    var parser = _parseSequence(
+      stopOnRightParen: stopOnRightParen,
+      transparentRightParensRemaining: transparentRightParensRemaining,
+    );
+    if (_pos > index && _pattern[_pos - 1] == '\$' && !_isEscaped(_pos - 1)) {
+      parser = parser.end();
+    }
     _pos = savedPos;
     if (_captures.length > savedCapturesLength) {
       _captures.length = savedCapturesLength;
@@ -426,21 +433,40 @@ class LuaPatternCompiler {
     }
   }
 
-  Parser _parseSequence({bool stopOnRightParen = false}) {
+  Parser _parseSequence({
+    bool stopOnRightParen = false,
+    int transparentRightParensRemaining = 0,
+  }) {
     final elements = <Parser>[];
     while (_pos < _pattern.length) {
-      final p = _parseItem(stopOnRightParen);
+      final itemStart = _pos;
+      final p = _parseItem(
+        stopOnRightParen,
+        transparentRightParensRemaining: transparentRightParensRemaining,
+      );
       if (p == null) break;
       elements.add(p);
+      if (itemStart < _pattern.length &&
+          _pattern[itemStart] == ')' &&
+          transparentRightParensRemaining > 0) {
+        transparentRightParensRemaining--;
+      }
     }
     return elements.length == 1 ? elements.single : SequenceParser(elements);
   }
 
-  Parser? _parseItem(bool stopOnRightParen) {
+  Parser? _parseItem(
+    bool stopOnRightParen, {
+    int transparentRightParensRemaining = 0,
+  }) {
     if (_pos >= _pattern.length) return null;
     final ch = _pattern[_pos];
 
     if (stopOnRightParen && ch == ')') {
+      if (transparentRightParensRemaining > 0) {
+        _pos++;
+        return epsilon();
+      }
       return null;
     }
     if (ch == ')') {
@@ -540,18 +566,26 @@ class LuaPatternCompiler {
         }
       }
     } else {
+      var fullFollowing = following;
+      if (stopOnRightParen) {
+        fullFollowing = _parseLookaheadSequenceFrom(
+          startPos,
+          stopOnRightParen: true,
+          transparentRightParensRemaining: 1,
+        );
+      }
       switch (op) {
         case '*':
-          result = base.starGreedy(following).seq(following);
+          result = base.starGreedy(fullFollowing).seq(following);
           break;
         case '+':
-          result = base.plusGreedy(following).seq(following);
+          result = base.plusGreedy(fullFollowing).seq(following);
           break;
         case '?':
           result = base.seq(following).or(following);
           break;
         case '-':
-          result = base.starLazy(following).seq(following);
+          result = base.starLazy(fullFollowing).seq(following);
           break;
         default:
           throw StateError('Unhandled repetition $op');
