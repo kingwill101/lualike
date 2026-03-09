@@ -63,6 +63,25 @@ return i
     );
 
     test(
+      'executeCode allows goto to terminal labels at while-body boundaries',
+      () async {
+        final result = await executeCode('''
+local x = 13
+while true do
+  goto exit
+  goto done
+  local y = 45
+  ::done::
+end
+::exit::
+return x
+''', mode: EngineMode.luaBytecode);
+
+        expect(_unwrap(result), equals(13));
+      },
+    );
+
+    test(
       'executeCode closes <close> locals when goto leaves their scope',
       () async {
         final result = await executeCode(r'''
@@ -855,6 +874,59 @@ return a[2], b, c == print, a[1].alo == assert
       expect((bridge.getGlobal('dumped_magic') as Value?)?.raw, equals(27));
       expect((bridge.getGlobal('dumped_result') as Value?)?.raw, equals(3));
     });
+
+    test(
+      'load leaves dumped non-_ENV upvalues unset in lua_bytecode',
+      () async {
+        LuaLikeConfig().defaultEngineMode = EngineMode.luaBytecode;
+        final bridge = LuaLike();
+
+        await bridge.execute('''
+        local a, b = 20, 30
+        local f = function (x)
+          if x == "set" then
+            a = 10 + b
+            b = b + 1
+          else
+            return a
+          end
+        end
+
+        local loaded = assert(load(string.dump(f), "", "b", nil))
+        first = loaded()
+        up1 = debug.getupvalue(loaded, 1)
+        up2 = debug.getupvalue(loaded, 2)
+      ''');
+
+        expect((bridge.getGlobal('first') as Value?)?.raw, isNull);
+        expect((bridge.getGlobal('up1') as Value?)?.raw, equals('a'));
+        expect((bridge.getGlobal('up2') as Value?)?.raw, equals('b'));
+      },
+    );
+
+    test(
+      'string.dump reuses repeated source strings in lua_bytecode',
+      () async {
+        LuaLikeConfig().defaultEngineMode = EngineMode.luaBytecode;
+        final bridge = LuaLike();
+
+        await bridge.execute(r'''
+        local str = "|" .. string.rep("X", 50) .. "|"
+        local foo = load(string.format([[
+          local str <const> = "%s"
+          return {
+            function () return str end,
+            function () return str end,
+            function () return str end
+          }
+        ]], str))
+        local dump = string.dump(foo)
+        _, count = string.gsub(dump, str, {})
+      ''');
+
+        expect((bridge.getGlobal('count') as Value?)?.raw, equals(2));
+      },
+    );
 
     test('command runner flag selects lua_bytecode engine mode', () async {
       LuaLikeConfig().defaultEngineMode = EngineMode.ast;

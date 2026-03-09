@@ -32,5 +32,26 @@ void main() {
       final result = await lua.execute('return loader()') as Value;
       expect(result.unwrap(), equals(42));
     });
+
+    test(
+      'rejects repeat-until continue label that jumps into loop-local scope',
+      () async {
+        await lua.execute(r'''
+          loader, loadErr = load([[
+            repeat
+              if x then goto cont end
+              local xuxu = 10
+              ::cont::
+            until xuxu < x
+          ]])
+        ''');
+
+        final loader = lua.getGlobal('loader') as Value;
+        final loadErr = lua.getGlobal('loadErr') as Value;
+
+        expect(loader.unwrap(), isNull);
+        expect(loadErr.unwrap(), contains("scope of 'xuxu'"));
+      },
+    );
   });
 }
