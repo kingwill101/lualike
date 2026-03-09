@@ -365,6 +365,7 @@ class LuaPatternCompiler {
   }) {
     final savedPos = _pos;
     final savedCapturesLength = _captures.length;
+    final savedCaptureValuesLength = _captureValues.length;
     final savedCompletedCapturesLength = _completedCaptures.length;
     final savedOpenCapturesLength = _openCaptures.length;
     int? temporarilyClosedCapture;
@@ -382,6 +383,9 @@ class LuaPatternCompiler {
     _pos = savedPos;
     if (_captures.length > savedCapturesLength) {
       _captures.length = savedCapturesLength;
+    }
+    if (_captureValues.length > savedCaptureValuesLength) {
+      _captureValues.length = savedCaptureValuesLength;
     }
     if (_completedCaptures.length > savedCompletedCapturesLength) {
       _completedCaptures.length = savedCompletedCapturesLength;
@@ -721,11 +725,17 @@ class LuaMatch {
 
 /// Compiled Lua pattern that can search within strings.
 class LuaPattern {
-  LuaPattern._(this._parser, this._captures, this._positionCaptureIndexes);
+  LuaPattern._(
+    this._parser,
+    this._captures,
+    this._positionCaptureIndexes,
+    this._captureCount,
+  );
 
   final _LuaPatternParser _parser;
   final List<String?> _captures;
   final Set<int> _positionCaptureIndexes;
+  final int _captureCount;
 
   /// Compile [pattern] into a [LuaPattern].
   factory LuaPattern.compile(String pattern) {
@@ -735,6 +745,7 @@ class LuaPattern {
       parser,
       compiler._captureValues,
       Set<int>.from(compiler._positionCaptureIndexes),
+      compiler._captures.length,
     );
   }
 
@@ -743,7 +754,7 @@ class LuaPattern {
     for (var pos = start; pos <= input.length; pos++) {
       final result = _parser.parseOn(Context(input, pos));
       if (result is Success) {
-        final captures = List<String?>.from(_captures);
+        final captures = List<String?>.from(_captures.take(_captureCount));
         return LuaMatch(
           pos,
           result.position,
@@ -762,7 +773,7 @@ class LuaPattern {
     while (pos <= input.length) {
       final result = _parser.parseOn(Context(input, pos));
       if (result is Success) {
-        final captures = List<String?>.from(_captures);
+        final captures = List<String?>.from(_captures.take(_captureCount));
         yield LuaMatch(
           pos,
           result.position,

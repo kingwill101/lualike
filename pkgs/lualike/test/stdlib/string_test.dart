@@ -206,6 +206,30 @@ void main() {
     });
 
     test(
+      'utf8 adapted patterns do not leak phantom captures from lookahead',
+      () async {
+        final bridge = LuaLike();
+        await bridge.execute(r'''
+        local function PU (p)
+          p = string.gsub(p, "(" .. utf8.charpattern .. ")%?", function (c)
+            return string.gsub(c, ".", "%0?")
+          end)
+          p = string.gsub(p, "%.", utf8.charpattern)
+          return p
+        end
+
+        a, b, c, d, e = string.match("âlo alo", PU("^(((.).). (%w*))$"))
+      ''');
+
+        expect((bridge.getGlobal('a') as Value).unwrap(), equals('âlo alo'));
+        expect((bridge.getGlobal('b') as Value).unwrap(), equals('âl'));
+        expect((bridge.getGlobal('c') as Value).unwrap(), equals('â'));
+        expect((bridge.getGlobal('d') as Value).unwrap(), equals('alo'));
+        expect((bridge.getGlobal('e') as Value).raw, isNull);
+      },
+    );
+
+    test(
       'string.find allows ] as the first character in a bracket class',
       () async {
         final bridge = LuaLike();
