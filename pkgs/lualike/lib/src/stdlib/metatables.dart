@@ -358,18 +358,6 @@ class MetaTable {
         );
         return Value('thread: ${thread.hashCode} [${coroutine.status}]');
       },
-      '__gc': (List<Object?> args) {
-        final thread = args[0] as Value;
-        final coroutine = thread.raw as Coroutine;
-        Logger.debug(
-          'Thread __gc metamethod called for coroutine:${thread.hashCode}',
-          category: 'Metatables',
-        );
-
-        // Close the coroutine when it's collected
-        coroutine.markAsDead();
-        return Value(null);
-      },
     });
     Logger.debug('Thread metatable initialized', category: 'Metatables');
     // Register coroutine metatable as a default for thread objects

@@ -17,7 +17,7 @@ Value? _activeFunctionUpvalueValue(Interpreter interpreter, String name) {
         continue;
       }
       final value = upvalue.getValue();
-      return value is Value ? value : Value(value);
+      return value;
     }
   }
   return null;
@@ -25,10 +25,10 @@ Value? _activeFunctionUpvalueValue(Interpreter interpreter, String name) {
 
 Value? _resolveActiveEnvValue(Interpreter interpreter) {
   return switch (interpreter.getCurrentEnv().get('_ENV')) {
-        final Value value => value,
-        final Object? value? => Value(value),
-        _ => _activeFunctionUpvalueValue(interpreter, '_ENV'),
-      };
+    final Value value => value,
+    final Object? value? => Value(value),
+    _ => _activeFunctionUpvalueValue(interpreter, '_ENV'),
+  };
 }
 
 Value? _resolveActiveGlobalValue(Interpreter interpreter) {
@@ -37,6 +37,24 @@ Value? _resolveActiveGlobalValue(Interpreter interpreter) {
     final Object? value? => Value(value),
     _ => null,
   };
+}
+
+Value _detachTemporaryValue(Value value) {
+  return Value(
+    value.raw,
+    metatable: value.metatable,
+    isMulti: value.isMulti,
+    isConst: value.isConst,
+    isToBeClose: value.isToBeClose,
+    isTempKey: value.isTempKey,
+    upvalues: value.upvalues,
+    interpreter: value.interpreter,
+    functionBody: value.functionBody,
+    closureEnvironment: value.closureEnvironment,
+    functionName: value.functionName,
+    debugLineDefined: value.debugLineDefined,
+    strippedDebugInfo: value.strippedDebugInfo,
+  );
 }
 
 mixin InterpreterExpressionMixin on AstVisitor<Object?> {
@@ -88,6 +106,32 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         category: 'Expression',
       );
     }
+    final interpreter = this is Interpreter ? this as Interpreter : null;
+    final leftOperandLine = node.left.span?.start.line;
+    final rightLine = node.right.span?.start.line;
+    final leftLine =
+        node.operatorLine != null &&
+            leftOperandLine != null &&
+            rightLine != null &&
+            leftOperandLine != rightLine
+        ? node.operatorLine
+        : leftOperandLine;
+    final multilineBinaryHook =
+        interpreter != null &&
+        leftLine != null &&
+        rightLine != null &&
+        leftLine != rightLine &&
+        node.op != 'and' &&
+        node.op != 'or';
+
+    Future<void> fireBinaryHookLine(int zeroBasedLine) async {
+      if (interpreter == null) {
+        return;
+      }
+      interpreter.recordTrace(node);
+      await interpreter.maybeFireLineDebugHook(zeroBasedLine + 1);
+    }
+
     dynamic leftResult = await node.left.accept(this);
 
     // Short-circuit evaluation for logical operators
@@ -114,6 +158,9 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       }
 
       // Need to evaluate the right side only when necessary
+      if (multilineBinaryHook) {
+        await fireBinaryHookLine(rightLine);
+      }
       dynamic rightResult = await node.right.accept(this);
 
       if (rightResult is Value && rightResult.isMulti) {
@@ -127,7 +174,31 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       return rightVal;
     }
 
-    dynamic rightResult = await node.right.accept(this);
+    MapEntry<String, Value>? temporaryEntry;
+    final currentFrame = this is Interpreter
+        ? (this as Interpreter).callStack.top
+        : null;
+    if (currentFrame != null &&
+        (node.right is FunctionCall || node.right is MethodCall)) {
+      final tempValue = leftResult is Value
+          ? _detachTemporaryValue(leftResult)
+          : Value(leftResult);
+      temporaryEntry = MapEntry('(temporary)', tempValue);
+      currentFrame.debugLocals.add(temporaryEntry);
+      leftResult = tempValue;
+    }
+
+    dynamic rightResult;
+    try {
+      if (multilineBinaryHook) {
+        await fireBinaryHookLine(rightLine);
+      }
+      rightResult = await node.right.accept(this);
+    } finally {
+      if (temporaryEntry != null) {
+        currentFrame?.debugLocals.removeLast();
+      }
+    }
 
     // In a binary expression, if either operand is a function call returning multiple values,
     // only the first return value should be used
@@ -184,6 +255,10 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         'BinaryExpression operands before metamethod check: $leftVal (${leftVal.raw.runtimeType}) ${node.op} $rightVal (${rightVal.raw.runtimeType})',
         category: 'Expression',
       );
+    }
+
+    if (multilineBinaryHook) {
+      await fireBinaryHookLine(leftLine);
     }
 
     // Check for metamethods first
@@ -251,6 +326,10 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
           metamethodName = '__lt';
           calleeValue = canonicalRight;
           swapArgs = true;
+        } else if (canonicalLeft.hasMetamethod('__lt')) {
+          metamethodName = '__lt';
+          calleeValue = canonicalLeft;
+          swapArgs = true;
         }
       } else if (calleeValue == null && node.op == '>=') {
         if (canonicalLeft.hasMetamethod('__le')) {
@@ -264,12 +343,10 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         } else if (canonicalRight.hasMetamethod('__lt')) {
           metamethodName = '__lt';
           calleeValue = canonicalRight;
-          swapArgs = true;
           invertResult = true;
         } else if (canonicalLeft.hasMetamethod('__lt')) {
           metamethodName = '__lt';
           calleeValue = canonicalLeft;
-          // no swap here (left < right) and then invert
           invertResult = true;
         }
       }
@@ -287,7 +364,10 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
             : [methodLeft, methodRight];
         Object? result;
         try {
-          result = await calleeValue.callMetamethodAsync(metamethodName, callArgs);
+          result = await calleeValue.callMetamethodAsync(
+            metamethodName,
+            callArgs,
+          );
         } on UnsupportedError catch (_) {
           final metamethod = metamethodName.startsWith('__')
               ? metamethodName.substring(2)
@@ -410,7 +490,10 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         );
         final raw = value.raw;
         if (sourceLabel != null &&
-            (raw is num || raw is BigInt || raw is String || raw is LuaString) &&
+            (raw is num ||
+                raw is BigInt ||
+                raw is String ||
+                raw is LuaString) &&
             NumberUtils.tryToInteger(raw) == null) {
           return sourceLabel;
         }
@@ -419,8 +502,15 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     }
 
     bool shouldRewriteNamedSourceType(String type) => switch (type) {
-      'nil' || 'boolean' || 'number' || 'string' || 'table' || 'function' ||
-      'thread' || 'userdata' || 'light userdata' => true,
+      'nil' ||
+      'boolean' ||
+      'number' ||
+      'string' ||
+      'table' ||
+      'function' ||
+      'thread' ||
+      'userdata' ||
+      'light userdata' => true,
       _ => false,
     };
 
@@ -505,6 +595,9 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         category: 'Expression',
       );
     }
+    if (multilineBinaryHook) {
+      await fireBinaryHookLine(rightLine);
+    }
     return result is Value ? result : Value(result);
   }
 
@@ -546,8 +639,15 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         : Value(operandResult);
 
     bool shouldRewriteNamedSourceType(String type) => switch (type) {
-      'nil' || 'boolean' || 'number' || 'string' || 'table' || 'function' ||
-      'thread' || 'userdata' || 'light userdata' => true,
+      'nil' ||
+      'boolean' ||
+      'number' ||
+      'string' ||
+      'table' ||
+      'function' ||
+      'thread' ||
+      'userdata' ||
+      'light userdata' => true,
       _ => false,
     };
 
@@ -608,7 +708,8 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
           node.op == '-' &&
           (message.contains('attempt to perform arithmetic on a ') ||
               message.startsWith('Unary negation not supported for type '))) {
-        final type = message.startsWith('Unary negation not supported for type ')
+        final type =
+            message.startsWith('Unary negation not supported for type ')
             ? getLuaType(operandWrapped)
             : message
                   .replaceFirst('attempt to perform arithmetic on a ', '')
@@ -684,7 +785,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
           category: 'Expression',
         );
       }
-      return value is Value ? value : Value(value);
+      return value;
     }
 
     // Check for a local variable in the current environment. When executing

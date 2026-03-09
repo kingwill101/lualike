@@ -141,6 +141,10 @@ class Environment extends GCObject {
   /// scope but are not represented as normal local bindings.
   int pendingImplicitToBeClosed = 0;
 
+  /// Stores implicit to-be-closed resources that must stay GC-reachable even
+  /// when they are not ordinary local bindings.
+  final List<Value> implicitToBeClosedValues = <Value>[];
+
   /// The parent environment in the scope chain, if any.
   final Environment? parent;
 
@@ -246,6 +250,7 @@ class Environment extends GCObject {
     for (final box in declaredGlobals.values) {
       refs.add(box);
     }
+    refs.addAll(implicitToBeClosedValues);
     return refs;
   }
 
@@ -907,6 +912,13 @@ class Environment extends GCObject {
         );
         envTable[keyStr] = value;
         envValue.markTableModified();
+        if (inheritedEnvValue != null && inheritedEnvValue.raw is Map) {
+          final inheritedTable = inheritedEnvValue.raw as Map;
+          inheritedTable[keyStr] = value;
+          inheritedEnvValue.markTableModified();
+                } else {
+          rootEnv.defineGlobal(keyStr, value);
+        }
         return Value(null);
       },
     };

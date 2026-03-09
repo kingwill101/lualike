@@ -119,6 +119,12 @@ class Coroutine extends GCObject {
   /// The AST node representing the function body
   final FunctionBody? functionBody;
 
+  /// Per-coroutine debug hook state.
+  Value? debugHookFunction;
+  String debugHookMask = '';
+  int debugHookCount = 0;
+  int debugHookCountRemaining = 0;
+
   /// Current status of the coroutine
   CoroutineStatus status = CoroutineStatus.suspended;
 
@@ -138,6 +144,9 @@ class Coroutine extends GCObject {
   /// This is restored on resume so new frames created after a yield retain
   /// the correct chunk/file name.
   String? _resumeScriptPath;
+
+  /// Most recent source line active at the current suspension point (1-based).
+  int _resumeLine = -1;
 
   /// Program counter: the index of the next statement to execute in functionBody.body.
   int _programCounter = 0;
@@ -170,13 +179,17 @@ class Coroutine extends GCObject {
   Coroutine(this.functionValue, this.functionBody, this.closureEnvironment)
     : _executionEnvironment = functionBody == null
           ? closureEnvironment
-          : closureEnvironment.clone(
+          : Environment(
+              parent: closureEnvironment,
               interpreter: closureEnvironment.interpreter,
+              isClosure: false,
             ),
       _resumeEnvironment = functionBody == null
           ? closureEnvironment
-          : closureEnvironment.clone(
+          : Environment(
+              parent: closureEnvironment,
               interpreter: closureEnvironment.interpreter,
+              isClosure: false,
             ),
       _resumeScriptPath = closureEnvironment.interpreter?.currentScriptPath,
       super() {
@@ -222,26 +235,37 @@ class Coroutine extends GCObject {
     }
 
     // Get the interpreter from the environment
-    final interpreter = closureEnvironment.interpreter;
-    final previousCoroutine = interpreter?.getCurrentCoroutine();
-    final previousEnv = interpreter?.getCurrentEnv();
+    final runtime = closureEnvironment.interpreter;
+    final previousCoroutine = runtime?.getCurrentCoroutine();
+    final previousEnv = runtime?.getCurrentEnv();
+    final interpreter = runtime is Interpreter ? runtime : null;
+    final previousHookFunction = interpreter?.debugHookFunction;
+    final previousHookMask = interpreter?.debugHookMask;
+    final previousHookCount = interpreter?.debugHookCount;
+    final previousHookCountRemaining = interpreter?.debugHookCountRemaining;
 
     try {
       _activeStack.add(this);
       // Set this coroutine as the current one
-      if (interpreter != null) {
+      if (runtime != null) {
         _restoreCallStack();
-        interpreter.setCurrentCoroutine(this);
+        runtime.setCurrentCoroutine(this);
+        if (interpreter != null) {
+          applyDebugHookStateTo(interpreter);
+        }
         // When resuming from a yield, restore the saved execution environment
-        interpreter.setCurrentEnv(
-          _resumeEnvironment,
-        ); // Restore the saved environment
-        interpreter.currentScriptPath = _resumeScriptPath;
-        interpreter.callStack.setScriptPath(_resumeScriptPath);
+        final resumedEnv = switch (runtime) {
+          final Interpreter astInterpreter =>
+            astInterpreter.getVisibleFrameAtLevel(1)?.env ?? _resumeEnvironment,
+          _ => _resumeEnvironment,
+        };
+        runtime.setCurrentEnv(resumedEnv); // Restore the saved environment
+        runtime.currentScriptPath = _resumeScriptPath;
+        runtime.callStack.setScriptPath(_resumeScriptPath);
         Logger.debugLazy(
           () =>
               'Coroutine.resume: Restored saved execution environment: '
-              '${interpreter.getCurrentEnv().hashCode}',
+              '${runtime.getCurrentEnv().hashCode}',
           category: 'Coroutine',
         );
       }
@@ -385,14 +409,21 @@ class Coroutine extends GCObject {
         category: 'Coroutine',
       );
       // Restore the previous coroutine and environment
-      if (interpreter != null) {
-        interpreter.setCurrentCoroutine(previousCoroutine);
+      if (runtime != null) {
+        if (interpreter != null) {
+          captureDebugHookStateFrom(interpreter);
+          interpreter.debugHookFunction = previousHookFunction;
+          interpreter.debugHookMask = previousHookMask ?? '';
+          interpreter.debugHookCount = previousHookCount ?? 0;
+          interpreter.debugHookCountRemaining = previousHookCountRemaining ?? 0;
+        }
+        runtime.setCurrentCoroutine(previousCoroutine);
         if (previousEnv != null) {
-          interpreter.setCurrentEnv(previousEnv);
+          runtime.setCurrentEnv(previousEnv);
         }
 
         if (previousCoroutine != null) {
-          previousCoroutine._callStackBaseDepth = interpreter.callStack.depth;
+          previousCoroutine._callStackBaseDepth = runtime.callStack.depth;
         }
 
         // If the previous coroutine exists, update its status
@@ -493,6 +524,7 @@ class Coroutine extends GCObject {
   }
 
   Future<void> _completeWithError(Object errorObject) async {
+    captureCurrentCallStack();
     error = errorObject;
     status = CoroutineStatus.dead;
     _finalizeTermination();
@@ -507,16 +539,36 @@ class Coroutine extends GCObject {
 
   /// Yields from the coroutine with the given values
   Future<List<Object?>> yield_(List<Object?> values) async {
-    if (status != CoroutineStatus.running) {
+    final isActive = identical(this, Coroutine.active);
+    if (!isActive &&
+        status != CoroutineStatus.running &&
+        status != CoroutineStatus.normal) {
       throw Exception("attempt to yield from outside a coroutine");
+    }
+    if (isActive && status != CoroutineStatus.running) {
+      status = CoroutineStatus.running;
     }
 
     // Save the current execution environment before yielding
     final interpreter = closureEnvironment.interpreter;
     if (interpreter != null) {
-      _resumeEnvironment = interpreter.getCurrentEnv();
+      _resumeEnvironment = functionBody != null
+          ? _executionEnvironment
+          : interpreter.getCurrentEnv();
       _resumeScriptPath =
           interpreter.currentScriptPath ?? interpreter.callStack.scriptPath;
+      if (interpreter case final Interpreter astInterpreter) {
+        final topFrame = astInterpreter.getVisibleFrameAtLevel(1);
+        final luaFrame =
+            topFrame?.callable?.functionBody == null
+            ? astInterpreter.getVisibleFrameAtLevel(2)
+            : topFrame;
+        _resumeLine =
+            luaFrame?.currentLine ??
+            topFrame?.currentLine ??
+            astInterpreter.callStack.top?.currentLine ??
+            _resumeLine;
+      }
       Logger.debugLazy(
         () =>
             'Coroutine.yield_: Saved current execution environment: '
@@ -584,13 +636,61 @@ class Coroutine extends GCObject {
     if (interpreter == null) {
       return;
     }
+    final baseDepth = interpreter.callStack.depth;
     if (_savedCallStack != null && _savedCallStack!.isNotEmpty) {
       for (final frame in _savedCallStack!) {
         interpreter.callStack.pushFrame(frame);
       }
       _savedCallStack = null;
     }
-    _callStackBaseDepth = interpreter.callStack.depth;
+    _callStackBaseDepth = baseDepth;
+  }
+
+  CallFrame _cloneCallFrame(CallFrame frame) {
+    return CallFrame(
+      frame.functionName,
+      callNode: frame.callNode,
+      scriptPath: frame.scriptPath,
+      currentLine: frame.currentLine,
+      env: frame.env,
+      debugName: frame.debugName,
+      debugNameWhat: frame.debugNameWhat,
+      callable: frame.callable,
+      lastDebugHookLine: frame.lastDebugHookLine,
+      debugLocals: List<MapEntry<String, Value>>.from(frame.debugLocals),
+      ftransfer: frame.ftransfer,
+      ntransfer: frame.ntransfer,
+      transferValues: List<Value>.from(frame.transferValues),
+      extraArgs: frame.extraArgs,
+      isDebugHook: frame.isDebugHook,
+      isTailCall: frame.isTailCall,
+    );
+  }
+
+  List<CallFrame> _snapshotCallStackFrames(CallStack callStack, int base) {
+    final frames = callStack.frames.toList(growable: false);
+    if (base >= frames.length) {
+      return const <CallFrame>[];
+    }
+    return frames.skip(base).map(_cloneCallFrame).toList(growable: false);
+  }
+
+  void captureCurrentCallStack() {
+    final interpreter = closureEnvironment.interpreter;
+    if (interpreter == null) {
+      return;
+    }
+    final snapshot = _snapshotCallStackFrames(
+      interpreter.callStack,
+      _callStackBaseDepth,
+    );
+    if (snapshot.isEmpty) {
+      return;
+    }
+    final existing = _savedCallStack;
+    if (existing == null || snapshot.length >= existing.length) {
+      _savedCallStack = snapshot;
+    }
   }
 
   void _detachCallStack() {
@@ -603,24 +703,133 @@ class Coroutine extends GCObject {
     if (callStack.depth <= base) {
       return;
     }
-    final frames = <CallFrame>[];
+    final snapshot = _snapshotCallStackFrames(callStack, base);
     while (callStack.depth > base) {
       final frame = callStack.pop();
-      if (frame != null) {
-        frames.insert(
-          0,
-          CallFrame(
-            frame.functionName,
-            callNode: frame.callNode,
-            scriptPath: frame.scriptPath,
-            currentLine: frame.currentLine,
-          ),
+      if (frame == null) {
+        break;
+      }
+    }
+    final existing = _savedCallStack;
+    if (snapshot.isNotEmpty &&
+        (existing == null || snapshot.length >= existing.length)) {
+      _savedCallStack = snapshot;
+    }
+    _callStackBaseDepth = callStack.depth;
+  }
+
+  CallFrame? debugFrameAtLevel(int level) {
+    if (level <= 0) {
+      return null;
+    }
+
+    final interpreter = closureEnvironment.interpreter;
+    if (interpreter is Interpreter &&
+        status == CoroutineStatus.running &&
+        identical(interpreter.getCurrentCoroutine(), this)) {
+      final liveFrames = _snapshotCallStackFrames(
+        interpreter.callStack,
+        _callStackBaseDepth,
+      );
+      final luaFrames = liveFrames
+          .where((frame) => frame.callable?.functionBody != null)
+          .toList(growable: false);
+      if (luaFrames.isNotEmpty) {
+        if (level <= luaFrames.length) {
+          return luaFrames[luaFrames.length - level];
+        }
+        if (level != luaFrames.length + 1 || functionBody == null) {
+          return null;
+        }
+        return CallFrame(
+          functionValue.functionName ?? '?',
+          scriptPath: _resumeScriptPath,
+          currentLine: _resumeLine,
+          env: _resumeEnvironment,
+          callable: functionValue,
+          lastDebugHookLine: _resumeLine,
+        );
+      }
+      if (level == 1 && functionBody != null) {
+        return CallFrame(
+          functionValue.functionName ?? '?',
+          scriptPath: _resumeScriptPath,
+          currentLine: _resumeLine,
+          env: _resumeEnvironment,
+          callable: functionValue,
+          lastDebugHookLine: _resumeLine,
+        );
+      }
+      return null;
+    }
+
+    final savedFrames = _savedCallStack;
+    if (savedFrames != null && savedFrames.isNotEmpty) {
+      final luaFrames = savedFrames
+          .where((frame) => frame.callable?.functionBody != null)
+          .toList(growable: false);
+      if (luaFrames.isNotEmpty) {
+        if (level <= luaFrames.length) {
+          return luaFrames[luaFrames.length - level];
+        }
+      if (level != luaFrames.length + 1 ||
+          functionBody == null ||
+          status == CoroutineStatus.running) {
+        return null;
+      }
+      return CallFrame(
+        functionValue.functionName ?? '?',
+        scriptPath: _resumeScriptPath,
+          currentLine: _resumeLine,
+          env: _resumeEnvironment,
+          callable: functionValue,
+          lastDebugHookLine: _resumeLine,
         );
       }
     }
-    _savedCallStack = frames;
-    _callStackBaseDepth = callStack.depth;
+
+    if (level == 1 &&
+        functionBody != null &&
+        status == CoroutineStatus.suspended) {
+      return CallFrame(
+        functionValue.functionName ?? '?',
+        scriptPath: _resumeScriptPath,
+        currentLine: _resumeLine,
+        env: _resumeEnvironment,
+        callable: functionValue,
+        lastDebugHookLine: _resumeLine,
+      );
+    }
+    return null;
   }
+
+  CallFrame? rawDebugFrameAtLevel(int level) {
+    if (level <= 0) {
+      return null;
+    }
+    final interpreter = closureEnvironment.interpreter;
+    if (interpreter is Interpreter &&
+        status == CoroutineStatus.running &&
+        identical(interpreter.getCurrentCoroutine(), this)) {
+      final liveFrames = _snapshotCallStackFrames(
+        interpreter.callStack,
+        _callStackBaseDepth,
+      );
+      if (level > liveFrames.length) {
+        return null;
+      }
+      return liveFrames[liveFrames.length - level];
+    }
+    final savedFrames = _savedCallStack;
+    if (savedFrames == null || level > savedFrames.length) {
+      return null;
+    }
+    return savedFrames[savedFrames.length - level];
+  }
+
+  Environment get debugEnvironment => _resumeEnvironment;
+
+  int get debugCurrentLine => _resumeLine;
 
   void _finalizeTermination() {
     if (_unregistered) {
@@ -633,7 +842,9 @@ class Coroutine extends GCObject {
       _environmentCleared = true;
     }
     interpreter?.unregisterCoroutine(this);
-    _savedCallStack = null;
+    if (error == null) {
+      _savedCallStack = null;
+    }
     _unregistered = true;
   }
 
@@ -754,7 +965,23 @@ class Coroutine extends GCObject {
             interpreter.setCurrentEnv(_executionEnvironment);
           }
 
+          final astInterpreter = interpreter is Interpreter
+              ? interpreter
+              : null;
+          astInterpreter?.recordTrace(stmt);
+          final hookAfterExecution =
+              astInterpreter?.shouldFireStatementHookAfterExecution(stmt) ??
+              false;
+          if (!hookAfterExecution) {
+            await astInterpreter?.maybeFireStatementDebugHooks(stmt);
+          }
+
           final result = await interpreter!.evaluateAst(stmt);
+          if (hookAfterExecution &&
+              astInterpreter != null &&
+              !astInterpreter.consumeSuppressedPostExecutionHook(stmt)) {
+            await astInterpreter.maybeFireStatementDebugHooks(stmt);
+          }
           if (result is TailCallSignal) {
             await _handleTailCallSignalCompletion(result);
             Logger.debugLazy(
@@ -913,7 +1140,28 @@ class Coroutine extends GCObject {
     if (identical(this, mainThread)) {
       return false;
     }
+    if (identical(this, Coroutine.active)) {
+      return true;
+    }
     return status != CoroutineStatus.dead && status != CoroutineStatus.normal;
+  }
+
+  void resetDebugHookCounter() {
+    debugHookCountRemaining = debugHookCount;
+  }
+
+  void applyDebugHookStateTo(Interpreter interpreter) {
+    interpreter.debugHookFunction = debugHookFunction;
+    interpreter.debugHookMask = debugHookMask;
+    interpreter.debugHookCount = debugHookCount;
+    interpreter.debugHookCountRemaining = debugHookCountRemaining;
+  }
+
+  void captureDebugHookStateFrom(Interpreter interpreter) {
+    debugHookFunction = interpreter.debugHookFunction;
+    debugHookMask = interpreter.debugHookMask;
+    debugHookCount = interpreter.debugHookCount;
+    debugHookCountRemaining = interpreter.debugHookCountRemaining;
   }
 
   @override
@@ -924,6 +1172,10 @@ class Coroutine extends GCObject {
     refs.add(_executionEnvironment);
     if (!identical(_resumeEnvironment, _executionEnvironment)) {
       refs.add(_resumeEnvironment);
+    }
+    final hook = debugHookFunction;
+    if (hook != null) {
+      refs.add(hook);
     }
     final continuation = _continuation;
     if (continuation != null) {
@@ -937,10 +1189,11 @@ class Coroutine extends GCObject {
 
   @override
   void free() {
-    // Clean up resources
+    status = CoroutineStatus.dead;
     completer = null;
     _executionTask = null;
     _continuation = null;
+    _finalizeTermination();
   }
 
   /// Records an error that occurred in the coroutine

@@ -71,6 +71,16 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// The name of the function, if this value is a named function.
   String? functionName;
 
+  /// Source line (0-based) where the function definition begins.
+  int? debugLineDefined;
+
+  /// Whether debug inspection should behave like a stripped Lua chunk.
+  ///
+  /// This preserves Lua 5.5 semantics for functions loaded from stripped
+  /// legacy chunks: no real local/upvalue names, no source lines, and empty
+  /// activelines.
+  bool strippedDebugInfo = false;
+
   /// Whether this value is a multi-result value.
   bool isMulti = false;
 
@@ -298,6 +308,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     this.functionBody,
     this.closureEnvironment,
     this.functionName,
+    this.debugLineDefined,
+    this.strippedDebugInfo = false,
   }) {
     dynamic normalized = raw;
     if (normalized is Map) {
@@ -639,6 +651,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         functionBody: functionBody,
         closureEnvironment: closureEnvironment,
         functionName: functionName,
+        debugLineDefined: debugLineDefined,
+        strippedDebugInfo: strippedDebugInfo,
       );
     }
     // For non-table values, copy with metatable
@@ -652,6 +666,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       functionBody: functionBody,
       closureEnvironment: closureEnvironment,
       functionName: functionName,
+      debugLineDefined: debugLineDefined,
+      strippedDebugInfo: strippedDebugInfo,
     );
   }
 
@@ -1869,6 +1885,11 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           '${list.map((e) => e.raw)}',
       category: 'Value',
     );
+    final debugMetamethodName = switch (s) {
+      '__gc' => '__gc',
+      _ when s.startsWith('__') && s.length > 2 => s.substring(2),
+      _ => s,
+    };
     final method = getMetamethod(s);
     if (method == null) {
       throw UnsupportedError("attempt to call a nil value");
@@ -1982,9 +2003,14 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       if (interpreter != null) {
         final callee = Value(
           method,
-          functionName: s.startsWith('__') && s.length > 2 ? s.substring(2) : null,
+          functionName: debugMetamethodName,
         )..interpreter = interpreter;
-        return interpreter.callFunction(callee, list);
+        return interpreter.callFunction(
+          callee,
+          list,
+          debugName: debugMetamethodName,
+          debugNameWhat: 'metamethod',
+        );
       }
       try {
         var result = method.call(list);
@@ -2011,7 +2037,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         final interpreter =
             method._resolveInterpreter() ?? _resolveInterpreter();
         if (interpreter != null && method._isLuaClosureValue()) {
-          var result = await interpreter.callFunction(method, list);
+          var result = await interpreter.callFunction(
+            method,
+            list,
+            debugName: debugMetamethodName,
+            debugNameWhat: 'metamethod',
+          );
           result = await normalizeTailCallSignal(result);
           return result;
         }
@@ -2038,7 +2069,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       } else if (method.raw is BuiltinFunction) {
         final interpreter = method._resolveInterpreter() ?? _resolveInterpreter();
         if (interpreter != null) {
-          return interpreter.callFunction(method, list);
+          return interpreter.callFunction(
+            method,
+            list,
+            debugName: debugMetamethodName,
+            debugNameWhat: 'metamethod',
+          );
         }
         try {
           var result = (method.raw as BuiltinFunction).call(list);
@@ -2067,7 +2103,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         final interpreter = _resolveInterpreter();
         if (interpreter != null) {
           try {
-            final result = await interpreter.callFunction(method, list);
+            final result = await interpreter.callFunction(
+              method,
+              list,
+              debugName: debugMetamethodName,
+              debugNameWhat: 'metamethod',
+            );
             // For __index metamethod, only return the first value if multiple values are returned
             if (s == '__index') {
               if (result is Value && result.isMulti && result.raw is List) {
@@ -2104,7 +2145,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
             method._resolveInterpreter() ?? _resolveInterpreter();
         if (interpreter != null) {
           try {
-            final result = await interpreter.callFunction(method, list);
+            final result = await interpreter.callFunction(
+              method,
+              list,
+              debugName: debugMetamethodName,
+              debugNameWhat: 'metamethod',
+            );
             if (s == '__index') {
               if (result is Value && result.isMulti && result.raw is List) {
                 final values = result.raw as List;
@@ -2141,7 +2187,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       final interpreter = _resolveInterpreter();
       if (interpreter != null) {
         try {
-          final result = await interpreter.callFunction(Value(method), list);
+          final result = await interpreter.callFunction(
+            Value(method),
+            list,
+            debugName: debugMetamethodName,
+            debugNameWhat: 'metamethod',
+          );
           return result;
         } on TailCallException catch (t) {
           final callee = t.functionValue is Value
@@ -2159,6 +2210,11 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   }
 
   Object? callMetamethod(String s, List<Value> list) {
+    final debugMetamethodName = switch (s) {
+      '__gc' => '__gc',
+      _ when s.startsWith('__') && s.length > 2 => s.substring(2),
+      _ => s,
+    };
     final method = getMetamethod(s);
     if (method == null) {
       throw UnsupportedError("attempt to call a nil value");
@@ -2217,11 +2273,19 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     } else if (method is BuiltinFunction) {
       return normalizeTailCallSignal(method.call(list));
     } else if (method is Value) {
+      if (method.functionName == null && s.startsWith('__') && s.length > 2) {
+        method.functionName = debugMetamethodName;
+      }
       if (method.raw is Function) {
         final interpreter =
             method._resolveInterpreter() ?? _resolveInterpreter();
         if (interpreter != null && method._isLuaClosureValue()) {
-          return interpreter.callFunction(method, list);
+          return interpreter.callFunction(
+            method,
+            list,
+            debugName: debugMetamethodName,
+            debugNameWhat: 'metamethod',
+          );
         }
         final result = (method.raw as Function)(list);
         return normalizeTailCallSignal(result);
@@ -2234,20 +2298,35 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           method.raw is FunctionBody) {
         final interpreter = _resolveInterpreter();
         if (interpreter != null) {
-          return interpreter.callFunction(method, list);
+          return interpreter.callFunction(
+            method,
+            list,
+            debugName: debugMetamethodName,
+            debugNameWhat: 'metamethod',
+          );
         }
         throw UnsupportedError("No interpreter available to call function");
       } else if (method.raw is LuaCallableArtifact) {
         final interpreter = _resolveInterpreter();
         if (interpreter != null) {
-          return interpreter.callFunction(method, list);
+          return interpreter.callFunction(
+            method,
+            list,
+            debugName: debugMetamethodName,
+            debugNameWhat: 'metamethod',
+          );
         }
         throw UnsupportedError("No interpreter available to call function");
       }
     } else if (method is FunctionDef) {
       final interpreter = _resolveInterpreter();
       if (interpreter != null) {
-        return interpreter.callFunction(Value(method), list);
+        return interpreter.callFunction(
+          Value(method),
+          list,
+          debugName: debugMetamethodName,
+          debugNameWhat: 'metamethod',
+        );
       }
       throw UnsupportedError("No interpreter available to call function");
     }
@@ -2413,7 +2492,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   Future<Object?> call(List<Object?> args) async {
     if (raw is Function) {
       // Direct function call
-      return raw(args);
+      final result = raw(args);
+      return result is Future ? await result : result;
     } else if (raw is BuiltinFunction) {
       final result = raw.call(args);
       return result is Future ? await result : result;
@@ -2428,14 +2508,16 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       final callArgs = [this, ...args];
 
       if (callMethod is Function) {
-        return await callMethod(callArgs);
+        final result = callMethod(callArgs);
+        return result is Future ? await result : result;
       } else if (callMethod is Value) {
         // If the metamethod is a Value, it may be:
         // - a direct Dart function (raw is Function)
         // - a Lua function (FunctionDef/FunctionBody/Literal)
         // - a table with its own __call chain
         if (callMethod.raw is Function) {
-          return await callMethod.raw(callArgs);
+          final result = callMethod.raw(callArgs);
+          return result is Future ? await result : result;
         }
         final interpreter = _resolveInterpreter();
         if (interpreter != null) {

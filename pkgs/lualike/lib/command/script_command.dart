@@ -63,7 +63,14 @@ class ScriptCommand extends BaseCommand {
         return;
       }
 
-      final sourceCode = utf8.decode(bytes);
+      final sourceCode = () {
+        try {
+          return utf8.decode(bytes);
+        } on FormatException {
+          // Lua suite files such as strings.lua still use raw Latin-1 bytes.
+          return latin1.decode(bytes);
+        }
+      }();
 
       await bridge.execute(sourceCode, scriptPath: absolutePath);
     } catch (e, s) {

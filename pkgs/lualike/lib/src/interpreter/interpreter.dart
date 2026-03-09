@@ -95,7 +95,9 @@ class Interpreter extends AstVisitor<Object?>
       return cached;
     }
 
-    final luaString = literalStringInternPool[key] ??= LuaString.fromBytes(bytes);
+    final luaString = literalStringInternPool[key] ??= LuaString.fromBytes(
+      bytes,
+    );
     final value = Value(luaString)..interpreter = this;
     literalValueCache[key] = value;
     return value;
@@ -111,8 +113,13 @@ class Interpreter extends AstVisitor<Object?>
   Value? debugHookFunction;
   String debugHookMask = '';
   int debugHookCount = 0;
+  int debugHookCountRemaining = 0;
+  @override
+  late final Value debugRegistry = _createDebugRegistry();
   bool _runningDebugHook = false;
   bool _nextCallIsDebugHook = false;
+  final Map<String?, int> _lastDebugHookLineBySource = <String?, int>{};
+  final Set<AstNode> _skipPostExecutionHooks = HashSet<AstNode>.identity();
 
   /// Fast path cache for local variable boxes in the current function.
   Map<String, Box<dynamic>>? _currentFastLocals;
@@ -138,27 +145,221 @@ class Interpreter extends AstVisitor<Object?>
   @override
   final Map<String, Value> literalValueCache = <String, Value>{};
 
-  Future<void> fireDebugHook(String event) async {
+  Future<void> fireDebugHook(String event, {int? line}) async {
     if (_runningDebugHook) {
       return;
     }
     final hook = debugHookFunction;
-    final eventKey = event.isEmpty ? '' : event.substring(0, 1);
-    if (hook == null || eventKey.isEmpty || !debugHookMask.contains(eventKey)) {
+    final eventKey = switch (event) {
+      'line' => 'l',
+      'call' => 'c',
+      'tail call' => 'c',
+      'return' || 'tail return' => 'r',
+      'count' => '',
+      _ => event.isEmpty ? '' : event.substring(0, 1),
+    };
+    final enabled =
+        hook != null &&
+        ((event == 'count' && debugHookCount > 0) ||
+            (eventKey.isNotEmpty && debugHookMask.contains(eventKey)));
+    if (!enabled) {
       return;
     }
 
     _runningDebugHook = true;
     _nextCallIsDebugHook = true;
     try {
-      await _callFunction(
-        hook,
-        <Object?>[Value(event)],
-        callerFunctionName: 'hook',
-      );
+      if (line != null) {
+        final frame =
+            getVisibleFrameAtLevel(1, skipDebugHooks: true) ?? callStack.top;
+        if (frame != null) {
+          frame.currentLine = line;
+        }
+      }
+      final hookArgs = <Object?>[Value(event)];
+      if (line != null) {
+        hookArgs.add(Value(line));
+      }
+      await _callFunction(hook, hookArgs, callerFunctionName: 'hook');
     } finally {
       _runningDebugHook = false;
     }
+  }
+
+  void resetDebugHookCounter() {
+    debugHookCountRemaining = debugHookCount;
+  }
+
+  Value _createDebugRegistry() {
+    final hookKey = Value(
+      {},
+      interpreter: this,
+      metatable: <String, dynamic>{'__mode': Value('k')},
+    );
+    return Value(<String, dynamic>{'_HOOKKEY': hookKey}, interpreter: this);
+  }
+
+  void rememberDebugHookLine(int line, {String? source}) {
+    if (line < 0) {
+      if (source == null) {
+        _lastDebugHookLineBySource.clear();
+      } else {
+        _lastDebugHookLineBySource.remove(source);
+      }
+      return;
+    }
+    _lastDebugHookLineBySource[source] = line;
+  }
+
+  Future<void> maybeFireLineDebugHook(
+    int oneBasedLine, {
+    bool force = false,
+  }) async {
+    if (_runningDebugHook || debugHookFunction == null) {
+      return;
+    }
+    if (!debugHookMask.contains('l')) {
+      return;
+    }
+
+    final top = callStack.top;
+    if (top == null || top.isDebugHook) {
+      return;
+    }
+    if (top.callable?.strippedDebugInfo == true) {
+      return;
+    }
+
+    final source = top.scriptPath ?? currentScriptPath;
+    if (!force) {
+      if (top.lastDebugHookLine == oneBasedLine) {
+        return;
+      }
+      if (_lastDebugHookLineBySource[source] == oneBasedLine) {
+        return;
+      }
+    }
+
+    top.lastDebugHookLine = oneBasedLine;
+    rememberDebugHookLine(oneBasedLine, source: source);
+    await fireDebugHook('line', line: oneBasedLine);
+  }
+
+  void suppressPostExecutionHook(AstNode node) {
+    _skipPostExecutionHooks.add(node);
+  }
+
+  bool consumeSuppressedPostExecutionHook(AstNode node) {
+    return _skipPostExecutionHooks.remove(node);
+  }
+
+  bool shouldFireStatementHookAfterExecution(AstNode node) {
+    return _fireStatementHookAfterExecution(node);
+  }
+
+  Future<void> maybeFireStatementDebugHooks(AstNode node) async {
+    if (_runningDebugHook || debugHookFunction == null) {
+      return;
+    }
+
+    await maybeFireCountDebugHook();
+
+    if (!debugHookMask.contains('l')) {
+      return;
+    }
+
+    final line = _debugHookLineForNode(node);
+    if (line == null) {
+      return;
+    }
+
+    final top = callStack.top;
+    if (top == null || top.isDebugHook) {
+      return;
+    }
+    if (top.callable?.strippedDebugInfo == true) {
+      return;
+    }
+
+    final oneBasedLine = line + 1;
+    await maybeFireLineDebugHook(oneBasedLine);
+  }
+
+  Future<void> maybeFireCountDebugHook() async {
+    if (_runningDebugHook || debugHookFunction == null || debugHookCount <= 0) {
+      return;
+    }
+
+    debugHookCountRemaining -= 1;
+    if (debugHookCountRemaining <= 0) {
+      resetDebugHookCounter();
+      await fireDebugHook('count');
+    }
+  }
+
+  int? _debugHookLineForNode(AstNode node) {
+    int lastMeaningfulSpanLine(SourceSpan span) {
+      var endLine = span.end.line;
+      if (span.end.column == 0 && endLine > span.start.line) {
+        return endLine - 1;
+      }
+      if (endLine > span.start.line &&
+          RegExp(r'\n[ \t]*$').hasMatch(span.text)) {
+        return endLine - 1;
+      }
+      return endLine;
+    }
+
+    if (node case Assignment(exprs: final exprs) when exprs.length == 1) {
+      final expr = exprs.first;
+      if (expr is BinaryExpression &&
+          expr.operatorLine != null &&
+          expr.right.span != null &&
+          expr.left.span != null &&
+          expr.left.span!.start.line != expr.right.span!.start.line) {
+        return expr.operatorLine;
+      }
+    }
+
+    final span = node.span;
+    if (span == null) {
+      return null;
+    }
+
+    var endLine = span.end.line;
+    if (span.end.column == 0 && endLine > span.start.line) {
+      endLine -= 1;
+    }
+
+    return switch (node) {
+      LocalDeclaration(exprs: final exprs, span: final SourceSpan span)
+          when exprs.any((expr) => expr is FunctionLiteral) =>
+        lastMeaningfulSpanLine(span),
+      DoBlock() => null,
+      IfStatement() ||
+      ElseIfClause() ||
+      WhileStatement() ||
+      RepeatUntilLoop() ||
+      ForLoop() ||
+      ForInLoop() ||
+      FunctionDef() ||
+      LocalFunctionDef() => endLine,
+      _ => span.start.line,
+    };
+  }
+
+  bool _fireStatementHookAfterExecution(AstNode node) {
+    return switch (node) {
+      IfStatement() ||
+      ElseIfClause() ||
+      WhileStatement() ||
+      RepeatUntilLoop() ||
+      ForLoop() ||
+      ForInLoop() ||
+      FunctionDef() ||
+      LocalFunctionDef() => true,
+      _ => false,
+    };
   }
 
   /// Global environment for variable storage.
@@ -250,19 +451,46 @@ class Interpreter extends AstVisitor<Object?>
     _hiddenDebugFrameEnvs.remove(env);
   }
 
-  CallFrame? getVisibleFrameAtLevel(int level) {
+  CallFrame? getVisibleFrameAtLevel(
+    int level, {
+    bool skipDebugHooks = false,
+    bool hideEnclosingDebugHooks = false,
+  }) {
     if (level <= 0) {
       return null;
     }
 
     var visibleLevel = 0;
+    var keptCurrentHookFrame = false;
     for (final frame in callStack.frames.toList().reversed) {
+      final isHookFrame = frame.isDebugHook || frame.debugNameWhat == 'hook';
+      if (skipDebugHooks && isHookFrame) {
+        continue;
+      }
+      if (hideEnclosingDebugHooks && isHookFrame) {
+        if (keptCurrentHookFrame) {
+          continue;
+        }
+        keptCurrentHookFrame = true;
+      }
       final env = frame.env;
       if (env != null && _hiddenDebugFrameEnvs.contains(env)) {
         continue;
       }
       visibleLevel++;
       if (visibleLevel == level) {
+        return frame;
+      }
+    }
+    return null;
+  }
+
+  CallFrame? findFrameForCallable(Value? callable) {
+    if (callable == null) {
+      return null;
+    }
+    for (final frame in callStack.frames.toList().reversed) {
+      if (identical(frame.callable, callable)) {
         return frame;
       }
     }
@@ -355,6 +583,7 @@ class Interpreter extends AstVisitor<Object?>
 
   /// Stack of active protected call contexts
   final List<bool> _protectedCallStack = [];
+  final List<Iterable<Object?> Function()> _externalGcRootProviders = [];
 
   /// Check if we're currently in a protected call context
   @override
@@ -396,6 +625,7 @@ class Interpreter extends AstVisitor<Object?>
   /// will not be accessed again in the normal execution of the program."
   @override
   List<Object?> getRoots() {
+    _pruneDeadCoroutineRefs();
     return [
       _currentEnv, // Current environment (includes globals)
       callStack, // Active call stack
@@ -403,8 +633,19 @@ class Interpreter extends AstVisitor<Object?>
       _traceBuffer, // The circular buffer
       _currentCoroutine, // Currently executing coroutine
       _mainThread, // Main thread coroutine
+      debugRegistry, // Persistent debug registry
+      for (final ref in _activeCoroutines) ref.target, // Suspended coroutines
       ...IOLib.gcRoots, // Current/default I/O handles live outside environments
+      for (final provider in _externalGcRootProviders) ...provider(),
     ];
+  }
+
+  void pushExternalGcRoots(Iterable<Object?> Function() provider) {
+    _externalGcRootProviders.add(provider);
+  }
+
+  void popExternalGcRoots(Iterable<Object?> Function() provider) {
+    _externalGcRootProviders.remove(provider);
   }
 
   @override
@@ -418,6 +659,26 @@ class Interpreter extends AstVisitor<Object?>
   void setCurrentEnv(Environment env) {
     Logger.debugLazy(
       () => 'Interpreter.setCurrentEnv() called, changing environment',
+      category: 'Interpreter',
+      contextBuilder: () => {
+        'from_hash': _currentEnv.hashCode,
+        'to_hash': env.hashCode,
+      },
+    );
+    _currentEnv = env;
+    if (callStack.top case final CallFrame frame?) {
+      frame.env = env;
+    }
+  }
+
+  /// Restores the interpreter's ambient environment without rebinding the
+  /// currently executing frame's local environment snapshot.
+  ///
+  /// Function-body cleanup uses this when unwinding back to a caller so debug
+  /// hooks can still inspect the callee frame's locals before it is popped.
+  void restoreCurrentEnv(Environment env) {
+    Logger.debugLazy(
+      () => 'Interpreter.restoreCurrentEnv() called, restoring environment',
       category: 'Interpreter',
       contextBuilder: () => {
         'from_hash': _currentEnv.hashCode,
@@ -551,9 +812,11 @@ class Interpreter extends AstVisitor<Object?>
           (useStartLine ? node.span!.start.line : node.span!.end.line) + 1;
       frame.currentLine = currentLine;
 
-      // Update the active call frame, keeping line numbers non-decreasing
+      // Update the active call frame to the line of the node currently being
+      // evaluated. Using a monotonic max drifts `debug.getinfo(..., "l")`
+      // forward to later statements inside the same function.
       final top = callStack.top;
-      if (top != null && top.currentLine < currentLine) {
+      if (top != null) {
         top.currentLine = currentLine;
       }
     } else {
@@ -626,32 +889,42 @@ class Interpreter extends AstVisitor<Object?>
     try {
       luaError?.hasBeenReported = true;
 
-      // Build stack trace
-      final luaStackTrace = callStack.toLuaStackTrace();
+      // Build stack trace. For active coroutines, preserve only the
+      // coroutine-owned portion of the explicit call stack before unwinding.
+      final activeCoroutine = getCurrentCoroutine();
+      activeCoroutine?.captureCurrentCallStack();
+      final luaStackTrace = activeCoroutine != null
+          ? callStack.toLuaStackTraceFromDepth(activeCoroutine.callStackBaseDepth)
+          : callStack.toLuaStackTrace();
+      if (luaError != null && luaError.luaStackTrace == null) {
+        luaError.luaStackTrace = luaStackTrace;
+      }
 
-      // Add recent call frames
-      int start = _traceIndex;
-      final List<LuaStackFrame> recentTrace = [];
-      for (int i = 0; i < _maxTraceFrames; i++) {
-        final frame = _traceBuffer[(start + i) % _maxTraceFrames];
-        if (frame.callNode != null) {
-          // Only add frames that have a call node and aren't duplicates
-          bool isDuplicate = false;
-          for (final existingFrame in luaStackTrace.frames) {
-            if (frame.callNode == existingFrame.node) {
-              isDuplicate = true;
-              break;
+      // Add recent call frames for non-coroutine errors only. Coroutine
+      // tracebacks need to stay scoped to the coroutine-owned stack slice.
+      if (activeCoroutine == null) {
+        int start = _traceIndex;
+        final List<LuaStackFrame> recentTrace = [];
+        for (int i = 0; i < _maxTraceFrames; i++) {
+          final frame = _traceBuffer[(start + i) % _maxTraceFrames];
+          if (frame.callNode != null) {
+            bool isDuplicate = false;
+            for (final existingFrame in luaStackTrace.frames) {
+              if (frame.callNode == existingFrame.node) {
+                isDuplicate = true;
+                break;
+              }
+            }
+
+            if (!isDuplicate) {
+              recentTrace.add(
+                LuaStackFrame.fromNode(frame.callNode!, frame.functionName),
+              );
             }
           }
-
-          if (!isDuplicate) {
-            recentTrace.add(
-              LuaStackFrame.fromNode(frame.callNode!, frame.functionName),
-            );
-          }
         }
+        luaStackTrace.frames.addAll(recentTrace);
       }
-      luaStackTrace.frames.addAll(recentTrace);
 
       // Format error message like Lua CLI
       String errorMsg = message;
@@ -912,6 +1185,10 @@ class Interpreter extends AstVisitor<Object?>
         },
       );
       recordTrace(node);
+      final hookAfterExecution = _fireStatementHookAfterExecution(node);
+      if (!hookAfterExecution) {
+        await maybeFireStatementDebugHooks(node);
+      }
       var statementCompleted = false;
       Stopwatch? statementStopwatch;
       if (Logger.enabled) {
@@ -919,6 +1196,9 @@ class Interpreter extends AstVisitor<Object?>
       }
       try {
         result = await node.accept(this);
+        if (hookAfterExecution && !consumeSuppressedPostExecutionHook(node)) {
+          await maybeFireStatementDebugHooks(node);
+        }
         statementCompleted = true;
       } on GotoException catch (e) {
         if (!labelMap.containsKey(e.label)) {
@@ -1072,8 +1352,18 @@ class Interpreter extends AstVisitor<Object?>
 
   /// Explicitly call a function with the given arguments
   @override
-  Future<Object?> callFunction(Value function, List<Object?> args) async {
-    return await _callFunction(function, args);
+  Future<Object?> callFunction(
+    Value function,
+    List<Object?> args, {
+    String? debugName,
+    String debugNameWhat = '',
+  }) async {
+    return await _callFunction(
+      function,
+      args,
+      debugNameOverride: debugName,
+      debugNameWhatOverride: debugNameWhat,
+    );
   }
 
   @override

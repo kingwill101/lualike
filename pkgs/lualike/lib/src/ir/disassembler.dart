@@ -38,7 +38,7 @@ void _appendPrototype(
   );
 
   if (includeConstants && prototype.constants.isNotEmpty) {
-    buffer.writeln('${indent}  constants:');
+    buffer.writeln('$indent  constants:');
     for (var i = 0; i < prototype.constants.length; i++) {
       final constant = prototype.constants[i];
       buffer.writeln(
@@ -48,7 +48,7 @@ void _appendPrototype(
   }
 
   if (prototype.constSealPoints.isNotEmpty) {
-    buffer.writeln('${indent}  const seals:');
+    buffer.writeln('$indent  const seals:');
     final entries = prototype.constSealPoints.entries.toList()
       ..sort((a, b) => a.key.compareTo(b.key));
     for (final entry in entries) {
@@ -58,7 +58,7 @@ void _appendPrototype(
   }
 
   final lineInfo = prototype.debugInfo?.lineInfo;
-  buffer.writeln('${indent}  instructions:');
+  buffer.writeln('$indent  instructions:');
   for (var i = 0; i < prototype.instructions.length; i++) {
     final instruction = prototype.instructions[i];
     final line = includeLineInfo && lineInfo != null && i < lineInfo.length

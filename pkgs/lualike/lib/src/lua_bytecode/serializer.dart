@@ -12,7 +12,9 @@ Uint8List serializeLuaBytecodeChunk(LuaBytecodeBinaryChunk chunk) {
 
 final class _LuaBytecodeWriter {
   final BytesBuilder _bytes = BytesBuilder(copy: false);
+  final Map<String, int> _savedStrings = <String, int>{};
   var _length = 0;
+  var _nextStringIndex = 1;
 
   Uint8List takeBytes() => _bytes.takeBytes();
 
@@ -129,10 +131,18 @@ final class _LuaBytecodeWriter {
       return;
     }
 
+    final reuseIndex = _savedStrings[value];
+    if (reuseIndex != null) {
+      _writeVarint(0);
+      _writeVarint(reuseIndex);
+      return;
+    }
+
     final bytes = value.codeUnits;
     _writeVarint(bytes.length + 1);
     _writeBytes(bytes);
     _writeByte(0);
+    _savedStrings[value] = _nextStringIndex++;
   }
 
   void _writeLuaInteger(int value) {

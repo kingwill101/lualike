@@ -12,12 +12,14 @@ final Expando<_TableFieldInlineCache> _tableFieldAccessCache =
 class _TableIndexInlineCache {
   Value? table;
   int tableVersion = -1;
-  Value? index;
+  Object? indexKey;
   Value? value;
 }
 
 final Expando<_TableIndexInlineCache> _tableIndexAccessCache =
     Expando<_TableIndexInlineCache>('tableIndexAccessCache');
+
+Object? _tableIndexCacheKey(Value index) => index.raw;
 
 mixin InterpreterTableMixin on AstVisitor<Object?> {
   // Required getters that must be implemented by the class using this mixin
@@ -343,7 +345,8 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       if (cache != null) {
         final tableMatch = identical(cache.table, tableVal);
         final versionMatch = cache.tableVersion == tableVal.tableVersion;
-        final indexMatch = cache.index == indexVal;
+        final indexMatch =
+            cache.indexKey != null && indexVal.equals(cache.indexKey!);
         final hasValue = cache.value != null;
 
         if (Logger.enabled) {
@@ -430,7 +433,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       cache
         ..table = tableVal
         ..tableVersion = tableVal.tableVersion
-        ..index = indexVal
+        ..indexKey = _tableIndexCacheKey(indexVal)
         ..value = result;
       if (Logger.enabled) {
         Logger.debug(

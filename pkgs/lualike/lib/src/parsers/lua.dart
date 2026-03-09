@@ -388,71 +388,83 @@ class LuaGrammarDefinition extends GrammarDefinition {
     // --- multiplicative */%// ---
     builder.group().left(
       ref0(_mulOperator),
-      (dynamic a, dynamic op, dynamic b) =>
-          BinaryExpression(a as AstNode, op as String, b as AstNode),
+      (dynamic a, dynamic op, dynamic b) => _makeBinaryExpression(
+        a as AstNode,
+        op,
+        b as AstNode,
+      ),
     );
 
     // --- additive + - ---
     builder.group().left(
       ref0(_addOperator),
-      (dynamic a, dynamic op, dynamic b) =>
-          BinaryExpression(a as AstNode, op as String, b as AstNode),
+      (dynamic a, dynamic op, dynamic b) => _makeBinaryExpression(
+        a as AstNode,
+        op,
+        b as AstNode,
+      ),
     );
 
     // --- concatenation .. (right-assoc) ---
     builder.group().right(
-      _token('..'),
+      _binaryOperatorToken(_token('..')),
       (dynamic a, dynamic op, dynamic b) =>
-          BinaryExpression(a as AstNode, '..', b as AstNode),
+          _makeBinaryExpression(a as AstNode, op, b as AstNode),
     );
 
     // --- bitwise shift << >> ---
     builder.group().left(
       ref0(_shiftOperator),
-      (dynamic a, dynamic op, dynamic b) =>
-          BinaryExpression(a as AstNode, op as String, b as AstNode),
+      (dynamic a, dynamic op, dynamic b) => _makeBinaryExpression(
+        a as AstNode,
+        op,
+        b as AstNode,
+      ),
     );
 
     // --- bitwise and & ---
     builder.group().left(
-      _token('&'),
+      _binaryOperatorToken(_token('&')),
       (dynamic a, dynamic op, dynamic b) =>
-          BinaryExpression(a as AstNode, '&', b as AstNode),
+          _makeBinaryExpression(a as AstNode, op, b as AstNode),
     );
 
     // --- bitwise xor ~ ---
     builder.group().left(
-      _token('~'),
+      _binaryOperatorToken(_token('~')),
       (dynamic a, dynamic op, dynamic b) =>
-          BinaryExpression(a as AstNode, '~', b as AstNode),
+          _makeBinaryExpression(a as AstNode, op, b as AstNode),
     );
 
     // --- bitwise or | ---
     builder.group().left(
-      _token('|'),
+      _binaryOperatorToken(_token('|')),
       (dynamic a, dynamic op, dynamic b) =>
-          BinaryExpression(a as AstNode, '|', b as AstNode),
+          _makeBinaryExpression(a as AstNode, op, b as AstNode),
     );
 
     // --- comparison < > <= >= == ~= ---
     builder.group().left(
       ref0(_comparisonOperator),
-      (dynamic a, dynamic op, dynamic b) =>
-          BinaryExpression(a as AstNode, op as String, b as AstNode),
+      (dynamic a, dynamic op, dynamic b) => _makeBinaryExpression(
+        a as AstNode,
+        op,
+        b as AstNode,
+      ),
     );
 
     // --- logical and ---
     builder.group().left(
-      _token('and'),
+      _binaryOperatorToken(_token('and')),
       (dynamic a, dynamic op, dynamic b) =>
-          BinaryExpression(a as AstNode, 'and', b as AstNode),
+          _makeBinaryExpression(a as AstNode, op, b as AstNode),
     );
 
     // --- logical or (lowest precedence) ---
     builder.group().left(
-      _token('or'),
+      _binaryOperatorToken(_token('or')),
       (dynamic a, dynamic op, dynamic b) =>
-          BinaryExpression(a as AstNode, 'or', b as AstNode),
+          _makeBinaryExpression(a as AstNode, op, b as AstNode),
     );
 
     return builder.build().cast<AstNode>();
@@ -462,20 +474,23 @@ class LuaGrammarDefinition extends GrammarDefinition {
   Parser _unaryOperator() =>
       (_token('-') | _token('#') | _token('not') | _token('~'));
 
-  Parser _mulOperator() =>
-      _token('//') | _token('*') | _token('/') | _token('%');
+  Parser _mulOperator() => _binaryOperatorToken(
+    _token('//') | _token('*') | _token('/') | _token('%'),
+  );
 
-  Parser _addOperator() => _token('+') | _token('-');
+  Parser _addOperator() => _binaryOperatorToken(_token('+') | _token('-'));
 
-  Parser _comparisonOperator() =>
-      _token('<=') |
-      _token('>=') |
-      _token('<') |
-      _token('>') |
-      _token('==') |
-      _token('~=');
+  Parser _comparisonOperator() => _binaryOperatorToken(
+    _token('<=') |
+        _token('>=') |
+        _token('<') |
+        _token('>') |
+        _token('==') |
+        _token('~='),
+  );
 
-  Parser _shiftOperator() => _token('<<') | _token('>>');
+  Parser _shiftOperator() =>
+      _binaryOperatorToken(_token('<<') | _token('>>'));
 
   // ---------- Primary expressions -----------------------------------------
   Parser _primaryExpression() =>
@@ -489,8 +504,11 @@ class LuaGrammarDefinition extends GrammarDefinition {
       ref0(_tableConstructor).trim(ref0(_whiteSpaceAndComments)) |
       ref0(_groupedExpression).trim(ref0(_whiteSpaceAndComments));
 
-  Parser _groupedExpression() => (_token('(') & ref0(_expression) & _token(')'))
-      .map((values) => GroupedExpression(values[1] as AstNode));
+  Parser _groupedExpression() => _span(
+    (_token('(') & ref0(_expression) & _token(')')).map(
+      (values) => GroupedExpression(values[1] as AstNode),
+    ),
+  );
 
   Parser _nilLiteral() => position()
       .seq(_token('nil'))
@@ -1158,7 +1176,8 @@ class LuaGrammarDefinition extends GrammarDefinition {
   // Parses a chain of '^' operators with right associativity. The right-hand
   // operand is a full unary expression, matching Lua’s grammar.
   Parser _powerExpression() {
-    final tail = (_token('^') & ref0(_unaryExpression)).star();
+    final tail = (_binaryOperatorToken(_token('^')) & ref0(_unaryExpression))
+        .star();
 
     return (ref0(_primaryExpression) & tail).map((vals) {
       AstNode node = vals[0] as AstNode;
@@ -1166,11 +1185,70 @@ class LuaGrammarDefinition extends GrammarDefinition {
 
       // Build right-associative: process from right to left.
       for (var i = rest.length - 1; i >= 0; i--) {
-        final rhs = rest[i][1] as AstNode; // pair = [ '^', rhs ]
-        node = BinaryExpression(node, '^', rhs);
+        final op = rest[i][0];
+        final rhs = rest[i][1] as AstNode;
+        node = _makeBinaryExpression(node, op, rhs);
       }
       return node;
     });
+  }
+
+  Parser _binaryOperatorToken(Parser tokenParser) {
+    return (position() & tokenParser).map((vals) {
+      final offset = vals[0] as int;
+      final op = vals[1] as String;
+      final line = _sourceFile.location(offset).line;
+      return (op: op, line: line);
+    });
+  }
+
+  BinaryExpression _makeBinaryExpression(
+    AstNode left,
+    dynamic opSpec,
+    AstNode right,
+  ) {
+    final op = switch (opSpec) {
+      String value => value,
+      ({String op, int line}) value => value.op,
+      _ => opSpec.toString(),
+    };
+    final operatorLine = switch (opSpec) {
+      ({String op, int line}) value => value.line,
+      _ => null,
+    };
+    int? adjustedOperatorLine = operatorLine;
+    if (left.span != null && right.span != null) {
+      final searchStart = left.span!.start.offset;
+      final searchEnd = right.span!.start.offset;
+      if (searchStart <= searchEnd) {
+        final betweenText = _sourceFile.span(searchStart, searchEnd).text;
+        final opIndex = betweenText.lastIndexOf(op);
+        if (opIndex >= 0) {
+          adjustedOperatorLine =
+              _sourceFile.location(searchStart + opIndex).line;
+        } else if (adjustedOperatorLine != null &&
+            left.span!.start.line != right.span!.start.line &&
+            right.span!.start.line > left.span!.start.line + 1 &&
+            adjustedOperatorLine <= left.span!.start.line) {
+          adjustedOperatorLine = right.span!.start.line - 1;
+        }
+      }
+    }
+
+    final node = BinaryExpression(
+      left,
+      op,
+      right,
+      operatorLine: adjustedOperatorLine,
+    );
+    if (left.span != null && right.span != null) {
+      node.setSpan(_sourceFile.span(left.span!.start.offset, right.span!.end.offset));
+    } else if (left.span != null) {
+      node.setSpan(left.span!);
+    } else if (right.span != null) {
+      node.setSpan(right.span!);
+    }
+    return node;
   }
 
   // ----------------- Function Definitions ---------------------------------
@@ -1194,8 +1272,10 @@ class LuaGrammarDefinition extends GrammarDefinition {
     }),
   );
 
-  Parser _functionLiteral() => (_token('function') & _funcBody()).map(
-    (vals) => FunctionLiteral(vals[1] as FunctionBody),
+  Parser _functionLiteral() => _span(
+    (_token('function') & _funcBody()).map(
+      (vals) => FunctionLiteral(vals[1] as FunctionBody),
+    ),
   );
 
   Parser _funcName() =>

@@ -155,7 +155,10 @@ List<Object?> _expandVarargValue(Object? value) {
 }
 
 Object? _resolveCurrentVarargSource(Interpreter interpreter, Environment env) {
-  final namedVararg = interpreter.getCurrentFunction()?.functionBody?.varargName;
+  final namedVararg = interpreter
+      .getCurrentFunction()
+      ?.functionBody
+      ?.varargName;
   if (namedVararg != null) {
     return env.get(namedVararg.name);
   }
@@ -182,11 +185,23 @@ void _ensureClosureDebugSpan(
   AstNode definitionNode,
   FunctionBody functionBody,
 ) {
+  final definitionSpan = definitionNode.span;
+  if (definitionSpan != null) {
+    var hookLine = definitionSpan.start.line;
+    if (functionBody.body.isEmpty) {
+      hookLine = definitionSpan.end.line;
+      if (definitionSpan.end.column == 0 &&
+          hookLine > definitionSpan.start.line) {
+        hookLine -= 1;
+      }
+    }
+    closure.debugLineDefined = hookLine;
+  }
   if (closure.functionBody?.span != null) {
     return;
   }
 
-  final nodeSpan = definitionNode.span;
+  final nodeSpan = definitionSpan;
   if (nodeSpan is FileSpan) {
     final lastStatementSpan = functionBody.body.isNotEmpty
         ? functionBody.body.last.span
@@ -214,6 +229,37 @@ String? _sourceLabelForAst(Environment env, AstNode node) => switch (node) {
   _ => null,
 };
 
+({String? name, String namewhat}) _frameNameInfoForCall(
+  Environment env,
+  AstNode? callNode,
+  String fallbackFunctionName,
+) {
+  if (callNode case MethodCall(methodName: final Identifier methodName)) {
+    return (name: methodName.name, namewhat: 'method');
+  }
+  if (callNode case FunctionCall(name: final AstNode callee)) {
+    if (callee case Identifier(name: final name)) {
+      final label = _bindingScopeLabel(env, name);
+      if (label.startsWith("local '") || label.startsWith("upvalue '")) {
+        return (name: name, namewhat: 'local');
+      }
+      if (label.startsWith("global '")) {
+        return (name: name, namewhat: 'global');
+      }
+      return (name: name, namewhat: '');
+    }
+    if (callee case TableFieldAccess(fieldName: final Identifier fieldName)) {
+      return (name: fieldName.name, namewhat: 'field');
+    }
+  }
+
+  final fallbackName = switch (fallbackFunctionName) {
+    'unknown' || 'function' => null,
+    final name => name,
+  };
+  return (name: fallbackName, namewhat: '');
+}
+
 bool _hasPendingToBeClosed(Environment? env) {
   var current = env;
   while (current != null) {
@@ -230,8 +276,9 @@ Object? _snapshotReturnPayload(Object? value) {
   Value cloneValue(Value original) {
     final clone = Value(
       original.raw,
-      metatable:
-          original.metatable != null ? Map.from(original.metatable!) : null,
+      metatable: original.metatable != null
+          ? Map.from(original.metatable!)
+          : null,
       isConst: original.isConst,
       isToBeClose: original.isToBeClose,
       upvalues: original.upvalues,
@@ -239,6 +286,8 @@ Object? _snapshotReturnPayload(Object? value) {
       functionBody: original.functionBody,
       closureEnvironment: original.closureEnvironment,
       functionName: original.functionName,
+      debugLineDefined: original.debugLineDefined,
+      strippedDebugInfo: original.strippedDebugInfo,
     );
     clone.metatableRef = original.metatableRef;
     clone.globalProxyEnvironment = original.globalProxyEnvironment;
@@ -249,13 +298,14 @@ Object? _snapshotReturnPayload(Object? value) {
   }
 
   return switch (value) {
-    Value(isMulti: true, raw: final List rawValues) =>
-      Value.multi(rawValues.map((entry) {
+    Value(isMulti: true, raw: final List rawValues) => Value.multi(
+      rawValues.map((entry) {
         if (entry is Value) {
           return cloneValue(entry);
         }
         return Value(entry);
-      }).toList()),
+      }).toList(),
+    ),
     final Value scalar => cloneValue(scalar),
     final List values => values.map((entry) {
       if (entry is Value) {
@@ -740,9 +790,6 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
   Future<Object?> visitLocalFunctionDef(LocalFunctionDef node) async {
     this is Interpreter ? (this as Interpreter).recordTrace(node) : null;
 
-    final frame = CallFrame(node.name.name);
-    callStack.push(frame.functionName);
-
     Logger.debug(
       'Visiting LocalFunctionDef: ${node.name}',
       category: 'Interpreter',
@@ -955,19 +1002,50 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       final savedFunction = interpreter.getCurrentFunction();
       final prevFastLocals = interpreter.getCurrentFastLocals();
 
+      void seedFrameDebugLocals(CallFrame frame) {
+        frame.debugLocals.clear();
+        for (final name in parameterNames) {
+          final rawValue = execEnv.values[name]?.value;
+          final value = rawValue is Value ? rawValue : Value(rawValue);
+          frame.debugLocals.add(MapEntry(name, value));
+        }
+        if (hasVarargs && namedVararg != null) {
+          final rawValue = execEnv.values[namedVararg]?.value;
+          final value = rawValue is Value ? rawValue : Value(rawValue);
+          frame.debugLocals.add(MapEntry(namedVararg, value));
+        }
+      }
+
       Object? result;
       var hadExplicitReturn = false;
       Object? deferredError;
       StackTrace? deferredStackTrace;
       try {
         interpreter._functionBodyDepth++;
-        interpreter.setCurrentEnv(execEnv);
+        interpreter.restoreCurrentEnv(execEnv);
         interpreter.setCurrentFunction(self);
         interpreter.setCurrentFastLocals(
           fastLocals.isEmpty ? null : fastLocals,
         );
-        if (interpreter.callStack.top case final CallFrame frame?) {
+        final frame =
+            interpreter.findFrameForCallable(self) ?? interpreter.callStack.top;
+        if (frame != null) {
           frame.env = execEnv;
+          seedFrameDebugLocals(frame);
+          if (!frame.isDebugHook && interpreter.debugHookMask.contains('l')) {
+            if (self.strippedDebugInfo) {
+              await interpreter.fireDebugHook('line');
+            } else {
+              final entryLine = node.body.isNotEmpty
+                  ? interpreter._debugHookLineForNode(node.body.first)
+                  : self.debugLineDefined ?? self.functionBody?.span?.start.line;
+              if (entryLine != null) {
+                final oneBasedEntryLine = entryLine + 1;
+                frame.lastDebugHookLine = oneBasedEntryLine;
+                await interpreter.fireDebugHook('line', line: oneBasedEntryLine);
+              }
+            }
+          }
         }
         Logger.debug(
           "Set current environment to execEnv and current function for function execution",
@@ -985,7 +1063,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         deferredStackTrace = s;
       } finally {
         interpreter.setCurrentFastLocals(prevFastLocals);
-        interpreter.setCurrentEnv(savedEnv);
+        interpreter.restoreCurrentEnv(savedEnv);
         interpreter.setCurrentFunction(savedFunction);
         interpreter._functionBodyDepth = interpreter._functionBodyDepth > 0
             ? interpreter._functionBodyDepth - 1
@@ -1004,7 +1082,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       }
 
       if (deferredError != null) {
-        Error.throwWithStackTrace(deferredError!, deferredStackTrace!);
+        Error.throwWithStackTrace(deferredError, deferredStackTrace!);
       }
 
       if (result is TailCallSignal) {
@@ -1040,6 +1118,20 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       final fastLocals = <String, Box<dynamic>>{};
       final prevFastLocals = interpreter.getCurrentFastLocals();
       var fastLocalsInitialized = false;
+
+      void seedFrameDebugLocals(CallFrame frame, Environment env) {
+        frame.debugLocals.clear();
+        for (final name in parameterNames) {
+          final rawValue = env.values[name]?.value;
+          final value = rawValue is Value ? rawValue : Value(rawValue);
+          frame.debugLocals.add(MapEntry(name, value));
+        }
+        if (hasVarargs && namedVararg != null) {
+          final rawValue = env.values[namedVararg]?.value;
+          final value = rawValue is Value ? rawValue : Value(rawValue);
+          frame.debugLocals.add(MapEntry(namedVararg, value));
+        }
+      }
 
       try {
         while (true) {
@@ -1143,10 +1235,33 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             }
 
             interpreter._functionBodyDepth++;
-            interpreter.setCurrentEnv(execEnv);
+            interpreter.restoreCurrentEnv(execEnv);
             interpreter.setCurrentFunction(self);
-            if (interpreter.callStack.top case final CallFrame frame?) {
+            final frame =
+                interpreter.findFrameForCallable(self) ??
+                interpreter.callStack.top;
+            if (frame != null) {
               frame.env = execEnv;
+              seedFrameDebugLocals(frame, execEnv);
+              if (!frame.isDebugHook &&
+                  interpreter.debugHookMask.contains('l')) {
+                if (self.strippedDebugInfo) {
+                  await interpreter.fireDebugHook('line');
+                } else {
+                  final entryLine = node.body.isNotEmpty
+                      ? interpreter._debugHookLineForNode(node.body.first)
+                      : self.debugLineDefined ??
+                            self.functionBody?.span?.start.line;
+                  if (entryLine != null) {
+                    final oneBasedEntryLine = entryLine + 1;
+                    frame.lastDebugHookLine = oneBasedEntryLine;
+                    await interpreter.fireDebugHook(
+                      'line',
+                      line: oneBasedEntryLine,
+                    );
+                  }
+                }
+              }
             }
             Logger.debug(
               "Set current environment to execEnv and current function for function execution",
@@ -1177,7 +1292,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             deferredError = e;
             deferredStackTrace = s;
           } finally {
-            interpreter.setCurrentEnv(savedEnv);
+            interpreter.restoreCurrentEnv(savedEnv);
             interpreter.setCurrentFunction(savedFunction);
             interpreter._functionBodyDepth = interpreter._functionBodyDepth > 0
                 ? interpreter._functionBodyDepth - 1
@@ -1196,7 +1311,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
           }
 
           if (deferredError != null) {
-            Error.throwWithStackTrace(deferredError!, deferredStackTrace!);
+            Error.throwWithStackTrace(deferredError, deferredStackTrace!);
           }
 
           if (selfTailCall) {
@@ -1224,6 +1339,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       callTarget,
       functionBody: node,
       closureEnvironment: closureEnv,
+      strippedDebugInfo:
+          (this as Interpreter).getCurrentFunction()?.strippedDebugInfo ?? false,
     );
     self = funcValue;
 
@@ -1335,6 +1452,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       (List<Object?> _) async => Value(literalValue),
       functionBody: node,
       closureEnvironment: closureEnv,
+      strippedDebugInfo:
+          (this as Interpreter).getCurrentFunction()?.strippedDebugInfo ?? false,
     );
     functionValue.interpreter = this as Interpreter;
     functionValue.upvalues = const <Upvalue>[];
@@ -1400,7 +1519,11 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitFunctionLiteral(FunctionLiteral node) async {
     Logger.debugLazy(() => 'Visiting FunctionLiteral', category: 'Interpreter');
-    return await node.funcBody.accept(this);
+    final closure = await node.funcBody.accept(this);
+    if (closure is Value) {
+      _ensureClosureDebugSpan(closure, node, node.funcBody);
+    }
+    return closure;
   }
 
   /// Evaluates a function call.
@@ -1793,7 +1916,6 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
           category: 'Interpreter',
         );
       } else {
-
         String tailCallTypeError(dynamic func, AstNode callExpr) {
           final type = getLuaType(func);
           final targetLabel = switch (callExpr) {
@@ -1818,7 +1940,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             if (isLast) {
               if (v is Value && v.isMulti) {
                 out.addAll(
-                  (v.raw as List<Object?>).map((x) => x is Value ? x : Value(x)),
+                  (v.raw as List<Object?>).map(
+                    (x) => x is Value ? x : Value(x),
+                  ),
                 );
               } else if (v is List) {
                 out.addAll(v.map((x) => x is Value ? x : Value(x)));
@@ -1830,7 +1954,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                 final multi = v.raw as List;
                 out.add(
                   multi.isNotEmpty
-                      ? (multi.first is Value ? multi.first : Value(multi.first))
+                      ? (multi.first is Value
+                            ? multi.first
+                            : Value(multi.first))
                       : Value(null),
                 );
               } else if (v is List && v.isNotEmpty) {
@@ -1967,6 +2093,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     List<Object?> args, {
     String? callerFunctionName,
     AstNode? callNode,
+    String? debugNameOverride,
+    String debugNameWhatOverride = '',
   }) async {
     if (Logger.enabled) {
       Logger.debug(
@@ -1993,14 +2121,20 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
     // Get function name for call stack if possible
     String functionName = callerFunctionName ?? 'function';
+    final hasSpecificCallerName =
+        callerFunctionName != null &&
+        callerFunctionName != 'function' &&
+        callerFunctionName != 'unknown';
 
     if (func is Value) {
-      if (callerFunctionName != null) {
+      if (hasSpecificCallerName) {
         functionName = callerFunctionName;
       } else if (func.functionName != null) {
         // Use stored function name for debugging when there is no better
         // call-site label.
         functionName = func.functionName!;
+      } else if (callerFunctionName != null) {
+        functionName = callerFunctionName;
       } else if (func.raw is FunctionDef) {
         final funcDef = func.raw as FunctionDef;
         functionName = funcDef.name.first.name;
@@ -2039,11 +2173,22 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     if ((callStack.depth - callStackBaseDepth) >= Interpreter.maxCallDepth) {
       throw LuaError('C stack overflow');
     }
+    final frameNameInfo = debugNameOverride != null || debugNameWhatOverride.isNotEmpty
+        ? (name: debugNameOverride, namewhat: debugNameWhatOverride)
+        : _frameNameInfoForCall(
+            interpreter.getCurrentEnv(),
+            callNode,
+            functionName,
+          );
     callStack.push(
       functionName,
       callNode: callNode,
       env: interpreter.getCurrentEnv(),
+      callable: func is Value ? func : null,
+      debugName: frameNameInfo.name,
+      debugNameWhat: frameNameInfo.namewhat,
     );
+    final activeFrame = callStack.top;
     if (interpreter._nextCallIsDebugHook) {
       interpreter._nextCallIsDebugHook = false;
       if (callStack.top case final CallFrame frame?) {
@@ -2051,7 +2196,76 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       }
     }
 
+    List<Value> normalizeTransferValues(Iterable<Object?> values) {
+      return values
+          .map((value) => value is Value ? value : Value(value))
+          .toList(growable: false);
+    }
+
+    List<Object?> callTransferValues() {
+      final callableValue = func is Value ? func : null;
+      final functionBody =
+          callableValue?.functionBody ??
+          switch (func) {
+            final FunctionDef functionDef => functionDef.body,
+            final FunctionBody functionBody => functionBody,
+            _ => null,
+          };
+      if (functionBody == null) {
+        return List<Object?>.from(args, growable: false);
+      }
+      final paramCount = functionBody.parameters.length;
+      return args.take(paramCount).toList(growable: false);
+    }
+
+    List<Object?> resultTransferValues(Object? result) {
+      final normalized = _normalizeReturnValue(result);
+      return switch (normalized) {
+        Value(isMulti: true, raw: final List values) => List<Object?>.from(
+          values,
+        ),
+        final Value value => <Object?>[value],
+        final List values => List<Object?>.from(values),
+        null => const <Object?>[],
+        final Object? value => <Object?>[value],
+      };
+    }
+
+    void setTransferInfo(CallFrame? frame, Iterable<Object?> values) {
+      if (frame == null) {
+        return;
+      }
+      final normalized = normalizeTransferValues(values);
+      frame.ftransfer = normalized.isEmpty ? 0 : 1;
+      frame.ntransfer = normalized.length;
+      frame.transferValues = normalized;
+    }
+
+    void clearTransferInfo(CallFrame? frame) {
+      if (frame == null) {
+        return;
+      }
+      frame.ftransfer = 0;
+      frame.ntransfer = 0;
+      frame.transferValues = <Value>[];
+    }
+
+    Object? returnWithTransfer(Object? result) {
+      setTransferInfo(callStack.top, resultTransferValues(result));
+      return result;
+    }
+
     try {
+      final topFrame = callStack.top;
+
+      if (!interpreter._runningDebugHook &&
+          topFrame != null &&
+          !topFrame.isDebugHook) {
+        setTransferInfo(topFrame, callTransferValues());
+        await interpreter.fireDebugHook('call');
+        clearTransferInfo(topFrame);
+      }
+
       String callTypeErrorMessage() {
         final env = interpreter.getCurrentEnv();
         final targetLabel = switch (callNode) {
@@ -2070,7 +2284,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         return "attempt to call a $type value";
       }
 
-      bool rebindTailCall(Object? result) {
+      Future<bool> rebindTailCall(Object? result) async {
         if (result is! TailCallSignal) {
           return false;
         }
@@ -2084,6 +2298,23 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
           frame.functionName = functionName;
           frame.callNode = callNode;
           frame.env = result.callEnv ?? frame.env;
+          frame.callable = func is Value ? func : frame.callable;
+          frame.isTailCall = true;
+          final reboundInfo = _frameNameInfoForCall(
+            frame.env ?? interpreter.getCurrentEnv(),
+            callNode,
+            functionName,
+          );
+          frame.debugName = reboundInfo.name;
+          frame.debugNameWhat = reboundInfo.namewhat;
+        }
+        final reboundFrame = callStack.top;
+        if (!interpreter._runningDebugHook &&
+            reboundFrame != null &&
+            !reboundFrame.isDebugHook) {
+          setTransferInfo(reboundFrame, callTransferValues());
+          await interpreter.fireDebugHook('tail call');
+          clearTransferInfo(reboundFrame);
         }
         return true;
       }
@@ -2107,10 +2338,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                     category: 'Interpreter',
                   );
                 }
-                if (rebindTailCall(result)) {
+                if (await rebindTailCall(result)) {
                   continue;
                 }
-                return result;
+                return returnWithTransfer(result);
               } on TailCallException {
                 rethrow;
               } catch (e, s) {
@@ -2147,10 +2378,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                     category: 'Interpreter',
                   );
                 }
-                if (rebindTailCall(result)) {
+                if (await rebindTailCall(result)) {
                   continue;
                 }
-                return result;
+                return returnWithTransfer(result);
               } catch (e) {
                 if (Logger.enabled) {
                   Logger.debug(
@@ -2185,10 +2416,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                       category: 'Interpreter',
                     );
                   }
-                  if (rebindTailCall(result)) {
+                  if (await rebindTailCall(result)) {
                     continue;
                   }
-                  return result;
+                  return returnWithTransfer(result);
                 } catch (e) {
                   if (Logger.enabled) {
                     Logger.debug(
@@ -2224,10 +2455,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                       category: 'Interpreter',
                     );
                   }
-                  if (rebindTailCall(result)) {
+                  if (await rebindTailCall(result)) {
                     continue;
                   }
-                  return result;
+                  return returnWithTransfer(result);
                 } catch (e) {
                   if (Logger.enabled) {
                     Logger.debug(
@@ -2263,10 +2494,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                       category: 'Interpreter',
                     );
                   }
-                  if (rebindTailCall(result)) {
+                  if (await rebindTailCall(result)) {
                     continue;
                   }
-                  return result;
+                  return returnWithTransfer(result);
                 } catch (e) {
                   if (Logger.enabled) {
                     Logger.debug(
@@ -2301,10 +2532,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                   category: 'Interpreter',
                 );
               }
-              if (rebindTailCall(result)) {
+              if (await rebindTailCall(result)) {
                 continue;
               }
-              return result;
+              return returnWithTransfer(result);
             } else if (func.raw is String) {
               final funkLookup = globals.get(func.raw);
               if (funkLookup != null) {
@@ -2358,10 +2589,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                   category: 'Interpreter',
                 );
               }
-              if (rebindTailCall(result)) {
+              if (await rebindTailCall(result)) {
                 continue;
               }
-              return result;
+              return returnWithTransfer(result);
             } catch (e) {
               if (Logger.enabled) {
                 Logger.debug(
@@ -2396,10 +2627,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                     category: 'Interpreter',
                   );
                 }
-                if (rebindTailCall(result)) {
+                if (await rebindTailCall(result)) {
                   continue;
                 }
-                return result;
+                return returnWithTransfer(result);
               } catch (e) {
                 Logger.debug(
                   '>>> Error in direct LuaLike function: $e',
@@ -2426,10 +2657,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                   '>>> Direct LuaLike function body result: $result',
                   category: 'Interpreter',
                 );
-                if (rebindTailCall(result)) {
+                if (await rebindTailCall(result)) {
                   continue;
                 }
-                return result;
+                return returnWithTransfer(result);
               } catch (e) {
                 Logger.debug(
                   '>>> Error in direct LuaLike function body: $e',
@@ -2456,10 +2687,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                   '>>> Direct LuaLike function literal result: $result',
                   category: 'Interpreter',
                 );
-                if (rebindTailCall(result)) {
+                if (await rebindTailCall(result)) {
                   continue;
                 }
-                return result;
+                return returnWithTransfer(result);
               } catch (e) {
                 Logger.debug(
                   '>>> Error in direct LuaLike function literal: $e',
@@ -2480,10 +2711,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                 '>>> Builtin function result: $result',
                 category: 'Interpreter',
               );
-              if (rebindTailCall(result)) {
+              if (await rebindTailCall(result)) {
                 continue;
               }
-              return result;
+              return returnWithTransfer(result);
             } catch (e) {
               Logger.debug(
                 '>>> Error in builtin function: $e',
@@ -2525,8 +2756,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       // Save the previous coroutine
       final interpreter = this as Interpreter;
       final prevCoroutine = interpreter.getCurrentCoroutine();
+      final yieldingCoroutine = ye.coroutine ?? prevCoroutine;
+      yieldingCoroutine?.captureCurrentCallStack();
       // Set the current coroutine to the yielding coroutine
-      interpreter.setCurrentCoroutine(ye.coroutine);
+      interpreter.setCurrentCoroutine(yieldingCoroutine);
 
       // Wait for the coroutine to be resumed
       if (Logger.enabled) {
@@ -2543,7 +2776,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         );
       }
 
-      final resumedCoroutine = ye.coroutine;
+      final resumedCoroutine = ye.coroutine ?? yieldingCoroutine;
       if (resumedCoroutine != null &&
           resumedCoroutine.status != CoroutineStatus.dead) {
         if (Logger.enabled) {
@@ -2559,16 +2792,22 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       }
 
       // Return the resume arguments as the result of this function call
-      return _normalizeReturnValue(resumeArgs);
+      return returnWithTransfer(_normalizeReturnValue(resumeArgs));
     } finally {
       final topFrame = callStack.top;
       if (!interpreter._runningDebugHook &&
           topFrame != null &&
           !topFrame.isDebugHook) {
+        if (topFrame.ntransfer == 0) {
+          clearTransferInfo(topFrame);
+        }
         await interpreter.fireDebugHook('return');
+        clearTransferInfo(topFrame);
       }
-      // Pop function from call stack
       callStack.pop();
+      if (activeFrame != null) {
+        callStack.removeFrame(activeFrame);
+      }
     }
   }
 
