@@ -80,11 +80,21 @@ class TableStorage extends MapBase<dynamic, dynamic> {
   final List<dynamic> _array = <dynamic>[];
   Uint8List _occupied = Uint8List(0);
   final HashMap<dynamic, dynamic> _hash = HashMap<dynamic, dynamic>();
+  final HashMap<dynamic, _HashOrderLink> _hashLinks =
+      HashMap<dynamic, _HashOrderLink>();
+  final LinkedHashMap<dynamic, dynamic?> _deletedHashSuccessors =
+      LinkedHashMap<dynamic, dynamic?>();
+  final LinkedHashMap<int, Object?> _deletedDenseIndices =
+      LinkedHashMap<int, Object?>();
   int _reservedHashSlots = 0;
+  dynamic _hashHead;
+  dynamic _hashTail;
 
   int _arrayCount = 0;
+  int _hashCount = 0;
 
   static const int _maxArraySize = 1 << 20; // ~1M entries
+  static const int _maxDeletedIterationKeys = 256;
 
   int? _arrayIndexFor(Object? key) {
     if (key is int) {
@@ -146,26 +156,34 @@ class TableStorage extends MapBase<dynamic, dynamic> {
           _occupied[arrayIdx] = 1;
           _arrayCount++;
         }
+        _deletedDenseIndices.remove(arrayIdx + 1);
       } else if (arrayIdx == _array.length) {
         _array.add(value);
         _growOccupied(arrayIdx + 1);
         _occupied[arrayIdx] = 1;
         _arrayCount++;
+        _deletedDenseIndices.remove(arrayIdx + 1);
       } else {
         ensureArrayCapacity(arrayIdx + 1);
         _array[arrayIdx] = value;
         _occupied[arrayIdx] = 1;
         _arrayCount++;
+        _deletedDenseIndices.remove(arrayIdx + 1);
       }
-      _hash.remove(key);
+      _removeHashKey(key, recordDeletedSuccessor: false);
       return;
     }
 
+    final previous = _hash[key];
     final contains = _hash.containsKey(key);
     _hash[key] = value;
     if (!contains) {
-      // nothing extra; _hash.length reflects additions.
+      _appendHashKey(key);
+      _hashCount++;
+    } else if (previous == null && !_hashLinks.containsKey(key)) {
+      _appendHashKey(key);
     }
+    _deletedHashSuccessors.remove(key);
   }
 
   @override
@@ -173,7 +191,13 @@ class TableStorage extends MapBase<dynamic, dynamic> {
     _array.clear();
     _occupied = Uint8List(0);
     _hash.clear();
+    _hashLinks.clear();
+    _deletedHashSuccessors.clear();
+    _deletedDenseIndices.clear();
+    _hashHead = null;
+    _hashTail = null;
     _arrayCount = 0;
+    _hashCount = 0;
   }
 
   /// Appends [value] at the next sequential integer slot.
@@ -183,14 +207,15 @@ class TableStorage extends MapBase<dynamic, dynamic> {
     _growOccupied(idx + 1);
     _occupied[idx] = 1;
     _arrayCount++;
-    _hash.remove(idx + 1);
+    _deletedDenseIndices.remove(idx + 1);
+    _removeHashKey(idx + 1, recordDeletedSuccessor: false);
   }
 
   /// Writes [value] at the (1-based) [index], leaving holes as necessary.
   /// Assumes [index] > 0.
   void setDense(int index, dynamic value) {
     if (index <= 0 || index > _maxArraySize) {
-      _hash[index] = value;
+      this[index] = value;
       return;
     }
 
@@ -200,7 +225,8 @@ class TableStorage extends MapBase<dynamic, dynamic> {
       _growOccupied(arrayIdx + 1);
       _occupied[arrayIdx] = 1;
       _arrayCount++;
-      _hash.remove(index);
+      _deletedDenseIndices.remove(index);
+      _removeHashKey(index, recordDeletedSuccessor: false);
       return;
     }
     if (arrayIdx >= 0 && arrayIdx < _array.length) {
@@ -212,14 +238,16 @@ class TableStorage extends MapBase<dynamic, dynamic> {
         _occupied[arrayIdx] = 1;
         _arrayCount++;
       }
-      _hash.remove(index);
+      _deletedDenseIndices.remove(index);
+      _removeHashKey(index, recordDeletedSuccessor: false);
       return;
     }
     ensureArrayCapacity(index);
     _array[index - 1] = value;
     _occupied[index - 1] = 1;
     _arrayCount++;
-    _hash.remove(index);
+    _deletedDenseIndices.remove(index);
+    _removeHashKey(index, recordDeletedSuccessor: false);
   }
 
   void ensureArrayCapacity(int capacity) {
@@ -265,7 +293,11 @@ class TableStorage extends MapBase<dynamic, dynamic> {
         yield i + 1;
       }
     }
-    yield* _hash.keys;
+    var key = _hashHead;
+    while (key != null) {
+      yield key;
+      key = _hashLinks[key]?.nextKey;
+    }
   }
 
   @override
@@ -273,31 +305,20 @@ class TableStorage extends MapBase<dynamic, dynamic> {
     final arrayIdx = _arrayIndexFor(key);
     if (arrayIdx != null) {
       if (arrayIdx >= _array.length) {
-        final removed = _hash.remove(key);
-        if (_hash.isEmpty) {
-          _hash.clear();
-        }
-        return removed;
+        return _removeHashKey(key);
       }
       if (arrayIdx >= _occupied.length || _occupied[arrayIdx] == 0) {
-        final removed = _hash.remove(key);
-        if (_hash.isEmpty) {
-          _hash.clear();
-        }
-        return removed;
+        return _removeHashKey(key);
       }
       final current = _array[arrayIdx];
       _array[arrayIdx] = null;
       _occupied[arrayIdx] = 0;
       _arrayCount--;
+      _recordDeletedDenseIndex(arrayIdx + 1);
       _trimArray();
       return current;
     }
-    final removed = _hash.remove(key);
-    if (_hash.isEmpty) {
-      _hash.clear();
-    }
-    return removed;
+    return _removeHashKey(key);
   }
 
   void _trimArray() {
@@ -328,8 +349,6 @@ class TableStorage extends MapBase<dynamic, dynamic> {
         if (_occupied[arrayIdx] != 0) {
           return true;
         }
-      } else if (arrayIdx >= _array.length) {
-        return _hash.containsKey(key);
       }
       return _hash.containsKey(key);
     }
@@ -337,7 +356,7 @@ class TableStorage extends MapBase<dynamic, dynamic> {
   }
 
   @override
-  int get length => _arrayCount + _hash.length;
+  int get length => _arrayCount + _hashCount;
 
   int get arrayLength => _array.length;
   int get reservedHashSlots => _reservedHashSlots;
@@ -375,7 +394,8 @@ class TableStorage extends MapBase<dynamic, dynamic> {
       return true;
     }
 
-    return !isLuaNilValue(_hash[oneBasedIndex]);
+    final hashValue = _hash[oneBasedIndex];
+    return !isLuaNilValue(hashValue);
   }
 
   int luaLengthBoundary() => luaTableLengthBoundary(hasPositiveIntegerValueAt);
@@ -395,7 +415,7 @@ class TableStorage extends MapBase<dynamic, dynamic> {
       }
     }
 
-    for (final MapEntry(key: key, value: value) in _hash.entries) {
+    for (final MapEntry(key: key, value: value) in hashEntries) {
       final isNil = value == null || (value is Value && value.raw == null);
       if (isNil) {
         continue;
@@ -412,5 +432,148 @@ class TableStorage extends MapBase<dynamic, dynamic> {
     return maxIndex;
   }
 
-  Iterable<MapEntry<dynamic, dynamic>> get hashEntries => _hash.entries;
+  bool containsIterationKey(Object? key) =>
+      _hash.containsKey(key) ||
+      _deletedHashSuccessors.containsKey(key) ||
+      switch (_arrayIndexFor(key)) {
+        final index? => _deletedDenseIndices.containsKey(index + 1),
+        _ => false,
+      };
+
+  bool containsDenseIterationIndex(int oneBasedIndex) {
+    if (oneBasedIndex <= 0) {
+      return false;
+    }
+    if (denseValueAt(oneBasedIndex) != null) {
+      return true;
+    }
+    return _deletedDenseIndices.containsKey(oneBasedIndex);
+  }
+
+  MapEntry<dynamic, dynamic>? firstHashEntry() {
+    final key = _resolveNextLiveHashKey(_hashHead);
+    if (key == null) {
+      return null;
+    }
+    return MapEntry(key, _hash[key]);
+  }
+
+  MapEntry<dynamic, dynamic>? nextHashEntryAfter(Object? key) {
+    final nextKey = _nextLiveHashKeyAfter(key);
+    if (nextKey == null) {
+      return null;
+    }
+    return MapEntry(nextKey, _hash[nextKey]);
+  }
+
+  Iterable<MapEntry<dynamic, dynamic>> get hashEntries sync* {
+    var key = _resolveNextLiveHashKey(_hashHead);
+    while (key != null) {
+      final value = _hash[key];
+      if (!isLuaNilValue(value)) {
+        yield MapEntry(key, value);
+      }
+      key = _resolveNextLiveHashKey(_hashLinks[key]?.nextKey);
+    }
+  }
+
+  void _appendHashKey(dynamic key) {
+    if (_hashLinks.containsKey(key)) {
+      return;
+    }
+    final link = _HashOrderLink(previousKey: _hashTail);
+    _hashLinks[key] = link;
+    if (_hashTail != null) {
+      _hashLinks[_hashTail]?.nextKey = key;
+    } else {
+      _hashHead = key;
+    }
+    _hashTail = key;
+  }
+
+  dynamic _removeHashKey(Object? key, {bool recordDeletedSuccessor = true}) {
+    if (!_hash.containsKey(key)) {
+      return null;
+    }
+
+    final removed = _hash.remove(key);
+    final link = _hashLinks.remove(key);
+    if (link != null) {
+      final previousKey = link.previousKey;
+      final nextKey = link.nextKey;
+      if (previousKey != null) {
+        _hashLinks[previousKey]?.nextKey = nextKey;
+      } else {
+        _hashHead = nextKey;
+      }
+      if (nextKey != null) {
+        _hashLinks[nextKey]?.previousKey = previousKey;
+      } else {
+        _hashTail = previousKey;
+      }
+
+      if (recordDeletedSuccessor) {
+        _recordDeletedHashSuccessor(key, nextKey);
+      }
+    }
+
+    _hashCount--;
+    return removed;
+  }
+
+  void _recordDeletedHashSuccessor(Object? key, dynamic nextKey) {
+    _deletedHashSuccessors.remove(key);
+    _deletedHashSuccessors[key] = nextKey;
+    while (_deletedHashSuccessors.length > _maxDeletedIterationKeys) {
+      _deletedHashSuccessors.remove(_deletedHashSuccessors.keys.first);
+    }
+  }
+
+  void _recordDeletedDenseIndex(int oneBasedIndex) {
+    _deletedDenseIndices.remove(oneBasedIndex);
+    _deletedDenseIndices[oneBasedIndex] = null;
+    while (_deletedDenseIndices.length > _maxDeletedIterationKeys) {
+      _deletedDenseIndices.remove(_deletedDenseIndices.keys.first);
+    }
+  }
+
+  dynamic _resolveNextLiveHashKey(dynamic key) {
+    final visited = <dynamic>{};
+    var candidate = key;
+    while (candidate != null) {
+      if (!visited.add(candidate)) {
+        return null;
+      }
+      if (_hash.containsKey(candidate)) {
+        return candidate;
+      }
+      if (_deletedHashSuccessors.containsKey(candidate)) {
+        candidate = _deletedHashSuccessors[candidate];
+        continue;
+      }
+      return null;
+    }
+    return null;
+  }
+
+  dynamic _nextLiveHashKeyAfter(Object? key) {
+    if (key == null) {
+      return _resolveNextLiveHashKey(_hashHead);
+    }
+    final liveLink = _hashLinks[key];
+    if (liveLink != null) {
+      return _resolveNextLiveHashKey(liveLink.nextKey);
+    }
+    if (_deletedHashSuccessors.containsKey(key)) {
+      return _resolveNextLiveHashKey(_deletedHashSuccessors[key]);
+    }
+    return null;
+  }
+}
+
+final class _HashOrderLink {
+  _HashOrderLink({this.previousKey, this.nextKey});
+
+  dynamic previousKey;
+  dynamic nextKey;
 }

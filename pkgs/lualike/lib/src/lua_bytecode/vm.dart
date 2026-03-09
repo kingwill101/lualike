@@ -11,6 +11,7 @@ import 'package:lualike/src/lua_bytecode/opcode.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/number.dart';
+import 'package:lualike/src/number_limits.dart';
 import 'package:lualike/src/number_utils.dart';
 import 'package:lualike/src/runtime/vararg_table.dart';
 import 'package:lualike/src/parse.dart' show looksLikeLuaFilePath, luaChunkId;
@@ -1741,30 +1742,47 @@ final class LuaBytecodeVm {
     final limit = frame.register(base + 1);
     final step = frame.register(base + 2);
 
-    if (_isInteger(initial) && _isInteger(step)) {
-      final init = _integerValue(initial);
-      final stepValue = _integerValue(step);
+    final coercedInitial = _forNumericOperand(initial, 'initial value');
+    final coercedLimit = _forNumericOperand(limit, 'limit');
+    final coercedStep = _forNumericOperand(step, 'step');
+
+    final integerInitial = _exactForIntegerValue(coercedInitial);
+    final integerStep = _exactForIntegerValue(coercedStep);
+    if (integerInitial != null && integerStep != null) {
+      final init = integerInitial;
+      final stepValue = integerStep;
       if (stepValue == 0) {
         throw LuaError("'for' step is zero");
       }
-      final limitValue = _forIntegerLimit(init, limit, stepValue);
-      final shouldSkip = stepValue > 0 ? init > limitValue : init < limitValue;
-      if (shouldSkip) {
+      final limitInfo = _forIntegerLimit(init, coercedLimit, stepValue);
+      if (limitInfo.skip) {
         return true;
       }
+      final limitValue = limitInfo.limit;
 
       final count = stepValue > 0
-          ? (limitValue - init) ~/ stepValue
-          : (init - limitValue) ~/ (-stepValue);
-      frame.setRegister(base, _runtimeValue(runtime, count));
+          ? _unsignedDifference64(
+                  _unsignedInt64(init: limitValue),
+                  _unsignedInt64(init: init),
+                ) ~/
+                _unsignedInt64(init: stepValue)
+          : _unsignedDifference64(
+                  _unsignedInt64(init: init),
+                  _unsignedInt64(init: limitValue),
+                ) ~/
+                _negativeStepDivisor(stepValue);
+      frame.setRegister(
+        base,
+        _runtimeValue(runtime, _signedInt64FromUnsigned(count)),
+      );
       frame.setRegister(base + 1, _runtimeValue(runtime, stepValue));
       frame.setRegister(base + 2, _runtimeValue(runtime, init));
       return false;
     }
 
-    final init = _numericValue(initial).toDouble();
-    final limitValue = _numericValue(limit).toDouble();
-    final stepValue = _numericValue(step).toDouble();
+    final init = _numericForOperand(coercedInitial).toDouble();
+    final limitValue = _numericForOperand(coercedLimit).toDouble();
+    final stepValue = _numericForOperand(coercedStep).toDouble();
     if (stepValue == 0) {
       throw LuaError("'for' step is zero");
     }
@@ -1781,13 +1799,19 @@ final class LuaBytecodeVm {
 
   bool _forLoop(_LuaBytecodeFrame frame, int base) {
     if (_isInteger(frame.register(base + 1))) {
-      final count = _integerValue(frame.register(base));
-      if (count <= 0) {
+      final count = _unsignedForLoopCounter(frame.register(base));
+      if (count <= BigInt.zero) {
         return false;
       }
       final step = _integerValue(frame.register(base + 1));
-      final nextIndex = _integerValue(frame.register(base + 2)) + step;
-      frame.setRegister(base, _runtimeValue(runtime, count - 1));
+      final nextIndex = NumberUtils.add(
+        _integerValue(frame.register(base + 2)),
+        step,
+      );
+      frame.setRegister(
+        base,
+        _runtimeValue(runtime, _signedInt64FromUnsigned(count - BigInt.one)),
+      );
       frame.setRegister(base + 2, _runtimeValue(runtime, nextIndex));
       return true;
     }
@@ -2776,13 +2800,117 @@ Future<void> _runGcLoopSafePoint(
   await dynamicRuntime.runLoopGcAtSafePoint(frame.loopGcCounter);
 }
 
-int _forIntegerLimit(int initial, Value limitValue, int step) {
-  final raw = limitValue.raw;
-  if (raw is int) {
-    return raw;
+({bool skip, int limit}) _forIntegerLimit(
+  int initial,
+  Object rawLimit,
+  int step,
+) {
+  if (rawLimit is int) {
+    return (
+      skip: step > 0 ? initial > rawLimit : initial < rawLimit,
+      limit: rawLimit,
+    );
   }
-  if (raw is num) {
-    return step < 0 ? raw.ceil() : raw.floor();
+  if (rawLimit is BigInt) {
+    if (NumberUtils.isInIntegerRange(rawLimit)) {
+      final limit = rawLimit.toInt();
+      return (skip: step > 0 ? initial > limit : initial < limit, limit: limit);
+    }
+    if (rawLimit.isNegative) {
+      return step > 0
+          ? (skip: true, limit: NumberLimits.minInteger)
+          : (skip: false, limit: NumberLimits.minInteger);
+    }
+    return step < 0
+        ? (skip: true, limit: NumberLimits.maxInteger)
+        : (skip: false, limit: NumberLimits.maxInteger);
   }
-  throw LuaError("bad 'for' limit (${raw.runtimeType})");
+  if (rawLimit is num) {
+    if (!rawLimit.isFinite) {
+      if (rawLimit.isNegative) {
+        return step > 0
+            ? (skip: true, limit: NumberLimits.minInteger)
+            : (skip: false, limit: NumberLimits.minInteger);
+      }
+      return step < 0
+          ? (skip: true, limit: NumberLimits.maxInteger)
+          : (skip: false, limit: NumberLimits.maxInteger);
+    }
+    if (rawLimit < NumberLimits.minInteger) {
+      return step > 0
+          ? (skip: true, limit: NumberLimits.minInteger)
+          : (skip: false, limit: NumberLimits.minInteger);
+    }
+    if (rawLimit > NumberLimits.maxInteger) {
+      return step < 0
+          ? (skip: true, limit: NumberLimits.maxInteger)
+          : (skip: false, limit: NumberLimits.maxInteger);
+    }
+    final limit = step < 0 ? rawLimit.ceil() : rawLimit.floor();
+    return (skip: step > 0 ? initial > limit : initial < limit, limit: limit);
+  }
+  throw LuaError("bad 'for' limit (${rawLimit.runtimeType})");
+}
+
+BigInt _unsignedInt64({required int init}) => NumberUtils.toUnsigned64(init);
+
+BigInt _unsignedDifference64(BigInt left, BigInt right) {
+  final mod = BigInt.one << NumberLimits.sizeInBits;
+  var difference = left - right;
+  if (difference.isNegative) {
+    difference += mod;
+  }
+  return difference;
+}
+
+BigInt _negativeStepDivisor(int step) => BigInt.from(-(step + 1)) + BigInt.one;
+
+BigInt _unsignedForLoopCounter(Value value) {
+  final raw = value.raw;
+  return switch (raw) {
+    final int integer => NumberUtils.toUnsigned64(integer),
+    _ => throw LuaError('expected integer, got ${raw.runtimeType}'),
+  };
+}
+
+int _signedInt64FromUnsigned(BigInt value) {
+  final mod = BigInt.one << NumberLimits.sizeInBits;
+  final masked = value & (mod - BigInt.one);
+  if (masked > BigInt.from(NumberLimits.maxInteger)) {
+    return (masked - mod).toInt();
+  }
+  return masked.toInt();
+}
+
+Object _forNumericOperand(Value value, String role) {
+  final raw = value.raw;
+  final coerced = _coerceLuaNumber(raw);
+  if (coerced != null) {
+    return coerced;
+  }
+  throw LuaError(
+    "bad 'for' $role (number expected, got ${NumberUtils.typeName(raw)})",
+  );
+}
+
+int? _exactForIntegerValue(Object value) {
+  return switch (value) {
+    final int integer => integer,
+    final BigInt integer when NumberUtils.isInIntegerRange(integer) =>
+      integer.toInt(),
+    _ => null,
+  };
+}
+
+num _numericForOperand(Object value) {
+  return switch (value) {
+    final int integer => integer,
+    final double numeric => numeric,
+    final BigInt integer when NumberUtils.isInIntegerRange(integer) =>
+      integer.toInt(),
+    final BigInt integer => integer.toDouble(),
+    _ => throw LuaError(
+      'attempt to perform arithmetic on a ${value.runtimeType} value',
+    ),
+  };
 }

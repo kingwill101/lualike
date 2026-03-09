@@ -248,11 +248,66 @@ function foo (x)
   return
 end
 ]])
+local st3, msg3 = load([[ for v, k in pairs{} do v = 10 end ]])
 return st1 == nil and string.find(msg1, "variable 'X'", 1, true) ~= nil,
-       st2 == nil and string.find(msg2, ":2:", 1, true) ~= nil
+       st2 == nil and string.find(msg2, ":2:", 1, true) ~= nil,
+       st3 == nil and string.find(msg3, "assign to const variable 'v'", 1, true) ~= nil
 ''', mode: EngineMode.luaBytecode);
 
-        expect(_flatten(result), equals(<Object?>[true, true]));
+        expect(_flatten(result), equals(<Object?>[true, true, true]));
+      },
+    );
+
+    test(
+      'executeCode coerces numeric-for string bounds in emitted chunks',
+      () async {
+        final result = await executeCode(r'''
+local count = 0
+for i = "10", "1", "-2" do
+  count = count + 1
+end
+return count
+''', mode: EngineMode.luaBytecode);
+
+        expect(_unwrap(result), equals(5));
+      },
+    );
+
+    test(
+      'executeCode skips integer loops whose coerced limits are out of range',
+      () async {
+        final result = await executeCode(r'''
+local executed = 0
+for i = math.mininteger, -10e100 do
+  executed = executed + 1
+end
+for i = math.maxinteger, 10e100, -1 do
+  executed = executed + 1
+end
+return executed
+''', mode: EngineMode.luaBytecode);
+
+        expect(_unwrap(result), equals(0));
+      },
+    );
+
+    test(
+      'executeCode preserves wrapped integer-for progressions in emitted chunks',
+      () async {
+        final result = await executeCode(r'''
+local mini = math.mininteger
+local maxi = math.maxinteger
+local seen = {}
+for i = mini, maxi, maxi do
+  seen[#seen + 1] = i
+end
+return #seen, seen[1], seen[2], seen[3]
+''', mode: EngineMode.luaBytecode);
+
+        expect(
+          _flatten(result),
+          equals(<Object?>[3, -9223372036854775808, -1, 9223372036854775806]),
+        );
       },
     );
 
@@ -586,6 +641,80 @@ return sum
 ''', mode: EngineMode.luaBytecode);
 
         expect(_unwrap(result), equals(9));
+      },
+    );
+
+    test(
+      'executeCode continues generic-for iteration after deleting current hash keys',
+      () async {
+        final result = await executeCode(r'''
+local t = {a = 1, b = 2, c = 3, d = 4, e = 5}
+local count = 0
+for k, v in pairs(t) do
+  count = count + 1
+  assert(t[k] == v)
+  t[k] = nil
+  collectgarbage()
+  assert(t[k] == nil)
+end
+return count
+''', mode: EngineMode.luaBytecode);
+
+        expect(_unwrap(result), equals(5));
+      },
+    );
+
+    test(
+      'executeCode treats explicit nil next cursors as start of iteration',
+      () async {
+        final result = await executeCode(r'''
+local t = {x = 1, y = 2, z = 3}
+local k, v = next(t, nil)
+return k ~= nil and v ~= nil and t[k] == v
+''', mode: EngineMode.luaBytecode);
+
+        expect(_unwrap(result), isTrue);
+      },
+    );
+
+    test(
+      'executeCode continues generic-for iteration after deleting current dense key',
+      () async {
+        final result = await executeCode(r'''
+local t = {[1] = 'a', [2] = 'b', [3] = 'c', tail = 'z'}
+local seen = {}
+for k, v in pairs(t) do
+  seen[#seen + 1] = k
+  if k == 2 then
+    t[k] = nil
+    collectgarbage()
+  end
+end
+return #seen, seen[3], seen[4]
+''', mode: EngineMode.luaBytecode);
+
+        expect(_flatten(result), equals(<Object?>[4, 3, 'tail']));
+      },
+    );
+
+    test(
+      'executeCode continues generic-for iteration after deleting current table keys',
+      () async {
+        final result = await executeCode(r'''
+local t = {[{1}] = 1, [{2}] = 2, [string.rep("x ", 4)] = 3,
+           [100.3] = 4, [4] = 5}
+local count = 0
+for k, v in pairs(t) do
+  count = count + 1
+  assert(t[k] == v)
+  t[k] = nil
+  collectgarbage()
+  assert(t[k] == nil)
+end
+return count
+''', mode: EngineMode.luaBytecode);
+
+        expect(_unwrap(result), equals(5));
       },
     );
 
