@@ -128,6 +128,7 @@ final class _LuaBytecodeStructuredCompiler {
   _LuaBytecodeStructuredCompiler.topLevel(this._prototype)
     : _parent = null,
       _declaredGlobals = <String>{},
+      _inheritedDeclaredGlobals = <String>{},
       _nextRegister = 0,
       _nextTemp = 0 {
     _enterScope();
@@ -140,9 +141,10 @@ final class _LuaBytecodeStructuredCompiler {
     Set<String> declaredGlobals = const <String>{},
   }) : _nextRegister = _prototype.parameterCount,
        _nextTemp = _prototype.parameterCount,
-       _declaredGlobals = <String>{
+       _declaredGlobals = <String>{...declaredGlobals},
+       _inheritedDeclaredGlobals = <String>{
          ...?_parent?._declaredGlobals,
-         ...declaredGlobals,
+         ...?_parent?._inheritedDeclaredGlobals,
        } {
     _enterScope();
     for (var index = 0; index < parameters.length; index++) {
@@ -153,6 +155,7 @@ final class _LuaBytecodeStructuredCompiler {
   final LuaBytecodePrototypeBuilder _prototype;
   final _LuaBytecodeStructuredCompiler? _parent;
   final Set<String> _declaredGlobals;
+  final Set<String> _inheritedDeclaredGlobals;
   final Map<String, List<_LuaBytecodeStructuredLocal>> _localsByName =
       <String, List<_LuaBytecodeStructuredLocal>>{};
   final List<List<_LuaBytecodeStructuredLocal>> _scopes =
@@ -2163,6 +2166,10 @@ final class _LuaBytecodeStructuredCompiler {
         name: name,
         upvalueIndex: capture.index,
       );
+    }
+
+    if (_inheritedDeclaredGlobals.contains(name)) {
+      return _LuaBytecodeStructuredResolvedVariable.global(name: name);
     }
 
     return _LuaBytecodeStructuredResolvedVariable.global(name: name);
