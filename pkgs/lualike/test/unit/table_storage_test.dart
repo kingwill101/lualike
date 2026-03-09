@@ -131,5 +131,38 @@ void main() {
       expect(storage[hugeIndex], 'huge');
       expect(storage.containsKey(hugeIndex), isTrue);
     });
+
+    test('tracks recently deleted hash keys for next-style iteration', () {
+      final storage = TableStorage()
+        ..['a'] = 1
+        ..['b'] = 2
+        ..['c'] = 3;
+
+      expect(storage.firstHashEntry()?.key, 'a');
+      expect(storage.nextHashEntryAfter('a')?.key, 'b');
+
+      storage.remove('b');
+
+      expect(storage.containsKey('b'), isFalse);
+      expect(storage.containsIterationKey('b'), isTrue);
+      expect(storage.keys.toList(), equals(['a', 'c']));
+      expect(storage.nextHashEntryAfter('b')?.key, 'c');
+    });
+
+    test('tracks recently deleted dense keys for next-style iteration', () {
+      final storage = TableStorage()
+        ..[1] = 'a'
+        ..[2] = 'b'
+        ..[3] = 'c';
+
+      expect(storage.containsDenseIterationIndex(2), isTrue);
+
+      storage.remove(2);
+
+      expect(storage.containsKey(2), isFalse);
+      expect(storage.containsIterationKey(2), isTrue);
+      expect(storage.containsDenseIterationIndex(2), isTrue);
+      expect(storage.containsDenseIterationIndex(3), isTrue);
+    });
   });
 }

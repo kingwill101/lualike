@@ -1052,19 +1052,16 @@ class NextFunction extends BuiltinFunction {
     Value? keyValue,
     dynamic keyRaw,
   ) {
-    final hashEntries = storage.hashEntries.toList(growable: false);
     final previousDenseIndex = _denseIndex(keyRaw);
     final previousKeyWasDense = switch (previousDenseIndex) {
       final index?
-          when index > 0 &&
-              index <= storage.arrayLength &&
-              storage.denseValueAt(index) != null =>
+          when index > 0 && storage.containsDenseIterationIndex(index) =>
         true,
       _ => false,
     };
 
     final denseStart = switch (previousDenseIndex) {
-      final index? when index > 0 && index <= storage.arrayLength => index + 1,
+      final index? when index > 0 && previousKeyWasDense => index + 1,
       _ when keyValue == null || keyRaw == null => 1,
       _ => null,
     };
@@ -1081,10 +1078,40 @@ class NextFunction extends BuiltinFunction {
 
       final hashKeyValue = previousKeyWasDense ? null : keyValue;
       final hashKeyRaw = previousKeyWasDense ? null : keyRaw;
-      return _nextFromEntries(hashEntries, table, hashKeyValue, hashKeyRaw);
+      final hashEntry = hashKeyRaw == null
+          ? storage.firstHashEntry()
+          : _nextHashEntryAfterCursor(storage, hashKeyValue, hashKeyRaw);
+      if (hashEntry == null) {
+        return null;
+      }
+      final wrapped = _wrapNextResult(hashEntry.key, hashEntry.value);
+      if (_shouldSkipWeakKey(table, wrapped.$1)) {
+        return _nextFromEntries(
+          storage.hashEntries,
+          table,
+          wrapped.$1,
+          wrapped.$1.raw,
+        );
+      }
+      return Value.multi([wrapped.$1, wrapped.$2]);
     }
 
-    return _nextFromEntries(hashEntries, table, keyValue, keyRaw);
+    final hashEntry = keyRaw == null
+        ? storage.firstHashEntry()
+        : _nextHashEntryAfterCursor(storage, keyValue, keyRaw);
+    if (hashEntry == null) {
+      return null;
+    }
+    final wrapped = _wrapNextResult(hashEntry.key, hashEntry.value);
+    if (_shouldSkipWeakKey(table, wrapped.$1)) {
+      return _nextFromEntries(
+        storage.hashEntries,
+        table,
+        wrapped.$1,
+        wrapped.$1.raw,
+      );
+    }
+    return Value.multi([wrapped.$1, wrapped.$2]);
   }
 
   Object? _nextFromEntries(
@@ -1109,6 +1136,20 @@ class NextFunction extends BuiltinFunction {
       return Value.multi([wrapped.$1, wrapped.$2]);
     }
     return null;
+  }
+
+  MapEntry<dynamic, dynamic>? _nextHashEntryAfterCursor(
+    TableStorage storage,
+    Value? keyValue,
+    dynamic keyRaw,
+  ) {
+    if (keyValue != null) {
+      final byValue = storage.nextHashEntryAfter(keyValue);
+      if (byValue != null) {
+        return byValue;
+      }
+    }
+    return storage.nextHashEntryAfter(keyRaw);
   }
 
   (Value, Value) _wrapNextResult(dynamic key, dynamic value) {
@@ -1195,7 +1236,10 @@ class NextFunction extends BuiltinFunction {
     dynamic keyRaw,
   ) {
     if (map case final TableStorage storage) {
-      return storage.containsKey(keyRaw) || storage.containsKey(keyValue);
+      return storage.containsKey(keyRaw) ||
+          storage.containsKey(keyValue) ||
+          storage.containsIterationKey(keyRaw) ||
+          storage.containsIterationKey(keyValue);
     }
 
     for (final entry in map.entries) {
