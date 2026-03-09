@@ -418,19 +418,21 @@ class FileManager {
     String file,
     bool preserveRawBytes,
   ) async {
+    final bytes = await fs.readFileAsBytes(file);
+    if (bytes == null) {
+      return null;
+    }
+
     if (preserveRawBytes) {
-      // Read as raw bytes and convert to Latin-1 string to preserve byte values
-      // This ensures that high bytes (like 225) are preserved as individual bytes
-      // instead of being interpreted as UTF-8 sequences
-      final bytes = await fs.readFileAsBytes(file);
-      if (bytes == null) {
-        return null;
-      }
+      // Preserve byte identity for legacy Lua source/binary payloads.
+      return latin1.decode(bytes);
+    }
+
+    try {
       return utf8.decode(bytes);
-    } else {
-      // Read as UTF-8 string (default behavior)
-      // This properly handles UTF-8 characters like å, æ, ö
-      return await fs.readFileAsString(file);
+    } on FormatException {
+      // Upstream suite files such as strings.lua still use ISO Latin bytes.
+      return latin1.decode(bytes);
     }
   }
 

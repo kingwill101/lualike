@@ -16,7 +16,7 @@ import 'package:source_span/source_span.dart';
 final bool _loadProfileEnabled =
     getEnvironmentVariable('LUALIKE_PROFILE_LOAD') == '1';
 final RegExp _semanticLikeTokenPattern = RegExp(
-  r'<[A-Za-z_][A-Za-z0-9_]*>|(^|[^A-Za-z0-9_])global\b|\bfor\b',
+  r'<[A-Za-z_][A-Za-z0-9_]*>|(^|[^A-Za-z0-9_])global\b|\bfor\b|\breturn\b|\.\.\.\s*[A-Za-z_][A-Za-z0-9_]*',
 );
 final RegExp _constructsShortCircuitChunkPattern = RegExp(
   r'^\s*local\s+(F|k10)\s+<const>\s*=\s*(false|10)\s*'
@@ -790,10 +790,13 @@ LuaFunctionDebugInfo? defaultDebugInfoForFunction(
   if (functionBody != null) {
     final span = functionBody.span;
     final spanSource = span?.sourceUrl?.toString();
-    final closureEnvSource = function.closureEnvironment
-        ?.get('_SCRIPT_PATH')
-        .raw
-        ?.toString();
+    final closureEnvSource = switch (function.closureEnvironment?.get(
+      '_SCRIPT_PATH',
+    )) {
+      final Value value => value.raw?.toString(),
+      final Object? value? => value.toString(),
+      _ => null,
+    };
     final source =
         (spanSource == null || spanSource == 'null' ? null : spanSource) ??
         closureEnvSource ??

@@ -84,11 +84,14 @@ class ConstChecker {
     final defaultAttribute = stmt.defaultAttribute;
     for (var i = 0; i < stmt.names.length; i++) {
       final name = stmt.names[i].name;
-      final attribute = i < stmt.attributes.length && stmt.attributes[i].isNotEmpty
+      final attribute =
+          i < stmt.attributes.length && stmt.attributes[i].isNotEmpty
           ? stmt.attributes[i]
           : defaultAttribute;
       if (attribute == 'const' || attribute == 'close') {
         _constVariables.add(name);
+      } else if (attribute.isEmpty) {
+        _constVariables.remove(name);
       } else if (attribute.isNotEmpty) {
         int lineNumber = 1;
         if (stmt.span != null) {
@@ -153,6 +156,9 @@ class ConstChecker {
 
   String? _checkForInLoop(ForInLoop stmt) {
     final savedConsts = Set<String>.from(_constVariables);
+    for (final name in stmt.names) {
+      _constVariables.add(name.name);
+    }
     for (final s in stmt.body) {
       final error = _checkStatement(s);
       if (error != null) {
@@ -248,6 +254,9 @@ class ConstChecker {
     // Function definitions create new scopes but const variables
     // from outer scopes are still visible and assignable
     final savedConsts = Set<String>.from(_constVariables);
+    if (stmt.body.varargName case final Identifier name) {
+      _constVariables.add(name.name);
+    }
 
     // Check function body for const violations
     for (final s in stmt.body.body) {
@@ -268,6 +277,9 @@ class ConstChecker {
     // Local function definitions create new scopes but const variables
     // from outer scopes are still visible and assignable
     final savedConsts = Set<String>.from(_constVariables);
+    if (stmt.funcBody.varargName case final Identifier name) {
+      _constVariables.add(name.name);
+    }
 
     // Check function body for const violations
     for (final s in stmt.funcBody.body) {
@@ -342,6 +354,9 @@ class ConstChecker {
     // Function literals create new scopes but const variables
     // from outer scopes are still visible and assignable
     final savedConsts = Set<String>.from(_constVariables);
+    if (expr.funcBody.varargName case final Identifier name) {
+      _constVariables.add(name.name);
+    }
 
     // Check function body for const violations
     for (final s in expr.funcBody.body) {

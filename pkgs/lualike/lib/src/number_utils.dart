@@ -14,6 +14,10 @@ import 'value.dart';
 class NumberUtils {
   NumberUtils._(); // Prevent instantiation
 
+  static const int _doubleSignAndFractionMask = 0x800fffffffffffff;
+  static const int _frexpMantissaExponent = NumberLimits.doubleExponentBias - 1;
+  static const int _subnormalFrexpScale = 54;
+
   static bool _isBitwiseOperator(String op) => switch (op) {
     '&' || '|' || 'bxor' || '<<' || '>>' || '~' => true,
     _ => false,
@@ -109,6 +113,93 @@ class NumberUtils {
     }
     if (number is BigInt) return number.toDouble();
     return (number as num).toDouble();
+  }
+
+  /// Returns the raw IEEE-754 bit pattern for a double.
+  static int doubleToRawBits(double value) {
+    final data = ByteData(8)..setFloat64(0, value, Endian.big);
+    return data.getUint64(0, Endian.big);
+  }
+
+  /// Reconstructs a double from its raw IEEE-754 bit pattern.
+  static double rawBitsToDouble(int bits) {
+    final data = ByteData(8)..setUint64(0, bits, Endian.big);
+    return data.getFloat64(0, Endian.big);
+  }
+
+  /// Returns an exact power-of-two double when it is representable.
+  static double powerOfTwo(int exponent) {
+    if (exponent > NumberLimits.doubleMaxExponent) {
+      return double.infinity;
+    }
+    if (exponent >= NumberLimits.doubleMinExponent) {
+      return rawBitsToDouble(
+        (exponent + NumberLimits.doubleExponentBias) <<
+            NumberLimits.doubleStoredSignificandBits,
+      );
+    }
+    if (exponent >= NumberLimits.doubleMinSubnormalExponent) {
+      return rawBitsToDouble(
+        1 << (exponent - NumberLimits.doubleMinSubnormalExponent),
+      );
+    }
+    return 0.0;
+  }
+
+  /// Decomposes a number into a mantissa in [0.5, 1) and a binary exponent.
+  static (double mantissa, int exponent) frexp(dynamic value) {
+    final number = toDouble(value);
+    if (number == 0.0 || !number.isFinite) {
+      return (number, 0);
+    }
+
+    final bits = doubleToRawBits(number);
+    final exponentBits =
+        (bits >> NumberLimits.doubleStoredSignificandBits) & 0x7ff;
+
+    if (exponentBits == 0) {
+      final (mantissa, exponent) = frexp(
+        number * powerOfTwo(_subnormalFrexpScale),
+      );
+      return (mantissa, exponent - _subnormalFrexpScale);
+    }
+
+    final mantissaBits =
+        (bits & _doubleSignAndFractionMask) |
+        (_frexpMantissaExponent << NumberLimits.doubleStoredSignificandBits);
+    return (
+      rawBitsToDouble(mantissaBits),
+      exponentBits - _frexpMantissaExponent,
+    );
+  }
+
+  /// Multiplies a number by an integral power of two.
+  static double ldexp(dynamic value, int exponent) {
+    final number = toDouble(value);
+    if (number == 0.0 || !number.isFinite || exponent == 0) {
+      return number;
+    }
+
+    var result = number;
+    var remainingExponent = exponent;
+
+    while (remainingExponent > NumberLimits.doubleMaxExponent) {
+      result *= powerOfTwo(NumberLimits.doubleMaxExponent);
+      if (!result.isFinite) {
+        return result;
+      }
+      remainingExponent -= NumberLimits.doubleMaxExponent;
+    }
+
+    while (remainingExponent < NumberLimits.doubleMinSubnormalExponent) {
+      result *= powerOfTwo(NumberLimits.doubleMinSubnormalExponent);
+      if (result == 0.0) {
+        return result;
+      }
+      remainingExponent -= NumberLimits.doubleMinSubnormalExponent;
+    }
+
+    return result * powerOfTwo(remainingExponent);
   }
 
   /// Convert any numeric type to int (with overflow handling)
@@ -685,10 +776,7 @@ class NumberUtils {
   }
 
   /// Helper method to validate and convert to integer for bitwise operations
-  static BigInt _validateAndConvertToInteger(
-    dynamic value, {
-    String op = '&',
-  }) {
+  static BigInt _validateAndConvertToInteger(dynamic value, {String op = '&'}) {
     if (value is String || value is LuaString) {
       try {
         value = LuaNumberParser.parse(value.toString());

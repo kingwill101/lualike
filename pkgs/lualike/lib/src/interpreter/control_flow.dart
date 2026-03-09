@@ -988,12 +988,22 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           ),
         )
         ..add(MapEntry('(for state)', state is Value ? state : Value(state)))
-        ..add(
-          MapEntry('(for state)', control is Value ? control : Value(control)),
+        ..addAll(
+          toCloseVar != null
+              ? <MapEntry<String, Value>>[
+                  MapEntry('(for state)', toCloseVar),
+                  MapEntry(
+                    '(for state)',
+                    control is Value ? control : Value(control),
+                  ),
+                ]
+              : <MapEntry<String, Value>>[
+                  MapEntry(
+                    '(for state)',
+                    control is Value ? control : Value(control),
+                  ),
+                ],
         );
-      if (toCloseVar != null) {
-        frame.debugLocals.add(MapEntry('(for state)', toCloseVar));
-      }
     }
 
     Logger.debug(
@@ -1175,7 +1185,13 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           context: {},
         );
         if (frame != null && frame.debugLocals.length >= 3) {
-          frame.debugLocals[2] = MapEntry('(for state)', control);
+          final controlIndex = toCloseVar != null ? 3 : 2;
+          if (frame.debugLocals.length > controlIndex) {
+            frame.debugLocals[controlIndex] = MapEntry(
+              '(for state)',
+              control,
+            );
+          }
         }
 
         if (control.raw == null) {

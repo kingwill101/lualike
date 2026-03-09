@@ -1,6 +1,7 @@
 import 'builtin_function.dart';
 import 'lua_string.dart';
 import 'stdlib/metatables.dart';
+import 'table_storage.dart';
 import 'value.dart';
 
 /// Example usage:
@@ -27,7 +28,9 @@ class ValueClass extends BuiltinFunction {
   /// Creates a new table (without default metatable, as per Lua specification)
   static Value table([dynamic initial]) {
     dynamic table;
-    if (initial != null && initial is Map) {
+    if (initial is TableStorage) {
+      table = initial;
+    } else if (initial != null && initial is Map) {
       table = initial.cast<dynamic, dynamic>();
     } else {
       table = initial ?? <dynamic, dynamic>{};

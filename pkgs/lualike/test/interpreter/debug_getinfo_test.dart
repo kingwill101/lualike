@@ -182,5 +182,27 @@ void main() {
       };
       expect(thirdString, 'a');
     });
+
+    test('debug.getinfo should report extraargs through __call chains', () async {
+      const script = r'''
+      local function u (...)
+        return debug.getinfo(1, 't').extraargs, select('#', ...)
+      end
+
+      local a, b = u()
+      u = setmetatable({}, {__call = u})
+      local c, d = u()
+      u = setmetatable({}, {__call = u})
+      local e, f = u()
+      return a, b, c, d, e, f
+      ''';
+
+      final result = await luaLike.execute(script);
+      expect(result.raw, isA<List>());
+      expect(
+        (result.raw as List).map((value) => (value as Value).raw).toList(),
+        equals(<Object?>[0, 0, 1, 1, 2, 2]),
+      );
+    });
   });
 }

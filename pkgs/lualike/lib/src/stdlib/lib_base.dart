@@ -530,7 +530,7 @@ class TypeFunction extends BuiltinFunction {
     if (args.isEmpty) throw LuaError("type requires an argument");
     final value = args[0] as Value;
 
-    return getLuaType(value);
+    return getLuaBaseType(value);
   }
 }
 
@@ -759,6 +759,9 @@ class LoadFunction extends BuiltinFunction {
       null => 'bt',
       _ => modeArg!.raw.toString(),
     };
+    if (mode.isEmpty || !RegExp(r'^[bt]+$').hasMatch(mode)) {
+      throw LuaError("bad argument #3 to 'load' (invalid mode)");
+    }
     final providedEnv = envArg?.isNil ?? true ? null : envArg;
     final runtime = interpreter;
     if (runtime == null) {
@@ -1592,6 +1595,46 @@ class CollectGarbageFunction extends BuiltinFunction {
             interpreter!.gc.majorMultiplier = (args[2] as Value).raw as int;
           }
           return Value(oldMode);
+
+        case "param":
+          if (args.length < 2) {
+            throw LuaError('collectgarbage("param") requires a parameter name');
+          }
+          final paramName = (args[1] as Value).raw.toString();
+
+          int currentValue() => switch (paramName) {
+            "pause" => interpreter!.gc.majorMultiplier,
+            "stepmul" => interpreter!.gc.minorMultiplier,
+            "stepsize" => interpreter!.gc.stepSize,
+            "minormul" => interpreter!.gc.minorMultiplier,
+            "majormul" => interpreter!.gc.majorMultiplier,
+            _ => throw LuaError(
+              'invalid collectgarbage parameter: $paramName',
+            ),
+          };
+
+          final previousValue = currentValue();
+          if (args.length > 2) {
+            final newValue = ((args[2] as Value).raw as num).toInt();
+            switch (paramName) {
+              case "pause":
+              case "majormul":
+                interpreter!.gc.majorMultiplier = newValue;
+                break;
+              case "stepmul":
+              case "minormul":
+                interpreter!.gc.minorMultiplier = newValue;
+                break;
+              case "stepsize":
+                interpreter!.gc.stepSize = newValue;
+                break;
+              default:
+                throw LuaError(
+                  'invalid collectgarbage parameter: $paramName',
+                );
+            }
+          }
+          return Value(previousValue);
 
         case "isrunning":
           // "isrunning": Returns a boolean that tells whether the collector

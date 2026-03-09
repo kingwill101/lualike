@@ -96,6 +96,22 @@ void main() {
       Logger.setEnabled(false);
     });
 
+    test('collectgarbage param exposes Lua 5.5 tuning accessors', () async {
+      final bridge = LuaLike();
+      await bridge.execute('''
+        collectgarbage("incremental", 100, 200, 50)
+        oldPause = collectgarbage("param", "pause", 123)
+        oldStepmul = collectgarbage("param", "stepmul", 456)
+        newPause = collectgarbage("param", "pause")
+        newStepmul = collectgarbage("param", "stepmul")
+      ''');
+
+      expect((bridge.getGlobal('oldPause') as Value).unwrap(), equals(100));
+      expect((bridge.getGlobal('oldStepmul') as Value).unwrap(), equals(200));
+      expect((bridge.getGlobal('newPause') as Value).unwrap(), equals(123));
+      expect((bridge.getGlobal('newStepmul') as Value).unwrap(), equals(456));
+    });
+
     test('error', () async {
       final bridge = LuaLike();
 
@@ -145,6 +161,20 @@ void main() {
       expect((bridge.getGlobal('msg2') as Value).unwrap().toString(), contains('multiple'));
       expect((bridge.getGlobal('ok3') as Value).unwrap(), isNotNull);
       expect((bridge.getGlobal('msg3') as Value).unwrap(), isNull);
+    });
+
+    test('load rejects chunks with too many returns', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        local code = "return 10" .. string.rep(",10", 254)
+        status, msg = load(code)
+      ''');
+
+      expect((bridge.getGlobal('status') as Value).unwrap(), isNull);
+      expect(
+        (bridge.getGlobal('msg') as Value).unwrap().toString(),
+        contains('too many returns'),
+      );
     });
 
     test('function-scope close handlers preserve return values', () async {

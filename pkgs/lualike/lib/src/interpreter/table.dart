@@ -733,17 +733,15 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
         // Array-like entry without explicit key
         if (entry.expr is VarArg) {
           // Handle vararg expansion: {...}
-          final args = globals.get('...');
-          if (args is Value && args.isMulti) {
-            final varargs = args.raw as List;
-            if (varargs.isNotEmpty) {
-              tableMap.ensureArrayCapacity(arrayIndex - 1 + varargs.length);
-            }
-            for (var j = 0; j < varargs.length; j++) {
-              tableMap[arrayIndex++] = varargs[j] is Value
-                  ? varargs[j]
-                  : Value(varargs[j]);
-            }
+          final args = _resolveCurrentVarargSource(this as Interpreter, globals);
+          final varargs = _expandVarargValue(args);
+          if (varargs.isNotEmpty) {
+            tableMap.ensureArrayCapacity(arrayIndex - 1 + varargs.length);
+          }
+          for (var j = 0; j < varargs.length; j++) {
+            tableMap[arrayIndex++] = varargs[j] is Value
+                ? varargs[j]
+                : Value(varargs[j]);
           }
         } else if (entry.expr is GroupedExpression) {
           // Handle grouped expressions in table constructors

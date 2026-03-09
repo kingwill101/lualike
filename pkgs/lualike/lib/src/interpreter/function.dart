@@ -13,16 +13,153 @@ typedef _SimpleCapturedCounterSelfTailLoopPlan = ({
 });
 
 Value _packVarargsTable(List<Object?> varargs) {
-  final table = TableStorage();
-  for (var i = 0; i < varargs.length; i++) {
-    final value = varargs[i];
-    final wrapped = value is Value ? value : Value(value);
-    if (!wrapped.isNil) {
-      table.setDense(i + 1, wrapped);
+  return Value(_NamedVarargTable(varargs));
+}
+
+final class _NamedVarargTable extends MapBase<dynamic, dynamic>
+    implements VirtualLuaTable {
+  _NamedVarargTable(List<Object?> values)
+    : _values = List<Object?>.from(values, growable: false);
+
+  final List<Object?> _values;
+  final Map<dynamic, dynamic> _extra = <dynamic, dynamic>{};
+
+  int get _count => _values.length;
+
+  static int? _normalizeIndex(Object? key) {
+    final rawKey = switch (key) {
+      final Value wrapped => wrapped.raw,
+      _ => key,
+    };
+    final integer = NumberUtils.tryToInteger(rawKey);
+    if (integer == null || integer < 1 || integer > NumberLimits.maxInt32) {
+      return null;
+    }
+    return integer;
+  }
+
+  @override
+  dynamic operator [](Object? key) {
+    if (_extra.containsKey(key)) {
+      return _extra[key];
+    }
+    if (key == 'n') {
+      return _count;
+    }
+    final index = _normalizeIndex(key);
+    if (index == null || index > _count) {
+      return null;
+    }
+    return _values[index - 1];
+  }
+
+  @override
+  void operator []=(dynamic key, dynamic value) {
+    if (key == 'n') {
+      if (value == null || (value is Value && value.isNil)) {
+        _extra.remove('n');
+      } else {
+        _extra['n'] = value;
+      }
+      return;
+    }
+
+    final index = _normalizeIndex(key);
+    if (index != null && index <= _count) {
+      _values[index - 1] = value is Value && value.isNil ? null : value;
+      return;
+    }
+
+    if (value == null || (value is Value && value.isNil)) {
+      _extra.remove(key);
+    } else {
+      _extra[key] = value;
     }
   }
-  table['n'] = Value(varargs.length);
-  return ValueClass.table(table);
+
+  @override
+  void clear() {
+    for (var i = 0; i < _values.length; i++) {
+      _values[i] = null;
+    }
+    _extra.clear();
+  }
+
+  @override
+  Iterable<dynamic> get keys sync* {
+    for (var index = 1; index <= _count; index++) {
+      if (_values[index - 1] != null) {
+        yield index;
+      }
+    }
+    yield 'n';
+    for (final key in _extra.keys) {
+      if (key == 'n') {
+        continue;
+      }
+      final index = _normalizeIndex(key);
+      if (index != null && index <= _count) {
+        continue;
+      }
+      yield key;
+    }
+  }
+
+  @override
+  dynamic remove(Object? key) {
+    if (key == 'n') {
+      return _extra.remove('n');
+    }
+    final index = _normalizeIndex(key);
+    if (index != null && index <= _count) {
+      final previous = _values[index - 1];
+      _values[index - 1] = null;
+      return previous;
+    }
+    return _extra.remove(key);
+  }
+}
+
+List<Object?> _expandVarargValue(Object? value) {
+  if (value case Value(isMulti: true, raw: final List<Object?> rawValues)) {
+    return List<Object?>.from(rawValues);
+  }
+
+  final table = switch (value) {
+    Value(raw: final TableStorage storage) => storage,
+    Value(raw: final Map<dynamic, dynamic> map) => map,
+    _ => null,
+  };
+  if (table == null) {
+    return const <Object?>[];
+  }
+
+  final rawCount = table['n'];
+  final normalizedCount = switch (rawCount) {
+    final Value wrapped => wrapped.raw,
+    _ => rawCount,
+  };
+  if (normalizedCount is! int && normalizedCount is! BigInt) {
+    throw LuaError("no proper 'n'");
+  }
+  final count = NumberUtils.tryToInteger(normalizedCount);
+  if (count == null || count < 0 || count > NumberLimits.maxInt32) {
+    throw LuaError("no proper 'n'");
+  }
+
+  final values = List<Object?>.filled(count, null, growable: false);
+  for (var index = 1; index <= count; index++) {
+    values[index - 1] = table[index];
+  }
+  return values;
+}
+
+Object? _resolveCurrentVarargSource(Interpreter interpreter, Environment env) {
+  final namedVararg = interpreter.getCurrentFunction()?.functionBody?.varargName;
+  if (namedVararg != null) {
+    return env.get(namedVararg.name);
+  }
+  return env.get('...');
 }
 
 String _bindingScopeLabel(Environment env, String name) {
@@ -90,17 +227,26 @@ bool _hasPendingToBeClosed(Environment? env) {
 }
 
 Object? _snapshotReturnPayload(Object? value) {
-  Value cloneValue(Value original) => Value(
-    original.raw,
-    metatable: original.metatable != null ? Map.from(original.metatable!) : null,
-    isConst: original.isConst,
-    isToBeClose: original.isToBeClose,
-    upvalues: original.upvalues,
-    interpreter: original.interpreter,
-    functionBody: original.functionBody,
-    closureEnvironment: original.closureEnvironment,
-    functionName: original.functionName,
-  );
+  Value cloneValue(Value original) {
+    final clone = Value(
+      original.raw,
+      metatable:
+          original.metatable != null ? Map.from(original.metatable!) : null,
+      isConst: original.isConst,
+      isToBeClose: original.isToBeClose,
+      upvalues: original.upvalues,
+      interpreter: original.interpreter,
+      functionBody: original.functionBody,
+      closureEnvironment: original.closureEnvironment,
+      functionName: original.functionName,
+    );
+    clone.metatableRef = original.metatableRef;
+    clone.globalProxyEnvironment = original.globalProxyEnvironment;
+    if (clone.raw is Map) {
+      Value.registerTableIdentity(clone);
+    }
+    return clone;
+  }
 
   return switch (value) {
     Value(isMulti: true, raw: final List rawValues) =>
@@ -788,7 +934,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         final varargs = args.length > regularParamCount
             ? args.sublist(regularParamCount)
             : <Object?>[];
-        execEnv.declare('...', Value.multi(varargs));
+        final varargValue = Value.multi(varargs);
+        execEnv.declare('...', varargValue);
         final varargBox = execEnv.values['...'];
         if (varargBox != null) {
           fastLocals['...'] = varargBox;
@@ -2177,6 +2324,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                     '>>> __call found; rebinding callee and continuing (callee=${callMeta.runtimeType})',
                     category: 'Interpreter',
                   );
+                }
+                if (callStack.top case final CallFrame frame?) {
+                  if (frame.extraArgs >= 15) {
+                    throw LuaError("'__call' chain too long");
+                  }
+                  frame.extraArgs += 1;
                 }
                 func = callMeta;
                 args = callArgs;

@@ -22,6 +22,7 @@ class MemoryCredits {
   final Expando<GCGenerationSpace> _objectSpaces = Expando<GCGenerationSpace>(
     'gcSpace',
   );
+  final Expando<bool> _excludedFromCredits = Expando<bool>('gcExcluded');
 
   // Debug: Track allocation stack traces
   static bool enableStackTraces = false;
@@ -80,12 +81,21 @@ class MemoryCredits {
 
     _objectCredits[obj] = credits;
     _objectSpaces[obj] = space;
+    _excludedFromCredits[obj] = false;
     _total += credits;
     if (space == GCGenerationSpace.young) {
       _young += credits;
     } else {
       _old += credits;
     }
+  }
+
+  /// Tracks an object for generation bookkeeping without charging it against
+  /// Lua-visible memory use.
+  void onTrackExcluded(GCObject obj, {required GCGenerationSpace space}) {
+    _objectCredits[obj] = 0;
+    _objectSpaces[obj] = space;
+    _excludedFromCredits[obj] = true;
   }
 
   /// Adjusts the tracked credits when an object is promoted.
@@ -119,6 +129,7 @@ class MemoryCredits {
     _total -= credits;
     _objectCredits[obj] = null;
     _objectSpaces[obj] = null;
+    _excludedFromCredits[obj] = null;
   }
 
   /// Recalculates the cost of an object after it changed shape (for example a
@@ -126,6 +137,10 @@ class MemoryCredits {
   void recalculate(GCObject obj) {
     final space = _objectSpaces[obj];
     if (space == null) {
+      return;
+    }
+    if (_excludedFromCredits[obj] ?? false) {
+      _objectCredits[obj] = 0;
       return;
     }
     final previous = _objectCredits[obj] ?? 0;
@@ -154,15 +169,21 @@ class MemoryCredits {
     var recalculatedOld = 0;
 
     for (final obj in young) {
-      final credits = obj.estimatedSize;
-      recalculatedYoung += credits;
+      final excluded = _excludedFromCredits[obj] ?? false;
+      final credits = excluded ? 0 : obj.estimatedSize;
+      if (!excluded) {
+        recalculatedYoung += credits;
+      }
       _objectCredits[obj] = credits;
       _objectSpaces[obj] = GCGenerationSpace.young;
     }
 
     for (final obj in old) {
-      final credits = obj.estimatedSize;
-      recalculatedOld += credits;
+      final excluded = _excludedFromCredits[obj] ?? false;
+      final credits = excluded ? 0 : obj.estimatedSize;
+      if (!excluded) {
+        recalculatedOld += credits;
+      }
       _objectCredits[obj] = credits;
       _objectSpaces[obj] = GCGenerationSpace.old;
     }

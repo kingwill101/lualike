@@ -43,7 +43,7 @@ final class GlobalChecker {
     RepeatUntilLoop() => _visitRepeatUntil(statement),
     FunctionDef() => _visitFunctionDef(statement),
     LocalFunctionDef() => _visitLocalFunctionDef(statement),
-    ReturnStatement() => _visitExpressions(statement.expr),
+    ReturnStatement() => _visitReturnStatement(statement),
     YieldStatement() => _visitExpressions(statement.expr),
     ExpressionStatement() => _visitExpression(statement.expr),
     AssignmentIndexAccessExpr() => _visitAssignmentIndex(statement),
@@ -119,6 +119,13 @@ final class GlobalChecker {
       _currentScope.namedGlobals[statement.names[index].name] = attribute;
     }
     return null;
+  }
+
+  String? _visitReturnStatement(ReturnStatement statement) {
+    if (statement.expr.length > 254) {
+      return ":${_lineOf(statement)}: too many returns";
+    }
+    return _visitExpressions(statement.expr);
   }
 
   String? _visitAssignment(Assignment statement) {
@@ -212,7 +219,7 @@ final class GlobalChecker {
 
     _enterScope();
     for (final name in statement.names) {
-      _currentScope.locals[name.name] = '';
+      _currentScope.locals[name.name] = 'const';
     }
     final bodyError = _visitStatements(statement.body);
     _exitScope();
@@ -235,8 +242,8 @@ final class GlobalChecker {
     if (statement.explicitGlobal &&
         statement.name.rest.isEmpty &&
         statement.name.method == null) {
-      final resolution = _resolveName(statement.name.first.name);
-      if (_isImmutable(resolution.attribute)) {
+      final resolution = _resolveExplicitGlobalTarget(statement.name.first.name);
+      if (resolution != null && _isImmutable(resolution.attribute)) {
         return _constAssignmentError(statement, statement.name.first.name);
       }
       _currentScope.namedGlobals[statement.name.first.name] = '';
@@ -271,7 +278,7 @@ final class GlobalChecker {
       _currentScope.locals[parameter.name] = '';
     }
     if (body.varargName case final Identifier name) {
-      _currentScope.locals[name.name] = '';
+      _currentScope.locals[name.name] = 'const';
     }
     final error = _visitStatements(body.body);
     _exitFunction();
@@ -409,8 +416,12 @@ final class GlobalChecker {
     final other => _visitExpression(other),
   };
 
-  _ResolvedName _resolveName(String name) =>
-      _resolveNameInFunction(_functions.length - 1, name, _LookupState());
+  _ResolvedName _resolveName(String name) {
+    if (name == '_ENV') {
+      return const _ResolvedName.implicitGlobal();
+    }
+    return _resolveNameInFunction(_functions.length - 1, name, _LookupState());
+  }
 
   _ResolvedName _resolveNameInFunction(
     int functionIndex,
@@ -451,6 +462,21 @@ final class GlobalChecker {
       return const _ResolvedName.undeclared();
     }
     return const _ResolvedName.implicitGlobal();
+  }
+
+  _ResolvedName? _resolveExplicitGlobalTarget(String name) {
+    for (var functionIndex = _functions.length - 1; functionIndex >= 0; functionIndex--) {
+      final function = _functions[functionIndex];
+      for (final scope in function.scopes.reversed) {
+        if (scope.locals[name] case final attribute?) {
+          return _ResolvedName.local(attribute);
+        }
+        if (scope.namedGlobals[name] case final attribute?) {
+          return _ResolvedName.global(attribute);
+        }
+      }
+    }
+    return null;
   }
 
   bool _isImmutable(String attribute) =>

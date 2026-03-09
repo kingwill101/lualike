@@ -24,6 +24,8 @@ class MathLibrary extends Library {
     context.define("exp", _MathExp());
     context.define("floor", _MathFloor());
     context.define("fmod", _MathFmod());
+    context.define("frexp", _MathFrexp());
+    context.define("ldexp", _MathLdexp());
     context.define("log", _MathLog());
     context.define("max", _MathMax());
     context.define("min", _MathMin());
@@ -208,6 +210,56 @@ class _MathFmod extends BuiltinFunction {
     final y = _getNumber(args[1] as Value, "fmod", 2);
 
     return Value(NumberUtils.fmod(x, y));
+  }
+}
+
+class _MathFrexp extends BuiltinFunction {
+  @override
+  Object? call(List<Object?> args) {
+    if (args.isEmpty) {
+      throw LuaError.typeError(
+        "bad argument #1 to 'frexp' (number expected, got no value)",
+      );
+    }
+
+    final number = _getNumber(args[0] as Value, "frexp", 1);
+    final (mantissa, exponent) = NumberUtils.frexp(number);
+    return Value.multi([Value(mantissa), Value(exponent)]);
+  }
+}
+
+class _MathLdexp extends BuiltinFunction {
+  @override
+  Object? call(List<Object?> args) {
+    if (args.isEmpty) {
+      throw LuaError.typeError(
+        "bad argument #1 to 'ldexp' (number expected, got no value)",
+      );
+    }
+    if (args.length < 2) {
+      throw LuaError.typeError(
+        "bad argument #2 to 'ldexp' (number expected, got no value)",
+      );
+    }
+
+    final number = _getNumber(args[0] as Value, "ldexp", 1);
+    final exponentValue = args[1] as Value;
+    final exponentRaw = exponentValue.raw;
+    if (exponentRaw is! num && exponentRaw is! BigInt) {
+      throw LuaError.typeError(
+        "bad argument #2 to 'ldexp' "
+        "(number expected, got ${NumberUtils.typeName(exponentRaw)})",
+      );
+    }
+
+    final exponent = NumberUtils.tryToInteger(exponentRaw);
+    if (exponent == null) {
+      throw LuaError.typeError(
+        "bad argument #2 to 'ldexp' (number has no integer representation)",
+      );
+    }
+
+    return Value(NumberUtils.ldexp(number, exponent));
   }
 }
 

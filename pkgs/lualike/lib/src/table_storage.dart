@@ -80,6 +80,7 @@ class TableStorage extends MapBase<dynamic, dynamic> {
   final List<dynamic> _array = <dynamic>[];
   Uint8List _occupied = Uint8List(0);
   final HashMap<dynamic, dynamic> _hash = HashMap<dynamic, dynamic>();
+  int _reservedHashSlots = 0;
 
   int _arrayCount = 0;
 
@@ -230,6 +231,15 @@ class TableStorage extends MapBase<dynamic, dynamic> {
     _growOccupied(target);
   }
 
+  void reserveHashCapacity(int capacity) {
+    if (capacity <= 0) {
+      return;
+    }
+    if (capacity > _reservedHashSlots) {
+      _reservedHashSlots = capacity;
+    }
+  }
+
   void _growOccupied(int requiredLength) {
     if (requiredLength <= _occupied.length) {
       return;
@@ -330,6 +340,7 @@ class TableStorage extends MapBase<dynamic, dynamic> {
   int get length => _arrayCount + _hash.length;
 
   int get arrayLength => _array.length;
+  int get reservedHashSlots => _reservedHashSlots;
 
   dynamic arrayValueAt(int oneBasedIndex) {
     if (oneBasedIndex <= 0) return _hash[oneBasedIndex];

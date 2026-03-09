@@ -36,10 +36,27 @@ String getLuaType(Object? value) {
     Function() || BuiltinFunction() || LuaCallableArtifact() => 'function',
     Map() || List() || TableStorage() => 'table',
     Coroutine() => 'thread',
-    _ when t.runtimeType.toString() == 'LuaFile' => 'FILE*',
+    _ when t.runtimeType.toString() == 'LuaFile' => 'userdata',
     _ when t.runtimeType.toString() == 'Box' ||
             t.runtimeType.toString().startsWith('Box<') =>
       'light userdata',
+    _ => 'userdata',
+  };
+}
+
+String getLuaBaseType(Object? value) {
+  if (value case final Value wrapped) {
+    value = wrapped.raw;
+  }
+  final t = value;
+  return switch (t) {
+    null => 'nil',
+    String() || LuaString() => 'string',
+    num() || BigInt() => 'number',
+    bool() => 'boolean',
+    Function() || BuiltinFunction() || LuaCallableArtifact() => 'function',
+    Map() || List() || TableStorage() => 'table',
+    Coroutine() => 'thread',
     _ => 'userdata',
   };
 }

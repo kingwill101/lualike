@@ -410,7 +410,7 @@ class _ValidatorState {
     if (pending.activeLocalCount < _activeLocals.length) {
       final local = _activeLocals[pending.activeLocalCount];
       final line = _line(pending.node.span);
-      return "<goto ${pending.labelName}> at line $line jumps into the scope of local '${local.name}'";
+      return "<goto ${pending.labelName}> at line $line jumps into the scope of '${local.name}'";
     }
     return null;
   }
