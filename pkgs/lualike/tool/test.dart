@@ -32,6 +32,7 @@ final testFiles = [
   'code.lua',
   'coroutine.lua',
   'pm.lua',
+  'locals.lua',
   'heavy.lua',
 ];
 
@@ -190,10 +191,15 @@ Future<void> downloadLuaTestSuite({
 }
 
 /// Compile the lualike binary using smart compilation
-Future<void> compile({bool force = false, String? dartPath}) async {
+Future<void> compile({
+  bool force = false,
+  String? dartPath,
+  String? binaryPath,
+}) async {
   final compiler = SmartCompiler(
     projectRoot: '.',
     dartPath: dartPath ?? getExecutableName('dart'),
+    binaryName: binaryPath ?? 'lualike',
   );
 
   final success = await compiler.smartCompile(force: force);
@@ -376,6 +382,11 @@ Future<void> main(List<String> args) async {
       'dart-path',
       help: 'Path to the Dart executable (defaults to "dart" in PATH)',
     )
+    ..addOption(
+      'lualike-bin',
+      help:
+          'Path to the lualike executable to compile/use instead of ./lualike',
+    )
     ..addFlag(
       'debug',
       negatable: false,
@@ -432,6 +443,14 @@ Future<void> main(List<String> args) async {
   if (path.basename(dartPath).startsWith('test_runner')) {
     dartPath = _getDartExecutablePath();
   }
+  final configuredBinary = r['lualike-bin'] as String?;
+  final lualikeBinaryPath = configuredBinary == null
+      ? path.join(Directory.current.path, getExecutableName('lualike'))
+      : path.normalize(
+          path.isAbsolute(configuredBinary)
+              ? configuredBinary
+              : path.join(Directory.current.path, configuredBinary),
+        );
   final force = r['force'] as bool;
   // Handle download-suite flag
   if (r['download-suite'] as bool) {
@@ -449,11 +468,15 @@ Future<void> main(List<String> args) async {
     exit(0);
   }
 
-  final binaryExists = File(getExecutableName('lualike')).existsSync();
+  final binaryExists = File(lualikeBinaryPath).existsSync();
   final shouldSkipCompile = (r['skip-compile'] as bool) && binaryExists;
 
   if (!shouldSkipCompile) {
-    await compile(force: force, dartPath: dartPath);
+    await compile(
+      force: force,
+      dartPath: dartPath,
+      binaryPath: lualikeBinaryPath,
+    );
   } else {
     console.setForegroundColor(ConsoleColor.yellow);
     console.write("Skip-compile flag specified, using existing binary");
@@ -530,6 +553,7 @@ Future<void> main(List<String> args) async {
   final results = await runTests(
     tests: execCode == null ? testsToRun : const <String>[],
     inlineCode: execCode,
+    lualikeBinaryPath: lualikeBinaryPath,
     verbose: verboseEnabled,
     soft: r['soft'] as bool, // default true  => _soft = true
     port: r['port'] as bool, // default true  => _port = true
@@ -583,6 +607,7 @@ String _resolveTestPath(String entry) {
 Future<List<TestResult>> runTests({
   List<String> tests = const [],
   String? inlineCode,
+  required String lualikeBinaryPath,
   bool verbose = false,
   bool soft = true,
   bool port = true,
@@ -615,8 +640,7 @@ Future<List<TestResult>> runTests({
     final initCode = initParts.join('; ');
 
     // Resolve lualike binary and target test path
-    final lualikeBinary = getExecutableName('lualike');
-    final binaryPath = path.join(Directory.current.path, lualikeBinary);
+    final binaryPath = lualikeBinaryPath;
     String? targetPath;
     if (inlineCode == null) {
       try {
