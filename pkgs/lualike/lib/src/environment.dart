@@ -5,6 +5,7 @@ import 'package:lualike/src/gc/gc_weights.dart';
 import 'package:lualike/src/gc/gc_access.dart';
 import 'package:lualike/src/gc/memory_credits.dart';
 import 'package:lualike/src/table_storage.dart';
+import 'package:lualike/src/exceptions.dart' show YieldException;
 
 /// A generic box class that wraps a single value of type T.
 /// Used to create mutable references to values in the environment.
@@ -702,10 +703,8 @@ class Environment extends GCObject {
   /// Declares [name] as an explicit global in this lexical scope.
   ///
   /// Subsequent lookups in this scope and nested scopes resolve through the
-  /// shared root global binding, even when an outer local with the same name
-  /// exists.
+  /// active `_ENV` binding, even when an outer local with the same name exists.
   void declareGlobalBinding(String name) {
-    final rootEnv = root;
     Box<dynamic>? box;
     Environment? current = this;
     while (current != null) {
@@ -717,26 +716,12 @@ class Environment extends GCObject {
       current = current.parent;
     }
 
-    final rootBox = rootEnv.values[name];
-    if (box == null && rootBox != null && !rootBox.isLocal) {
-      box = rootBox;
-    }
-
-    var existingValue = box?.value;
-    if (existingValue == null) {
-      final gValue = rootEnv.values['_G']?.value;
-      if (gValue is Value && gValue.raw is Map) {
-        existingValue = (gValue.raw as Map)[name];
-      }
-    }
-    box ??= Box<dynamic>(existingValue, isTransient: true);
+    // Explicit global declarations are lexical resolution markers, not shared
+    // storage. Reads and writes should still flow through the active `_ENV`.
+    box ??= Box<dynamic>(null, isTransient: true);
     box.debugName ??= name;
     declaredGlobals[name] = box;
     _updateCredits();
-    if (identical(rootBox, box)) {
-      rootEnv._updateCredits();
-      rootEnv._syncGlobalTableEntry(name, box.value);
-    }
   }
 
   /// Finds the nearest explicit-global binding for [name] in this lexical chain.
@@ -826,15 +811,15 @@ class Environment extends GCObject {
       category: 'Env',
     );
 
-    final namesToClose = List<String>.from(toBeClosedVars.reversed);
-    toBeClosedVars.clear();
     var currentError = error;
     var closeErrorSeen = false;
 
-    // Close variables in reverse order of declaration.
-    // Drain the list first so reentrant safe points do not close the same
-    // variables again while a __close metamethod is still running.
-    for (final name in namesToClose) {
+    // Close variables in reverse order of declaration. Remove the variable
+    // before invoking its close handler so reentrant safe points do not try
+    // to close it twice while still preserving the remaining variables if a
+    // close handler yields.
+    while (toBeClosedVars.isNotEmpty) {
+      final name = toBeClosedVars.removeLast();
       final value = values[name]?.value;
 
       Logger.debug(
@@ -846,6 +831,8 @@ class Environment extends GCObject {
         try {
           await value.close(currentError);
           Logger.debug("Successfully closed variable '$name'", category: 'Env');
+        } on YieldException {
+          rethrow;
         } catch (e) {
           Logger.debug("Error closing variable '$name': $e", category: 'Env');
           currentError = e;
@@ -875,15 +862,21 @@ class Environment extends GCObject {
   /// This creates an environment suitable for module execution, where
   /// local variables are scoped to the module but globals are inherited.
   static Environment createModuleEnvironment(Environment globalEnv) {
+    final rootEnv = globalEnv.root;
     Logger.debug(
-      "Creating new module environment with global env (${globalEnv.hashCode})",
+      "Creating new module environment with global env (${rootEnv.hashCode})",
       category: 'Env',
     );
 
-    final moduleEnv = Environment(parent: globalEnv, interpreter: null);
+    final moduleEnv = Environment(parent: rootEnv, interpreter: null);
 
     final envTable = <dynamic, dynamic>{};
     final envValue = Value(envTable);
+    final inheritedEnvValue = switch (globalEnv.get('_ENV')) {
+      final Value value => value,
+      final Object? value? => Value(value),
+      _ => null,
+    };
 
     final proxyHandler = <String, Function>{
       '__index': (List<Object?> args) {
@@ -893,7 +886,16 @@ class Environment extends GCObject {
           "Module env __index: looking up '$keyStr'",
           category: 'Env',
         );
-        return moduleEnv.get(keyStr);
+        if (envTable.containsKey(keyStr)) {
+          return envTable[keyStr];
+        }
+        if (inheritedEnvValue != null && inheritedEnvValue.raw is Map) {
+          final inheritedTable = inheritedEnvValue.raw as Map;
+          if (inheritedTable.containsKey(keyStr)) {
+            return inheritedTable[keyStr];
+          }
+        }
+        return rootEnv.get(keyStr);
       },
       '__newindex': (List<Object?> args) {
         final key = args[1] as Value;
@@ -903,7 +905,8 @@ class Environment extends GCObject {
           "Module env __newindex: setting '$keyStr' to $value",
           category: 'Env',
         );
-        moduleEnv.define(keyStr, value);
+        envTable[keyStr] = value;
+        envValue.markTableModified();
         return Value(null);
       },
     };

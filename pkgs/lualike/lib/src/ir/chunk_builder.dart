@@ -7,6 +7,7 @@ class LualikeIrPrototypeBuilder {
     this.registerCount = 0,
     this.paramCount = 0,
     this.isVararg = false,
+    this.namedVarargRegister,
     this.lineDefined = 0,
     this.lastLineDefined = 0,
   });
@@ -14,6 +15,7 @@ class LualikeIrPrototypeBuilder {
   int registerCount;
   int paramCount;
   bool isVararg;
+  int? namedVarargRegister;
   int lineDefined;
   int lastLineDefined;
   String? sourcePath;
@@ -102,6 +104,7 @@ class LualikeIrPrototypeBuilder {
       registerCount: registerCount,
       paramCount: paramCount,
       isVararg: isVararg,
+      namedVarargRegister: namedVarargRegister,
       upvalueDescriptors: List.unmodifiable(upvalueDescriptors),
       instructions: List.unmodifiable(_instructions),
       constants: List.unmodifiable(_constants),

@@ -107,6 +107,13 @@ class Interpreter extends AstVisitor<Object?>
   /// Current function being executed (for upvalue resolution)
   Value? _currentFunction;
 
+  /// Installed debug hook callback and configuration.
+  Value? debugHookFunction;
+  String debugHookMask = '';
+  int debugHookCount = 0;
+  bool _runningDebugHook = false;
+  bool _nextCallIsDebugHook = false;
+
   /// Fast path cache for local variable boxes in the current function.
   Map<String, Box<dynamic>>? _currentFastLocals;
 
@@ -130,6 +137,29 @@ class Interpreter extends AstVisitor<Object?>
   /// Avoids creating new Value objects on every literal reference.
   @override
   final Map<String, Value> literalValueCache = <String, Value>{};
+
+  Future<void> fireDebugHook(String event) async {
+    if (_runningDebugHook) {
+      return;
+    }
+    final hook = debugHookFunction;
+    final eventKey = event.isEmpty ? '' : event.substring(0, 1);
+    if (hook == null || eventKey.isEmpty || !debugHookMask.contains(eventKey)) {
+      return;
+    }
+
+    _runningDebugHook = true;
+    _nextCallIsDebugHook = true;
+    try {
+      await _callFunction(
+        hook,
+        <Object?>[Value(event)],
+        callerFunctionName: 'hook',
+      );
+    } finally {
+      _runningDebugHook = false;
+    }
+  }
 
   /// Global environment for variable storage.
   @override

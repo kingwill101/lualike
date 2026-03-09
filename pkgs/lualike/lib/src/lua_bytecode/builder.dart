@@ -212,6 +212,11 @@ final class LuaBytecodePrototypeBuilder {
     emitAbc('SETTABUP', a: upvalue, b: constantIndex, c: source);
   }
 
+  void emitCheckGlobal({required int envRegister, required int constantIndex}) {
+    ensureStack(envRegister + 1);
+    emitAbx('CHECKGLOBAL', a: envRegister, bx: constantIndex);
+  }
+
   void emitSetField({
     required int table,
     required int constantIndex,
@@ -444,10 +449,7 @@ final class LuaBytecodePrototypeBuilder {
     return pc;
   }
 
-  void overwriteJump({
-    required int instructionPc,
-    required int targetPc,
-  }) {
+  void overwriteJump({required int instructionPc, required int targetPc}) {
     final opcode = LuaBytecodeOpcodes.byName('JMP');
     _code[instructionPc] = LuaBytecodeInstructionWord.sj(
       opcode: opcode.code,
@@ -455,10 +457,7 @@ final class LuaBytecodePrototypeBuilder {
     );
   }
 
-  void overwriteClose({
-    required int instructionPc,
-    required int fromRegister,
-  }) {
+  void overwriteClose({required int instructionPc, required int fromRegister}) {
     final opcode = LuaBytecodeOpcodes.byName('CLOSE');
     _code[instructionPc] = LuaBytecodeInstructionWord.abc(
       opcode: opcode.code,
@@ -587,12 +586,10 @@ final class LuaBytecodePrototypeBuilder {
     );
   }
 
-  ({
-    List<int> lineInfo,
-    List<LuaBytecodeAbsLineInfo> absoluteLineInfo,
-  })
+  ({List<int> lineInfo, List<LuaBytecodeAbsLineInfo> absoluteLineInfo})
   _buildDebugLines() {
-    if (_instructionLines.isEmpty || !_instructionLines.any((line) => line > 0)) {
+    if (_instructionLines.isEmpty ||
+        !_instructionLines.any((line) => line > 0)) {
       return (
         lineInfo: const <int>[],
         absoluteLineInfo: const <LuaBytecodeAbsLineInfo>[],
@@ -605,7 +602,8 @@ final class LuaBytecodePrototypeBuilder {
     ];
 
     for (var index = 1; index < _instructionLines.length; index++) {
-      if (index % LuaBytecodeDebugLayout.maxInstructionsWithoutAbsoluteLineInfo ==
+      if (index %
+              LuaBytecodeDebugLayout.maxInstructionsWithoutAbsoluteLineInfo ==
           0) {
         absoluteLineInfo.add(
           LuaBytecodeAbsLineInfo(pc: index, line: _instructionLines[index]),

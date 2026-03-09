@@ -59,8 +59,16 @@ class _ValidatorState {
   }
 
   String? _processBlock(List<AstNode> statements, _BlockContext block) {
-    for (final stmt in statements) {
-      final error = _visitStatement(stmt, block);
+    for (var index = 0; index < statements.length; index++) {
+      final stmt = statements[index];
+      final terminalLabelInScope =
+          stmt is Label &&
+          statements.skip(index + 1).every((statement) => statement is Label);
+      final error = _visitStatement(
+        stmt,
+        block,
+        terminalLabelInScope: terminalLabelInScope,
+      );
       if (error != null) {
         return error;
       }
@@ -93,20 +101,42 @@ class _ValidatorState {
     return null;
   }
 
-  String? _visitStatement(AstNode node, _BlockContext block) {
+  String? _visitStatement(
+    AstNode node,
+    _BlockContext block, {
+    bool terminalLabelInScope = false,
+  }) {
     if (node is Label) {
-      return _handleLabel(node, block);
+      return _handleLabel(
+        node,
+        block,
+        terminalLabelInScope: terminalLabelInScope,
+      );
     }
 
     if (node is Goto) {
-      block.pendingGotos.add(
-        _PendingGoto(
-          node: node,
-          labelName: node.label.name,
-          activeLocalCount: _activeLocals.length,
-          originBlock: block,
-        ),
+      final pending = _PendingGoto(
+        node: node,
+        labelName: node.label.name,
+        activeLocalCount: _activeLocals.length,
+        originBlock: block,
       );
+      block.pendingGotos.add(pending);
+      for (_BlockContext? ctx = block; ctx != null; ctx = ctx.parent) {
+        final label = ctx.labels[node.label.name];
+        if (label == null || !pending.originBlock.isDescendantOf(ctx)) {
+          continue;
+        }
+        final error = _validateGotoAgainstLabel(
+          pending,
+          localLimit: label.localLimit,
+        );
+        if (error != null) {
+          return error;
+        }
+        block.pendingGotos.removeLast();
+        return null;
+      }
       return null;
     }
 
@@ -365,19 +395,26 @@ class _ValidatorState {
     return null;
   }
 
-  String? _handleLabel(Label label, _BlockContext block) {
+  String? _handleLabel(
+    Label label,
+    _BlockContext block, {
+    bool terminalLabelInScope = false,
+  }) {
     final name = label.label.name;
+    final localLimit = terminalLabelInScope
+        ? block.activeLocalStartIndex
+        : _activeLocals.length;
 
     for (_BlockContext? ctx = block; ctx != null; ctx = ctx.parent) {
       final current = ctx;
       final existing = current.labels[name];
       if (existing != null) {
-        final line = _line(existing.span);
+        final line = _line(existing.label.span);
         return "label '$name' already defined at line $line";
       }
     }
 
-    block.labels[name] = label;
+    block.labels[name] = _LabelInfo(label: label, localLimit: localLimit);
 
     for (_BlockContext? ctx = block; ctx != null; ctx = ctx.parent) {
       final current = ctx;
@@ -393,7 +430,10 @@ class _ValidatorState {
           continue;
         }
 
-        final error = _validateGotoAgainstLabel(pending);
+        final error = _validateGotoAgainstLabel(
+          pending,
+          localLimit: localLimit,
+        );
         if (error != null) {
           return error;
         }
@@ -406,8 +446,11 @@ class _ValidatorState {
     return null;
   }
 
-  String? _validateGotoAgainstLabel(_PendingGoto pending) {
-    if (pending.activeLocalCount < _activeLocals.length) {
+  String? _validateGotoAgainstLabel(
+    _PendingGoto pending, {
+    required int localLimit,
+  }) {
+    if (pending.activeLocalCount < localLimit) {
       final local = _activeLocals[pending.activeLocalCount];
       final line = _line(pending.node.span);
       return "<goto ${pending.labelName}> at line $line jumps into the scope of '${local.name}'";
@@ -447,7 +490,7 @@ class _BlockContext {
   final _BlockContext? parent;
   final int depth;
   final int activeLocalStartIndex;
-  final Map<String, Label> labels = {};
+  final Map<String, _LabelInfo> labels = {};
   final List<_PendingGoto> pendingGotos = [];
 
   bool isDescendantOf(_BlockContext other) {
@@ -459,6 +502,13 @@ class _BlockContext {
     }
     return false;
   }
+}
+
+class _LabelInfo {
+  _LabelInfo({required this.label, required this.localLimit});
+
+  final Label label;
+  final int localLimit;
 }
 
 class _PendingGoto {

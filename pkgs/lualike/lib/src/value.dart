@@ -1926,6 +1926,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
 
     if (method is Value) {
+      if (method.functionName == null && s.startsWith('__') && s.length > 2) {
+        method.functionName = s.substring(2);
+      }
       if (s == '__index') {
         if (method.raw is Map) {
           if (list.length >= 2) {
@@ -1975,6 +1978,14 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         return result;
       }
     } else if (method is BuiltinFunction) {
+      final interpreter = _resolveInterpreter();
+      if (interpreter != null) {
+        final callee = Value(
+          method,
+          functionName: s.startsWith('__') && s.length > 2 ? s.substring(2) : null,
+        )..interpreter = interpreter;
+        return interpreter.callFunction(callee, list);
+      }
       try {
         var result = method.call(list);
         if (result is Future) result = await result;
@@ -2025,6 +2036,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           return result;
         }
       } else if (method.raw is BuiltinFunction) {
+        final interpreter = method._resolveInterpreter() ?? _resolveInterpreter();
+        if (interpreter != null) {
+          return interpreter.callFunction(method, list);
+        }
         try {
           var result = (method.raw as BuiltinFunction).call(list);
           if (result is Future) result = await result;

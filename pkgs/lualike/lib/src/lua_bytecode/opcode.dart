@@ -439,6 +439,11 @@ abstract final class LuaBytecodeOpcodes {
       name: 'EXTRAARG',
       mode: LuaBytecodeInstructionMode.iax,
     ),
+    LuaBytecodeOpcodeInfo(
+      code: 85,
+      name: 'CHECKGLOBAL',
+      mode: LuaBytecodeInstructionMode.iabx,
+    ),
   ];
 
   static LuaBytecodeOpcodeInfo byCode(int code) {

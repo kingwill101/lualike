@@ -28,6 +28,22 @@ Value _packCoroutineVarargsTable(List<Object?> varargs) {
   return ValueClass.table(table);
 }
 
+Object? _normalizeCoroutineError(Object error) {
+  if (error is Value) {
+    if (error.raw is Value) {
+      return _normalizeCoroutineError(error.raw as Value);
+    }
+    if (error.raw is Map || error.raw is TableStorage) {
+      return error;
+    }
+    return error.unwrap();
+  }
+  if (error is LuaError) {
+    return error.message;
+  }
+  return error;
+}
+
 /// Engine-owned suspended execution state for a coroutine.
 abstract interface class CoroutineContinuation {
   Future<Object?> resume(List<Object?> args);
@@ -35,6 +51,42 @@ abstract interface class CoroutineContinuation {
   Future<void> close([Object? error]);
 
   Iterable<GCObject> getReferences();
+}
+
+final class _AstReturnCloseContinuation implements CoroutineContinuation {
+  _AstReturnCloseContinuation(this.coroutine, this.returnValue);
+
+  final Coroutine coroutine;
+  final Object? returnValue;
+
+  @override
+  Future<Object?> resume(List<Object?> args) async {
+    final interpreter = coroutine.closureEnvironment.interpreter;
+    if (interpreter != null) {
+      interpreter.setCurrentCoroutine(coroutine);
+      interpreter.setCurrentEnv(coroutine._resumeEnvironment);
+    }
+    coroutine.status = CoroutineStatus.running;
+    try {
+      await coroutine._closeCoroutineScope();
+      return returnValue;
+    } on YieldException {
+      coroutine.installContinuation(
+        _AstReturnCloseContinuation(coroutine, returnValue),
+      );
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> close([Object? error]) async {
+    await coroutine._closeCoroutineScope(error);
+  }
+
+  @override
+  Iterable<GCObject> getReferences() sync* {
+    yield coroutine;
+  }
 }
 
 /// Represents a coroutine status as defined in Lua
@@ -78,6 +130,15 @@ class Coroutine extends GCObject {
   /// This environment is preserved across yields.
   Environment _executionEnvironment;
 
+  /// The environment active at the current suspension point.
+  /// This is restored on resume so nested scope yields continue correctly.
+  Environment _resumeEnvironment;
+
+  /// Script path active at the current suspension point.
+  /// This is restored on resume so new frames created after a yield retain
+  /// the correct chunk/file name.
+  String? _resumeScriptPath;
+
   /// Program counter: the index of the next statement to execute in functionBody.body.
   int _programCounter = 0;
 
@@ -112,7 +173,14 @@ class Coroutine extends GCObject {
           : closureEnvironment.clone(
               interpreter: closureEnvironment.interpreter,
             ),
+      _resumeEnvironment = functionBody == null
+          ? closureEnvironment
+          : closureEnvironment.clone(
+              interpreter: closureEnvironment.interpreter,
+            ),
+      _resumeScriptPath = closureEnvironment.interpreter?.currentScriptPath,
       super() {
+    _resumeEnvironment = _executionEnvironment;
     // Register with garbage collector
     closureEnvironment.interpreter?.gc.register(this);
   }
@@ -166,8 +234,10 @@ class Coroutine extends GCObject {
         interpreter.setCurrentCoroutine(this);
         // When resuming from a yield, restore the saved execution environment
         interpreter.setCurrentEnv(
-          _executionEnvironment,
+          _resumeEnvironment,
         ); // Restore the saved environment
+        interpreter.currentScriptPath = _resumeScriptPath;
+        interpreter.callStack.setScriptPath(_resumeScriptPath);
         Logger.debugLazy(
           () =>
               'Coroutine.resume: Restored saved execution environment: '
@@ -218,10 +288,21 @@ class Coroutine extends GCObject {
 
         final continuation = takeContinuation();
         if (continuation != null) {
-          final result = await continuation.resume(processedArgs);
-          status = CoroutineStatus.dead;
-          _finalizeTermination();
-          return _handleReturnValue(result);
+          final currentCompleter = completer;
+          final nextCompleter = Completer<List<Object?>>();
+          completer = nextCompleter;
+          currentCompleter?.complete(processedArgs);
+
+          try {
+            final result = await continuation.resume(processedArgs);
+            status = CoroutineStatus.dead;
+            _finalizeTermination();
+            return _handleReturnValue(result);
+          } on YieldException catch (e) {
+            status = CoroutineStatus.suspended;
+            _detachCallStack();
+            return Value.multi([Value(true), ...e.values]);
+          }
         }
 
         // Resume execution by completing the completer
@@ -288,7 +369,11 @@ class Coroutine extends GCObject {
       error = e;
       status = CoroutineStatus.dead;
       _finalizeTermination();
-      return Value.multi([Value(false), Value(e.toString())]);
+      final normalizedError = _normalizeCoroutineError(e);
+      return Value.multi([
+        Value(false),
+        normalizedError is Value ? normalizedError : Value(normalizedError),
+      ]);
     } finally {
       if (_activeStack.isNotEmpty && identical(_activeStack.last, this)) {
         _activeStack.removeLast();
@@ -323,7 +408,7 @@ class Coroutine extends GCObject {
   /// Helper method to handle return values from coroutine
   Value _handleReturnValue(Object? value) {
     if (value == null) {
-      return Value.multi([Value(true), Value(null)]);
+      return Value.multi([Value(true)]);
     } else if (value is Value) {
       if (value.isMulti) {
         // Extract multiple return values
@@ -342,12 +427,7 @@ class Coroutine extends GCObject {
   Future<void> _handleTailCallCompletion(TailCallException t) async {
     final interpreter = closureEnvironment.interpreter;
     if (interpreter == null) {
-      error = t;
-      status = CoroutineStatus.dead;
-      _finalizeTermination();
-      if (completer != null && !completer!.isCompleted) {
-        completer!.completeError(t);
-      }
+      await _completeWithError(t);
       return;
     }
 
@@ -358,18 +438,17 @@ class Coroutine extends GCObject {
         .map((arg) => arg is Value ? arg : Value(arg))
         .toList();
     final callResult = await interpreter.callFunction(callee, normalizedArgs);
-    await _completeWithReturn(callResult);
+    try {
+      await _completeWithReturn(callResult);
+    } catch (e) {
+      await _completeWithError(e);
+    }
   }
 
   Future<void> _handleTailCallSignalCompletion(TailCallSignal t) async {
     final interpreter = closureEnvironment.interpreter;
     if (interpreter == null) {
-      error = t;
-      status = CoroutineStatus.dead;
-      _finalizeTermination();
-      if (completer != null && !completer!.isCompleted) {
-        completer!.completeError(t);
-      }
+      await _completeWithError(t);
       return;
     }
 
@@ -380,7 +459,11 @@ class Coroutine extends GCObject {
         .map((arg) => arg is Value ? arg : Value(arg))
         .toList();
     final callResult = await interpreter.callFunction(callee, normalizedArgs);
-    await _completeWithReturn(callResult);
+    try {
+      await _completeWithReturn(callResult);
+    } catch (e) {
+      await _completeWithError(e);
+    }
   }
 
   Future<void> _closeCoroutineScope([dynamic error]) async {
@@ -391,8 +474,13 @@ class Coroutine extends GCObject {
   }
 
   Future<void> _completeWithReturn(Object? value) async {
+    try {
+      await _closeCoroutineScope();
+    } on YieldException {
+      installContinuation(_AstReturnCloseContinuation(this, value));
+      rethrow;
+    }
     status = CoroutineStatus.dead;
-    await _closeCoroutineScope();
     _finalizeTermination();
     if (completer != null && !completer!.isCompleted) {
       final handledResult = _handleReturnValue(value);
@@ -401,6 +489,19 @@ class Coroutine extends GCObject {
       } else {
         completer!.complete([handledResult.raw]);
       }
+    }
+  }
+
+  Future<void> _completeWithError(Object errorObject) async {
+    error = errorObject;
+    status = CoroutineStatus.dead;
+    _finalizeTermination();
+    if (completer != null && !completer!.isCompleted) {
+      final normalizedError = _normalizeCoroutineError(errorObject);
+      completer!.complete([
+        Value(false),
+        normalizedError is Value ? normalizedError : Value(normalizedError),
+      ]);
     }
   }
 
@@ -413,11 +514,13 @@ class Coroutine extends GCObject {
     // Save the current execution environment before yielding
     final interpreter = closureEnvironment.interpreter;
     if (interpreter != null) {
-      _executionEnvironment = interpreter.getCurrentEnv();
+      _resumeEnvironment = interpreter.getCurrentEnv();
+      _resumeScriptPath =
+          interpreter.currentScriptPath ?? interpreter.callStack.scriptPath;
       Logger.debugLazy(
         () =>
             'Coroutine.yield_: Saved current execution environment: '
-            '${_executionEnvironment.hashCode}',
+            '${_resumeEnvironment.hashCode}',
         category: 'Coroutine',
       );
     }
@@ -698,7 +801,14 @@ class Coroutine extends GCObject {
           () => '_executeCoroutine: Caught ReturnException',
           category: 'Coroutine',
         );
-        await _completeWithReturn(e.value);
+        try {
+          await _completeWithReturn(e.value);
+        } on YieldException {
+          return;
+        } catch (closeError) {
+          await _completeWithError(closeError);
+          return;
+        }
         Logger.debugLazy(
           () => '_executeCoroutine: Completer completed with return value',
           category: 'Coroutine',
@@ -716,21 +826,12 @@ class Coroutine extends GCObject {
         } catch (closeError) {
           finalError = closeError;
         }
-        error = finalError;
         Logger.error('Error in _executeCoroutine: $e', category: 'Coroutine');
-        // Set status to dead on unhandled exceptions
-        status = CoroutineStatus.dead;
-        _finalizeTermination();
-        if (completer != null && !completer!.isCompleted) {
-          completer!.complete([
-            Value(false),
-            Value(finalError.toString()),
-          ]); // Return error to caller
-          Logger.debugLazy(
-            () => '_executeCoroutine: Completer completed with error',
-            category: 'Coroutine',
-          );
-        }
+        await _completeWithError(finalError);
+        Logger.debugLazy(
+          () => '_executeCoroutine: Completer completed with error',
+          category: 'Coroutine',
+        );
       }
     } finally {
       astInterpreter?.setCurrentFunction(savedFunction);
@@ -821,6 +922,9 @@ class Coroutine extends GCObject {
     refs.add(functionValue);
     refs.add(closureEnvironment);
     refs.add(_executionEnvironment);
+    if (!identical(_resumeEnvironment, _executionEnvironment)) {
+      refs.add(_resumeEnvironment);
+    }
     final continuation = _continuation;
     if (continuation != null) {
       refs.addAll(continuation.getReferences());
@@ -856,6 +960,8 @@ class Coroutine extends GCObject {
     _executionTask = null;
     _continuation = null;
     _programCounter = 0; // Reset program counter
+    _resumeEnvironment = _executionEnvironment;
+    _resumeScriptPath = closureEnvironment.interpreter?.currentScriptPath;
     // _executionEnvironment should be re-initialized from closureEnvironment
     // or explicitly cleared if not reused directly.
   }
@@ -870,6 +976,5 @@ class Coroutine extends GCObject {
 
   void installContinuation(CoroutineContinuation continuation) {
     _continuation = continuation;
-    completer = null;
   }
 }

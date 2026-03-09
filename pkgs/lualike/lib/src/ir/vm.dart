@@ -6,6 +6,7 @@ import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/number_limits.dart';
 import 'package:lualike/src/number_utils.dart';
+import 'package:lualike/src/runtime/vararg_table.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/table_storage.dart';
 import 'package:lualike/src/value.dart';
@@ -134,6 +135,9 @@ class _IrFrame {
     final paramCount = prototype.paramCount;
     for (var i = 0; i < paramCount; i++) {
       setRegister(i, i < args.length ? args[i] : null);
+    }
+    if (prototype.namedVarargRegister case final int register) {
+      setRegister(register, packVarargsTable(varargs));
     }
   }
 
