@@ -101,6 +101,29 @@ class IOLib {
   static Value? _defaultOutput;
   static bool _defaultOutputExplicitlyClosed = false;
 
+  static List<Object?> get gcRoots {
+    final roots = <Object?>[];
+    final seen = Expando<bool>('ioGcRootsSeen');
+
+    void add(Value? value) {
+      if (value == null) return;
+      if (seen[value] == true) return;
+      seen[value] = true;
+      roots.add(value);
+    }
+
+    add(_stdinValue);
+    add(_stdoutValue);
+    add(_defaultInput);
+    add(_defaultOutput);
+    return roots;
+  }
+
+  static bool isCurrentDefaultFile(LuaFile file) {
+    return identical(_defaultInput?.raw, file) ||
+        identical(_defaultOutput?.raw, file);
+  }
+
   // Get singleton instances
   static StdinDevice get stdinDevice {
     Logger.debug('Getting stdinDevice', category: 'IO');
@@ -389,9 +412,15 @@ class IOLines extends BuiltinFunction {
           true,
         ); // closeOnEof = true for io.lines(filename)
 
-        // Return iterator, dummy state/control (nil), and a to-be-closed variable
-        // Get current Library metamethods from interpreter
-        final toClose = Value.toBeClose(fileValue);
+        // Return iterator, dummy state/control (nil), and a separate
+        // to-be-closed wrapper around the same LuaFile. Reusing `fileValue`
+        // here would mark the iterator-owned wrapper as to-be-closed too, and
+        // a discarded bare `io.lines(filename)` call would then skip `__gc`.
+        final toClose = Value(
+          luaFile,
+          metatable: fileMetamethods,
+          isToBeClose: true,
+        );
         return Value.multi([iterator, Value(null), Value(null), toClose]);
       } catch (e) {
         Logger.debug('Error opening file: $e', category: 'IO');

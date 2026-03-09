@@ -169,12 +169,15 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       return v;
     }
 
-    final leftValCanon = canon(leftVal);
-    final rightValCanon = canon(rightVal);
+    final canonicalLeft = canon(leftVal);
+    final canonicalRight = canon(rightVal);
 
-    // Use canonicalized values for metamethod checks
-    final canonicalLeft = leftValCanon;
-    final canonicalRight = rightValCanon;
+    Value operandForMetamethod(Value live, Value canonical, String event) {
+      if (live.hasMetamethod(event)) {
+        return live;
+      }
+      return canonical;
+    }
 
     if (Logger.enabled) {
       Logger.debug(
@@ -213,11 +216,22 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       bool invertResult = false;
       Value? calleeValue;
 
+      final methodLeft = operandForMetamethod(
+        leftVal,
+        canonicalLeft,
+        metamethodName,
+      );
+      final methodRight = operandForMetamethod(
+        rightVal,
+        canonicalRight,
+        metamethodName,
+      );
+
       // Prefer left, then right for the direct mapping
-      if (canonicalLeft.hasMetamethod(metamethodName)) {
-        calleeValue = canonicalLeft;
-      } else if (canonicalRight.hasMetamethod(metamethodName)) {
-        calleeValue = canonicalRight;
+      if (methodLeft.hasMetamethod(metamethodName)) {
+        calleeValue = methodLeft;
+      } else if (methodRight.hasMetamethod(metamethodName)) {
+        calleeValue = methodRight;
       }
 
       if (Logger.enabled &&
@@ -269,8 +283,8 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         }
 
         final callArgs = swapArgs
-            ? [canonicalRight, canonicalLeft]
-            : [canonicalLeft, canonicalRight];
+            ? [methodRight, methodLeft]
+            : [methodLeft, methodRight];
         Object? result;
         try {
           result = await calleeValue.callMetamethodAsync(metamethodName, callArgs);
@@ -522,11 +536,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         );
       }
       final multiValues = operandResult.raw as List;
-
-      //special case for # operator
-      if (node.op != "#") {
-        operandResult = multiValues.isNotEmpty ? multiValues[0] : Value(null);
-      }
+      operandResult = multiValues.isNotEmpty ? multiValues[0] : Value(null);
     } else if (operandResult is List && operandResult.isNotEmpty) {
       operandResult = operandResult[0];
     }
@@ -825,14 +835,8 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
   /// Returns the string representation of varargs.
   @override
   Future<Object?> visitVarArg(VarArg varArg) async {
-    // Try to get varargs value from the environment
-    try {
-      final varargs = globals.get("...");
-      return varargs;
-    } catch (e) {
-      // No varargs available, return empty list
-      return Value.multi([]);
-    }
+    final varargs = _resolveCurrentVarargSource(this as Interpreter, globals);
+    return Value.multi(_expandVarargValue(varargs));
   }
 
   /// Evaluates a grouped expression.

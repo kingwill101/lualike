@@ -15,6 +15,8 @@ import 'table_storage.dart';
 /// Represents an asynchronous function that can be called with a list of arguments.
 typedef AsyncFunction = Future<Object?> Function(List<Object?> args);
 
+abstract interface class VirtualLuaTable implements Map<dynamic, dynamic> {}
+
 String _comparisonTypeError(Object? leftRaw, Object? rightRaw) {
   final leftType = getLuaType(Value(leftRaw));
   final rightType = getLuaType(Value(rightRaw));
@@ -137,7 +139,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     var size = GcWeights.gcObjectHeader + GcWeights.valueBase;
     if (isTable && raw is Map) {
       final map = raw as Map;
-      size += map.length * GcWeights.tableEntry;
+      if (map is TableStorage) {
+        size += map.arrayLength * GcWeights.tableEntry;
+        size += map.reservedHashSlots * GcWeights.tableEntry;
+      } else {
+        size += map.length * GcWeights.tableEntry;
+      }
       // Count only RAW string keys, not Value-wrapped keys.
       // Value keys are separate GC objects already tracked; counting their
       // content again would double-count them.
@@ -252,7 +259,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     if (normalized is Map) {
       if (normalized is TableStorage) {
         _canonicalTableStorage[normalized] ??= normalized;
-      } else if (normalized is! MapBase<String, dynamic>) {
+      } else if (normalized is! VirtualLuaTable &&
+          normalized is! MapBase<String, dynamic>) {
         normalized = _ensureCanonicalStorage(normalized);
       }
     }
@@ -281,6 +289,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   Value(
     dynamic raw, {
     Map<String, dynamic>? metatable,
+    this.isMulti = false,
     this.isConst = false,
     this.isToBeClose = false,
     this.isTempKey = false,
@@ -294,7 +303,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     if (normalized is Map) {
       if (normalized is TableStorage) {
         _canonicalTableStorage[normalized] ??= normalized;
-      } else if (normalized is! MapBase<String, dynamic>) {
+      } else if (normalized is! VirtualLuaTable &&
+          normalized is! MapBase<String, dynamic>) {
         normalized = _ensureCanonicalStorage(normalized);
       }
     }
@@ -315,7 +325,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     if (metatable == null) {
       MetaTable().applyDefaultMetatable(this);
     } else {
-      this.metatable = metatable;
+      setMetatable(metatable);
     }
 
     // Always register with the GC so mark/unmark and separation logic
@@ -367,6 +377,21 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   void _registerTableIdentity(Map table) {
     try {
+      final existing = _tableIdentity[table];
+      if (existing != null && !identical(existing, this)) {
+        final existingHasMetadata =
+            existing.metatable != null ||
+            existing.metatableRef != null ||
+            existing.functionName != null;
+        final currentHasMetadata =
+            metatable != null || metatableRef != null || functionName != null;
+
+        // Do not let transient wrappers from returns/indexing clobber the
+        // canonical wrapper that carries the table's metatable identity.
+        if (existingHasMetadata && !currentHasMetadata) {
+          return;
+        }
+      }
       _tableIdentity[table] = this;
     } catch (_) {
       // If Expando association fails for any reason, ignore; behavior remains correct
@@ -422,6 +447,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// debt for them to avoid frequent auto-GC triggers in tight loops.
   bool _shouldCountAllocation() {
     if (isMulti) return false; // short-lived carrier, don't count
+    if (raw is VirtualLuaTable) return false;
     if (isTempKey) {
       if (Logger.enabled) {
         Logger.debug(
@@ -480,9 +506,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   }
 
   factory Value.multi(List<dynamic> values) {
-    final value = Value(values);
-    value.isMulti = true;
-    return value;
+    return Value(values, isMulti: true);
   }
 
   /// Creates a constant value that cannot be modified after initialization
@@ -651,6 +675,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// [mt] - The new metatable to associate with this value.
   void setMetatable(Map<String, dynamic> mt) {
     metatable = mt;
+    finalizerEligible = mt.containsKey('__gc');
     // Cache weak mode string for later semantics checks even if this
     // metatable is freed before finalization runs.
     try {
@@ -1052,6 +1077,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       final storageKey = _computeStorageKey(key);
       if ((raw as Map).containsKey(storageKey)) {
         final result = (raw as Map)[storageKey];
+        if (raw is VirtualLuaTable) {
+          return result;
+        }
         if (result is Value) {
           // If this Value wraps a Map and there is a canonical wrapper
           // registered for that Map, return the canonical one to preserve
@@ -1161,6 +1189,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       }
       if ((raw as Map).containsKey(storageKey)) {
         final result = (raw as Map)[storageKey];
+        if (raw is VirtualLuaTable) {
+          return result;
+        }
         if (result is Value) {
           if (result.raw is Map) {
             final existing = _lookupTableIdentity(result.raw);

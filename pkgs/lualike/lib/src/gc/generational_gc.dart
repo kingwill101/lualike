@@ -167,6 +167,7 @@ class GenerationalGCManager {
   bool get isFinalizerActive => _finalizerActive;
 
   bool get hasPendingFinalizers => _toBeFinalized.isNotEmpty;
+  bool get hasPendingAsyncFinalizers => _pendingAsyncFinalizers.isNotEmpty;
   bool get isManualCollectRunning => _manualCollectRunning;
 
   bool tryEnterManualCollect() {
@@ -240,6 +241,7 @@ class GenerationalGCManager {
   final Map<Value, Set<dynamic>> _pendingWeakKeyRemovals =
       HashMap<Value, Set<dynamic>>.identity();
   // Removed: _pendingAllWeakRemovals (unused)
+  final List<Future<void>> _pendingAsyncFinalizers = <Future<void>>[];
 
   /// Multiplicative factor applied to the allocation debt threshold before
   /// automatic collection is requested. This prevents small, frequent
@@ -758,13 +760,14 @@ class GenerationalGCManager {
               try {
                 final result = obj.callMetamethod('__gc', [obj]);
                 if (result is Future) {
-                  // Allow asynchronous finalizers to complete without blocking.
-                  result.catchError((error, stack) {
-                    Logger.debugLazy(
-                      () => 'Async finalizer error: $error',
-                      category: 'GC',
-                    );
-                  });
+                  _pendingAsyncFinalizers.add(
+                    result.then<void>((_) {}).catchError((error, stack) {
+                      Logger.debugLazy(
+                        () => 'Async finalizer error: $error',
+                        category: 'GC',
+                      );
+                    }),
+                  );
                 }
                 finalized = true;
               } catch (error) {
@@ -944,6 +947,11 @@ class GenerationalGCManager {
       // GC will run at safe points during execution
       _simulatedAllocationDebt += obj.estimatedSize;
       _requestAutoTrigger();
+    } else {
+      MemoryCredits.instance.onTrackExcluded(
+        obj,
+        space: GCGenerationSpace.young,
+      );
     }
     if (obj is Value && obj.isTable) {
       Logger.debugLazy(
@@ -1050,6 +1058,14 @@ class GenerationalGCManager {
             'duration=${stopwatch.elapsedMilliseconds}ms',
         category: 'GC',
       );
+    }
+  }
+
+  Future<void> drainPendingAsyncFinalizers() async {
+    while (_pendingAsyncFinalizers.isNotEmpty) {
+      final pending = List<Future<void>>.of(_pendingAsyncFinalizers);
+      _pendingAsyncFinalizers.clear();
+      await Future.wait(pending);
     }
   }
 
@@ -2454,6 +2470,7 @@ class GenerationalGCManager {
     // are applied after finalizers, matching Lua semantics.
     _currentPhase = GCPhase.finalizing;
     await _callFinalizersAsync();
+    await drainPendingAsyncFinalizers();
     // Note: We intentionally keep phase as finalizing until after applying
     // pending weak-key removals so iterators in finalizers can observe keys.
 
