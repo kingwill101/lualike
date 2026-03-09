@@ -25,11 +25,30 @@ class SmartCompiler {
   }) : binaryName = getExecutableName(binaryName),
        dartPath = getExecutableName(dartPath);
 
-  String get _hashFilePath => path.join(cacheDir, 'source_hash.txt');
+  String get _resolvedBinaryPath => path.normalize(
+    path.isAbsolute(binaryName)
+        ? binaryName
+        : path.join(projectRoot, binaryName),
+  );
+
+  String get _cacheNamespace {
+    final baseName = path
+        .basename(binaryName)
+        .replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '_');
+    final digest = sha256
+        .convert(utf8.encode(_resolvedBinaryPath))
+        .toString()
+        .substring(0, 12);
+    return '${baseName}_$digest';
+  }
+
+  String get _cachePath => path.join(cacheDir, _cacheNamespace);
+
+  String get _hashFilePath => path.join(_cachePath, 'source_hash.txt');
 
   String get _binaryPath => path.join(projectRoot, binaryName);
 
-  String get _compileTimeFilePath => path.join(cacheDir, 'compile_time.txt');
+  String get _compileTimeFilePath => path.join(_cachePath, 'compile_time.txt');
 
   /// Calculate hash of all source files in the specified directories
   Future<(String, Map<String, dynamic>)> _calculateSourceHash() async {
