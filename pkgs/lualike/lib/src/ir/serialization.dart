@@ -107,6 +107,11 @@ void _writePrototype(_LualikeIrWriter writer, LualikeIrPrototype prototype) {
     ..writeUint32(prototype.registerCount)
     ..writeUint32(prototype.paramCount)
     ..writeBool(prototype.isVararg)
+    ..writeBool(prototype.namedVarargRegister != null);
+  if (prototype.namedVarargRegister != null) {
+    writer.writeUint32(prototype.namedVarargRegister!);
+  }
+  writer
     ..writeUint32(prototype.lineDefined)
     ..writeUint32(prototype.lastLineDefined);
 
@@ -182,6 +187,7 @@ LualikeIrPrototype _readPrototype(_LualikeIrReader reader) {
   final registerCount = reader.readUint32();
   final paramCount = reader.readUint32();
   final isVararg = reader.readBool();
+  final namedVarargRegister = reader.readBool() ? reader.readUint32() : null;
   final lineDefined = reader.readUint32();
   final lastLineDefined = reader.readUint32();
 
@@ -242,6 +248,7 @@ LualikeIrPrototype _readPrototype(_LualikeIrReader reader) {
     registerCount: registerCount,
     paramCount: paramCount,
     isVararg: isVararg,
+    namedVarargRegister: namedVarargRegister,
     upvalueDescriptors: upvalueDescriptors,
     instructions: instructions,
     constants: constants,

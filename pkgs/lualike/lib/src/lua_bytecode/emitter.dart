@@ -172,6 +172,7 @@ final class _LuaBytecodeStructuredCompiler {
   final List<LuaBytecodeLocalFact> _factLocals = <LuaBytecodeLocalFact>[];
   var _nextRegister = 0;
   var _nextTemp = 0;
+  var _nextLocalSequence = 0;
   var _hasExplicitReturn = false;
   var _loopDepth = 0;
   var _nextScopeId = 0;
@@ -706,7 +707,9 @@ final class _LuaBytecodeStructuredCompiler {
   void _compileLabel(Label statement, {required bool terminalInScope}) {
     final name = statement.label.name;
     final visible = terminalInScope
-        ? _visibleLocals().difference(_scopes.last.toSet())
+        ? _visibleLocals().difference(
+            _scopes.last.where((local) => local.hasStorage).toSet(),
+          )
         : _visibleLocals();
     final existing = _labelsByName[name];
     if (existing != null && existing.isNotEmpty) {
@@ -773,6 +776,10 @@ final class _LuaBytecodeStructuredCompiler {
         statement.name.method == null;
     if (declaresSimpleGlobal) {
       _declaredGlobals.add(statement.name.first.name);
+      _bindScopeBarrier(
+        statement.name.first.name,
+        startPc: _prototype.currentPc + 1,
+      );
     }
 
     final scratch = _reserveTempBlock(1);
@@ -799,26 +806,52 @@ final class _LuaBytecodeStructuredCompiler {
   }
 
   void _compileGlobalDeclaration(GlobalDeclaration statement) {
-    if (statement.isWildcard || statement.names.isEmpty) {
+    if (statement.isWildcard) {
+      _bindScopeBarrier('*', startPc: _prototype.currentPc + 1);
+      return;
+    }
+    if (statement.names.isEmpty) {
+      return;
+    }
+
+    if (statement.exprs.isEmpty) {
+      final startPc = _prototype.currentPc + 1;
+      for (final name in statement.names) {
+        _declaredGlobals.add(name.name);
+        _bindScopeBarrier(name.name, startPc: startPc);
+      }
       return;
     }
 
     _emitValueList(
       statement.exprs,
       valueCount: statement.names.length,
-      onValue: (index, register) {
-        _emitGlobalStore(statement.names[index].name, register);
-      },
-      onNil: (index) {
-        final scratch = _reserveTempBlock(1);
-        _prototype.emitLoadNil(target: scratch);
-        _emitGlobalStore(statement.names[index].name, scratch);
-        _releaseTempBlock(scratch, 1);
+      onValue: (_, __) {},
+      onNil: (_) {},
+      onComplete: (realizedCount, stagingBase) {
+        for (final name in statement.names) {
+          _emitCheckGlobalUndefined(name.name);
+        }
+        for (var index = 0; index < realizedCount; index++) {
+          _emitGlobalStore(statement.names[index].name, stagingBase + index);
+        }
+        for (
+          var index = realizedCount;
+          index < statement.names.length;
+          index++
+        ) {
+          final scratch = _reserveTempBlock(1);
+          _prototype.emitLoadNil(target: scratch);
+          _emitGlobalStore(statement.names[index].name, scratch);
+          _releaseTempBlock(scratch, 1);
+        }
       },
     );
 
+    final startPc = _prototype.currentPc + 1;
     for (final name in statement.names) {
       _declaredGlobals.add(name.name);
+      _bindScopeBarrier(name.name, startPc: startPc);
     }
   }
 
@@ -833,6 +866,7 @@ final class _LuaBytecodeStructuredCompiler {
     required int valueCount,
     required void Function(int index, int register) onValue,
     required void Function(int index) onNil,
+    void Function(int realizedCount, int stagingBase)? onComplete,
   }) {
     if (valueCount == 0) {
       if (expressions.isNotEmpty && _isCallExpression(expressions.last)) {
@@ -874,12 +908,16 @@ final class _LuaBytecodeStructuredCompiler {
         valueIndex += 1;
       }
 
-      for (var index = 0; index < valueIndex; index++) {
-        onValue(index, stagingBase + index);
-      }
-      while (valueIndex < valueCount) {
-        onNil(valueIndex);
-        valueIndex += 1;
+      if (onComplete != null) {
+        onComplete(valueIndex, stagingBase);
+      } else {
+        for (var index = 0; index < valueIndex; index++) {
+          onValue(index, stagingBase + index);
+        }
+        while (valueIndex < valueCount) {
+          onNil(valueIndex);
+          valueIndex += 1;
+        }
       }
     } finally {
       _releaseTempBlock(stagingBase, valueCount);
@@ -1146,6 +1184,38 @@ final class _LuaBytecodeStructuredCompiler {
       source: sourceRegister,
     );
     _releaseTempBlock(tempBase, 2);
+  }
+
+  void _emitCheckGlobalUndefined(String name) {
+    final constantIndex = _prototype.addStringConstant(name);
+    switch (_resolveVariable('_ENV')) {
+      case _LuaBytecodeStructuredResolvedVariable(
+        kind: _LuaBytecodeStructuredResolvedVariableKind.local,
+        register: final register,
+      ):
+        _prototype.emitCheckGlobal(
+          envRegister: register!,
+          constantIndex: constantIndex,
+        );
+        return;
+      case _LuaBytecodeStructuredResolvedVariable(
+        kind: _LuaBytecodeStructuredResolvedVariableKind.upvalue,
+        upvalueIndex: final upvalueIndex,
+      ):
+        final scratch = _reserveTempBlock(1);
+        _prototype.emitGetUpvalue(target: scratch, upvalue: upvalueIndex!);
+        _prototype.emitCheckGlobal(
+          envRegister: scratch,
+          constantIndex: constantIndex,
+        );
+        _releaseTempBlock(scratch, 1);
+        return;
+      default:
+        throw UnsupportedError(
+          'lua_bytecode emitter requires an accessible _ENV binding for '
+          'global declarations',
+        );
+    }
   }
 
   void _emitSelfLookup({
@@ -1644,21 +1714,21 @@ final class _LuaBytecodeStructuredCompiler {
         'lua_bytecode emitter does not support implicit-self function bodies',
       );
     }
-    if (body.varargName != null) {
-      throw UnsupportedError(
-        'lua_bytecode emitter does not support named vararg tables yet',
-      );
-    }
     final parameterList = <Identifier>[...?body.parameters];
     if (implicitSelf &&
         (parameterList.isEmpty || parameterList.first.name != 'self')) {
       parameterList.insert(0, Identifier('self'));
     }
+    final flags =
+        (body.isVararg ? LuaBytecodePrototypeFlags.hasHiddenVarargs : 0) |
+        (body.varargName != null
+            ? LuaBytecodePrototypeFlags.hasVarargTable
+            : 0);
     final childPrototype = LuaBytecodePrototypeBuilder(
       lineDefined: _startLine(body),
       lastLineDefined: _endLine(body),
       parameterCount: parameterList.length,
-      flags: body.isVararg ? LuaBytecodePrototypeFlags.hasHiddenVarargs : 0,
+      flags: flags,
       source: _prototype.source,
     );
     final childCompiler = _LuaBytecodeStructuredCompiler.nested(
@@ -1667,6 +1737,14 @@ final class _LuaBytecodeStructuredCompiler {
       parameters: parameterList,
       declaredGlobals: declaredGlobals,
     );
+    if (body.varargName case final Identifier varargName) {
+      final register = childCompiler._allocateRegisters(1);
+      childCompiler._bindSyntheticLocal(
+        varargName.name,
+        register: register,
+        startPc: 1,
+      );
+    }
     childCompiler.compileFunctionBody(body.body);
     final childIndex = _prototype.addChildPrototype(childPrototype);
     _prototype.emitClosure(target: targetRegister, childIndex: childIndex);
@@ -2007,14 +2085,10 @@ final class _LuaBytecodeStructuredCompiler {
   };
 
   _LuaBytecodeStructuredResolvedVariable _resolveVariable(String name) {
-    final local = _lookupLocal(name);
-    if (local != null) {
-      return _LuaBytecodeStructuredResolvedVariable.local(
-        name: name,
-        register: local.register,
-      );
+    final currentFunctionBinding = _resolveCurrentFunctionBinding(name);
+    if (currentFunctionBinding != null) {
+      return currentFunctionBinding;
     }
-
     if (_declaredGlobals.contains(name)) {
       return _LuaBytecodeStructuredResolvedVariable.global(name: name);
     }
@@ -2027,7 +2101,32 @@ final class _LuaBytecodeStructuredCompiler {
       );
     }
 
+    if (_declaredGlobals.contains(name)) {
+      return _LuaBytecodeStructuredResolvedVariable.global(name: name);
+    }
+
     return _LuaBytecodeStructuredResolvedVariable.global(name: name);
+  }
+
+  _LuaBytecodeStructuredResolvedVariable? _resolveCurrentFunctionBinding(
+    String name,
+  ) {
+    for (final scope in _scopes.reversed) {
+      for (final local in scope.reversed) {
+        if (local.hasStorage && local.name == name) {
+          return _LuaBytecodeStructuredResolvedVariable.local(
+            name: name,
+            register: local.register,
+          );
+        }
+      }
+      for (final local in scope.reversed) {
+        if (!local.hasStorage && local.name == name) {
+          return _LuaBytecodeStructuredResolvedVariable.global(name: name);
+        }
+      }
+    }
+    return null;
   }
 
   _LuaBytecodeStructuredStoreTarget _resolveStoreTarget(AstNode node) {
@@ -2248,6 +2347,8 @@ final class _LuaBytecodeStructuredCompiler {
       startPc: _prototype.currentPc + 1,
       statementIndex: statementIndex,
       attribute: attribute,
+      hasStorage: true,
+      sequence: -1,
     );
   }
 
@@ -2287,6 +2388,8 @@ final class _LuaBytecodeStructuredCompiler {
       startPc: startPc,
       statementIndex: statementIndex,
       attribute: attribute,
+      hasStorage: true,
+      sequence: _nextLocalSequence++,
     );
     _scopes.last.add(local);
     (_localsByName[name] ??= <_LuaBytecodeStructuredLocal>[]).add(local);
@@ -2313,6 +2416,20 @@ final class _LuaBytecodeStructuredCompiler {
       statementIndex: -1,
       attribute: '',
       startPc: startPc,
+    );
+  }
+
+  void _bindScopeBarrier(String name, {required int startPc}) {
+    _scopes.last.add(
+      _LuaBytecodeStructuredLocal(
+        name: name,
+        register: -1,
+        startPc: startPc,
+        statementIndex: -1,
+        attribute: '',
+        hasStorage: false,
+        sequence: _nextLocalSequence++,
+      ),
     );
   }
 
@@ -2392,6 +2509,9 @@ final class _LuaBytecodeStructuredCompiler {
     _scopeIds.removeLast();
     final leavingLocals = _scopes.removeLast();
     for (final local in leavingLocals) {
+      if (!local.hasStorage) {
+        continue;
+      }
       _prototype.addLocalVariable(
         name: local.name,
         startPc: local.startPc,
@@ -2400,6 +2520,9 @@ final class _LuaBytecodeStructuredCompiler {
       );
     }
     for (final local in leavingLocals.reversed) {
+      if (!local.hasStorage) {
+        continue;
+      }
       final bindings = _localsByName[local.name]!;
       bindings.removeLast();
       if (bindings.isEmpty) {
@@ -2418,6 +2541,9 @@ final class _LuaBytecodeStructuredCompiler {
     var top = _prototype.parameterCount;
     for (final scope in _scopes) {
       for (final local in scope) {
+        if (!local.hasStorage) {
+          continue;
+        }
         top = math.max(top, local.register + 1);
       }
     }
@@ -2445,11 +2571,11 @@ final class _LuaBytecodeStructuredCompiler {
           final missing = label.visibleLocals
               .difference(pending.visibleLocals)
               .reduce(
-                (best, local) => local.register < best.register ? local : best,
+                (best, local) => local.sequence < best.sequence ? local : best,
               );
           throw UnsupportedError(
             "<goto ${pending.label}> at line ${pending.line} jumps into the "
-            "scope of local '${missing.name}'",
+            "scope of '${missing.name}'",
           );
         case _LuaBytecodeGotoResolution.match:
           break;
@@ -2532,6 +2658,9 @@ final class _LuaBytecodeStructuredCompiler {
   ) {
     int? closeFrom;
     for (final local in locals) {
+      if (!local.hasStorage) {
+        continue;
+      }
       if (local.attribute != 'close' && !_capturedLocals.contains(local)) {
         continue;
       }
@@ -2549,6 +2678,9 @@ final class _LuaBytecodeStructuredCompiler {
     int? closeFrom;
     for (final local in from) {
       if (to.contains(local)) {
+        continue;
+      }
+      if (!local.hasStorage) {
         continue;
       }
       if (local.attribute != 'close' && !_capturedLocals.contains(local)) {
@@ -2569,6 +2701,8 @@ final class _LuaBytecodeStructuredLocal {
     required this.startPc,
     required this.statementIndex,
     required this.attribute,
+    required this.hasStorage,
+    required this.sequence,
   });
 
   final String name;
@@ -2576,6 +2710,8 @@ final class _LuaBytecodeStructuredLocal {
   final int startPc;
   final int statementIndex;
   final String attribute;
+  final bool hasStorage;
+  final int sequence;
 }
 
 final class _LuaBytecodeStructuredUpvalue {

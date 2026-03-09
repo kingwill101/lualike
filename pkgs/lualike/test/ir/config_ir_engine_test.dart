@@ -31,5 +31,21 @@ void main() {
         expect(result, equals(3));
       }
     });
+
+    test('IR engine keeps declaration-only globals bound', () async {
+      LuaLikeConfig().defaultEngineMode = EngineMode.ir;
+      final bridge = LuaLike();
+
+      final result = await bridge.execute('''
+global<const> print
+return print ~= nil
+''');
+
+      if (result is Value) {
+        expect(result.raw, isTrue);
+      } else {
+        expect(result, isTrue);
+      }
+    });
   });
 }

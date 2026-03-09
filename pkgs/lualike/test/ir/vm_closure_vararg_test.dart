@@ -45,6 +45,20 @@ return outer(5)
       expect(result, equals(<dynamic>[4, 5]));
     });
 
+    test('packs named vararg tables for lualike IR functions', () async {
+      final chunk = LualikeIrCompiler().compile(
+        parse('''
+local function pack(...t)
+  return t.n, t[1], t[2], t[3]
+end
+
+return pack(10, nil, 30)
+'''),
+      );
+      final result = await LualikeIrVm().execute(chunk);
+      expect(result, equals(<dynamic>[3, 10, null, 30]));
+    });
+
     test('evaluates tail recursive factorial', () async {
       const source = '''
 function fact(n, acc)

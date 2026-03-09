@@ -302,12 +302,11 @@ class _CoroutineWrap extends BuiltinFunction {
       final success = _isTrue(raw.first);
       if (!success) {
         final Object? errValue = raw.length > 1 ? raw[1] : Value(null);
-        final message = errValue is Value ? errValue.unwrap() : errValue;
-        throw LuaError(message?.toString() ?? 'nil');
+        throw errValue is Value ? errValue : Value(errValue);
       }
 
       if (raw.length == 1) {
-        return Value(null);
+        return Value.multi(const <Object?>[]);
       }
 
       final values = raw

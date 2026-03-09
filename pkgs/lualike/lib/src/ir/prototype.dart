@@ -130,6 +130,7 @@ class LualikeIrPrototype {
     required this.registerCount,
     required this.paramCount,
     required this.isVararg,
+    this.namedVarargRegister,
     required this.upvalueDescriptors,
     required this.instructions,
     required this.constants,
@@ -144,6 +145,7 @@ class LualikeIrPrototype {
   final int registerCount;
   final int paramCount;
   final bool isVararg;
+  final int? namedVarargRegister;
   final List<LualikeIrUpvalueDescriptor> upvalueDescriptors;
   final List<LualikeIrInstruction> instructions;
   final List<LualikeIrConstant> constants;

@@ -324,7 +324,13 @@ Object? _normalizeProtectedCallError(Object error) {
     if (error.raw is Value) {
       return _normalizeProtectedCallError(error.raw);
     }
-    return error.raw == null ? "<no error object>" : error;
+    if (error.raw == null) {
+      return "<no error object>";
+    }
+    if (error.raw is Map || error.raw is TableStorage) {
+      return error;
+    }
+    return error.unwrap();
   }
   if (error is LuaError) {
     return error.message;
@@ -338,7 +344,8 @@ String _formatProtectedCallMessage(LuaRuntime interpreter, String message) {
       ? interpreter.lastRecordedTraceFrame
       : null;
   final line = switch (topFrame?.currentLine) {
-    final currentLine when currentLine != null && currentLine > 0 => currentLine,
+    final currentLine when currentLine != null && currentLine > 0 =>
+      currentLine,
     _ => traceFrame?.currentLine ?? -1,
   };
   final scriptPath =
@@ -790,17 +797,29 @@ class DoFileFunction extends BuiltinFunction {
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) throw LuaError("dofile requires a filename");
     final filename = (args[0] as Value).raw.toString();
-
-    // Load source using FileManager
-    final source = await interpreter!.fileManager.loadSource(filename);
-    if (source == null) {
-      throw LuaError("Cannot open file '$filename'");
+    final runtime = interpreter;
+    if (runtime == null) {
+      throw LuaError("No interpreter context available");
     }
 
+    final loaded = await LoadfileFunction(
+      runtime,
+    ).call(<Object?>[Value(filename)]);
+    if (loaded is Value && loaded.raw == null) {
+      throw LuaError("Cannot open file '$filename'");
+    }
+    if (loaded is List) {
+      final error = loaded.length > 1 && loaded[1] is Value
+          ? (loaded[1] as Value).raw
+          : loaded;
+      throw LuaError("Error in dofile('$filename'): $error");
+    }
+
+    final chunk = loaded is Value ? loaded : Value.wrap(loaded);
     try {
-      final ast = parse(source, url: filename);
-      final result = await interpreter!.runAst(ast.statements);
-      return result;
+      return await runtime.callFunction(chunk, const <Object?>[]);
+    } on YieldException {
+      rethrow;
     } catch (e) {
       throw LuaError("Error in dofile('$filename'): $e");
     }
@@ -1115,7 +1134,8 @@ class NextFunction extends BuiltinFunction {
   }
 
   bool _shouldSkipWeakKey(Value table, Value nextKey) {
-    if (table.tableWeakMode == null || (!table.hasWeakKeys && !table.isAllWeak)) {
+    if (table.tableWeakMode == null ||
+        (!table.hasWeakKeys && !table.isAllWeak)) {
       return false;
     }
 
@@ -1169,7 +1189,11 @@ class NextFunction extends BuiltinFunction {
     return false;
   }
 
-  bool _containsIterationKey(Map<dynamic, dynamic> map, Value keyValue, dynamic keyRaw) {
+  bool _containsIterationKey(
+    Map<dynamic, dynamic> map,
+    Value keyValue,
+    dynamic keyRaw,
+  ) {
     if (map case final TableStorage storage) {
       return storage.containsKey(keyRaw) || storage.containsKey(keyValue);
     }
@@ -1608,9 +1632,7 @@ class CollectGarbageFunction extends BuiltinFunction {
             "stepsize" => interpreter!.gc.stepSize,
             "minormul" => interpreter!.gc.minorMultiplier,
             "majormul" => interpreter!.gc.majorMultiplier,
-            _ => throw LuaError(
-              'invalid collectgarbage parameter: $paramName',
-            ),
+            _ => throw LuaError('invalid collectgarbage parameter: $paramName'),
           };
 
           final previousValue = currentValue();
@@ -1629,9 +1651,7 @@ class CollectGarbageFunction extends BuiltinFunction {
                 interpreter!.gc.stepSize = newValue;
                 break;
               default:
-                throw LuaError(
-                  'invalid collectgarbage parameter: $paramName',
-                );
+                throw LuaError('invalid collectgarbage parameter: $paramName');
             }
           }
           return Value(previousValue);

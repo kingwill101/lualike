@@ -84,6 +84,20 @@ void main() {
       );
     });
 
+    test('wrap preserves primitive error objects through pcall', () async {
+      await lua.execute(r'''
+        numericWrap = coroutine.wrap(function()
+          error(23)
+        end)
+        numericOk, numericErr = pcall(numericWrap)
+        numericEq = numericErr == 23
+      ''');
+
+      expect(lua.getGlobal('numericOk').unwrap(), isFalse);
+      expect(lua.getGlobal('numericErr').unwrap(), equals(23));
+      expect(lua.getGlobal('numericEq').unwrap(), isTrue);
+    });
+
     test('wrap handles tail-call chains via __call metamethods', () async {
       await lua.execute(r'''
         local depth = 256
@@ -114,6 +128,29 @@ void main() {
 
       expect(lua.getGlobal('directFirst').unwrap(), equals('1'));
       expect(lua.getGlobal('wrappedIterResult').unwrap(), equals('2'));
+    });
+
+    test('wrap preserves zero return values after yielding closes', () async {
+      await lua.execute(r'''
+        function func2close(f)
+          local t = {}
+          return setmetatable(t, { __close = f })
+        end
+
+        local wrapped = coroutine.wrap(function()
+          local x <close> = func2close(coroutine.yield)
+          return
+        end)
+
+        wrapYielded = wrapped()
+        wrapResults = table.pack(wrapped())
+        wrapResultCount = wrapResults.n
+        wrapResultFirst = wrapResults[1]
+      ''');
+
+      expect(lua.getGlobal('wrapYielded').unwrap(), isNotNull);
+      expect(lua.getGlobal('wrapResultCount').unwrap(), equals(0));
+      expect(lua.getGlobal('wrapResultFirst').unwrap(), isNull);
     });
 
     test('resume preserves yielded table.unpack arity', () async {

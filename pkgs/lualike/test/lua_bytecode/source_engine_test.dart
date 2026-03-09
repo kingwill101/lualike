@@ -164,15 +164,144 @@ return a, b
       },
     );
 
-    test('executeCode runs const local declarations via emitted chunks', () async {
-      final result = await executeCode('''
+    test(
+      'executeCode runs const local declarations via emitted chunks',
+      () async {
+        final result = await executeCode('''
 local prefix <const> = "byte"
 local suffix <const> = "code"
 return prefix .. suffix
 ''', mode: EngineMode.luaBytecode);
 
-      expect(_unwrap(result), equals('bytecode'));
-    });
+        expect(_unwrap(result), equals('bytecode'));
+      },
+    );
+
+    test(
+      'executeCode keeps declaration-only globals bound in emitted chunks',
+      () async {
+        final result = await executeCode('''
+global<const> print
+return print ~= nil
+''', mode: EngineMode.luaBytecode);
+
+        expect(_unwrap(result), isTrue);
+      },
+    );
+
+    test(
+      'executeCode supports named vararg tables in emitted chunks',
+      () async {
+        final result = await executeCode('''
+local function pack(...t)
+  return t.n, t[1], t[2], t[3]
+end
+
+return pack(10, nil, 30)
+''', mode: EngineMode.luaBytecode);
+
+        expect(_flatten(result), equals(<Object?>[3, 10, null, 30]));
+      },
+    );
+
+    test(
+      'executeCode preserves global declaration goto barriers in emitted chunks',
+      () async {
+        final result = await executeCode(r'''
+local st1, msg1 = load([[ goto l1; global a; ::l1:: ]])
+local st2, msg2 = load([[ goto l2; global *; ::l1:: ::l2:: print(3) ]])
+return st1 == nil and string.find(msg1, "scope of 'a'", 1, true) ~= nil,
+       st2 == nil and string.find(msg2, "scope of '*'", 1, true) ~= nil
+''', mode: EngineMode.luaBytecode);
+
+        expect(_flatten(result), equals(<Object?>[true, true]));
+      },
+    );
+
+    test(
+      'executeCode validates load semantics for emitted source chunks',
+      () async {
+        final result = await executeCode(r'''
+local st1, msg1 = load([[ global none; X = 1 ]])
+local st2, msg2 = load([[
+global foo <const>;
+function foo (x)
+  return
+end
+]])
+return st1 == nil and string.find(msg1, "variable 'X'", 1, true) ~= nil,
+       st2 == nil and string.find(msg2, ":2:", 1, true) ~= nil
+''', mode: EngineMode.luaBytecode);
+
+        expect(_flatten(result), equals(<Object?>[true, true]));
+      },
+    );
+
+    test(
+      'executeCode resolves named globals before outer locals in emitted chunks',
+      () async {
+        final result = await executeCode(r'''
+local X = 10
+do
+  global X
+  X = 20
+end
+return X, _ENV.X
+''', mode: EngineMode.luaBytecode);
+
+        expect(_flatten(result), equals(<Object?>[10, 20]));
+      },
+    );
+
+    test(
+      'executeCode resolves simple global functions before outer locals in emitted chunks',
+      () async {
+        final result = await executeCode(r'''
+local foo = 20
+do
+  global function foo (x)
+    if x == 0 then
+      return 1
+    end
+    return 2 * foo(x - 1)
+  end
+  return foo == _ENV.foo, foo(4), _ENV.foo(4)
+end
+''', mode: EngineMode.luaBytecode);
+
+        expect(_flatten(result), equals(<Object?>[true, 16, 16]));
+      },
+    );
+
+    test(
+      'executeCode evaluates global declaration initializers before installing emitted globals',
+      () async {
+        final result = await executeCode(r'''
+local a, b = 100, 200
+do
+  global a, b = a, b
+end
+return _ENV.a, _ENV.b, a, b
+''', mode: EngineMode.luaBytecode);
+
+        expect(_flatten(result), equals(<Object?>[100, 200, 100, 200]));
+      },
+    );
+
+    test(
+      'executeCode rejects redefinition of initialized globals in emitted chunks',
+      () async {
+        final result = await executeCode(r'''
+global pcall, assert, string, load
+local f = assert(load("global print = 10"))
+local st, msg = pcall(f)
+return st == false,
+       string.find(msg, "global 'print' already defined", 1, true) ~= nil
+''', mode: EngineMode.luaBytecode);
+
+        expect(_flatten(result), equals(<Object?>[true, true]));
+      },
+    );
 
     test(
       'executeCode preserves escaped string literal bytes via emitted chunks',
@@ -227,10 +356,8 @@ return f()
       },
     );
 
-    test(
-      'executeCode preserves local function names in debug info',
-      () async {
-        final result = await executeCode(r'''
+    test('executeCode preserves local function names in debug info', () async {
+      final result = await executeCode(r'''
 local debug = require 'debug'
 
 local function F(a)
@@ -240,9 +367,8 @@ end
 return F(1)
 ''', mode: EngineMode.luaBytecode);
 
-        expect(_flatten(result), equals(<Object?>['F', 1]));
-      },
-    );
+      expect(_flatten(result), equals(<Object?>['F', 1]));
+    });
 
     test(
       'executeCode reuses identical emitted string literal identities',
@@ -283,10 +409,7 @@ local t = { unlpack{1, 2, 3}, unlpack{3, 2, 1}, unlpack{"a", "b"} }
 return t[1], t[2], t[3], t[4], t[5], t[6]
 ''', mode: EngineMode.luaBytecode);
 
-        expect(
-          _flatten(result),
-          equals(<Object?>[1, 3, 'a', 'b', null, null]),
-        );
+        expect(_flatten(result), equals(<Object?>[1, 3, 'a', 'b', null, null]));
       },
     );
 
@@ -354,18 +477,15 @@ return a[1] == x, a[2] == y, a[3] == z, a[string.rep("$", 11)] == string.rep("$"
       },
     );
 
-    test(
-      'executeCode emits arithmetic metamethod follow-up opcodes',
-      () async {
-        final result = await executeCode(r'''
+    test('executeCode emits arithmetic metamethod follow-up opcodes', () async {
+      final result = await executeCode(r'''
 local smt = getmetatable("")
 smt.__band = function(x, y) return 42 end
 return "x" & "y"
 ''', mode: EngineMode.luaBytecode);
 
-        expect(_unwrap(result), equals(42));
-      },
-    );
+      expect(_unwrap(result), equals(42));
+    });
 
     test(
       'executeCode widens fixed-result assignment for final calls',
@@ -414,22 +534,25 @@ return a, b, c, rawget(_G, 'a'), rawget(_G, 'b'), rawget(_G, 'c')
       },
     );
 
-    test('executeCode rejects assignment to const locals in emitted chunks', () async {
-      await expectLater(
-        executeCode('''
+    test(
+      'executeCode rejects assignment to const locals in emitted chunks',
+      () async {
+        await expectLater(
+          executeCode('''
 local x <const> = 1
 x = 2
 return x
 ''', mode: EngineMode.luaBytecode),
-        throwsA(
-          predicate(
-            (Object? error) => error.toString().contains(
-              "attempt to assign to const variable 'x'",
+          throwsA(
+            predicate(
+              (Object? error) => error.toString().contains(
+                "attempt to assign to const variable 'x'",
+              ),
             ),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
 
     test(
       'executeCode allows assignment to generic for loop variables',
@@ -537,28 +660,135 @@ return ok1, yielded, midStatus, ok2, finalValue, finalStatus
       );
     });
 
-    test('executeCode passes loader arguments to required source chunks', () async {
-      final tempDir = await Directory.systemTemp.createTemp('lbc_require_');
-      addTearDown(() async {
-        if (await tempDir.exists()) {
-          await tempDir.delete(recursive: true);
-        }
-      });
+    test(
+      'executeCode allows dofile to yield via bytecode coroutines',
+      () async {
+        final tempDir = await Directory.systemTemp.createTemp('lbc_dofile_');
+        addTearDown(() async {
+          if (await tempDir.exists()) {
+            await tempDir.delete(recursive: true);
+          }
+        });
 
-      final moduleFile = File('${tempDir.path}/names.lua');
-      await moduleFile.writeAsString('return {...}\n');
+        final chunkFile = File('${tempDir.path}/yield.lua');
+        await chunkFile.writeAsString('''
+local x, z = coroutine.yield(10)
+local y = coroutine.yield(20)
+return x + y * z
+''');
 
-      final modulePath = moduleFile.path.replaceAll('\\', '/');
-      final searchPath = '${tempDir.path.replaceAll('\\', '/')}/?.lua';
+        final result = await executeCode('''
+local f = coroutine.wrap(dofile)
+return f(${_luaStringLiteral(chunkFile.path.replaceAll('\\', '/'))}),
+       f(100, 101),
+       f(200)
+''', mode: EngineMode.luaBytecode);
 
-      final result = await executeCode('''
+        expect(_flatten(result), equals(<Object?>[10, 20, 20300]));
+      },
+    );
+
+    test(
+      'executeCode allows dofile to yield via coroutine resume in bytecode',
+      () async {
+        final tempDir = await Directory.systemTemp.createTemp(
+          'lbc_dofile_resume_',
+        );
+        addTearDown(() async {
+          if (await tempDir.exists()) {
+            await tempDir.delete(recursive: true);
+          }
+        });
+
+        final chunkFile = File('${tempDir.path}/yield.lua');
+        await chunkFile.writeAsString('''
+local x, z = coroutine.yield(10)
+local y = coroutine.yield(20)
+return x + y * z
+''');
+
+        final result = await executeCode('''
+local co = coroutine.create(dofile)
+return coroutine.resume(co, ${_luaStringLiteral(chunkFile.path.replaceAll('\\', '/'))}),
+       coroutine.resume(co, 100, 101),
+       coroutine.resume(co, 200)
+''', mode: EngineMode.luaBytecode);
+
+        expect(_flatten(result), equals(<Object?>[true, true, true, 20300]));
+      },
+    );
+
+    test(
+      'executeCode resolves local recursive functions before declared globals',
+      () async {
+        final result = await executeCode('''
+global <const> *
+global fact = false
+
+local function fact(n)
+  if n == 0 then
+    return 1
+  end
+  return n * fact(n - 1)
+end
+
+return fact(5)
+''', mode: EngineMode.luaBytecode);
+
+        expect(_flatten(result), equals(<Object?>[120]));
+      },
+    );
+
+    test(
+      'executeCode tracks extraargs across __call chains in bytecode',
+      () async {
+        final result = await executeCode('''
+local N = 5
+
+local function u(...)
+  local n = debug.getinfo(1, 't').extraargs
+  assert(select("#", ...) == n)
+  return n
+end
+
+local results = {}
+for i = 0, N do
+  results[#results + 1] = u()
+  u = setmetatable({}, {__call = u})
+end
+
+return table.unpack(results)
+''', mode: EngineMode.luaBytecode);
+
+        expect(_flatten(result), equals(<Object?>[0, 1, 2, 3, 4, 5]));
+      },
+    );
+
+    test(
+      'executeCode passes loader arguments to required source chunks',
+      () async {
+        final tempDir = await Directory.systemTemp.createTemp('lbc_require_');
+        addTearDown(() async {
+          if (await tempDir.exists()) {
+            await tempDir.delete(recursive: true);
+          }
+        });
+
+        final moduleFile = File('${tempDir.path}/names.lua');
+        await moduleFile.writeAsString('return {...}\n');
+
+        final modulePath = moduleFile.path.replaceAll('\\', '/');
+        final searchPath = '${tempDir.path.replaceAll('\\', '/')}/?.lua';
+
+        final result = await executeCode('''
 package.path = ${_luaStringLiteral(searchPath)}
 local loaded = require("names")
 return loaded[1], loaded[2]
 ''', mode: EngineMode.luaBytecode);
 
-      expect(_flatten(result), equals(<Object?>['names', modulePath]));
-    });
+        expect(_flatten(result), equals(<Object?>['names', modulePath]));
+      },
+    );
 
     test('executeCode stores globals through a local _ENV table', () async {
       final result = await executeCode(r'''
@@ -722,9 +952,7 @@ List<Object?> _flatten(Object? value) {
 }
 
 String _luaStringLiteral(String value) {
-  final escaped = value
-      .replaceAll(r'\', r'\\')
-      .replaceAll("'", r"\'");
+  final escaped = value.replaceAll(r'\', r'\\').replaceAll("'", r"\'");
   return "'$escaped'";
 }
 

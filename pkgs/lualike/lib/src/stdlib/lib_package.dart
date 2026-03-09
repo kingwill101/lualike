@@ -261,7 +261,7 @@ class _LuaLoader extends BuiltinFunction {
               category: 'Package',
             );
             final moduleEnv = Environment(
-              parent: interpreter!.globals,
+              parent: interpreter!.globals.root,
               interpreter: interpreter,
             );
 

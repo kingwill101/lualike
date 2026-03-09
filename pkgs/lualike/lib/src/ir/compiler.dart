@@ -911,6 +911,10 @@ class _PrototypeContext {
       return;
     }
 
+    if (node.exprs.isEmpty) {
+      return;
+    }
+
     final result = _emitAssignmentValues(node.exprs, node.names.length);
     try {
       for (var index = 0; index < node.names.length; index++) {
@@ -1605,11 +1609,6 @@ class _PrototypeContext {
   }
 
   int _compileFunctionBody(FunctionBody body) {
-    if (body.varargName != null) {
-      throw UnsupportedError(
-        'lualike IR compiler does not support named vararg tables yet',
-      );
-    }
     final positionalParams = <String>[
       for (final param in body.parameters ?? const <Identifier>[]) param.name,
     ];
@@ -1627,6 +1626,11 @@ class _PrototypeContext {
       parameterNames: positionalParams,
       isVararg: body.isVararg,
     );
+    if (body.varargName case final Identifier varargName) {
+      final register = childContext._allocateRegister();
+      childContext._declareLocal(varargName.name, register);
+      childBuilder.builder.namedVarargRegister = register;
+    }
 
     for (final statement in body.body) {
       final terminated = childContext.emitStatement(statement);

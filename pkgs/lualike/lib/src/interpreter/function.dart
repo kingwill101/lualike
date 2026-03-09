@@ -2044,6 +2044,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       callNode: callNode,
       env: interpreter.getCurrentEnv(),
     );
+    if (interpreter._nextCallIsDebugHook) {
+      interpreter._nextCallIsDebugHook = false;
+      if (callStack.top case final CallFrame frame?) {
+        frame.isDebugHook = true;
+      }
+    }
 
     try {
       String callTypeErrorMessage() {
@@ -2555,6 +2561,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       // Return the resume arguments as the result of this function call
       return _normalizeReturnValue(resumeArgs);
     } finally {
+      final topFrame = callStack.top;
+      if (!interpreter._runningDebugHook &&
+          topFrame != null &&
+          !topFrame.isDebugHook) {
+        await interpreter.fireDebugHook('return');
+      }
       // Pop function from call stack
       callStack.pop();
     }

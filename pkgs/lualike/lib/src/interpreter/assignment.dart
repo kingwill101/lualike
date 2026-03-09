@@ -576,42 +576,30 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     Value wrappedValue,
   ) async {
     final storedValue = _detachPrimitiveValue(wrappedValue);
-    final declaredGlobalBox = globals.findDeclaredGlobalBox(name);
-    final rootGlobalValue = globals.root.get('_G');
+    final interpreter = this as Interpreter;
+    final envValue = _resolveActiveEnvValue(interpreter);
+    final rootGlobalValue = _resolveActiveGlobalValue(interpreter);
 
     if (name == '_ENV') {
       globals.defineGlobal(name, storedValue);
-      if (declaredGlobalBox != null) {
-        declaredGlobalBox.value = storedValue;
-      }
       return storedValue;
     }
 
-    final envValue = globals.get('_ENV');
     final writesToRootGlobals =
         envValue is Value &&
         rootGlobalValue is Value &&
         identical(envValue.raw, rootGlobalValue.raw);
     if (writesToRootGlobals) {
       globals.defineGlobal(name, storedValue);
-      if (declaredGlobalBox != null) {
-        declaredGlobalBox.value = storedValue;
-      }
       return storedValue;
     }
 
     if (envValue is Value && envValue.raw != null) {
       await envValue.setValueAsync(name, storedValue);
-      if (declaredGlobalBox != null) {
-        declaredGlobalBox.value = storedValue;
-      }
       return storedValue;
     }
 
     globals.defineGlobal(name, storedValue);
-    if (declaredGlobalBox != null) {
-      declaredGlobalBox.value = storedValue;
-    }
     return storedValue;
   }
 

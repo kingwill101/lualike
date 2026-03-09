@@ -6,6 +6,7 @@ import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/file_manager.dart';
 import 'package:lualike/src/gc/generational_gc.dart';
+import 'package:lualike/src/goto_validator.dart';
 import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/lua_bytecode/chunk.dart';
 import 'package:lualike/src/lua_bytecode/emitter.dart';
@@ -13,6 +14,7 @@ import 'package:lualike/src/lua_bytecode/parser.dart';
 import 'package:lualike/src/lua_bytecode/serializer.dart';
 import 'package:lualike/src/lua_bytecode/vm.dart';
 import 'package:lualike/src/lua_string.dart';
+import 'package:lualike/src/parse.dart';
 import 'package:lualike/src/runtime/chunk_loading_support.dart';
 import 'package:lualike/src/runtime/compiled_artifact_support.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
@@ -21,6 +23,10 @@ import 'package:lualike/src/stack.dart';
 import 'package:lualike/src/stdlib/init.dart';
 import 'package:lualike/src/stdlib/library.dart';
 import 'package:lualike/src/value.dart';
+
+final RegExp _semanticLikeTokenPattern = RegExp(
+  r'<[A-Za-z_][A-Za-z0-9_]*>|(^|[^A-Za-z0-9_])global\b|\bfor\b|\breturn\b|\.\.\.\s*[A-Za-z_][A-Za-z0-9_]*',
+);
 
 bool looksLikeTrackedLuaBytecodeBytes(List<int> bytes) {
   if (bytes.length < 12) {
@@ -50,11 +56,11 @@ bool looksLikeTrackedLuaBytecodeBytes(List<int> bytes) {
   if (bytes.length >= officialHeaderSize + 4) {
     final payloadOffset = officialHeaderSize;
     if (_matchesLegacyPayloadMarker(bytes, payloadOffset, <int>[
-      0x41,
-      0x53,
-      0x54,
-      0x3A,
-    ]) ||
+          0x41,
+          0x53,
+          0x54,
+          0x3A,
+        ]) ||
         _matchesLegacyPayloadMarker(bytes, payloadOffset, <int>[
           0x53,
           0x52,
@@ -267,7 +273,10 @@ class LuaBytecodeRuntime implements LuaRuntime {
       return loadChunkWithLegacyAstSupport(this, normalizedRequest);
     }
 
-    final luaBytecodeResult = tryLoadLuaBytecodeArtifact(this, normalizedRequest);
+    final luaBytecodeResult = tryLoadLuaBytecodeArtifact(
+      this,
+      normalizedRequest,
+    );
     if (luaBytecodeResult != null) {
       return luaBytecodeResult;
     }
@@ -290,7 +299,9 @@ class LuaBytecodeRuntime implements LuaRuntime {
         rootUpvalueCount: closure.prototype.upvalues.length,
         mainPrototype: closure.prototype,
       );
-      return LuaString.fromBytes(Uint8List.fromList(serializeLuaBytecodeChunk(chunk)));
+      return LuaString.fromBytes(
+        Uint8List.fromList(serializeLuaBytecodeChunk(chunk)),
+      );
     }
     return dumpFunctionWithLegacyAstTransport(
       function,
@@ -313,8 +324,8 @@ class LuaBytecodeRuntime implements LuaRuntime {
       return cached;
     }
 
-    final luaString =
-        _interpreter.literalStringInternPool[key] ??= LuaString.fromBytes(bytes);
+    final luaString = _interpreter.literalStringInternPool[key] ??=
+        LuaString.fromBytes(bytes);
     final value = Value(luaString)..interpreter = this;
     _interpreter.literalValueCache[key] = value;
     return value;
@@ -471,7 +482,9 @@ class LuaBytecodeRuntime implements LuaRuntime {
   List<Object?> _currentChunkArgs(Environment env) {
     final varargs = env.get('...');
     return switch (varargs) {
-      Value(isMulti: true, raw: final List values) => List<Object?>.from(values),
+      Value(isMulti: true, raw: final List values) => List<Object?>.from(
+        values,
+      ),
       Value(raw: null) || null => const <Object?>[],
       final Value value => <Object?>[value],
       _ => <Object?>[varargs],
@@ -494,8 +507,24 @@ class LuaBytecodeRuntime implements LuaRuntime {
     }
 
     try {
-      final artifact = const LuaBytecodeEmitter().compileSource(
-        source,
+      final ast = parse(source, url: request.chunkName);
+      if (_semanticLikeTokenPattern.hasMatch(source)) {
+        final semanticError = validateProgramSemantics(ast);
+        if (semanticError != null) {
+          return LuaChunkLoadResult.failure(
+            _adjustLoadValidationError(source, semanticError),
+          );
+        }
+      }
+      if (source.contains('goto') || source.contains('::')) {
+        final gotoError = GotoLabelValidator().checkGotoLabelViolations(ast);
+        if (gotoError != null) {
+          return LuaChunkLoadResult.failure(gotoError);
+        }
+      }
+
+      final artifact = const LuaBytecodeEmitter().compileProgram(
+        ast,
         chunkName: request.chunkName,
         sourceName: request.chunkName,
       );
@@ -517,4 +546,15 @@ class LuaBytecodeRuntime implements LuaRuntime {
       return LuaChunkLoadResult.failure(error.toString());
     }
   }
+}
+
+String _adjustLoadValidationError(String source, String error) {
+  if (!source.startsWith('\n')) {
+    return error;
+  }
+  return error.replaceAllMapped(RegExp(r':(\d+):'), (match) {
+    final lineNum = int.parse(match.group(1)!);
+    final adjustedLine = lineNum > 1 ? lineNum - 1 : lineNum;
+    return ':$adjustedLine:';
+  });
 }

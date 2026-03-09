@@ -29,6 +29,9 @@ class CallFrame {
   /// Number of hidden extra arguments introduced by __call metamethod hops.
   int extraArgs;
 
+  /// Whether this frame is executing a debug hook callback.
+  bool isDebugHook;
+
   /// Creates a new call frame with the given function name and call node.
   CallFrame(
     this.functionName, {
@@ -38,6 +41,7 @@ class CallFrame {
     this.env,
     List<MapEntry<String, Value>>? debugLocals,
     this.extraArgs = 0,
+    this.isDebugHook = false,
   }) : debugLocals = debugLocals ?? <MapEntry<String, Value>>[];
 
   /// Creates a LuaStackFrame from this call frame.

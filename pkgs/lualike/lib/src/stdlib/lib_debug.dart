@@ -23,14 +23,14 @@ class DebugLibrary extends Library {
   void registerFunctions(LibraryRegistrationContext context) {
     // Register all debug functions individually
     context.define("debug", _DebugInteractive());
-    context.define("gethook", _GetHook());
+    context.define("gethook", _GetHook(interpreter));
     context.define("getinfo", _GetInfoImpl(interpreter!));
     context.define("getlocal", _GetLocal(interpreter!));
     context.define("getmetatable", _GetMetatable());
     context.define("getregistry", _GetRegistry());
     context.define("getupvalue", _GetUpvalue(interpreter!));
     context.define("getuservalue", _GetUserValue());
-    context.define("sethook", _SetHook());
+    context.define("sethook", _SetHook(interpreter));
     context.define("setlocal", _SetLocal());
     context.define("setmetatable", _SetMetatable());
     context.define("setupvalue", _SetUpvalue());
@@ -73,12 +73,23 @@ class _DebugInteractive extends BuiltinFunction {
 }
 
 class _GetHook extends BuiltinFunction {
-  _GetHook() : super();
+  _GetHook(super.interpreter);
 
   @override
   Object? call(List<Object?> args) {
-    // Return current hook function, mask and count
-    return [Value(null), Value(0), Value(0)];
+    if (interpreter is! Interpreter) {
+      return Value.multi([Value(null), Value(null), Value(0)]);
+    }
+    final runtime = interpreter! as Interpreter;
+    final hook = runtime.debugHookFunction;
+    if (hook == null) {
+      return Value.multi([Value(null), Value(null), Value(0)]);
+    }
+    return Value.multi([
+      hook,
+      Value(runtime.debugHookMask),
+      Value(runtime.debugHookCount),
+    ]);
   }
 }
 
@@ -229,14 +240,41 @@ class _GetUserValue extends BuiltinFunction {
 }
 
 class _SetHook extends BuiltinFunction {
-  _SetHook() : super();
+  _SetHook(super.interpreter);
 
   @override
   Object? call(List<Object?> args) {
-    if (args.length < 3) {
-      throw LuaError("debug.sethook requires hook function, mask and count");
+    if (interpreter is! Interpreter) {
+      return Value(null);
     }
-    // Set debug hook function
+    final runtime = interpreter! as Interpreter;
+
+    if (args.isEmpty || (args[0] is Value && (args[0] as Value).isNil)) {
+      runtime.debugHookFunction = null;
+      runtime.debugHookMask = '';
+      runtime.debugHookCount = 0;
+      return Value(null);
+    }
+
+    if (args[0] is! Value || !(args[0] as Value).isCallable()) {
+      throw LuaError("debug.sethook requires a hook function");
+    }
+
+    final hook = args[0] as Value;
+    final mask = switch (args.length > 1 ? args[1] : null) {
+      final Value value when value.raw != null => value.raw.toString(),
+      null => '',
+      _ => throw LuaError("debug.sethook mask must be a string"),
+    };
+    final count = switch (args.length > 2 ? args[2] : null) {
+      final Value value when value.raw is num => (value.raw as num).toInt(),
+      null => 0,
+      _ => throw LuaError("debug.sethook count must be a number"),
+    };
+
+    runtime.debugHookFunction = hook;
+    runtime.debugHookMask = mask;
+    runtime.debugHookCount = count;
     return Value(null);
   }
 }
@@ -597,10 +635,15 @@ class _GetInfoImpl extends BuiltinFunction {
       }
       final actualLevel = level + 1;
 
-      if (interpreterInstance != null) {
+    if (interpreterInstance != null) {
         // Get the frame from the call stack; invalid levels return nil.
+        final hookAdjustedLevel =
+            interpreterInstance is Interpreter &&
+                interpreterInstance.callStack.top?.isDebugHook == true
+            ? level
+            : actualLevel;
         final frame = interpreterInstance is Interpreter
-            ? interpreterInstance.getVisibleFrameAtLevel(actualLevel)
+            ? interpreterInstance.getVisibleFrameAtLevel(hookAdjustedLevel)
             : interpreterInstance.callStack.getFrameAtLevel(actualLevel);
 
         if (frame != null) {
@@ -970,14 +1013,14 @@ Map<String, BuiltinFunction> createDebugLib(LuaRuntime? astVm) {
   // Create debug functions with interpreter reference
   return {
     'debug': _DebugInteractive(),
-    'gethook': _GetHook(),
+    'gethook': _GetHook(astVm),
     'getinfo': createGetInfoFunction(astVm), // Use new optimized implementation
     'getlocal': _GetLocal(astVm!),
     'getmetatable': _GetMetatable(),
     'getregistry': _GetRegistry(),
     'getupvalue': _GetUpvalue(astVm),
     'getuservalue': _GetUserValue(),
-    'sethook': _SetHook(),
+    'sethook': _SetHook(astVm),
     'setlocal': _SetLocal(),
     'setmetatable': _SetMetatable(),
     'setupvalue': _SetUpvalue(),
@@ -1044,6 +1087,10 @@ void defineDebugLibrary({required Environment env, LuaRuntime? vm}) {
 }
 
 ({String? name, String namewhat}) _inferFrameNameInfo(CallFrame frame) {
+  if (frame.isDebugHook) {
+    return (name: 'hook', namewhat: 'hook');
+  }
+
   final callNode = frame.callNode;
   final env = frame.env;
 
