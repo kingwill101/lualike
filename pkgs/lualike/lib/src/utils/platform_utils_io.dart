@@ -35,3 +35,6 @@ String? get scriptPath {
 
 /// Platform-safe way to get the resolved executable path for current process
 String get resolvedExecutablePath => Platform.resolvedExecutable;
+
+/// Platform-safe way to get the current process RSS in bytes.
+int get currentRssBytes => ProcessInfo.currentRss;

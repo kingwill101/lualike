@@ -21,8 +21,8 @@ class FileSystemProvider {
 
   /// Set a custom IODevice factory (e.g., for DropBox, InMemory, etc.)
   void setIODeviceFactory(IODeviceFactory factory, {String? providerName}) {
-    Logger.debug(
-      'Setting IODevice factory to: ${providerName ?? "Custom"}',
+    Logger.debugLazy(
+      () => 'Setting IODevice factory to: ${providerName ?? "Custom"}',
       category: 'FileSystem',
     );
     _ioDeviceFactory = factory;
@@ -35,8 +35,8 @@ class FileSystemProvider {
   /// Set a specific IODevice instance directly
   /// This overrides any factory and uses this device for all operations
   set ioDevice(IODevice device) {
-    Logger.debug(
-      'Setting IODevice directly to: ${device.runtimeType}',
+    Logger.debugLazy(
+      () => 'Setting IODevice directly to: ${device.runtimeType}',
       category: 'FileSystem',
     );
     _ioDevice = device;
@@ -53,8 +53,9 @@ class FileSystemProvider {
   /// Open a file with the specified path and mode
   /// Returns an IODevice that can be used for file operations
   Future<IODevice> openFile(String path, String mode) async {
-    Logger.debug(
-      'FileSystemProvider opening file: $path with mode: $mode using $_providerName',
+    Logger.debugLazy(
+      () =>
+          'FileSystemProvider opening file: $path with mode: $mode using $_providerName',
       category: 'FileSystem',
     );
 
@@ -75,8 +76,9 @@ class FileSystemProvider {
   /// Create a temporary file with the given prefix
   /// Returns an IODevice for the temporary file
   Future<IODevice> createTempFile(String prefix) async {
-    Logger.debug(
-      'FileSystemProvider creating temp file with prefix: $prefix using $_providerName',
+    Logger.debugLazy(
+      () =>
+          'FileSystemProvider creating temp file with prefix: $prefix using $_providerName',
       category: 'FileSystem',
     );
 

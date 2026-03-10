@@ -39,6 +39,15 @@ Future<List<int>?> readFileAsBytes(String path) async {
   }
 }
 
+/// Platform-safe way to get the last modified time for a file
+Future<DateTime?> getLastModified(String path) async {
+  try {
+    return await File(path).lastModified();
+  } catch (e) {
+    return null;
+  }
+}
+
 /// Platform-safe way to get current working directory
 String? getCurrentDirectory() {
   try {

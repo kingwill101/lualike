@@ -1,7 +1,9 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:args/args.dart';
+import 'package:lualike/src/utils/file_system_utils.dart' as fs;
+import 'package:lualike/src/utils/io_abstractions.dart' as io_abs;
+import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:path/path.dart' as path;
 
 const _downloadsPattern = 'dart_devtools_';
@@ -30,34 +32,35 @@ Future<void> main(List<String> args) async {
 
   final parsed = parser.parse(args);
   if (parsed['help'] as bool) {
-    stdout.writeln('Summarize Dart DevTools exports');
-    stdout.writeln(parser.usage);
+    io_abs.stdout.writeln('Summarize Dart DevTools exports');
+    io_abs.stdout.writeln(parser.usage);
     return;
   }
 
   final top = int.parse(parsed['top'] as String);
   final lualikeOnly = parsed['lualike-only'] as bool;
   final targets = parsed.rest.isNotEmpty
-      ? parsed.rest.map(File.new).toList()
-      : _resolveLatestTargets(parsed['latest'] as String);
+      ? parsed.rest
+      : await _resolveLatestTargets(parsed['latest'] as String);
+
+  var failed = false;
 
   if (targets.isEmpty) {
-    stderr.writeln('No DevTools exports found.');
-    exitCode = 1;
-    return;
+    io_abs.stderr.writeln('No DevTools exports found.');
+    io_abs.exitProcess(1);
   }
 
   for (final file in targets) {
-    if (!file.existsSync()) {
-      stderr.writeln('Missing export: ${file.path}');
-      exitCode = 1;
+    if (!await fs.fileExists(file)) {
+      io_abs.stderr.writeln('Missing export: $file');
+      failed = true;
       continue;
     }
 
-    stdout.writeln('');
-    stdout.writeln('=== ${file.path} ===');
+    io_abs.stdout.writeln('');
+    io_abs.stdout.writeln('=== $file ===');
 
-    final lowerName = file.path.toLowerCase();
+    final lowerName = file.toLowerCase();
     if (lowerName.endsWith('.json')) {
       await _summarizeJson(file, top: top, lualikeOnly: lualikeOnly);
       continue;
@@ -67,56 +70,73 @@ Future<void> main(List<String> args) async {
       continue;
     }
 
-    stdout.writeln('Unsupported file type.');
+    io_abs.stdout.writeln('Unsupported file type.');
+  }
+
+  if (failed) {
+    io_abs.exitProcess(1);
   }
 }
 
-List<File> _resolveLatestTargets(String latest) {
+Future<List<String>> _resolveLatestTargets(String latest) async {
   if (latest == 'none') {
     return const [];
   }
 
-  final home = Platform.environment['HOME'];
+  final home = platform.getEnvironmentVariable('HOME');
   if (home == null) {
     return const [];
   }
 
-  final downloads = Directory(path.join(home, 'Downloads'));
-  if (!downloads.existsSync()) {
+  final downloads = path.join(home, 'Downloads');
+  if (!await fs.directoryExists(downloads)) {
     return const [];
   }
 
-  final files = downloads
-      .listSync()
-      .whereType<File>()
-      .where((file) => path.basename(file.path).startsWith(_downloadsPattern))
+  final files = (await fs.listDirectory(downloads))
+      .where((file) => path.basename(file).startsWith(_downloadsPattern))
       .toList();
+  final actualFiles = <String>[];
+  for (final file in files) {
+    if (await fs.fileExists(file)) {
+      actualFiles.add(file);
+    }
+  }
 
-  File? newestWhere(bool Function(File file) predicate) {
-    final matches = files.where(predicate).toList()
-      ..sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
-    return matches.isEmpty ? null : matches.first;
+  Future<String?> newestWhere(
+    Future<bool> Function(String file) predicate,
+  ) async {
+    final matches = <({String path, DateTime modified})>[];
+    for (final file in actualFiles) {
+      if (!await predicate(file)) {
+        continue;
+      }
+      final modified = await fs.getLastModified(file);
+      if (modified != null) {
+        matches.add((path: file, modified: modified));
+      }
+    }
+    matches.sort((a, b) => b.modified.compareTo(a.modified));
+    return matches.isEmpty ? null : matches.first.path;
   }
 
   return switch (latest) {
-    'cpu' => [if (newestWhere(_isCpuSnapshot) case final file?) file],
-    'performance' => [
-      if (newestWhere(_isPerformanceSnapshot) case final file?) file,
-    ],
+    'cpu' => [if (await newestWhere(_isCpuSnapshot) case final file?) file],
+    'performance' => [if (await newestWhere(_isPerformanceSnapshot) case final file?) file],
     'heap' => [
-      if (newestWhere((file) => file.path.toLowerCase().endsWith('.csv'))
+      if (await newestWhere((file) async => file.toLowerCase().endsWith('.csv'))
           case final file?)
         file,
     ],
     'memory' => [
-      if (newestWhere((file) => file.path.toLowerCase().endsWith('.csv'))
+      if (await newestWhere((file) async => file.toLowerCase().endsWith('.csv'))
           case final file?)
         file,
     ],
     'all' => [
-      if (newestWhere(_isCpuSnapshot) case final cpu?) cpu,
-      if (newestWhere(_isPerformanceSnapshot) case final perf?) perf,
-      if (newestWhere((file) => file.path.toLowerCase().endsWith('.csv'))
+      if (await newestWhere(_isCpuSnapshot) case final cpu?) cpu,
+      if (await newestWhere(_isPerformanceSnapshot) case final perf?) perf,
+      if (await newestWhere((file) async => file.toLowerCase().endsWith('.csv'))
           case final heap?)
         heap,
     ],
@@ -124,16 +144,16 @@ List<File> _resolveLatestTargets(String latest) {
   };
 }
 
-bool _isCpuSnapshot(File file) {
-  final name = path.basename(file.path).toLowerCase();
+Future<bool> _isCpuSnapshot(String file) async {
+  final name = path.basename(file).toLowerCase();
   if (!name.endsWith('.json')) {
     return false;
   }
   return _fileHeadContains(file, '"activeScreenId":"cpu-profiler"');
 }
 
-bool _isPerformanceSnapshot(File file) {
-  final name = path.basename(file.path).toLowerCase();
+Future<bool> _isPerformanceSnapshot(String file) async {
+  final name = path.basename(file).toLowerCase();
   if (!name.endsWith('.json')) {
     return false;
   }
@@ -141,13 +161,18 @@ bool _isPerformanceSnapshot(File file) {
 }
 
 Future<void> _summarizeJson(
-  File file, {
+  String file, {
   required int top,
   required bool lualikeOnly,
 }) async {
-  final root = jsonDecode(await file.readAsString());
+  final fileContents = await fs.readFileAsString(file);
+  if (fileContents == null) {
+    io_abs.stdout.writeln('Could not read JSON export.');
+    return;
+  }
+  final root = jsonDecode(fileContents);
   if (root is! Map<String, dynamic>) {
-    stdout.writeln('JSON export is not an object.');
+    io_abs.stdout.writeln('JSON export is not an object.');
     return;
   }
 
@@ -157,19 +182,19 @@ Future<void> _summarizeJson(
     case 'cpu-profiler':
       final cpu = root['cpu-profiler'];
       if (cpu is! Map<String, dynamic>) {
-        stdout.writeln('CPU snapshot payload missing.');
+        io_abs.stdout.writeln('CPU snapshot payload missing.');
         return;
       }
       _summarizeCpuSnapshot(cpu, top: top, lualikeOnly: lualikeOnly);
     case 'performance':
       final perf = root['performance'];
       if (perf is! Map<String, dynamic>) {
-        stdout.writeln('Performance snapshot payload missing.');
+        io_abs.stdout.writeln('Performance snapshot payload missing.');
         return;
       }
       _summarizePerformanceSnapshot(perf, top: top);
     default:
-      stdout.writeln('Unsupported snapshot type: $activeScreenId');
+      io_abs.stdout.writeln('Unsupported snapshot type: $activeScreenId');
   }
 }
 
@@ -177,8 +202,8 @@ void _printConnectedAppSummary(Object? rawConnectedApp) {
   if (rawConnectedApp is! Map<String, dynamic>) {
     return;
   }
-  stdout.writeln('Connected app');
-  stdout.writeln(
+  io_abs.stdout.writeln('Connected app');
+  io_abs.stdout.writeln(
     '  vm: ${rawConnectedApp['isRunningOnDartVM'] == true ? 'yes' : 'no'}'
     '  flutter: ${rawConnectedApp['isFlutterApp'] == true ? 'yes' : 'no'}'
     '  profile-build: ${rawConnectedApp['isProfileBuild'] == true ? 'yes' : 'no'}'
@@ -186,7 +211,7 @@ void _printConnectedAppSummary(Object? rawConnectedApp) {
   );
   final operatingSystem = rawConnectedApp['operatingSystem'];
   if (operatingSystem is String && operatingSystem.isNotEmpty) {
-    stdout.writeln('  os: $operatingSystem');
+    io_abs.stdout.writeln('  os: $operatingSystem');
   }
 }
 
@@ -203,24 +228,24 @@ void _summarizePerformanceSnapshot(
   };
   final selectedFrameId = perf['selectedFrameId'];
 
-  stdout.writeln('Performance snapshot');
-  stdout.writeln('  trace bytes: ${_formatInt(bytes)}');
+  io_abs.stdout.writeln('Performance snapshot');
+  io_abs.stdout.writeln('  trace bytes: ${_formatInt(bytes)}');
   if (displayRefreshRate is num) {
-    stdout.writeln(
+    io_abs.stdout.writeln(
       '  display refresh rate: ${displayRefreshRate.toString()} Hz',
     );
   }
-  stdout.writeln('  flutter frames: ${_formatInt(flutterFrames.length)}');
+  io_abs.stdout.writeln('  flutter frames: ${_formatInt(flutterFrames.length)}');
   if (selectedFrameId != null) {
-    stdout.writeln('  selected frame id: $selectedFrameId');
+    io_abs.stdout.writeln('  selected frame id: $selectedFrameId');
   }
 
   final frameStats = _extractFlutterFrameStats(flutterFrames);
   if (frameStats.isNotEmpty) {
-    stdout.writeln('');
-    stdout.writeln('Top flutter frames by elapsed time');
+    io_abs.stdout.writeln('');
+    io_abs.stdout.writeln('Top flutter frames by elapsed time');
     for (final entry in frameStats.take(top)) {
-      stdout.writeln(
+      io_abs.stdout.writeln(
         '  ${_formatDurationMicros(entry.elapsedMicros).padLeft(10)}  '
         'id=${entry.id}  '
         'vsync=${entry.vsync ?? '-'}  '
@@ -230,8 +255,8 @@ void _summarizePerformanceSnapshot(
     }
   }
 
-  stdout.writeln('');
-  stdout.writeln(
+  io_abs.stdout.writeln('');
+  io_abs.stdout.writeln(
     '  note: traceBinary is a binary performance trace payload; this tool does not decode the full timeline yet',
   );
 }
@@ -253,7 +278,7 @@ void _summarizeCpuSnapshot(
 
   final events = cpu['traceEvents'];
   if (events is! List) {
-    stdout.writeln('CPU snapshot has no trace events.');
+    io_abs.stdout.writeln('CPU snapshot has no trace events.');
     return;
   }
 
@@ -328,12 +353,12 @@ void _summarizeCpuSnapshot(
 
   final samplePeriodMicros = _asInt(cpu['samplePeriod']);
   final timeExtentMicros = _asInt(cpu['timeExtentMicros']);
-  stdout.writeln('CPU profiler snapshot');
-  stdout.writeln(
+  io_abs.stdout.writeln('CPU profiler snapshot');
+  io_abs.stdout.writeln(
     '  samples: ${_formatInt(sampleCount)} '
     '(@ $samplePeriodMicros us, wall ${_formatDurationMicros(timeExtentMicros)})',
   );
-  stdout.writeln('  unique frames: ${_formatInt(frames.length)}');
+  io_abs.stdout.writeln('  unique frames: ${_formatInt(frames.length)}');
 
   _printMethodSection(
     title: 'Top self methods',
@@ -375,11 +400,11 @@ void _printMethodSection({
   required int totalSamples,
   required int top,
 }) {
-  stdout.writeln('');
-  stdout.writeln(title);
+  io_abs.stdout.writeln('');
+  io_abs.stdout.writeln(title);
   for (final entry in _topEntries(counts, top)) {
     final (:name, :url) = _splitMethodKey(entry.key);
-    stdout.writeln(
+    io_abs.stdout.writeln(
       '  ${_formatPercent(entry.value, totalSamples)} '
       '${_formatInt(entry.value).padLeft(6)}  $name  [$url]',
     );
@@ -412,10 +437,10 @@ void _printFileSection({
         )
       : counts;
 
-  stdout.writeln('');
-  stdout.writeln(title);
+  io_abs.stdout.writeln('');
+  io_abs.stdout.writeln(title);
   for (final entry in _topEntries(filtered, top)) {
-    stdout.writeln(
+    io_abs.stdout.writeln(
       '  ${_formatPercent(entry.value, totalSamples)} '
       '${_formatInt(entry.value).padLeft(6)}  ${entry.key}',
     );
@@ -428,20 +453,25 @@ void _printStackSection({
   required int totalSamples,
   required int top,
 }) {
-  stdout.writeln('');
-  stdout.writeln(title);
+  io_abs.stdout.writeln('');
+  io_abs.stdout.writeln(title);
   for (final entry in _topEntries(counts, top)) {
-    stdout.writeln(
+    io_abs.stdout.writeln(
       '  ${_formatPercent(entry.value, totalSamples)} '
       '${_formatInt(entry.value).padLeft(6)}  ${entry.key}',
     );
   }
 }
 
-Future<void> _summarizeHeapCsv(File file, {required int top}) async {
-  final lines = await file.readAsLines();
+Future<void> _summarizeHeapCsv(String file, {required int top}) async {
+  final csv = await fs.readFileAsString(file);
+  if (csv == null) {
+    io_abs.stdout.writeln('Could not read heap CSV.');
+    return;
+  }
+  final lines = const LineSplitter().convert(csv);
   if (lines.length < 2) {
-    stdout.writeln('Heap CSV is empty.');
+    io_abs.stdout.writeln('Heap CSV is empty.');
     return;
   }
 
@@ -462,7 +492,7 @@ Future<void> _summarizeHeapCsv(File file, {required int top}) async {
   final oldSpaceSizeIndex = indexOf('Old Space Size');
 
   if ([classIndex, libraryIndex, instancesIndex, sizeIndex].contains(-1)) {
-    stdout.writeln(
+    io_abs.stdout.writeln(
       'Heap CSV header does not match the expected DevTools export.',
     );
     return;
@@ -532,31 +562,31 @@ Future<void> _summarizeHeapCsv(File file, {required int top}) async {
     );
   }
 
-  stdout.writeln('Heap class summary');
-  stdout.writeln('  rows: ${_formatInt(summaries.length)}');
-  stdout.writeln('  total instances: ${_formatInt(totalInstances)}');
-  stdout.writeln(
+  io_abs.stdout.writeln('Heap class summary');
+  io_abs.stdout.writeln('  rows: ${_formatInt(summaries.length)}');
+  io_abs.stdout.writeln('  total instances: ${_formatInt(totalInstances)}');
+  io_abs.stdout.writeln(
     '  total size: ${_formatBytes(totalSize)} '
     '(dart heap ${_formatBytes(totalDartHeap)}, external ${_formatBytes(totalExternal)})',
   );
-  stdout.writeln(
+  io_abs.stdout.writeln(
     '  space split: new ${_formatBytes(totalNewSpace)}, old ${_formatBytes(totalOldSpace)}',
   );
 
-  stdout.writeln('');
-  stdout.writeln('Top classes by total size');
+  io_abs.stdout.writeln('');
+  io_abs.stdout.writeln('Top classes by total size');
   for (final summary in summaries.sortedBySize().take(top)) {
-    stdout.writeln(
+    io_abs.stdout.writeln(
       '  ${_formatBytes(summary.size).padLeft(9)} '
       '${_formatInt(summary.instances).padLeft(7)}  '
       '${summary.className}  [${summary.library}]',
     );
   }
 
-  stdout.writeln('');
-  stdout.writeln('Top libraries by total size');
+  io_abs.stdout.writeln('');
+  io_abs.stdout.writeln('Top libraries by total size');
   for (final entry in _topLibraryEntries(librarySummaries, top)) {
-    stdout.writeln(
+    io_abs.stdout.writeln(
       '  ${_formatBytes(entry.size).padLeft(9)} '
       '${_formatInt(entry.instances).padLeft(7)}  '
       '${entry.library}',
@@ -567,10 +597,10 @@ Future<void> _summarizeHeapCsv(File file, {required int top}) async {
       .where((summary) => _isLualikeLocation(summary.library))
       .sortedBySize();
   if (lualikeSummaries.isNotEmpty) {
-    stdout.writeln('');
-    stdout.writeln('Top lualike classes by total size');
+    io_abs.stdout.writeln('');
+    io_abs.stdout.writeln('Top lualike classes by total size');
     for (final summary in lualikeSummaries.take(top)) {
-      stdout.writeln(
+      io_abs.stdout.writeln(
         '  ${_formatBytes(summary.size).padLeft(9)} '
         '${_formatInt(summary.instances).padLeft(7)}  '
         '${summary.className}  [${summary.library}]',
@@ -605,18 +635,13 @@ List<String> _parseCsvLine(String line) {
   return values;
 }
 
-bool _fileHeadContains(File file, String needle) {
-  try {
-    final handle = file.openSync();
-    try {
-      final bytes = handle.readSync(1_024);
-      return utf8.decode(bytes, allowMalformed: true).contains(needle);
-    } finally {
-      handle.closeSync();
-    }
-  } on FileSystemException {
+Future<bool> _fileHeadContains(String file, String needle) async {
+  final bytes = await fs.readFileAsBytes(file);
+  if (bytes == null) {
     return false;
   }
+  final prefix = bytes.length > 1024 ? bytes.sublist(0, 1024) : bytes;
+  return utf8.decode(prefix, allowMalformed: true).contains(needle);
 }
 
 List<MapEntry<String, int>> _topEntries(Map<String, int> counts, int top) {

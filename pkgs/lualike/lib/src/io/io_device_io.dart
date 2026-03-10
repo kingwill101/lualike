@@ -32,7 +32,10 @@ class FileIODevice extends BaseIODevice {
     : _path = path,
       super(mode) {
     _file = file;
-    Logger.debug('Created FileIODevice with mode: $mode', category: 'IO');
+    Logger.debugLazy(
+      () => 'Created FileIODevice with mode: $mode',
+      category: 'IO',
+    );
   }
 
   Future<T> _runExclusive<T>(Future<T> Function() action) {
@@ -40,15 +43,15 @@ class FileIODevice extends BaseIODevice {
       (_) => action(),
       onError: (_) => action(),
     );
-    _pendingOperation = next.then<void>((_) {}, onError: (_, __) {});
+    _pendingOperation = next.then<void>((_) {}, onError: (_, _) {});
     return next;
   }
 
   static Future<FileIODevice> open(String path, String mode) async {
     // Normalize the path to handle mixed separators, ".." segments, etc.
     final normalizedPath = path_lib.normalize(path);
-    Logger.debug(
-      'Opening file: $normalizedPath with mode: $mode',
+    Logger.debugLazy(
+      () => 'Opening file: $normalizedPath with mode: $mode',
       category: 'IO',
     );
     FileMode fileMode;
@@ -58,7 +61,7 @@ class FileIODevice extends BaseIODevice {
       effectiveMode = effectiveMode.substring(0, effectiveMode.length - 1);
     } else if (effectiveMode.contains('b')) {
       // Any 'b' not at the end (e.g., 'rb+') is invalid
-      Logger.debug('Invalid file mode: $mode', category: 'IO');
+      Logger.debugLazy(() => 'Invalid file mode: $mode', category: 'IO');
       throw LuaError("invalid mode");
     }
     switch (effectiveMode) {
@@ -86,12 +89,15 @@ class FileIODevice extends BaseIODevice {
         fileMode = FileMode.append;
         break;
       default:
-        Logger.debug('Invalid file mode: $mode', category: 'IO');
+        Logger.debugLazy(() => 'Invalid file mode: $mode', category: 'IO');
         throw LuaError("invalid mode");
     }
 
     try {
-      Logger.debug('Attempting to open file: $normalizedPath', category: 'IO');
+      Logger.debugLazy(
+        () => 'Attempting to open file: $normalizedPath',
+        category: 'IO',
+      );
       // Ensure the directory exists when writing
       if (fileMode == FileMode.write ||
           fileMode == FileMode.writeOnly ||
@@ -103,11 +109,14 @@ class FileIODevice extends BaseIODevice {
         }
       }
       final file = await File(normalizedPath).open(mode: fileMode);
-      Logger.debug('Successfully opened file: $normalizedPath', category: 'IO');
+      Logger.debugLazy(
+        () => 'Successfully opened file: $normalizedPath',
+        category: 'IO',
+      );
       return FileIODevice._(file, mode, path: normalizedPath);
     } catch (e, s) {
-      Logger.debug(
-        'Failed to open file: $normalizedPath, error: $e',
+      Logger.debugLazy(
+        () => 'Failed to open file: $normalizedPath, error: $e',
         category: 'IO',
       );
       throw LuaError("Could not open file: $e", stackTrace: s);
@@ -117,7 +126,7 @@ class FileIODevice extends BaseIODevice {
   @override
   Future<void> close() async {
     await _runExclusive(() async {
-      Logger.debug('Closing file', category: 'IO');
+      Logger.debugLazy(() => 'Closing file', category: 'IO');
       _debugFileLog(
         'close path=${_path ?? '<unknown>'} isClosed=$isClosed '
         'buffered=${_writeBuffer.length} file=${_file?.hashCode}',
@@ -132,9 +141,9 @@ class FileIODevice extends BaseIODevice {
         await _file!.close();
         _file = null;
         isClosed = true;
-        Logger.debug('File closed successfully', category: 'IO');
+        Logger.debugLazy(() => 'File closed successfully', category: 'IO');
       } else {
-        Logger.debug('File already closed or null', category: 'IO');
+        Logger.debugLazy(() => 'File already closed or null', category: 'IO');
       }
     });
   }
@@ -142,7 +151,7 @@ class FileIODevice extends BaseIODevice {
   @override
   Future<void> flush() async {
     await _runExclusive(() async {
-      Logger.debug('Flushing file', category: 'IO');
+      Logger.debugLazy(() => 'Flushing file', category: 'IO');
       checkOpen();
       // Write any buffered data first according to buffering mode
       if (_writeBuffer.isNotEmpty) {
@@ -161,19 +170,22 @@ class FileIODevice extends BaseIODevice {
         if (!shouldIgnore) {
           rethrow;
         }
-        Logger.debug(
-          'Ignoring flush failure for writable /dev/null: $error',
+        Logger.debugLazy(
+          () => 'Ignoring flush failure for writable /dev/null: $error',
           category: 'IO',
         );
       }
-      Logger.debug('File flushed successfully', category: 'IO');
+      Logger.debugLazy(() => 'File flushed successfully', category: 'IO');
     });
   }
 
   @override
   Future<ReadResult> read([String format = "l"]) async {
     return _runExclusive(() async {
-      Logger.debug('Reading file with format: $format', category: 'IO');
+      Logger.debugLazy(
+        () => 'Reading file with format: $format',
+        category: 'IO',
+      );
       _debugFileLog(
         'read path=${_path ?? '<unknown>'} format=$format '
         'buffered=${_writeBuffer.length} file=${_file?.hashCode}',
@@ -183,8 +195,8 @@ class FileIODevice extends BaseIODevice {
 
       // Check if file was opened for reading
       if (mode == "w" || mode == "a") {
-        Logger.debug(
-          'Cannot read from write-only file with mode: $mode',
+        Logger.debugLazy(
+          () => 'Cannot read from write-only file with mode: $mode',
           category: 'IO',
         );
         return ReadResult(null, "Cannot read from write-only file", 9);
@@ -195,15 +207,18 @@ class FileIODevice extends BaseIODevice {
       try {
         if (normalizedFormat == "a") {
           // Read entire file
-          Logger.debug('Reading entire file', category: 'IO');
+          Logger.debugLazy(() => 'Reading entire file', category: 'IO');
           final length = await _file!.length();
-          Logger.debug('File length: $length bytes', category: 'IO');
+          Logger.debugLazy(() => 'File length: $length bytes', category: 'IO');
           final bytes = await _file!.read(length);
-          Logger.debug('Read ${bytes.length} bytes from file', category: 'IO');
+          Logger.debugLazy(
+            () => 'Read ${bytes.length} bytes from file',
+            category: 'IO',
+          );
           return ReadResult(LuaString.fromBytes(bytes));
         } else if (normalizedFormat == "l" || normalizedFormat == "L") {
           // Read line
-          Logger.debug('Reading line from file', category: 'IO');
+          Logger.debugLazy(() => 'Reading line from file', category: 'IO');
           final buffer = <int>[];
           int byte;
           bool foundContent = false;
@@ -211,7 +226,7 @@ class FileIODevice extends BaseIODevice {
           while ((byte = await _file!.readByte()) != -1) {
             if (byte == 10) {
               // \n - newline character
-              Logger.debug('Found newline character', category: 'IO');
+              Logger.debugLazy(() => 'Found newline character', category: 'IO');
               if (foundContent) {
                 // We have content, this newline ends the line
                 if (normalizedFormat == "L") buffer.add(byte);
@@ -226,15 +241,18 @@ class FileIODevice extends BaseIODevice {
             buffer.add(byte);
           }
 
-          Logger.debug('Read ${buffer.length} bytes for line', category: 'IO');
+          Logger.debugLazy(
+            () => 'Read ${buffer.length} bytes for line',
+            category: 'IO',
+          );
           if (buffer.isEmpty && byte == -1) {
-            Logger.debug('Read empty line (EOF)', category: 'IO');
+            Logger.debugLazy(() => 'Read empty line (EOF)', category: 'IO');
             return ReadResult(null);
           }
           return ReadResult(LuaString.fromBytes(buffer));
         } else if (normalizedFormat == "n") {
           // Read number - following Lua's C implementation algorithm
-          Logger.debug('Reading number from file', category: 'IO');
+          Logger.debugLazy(() => 'Reading number from file', category: 'IO');
 
           final buffer = <int>[];
           int count = 0;
@@ -249,7 +267,7 @@ class FileIODevice extends BaseIODevice {
           } while (lookAhead != -1 && _isWhitespace(lookAhead));
 
           if (lookAhead == -1) {
-            Logger.debug('No number found (EOF)', category: 'IO');
+            Logger.debugLazy(() => 'No number found (EOF)', category: 'IO');
             return ReadResult(null);
           }
 
@@ -361,34 +379,38 @@ class FileIODevice extends BaseIODevice {
           }
 
           if (invalidNumber || buffer.isEmpty) {
-            Logger.debug('No valid number found', category: 'IO');
+            Logger.debugLazy(() => 'No valid number found', category: 'IO');
             return ReadResult(null);
           }
 
           final numberStr = utf8.decode(buffer);
-          Logger.debug(
-            'Parsing number with ${numberStr.length} characters',
+          Logger.debugLazy(
+            () => 'Parsing number with ${numberStr.length} characters',
             category: 'IO',
           );
 
           try {
             final number = LuaNumberParser.parse(numberStr);
-            Logger.debug('Parsed number: $number', category: 'IO');
+            Logger.debugLazy(() => 'Parsed number: $number', category: 'IO');
             return ReadResult(number);
           } catch (e) {
-            Logger.debug('Failed to parse as number: $e', category: 'IO');
+            Logger.debugLazy(
+              () => 'Failed to parse as number: $e',
+              category: 'IO',
+            );
             return ReadResult(null);
           }
         } else {
           // Read n bytes
           final n = int.parse(normalizedFormat);
-          Logger.debug('Reading $n bytes from file', category: 'IO');
+          Logger.debugLazy(() => 'Reading $n bytes from file', category: 'IO');
           if (n == 0) {
             final currentPos = await _file!.position();
             final length = await _file!.length();
             final atEof = currentPos >= length;
-            Logger.debug(
-              'Zero-byte read: pos=$currentPos, length=$length, atEOF=$atEof',
+            Logger.debugLazy(
+              () =>
+                  'Zero-byte read: pos=$currentPos, length=$length, atEOF=$atEof',
               category: 'IO',
             );
             return atEof ? ReadResult(null) : ReadResult("");
@@ -398,20 +420,20 @@ class FileIODevice extends BaseIODevice {
           final currentPos = await _file!.position();
           final length = await _file!.length();
           if (currentPos >= length) {
-            Logger.debug(
-              'At EOF, returning nil for n-byte read',
+            Logger.debugLazy(
+              () => 'At EOF, returning nil for n-byte read',
               category: 'IO',
             );
             return ReadResult(null);
           }
 
           final bytes = await _file!.read(n);
-          Logger.debug('Read ${bytes.length} bytes', category: 'IO');
+          Logger.debugLazy(() => 'Read ${bytes.length} bytes', category: 'IO');
 
           // If we read 0 bytes but expected more, we hit EOF
           if (bytes.isEmpty) {
-            Logger.debug(
-              'Read 0 bytes when expecting $n, at EOF',
+            Logger.debugLazy(
+              () => 'Read 0 bytes when expecting $n, at EOF',
               category: 'IO',
             );
             return ReadResult(null);
@@ -420,7 +442,7 @@ class FileIODevice extends BaseIODevice {
           return ReadResult(LuaString.fromBytes(bytes));
         }
       } catch (e) {
-        Logger.debug('Error reading from file: $e', category: 'IO');
+        Logger.debugLazy(() => 'Error reading from file: $e', category: 'IO');
         return ReadResult(null, e.toString());
       }
     });
@@ -429,8 +451,8 @@ class FileIODevice extends BaseIODevice {
   @override
   Future<WriteResult> write(String data) async {
     return _runExclusive(() async {
-      Logger.debug(
-        'Writing to file: "${data.length} characters"',
+      Logger.debugLazy(
+        () => 'Writing to file: "${data.length} characters"',
         category: 'IO',
       );
       checkOpen();
@@ -440,11 +462,14 @@ class FileIODevice extends BaseIODevice {
           return WriteResult(false, "Cannot write to read-only file", 9);
         }
         final bytes = utf8.encode(data);
-        Logger.debug('Encoded ${bytes.length} bytes to write', category: 'IO');
+        Logger.debugLazy(
+          () => 'Encoded ${bytes.length} bytes to write',
+          category: 'IO',
+        );
         await _bufferedWrite(bytes);
         return WriteResult(true);
       } catch (e) {
-        Logger.debug('Error writing to file: $e', category: 'IO');
+        Logger.debugLazy(() => 'Error writing to file: $e', category: 'IO');
         int errorCode = 0;
         if (e is FileSystemException && e.osError != null) {
           errorCode = e.osError!.errorCode;
@@ -486,7 +511,10 @@ class FileIODevice extends BaseIODevice {
   @override
   Future<WriteResult> writeBytes(List<int> bytes) async {
     return _runExclusive(() async {
-      Logger.debug('Writing raw ${bytes.length} bytes to file', category: 'IO');
+      Logger.debugLazy(
+        () => 'Writing raw ${bytes.length} bytes to file',
+        category: 'IO',
+      );
       _debugFileLog(
         'writeBytes path=${_path ?? '<unknown>'} bytes=${bytes.length} '
         'mode=$mode bufferMode=$bufferMode bufferedBefore=${_writeBuffer.length} '
@@ -502,13 +530,16 @@ class FileIODevice extends BaseIODevice {
           'writeBytes-done path=${_path ?? '<unknown>'} bytes=${bytes.length} '
           'bufferedAfter=${_writeBuffer.length} file=${_file?.hashCode}',
         );
-        Logger.debug(
-          'Buffered/ wrote ${bytes.length} raw bytes',
+        Logger.debugLazy(
+          () => 'Buffered/ wrote ${bytes.length} raw bytes',
           category: 'IO',
         );
         return WriteResult(true);
       } catch (e) {
-        Logger.debug('Error writing raw bytes to file: $e', category: 'IO');
+        Logger.debugLazy(
+          () => 'Error writing raw bytes to file: $e',
+          category: 'IO',
+        );
         int errorCode = 0;
         if (e is FileSystemException && e.osError != null) {
           errorCode = e.osError!.errorCode;
@@ -521,8 +552,8 @@ class FileIODevice extends BaseIODevice {
   @override
   Future<int> seek(SeekWhence whence, int offset) async {
     return _runExclusive(() async {
-      Logger.debug(
-        'Seeking in file: whence=$whence, offset=$offset',
+      Logger.debugLazy(
+        () => 'Seeking in file: whence=$whence, offset=$offset',
         category: 'IO',
       );
       _debugFileLog(
@@ -539,31 +570,40 @@ class FileIODevice extends BaseIODevice {
       }
       switch (whence) {
         case SeekWhence.set:
-          Logger.debug('Seeking to absolute position: $offset', category: 'IO');
+          Logger.debugLazy(
+            () => 'Seeking to absolute position: $offset',
+            category: 'IO',
+          );
           await _file!.setPosition(offset);
           final pos = await _file!.position();
-          Logger.debug('New position: $pos', category: 'IO');
+          Logger.debugLazy(() => 'New position: $pos', category: 'IO');
           return pos;
         case SeekWhence.cur:
           final currentPos = await _file!.position();
-          Logger.debug('Current position: $currentPos', category: 'IO');
+          Logger.debugLazy(
+            () => 'Current position: $currentPos',
+            category: 'IO',
+          );
           final newPos = currentPos + offset;
-          Logger.debug('Seeking to relative position: $newPos', category: 'IO');
-          await _file!.setPosition(newPos);
-          final pos = await _file!.position();
-          Logger.debug('New position: $pos', category: 'IO');
-          return pos;
-        case SeekWhence.end:
-          final length = await _file!.length();
-          Logger.debug('File length: $length', category: 'IO');
-          final newPos = length + offset;
-          Logger.debug(
-            'Seeking to end-relative position: $newPos',
+          Logger.debugLazy(
+            () => 'Seeking to relative position: $newPos',
             category: 'IO',
           );
           await _file!.setPosition(newPos);
           final pos = await _file!.position();
-          Logger.debug('New position: $pos', category: 'IO');
+          Logger.debugLazy(() => 'New position: $pos', category: 'IO');
+          return pos;
+        case SeekWhence.end:
+          final length = await _file!.length();
+          Logger.debugLazy(() => 'File length: $length', category: 'IO');
+          final newPos = length + offset;
+          Logger.debugLazy(
+            () => 'Seeking to end-relative position: $newPos',
+            category: 'IO',
+          );
+          await _file!.setPosition(newPos);
+          final pos = await _file!.position();
+          Logger.debugLazy(() => 'New position: $pos', category: 'IO');
           return pos;
       }
     });
@@ -572,14 +612,14 @@ class FileIODevice extends BaseIODevice {
   @override
   Future<int> getPosition() async {
     return _runExclusive(() async {
-      Logger.debug('Getting file position', category: 'IO');
+      Logger.debugLazy(() => 'Getting file position', category: 'IO');
       checkOpen();
       var pos = await _file!.position();
       // Include buffered bytes in current position for full/line buffering
       if (bufferMode != BufferMode.none && _writeBuffer.isNotEmpty) {
         pos += _writeBuffer.length;
       }
-      Logger.debug('Current position: $pos', category: 'IO');
+      Logger.debugLazy(() => 'Current position: $pos', category: 'IO');
       return pos;
     });
   }
@@ -594,8 +634,9 @@ class FileIODevice extends BaseIODevice {
 
       _eofCallCount++;
       if (_eofCallCount % 100 == 1) {
-        Logger.debug(
-          'EOF check #$_eofCallCount: pos=$currentPos, length=$length, EOF=$isEof',
+        Logger.debugLazy(
+          () =>
+              'EOF check #$_eofCallCount: pos=$currentPos, length=$length, EOF=$isEof',
           category: 'IO',
         );
       }
@@ -607,21 +648,26 @@ class FileIODevice extends BaseIODevice {
           final peekByte = await _file!.readByte();
           await _file!.setPosition(savedPos);
           if (_eofCallCount % 100 == 1) {
-            Logger.debug(
-              'Peek byte check #$_eofCallCount: peekByte=$peekByte, actualEOF=${peekByte == -1}',
+            Logger.debugLazy(
+              () =>
+                  'Peek byte check #$_eofCallCount: peekByte=$peekByte, actualEOF=${peekByte == -1}',
               category: 'IO',
             );
           }
           if (peekByte == -1) {
-            Logger.debug(
-              'Peek byte indicates EOF despite position check at call #$_eofCallCount',
+            Logger.debugLazy(
+              () =>
+                  'Peek byte indicates EOF despite position check at call #$_eofCallCount',
               category: 'IO',
             );
             return true;
           }
         } catch (e) {
           if (_eofCallCount % 100 == 1) {
-            Logger.debug('Error during peek byte check: $e', category: 'IO');
+            Logger.debugLazy(
+              () => 'Error during peek byte check: $e',
+              category: 'IO',
+            );
           }
         }
       }
@@ -652,43 +698,55 @@ class FileIODevice extends BaseIODevice {
 /// Implementation for stdin
 class StdinDevice extends BaseIODevice {
   StdinDevice() : super("r") {
-    Logger.debug('Created StdinDevice', category: 'IO');
+    Logger.debugLazy(() => 'Created StdinDevice', category: 'IO');
   }
 
   @override
   Future<void> close() async {
-    Logger.debug('Closing StdinDevice', category: 'IO');
+    Logger.debugLazy(() => 'Closing StdinDevice', category: 'IO');
     isClosed = true;
-    Logger.debug('StdinDevice closed', category: 'IO');
+    Logger.debugLazy(() => 'StdinDevice closed', category: 'IO');
   }
 
   @override
   Future<void> flush() async {
-    Logger.debug('Flush called on StdinDevice (no-op)', category: 'IO');
+    Logger.debugLazy(
+      () => 'Flush called on StdinDevice (no-op)',
+      category: 'IO',
+    );
     // No-op for stdin
   }
 
   @override
   Future<ReadResult> read([String format = "l"]) async {
-    Logger.debug('Reading from stdin with format: $format', category: 'IO');
+    Logger.debugLazy(
+      () => 'Reading from stdin with format: $format',
+      category: 'IO',
+    );
     checkOpen();
     validateReadFormat(format);
 
     try {
       if (format == "l" || format == "L") {
-        Logger.debug('Reading line from stdin', category: 'IO');
+        Logger.debugLazy(() => 'Reading line from stdin', category: 'IO');
         final line = stdin.readLineSync(encoding: utf8);
         if (line == null) {
-          Logger.debug('Read null line from stdin (EOF)', category: 'IO');
+          Logger.debugLazy(
+            () => 'Read null line from stdin (EOF)',
+            category: 'IO',
+          );
           return ReadResult(null);
         }
         final result = format == "L" ? "$line\n" : line;
-        Logger.debug('Read line from stdin: "$result"', category: 'IO');
+        Logger.debugLazy(
+          () => 'Read line from stdin: "$result"',
+          category: 'IO',
+        );
         return ReadResult(result);
       } else if (format == "a") {
         // Read until EOF
-        Logger.debug(
-          'Reading all content from stdin until EOF',
+        Logger.debugLazy(
+          () => 'Reading all content from stdin until EOF',
           category: 'IO',
         );
         final buffer = StringBuffer();
@@ -698,32 +756,38 @@ class StdinDevice extends BaseIODevice {
           buffer.writeln(line);
           lineCount++;
         }
-        Logger.debug('Read $lineCount lines from stdin', category: 'IO');
+        Logger.debugLazy(
+          () => 'Read $lineCount lines from stdin',
+          category: 'IO',
+        );
         final result = buffer.toString();
-        Logger.debug(
-          'Read ${result.length} characters from stdin',
+        Logger.debugLazy(
+          () => 'Read ${result.length} characters from stdin',
           category: 'IO',
         );
         return ReadResult(result);
       } else if (format == "n") {
-        Logger.debug('Reading number from stdin', category: 'IO');
+        Logger.debugLazy(() => 'Reading number from stdin', category: 'IO');
         final line = await read("l");
         if (!line.isSuccess || line.value == null) {
-          Logger.debug(
-            'Failed to read line for number from stdin',
+          Logger.debugLazy(
+            () => 'Failed to read line for number from stdin',
             category: 'IO',
           );
           return line;
         }
         final inputStr = (line.value as String).trim();
-        Logger.debug('Parsing "$inputStr" as number', category: 'IO');
+        Logger.debugLazy(() => 'Parsing "$inputStr" as number', category: 'IO');
 
         try {
           final number = LuaNumberParser.parse(inputStr);
-          Logger.debug('Parsed number: $number', category: 'IO');
+          Logger.debugLazy(() => 'Parsed number: $number', category: 'IO');
           return ReadResult(number);
         } catch (e) {
-          Logger.debug('Failed to parse as number: $e', category: 'IO');
+          Logger.debugLazy(
+            () => 'Failed to parse as number: $e',
+            category: 'IO',
+          );
           return ReadResult(null);
         }
       } else {
@@ -774,12 +838,12 @@ class StdoutDevice extends BaseIODevice {
     : _sink = sink ?? stdout,
       _allowFlush = allowFlush ?? true,
       super("w") {
-    Logger.debug('Created StdoutDevice', category: 'StdoutDevice');
+    Logger.debugLazy(() => 'Created StdoutDevice', category: 'StdoutDevice');
   }
 
   @override
   Future<void> close() async {
-    Logger.debug('Closing stdout', category: 'StdoutDevice');
+    Logger.debugLazy(() => 'Closing stdout', category: 'StdoutDevice');
     // Do not actually close stdout; keep it available for the entire
     // interpreter lifecycle.
   }
@@ -801,7 +865,10 @@ class StdoutDevice extends BaseIODevice {
   Future<WriteResult> write(String data) async {
     checkOpen();
     try {
-      Logger.debug('Writing to stdout: "$data"', category: 'StdoutDevice');
+      Logger.debugLazy(
+        () => 'Writing to stdout: "$data"',
+        category: 'StdoutDevice',
+      );
 
       // Synchronize the write and flush operations
       await synchronized(_lock, () async {
@@ -809,7 +876,7 @@ class StdoutDevice extends BaseIODevice {
         if (_allowFlush) await _sink.flush();
       });
 
-      Logger.debug('Write successful', category: 'StdoutDevice');
+      Logger.debugLazy(() => 'Write successful', category: 'StdoutDevice');
       return WriteResult(true);
     } catch (e) {
       Logger.error('Write failed: $e', error: 'LuaFile');
@@ -821,8 +888,8 @@ class StdoutDevice extends BaseIODevice {
   Future<WriteResult> writeBytes(List<int> bytes) async {
     checkOpen();
     try {
-      Logger.debug(
-        'Writing raw ${bytes.length} bytes to stdout',
+      Logger.debugLazy(
+        () => 'Writing raw ${bytes.length} bytes to stdout',
         category: 'StdoutDevice',
       );
       // Decode bytes as Latin-1 to preserve one-to-one byte mapping for printing
@@ -840,14 +907,17 @@ class StdoutDevice extends BaseIODevice {
 
   @override
   Future<int> seek(SeekWhence whence, int offset) async {
-    Logger.debug('Seeking in stdout (ignored)', category: 'StdoutDevice');
+    Logger.debugLazy(
+      () => 'Seeking in stdout (ignored)',
+      category: 'StdoutDevice',
+    );
     throw UnsupportedError("Cannot seek in stdout");
   }
 
   @override
   Future<int> getPosition() async {
-    Logger.debug(
-      'Getting position in stdout (always 0)',
+    Logger.debugLazy(
+      () => 'Getting position in stdout (always 0)',
       category: 'StdoutDevice',
     );
     throw UnsupportedError("Cannot get position in stdout");
@@ -855,8 +925,8 @@ class StdoutDevice extends BaseIODevice {
 
   @override
   Future<bool> isEOF() async {
-    Logger.debug(
-      'Checking if at EOF (always false for stdout)',
+    Logger.debugLazy(
+      () => 'Checking if at EOF (always false for stdout)',
       category: 'StdoutDevice',
     );
     return false;
@@ -891,8 +961,8 @@ class ProcessIODevice extends BaseIODevice {
   }
 
   static Future<ProcessIODevice> start(String command, String mode) async {
-    Logger.debug(
-      'ProcessIODevice.start cmd: $command, mode: $mode',
+    Logger.debugLazy(
+      () => 'ProcessIODevice.start cmd: $command, mode: $mode',
       category: 'IO',
     );
     // Convenience: allow invoking local compiled binary "lualike" without path
@@ -946,18 +1016,18 @@ class ProcessIODevice extends BaseIODevice {
 
   Future<List<Object?>> _statusTriple() async {
     try {
-      Logger.debug(
-        'ProcessIODevice._statusTriple() called for command: $_command',
+      Logger.debugLazy(
+        () => 'ProcessIODevice._statusTriple() called for command: $_command',
         category: 'IO',
       );
       final code = await _process.exitCode;
-      Logger.debug(
-        'ProcessIODevice._statusTriple() got exit code: $code',
+      Logger.debugLazy(
+        () => 'ProcessIODevice._statusTriple() got exit code: $code',
         category: 'IO',
       );
       if (code == 0) {
-        Logger.debug(
-          'ProcessIODevice._statusTriple() returning [true, exit, 0]',
+        Logger.debugLazy(
+          () => 'ProcessIODevice._statusTriple() returning [true, exit, 0]',
           category: 'IO',
         );
         return [true, 'exit', 0];
@@ -967,26 +1037,28 @@ class ProcessIODevice extends BaseIODevice {
           r"^\s*sh\s+-c\s+'kill\s+-s\s+[^']+\s+\$\$'\s*",
         ).hasMatch(_command);
         if (!isWrappedKill) {
-          Logger.debug(
-            'ProcessIODevice._statusTriple() returning [false, signal, ${-code}]',
+          Logger.debugLazy(
+            () =>
+                'ProcessIODevice._statusTriple() returning [false, signal, ${-code}]',
             category: 'IO',
           );
           return [false, 'signal', -code];
         }
-        Logger.debug(
-          'ProcessIODevice._statusTriple() returning [false, exit, ${-code}]',
+        Logger.debugLazy(
+          () =>
+              'ProcessIODevice._statusTriple() returning [false, exit, ${-code}]',
           category: 'IO',
         );
         return [false, 'exit', -code];
       }
-      Logger.debug(
-        'ProcessIODevice._statusTriple() returning [false, exit, $code]',
+      Logger.debugLazy(
+        () => 'ProcessIODevice._statusTriple() returning [false, exit, $code]',
         category: 'IO',
       );
       return [false, 'exit', code];
     } catch (e) {
-      Logger.debug(
-        'ProcessIODevice._statusTriple() caught exception: $e',
+      Logger.debugLazy(
+        () => 'ProcessIODevice._statusTriple() caught exception: $e',
         category: 'IO',
       );
       return [false, 'error', e.toString()];
@@ -1032,7 +1104,10 @@ class ProcessIODevice extends BaseIODevice {
 
   @override
   Future<ReadResult> read([String format = "l"]) async {
-    Logger.debug('ProcessIODevice.read format=$format', category: 'IO');
+    Logger.debugLazy(
+      () => 'ProcessIODevice.read format=$format',
+      category: 'IO',
+    );
     checkOpen();
     if (_popenMode != 'r') {
       return ReadResult(null, "Cannot read from write-only pipe");
@@ -1326,7 +1401,7 @@ class PopenLuaFile extends LuaFile {
 
   @override
   Future<List<Object?>> close() async {
-    Logger.debug('PopenLuaFile.close()', category: 'IO');
+    Logger.debugLazy(() => 'PopenLuaFile.close()', category: 'IO');
     final dev = device as ProcessIODevice;
 
     // Close the device first (this closes stdin if needed)
@@ -1334,8 +1409,8 @@ class PopenLuaFile extends LuaFile {
 
     // Wait for process termination and return os.execute-like triple
     final triple = await dev.finalizeStatus();
-    Logger.debug(
-      'PopenLuaFile.close() returning triple: $triple',
+    Logger.debugLazy(
+      () => 'PopenLuaFile.close() returning triple: $triple',
       category: 'IO',
     );
 

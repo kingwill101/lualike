@@ -327,6 +327,222 @@ void main() {
       });
 
       test(
+        'debug.getlocal on io.lines loop state does not adopt close semantics',
+        () async {
+          final bridge = LuaLike();
+          await bridge.execute(r'''
+            local file = os.tmpname()
+            io.output(file)
+            io.write("a = 10 + 34\na = 2*a\na = -a\n"):close()
+
+            local t = {}
+            assert(load(io.lines(file, "L"), nil, nil, t))()
+            assert(t.a == -((10 + 34) * 2))
+
+            local function gettoclose(lv)
+              lv = lv + 1
+              local stvar = 0
+              for i = 1, 1000 do
+                local n, v = debug.getlocal(lv, i)
+                if n == "(for state)" then
+                  stvar = stvar + 1
+                  if stvar == 3 then
+                    return v
+                  end
+                end
+              end
+            end
+
+            local f
+            for l in io.lines(file) do
+              f = gettoclose(1)
+              assert(io.type(f) == "file")
+              break
+            end
+
+            assert(io.type(f) == "closed file")
+            assert(os.remove(file))
+          ''');
+        },
+      );
+
+      test('local file handles survive gc between writes', () async {
+        final bridge = LuaLike();
+        await bridge.execute(r'''
+          local file = os.tmpname()
+          local f = assert(io.open(file, "w"))
+          assert(f:write("abc"))
+          collectgarbage()
+          assert(f:write("def"))
+          assert(f:close())
+
+          local r = assert(io.open(file, "r"))
+          assert(r:read("*a") == "abcdef")
+          assert(r:close())
+          assert(os.remove(file))
+        ''');
+      });
+
+      test('file handles survive repeated write chaining in loops', () async {
+        final bridge = LuaLike();
+        await bridge.execute(r'''
+          local file = os.tmpname()
+          local f = assert(io.open(file, "w"))
+          assert(f:write("1234"))
+          for i = 1, 1000 do
+            assert(f:write("0"))
+          end
+          assert(f:write("\n"))
+          assert(f:close())
+
+          local r = assert(io.open(file, "r"))
+          local contents = assert(r:read("*a"))
+          assert(#contents == 1005)
+          assert(string.sub(contents, 1, 4) == "1234")
+          assert(string.sub(contents, -1) == "\n")
+          assert(r:close())
+          assert(os.remove(file))
+        ''');
+      });
+
+      test('loaded chunks keep global file handles alive during gc', () async {
+        final bridge = LuaLike();
+        bridge.vm.fileManager.registerVirtualFile(
+          'gc_write_loaded.lua',
+          r'''
+            local file = os.tmpname()
+            f = assert(io.open(file, "w"))
+            assert(f:write("1234"))
+            for i = 1, 1000 do
+              if i % 25 == 0 then
+                collectgarbage()
+              end
+              assert(f:write("0"))
+            end
+            assert(f:write("\n"))
+            assert(f:close())
+
+            local r = assert(io.open(file, "r"))
+            local contents = assert(r:read("*a"))
+            assert(#contents == 1005)
+            assert(string.sub(contents, 1, 4) == "1234")
+            assert(string.sub(contents, -1) == "\n")
+            assert(r:close())
+            assert(os.remove(file))
+            return true
+          ''',
+        );
+
+        await bridge.execute("return dofile('gc_write_loaded.lua')");
+      });
+
+      test(
+        'loaded chunks keep reassigned global file handles alive under auto gc',
+        () async {
+          final bridge = LuaLike();
+          bridge.vm.fileManager.registerVirtualFile(
+            'gc_write_reassign_loaded.lua',
+            r'''
+              local file = os.tmpname()
+              f = coroutine.wrap(function() return true end)
+              assert(f())
+
+              f = assert(io.open(file, "w"))
+              f:write("1234")
+              for i = 1, 1000 do
+                f:write("0")
+              end
+              f:write("\n")
+              assert(f:close())
+
+              local r = assert(io.open(file, "r"))
+              local contents = assert(r:read("*a"))
+              assert(#contents == 1005)
+              assert(string.sub(contents, 1, 4) == "1234")
+              assert(string.sub(contents, -1) == "\n")
+              assert(r:close())
+              assert(os.remove(file))
+              return true
+            ''',
+          );
+
+          await bridge.execute("return dofile('gc_write_reassign_loaded.lua')");
+        },
+      );
+
+      test('block-scoped file handles survive loop-triggered minor GC', () async {
+        final bridge = LuaLike();
+        await bridge.execute(r'''
+          local file = os.tmpname()
+          do
+            local f = assert(io.open(file, "w"))
+            for i = 1, 200 do
+              assert(f:write("0123456789"))
+            end
+            assert(f:close())
+          end
+
+          local r = assert(io.open(file, "r"))
+          local contents = assert(r:read("*a"))
+          assert(#contents == 2000)
+          assert(r:close())
+          assert(os.remove(file))
+        ''');
+      });
+
+      test(
+        'file handles survive GC pressure after default input/output churn',
+        () async {
+          final bridge = LuaLike();
+          await bridge.execute(r'''
+            local file = os.tmpname()
+            local otherfile = os.tmpname()
+
+            io.input(io.stdin)
+            io.output(io.stdout)
+            os.remove(file)
+            assert(not io.open(file))
+
+            io.output(file)
+            assert(io.write("alo alo"):seek() == string.len("alo alo"))
+            io.output(io.stdout)
+            collectgarbage()
+
+            for i = 1, 120 do
+              for j = 1, 5 do
+                io.input(file)
+                assert(io.open(file, "r"))
+                io.lines(file)
+              end
+              collectgarbage()
+            end
+
+            io.input():close()
+            io.close()
+            assert(os.rename(file, otherfile))
+            io.output(io.open(otherfile, "ab"))
+            assert(io.write("\n\n\t\t  ", 3450, "\n"))
+            io.close()
+
+            local f = assert(io.open(file, "w"))
+            f:write[[
+-12.3-	-0xffff+  .3|5.E-3X  +234e+13E 0xDEADBEEFDEADBEEFx
+0x1.13Ap+3e
+]]
+            assert(f:write("1234"))
+            for i = 1, 1000 do
+              assert(f:write("0"))
+            end
+            assert(f:write("\n"))
+            assert(f:close())
+
+            assert(os.remove(file))
+            assert(os.remove(otherfile))
+          ''');
+        },
+      );
+
+      test(
         'type reports default streams as userdata while io.type reports file',
         () async {
           final bridge = LuaLike();

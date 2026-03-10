@@ -2,8 +2,8 @@
 library;
 
 // Conditional imports for platform-specific functionality
-import 'file_system_utils_web.dart'
-    if (dart.library.io) 'file_system_utils_io.dart'
+import 'file_system_utils_io.dart'
+    if (dart.library.js_interop) 'file_system_utils_web.dart'
     as fs_impl;
 
 /// Platform-safe way to check if a file exists
@@ -18,6 +18,9 @@ Future<String?> readFileAsString(String path) => fs_impl.readFileAsString(path);
 /// Platform-safe way to read a file as bytes
 Future<List<int>?> readFileAsBytes(String path) =>
     fs_impl.readFileAsBytes(path);
+
+/// Platform-safe way to get the last modified time for a file.
+Future<DateTime?> getLastModified(String path) => fs_impl.getLastModified(path);
 
 /// Platform-safe way to get current working directory
 String? getCurrentDirectory() => fs_impl.getCurrentDirectory();

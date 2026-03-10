@@ -1,5 +1,5 @@
-import 'package:contextual/contextual.dart' as ctx;
 import 'package:lualike/src/builtin_function.dart';
+import 'package:lualike/src/logging/level.dart' as ctx;
 import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_string.dart';
@@ -177,11 +177,13 @@ class _LoggingDebug extends BuiltinFunction {
     final opts = args.length > 1 ? args[1] : null;
     final logContext = _extractLogContext(opts);
 
-    Logger.debug(
-      message,
+    Logger.debugLazy(
+      () => message,
       category: logContext.singleCategory,
       categories: logContext.categories,
-      context: logContext.context,
+      contextBuilder: logContext.context == null
+          ? null
+          : () => logContext.context!,
     );
 
     return Value(true);
