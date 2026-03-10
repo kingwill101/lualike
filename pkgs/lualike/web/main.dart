@@ -1,3 +1,5 @@
+import 'dart:js_interop';
+
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/io/lua_file.dart';
 import 'package:lualike/src/io/memory_io_device.dart';
@@ -8,12 +10,31 @@ import 'package:web/web.dart' as web;
 import 'examples.dart';
 import 'output_device.dart';
 
+@JS('mountLuaLikeEditor')
+external JSAny? _mountLuaLikeEditor(JSString initialValue);
+
+@JS('getLuaLikeEditorValue')
+external JSString _getLuaLikeEditorValue();
+
+@JS('setLuaLikeEditorValue')
+external JSAny? _setLuaLikeEditorValue(JSString value);
+
+@JS('focusLuaLikeEditor')
+external JSAny? _focusLuaLikeEditor();
+
 void main() {
+  web.document.body?.dataset['dartLoaded'] = 'true';
   final app = LuaLikeWebApp();
   app.initialize();
 }
 
 class LuaLikeWebApp {
+  static final String _starterSnippet =
+      LuaExamples.getExample('hello') ??
+      '''-- Enter your lualike code here
+print("Hello from lualike!")
+''';
+
   late final web.HTMLDivElement sourceCode =
       web.document.querySelector('#sourceCode') as web.HTMLDivElement;
   late final web.HTMLDivElement output =
@@ -26,6 +47,8 @@ class LuaLikeWebApp {
       web.document.querySelector('#clearOutput') as web.HTMLButtonElement;
   late final web.HTMLSelectElement examplesSelect =
       web.document.querySelector('#examples') as web.HTMLSelectElement;
+  late final web.HTMLSpanElement runStatus =
+      web.document.querySelector('#runStatus') as web.HTMLSpanElement;
   late final LuaLike luaLike;
 
   void initialize() {
@@ -46,20 +69,15 @@ class LuaLikeWebApp {
 
     // Populate examples dropdown
     populateExamplesDropdown();
+    _mountEditor(_starterSnippet);
+    _bindEditorEvents();
+    _setRunStatus('Ready', 'ready');
 
     runBtn.onClick.listen((_) => runCode());
     clearBtn.onClick.listen((_) => clearCode());
     clearOutputBtn.onClick.listen((_) => clearOutput());
     examplesSelect.onChange.listen((_) {
       loadExample();
-    });
-
-    // Allow running code with Ctrl+Enter
-    sourceCode.onKeyDown.listen((event) {
-      if (event.ctrlKey && event.key == 'Enter') {
-        event.preventDefault();
-        runCode();
-      }
     });
 
     // Show welcome message
@@ -85,7 +103,7 @@ class LuaLikeWebApp {
   void showWelcomeMessage() {
     appendOutput('🌙 Welcome to LuaLike Web REPL!', 'info');
     appendOutput(
-      'Press Ctrl+Enter to run code, or click the Run button.',
+      'Press Ctrl/Cmd+Enter to run code, or click the Run button.',
       'info',
     );
     appendOutput(
@@ -95,15 +113,17 @@ class LuaLikeWebApp {
   }
 
   void runCode() async {
-    final code = sourceCode.textContent?.trim() ?? '';
+    final code = _editorValue().trim();
 
     if (code.isEmpty) {
       appendOutput('No code to run!', 'error');
+      _setRunStatus('Editor empty', 'error');
       return;
     }
 
     // Clear previous output and show running indicator
     clearOutput();
+    _setRunStatus('Running', 'running');
     appendOutput('⚡ Running code...\n', 'info');
 
     try {
@@ -111,14 +131,17 @@ class LuaLikeWebApp {
       await luaLike.execute(code);
 
       appendOutput('✅ Code executed successfully!', 'success');
+      _setRunStatus('Completed', 'success');
     } catch (e) {
       appendOutput('❌ Error: $e', 'error');
+      _setRunStatus('Execution error', 'error');
     }
   }
 
   void clearCode() {
-    sourceCode.textContent = '';
-    sourceCode.focus();
+    _setEditorValue('');
+    _focusEditor();
+    _setRunStatus('Ready', 'ready');
   }
 
   void clearOutput() {
@@ -141,9 +164,40 @@ class LuaLikeWebApp {
 
     final example = LuaExamples.getExample(selectedValue);
     if (example != null) {
-      sourceCode.textContent = example;
-      // Focus on code area
-      sourceCode.focus();
+      _setEditorValue(example);
+      _focusEditor();
+      _setRunStatus('Ready', 'ready');
     }
+  }
+
+  void _bindEditorEvents() {
+    web.window.addEventListener(
+      'lualike-run-request',
+      ((web.Event _) {
+        runCode();
+      }).toJS,
+    );
+  }
+
+  void _mountEditor(String initialValue) {
+    sourceCode.dataset['ready'] = 'false';
+    _mountLuaLikeEditor(initialValue.toJS);
+  }
+
+  String _editorValue() {
+    return _getLuaLikeEditorValue().toDart;
+  }
+
+  void _setEditorValue(String value) {
+    _setLuaLikeEditorValue(value.toJS);
+  }
+
+  void _focusEditor() {
+    _focusLuaLikeEditor();
+  }
+
+  void _setRunStatus(String label, String state) {
+    runStatus.textContent = label;
+    runStatus.className = 'status-pill $state';
   }
 }
