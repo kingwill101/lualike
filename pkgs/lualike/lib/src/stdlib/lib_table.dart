@@ -839,14 +839,17 @@ class _TableSort extends BuiltinFunction {
 
         final func = comp.raw;
         final runtime = interpreter;
+        final previousYieldable = runtime?.isYieldable;
         if (runtime != null) {
           enterSortComparator(runtime);
+          runtime.isYieldable = false;
         }
         late final Object? result;
         try {
           result = await func([valA, valB]);
         } finally {
           if (runtime != null) {
+            runtime.isYieldable = previousYieldable ?? true;
             exitSortComparator(runtime);
           }
         }
@@ -913,14 +916,17 @@ class _TableSort extends BuiltinFunction {
 
         if (valA.raw != null && valB.raw != null) {
           final runtime = interpreter;
+          final previousYieldable = runtime?.isYieldable;
           if (runtime != null) {
             enterSortComparator(runtime);
+            runtime.isYieldable = false;
           }
           late final Object? result;
           try {
             result = await func([valA, valB]);
           } finally {
             if (runtime != null) {
+              runtime.isYieldable = previousYieldable ?? true;
               exitSortComparator(runtime);
             }
           }

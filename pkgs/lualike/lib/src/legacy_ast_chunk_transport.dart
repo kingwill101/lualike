@@ -184,13 +184,18 @@ class LegacyAstChunkTransport {
   static LuaString serializeSourceWithNameAsLuaString(
     String source, {
     String? sourceName,
+    List<String>? stringLiterals,
     bool strippedDebugInfo = false,
   }) {
-    final payload = jsonEncode(<String, dynamic>{
+    final data = <String, dynamic>{
       'source': source,
       'sourceName': sourceName,
       'strippedDebugInfo': strippedDebugInfo,
-    });
+    };
+    if (stringLiterals case final literals? when literals.isNotEmpty) {
+      data['stringLiterals'] = literals;
+    }
+    final payload = jsonEncode(data);
     return _createLuaCompatibleChunkAsLuaString(_sourceWithNameMarker + payload);
   }
 

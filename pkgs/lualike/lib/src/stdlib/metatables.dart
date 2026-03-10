@@ -95,7 +95,12 @@ class MetaTable {
           }
 
           // Use cached method lookup to avoid repeated string table access
-          final method = _cachedStringMethods[keyStr];
+          var method = _cachedStringMethods[keyStr];
+          if (method == null && _interpreter != null) {
+            _interpreter!.libraryRegistry.initializeLibraryByName('string');
+            _cacheStdlibMethods(_interpreter!, force: true);
+            method = _cachedStringMethods[keyStr];
+          }
           if (method != null) {
             Logger.debug(
               'Found cached string method: $keyStr',

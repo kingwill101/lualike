@@ -274,6 +274,14 @@ bool _hasPendingToBeClosed(Environment? env) {
 
 Object? _snapshotReturnPayload(Object? value) {
   Value cloneValue(Value original) {
+    // Table-backed wrappers and values carrying an explicit metatable
+    // reference are identity-sensitive. Returning a fresh wrapper for them
+    // can detach metamethod lookups from the live table object, which breaks
+    // cases like events.lua's arithmetic metamethod checks.
+    if (original.raw is Map || original.metatableRef != null) {
+      return original;
+    }
+
     final clone = Value(
       original.raw,
       metatable: original.metatable != null
@@ -1038,11 +1046,15 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             } else {
               final entryLine = node.body.isNotEmpty
                   ? interpreter._debugHookLineForNode(node.body.first)
-                  : self.debugLineDefined ?? self.functionBody?.span?.start.line;
+                  : self.debugLineDefined ??
+                        self.functionBody?.span?.start.line;
               if (entryLine != null) {
                 final oneBasedEntryLine = entryLine + 1;
                 frame.lastDebugHookLine = oneBasedEntryLine;
-                await interpreter.fireDebugHook('line', line: oneBasedEntryLine);
+                await interpreter.fireDebugHook(
+                  'line',
+                  line: oneBasedEntryLine,
+                );
               }
             }
           }
@@ -1340,7 +1352,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       functionBody: node,
       closureEnvironment: closureEnv,
       strippedDebugInfo:
-          (this as Interpreter).getCurrentFunction()?.strippedDebugInfo ?? false,
+          (this as Interpreter).getCurrentFunction()?.strippedDebugInfo ??
+          false,
     );
     self = funcValue;
 
@@ -1453,7 +1466,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       functionBody: node,
       closureEnvironment: closureEnv,
       strippedDebugInfo:
-          (this as Interpreter).getCurrentFunction()?.strippedDebugInfo ?? false,
+          (this as Interpreter).getCurrentFunction()?.strippedDebugInfo ??
+          false,
     );
     functionValue.interpreter = this as Interpreter;
     functionValue.upvalues = const <Upvalue>[];
@@ -2162,7 +2176,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         category: 'Interpreter',
       );
     }
-    // Guard against unbounded recursion in non-tail calls (simulates C stack limit)
+    // Guard against unbounded recursion in non-tail calls. The coroutine-local
+    // slice preserves normal resume/yield isolation, while the global depth
+    // catches chains like coroutine.wrap(a)(a) that recurse across coroutines
+    // but still consume the same host call stack.
     int callStackBaseDepth = 0;
     if (this is Interpreter) {
       final currentCoroutine = (this as Interpreter).getCurrentCoroutine();
@@ -2170,16 +2187,23 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         callStackBaseDepth = currentCoroutine.callStackBaseDepth;
       }
     }
-    if ((callStack.depth - callStackBaseDepth) >= Interpreter.maxCallDepth) {
+    final globalCallDepth = callStack.depth;
+    final coroutineCallDepth = globalCallDepth - callStackBaseDepth;
+    if (globalCallDepth >= Interpreter.maxCallDepth ||
+        coroutineCallDepth >= Interpreter.maxCallDepth) {
       throw LuaError('C stack overflow');
     }
-    final frameNameInfo = debugNameOverride != null || debugNameWhatOverride.isNotEmpty
+    final frameNameInfo =
+        debugNameOverride != null || debugNameWhatOverride.isNotEmpty
         ? (name: debugNameOverride, namewhat: debugNameWhatOverride)
         : _frameNameInfoForCall(
             interpreter.getCurrentEnv(),
             callNode,
             functionName,
           );
+    final callerEnv = interpreter.getCurrentEnv();
+    final callerFunction = interpreter.getCurrentFunction();
+    final callerFastLocals = interpreter.getCurrentFastLocals();
     callStack.push(
       functionName,
       callNode: callNode,
@@ -2195,6 +2219,22 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         frame.isDebugHook = true;
       }
     }
+
+    Iterable<Object?> activeCallRoots() sync* {
+      if (func case final Value callable) {
+        yield callable;
+        yield callable.closureEnvironment;
+        if (callable.upvalues != null) {
+          for (final upvalue in callable.upvalues!) {
+            yield upvalue;
+            yield upvalue.valueBox;
+          }
+        }
+      }
+    }
+
+    interpreter.pushExternalGcRoots(activeCallRoots);
+    var activeCallRootsRegistered = true;
 
     List<Value> normalizeTransferValues(Iterable<Object?> values) {
       return values
@@ -2760,6 +2800,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       yieldingCoroutine?.captureCurrentCallStack();
       // Set the current coroutine to the yielding coroutine
       interpreter.setCurrentCoroutine(yieldingCoroutine);
+      if (activeCallRootsRegistered) {
+        interpreter.popExternalGcRoots(activeCallRoots);
+        activeCallRootsRegistered = false;
+      }
 
       // Wait for the coroutine to be resumed
       if (Logger.enabled) {
@@ -2774,6 +2818,11 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
           '>>> YieldException: resumeFuture completed with: \\$resumeArgs',
           category: 'Coroutine',
         );
+      }
+
+      if (!activeCallRootsRegistered) {
+        interpreter.pushExternalGcRoots(activeCallRoots);
+        activeCallRootsRegistered = true;
       }
 
       final resumedCoroutine = ye.coroutine ?? yieldingCoroutine;
@@ -2791,9 +2840,20 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         interpreter.setCurrentCoroutine(prevCoroutine);
       }
 
+      // Resume execution in the caller context that was active before this
+      // function call started. Yielding from nested calls (for instance,
+      // iterator calls inside pcall/xpcall) must continue with the caller's
+      // locals and upvalues still being the active lookup context.
+      interpreter.setCurrentFunction(callerFunction);
+      interpreter.setCurrentFastLocals(callerFastLocals);
+      interpreter.setCurrentEnv(callerEnv);
+
       // Return the resume arguments as the result of this function call
       return returnWithTransfer(_normalizeReturnValue(resumeArgs));
     } finally {
+      if (activeCallRootsRegistered) {
+        interpreter.popExternalGcRoots(activeCallRoots);
+      }
       final topFrame = callStack.top;
       if (!interpreter._runningDebugHook &&
           topFrame != null &&

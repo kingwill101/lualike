@@ -130,6 +130,25 @@ void main() {
         expect((bridge.getGlobal('h_source') as Value?)?.raw, equals(expectedName));
         expect((bridge.getGlobal('stripped_len') as Value?)?.raw, lessThan(500));
       });
+
+      test('compact top-level dumps keep one extra copy of string literals', () async {
+        await bridge.execute(r'''
+          str = "|" .. string.rep("X", 50) .. "|"
+          prog = string.format([[
+            local str <const> = "%s"
+            return {
+              function () return str end,
+              function () return str end,
+              function () return str end
+            }
+          ]], str)
+          f = assert(load(prog))
+          dumped = string.dump(f)
+          _, count = string.gsub(dumped, str, {})
+        ''');
+
+        expect((bridge.getGlobal('count') as Value?)?.raw, equals(2));
+      });
     });
 
     group('legacy chunk mode handling', () {

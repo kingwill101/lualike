@@ -21,3 +21,8 @@ abstract class BuiltinFunction {
   /// Returns the result of the function call, which may be null.
   FutureOr<Object?> call(List<Object?> args);
 }
+
+/// Optional interface for builtins that need to keep GC-visible references.
+abstract interface class BuiltinFunctionGcRefs {
+  Iterable<Object?> getGcReferences();
+}

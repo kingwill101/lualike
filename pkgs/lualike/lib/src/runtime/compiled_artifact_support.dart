@@ -503,13 +503,12 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
           if (originalUpvalueNames != null && originalUpvalueNames.isNotEmpty) {
             for (var i = 0; i < originalUpvalueNames.length; i++) {
               final upvalueName = originalUpvalueNames[i];
-              final upvalueValue =
-                  (providedEnv != null &&
-                      providedEnv.raw != null &&
-                      originalUpvalueValues != null &&
-                      i < originalUpvalueValues.length)
-                  ? originalUpvalueValues[i]
-                  : null;
+              Object? upvalueValue;
+              if (upvalueName == '_ENV' &&
+                  providedEnv != null &&
+                  providedEnv.raw != null) {
+                upvalueValue = providedEnv;
+              }
               final box = Box<dynamic>(upvalueValue);
               final upvalue = Upvalue(
                 valueBox: box,
@@ -816,6 +815,7 @@ Object? dumpFunctionWithLegacyAstTransport(
             (stripDebugInfo || function.strippedDebugInfo)
             ? null
             : compactSourceDump.sourceName,
+        stringLiterals: compactSourceDump.stringLiterals,
         strippedDebugInfo: stripDebugInfo || function.strippedDebugInfo,
       );
     }
@@ -832,7 +832,8 @@ Object? dumpFunctionWithLegacyAstTransport(
   return LegacyAstChunkTransport.serializeSourceAsLuaString(source);
 }
 
-({String source, String? sourceName})? _compactLegacySourceDumpInfo(
+({String source, String? sourceName, List<String> stringLiterals})?
+_compactLegacySourceDumpInfo(
   FunctionBody functionBody,
 ) {
   if (!_isTopLevelChunk(functionBody)) {
@@ -842,7 +843,11 @@ Object? dumpFunctionWithLegacyAstTransport(
   if (source == null || source.isEmpty) {
     return null;
   }
-  return (source: source, sourceName: functionBody.span?.sourceUrl?.toString());
+  return (
+    source: source,
+    sourceName: functionBody.span?.sourceUrl?.toString(),
+    stringLiterals: _collectUniqueStringLiterals(functionBody),
+  );
 }
 
 bool _canUseCompactLegacySourceDump(List<String>? upvalueNames) {
@@ -850,6 +855,33 @@ bool _canUseCompactLegacySourceDump(List<String>? upvalueNames) {
     return true;
   }
   return upvalueNames.every((name) => name == '_ENV');
+}
+
+List<String> _collectUniqueStringLiterals(FunctionBody functionBody) {
+  final dumpData = functionBody.dump();
+  final literals = <String>{};
+
+  void visit(Object? node) {
+    switch (node) {
+      case Map<String, dynamic>():
+        if (node['type'] == 'StringLiteral') {
+          final value = node['value'];
+          if (value is String && value.isNotEmpty) {
+            literals.add(value);
+          }
+        }
+        for (final value in node.values) {
+          visit(value);
+        }
+      case List():
+        for (final value in node) {
+          visit(value);
+        }
+    }
+  }
+
+  visit(dumpData);
+  return literals.toList(growable: false);
 }
 
 Value _wrapStrippedLegacyFunction(LuaRuntime runtime, Value innerFunction) {
@@ -1061,7 +1093,11 @@ Environment _createDirectAstFunctionCreationEnv({
   required Environment savedEnv,
   required Value? providedEnv,
 }) {
-  final loadEnv = Environment(parent: savedEnv.root, interpreter: runtime);
+  final loadEnv = Environment(
+    parent: null,
+    interpreter: runtime,
+    isLoadIsolated: true,
+  );
   if (providedEnv != null) {
     if (providedEnv.raw != null) {
       loadEnv.declare('_ENV', providedEnv);
@@ -1072,6 +1108,12 @@ Environment _createDirectAstFunctionCreationEnv({
     } else {
       loadEnv.declare('_ENV', providedEnv);
     }
+  } else {
+    final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G');
+    if (gValue is Value) {
+      loadEnv.declare('_ENV', gValue);
+      loadEnv.declare('_G', gValue);
+    }
   }
   return loadEnv;
 }
@@ -1081,16 +1123,18 @@ Environment _createSourceLoadEnv({
   required Environment savedEnv,
   required Value? providedEnv,
 }) {
-  final loadEnv = Environment(
-    parent: null,
-    interpreter: runtime,
-    isLoadIsolated: true,
-  );
+  final Environment loadEnv;
   if (providedEnv != null) {
+    loadEnv = Environment(
+      parent: null,
+      interpreter: runtime,
+      isLoadIsolated: true,
+    );
     final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G') ?? Value({});
     loadEnv.declare('_ENV', providedEnv);
     loadEnv.declare('_G', gValue);
   } else {
+    loadEnv = Environment(parent: savedEnv.root, interpreter: runtime);
     final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G');
     if (gValue is Value) {
       loadEnv.declare('_ENV', gValue);

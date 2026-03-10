@@ -58,6 +58,37 @@ Value _detachTemporaryValue(Value value) {
 }
 
 mixin InterpreterExpressionMixin on AstVisitor<Object?> {
+  (Value?, bool, Environment?) _resolveCurrentFunctionLocalOrDeclaredGlobal(
+    Identifier node,
+  ) {
+    if (this is! Interpreter) {
+      return (null, false, null);
+    }
+
+    final interpreter = this as Interpreter;
+    final currentFunction = interpreter.getCurrentFunction();
+    final closureBoundary = currentFunction?.closureEnvironment;
+
+    Environment? env = globals;
+    while (env != null) {
+      if (!identical(env, closureBoundary)) {
+        if (env.values.containsKey(node.name) && env.values[node.name]!.isLocal) {
+          final val = env.values[node.name]!.value;
+          return (val is Value ? val : Value(val), false, closureBoundary);
+        }
+      }
+      if (env.declaredGlobals.containsKey(node.name)) {
+        return (null, true, closureBoundary);
+      }
+      if (identical(env, closureBoundary)) {
+        break;
+      }
+      env = env.parent;
+    }
+
+    return (null, false, closureBoundary);
+  }
+
   // Required getters that must be implemented by the class using this mixin
   Environment get globals;
   Stack<Object?> get evalStack;
@@ -788,23 +819,33 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       return value;
     }
 
+    if (this is Interpreter) {
+      final interpreter = this as Interpreter;
+      final frameEnv =
+          interpreter.findFrameForCallable(interpreter.getCurrentFunction())?.env;
+      final frameBox = frameEnv?.values[node.name];
+      if (frameBox != null && frameBox.isLocal) {
+        final value = frameBox.value;
+        return value is Value ? value : Value(value);
+      }
+
+      final fastLocals = interpreter.getCurrentFastLocals();
+      final fastBox = fastLocals?[node.name];
+      if (fastBox != null) {
+        final value = fastBox.value;
+        return value is Value ? value : Value(value);
+      }
+    }
+
     // Check for a local variable in the current environment. When executing
     // inside a function, the current environment will have a parent. Globals
     // live in the root environment (which has no parent). Locals should take
     // precedence over entries in `_ENV`.
     // Search up the environment chain for a local variable with this name
-    var declaredGlobalInScope = false;
-    Environment? env = globals;
-    while (env != null) {
-      if (env.values.containsKey(node.name) && env.values[node.name]!.isLocal) {
-        final val = env.values[node.name]!.value;
-        return val is Value ? val : Value(val);
-      }
-      if (env.declaredGlobals.containsKey(node.name)) {
-        declaredGlobalInScope = true;
-        break;
-      }
-      env = env.parent;
+    final (localValue, declaredGlobalInScope, closureBoundary) =
+        _resolveCurrentFunctionLocalOrDeclaredGlobal(node);
+    if (localValue != null) {
+      return localValue;
     }
 
     // Check current function's upvalues if we're executing within a function
@@ -823,6 +864,12 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
             return value is Value ? value : Value(value);
           }
         }
+      }
+
+      final closureBox = closureBoundary?.values[node.name];
+      if (closureBox != null && closureBox.isLocal) {
+        final value = closureBox.value;
+        return value is Value ? value : Value(value);
       }
     }
 

@@ -626,16 +626,42 @@ class Interpreter extends AstVisitor<Object?>
   @override
   List<Object?> getRoots() {
     _pruneDeadCoroutineRefs();
+    final activeFunction = _currentFunction;
     return [
       _currentEnv, // Current environment (includes globals)
       callStack, // Active call stack
+      // Active closure/function value when executing AST code. This root is
+      // intentionally strong because the active function owns live upvalue
+      // boxes, but it means coroutine resume/yield paths must restore it
+      // precisely. A stale activeFunction can keep self-referential suspended
+      // threads alive through one captured box even after lexical scope ends.
+      activeFunction,
       evalStack, // Evaluation stack
       _traceBuffer, // The circular buffer
       _currentCoroutine, // Currently executing coroutine
       _mainThread, // Main thread coroutine
       debugRegistry, // Persistent debug registry
-      for (final ref in _activeCoroutines) ref.target, // Suspended coroutines
       ...IOLib.gcRoots, // Current/default I/O handles live outside environments
+      if (activeFunction != null) activeFunction.closureEnvironment,
+      if (activeFunction != null && activeFunction.upvalues != null) ...[
+        ...activeFunction.upvalues!,
+        for (final upvalue in activeFunction.upvalues!) upvalue.valueBox,
+      ],
+      for (final frame in callStack.frames) frame.env,
+      for (final frame in callStack.frames) frame.callable,
+      for (final frame in callStack.frames)
+        if (frame.callable case final Value callable?) ...[
+          callable.closureEnvironment,
+          if (callable.upvalues != null) ...[
+            ...callable.upvalues!,
+            for (final upvalue in callable.upvalues!) upvalue.valueBox,
+          ],
+        ],
+      // Some call sites register temporary GC roots for the duration of an
+      // active call. Suspended coroutines must detach these interpreter-global
+      // providers and keep only a snapshot of the concrete objects they need;
+      // otherwise the global provider list would pin paused coroutine stacks
+      // and defeat weak-table / self-cycle collection tests.
       for (final provider in _externalGcRootProviders) ...provider(),
     ];
   }
@@ -646,6 +672,39 @@ class Interpreter extends AstVisitor<Object?>
 
   void popExternalGcRoots(Iterable<Object?> Function() provider) {
     _externalGcRootProviders.remove(provider);
+  }
+
+  int get externalGcRootProviderCount => _externalGcRootProviders.length;
+
+  List<Iterable<Object?> Function()> snapshotExternalGcRootProvidersFrom(
+    int baseCount,
+  ) {
+    if (baseCount >= _externalGcRootProviders.length) {
+      return const <Iterable<Object?> Function()>[];
+    }
+    return List<Iterable<Object?> Function()>.from(
+      _externalGcRootProviders.getRange(
+        baseCount,
+        _externalGcRootProviders.length,
+      ),
+      growable: false,
+    );
+  }
+
+  void appendExternalGcRootProviders(
+    Iterable<Iterable<Object?> Function()> providers,
+  ) {
+    _externalGcRootProviders.addAll(providers);
+  }
+
+  void trimExternalGcRootProviders(int baseCount) {
+    final normalizedBase = baseCount.clamp(0, _externalGcRootProviders.length);
+    if (normalizedBase < _externalGcRootProviders.length) {
+      _externalGcRootProviders.removeRange(
+        normalizedBase,
+        _externalGcRootProviders.length,
+      );
+    }
   }
 
   @override
@@ -894,7 +953,9 @@ class Interpreter extends AstVisitor<Object?>
       final activeCoroutine = getCurrentCoroutine();
       activeCoroutine?.captureCurrentCallStack();
       final luaStackTrace = activeCoroutine != null
-          ? callStack.toLuaStackTraceFromDepth(activeCoroutine.callStackBaseDepth)
+          ? callStack.toLuaStackTraceFromDepth(
+              activeCoroutine.callStackBaseDepth,
+            )
           : callStack.toLuaStackTrace();
       if (luaError != null && luaError.luaStackTrace == null) {
         luaError.luaStackTrace = luaStackTrace;
@@ -1062,6 +1123,9 @@ class Interpreter extends AstVisitor<Object?>
     // Create a script environment for main script execution
     // This ensures local variables in the main script don't affect globals
     final savedEnv = _currentEnv;
+    final savedFunction = _currentFunction;
+    final savedFastLocals = _currentFastLocals;
+    final savedExternalRootCount = _externalGcRootProviders.length;
     final scriptEnv = Environment(parent: savedEnv, interpreter: this);
     // Propagate load-isolated flag so loaded chunks keep using provided _ENV
     scriptEnv.isLoadIsolated = savedEnv.isLoadIsolated;
@@ -1139,6 +1203,14 @@ class Interpreter extends AstVisitor<Object?>
     } finally {
       // Restore the original environment
       _currentEnv = savedEnv;
+      _currentFunction = savedFunction;
+      _currentFastLocals = savedFastLocals;
+      if (_externalGcRootProviders.length > savedExternalRootCount) {
+        _externalGcRootProviders.removeRange(
+          savedExternalRootCount,
+          _externalGcRootProviders.length,
+        );
+      }
     }
 
     Logger.infoLazy(

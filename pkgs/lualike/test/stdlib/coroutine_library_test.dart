@@ -98,7 +98,7 @@ void main() {
       expect(lua.getGlobal('numericEq').unwrap(), isTrue);
     });
 
-    test('wrap handles tail-call chains via __call metamethods', () async {
+    test('wrap reports __call chain limits via metamethods', () async {
       await lua.execute(r'''
         local depth = 256
         local function foo()
@@ -111,12 +111,18 @@ void main() {
           foo = setmetatable({}, { __call = foo })
         end
 
-        tailWrapResult = coroutine.wrap(function()
-          return foo()
-        end)()
+        tailWrapOk, tailWrapError = pcall(function()
+          return coroutine.wrap(function()
+            return foo()
+          end)()
+        end)
       ''');
 
-      expect(lua.getGlobal('tailWrapResult').unwrap(), equals(99));
+      expect(lua.getGlobal('tailWrapOk').unwrap(), isFalse);
+      expect(
+        lua.getGlobal('tailWrapError').unwrap().toString(),
+        contains('__call\' chain too long'),
+      );
     });
 
     test('wrap accepts iterators returned by string.gmatch', () async {
@@ -198,7 +204,7 @@ void main() {
       expect(lua.getGlobal('yieldedThird3').unwrap(), equals(3));
     });
 
-    test('wrap preserves tail calls through __call chains', () async {
+    test('wrap surfaces __call chain limits through deep tail calls', () async {
       await lua.execute(r'''
         local n = 10000
 
@@ -212,12 +218,18 @@ void main() {
           foo = setmetatable({}, {__call = foo})
         end
 
-        tailCallChainResult = coroutine.wrap(function()
-          return foo()
-        end)()
+        tailCallChainOk, tailCallChainError = pcall(function()
+          return coroutine.wrap(function()
+            return foo()
+          end)()
+        end)
       ''');
 
-      expect(lua.getGlobal('tailCallChainResult').unwrap(), equals(1023));
+      expect(lua.getGlobal('tailCallChainOk').unwrap(), isFalse);
+      expect(
+        lua.getGlobal('tailCallChainError').unwrap().toString(),
+        contains('__call\' chain too long'),
+      );
     });
 
     test('wrap supports recursive generators using yield', () async {
@@ -268,6 +280,221 @@ void main() {
       expect(lua.getGlobal('errorCloseOk').unwrap(), isFalse);
       expect(lua.getGlobal('errorCloseMsg').unwrap(), equals('fatal'));
     });
+
+    test('close rejects main and normal coroutines', () async {
+      await lua.execute(r'''
+        mainThread = select(1, coroutine.running())
+        mainCloseOk, mainCloseErr = pcall(coroutine.close, mainThread)
+
+        coroutine.wrap(function ()
+          mainStatusInsideCoroutine = coroutine.status(mainThread)
+          local ok, err = pcall(coroutine.close, mainThread)
+          normalCloseOk = ok
+          normalCloseErr = err
+        end)()
+      ''');
+
+      expect(lua.getGlobal('mainCloseOk').unwrap(), isFalse);
+      expect(
+        (lua.getGlobal('mainCloseErr') as Value).raw.toString(),
+        contains('main'),
+      );
+      expect(lua.getGlobal('normalCloseOk').unwrap(), isFalse);
+      expect(
+        lua.getGlobal('mainStatusInsideCoroutine').unwrap(),
+        equals('normal'),
+      );
+      expect(
+        (lua.getGlobal('normalCloseErr') as Value).raw.toString(),
+        contains('normal'),
+      );
+    });
+
+    test(
+      'coroutines created from builtins report errors via resume and close',
+      () async {
+        await lua.execute(r'''
+        errorCo = coroutine.create(error)
+        resumeOk, resumeErr = coroutine.resume(errorCo, 100)
+        closeOk1, closeErr1 = coroutine.close(errorCo)
+        closeOk2 = select(1, coroutine.close(errorCo))
+      ''');
+
+        expect(lua.getGlobal('resumeOk').unwrap(), isFalse);
+        expect(lua.getGlobal('resumeErr').unwrap(), equals(100));
+        expect(lua.getGlobal('closeOk1').unwrap(), isFalse);
+        expect(lua.getGlobal('closeErr1').unwrap(), equals(100));
+        expect(lua.getGlobal('closeOk2').unwrap(), isTrue);
+      },
+    );
+
+    test(
+      'yielded iterator calls continue yielding resumed control values',
+      () async {
+        await lua.execute(r'''
+        local f = function (s, i) return coroutine.yield(i) end
+
+        wrapped = coroutine.wrap(function ()
+          return pcall(function ()
+            local s = 0
+            local q = 42
+            for i in f, nil, 1 do
+              s = s + i
+            end
+            return s, q
+          end)
+        end)
+
+        firstYield = wrapped()
+        ok2, sum2, q2 = wrapped(0)
+      ''');
+
+        expect(lua.getGlobal('firstYield').unwrap(), equals(1));
+        expect(lua.getGlobal('ok2').unwrap(), equals(0));
+        expect(lua.getGlobal('sum2').unwrap(), isNull);
+        expect(lua.getGlobal('q2').unwrap(), isNull);
+      },
+    );
+
+    test('pcall preserves locals after yielded iterator resumes', () async {
+      await lua.execute(r'''
+        local f = function (s, i) return coroutine.yield(i) end
+
+        wrapped = coroutine.wrap(function ()
+          return pcall(function ()
+            local s = 0
+            for i in f, nil, 1 do
+              pcall(function () s = s + i end)
+            end
+            return s
+          end)
+        end)
+
+        firstYield = wrapped()
+        for n = 1, 10 do
+          lastYield = wrapped(n)
+        end
+        ok3, sum3 = wrapped(nil)
+      ''');
+
+      expect(lua.getGlobal('firstYield').unwrap(), equals(1));
+      expect(lua.getGlobal('lastYield').unwrap(), equals(10));
+      expect(lua.getGlobal('ok3').unwrap(), isTrue);
+      expect(lua.getGlobal('sum3').unwrap(), equals(55));
+    });
+
+    test(
+      'coroutine debug hooks include the final return after a yield',
+      () async {
+        await lua.execute(r'''
+        local co = coroutine.create(function ()
+          coroutine.yield(10)
+          return 20
+        end)
+
+        local trace = {}
+        local function dotrace (event)
+          trace[#trace + 1] = event
+        end
+
+        debug.sethook(co, dotrace, 'clr')
+        repeat until not coroutine.resume(co)
+
+        traceCount = #trace
+        traceJoined = table.concat(trace, ',')
+      ''');
+
+        expect(lua.getGlobal('traceCount').unwrap(), equals(6));
+        expect(
+          lua.getGlobal('traceJoined').unwrap(),
+          equals('call,line,call,return,line,return'),
+        );
+      },
+    );
+
+    test(
+      'yielded closures keep captured locals after wrapper collection',
+      () async {
+        await lua.execute(r'''
+        local weak = {}
+        setmetatable(weak, {__mode = 'kv'})
+
+        local wrapped = coroutine.wrap(function ()
+          local a = 10
+          local function f ()
+            a = a + 10
+            return a
+          end
+          while true do
+            a = a + 1
+            coroutine.yield(f)
+          end
+        end)
+
+        weak[1] = wrapped
+        local retained = wrapped()
+        first = retained()
+        second = wrapped()()
+        sameClosure = wrapped() == retained
+
+        wrapped = nil
+        collectgarbage()
+        collectgarbage()
+
+        weakCleared = weak[1] == nil
+        afterGc1 = retained()
+        afterGc2 = retained()
+      ''');
+
+        expect(lua.getGlobal('first').unwrap(), equals(21));
+        expect(lua.getGlobal('second').unwrap(), equals(32));
+        expect(lua.getGlobal('sameClosure').unwrap(), isTrue);
+        expect(lua.getGlobal('weakCleared').unwrap(), isTrue);
+        expect(lua.getGlobal('afterGc1').unwrap(), equals(43));
+        expect(lua.getGlobal('afterGc2').unwrap(), equals(53));
+      },
+    );
+
+    test(
+      'self resume reports non-suspended coroutine and runs close handlers',
+      () async {
+        await lua.execute(r'''
+        closed = false
+        wrapped = coroutine.wrap(function()
+          local _ <close> = setmetatable({}, {
+            __close = function () closed = true end
+          })
+          return pcall(wrapped, 1)
+        end)
+
+        okSelf, errSelf = wrapped()
+      ''');
+
+        expect(lua.getGlobal('okSelf').unwrap(), isFalse);
+        expect(
+          lua.getGlobal('errSelf').unwrap().toString(),
+          contains('non-suspended'),
+        );
+        expect(lua.getGlobal('closed').unwrap(), isTrue);
+      },
+    );
+
+    test(
+      'recursive wrap chains fail with stack overflow instead of hanging',
+      timeout: const Timeout(Duration(seconds: 5)),
+      () async {
+        await lua.execute(r'''
+          a = function(a) coroutine.wrap(a)(a) end
+          wrapOverflowOk, wrapOverflowErr = pcall(a, a)
+        ''');
+
+        expect(lua.getGlobal('wrapOverflowOk').unwrap(), isFalse);
+        expect(
+          lua.getGlobal('wrapOverflowErr').unwrap().toString(),
+          contains('stack overflow'),
+        );
+      },
+    );
 
     test('resume reports main-thread and dead-thread errors', () async {
       await lua.execute(r'''
