@@ -17,13 +17,13 @@ import 'package:lualike/src/runtime/vararg_table.dart';
 import 'package:lualike/src/parse.dart' show looksLikeLuaFilePath, luaChunkId;
 import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/table_storage.dart';
+import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:lualike/src/utils/type.dart' show getLuaType;
 import 'package:lualike/src/value.dart';
 import 'package:path/path.dart' as path;
-import 'dart:io' as io;
 
 final bool _debugFileOps =
-    io.Platform.environment['LUALIKE_DEBUG_FILE_OPS'] == '1';
+    platform.getEnvironmentVariable('LUALIKE_DEBUG_FILE_OPS') == '1';
 
 void _debugFileLog(String message) {
   if (_debugFileOps) {
@@ -2144,7 +2144,7 @@ final class LuaBytecodeVm {
     int base,
     int resultCount,
   ) async {
-    if (io.Platform.environment['LUALIKE_DEBUG_TFOR'] == '1') {
+    if (platform.getEnvironmentVariable('LUALIKE_DEBUG_TFOR') == '1') {
       print(
         '[tfdebug] base=$base '
         'iterator=${frame.register(base)} '

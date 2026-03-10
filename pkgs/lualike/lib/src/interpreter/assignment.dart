@@ -19,17 +19,62 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     );
   }
 
+  bool _canReuseStagedPrimitiveValue(Value value) {
+    final raw = value.raw;
+    if (value.isMulti ||
+        value.isConst ||
+        value.isToBeClose ||
+        value.isTempKey) {
+      return false;
+    }
+    if (value.metatable != null || value.metatableRef != null) {
+      return false;
+    }
+    if (value.upvalues != null ||
+        value.functionBody != null ||
+        value.closureEnvironment != null ||
+        value.globalProxyEnvironment != null ||
+        value.functionName != null ||
+        value.debugLineDefined != null ||
+        value.strippedDebugInfo ||
+        value.interpreter != null) {
+      return false;
+    }
+    return raw == null || raw is bool || raw is num || raw is BigInt;
+  }
+
   Value _detachPrimitiveValue(Value value) {
+    if (_canReuseStagedPrimitiveValue(value)) {
+      return value;
+    }
     final raw = value.raw;
     if (!value.isMulti &&
         (raw == null ||
             raw is num ||
+            raw is BigInt ||
             raw is bool ||
             raw is String ||
             raw is LuaString)) {
       return Value(raw);
     }
     return value;
+  }
+
+  bool _shouldPreserveLocalBindingIdentity(
+    Value value, {
+    required bool isConst,
+    required bool isToBeClose,
+  }) {
+    // `<close>` is a property of the binding, not of the transported value.
+    // Copying a hidden loop/file state into a plain local must not make the
+    // new local implicitly closable.
+    if (value.isToBeClose && !isToBeClose) {
+      return false;
+    }
+    if (isConst) {
+      return false;
+    }
+    return value.metatable != null || value.metatableRef != null;
   }
 
   Object? _snapshotAssignmentResult(Object? value) {
@@ -44,6 +89,20 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     bool isConst = false,
     bool isToBeClose = false,
   }) {
+    // Metatable-backed values can own __gc / __close behavior at the wrapper
+    // level, so cloning them for a local binding can leave the live local
+    // pointing at raw state whose original wrapper is then finalized.
+    if (_shouldPreserveLocalBindingIdentity(
+      value,
+      isConst: isConst,
+      isToBeClose: isToBeClose,
+    )) {
+      if (isToBeClose) {
+        value.isToBeClose = true;
+      }
+      return value;
+    }
+
     final cloned = Value(
       value.raw,
       isConst: isConst,
@@ -121,51 +180,65 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
   Future<Object?> visitAssignment(Assignment node) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
 
-    Logger.debug(
-      'Visiting Assignment: ${node.targets} = ${node.exprs}',
+    Logger.debugLazy(
+      () => 'Visiting Assignment: ${node.targets} = ${node.exprs}',
       category: 'Interpreter',
-      context: {'targets': node.targets.length, 'exprs': node.exprs.length},
+      contextBuilder: () => {
+        'targets': node.targets.length,
+        'exprs': node.exprs.length,
+      },
     );
 
     // Evaluate the expressions on the right-hand side into a list
     final expressions = <Object?>[];
     for (int i = 0; i < node.exprs.length; i++) {
       final expr = node.exprs[i];
-      Logger.debug(
-        'visitAssignment: Evaluating expr of type: ${expr.runtimeType}',
+      Logger.debugLazy(
+        () => 'visitAssignment: Evaluating expr of type: ${expr.runtimeType}',
         category: 'Assignment',
-        context: {'exprIndex': i, 'exprType': expr.runtimeType.toString()},
+        contextBuilder: () => {
+          'exprIndex': i,
+          'exprType': expr.runtimeType.toString(),
+        },
       );
       var value = await expr.accept(this);
-      Logger.debug(
-        'visitAssignment: Evaluated value: $value (type: ${value.runtimeType})',
+      Logger.debugLazy(
+        () =>
+            'visitAssignment: Evaluated value: $value '
+            '(type: ${value.runtimeType})',
         category: 'Assignment',
-        context: {'exprIndex': i, 'valueType': value.runtimeType.toString()},
+        contextBuilder: () => {
+          'exprIndex': i,
+          'valueType': value.runtimeType.toString(),
+        },
       );
 
       // Handle Future values - both direct Futures and Values containing Futures
       if (value is Future) {
         value = await value;
-        Logger.debug(
-          'visitAssignment: Awaited direct future value: $value',
+        Logger.debugLazy(
+          () => 'visitAssignment: Awaited direct future value: $value',
           category: 'Assignment',
-          context: {'exprIndex': i},
+          contextBuilder: () => {'exprIndex': i},
         );
       } else if (value is Value && value.raw is Future) {
         value = Value(await value.raw);
-        Logger.debug(
-          'visitAssignment: Awaited future value from Value.raw: $value',
+        Logger.debugLazy(
+          () => 'visitAssignment: Awaited future value from Value.raw: $value',
           category: 'Assignment',
-          context: {'exprIndex': i},
+          contextBuilder: () => {'exprIndex': i},
         );
       }
 
       // Special handling for grouped expressions with function calls
       if (expr is GroupedExpression) {
-        Logger.debug(
-          'Assignment: handling GroupedExpression result: $value',
+        Logger.debugLazy(
+          () => 'Assignment: handling GroupedExpression result: $value',
           category: 'Interpreter',
-          context: {'exprIndex': i, 'isMulti': value is Value && value.isMulti},
+          contextBuilder: () => {
+            'exprIndex': i,
+            'isMulti': value is Value && value.isMulti,
+          },
         );
 
         // In Lua, when a function call is wrapped in parentheses (e.g., (f())),
@@ -188,10 +261,12 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       } else if (value is List) {
         if (expr is TableConstructor && value.isEmpty) {
           final tableValue = await expr.accept(this);
-          Logger.debug(
-            'visitAssignment: TableConstructor with empty list, using tableValue: $tableValue',
+          Logger.debugLazy(
+            () =>
+                'visitAssignment: TableConstructor with empty list, '
+                'using tableValue: $tableValue',
             category: 'Assignment',
-            context: {'exprIndex': i},
+            contextBuilder: () => {'exprIndex': i},
           );
           expressions.add(tableValue);
         } else {
@@ -203,10 +278,15 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         // - If it's not the last expression, only use the first value
         if (i == node.exprs.length - 1) {
           // Last expression: expand all values
-          Logger.debug(
-            'Assignment: Last expression is multi-value, expanding all: ${value.raw}',
+          Logger.debugLazy(
+            () =>
+                'Assignment: Last expression is multi-value, '
+                'expanding all: ${value.raw}',
             category: 'Assignment',
-            context: {'exprIndex': i, 'valueCount': (value.raw as List).length},
+            contextBuilder: () => {
+              'exprIndex': i,
+              'valueCount': (value.raw as List).length,
+            },
           );
           expressions.addAll(value.raw);
         } else {
@@ -215,10 +295,15 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           final firstValue = multiValues.isNotEmpty
               ? multiValues.first
               : Value(null);
-          Logger.debug(
-            'Assignment: Non-last expression is multi-value, taking first: $firstValue',
+          Logger.debugLazy(
+            () =>
+                'Assignment: Non-last expression is multi-value, '
+                'taking first: $firstValue',
             category: 'Assignment',
-            context: {'exprIndex': i, 'totalValues': multiValues.length},
+            contextBuilder: () => {
+              'exprIndex': i,
+              'totalValues': multiValues.length,
+            },
           );
           expressions.add(_snapshotAssignmentResult(firstValue));
         }
@@ -226,33 +311,40 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           value is Value &&
           value.raw is Coroutine) {
         // Patch: If the right-hand side is a TableAccessExpr and the value is a Coroutine, assign an empty table
-        Logger.debug(
-          'visitAssignment: TableAccessExpr evaluated to Coroutine, assigning empty table instead',
+        Logger.debugLazy(
+          () =>
+              'visitAssignment: TableAccessExpr evaluated to Coroutine, '
+              'assigning empty table instead',
           category: 'Assignment',
-          context: {'exprIndex': i},
+          contextBuilder: () => {'exprIndex': i},
         );
         expressions.add(ValueClass.table());
       } else {
         expressions.add(_snapshotAssignmentResult(value));
       }
       if (expressions.isNotEmpty) {
-        Logger.debug(
-          'visitAssignment: Final value added to expressions: ${expressions.last}',
+        Logger.debugLazy(
+          () =>
+              'visitAssignment: Final value added to expressions: '
+              '${expressions.last}',
           category: 'Assignment',
-          context: {'exprIndex': i, 'expressionsCount': expressions.length},
+          contextBuilder: () => {
+            'exprIndex': i,
+            'expressionsCount': expressions.length,
+          },
         );
       } else {
-        Logger.debug(
-          'visitAssignment: Expression produced no values',
+        Logger.debugLazy(
+          () => 'visitAssignment: Expression produced no values',
           category: 'Assignment',
-          context: {'exprIndex': i},
+          contextBuilder: () => {'exprIndex': i},
         );
       }
     }
-    Logger.debug(
-      'Assignment expressions evaluated: $expressions',
+    Logger.debugLazy(
+      () => 'Assignment expressions evaluated: $expressions',
       category: 'Interpreter',
-      context: {'expressionsCount': expressions.length},
+      contextBuilder: () => {'expressionsCount': expressions.length},
     );
 
     // For multiple targets, value should be a list or multi-value
@@ -294,10 +386,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       final target = node.targets[i];
       final targetValue = i < values.length ? values[i] : Value(null);
 
-      Logger.debug(
-        "[visitAssignment] Assigning $targetValue to $target",
+      Logger.debugLazy(
+        () => '[visitAssignment] Assigning $targetValue to $target',
         category: 'Interpreter',
-        context: {
+        contextBuilder: () => {
           'targetIndex': i,
           'targetType': target.runtimeType.toString(),
         },
@@ -346,20 +438,22 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     Value wrappedValue,
   ) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(target) : null;
-    Logger.debug(
-      '_handleTableAccessAssignment: Assigning $wrappedValue to $target',
+    Logger.debugLazy(
+      () => '_handleTableAccessAssignment: Assigning $wrappedValue to $target',
       category: 'Interpreter',
-      context: {'targetType': target.runtimeType.toString()},
+      contextBuilder: () => {'targetType': target.runtimeType.toString()},
     );
     var tableValue = await target.table.accept(this);
     if (tableValue is Value && tableValue.isMulti && tableValue.raw is List) {
       final values = tableValue.raw as List;
       tableValue = values.isNotEmpty ? values[0] : Value(null);
     }
-    Logger.debug(
-      '_handleTableAccessAssignment: tableValue: $tableValue',
+    Logger.debugLazy(
+      () => '_handleTableAccessAssignment: tableValue: $tableValue',
       category: 'Interpreter',
-      context: {'tableValueType': tableValue.runtimeType.toString()},
+      contextBuilder: () => {
+        'tableValueType': tableValue.runtimeType.toString(),
+      },
     );
 
     if (tableValue is Value) {
@@ -385,10 +479,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         // If key doesn't exist in raw table, try __newindex metamethod
         if (!tableValue.rawContainsKey((target.index as Identifier).name)) {
           if (tableValue.hasMetamethod('__newindex')) {
-            Logger.debug(
-              '_handleTableAccessAssignment: __newindex metamethod found',
+            Logger.debugLazy(
+              () => '_handleTableAccessAssignment: __newindex metamethod found',
               category: 'Interpreter',
-              context: {'key': (target.index as Identifier).name},
+              contextBuilder: () => {'key': (target.index as Identifier).name},
             );
             final result = await tableValue.callMetamethodAsync('__newindex', [
               tableValue,
@@ -437,10 +531,11 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
         await tableValue.setValueAsync(identifier, storedValue);
 
-        Logger.debug(
-          '_handleTableAccessAssignment: Assigned ${storedValue.raw} to ${(target.index as Identifier).name}',
+        Logger.debugLazy(
+          () =>
+              '_handleTableAccessAssignment: Assigned ${storedValue.raw} to ${(target.index as Identifier).name}',
           category: 'Interpreter',
-          context: {'key': (target.index as Identifier).name},
+          contextBuilder: () => {'key': (target.index as Identifier).name},
         );
         return storedValue;
       }
@@ -488,19 +583,29 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     final interpreter = this as Interpreter;
     final envValue = _resolveActiveEnvValue(interpreter);
     final gValue = _resolveActiveGlobalValue(interpreter);
-    Logger.debug(
-      "ENV assign context: name=$name, _ENV=$envValue (rawType: ${envValue is Value ? envValue.raw.runtimeType : envValue?.runtimeType}), _G=$gValue (rawType: ${gValue is Value ? gValue.raw.runtimeType : gValue?.runtimeType})",
+    Logger.debugLazy(
+      () =>
+          'ENV assign context: name=$name, '
+          '_ENV=$envValue, _G=$gValue',
       category: 'Assignment',
-      context: {
+      contextBuilder: () => {
         'name': name,
         'hasEnv': envValue != null,
         'hasG': gValue != null,
+        'envRawType': envValue is Value
+            ? envValue.raw.runtimeType.toString()
+            : envValue?.runtimeType.toString(),
+        'globalRawType': gValue is Value
+            ? gValue.raw.runtimeType.toString()
+            : gValue?.runtimeType.toString(),
       },
     );
-    Logger.debug(
-      "Assignment: globals.hashCode=${globals.hashCode}, globals.isLoadIsolated=${globals.isLoadIsolated}",
+    Logger.debugLazy(
+      () =>
+          'Assignment globals context: ${globals.hashCode} '
+          'loadIsolated=${globals.isLoadIsolated}',
       category: 'Assignment',
-      context: {
+      contextBuilder: () => {
         'globalsHash': globals.hashCode,
         'isLoadIsolated': globals.isLoadIsolated,
       },
@@ -523,12 +628,19 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     final bool useCustomEnv =
         (isInLoadIsolatedContext && envValue?.raw != null) ||
         (envValue?.raw != null && gValue != null && envValue != gValue);
-    Logger.debug(
-      "Assignment: isLoadIsolated=${globals.isLoadIsolated}, isInLoadIsolatedContext=$isInLoadIsolatedContext, envValue is Value=${envValue is Value}, gValue is Value=${gValue is Value}, envValue != gValue=${envValue is Value && gValue is Value ? envValue != gValue : 'N/A'}, useCustomEnv=$useCustomEnv",
+    Logger.debugLazy(
+      () =>
+          'Assignment env mode: loadIsolated=${globals.isLoadIsolated} '
+          'chainIsolated=$isInLoadIsolatedContext useCustomEnv=$useCustomEnv',
       category: 'Assignment',
-      context: {
+      contextBuilder: () => {
         'isLoadIsolated': globals.isLoadIsolated,
         'isInLoadIsolatedContext': isInLoadIsolatedContext,
+        'envIsValue': envValue is Value,
+        'globalIsValue': gValue is Value,
+        'envDiffersFromGlobal': envValue is Value && gValue is Value
+            ? envValue != gValue
+            : null,
         'useCustomEnv': useCustomEnv,
       },
     );
@@ -547,10 +659,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       Environment? env = globals;
       while (env != null) {
         if (env.values.containsKey(name) && env.values[name]!.isLocal) {
-          Logger.debug(
-            'Updating local variable: $name',
+          Logger.debugLazy(
+            () => 'Updating local variable: $name',
             category: 'Assignment',
-            context: {'name': name, 'envHash': env.hashCode},
+            contextBuilder: () => {'name': name, 'envHash': env.hashCode},
           );
           env.define(name, storedValue);
           return storedValue;
@@ -565,39 +677,37 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         currentFunc,
       );
       if (upvalueAssigned) {
-        Logger.debug(
-          'Assignment: $name updated via upvalue in custom _ENV context',
+        Logger.debugLazy(
+          () => 'Assignment: $name updated via upvalue in custom _ENV context',
           category: 'Assignment',
-          context: {'name': name},
+          contextBuilder: () => {'name': name},
         );
         return storedValue;
       }
 
       final envTarget = envValue;
       if (envTarget == null || envTarget.raw == null) {
-        throw LuaError(
-          "attempt to index a nil value ('_ENV')",
-          node: target,
-        );
+        throw LuaError("attempt to index a nil value ('_ENV')", node: target);
       }
 
       // If no local variable found, use _ENV for global assignment
-      Logger.debug(
-        'Using custom _ENV for variable assignment: $name',
+      Logger.debugLazy(
+        () => 'Using custom _ENV for variable assignment: $name',
         category: 'Assignment',
-        context: {'name': name},
+        contextBuilder: () => {'name': name},
       );
-      Logger.debug(
-        'Assignment: About to call setValueAsync on _ENV for $name = $wrappedValue',
+      Logger.debugLazy(
+        () =>
+            'Assignment: About to call setValueAsync on _ENV for $name = $wrappedValue',
         category: 'Assignment',
-        context: {'name': name},
+        contextBuilder: () => {'name': name},
       );
       // This will correctly handle tables, metamethods, or throw for non-tables
       await envTarget.setValueAsync(name, storedValue);
-      Logger.debug(
-        'Assignment: setValueAsync completed for $name',
+      Logger.debugLazy(
+        () => 'Assignment: setValueAsync completed for $name',
         category: 'Assignment',
-        context: {'name': name},
+        contextBuilder: () => {'name': name},
       );
       return storedValue;
     }
@@ -634,10 +744,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     );
 
     if (upvalueAssigned) {
-      Logger.debug(
-        'Assignment: $name updated via upvalue',
+      Logger.debugLazy(
+        () => 'Assignment: $name updated via upvalue',
         category: 'Assignment',
-        context: {'name': name},
+        contextBuilder: () => {'name': name},
       );
       return storedValue;
     }
@@ -648,10 +758,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     // the same name in the current scope chain.
     try {
       globals.defineGlobal(name, storedValue);
-      Logger.debug(
-        'Assigned to global variable: $name',
+      Logger.debugLazy(
+        () => 'Assigned to global variable: $name',
         category: 'Assignment',
-        context: {'name': name},
+        contextBuilder: () => {'name': name},
       );
     } catch (e) {
       throw LuaError(
@@ -698,7 +808,8 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
   Future<bool> _explicitGlobalIsAlreadyDefined(String name) async {
     if (name == '_ENV') {
       final current = globals.root.get(name);
-      return current != null && current is! Value || (current is Value && !current.isNil);
+      return current != null && current is! Value ||
+          (current is Value && !current.isNil);
     }
 
     final envValue = globals.get('_ENV');
@@ -723,10 +834,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     Value wrappedValue,
   ) async {
     final funcName = target.name;
-    Logger.debug(
-      'Assign function $funcName = $wrappedValue',
+    Logger.debugLazy(
+      () => 'Assign function $funcName = $wrappedValue',
       category: 'Interpreter',
-      context: {'funcName': funcName},
+      contextBuilder: () => {'funcName': funcName},
     );
     globals.define(funcName, wrappedValue);
     return wrappedValue;
@@ -745,10 +856,12 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     Value? preTable,
   }) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(target) : null;
-    Logger.debug(
-      '_handleTableFieldAssignment: Assigning $wrappedValue to ${target.table}.${target.fieldName.name}',
+    Logger.debugLazy(
+      () =>
+          '_handleTableFieldAssignment: Assigning $wrappedValue to '
+          '${target.table}.${target.fieldName.name}',
       category: 'Interpreter',
-      context: {'fieldName': target.fieldName.name},
+      contextBuilder: () => {'fieldName': target.fieldName.name},
     );
     var tableValue = preTable ?? await target.table.accept<Object?>(this);
     if (tableValue is Value && tableValue.isMulti && tableValue.raw is List) {
@@ -766,10 +879,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         final keyExists = tableValue.rawContainsKey(fieldKey);
         if (!keyExists) {
           if (tableValue.hasMetamethod('__newindex')) {
-            Logger.debug(
-              '_handleTableFieldAssignment: __newindex metamethod found',
+            Logger.debugLazy(
+              () => '_handleTableFieldAssignment: __newindex metamethod found',
               category: 'Interpreter',
-              context: {'fieldKey': fieldKey},
+              contextBuilder: () => {'fieldKey': fieldKey},
             );
             final result = await tableValue.callMetamethodAsync('__newindex', [
               tableValue,
@@ -794,10 +907,11 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           interpreter.gc.ensureTracked(storedValue);
         }
 
-        Logger.debug(
-          '_handleTableFieldAssignment: Assigned ${storedValue.raw} to ${target.fieldName.name}',
+        Logger.debugLazy(
+          () =>
+              '_handleTableFieldAssignment: Assigned ${storedValue.raw} to ${target.fieldName.name}',
           category: 'Interpreter',
-          context: {'fieldName': target.fieldName.name},
+          contextBuilder: () => {'fieldName': target.fieldName.name},
         );
         return storedValue;
       }
@@ -822,10 +936,12 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     Object? preIndex,
   }) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(target) : null;
-    Logger.debug(
-      '_handleTableIndexAssignment: Assigning $wrappedValue to ${target.table}[${target.index}]',
+    Logger.debugLazy(
+      () =>
+          '_handleTableIndexAssignment: Assigning $wrappedValue to '
+          '${target.table}[${target.index}]',
       category: 'Interpreter',
-      context: {'targetType': target.runtimeType.toString()},
+      contextBuilder: () => {'targetType': target.runtimeType.toString()},
     );
     var tableValue = preTable ?? await target.table.accept<Object?>(this);
     if (tableValue is Value && tableValue.isMulti && tableValue.raw is List) {
@@ -858,10 +974,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
         // If key doesn't exist in raw table, try __newindex metamethod
         if (!keyExists && hasNewIndexMeta) {
-          Logger.debug(
-            '_handleTableIndexAssignment: __newindex metamethod found',
+          Logger.debugLazy(
+            () => '_handleTableIndexAssignment: __newindex metamethod found',
             category: 'Interpreter',
-            context: {'keyIsNil': keyValue.isNil},
+            contextBuilder: () => {'keyIsNil': keyValue.isNil},
           );
           final result = await tableValue.callMetamethodAsync('__newindex', [
             tableValue,
@@ -896,10 +1012,14 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
               storedValue.interpreter ??= interpreter;
               interpreter.gc.ensureTracked(storedValue);
             }
-            Logger.debug(
-              '_handleTableIndexAssignment: Assigned ${storedValue.raw} to dense index ${keyValue.raw}',
+            Logger.debugLazy(
+              () =>
+                  '_handleTableIndexAssignment: Assigned '
+                  '${storedValue.raw} to dense index ${keyValue.raw}',
               category: 'Interpreter',
-              context: {'keyType': keyValue.raw.runtimeType.toString()},
+              contextBuilder: () => {
+                'keyType': keyValue.raw.runtimeType.toString(),
+              },
             );
             return storedValue;
           }
@@ -913,10 +1033,14 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           interpreter.gc.ensureTracked(storedValue);
         }
 
-        Logger.debug(
-          '_handleTableIndexAssignment: Assigned ${storedValue.raw} to index ${keyValue.raw}',
+        Logger.debugLazy(
+          () =>
+              '_handleTableIndexAssignment: Assigned ${storedValue.raw} '
+              'to index ${keyValue.raw}',
           category: 'Interpreter',
-          context: {'keyType': keyValue.raw.runtimeType.toString()},
+          contextBuilder: () => {
+            'keyType': keyValue.raw.runtimeType.toString(),
+          },
         );
         return storedValue;
       }
@@ -937,10 +1061,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
   /// Returns null.
   @override
   Future<Object?> visitLocalDeclaration(LocalDeclaration node) async {
-    Logger.debug(
-      'Visiting LocalDeclaration: ${node.names}',
+    Logger.debugLazy(
+      () => 'Visiting LocalDeclaration: ${node.names}',
       category: 'Interpreter',
-      context: {'namesCount': node.names.length},
+      contextBuilder: () => {'namesCount': node.names.length},
     );
 
     void updateFastLocalBinding(String name) {
@@ -972,8 +1096,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           value = Value(await value.raw);
         }
 
-        Logger.debug(
-          'LocalDeclaration: handling GroupedExpression with inner result: $value',
+        Logger.debugLazy(
+          () =>
+              'LocalDeclaration: handling GroupedExpression with inner result: '
+              '$value',
           category: 'Interpreter',
         );
 
@@ -1089,7 +1215,11 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         valueWithAttributes = _cloneValueForLocalBinding(rawValue);
       }
 
-      globals.declare(name, valueWithAttributes);
+      globals.declare(
+        name,
+        valueWithAttributes,
+        trackToBeClosed: attribute == 'close',
+      );
       updateFastLocalBinding(name);
     } else {
       // Assign values to the respective names, defaulting to nil if fewer expressions than names.
@@ -1144,15 +1274,23 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           }
         }
 
-        Logger.debug(
-          'Local declare $name = $valueWithAttributes (attribute: $attribute)',
+        Logger.debugLazy(
+          () =>
+              'Local declare $name = $valueWithAttributes (attribute: $attribute)',
           category: 'Interpreter',
-          context: {'name': name, 'attribute': attribute ?? 'none'},
+          contextBuilder: () => {
+            'name': name,
+            'attribute': attribute ?? 'none',
+          },
         );
         // Use declare() for local variable declarations
         // declare() creates a new local variable with isLocal=true that
         // shadows any existing variables with the same name
-        globals.declare(name, valueWithAttributes);
+        globals.declare(
+          name,
+          valueWithAttributes,
+          trackToBeClosed: attribute == 'close',
+        );
         updateFastLocalBinding(name);
       }
     }
@@ -1162,10 +1300,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
   @override
   Future<Object?> visitGlobalDeclaration(GlobalDeclaration node) async {
-    Logger.debug(
-      'Visiting GlobalDeclaration: ${node.names}',
+    Logger.debugLazy(
+      () => 'Visiting GlobalDeclaration: ${node.names}',
       category: 'Interpreter',
-      context: {
+      contextBuilder: () => {
         'namesCount': node.names.length,
         'isWildcard': node.isWildcard,
         'defaultAttribute': node.defaultAttribute,
@@ -1269,17 +1407,18 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         'close' => throw UnsupportedError(
           'global variables cannot be to-be-closed',
         ),
-        _ => baseValue.isConst || baseValue.isToBeClose
-            ? Value(
-                baseValue.raw,
-                metatable: baseValue.metatable,
-                upvalues: baseValue.upvalues,
-                interpreter: baseValue.interpreter,
-                functionBody: baseValue.functionBody,
-                closureEnvironment: baseValue.closureEnvironment,
-                functionName: baseValue.functionName,
-              )
-            : baseValue,
+        _ =>
+          baseValue.isConst || baseValue.isToBeClose
+              ? Value(
+                  baseValue.raw,
+                  metatable: baseValue.metatable,
+                  upvalues: baseValue.upvalues,
+                  interpreter: baseValue.interpreter,
+                  functionBody: baseValue.functionBody,
+                  closureEnvironment: baseValue.closureEnvironment,
+                  functionName: baseValue.functionName,
+                )
+              : baseValue,
       };
 
       await _handleExplicitGlobalAssignment(name, valueWithAttributes);
@@ -1319,10 +1458,12 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         result = Value(await result.raw);
       }
 
-      Logger.debug(
-        'AssignmentIndexAccessExpr: handling GroupedExpression with inner result: $result',
+      Logger.debugLazy(
+        () =>
+            'AssignmentIndexAccessExpr: handling GroupedExpression with '
+            'inner result: $result',
         category: 'Interpreter',
-        context: {'isMulti': result is Value && result.isMulti},
+        contextBuilder: () => {'isMulti': result is Value && result.isMulti},
       );
 
       // In Lua, when a function call is wrapped in parentheses, only the first return value is used

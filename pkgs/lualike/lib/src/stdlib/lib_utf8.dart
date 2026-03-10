@@ -255,8 +255,9 @@ class _UTF8Codes extends BuiltinFunction {
         if (result == null) {
           if (!lax) {
             // Strict mode → error
-            Logger.debug(
-              'utf8.codes invalid UTF-8 at position $bytePosition of string length ${bytes.length}',
+            Logger.debugLazy(
+              () =>
+                  'utf8.codes invalid UTF-8 at position $bytePosition of string length ${bytes.length}',
               category: 'UTF8',
             );
             throw LuaError("invalid UTF-8 code");

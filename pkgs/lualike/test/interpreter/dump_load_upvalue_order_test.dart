@@ -1,5 +1,4 @@
 import 'package:lualike/lualike.dart';
-import 'package:lualike/src/lua_string.dart';
 import 'package:test/test.dart';
 
 void main() {

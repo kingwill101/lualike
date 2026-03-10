@@ -80,7 +80,6 @@ CallFrame? _resolveDebugCoroutineFrame(Coroutine coroutine, int level) {
     }
   }
   if (frame.callable?.functionBody != null &&
-      originalFrame != null &&
       originalFrame.callable == null &&
       _debugFrameSourceKey(originalFrame) == _debugFrameSourceKey(frame) &&
       originalFrame.currentLine > 0 &&
@@ -167,7 +166,10 @@ class _DebugInteractive extends BuiltinFunction {
   @override
   dynamic call(List<dynamic> args) async {
     // Simple REPL-like debug console
-    Logger.debug("Debug Console: Enter 'cont' to continue", category: 'Debug');
+    Logger.debugLazy(
+      () => "Debug Console: Enter 'cont' to continue",
+      category: 'Debug',
+    );
 
     while (true) {
       final defaultOutput = IOLib.defaultOutput;
@@ -1137,8 +1139,9 @@ class _SetUpvalue extends BuiltinFunction {
         index > 0 &&
         index <= functionArg.upvalues!.length) {
       final upvalue = functionArg.upvalues![index - 1];
-      Logger.debug(
-        'debug.setupvalue explicit: name=${upvalue.name} value=${newValue.raw} open=${upvalue.isOpen}',
+      Logger.debugLazy(
+        () =>
+            'debug.setupvalue explicit: name=${upvalue.name} value=${newValue.raw} open=${upvalue.isOpen}',
         category: 'DebugLib',
       );
       final oldName = upvalue.name ?? '';
@@ -1153,8 +1156,9 @@ class _SetUpvalue extends BuiltinFunction {
           index > 0 &&
           index <= functionArg.upvalues!.length) {
         final upvalue = functionArg.upvalues![index - 1];
-        Logger.debug(
-          'debug.setupvalue raw: name=${upvalue.name} value=${newValue.raw} open=${upvalue.isOpen}',
+        Logger.debugLazy(
+          () =>
+              'debug.setupvalue raw: name=${upvalue.name} value=${newValue.raw} open=${upvalue.isOpen}',
           category: 'DebugLib',
         );
         final oldName = upvalue.name ?? '';
@@ -1635,8 +1639,8 @@ class _UpvalueJoin extends BuiltinFunction {
     // Use the new joinWith method to join the upvalues
     f1Upvalue.joinWith(f2Upvalue);
 
-    Logger.debug(
-      'UpvalueJoin: Joined f1 upvalue $n1 with f2 upvalue $n2',
+    Logger.debugLazy(
+      () => 'UpvalueJoin: Joined f1 upvalue $n1 with f2 upvalue $n2',
       category: 'Debug',
     );
 
@@ -1725,8 +1729,9 @@ class _GetInfoImpl extends BuiltinFunction {
     }
 
     // Log that debug.getinfo was called to help with troubleshooting
-    Logger.debug(
-      'debug.getinfo called with args: $firstArg, what: $what, interpreter: ${interpreter != null}',
+    Logger.debugLazy(
+      () =>
+          'debug.getinfo called with args: $firstArg, what: $what, interpreter: ${interpreter != null}',
       category: 'DebugLib',
     );
 
@@ -1755,8 +1760,10 @@ class _GetInfoImpl extends BuiltinFunction {
             coroutine,
             actualLevel,
           ),
-          null when debugInterpreter != null =>
-            _resolveVisibleFrame(debugInterpreter, level),
+          null when debugInterpreter != null => _resolveVisibleFrame(
+            debugInterpreter,
+            level,
+          ),
           _ when interpreterInstance is Interpreter => _resolveVisibleFrame(
             interpreterInstance,
             level,
@@ -1765,8 +1772,9 @@ class _GetInfoImpl extends BuiltinFunction {
         };
 
         if (frame != null) {
-          Logger.debug(
-            'Found frame for level $level: name=${frame.functionName}, line=${frame.currentLine}',
+          Logger.debugLazy(
+            () =>
+                'Found frame for level $level: name=${frame.functionName}, line=${frame.currentLine}',
             category: 'DebugLib',
           );
 
@@ -1831,8 +1839,9 @@ class _GetInfoImpl extends BuiltinFunction {
               // First, check script path for explicit chunk names (string chunks)
               final scriptPath =
                   frame.scriptPath ?? interpreterInstance.callStack.scriptPath;
-              Logger.debug(
-                'debug.getinfo: frame.scriptPath=${frame.scriptPath}, callStack.scriptPath=${interpreterInstance.callStack.scriptPath}',
+              Logger.debugLazy(
+                () =>
+                    'debug.getinfo: frame.scriptPath=${frame.scriptPath}, callStack.scriptPath=${interpreterInstance.callStack.scriptPath}',
                 category: 'DebugLib',
               );
 
@@ -1845,8 +1854,8 @@ class _GetInfoImpl extends BuiltinFunction {
                   shortSrc = scriptPath.startsWith('@')
                       ? scriptPath.substring(1)
                       : scriptPath;
-                  Logger.debug(
-                    'debug.getinfo: using scriptPath as-is: $sourceValue',
+                  Logger.debugLazy(
+                    () => 'debug.getinfo: using scriptPath as-is: $sourceValue',
                     category: 'DebugLib',
                   );
                 } else {
@@ -1861,8 +1870,9 @@ class _GetInfoImpl extends BuiltinFunction {
                   if (currentFunction != null &&
                       currentFunction.functionBody != null) {
                     final span = currentFunction.functionBody!.span;
-                    Logger.debug(
-                      'debug.getinfo: currentFunction has functionBody, span=$span, sourceUrl=${span?.sourceUrl}',
+                    Logger.debugLazy(
+                      () =>
+                          'debug.getinfo: currentFunction has functionBody, span=$span, sourceUrl=${span?.sourceUrl}',
                       category: 'DebugLib',
                     );
 
@@ -1873,8 +1883,9 @@ class _GetInfoImpl extends BuiltinFunction {
                           ? sourceValue.substring(1)
                           : sourceValue;
                       isBinaryChunk = true;
-                      Logger.debug(
-                        'debug.getinfo: using current function source: $sourceValue',
+                      Logger.debugLazy(
+                        () =>
+                            'debug.getinfo: using current function source: $sourceValue',
                         category: 'DebugLib',
                       );
                     } else {
@@ -1887,8 +1898,9 @@ class _GetInfoImpl extends BuiltinFunction {
                             ? sourceValue.substring(1)
                             : sourceValue;
                         isBinaryChunk = true;
-                        Logger.debug(
-                          'debug.getinfo: using source from child nodes: $sourceValue',
+                        Logger.debugLazy(
+                          () =>
+                              'debug.getinfo: using source from child nodes: $sourceValue',
                           category: 'DebugLib',
                         );
                       }
@@ -1899,8 +1911,9 @@ class _GetInfoImpl extends BuiltinFunction {
                     sourceValue = _formatSourceForLua(scriptPath);
                     shortSrc = scriptPath;
                     isBinaryChunk = true;
-                    Logger.debug(
-                      'debug.getinfo: using script path as string chunk: $sourceValue',
+                    Logger.debugLazy(
+                      () =>
+                          'debug.getinfo: using script path as string chunk: $sourceValue',
                       category: 'DebugLib',
                     );
                   }
@@ -2261,8 +2274,9 @@ Value _collectActiveLines(Value function) {
 
 /// Helper method to extract source URL from child AST nodes
 String? _extractSourceFromChildren(dynamic node) {
-  Logger.debug(
-    'AST: _extractSourceFromChildren called with node type: ${node.runtimeType}',
+  Logger.debugLazy(
+    () =>
+        'AST: _extractSourceFromChildren called with node type: ${node.runtimeType}',
     category: 'DebugLib',
   );
 
@@ -2271,8 +2285,8 @@ String? _extractSourceFromChildren(dynamic node) {
   // If this node has a span, return its source URL
   if (node is AstNode && node.span?.sourceUrl != null) {
     final sourceUrl = node.span!.sourceUrl!.toString();
-    Logger.debug(
-      'AST: Found span with sourceUrl: $sourceUrl',
+    Logger.debugLazy(
+      () => 'AST: Found span with sourceUrl: $sourceUrl',
       category: 'DebugLib',
     );
     return sourceUrl;
@@ -2280,8 +2294,9 @@ String? _extractSourceFromChildren(dynamic node) {
 
   // Recursively search child nodes
   if (node is FunctionBody) {
-    Logger.debug(
-      'AST: Searching FunctionBody with ${node.parameters?.length ?? 0} params and ${node.body.length} body statements',
+    Logger.debugLazy(
+      () =>
+          'AST: Searching FunctionBody with ${node.parameters?.length ?? 0} params and ${node.body.length} body statements',
       category: 'DebugLib',
     );
 
@@ -2299,8 +2314,8 @@ String? _extractSourceFromChildren(dynamic node) {
       if (source != null) return source;
     }
   } else if (node is List) {
-    Logger.debug(
-      'AST: Searching List with ${node.length} items',
+    Logger.debugLazy(
+      () => 'AST: Searching List with ${node.length} items',
       category: 'DebugLib',
     );
     for (final item in node) {
@@ -2309,8 +2324,8 @@ String? _extractSourceFromChildren(dynamic node) {
     }
   }
 
-  Logger.debug(
-    'AST: No source found in node type: ${node.runtimeType}',
+  Logger.debugLazy(
+    () => 'AST: No source found in node type: ${node.runtimeType}',
     category: 'DebugLib',
   );
   return null;
@@ -2401,8 +2416,8 @@ void defineDebugLibrary({required Environment env, LuaRuntime? vm}) {
   // Store interpreter reference in environment for later access
   if (vm != null) {
     env.interpreter = vm;
-    Logger.debug(
-      'Setting interpreter reference in environment for debug library',
+    Logger.debugLazy(
+      () => 'Setting interpreter reference in environment for debug library',
       category: 'Debug',
     );
   }
@@ -2429,15 +2444,15 @@ void defineDebugLibrary({required Environment env, LuaRuntime? vm}) {
       final loadedMap = loadedTable.raw as Map;
       // Store the same debug table object to ensure require("debug") == debug
       loadedMap["debug"] = debugTable;
-      Logger.debug(
-        'Debug table stored in package.loaded for require() equality',
+      Logger.debugLazy(
+        () => 'Debug table stored in package.loaded for require() equality',
         category: 'Debug',
       );
     }
   }
 
-  Logger.debug(
-    'Debug library initialized with interpreter: ${vm != null}',
+  Logger.debugLazy(
+    () => 'Debug library initialized with interpreter: ${vm != null}',
     category: 'Debug',
   );
 }

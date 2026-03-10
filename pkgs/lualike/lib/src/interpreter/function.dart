@@ -278,7 +278,9 @@ Object? _snapshotReturnPayload(Object? value) {
     // reference are identity-sensitive. Returning a fresh wrapper for them
     // can detach metamethod lookups from the live table object, which breaks
     // cases like events.lua's arithmetic metamethod checks.
-    if (original.raw is Map || original.metatableRef != null) {
+    if (original.raw is Map ||
+        original.metatable != null ||
+        original.metatableRef != null) {
       return original;
     }
 
@@ -798,8 +800,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
   Future<Object?> visitLocalFunctionDef(LocalFunctionDef node) async {
     this is Interpreter ? (this as Interpreter).recordTrace(node) : null;
 
-    Logger.debug(
-      'Visiting LocalFunctionDef: ${node.name}',
+    Logger.debugLazy(
+      () => 'Visiting LocalFunctionDef: ${node.name}',
       category: 'Interpreter',
     );
 
@@ -818,8 +820,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     if (localBox != null) {
       localBox.value = closure is Value ? closure : Value(closure);
     }
-    Logger.debug(
-      'Defined local function ${node.name.name}',
+    Logger.debugLazy(
+      () => 'Defined local function ${node.name.name}',
       category: 'Interpreter',
     );
     return closure;
@@ -847,8 +849,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       () => 'Function parameters: ${node.parameters}',
       category: 'Interpreter',
     );
-    Logger.debug(
-      'Current environment: ${globals.hashCode}',
+    Logger.debugLazy(
+      () => 'Current environment: ${globals.hashCode}',
       category: 'Interpreter',
     );
 
@@ -856,8 +858,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     // closures linked to the live boxes for current locals while hiding
     // locals declared later in the same block.
     final closureEnv = _createFilteredEnvironment(globals, const <String>{});
-    Logger.debug(
-      'Captured environment: ${closureEnv.hashCode}',
+    Logger.debugLazy(
+      () => 'Captured environment: ${closureEnv.hashCode}',
       category: 'Interpreter',
     );
 
@@ -869,8 +871,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     // Analyze upvalues before creating the function
     final upvalues = await UpvalueAnalyzer.analyzeFunction(node, closureEnv);
 
-    Logger.debug(
-      'Function upvalues analyzed: ${upvalues.map((u) => u.name).join(', ')}',
+    Logger.debugLazy(
+      () =>
+          'Function upvalues analyzed: ${upvalues.map((u) => u.name).join(', ')}',
       category: 'Interpreter',
     );
 
@@ -955,8 +958,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
           interpreter: this as Interpreter,
           isClosure: false,
         );
-        Logger.debug(
-          'Created filtered environment for function with ${joinedUpvalueNames.length} joined upvalues: ${joinedUpvalueNames.join(', ')}',
+        Logger.debugLazy(
+          () =>
+              'Created filtered environment for function with ${joinedUpvalueNames.length} joined upvalues: ${joinedUpvalueNames.join(', ')}',
           category: 'Interpreter',
         );
       } else {
@@ -967,8 +971,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         );
       }
 
-      Logger.debug(
-        "visitFunctionBody: Created execEnv (${execEnv.hashCode}) with parent ${closureEnv.hashCode}",
+      Logger.debugLazy(
+        () =>
+            "visitFunctionBody: Created execEnv (${execEnv.hashCode}) with parent ${closureEnv.hashCode}",
         category: 'Interpreter',
       );
 
@@ -1059,8 +1064,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             }
           }
         }
-        Logger.debug(
-          "Set current environment to execEnv and current function for function execution",
+        Logger.debugLazy(
+          () =>
+              "Set current environment to execEnv and current function for function execution",
           category: 'Interpreter',
         );
 
@@ -1162,8 +1168,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
           if (!reuse) {
             reusableEnv = execEnv;
-            Logger.debug(
-              "visitFunctionBody: Created execEnv (${execEnv.hashCode}) with parent ${closureEnv.hashCode}",
+            Logger.debugLazy(
+              () =>
+                  "visitFunctionBody: Created execEnv (${execEnv.hashCode}) with parent ${closureEnv.hashCode}",
               category: 'Interpreter',
             );
           }
@@ -1275,8 +1282,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                 }
               }
             }
-            Logger.debug(
-              "Set current environment to execEnv and current function for function execution",
+            Logger.debugLazy(
+              () =>
+                  "Set current environment to execEnv and current function for function execution",
               category: 'Interpreter',
             );
 
@@ -1515,8 +1523,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     // Copy toBeClosedVars
     filteredEnv.toBeClosedVars.addAll(sourceEnv.toBeClosedVars);
 
-    Logger.debug(
-      'Created filtered environment: excluded ${excludeNames.join(', ')}, copied ${filteredEnv.values.length} variables',
+    Logger.debugLazy(
+      () =>
+          'Created filtered environment: excluded ${excludeNames.join(', ')}, copied ${filteredEnv.values.length} variables',
       category: 'Interpreter',
     );
 
@@ -1548,8 +1557,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
   /// Returns the result of the function call.
   @override
   Future<Object?> visitFunctionCall(FunctionCall node) async {
-    Logger.debug(
-      'Visiting FunctionCall: ${node.name}',
+    Logger.debugLazy(
+      () => 'Visiting FunctionCall: ${node.name}',
       category: 'Interpreter',
     );
 
@@ -1565,8 +1574,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     } else if (func is List && func.isNotEmpty) {
       func = func.first;
     }
-    Logger.debug(
-      'Function evaluated to: $func (${func.runtimeType})',
+    Logger.debugLazy(
+      () => 'Function evaluated to: $func (${func.runtimeType})',
       category: 'Interpreter',
     );
 
@@ -1592,8 +1601,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       }
       try {
         final result = await _callFunction(func, fastArgs, callNode: node);
-        Logger.debug(
-          'Function call result: $result (${result.runtimeType})',
+        Logger.debugLazy(
+          () => 'Function call result: $result (${result.runtimeType})',
           category: 'Interpreter',
         );
         return result;
@@ -1666,8 +1675,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       final arg = node.args[i];
 
       final value = await arg.accept(this);
-      Logger.debug(
-        'Argument evaluated to: $value (${value.runtimeType})',
+      Logger.debugLazy(
+        () => 'Argument evaluated to: $value (${value.runtimeType})',
         category: 'Interpreter',
       );
 
@@ -1763,8 +1772,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         callerFunctionName: functionName,
         callNode: node,
       );
-      Logger.debug(
-        'Function call result: $result (${result.runtimeType})',
+      Logger.debugLazy(
+        () => 'Function call result: $result (${result.runtimeType})',
         category: 'Interpreter',
       );
       return result;
@@ -1785,16 +1794,16 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
   /// Returns the result of the method call.
   @override
   Future<Object?> visitMethodCall(MethodCall node) async {
-    Logger.debug(
-      'Visiting MethodCall: {node.prefix}.${node.methodName}',
+    Logger.debugLazy(
+      () => 'Visiting MethodCall: {node.prefix}.${node.methodName}',
       category: 'Interpreter',
     );
 
     // Get object
     var obj = await node.prefix.accept(this);
     final objVal = obj is Value ? obj : Value(obj);
-    Logger.debug(
-      '[MethodCall] Receiver (prefix) value: $obj',
+    Logger.debugLazy(
+      () => '[MethodCall] Receiver (prefix) value: $obj',
       category: 'Interpreter',
     );
 
@@ -1802,15 +1811,15 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     List<dynamic> args = await Future.wait(
       node.args.map((a) async => await a.accept(this)).toList(),
     );
-    Logger.debug(
-      '[MethodCall] Arguments before implicitSelf: $args',
+    Logger.debugLazy(
+      () => '[MethodCall] Arguments before implicitSelf: $args',
       category: 'Interpreter',
     );
 
     if (node.implicitSelf) {
       args = [objVal, ...args];
-      Logger.debug(
-        '[MethodCall] Arguments after implicitSelf: $args',
+      Logger.debugLazy(
+        () => '[MethodCall] Arguments after implicitSelf: $args',
         category: 'Interpreter',
       );
     }
@@ -1819,8 +1828,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     final methodName = node.methodName is Identifier
         ? (node.methodName as Identifier).name
         : node.methodName.toString();
-    Logger.debug(
-      '[MethodCall] Method name: $methodName',
+    Logger.debugLazy(
+      () => '[MethodCall] Method name: $methodName',
       category: 'Interpreter',
     );
 
@@ -1830,8 +1839,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         Value(methodName),
       ]);
       if (aFunc != null) {
-        Logger.debug(
-          '[MethodCall] Calling __index metamethod result for method: $methodName',
+        Logger.debugLazy(
+          () =>
+              '[MethodCall] Calling __index metamethod result for method: '
+              '$methodName',
           category: 'Interpreter',
         );
         // Route through unified call path to support tail calls, yields, etc.
@@ -1876,15 +1887,15 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
     // Make sure func is a Value
     func = func is Value ? func : Value(func);
-    Logger.debug(
-      '[MethodCall] Function to call: $func',
+    Logger.debugLazy(
+      () => '[MethodCall] Function to call: $func',
       category: 'Interpreter',
     );
 
     // Build final argument list (prepend receiver when not implicitSelf)
     final callArgs = node.implicitSelf ? args : [objVal, ...args];
-    Logger.debug(
-      '[MethodCall] Dispatch via _callFunction with args: $callArgs',
+    Logger.debugLazy(
+      () => '[MethodCall] Dispatch via _callFunction with args: $callArgs',
       category: 'Interpreter',
     );
     try {
@@ -1925,8 +1936,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       final e = node.expr[0];
       final currentEnv = (this as Interpreter).getCurrentEnv();
       if (_hasPendingToBeClosed(currentEnv)) {
-        Logger.debug(
-          'Skipping tail-call optimization because an active scope has pending to-be-closed variables',
+        Logger.debugLazy(
+          () =>
+              'Skipping tail-call optimization because an active scope has pending to-be-closed variables',
           category: 'Interpreter',
         );
       } else {
@@ -2111,13 +2123,14 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     String debugNameWhatOverride = '',
   }) async {
     if (Logger.enabled) {
-      Logger.debug(
-        '>>> _callFunction called with function: ${func.hashCode}, args: $args',
+      Logger.debugLazy(
+        () =>
+            '>>> _callFunction called with function: ${func.hashCode}, args: $args',
         category: 'Interpreter',
       );
       if (args.isNotEmpty) {
-        Logger.debug(
-          '>>> _callFunction first arg (potential self): ${args[0]}',
+        Logger.debugLazy(
+          () => '>>> _callFunction first arg (potential self): ${args[0]}',
           category: 'Interpreter',
         );
       }
@@ -2127,8 +2140,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     final interpreter = this as Interpreter;
     final currentCoroutine = getCurrentCoroutine();
     if (Logger.enabled) {
-      Logger.debug(
-        '>>> Current coroutine: ${currentCoroutine?.hashCode}, current environment: ${interpreter.getCurrentEnv().hashCode}',
+      Logger.debugLazy(
+        () =>
+            '>>> Current coroutine: ${currentCoroutine?.hashCode}, current environment: ${interpreter.getCurrentEnv().hashCode}',
         category: 'Interpreter',
       );
     }
@@ -2171,8 +2185,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
     // Push function to call stack
     if (Logger.enabled) {
-      Logger.debug(
-        '>>> Pushing function name to call stack: "$functionName"',
+      Logger.debugLazy(
+        () => '>>> Pushing function name to call stack: "$functionName"',
         category: 'Interpreter',
       );
     }
@@ -2374,16 +2388,17 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             if (func.raw is Function) {
               // Call the Dart function
               if (Logger.enabled) {
-                Logger.debug(
-                  '>>> Calling Dart function: ${func.raw.runtimeType}',
+                Logger.debugLazy(
+                  () => '>>> Calling Dart function: ${func.raw.runtimeType}',
                   category: 'Interpreter',
                 );
               }
               try {
                 final result = await func.raw(args);
                 if (Logger.enabled) {
-                  Logger.debug(
-                    '>>> Dart function returned: $result (${result.runtimeType})',
+                  Logger.debugLazy(
+                    () =>
+                        '>>> Dart function returned: $result (${result.runtimeType})',
                     category: 'Interpreter',
                   );
                 }
@@ -2395,8 +2410,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                 rethrow;
               } catch (e, s) {
                 if (Logger.enabled) {
-                  Logger.debug(
-                    '>>> Error in Dart function: $e',
+                  Logger.debugLazy(
+                    () => '>>> Error in Dart function: $e',
                     category: 'Interpreter',
                   );
                   Logger.debugLazy(
@@ -2409,8 +2424,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             } else if (func.raw is BuiltinFunction) {
               // Call the builtin function
               if (Logger.enabled) {
-                Logger.debug(
-                  '>>> Calling builtin function from Value: ${func.raw.runtimeType}',
+                Logger.debugLazy(
+                  () =>
+                      '>>> Calling builtin function from Value: ${func.raw.runtimeType}',
                   category: 'Interpreter',
                 );
               }
@@ -2422,8 +2438,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                 }
 
                 if (Logger.enabled) {
-                  Logger.debug(
-                    '>>> Builtin function call completed, result = $result',
+                  Logger.debugLazy(
+                    () =>
+                        '>>> Builtin function call completed, result = $result',
                     category: 'Interpreter',
                   );
                 }
@@ -2433,8 +2450,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                 return returnWithTransfer(result);
               } catch (e) {
                 if (Logger.enabled) {
-                  Logger.debug(
-                    '>>> Builtin function call failed: $e',
+                  Logger.debugLazy(
+                    () => '>>> Builtin function call failed: $e',
                     category: 'Interpreter',
                   );
                 }
@@ -2442,8 +2459,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
               }
             } else if (func.raw is FunctionDef) {
               if (Logger.enabled) {
-                Logger.debug(
-                  '>>> Calling LuaLike function definition',
+                Logger.debugLazy(
+                  () => '>>> Calling LuaLike function definition',
                   category: 'Interpreter',
                 );
               }
@@ -2451,8 +2468,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
               final funcBody = funcDef.body;
               final closure = await funcBody.accept(this);
               if (Logger.enabled) {
-                Logger.debug(
-                  '>>> Function body closure: $closure (${closure.runtimeType})',
+                Logger.debugLazy(
+                  () =>
+                      '>>> Function body closure: $closure (${closure.runtimeType})',
                   category: 'Interpreter',
                 );
               }
@@ -2460,8 +2478,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                 try {
                   final result = await closure.raw(args);
                   if (Logger.enabled) {
-                    Logger.debug(
-                      '>>> LuaLike function result: $result',
+                    Logger.debugLazy(
+                      () => '>>> LuaLike function result: $result',
                       category: 'Interpreter',
                     );
                   }
@@ -2471,8 +2489,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                   return returnWithTransfer(result);
                 } catch (e) {
                   if (Logger.enabled) {
-                    Logger.debug(
-                      '>>> Error in LuaLike function: $e',
+                    Logger.debugLazy(
+                      () => '>>> Error in LuaLike function: $e',
                       category: 'Interpreter',
                     );
                   }
@@ -2482,16 +2500,17 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             } else if (func.raw is FunctionBody) {
               // Call the LuaLike function body
               if (Logger.enabled) {
-                Logger.debug(
-                  '>>> Calling LuaLike function body',
+                Logger.debugLazy(
+                  () => '>>> Calling LuaLike function body',
                   category: 'Interpreter',
                 );
               }
               final funcBody = func.raw as FunctionBody;
               final closure = await funcBody.accept(this);
               if (Logger.enabled) {
-                Logger.debug(
-                  '>>> Function body closure: $closure (${closure.runtimeType})',
+                Logger.debugLazy(
+                  () =>
+                      '>>> Function body closure: $closure (${closure.runtimeType})',
                   category: 'Interpreter',
                 );
               }
@@ -2499,8 +2518,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                 try {
                   final result = await closure.raw(args);
                   if (Logger.enabled) {
-                    Logger.debug(
-                      '>>> LuaLike function body result: $result',
+                    Logger.debugLazy(
+                      () => '>>> LuaLike function body result: $result',
                       category: 'Interpreter',
                     );
                   }
@@ -2510,8 +2529,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                   return returnWithTransfer(result);
                 } catch (e) {
                   if (Logger.enabled) {
-                    Logger.debug(
-                      '>>> Error in LuaLike function body: $e',
+                    Logger.debugLazy(
+                      () => '>>> Error in LuaLike function body: $e',
                       category: 'Interpreter',
                     );
                   }
@@ -2521,16 +2540,17 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             } else if (func.raw is FunctionLiteral) {
               // Call the LuaLike function literal
               if (Logger.enabled) {
-                Logger.debug(
-                  '>>> Calling LuaLike function literal',
+                Logger.debugLazy(
+                  () => '>>> Calling LuaLike function literal',
                   category: 'Interpreter',
                 );
               }
               final funcLiteral = func.raw as FunctionLiteral;
               final closure = await funcLiteral.accept(this);
               if (Logger.enabled) {
-                Logger.debug(
-                  '>>> Function literal closure: $closure (${closure.runtimeType})',
+                Logger.debugLazy(
+                  () =>
+                      '>>> Function literal closure: $closure (${closure.runtimeType})',
                   category: 'Interpreter',
                 );
               }
@@ -2538,8 +2558,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                 try {
                   final result = await closure.raw(args);
                   if (Logger.enabled) {
-                    Logger.debug(
-                      '>>> LuaLike function literal result: $result',
+                    Logger.debugLazy(
+                      () => '>>> LuaLike function literal result: $result',
                       category: 'Interpreter',
                     );
                   }
@@ -2549,8 +2569,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                   return returnWithTransfer(result);
                 } catch (e) {
                   if (Logger.enabled) {
-                    Logger.debug(
-                      '>>> Error in LuaLike function literal: $e',
+                    Logger.debugLazy(
+                      () => '>>> Error in LuaLike function literal: $e',
                       category: 'Interpreter',
                     );
                   }
@@ -2559,8 +2579,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
               }
             } else if (func.raw is LuaCallableArtifact) {
               if (Logger.enabled) {
-                Logger.debug(
-                  '>>> Delegating compiled callable to owning runtime',
+                Logger.debugLazy(
+                  () => '>>> Delegating compiled callable to owning runtime',
                   category: 'Interpreter',
                 );
               }
@@ -2576,8 +2596,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
               }
               final result = await runtime.callFunction(func, normalizedArgs);
               if (Logger.enabled) {
-                Logger.debug(
-                  '>>> Compiled callable result: $result',
+                Logger.debugLazy(
+                  () => '>>> Compiled callable result: $result',
                   category: 'Interpreter',
                 );
               }
@@ -2593,8 +2613,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             } else {
               // Check for __call metamethod and flatten the chain iteratively.
               if (Logger.enabled) {
-                Logger.debug(
-                  '>>> Checking for __call metamethod',
+                Logger.debugLazy(
+                  () => '>>> Checking for __call metamethod',
                   category: 'Interpreter',
                 );
               }
@@ -2606,8 +2626,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                 final callMeta = func.getMetamethod('__call');
                 final callArgs = [func, ...args];
                 if (Logger.enabled) {
-                  Logger.debug(
-                    '>>> __call found; rebinding callee and continuing (callee=${callMeta.runtimeType})',
+                  Logger.debugLazy(
+                    () =>
+                        '>>> __call found; rebinding callee and continuing (callee=${callMeta.runtimeType})',
                     category: 'Interpreter',
                   );
                 }
@@ -2625,16 +2646,16 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
           } else if (func is Function) {
             // Call the Dart function directly
             if (Logger.enabled) {
-              Logger.debug(
-                '>>> Calling Dart function directly',
+              Logger.debugLazy(
+                () => '>>> Calling Dart function directly',
                 category: 'Interpreter',
               );
             }
             try {
               final result = await func(args);
               if (Logger.enabled) {
-                Logger.debug(
-                  '>>> Direct Dart function result: $result',
+                Logger.debugLazy(
+                  () => '>>> Direct Dart function result: $result',
                   category: 'Interpreter',
                 );
               }
@@ -2644,8 +2665,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
               return returnWithTransfer(result);
             } catch (e) {
               if (Logger.enabled) {
-                Logger.debug(
-                  '>>> Error in direct Dart function: $e',
+                Logger.debugLazy(
+                  () => '>>> Error in direct Dart function: $e',
                   category: 'Interpreter',
                 );
               }
@@ -2654,16 +2675,17 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
           } else if (func is FunctionDef) {
             // Call the LuaLike function
             if (Logger.enabled) {
-              Logger.debug(
-                '>>> Calling LuaLike function definition directly',
+              Logger.debugLazy(
+                () => '>>> Calling LuaLike function definition directly',
                 category: 'Interpreter',
               );
             }
             final funcBody = func.body;
             final closure = await funcBody.accept(this);
             if (Logger.enabled) {
-              Logger.debug(
-                '>>> Function body closure: $closure (${closure.runtimeType})',
+              Logger.debugLazy(
+                () =>
+                    '>>> Function body closure: $closure (${closure.runtimeType})',
                 category: 'Interpreter',
               );
             }
@@ -2671,8 +2693,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
               try {
                 final result = await closure.raw(args);
                 if (Logger.enabled) {
-                  Logger.debug(
-                    '>>> Direct LuaLike function result: $result',
+                  Logger.debugLazy(
+                    () => '>>> Direct LuaLike function result: $result',
                     category: 'Interpreter',
                   );
                 }
@@ -2681,8 +2703,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                 }
                 return returnWithTransfer(result);
               } catch (e) {
-                Logger.debug(
-                  '>>> Error in direct LuaLike function: $e',
+                Logger.debugLazy(
+                  () => '>>> Error in direct LuaLike function: $e',
                   category: 'Interpreter',
                 );
                 rethrow;
@@ -2690,20 +2712,22 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             }
           } else if (func is FunctionBody) {
             // Call the LuaLike function body
-            Logger.debug(
-              '>>> Calling LuaLike function body directly',
+            Logger.debugLazy(
+              () => '>>> Calling LuaLike function body directly',
               category: 'Interpreter',
             );
             final closure = await func.accept(this);
-            Logger.debug(
-              '>>> Function body closure: $closure (${closure.runtimeType})',
+            Logger.debugLazy(
+              () =>
+                  '>>> Function body closure: $closure '
+                  '(${closure.runtimeType})',
               category: 'Interpreter',
             );
             if (closure is Value && closure.raw is Function) {
               try {
                 final result = await closure.raw(args);
-                Logger.debug(
-                  '>>> Direct LuaLike function body result: $result',
+                Logger.debugLazy(
+                  () => '>>> Direct LuaLike function body result: $result',
                   category: 'Interpreter',
                 );
                 if (await rebindTailCall(result)) {
@@ -2711,8 +2735,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                 }
                 return returnWithTransfer(result);
               } catch (e) {
-                Logger.debug(
-                  '>>> Error in direct LuaLike function body: $e',
+                Logger.debugLazy(
+                  () => '>>> Error in direct LuaLike function body: $e',
                   category: 'Interpreter',
                 );
                 rethrow;
@@ -2720,20 +2744,22 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             }
           } else if (func is FunctionLiteral) {
             // Call the LuaLike function literal
-            Logger.debug(
-              '>>> Calling LuaLike function literal directly',
+            Logger.debugLazy(
+              () => '>>> Calling LuaLike function literal directly',
               category: 'Interpreter',
             );
             final closure = await func.accept(this);
-            Logger.debug(
-              '>>> Function literal closure: $closure (${closure.runtimeType})',
+            Logger.debugLazy(
+              () =>
+                  '>>> Function literal closure: $closure '
+                  '(${closure.runtimeType})',
               category: 'Interpreter',
             );
             if (closure is Value && closure.raw is Function) {
               try {
                 final result = await closure.raw(args);
-                Logger.debug(
-                  '>>> Direct LuaLike function literal result: $result',
+                Logger.debugLazy(
+                  () => '>>> Direct LuaLike function literal result: $result',
                   category: 'Interpreter',
                 );
                 if (await rebindTailCall(result)) {
@@ -2741,8 +2767,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                 }
                 return returnWithTransfer(result);
               } catch (e) {
-                Logger.debug(
-                  '>>> Error in direct LuaLike function literal: $e',
+                Logger.debugLazy(
+                  () => '>>> Error in direct LuaLike function literal: $e',
                   category: 'Interpreter',
                 );
                 rethrow;
@@ -2750,14 +2776,14 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             }
           } else if (func is BuiltinFunction) {
             // Call the builtin function
-            Logger.debug(
-              '>>> Calling builtin function',
+            Logger.debugLazy(
+              () => '>>> Calling builtin function',
               category: 'Interpreter',
             );
             try {
               final result = func.call(args);
-              Logger.debug(
-                '>>> Builtin function result: $result',
+              Logger.debugLazy(
+                () => '>>> Builtin function result: $result',
                 category: 'Interpreter',
               );
               if (await rebindTailCall(result)) {
@@ -2765,8 +2791,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
               }
               return returnWithTransfer(result);
             } catch (e) {
-              Logger.debug(
-                '>>> Error in builtin function: $e',
+              Logger.debugLazy(
+                () => '>>> Error in builtin function: $e',
                 category: 'Interpreter',
               );
               rethrow;
@@ -2774,16 +2800,19 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
           }
 
           // If we get here, we couldn't call the function
-          Logger.debug(
-            '>>> Could not call value as function: $func (${func.runtimeType}), functionName="$functionName"',
+          Logger.debugLazy(
+            () =>
+                '>>> Could not call value as function: $func '
+                '(${func.runtimeType}), functionName="$functionName"',
             category: 'Interpreter',
           );
           throw LuaError.typeError(callTypeErrorMessage());
         } on TailCallException catch (t) {
           // Rebind callee/args and continue without pushing a new frame
           if (Logger.enabled) {
-            Logger.debug(
-              '>>> TailCallException caught; rebinding callee and continuing',
+            Logger.debugLazy(
+              () =>
+                  '>>> TailCallException caught; rebinding callee and continuing',
               category: 'Interpreter',
             );
           }
@@ -2796,8 +2825,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     } on YieldException catch (ye) {
       // Handle coroutine yield
       if (Logger.enabled) {
-        Logger.debug(
-          '>>> Caught YieldException: \\${ye.values}',
+        Logger.debugLazy(
+          () => '>>> Caught YieldException: \\${ye.values}',
           category: 'Coroutine',
         );
       }
@@ -2816,15 +2845,16 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
       // Wait for the coroutine to be resumed
       if (Logger.enabled) {
-        Logger.debug(
-          '>>> YieldException: waiting for resumeFuture...',
+        Logger.debugLazy(
+          () => '>>> YieldException: waiting for resumeFuture...',
           category: 'Coroutine',
         );
       }
       final resumeArgs = await ye.resumeFuture;
       if (Logger.enabled) {
-        Logger.debug(
-          '>>> YieldException: resumeFuture completed with: \\$resumeArgs',
+        Logger.debugLazy(
+          () =>
+              '>>> YieldException: resumeFuture completed with: \\$resumeArgs',
           category: 'Coroutine',
         );
       }
@@ -2838,8 +2868,8 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       if (resumedCoroutine != null &&
           resumedCoroutine.status != CoroutineStatus.dead) {
         if (Logger.enabled) {
-          Logger.debug(
-            '>>> Restoring resumed coroutine after yield (interpreter)',
+          Logger.debugLazy(
+            () => '>>> Restoring resumed coroutine after yield (interpreter)',
             category: 'Coroutine',
           );
         }

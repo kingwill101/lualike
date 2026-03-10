@@ -28,12 +28,13 @@ sealed class AstNode {
   /// Dumps span information to a serializable map
   Map<String, dynamic>? dumpSpan() {
     if (span == null) {
-      Logger.debug('AST: No span to dump', category: 'AST');
+      Logger.debugLazy(() => 'AST: No span to dump', category: 'AST');
       return null;
     }
 
-    Logger.debug(
-      'AST: Dumping span for ${span!.sourceUrl} (${span!.start.offset}-${span!.end.offset})',
+    Logger.debugLazy(
+      () =>
+          'AST: Dumping span for ${span!.sourceUrl} (${span!.start.offset}-${span!.end.offset})',
       category: 'AST',
     );
 
@@ -52,12 +53,12 @@ sealed class AstNode {
 
   /// Restores span information from a serialized map
   void restoreSpan(Map<String, dynamic>? spanData, String? fallbackSourceUrl) {
-    Logger.debug(
-      'AST: restoreSpan called with spanData=$spanData',
+    Logger.debugLazy(
+      () => 'AST: restoreSpan called with spanData=$spanData',
       category: 'AST',
     );
     if (spanData == null) {
-      Logger.debug('AST: No span data to restore', category: 'AST');
+      Logger.debugLazy(() => 'AST: No span data to restore', category: 'AST');
       return;
     }
 
@@ -67,8 +68,9 @@ sealed class AstNode {
       final end = spanData['end'] as int? ?? 0;
       final text = spanData['text'] as String? ?? '';
 
-      Logger.debug(
-        'AST: Attempting to restore span: sourceUrl=$sourceUrl, start=$start, end=$end',
+      Logger.debugLazy(
+        () =>
+            'AST: Attempting to restore span: sourceUrl=$sourceUrl, start=$start, end=$end',
         category: 'AST',
       );
 
@@ -77,8 +79,8 @@ sealed class AstNode {
         final uri = Uri.parse(sourceUrl);
         final sourceFile = SourceFile.fromString(text, url: uri);
         span = sourceFile.span(start, end);
-        Logger.debug(
-          'AST: Restored span for $uri ($start-$end)',
+        Logger.debugLazy(
+          () => 'AST: Restored span for $uri ($start-$end)',
           category: 'AST',
         );
       } else if (sourceUrl != null) {
@@ -86,11 +88,17 @@ sealed class AstNode {
         final uri = Uri.parse(sourceUrl);
         final sourceFile = SourceFile.fromString('', url: uri);
         span = sourceFile.span(0, 0);
-        Logger.debug('AST: Restored minimal span for $uri', category: 'AST');
+        Logger.debugLazy(
+          () => 'AST: Restored minimal span for $uri',
+          category: 'AST',
+        );
       }
     } catch (e) {
       // If restoration fails, silently continue without span
-      Logger.debug('AST: Failed to restore span: $e', category: 'AST');
+      Logger.debugLazy(
+        () => 'AST: Failed to restore span: $e',
+        category: 'AST',
+      );
     }
   }
 
@@ -134,13 +142,14 @@ sealed class AstNode {
         final start = 0;
         final end = sourceText.length;
         span = mockSourceFile.span(start, end);
-        Logger.debug(
-          'AST: Inferred span from children for $sourceFile ($start-$end)',
+        Logger.debugLazy(
+          () =>
+              'AST: Inferred span from children for $sourceFile ($start-$end)',
           category: 'AST',
         );
       } catch (e) {
-        Logger.debug(
-          'AST: Failed to infer span from children: $e',
+        Logger.debugLazy(
+          () => 'AST: Failed to infer span from children: $e',
           category: 'AST',
         );
       }

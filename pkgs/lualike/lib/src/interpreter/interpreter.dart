@@ -24,6 +24,7 @@ import 'package:lualike/src/stack.dart';
 import 'package:lualike/src/stdlib/init.dart' show initializeStandardLibrary;
 import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:lualike/src/stdlib/library.dart' show LibraryRegistry;
+import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:lualike/src/utils/type.dart';
 import 'package:lualike/src/upvalue.dart';
@@ -144,6 +145,30 @@ class Interpreter extends AstVisitor<Object?>
   /// Avoids creating new Value objects on every literal reference.
   @override
   final Map<String, Value> literalValueCache = <String, Value>{};
+
+  final Map<String, Value> literalPrimitiveValueCache = <String, Value>{};
+
+  @override
+  Value constantPrimitiveValue(Object? raw) {
+    final key = switch (raw) {
+      null => 'nil',
+      final bool value => 'bool:$value',
+      final int value => 'int:$value',
+      final double value => 'double:$value',
+      final BigInt value => 'bigint:$value',
+      _ => throw ArgumentError.value(raw, 'raw', 'Not a cached primitive'),
+    };
+
+    final cached = literalPrimitiveValueCache[key];
+    if (cached != null) {
+      cached.interpreter ??= this;
+      return cached;
+    }
+
+    final value = Value(raw)..interpreter = this;
+    literalPrimitiveValueCache[key] = value;
+    return value;
+  }
 
   Future<void> fireDebugHook(String event, {int? line}) async {
     if (_runningDebugHook) {
@@ -433,6 +458,7 @@ class Interpreter extends AstVisitor<Object?>
       },
     );
     _currentCoroutine = coroutine;
+    gc.noteRootWrite(coroutine);
     Logger.infoLazy(
       () => 'setCurrentCoroutine() finished',
       categories: {'Interpreter', 'Coroutine'},
@@ -752,6 +778,7 @@ class Interpreter extends AstVisitor<Object?>
       },
     );
     _currentEnv = env;
+    gc.noteRootWrite(env);
     if (callStack.top case final CallFrame frame?) {
       frame.env = env;
     }
@@ -772,14 +799,27 @@ class Interpreter extends AstVisitor<Object?>
       },
     );
     _currentEnv = env;
+    gc.noteRootWrite(env);
   }
 
-  /// Gets the current function being executed.
+  /// Returns the callable that is currently treated as ambient execution state.
+  ///
+  /// This is narrower than the full call stack. The interpreter uses this
+  /// handle for lookups that need the active closure metadata before or after a
+  /// physical frame is pushed, such as resolving upvalues, exposing debug
+  /// information, or running coroutine root code that shares this interpreter.
   Value? getCurrentFunction() {
     return _currentFunction;
   }
 
-  /// Sets the current function being executed.
+  /// Sets the callable that should be treated as this interpreter's ambient
+  /// active function.
+  ///
+  /// Callers use this when control moves across frame boundaries that do not
+  /// line up exactly with the ordinary stack model, such as coroutine entry,
+  /// yielded builtins, or debug-hook execution. Updating the GC root tracking
+  /// here keeps the active callable and its reachable closure state alive while
+  /// that ambient state is in effect.
   void setCurrentFunction(Value? function) {
     Logger.debugLazy(
       () => 'Setting current function',
@@ -790,12 +830,23 @@ class Interpreter extends AstVisitor<Object?>
       },
     );
     _currentFunction = function;
+    gc.noteRootWrite(function);
   }
 
-  /// Gets the cached local boxes for the current function, if any.
+  /// Returns the cached local boxes for the ambient active function, if any.
+  ///
+  /// Fast locals let identifier resolution bypass a full environment walk for
+  /// ordinary local reads and writes. The cache is valid only for the exact
+  /// function context that created it.
   Map<String, Box<dynamic>>? getCurrentFastLocals() => _currentFastLocals;
 
-  /// Sets the cached local boxes for the current function.
+  /// Installs the cached local boxes for the ambient active function.
+  ///
+  /// Callers must clear or replace this cache whenever execution crosses into a
+  /// different logical function context, especially when entering coroutines or
+  /// debug helpers. Reusing the caller's cache in a different function can make
+  /// identifier resolution read or write the wrong locals before it ever
+  /// consults the callee's own environment or upvalues.
   void setCurrentFastLocals(Map<String, Box<dynamic>>? locals) {
     _currentFastLocals = locals;
   }
@@ -875,14 +926,15 @@ class Interpreter extends AstVisitor<Object?>
   void recordTrace(AstNode node, {String? functionName}) {
     final actualFunctionName =
         functionName ??
-        (node is FunctionCall
-            ? node.name.toString()
-            : node.runtimeType.toString());
+        switch (node) {
+          FunctionCall(:final name) => name.toString(),
+          _ => null,
+        };
 
     // Don't add to call stack - only add to the trace buffer for error reporting
     // The call stack should only contain actual function calls, not every AST node
     final frame = _traceBuffer[_traceIndex]
-      ..functionName = actualFunctionName
+      ..functionName = actualFunctionName ?? ''
       ..callNode = node
       ..scriptPath = currentScriptPath
       ..env = null;
@@ -1157,6 +1209,7 @@ class Interpreter extends AstVisitor<Object?>
     // Propagate load-isolated flag so loaded chunks keep using provided _ENV
     scriptEnv.isLoadIsolated = savedEnv.isLoadIsolated;
     _currentEnv = scriptEnv;
+    gc.noteRootWrite(scriptEnv);
 
     // Push a top-level frame to track currentline via AST spans, bound to script env
     callStack.push(currentScriptPath ?? 'chunk', env: _currentEnv);
@@ -1231,6 +1284,8 @@ class Interpreter extends AstVisitor<Object?>
       // Restore the original environment
       _currentEnv = savedEnv;
       _currentFunction = savedFunction;
+      gc.noteRootWrite(savedEnv);
+      gc.noteRootWrite(savedFunction);
       _currentFastLocals = savedFastLocals;
       if (_externalGcRootProviders.length > savedExternalRootCount) {
         _externalGcRootProviders.removeRange(
@@ -1332,10 +1387,10 @@ class Interpreter extends AstVisitor<Object?>
             final script =
                 callStack.scriptPath ?? currentScriptPath ?? '<chunk>';
             final currentFunction = callStack.top?.functionName ?? '<global>';
-            Logger.debug(
-              'Statement execution time',
+            Logger.debugLazy(
+              () => 'Statement execution time',
               category: 'Performance',
-              context: {
+              contextBuilder: () => {
                 'nodeType': node.runtimeType.toString(),
                 'index': currentIndex,
                 'elapsedMs': elapsedMs,
@@ -1520,10 +1575,10 @@ class Interpreter extends AstVisitor<Object?>
     final threshold = gc.autoTriggerDebtThreshold;
     final debt = gc.allocationDebt;
     if (Logger.enabled) {
-      Logger.debug(
-        'Safe point debt check',
+      Logger.debugLazy(
+        () => 'Safe point debt check',
         category: 'GC',
-        context: {'debt': debt, 'threshold': threshold},
+        contextBuilder: () => {'debt': debt, 'threshold': threshold},
       );
     }
     if (debt < threshold && !gc.hasPendingAsyncFinalizers) {

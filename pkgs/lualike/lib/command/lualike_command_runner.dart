@@ -1,9 +1,9 @@
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:contextual/contextual.dart' as ctx;
 import 'package:lualike/command/version_command.dart';
 import 'package:lualike/src/config.dart';
+import 'package:lualike/src/logging/level.dart' as ctx;
 import 'package:lualike/src/logging/logging.dart';
 
 import 'base_command.dart';

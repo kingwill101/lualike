@@ -87,8 +87,8 @@ class LegacyAstChunkTransport {
     try {
       // Use AST serialization as the source of truth
       final dumpData = (functionBody as Dumpable).dump();
-      Logger.debug(
-        'dumpData keys: ${dumpData.keys.toList()}',
+      Logger.debugLazy(
+        () => 'dumpData keys: ${dumpData.keys.toList()}',
         category: 'LegacyAstChunkTransport',
       );
 
@@ -109,13 +109,13 @@ class LegacyAstChunkTransport {
         'AST serialization failed: $e',
         category: 'LegacyAstChunkTransport',
       );
-      Logger.debug(
-        'Error type: ${e.runtimeType}',
+      Logger.debugLazy(
+        () => 'Error type: ${e.runtimeType}',
         category: 'LegacyAstChunkTransport',
       );
       if (e is RangeError) {
-        Logger.debug(
-          'RangeError details: ${e.message}',
+        Logger.debugLazy(
+          () => 'RangeError details: ${e.message}',
           category: 'LegacyAstChunkTransport',
         );
       }
@@ -135,8 +135,8 @@ class LegacyAstChunkTransport {
     try {
       // Use AST serialization as the source of truth
       final dumpData = (functionBody as Dumpable).dump();
-      Logger.debug(
-        'dumpData keys: ${dumpData.keys.toList()}',
+      Logger.debugLazy(
+        () => 'dumpData keys: ${dumpData.keys.toList()}',
         category: 'LegacyAstChunkTransport',
       );
 
@@ -161,13 +161,13 @@ class LegacyAstChunkTransport {
         'AST serialization failed: $e',
         category: 'LegacyAstChunkTransport',
       );
-      Logger.debug(
-        'Error type: ${e.runtimeType}',
+      Logger.debugLazy(
+        () => 'Error type: ${e.runtimeType}',
         category: 'LegacyAstChunkTransport',
       );
       if (e is RangeError) {
-        Logger.debug(
-          'RangeError details: ${e.message}',
+        Logger.debugLazy(
+          () => 'RangeError details: ${e.message}',
           category: 'LegacyAstChunkTransport',
         );
       }
@@ -196,7 +196,9 @@ class LegacyAstChunkTransport {
       data['stringLiterals'] = literals;
     }
     final payload = jsonEncode(data);
-    return _createLuaCompatibleChunkAsLuaString(_sourceWithNameMarker + payload);
+    return _createLuaCompatibleChunkAsLuaString(
+      _sourceWithNameMarker + payload,
+    );
   }
 
   /// Deserializes a legacy AST/internal chunk [LuaString] back to Lua source.
@@ -508,7 +510,8 @@ class LegacyAstChunkTransport {
 
   static bool _hasOfficialLua55Header(List<int> bytes) {
     final header = _officialLua55HeaderBytes();
-    return bytes.length >= header.length && _bytesEqual(bytes.take(header.length).toList(), header);
+    return bytes.length >= header.length &&
+        _bytesEqual(bytes.take(header.length).toList(), header);
   }
 
   static bool _hasLegacyLua54Header(List<int> bytes) {
@@ -593,7 +596,11 @@ class LegacyAstChunkTransport {
         data.setUint64(0, value, Endian.little);
         return data.buffer.asUint8List();
       default:
-        throw ArgumentError.value(size, 'size', 'unsupported unsigned int size');
+        throw ArgumentError.value(
+          size,
+          'size',
+          'unsupported unsigned int size',
+        );
     }
   }
 

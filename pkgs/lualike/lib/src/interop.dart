@@ -100,15 +100,16 @@ extension VMInterop on LuaRuntime {
           } else {
             absolutePath = path.absolute(scriptPath);
           }
-          Logger.debug(
-            "Resolved relative script path '$scriptPath' to absolute path '$absolutePath' using current directory",
+          Logger.debugLazy(
+            () =>
+                "Resolved relative script path '$scriptPath' to absolute path '$absolutePath' using current directory",
             category: 'Interpreter',
           );
         } catch (e) {
           // Fallback to simple absolute path
           absolutePath = path.absolute(scriptPath);
-          Logger.debug(
-            "Error resolving script path: $e, using $absolutePath",
+          Logger.debugLazy(
+            () => "Error resolving script path: $e, using $absolutePath",
             category: 'Interpreter',
           );
         }
@@ -131,8 +132,9 @@ extension VMInterop on LuaRuntime {
       );
       globals.define('_SCRIPT_DIR', Value(normalizedScriptDir));
 
-      Logger.debug(
-        "Set script path globals: _SCRIPT_PATH(norm)=$normalizedAbsolutePath, _SCRIPT_DIR(norm)=$normalizedScriptDir | originals: path=$absolutePath, dir=$scriptDir",
+      Logger.debugLazy(
+        () =>
+            "Set script path globals: _SCRIPT_PATH(norm)=$normalizedAbsolutePath, _SCRIPT_DIR(norm)=$normalizedScriptDir | originals: path=$absolutePath, dir=$scriptDir",
         category: 'Interpreter',
       );
 
@@ -222,8 +224,8 @@ class LuaLike {
           final debugLib = runtime.globals.get('debug');
           if (debugLib != null && debugLib.isTable) {
             defineDebugLibrary(env: runtime.globals, vm: runtime);
-            Logger.debug(
-              'Updated debug library with interpreter reference',
+            Logger.debugLazy(
+              () => 'Updated debug library with interpreter reference',
               category: 'LineTracking',
             );
           }
@@ -278,8 +280,9 @@ class LuaLike {
     final normalizedPath = path.url.joinAll(
       path.split(path.normalize(scriptPath)),
     );
-    Logger.debug(
-      'Setting script metadata _SCRIPT_PATH=$normalizedPath (original=$scriptPath)',
+    Logger.debugLazy(
+      () =>
+          'Setting script metadata _SCRIPT_PATH=$normalizedPath (original=$scriptPath)',
       category: 'Interpreter',
     );
     runtime.globals.define('_SCRIPT_PATH', Value(normalizedPath));
@@ -341,8 +344,9 @@ Future<List<Value>> runFile(String pathStr, {Map<String, dynamic>? env}) async {
   final normalizedEnvPath = path.url.joinAll(
     path.split(path.normalize(pathStr)),
   );
-  Logger.debug(
-    'runFile: setting _SCRIPT_PATH (norm)=$normalizedEnvPath | original=$pathStr',
+  Logger.debugLazy(
+    () =>
+        'runFile: setting _SCRIPT_PATH (norm)=$normalizedEnvPath | original=$pathStr',
     category: 'Interpreter',
   );
   env['_SCRIPT_PATH'] = normalizedEnvPath;
@@ -369,8 +373,9 @@ Future<List<Value>> runCode(
     final normalizedEnvPath = path.url.joinAll(
       path.split(path.normalize(filePath)),
     );
-    Logger.debug(
-      'runCode: setting _SCRIPT_PATH (norm)=$normalizedEnvPath | original=$filePath',
+    Logger.debugLazy(
+      () =>
+          'runCode: setting _SCRIPT_PATH (norm)=$normalizedEnvPath | original=$filePath',
       category: 'Interpreter',
     );
     env['_SCRIPT_PATH'] = normalizedEnvPath;

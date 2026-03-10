@@ -67,8 +67,8 @@ class PackageLib {
         final name = (args[0] as Value).raw.toString();
         final preload = vm.globals.get("package")?.raw?["preload"] as Map?;
         if (preload != null && preload.containsKey(name)) {
-          Logger.debug(
-            "Preload searcher found module: $name",
+          Logger.debugLazy(
+            () => "Preload searcher found module: $name",
             category: 'Package',
           );
           return [preload[name], Value("preload:$name")];
@@ -177,7 +177,10 @@ class _LuaLoader extends BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
     final name = (args[0] as Value).raw.toString();
-    Logger.debug("_LuaLoader called for module: $name", category: 'Package');
+    Logger.debugLazy(
+      () => "_LuaLoader called for module: $name",
+      category: 'Package',
+    );
 
     // Special case: If the current script is in a special directory like .lua-tests,
     // and the module name doesn't contain a path separator, try to load it from the same directory first
@@ -187,14 +190,14 @@ class _LuaLoader extends BuiltinFunction {
         interpreter!.currentScriptPath != null) {
       final scriptDir = path_lib.dirname(interpreter!.currentScriptPath!);
       final directPath = path_lib.join(scriptDir, '$name.lua');
-      Logger.debug(
-        "Trying direct path in script directory: $directPath",
+      Logger.debugLazy(
+        () => "Trying direct path in script directory: $directPath",
         category: 'Package',
       );
 
       if (await fileExists(directPath)) {
-        Logger.debug(
-          "Module found in script directory: $directPath",
+        Logger.debugLazy(
+          () => "Module found in script directory: $directPath",
           category: 'Package',
         );
         modulePath = directPath;
@@ -204,8 +207,8 @@ class _LuaLoader extends BuiltinFunction {
     // If not found in the script directory, use the regular resolution
     if (modulePath == null) {
       // Try to find the module file
-      Logger.debug(
-        "Attempting to resolve module path for: $name",
+      Logger.debugLazy(
+        () => "Attempting to resolve module path for: $name",
         category: 'Package',
       );
       modulePath = await fileManager.resolveModulePath(name);
@@ -214,50 +217,54 @@ class _LuaLoader extends BuiltinFunction {
       fileManager.printResolvedGlobs();
     }
 
-    Logger.debug("Module path resolved to: $modulePath", category: 'Package');
+    Logger.debugLazy(
+      () => "Module path resolved to: $modulePath",
+      category: 'Package',
+    );
 
     // Return a loader function that will load and execute the module
     return [
       Value((List<Object?> args) async {
         final name = (args[0] as Value).raw.toString();
         final modulePath = (args[1] as Value).raw.toString();
-        Logger.debug(
-          "Loader function called for module: $name with path: $modulePath",
+        Logger.debugLazy(
+          () =>
+              "Loader function called for module: $name with path: $modulePath",
           category: 'Package',
         );
 
         try {
           // Load the source code
-          Logger.debug(
-            "Attempting to load source from: $modulePath",
+          Logger.debugLazy(
+            () => "Attempting to load source from: $modulePath",
             category: 'Package',
           );
           final source = await fileManager.loadSource(modulePath);
           if (source == null) {
-            Logger.debug(
-              "Source not found for module: $name at path: $modulePath",
+            Logger.debugLazy(
+              () => "Source not found for module: $name at path: $modulePath",
               category: 'Package',
             );
             throw LuaError("cannot load module '$name': file not found");
           }
 
-          Logger.debug(
-            "Source loaded successfully, length: ${source.length}",
+          Logger.debugLazy(
+            () => "Source loaded successfully, length: ${source.length}",
             category: 'Package',
           );
 
           try {
             // Parse the module code
-            Logger.debug("Parsing module code", category: 'Package');
+            Logger.debugLazy(() => "Parsing module code", category: 'Package');
             final ast = parse(source, url: modulePath);
-            Logger.debug(
-              "Module code parsed successfully",
+            Logger.debugLazy(
+              () => "Module code parsed successfully",
               category: 'Package',
             );
 
             // Create a new environment for the module
-            Logger.debug(
-              "Creating new environment for module",
+            Logger.debugLazy(
+              () => "Creating new environment for module",
               category: 'Package',
             );
             final moduleEnv = Environment(
@@ -280,15 +287,16 @@ class _LuaLoader extends BuiltinFunction {
               absoluteModulePath = fileManager.resolveAbsoluteModulePath(
                 modulePath,
               );
-              Logger.debug(
-                "Resolved module path to absolute path: $absoluteModulePath",
+              Logger.debugLazy(
+                () =>
+                    "Resolved module path to absolute path: $absoluteModulePath",
                 category: 'Package',
               );
             }
 
             // Set the current script path to the module path
-            Logger.debug(
-              "Setting script path to: $absoluteModulePath",
+            Logger.debugLazy(
+              () => "Setting script path to: $absoluteModulePath",
               category: 'Package',
             );
             interpreter!.currentScriptPath = absoluteModulePath;
@@ -307,12 +315,14 @@ class _LuaLoader extends BuiltinFunction {
             // Also set _MODULE_NAME global
             moduleEnv.declare('_MODULE_NAME', Value(name));
 
-            Logger.debug(
-              "Module environment set up with _SCRIPT_PATH=$absoluteModulePath, _SCRIPT_DIR=$moduleDir, _MODULE_NAME=$name",
+            Logger.debugLazy(
+              () =>
+                  "Module environment set up with _SCRIPT_PATH=$absoluteModulePath, _SCRIPT_DIR=$moduleDir, _MODULE_NAME=$name",
               category: 'Package',
             );
-            Logger.debug(
-              "Module environment set up with _SCRIPT_PATH(norm)=$normalizedModulePath, _SCRIPT_DIR(norm)=$normalizedModuleDir | originals: path=$absoluteModulePath, dir=$moduleDir, _MODULE_NAME=$name",
+            Logger.debugLazy(
+              () =>
+                  "Module environment set up with _SCRIPT_PATH(norm)=$normalizedModulePath, _SCRIPT_DIR(norm)=$normalizedModuleDir | originals: path=$absoluteModulePath, dir=$moduleDir, _MODULE_NAME=$name",
               category: 'Package',
             );
 
@@ -327,8 +337,9 @@ class _LuaLoader extends BuiltinFunction {
             );
             interpreter!.globals.define('_MODULE_NAME', Value(name));
 
-            Logger.debug(
-              "Global environment updated with _SCRIPT_PATH=$absoluteModulePath, _SCRIPT_DIR=$moduleDir, _MODULE_NAME=$name",
+            Logger.debugLazy(
+              () =>
+                  "Global environment updated with _SCRIPT_PATH=$absoluteModulePath, _SCRIPT_DIR=$moduleDir, _MODULE_NAME=$name",
               category: 'Package',
             );
 
@@ -338,19 +349,25 @@ class _LuaLoader extends BuiltinFunction {
             final previousScriptPath = runtime.currentScriptPath;
             try {
               // Run the module code
-              Logger.debug("Running module code", category: 'Package');
+              Logger.debugLazy(
+                () => "Running module code",
+                category: 'Package',
+              );
               runtime.setCurrentEnv(moduleEnv);
               runtime.currentScriptPath = absoluteModulePath;
               await runtime.runAst(ast.statements);
-              Logger.debug(
-                "Module code executed successfully",
+              Logger.debugLazy(
+                () => "Module code executed successfully",
                 category: 'Package',
               );
               // If no explicit return, the result is nil
               result = Value(null);
             } on ReturnException catch (e) {
               // Handle explicit return from module
-              Logger.debug("Module returned a value", category: 'Package');
+              Logger.debugLazy(
+                () => "Module returned a value",
+                category: 'Package',
+              );
               result = e.value;
             } finally {
               runtime.setCurrentEnv(previousEnv);
@@ -359,22 +376,22 @@ class _LuaLoader extends BuiltinFunction {
 
             // If the module didn't return anything, return an empty table
             if ((result is Value && result.raw == null)) {
-              Logger.debug(
-                "Module returned nil, defaulting to empty table",
+              Logger.debugLazy(
+                () => "Module returned nil, defaulting to empty table",
                 category: 'Package',
               );
               result = Value({});
             } else {
-              Logger.debug(
-                "Module returned: ${result.runtimeType}",
+              Logger.debugLazy(
+                () => "Module returned: ${result.runtimeType}",
                 category: 'Package',
               );
             }
 
             // Store the result in package.loaded immediately to ensure it's available
             // for any recursive requires within the module
-            Logger.debug(
-              "Storing module in package.loaded",
+            Logger.debugLazy(
+              () => "Storing module in package.loaded",
               category: 'Package',
             );
             final packageVal = interpreter!.globals.get("package");
@@ -384,19 +401,19 @@ class _LuaLoader extends BuiltinFunction {
                 final loadedValue = packageTable["loaded"] as Value;
                 final loaded = loadedValue.raw as Map;
                 loaded[name] = result;
-                Logger.debug(
-                  "Module '$name' stored in package.loaded",
+                Logger.debugLazy(
+                  () => "Module '$name' stored in package.loaded",
                   category: 'Package',
                 );
-                Logger.debug(
-                  "Module '$name' stored in package.loaded during load",
+                Logger.debugLazy(
+                  () => "Module '$name' stored in package.loaded during load",
                   category: 'Package',
                 );
               }
             }
 
-            Logger.debug(
-              "Module loading completed successfully",
+            Logger.debugLazy(
+              () => "Module loading completed successfully",
               category: 'Package',
             );
             return result;

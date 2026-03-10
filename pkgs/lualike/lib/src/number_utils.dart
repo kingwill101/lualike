@@ -14,7 +14,6 @@ import 'value.dart';
 class NumberUtils {
   NumberUtils._(); // Prevent instantiation
 
-  static const int _doubleSignAndFractionMask = 0x800fffffffffffff;
   static const int _frexpMantissaExponent = NumberLimits.doubleExponentBias - 1;
   static const int _subnormalFrexpScale = 54;
 
@@ -164,11 +163,14 @@ class NumberUtils {
       return (mantissa, exponent - _subnormalFrexpScale);
     }
 
+    final fractionMask =
+        (1 << NumberLimits.doubleStoredSignificandBits) - 1;
     final mantissaBits =
-        (bits & _doubleSignAndFractionMask) |
+        (bits & fractionMask) |
         (_frexpMantissaExponent << NumberLimits.doubleStoredSignificandBits);
+    final mantissa = rawBitsToDouble(mantissaBits);
     return (
-      rawBitsToDouble(mantissaBits),
+      number.isNegative ? -mantissa : mantissa,
       exponentBits - _frexpMantissaExponent,
     );
   }

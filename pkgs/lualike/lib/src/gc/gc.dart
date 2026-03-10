@@ -37,8 +37,8 @@ abstract class GCObject {
   /// Similar to Lua's finalizers, this method is called when an object
   /// is about to be collected, allowing it to release any external resources.
   void free() {
-    Logger.debug(
-      'GCObject.free() called for $runtimeType $hashCode',
+    Logger.debugLazy(
+      () => 'GCObject.free() called for $runtimeType $hashCode',
       category: "GC",
     );
     // By default, nothing needs to be done.

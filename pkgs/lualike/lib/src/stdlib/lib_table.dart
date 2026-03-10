@@ -100,8 +100,9 @@ Future<int> getTableLength(Value table, {String? context}) async {
   if (table.hasMetamethod('__len')) {
     try {
       final lenResult = await table.callMetamethodAsync('__len', [table]);
-      Logger.debug(
-        "getTableLength: lenResult = $lenResult, type = ${lenResult.runtimeType}",
+      Logger.debugLazy(
+        () =>
+            "getTableLength: lenResult = $lenResult, type = ${lenResult.runtimeType}",
       );
       if (lenResult is Value) {
         final lenValue = lenResult.raw;
@@ -209,11 +210,15 @@ class _TableCreate extends BuiltinFunction {
         return 0;
       }
       if (raw is! num && raw is! BigInt) {
-        throw LuaError("bad argument to 'table.create' ($label must be an integer)");
+        throw LuaError(
+          "bad argument to 'table.create' ($label must be an integer)",
+        );
       }
       final sizeBig = NumberUtils.toBigInt(raw);
       if (sizeBig < BigInt.zero) {
-        throw LuaError("bad argument to 'table.create' ($label must be non-negative)");
+        throw LuaError(
+          "bad argument to 'table.create' ($label must be non-negative)",
+        );
       }
       if (sizeBig > BigInt.from(NumberLimits.maxInt32)) {
         throw LuaError("bad argument to 'table.create' ($label out of range)");
@@ -368,7 +373,7 @@ class _TableMove extends BuiltinFunction {
   _TableMove() : super();
   @override
   Future<Object?> call(List<Object?> args) async {
-    Logger.debug("_TableMove: Starting with ${args.length} args");
+    Logger.debugLazy(() => "_TableMove: Starting with ${args.length} args");
 
     if (args.length < 4) {
       throw LuaError.typeError("table.move requires at least 4 arguments");
@@ -376,7 +381,9 @@ class _TableMove extends BuiltinFunction {
 
     // Ensure all arguments are Value objects
     final a1 = args[0] is Value ? args[0] as Value : Value(args[0]);
-    Logger.debug("_TableMove: a1 = $a1, type = ${a1.raw.runtimeType}");
+    Logger.debugLazy(
+      () => "_TableMove: a1 = $a1, type = ${a1.raw.runtimeType}",
+    );
 
     final f = NumberUtils.toInt(
       (args[1] is Value ? args[1] as Value : Value(args[1])).raw,
@@ -391,16 +398,17 @@ class _TableMove extends BuiltinFunction {
         ? (args[4] is Value ? args[4] as Value : Value(args[4]))
         : a1;
 
-    Logger.debug("_TableMove: f=$f, e=$e, t=$t, a2=$a2");
-    Logger.debug(
-      "_TableMove: maxI=${NumberLimits.maxInteger}, minI=${NumberLimits.minInteger}",
+    Logger.debugLazy(() => "_TableMove: f=$f, e=$e, t=$t, a2=$a2");
+    Logger.debugLazy(
+      () =>
+          "_TableMove: maxI=${NumberLimits.maxInteger}, minI=${NumberLimits.minInteger}",
     );
 
-    Logger.debug("_TableMove: About to checktab a1");
+    Logger.debugLazy(() => "_TableMove: About to checktab a1");
     checktab(a1, TablePermission.read);
-    Logger.debug("_TableMove: About to checktab a2");
+    Logger.debugLazy(() => "_TableMove: About to checktab a2");
     checktab(a2, TablePermission.write);
-    Logger.debug("_TableMove: checktab completed");
+    Logger.debugLazy(() => "_TableMove: checktab completed");
 
     if (e >= f) {
       /* otherwise, nothing to move */
@@ -432,15 +440,16 @@ class _TableMove extends BuiltinFunction {
         for (var i = 0; NumberUtils.compare(i, n) < 0; i++) {
           final srcIndex = NumberUtils.add(f, i);
           final destIndex = NumberUtils.add(t, i);
-          Logger.debug(
-            "_TableMove: i=$i, srcIndex=$srcIndex, destIndex=$destIndex",
+          Logger.debugLazy(
+            () => "_TableMove: i=$i, srcIndex=$srcIndex, destIndex=$destIndex",
           );
           // Use proper table access that respects metamethods and awaits Future results
           var value = await a1.getValueAsync(Value(srcIndex));
           // Handle null values properly - convert to Value(null)
           final valueToStore = value is Value ? value : Value(value);
-          Logger.debug(
-            "_TableMove: writing value=$valueToStore to destIndex=$destIndex",
+          Logger.debugLazy(
+            () =>
+                "_TableMove: writing value=$valueToStore to destIndex=$destIndex",
           );
           // Use proper table assignment that respects __newindex metamethod and awaits Future results
           await a2.setValueAsync(Value(destIndex), valueToStore);
@@ -612,11 +621,14 @@ class _TableSort extends BuiltinFunction {
   }
 
   // Simple in-place quicksort implementation
-  Future<void> _auxSort(Value table, int lo, int up, Object? comp, int rnd) async {
-    Logger.debugLazy(
-      () => "_auxSort: lo=$lo, up=$up",
-      category: 'TableSort',
-    );
+  Future<void> _auxSort(
+    Value table,
+    int lo,
+    int up,
+    Object? comp,
+    int rnd,
+  ) async {
+    Logger.debugLazy(() => "_auxSort: lo=$lo, up=$up", category: 'TableSort');
 
     if (lo >= up) {
       Logger.debugLazy(
@@ -1097,7 +1109,9 @@ class _TableUnpack extends BuiltinFunction {
   Object? call(List<Object?> args) async {
     final bool log = Logger.enabled;
     if (log) {
-      Logger.debug("_TableUnpack: Starting unpack with ${args.length} args");
+      Logger.debugLazy(
+        () => "_TableUnpack: Starting unpack with ${args.length} args",
+      );
     }
 
     if (args.isEmpty) {
@@ -1107,7 +1121,9 @@ class _TableUnpack extends BuiltinFunction {
     final table = args[0] is Value ? args[0] as Value : Value(args[0]);
     checktab(table, TablePermission.read);
     if (log) {
-      Logger.debug("_TableUnpack: Got table value ${table.raw.runtimeType}");
+      Logger.debugLazy(
+        () => "_TableUnpack: Got table value ${table.raw.runtimeType}",
+      );
     }
 
     int i, j;
@@ -1116,8 +1132,9 @@ class _TableUnpack extends BuiltinFunction {
     if (args.length > 1) {
       final startArg = args[1] as Value;
       if (log) {
-        Logger.debug(
-          "_TableUnpack: Start arg raw value: ${startArg.raw}, type: ${startArg.raw.runtimeType}",
+        Logger.debugLazy(
+          () =>
+              "_TableUnpack: Start arg raw value: ${startArg.raw}, type: ${startArg.raw.runtimeType}",
         );
       }
       if (startArg.raw == null) {
@@ -1128,13 +1145,16 @@ class _TableUnpack extends BuiltinFunction {
       try {
         i = NumberUtils.toInt(startArg.raw);
         if (log) {
-          Logger.debug(
-            "_TableUnpack: Converted start index to: $i, type: ${i.runtimeType}",
+          Logger.debugLazy(
+            () =>
+                "_TableUnpack: Converted start index to: $i, type: ${i.runtimeType}",
           );
         }
       } catch (e) {
         if (log) {
-          Logger.debug("_TableUnpack: Error converting start index: $e");
+          Logger.debugLazy(
+            () => "_TableUnpack: Error converting start index: $e",
+          );
         }
         throw LuaError.typeError(
           "bad argument #2 to 'unpack' (number expected)",
@@ -1143,7 +1163,7 @@ class _TableUnpack extends BuiltinFunction {
     } else {
       i = 1;
       if (log) {
-        Logger.debug("_TableUnpack: Using default start index: $i");
+        Logger.debugLazy(() => "_TableUnpack: Using default start index: $i");
       }
     }
 
@@ -1151,27 +1171,33 @@ class _TableUnpack extends BuiltinFunction {
     if (args.length > 2) {
       final endArg = args[2] as Value;
       if (log) {
-        Logger.debug(
-          "_TableUnpack: End arg raw value: ${endArg.raw}, type: ${endArg.raw.runtimeType}",
+        Logger.debugLazy(
+          () =>
+              "_TableUnpack: End arg raw value: ${endArg.raw}, type: ${endArg.raw.runtimeType}",
         );
       }
       if (endArg.raw == null) {
         // nil means use table length (same as not providing the argument)
         if (log) {
-          Logger.debug("_TableUnpack: End arg is nil, getting table length");
+          Logger.debugLazy(
+            () => "_TableUnpack: End arg is nil, getting table length",
+          );
         }
         j = await getTableLength(table, context: null);
       } else {
         try {
           j = NumberUtils.toInt(endArg.raw);
           if (log) {
-            Logger.debug(
-              "_TableUnpack: Converted end index to: $j, type: ${j.runtimeType}",
+            Logger.debugLazy(
+              () =>
+                  "_TableUnpack: Converted end index to: $j, type: ${j.runtimeType}",
             );
           }
         } catch (e) {
           if (log) {
-            Logger.debug("_TableUnpack: Error converting end index: $e");
+            Logger.debugLazy(
+              () => "_TableUnpack: Error converting end index: $e",
+            );
           }
           throw LuaError.typeError(
             "bad argument #3 to 'unpack' (number expected)",
@@ -1180,14 +1206,16 @@ class _TableUnpack extends BuiltinFunction {
       }
     } else {
       if (log) {
-        Logger.debug("_TableUnpack: No end arg, getting table length");
+        Logger.debugLazy(
+          () => "_TableUnpack: No end arg, getting table length",
+        );
       }
       j = await getTableLength(table, context: null);
     }
 
     if (log) {
-      Logger.debug(
-        "_TableUnpack: i=$i (${i.runtimeType}), j=$j (${j.runtimeType})",
+      Logger.debugLazy(
+        () => "_TableUnpack: i=$i (${i.runtimeType}), j=$j (${j.runtimeType})",
       );
     }
 
@@ -1195,8 +1223,8 @@ class _TableUnpack extends BuiltinFunction {
     final int end = j;
     if (start > end) {
       if (log) {
-        Logger.debug(
-          "_TableUnpack: Empty range (i > j), returning zero values",
+        Logger.debugLazy(
+          () => "_TableUnpack: Empty range (i > j), returning zero values",
         );
       }
       return Value.multi(<dynamic>[]);
@@ -1207,8 +1235,8 @@ class _TableUnpack extends BuiltinFunction {
     final BigInt rawCount = endBig - startBig + BigInt.one;
     if (rawCount.isNegative || rawCount >= BigInt.from(NumberLimits.maxInt32)) {
       if (log) {
-        Logger.debug(
-          "_TableUnpack: count=$rawCount outside limits, throwing error",
+        Logger.debugLazy(
+          () => "_TableUnpack: count=$rawCount outside limits, throwing error",
         );
       }
       throw LuaError("too many results to unpack");
