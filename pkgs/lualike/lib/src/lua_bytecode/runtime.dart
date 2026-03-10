@@ -237,7 +237,7 @@ class LuaBytecodeRuntime implements LuaRuntime {
 
   @override
   Future<Object?> runAst(List<AstNode> program) async {
-    final chunkName = currentScriptPath ?? '=(lua_bytecode source)';
+    final chunkName = currentScriptPath ?? '=(lua_bytecode_source)';
     final ast = Program(program);
     final semanticError = validateProgramSemantics(ast);
     if (semanticError != null) {
@@ -477,14 +477,17 @@ class LuaBytecodeRuntime implements LuaRuntime {
     }
   }
 
+  @override
   void pushExternalGcRoots(Iterable<Object?> Function() provider) {
     _interpreter.pushExternalGcRoots(provider);
   }
 
+  @override
   void popExternalGcRoots(Iterable<Object?> Function() provider) {
     _interpreter.popExternalGcRoots(provider);
   }
 
+  @override
   void runAutoGcAtSafePoint() {
     if (gc.isStopped || !gc.autoTriggerEnabled) {
       return;
@@ -497,6 +500,7 @@ class LuaBytecodeRuntime implements LuaRuntime {
     gc.runPendingAutoTrigger();
   }
 
+  @override
   Future<void> runLoopGcAtSafePoint(int loopCounter) async {
     if (gc.isStopped || !gc.autoTriggerEnabled) {
       return;

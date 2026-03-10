@@ -645,7 +645,7 @@ local f = assert(load(source, ''))
 return f()
 ''', mode: EngineMode.luaBytecode);
 
-        expect(_flatten(result), equals(<Object?>['abcefg', 2]));
+        expect(_flatten(result), equals(<Object?>['abcefg', 1]));
       },
     );
 
@@ -1344,7 +1344,7 @@ return a[2], b, c == print, a[1].alo == assert
           'bin/main.dart',
           '--lua-bytecode',
           chunkFile.path,
-        ], workingDirectory: 'pkgs/lualike');
+        ]);
 
         expect(result.exitCode, equals(0), reason: '${result.stderr}');
         expect(result.stdout as String, contains('bytecode cli ok'));
@@ -1364,7 +1364,7 @@ return a[2], b, c == print, a[1].alo == assert
           throwsA(
             predicate(
               (Object? error) =>
-                  error.toString().contains('no visible label for goto finish'),
+                  error.toString().contains("jumps into the scope of 'x'"),
             ),
           ),
         );

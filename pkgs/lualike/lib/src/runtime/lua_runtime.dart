@@ -115,6 +115,10 @@ abstract interface class LuaRuntime {
   GenerationalGCManager get gc;
   List<Object?> getRoots();
   bool get shouldAbandonIncrementalCycleBeforeManualCollect;
+  void pushExternalGcRoots(Iterable<Object?> Function() provider);
+  void popExternalGcRoots(Iterable<Object?> Function() provider);
+  void runAutoGcAtSafePoint();
+  Future<void> runLoopGcAtSafePoint(int loopCounter);
 
   // IO / modules
   FileManager get fileManager;

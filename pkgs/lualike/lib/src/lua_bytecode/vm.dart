@@ -277,7 +277,7 @@ final class LuaBytecodeVm {
     final previousScriptPath = runtime.currentScriptPath;
     final previousCallStackScriptPath = runtime.callStack.scriptPath;
     final parentFrame = runtime.callStack.top;
-    (runtime as dynamic).pushActiveFrameRoots(frame);
+    runtime.pushExternalGcRoots(frame.externalGcRootProvider);
     runtime.setCurrentEnv(closure.environment);
     final activeScriptPath = closure.prototype.source ?? previousScriptPath;
     runtime.currentScriptPath = activeScriptPath;
@@ -329,7 +329,7 @@ final class LuaBytecodeVm {
       }
       rethrow;
     } finally {
-      (runtime as dynamic).popActiveFrameRoots(frame);
+      runtime.popExternalGcRoots(frame.externalGcRootProvider);
       if (!suspended && !frame.closed) {
         await frame.closeResources(fromRegister: 0);
       }
@@ -388,7 +388,7 @@ final class LuaBytecodeVm {
       _syncDebugLocals(frame);
       if (++frame.safePointCounter >= 64) {
         frame.safePointCounter = 0;
-        (runtime as dynamic).runAutoGcAtSafePoint();
+        runtime.runAutoGcAtSafePoint();
       }
       int? nextOpenTop;
       final lineNumber = prototype.lineForPc(frame.pc);
@@ -1649,6 +1649,7 @@ final class LuaBytecodeVm {
         call.callee,
         call.args,
         callName: callName,
+        callerFrame: frame,
       );
     } on LuaError catch (error) {
       if (frame != null && !runtime.isInProtectedCall) {
@@ -1795,6 +1796,7 @@ final class LuaBytecodeVm {
     List<Value> args, {
     String? callName,
     int extraArgs = 0,
+    _LuaBytecodeFrame? callerFrame,
   }) async {
     final prepared = _flattenTailCallable(callee, args);
     callee = prepared.callee;
@@ -1803,6 +1805,14 @@ final class LuaBytecodeVm {
     callee.interpreter ??= runtime;
     if (callee.raw case final LuaBytecodeClosure closure) {
       return invoke(closure, args, callName: callName, extraArgs: extraArgs);
+    }
+    if (callerFrame != null) {
+      final callerLine = callerFrame.closure.prototype.lineForPc(
+        callerFrame.pc - 1,
+      );
+      if (callerLine != null) {
+        runtime.callStack.top?.currentLine = callerLine;
+      }
     }
     runtime.callStack.push(
       callName ?? _callableName(callee),
@@ -1821,7 +1831,7 @@ final class LuaBytecodeVm {
       }
     }
 
-    (runtime as dynamic).pushExternalGcRoots(tempRootProvider);
+    runtime.pushExternalGcRoots(tempRootProvider);
     try {
       final result = await runtime.callFunction(callee, args);
       return _normalizeResults(result);
@@ -1831,7 +1841,7 @@ final class LuaBytecodeVm {
         final interpreter = returnDebugInterpreter;
         await interpreter.fireDebugHook('return');
       }
-      (runtime as dynamic).popExternalGcRoots(tempRootProvider);
+      runtime.popExternalGcRoots(tempRootProvider);
       runtime.callStack.pop();
     }
   }
@@ -2246,6 +2256,11 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
          (_) => _runtimeValue(runtime, null),
          growable: true,
        ),
+       _lastRegisterWritePc = List<int>.filled(
+         closure.prototype.maxStackSize,
+         -1,
+         growable: true,
+       ),
        varargs = <Value>[] {
     top = closure.prototype.parameterCount;
     final normalizedArgs = arguments
@@ -2275,7 +2290,9 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
   final String? callName;
   final bool isEntryFrame;
   final int extraArgs;
+  late final Iterable<Object?> Function() externalGcRootProvider = gcReferences;
   final List<Value> registers;
+  final List<int> _lastRegisterWritePc;
   final List<Value> varargs;
   PackedVarargTable? namedVarargTable;
   final List<_LuaBytecodeUpvalue> _openUpvalues = <_LuaBytecodeUpvalue>[];
@@ -2305,9 +2322,13 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
           growable: false,
         ),
       );
+      _lastRegisterWritePc.addAll(
+        List<int>.filled(index - _lastRegisterWritePc.length + 1, -1),
+      );
     }
     value.interpreter ??= runtime;
     registers[index] = value;
+    _lastRegisterWritePc[index] = pc;
     if (index + 1 > top) {
       top = index + 1;
     }
@@ -2344,16 +2365,27 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
 
   String? activeLocalName(int registerIndex) {
     final currentPc = pc;
-    for (final local in closure.prototype.localVariables.reversed) {
+    final activeLocals = <LuaBytecodeLocalVariableDebugInfo>[
+      for (final local in closure.prototype.localVariables)
+        if (local.startPc <= currentPc && currentPc < local.endPc) local,
+    ];
+
+    for (final local in activeLocals.reversed) {
       final name = local.name;
       if (name == null || name.isEmpty || name.startsWith('(')) {
         continue;
       }
-      if (local.register != registerIndex) {
-        continue;
-      }
-      if (local.startPc <= currentPc && currentPc < local.endPc) {
+      if (local.register == registerIndex) {
         return name;
+      }
+    }
+
+    if (registerIndex >= 0 && registerIndex < activeLocals.length) {
+      final fallback = activeLocals[registerIndex].name;
+      if (fallback != null &&
+          fallback.isNotEmpty &&
+          !fallback.startsWith('(')) {
+        return fallback;
       }
     }
     return null;
@@ -2386,6 +2418,9 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
             currentPc < candidate.endPc,
       );
       if (!stillActive) {
+        if (_lastRegisterWritePc[registerIndex] >= local.endPc) {
+          continue;
+        }
         registersToClear.add(registerIndex);
       }
     }
@@ -3003,7 +3038,7 @@ Future<bool> _explicitGlobalIsAlreadyDefined(
     return current != null && (current is! Value || current.raw != null);
   }
 
-  if (envValue is Value && envValue.raw != null) {
+  if (envValue.raw != null) {
     final current = await envValue.getValueAsync(name);
     return current is Value ? current.raw != null : current != null;
   }
@@ -3405,9 +3440,8 @@ Future<void> _runGcLoopSafePoint(
   LuaRuntime runtime,
   _LuaBytecodeFrame frame,
 ) async {
-  final dynamicRuntime = runtime as dynamic;
   frame.loopGcCounter += 1;
-  await dynamicRuntime.runLoopGcAtSafePoint(frame.loopGcCounter);
+  await runtime.runLoopGcAtSafePoint(frame.loopGcCounter);
 }
 
 ({bool skip, int limit}) _forIntegerLimit(

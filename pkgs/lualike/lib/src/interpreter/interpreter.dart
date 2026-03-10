@@ -666,12 +666,39 @@ class Interpreter extends AstVisitor<Object?>
     ];
   }
 
+  @override
   void pushExternalGcRoots(Iterable<Object?> Function() provider) {
     _externalGcRootProviders.add(provider);
   }
 
+  @override
   void popExternalGcRoots(Iterable<Object?> Function() provider) {
     _externalGcRootProviders.remove(provider);
+  }
+
+  @override
+  void runAutoGcAtSafePoint() {
+    if (gc.isStopped || !gc.autoTriggerEnabled) {
+      return;
+    }
+    final threshold = gc.autoTriggerDebtThreshold;
+    final debt = gc.allocationDebt;
+    if (debt < threshold) {
+      return;
+    }
+    gc.runPendingAutoTrigger();
+  }
+
+  @override
+  Future<void> runLoopGcAtSafePoint(int loopCounter) async {
+    if (gc.isStopped || !gc.autoTriggerEnabled) {
+      return;
+    }
+    final debt = gc.allocationDebt;
+    if (debt <= 0) {
+      return;
+    }
+    runAutoGcAtSafePoint();
   }
 
   int get externalGcRootProviderCount => _externalGcRootProviders.length;

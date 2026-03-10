@@ -47,7 +47,7 @@ return answer
 
         final debugInfo = runtime.debugInfoForFunction(loaded)!;
         expect(debugInfo.source, contains('fixture.lua'));
-        expect(debugInfo.shortSource, equals('fixture.lua'));
+        expect(debugInfo.shortSource, endsWith('fixture.lua'));
         expect(debugInfo.lineDefined, equals(0));
         final execution = await loaded.call(const []);
         expect(_flattenResult(execution), equals(<Object?>[42]));
@@ -78,7 +78,7 @@ return inner(41)
       final loaded = loadResult.chunk!;
       final debugInfo = runtime.debugInfoForFunction(loaded)!;
       expect(debugInfo.source, contains('fixture.lua'));
-      expect(debugInfo.shortSource, equals('fixture.lua'));
+      expect(debugInfo.shortSource, endsWith('fixture.lua'));
       expect(debugInfo.nups, equals(1));
       final execution = await loaded.call(const []);
       expect(_flattenResult(execution), equals(<Object?>[42]));

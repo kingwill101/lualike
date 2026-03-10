@@ -216,37 +216,34 @@ t = { a = { b = { base = 4 } } }
       expect(parsed.mainPrototype.prototypes.last.parameterCount, equals(2));
     });
 
-    test(
-      'fails explicitly for unsupported goto visibility',
-      () {
-        expect(
-          () => const LuaBytecodeEmitter().compileSource(
-            'goto finish; local x = 1; ::finish:: return x',
+    test('fails explicitly for unsupported goto visibility', () {
+      expect(
+        () => const LuaBytecodeEmitter().compileSource(
+          'goto finish; local x = 1; ::finish:: return x',
+        ),
+        throwsA(
+          predicate(
+            (Object? error) =>
+                error is UnsupportedError &&
+                error.message.toString().contains(
+                  "jumps into the scope of 'x'",
+                ),
           ),
-          throwsA(
-            predicate(
-              (Object? error) =>
-                  error is UnsupportedError &&
-                  error.message.toString().contains(
-                    'no visible label for goto finish',
-                  ),
-            ),
+        ),
+      );
+      expect(
+        () => const LuaBytecodeEmitter().compileSource('goto missing'),
+        throwsA(
+          predicate(
+            (Object? error) =>
+                error is UnsupportedError &&
+                error.message.toString().contains(
+                  "no visible label 'missing' for <goto>",
+                ),
           ),
-        );
-        expect(
-          () => const LuaBytecodeEmitter().compileSource('goto missing'),
-          throwsA(
-            predicate(
-              (Object? error) =>
-                  error is UnsupportedError &&
-                  error.message.toString().contains(
-                    'no visible label for goto missing',
-                  ),
-            ),
-          ),
-        );
-      },
-    );
+        ),
+      );
+    });
 
     test(
       'tracks relevant luac control-flow opcodes where meaningful',
@@ -392,13 +389,18 @@ return i
           ),
         );
 
-        final functionNameFixture = _compileFixture(luacBinary, functionNameSource);
+        final functionNameFixture = _compileFixture(
+          luacBinary,
+          functionNameSource,
+        );
         final emittedFunctionName = const LuaBytecodeEmitter().compileSource(
           functionNameSource,
           chunkName: functionNameFixture.sourcePath,
         );
         final emittedFunctionNameSections = <List<String>>[
-          opcodeNames(const LuaBytecodeParser().parse(emittedFunctionName.bytes)),
+          opcodeNames(
+            const LuaBytecodeParser().parse(emittedFunctionName.bytes),
+          ),
           ...childOpcodeNames(
             const LuaBytecodeParser().parse(emittedFunctionName.bytes),
           ),

@@ -231,6 +231,26 @@ class LualikeIrRuntime implements LuaRuntime {
   bool get shouldAbandonIncrementalCycleBeforeManualCollect => false;
 
   @override
+  void pushExternalGcRoots(Iterable<Object?> Function() provider) {
+    _interpreter.pushExternalGcRoots(provider);
+  }
+
+  @override
+  void popExternalGcRoots(Iterable<Object?> Function() provider) {
+    _interpreter.popExternalGcRoots(provider);
+  }
+
+  @override
+  void runAutoGcAtSafePoint() {
+    _interpreter.runAutoGcAtSafePoint();
+  }
+
+  @override
+  Future<void> runLoopGcAtSafePoint(int loopCounter) {
+    return _interpreter.runLoopGcAtSafePoint(loopCounter);
+  }
+
+  @override
   FileManager get fileManager => _interpreter.fileManager;
 
   @override
