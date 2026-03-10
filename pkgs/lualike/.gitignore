@@ -18,6 +18,14 @@ test_*.lua
 build/
 .kiro/
 lualike
+lualikebc
 test_runner
+test_runnerbc
+tmp/
+bin/tmp/
+tool/test_runner_dbg
+bin/lualike_bytecode
+bin/lualike_dbg
+bin/lualike_dbg2
 
 benchmarks/
