@@ -13,6 +13,7 @@ const _scenarioNames = <String>{
   'calls',
   'gc',
   'math',
+  'nextvar',
   'sort',
   'all',
 };
@@ -40,11 +41,7 @@ Future<void> main(List<String> args) async {
       help: 'Warmup iterations before measured runs.',
       defaultsTo: '1',
     )
-    ..addOption(
-      'repeat',
-      help: 'Measured iterations to run.',
-      defaultsTo: '1',
-    )
+    ..addOption('repeat', help: 'Measured iterations to run.', defaultsTo: '1')
     ..addOption(
       'wait-seconds',
       help: 'Optional delay before running to let DevTools attach.',
@@ -70,12 +67,7 @@ Future<void> main(List<String> args) async {
       help: 'Enable _port mode for Lua test scenarios.',
       defaultsTo: true,
     )
-    ..addFlag(
-      'help',
-      abbr: 'h',
-      help: 'Print usage.',
-      negatable: false,
-    );
+    ..addFlag('help', abbr: 'h', help: 'Print usage.', negatable: false);
 
   final parsed = parser.parse(args);
   if (parsed['help'] as bool) {
@@ -104,14 +96,17 @@ Future<void> main(List<String> args) async {
   LuaLikeConfig().dumpIr = false;
 
   final profileTask = developer.TimelineTask(filterKey: 'lualike.profile');
-  profileTask.start('lualike-profile', arguments: {
-    'scenario': scenarioName,
-    'engine': engineName,
-    'warmup': warmup,
-    'repeat': repeat,
-    'soft': soft,
-    'port': port,
-  });
+  profileTask.start(
+    'lualike-profile',
+    arguments: {
+      'scenario': scenarioName,
+      'engine': engineName,
+      'warmup': warmup,
+      'repeat': repeat,
+      'soft': soft,
+      'port': port,
+    },
+  );
 
   try {
     await _printServiceInfo(waitSeconds);
@@ -126,7 +121,9 @@ Future<void> main(List<String> args) async {
       'constructs-short-circuit' => [
         _constructsShortCircuitScenario(level: constructLevel),
       ],
-      _ => [_makeScriptScenario(packageRoot, scenarioName, soft: soft, port: port)],
+      _ => [
+        _makeScriptScenario(packageRoot, scenarioName, soft: soft, port: port),
+      ],
     };
 
     io_abs.stdout.writeln(
@@ -197,10 +194,10 @@ Future<void> _runScenarioSet(
   for (final scenario in scenarios) {
     final task = developer.TimelineTask(filterKey: 'lualike.profile');
     final stopwatch = Stopwatch()..start();
-    task.start('scenario:${scenario.name}', arguments: {
-      'iteration': iterationLabel,
-      'measured': measured,
-    });
+    task.start(
+      'scenario:${scenario.name}',
+      arguments: {'iteration': iterationLabel, 'measured': measured},
+    );
     try {
       io_abs.stdout.writeln('  -> ${scenario.name}');
       await scenario.run();
@@ -213,12 +210,14 @@ Future<void> _runScenarioSet(
         '     ${elapsedMs.toStringAsFixed(2)} ms '
         '(rss ${rssMiB.toStringAsFixed(1)} MiB)',
       );
-      task.finish(arguments: {
-        'iteration': iterationLabel,
-        'measured': measured,
-        'elapsed_ms': elapsedMs,
-        'rss': platform.currentRssBytes,
-      });
+      task.finish(
+        arguments: {
+          'iteration': iterationLabel,
+          'measured': measured,
+          'elapsed_ms': elapsedMs,
+          'rss': platform.currentRssBytes,
+        },
+      );
     }
   }
 }
@@ -234,11 +233,7 @@ Future<String> _findPackageRoot() async {
     }
     final nestedPackage = path.join(current, 'pkgs', 'lualike');
     final nestedPubspec = path.join(nestedPackage, 'pubspec.yaml');
-    final nestedLuascripts = path.join(
-      nestedPackage,
-      'luascripts',
-      'test',
-    );
+    final nestedLuascripts = path.join(nestedPackage, 'luascripts', 'test');
     if (await fs.fileExists(nestedPubspec) &&
         await fs.directoryExists(nestedLuascripts)) {
       return nestedPackage;
@@ -261,30 +256,28 @@ _ProfileScenario _makeScriptScenario(
 }) {
   final scriptPath = path.join(packageRoot, 'luascripts', 'test', '$name.lua');
 
-  return _ProfileScenario(
-    name,
-    () async {
-      if (!await fs.fileExists(scriptPath)) {
-        throw ArgumentError.value(name, 'scenario', 'Unknown script scenario');
-      }
-      final scriptSource = await fs.readFileAsString(scriptPath);
-      if (scriptSource == null) {
-        throw StateError('Could not read scenario source at $scriptPath');
-      }
-      final lua = LuaLike();
-      _installTimelineHelpers(lua);
-      final source = StringBuffer();
-      source.writeln(port ? '_port = true' : '_port = false');
-      source.writeln(soft ? '_soft = true' : '_soft = false');
-      source.writeln("package.path = 'luascripts/test/?.lua;' .. package.path");
-      source.write(scriptSource);
-      await lua.execute(source.toString(), scriptPath: scriptPath);
-    },
-  );
+  return _ProfileScenario(name, () async {
+    if (!await fs.fileExists(scriptPath)) {
+      throw ArgumentError.value(name, 'scenario', 'Unknown script scenario');
+    }
+    final scriptSource = await fs.readFileAsString(scriptPath);
+    if (scriptSource == null) {
+      throw StateError('Could not read scenario source at $scriptPath');
+    }
+    final lua = LuaLike();
+    _installTimelineHelpers(lua);
+    final source = StringBuffer();
+    source.writeln(port ? '_port = true' : '_port = false');
+    source.writeln(soft ? '_soft = true' : '_soft = false');
+    source.writeln("package.path = 'luascripts/test/?.lua;' .. package.path");
+    source.write(scriptSource);
+    await lua.execute(source.toString(), scriptPath: scriptPath);
+  });
 }
 
 _ProfileScenario _constructsShortCircuitScenario({required int level}) {
-  final source = '''
+  final source =
+      '''
 _soft = true
 _ENV.GLOB1 = 0
 
@@ -349,14 +342,11 @@ end
 dart_mark("constructs:loadloop:end")
 ''';
 
-  return _ProfileScenario(
-    'constructs-short-circuit',
-    () async {
-      final lua = LuaLike();
-      _installTimelineHelpers(lua);
-      await lua.execute(source, scriptPath: '<profile:constructs-short-circuit>');
-    },
-  );
+  return _ProfileScenario('constructs-short-circuit', () async {
+    final lua = LuaLike();
+    _installTimelineHelpers(lua);
+    await lua.execute(source, scriptPath: '<profile:constructs-short-circuit>');
+  });
 }
 
 void _installTimelineHelpers(LuaLike lua) {

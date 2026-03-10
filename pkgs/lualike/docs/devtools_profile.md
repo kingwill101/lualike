@@ -38,6 +38,7 @@ representative of the suite and may fail before the measured region starts.
 ## Useful Flags
 
 - `--scenario=math`
+- `--scenario=nextvar`
 - `--engine=ast|ir`
 - `--warmup=N`
 - `--repeat=N`
