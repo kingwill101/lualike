@@ -167,7 +167,7 @@ class SetMetatableFunction extends BuiltinFunction {
         final rawMeta = Map.castFrom<dynamic, dynamic, String, dynamic>(
           metatable.raw as Map,
         );
-        table.setMetatable(rawMeta);
+        table.setMetatable(rawMeta, ownerRaw: metatable.raw);
         if (Logger.enabled) {
           final mode = rawMeta['__mode'];
           Logger.debug(
@@ -632,7 +632,13 @@ class ErrorFunction extends BuiltinFunction {
       Coroutine.active?.captureCurrentCallStack();
       interpreter?.getCurrentCoroutine()?.captureCurrentCallStack();
       // Let the interpreter handle the error reporting with proper stack trace
-      final luaError = LuaError(message);
+      final luaError = LuaError(
+        message,
+        cause:
+            errorValue.raw is String || errorValue.raw is LuaString
+                ? null
+                : errorValue.raw,
+      );
       interpreter!.reportError(message, error: luaError);
       // This will never be reached, but needed for type safety
       throw luaError;
@@ -1091,7 +1097,7 @@ class SetmetaFunction extends BuiltinFunction {
         }
       });
       table.metatableRef = meta;
-      table.setMetatable(rawMeta);
+      table.setMetatable(rawMeta, ownerRaw: meta.raw);
       Logger.debug(
         "Metatable set. Weak mode now ${table.tableWeakMode}",
         category: 'Metatables',
@@ -1485,10 +1491,6 @@ class PCAllFunction extends BuiltinFunction {
     final func = args[0] as Value;
     final callArgs = args.sublist(1);
 
-    // Set non-yieldable state for this protected call
-    final previousYieldable = interpreter!.isYieldable;
-    interpreter!.isYieldable = false;
-
     // Enter protected call context
     interpreter!.enterProtectedCall();
 
@@ -1515,6 +1517,8 @@ class PCAllFunction extends BuiltinFunction {
         normalizedArgs,
       );
       return _packProtectedCallSuccess(awaitedResult);
+    } on CoroutineCloseSignal {
+      rethrow;
     } on YieldException catch (error) {
       _installProtectedCallContinuation(interpreter!, error);
       rethrow;
@@ -1527,9 +1531,6 @@ class PCAllFunction extends BuiltinFunction {
     } finally {
       // Exit protected call context
       interpreter!.exitProtectedCall();
-
-      // Restore previous yieldable state
-      interpreter!.isYieldable = previousYieldable;
     }
   }
 }
@@ -1626,9 +1627,6 @@ class XPCallFunction extends BuiltinFunction {
       );
     }
 
-    // Set protected-call flags similar to pcall
-    final previousYieldable = interpreter!.isYieldable;
-    interpreter!.isYieldable = false;
     interpreter!.enterProtectedCall();
 
     try {
@@ -1648,6 +1646,8 @@ class XPCallFunction extends BuiltinFunction {
         normalizedArgs,
       );
       return _packProtectedCallSuccess(awaitedResult);
+    } on CoroutineCloseSignal {
+      rethrow;
     } on YieldException catch (error) {
       _installProtectedCallContinuation(
         interpreter!,
@@ -1672,7 +1672,6 @@ class XPCallFunction extends BuiltinFunction {
     } finally {
       // Exit protected-call context and restore state
       interpreter!.exitProtectedCall();
-      interpreter!.isYieldable = previousYieldable;
     }
   }
 }
@@ -1704,26 +1703,13 @@ class CollectGarbageFunction extends BuiltinFunction {
             // re-entrancy (the finalizer may attempt another collect).
             return Value(false);
           }
-          if (gcManager.isCycleActive) {
-            if (shouldAbandonIncrementalCycle) {
-              gcManager.abandonIncrementalCycleForMajorCollect();
-              if (Logger.enabled) {
-                Logger.debug(
-                  'collectgarbage("collect") abandoned incremental cycle before manual collect',
-                  category: 'Base',
-                );
-              }
-            } else {
-              final drained = gcManager.drainCurrentIncrementalCycle(
-                maxIterations: 8192,
-                stepSize: 512,
+          if (gcManager.isCycleActive && shouldAbandonIncrementalCycle) {
+            gcManager.abandonIncrementalCycleForMajorCollect();
+            if (Logger.enabled) {
+              Logger.debug(
+                'collectgarbage("collect") abandoned incremental cycle before manual collect',
+                category: 'Base',
               );
-              if (!drained && Logger.enabled) {
-                Logger.debug(
-                  'collectgarbage("collect") could not drain incremental cycle before manual collect (phase=${gcManager.currentPhase})',
-                  category: 'Base',
-                );
-              }
             }
           }
           if (insideSortComparator && gcManager.shouldThrottleManualCollect()) {
@@ -1992,6 +1978,30 @@ class RequireFunction extends BuiltinFunction {
   RequireFunction(super.interpreter, this.packageTable);
 
   final Value packageTable;
+  static const List<String> _standardLibs = [
+    "string",
+    "table",
+    "math",
+    "io",
+    "os",
+    "debug",
+    "utf8",
+    "coroutine",
+  ];
+
+  Value? _resolveStandardLibrary(String moduleName) {
+    if (!_standardLibs.contains(moduleName)) {
+      return null;
+    }
+    final initialized = interpreter!.libraryRegistry.initializeLibraryByName(
+      moduleName,
+    );
+    if (initialized != null) {
+      return initialized;
+    }
+    final globalLib = interpreter!.globals.get(moduleName);
+    return globalLib is Value ? globalLib : null;
+  }
 
   @override
   Future<Object?> call(List<Object?> args) async {
@@ -1999,6 +2009,15 @@ class RequireFunction extends BuiltinFunction {
     final moduleName = (args[0] as Value).raw.toString();
 
     Logger.debug("Looking for module '$moduleName'", category: 'Require');
+
+    final standardLibrary = _resolveStandardLibrary(moduleName);
+    if (standardLibrary != null) {
+      Logger.debug(
+        "Resolved standard library module '$moduleName'",
+        category: 'Require',
+      );
+      return standardLibrary;
+    }
 
     // Get package.loaded table first to check for standard library modules
     if (packageTable.raw is Map) {
@@ -2018,29 +2037,6 @@ class RequireFunction extends BuiltinFunction {
             }
           }
         }
-      }
-    }
-
-    // Check for standard library modules by looking at global variables
-    // This ensures that require("string") == string, etc.
-    final standardLibs = [
-      "string",
-      "table",
-      "math",
-      "io",
-      "os",
-      "debug",
-      "utf8",
-      "coroutine",
-    ];
-    if (standardLibs.contains(moduleName)) {
-      final globalLib = interpreter!.globals.get(moduleName);
-      if (globalLib != null) {
-        Logger.debug(
-          "Found standard library module '$moduleName' in globals",
-          category: 'Require',
-        );
-        return globalLib;
       }
     }
 

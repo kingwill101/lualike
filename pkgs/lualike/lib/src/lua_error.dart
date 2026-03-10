@@ -119,7 +119,7 @@ class LuaError implements Exception {
       buffer.write(luaStackTrace!.format());
     }
 
-    if (cause != null && cause != this) {
+    if (cause != null && cause != this && cause.toString() != message) {
       buffer.writeln();
       buffer.write('Caused by: $cause');
     }

@@ -432,78 +432,11 @@ class PackageLibrary extends Library {
       packageTable[key] = value;
     });
 
-    // Define require function globally
-    context.define('require', RequireFunction(interpreter!));
-
     // Define package table globally
     context.define(
       'package',
       Value(packageTable, metatable: packageLib.packageClass.metamethods),
     );
-  }
-}
-
-class RequireFunction extends BuiltinFunction {
-  RequireFunction(super.interpreter);
-
-  @override
-  Future<Object?> call(List<Object?> args) async {
-    if (args.isEmpty) {
-      throw LuaError('require expects a module name');
-    }
-
-    final name = (args[0] as Value).raw.toString();
-
-    // Get package.loaded table
-    final packageTable = interpreter!.globals.get('package');
-    if (packageTable is Value && packageTable.raw is Map) {
-      final packageMap = packageTable.raw as Map;
-      final loadedTable = packageMap['loaded'];
-
-      if (loadedTable is Value && loadedTable.raw is Map) {
-        final loadedMap = loadedTable.raw as Map;
-
-        // Check if module is already loaded
-        if (loadedMap.containsKey(name)) {
-          return loadedMap[name];
-        }
-
-        // Try to load module using searchers
-        final searchersValue = packageMap['searchers'];
-        if (searchersValue is Value && searchersValue.raw is List) {
-          final searchers = searchersValue.raw as List;
-
-          for (final searcher in searchers) {
-            if (searcher is Value) {
-              try {
-                final result = await interpreter!.callFunction(searcher, [
-                  Value(name),
-                ]);
-                if (result is List && result.isNotEmpty && result[0] is Value) {
-                  final loader = result[0] as Value;
-                  if (loader.raw != null) {
-                    // Call the loader
-                    final moduleResult = await interpreter!.callFunction(
-                      loader,
-                      [Value(name)],
-                    );
-
-                    // Store in loaded table
-                    loadedMap[name] = moduleResult ?? Value(true);
-                    return loadedMap[name];
-                  }
-                }
-              } catch (e) {
-                // Continue to next searcher
-                continue;
-              }
-            }
-          }
-        }
-      }
-    }
-
-    throw LuaError("module '$name' not found");
   }
 }
 

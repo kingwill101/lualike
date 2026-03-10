@@ -816,7 +816,21 @@ class Environment extends GCObject {
       category: 'Env',
     );
 
-    var currentError = error;
+    dynamic normalizeCloseError(dynamic error) {
+      if (error case final LuaError luaError
+          when luaError.cause != null && luaError.cause is! LuaError) {
+        return luaError.cause;
+      }
+      if (error case final Value value when value.raw is LuaError) {
+        final luaError = value.raw as LuaError;
+        if (luaError.cause != null && luaError.cause is! LuaError) {
+          return luaError.cause;
+        }
+      }
+      return error;
+    }
+
+    var currentError = normalizeCloseError(error);
     var closeErrorSeen = false;
 
     // Close variables in reverse order of declaration. Remove the variable
@@ -840,7 +854,7 @@ class Environment extends GCObject {
           rethrow;
         } catch (e) {
           Logger.debug("Error closing variable '$name': $e", category: 'Env');
-          currentError = e;
+          currentError = normalizeCloseError(e);
           closeErrorSeen = true;
         }
       }
@@ -964,6 +978,13 @@ class Environment extends GCObject {
 }
 
 bool _tryFastReplaceBoxValue(Box<dynamic> box, dynamic incoming) {
+  bool isFastReplacePayload(Object? raw) =>
+      raw == null ||
+      raw is num ||
+      raw is bool ||
+      raw is String ||
+      raw is LuaString;
+
   if (incoming is! Value) {
     return false;
   }
@@ -983,8 +1004,11 @@ bool _tryFastReplaceBoxValue(Box<dynamic> box, dynamic incoming) {
   if (incoming.upvalues != null || existing.upvalues != null) {
     return false;
   }
+  if (!isFastReplacePayload(existing.raw)) {
+    return false;
+  }
   final raw = incoming.raw;
-  if (raw is Map || raw is List || raw is TableStorage || raw is Function) {
+  if (!isFastReplacePayload(raw)) {
     return false;
   }
 

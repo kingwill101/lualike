@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:lualike/lualike.dart';
+import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/gc/gc.dart';
 import 'package:lualike/src/gc/gc_weights.dart';
 import 'package:lualike/src/gc/gc_access.dart';
@@ -260,6 +261,70 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// already freed but we still need to honor semantics for this cycle.
   bool get cachedHasWeakValues => _cachedWeakMode?.contains('v') ?? false;
 
+  static String? _weakModeFromMetatableMap(Map<String, dynamic>? mt) {
+    if (mt == null) return null;
+    dynamic mode = mt['__mode'];
+    if (mode is Value) {
+      mode = mode.raw;
+    }
+    if (mode == null) return null;
+    final modeStr = switch (mode) {
+      final LuaString luaString => luaString.toString(),
+      final String string => string,
+      _ => mode.toString(),
+    };
+    if (modeStr.contains('k') && modeStr.contains('v')) return 'kv';
+    if (modeStr.contains('k')) return 'k';
+    if (modeStr.contains('v')) return 'v';
+    return null;
+  }
+
+  static String? weakModeForTableObject(Object? table) {
+    if (table is Value) {
+      return table.tableWeakMode ?? table._cachedWeakMode;
+    }
+    if (table is! Map) return null;
+
+    final registered = _weakModeFromMetatableMap(_tableMetatables[table]);
+    if (registered != null) return registered;
+
+    final canonical = _lookupTableIdentity(table);
+    if (canonical != null) {
+      return canonical.tableWeakMode ?? canonical._cachedWeakMode;
+    }
+
+    return null;
+  }
+
+  static bool tableObjectHasWeakValues(Object? table) =>
+      weakModeForTableObject(table)?.contains('v') ?? false;
+
+  static Object? rawMetatableOwnerForTable(Object? table) {
+    if (table is! Map) return null;
+    try {
+      return _tableMetatableOwners[table];
+    } catch (_) {
+      return null;
+    }
+  }
+
+  bool get metatableOwnerHasWeakValues {
+    if (isTable) {
+      final rawOwner = rawMetatableOwnerForTable(raw);
+      if (rawOwner != null && tableObjectHasWeakValues(rawOwner)) {
+        return true;
+      }
+    }
+    final ownerMap = getMetatable();
+    if (ownerMap != null && tableObjectHasWeakValues(ownerMap)) {
+      return true;
+    }
+    if (metatableRef != null && tableObjectHasWeakValues(metatableRef)) {
+      return true;
+    }
+    return false;
+  }
+
   /// Set the raw value with attribute enforcement
   set raw(dynamic value) {
     if (isConst && _isInitialized) {
@@ -355,6 +420,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       Expando<TableStorage>('canonicalTableStorage');
   static final Expando<Map<String, dynamic>> _tableMetatables =
       Expando<Map<String, dynamic>>('tableMetatables');
+  static final Expando<Object> _tableMetatableOwners =
+      Expando<Object>('tableMetatableOwners');
   // Tracks total credits for string-like keys stored in the underlying Map.
   static final Expando<int> _tableStringKeyBytes = Expando<int>(
     'tableStringKeyBytes',
@@ -689,7 +756,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// Sets a new metatable for this value.
   ///
   /// [mt] - The new metatable to associate with this value.
-  void setMetatable(Map<String, dynamic> mt) {
+  void setMetatable(Map<String, dynamic> mt, {Object? ownerRaw}) {
     metatable = mt;
     finalizerEligible = mt.containsKey('__gc');
     // Cache weak mode string for later semantics checks even if this
@@ -723,6 +790,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     if (raw is Map) {
       try {
         _tableMetatables[raw as Map] = mt;
+        _tableMetatableOwners[raw as Map] = ownerRaw ?? mt;
       } catch (_) {}
     }
     final gcLocal3 = GCAccess.fromValue(this);
@@ -742,70 +810,28 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       // __mode = 'v'), then a GC cycle may have logically cleared this entry
       // even if the raw map still contains it. Respect that by treating
       // unmarked GC values as absent when the owner metatable has weak values.
-      if (metatableRef is Value) {
-        final owner = metatableRef as Value;
-        bool ownerWeakV =
-            owner.isTable && (owner.hasWeakValues || owner.cachedHasWeakValues);
-        if (!ownerWeakV && owner.isTable && owner.metatable == null) {
-          // Fallback: inspect owner's metatableRef raw map for '__mode' even
-          // if the live metatable is gone (e.g., freed earlier in GC). Keys
-          // may be LuaString or Value-wrapped strings.
-          try {
-            final meta = owner.metatableRef;
-            if (meta is Value && meta.raw is Map) {
-              final m = meta.raw as Map;
-              dynamic rawMode = m['__mode'];
-              if (rawMode == null) {
-                for (final k in m.keys) {
-                  String? ks;
-                  if (k is LuaString) {
-                    ks = k.toString();
-                  } else if (k is Value) {
-                    final kr = k.raw;
-                    if (kr is LuaString) {
-                      ks = kr.toString();
-                    } else if (kr is String) {
-                      ks = kr;
-                    }
-                  }
-                  if (ks == '__mode') {
-                    rawMode = m[k];
-                    break;
-                  }
-                }
-              }
-              String modeStr;
-              if (rawMode is LuaString) {
-                modeStr = rawMode.toString();
-              } else if (rawMode is Value) {
-                modeStr = rawMode.raw?.toString() ?? '';
-              } else {
-                modeStr = rawMode?.toString() ?? '';
-              }
-              if (modeStr.contains('v')) ownerWeakV = true;
-            }
-          } catch (_) {}
-        }
-        if (ownerWeakV) {
+      if (metatableOwnerHasWeakValues) {
+        final owner = metatableRef;
+        if (owner is Value) {
           if (Logger.enabled && event == '__gc') {
             Logger.debug(
-              'getMetamethod("__gc"): owner=${owner.hashCode} weakMode=${owner.tableWeakMode} methodType=${method.runtimeType}',
+              'getMetamethod("__gc"): owner=${owner.hashCode} weakMode=${weakModeForTableObject(owner) ?? weakModeForTableObject(getMetatable())} methodType=${method.runtimeType}',
               category: 'GC',
             );
           }
-          // For __gc specifically, weak-values metatables should not drive
-          // finalization; Lua tests rely on this pattern to ensure that
-          // setting __gc under a weak-values metatable does not run.
-          if (event == '__gc') {
+        }
+        // For __gc specifically, weak-values metatables should not drive
+        // finalization; Lua tests rely on this pattern to ensure that
+        // setting __gc under a weak-values metatable does not run.
+        if (event == '__gc') {
+          return null;
+        }
+        if (method is Value) {
+          if (!method.isPrimitiveLike && (!method.marked || method.isFreed)) {
             return null;
           }
-          if (method is Value) {
-            if (!method.isPrimitiveLike && (!method.marked || method.isFreed)) {
-              return null;
-            }
-          } else if (method is GCObject) {
-            if (!method.marked) return null;
-          }
+        } else if (method is GCObject) {
+          if (!method.marked) return null;
         }
       }
       return method;
@@ -2579,6 +2605,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       refs.add(raw);
     } else if (raw is GCObject) {
       refs.add(raw);
+    } else if (raw is BuiltinFunctionGcRefs) {
+      refs.addAll(raw.getGcReferences());
     } else if (raw is List) {
       // Value containing a List - traverse list items
       for (final item in raw as List) {

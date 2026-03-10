@@ -32,14 +32,20 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     return value;
   }
 
+  Object? _snapshotAssignmentResult(Object? value) {
+    if (value is Value) {
+      return _detachPrimitiveValue(value);
+    }
+    return value;
+  }
+
   Value _cloneValueForLocalBinding(
     Value value, {
     bool isConst = false,
     bool isToBeClose = false,
   }) {
-    return Value(
+    final cloned = Value(
       value.raw,
-      metatable: value.metatable,
       isConst: isConst,
       isToBeClose: isToBeClose,
       upvalues: value.upvalues,
@@ -50,6 +56,57 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       debugLineDefined: value.debugLineDefined,
       strippedDebugInfo: value.strippedDebugInfo,
     );
+    if (value.metatable != null) {
+      cloned.setMetatable(
+        value.metatable!,
+        ownerRaw:
+            Value.rawMetatableOwnerForTable(value.raw) ??
+            value.metatableRef?.raw ??
+            value.metatable,
+      );
+    }
+    cloned.metatableRef = value.metatableRef;
+    return cloned;
+  }
+
+  bool _updateActiveFunctionLocal(
+    String name,
+    dynamic value,
+    Interpreter interpreter,
+  ) {
+    final currentFunction = interpreter.getCurrentFunction();
+    if (currentFunction == null) {
+      return globals.updateLocal(name, value);
+    }
+
+    final closureBoundary = currentFunction.closureEnvironment;
+    Environment? current = interpreter.getCurrentEnv();
+    while (current != null && !identical(current, closureBoundary)) {
+      final box = current.values[name];
+      if (box != null && box.isLocal) {
+        final currentValue = box.value;
+        if (currentValue is Value &&
+            (currentValue.isConst || currentValue.isToBeClose)) {
+          throw LuaError("attempt to assign to const variable '$name'");
+        }
+        box.value = value;
+        return true;
+      }
+      current = current.parent;
+    }
+
+    final closureBox = closureBoundary?.values[name];
+    if (closureBox != null && closureBox.isLocal) {
+      final currentValue = closureBox.value;
+      if (currentValue is Value &&
+          (currentValue.isConst || currentValue.isToBeClose)) {
+        throw LuaError("attempt to assign to const variable '$name'");
+      }
+      closureBox.value = value;
+      return true;
+    }
+
+    return false;
   }
 
   /// Handles assignment to a variable.
@@ -117,16 +174,16 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           // Extract only the first value from multi-value
           var multiValues = value.raw as List;
           if (multiValues.isNotEmpty) {
-            expressions.add(multiValues.first);
+            expressions.add(_snapshotAssignmentResult(multiValues.first));
           } else {
             expressions.add(Value(null));
           }
         } else if (value is List && value.isNotEmpty) {
           // Take only the first value
-          expressions.add(value.first);
+          expressions.add(_snapshotAssignmentResult(value.first));
         } else {
           // Regular value, add directly
-          expressions.add(value);
+          expressions.add(_snapshotAssignmentResult(value));
         }
       } else if (value is List) {
         if (expr is TableConstructor && value.isEmpty) {
@@ -138,7 +195,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           );
           expressions.add(tableValue);
         } else {
-          expressions.addAll(value);
+          expressions.addAll(value.map(_snapshotAssignmentResult));
         }
       } else if (value is Value && value.isMulti) {
         // For multi-value expressions (like varargs or function calls):
@@ -163,7 +220,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
             category: 'Assignment',
             context: {'exprIndex': i, 'totalValues': multiValues.length},
           );
-          expressions.add(firstValue);
+          expressions.add(_snapshotAssignmentResult(firstValue));
         }
       } else if (expr is TableAccessExpr &&
           value is Value &&
@@ -176,7 +233,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         );
         expressions.add(ValueClass.table());
       } else {
-        expressions.add(value);
+        expressions.add(_snapshotAssignmentResult(value));
       }
       if (expressions.isNotEmpty) {
         Logger.debug(
@@ -225,7 +282,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           indexVal = vals.isNotEmpty ? vals[0] : Value(null);
         }
         preTables.add(tableVal as Value?);
-        preIndices.add(indexVal);
+        preIndices.add(_snapshotAssignmentResult(indexVal));
       } else {
         preTables.add(null);
         preIndices.add(null);
@@ -501,6 +558,21 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         env = env.parent;
       }
 
+      final currentFunc = interpreter.getCurrentFunction();
+      final upvalueAssigned = UpvalueAssignmentHandler.tryAssignToUpvalue(
+        name,
+        storedValue,
+        currentFunc,
+      );
+      if (upvalueAssigned) {
+        Logger.debug(
+          'Assignment: $name updated via upvalue in custom _ENV context',
+          category: 'Assignment',
+          context: {'name': name},
+        );
+        return storedValue;
+      }
+
       final envTarget = envValue;
       if (envTarget == null || envTarget.raw == null) {
         throw LuaError(
@@ -543,7 +615,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     // Step 1: Check if this is a local variable assignment
     // updateLocal() searches only for variables with isLocal=true and updates
     // the first one found. Returns true if a local was updated.
-    if (globals.updateLocal(name, storedValue)) {
+    if (_updateActiveFunctionLocal(name, storedValue, interpreter)) {
       Logger.debugLazy(
         () => 'Updated local variable: $name',
         category: 'Assignment',
@@ -554,7 +626,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
     // Step 2: Check if this is an upvalue assignment
     // Only check upvalues after local variables have been ruled out
-    final currentFunc = (this as Interpreter).getCurrentFunction();
+    final currentFunc = interpreter.getCurrentFunction();
     final upvalueAssigned = UpvalueAssignmentHandler.tryAssignToUpvalue(
       name,
       storedValue,
@@ -874,7 +946,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     void updateFastLocalBinding(String name) {
       if (this is Interpreter) {
         final fastLocals = (this as Interpreter).getCurrentFastLocals();
-        if (fastLocals != null && fastLocals.containsKey(name)) {
+        if (fastLocals != null) {
           final box = globals.values[name];
           if (box != null) {
             fastLocals[name] = box;

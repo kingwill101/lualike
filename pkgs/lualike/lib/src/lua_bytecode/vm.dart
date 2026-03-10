@@ -383,6 +383,7 @@ final class LuaBytecodeVm {
   Future<List<Value>> _executeFrame(_LuaBytecodeFrame frame) async {
     final prototype = frame.closure.prototype;
     while (frame.pc < prototype.code.length) {
+      frame.expireDeadLocals();
       _syncCurrentCoroutine();
       _syncDebugLocals(frame);
       if (++frame.safePointCounter >= 64) {
@@ -2356,6 +2357,49 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
       }
     }
     return null;
+  }
+
+  void expireDeadLocals() {
+    final currentPc = pc;
+    final registersToClear = <int>{};
+
+    for (final local in closure.prototype.localVariables) {
+      final registerIndex = local.register;
+      if (registerIndex == null) {
+        continue;
+      }
+      if (local.endPc > currentPc) {
+        continue;
+      }
+      if (_toBeClosedRegisters.contains(registerIndex)) {
+        continue;
+      }
+      if (_openUpvalues.any(
+        (upvalue) => upvalue.isOpen && upvalue.registerIndex == registerIndex,
+      )) {
+        continue;
+      }
+      final stillActive = closure.prototype.localVariables.any(
+        (candidate) =>
+            candidate.register == registerIndex &&
+            candidate.startPc <= currentPc &&
+            currentPc < candidate.endPc,
+      );
+      if (!stillActive) {
+        registersToClear.add(registerIndex);
+      }
+    }
+
+    for (final registerIndex in registersToClear) {
+      if (registerIndex >= registers.length) {
+        continue;
+      }
+      final value = registers[registerIndex];
+      if (value.raw == null && !value.isToBeClose) {
+        continue;
+      }
+      registers[registerIndex] = _runtimeValue(runtime, null);
+    }
   }
 
   _LuaBytecodeUpvalue captureUpvalue(int registerIndex) {

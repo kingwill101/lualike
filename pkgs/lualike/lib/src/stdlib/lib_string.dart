@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'package:collection/collection.dart' show ListEquality;
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/binary_type_size.dart';
+import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/intern.dart';
 import 'package:lualike/src/number_limits.dart';
@@ -1898,19 +1899,23 @@ class _StringGsub extends BuiltinFunction {
         Value callable,
         List<Value> captures,
       ) async {
+        final runtime = interpreter;
+        final previousYieldable = runtime?.isYieldable;
         try {
           if (callable.raw is Function) {
+            if (runtime != null) {
+              runtime.isYieldable = false;
+            }
             final result = (callable.raw as Function)(captures);
             final awaited = result is Future ? await result : result;
             return resolveTailSignal(awaited);
           }
-          final runtime = interpreter;
           if (runtime == null) {
             throw LuaError.typeError("Invalid replacement type");
           }
+          runtime.isYieldable = false;
           return await runtime.callFunction(callable, captures);
         } on TailCallException catch (t) {
-          final runtime = interpreter;
           if (runtime == null) rethrow;
           final callee = t.functionValue is Value
               ? t.functionValue as Value
@@ -1918,7 +1923,12 @@ class _StringGsub extends BuiltinFunction {
           final normalizedArgs = t.args
               .map((a) => a is Value ? a : Value(a))
               .toList();
+          runtime.isYieldable = false;
           return await runtime.callFunction(callee, normalizedArgs);
+        } finally {
+          if (runtime != null) {
+            runtime.isYieldable = previousYieldable ?? true;
+          }
         }
       }
 
@@ -2091,6 +2101,8 @@ class _StringGsub extends BuiltinFunction {
                   )
                 : Value(result));
       return Value.multi([resultValue, Value(count)]);
+    } on CoroutineCloseSignal {
+      rethrow;
     } catch (e) {
       throw LuaError.typeError("Error in string.gsub: $e");
     }

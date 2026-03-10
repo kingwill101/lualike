@@ -70,7 +70,7 @@ class UpvalueAnalyzer extends AstVisitor<void> {
     analyzer._accessesGlobals = false;
 
     final upvalues = <Upvalue>[];
-    // For each referenced variable, determine if it's an upvalue
+    final unresolvedReferences = <String>{};
     for (final varName in analyzer._referencedVars) {
       // Skip if it's a parameter or local variable declared within the function
       if (analyzer._parameters.contains(varName) ||
@@ -83,34 +83,38 @@ class UpvalueAnalyzer extends AstVisitor<void> {
         continue;
       }
 
-      // Look for the variable in the environment chain starting from current
-      // This ensures local variables shadow global variables (Lua semantics)
-      Environment? env = currentEnv;
-      bool foundAsUpvalue = false;
-      while (env != null) {
-        if (env.values.containsKey(varName)) {
-          final box = env.values[varName]!;
+      unresolvedReferences.add(varName);
+    }
 
-          // Only add if it's a local variable (upvalue candidate)
-          if (box.isLocal) {
-            final upvalue = Upvalue(
+    // Preserve first-reference order for upvalue slots, but still resolve each
+    // name lexically through the enclosing local environments.
+    for (final varName in analyzer._referencedVars) {
+      if (!unresolvedReferences.contains(varName)) {
+        continue;
+      }
+
+      Environment? env = currentEnv;
+      while (env != null) {
+        final box = env.values[varName];
+        if (box != null && box.isLocal) {
+          upvalues.add(
+            Upvalue(
               valueBox: box,
               name: varName,
               interpreter: currentEnv.interpreter,
-            );
-            upvalues.add(upvalue);
-            foundAsUpvalue = true;
-
-            break;
-          }
+            ),
+          );
+          unresolvedReferences.remove(varName);
+          break;
         }
         env = env.parent;
       }
+    }
 
-      if (!foundAsUpvalue) {
-        // This variable is truly a global access since it's not an upvalue
-        analyzer._accessesGlobals = true;
-      }
+    if (unresolvedReferences.isNotEmpty) {
+      // These names were referenced but not captured from any enclosing local.
+      // They are therefore resolved as globals through _ENV.
+      analyzer._accessesGlobals = true;
     }
 
     // Only add _ENV as upvalue if the function actually accesses globals
@@ -162,14 +166,14 @@ class UpvalueAnalyzer extends AstVisitor<void> {
 
   @override
   Future<void> visitAssignment(Assignment node) async {
-    // Visit the expressions first to catch references
-    for (final expr in node.exprs) {
-      await expr.accept(this);
-    }
-
-    // Visit targets to catch any table accesses
+    // Preserve source order for upvalue slots: assignment targets appear
+    // before the right-hand side in Lua source.
     for (final target in node.targets) {
       await target.accept(this);
+    }
+
+    for (final expr in node.exprs) {
+      await expr.accept(this);
     }
   }
 

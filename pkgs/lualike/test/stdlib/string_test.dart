@@ -186,6 +186,22 @@ void main() {
       },
     );
 
+    test('string.gsub callbacks using load share the caller global environment',
+        () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        a = "a@b@çd"
+        local function dostring (s) return load(s, "")() or "" end
+        gsub_result = string.gsub("alo $a='x'$ novamente $return a$",
+                                  "$([^$]*)%$",
+                                  dostring)
+      ''');
+
+      expect((bridge.getGlobal('gsub_result') as Value).raw,
+          equals('alo  novamente x'));
+      expect((bridge.getGlobal('a') as Value).raw, equals('x'));
+    });
+
     test('pattern helpers preserve utf8 bytes through gsub and find', () async {
       final bridge = LuaLike();
       await bridge.execute(r'''
