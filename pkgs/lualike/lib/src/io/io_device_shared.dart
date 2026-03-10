@@ -11,8 +11,9 @@ class ReadResult {
     final valueStr = value is String && (value as String).length > 100
         ? '${(value as String).length} characters'
         : value?.toString() ?? "null";
-    Logger.debug(
-      'ReadResult created: value=$valueStr, error=${error ?? "null"}, errorCode=${errorCode ?? "null"}',
+    Logger.debugLazy(
+      () =>
+          'ReadResult created: value=$valueStr, error=${error ?? "null"}, errorCode=${errorCode ?? "null"}',
       category: 'IO',
     );
   }
@@ -28,7 +29,7 @@ class ReadResult {
             (result[0] as String).length > 100
         ? '[String of ${(result[0] as String).length} characters, ...]'
         : '$result';
-    Logger.debug('ReadResult toLua: $resultStr', category: 'IO');
+    Logger.debugLazy(() => 'ReadResult toLua: $resultStr', category: 'IO');
     return result;
   }
 }
@@ -40,8 +41,9 @@ class WriteResult {
   final int? errorCode;
 
   WriteResult(this.success, [this.error, this.errorCode]) {
-    Logger.debug(
-      'WriteResult created: success=$success, error=${error ?? "null"}, errorCode=${errorCode ?? "null"}',
+    Logger.debugLazy(
+      () =>
+          'WriteResult created: success=$success, error=${error ?? "null"}, errorCode=${errorCode ?? "null"}',
       category: 'IO',
     );
   }
@@ -55,7 +57,7 @@ class WriteResult {
             (result[1] as String).length > 100
         ? '[null, String of ${(result[1] as String).length} characters, ...]'
         : '$result';
-    Logger.debug('WriteResult toLua: $resultStr', category: 'IO');
+    Logger.debugLazy(() => 'WriteResult toLua: $resultStr', category: 'IO');
     return result;
   }
 }
@@ -129,13 +131,16 @@ abstract class BaseIODevice implements IODevice {
   int bufferSize = 8192;
 
   BaseIODevice([this.mode = 'r']) {
-    Logger.debug('Created BaseIODevice with mode: $mode', category: 'IO');
+    Logger.debugLazy(
+      () => 'Created BaseIODevice with mode: $mode',
+      category: 'IO',
+    );
   }
 
   @override
   Future<void> setBuffering(BufferMode mode, [int? size]) async {
-    Logger.debug(
-      'Setting buffering: mode=$mode, size=${size ?? bufferSize}',
+    Logger.debugLazy(
+      () => 'Setting buffering: mode=$mode, size=${size ?? bufferSize}',
       category: 'IO',
     );
     bufferMode = mode;
@@ -144,24 +149,27 @@ abstract class BaseIODevice implements IODevice {
 
   /// Helper to ensure device is open before operations
   void checkOpen() {
-    Logger.debug(
-      'Checking if device is open (isClosed=$isClosed)',
+    Logger.debugLazy(
+      () => 'Checking if device is open (isClosed=$isClosed)',
       category: 'IO',
     );
     if (isClosed) {
-      Logger.debug('Device is closed, throwing exception', category: 'IO');
+      Logger.debugLazy(
+        () => 'Device is closed, throwing exception',
+        category: 'IO',
+      );
       throw Exception("attempt to use a closed file");
     }
   }
 
   /// Helper to validate read format
   void validateReadFormat(String format) {
-    Logger.debug("Validating read format: $format", category: "IO");
+    Logger.debugLazy(() => "Validating read format: $format", category: "IO");
     if (!RegExp(r'^(\*?n|\*?a|\*?all|\*?l|\*?L|\d+)$').hasMatch(format)) {
-      Logger.debug("Invalid format: $format", category: "IO");
+      Logger.debugLazy(() => "Invalid format: $format", category: "IO");
       throw LuaError("invalid format: $format");
     }
-    Logger.debug("Format $format is valid", category: "IO");
+    Logger.debugLazy(() => "Format $format is valid", category: "IO");
   }
 
   /// Helper to normalize read format by removing * prefix

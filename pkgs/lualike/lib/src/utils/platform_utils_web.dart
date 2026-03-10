@@ -27,3 +27,6 @@ String? get scriptPath => null;
 
 /// On the web, there is no executable path; return empty string.
 String get resolvedExecutablePath => '';
+
+/// On the web, process RSS is not available.
+int get currentRssBytes => 0;

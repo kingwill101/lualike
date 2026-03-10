@@ -1,11 +1,11 @@
 import 'dart:async';
-import 'dart:io' show Platform;
 
 import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_string.dart';
+import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/upvalue.dart';
 import 'package:lualike/src/value.dart';
 import 'package:lualike/src/gc/gc.dart';
@@ -13,47 +13,45 @@ import 'package:lualike/src/gc/gc.dart';
 import '../stdlib/lib_io.dart';
 import 'io_device.dart';
 
-// Create metamethods for the wrapped file
-final bool _debugFileOps =
-    Platform.environment['LUALIKE_DEBUG_FILE_OPS'] == '1';
-
-void _debugFileLog(String message) {
-  if (_debugFileOps) {
-    print('[file-debug] $message');
-  }
-}
-
 final fileMetamethods = {
   "__name": "FILE*",
   "__gc": (List<Object?> args) async {
-    Logger.debug('Garbage collecting file', category: 'IO');
+    Logger.debugLazy(() => 'Garbage collecting file', category: 'IO');
     final fileValue = args[0];
     if (fileValue is! Value || fileValue.raw is! LuaFile) {
       throw LuaError.typeError("file expected");
     }
     final luaFile = fileValue.raw as LuaFile;
-    _debugFileLog(
-      '__gc fileValue=${identityHashCode(fileValue)} '
-      'raw=${identityHashCode(luaFile)} '
-      'device=${identityHashCode(luaFile.device)} closed=${luaFile.isClosed}',
-    );
 
-    Logger.debug(
-      'GC: About to close file: ${luaFile.toString()}, isClosed: ${luaFile.isClosed}',
+    Logger.debugLazy(
+      () =>
+          'GC: About to close file: ${luaFile.toString()}, isClosed: ${luaFile.isClosed}',
       category: 'IO',
     );
 
     final isDefaultFile = IOLib.isCurrentDefaultFile(luaFile);
 
-    Logger.debug(
-      'GC: Is this a current default file? $isDefaultFile',
+    Logger.debugLazy(
+      () => 'GC: Is this a current default file? $isDefaultFile',
       category: 'IO',
     );
 
     // Don't close if already closed
     if (luaFile.isClosed) {
-      Logger.debug('GC: File already closed, skipping', category: 'IO');
+      Logger.debugLazy(
+        () => 'GC: File already closed, skipping',
+        category: 'IO',
+      );
       IOLib.unregisterOpenFile(args[0] as Value);
+      return Value(null);
+    }
+
+    final trackedWrapper = IOLib.trackedOpenFileWrapper(luaFile);
+    if (trackedWrapper != null && !identical(trackedWrapper, fileValue)) {
+      Logger.debugLazy(
+        () => 'GC: Skipping close for non-canonical file wrapper',
+        category: 'IO',
+      );
       return Value(null);
     }
 
@@ -63,14 +61,17 @@ final fileMetamethods = {
       if (luaFile.device == IOLib.stdoutDevice ||
           luaFile.device == IOLib.stderrDevice ||
           luaFile.device == IOLib.stdinDevice) {
-        Logger.debug('GC: Skipping close of standard device', category: 'IO');
+        Logger.debugLazy(
+          () => 'GC: Skipping close of standard device',
+          category: 'IO',
+        );
         return Value(null);
       }
 
       // For non-standard default files, reset the default but don't close yet
       // The file will be closed when explicitly closed or when a new default is set
-      Logger.debug(
-        'GC: Default file being collected, but keeping it alive',
+      Logger.debugLazy(
+        () => 'GC: Default file being collected, but keeping it alive',
         category: 'IO',
       );
       return Value(null);
@@ -79,19 +80,14 @@ final fileMetamethods = {
     // Not a default file and not closed, safe to close
     await luaFile.close();
     IOLib.unregisterOpenFile(args[0] as Value);
-    Logger.debug('GC: File closed successfully', category: 'IO');
+    Logger.debugLazy(() => 'GC: File closed successfully', category: 'IO');
     return Value(null);
   },
   "__close": (List<Object?> args) async {
-    Logger.debug('Closing file', category: 'IO');
+    Logger.debugLazy(() => 'Closing file', category: 'IO');
     final fileValue = args[0];
     if (fileValue is Value && fileValue.raw is LuaFile) {
       final file = fileValue.raw as LuaFile;
-      _debugFileLog(
-        '__close fileValue=${identityHashCode(fileValue)} '
-        'raw=${identityHashCode(file)} '
-        'device=${identityHashCode(file.device)} closed=${file.isClosed}',
-      );
       final result = await file.close();
       if (result.isNotEmpty && result[0] == true) {
         IOLib.unregisterOpenFile(fileValue);
@@ -102,7 +98,7 @@ final fileMetamethods = {
     }
   },
   "__tostring": (List<Object?> args) {
-    Logger.debug('Converting file to string', category: 'IO');
+    Logger.debugLazy(() => 'Converting file to string', category: 'IO');
     final fileValue = args[0];
     if (fileValue is Value && fileValue.raw is LuaFile) {
       final file = fileValue.raw as LuaFile;
@@ -114,8 +110,8 @@ final fileMetamethods = {
   "__index": (List<Object?> args) {
     final fileValue = args[0];
     final key = args[1] as Value;
-    Logger.debug(
-      'File __index metamethod called for ${key.raw}',
+    Logger.debugLazy(
+      () => 'File __index metamethod called for ${key.raw}',
       category: 'IO',
     );
 
@@ -128,7 +124,7 @@ final fileMetamethods = {
       // Handle file methods
       final method = LuaFile.fileMethods[keyStr];
       if (method != null) {
-        Logger.debug('Found file method: $keyStr', category: 'IO');
+        Logger.debugLazy(() => 'Found file method: $keyStr', category: 'IO');
         return Value(method);
       }
 
@@ -138,20 +134,20 @@ final fileMetamethods = {
 
         switch (keyStr) {
           case 'mode':
-            Logger.debug(
-              'Returning file mode: ${luaFile.mode}',
+            Logger.debugLazy(
+              () => 'Returning file mode: ${luaFile.mode}',
               category: 'IO',
             );
             return Value(luaFile.mode);
           case 'isClosed':
-            Logger.debug(
-              'Returning file isClosed: ${luaFile.isClosed}',
+            Logger.debugLazy(
+              () => 'Returning file isClosed: ${luaFile.isClosed}',
               category: 'IO',
             );
             return Value(luaFile.isClosed);
           case 'isStandardFile':
-            Logger.debug(
-              'Returning file isStandardFile: ${luaFile.isStandardFile}',
+            Logger.debugLazy(
+              () => 'Returning file isStandardFile: ${luaFile.isStandardFile}',
               category: 'IO',
             );
             return Value(luaFile.isStandardFile);
@@ -159,7 +155,10 @@ final fileMetamethods = {
       }
     }
 
-    Logger.debug('File property/method not found: ${key.raw}', category: 'IO');
+    Logger.debugLazy(
+      () => 'File property/method not found: ${key.raw}',
+      category: 'IO',
+    );
     return Value(null);
   },
 };
@@ -177,8 +176,8 @@ class LuaFile {
   final bool isStandardFile;
 
   LuaFile(this.device, {this.isStandardFile = false}) {
-    Logger.debug(
-      "Created LuaFile with mode: $mode, isStandardFile: $isStandardFile",
+    Logger.debugLazy(
+      () => "Created LuaFile with mode: $mode, isStandardFile: $isStandardFile",
       category: 'LuaFile',
     );
   }
@@ -211,18 +210,18 @@ class LuaFile {
       return inFlight;
     }
 
-    Logger.debug(
-      "Closing file: $this (device: ${device.runtimeType})",
+    Logger.debugLazy(
+      () => "Closing file: $this (device: ${device.runtimeType})",
       category: 'LuaFile',
     );
     _closeFuture = () async {
       if (device.isClosed) {
-        Logger.debug("File already closed", category: 'LuaFile');
+        Logger.debugLazy(() => "File already closed", category: 'LuaFile');
         return [true];
       }
       try {
         await device.close();
-        Logger.debug("File closed successfully", category: 'LuaFile');
+        Logger.debugLazy(() => "File closed successfully", category: 'LuaFile');
         return [true];
       } catch (e, st) {
         Logger.error("Error closing file: $e", error: 'LuaFile', trace: st);
@@ -234,10 +233,13 @@ class LuaFile {
 
   /// Flush any buffered output
   Future<List<Object?>> flush() async {
-    Logger.debug("Flushing file buffer: $this", category: 'LuaFile');
+    Logger.debugLazy(() => "Flushing file buffer: $this", category: 'LuaFile');
     try {
       await device.flush();
-      Logger.debug("File buffer flushed successfully", category: 'LuaFile');
+      Logger.debugLazy(
+        () => "File buffer flushed successfully",
+        category: 'LuaFile',
+      );
       return [true];
     } catch (e) {
       Logger.error("Error flushing file buffer: $e", error: 'LuaFile');
@@ -247,8 +249,8 @@ class LuaFile {
 
   /// Read from the file according to the given format
   Future<List<Object?>> read([String format = "l"]) async {
-    Logger.debug(
-      "Reading from file $this with format '$format'",
+    Logger.debugLazy(
+      () => "Reading from file $this with format '$format'",
       category: 'LuaFile',
     );
 
@@ -258,7 +260,10 @@ class LuaFile {
 
     final result = await device.read(format);
     if (result.isSuccess) {
-      Logger.debug("Read successful: ${result.value}", category: 'LuaFile');
+      Logger.debugLazy(
+        () => "Read successful: ${result.value}",
+        category: 'LuaFile',
+      );
     } else {
       Logger.error("Read failed: ${result.error}", error: 'LuaFile');
     }
@@ -267,13 +272,13 @@ class LuaFile {
 
   /// Write data to the file
   Future<List<Object?>> write(String data) async {
-    Logger.debug(
-      "Writing to file $this: ${data.length} characters",
+    Logger.debugLazy(
+      () => "Writing to file $this: ${data.length} characters",
       category: 'LuaFile',
     );
     final result = await device.write(data);
     if (result.success) {
-      Logger.debug("Write successful", category: 'LuaFile');
+      Logger.debugLazy(() => "Write successful", category: 'LuaFile');
     } else {
       Logger.error(
         "Write failed: ${result.error} code: ${result.errorCode}",
@@ -285,13 +290,13 @@ class LuaFile {
 
   /// Write raw bytes to the file without encoding
   Future<List<Object?>> writeBytes(List<int> bytes) async {
-    Logger.debug(
-      "Writing raw bytes to file $this: ${bytes.length} bytes",
+    Logger.debugLazy(
+      () => "Writing raw bytes to file $this: ${bytes.length} bytes",
       category: 'LuaFile',
     );
     final result = await device.writeBytes(bytes);
     if (result.success) {
-      Logger.debug("Raw write successful", category: 'LuaFile');
+      Logger.debugLazy(() => "Raw write successful", category: 'LuaFile');
     } else {
       Logger.error(
         "Raw write failed: ${result.error} code: ${result.errorCode}",
@@ -307,8 +312,8 @@ class LuaFile {
   /// - "cur": from current position
   /// - "end": from end of file
   Future<List<Object?>> seek(String whence, [int offset = 0]) async {
-    Logger.debug(
-      "Seeking in file $this: whence=$whence, offset=$offset",
+    Logger.debugLazy(
+      () => "Seeking in file $this: whence=$whence, offset=$offset",
       category: 'LuaFile',
     );
     try {
@@ -319,10 +324,13 @@ class LuaFile {
         _ => throw LuaError("invalid option '$whence'"),
       };
 
-      Logger.debug("Seek whence mapped to: $whenceEnum", category: 'LuaFile');
+      Logger.debugLazy(
+        () => "Seek whence mapped to: $whenceEnum",
+        category: 'LuaFile',
+      );
       final position = await device.seek(whenceEnum, offset);
-      Logger.debug(
-        "Seek successful: new position=$position",
+      Logger.debugLazy(
+        () => "Seek successful: new position=$position",
         category: 'LuaFile',
       );
       return [position];
@@ -339,8 +347,8 @@ class LuaFile {
   /// - "full": full buffering
   /// - "line": line buffering
   Future<List<Object?>> setvbuf(String mode, [int? size]) async {
-    Logger.debug(
-      "Setting buffer mode for $this: mode=$mode, size=$size",
+    Logger.debugLazy(
+      () => "Setting buffer mode for $this: mode=$mode, size=$size",
       category: 'LuaFile',
     );
     try {
@@ -351,9 +359,15 @@ class LuaFile {
         _ => throw LuaError("invalid option '$mode'"),
       };
 
-      Logger.debug("Buffer mode mapped to: $bufferMode", category: 'LuaFile');
+      Logger.debugLazy(
+        () => "Buffer mode mapped to: $bufferMode",
+        category: 'LuaFile',
+      );
       await device.setBuffering(bufferMode, size);
-      Logger.debug("Buffer mode set successfully", category: 'LuaFile');
+      Logger.debugLazy(
+        () => "Buffer mode set successfully",
+        category: 'LuaFile',
+      );
       return [true];
     } catch (e) {
       Logger.error("Error setting buffer mode: $e", error: 'LuaFile $e');
@@ -368,15 +382,16 @@ class LuaFile {
     bool closeOnEof = false,
     Value? owner,
   ]) async {
-    Logger.debug(
-      "Creating file line iterator for $this with formats: $formats",
+    Logger.debugLazy(
+      () => "Creating file line iterator for $this with formats: $formats",
       category: 'IO',
     );
 
     // Check if file was opened for reading - return error function instead of throwing
     if (mode == "w" || mode == "a") {
-      Logger.debug(
-        'Cannot create lines iterator for write-only file $this with mode: $mode',
+      Logger.debugLazy(
+        () =>
+            'Cannot create lines iterator for write-only file $this with mode: $mode',
         category: 'IO',
       );
       return Value((List<Object?> args) async {
@@ -442,53 +457,58 @@ final class _LuaFileLineIterator extends BuiltinFunction implements GCObject {
   @override
   Future<Object?> call(List<Object?> args) async {
     iterationCount++;
-    Logger.debug(
-      "Line iterator call #$iterationCount for $file",
+    Logger.debugLazy(
+      () => "Line iterator call #$iterationCount for $file",
       category: 'IO',
     );
 
     if (hasBeenClosed) {
-      Logger.debug(
-        "Line iterator called after file $file was closed (iteration #$iterationCount)",
+      Logger.debugLazy(
+        () =>
+            "Line iterator called after file $file was closed (iteration #$iterationCount)",
         category: 'IO',
       );
       throw LuaError("file is already closed");
     }
 
     if (file.isClosed) {
-      Logger.debug(
-        "Line iterator called but file $file is closed (iteration #$iterationCount)",
+      Logger.debugLazy(
+        () =>
+            "Line iterator called but file $file is closed (iteration #$iterationCount)",
         category: 'IO',
       );
       hasBeenClosed = true;
       throw LuaError("file is already closed");
     }
 
-    Logger.debug(
-      "Line iterator checking EOF for $file (iteration #$iterationCount)",
+    Logger.debugLazy(
+      () => "Line iterator checking EOF for $file (iteration #$iterationCount)",
       category: 'IO',
     );
     final isAtEOF = await file.device.isEOF();
-    Logger.debug(
-      "EOF check result: $isAtEOF for $file (iteration #$iterationCount)",
+    Logger.debugLazy(
+      () => "EOF check result: $isAtEOF for $file (iteration #$iterationCount)",
       category: 'IO',
     );
 
     if (isAtEOF) {
-      Logger.debug(
-        "Reached EOF in line iterator for $file, closeOnEof=$closeOnEof (iteration #$iterationCount)",
+      Logger.debugLazy(
+        () =>
+            "Reached EOF in line iterator for $file, closeOnEof=$closeOnEof (iteration #$iterationCount)",
         category: 'IO',
       );
       if (closeOnEof) {
         await file.close();
         hasBeenClosed = true;
-        Logger.debug(
-          "File closed due to closeOnEof=true, returning null to end iteration (iteration #$iterationCount)",
+        Logger.debugLazy(
+          () =>
+              "File closed due to closeOnEof=true, returning null to end iteration (iteration #$iterationCount)",
           category: 'IO',
         );
       } else {
-        Logger.debug(
-          "EOF reached but closeOnEof=false, returning null to end iteration without closing (iteration #$iterationCount)",
+        Logger.debugLazy(
+          () =>
+              "EOF reached but closeOnEof=false, returning null to end iteration without closing (iteration #$iterationCount)",
           category: 'IO',
         );
       }
@@ -497,25 +517,29 @@ final class _LuaFileLineIterator extends BuiltinFunction implements GCObject {
 
     final results = <Object?>[];
     for (final format in formats) {
-      Logger.debug(
-        "Line iterator reading format: $format from $file (iteration #$iterationCount)",
+      Logger.debugLazy(
+        () =>
+            "Line iterator reading format: $format from $file (iteration #$iterationCount)",
         category: 'IO',
       );
 
       final result = await file.device.read(format);
-      Logger.debug(
-        "Read result: success=${result.isSuccess}, value=${result.value}, error=${result.error} (iteration #$iterationCount)",
+      Logger.debugLazy(
+        () =>
+            "Read result: success=${result.isSuccess}, value=${result.value}, error=${result.error} (iteration #$iterationCount)",
         category: 'IO',
       );
 
       if (!result.isSuccess) {
-        Logger.debug(
-          "Line iterator read failed for $file: ${result.error} (iteration #$iterationCount)",
+        Logger.debugLazy(
+          () =>
+              "Line iterator read failed for $file: ${result.error} (iteration #$iterationCount)",
           category: 'IO',
         );
         if (closeOnEof) {
-          Logger.debug(
-            "closeOnEof=true, marking iterator closed after read error (iteration #$iterationCount)",
+          Logger.debugLazy(
+            () =>
+                "closeOnEof=true, marking iterator closed after read error (iteration #$iterationCount)",
             category: 'IO',
           );
           hasBeenClosed = true;
@@ -524,19 +548,22 @@ final class _LuaFileLineIterator extends BuiltinFunction implements GCObject {
       }
 
       if (result.value == null) {
-        Logger.debug(
-          "Line iterator reached EOF for $file (iteration #$iterationCount)",
+        Logger.debugLazy(
+          () =>
+              "Line iterator reached EOF for $file (iteration #$iterationCount)",
           category: 'IO',
         );
         hasBeenClosed = true;
         if (closeOnEof) {
-          Logger.debug(
-            "closeOnEof=true, deferring close to to-be-closed variable (iteration #$iterationCount)",
+          Logger.debugLazy(
+            () =>
+                "closeOnEof=true, deferring close to to-be-closed variable (iteration #$iterationCount)",
             category: 'IO',
           );
         } else {
-          Logger.debug(
-            "closeOnEof=false, iterator marked closed but file remains open for manual close (iteration #$iterationCount)",
+          Logger.debugLazy(
+            () =>
+                "closeOnEof=false, iterator marked closed but file remains open for manual close (iteration #$iterationCount)",
             category: 'IO',
           );
         }
@@ -546,21 +573,23 @@ final class _LuaFileLineIterator extends BuiltinFunction implements GCObject {
       results.add(result.value);
     }
 
-    Logger.debug(
-      "Line iterator read successful for $file: ${results.length} values (iteration #$iterationCount)",
+    Logger.debugLazy(
+      () =>
+          "Line iterator read successful for $file: ${results.length} values (iteration #$iterationCount)",
       category: 'IO',
     );
 
     if (results.length == 1) {
-      Logger.debug(
-        "Returning single value: ${results[0]} (iteration #$iterationCount)",
+      Logger.debugLazy(
+        () =>
+            "Returning single value: ${results[0]} (iteration #$iterationCount)",
         category: 'IO',
       );
       return Value(results[0]);
     }
 
-    Logger.debug(
-      "Returning multi values: $results (iteration #$iterationCount)",
+    Logger.debugLazy(
+      () => "Returning multi values: $results (iteration #$iterationCount)",
       category: 'IO',
     );
     return Value.multi(results);
@@ -568,8 +597,15 @@ final class _LuaFileLineIterator extends BuiltinFunction implements GCObject {
 }
 
 /// Helper function to create a LuaFile wrapped in a Value with proper metamethods
-Value wrapLuaFileValue(LuaFile luaFile) {
-  final fileValue = Value(luaFile, metatable: fileMetamethods);
+Value wrapLuaFileValue(
+  LuaFile luaFile, {
+  LuaRuntime? interpreter,
+}) {
+  final fileValue = Value(
+    luaFile,
+    metatable: fileMetamethods,
+    interpreter: interpreter,
+  );
   IOLib.registerOpenFile(fileValue);
   return fileValue;
 }
@@ -577,8 +613,8 @@ Value wrapLuaFileValue(LuaFile luaFile) {
 Value createLuaFile(
   IODevice device, {
   bool isStandardFile = false,
-  Object? interpreter,
+  LuaRuntime? interpreter,
 }) {
   final luaFile = LuaFile(device, isStandardFile: isStandardFile);
-  return wrapLuaFileValue(luaFile);
+  return wrapLuaFileValue(luaFile, interpreter: interpreter);
 }

@@ -115,7 +115,7 @@ void main() {
       var debugExecuted = false;
       var errorExecuted = false;
 
-      Logger.setLevelFilter(ctx.Level.error);
+      Logger.setLevelFilter(Level.error);
       Logger.setEnabled(true);
 
       // Should not execute (below threshold)

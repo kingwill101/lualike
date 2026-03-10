@@ -1,8 +1,10 @@
 import 'dart:developer' as developer;
-import 'dart:io';
 
 import 'package:args/args.dart';
 import 'package:lualike/lualike.dart';
+import 'package:lualike/src/utils/file_system_utils.dart' as fs;
+import 'package:lualike/src/utils/io_abstractions.dart' as io_abs;
+import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:path/path.dart' as path;
 
 const _scenarioNames = <String>{
@@ -77,8 +79,8 @@ Future<void> main(List<String> args) async {
 
   final parsed = parser.parse(args);
   if (parsed['help'] as bool) {
-    stdout.writeln('DevTools profiling harness for lualike');
-    stdout.writeln(parser.usage);
+    io_abs.stdout.writeln('DevTools profiling harness for lualike');
+    io_abs.stdout.writeln(parser.usage);
     return;
   }
 
@@ -92,7 +94,7 @@ Future<void> main(List<String> args) async {
   final soft = parsed['soft'] as bool;
   final port = parsed['port'] as bool;
 
-  final packageRoot = _findPackageRoot();
+  final packageRoot = await _findPackageRoot();
   final engineMode = switch (engineName) {
     'ir' => EngineMode.ir,
     _ => EngineMode.ast,
@@ -127,7 +129,7 @@ Future<void> main(List<String> args) async {
       _ => [_makeScriptScenario(packageRoot, scenarioName, soft: soft, port: port)],
     };
 
-    stdout.writeln(
+    io_abs.stdout.writeln(
       'Profiling ${scenarios.map((scenario) => scenario.name).join(', ')} '
       'on $engineName engine',
     );
@@ -155,13 +157,13 @@ Future<void> main(List<String> args) async {
     }
 
     if (keepAliveSeconds > 0) {
-      stdout.writeln(
+      io_abs.stdout.writeln(
         'Keeping process alive for $keepAliveSeconds seconds for inspection...',
       );
       await Future<void>.delayed(Duration(seconds: keepAliveSeconds));
     }
   } finally {
-    profileTask.finish(arguments: {'rss': ProcessInfo.currentRss});
+    profileTask.finish(arguments: {'rss': platform.currentRssBytes});
   }
 }
 
@@ -169,15 +171,15 @@ Future<void> _printServiceInfo(int waitSeconds) async {
   final info = await developer.Service.getInfo();
   final serviceUri = info.serverUri;
   if (serviceUri != null) {
-    stdout.writeln('VM service: $serviceUri');
+    io_abs.stdout.writeln('VM service: $serviceUri');
   } else {
-    stdout.writeln(
+    io_abs.stdout.writeln(
       'VM service not active. Run with `dart run --observe tool/devtools_profile/main.dart ...`.',
     );
   }
 
   if (waitSeconds > 0) {
-    stdout.writeln('Waiting $waitSeconds seconds before starting...');
+    io_abs.stdout.writeln('Waiting $waitSeconds seconds before starting...');
     await Future<void>.delayed(Duration(seconds: waitSeconds));
   }
 }
@@ -187,8 +189,10 @@ Future<void> _runScenarioSet(
   required String iterationLabel,
   required bool measured,
 }) async {
-  stdout.writeln('');
-  stdout.writeln('[$iterationLabel] ${measured ? 'measured' : 'warmup'}');
+  io_abs.stdout.writeln('');
+  io_abs.stdout.writeln(
+    '[$iterationLabel] ${measured ? 'measured' : 'warmup'}',
+  );
 
   for (final scenario in scenarios) {
     final task = developer.TimelineTask(filterKey: 'lualike.profile');
@@ -198,72 +202,82 @@ Future<void> _runScenarioSet(
       'measured': measured,
     });
     try {
-      stdout.writeln('  -> ${scenario.name}');
+      io_abs.stdout.writeln('  -> ${scenario.name}');
       await scenario.run();
     } finally {
       stopwatch.stop();
       final elapsedMs =
           stopwatch.elapsedMicroseconds / Duration.microsecondsPerMillisecond;
-      stdout.writeln(
+      final rssMiB = platform.currentRssBytes / (1024 * 1024);
+      io_abs.stdout.writeln(
         '     ${elapsedMs.toStringAsFixed(2)} ms '
-        '(rss ${(ProcessInfo.currentRss / (1024 * 1024)).toStringAsFixed(1)} MiB)',
+        '(rss ${rssMiB.toStringAsFixed(1)} MiB)',
       );
       task.finish(arguments: {
         'iteration': iterationLabel,
         'measured': measured,
         'elapsed_ms': elapsedMs,
-        'rss': ProcessInfo.currentRss,
+        'rss': platform.currentRssBytes,
       });
     }
   }
 }
 
-Directory _findPackageRoot() {
-  var current = Directory.current.absolute;
+Future<String> _findPackageRoot() async {
+  final startPath = fs.getCurrentDirectory() ?? '.';
+  var current = path.normalize(startPath);
   while (true) {
-    final pubspec = File(path.join(current.path, 'pubspec.yaml'));
-    final luascripts = Directory(path.join(current.path, 'luascripts', 'test'));
-    if (pubspec.existsSync() && luascripts.existsSync()) {
+    final pubspec = path.join(current, 'pubspec.yaml');
+    final luascripts = path.join(current, 'luascripts', 'test');
+    if (await fs.fileExists(pubspec) && await fs.directoryExists(luascripts)) {
       return current;
     }
-    final nestedPackage = Directory(path.join(current.path, 'pkgs', 'lualike'));
-    final nestedPubspec = File(path.join(nestedPackage.path, 'pubspec.yaml'));
-    final nestedLuascripts = Directory(
-      path.join(nestedPackage.path, 'luascripts', 'test'),
+    final nestedPackage = path.join(current, 'pkgs', 'lualike');
+    final nestedPubspec = path.join(nestedPackage, 'pubspec.yaml');
+    final nestedLuascripts = path.join(
+      nestedPackage,
+      'luascripts',
+      'test',
     );
-    if (nestedPubspec.existsSync() && nestedLuascripts.existsSync()) {
+    if (await fs.fileExists(nestedPubspec) &&
+        await fs.directoryExists(nestedLuascripts)) {
       return nestedPackage;
     }
-    final parent = current.parent;
-    if (parent.path == current.path) {
-      throw StateError('Could not find pkgs/lualike package root from ${Directory.current.path}');
+    final parent = path.dirname(current);
+    if (parent == current) {
+      throw StateError(
+        'Could not find pkgs/lualike package root from $startPath',
+      );
     }
     current = parent;
   }
 }
 
 _ProfileScenario _makeScriptScenario(
-  Directory packageRoot,
+  String packageRoot,
   String name, {
   required bool soft,
   required bool port,
 }) {
-  final scriptPath = path.join(packageRoot.path, 'luascripts', 'test', '$name.lua');
-  final scriptFile = File(scriptPath);
-  if (!scriptFile.existsSync()) {
-    throw ArgumentError.value(name, 'scenario', 'Unknown script scenario');
-  }
+  final scriptPath = path.join(packageRoot, 'luascripts', 'test', '$name.lua');
 
   return _ProfileScenario(
     name,
     () async {
+      if (!await fs.fileExists(scriptPath)) {
+        throw ArgumentError.value(name, 'scenario', 'Unknown script scenario');
+      }
+      final scriptSource = await fs.readFileAsString(scriptPath);
+      if (scriptSource == null) {
+        throw StateError('Could not read scenario source at $scriptPath');
+      }
       final lua = LuaLike();
       _installTimelineHelpers(lua);
       final source = StringBuffer();
       source.writeln(port ? '_port = true' : '_port = false');
       source.writeln(soft ? '_soft = true' : '_soft = false');
       source.writeln("package.path = 'luascripts/test/?.lua;' .. package.path");
-      source.write(await scriptFile.readAsString());
+      source.write(scriptSource);
       await lua.execute(source.toString(), scriptPath: scriptPath);
     },
   );
@@ -353,7 +367,7 @@ void _installTimelineHelpers(LuaLike lua) {
     final label = rawLabel?.toString() ?? 'unnamed';
     developer.Timeline.instantSync(
       label,
-      arguments: {'rss': ProcessInfo.currentRss},
+      arguments: {'rss': platform.currentRssBytes},
     );
     return null;
   });
