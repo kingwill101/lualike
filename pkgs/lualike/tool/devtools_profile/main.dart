@@ -64,6 +64,11 @@ Future<void> main(List<String> args) async {
       defaultsTo: true,
     )
     ..addFlag(
+      'port',
+      help: 'Enable _port mode for Lua test scenarios.',
+      defaultsTo: true,
+    )
+    ..addFlag(
       'help',
       abbr: 'h',
       help: 'Print usage.',
@@ -85,6 +90,7 @@ Future<void> main(List<String> args) async {
   final keepAliveSeconds = int.parse(parsed['keep-alive-seconds'] as String);
   final constructLevel = int.parse(parsed['construct-level'] as String);
   final soft = parsed['soft'] as bool;
+  final port = parsed['port'] as bool;
 
   final packageRoot = _findPackageRoot();
   final engineMode = switch (engineName) {
@@ -102,6 +108,7 @@ Future<void> main(List<String> args) async {
     'warmup': warmup,
     'repeat': repeat,
     'soft': soft,
+    'port': port,
   });
 
   try {
@@ -109,15 +116,15 @@ Future<void> main(List<String> args) async {
 
     final scenarios = switch (scenarioName) {
       'all' => [
-        _makeScriptScenario(packageRoot, 'calls', soft: soft),
-        _makeScriptScenario(packageRoot, 'sort', soft: soft),
-        _makeScriptScenario(packageRoot, 'math', soft: soft),
-        _makeScriptScenario(packageRoot, 'constructs', soft: soft),
+        _makeScriptScenario(packageRoot, 'calls', soft: soft, port: port),
+        _makeScriptScenario(packageRoot, 'sort', soft: soft, port: port),
+        _makeScriptScenario(packageRoot, 'math', soft: soft, port: port),
+        _makeScriptScenario(packageRoot, 'constructs', soft: soft, port: port),
       ],
       'constructs-short-circuit' => [
         _constructsShortCircuitScenario(level: constructLevel),
       ],
-      _ => [_makeScriptScenario(packageRoot, scenarioName, soft: soft)],
+      _ => [_makeScriptScenario(packageRoot, scenarioName, soft: soft, port: port)],
     };
 
     stdout.writeln(
@@ -219,6 +226,14 @@ Directory _findPackageRoot() {
     if (pubspec.existsSync() && luascripts.existsSync()) {
       return current;
     }
+    final nestedPackage = Directory(path.join(current.path, 'pkgs', 'lualike'));
+    final nestedPubspec = File(path.join(nestedPackage.path, 'pubspec.yaml'));
+    final nestedLuascripts = Directory(
+      path.join(nestedPackage.path, 'luascripts', 'test'),
+    );
+    if (nestedPubspec.existsSync() && nestedLuascripts.existsSync()) {
+      return nestedPackage;
+    }
     final parent = current.parent;
     if (parent.path == current.path) {
       throw StateError('Could not find pkgs/lualike package root from ${Directory.current.path}');
@@ -231,6 +246,7 @@ _ProfileScenario _makeScriptScenario(
   Directory packageRoot,
   String name, {
   required bool soft,
+  required bool port,
 }) {
   final scriptPath = path.join(packageRoot.path, 'luascripts', 'test', '$name.lua');
   final scriptFile = File(scriptPath);
@@ -244,9 +260,9 @@ _ProfileScenario _makeScriptScenario(
       final lua = LuaLike();
       _installTimelineHelpers(lua);
       final source = StringBuffer();
-      if (soft) {
-        source.writeln('_soft = true');
-      }
+      source.writeln(port ? '_port = true' : '_port = false');
+      source.writeln(soft ? '_soft = true' : '_soft = false');
+      source.writeln("package.path = 'luascripts/test/?.lua;' .. package.path");
       source.write(await scriptFile.readAsString());
       await lua.execute(source.toString(), scriptPath: scriptPath);
     },
