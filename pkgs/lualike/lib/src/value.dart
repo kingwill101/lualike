@@ -2607,19 +2607,41 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       final tableMap = raw as Map;
 
       // Add keys if they should be treated as strong references
-      if (strongKeys) {
-        for (final key in tableMap.keys) {
-          if (key is GCObject || key is Value || _containsGCObject(key)) {
-            refs.add(key);
+      if (tableMap case final TableStorage storage) {
+        if (strongKeys) {
+          storage.forEachStoredHashKey((key) {
+            if (key is GCObject || key is Value || _containsGCObject(key)) {
+              refs.add(key);
+            }
+          });
+        }
+
+        if (strongValues) {
+          storage.forEachStoredValue((value) {
+            if (value is GCObject ||
+                value is Value ||
+                _containsGCObject(value)) {
+              refs.add(value);
+            }
+          });
+        }
+      } else {
+        if (strongKeys) {
+          for (final key in tableMap.keys) {
+            if (key is GCObject || key is Value || _containsGCObject(key)) {
+              refs.add(key);
+            }
           }
         }
-      }
 
-      // Add values if they should be treated as strong references
-      if (strongValues) {
-        for (final value in tableMap.values) {
-          if (value is GCObject || value is Value || _containsGCObject(value)) {
-            refs.add(value);
+        // Add values if they should be treated as strong references
+        if (strongValues) {
+          for (final value in tableMap.values) {
+            if (value is GCObject ||
+                value is Value ||
+                _containsGCObject(value)) {
+              refs.add(value);
+            }
           }
         }
       }

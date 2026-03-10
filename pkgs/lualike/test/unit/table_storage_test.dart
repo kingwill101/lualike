@@ -182,5 +182,50 @@ void main() {
       expect(storage.containsDenseIterationIndex(2), isTrue);
       expect(storage.containsDenseIterationIndex(3), isTrue);
     });
+
+    test('interior dense deletes do not shrink the dense backing array', () {
+      final storage = TableStorage()
+        ..[1] = 'a'
+        ..[2] = 'b'
+        ..[3] = 'c';
+
+      storage.remove(2);
+
+      expect(storage.arrayLength, 3);
+      expect(storage[3], 'c');
+    });
+
+    test('tail dense deletes shrink only trailing empty slots', () {
+      final storage = TableStorage()
+        ..[1] = 'a'
+        ..[2] = 'b'
+        ..[3] = 'c';
+
+      storage.remove(3);
+
+      expect(storage.arrayLength, 2);
+      expect(storage[1], 'a');
+      expect(storage[2], 'b');
+    });
+
+    test('GC traversal helpers visit hash keys and all stored values', () {
+      final storage = TableStorage()
+        ..[1] = 'dense'
+        ..['k'] = 'hash'
+        ..[-1] = 'negative';
+
+      final visitedKeys = <dynamic>[];
+      storage.forEachStoredHashKey(visitedKeys.add);
+
+      final visitedValues = <dynamic>[];
+      storage.forEachStoredValue(visitedValues.add);
+
+      expect(visitedKeys, containsAll(<dynamic>['k', -1]));
+      expect(visitedKeys, isNot(contains(1)));
+      expect(
+        visitedValues,
+        containsAll(<dynamic>['dense', 'hash', 'negative']),
+      );
+    });
   });
 }
