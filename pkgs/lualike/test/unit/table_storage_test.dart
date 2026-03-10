@@ -1,4 +1,5 @@
 import 'package:lualike/src/table_storage.dart';
+import 'package:lualike/src/lua_string.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -92,6 +93,23 @@ void main() {
       expect(storage.keys, isEmpty);
       expect(storage.containsKey(1), isFalse);
       expect(storage.containsKey('foo'), isFalse);
+    });
+
+    test('tracks raw string key chars incrementally for hash entries', () {
+      final storage = TableStorage()
+        ..['foo'] = 1
+        ..[LuaString.fromDartString('bar')] = 2;
+
+      expect(storage.rawStringKeyChars, 6);
+
+      storage['foo'] = 3;
+      expect(storage.rawStringKeyChars, 6);
+
+      storage.remove('foo');
+      expect(storage.rawStringKeyChars, 3);
+
+      storage.clear();
+      expect(storage.rawStringKeyChars, 0);
     });
 
     test('factory constructor copies existing map content', () {

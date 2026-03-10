@@ -19,7 +19,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     );
   }
 
-  bool _canReuseStagedPrimitiveValue(Value value) {
+  bool _isPlainDetachedPrimitive(Value value) {
     final raw = value.raw;
     if (value.isMulti ||
         value.isConst ||
@@ -36,25 +36,20 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         value.globalProxyEnvironment != null ||
         value.functionName != null ||
         value.debugLineDefined != null ||
-        value.strippedDebugInfo ||
-        value.interpreter != null) {
+        value.strippedDebugInfo) {
       return false;
     }
-    return raw == null || raw is bool || raw is num || raw is BigInt;
+    return raw == null ||
+        raw is bool ||
+        raw is num ||
+        raw is BigInt ||
+        raw is String ||
+        raw is LuaString;
   }
 
   Value _detachPrimitiveValue(Value value) {
-    if (_canReuseStagedPrimitiveValue(value)) {
-      return value;
-    }
     final raw = value.raw;
-    if (!value.isMulti &&
-        (raw == null ||
-            raw is num ||
-            raw is BigInt ||
-            raw is bool ||
-            raw is String ||
-            raw is LuaString)) {
+    if (_isPlainDetachedPrimitive(value)) {
       return Value(raw);
     }
     return value;
@@ -178,7 +173,8 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
   /// Returns the assigned value.
   @override
   Future<Object?> visitAssignment(Assignment node) async {
-    (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
+    final interpreter = this as Interpreter;
+    interpreter.recordTrace(node);
 
     Logger.debugLazy(
       () => 'Visiting Assignment: ${node.targets} = ${node.exprs}',
@@ -805,6 +801,33 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     return storedValue;
   }
 
+  Future<void> _clearExplicitGlobalBinding(String name) async {
+    final interpreter = this as Interpreter;
+    final envValue = _resolveActiveEnvValue(interpreter);
+    final rootGlobalValue = _resolveActiveGlobalValue(interpreter);
+
+    if (name == '_ENV') {
+      globals.clearGlobal(name);
+      return;
+    }
+
+    final writesToRootGlobals =
+        envValue is Value &&
+        rootGlobalValue is Value &&
+        identical(envValue.raw, rootGlobalValue.raw);
+    if (writesToRootGlobals) {
+      globals.clearGlobal(name);
+      return;
+    }
+
+    if (envValue is Value && envValue.raw != null) {
+      await envValue.setValueAsync(name, Value(null));
+      return;
+    }
+
+    globals.clearGlobal(name);
+  }
+
   Future<bool> _explicitGlobalIsAlreadyDefined(String name) async {
     if (name == '_ENV') {
       final current = globals.root.get(name);
@@ -1061,6 +1084,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
   /// Returns null.
   @override
   Future<Object?> visitLocalDeclaration(LocalDeclaration node) async {
+    final interpreter = this as Interpreter;
     Logger.debugLazy(
       () => 'Visiting LocalDeclaration: ${node.names}',
       category: 'Interpreter',
@@ -1300,6 +1324,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
   @override
   Future<Object?> visitGlobalDeclaration(GlobalDeclaration node) async {
+    final interpreter = this as Interpreter;
     Logger.debugLazy(
       () => 'Visiting GlobalDeclaration: ${node.names}',
       category: 'Interpreter',
@@ -1391,7 +1416,11 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
     for (var index = 0; index < node.names.length; index++) {
       final name = node.names[index].name;
-      final rawValue = index < values.length ? values[index] : Value(null);
+      if (index >= values.length) {
+        await _clearExplicitGlobalBinding(name);
+        continue;
+      }
+      final rawValue = values[index];
       final attribute =
           index < node.attributes.length && node.attributes[index].isNotEmpty
           ? node.attributes[index]
@@ -1438,6 +1467,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
   Future<Object?> visitAssignmentIndexAccessExpr(
     AssignmentIndexAccessExpr node,
   ) async {
+    final interpreter = this as Interpreter;
     // Evaluate the target table
     final targetValue = await node.target.accept(this);
 
@@ -1455,7 +1485,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       if (result is Future) {
         result = await result;
       } else if (result is Value && result.raw is Future) {
-        result = Value(await result.raw);
+        result = interpreter.wrapRuntimeValue(await result.raw);
       }
 
       Logger.debugLazy(
@@ -1471,7 +1501,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         var multiValues = result.raw as List;
         valueToAssign = multiValues.isNotEmpty
             ? multiValues.first
-            : Value(null);
+            : interpreter.wrapRuntimeValue(null);
       } else if (result is List && result.isNotEmpty) {
         valueToAssign = result[0];
       } else {
@@ -1484,17 +1514,21 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       if (valueToAssign is Future) {
         valueToAssign = await valueToAssign;
       } else if (valueToAssign is Value && valueToAssign.raw is Future) {
-        valueToAssign = Value(await valueToAssign.raw);
+        valueToAssign = interpreter.wrapRuntimeValue(await valueToAssign.raw);
       }
     }
 
     // Wrap the value if needed
     final wrappedValue = valueToAssign is Value
         ? valueToAssign
-        : Value(valueToAssign);
+        : interpreter.wrapRuntimeValue(valueToAssign);
 
-    final targetVal = targetValue is Value ? targetValue : Value(targetValue);
-    final indexVal = indexValue is Value ? indexValue : Value(indexValue);
+    final targetVal = targetValue is Value
+        ? targetValue
+        : interpreter.wrapRuntimeValue(targetValue);
+    final indexVal = indexValue is Value
+        ? indexValue
+        : interpreter.wrapRuntimeValue(indexValue);
 
     if (targetVal.raw is! Map) {
       throw Exception('Cannot assign to index of non-table value');
@@ -1529,15 +1563,17 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       return null;
     }
 
+    final storedValue = _detachPrimitiveValue(wrappedValue);
+
     if (map is TableStorage && (!hasNewindex || keyExists) && !hasIndexMeta) {
       final denseIndex = positiveInteger(indexVal);
       if (denseIndex != null) {
-        targetVal.setNumericIndex(denseIndex, wrappedValue);
-        return wrappedValue;
+        targetVal.setNumericIndex(denseIndex, storedValue);
+        return storedValue;
       }
     }
 
-    map[rawKey] = wrappedValue;
-    return wrappedValue;
+    map[rawKey] = storedValue;
+    return storedValue;
   }
 }

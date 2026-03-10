@@ -152,30 +152,29 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       if (map is TableStorage) {
         size += map.arrayLength * GcWeights.tableEntry;
         size += map.reservedHashSlots * GcWeights.tableEntry;
+        size += map.rawStringKeyChars * GcWeights.stringUnit;
       } else {
         size += map.length * GcWeights.tableEntry;
-      }
-      // Count only RAW string keys, not Value-wrapped keys.
-      // Value keys are separate GC objects already tracked; counting their
-      // content again would double-count them.
-      int? bytes = _tableStringKeyBytes[map];
-      if (bytes == null) {
-        var total = 0;
-        try {
-          for (final k in map.keys) {
-            // Only count raw strings - Value keys are tracked separately
-            if (k is String) {
-              total += k.length * GcWeights.stringUnit;
-            } else if (k is LuaString) {
-              total += k.length * GcWeights.stringUnit;
+        // Count only RAW string keys, not Value-wrapped keys.
+        // Value keys are separate GC objects already tracked; counting their
+        // content again would double-count them.
+        int? bytes = _tableStringKeyBytes[map];
+        if (bytes == null) {
+          var total = 0;
+          try {
+            for (final k in map.keys) {
+              if (k is String) {
+                total += k.length * GcWeights.stringUnit;
+              } else if (k is LuaString) {
+                total += k.length * GcWeights.stringUnit;
+              }
             }
-            // Removed: Don't count Value-wrapped strings - they're separate GC objects
-          }
-        } catch (_) {}
-        _tableStringKeyBytes[map] = total;
-        bytes = total;
+          } catch (_) {}
+          _tableStringKeyBytes[map] = total;
+          bytes = total;
+        }
+        size += bytes;
       }
-      size += bytes;
     }
 
     if (upvalues != null) {
@@ -445,6 +444,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     int deltaChars,
   ) {
     if (deltaChars == 0) return;
+    if (map is TableStorage) {
+      return;
+    }
     try {
       final current = _tableStringKeyBytes[map] ?? 0;
       _tableStringKeyBytes[map] = current + deltaChars * GcWeights.stringUnit;
@@ -455,6 +457,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// This forces estimatedSize to recalculate from scratch on next access.
   /// Used by GC when removing multiple keys to avoid double-decrement bugs.
   static void invalidateStringKeyCache(Map map) {
+    if (map is TableStorage) {
+      return;
+    }
     try {
       _tableStringKeyBytes[map] = null;
     } catch (_) {}
@@ -1421,8 +1426,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     final storageKey = _computeStorageKey(key);
     final storageValue = valueToSet;
     final map = raw as Map;
-    // Seed cache if missing (first mutation may precede a count)
-    if (_tableStringKeyBytes[map] == null) {
+    if (map is! TableStorage && _tableStringKeyBytes[map] == null) {
       var total = 0;
       try {
         for (final k in map.keys) {
@@ -1479,27 +1483,25 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       }
     }
     _incrementTableVersion();
-    // Maintain string-key credits incrementally when keys are Strings.
-    try {
-      int keyLen(Object k) {
-        if (k is String) return k.length * GcWeights.stringUnit;
-        if (k is LuaString) return k.length * GcWeights.stringUnit;
-        return 0;
-      }
+    if (map is! TableStorage) {
+      try {
+        int keyLen(Object k) {
+          if (k is String) return k.length * GcWeights.stringUnit;
+          if (k is LuaString) return k.length * GcWeights.stringUnit;
+          return 0;
+        }
 
-      if (!existed && (storageKey is String || storageKey is LuaString)) {
-        _tableStringKeyBytes[map] =
-            (_tableStringKeyBytes[map] ?? 0) + keyLen(storageKey);
-      }
-      if (valueToSet.isNil &&
-          existed &&
-          (storageKey is String || storageKey is LuaString)) {
-        // Removals after weak-table cleanup can invalidate incremental byte
-        // accounting assumptions. Force a rescan on the next size read instead
-        // of trying to maintain the cache subtractively.
-        _tableStringKeyBytes[map] = null;
-      }
-    } catch (_) {}
+        if (!existed && (storageKey is String || storageKey is LuaString)) {
+          _tableStringKeyBytes[map] =
+              (_tableStringKeyBytes[map] ?? 0) + keyLen(storageKey);
+        }
+        if (valueToSet.isNil &&
+            existed &&
+            (storageKey is String || storageKey is LuaString)) {
+          _tableStringKeyBytes[map] = null;
+        }
+      } catch (_) {}
+    }
 
     _syncGlobalProxyBinding(storageKey, valueToSet);
     final gcLocal4 = GCAccess.fromValue(this);

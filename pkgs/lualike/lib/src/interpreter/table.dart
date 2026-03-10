@@ -21,6 +21,30 @@ final Expando<_TableIndexInlineCache> _tableIndexAccessCache =
 
 Object? _tableIndexCacheKey(Value index) => index.raw;
 
+Object? _wrapDirectTableLookup(
+  Interpreter interpreter,
+  Value table,
+  Object? result,
+) {
+  if (table.raw is VirtualLuaTable) {
+    return result;
+  }
+  if (result is Value) {
+    if (result.raw is Map) {
+      final canon = Value.lookupCanonicalTableWrapper(result.raw);
+      if (canon != null && !identical(canon, result)) {
+        return canon;
+      }
+    }
+    return result;
+  }
+  final canon = Value.lookupCanonicalTableWrapper(result);
+  if (canon != null) {
+    return canon;
+  }
+  return interpreter.wrapRuntimeValue(result);
+}
+
 mixin InterpreterTableMixin on AstVisitor<Object?> {
   // Required getters that must be implemented by the class using this mixin
   Environment get globals;
@@ -33,12 +57,15 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
   /// Returns the value at the specified index in the table.
   @override
   Future<Object?> visitTableAccess(TableAccessExpr node) async {
+    final interpreter = this as Interpreter;
     final tableFutureOr = node.table.accept(this);
     Object? table;
     table = await tableFutureOr;
     if (table is Value && table.isMulti) {
       final values = table.raw as List;
-      table = values.isNotEmpty ? values.first : Value(null);
+      table = values.isNotEmpty
+          ? values.first
+          : interpreter.wrapRuntimeValue(null);
     } else if (table is List && table.isNotEmpty) {
       table = table.first;
     }
@@ -76,7 +103,9 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     }
 
     // Ensure proper Value wrapping
-    final tableVal = table is Value ? table : Value(table);
+    final tableVal = table is Value
+        ? table
+        : interpreter.wrapRuntimeValue(table);
     // Mark simple string/number indices as temporary keys to avoid GC tracking overhead
     final indexVal = indexResult is Value
         ? indexResult
@@ -108,7 +137,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
           if (stored is Value) {
             return stored;
           }
-          return Value(stored);
+          return interpreter.wrapRuntimeValue(stored);
         }
       }
     }
@@ -148,12 +177,15 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
   /// Returns the value at the specified field in the table.
   @override
   Future<Object?> visitTableFieldAccess(TableFieldAccess node) async {
+    final interpreter = this as Interpreter;
     final tableFutureOr = node.table.accept(this);
     Object? table;
     table = await tableFutureOr;
     if (table is Value && table.isMulti) {
       final values = table.raw as List;
-      table = values.isNotEmpty ? values.first : Value(null);
+      table = values.isNotEmpty
+          ? values.first
+          : interpreter.wrapRuntimeValue(null);
     } else if (table is List && table.isNotEmpty) {
       table = table.first;
     }
@@ -162,17 +194,17 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     final fieldKey = node.fieldName.name;
 
     // Ensure proper Value wrapping
-    final tableVal = table is Value ? table : Value(table);
-    final indexVal = Value(
-      fieldKey,
-      isTempKey: true,
-    ); // Mark as temporary key to avoid GC tracking
+    final tableVal = table is Value
+        ? table
+        : interpreter.wrapRuntimeValue(table);
+    final hasIndexMetamethod = tableVal.hasMetamethod('__index');
     final bool tableIsOriginalValue = identical(tableVal, table);
 
     if (tableVal.raw is! Map) {
       final sourceLabel = _sourceLabelForAst(globals, node.table);
       final type = getLuaType(tableVal);
-      if (tableVal.hasMetamethod('__index')) {
+      if (hasIndexMetamethod) {
+        final indexVal = Value(fieldKey, isTempKey: true);
         final result = await tableVal.callMetamethodAsync('__index', [
           tableVal,
           indexVal,
@@ -194,7 +226,9 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     }
 
     final bool canUseCache =
-        tableIsOriginalValue && !tableVal.hasMetamethod('__index');
+        tableIsOriginalValue &&
+        !hasIndexMetamethod &&
+        tableVal.raw is! VirtualLuaTable;
     _TableFieldInlineCache? cache;
     if (canUseCache) {
       cache = _tableFieldAccessCache[node];
@@ -216,43 +250,39 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       }
     }
 
+    final rawTable = tableVal.raw as Map;
+
     if (Logger.enabled) {
       Logger.debugLazy(
         () => 'TableFieldAccess - checking key existence',
         category: 'TableAccess',
         contextBuilder: () => {
-          'key': indexVal.raw.toString(),
-          'exists': (tableVal.raw as Map).containsKey(indexVal.raw),
+          'key': fieldKey,
+          'exists': rawTable.containsKey(fieldKey),
         },
       );
     }
 
-    // Normalize the key when checking existence
-    var rawKey = indexVal.raw;
-    if (rawKey is LuaString) {
-      rawKey = rawKey.toString();
-    }
-
     // Check if key exists in table first
-    if (tableVal.raw is Map && (tableVal.raw as Map).containsKey(rawKey)) {
+    if (rawTable.containsKey(fieldKey)) {
       Logger.debugLazy(
         () => 'Key exists, getting directly',
         category: 'TableAccess',
-        contextBuilder: () => {'key': rawKey.toString()},
+        contextBuilder: () => {'key': fieldKey},
       );
-      var result = tableVal[indexVal];
-      if (result is Value && result.raw is Map) {
-        final canon = Value.lookupCanonicalTableWrapper(result.raw);
-        if (canon != null && !identical(canon, result)) {
-          result = canon;
-        }
-      }
+      final result = _wrapDirectTableLookup(
+        interpreter,
+        tableVal,
+        rawTable[fieldKey],
+      );
       if (canUseCache) {
         cache ??= _TableFieldInlineCache();
         cache
           ..table = tableVal
           ..tableVersion = tableVal.tableVersion
-          ..value = result is Value ? result : Value(result);
+          ..value = result is Value
+              ? result
+              : interpreter.wrapRuntimeValue(result);
         _tableFieldAccessCache[node] = cache;
         if (Logger.enabled) {
           Logger.debugLazy(
@@ -274,7 +304,8 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     }
 
     // Key doesn't exist, check for __index metamethod
-    if (tableVal.hasMetamethod('__index')) {
+    if (hasIndexMetamethod) {
+      final indexVal = Value(fieldKey, isTempKey: true);
       Logger.debugLazy(
         () => 'Key not found, calling __index metamethod',
         category: 'TableAccess',
@@ -306,7 +337,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
         contextBuilder: () => {},
       );
     }
-    return Value(null);
+    return interpreter.wrapRuntimeValue(null);
   }
 
   /// Evaluates a table index access expression (table[expr]).
@@ -317,6 +348,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
   /// Returns the value at the specified index in the table.
   @override
   Future<Object?> visitTableIndexAccess(TableIndexAccess node) async {
+    final interpreter = this as Interpreter;
     if (Logger.enabled) {
       Logger.info(
         'Accessing table index',
@@ -332,12 +364,18 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     // If the index is a multi-value (like from varargs), use only the first value
     if (indexResult is Value && indexResult.isMulti) {
       final values = indexResult.raw as List;
-      indexResult = values.isNotEmpty ? values[0] : Value(null);
+      indexResult = values.isNotEmpty
+          ? values[0]
+          : interpreter.wrapRuntimeValue(null);
     }
 
     // Ensure proper Value wrapping
-    final tableVal = table is Value ? table : Value(table);
-    final indexVal = indexResult is Value ? indexResult : Value(indexResult);
+    final tableVal = table is Value
+        ? table
+        : interpreter.wrapRuntimeValue(table);
+    final indexVal = indexResult is Value
+        ? indexResult
+        : interpreter.wrapRuntimeValue(indexResult);
 
     // Check if we can use caching (table is not transformed and has no __index metamethod)
     final bool tableIsOriginalValue = identical(table, tableVal);

@@ -52,6 +52,32 @@ part 'table.dart';
 /// Static flag to track if an error is already being reported
 bool _errorReporting = false;
 
+class _StatementBlockMetadata {
+  Map<String, int>? labelMap;
+}
+
+final Expando<_StatementBlockMetadata> _statementBlockMetadata =
+    Expando<_StatementBlockMetadata>('statementBlockMetadata');
+
+Map<String, int> _statementLabelMap(List<AstNode> statements) {
+  final metadata = _statementBlockMetadata[statements] ??=
+      _StatementBlockMetadata();
+  final cached = metadata.labelMap;
+  if (cached != null) {
+    return cached;
+  }
+
+  Map<String, int>? labels;
+  for (var i = 0; i < statements.length; i++) {
+    final node = statements[i];
+    if (node is Label) {
+      (labels ??= <String, int>{})[node.label.name] = i;
+    }
+  }
+
+  return metadata.labelMap = labels ?? const <String, int>{};
+}
+
 /// Virtual Machine for the LuaLike interpreter.
 ///
 /// Implements the AstVisitor interface to execute the AST nodes by traversing
@@ -146,28 +172,72 @@ class Interpreter extends AstVisitor<Object?>
   @override
   final Map<String, Value> literalValueCache = <String, Value>{};
 
-  final Map<String, Value> literalPrimitiveValueCache = <String, Value>{};
+  Value? _cachedNilValue;
+  Value? _cachedTrueValue;
+  Value? _cachedFalseValue;
+  final Map<int, Value> _cachedIntValues = <int, Value>{};
+  final Map<int, Value> _cachedDoubleValues = <int, Value>{};
+  final Map<BigInt, Value> _cachedBigIntValues = <BigInt, Value>{};
 
   @override
   Value constantPrimitiveValue(Object? raw) {
-    final key = switch (raw) {
-      null => 'nil',
-      final bool value => 'bool:$value',
-      final int value => 'int:$value',
-      final double value => 'double:$value',
-      final BigInt value => 'bigint:$value',
+    Value create(Object? value) => Value(value)..interpreter = this;
+
+    return switch (raw) {
+      null => _cachedNilValue ??= create(null),
+      true => _cachedTrueValue ??= create(true),
+      false => _cachedFalseValue ??= create(false),
+      final int value => _cachedIntValues.putIfAbsent(
+        value,
+        () => create(value),
+      ),
+      final double value => _cachedDoubleValues.putIfAbsent(
+        NumberUtils.doubleToRawBits(value),
+        () => create(value),
+      ),
+      final BigInt value => _cachedBigIntValues.putIfAbsent(
+        value,
+        () => create(value),
+      ),
       _ => throw ArgumentError.value(raw, 'raw', 'Not a cached primitive'),
     };
+  }
 
-    final cached = literalPrimitiveValueCache[key];
-    if (cached != null) {
-      cached.interpreter ??= this;
-      return cached;
+  /// Wraps a runtime value while reusing stable wrappers for plain primitives
+  /// and canonical wrappers for tables when possible.
+  ///
+  /// Hot interpreter paths such as table reads, call argument staging, and
+  /// return propagation frequently need a [Value] view over raw Dart objects.
+  /// Creating a fresh wrapper every time is expensive because each wrapper is a
+  /// GC-tracked runtime object. For immutable primitives whose type-wide
+  /// metatables are inactive, we can safely reuse the per-interpreter cached
+  /// wrappers that literals already use.
+  Value wrapRuntimeValue(Object? raw) {
+    if (raw is Value) {
+      raw.interpreter ??= this;
+      return raw;
     }
 
-    final value = Value(raw)..interpreter = this;
-    literalPrimitiveValueCache[key] = value;
-    return value;
+    if (raw is Map) {
+      final canonical = Value.lookupCanonicalTableWrapper(raw);
+      if (canonical != null) {
+        canonical.interpreter ??= this;
+        return canonical;
+      }
+    }
+
+    if (raw == null && !MetaTable().isDefaultMetatableActive('nil')) {
+      return constantPrimitiveValue(null);
+    }
+    if (raw is bool && !MetaTable().isDefaultMetatableActive('boolean')) {
+      return constantPrimitiveValue(raw);
+    }
+    if ((raw is num || raw is BigInt) &&
+        !MetaTable().isDefaultMetatableActive('number')) {
+      return constantPrimitiveValue(raw);
+    }
+
+    return Value(raw)..interpreter = this;
   }
 
   Future<void> fireDebugHook(String event, {int? line}) async {
@@ -1312,13 +1382,7 @@ class Interpreter extends AstVisitor<Object?>
   }
 
   Future<Object?> _executeStatements(List<AstNode> statements) async {
-    final labelMap = <String, int>{};
-    for (var i = 0; i < statements.length; i++) {
-      final node = statements[i];
-      if (node is Label) {
-        labelMap[node.label.name] = i;
-      }
-    }
+    final labelMap = _statementLabelMap(statements);
     Logger.infoLazy(
       () => 'Label map',
       category: 'Interpreter',
