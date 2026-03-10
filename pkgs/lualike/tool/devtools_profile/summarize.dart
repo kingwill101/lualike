@@ -121,24 +121,18 @@ Future<List<String>> _resolveLatestTargets(String latest) async {
   }
 
   return switch (latest) {
-    'cpu' => [if (await newestWhere(_isCpuSnapshot) case final file?) file],
-    'performance' => [if (await newestWhere(_isPerformanceSnapshot) case final file?) file],
+    'cpu' => [?await newestWhere(_isCpuSnapshot)],
+    'performance' => [?await newestWhere(_isPerformanceSnapshot)],
     'heap' => [
-      if (await newestWhere((file) async => file.toLowerCase().endsWith('.csv'))
-          case final file?)
-        file,
+      ?await newestWhere((file) async => file.toLowerCase().endsWith('.csv')),
     ],
     'memory' => [
-      if (await newestWhere((file) async => file.toLowerCase().endsWith('.csv'))
-          case final file?)
-        file,
+      ?await newestWhere((file) async => file.toLowerCase().endsWith('.csv')),
     ],
     'all' => [
-      if (await newestWhere(_isCpuSnapshot) case final cpu?) cpu,
-      if (await newestWhere(_isPerformanceSnapshot) case final perf?) perf,
-      if (await newestWhere((file) async => file.toLowerCase().endsWith('.csv'))
-          case final heap?)
-        heap,
+      ?await newestWhere(_isCpuSnapshot),
+      ?await newestWhere(_isPerformanceSnapshot),
+      ?await newestWhere((file) async => file.toLowerCase().endsWith('.csv')),
     ],
     _ => const [],
   };
@@ -235,7 +229,9 @@ void _summarizePerformanceSnapshot(
       '  display refresh rate: ${displayRefreshRate.toString()} Hz',
     );
   }
-  io_abs.stdout.writeln('  flutter frames: ${_formatInt(flutterFrames.length)}');
+  io_abs.stdout.writeln(
+    '  flutter frames: ${_formatInt(flutterFrames.length)}',
+  );
   if (selectedFrameId != null) {
     io_abs.stdout.writeln('  selected frame id: $selectedFrameId');
   }
