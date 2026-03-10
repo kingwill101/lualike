@@ -6,6 +6,12 @@ runtime, protected calls, and garbage collector. The recent regressions in
 set of state handoff mistakes, so the important part is preserving the
 invariants below.
 
+The later interpreter failures in `literals.lua`, `files.lua`, and
+`nextvar.lua` turned out to be the same category of bug. The loop or condition
+still looked live from Lua, but the relevant runtime state existed only in Dart
+temporaries, so the collector and condition evaluator had to be taught about
+those cases explicitly.
+
 ## Why This Exists
 
 Several runtime subsystems share mutable execution state:
@@ -88,7 +94,72 @@ explicit collection can otherwise strip their upvalues or reclaimed wrappers.
 The practical symptom is "returned closure still exists, but captured state is
 gone or nil".
 
-### 4. `coroutine.close` Must Unwind, Not Synthetically Resume
+### 4. Active `for-in` State Must Be Published As Temporary GC Roots
+
+Relevant code:
+- [control_flow.dart](/run/media/kingwill101/disk2/code/code/dart_packages/lualike/pkgs/lualike/lib/src/interpreter/control_flow.dart)
+
+The AST interpreter keeps several loop internals in Dart locals:
+
+- the direct-table fast path stores the source table outside the Lua environment
+- generic `for` stores the iterator callable, state, control variable, and
+  optional to-be-closed value in async locals
+- the optimized `pairs(next, t, nil)` path bypasses a Lua-visible iterator
+  object entirely
+
+That state is still live across `coroutine.yield()` even though it is not
+reachable from ordinary Lua objects. If the loop body yields and the script
+calls `collectgarbage()` before resuming, the GC must still see:
+
+- the loop environment
+- the source table for direct iteration
+- the iterator callable/state/control tuple for generic `for`
+- any synthetic to-be-closed helper value used by the loop
+
+The fix is to publish those objects through `pushExternalGcRoots(...)` for the
+entire lifetime of the active loop and pop them in a `finally` block.
+
+If this invariant breaks, the failures are indirect:
+
+- wrapped recursive generators stop early
+- `for value in coroutine.wrap(...) do` dies mid-stream
+- later tests such as `files.lua` fail even though the real bug is loop-state
+  liveness
+
+Guard tests:
+- [coroutine_library_test.dart](/run/media/kingwill101/disk2/code/code/dart_packages/lualike/pkgs/lualike/test/stdlib/coroutine_library_test.dart)
+
+### 5. Statement Truthiness Must Collapse Empty Multi-Results
+
+Relevant code:
+- [control_flow.dart](/run/media/kingwill101/disk2/code/code/dart_packages/lualike/pkgs/lualike/lib/src/interpreter/control_flow.dart)
+- [value.dart](/run/media/kingwill101/disk2/code/code/dart_packages/lualike/pkgs/lualike/lib/src/value.dart)
+
+Lua expressions can return multiple values, but statement conditions only test
+the first result. When there are zero results, that behaves like `nil`, not
+like a truthy wrapper object.
+
+This matters most for wrapped coroutines:
+
+- `co()` can yield one value on one iteration
+- then finish with zero final values on the next call
+- `while co() do` must stop immediately
+
+If condition evaluation tests the raw multi container instead of collapsing it
+first, the loop performs one extra iteration and attempts to resume a dead
+coroutine.
+
+The implementation rule is:
+
+- collapse multi-results to their first element before condition coercion
+- treat an empty multi-result as `nil`
+- then apply normal Lua truthiness (`nil` and `false` are falsey; everything
+  else is truthy)
+
+Guard tests:
+- [coroutine_library_test.dart](/run/media/kingwill101/disk2/code/code/dart_packages/lualike/pkgs/lualike/test/stdlib/coroutine_library_test.dart)
+
+### 6. `coroutine.close` Must Unwind, Not Synthetically Resume
 
 Relevant code:
 - [coroutine.dart](/run/media/kingwill101/disk2/code/code/dart_packages/lualike/pkgs/lualike/lib/src/coroutine.dart)
@@ -107,7 +178,7 @@ The correct behavior is:
 
 The self-resume / `<close>` cases in `coroutine.lua` exercise this directly.
 
-### 5. Debug Hooks Need A Synthetic Final Return For Resumed Coroutines
+### 7. Debug Hooks Need A Synthetic Final Return For Resumed Coroutines
 
 Relevant code:
 - [coroutine.dart](/run/media/kingwill101/disk2/code/code/dart_packages/lualike/pkgs/lualike/lib/src/coroutine.dart)
@@ -120,7 +191,7 @@ If this is missing, traces look almost right but lose the terminal `return`
 event, which is exactly the sort of bug that tends to regress later because the
 call stack still "mostly works".
 
-### 6. Stack Overflow Checks Need Both Local And Global Depth
+### 8. Stack Overflow Checks Need Both Local And Global Depth
 
 Relevant code:
 - [function.dart](/run/media/kingwill101/disk2/code/code/dart_packages/lualike/pkgs/lualike/lib/src/interpreter/function.dart)
@@ -164,6 +235,8 @@ At minimum, rerun:
 cd pkgs/lualike
 dart test test/stdlib/coroutine_library_test.dart -r compact
 dart test test/gc/self_referenced_thread_collection_test.dart -r compact
+./test_runner --test=literals.lua -v
+./test_runner --test=nextvar.lua -v
 ./run_bytecode_tests.sh --test=coroutine.lua -v
 ./run_bytecode_tests.sh --test=gc.lua -v
 ```
