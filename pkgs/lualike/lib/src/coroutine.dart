@@ -263,6 +263,10 @@ class Coroutine extends GCObject {
     final previousCoroutine = runtime?.getCurrentCoroutine();
     final previousEnv = runtime?.getCurrentEnv();
     final interpreter = runtime is Interpreter ? runtime : null;
+    // Coroutine resumes can pass through helpers such as pcall/xpcall and
+    // iterator frames that yield on behalf of the caller. Save the caller's
+    // visible function/local context up front so every resume path can restore
+    // the exact lookup state seen before entering the coroutine.
     final previousFunction = interpreter?.getCurrentFunction();
     final previousFastLocals = interpreter?.getCurrentFastLocals();
     final previousHookFunction = interpreter?.debugHookFunction;
@@ -693,6 +697,11 @@ class Coroutine extends GCObject {
     _callStackBaseDepth = baseDepth;
   }
 
+  // Suspended coroutines cannot leave their active-call providers registered on
+  // the interpreter itself, because that would make a paused coroutine look
+  // permanently reachable from the main thread. Instead we snapshot those
+  // providers here and restore them only while the coroutine is actively
+  // running again.
   void _restoreExternalGcRoots(Interpreter interpreter) {
     final baseCount = interpreter.externalGcRootProviderCount;
     // These providers were removed from the interpreter-wide root list when
@@ -779,6 +788,10 @@ class Coroutine extends GCObject {
     _callStackBaseDepth = callStack.depth;
   }
 
+  // Mirror _restoreExternalGcRoots: once the coroutine yields, move any
+  // interpreter-owned providers back onto the coroutine object so GC still sees
+  // the suspended call chain without also keeping it alive as a main-thread
+  // root.
   void _detachExternalGcRoots(Interpreter interpreter) {
     final providers = interpreter.snapshotExternalGcRootProvidersFrom(
       _externalGcRootBaseCount,
@@ -799,6 +812,11 @@ class Coroutine extends GCObject {
     interpreter.trimExternalGcRootProviders(_externalGcRootBaseCount);
   }
 
+  // A coroutine can finish after having yielded earlier, which means the
+  // original _executeCoroutine invocation may already be gone. When that
+  // happens, its synthetic root frame still needs a matching debug 'return'
+  // hook and stack removal here; otherwise hook traces lose the terminal
+  // return event and stale frames leak into debug/GC views.
   Future<void> _finalizeLiveRootFrame(Interpreter interpreter) async {
     if (interpreter.callStack.depth <= _callStackBaseDepth) {
       return;
