@@ -2201,6 +2201,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             callNode,
             functionName,
           );
+    // Save the caller state before this frame is pushed. Nested yields can
+    // resume through pcall/xpcall, generic-for iterators, and wrapped
+    // coroutines; if we restore the callee state instead of the caller state,
+    // locals/upvalues after the yield will resolve against the wrong scope.
     final callerEnv = interpreter.getCurrentEnv();
     final callerFunction = interpreter.getCurrentFunction();
     final callerFastLocals = interpreter.getCurrentFastLocals();
@@ -2220,6 +2224,11 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       }
     }
 
+    // Treat the active callee and its captured storage as temporary GC roots
+    // for the lifetime of this call frame. A collectgarbage() triggered from a
+    // nested helper must not be able to reclaim the currently executing
+    // closure, but these roots also must not remain on the interpreter once a
+    // coroutine yields, or suspended threads become immortal.
     Iterable<Object?> activeCallRoots() sync* {
       if (func case final Value callable) {
         yield callable;

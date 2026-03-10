@@ -1150,6 +1150,10 @@ class GenerationalGCManager {
         roots.add(frame.env);
       }
       if (frame.callable != null) {
+        // Call frames must root the callable itself, not just the environment.
+        // Otherwise closures that are only reachable from an in-flight frame
+        // can disappear during an explicit collectgarbage(), which shows up as
+        // lost upvalues after load()/wrap()/reader-style helpers.
         roots.add(frame.callable!);
       }
     }
