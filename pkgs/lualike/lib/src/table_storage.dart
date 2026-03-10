@@ -97,6 +97,7 @@ class TableStorage extends MapBase<dynamic, dynamic> {
 
   static const int _maxArraySize = 1 << 20; // ~1M entries
   static const int _maxDeletedIterationKeys = 256;
+  static const int _minOccupiedCapacity = 8;
 
   static int _rawStringKeyCharsFor(Object? key) {
     if (key is String) {
@@ -186,14 +187,13 @@ class TableStorage extends MapBase<dynamic, dynamic> {
       return;
     }
 
-    final previous = _hash[key];
-    final contains = _hash.containsKey(key);
+    final isNew = _hash[key] == null;
     _hash[key] = value;
-    if (!contains) {
+    if (isNew) {
       _appendHashKey(key);
       _hashCount++;
       _rawStringKeyChars += _rawStringKeyCharsFor(key);
-    } else if (previous == null && !_hashLinks.containsKey(key)) {
+    } else if (!_hashLinks.containsKey(key)) {
       _appendHashKey(key);
     }
     _deletedHashSuccessors.remove(key);
@@ -268,8 +268,7 @@ class TableStorage extends MapBase<dynamic, dynamic> {
     if (capacity <= 0) return;
     final target = capacity > _maxArraySize ? _maxArraySize : capacity;
     if (target <= _array.length) return;
-    final additional = target - _array.length;
-    _array.addAll(List<dynamic>.filled(additional, null));
+    _array.length = target;
     _growOccupied(target);
   }
 
@@ -283,12 +282,19 @@ class TableStorage extends MapBase<dynamic, dynamic> {
   }
 
   void _growOccupied(int requiredLength) {
-    if (requiredLength <= _occupied.length) {
-      return;
-    }
-    final target = requiredLength > _maxArraySize
+    final required = requiredLength > _maxArraySize
         ? _maxArraySize
         : requiredLength;
+    if (required <= _occupied.length) {
+      return;
+    }
+
+    var target = _occupied.isEmpty ? _minOccupiedCapacity : _occupied.length;
+    while (target < required) {
+      final doubled = target << 1;
+      target = doubled > _maxArraySize ? _maxArraySize : doubled;
+    }
+
     final next = Uint8List(target);
     if (_occupied.isNotEmpty) {
       next.setRange(0, _occupied.length, _occupied);
@@ -329,29 +335,21 @@ class TableStorage extends MapBase<dynamic, dynamic> {
       _occupied[arrayIdx] = 0;
       _arrayCount--;
       _recordDeletedDenseIndex(arrayIdx + 1);
-      _trimArray();
+      if (arrayIdx == _array.length - 1) {
+        _trimArray();
+      }
       return current;
     }
     return _removeHashKey(key);
   }
 
   void _trimArray() {
-    var last = _array.length - 1;
-    while (last >= 0) {
-      final isOccupied = last < _occupied.length && _occupied[last] != 0;
-      if (isOccupied) {
-        break;
-      }
-      _array.removeLast();
-      if (_occupied.isNotEmpty && last < _occupied.length) {
-        // shrink occupancy mirror
-        final next = Uint8List(last);
-        if (last > 0) {
-          next.setRange(0, last, _occupied);
-        }
-        _occupied = next;
-      }
-      last--;
+    var newLength = _array.length;
+    while (newLength > 0 && _occupied[newLength - 1] == 0) {
+      newLength--;
+    }
+    if (newLength != _array.length) {
+      _array.length = newLength;
     }
   }
 
@@ -375,6 +373,38 @@ class TableStorage extends MapBase<dynamic, dynamic> {
   int get arrayLength => _array.length;
   int get reservedHashSlots => _reservedHashSlots;
   int get rawStringKeyChars => _rawStringKeyChars;
+
+  /// Visits all live hash keys stored in this table.
+  ///
+  /// Dense integer keys are implicit in [_array] and are intentionally omitted,
+  /// as internal GC traversal only needs collectable keys.
+  void forEachStoredHashKey(void Function(dynamic key) visit) {
+    var key = _hashHead;
+    while (key != null) {
+      visit(key);
+      key = _hashLinks[key]?.nextKey;
+    }
+  }
+
+  /// Visits all live values stored in this table without going through
+  /// [MapBase.keys] / [MapBase.values] wrappers.
+  void forEachStoredValue(void Function(dynamic value) visit) {
+    final occupied = _occupied;
+    final limit = occupied.length < _array.length
+        ? occupied.length
+        : _array.length;
+    for (var index = 0; index < limit; index++) {
+      if (occupied[index] != 0) {
+        visit(_array[index]);
+      }
+    }
+
+    var key = _hashHead;
+    while (key != null) {
+      visit(_hash[key]);
+      key = _hashLinks[key]?.nextKey;
+    }
+  }
 
   dynamic arrayValueAt(int oneBasedIndex) {
     if (oneBasedIndex <= 0) return _hash[oneBasedIndex];
@@ -430,18 +460,20 @@ class TableStorage extends MapBase<dynamic, dynamic> {
       }
     }
 
-    for (final MapEntry(key: key, value: value) in hashEntries) {
+    var key = _hashHead;
+    while (key != null) {
+      final value = _hash[key];
       final isNil = value == null || (value is Value && value.raw == null);
-      if (isNil) {
-        continue;
-      }
-      final arrayIndex = _arrayIndexFor(key);
-      if (arrayIndex != null) {
-        final oneBasedIndex = arrayIndex + 1;
-        if (oneBasedIndex > maxIndex) {
-          maxIndex = oneBasedIndex;
+      if (!isNil) {
+        final arrayIndex = _arrayIndexFor(key);
+        if (arrayIndex != null) {
+          final oneBasedIndex = arrayIndex + 1;
+          if (oneBasedIndex > maxIndex) {
+            maxIndex = oneBasedIndex;
+          }
         }
       }
+      key = _hashLinks[key]?.nextKey;
     }
 
     return maxIndex;
@@ -507,11 +539,10 @@ class TableStorage extends MapBase<dynamic, dynamic> {
   }
 
   dynamic _removeHashKey(Object? key, {bool recordDeletedSuccessor = true}) {
-    if (!_hash.containsKey(key)) {
+    final removed = _hash.remove(key);
+    if (removed == null) {
       return null;
     }
-
-    final removed = _hash.remove(key);
     _rawStringKeyChars -= _rawStringKeyCharsFor(key);
     final link = _hashLinks.remove(key);
     if (link != null) {
@@ -554,10 +585,10 @@ class TableStorage extends MapBase<dynamic, dynamic> {
   }
 
   dynamic _resolveNextLiveHashKey(dynamic key) {
-    final visited = <dynamic>{};
     var candidate = key;
+    var remaining = _deletedHashSuccessors.length + _hashLinks.length + 1;
     while (candidate != null) {
-      if (!visited.add(candidate)) {
+      if (remaining-- <= 0) {
         return null;
       }
       if (_hash.containsKey(candidate)) {
