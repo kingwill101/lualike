@@ -2,6 +2,7 @@ import 'dart:collection';
 import 'dart:typed_data';
 
 import 'package:lualike/src/number_limits.dart';
+import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/value.dart';
 
 bool isLuaNilValue(Object? value) =>
@@ -92,9 +93,20 @@ class TableStorage extends MapBase<dynamic, dynamic> {
 
   int _arrayCount = 0;
   int _hashCount = 0;
+  int _rawStringKeyChars = 0;
 
   static const int _maxArraySize = 1 << 20; // ~1M entries
   static const int _maxDeletedIterationKeys = 256;
+
+  static int _rawStringKeyCharsFor(Object? key) {
+    if (key is String) {
+      return key.length;
+    }
+    if (key is LuaString) {
+      return key.length;
+    }
+    return 0;
+  }
 
   int? _arrayIndexFor(Object? key) {
     if (key is int) {
@@ -180,6 +192,7 @@ class TableStorage extends MapBase<dynamic, dynamic> {
     if (!contains) {
       _appendHashKey(key);
       _hashCount++;
+      _rawStringKeyChars += _rawStringKeyCharsFor(key);
     } else if (previous == null && !_hashLinks.containsKey(key)) {
       _appendHashKey(key);
     }
@@ -198,6 +211,7 @@ class TableStorage extends MapBase<dynamic, dynamic> {
     _hashTail = null;
     _arrayCount = 0;
     _hashCount = 0;
+    _rawStringKeyChars = 0;
   }
 
   /// Appends [value] at the next sequential integer slot.
@@ -360,6 +374,7 @@ class TableStorage extends MapBase<dynamic, dynamic> {
 
   int get arrayLength => _array.length;
   int get reservedHashSlots => _reservedHashSlots;
+  int get rawStringKeyChars => _rawStringKeyChars;
 
   dynamic arrayValueAt(int oneBasedIndex) {
     if (oneBasedIndex <= 0) return _hash[oneBasedIndex];
@@ -497,6 +512,7 @@ class TableStorage extends MapBase<dynamic, dynamic> {
     }
 
     final removed = _hash.remove(key);
+    _rawStringKeyChars -= _rawStringKeyCharsFor(key);
     final link = _hashLinks.remove(key);
     if (link != null) {
       final previousKey = link.previousKey;

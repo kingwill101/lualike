@@ -514,11 +514,7 @@ class Environment extends GCObject {
     final rootEnv = root;
     // Mark as transient to match Lua behavior - variable bindings on the
     // stack aren't counted toward memory usage
-    final box = Box(
-      value,
-      isTransient: true,
-      interpreter: rootEnv.interpreter,
-    );
+    final box = Box(value, isTransient: true, interpreter: rootEnv.interpreter);
     rootEnv.values[name] = box;
     rootEnv._noteChildReference(box);
     rootEnv._updateCredits();
@@ -754,6 +750,21 @@ class Environment extends GCObject {
     }
   }
 
+  /// Removes the root global binding for [name] and keeps the backing `_G`
+  /// table in sync.
+  ///
+  /// Explicit global declarations can redeclare a name with fewer initializer
+  /// results than names. In that case the missing slots should resolve through
+  /// `_ENV` as `nil`, not remain as stale root bindings carrying previous
+  /// values or const attributes.
+  void clearGlobal(String name) {
+    final rootEnv = root;
+    rootEnv.values.remove(name);
+    rootEnv.toBeClosedVars.remove(name);
+    rootEnv._updateCredits();
+    rootEnv._syncGlobalTableEntry(name, null);
+  }
+
   /// Declares [name] as an explicit global in this lexical scope.
   ///
   /// Subsequent lookups in this scope and nested scopes resolve through the
@@ -772,11 +783,7 @@ class Environment extends GCObject {
 
     // Explicit global declarations are lexical resolution markers, not shared
     // storage. Reads and writes should still flow through the active `_ENV`.
-    box ??= Box<dynamic>(
-      null,
-      isTransient: true,
-      interpreter: interpreter,
-    );
+    box ??= Box<dynamic>(null, isTransient: true, interpreter: interpreter);
     box.debugName ??= name;
     declaredGlobals[name] = box;
     _noteChildReference(box);
