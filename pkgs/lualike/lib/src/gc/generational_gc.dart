@@ -917,7 +917,10 @@ class GenerationalGCManager {
           if (!weakValuesTables.contains(value)) {
             weakValuesTables.add(value);
           }
-          yield* value.getReferencesForGC(strongKeys: true, strongValues: false);
+          yield* value.getReferencesForGC(
+            strongKeys: true,
+            strongValues: false,
+          );
         case 'k':
           if (!ephemeronTables.contains(value)) {
             ephemeronTables.add(value);
@@ -2076,9 +2079,10 @@ class GenerationalGCManager {
       category: 'GC',
     );
     final survivors = <GCObject>[];
+    final objects = gen.objects;
 
-    // Use toList() to create a copy, allowing modification of the original list.
-    for (final obj in gen.objects.toList()) {
+    for (var index = 0; index < objects.length; index++) {
+      final obj = objects[index];
       if (obj.marked) {
         // It's alive, keep it for the next cycle.
         obj.marked = false; // Unmark for the next GC cycle.

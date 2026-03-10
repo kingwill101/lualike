@@ -2321,6 +2321,24 @@ class _StringMatch extends BuiltinFunction {
 class _StringRep extends BuiltinFunction {
   _StringRep([super.interpreter]);
 
+  Value _wrapRepeatedStringBytes(List<int> bytes) {
+    final runtime = interpreter;
+    if (runtime != null &&
+        bytes.length <= StringInterning.shortStringThreshold) {
+      return runtime.constantStringValue(bytes);
+    }
+    return Value(LuaString.fromBytes(bytes));
+  }
+
+  Value _wrapRepeatedString(String value) {
+    final runtime = interpreter;
+    if (runtime != null &&
+        value.length <= StringInterning.shortStringThreshold) {
+      return runtime.constantStringValue(convert.utf8.encode(value));
+    }
+    return StringInterning.createStringValue(value);
+  }
+
   @override
   Object? call(List<Object?> args) {
     if (args.length < 2) {
@@ -2331,9 +2349,7 @@ class _StringRep extends BuiltinFunction {
     final count = _requireIntegerRepresentation((args[1] as Value).raw);
     final separatorValue = args.length > 2 ? (args[2] as Value) : null;
 
-    if (count <= 0) {
-      return StringInterning.createStringValue('');
-    }
+    if (count <= 0) return _wrapRepeatedString('');
 
     // For large allocations, suppress auto-GC to prevent premature collection
     // of transient objects before collectgarbage("count") can see them
@@ -2378,40 +2394,11 @@ class _StringRep extends BuiltinFunction {
         }
       }
 
-      // For LuaString results, we need to handle interning carefully
-      // Check if the result contains only ASCII characters (safe for interning)
-      final isAsciiOnly = resultBytes.every((b) => b <= 127);
-
-      if (isAsciiOnly) {
-        // Safe to convert to regular string and intern
-        final resultString = String.fromCharCodes(resultBytes);
-
-        // Mark small strings (<= 1KB) as temporary to avoid counting them in
-        // collectgarbage("count"). This matches Lua C behavior where temp strings
-        // for immediate use (like table lookups) don't allocate heap memory.
-        final isSmallTemp = resultString.length <= 1024;
-        final luaStr = StringInterning.intern(resultString);
-        final result = Value(luaStr, isTempKey: isSmallTemp);
-
-        return result;
-      } else {
-        // Contains high bytes, preserve as LuaString
-        final resultLuaString = LuaString.fromBytes(resultBytes);
-
-        // For high-byte content, we cannot use StringInterning because it would
-        // UTF-8 encode the Latin-1 string, corrupting the bytes
-        // Instead, return the LuaString directly
-        // Mark small strings (<= 1KB) as temporary
-        final isSmallTemp = resultLuaString.length <= 1024;
-        final result = Value(resultLuaString, isTempKey: isSmallTemp);
-
-        // Re-enable auto-GC after large allocation completes
-        if (isLargeAllocation) {
-          interpreter?.gc.resumeAutoTrigger();
-        }
-
-        return result;
+      final result = _wrapRepeatedStringBytes(resultBytes);
+      if (isLargeAllocation) {
+        interpreter?.gc.resumeAutoTrigger();
       }
+      return result;
     } else {
       // Handle regular strings
       final originalStr = value.raw.toString();
@@ -2433,7 +2420,7 @@ class _StringRep extends BuiltinFunction {
         if (isLargeAllocation) {
           interpreter?.gc.resumeAutoTrigger();
         }
-        return StringInterning.createStringValue(originalStr);
+        return value;
       }
 
       final buffer = StringBuffer();
@@ -2446,13 +2433,7 @@ class _StringRep extends BuiltinFunction {
 
       // Create the result string once and reuse it
       final resultString = buffer.toString();
-
-      // Mark small strings (<= 1KB) as temporary to avoid counting them in
-      // collectgarbage("count"). This matches Lua C behavior where temp strings
-      // for immediate use (like table lookups) don't allocate heap memory.
-      final isSmallTemp = resultString.length <= 1024;
-      final luaStr = StringInterning.intern(resultString);
-      final result = Value(luaStr, isTempKey: isSmallTemp);
+      final result = _wrapRepeatedString(resultString);
 
       // Re-enable auto-GC after large allocation completes
       if (isLargeAllocation) {
