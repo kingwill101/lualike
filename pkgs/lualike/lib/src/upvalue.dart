@@ -120,8 +120,9 @@ class Upvalue extends GCObject {
     // Store a reference to the target upvalue for delegation
     _joinedUpvalue = other;
 
-    Logger.debug(
-      'UpvalueJoin: Joined upvalue ${name ?? 'unnamed'} with ${other.name ?? 'unnamed'}',
+    Logger.debugLazy(
+      () =>
+          'UpvalueJoin: Joined upvalue ${name ?? 'unnamed'} with ${other.name ?? 'unnamed'}',
       category: 'Debug',
     );
   }
@@ -182,7 +183,10 @@ class Upvalue extends GCObject {
     _joinedUpvalue = null;
     _closedValue = null;
 
-    Logger.debug('Upvalue[${name ?? 'unnamed'}] freed', category: 'GC');
+    Logger.debugLazy(
+      () => 'Upvalue[${name ?? 'unnamed'}] freed',
+      category: 'GC',
+    );
   }
 
   @override

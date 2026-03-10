@@ -13,6 +13,8 @@ class MathLibrary extends Library {
 
   @override
   void registerFunctions(LibraryRegistrationContext context) {
+    final interpreter = context.vm;
+
     // Register all math functions directly
     context.define("abs", _MathAbs());
     context.define("acos", _MathAcos());
@@ -27,9 +29,9 @@ class MathLibrary extends Library {
     context.define("frexp", _MathFrexp());
     context.define("ldexp", _MathLdexp());
     context.define("log", _MathLog());
-    context.define("max", _MathMax());
-    context.define("min", _MathMin());
-    context.define("modf", _MathModf());
+    context.define("max", _MathMax(interpreter));
+    context.define("min", _MathMin(interpreter));
+    context.define("modf", _MathModf(interpreter));
     context.define("pi", Value(math.pi));
     context.define("rad", _MathRad());
     final randomFunc = _MathRandom();
@@ -286,6 +288,8 @@ class _MathLog extends BuiltinFunction {
 }
 
 class _MathMax extends BuiltinFunction {
+  _MathMax(super.interpreter);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -299,11 +303,13 @@ class _MathMax extends BuiltinFunction {
       max = NumberUtils.max(max, num);
     }
 
-    return Value(max);
+    return primitiveValue(max);
   }
 }
 
 class _MathMin extends BuiltinFunction {
+  _MathMin(super.interpreter);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -317,11 +323,13 @@ class _MathMin extends BuiltinFunction {
       min = NumberUtils.min(min, num);
     }
 
-    return Value(min);
+    return primitiveValue(min);
   }
 }
 
 class _MathModf extends BuiltinFunction {
+  _MathModf(super.interpreter);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -330,7 +338,7 @@ class _MathModf extends BuiltinFunction {
 
     final number = _getNumber(args[0] as Value, "modf", 1);
     final (intPart, fracPart) = NumberUtils.modf(number);
-    return Value.multi([Value(intPart), Value(fracPart)]);
+    return Value.multi([primitiveValue(intPart), primitiveValue(fracPart)]);
   }
 }
 

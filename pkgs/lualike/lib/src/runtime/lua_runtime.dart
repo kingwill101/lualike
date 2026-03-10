@@ -89,6 +89,7 @@ abstract interface class LuaRuntime {
   Object? dumpFunction(Value function, {bool stripDebugInfo = false});
   LuaFunctionDebugInfo? debugInfoForFunction(Value function);
   Value constantStringValue(List<int> bytes);
+  Value constantPrimitiveValue(Object? raw);
 
   // Call stack & debugging
   CallStack get callStack;

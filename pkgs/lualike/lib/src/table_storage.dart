@@ -82,8 +82,8 @@ class TableStorage extends MapBase<dynamic, dynamic> {
   final HashMap<dynamic, dynamic> _hash = HashMap<dynamic, dynamic>();
   final HashMap<dynamic, _HashOrderLink> _hashLinks =
       HashMap<dynamic, _HashOrderLink>();
-  final LinkedHashMap<dynamic, dynamic?> _deletedHashSuccessors =
-      LinkedHashMap<dynamic, dynamic?>();
+  final LinkedHashMap<dynamic, dynamic> _deletedHashSuccessors =
+      LinkedHashMap<dynamic, dynamic>();
   final LinkedHashMap<int, Object?> _deletedDenseIndices =
       LinkedHashMap<int, Object?>();
   int _reservedHashSlots = 0;
@@ -572,7 +572,7 @@ class TableStorage extends MapBase<dynamic, dynamic> {
 }
 
 final class _HashOrderLink {
-  _HashOrderLink({this.previousKey, this.nextKey});
+  _HashOrderLink({this.previousKey});
 
   dynamic previousKey;
   dynamic nextKey;

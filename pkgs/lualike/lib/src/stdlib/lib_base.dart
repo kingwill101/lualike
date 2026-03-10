@@ -138,8 +138,9 @@ class SetMetatableFunction extends BuiltinFunction {
     final metatable = args[1];
 
     if (Logger.enabled) {
-      Logger.debug(
-        "[SetMetatable] invoked on table=${table is Value ? table.hashCode : table} meta=$metatable",
+      Logger.debugLazy(
+        () =>
+            "[SetMetatable] invoked on table=${table is Value ? table.hashCode : table} meta=$metatable",
         category: 'GC',
       );
     }
@@ -157,8 +158,9 @@ class SetMetatableFunction extends BuiltinFunction {
 
     if (metatable is Value) {
       if (metatable.raw is Map) {
-        Logger.debug(
-          "[SetMetatable] on table=${table.hashCode} raw=${table.raw.hashCode} using meta raw=${metatable.raw.hashCode}",
+        Logger.debugLazy(
+          () =>
+              "[SetMetatable] on table=${table.hashCode} raw=${table.raw.hashCode} using meta raw=${metatable.raw.hashCode}",
           category: 'Metatables',
         );
         // Preserve identity by keeping a reference to the original Value.
@@ -170,8 +172,9 @@ class SetMetatableFunction extends BuiltinFunction {
         table.setMetatable(rawMeta, ownerRaw: metatable.raw);
         if (Logger.enabled) {
           final mode = rawMeta['__mode'];
-          Logger.debug(
-            "[SetMetatable] applied metatable to table=${table.hashCode} metaKeys=${rawMeta.keys.toList()} __mode=$mode",
+          Logger.debugLazy(
+            () =>
+                "[SetMetatable] applied metatable to table=${table.hashCode} metaKeys=${rawMeta.keys.toList()} __mode=$mode",
             category: 'GC',
           );
         }
@@ -293,8 +296,9 @@ class AssertFunction extends BuiltinFunction {
       isTrue = primaryCondition != null;
     }
 
-    Logger.debug(
-      'AssertFunction: Assertion condition: $condition, evaluated to: $isTrue',
+    Logger.debugLazy(
+      () =>
+          'AssertFunction: Assertion condition: $condition, evaluated to: $isTrue',
       category: 'Base',
     );
 
@@ -302,8 +306,8 @@ class AssertFunction extends BuiltinFunction {
       final message = args.length > 1
           ? (args[1] as Value).raw.toString()
           : "assertion failed! condition: ${primaryCondition is Value ? primaryCondition.raw : primaryCondition}";
-      Logger.debug(
-        'AssertFunction: Assertion failed with message: $message',
+      Logger.debugLazy(
+        () => 'AssertFunction: Assertion failed with message: $message',
         category: 'Base',
       );
       if (interpreter?.callStack.current?.callNode != null) {
@@ -315,8 +319,8 @@ class AssertFunction extends BuiltinFunction {
       throw LuaError(message);
     }
 
-    Logger.debug(
-      'AssertFunction: Assertion passed, returning original arguments',
+    Logger.debugLazy(
+      () => 'AssertFunction: Assertion passed, returning original arguments',
       category: 'Base',
     );
 
@@ -785,7 +789,7 @@ class ToNumberFunction extends BuiltinFunction {
       // Reject strings like "+ 0.01" or "- 123"
       if (str.startsWith('+') || str.startsWith('-')) {
         if (str.length > 1 && str[1] == ' ') {
-          return Value(null);
+          return primitiveValue(null);
         }
       }
 
@@ -793,23 +797,23 @@ class ToNumberFunction extends BuiltinFunction {
         final radix = base.raw as int;
         try {
           final intVal = int.parse(str, radix: radix);
-          return Value(intVal);
+          return primitiveValue(intVal);
         } on FormatException {
-          return Value(null);
+          return primitiveValue(null);
         }
       }
       try {
-        return Value(LuaNumberParser.parse(str));
+        return primitiveValue(LuaNumberParser.parse(str));
       } on FormatException {
-        return Value(null);
+        return primitiveValue(null);
       }
     } else if (value.raw is num) {
       return value;
     } else if (value.raw is BigInt) {
-      return Value((value.raw as BigInt).toInt());
+      return primitiveValue((value.raw as BigInt).toInt());
     }
 
-    return Value(null);
+    return primitiveValue(null);
   }
 }
 
@@ -823,8 +827,9 @@ class ToStringFunction extends BuiltinFunction {
 
     // Check for __tostring metamethod
     if (value.hasMetamethod("__tostring")) {
-      Logger.debug(
-        'tostring: __tostring metamethod found on value ${value.hashCode}',
+      Logger.debugLazy(
+        () =>
+            'tostring: __tostring metamethod found on value ${value.hashCode}',
         category: 'Base',
       );
       try {
@@ -832,16 +837,17 @@ class ToStringFunction extends BuiltinFunction {
         final awaitedResult = await value.callMetamethodAsync('__tostring', [
           value,
         ]);
-        Logger.debug(
-          'tostring: metamethod result type=${awaitedResult.runtimeType} value=$awaitedResult',
+        Logger.debugLazy(
+          () =>
+              'tostring: metamethod result type=${awaitedResult.runtimeType} value=$awaitedResult',
           category: 'Base',
         );
 
         // Validate that __tostring returned a string
         if (awaitedResult is Value) {
           if (awaitedResult.raw is String || awaitedResult.raw is LuaString) {
-            Logger.debug(
-              'tostring: returning Value string ${awaitedResult.raw}',
+            Logger.debugLazy(
+              () => 'tostring: returning Value string ${awaitedResult.raw}',
               category: 'Base',
             );
             return awaitedResult;
@@ -849,8 +855,8 @@ class ToStringFunction extends BuiltinFunction {
             throw LuaError("'__tostring' must return a string");
           }
         } else if (awaitedResult is String) {
-          Logger.debug(
-            'tostring: returning raw String $awaitedResult',
+          Logger.debugLazy(
+            () => 'tostring: returning raw String $awaitedResult',
             category: 'Base',
           );
           return Value(awaitedResult);
@@ -858,8 +864,9 @@ class ToStringFunction extends BuiltinFunction {
           throw LuaError("'__tostring' must return a string");
         }
       } on TailCallException catch (e) {
-        Logger.debug(
-          'tostring: TailCallException caught, calling function value ${e.functionValue.hashCode}',
+        Logger.debugLazy(
+          () =>
+              'tostring: TailCallException caught, calling function value ${e.functionValue.hashCode}',
           category: 'Base',
         );
         return await e.functionValue.call(e.args);
@@ -1077,8 +1084,9 @@ class SetmetaFunction extends BuiltinFunction {
     }
 
     if (meta.raw is Map) {
-      Logger.debug(
-        "setmetatable called on table with raw: ${table.raw} and meta: ${meta.raw}",
+      Logger.debugLazy(
+        () =>
+            "setmetatable called on table with raw: ${table.raw} and meta: ${meta.raw}",
         category: "Metatables",
       );
       final rawMeta = <String, dynamic>{};
@@ -1096,12 +1104,12 @@ class SetmetaFunction extends BuiltinFunction {
       });
       table.metatableRef = meta;
       table.setMetatable(rawMeta, ownerRaw: meta.raw);
-      Logger.debug(
-        "Metatable set. Weak mode now ${table.tableWeakMode}",
+      Logger.debugLazy(
+        () => "Metatable set. Weak mode now ${table.tableWeakMode}",
         category: 'Metatables',
       );
-      Logger.debug(
-        "Metatable set. New metatable: ${table.getMetatable()}",
+      Logger.debugLazy(
+        () => "Metatable set. New metatable: ${table.getMetatable()}",
         category: "Metatables",
       );
       return table;
@@ -1251,8 +1259,9 @@ class NextFunction extends BuiltinFunction {
         if (Logger.enabled &&
             table.tableWeakMode != null &&
             (table.hasWeakKeys || table.hasWeakValues || table.isAllWeak)) {
-          Logger.debug(
-            'next(pair): weak table (${table.tableWeakMode}) -> k=${nextKey.raw} (${nextKey.raw.runtimeType}) v=${nextValue.raw} (${nextValue.raw.runtimeType})',
+          Logger.debugLazy(
+            () =>
+                'next(pair): weak table (${table.tableWeakMode}) -> k=${nextKey.raw} (${nextKey.raw.runtimeType}) v=${nextValue.raw} (${nextValue.raw.runtimeType})',
             category: 'GC',
           );
         }
@@ -1680,7 +1689,10 @@ class CollectGarbageFunction extends BuiltinFunction {
     final option = args.isNotEmpty
         ? (args[0] as Value).raw.toString()
         : "collect";
-    Logger.debug('CollectGarbageFunction: option: $option', category: 'Base');
+    Logger.debugLazy(
+      () => 'CollectGarbageFunction: option: $option',
+      category: 'Base',
+    );
 
     return () async {
       switch (option) {
@@ -1700,8 +1712,9 @@ class CollectGarbageFunction extends BuiltinFunction {
           if (gcManager.isCycleActive && shouldAbandonIncrementalCycle) {
             gcManager.abandonIncrementalCycleForMajorCollect();
             if (Logger.enabled) {
-              Logger.debug(
-                'collectgarbage("collect") abandoned incremental cycle before manual collect',
+              Logger.debugLazy(
+                () =>
+                    'collectgarbage("collect") abandoned incremental cycle before manual collect',
                 category: 'Base',
               );
             }
@@ -1732,8 +1745,9 @@ class CollectGarbageFunction extends BuiltinFunction {
               await gcManager.majorCollection(interpreter!.getRoots());
               sw.stop();
               if (Logger.enabled) {
-                Logger.debug(
-                  'manual collect major pass #$pass took ${sw.elapsedMilliseconds}ms',
+                Logger.debugLazy(
+                  () =>
+                      'manual collect major pass #$pass took ${sw.elapsedMilliseconds}ms',
                   category: 'GC',
                 );
               }
@@ -2002,12 +2016,15 @@ class RequireFunction extends BuiltinFunction {
     if (args.isEmpty) throw LuaError("require() needs a module name");
     final moduleName = (args[0] as Value).raw.toString();
 
-    Logger.debug("Looking for module '$moduleName'", category: 'Require');
+    Logger.debugLazy(
+      () => "Looking for module '$moduleName'",
+      category: 'Require',
+    );
 
     final standardLibrary = _resolveStandardLibrary(moduleName);
     if (standardLibrary != null) {
-      Logger.debug(
-        "Resolved standard library module '$moduleName'",
+      Logger.debugLazy(
+        () => "Resolved standard library module '$moduleName'",
         category: 'Require',
       );
       return standardLibrary;
@@ -2023,8 +2040,8 @@ class RequireFunction extends BuiltinFunction {
           if (loadedEarly.containsKey(moduleName)) {
             final val = loadedEarly[moduleName];
             if (val is Value && val.raw != false) {
-              Logger.debug(
-                "Found module '$moduleName' in package.loaded",
+              Logger.debugLazy(
+                () => "Found module '$moduleName' in package.loaded",
                 category: 'Require',
               );
               return val;
@@ -2055,15 +2072,18 @@ class RequireFunction extends BuiltinFunction {
     // Ensure package.loaded exists
     if (!packageTable.containsKey("loaded")) {
       packageTable["loaded"] = Value({});
-      Logger.debug("Created new package.loaded table", category: 'Require');
+      Logger.debugLazy(
+        () => "Created new package.loaded table",
+        category: 'Require',
+      );
     }
 
     // Get the loaded table as a Value
     final loadedValue = packageTable["loaded"] as Value;
     final loaded = loadedValue;
 
-    Logger.debug(
-      "Loaded: $loaded with keys: ${loaded.keys}",
+    Logger.debugLazy(
+      () => "Loaded: $loaded with keys: ${loaded.keys}",
       category: 'Require',
     );
 
@@ -2071,8 +2091,8 @@ class RequireFunction extends BuiltinFunction {
     if (loaded.containsKey(moduleName)) {
       final loadedVal = loaded[moduleName];
       if (loadedVal is Value && loadedVal.raw != false) {
-        Logger.debug(
-          "Module '$moduleName' already loaded: $loadedVal",
+        Logger.debugLazy(
+          () => "Module '$moduleName' already loaded: $loadedVal",
           category: 'Require',
         );
         return loadedVal;
@@ -2089,8 +2109,8 @@ class RequireFunction extends BuiltinFunction {
         preloadTable.raw is Map) {
       final preloadMap = preloadTable.raw as Map;
       if (preloadMap.containsKey(moduleName)) {
-        Logger.debug(
-          "Found module '$moduleName' in preload table",
+        Logger.debugLazy(
+          () => "Found module '$moduleName' in preload table",
           category: 'Require',
         );
         final loader = preloadMap[moduleName];
@@ -2132,20 +2152,22 @@ class RequireFunction extends BuiltinFunction {
         interpreter!.currentScriptPath != null) {
       final scriptDir = path.dirname(interpreter!.currentScriptPath!);
       final directPath = path.join(scriptDir, '$moduleName.lua');
-      Logger.debug(
-        "DEBUG: Trying direct path in script directory: $directPath",
+      Logger.debugLazy(
+        () => "DEBUG: Trying direct path in script directory: $directPath",
       );
 
       if (await fileExists(directPath)) {
-        Logger.debug("DEBUG: Module found in script directory: $directPath");
+        Logger.debugLazy(
+          () => "DEBUG: Module found in script directory: $directPath",
+        );
         modulePath = directPath;
       }
     }
 
     // If not found in the script directory, use the regular resolution
     if (modulePath == null) {
-      Logger.debug(
-        "Resolving module path for '$moduleName'",
+      Logger.debugLazy(
+        () => "Resolving module path for '$moduleName'",
         category: 'Require',
       );
       modulePath = await interpreter!.fileManager.resolveModulePath(moduleName);
@@ -2156,16 +2178,17 @@ class RequireFunction extends BuiltinFunction {
 
     final modulePathStr = modulePath;
     if (modulePathStr != null) {
-      Logger.debug(
-        "(REQUIRE) RequireFunction: Loading module '$moduleName' from path: $modulePathStr",
+      Logger.debugLazy(
+        () =>
+            "(REQUIRE) RequireFunction: Loading module '$moduleName' from path: $modulePathStr",
         category: 'Require',
       );
 
       final source = await interpreter!.fileManager.loadSource(modulePathStr);
       if (source != null) {
         try {
-          Logger.debug(
-            "REQUIRE: Module source loaded, parsing and executing",
+          Logger.debugLazy(
+            () => "REQUIRE: Module source loaded, parsing and executing",
             category: 'Require',
           );
           // Parse the module code
@@ -2198,8 +2221,9 @@ class RequireFunction extends BuiltinFunction {
           interpreter!.setCurrentEnv(moduleEnv);
           interpreter!.currentScriptPath = absoluteModulePath;
 
-          Logger.debug(
-            'Require: setting module env paths _SCRIPT_PATH(norm)=$normalizedModulePath, _SCRIPT_DIR(norm)=$normalizedModuleDir | originals: path=$absoluteModulePath, dir=$moduleDir',
+          Logger.debugLazy(
+            () =>
+                'Require: setting module env paths _SCRIPT_PATH(norm)=$normalizedModulePath, _SCRIPT_DIR(norm)=$normalizedModuleDir | originals: path=$absoluteModulePath, dir=$moduleDir',
           );
           moduleEnv.declare('_SCRIPT_PATH', Value(normalizedModulePath));
           moduleEnv.declare('_SCRIPT_DIR', Value(normalizedModuleDir));
@@ -2212,8 +2236,9 @@ class RequireFunction extends BuiltinFunction {
             Value.multi([Value(moduleName), Value(modulePathStr)]),
           );
 
-          Logger.debug(
-            "DEBUG: Module environment set up with _SCRIPT_PATH=$absoluteModulePath, _SCRIPT_DIR=$moduleDir, _MODULE_NAME=$moduleName",
+          Logger.debugLazy(
+            () =>
+                "DEBUG: Module environment set up with _SCRIPT_PATH=$absoluteModulePath, _SCRIPT_DIR=$moduleDir, _MODULE_NAME=$moduleName",
           );
 
           Object? result;
@@ -2243,8 +2268,9 @@ class RequireFunction extends BuiltinFunction {
             result = Value(true);
           }
 
-          Logger.debug(
-            "(REQUIRE) RequireFunction: Module '$moduleName' loaded successfully",
+          Logger.debugLazy(
+            () =>
+                "(REQUIRE) RequireFunction: Module '$moduleName' loaded successfully",
             category: 'Require',
           );
 
@@ -2257,20 +2283,20 @@ class RequireFunction extends BuiltinFunction {
               result = loadedVal;
             } else {
               loaded[moduleName] = result;
-              Logger.debug(
-                "Module '$moduleName' stored in package.loaded",
+              Logger.debugLazy(
+                () => "Module '$moduleName' stored in package.loaded",
                 category: 'Require',
               );
             }
           } else {
             loaded[moduleName] = result;
-            Logger.debug(
-              "Module '$moduleName' stored in package.loaded",
+            Logger.debugLazy(
+              () => "Module '$moduleName' stored in package.loaded",
               category: 'Require',
             );
           }
-          Logger.debug(
-            "Loaded table now contains: ${loaded.keys.join(",")}",
+          Logger.debugLazy(
+            () => "Loaded table now contains: ${loaded.keys.join(", ")}",
             category: 'Require',
           );
 
@@ -2292,7 +2318,10 @@ class RequireFunction extends BuiltinFunction {
       final typeName = searchersAny == null
           ? 'null'
           : searchersAny.runtimeType.toString();
-      Logger.debug("package.searchers typeof=$typeName", category: 'Require');
+      Logger.debugLazy(
+        () => "package.searchers typeof=$typeName",
+        category: 'Require',
+      );
     }
     final pkgMapForSearchers = packageTable.raw as Map;
     final searchersEntry = pkgMapForSearchers['searchers'];
@@ -2314,8 +2343,8 @@ class RequireFunction extends BuiltinFunction {
         continue;
       }
 
-      Logger.debug(
-        "RequireFunction: Trying searcher #$i for '$moduleName'",
+      Logger.debugLazy(
+        () => "RequireFunction: Trying searcher #$i for '$moduleName'",
         category: 'Require',
       );
 
@@ -2331,8 +2360,9 @@ class RequireFunction extends BuiltinFunction {
           final loader = result[0] as Value;
           final loaderData = result.length > 1 ? result[1] : Value(null);
 
-          Logger.debug(
-            "RequireFunction: Found loader for '$moduleName' with data: $loaderData",
+          Logger.debugLazy(
+            () =>
+                "RequireFunction: Found loader for '$moduleName' with data: $loaderData",
             category: 'Require',
           );
 
@@ -2423,7 +2453,7 @@ class RequireFunction extends BuiltinFunction {
 
     final errorMsg =
         "module '$moduleName' not found:\n\t${errorLines.join('\n\t')}";
-    Logger.debug("Error message: $errorMsg", category: 'Require');
+    Logger.debugLazy(() => "Error message: $errorMsg", category: 'Require');
     throw LuaError(errorMsg);
   }
 }

@@ -127,18 +127,21 @@ void main() {
       }
     });
 
-    test('table.remove rejects position zero for non-empty sequences', () async {
-      final bridge = LuaLike();
+    test(
+      'table.remove rejects position zero for non-empty sequences',
+      () async {
+        final bridge = LuaLike();
 
-      try {
-        await bridge.execute('''
+        try {
+          await bridge.execute('''
           table.remove({10, 20, 30}, 0)
         ''');
-        fail('Expected position out of bounds error');
-      } on LuaError catch (e) {
-        expect(e.message, contains('position out of bounds'));
-      }
-    });
+          fail('Expected position out of bounds error');
+        } on LuaError catch (e) {
+          expect(e.message, contains('position out of bounds'));
+        }
+      },
+    );
 
     test('table.concat', () async {
       final bridge = LuaLike();
@@ -294,8 +297,9 @@ void main() {
         ''');
       } on ReturnException catch (e) {
         var results = (e.value as Value).unwrap();
-        Logger.debug(
-          "Results: ${results[0]}, ${results[1]}, ${results[2]}, ${results[3]}, ${results[4]}",
+        Logger.debugLazy(
+          () =>
+              "Results: ${results[0]}, ${results[1]}, ${results[2]}, ${results[3]}, ${results[4]}",
         );
         expect(results[0], equals(5));
         expect(results[1], equals(4));
@@ -593,11 +597,13 @@ void main() {
       }
     });
 
-    test('table length returns a usable border for sparse powers of two', () async {
-      final bridge = LuaLike();
+    test(
+      'table length returns a usable border for sparse powers of two',
+      () async {
+        final bridge = LuaLike();
 
-      try {
-        await bridge.execute('''
+        try {
+          await bridge.execute('''
           local t = {}
           for i = 20, 0, -1 do
             t[2 ^ i] = true
@@ -605,19 +611,22 @@ void main() {
           local n = #t
           return n, t[n] ~= nil, t[n + 1] == nil
         ''');
-      } on ReturnException catch (e) {
-        final results = (e.value as Value).unwrap();
-        expect(results[0], lessThan(1000));
-        expect(results[1], isTrue);
-        expect(results[2], isTrue);
-      }
-    });
+        } on ReturnException catch (e) {
+          final results = (e.value as Value).unwrap();
+          expect(results[0], lessThan(1000));
+          expect(results[1], isTrue);
+          expect(results[2], isTrue);
+        }
+      },
+    );
 
-    test('table length for random sparse tables returns a valid border', () async {
-      final bridge = LuaLike();
+    test(
+      'table length for random sparse tables returns a valid border',
+      () async {
+        final bridge = LuaLike();
 
-      try {
-        await bridge.execute('''
+        try {
+          await bridge.execute('''
           math.randomseed(1234)
           local failures = 0
           for i = 1, 200 do
@@ -632,16 +641,19 @@ void main() {
           end
           return failures
         ''');
-      } on ReturnException catch (e) {
-        expect((e.value as Value).raw, equals(0));
-      }
-    });
+        } on ReturnException catch (e) {
+          expect((e.value as Value).raw, equals(0));
+        }
+      },
+    );
 
-    test('table library sequence operations respect proxy metamethods', () async {
-      final bridge = LuaLike();
+    test(
+      'table library sequence operations respect proxy metamethods',
+      () async {
+        final bridge = LuaLike();
 
-      try {
-        await bridge.execute('''
+        try {
+          await bridge.execute('''
           local t = {}
           local proxy = setmetatable({}, {
             __len = function() return #t end,
@@ -662,19 +674,20 @@ void main() {
 
           return before, after, #proxy, #t, r1, r2, a, b, c, d
         ''');
-      } on ReturnException catch (e) {
-        final result = (e.value as Value).unwrap();
-        expect(result[0], equals('5,4,3,2,1'));
-        expect(result[1], equals('1,2,3,4,5'));
-        expect(result[2], equals(3));
-        expect(result[3], equals(3));
-        expect(result[4], equals(1));
-        expect(result[5], equals(5));
-        expect(result[6], equals(2));
-        expect(result[7], equals(3));
-        expect(result[8], equals(4));
-        expect(result[9], isNull);
-      }
-    });
+        } on ReturnException catch (e) {
+          final result = (e.value as Value).unwrap();
+          expect(result[0], equals('5,4,3,2,1'));
+          expect(result[1], equals('1,2,3,4,5'));
+          expect(result[2], equals(3));
+          expect(result[3], equals(3));
+          expect(result[4], equals(1));
+          expect(result[5], equals(5));
+          expect(result[6], equals(2));
+          expect(result[7], equals(3));
+          expect(result[8], equals(4));
+          expect(result[9], isNull);
+        }
+      },
+    );
   });
 }

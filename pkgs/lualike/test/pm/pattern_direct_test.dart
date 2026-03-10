@@ -9,21 +9,22 @@ void main() {
         final lp = lpc.LuaPattern.compile(luaPattern);
         final match = lp.firstMatch(testString);
         if (match != null) {
-          Logger.debug(
-            'Match found: "${testString.substring(match.start, match.end)}"',
+          Logger.debugLazy(
+            () =>
+                'Match found: "${testString.substring(match.start, match.end)}"',
           );
           for (var i = 0; i < match.captures.length; i++) {
-            Logger.debug('  Group ${i + 1}: "${match.captures[i]}"');
+            Logger.debugLazy(() => '  Group ${i + 1}: "${match.captures[i]}"');
           }
         } else {
-          Logger.debug('No match found');
+          Logger.debugLazy(() => 'No match found');
         }
       } catch (e) {
-        Logger.debug('Error: $e');
+        Logger.debugLazy(() => 'Error: $e');
       }
     });
 
-    Logger.debug('---');
+    Logger.debugLazy(() => '---');
   }
 
   // Test basic patterns
@@ -61,5 +62,5 @@ void main() {
   // Test complex patterns
   testPattern('%f[%S](.-%f[%s].-%f[%S])', ' word in the middle ');
 
-  Logger.debug('All tests completed');
+  Logger.debugLazy(() => 'All tests completed');
 }

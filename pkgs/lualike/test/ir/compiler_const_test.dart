@@ -2,7 +2,6 @@
 library;
 
 import 'package:lualike/src/ir/compiler.dart';
-import 'package:lualike/src/ir/prototype.dart';
 import 'package:lualike/src/parse.dart';
 import 'package:test/test.dart';
 

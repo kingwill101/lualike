@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:lualike/lualike.dart';
-import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/gc/gc.dart';
 import 'package:lualike/src/gc/gc_weights.dart';
 import 'package:lualike/src/gc/gc_access.dart';
@@ -400,7 +399,13 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     // This mirrors Lua's behavior where strings, numbers, etc. share
     // common metatables giving them methods like string.find.
     if (metatable == null) {
-      MetaTable().applyDefaultMetatable(this);
+      final skipDefaultMetatable =
+          _raw is Map ||
+          ((_raw is num || _raw is BigInt) &&
+              !MetaTable().numberMetatableEnabled);
+      if (!skipDefaultMetatable) {
+        MetaTable().applyDefaultMetatable(this);
+      }
     } else {
       setMetatable(metatable);
     }
@@ -530,8 +535,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     if (raw is VirtualLuaTable) return false;
     if (isTempKey) {
       if (Logger.enabled) {
-        Logger.debug(
-          'Value $hashCode (${raw.runtimeType}) marked as temp key, NOT counting allocation',
+        Logger.debugLazy(
+          () =>
+              'Value $hashCode (${raw.runtimeType}) marked as temp key, NOT counting allocation',
           category: 'GC',
         );
       }
@@ -551,8 +557,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         final len = payload is String
             ? payload.length
             : (payload as LuaString).length;
-        Logger.debug(
-          'Value $hashCode wrapping ${payload.runtimeType}(len=$len), WILL count allocation',
+        Logger.debugLazy(
+          () =>
+              'Value $hashCode wrapping ${payload.runtimeType}(len=$len), WILL count allocation',
           category: 'GC',
         );
       }
@@ -814,8 +821,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         final owner = metatableRef;
         if (owner is Value) {
           if (Logger.enabled && event == '__gc') {
-            Logger.debug(
-              'getMetamethod("__gc"): owner=${owner.hashCode} weakMode=${weakModeForTableObject(owner) ?? weakModeForTableObject(getMetatable())} methodType=${method.runtimeType}',
+            Logger.debugLazy(
+              () =>
+                  'getMetamethod("__gc"): owner=${owner.hashCode} weakMode=${weakModeForTableObject(owner) ?? weakModeForTableObject(getMetatable())} methodType=${method.runtimeType}',
               category: 'GC',
             );
           }
@@ -1037,7 +1045,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         return result is Value ? result.raw.toString() : result.toString();
       } catch (e) {
         // If metamethod call fails, fall back to default behavior
-        Logger.debug('Error in __tostring metamethod: $e', category: 'Value');
+        Logger.debugLazy(
+          () => 'Error in __tostring metamethod: $e',
+          category: 'Value',
+        );
       } finally {
         _toStringGuard.remove(objectId);
       }
@@ -1441,8 +1452,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         final keyRawType = storageKey is Value
             ? storageKey.raw.runtimeType
             : keyType;
-        Logger.debug(
-          'setRawTableEntry: weak-k store keyType=$keyType keyRawType=$keyRawType',
+        Logger.debugLazy(
+          () =>
+              'setRawTableEntry: weak-k store keyType=$keyType keyRawType=$keyRawType',
           category: 'GC',
         );
       } catch (_) {}
@@ -1462,6 +1474,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           storageValue.interpreter = interpreter;
         }
         manager.ensureTracked(storageValue);
+        manager.noteReferenceWrite(this, storageKey);
+        manager.noteReferenceWrite(this, storageValue);
       }
     }
     _incrementTableVersion();
@@ -1508,10 +1522,18 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
     final existing = rootEnv.values[storageKey];
     if (existing == null) {
-      rootEnv.values[storageKey] = Box(value, isTransient: true);
+      final box = Box(
+        value,
+        isTransient: true,
+        interpreter: rootEnv.interpreter,
+      );
+      rootEnv.values[storageKey] = box;
+      final gc = rootEnv.interpreter?.gc ?? GCAccess.defaultManager;
+      gc?.noteReferenceWrite(rootEnv, box);
       return;
     }
 
+    existing.interpreter ??= rootEnv.interpreter;
     existing.value = value;
   }
 
@@ -1549,6 +1571,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           value.interpreter = interpreter;
         }
         manager.ensureTracked(value);
+        manager.noteReferenceWrite(this, index);
+        manager.noteReferenceWrite(this, value);
         final pending = (_tableDenseWriteDebt[this] ?? 0) + 1;
         if (pending >= 1024) {
           _tableDenseWriteDebt[this] = 0;

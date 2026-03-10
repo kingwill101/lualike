@@ -203,10 +203,13 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
           cache.tableVersion == tableVal.tableVersion &&
           cache.value != null) {
         if (Logger.enabled) {
-          Logger.debug(
-            'TableFieldAccess cache hit',
+          Logger.debugLazy(
+            () => 'TableFieldAccess cache hit',
             category: 'TableAccess',
-            context: {'fieldName': node.fieldName.name, 'cached': true},
+            contextBuilder: () => {
+              'fieldName': node.fieldName.name,
+              'cached': true,
+            },
           );
         }
         return cache.value;
@@ -214,10 +217,10 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     }
 
     if (Logger.enabled) {
-      Logger.debug(
-        'TableFieldAccess - checking key existence',
+      Logger.debugLazy(
+        () => 'TableFieldAccess - checking key existence',
         category: 'TableAccess',
-        context: {
+        contextBuilder: () => {
           'key': indexVal.raw.toString(),
           'exists': (tableVal.raw as Map).containsKey(indexVal.raw),
         },
@@ -252,10 +255,13 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
           ..value = result is Value ? result : Value(result);
         _tableFieldAccessCache[node] = cache;
         if (Logger.enabled) {
-          Logger.debug(
-            'TableFieldAccess cache store',
+          Logger.debugLazy(
+            () => 'TableFieldAccess cache store',
             category: 'TableAccess',
-            context: {'fieldName': node.fieldName.name, 'cached': true},
+            contextBuilder: () => {
+              'fieldName': node.fieldName.name,
+              'cached': true,
+            },
           );
         }
       }
@@ -279,10 +285,10 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
         indexVal,
       ]);
       if (Logger.enabled) {
-        Logger.debug(
-          'TableFieldAccess __index result',
+        Logger.debugLazy(
+          () => 'TableFieldAccess __index result',
           category: 'TableAccess',
-          context: {'hasResult': result != null},
+          contextBuilder: () => {'hasResult': result != null},
         );
       }
       return result;
@@ -294,10 +300,10 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       contextBuilder: () => {},
     );
     if (Logger.enabled) {
-      Logger.debug(
-        'TableFieldAccess result: nil (no metamethod)',
+      Logger.debugLazy(
+        () => 'TableFieldAccess result: nil (no metamethod)',
         category: 'TableAccess',
-        context: {},
+        contextBuilder: () => {},
       );
     }
     return Value(null);
@@ -350,10 +356,10 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
         final hasValue = cache.value != null;
 
         if (Logger.enabled) {
-          Logger.debug(
-            'TableIndexAccess cache check',
+          Logger.debugLazy(
+            () => 'TableIndexAccess cache check',
             category: 'TableAccess',
-            context: {
+            contextBuilder: () => {
               'tableMatch': tableMatch,
               'versionMatch': versionMatch,
               'indexMatch': indexMatch,
@@ -364,19 +370,19 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
 
         if (tableMatch && versionMatch && indexMatch && hasValue) {
           if (Logger.enabled) {
-            Logger.debug(
-              'TableIndexAccess cache hit',
+            Logger.debugLazy(
+              () => 'TableIndexAccess cache hit',
               category: 'TableAccess',
-              context: {'cached': true},
+              contextBuilder: () => {'cached': true},
             );
           }
           return cache.value;
         }
       } else if (Logger.enabled) {
-        Logger.debug(
-          'TableIndexAccess cache miss: no cache entry for this AST node',
+        Logger.debugLazy(
+          () => 'TableIndexAccess cache miss: no cache entry for this AST node',
           category: 'TableAccess',
-          context: {},
+          contextBuilder: () => {},
         );
       }
     }
@@ -436,10 +442,10 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
         ..indexKey = _tableIndexCacheKey(indexVal)
         ..value = result;
       if (Logger.enabled) {
-        Logger.debug(
-          'TableIndexAccess cache store',
+        Logger.debugLazy(
+          () => 'TableIndexAccess cache store',
           category: 'TableAccess',
-          context: {'cached': true},
+          contextBuilder: () => {'cached': true},
         );
       }
     }
@@ -466,10 +472,10 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     if (node.key is Identifier) {
       key = (node.key as Identifier).name;
       if (Logger.enabled) {
-        Logger.debug(
-          'Using Identifier literal for key',
+        Logger.debugLazy(
+          () => 'Using Identifier literal for key',
           category: 'Table',
-          context: {'key': key.toString()},
+          contextBuilder: () => {'key': key.toString()},
         );
       }
     } else {

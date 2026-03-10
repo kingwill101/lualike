@@ -9,7 +9,7 @@ import 'package:lualike/src/value.dart';
 import 'package:test/test.dart';
 
 void main() {
-  dynamic _unwrap(dynamic value) => value is Value ? value.raw : value;
+  dynamic unwrap(dynamic value) => value is Value ? value.raw : value;
 
   group('LualikeIrVm branching', () {
     test('executes if/else branches', () async {
@@ -27,7 +27,7 @@ void main() {
         ..define('cond', Value(true))
         ..define('tbl', Value.wrap({'value': 1}));
       final resultTrue = await LualikeIrVm(environment: envTrue).execute(chunk);
-      expect(_unwrap(resultTrue), equals(2));
+      expect(unwrap(resultTrue), equals(2));
 
       final envFalse = Environment()
         ..define('cond', Value(false))
@@ -35,7 +35,7 @@ void main() {
       final resultFalse = await LualikeIrVm(
         environment: envFalse,
       ).execute(chunk);
-      expect(_unwrap(resultFalse), equals(0));
+      expect(unwrap(resultFalse), equals(0));
     });
 
     test('executes while loop', () async {
@@ -48,7 +48,7 @@ void main() {
       final chunk = LualikeIrCompiler().compile(program);
       final env = Environment()..define('state', Value.wrap({'i': 0}));
       final result = await LualikeIrVm(environment: env).execute(chunk);
-      expect(_unwrap(result), equals(3));
+      expect(unwrap(result), equals(3));
     });
 
     test('short-circuit and/or expressions', () async {
@@ -62,7 +62,7 @@ void main() {
       final andTrue = await LualikeIrVm(
         environment: envAndTrue,
       ).execute(andChunk);
-      expect(_unwrap(andTrue), equals(42));
+      expect(unwrap(andTrue), equals(42));
 
       final envAndFalse = Environment()
         ..define('cond', Value(false))
@@ -70,13 +70,13 @@ void main() {
       final andFalse = await LualikeIrVm(
         environment: envAndFalse,
       ).execute(andChunk);
-      expect(_unwrap(andFalse), isFalse);
+      expect(unwrap(andFalse), isFalse);
 
       final envOrTrue = Environment()
         ..define('cond', Value(true))
         ..define('arr', Value.wrap({1: 7}));
       final orTrue = await LualikeIrVm(environment: envOrTrue).execute(orChunk);
-      expect(_unwrap(orTrue), isTrue);
+      expect(unwrap(orTrue), isTrue);
 
       final envOrFalse = Environment()
         ..define('cond', Value(false))
@@ -84,7 +84,7 @@ void main() {
       final orFalse = await LualikeIrVm(
         environment: envOrFalse,
       ).execute(orChunk);
-      expect(_unwrap(orFalse), equals(7));
+      expect(unwrap(orFalse), equals(7));
     });
   });
 }

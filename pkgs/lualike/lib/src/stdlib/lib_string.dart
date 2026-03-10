@@ -8,7 +8,6 @@ import 'package:collection/collection.dart' show ListEquality;
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/binary_type_size.dart';
 import 'package:lualike/src/coroutine.dart';
-import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/intern.dart';
 import 'package:lualike/src/number_limits.dart';
 import 'package:lualike/src/parsers/pattern.dart' as lpc;

@@ -2,7 +2,6 @@
 library;
 
 import 'package:lualike_test/test.dart';
-import 'package:lualike/src/parse.dart';
 import 'package:lualike/src/semantic_checker.dart';
 
 void main() {

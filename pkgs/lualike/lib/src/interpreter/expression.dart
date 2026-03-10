@@ -9,6 +9,20 @@ class _IdentifierGlobalCache {
 final Expando<_IdentifierGlobalCache> _identifierGlobalCache =
     Expando<_IdentifierGlobalCache>('identifierGlobalCache');
 
+/// Returns the active function's upvalue named [name] as a [Value].
+///
+/// Some upvalues can temporarily hold raw Dart objects instead of already
+/// wrapped [Value] instances. The most important case is `_ENV` after Lua code
+/// rebinding it through `debug.setupvalue`, which can install a plain table or
+/// other host object directly into the upvalue slot. Identifier resolution must
+/// still see the result through the normal [Value] path so later lookups keep
+/// their metatable-aware behavior.
+///
+/// Re-wrapping the raw object here preserves the same table access semantics as
+/// environment reads from [Interpreter.getCurrentEnv]. Without that wrapper,
+/// global lookups can bypass yielding `__index` and `__newindex` metamethods,
+/// which breaks coroutines that swap `_ENV` to a proxy table and then suspend
+/// inside those metamethods.
 Value? _activeFunctionUpvalueValue(Interpreter interpreter, String name) {
   final currentFunction = interpreter.getCurrentFunction();
   if (currentFunction?.upvalues case final upvalues?) {
@@ -16,8 +30,11 @@ Value? _activeFunctionUpvalueValue(Interpreter interpreter, String name) {
       if (upvalue.name != name) {
         continue;
       }
-      final value = upvalue.getValue();
-      return value;
+      return switch (upvalue.getValue()) {
+        final Value value => value,
+        final Object? value? => Value(value),
+        _ => null,
+      };
     }
   }
   return null;
@@ -68,8 +85,24 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     final interpreter = this as Interpreter;
     final currentFunction = interpreter.getCurrentFunction();
     final closureBoundary = currentFunction?.closureEnvironment;
+    final frameEnv = currentFunction == null
+        ? null
+        : interpreter.findFrameForCallable(currentFunction)?.env;
 
     Environment? env = globals;
+    if (frameEnv != null) {
+      Environment? cursor = globals;
+      var currentEnvBelongsToFrame = false;
+      while (cursor != null) {
+        if (identical(cursor, frameEnv)) {
+          currentEnvBelongsToFrame = true;
+          break;
+        }
+        cursor = cursor.parent;
+      }
+      env = currentEnvBelongsToFrame ? globals : frameEnv;
+    }
+
     while (env != null) {
       if (!identical(env, closureBoundary)) {
         if (env.values.containsKey(node.name) &&
@@ -114,8 +147,8 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       result,
     ); // Correctly push the evaluated result onto the evalStack
     if (Logger.enabled) {
-      Logger.debug(
-        'Pushed result $result onto evalStack',
+      Logger.debugLazy(
+        () => 'Pushed result $result onto evalStack',
         category: 'Expression',
       );
     }
@@ -133,8 +166,9 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitBinaryExpression(BinaryExpression node) async {
     if (Logger.enabled) {
-      Logger.debug(
-        'Visiting BinaryExpression: ${node.left} ${node.op} ${node.right}',
+      Logger.debugLazy(
+        () =>
+            'Visiting BinaryExpression: ${node.left} ${node.op} ${node.right}',
         category: 'Expression',
       );
     }
@@ -236,8 +270,9 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     // only the first return value should be used
     if (leftResult is Value && leftResult.isMulti) {
       if (Logger.enabled) {
-        Logger.debug(
-          'BinaryExpression: limiting left multi-value result to first value',
+        Logger.debugLazy(
+          () =>
+              'BinaryExpression: limiting left multi-value result to first value',
           category: 'Expression',
         );
       }
@@ -249,8 +284,9 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
 
     if (rightResult is Value && rightResult.isMulti) {
       if (Logger.enabled) {
-        Logger.debug(
-          'BinaryExpression: limiting right multi-value result to first value',
+        Logger.debugLazy(
+          () =>
+              'BinaryExpression: limiting right multi-value result to first value',
           category: 'Expression',
         );
       }
@@ -263,216 +299,6 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     final leftVal = leftResult is Value ? leftResult : Value(leftResult);
     final rightVal = rightResult is Value ? rightResult : Value(rightResult);
 
-    // Canonicalize table wrappers to preserve per-instance metatables
-    Value canon(Value v) {
-      if (v.raw is Map) {
-        final c = Value.lookupCanonicalTableWrapper(v.raw);
-        if (c != null) return c;
-      }
-      return v;
-    }
-
-    final canonicalLeft = canon(leftVal);
-    final canonicalRight = canon(rightVal);
-
-    Value operandForMetamethod(Value live, Value canonical, String event) {
-      if (live.hasMetamethod(event)) {
-        return live;
-      }
-      return canonical;
-    }
-
-    if (Logger.enabled) {
-      Logger.debug(
-        'BinaryExpression operands before metamethod check: $leftVal (${leftVal.raw.runtimeType}) ${node.op} $rightVal (${rightVal.raw.runtimeType})',
-        category: 'Expression',
-      );
-    }
-
-    if (multilineBinaryHook) {
-      await fireBinaryHookLine(leftLine);
-    }
-
-    // Check for metamethods first
-    final opMap = {
-      '+': '__add',
-      '-': '__sub',
-      '*': '__mul',
-      '/': '__div',
-      '%': '__mod',
-      '^': '__pow',
-      '//': '__idiv',
-      '&': '__band',
-      '|': '__bor',
-      '~': '__bxor',
-      '<<': '__shl',
-      '>>': '__shr',
-      '..': '__concat',
-      '<': '__lt',
-      '>': '__gt',
-      '<=': '__le',
-      '>=': '__ge',
-      '==': '__eq',
-      '~=': '__eq', // Negated result
-      '!=': '__eq', // Negated result
-    };
-
-    String? metamethodName = opMap[node.op];
-    if (metamethodName != null) {
-      bool swapArgs = false;
-      bool invertResult = false;
-      Value? calleeValue;
-
-      final methodLeft = operandForMetamethod(
-        leftVal,
-        canonicalLeft,
-        metamethodName,
-      );
-      final methodRight = operandForMetamethod(
-        rightVal,
-        canonicalRight,
-        metamethodName,
-      );
-
-      // Prefer left, then right for the direct mapping
-      if (methodLeft.hasMetamethod(metamethodName)) {
-        calleeValue = methodLeft;
-      } else if (methodRight.hasMetamethod(metamethodName)) {
-        calleeValue = methodRight;
-      }
-
-      if (Logger.enabled &&
-          (node.op == '<' ||
-              node.op == '>' ||
-              node.op == '<=' ||
-              node.op == '>=')) {
-        Logger.debug(
-          'Metamethod probe: op=${node.op}, left.type=${getLuaType(leftVal)}, right.type=${getLuaType(rightVal)}, left.has($metamethodName)=${leftVal.hasMetamethod(metamethodName)}, right.has($metamethodName)=${rightVal.hasMetamethod(metamethodName)}, callee=${calleeValue == leftVal ? 'left' : (calleeValue == rightVal ? 'right' : 'none')}',
-          category: 'Expression',
-        );
-      }
-
-      // Fallback mappings for comparisons when direct mapping not present
-      if (calleeValue == null && node.op == '>') {
-        if (canonicalRight.hasMetamethod('__lt')) {
-          metamethodName = '__lt';
-          calleeValue = canonicalRight;
-          swapArgs = true;
-        } else if (canonicalLeft.hasMetamethod('__lt')) {
-          metamethodName = '__lt';
-          calleeValue = canonicalLeft;
-          swapArgs = true;
-        }
-      } else if (calleeValue == null && node.op == '>=') {
-        if (canonicalLeft.hasMetamethod('__le')) {
-          metamethodName = '__le';
-          calleeValue = canonicalLeft;
-          swapArgs = true;
-        } else if (canonicalRight.hasMetamethod('__le')) {
-          metamethodName = '__le';
-          calleeValue = canonicalRight;
-          swapArgs = true;
-        } else if (canonicalRight.hasMetamethod('__lt')) {
-          metamethodName = '__lt';
-          calleeValue = canonicalRight;
-          invertResult = true;
-        } else if (canonicalLeft.hasMetamethod('__lt')) {
-          metamethodName = '__lt';
-          calleeValue = canonicalLeft;
-          invertResult = true;
-        }
-      }
-
-      if (calleeValue != null) {
-        if (Logger.enabled) {
-          Logger.debug(
-            'Using metamethod $metamethodName for operation ${node.op}',
-            category: 'Expression',
-          );
-        }
-
-        final callArgs = swapArgs
-            ? [methodRight, methodLeft]
-            : [methodLeft, methodRight];
-        Object? result;
-        try {
-          result = await calleeValue.callMetamethodAsync(
-            metamethodName,
-            callArgs,
-          );
-        } on UnsupportedError catch (_) {
-          final metamethod = metamethodName.startsWith('__')
-              ? metamethodName.substring(2)
-              : metamethodName;
-          throw LuaError.typeError(
-            "attempt to call a non-function metamethod '$metamethod'",
-          );
-        }
-
-        // Metamethods can return multiple values, but binary operations only use
-        // the first result. Normalize here to match Lua semantics.
-        if (result is Value && result.isMulti && result.raw is List) {
-          final values = result.raw as List;
-          result = values.isNotEmpty ? values.first : Value(null);
-        } else if (result is List) {
-          result = result.isNotEmpty ? result.first : Value(null);
-        }
-
-        // For inequality operators that use __eq, negate the result
-        if ((node.op == '~=' || node.op == '!=') && metamethodName == '__eq') {
-          if (result is bool) {
-            return Value(!result);
-          } else if (result is Value && result.raw is bool) {
-            return Value(!result.raw);
-          }
-        }
-
-        if (invertResult) {
-          if (result is bool) {
-            result = !result;
-          } else if (result is Value && result.raw is bool) {
-            result = Value(!result.raw);
-          }
-        }
-
-        return result is Value ? result : Value(result);
-      }
-    }
-
-    // If no metamethod found, use regular operators
-    if (node.op == '==') {
-      if (Logger.enabled) {
-        Logger.debug(
-          'Equality check: leftVal.raw type = ${leftVal.raw.runtimeType}, value = "${leftVal.raw}"',
-          category: 'Expression/Equality',
-        );
-        Logger.debug(
-          'Equality check: rightVal.raw type = ${rightVal.raw.runtimeType}, value = "${rightVal.raw}"',
-          category: 'Expression/Equality',
-        );
-      }
-    }
-    // If we are about to fall back to default operators for a comparison
-    // involving tables, emit a diagnostic when no metamethod was found.
-    if ((node.op == '<' ||
-            node.op == '>' ||
-            node.op == '<=' ||
-            node.op == '>=') &&
-        leftVal.raw is Map &&
-        rightVal.raw is Map) {
-      final hasLtLeft = leftVal.hasMetamethod('__lt');
-      final hasLtRight = rightVal.hasMetamethod('__lt');
-      final hasLeLeft = leftVal.hasMetamethod('__le');
-      final hasLeRight = rightVal.hasMetamethod('__le');
-      if (Logger.enabled) {
-        Logger.debug(
-          'Compare fallback (no metamethod): op=${node.op}, left.has(__lt)=$hasLtLeft, right.has(__lt)=$hasLtRight, left.has(__le)=$hasLeLeft, right.has(__le)=$hasLeRight',
-          category: 'Expression',
-        );
-      }
-    }
-
-    dynamic result;
     String? nilSourceLabel(AstNode expr, Value value) {
       if (value.raw != null) {
         return null;
@@ -546,90 +372,369 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       _ => false,
     };
 
-    try {
-      result = switch (node.op) {
-        '+' => leftVal + rightVal,
-        '-' => leftVal - rightVal,
-        '*' => leftVal * rightVal,
-        '/' => leftVal / rightVal,
-        '%' => leftVal % rightVal,
-        '^' => leftVal.exp(rightVal),
-        '//' => leftVal ~/ rightVal,
-        '&' => leftVal & rightVal,
-        '|' => leftVal | rightVal,
-        '~' => leftVal ^ rightVal,
-        '<<' => leftVal << rightVal,
-        '==' => leftVal == rightVal,
-        '~=' => leftVal != rightVal,
-        '!=' => leftVal != rightVal,
-        '>' => leftVal > rightVal,
-        '<' => leftVal < rightVal,
-        '>=' => leftVal >= rightVal,
-        '<=' => leftVal <= rightVal,
-        '>>' => leftVal >> rightVal,
-        '..' => leftVal.concat(rightVal),
-        'and' => leftVal.and(rightVal),
-        'or' => leftVal.or(rightVal),
+    dynamic executeDefaultBinaryOperation(Value left, Value right) {
+      return switch (node.op) {
+        '+' => left + right,
+        '-' => left - right,
+        '*' => left * right,
+        '/' => left / right,
+        '%' => left % right,
+        '^' => left.exp(right),
+        '//' => left ~/ right,
+        '&' => left & right,
+        '|' => left | right,
+        '~' => left ^ right,
+        '<<' => left << right,
+        '==' => left == right,
+        '~=' => left != right,
+        '!=' => left != right,
+        '>' => left > right,
+        '<' => left < right,
+        '>=' => left >= right,
+        '<=' => left <= right,
+        '>>' => left >> right,
+        '..' => left.concat(right),
+        'and' => left.and(right),
+        'or' => left.or(right),
         _ => throw LuaError.typeError(
-          'Operation (${node.op}) not supported for these types [$leftVal, $rightVal]',
+          'Operation (${node.op}) not supported for these types [$left, $right]',
         ),
       };
-    } on UnsupportedError catch (e) {
-      // Normalize Dart-side UnsupportedError from direct Value operators into
-      // LuaError with the same message to preserve Lua semantics at runtime.
-      throw LuaError.typeError(e.message ?? e.toString());
-    } on LuaError catch (e) {
-      final arithmeticOperand = arithmeticSourceOperand();
-      final message = e.message;
-      if (arithmeticOperand != null &&
-          message.contains('attempt to perform arithmetic on a ')) {
-        final type = getLuaType(arithmeticOperand.value);
-        if (!shouldRewriteNamedSourceType(type)) {
-          rethrow;
+    }
+
+    bool canUseNumericBinaryFastPath(Value left, Value right) {
+      if (MetaTable().numberMetatableEnabled) {
+        return false;
+      }
+      if (left.metatable != null ||
+          left.metatableRef != null ||
+          right.metatable != null ||
+          right.metatableRef != null) {
+        return false;
+      }
+      final leftRaw = left.raw;
+      final rightRaw = right.raw;
+      final plainNumericOperands =
+          (leftRaw is num || leftRaw is BigInt) &&
+          (rightRaw is num || rightRaw is BigInt);
+      if (!plainNumericOperands) {
+        return false;
+      }
+      return switch (node.op) {
+        '+' ||
+        '-' ||
+        '*' ||
+        '/' ||
+        '%' ||
+        '^' ||
+        '//' ||
+        '&' ||
+        '|' ||
+        '~' ||
+        '<<' ||
+        '==' ||
+        '~=' ||
+        '!=' ||
+        '>' ||
+        '<' ||
+        '>=' ||
+        '<=' ||
+        '>>' => true,
+        _ => false,
+      };
+    }
+
+    Future<Object?> evaluateDefaultBinaryOperation(
+      Value left,
+      Value right,
+    ) async {
+      dynamic result;
+      try {
+        result = executeDefaultBinaryOperation(left, right);
+      } on UnsupportedError catch (e) {
+        // Normalize Dart-side UnsupportedError from direct Value operators into
+        // LuaError with the same message to preserve Lua semantics at runtime.
+        throw LuaError.typeError(e.message ?? e.toString());
+      } on LuaError catch (e) {
+        final arithmeticOperand = arithmeticSourceOperand();
+        final message = e.message;
+        if (arithmeticOperand != null &&
+            message.contains('attempt to perform arithmetic on a ')) {
+          final type = getLuaType(arithmeticOperand.value);
+          if (!shouldRewriteNamedSourceType(type)) {
+            rethrow;
+          }
+          throw LuaError.typeError(
+            "attempt to perform arithmetic on ${arithmeticOperand.label} (a $type value)",
+          );
         }
-        throw LuaError.typeError(
-          "attempt to perform arithmetic on ${arithmeticOperand.label} (a $type value)",
-        );
-      }
-      if (arithmeticOperand != null &&
-          message.contains('attempt to perform bitwise operation on a ')) {
-        final type = getLuaType(arithmeticOperand.value);
-        if (!shouldRewriteNamedSourceType(type)) {
-          rethrow;
+        if (arithmeticOperand != null &&
+            message.contains('attempt to perform bitwise operation on a ')) {
+          final type = getLuaType(arithmeticOperand.value);
+          if (!shouldRewriteNamedSourceType(type)) {
+            rethrow;
+          }
+          throw LuaError.typeError(
+            "attempt to perform bitwise operation on ${arithmeticOperand.label} (a $type value)",
+          );
         }
-        throw LuaError.typeError(
-          "attempt to perform bitwise operation on ${arithmeticOperand.label} (a $type value)",
+        final integerLabel = integerRepresentationLabel();
+        if (integerLabel != null &&
+            message.contains('number has no integer representation')) {
+          throw LuaError.typeError(
+            "number ($integerLabel) has no integer representation",
+          );
+        }
+        final sourceLabel =
+            nilSourceLabel(node.left, left) ??
+            nilSourceLabel(node.right, right);
+        if (sourceLabel != null &&
+            e.message.contains(
+              'attempt to perform arithmetic on a nil value',
+            )) {
+          throw LuaError.typeError(
+            "attempt to perform arithmetic on $sourceLabel (a nil value)",
+          );
+        }
+        rethrow;
+      }
+
+      if (Logger.enabled) {
+        Logger.debugLazy(
+          () =>
+              'BinaryExpression result: $result (raw: ${(result is Value ? result.raw : result).runtimeType})',
+          category: 'Expression',
         );
       }
-      final integerLabel = integerRepresentationLabel();
-      if (integerLabel != null &&
-          message.contains('number has no integer representation')) {
-        throw LuaError.typeError(
-          "number ($integerLabel) has no integer representation",
-        );
+      if (multilineBinaryHook) {
+        await fireBinaryHookLine(rightLine);
       }
-      final sourceLabel =
-          nilSourceLabel(node.left, leftVal) ??
-          nilSourceLabel(node.right, rightVal);
-      if (sourceLabel != null &&
-          e.message.contains('attempt to perform arithmetic on a nil value')) {
-        throw LuaError.typeError(
-          "attempt to perform arithmetic on $sourceLabel (a nil value)",
-        );
+      return result is Value ? result : Value(result);
+    }
+
+    if (canUseNumericBinaryFastPath(leftVal, rightVal)) {
+      if (multilineBinaryHook) {
+        await fireBinaryHookLine(leftLine);
       }
-      rethrow;
+      return evaluateDefaultBinaryOperation(leftVal, rightVal);
+    }
+
+    // Canonicalize table wrappers to preserve per-instance metatables
+    Value canon(Value v) {
+      if (v.raw is Map) {
+        final c = Value.lookupCanonicalTableWrapper(v.raw);
+        if (c != null) return c;
+      }
+      return v;
+    }
+
+    final canonicalLeft = canon(leftVal);
+    final canonicalRight = canon(rightVal);
+
+    Value operandForMetamethod(Value live, Value canonical, String event) {
+      if (live.hasMetamethod(event)) {
+        return live;
+      }
+      return canonical;
     }
 
     if (Logger.enabled) {
-      Logger.debug(
-        'BinaryExpression result: $result (raw: ${(result is Value ? result.raw : result).runtimeType})',
+      Logger.debugLazy(
+        () =>
+            'BinaryExpression operands before metamethod check: $leftVal (${leftVal.raw.runtimeType}) ${node.op} $rightVal (${rightVal.raw.runtimeType})',
         category: 'Expression',
       );
     }
+
     if (multilineBinaryHook) {
-      await fireBinaryHookLine(rightLine);
+      await fireBinaryHookLine(leftLine);
     }
-    return result is Value ? result : Value(result);
+
+    // Check for metamethods first
+    final opMap = {
+      '+': '__add',
+      '-': '__sub',
+      '*': '__mul',
+      '/': '__div',
+      '%': '__mod',
+      '^': '__pow',
+      '//': '__idiv',
+      '&': '__band',
+      '|': '__bor',
+      '~': '__bxor',
+      '<<': '__shl',
+      '>>': '__shr',
+      '..': '__concat',
+      '<': '__lt',
+      '>': '__gt',
+      '<=': '__le',
+      '>=': '__ge',
+      '==': '__eq',
+      '~=': '__eq', // Negated result
+      '!=': '__eq', // Negated result
+    };
+
+    String? metamethodName = opMap[node.op];
+    if (metamethodName != null) {
+      bool swapArgs = false;
+      bool invertResult = false;
+      Value? calleeValue;
+
+      final methodLeft = operandForMetamethod(
+        leftVal,
+        canonicalLeft,
+        metamethodName,
+      );
+      final methodRight = operandForMetamethod(
+        rightVal,
+        canonicalRight,
+        metamethodName,
+      );
+
+      // Prefer left, then right for the direct mapping
+      if (methodLeft.hasMetamethod(metamethodName)) {
+        calleeValue = methodLeft;
+      } else if (methodRight.hasMetamethod(metamethodName)) {
+        calleeValue = methodRight;
+      }
+
+      if (Logger.enabled &&
+          (node.op == '<' ||
+              node.op == '>' ||
+              node.op == '<=' ||
+              node.op == '>=')) {
+        final probedMetamethod = metamethodName;
+        Logger.debugLazy(
+          () =>
+              'Metamethod probe: op=${node.op}, left.type=${getLuaType(leftVal)}, right.type=${getLuaType(rightVal)}, left.has($probedMetamethod)=${leftVal.hasMetamethod(probedMetamethod)}, right.has($probedMetamethod)=${rightVal.hasMetamethod(probedMetamethod)}, callee=${calleeValue == leftVal ? 'left' : (calleeValue == rightVal ? 'right' : 'none')}',
+          category: 'Expression',
+        );
+      }
+
+      // Fallback mappings for comparisons when direct mapping not present
+      if (calleeValue == null && node.op == '>') {
+        if (canonicalRight.hasMetamethod('__lt')) {
+          metamethodName = '__lt';
+          calleeValue = canonicalRight;
+          swapArgs = true;
+        } else if (canonicalLeft.hasMetamethod('__lt')) {
+          metamethodName = '__lt';
+          calleeValue = canonicalLeft;
+          swapArgs = true;
+        }
+      } else if (calleeValue == null && node.op == '>=') {
+        if (canonicalLeft.hasMetamethod('__le')) {
+          metamethodName = '__le';
+          calleeValue = canonicalLeft;
+          swapArgs = true;
+        } else if (canonicalRight.hasMetamethod('__le')) {
+          metamethodName = '__le';
+          calleeValue = canonicalRight;
+          swapArgs = true;
+        } else if (canonicalRight.hasMetamethod('__lt')) {
+          metamethodName = '__lt';
+          calleeValue = canonicalRight;
+          invertResult = true;
+        } else if (canonicalLeft.hasMetamethod('__lt')) {
+          metamethodName = '__lt';
+          calleeValue = canonicalLeft;
+          invertResult = true;
+        }
+      }
+
+      if (calleeValue != null) {
+        if (Logger.enabled) {
+          Logger.debugLazy(
+            () => 'Using metamethod $metamethodName for operation ${node.op}',
+            category: 'Expression',
+          );
+        }
+
+        final callArgs = swapArgs
+            ? [methodRight, methodLeft]
+            : [methodLeft, methodRight];
+        Object? result;
+        try {
+          result = await calleeValue.callMetamethodAsync(
+            metamethodName,
+            callArgs,
+          );
+        } on UnsupportedError catch (_) {
+          final metamethod = metamethodName.startsWith('__')
+              ? metamethodName.substring(2)
+              : metamethodName;
+          throw LuaError.typeError(
+            "attempt to call a non-function metamethod '$metamethod'",
+          );
+        }
+
+        // Metamethods can return multiple values, but binary operations only use
+        // the first result. Normalize here to match Lua semantics.
+        if (result is Value && result.isMulti && result.raw is List) {
+          final values = result.raw as List;
+          result = values.isNotEmpty ? values.first : Value(null);
+        } else if (result is List) {
+          result = result.isNotEmpty ? result.first : Value(null);
+        }
+
+        // For inequality operators that use __eq, negate the result
+        if ((node.op == '~=' || node.op == '!=') && metamethodName == '__eq') {
+          if (result is bool) {
+            return Value(!result);
+          } else if (result is Value && result.raw is bool) {
+            return Value(!result.raw);
+          }
+        }
+
+        if (invertResult) {
+          if (result is bool) {
+            result = !result;
+          } else if (result is Value && result.raw is bool) {
+            result = Value(!result.raw);
+          }
+        }
+
+        return result is Value ? result : Value(result);
+      }
+    }
+
+    // If no metamethod found, use regular operators
+    if (node.op == '==') {
+      if (Logger.enabled) {
+        Logger.debugLazy(
+          () =>
+              'Equality check: leftVal.raw type = ${leftVal.raw.runtimeType}, value = "${leftVal.raw}"',
+          category: 'Expression/Equality',
+        );
+        Logger.debugLazy(
+          () =>
+              'Equality check: rightVal.raw type = ${rightVal.raw.runtimeType}, value = "${rightVal.raw}"',
+          category: 'Expression/Equality',
+        );
+      }
+    }
+    // If we are about to fall back to default operators for a comparison
+    // involving tables, emit a diagnostic when no metamethod was found.
+    if ((node.op == '<' ||
+            node.op == '>' ||
+            node.op == '<=' ||
+            node.op == '>=') &&
+        leftVal.raw is Map &&
+        rightVal.raw is Map) {
+      final hasLtLeft = leftVal.hasMetamethod('__lt');
+      final hasLtRight = rightVal.hasMetamethod('__lt');
+      final hasLeLeft = leftVal.hasMetamethod('__le');
+      final hasLeRight = rightVal.hasMetamethod('__le');
+      if (Logger.enabled) {
+        Logger.debugLazy(
+          () =>
+              'Compare fallback (no metamethod): op=${node.op}, left.has(__lt)=$hasLtLeft, right.has(__lt)=$hasLtRight, left.has(__le)=$hasLeLeft, right.has(__le)=$hasLeRight',
+          category: 'Expression',
+        );
+      }
+    }
+
+    return evaluateDefaultBinaryOperation(leftVal, rightVal);
   }
 
   /// Evaluates a unary expression.
@@ -643,8 +748,8 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitUnaryExpression(UnaryExpression node) async {
     if (Logger.enabled) {
-      Logger.debug(
-        'Visiting UnaryExpression: ${node.op} ${node.expr}',
+      Logger.debugLazy(
+        () => 'Visiting UnaryExpression: ${node.op} ${node.expr}',
         category: 'Expression',
       );
     }
@@ -654,8 +759,8 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     // only the first return value should be used
     if (operandResult is Value && operandResult.isMulti) {
       if (Logger.enabled) {
-        Logger.debug(
-          'UnaryExpression: limiting multi-value result to first value',
+        Logger.debugLazy(
+          () => 'UnaryExpression: limiting multi-value result to first value',
           category: 'Expression',
         );
       }
@@ -694,8 +799,9 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     if (metamethodName != null) {
       if (operandWrapped.hasMetamethod(metamethodName)) {
         if (Logger.enabled) {
-          Logger.debug(
-            'Using metamethod $metamethodName for unary operation ${node.op}',
+          Logger.debugLazy(
+            () =>
+                'Using metamethod $metamethodName for unary operation ${node.op}',
             category: 'Expression',
           );
         }
@@ -803,16 +909,17 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       };
       if (value == null) {
         if (Logger.enabled) {
-          Logger.debug(
-            'Identifier ${node.name} not found, returning nil',
+          Logger.debugLazy(
+            () => 'Identifier ${node.name} not found, returning nil',
             category: 'Expression',
           );
         }
         return Value(null);
       }
       if (Logger.enabled) {
-        Logger.debug(
-          'Identifier ${node.name} resolved to: $value (type: ${value.runtimeType})',
+        Logger.debugLazy(
+          () =>
+              'Identifier ${node.name} resolved to: $value (type: ${value.runtimeType})',
           category: 'Expression',
         );
       }
@@ -856,8 +963,8 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         for (final upvalue in currentFunction.upvalues!) {
           if (upvalue.name == node.name) {
             if (Logger.enabled) {
-              Logger.debug(
-                'Resolving identifier ${node.name} via function upvalue',
+              Logger.debugLazy(
+                () => 'Resolving identifier ${node.name} via function upvalue',
                 category: 'Expression',
               );
             }
@@ -897,8 +1004,8 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
             cache.envVersion == envValue.tableVersion &&
             cache.value != null) {
           if (Logger.enabled) {
-            Logger.debug(
-              'Identifier ${node.name} resolved via cache',
+            Logger.debugLazy(
+              () => 'Identifier ${node.name} resolved via cache',
               category: 'Expression',
             );
           }
@@ -942,8 +1049,8 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
           return resolvedValue;
         }
         if (Logger.enabled) {
-          Logger.debug(
-            'Resolving global via _ENV for: ${node.name}',
+          Logger.debugLazy(
+            () => 'Resolving global via _ENV for: ${node.name}',
             category: 'Expression',
           );
         }
@@ -966,16 +1073,17 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     final value = globals.get(node.name);
     if (value == null) {
       if (Logger.enabled) {
-        Logger.debug(
-          'Identifier ${node.name} not found, returning nil',
+        Logger.debugLazy(
+          () => 'Identifier ${node.name} not found, returning nil',
           category: 'Expression',
         );
       }
       return Value(null);
     }
     if (Logger.enabled) {
-      Logger.debug(
-        'Identifier ${node.name} resolved (fallback) to: $value (type: ${value.runtimeType})',
+      Logger.debugLazy(
+        () =>
+            'Identifier ${node.name} resolved (fallback) to: $value (type: ${value.runtimeType})',
         category: 'Expression',
       );
     }
@@ -1004,8 +1112,8 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitGroupedExpression(GroupedExpression node) async {
     if (Logger.enabled) {
-      Logger.debug(
-        'Visiting GroupedExpression: (${node.expr})',
+      Logger.debugLazy(
+        () => 'Visiting GroupedExpression: (${node.expr})',
         category: 'Expression',
       );
     }
@@ -1019,8 +1127,8 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       final values = result.raw as List;
       final first = values.isNotEmpty ? values.first : Value(null);
       if (Logger.enabled) {
-        Logger.debug(
-          'GroupedExpression: collapsing multi to first: $first',
+        Logger.debugLazy(
+          () => 'GroupedExpression: collapsing multi to first: $first',
           category: 'Expression',
         );
       }
@@ -1029,8 +1137,8 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     if (result is List) {
       final first = result.isNotEmpty ? result.first : Value(null);
       if (Logger.enabled) {
-        Logger.debug(
-          'GroupedExpression: collapsing list to first: $first',
+        Logger.debugLazy(
+          () => 'GroupedExpression: collapsing list to first: $first',
           category: 'Expression',
         );
       }

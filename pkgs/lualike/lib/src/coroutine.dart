@@ -146,7 +146,7 @@ class Coroutine extends GCObject {
 
   /// The actual environment where the function's parameters and local variables reside.
   /// This environment is preserved across yields.
-  Environment _executionEnvironment;
+  final Environment _executionEnvironment;
 
   /// The environment active at the current suspension point.
   /// This is restored on resume so nested scope yields continue correctly.
@@ -1006,7 +1006,20 @@ class Coroutine extends GCObject {
     } catch (_) {}
   }
 
-  /// Executes the coroutine function
+  /// Executes this coroutine's root function with an isolated interpreter view.
+  ///
+  /// A wrapped coroutine shares the underlying [Interpreter] instance with the
+  /// caller, but it must not inherit the caller's active function metadata or
+  /// fast-local bindings. The coroutine root body resolves identifiers before
+  /// it has pushed its own ordinary call frame, so any leaked fast-local map
+  /// lets those lookups hit caller locals before falling back to the
+  /// coroutine's own upvalues and environment chain.
+  ///
+  /// This method therefore snapshots the caller's active function state,
+  /// installs [functionValue] as the active callable, and clears fast locals
+  /// until the coroutine finishes or yields. Restoring the saved state in the
+  /// `finally` block keeps later caller-side lookups and debug hooks stable
+  /// after the coroutine resumes, yields, or terminates with an error.
   Future<void> _executeCoroutine(List<Object?> initialArgs) async {
     Logger.debugLazy(
       () => '_executeCoroutine: Starting execution, PC: $_programCounter',
@@ -1016,10 +1029,15 @@ class Coroutine extends GCObject {
     final interpreter = closureEnvironment.interpreter;
     final astInterpreter = interpreter is Interpreter ? interpreter : null;
     final savedFunction = astInterpreter?.getCurrentFunction();
+    final savedFastLocals = astInterpreter?.getCurrentFastLocals();
     CallFrame? coroutineRootFrame;
     var coroutineRootFrameNeedsReturnHook = false;
     if (astInterpreter != null) {
       astInterpreter.setCurrentFunction(functionValue);
+      // A wrapped coroutine must not inherit the caller's fast-local map.
+      // Otherwise identifiers in the coroutine root body can resolve against
+      // caller locals before falling back to their own upvalues/env chain.
+      astInterpreter.setCurrentFastLocals(null);
     }
 
     try {
@@ -1232,6 +1250,7 @@ class Coroutine extends GCObject {
           astInterpreter.callStack.pop();
         }
       }
+      astInterpreter?.setCurrentFastLocals(savedFastLocals);
       astInterpreter?.setCurrentFunction(savedFunction);
     }
   }

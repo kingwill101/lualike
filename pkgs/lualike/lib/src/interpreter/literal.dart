@@ -26,6 +26,9 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
       category: 'Literal',
       contextBuilder: () => {},
     );
+    if (!MetaTable().isDefaultMetatableActive('nil')) {
+      return (this as Interpreter).constantPrimitiveValue(null);
+    }
     return Value(null);
   }
 
@@ -43,6 +46,9 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
       category: 'Literal',
       contextBuilder: () => {'value': node.value},
     );
+    if (!MetaTable().isDefaultMetatableActive('boolean')) {
+      return (this as Interpreter).constantPrimitiveValue(node.value);
+    }
     return Value(node.value);
   }
 
@@ -60,6 +66,9 @@ mixin InterpreterLiteralMixin on AstVisitor<Object?> {
       category: 'Literal',
       contextBuilder: () => {'value': node.value},
     );
+    if (!MetaTable().isDefaultMetatableActive('number')) {
+      return (this as Interpreter).constantPrimitiveValue(node.value);
+    }
     return Value(node.value);
   }
 

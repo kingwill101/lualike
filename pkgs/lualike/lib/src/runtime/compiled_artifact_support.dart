@@ -44,10 +44,9 @@ void _rebindActiveLoadedChunkFrame(
   required Environment env,
 }) {
   if (runtime case Interpreter interpreter) {
-    final frame =
-        interpreter.callStack.top?.callable != null
-            ? interpreter.callStack.top
-            : interpreter.findFrameForCallable(callable);
+    final frame = interpreter.callStack.top?.callable != null
+        ? interpreter.callStack.top
+        : interpreter.findFrameForCallable(callable);
     if (frame != null) {
       frame.scriptPath = chunkName;
       frame.env = env;
@@ -100,8 +99,9 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
     if (sourceArg.raw is String) {
       source = sourceArg.raw as String;
       isBinaryChunk = source.isNotEmpty && source.codeUnitAt(0) == 0x1B;
-      Logger.debug(
-        "LoadChunk: String source, length=${source.length}, isBinaryChunk=$isBinaryChunk",
+      Logger.debugLazy(
+        () =>
+            "LoadChunk: String source, length=${source.length}, isBinaryChunk=$isBinaryChunk",
         category: 'Load',
       );
       if (isBinaryChunk) {
@@ -120,8 +120,9 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
     } else if (sourceArg.raw is LuaString) {
       final luaString = sourceArg.raw as LuaString;
       isBinaryChunk = luaString.bytes.isNotEmpty && luaString.bytes[0] == 0x1B;
-      Logger.debug(
-        "LoadChunk: LuaString source, length=${luaString.bytes.length}, first byte=${luaString.bytes.isNotEmpty ? luaString.bytes[0] : 'none'}, isBinaryChunk=$isBinaryChunk",
+      Logger.debugLazy(
+        () =>
+            "LoadChunk: LuaString source, length=${luaString.bytes.length}, first byte=${luaString.bytes.isNotEmpty ? luaString.bytes[0] : 'none'}, isBinaryChunk=$isBinaryChunk",
         category: 'Load',
       );
       if (isBinaryChunk) {
@@ -184,9 +185,13 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
 
         readCount++;
         if (Logger.enabled) {
-          final prev = text.length > 10 ? text.substring(0, 10) : text;
-          Logger.debug(
-            "load(reader): chunk #$readCount len=${text.length} head='${prev.replaceAll('\n', '\\n')}'",
+          final chunkText = text;
+          final prev = chunkText.length > 10
+              ? chunkText.substring(0, 10)
+              : chunkText;
+          Logger.debugLazy(
+            () =>
+                "load(reader): chunk #$readCount len=${chunkText.length} head='${prev.replaceAll('\n', '\\n')}'",
             category: 'Load',
           );
         }
@@ -257,8 +262,9 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
 
       if (Logger.enabled) {
         final prev = source.length > 40 ? source.substring(0, 40) : source;
-        Logger.debug(
-          "load(reader): total chunks=$readCount, source len=${source.length}, isBinaryChunk=$isBinaryChunk, head='${prev.replaceAll('\n', '\\n')}'",
+        Logger.debugLazy(
+          () =>
+              "load(reader): total chunks=$readCount, source len=${source.length}, isBinaryChunk=$isBinaryChunk, head='${prev.replaceAll('\n', '\\n')}'",
           category: 'Load',
         );
       }
@@ -273,8 +279,9 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
     return LuaChunkLoadResult.failure(e.message);
   }
 
-  Logger.debug(
-    "LoadChunk: mode='$mode', allowBinary=$allowBinary, allowText=$allowText, isBinaryChunk=$isBinaryChunk",
+  Logger.debugLazy(
+    () =>
+        "LoadChunk: mode='$mode', allowBinary=$allowBinary, allowText=$allowText, isBinaryChunk=$isBinaryChunk",
     category: 'Load',
   );
 
@@ -395,7 +402,8 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
           return LuaChunkLoadResult.failure(gotoError);
         }
       }
-      if (anonymousLoadCacheKey case final key? when !loadedFromAnonymousCache) {
+      if (anonymousLoadCacheKey case final key?
+          when !loadedFromAnonymousCache) {
         _anonymousTextLoadCacheFor(runtime).store(key, ast);
       }
     }
@@ -473,7 +481,9 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
                 .toList();
             return await runtime.callFunction(callee, normalizedArgs);
           } catch (e) {
-            throw LuaError("Error executing AST chunk '$effectiveChunkName': $e");
+            throw LuaError(
+              "Error executing AST chunk '$effectiveChunkName': $e",
+            );
           }
         },
         functionBody: loadedAstNode is FunctionBody
@@ -779,10 +789,11 @@ Object? dumpFunctionWithLegacyAstTransport(
     );
   }
 
-    final fb = function.functionBody;
+  final fb = function.functionBody;
   if (fb != null) {
-    Logger.debug(
-      'string.dump: function has functionBody, span=${fb.span}, sourceUrl=${fb.span?.sourceUrl}',
+    Logger.debugLazy(
+      () =>
+          'string.dump: function has functionBody, span=${fb.span}, sourceUrl=${fb.span?.sourceUrl}',
       category: 'StringLib',
     );
 
@@ -811,8 +822,7 @@ Object? dumpFunctionWithLegacyAstTransport(
         _canUseCompactLegacySourceDump(upvalueNames)) {
       return LegacyAstChunkTransport.serializeSourceWithNameAsLuaString(
         compactSourceDump.source,
-        sourceName:
-            (stripDebugInfo || function.strippedDebugInfo)
+        sourceName: (stripDebugInfo || function.strippedDebugInfo)
             ? null
             : compactSourceDump.sourceName,
         stringLiterals: compactSourceDump.stringLiterals,
@@ -833,9 +843,7 @@ Object? dumpFunctionWithLegacyAstTransport(
 }
 
 ({String source, String? sourceName, List<String> stringLiterals})?
-_compactLegacySourceDumpInfo(
-  FunctionBody functionBody,
-) {
+_compactLegacySourceDumpInfo(FunctionBody functionBody) {
   if (!_isTopLevelChunk(functionBody)) {
     return null;
   }

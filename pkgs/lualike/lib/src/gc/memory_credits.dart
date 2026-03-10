@@ -73,8 +73,9 @@ class MemoryCredits {
       final objType = obj is Value
           ? 'Value(${obj.raw?.runtimeType ?? 'null'})'
           : obj.runtimeType.toString();
-      Logger.debug(
-        '[MemoryCredits] onAllocate during large op: $objType#${obj.hashCode}, credits=$credits, _total: $_total -> ${_total + credits}',
+      Logger.debugLazy(
+        () =>
+            '[MemoryCredits] onAllocate during large op: $objType#${obj.hashCode}, credits=$credits, _total: $_total -> ${_total + credits}',
         category: 'GC',
       );
     }
@@ -92,7 +93,17 @@ class MemoryCredits {
 
   /// Tracks an object for generation bookkeeping without charging it against
   /// Lua-visible memory use.
+  ///
+  /// This is used for wrappers and runtime helpers that still need correct
+  /// generation placement, promotion, and reclamation bookkeeping, but should
+  /// not contribute to Lua's externally reported memory pressure. Recording the
+  /// generation here avoids special cases later in [onPromote], [onFree], and
+  /// [reconcileGenerations], while the zero credit keeps them out of the
+  /// collector's accounting totals.
   void onTrackExcluded(GCObject obj, {required GCGenerationSpace space}) {
+    if (_excludedFromCredits[obj] == true) {
+      return;
+    }
     _objectCredits[obj] = 0;
     _objectSpaces[obj] = space;
     _excludedFromCredits[obj] = true;

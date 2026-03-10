@@ -30,5 +30,11 @@ class NumberLimits {
   /// Smallest unbiased exponent for a subnormal IEEE-754 double.
   static const int doubleMinSubnormalExponent = -1074;
 
+  /// Sign bit plus fraction bits from an IEEE-754 double bit pattern.
+  static final int doubleSignAndFractionMask = int.parse(
+    '800fffffffffffff',
+    radix: 16,
+  );
+
   static const int sizeInBits = 64;
 }

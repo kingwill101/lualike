@@ -758,7 +758,7 @@ class LuaPattern {
         return LuaMatch(
           pos,
           result.position,
-          result.value?.toString() ?? '',
+          result.value.toString() ?? '',
           captures,
           _positionCaptureIndexes,
         );
@@ -777,7 +777,7 @@ class LuaPattern {
         yield LuaMatch(
           pos,
           result.position,
-          result.value?.toString() ?? '',
+          result.value.toString() ?? '',
           captures,
           _positionCaptureIndexes,
         );
