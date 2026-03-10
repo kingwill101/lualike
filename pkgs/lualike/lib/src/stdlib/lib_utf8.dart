@@ -126,12 +126,14 @@ class _UTF8Char extends BuiltinFunction {
     }
 
     final codePoints = <int>[];
-    for (final arg in args) {
+    for (var index = 0; index < args.length; index++) {
+      final arg = args[index];
       final value = (arg as Value).raw;
 
-      // Skip nil values (like standard Lua)
       if (value == null) {
-        continue;
+        throw LuaError(
+          "bad argument #${index + 1} to 'char' (number expected, got nil)",
+        );
       }
 
       final codePoint = value is num
@@ -501,13 +503,15 @@ class _UTF8Len extends BuiltinFunction {
 class _UTF8Offset extends BuiltinFunction {
   _UTF8Offset() : super();
 
-  Value _offsetResult(int start, int end) => Value.multi([
-    Value(start),
-    Value(end),
-  ]);
+  Value _offsetResult(int start, int end) =>
+      Value.multi([Value(start), Value(end)]);
 
   int? _scanCharacterLength(Uint8List bytes, int start) {
-    final decoded = LuaStringParser.decodeUtf8Character(bytes, start, lax: true);
+    final decoded = LuaStringParser.decodeUtf8Character(
+      bytes,
+      start,
+      lax: true,
+    );
     if (decoded != null) {
       return decoded.sequenceLength;
     }

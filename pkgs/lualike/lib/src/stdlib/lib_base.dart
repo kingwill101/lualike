@@ -634,10 +634,9 @@ class ErrorFunction extends BuiltinFunction {
       // Let the interpreter handle the error reporting with proper stack trace
       final luaError = LuaError(
         message,
-        cause:
-            errorValue.raw is String || errorValue.raw is LuaString
-                ? null
-                : errorValue.raw,
+        cause: errorValue.raw is String || errorValue.raw is LuaString
+            ? null
+            : errorValue.raw,
       );
       interpreter!.reportError(message, error: luaError);
       // This will never be reached, but needed for type safety
@@ -974,9 +973,8 @@ class LoadFunction extends BuiltinFunction {
     final envArg = args.length > 3 ? args[3] as Value : null;
 
     final defaultChunkName = switch (source.raw) {
-      String text => text.isNotEmpty && text.codeUnitAt(0) == 0x1B
-          ? "=(load)"
-          : text,
+      String text =>
+        text.isNotEmpty && text.codeUnitAt(0) == 0x1B ? "=(load)" : text,
       LuaString luaString =>
         luaString.bytes.isNotEmpty && luaString.bytes.first == 0x1B
             ? "=(load)"
@@ -994,7 +992,7 @@ class LoadFunction extends BuiltinFunction {
     if (mode.isEmpty || !RegExp(r'^[bt]+$').hasMatch(mode)) {
       throw LuaError("bad argument #3 to 'load' (invalid mode)");
     }
-    final providedEnv = envArg?.isNil ?? true ? null : envArg;
+    final providedEnv = args.length > 3 ? envArg : null;
     final runtime = interpreter;
     if (runtime == null) {
       throw LuaError("No interpreter context available");
@@ -1123,10 +1121,6 @@ class LoadfileFunction extends BuiltinFunction {
     final runtime = interpreter;
     if (runtime == null) {
       throw LuaError("No interpreter context available");
-    }
-
-    if (filename != null && !(await fileExists(filename))) {
-      return Value(null);
     }
 
     try {

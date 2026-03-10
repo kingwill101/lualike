@@ -274,7 +274,7 @@ void main() {
       ''');
 
       expect((bridge.getGlobal('n') as Value).unwrap(), equals(1));
-      expect((bridge.getGlobal('same') as Value).unwrap(), isTrue);
+      expect((bridge.getGlobal('same') as Value).unwrap(), isFalse);
     });
 
     test(

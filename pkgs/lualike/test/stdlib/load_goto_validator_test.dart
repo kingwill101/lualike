@@ -15,7 +15,7 @@ void main() {
       final err = lua.getGlobal('err') as Value;
 
       expect(f.unwrap(), isNull);
-      expect(err.unwrap(), contains("local 'aa'"));
+      expect(err.unwrap(), contains("scope of 'aa'"));
     });
 
     test('allows valid forward goto', () async {

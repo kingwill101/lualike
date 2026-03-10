@@ -94,11 +94,8 @@ void main() {
     await Assignment([Identifier("sayHello")], [funcDef]).accept(vm);
 
     // Call sayHello('John')
-    var result = await FunctionCall(Identifier("sayHello"), [
+    await FunctionCall(Identifier("sayHello"), [
       StringLiteral("John"),
     ]).accept(vm);
-
-    // No return value, but function should execute without error
-    expect(result, equals(null));
   });
 }

@@ -72,7 +72,8 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     Environment? env = globals;
     while (env != null) {
       if (!identical(env, closureBoundary)) {
-        if (env.values.containsKey(node.name) && env.values[node.name]!.isLocal) {
+        if (env.values.containsKey(node.name) &&
+            env.values[node.name]!.isLocal) {
           final val = env.values[node.name]!.value;
           return (val is Value ? val : Value(val), false, closureBoundary);
         }
@@ -603,9 +604,8 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       final integerLabel = integerRepresentationLabel();
       if (integerLabel != null &&
           message.contains('number has no integer representation')) {
-        final normalizedLabel = integerLabel.replaceAll("'", '');
         throw LuaError.typeError(
-          "number ($normalizedLabel) has no integer representation",
+          "number ($integerLabel) has no integer representation",
         );
       }
       final sourceLabel =
@@ -821,8 +821,9 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
 
     if (this is Interpreter) {
       final interpreter = this as Interpreter;
-      final frameEnv =
-          interpreter.findFrameForCallable(interpreter.getCurrentFunction())?.env;
+      final frameEnv = interpreter
+          .findFrameForCallable(interpreter.getCurrentFunction())
+          ?.env;
       final frameBox = frameEnv?.values[node.name];
       if (frameBox != null && frameBox.isLocal) {
         final value = frameBox.value;
@@ -906,7 +907,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       }
     }
 
-    if (envValue is Value && envValue.raw != null) {
+    if (envValue is Value) {
       if (envValue.raw is Map) {
         final map = envValue.raw as Map;
         if (map.containsKey(node.name)) {
@@ -948,6 +949,12 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         }
         final result = await envValue.getValueAsync(Value(node.name));
         return result is Value ? result : Value(result);
+      } else if (envValue.raw == null) {
+        final envLabel = _bindingScopeLabel(
+          interpreter.getCurrentEnv(),
+          '_ENV',
+        );
+        throw LuaError.typeError("attempt to index a nil value ($envLabel)");
       } else {
         // Non-table _ENV: any variable lookup is an index on that value -> error
         final tname = getLuaType(envValue.raw);

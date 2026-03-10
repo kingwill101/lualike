@@ -123,9 +123,6 @@ class IOLib {
     add(_stdoutValue);
     add(_defaultInput);
     add(_defaultOutput);
-    for (final file in _openFiles) {
-      add(file);
-    }
     return roots;
   }
 
@@ -387,9 +384,14 @@ class IOInput extends BuiltinFunction {
       }
     }
 
-    // Do not auto-close the previous default input (matches Lua semantics).
-    // Simply switch the handle; if it's the same handle, keep it as-is.
-    if (!identical(IOLib._defaultInput, newFile)) {
+    // Do not auto-close the previous default input (matches Lua semantics),
+    // but once it is no longer the default handle it should not stay pinned as
+    // an interpreter-global GC root solely through _openFiles.
+    final previousDefault = IOLib._defaultInput;
+    if (!identical(previousDefault, newFile)) {
+      if (previousDefault != null) {
+        IOLib.unregisterOpenFile(previousDefault);
+      }
       IOLib._defaultInput = newFile;
     }
     return result;
@@ -552,8 +554,9 @@ class IOOutput extends BuiltinFunction {
 
     Logger.debug('About to handle current default output', category: 'IO');
     // Avoid hanging - just set the new output without closing problematic files
-    if (IOLib._defaultOutput != null && IOLib._defaultOutput!.raw is LuaFile) {
-      final currentFile = IOLib._defaultOutput!.raw as LuaFile;
+    final previousDefault = IOLib._defaultOutput;
+    if (previousDefault != null && previousDefault.raw is LuaFile) {
+      final currentFile = previousDefault.raw as LuaFile;
       if (currentFile.device is! StdoutDevice) {
         Logger.debug(
           'Closing previous default output before replacement',
@@ -562,6 +565,10 @@ class IOOutput extends BuiltinFunction {
         await currentFile.close();
         IOLib.unregisterOpenFileForLuaFile(currentFile);
       }
+    }
+
+    if (previousDefault != null && !identical(previousDefault, newFile)) {
+      IOLib.unregisterOpenFile(previousDefault);
     }
 
     Logger.debug('Setting new default output', category: 'IO');
