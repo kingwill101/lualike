@@ -191,7 +191,35 @@ If this is missing, traces look almost right but lose the terminal `return`
 event, which is exactly the sort of bug that tends to regress later because the
 call stack still "mostly works".
 
-### 8. Stack Overflow Checks Need Both Local And Global Depth
+### 8. Suspended Coroutine Tracebacks Must Stop At Real Lua Frames
+
+Relevant code:
+- [coroutine.dart](/run/media/kingwill101/disk2/code/code/dart_packages/lualike/pkgs/lualike/lib/src/coroutine.dart)
+- [lib_debug.dart](/run/media/kingwill101/disk2/code/code/dart_packages/lualike/pkgs/lualike/lib/src/stdlib/lib_debug.dart)
+
+`debug.traceback(co, ...)` for a suspended coroutine should reflect the saved
+Lua call chain and nothing more. A synthetic root frame is still useful when a
+coroutine has no saved Lua frames at all, but once `_savedCallStack` already
+contains real Lua frames, appending an extra synthetic function frame creates a
+subtle off-by-one traceback:
+
+- `db.lua` sees one extra source line at the end of the stack
+- higher `level` values stop on the wrong frame
+- frame names degrade from "function </path.lua:line>" to a repeated named
+  function frame
+
+The rule is:
+
+- if saved or live Lua frames exist, return only those frames for debug-level
+  lookup
+- only synthesize a root frame when the coroutine is suspended/running without
+  any visible Lua frames
+
+Guard tests:
+- [debug_getinfo_test.dart](/run/media/kingwill101/disk2/code/code/dart_packages/lualike/pkgs/lualike/test/interpreter/debug_getinfo_test.dart)
+- [db.lua](/run/media/kingwill101/disk2/code/code/dart_packages/lualike/pkgs/lualike/luascripts/test/db.lua)
+
+### 9. Stack Overflow Checks Need Both Local And Global Depth
 
 Relevant code:
 - [function.dart](/run/media/kingwill101/disk2/code/code/dart_packages/lualike/pkgs/lualike/lib/src/interpreter/function.dart)

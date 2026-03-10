@@ -699,5 +699,41 @@ void main() {
         equals(<Object?>['x', 10, 'a', 1, 'hi']),
       );
     });
+
+    test('debug.traceback should not append extra suspended coroutine frames', () async {
+      const script = r'''
+      local function countlines(tb)
+        local n = 0
+        for _ in string.gmatch(tb, "[^\n]+\n?") do
+          n = n + 1
+        end
+        return n
+      end
+
+      local function f(n)
+        if n > 0 then
+          f(n - 1)
+        else
+          coroutine.yield()
+        end
+      end
+
+      local co = coroutine.create(f)
+      assert(coroutine.resume(co, 3))
+
+      return countlines(debug.traceback(co)),
+             countlines(debug.traceback(co, nil, 1)),
+             countlines(debug.traceback(co, nil, 2)),
+             countlines(debug.traceback(co, nil, 4)),
+             countlines(debug.traceback(co, nil, 40))
+      ''';
+
+      final result = await luaLike.execute(script);
+      expect(result.raw, isA<List>());
+      expect(
+        (result.raw as List).map((value) => (value as Value).raw).toList(),
+        equals(<Object?>[6, 5, 4, 2, 1]),
+      );
+    });
   });
 }

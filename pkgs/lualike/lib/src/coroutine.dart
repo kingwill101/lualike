@@ -639,7 +639,11 @@ class Coroutine extends GCObject {
     if (currentCompleter != null && !currentCompleter.isCompleted) {
       // Normalize values before yielding
       final normalizedValues = _normalizeValues(values);
-      currentCompleter.complete(normalizedValues);
+      scheduleMicrotask(() {
+        if (!currentCompleter.isCompleted) {
+          currentCompleter.complete(normalizedValues);
+        }
+      });
       final yieldedValues = normalizedValues
           .map((value) => value is Value ? value : Value(value))
           .toList(growable: false);
@@ -869,17 +873,7 @@ class Coroutine extends GCObject {
         if (level <= luaFrames.length) {
           return luaFrames[luaFrames.length - level];
         }
-        if (level != luaFrames.length + 1 || functionBody == null) {
-          return null;
-        }
-        return CallFrame(
-          functionValue.functionName ?? '?',
-          scriptPath: _resumeScriptPath,
-          currentLine: _resumeLine,
-          env: _resumeEnvironment,
-          callable: functionValue,
-          lastDebugHookLine: _resumeLine,
-        );
+        return null;
       }
       if (level == 1 && functionBody != null) {
         return CallFrame(
@@ -903,19 +897,7 @@ class Coroutine extends GCObject {
         if (level <= luaFrames.length) {
           return luaFrames[luaFrames.length - level];
         }
-        if (level != luaFrames.length + 1 ||
-            functionBody == null ||
-            status == CoroutineStatus.running) {
-          return null;
-        }
-        return CallFrame(
-          functionValue.functionName ?? '?',
-          scriptPath: _resumeScriptPath,
-          currentLine: _resumeLine,
-          env: _resumeEnvironment,
-          callable: functionValue,
-          lastDebugHookLine: _resumeLine,
-        );
+        return null;
       }
     }
 
