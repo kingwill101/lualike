@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
 
@@ -19,7 +21,10 @@ class MemoryCredits {
   static final MemoryCredits instance = MemoryCredits._();
 
   final Expando<int> _objectCredits = Expando<int>('gcCredits');
-  final Expando<int> _objectStates = Expando<int>('gcState');
+  final Expando<GCGenerationSpace> _objectSpaces = Expando<GCGenerationSpace>(
+    'gcSpace',
+  );
+  final Set<GCObject> _excludedObjects = HashSet<GCObject>.identity();
 
   // Debug: Track allocation stack traces
   static bool enableStackTraces = false;
@@ -36,30 +41,7 @@ class MemoryCredits {
   int get youngCredits => _young;
   int get oldCredits => _old;
 
-  static const int _youngIncludedState = 0;
-  static const int _oldIncludedState = 1;
-  static const int _youngExcludedState = 2;
-  static const int _oldExcludedState = 3;
-
-  int _stateFor({required GCGenerationSpace space, required bool excluded}) =>
-      switch ((space, excluded)) {
-        (GCGenerationSpace.young, false) => _youngIncludedState,
-        (GCGenerationSpace.old, false) => _oldIncludedState,
-        (GCGenerationSpace.young, true) => _youngExcludedState,
-        (GCGenerationSpace.old, true) => _oldExcludedState,
-      };
-
-  bool _isExcludedState(int state) => state >= _youngExcludedState;
-
-  GCGenerationSpace _spaceForState(int state) => switch (state) {
-    _oldIncludedState || _oldExcludedState => GCGenerationSpace.old,
-    _ => GCGenerationSpace.young,
-  };
-
-  bool _isExcluded(GCObject obj) {
-    final state = _objectStates[obj];
-    return state != null && _isExcludedState(state);
-  }
+  bool _isExcluded(GCObject obj) => _excludedObjects.contains(obj);
 
   /// Records a freshly allocated object.
   void onAllocate(GCObject obj, {required GCGenerationSpace space}) {
@@ -67,13 +49,15 @@ class MemoryCredits {
     final existingCredits = _objectCredits[obj];
     if (existingCredits != null) {
       // Object already tracked - just update space if needed
-      final existingState = _objectStates[obj];
-      final existingSpace = existingState == null
-          ? null
-          : _spaceForState(existingState);
+      final existingSpace = _objectSpaces[obj];
       if (existingSpace != space) {
-        _objectStates[obj] = _stateFor(space: space, excluded: false);
+        _objectSpaces[obj] = space;
       }
+      return;
+    }
+
+    if (_excludedObjects.remove(obj)) {
+      onAllocate(obj, space: space);
       return;
     }
 
@@ -106,7 +90,7 @@ class MemoryCredits {
     }
 
     _objectCredits[obj] = credits;
-    _objectStates[obj] = _stateFor(space: space, excluded: false);
+    _objectSpaces[obj] = space;
     _total += credits;
     if (space == GCGenerationSpace.young) {
       _young += credits;
@@ -125,58 +109,60 @@ class MemoryCredits {
   /// [reconcileGenerations], while the zero credit keeps them out of the
   /// collector's accounting totals.
   void onTrackExcluded(GCObject obj, {required GCGenerationSpace space}) {
-    _objectStates[obj] = _stateFor(space: space, excluded: true);
+    _excludedObjects.add(obj);
   }
 
   /// Adjusts the tracked credits when an object is promoted.
   void onPromote(GCObject obj) {
-    final credits = _objectCredits[obj];
-    final state = _objectStates[obj];
-    final excluded = state != null && _isExcludedState(state);
-    if (credits == null && !excluded) {
+    if (_excludedObjects.contains(obj)) {
       return;
     }
-    final space = state == null ? null : _spaceForState(state);
-    if (space == GCGenerationSpace.young && !excluded) {
-      _young -= credits!;
-      _old += credits;
-      _objectStates[obj] = _oldIncludedState;
-    } else {
-      _objectStates[obj] = excluded ? _oldExcludedState : _oldIncludedState;
+
+    final credits = _objectCredits[obj];
+    if (credits == null) {
+      return;
     }
+
+    final space = _objectSpaces[obj];
+    if (space == GCGenerationSpace.young) {
+      _young -= credits;
+      _old += credits;
+    }
+    _objectSpaces[obj] = GCGenerationSpace.old;
   }
 
   /// Updates bookkeeping after an object has been reclaimed.
   void onFree(GCObject obj) {
-    final credits = _objectCredits[obj];
-    final state = _objectStates[obj];
-    final excluded = state != null && _isExcludedState(state);
-    if (credits == null && !excluded) {
+    if (_excludedObjects.remove(obj)) {
       return;
     }
-    final space = state == null ? null : _spaceForState(state);
-    if (!excluded) {
-      if (space == GCGenerationSpace.young) {
-        _young -= credits!;
-      } else if (space == GCGenerationSpace.old) {
-        _old -= credits!;
-      }
-      _total -= credits!;
+
+    final credits = _objectCredits[obj];
+    if (credits == null) {
+      return;
     }
+
+    final space = _objectSpaces[obj];
+    if (space == GCGenerationSpace.young) {
+      _young -= credits;
+    } else if (space == GCGenerationSpace.old) {
+      _old -= credits;
+    }
+    _total -= credits;
+
     _objectCredits[obj] = null;
-    _objectStates[obj] = null;
+    _objectSpaces[obj] = null;
   }
 
   /// Recalculates the cost of an object after it changed shape (for example a
   /// table gaining or losing entries).
   void recalculate(GCObject obj) {
-    final state = _objectStates[obj];
-    final space = state == null ? null : _spaceForState(state);
-    if (space == null) {
+    if (_excludedObjects.contains(obj)) {
       return;
     }
-    if (state != null && _isExcludedState(state)) {
-      _objectCredits[obj] = null;
+
+    final space = _objectSpaces[obj];
+    if (space == null) {
       return;
     }
     final previous = _objectCredits[obj] ?? 0;
@@ -210,8 +196,13 @@ class MemoryCredits {
       if (!excluded) {
         recalculatedYoung += credits;
       }
-      _objectCredits[obj] = excluded ? null : credits;
-      _objectStates[obj] = excluded ? _youngExcludedState : _youngIncludedState;
+      if (excluded) {
+        _objectCredits[obj] = null;
+        _objectSpaces[obj] = null;
+      } else {
+        _objectCredits[obj] = credits;
+        _objectSpaces[obj] = GCGenerationSpace.young;
+      }
     }
 
     for (final obj in old) {
@@ -220,8 +211,13 @@ class MemoryCredits {
       if (!excluded) {
         recalculatedOld += credits;
       }
-      _objectCredits[obj] = excluded ? null : credits;
-      _objectStates[obj] = excluded ? _oldExcludedState : _oldIncludedState;
+      if (excluded) {
+        _objectCredits[obj] = null;
+        _objectSpaces[obj] = null;
+      } else {
+        _objectCredits[obj] = credits;
+        _objectSpaces[obj] = GCGenerationSpace.old;
+      }
     }
 
     _young = recalculatedYoung;
