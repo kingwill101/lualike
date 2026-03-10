@@ -3,6 +3,10 @@ library;
 
 import 'package:lualike_test/test.dart';
 
+Object? _unwrapGlobal(LuaLike bridge, String name) {
+  return (bridge.getGlobal(name) as Value).unwrap();
+}
+
 void main() {
   group('String Pattern Matching', () {
     late LuaLike bridge;
@@ -23,9 +27,9 @@ void main() {
           r3 = string.match("b", ".*b")
         ''');
 
-        expect((bridge.getGlobal('r1') as Value).raw, equals("aaab"));
-        expect((bridge.getGlobal('r2') as Value).raw, equals("aaa"));
-        expect((bridge.getGlobal('r3') as Value).raw, equals("b"));
+        expect(_unwrapGlobal(bridge, 'r1'), equals("aaab"));
+        expect(_unwrapGlobal(bridge, 'r2'), equals("aaa"));
+        expect(_unwrapGlobal(bridge, 'r3'), equals("b"));
       });
 
       test('plus patterns', () async {
@@ -39,9 +43,9 @@ void main() {
           r3 = string.match("b", ".+b")
         ''');
 
-        expect((bridge.getGlobal('r1') as Value).raw, equals("aaab"));
-        expect((bridge.getGlobal('r2') as Value).raw, equals("aaa"));
-        expect((bridge.getGlobal('r3') as Value).raw, isNull);
+        expect(_unwrapGlobal(bridge, 'r1'), equals("aaab"));
+        expect(_unwrapGlobal(bridge, 'r2'), equals("aaa"));
+        expect(_unwrapGlobal(bridge, 'r3'), isNull);
       });
 
       test('optional patterns', () async {
@@ -55,9 +59,9 @@ void main() {
           r3 = string.match("b", ".?b")
         ''');
 
-        expect((bridge.getGlobal('r1') as Value).raw, equals("ab"));
-        expect((bridge.getGlobal('r2') as Value).raw, equals("aa"));
-        expect((bridge.getGlobal('r3') as Value).raw, equals("b"));
+        expect(_unwrapGlobal(bridge, 'r1'), equals("ab"));
+        expect(_unwrapGlobal(bridge, 'r2'), equals("aa"));
+        expect(_unwrapGlobal(bridge, 'r3'), equals("b"));
       });
 
       test('non-greedy patterns', () async {
@@ -67,9 +71,9 @@ void main() {
           r3 = string.match("aaabc", "a.-c")
         ''');
 
-        expect((bridge.getGlobal('r1') as Value).raw, equals("aaab"));
-        expect((bridge.getGlobal('r2') as Value).raw, equals("a"));
-        expect((bridge.getGlobal('r3') as Value).raw, equals("aaabc"));
+        expect(_unwrapGlobal(bridge, 'r1'), equals("aaab"));
+        expect(_unwrapGlobal(bridge, 'r2'), equals("a"));
+        expect(_unwrapGlobal(bridge, 'r3'), equals("aaabc"));
       });
     });
 
@@ -82,10 +86,10 @@ void main() {
           r4 = string.match("abc 123", "%s+")
         ''');
 
-        expect((bridge.getGlobal('r1') as Value).raw, equals("abc"));
-        expect((bridge.getGlobal('r2') as Value).raw, equals("123"));
-        expect((bridge.getGlobal('r3') as Value).raw, equals("abc123"));
-        expect((bridge.getGlobal('r4') as Value).raw, equals(" "));
+        expect(_unwrapGlobal(bridge, 'r1'), equals("abc"));
+        expect(_unwrapGlobal(bridge, 'r2'), equals("123"));
+        expect(_unwrapGlobal(bridge, 'r3'), equals("abc123"));
+        expect(_unwrapGlobal(bridge, 'r4'), equals(" "));
       });
 
       test('negated character classes', () async {
@@ -96,10 +100,10 @@ void main() {
           r4 = string.match("abc 123", "%S+")
         ''');
 
-        expect((bridge.getGlobal('r1') as Value).raw, equals("123"));
-        expect((bridge.getGlobal('r2') as Value).raw, equals("abc"));
-        expect((bridge.getGlobal('r3') as Value).raw, isNull);
-        expect((bridge.getGlobal('r4') as Value).raw, equals("abc"));
+        expect(_unwrapGlobal(bridge, 'r1'), equals("123"));
+        expect(_unwrapGlobal(bridge, 'r2'), equals("abc"));
+        expect(_unwrapGlobal(bridge, 'r3'), isNull);
+        expect(_unwrapGlobal(bridge, 'r4'), equals("abc"));
       });
 
       test('custom character classes', () async {
@@ -110,10 +114,10 @@ void main() {
           r4 = string.match("abc123", "[^0-9]+")
         ''');
 
-        expect((bridge.getGlobal('r1') as Value).raw, equals("abc"));
-        expect((bridge.getGlobal('r2') as Value).raw, equals("123"));
-        expect((bridge.getGlobal('r3') as Value).raw, equals("123"));
-        expect((bridge.getGlobal('r4') as Value).raw, equals("abc"));
+        expect(_unwrapGlobal(bridge, 'r1'), equals("abc"));
+        expect(_unwrapGlobal(bridge, 'r2'), equals("123"));
+        expect(_unwrapGlobal(bridge, 'r3'), equals("123"));
+        expect(_unwrapGlobal(bridge, 'r4'), equals("abc"));
       });
     });
 
@@ -127,8 +131,8 @@ void main() {
           r2 = string.match("254 K", "(%d*)K")
         ''');
 
-        expect((bridge.getGlobal('r1') as Value).raw, equals("xyz"));
-        expect((bridge.getGlobal('r2') as Value).raw, equals(""));
+        expect(_unwrapGlobal(bridge, 'r1'), equals("xyz"));
+        expect(_unwrapGlobal(bridge, 'r2'), equals(""));
       });
 
       test('end of string captures', () async {
@@ -140,8 +144,8 @@ void main() {
           r2 = string.match("alo ", "(%w+)$")
         ''');
 
-        expect((bridge.getGlobal('r1') as Value).raw, equals(""));
-        expect((bridge.getGlobal('r2') as Value).raw, isNull);
+        expect(_unwrapGlobal(bridge, 'r1'), equals(""));
+        expect(_unwrapGlobal(bridge, 'r2'), isNull);
       });
 
       test('basic captures', () async {
@@ -150,8 +154,8 @@ void main() {
           r2 = string.match("name = value", "(%w+)%s*=%s*(%w+)")
         ''');
 
-        expect((bridge.getGlobal('r1') as Value).raw, equals("abc"));
-        expect((bridge.getGlobal('r2') as Value).raw, equals("name"));
+        expect(_unwrapGlobal(bridge, 'r1'), equals("abc"));
+        expect(_unwrapGlobal(bridge, 'r2'), equals("name"));
       });
 
       test('multiple captures', () async {
@@ -160,10 +164,10 @@ void main() {
           c, d = string.match("name = value", "(%w+)%s*=%s*(%w+)")
         ''');
 
-        expect((bridge.getGlobal('a') as Value).raw, equals("abc"));
-        expect((bridge.getGlobal('b') as Value).raw, equals("123"));
-        expect((bridge.getGlobal('c') as Value).raw, equals("name"));
-        expect((bridge.getGlobal('d') as Value).raw, equals("value"));
+        expect(_unwrapGlobal(bridge, 'a'), equals("abc"));
+        expect(_unwrapGlobal(bridge, 'b'), equals("123"));
+        expect(_unwrapGlobal(bridge, 'c'), equals("name"));
+        expect(_unwrapGlobal(bridge, 'd'), equals("value"));
       });
 
       test('nested captures', () async {
@@ -171,9 +175,9 @@ void main() {
           a, b, c = string.match("abc123", "((%a+)(%d+))")
         ''');
 
-        expect((bridge.getGlobal('a') as Value).raw, equals("abc123"));
-        expect((bridge.getGlobal('b') as Value).raw, equals("abc"));
-        expect((bridge.getGlobal('c') as Value).raw, equals("123"));
+        expect(_unwrapGlobal(bridge, 'a'), equals("abc123"));
+        expect(_unwrapGlobal(bridge, 'b'), equals("abc"));
+        expect(_unwrapGlobal(bridge, 'c'), equals("123"));
       });
     });
 
@@ -185,7 +189,7 @@ void main() {
           k = string.match(" alo aalo allo", "%f[%S](.-%f[%s].-%f[%S])")
         ''');
 
-        expect((bridge.getGlobal('k') as Value).raw, equals("alo "));
+        expect(_unwrapGlobal(bridge, 'k'), equals("alo "));
       });
 
       test('zero patterns', () async {
@@ -197,14 +201,8 @@ void main() {
           r2 = string.match("abc\\0\\0\\0", "%\\0+")
         ''');
 
-        expect(
-          (bridge.getGlobal('r1') as Value).raw,
-          equals("\u0000\u0001\u0002"),
-        );
-        expect(
-          (bridge.getGlobal('r2') as Value).raw,
-          equals("\u0000\u0000\u0000"),
-        );
+        expect(_unwrapGlobal(bridge, 'r1'), equals("\u0000\u0001\u0002"));
+        expect(_unwrapGlobal(bridge, 'r2'), equals("\u0000\u0000\u0000"));
       });
 
       test('balanced patterns', () async {
@@ -215,7 +213,7 @@ void main() {
         ''');
 
         expect(
-          (bridge.getGlobal('r') as Value).raw,
+          _unwrapGlobal(bridge, 'r'),
           equals("\u0000efg\u0000\u0001e\u0001"),
         );
       });
@@ -227,9 +225,9 @@ void main() {
           r3 = string.match("hello", "^%a+$")
         ''');
 
-        expect((bridge.getGlobal('r1') as Value).raw, equals("hello"));
-        expect((bridge.getGlobal('r2') as Value).raw, equals("world"));
-        expect((bridge.getGlobal('r3') as Value).raw, equals("hello"));
+        expect(_unwrapGlobal(bridge, 'r1'), equals("hello"));
+        expect(_unwrapGlobal(bridge, 'r2'), equals("world"));
+        expect(_unwrapGlobal(bridge, 'r3'), equals("hello"));
       });
     });
 
@@ -255,30 +253,24 @@ void main() {
           r17 = string.match("abc\0efg\0\1e\1g", "%b\0\1")
         ''');
 
-        expect((bridge.getGlobal('r1') as Value).raw, equals("aaab"));
-        expect((bridge.getGlobal('r2') as Value).raw, equals("aaa"));
-        expect((bridge.getGlobal('r3') as Value).raw, equals("b"));
-        expect((bridge.getGlobal('r4') as Value).raw, equals("aaab"));
-        expect((bridge.getGlobal('r5') as Value).raw, equals("aaa"));
-        expect((bridge.getGlobal('r6') as Value).raw, isNull);
-        expect((bridge.getGlobal('r7') as Value).raw, equals("ab"));
-        expect((bridge.getGlobal('r8') as Value).raw, equals("aa"));
-        expect((bridge.getGlobal('r9') as Value).raw, equals("b"));
-        expect((bridge.getGlobal('r10') as Value).raw, equals("xyz"));
-        expect((bridge.getGlobal('r11') as Value).raw, equals(""));
-        expect((bridge.getGlobal('r12') as Value).raw, equals(""));
-        expect((bridge.getGlobal('r13') as Value).raw, isNull);
-        expect((bridge.getGlobal('r14') as Value).raw, equals("alo "));
+        expect(_unwrapGlobal(bridge, 'r1'), equals("aaab"));
+        expect(_unwrapGlobal(bridge, 'r2'), equals("aaa"));
+        expect(_unwrapGlobal(bridge, 'r3'), equals("b"));
+        expect(_unwrapGlobal(bridge, 'r4'), equals("aaab"));
+        expect(_unwrapGlobal(bridge, 'r5'), equals("aaa"));
+        expect(_unwrapGlobal(bridge, 'r6'), isNull);
+        expect(_unwrapGlobal(bridge, 'r7'), equals("ab"));
+        expect(_unwrapGlobal(bridge, 'r8'), equals("aa"));
+        expect(_unwrapGlobal(bridge, 'r9'), equals("b"));
+        expect(_unwrapGlobal(bridge, 'r10'), equals("xyz"));
+        expect(_unwrapGlobal(bridge, 'r11'), equals(""));
+        expect(_unwrapGlobal(bridge, 'r12'), equals(""));
+        expect(_unwrapGlobal(bridge, 'r13'), isNull);
+        expect(_unwrapGlobal(bridge, 'r14'), equals("alo "));
+        expect(_unwrapGlobal(bridge, 'r15'), equals("\u0000\u0001\u0002"));
+        expect(_unwrapGlobal(bridge, 'r16'), equals("\u0000\u0000\u0000"));
         expect(
-          (bridge.getGlobal('r15') as Value).raw,
-          equals("\u0000\u0001\u0002"),
-        );
-        expect(
-          (bridge.getGlobal('r16') as Value).raw,
-          equals("\u0000\u0000\u0000"),
-        );
-        expect(
-          (bridge.getGlobal('r17') as Value).raw,
+          _unwrapGlobal(bridge, 'r17'),
           equals("\u0000efg\u0000\u0001e\u0001"),
         );
       });

@@ -34,7 +34,8 @@ Interpreter? _resolveDebugInterpreter(LuaRuntime? runtime) {
   return envInterpreter is Interpreter ? envInterpreter : null;
 }
 
-bool _hasStrippedDebugInfo(Value? callable) => callable?.strippedDebugInfo == true;
+bool _hasStrippedDebugInfo(Value? callable) =>
+    callable?.strippedDebugInfo == true;
 
 bool _frameHasStrippedDebugInfo(CallFrame frame) =>
     _hasStrippedDebugInfo(frame.callable);
@@ -94,16 +95,15 @@ CallFrame? _resolveDebugCoroutineFrame(Coroutine coroutine, int level) {
   }
   if (level == 1 && coroutine.functionBody != null) {
     final wrappedEnv = frame.env ?? coroutine.debugEnvironment;
-    final wrappedCallable =
-        frame.callable?.functionBody != null
-      ? frame.callable!
-            : Value(
-              () => null,
-              closureEnvironment: coroutine.closureEnvironment,
-              functionBody: coroutine.functionBody,
-              functionName: coroutine.functionValue.functionName,
-              strippedDebugInfo: coroutine.functionValue.strippedDebugInfo,
-            );
+    final wrappedCallable = frame.callable?.functionBody != null
+        ? frame.callable!
+        : Value(
+            () => null,
+            closureEnvironment: coroutine.closureEnvironment,
+            functionBody: coroutine.functionBody,
+            functionName: coroutine.functionValue.functionName,
+            strippedDebugInfo: coroutine.functionValue.strippedDebugInfo,
+          );
     frame = CallFrame(
       coroutine.functionValue.functionName ?? frame.functionName,
       callNode: frame.callNode,
@@ -242,7 +242,9 @@ class _GetLocal extends BuiltinFunction {
       hideEnclosingDebugHooks: true,
     );
     if (frame == null) {
-      throw LuaError("bad argument #1 to 'debug.getlocal' (level out of range)");
+      throw LuaError(
+        "bad argument #1 to 'debug.getlocal' (level out of range)",
+      );
     }
     return frame;
   }
@@ -314,6 +316,7 @@ class _GetLocal extends BuiltinFunction {
         }
         return null;
       }
+
       bool envHasVisibleLocal(String name) {
         return envs.any((env) {
           final box = env.values[name];
@@ -322,6 +325,7 @@ class _GetLocal extends BuiltinFunction {
               !_isInheritedClosureBinding(frame, env, name, box);
         });
       }
+
       if (frame.callable?.functionBody?.isVararg == true &&
           envs.any((env) => env.values.containsKey('...'))) {
         locals.add(MapEntry('(vararg table)', Value(null)));
@@ -380,6 +384,7 @@ class _GetLocal extends BuiltinFunction {
             !_isInheritedClosureBinding(frame, env, name, box);
       });
     }
+
     if (exposesVarargTable) {
       locals.add(MapEntry('(vararg table)', Value(null)));
     }
@@ -518,14 +523,18 @@ class _GetLocal extends BuiltinFunction {
     if (hasThread && threadArg.raw is Coroutine && targetArg.raw is num) {
       final level = _requireInt(targetArg, 'number');
       if (level <= 0) {
-        throw LuaError("bad argument #2 to 'debug.getlocal' (level out of range)");
+        throw LuaError(
+          "bad argument #2 to 'debug.getlocal' (level out of range)",
+        );
       }
       final frame = _resolveDebugCoroutineFrame(
         threadArg.raw as Coroutine,
         level,
       );
       if (frame == null) {
-        throw LuaError("bad argument #2 to 'debug.getlocal' (level out of range)");
+        throw LuaError(
+          "bad argument #2 to 'debug.getlocal' (level out of range)",
+        );
       }
       if (index > 0 &&
           frame.ntransfer > 0 &&
@@ -618,7 +627,9 @@ class _GetUpvalue extends BuiltinFunction {
       }
       return Value.multi([
         Value(
-          functionArg.strippedDebugInfo ? '(no name)' : closure.upvalueName(index - 1),
+          functionArg.strippedDebugInfo
+              ? '(no name)'
+              : closure.upvalueName(index - 1),
         ),
         closure.readUpvalue(index - 1),
       ]);
@@ -787,7 +798,9 @@ class _SetLocal extends BuiltinFunction {
       hideEnclosingDebugHooks: true,
     );
     if (frame == null) {
-      throw LuaError("bad argument #1 to 'debug.setlocal' (level out of range)");
+      throw LuaError(
+        "bad argument #1 to 'debug.setlocal' (level out of range)",
+      );
     }
     return frame;
   }
@@ -804,6 +817,7 @@ class _SetLocal extends BuiltinFunction {
             !_isInheritedClosureBinding(frame, env, name, box);
       });
     }
+
     if (frame.callable?.functionBody?.isVararg == true &&
         envs.any((env) => env.values.containsKey('...'))) {
       locals.add(MapEntry('(vararg table)', Value(null)));
@@ -867,11 +881,15 @@ class _SetLocal extends BuiltinFunction {
       }
       final level = _requireInt(targetArg);
       if (level <= 0) {
-        throw LuaError("bad argument #2 to 'debug.setlocal' (level out of range)");
+        throw LuaError(
+          "bad argument #2 to 'debug.setlocal' (level out of range)",
+        );
       }
       frame = _resolveDebugCoroutineFrame(thread.raw as Coroutine, level);
       if (frame == null) {
-        throw LuaError("bad argument #2 to 'debug.setlocal' (level out of range)");
+        throw LuaError(
+          "bad argument #2 to 'debug.setlocal' (level out of range)",
+        );
       }
     } else {
       targetArg = args[0] as Value;
@@ -882,7 +900,9 @@ class _SetLocal extends BuiltinFunction {
       }
       final level = _requireInt(targetArg);
       if (level <= 0) {
-        throw LuaError("bad argument #1 to 'debug.setlocal' (level out of range)");
+        throw LuaError(
+          "bad argument #1 to 'debug.setlocal' (level out of range)",
+        );
       }
       frame = _resolveVisibleFrame(runtime, level);
     }
@@ -890,7 +910,9 @@ class _SetLocal extends BuiltinFunction {
     final index = _requireInt(indexArg);
     if (index < 0) {
       final rawVarargs = _findFrameVarargValue(frame);
-      if (rawVarargs is! Value || !rawVarargs.isMulti || rawVarargs.raw is! List) {
+      if (rawVarargs is! Value ||
+          !rawVarargs.isMulti ||
+          rawVarargs.raw is! List) {
         return Value(null);
       }
       final list = List<Object?>.from(rawVarargs.raw as List);
@@ -1163,8 +1185,21 @@ class _SetUserValue extends BuiltinFunction {
       _ => throw LuaError("debug.setuservalue index must be a number"),
     };
 
-    if (target is! Value || !_isFullUserdata(target)) {
+    if (target is! Value) {
+      throw LuaError(
+        "bad argument #1 to 'setuservalue' (userdata expected, got no value)",
+      );
+    }
+
+    if (target.raw is LuaFile) {
       return Value(null);
+    }
+
+    if (!_isFullUserdata(target)) {
+      throw LuaError(
+        "bad argument #1 to 'setuservalue' "
+        "(userdata expected, got ${getLuaType(target)})",
+      );
     }
 
     if (index < 1) {
@@ -1173,7 +1208,9 @@ class _SetUserValue extends BuiltinFunction {
 
     if (target.raw is Map) {
       final rawMap = target.raw as Map<dynamic, dynamic>;
-      rawMap['__uservalue$index'] = userValue is Value ? userValue : Value(userValue);
+      rawMap['__uservalue$index'] = userValue is Value
+          ? userValue
+          : Value(userValue);
     }
     return target;
   }
@@ -1213,8 +1250,11 @@ class _Traceback extends BuiltinFunction {
     return raw.toInt();
   }
 
-  Iterable<CallFrame> _currentFrames(Interpreter runtime, int startLevel) sync* {
-    for (var level = startLevel;; level++) {
+  Iterable<CallFrame> _currentFrames(
+    Interpreter runtime,
+    int startLevel,
+  ) sync* {
+    for (var level = startLevel; ; level++) {
       final frame = runtime.getVisibleFrameAtLevel(level);
       if (frame == null) {
         return;
@@ -1227,7 +1267,7 @@ class _Traceback extends BuiltinFunction {
     Coroutine coroutine,
     int startLevel,
   ) sync* {
-    for (var level = startLevel;; level++) {
+    for (var level = startLevel; ; level++) {
       final frame = _resolveDebugCoroutineFrame(coroutine, level);
       if (frame == null) {
         return;
@@ -1239,10 +1279,7 @@ class _Traceback extends BuiltinFunction {
   static const int _tracebackHeadLevels = 10;
   static const int _tracebackTailLevels = 11;
 
-  void _appendTracebackFrames(
-    StringBuffer trace,
-    List<CallFrame> frames,
-  ) {
+  void _appendTracebackFrames(StringBuffer trace, List<CallFrame> frames) {
     final visibleFrames = frames
         .where(_includeTracebackFrame)
         .toList(growable: false);
@@ -1277,7 +1314,8 @@ class _Traceback extends BuiltinFunction {
         frame.functionName == 'function' ||
         frame.functionName == 'unknown';
     final hasDebugName =
-        (frame.debugName?.isNotEmpty ?? false) || frame.debugNameWhat.isNotEmpty;
+        (frame.debugName?.isNotEmpty ?? false) ||
+        frame.debugNameWhat.isNotEmpty;
     final looksSyntheticWrapper =
         !hasDebugName && hasOpaqueName && frame.currentLine > 0;
 
@@ -1292,9 +1330,7 @@ class _Traceback extends BuiltinFunction {
 
     // Some internal wrapper transitions do not retain a callable at all but
     // still materialize as a source-bearing "?" frame in tracebacks.
-    if (callable == null &&
-        looksSyntheticWrapper &&
-        frame.callNode == null) {
+    if (callable == null && looksSyntheticWrapper && frame.callNode == null) {
       return false;
     }
 
@@ -1359,8 +1395,11 @@ class _Traceback extends BuiltinFunction {
         : (frame.callNode?.span?.start.line ?? -1) + 1;
     final info = _inferFrameNameInfo(frame);
     final candidateName = switch (info.name) {
-      null || '' || 'unknown' || 'function' || 'anonymous' =>
-        frame.functionName,
+      null ||
+      '' ||
+      'unknown' ||
+      'function' ||
+      'anonymous' => frame.functionName,
       final name => name,
     };
     final displayName = switch (candidateName) {
@@ -1613,6 +1652,47 @@ class _GetInfoImpl extends BuiltinFunction {
     return _debugFrameSourceKey(frame);
   }
 
+  CallFrame? _resolveVisibleFrame(Interpreter runtime, int level) {
+    final originalFrame = runtime.getVisibleFrameAtLevel(
+      level + 1,
+      hideEnclosingDebugHooks: true,
+    );
+    var frame = originalFrame;
+    if (frame == null) {
+      return null;
+    }
+    if (frame.callable == null && frame.env != null) {
+      final lexicalFrame = runtime.getVisibleFrameAtLevel(
+        level + 2,
+        hideEnclosingDebugHooks: true,
+      );
+      if (lexicalFrame != null &&
+          lexicalFrame.callable?.functionBody != null &&
+          _frameSourceKey(lexicalFrame) == _frameSourceKey(frame)) {
+        frame = lexicalFrame;
+      }
+    }
+    if (frame.callable?.functionBody != null) {
+      final wrapperFrame =
+          originalFrame != null &&
+              originalFrame.callable == null &&
+              _frameSourceKey(originalFrame) == _frameSourceKey(frame)
+          ? originalFrame
+          : runtime.getVisibleFrameAtLevel(
+              level,
+              hideEnclosingDebugHooks: true,
+            );
+      if (wrapperFrame != null &&
+          wrapperFrame.callable == null &&
+          _frameSourceKey(wrapperFrame) == _frameSourceKey(frame) &&
+          wrapperFrame.currentLine > 0 &&
+          wrapperFrame.currentLine > frame.currentLine) {
+        frame.currentLine = wrapperFrame.currentLine;
+      }
+    }
+    return frame;
+  }
+
   CallFrame? _resolveCoroutineFrame(Coroutine coroutine, int level) {
     return _resolveDebugCoroutineFrame(coroutine, level);
   }
@@ -1676,10 +1756,11 @@ class _GetInfoImpl extends BuiltinFunction {
             actualLevel,
           ),
           null when debugInterpreter != null =>
-            debugInterpreter.getVisibleFrameAtLevel(
-              actualLevel,
-              hideEnclosingDebugHooks: true,
-            ),
+            _resolveVisibleFrame(debugInterpreter, level),
+          _ when interpreterInstance is Interpreter => _resolveVisibleFrame(
+            interpreterInstance,
+            level,
+          ),
           _ => interpreterInstance.callStack.getFrameAtLevel(actualLevel),
         };
 
@@ -1836,17 +1917,17 @@ class _GetInfoImpl extends BuiltinFunction {
               isMainChunkFrame
                   ? 0
                   : (_frameHasStrippedDebugInfo(frame)
-                      ? (strippedLineDefined > 0 ? strippedLineDefined : 1)
-                      : (metadata?.lineDefined ?? -1)),
+                        ? (strippedLineDefined > 0 ? strippedLineDefined : 1)
+                        : (metadata?.lineDefined ?? -1)),
             );
             debugInfo['lastlinedefined'] = Value(
               isMainChunkFrame
                   ? 0
                   : (_frameHasStrippedDebugInfo(frame)
-                      ? (strippedLastLineDefined > 0
-                          ? strippedLastLineDefined
-                          : 1)
-                      : (metadata?.lastLineDefined ?? -1)),
+                        ? (strippedLastLineDefined > 0
+                              ? strippedLastLineDefined
+                              : 1)
+                        : (metadata?.lastLineDefined ?? -1)),
             );
           }
           if (what.contains('l')) {
@@ -1881,8 +1962,9 @@ class _GetInfoImpl extends BuiltinFunction {
                 callableValue == null || _frameHasStrippedDebugInfo(frame)
                 ? Value(null)
                 : _collectActiveLines(callableValue);
-            final whatKind =
-                isMainChunkFrame ? 'main' : (metadata?.what ?? 'Lua');
+            final whatKind = isMainChunkFrame
+                ? 'main'
+                : (metadata?.what ?? 'Lua');
             if (activeLines.raw == null && whatKind != 'C') {
               debugInfo['activelines'] = Value(<Object?, Object?>{});
             } else {
@@ -2365,7 +2447,8 @@ void defineDebugLibrary({required Environment env, LuaRuntime? vm}) {
     return (name: 'hook', namewhat: 'hook');
   }
 
-  if ((frame.debugName?.isNotEmpty ?? false) || frame.debugNameWhat.isNotEmpty) {
+  if ((frame.debugName?.isNotEmpty ?? false) ||
+      frame.debugNameWhat.isNotEmpty) {
     return (name: frame.debugName, namewhat: frame.debugNameWhat);
   }
 
@@ -2385,7 +2468,8 @@ void defineDebugLibrary({required Environment env, LuaRuntime? vm}) {
     }
   }
 
-  final fallbackName = switch (frame.functionName ?? frame.callable?.functionName) {
+  final fallbackName = switch (frame.functionName ??
+      frame.callable?.functionName) {
     'unknown' || 'function' => null,
     final name => name,
   };

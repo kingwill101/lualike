@@ -316,9 +316,9 @@ void main() {
         expect(survivingEphemeral, 0);
 
         for (var i = 1; i <= lim; i++) {
-          expect(tableMap[Value(i)], Value(i));
+          expect(tableMap[i], Value(i));
           final s = List.filled(i, '@').join();
-          expect(tableMap[Value(s)], Value('$s#'));
+          expect(tableMap[s], Value('$s#'));
         }
       },
     );

@@ -186,10 +186,11 @@ void main() {
       },
     );
 
-    test('string.gsub callbacks using load share the caller global environment',
-        () async {
-      final bridge = LuaLike();
-      await bridge.execute(r'''
+    test(
+      'string.gsub callbacks using load share the caller global environment',
+      () async {
+        final bridge = LuaLike();
+        await bridge.execute(r'''
         a = "a@b@çd"
         local function dostring (s) return load(s, "")() or "" end
         gsub_result = string.gsub("alo $a='x'$ novamente $return a$",
@@ -197,10 +198,13 @@ void main() {
                                   dostring)
       ''');
 
-      expect((bridge.getGlobal('gsub_result') as Value).raw,
-          equals('alo  novamente x'));
-      expect((bridge.getGlobal('a') as Value).raw, equals('x'));
-    });
+        expect(
+          (bridge.getGlobal('gsub_result') as Value).unwrap(),
+          equals('alo  novamente x'),
+        );
+        expect((bridge.getGlobal('a') as Value).unwrap(), equals('x'));
+      },
+    );
 
     test('pattern helpers preserve utf8 bytes through gsub and find', () async {
       final bridge = LuaLike();
@@ -286,8 +290,8 @@ void main() {
 
       expect((bridge.getGlobal('i') as Value).raw, equals(1));
       expect((bridge.getGlobal('j') as Value).raw, equals(11));
-      expect((bridge.getGlobal('first') as Value).raw, equals("hello"));
-      expect((bridge.getGlobal('second') as Value).raw, equals("world"));
+      expect((bridge.getGlobal('first') as Value).unwrap(), equals("hello"));
+      expect((bridge.getGlobal('second') as Value).unwrap(), equals("world"));
     });
 
     test('string.match', () async {
@@ -299,9 +303,9 @@ void main() {
         no_match = string.match(s, "bye")
       ''');
 
-      expect((bridge.getGlobal('word') as Value).raw, equals("hello"));
-      expect((bridge.getGlobal('w1') as Value).raw, equals("hello"));
-      expect((bridge.getGlobal('w2') as Value).raw, equals("world"));
+      expect((bridge.getGlobal('word') as Value).unwrap(), equals("hello"));
+      expect((bridge.getGlobal('w1') as Value).unwrap(), equals("hello"));
+      expect((bridge.getGlobal('w2') as Value).unwrap(), equals("world"));
       expect((bridge.getGlobal('no_match') as Value).raw, isNull);
     });
 

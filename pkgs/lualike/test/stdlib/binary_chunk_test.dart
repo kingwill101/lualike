@@ -462,10 +462,14 @@ void main() {
           f = function() return type(_ENV) end
           dumped = string.dump(f)
           loaded = load(dumped, nil, "b", nil)
-          result = loaded()
+          ok, result = pcall(loaded)
         ''');
 
-        expect((bridge.getGlobal('result') as Value?)?.raw, equals('nil'));
+        expect((bridge.getGlobal('ok') as Value?)?.raw, isFalse);
+        expect(
+          (bridge.getGlobal('result') as Value?)?.raw,
+          contains("upvalue '_ENV'"),
+        );
       });
     });
 

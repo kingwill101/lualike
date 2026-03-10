@@ -119,13 +119,13 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       if (tableVal.raw == null) {
         throw LuaError.typeError(
           sourceLabel != null
-              ? "attempt to index $sourceLabel (a nil value)"
+              ? "attempt to index a nil value ($sourceLabel)"
               : 'attempt to index a nil value',
         );
       }
       throw LuaError.typeError(
         sourceLabel != null
-            ? "attempt to index $sourceLabel (a $type value)"
+            ? "attempt to index a $type value ($sourceLabel)"
             : 'attempt to index a $type value',
       );
     }
@@ -182,13 +182,13 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       if (tableVal.raw == null) {
         throw LuaError.typeError(
           sourceLabel != null
-              ? "attempt to index $sourceLabel (a nil value)"
+              ? "attempt to index a nil value ($sourceLabel)"
               : 'attempt to index a nil value',
         );
       }
       throw LuaError.typeError(
         sourceLabel != null
-            ? "attempt to index $sourceLabel (a $type value)"
+            ? "attempt to index a $type value ($sourceLabel)"
             : 'attempt to index a $type value',
       );
     }
@@ -402,13 +402,13 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
       if (tableVal.raw == null) {
         throw LuaError.typeError(
           sourceLabel != null
-              ? "attempt to index $sourceLabel (a nil value)"
+              ? "attempt to index a nil value ($sourceLabel)"
               : 'attempt to index a nil value',
         );
       }
       throw LuaError.typeError(
         sourceLabel != null
-            ? "attempt to index $sourceLabel (a $type value)"
+            ? "attempt to index a $type value ($sourceLabel)"
             : 'attempt to index a $type value',
       );
     }
@@ -736,7 +736,10 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
         // Array-like entry without explicit key
         if (entry.expr is VarArg) {
           // Handle vararg expansion: {...}
-          final args = _resolveCurrentVarargSource(this as Interpreter, globals);
+          final args = _resolveCurrentVarargSource(
+            this as Interpreter,
+            globals,
+          );
           final varargs = _expandVarargValue(args);
           if (varargs.isNotEmpty) {
             tableMap.ensureArrayCapacity(arrayIndex - 1 + varargs.length);

@@ -73,52 +73,51 @@ void main() {
 
     test('utf8.char with nil values', () async {
       await bridge.execute('''
-        result1 = utf8.char(nil)
-        result2 = utf8.char(nil, 65)
-        result3 = utf8.char(65, nil, 66)
-        result4 = utf8.char(nil, 65, nil, 66, nil)
-
-        len1 = #result1
-        len2 = #result2
-        len3 = #result3
-        len4 = #result4
+        ok1, err1 = pcall(function() return utf8.char(nil) end)
+        ok2, err2 = pcall(function() return utf8.char(nil, 65) end)
+        ok3, err3 = pcall(function() return utf8.char(65, nil, 66) end)
+        ok4, err4 = pcall(function() return utf8.char(nil, 65, nil, 66, nil) end)
       ''');
 
-      var result1 = bridge.getGlobal('result1');
-      var result2 = bridge.getGlobal('result2');
-      var result3 = bridge.getGlobal('result3');
-      var result4 = bridge.getGlobal('result4');
-      var len1 = bridge.getGlobal('len1');
-      var len2 = bridge.getGlobal('len2');
-      var len3 = bridge.getGlobal('len3');
-      var len4 = bridge.getGlobal('len4');
-
-      // nil values should be skipped, not treated as codepoint 0
-      expect((result1 as Value).unwrap(), equals(''));
-      expect((result2 as Value).unwrap(), equals('A'));
-      expect((result3 as Value).unwrap(), equals('AB'));
-      expect((result4 as Value).unwrap(), equals('AB'));
-
-      expect((len1 as Value).unwrap(), equals(0));
-      expect((len2 as Value).unwrap(), equals(1));
-      expect((len3 as Value).unwrap(), equals(2));
-      expect((len4 as Value).unwrap(), equals(2));
+      expect((bridge.getGlobal('ok1') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('err1') as Value).unwrap().toString(),
+        contains("bad argument #1 to 'char'"),
+      );
+      expect((bridge.getGlobal('ok2') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('err2') as Value).unwrap().toString(),
+        contains("bad argument #1 to 'char'"),
+      );
+      expect((bridge.getGlobal('ok3') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('err3') as Value).unwrap().toString(),
+        contains("bad argument #2 to 'char'"),
+      );
+      expect((bridge.getGlobal('ok4') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('err4') as Value).unwrap().toString(),
+        contains("bad argument #1 to 'char'"),
+      );
     });
 
     test('utf8.char with mixed nil and valid values', () async {
       await bridge.execute('''
         t = {65, nil, 66, nil, 67}
         result = utf8.char(table.unpack(t))
-        expected = utf8.char(65, 66, 67)
+        expected = utf8.char(65)
+        unpack_count = select('#', table.unpack(t))
         matches = result == expected
       ''');
 
       var result = bridge.getGlobal('result');
       var expected = bridge.getGlobal('expected');
+      var unpackCount = bridge.getGlobal('unpack_count');
       var matches = bridge.getGlobal('matches');
 
-      expect((result as Value).unwrap(), equals('ABC'));
-      expect((expected as Value).unwrap(), equals('ABC'));
+      expect((result as Value).unwrap(), equals('A'));
+      expect((expected as Value).unwrap(), equals('A'));
+      expect((unpackCount as Value).unwrap(), equals(1));
       expect((matches as Value).unwrap(), equals(true));
     });
 
@@ -126,29 +125,19 @@ void main() {
       'utf8.char with nil values in table.unpack (standard Lua behavior)',
       () async {
         await bridge.execute('''
-        -- Test that our implementation matches standard Lua behavior
-        -- Standard Lua: table.unpack({65, nil, 66}) returns 65, nil, 66
-        -- But utf8.char(65, nil, 66) throws an error in standard Lua
-        -- Our implementation is more permissive and skips nil values
-
         t = {65, nil, 66, nil, 67}
         a, b, c, d, e = table.unpack(t)
-
-        -- Verify table.unpack returns all values including nil
-        unpack_results = {a, b, c, d, e}
-        nil_count = 0
-        for i = 1, #unpack_results do
-          if unpack_results[i] == nil then
-            nil_count = nil_count + 1
-          end
-        end
+        unpack_count = select('#', table.unpack(t))
+        result = utf8.char(table.unpack(t))
       ''');
 
-        var nilCount = bridge.getGlobal('nil_count');
-        expect(
-          (nilCount as Value).unwrap(),
-          equals(2),
-        ); // Should have 2 nil values
+        expect((bridge.getGlobal('a') as Value).unwrap(), equals(65));
+        expect((bridge.getGlobal('b') as Value).unwrap(), isNull);
+        expect((bridge.getGlobal('c') as Value).unwrap(), isNull);
+        expect((bridge.getGlobal('d') as Value).unwrap(), isNull);
+        expect((bridge.getGlobal('e') as Value).unwrap(), isNull);
+        expect((bridge.getGlobal('unpack_count') as Value).unwrap(), equals(1));
+        expect((bridge.getGlobal('result') as Value).unwrap(), equals('A'));
       },
     );
 
@@ -177,14 +166,11 @@ void main() {
 
     test('utf8.char with table containing nil values', () async {
       await bridge.execute('''
-        -- Test that utf8.char correctly handles tables with nil values
         t = {65, nil, 66, nil, 67}
         result = utf8.char(table.unpack(t))
-        expected = utf8.char(65, 66, 67)
-
-        -- Our implementation skips nil values, so this should work
+        expected = utf8.char(65)
         assert(result == expected)
-        assert(#result == 3)
+        assert(#result == 1)
       ''');
 
       // If we get here without exceptions, the test passed
