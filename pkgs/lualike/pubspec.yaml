@@ -39,8 +39,8 @@ dependencies:
 dev_dependencies:
   lints: ^6.0.0
   test:
-  build_runner: ^2.7.0
-  build_web_compilers: ^4.2.2
+  build_runner: ^2.10.0
+  build_web_compilers: ^4.4.3
   lualike_test:
     path: ../test
   nocterm: ^0.1.0

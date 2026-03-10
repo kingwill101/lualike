@@ -8,10 +8,7 @@
     <meta name="scaffolded-by" content="https://github.com/dart-lang/sdk">
     <title>LuaLike Web REPL</title>
     <link rel="stylesheet" href="styles.css">
-    <!-- Prism.js for syntax highlighting -->
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-lua.min.js"></script>
+    <script src="editor_bridge.js"></script>
     <script defer src="main.dart.js"></script>
 </head>
 
@@ -27,7 +24,7 @@
                 <div class="editor-header">
                     <h3>Lua Code Editor</h3>
                     <div class="editor-controls">
-                        <select id="examples">
+                        <select id="examples" name="examples">
                             <option value="">Choose an example...</option>
                         </select>
                         <button id="clear">Clear</button>
@@ -35,11 +32,12 @@
                     </div>
                 </div>
                 <div class="code-editor-container">
-                    <div id="sourceCode" class="code-editor" contenteditable="true" spellcheck="false" data-placeholder="-- Enter your Lua code here
-print('Hello from LuaLike!')
-
--- Try some examples from the dropdown above
--- or write your own Lua code!"></div>
+                    <div id="sourceCode" class="code-editor" aria-label="Lua code editor"></div>
+                </div>
+                <div class="editor-meta">
+                    <span id="runStatus" class="status-pill ready">Ready</span>
+                    <span id="editorCursor" class="editor-cursor">Ln 1, Col 1</span>
+                    <span class="editor-hint">Ctrl/Cmd+Enter to run</span>
                 </div>
             </div>
 
@@ -57,43 +55,6 @@ print('Hello from LuaLike!')
             <p><a href="https://github.com/kingwill101/lualike" target="_blank">View on GitHub</a></p>
         </footer>
     </div>
-
-    <script>
-        // Simple syntax highlighting function
-        function highlightCode() {
-            const editor = document.getElementById('sourceCode');
-            const code = editor.textContent || '';
-
-            if (code.trim()) {
-                // Create a temporary element for highlighting
-                const temp = document.createElement('pre');
-                const codeElement = document.createElement('code');
-                codeElement.className = 'language-lua';
-                codeElement.textContent = code;
-                temp.appendChild(codeElement);
-
-                // Apply Prism highlighting
-                if (typeof Prism !== 'undefined') {
-                    Prism.highlightElement(codeElement);
-                    editor.innerHTML = codeElement.innerHTML;
-                }
-            }
-        }
-
-        // Add event listeners after DOM is loaded
-        document.addEventListener('DOMContentLoaded', function () {
-            const editor = document.getElementById('sourceCode');
-            const examplesSelect = document.getElementById('examples');
-
-            // Highlight on input
-            editor.addEventListener('input', highlightCode);
-
-            // Highlight when examples are loaded
-            examplesSelect.addEventListener('change', function () {
-                setTimeout(highlightCode, 100); // Small delay to ensure content is loaded
-            });
-        });
-    </script>
 </body>
 
 </html>
