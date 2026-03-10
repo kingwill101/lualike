@@ -7,6 +7,23 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
   // Required method that must be implemented by the class using this mixin
   void setCurrentEnv(Environment env);
 
+  // Statement conditions must collapse multi-results before applying Lua
+  // truthiness. In particular, a wrapped coroutine that finishes with zero
+  // return values behaves like nil in `if`/`while`/`repeat`, not like a truthy
+  // multi container.
+  bool _luaConditionValue(Object? condition) {
+    if (condition is Value && condition.isMulti) {
+      final values = condition.raw as List;
+      condition = values.isNotEmpty ? values.first : Value(null);
+    }
+
+    return switch (condition) {
+      final bool value => value,
+      final Value value => value.isTruthy(),
+      _ => false,
+    };
+  }
+
   Future<Object?> _executeBlockStatements(List<AstNode> statements) async {
     if (this is Interpreter) {
       return await (this as Interpreter)._executeStatements(statements);
@@ -44,27 +61,8 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       interpreter.recordTrace(node.cond);
       await interpreter.maybeFireStatementDebugHooks(node.cond);
     }
-    dynamic condition = await node.cond.accept(this);
-    // In expression context, varargs/functions returning multiple values collapse
-    // to their first value. Apply that here so 'if (...) then' is falsey when
-    // no arguments are provided.
-    if (condition is Value && condition.isMulti) {
-      final vals = condition.raw as List;
-      condition = vals.isNotEmpty ? vals.first : Value(null);
-    }
-
-    bool condValue = false;
-
-    if (condition is bool) {
-      condValue = condition;
-    } else if (condition is Value) {
-      if (condition.raw is bool) {
-        condValue = condition.raw;
-      } else if (condition.raw != null && condition.raw != false) {
-        // In Lua, anything that's not false or nil is considered true
-        condValue = true;
-      }
-    }
+    final condition = await node.cond.accept(this);
+    final condValue = _luaConditionValue(condition);
 
     Logger.debug(
       'If condition evaluated',
@@ -105,22 +103,8 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
             await interpreter.maybeFireStatementDebugHooks(elseIf.cond);
           }
 
-          dynamic elseIfCond = await elseIf.cond.accept(this);
-          if (elseIfCond is Value && elseIfCond.isMulti) {
-            final vals = elseIfCond.raw as List;
-            elseIfCond = vals.isNotEmpty ? vals.first : Value(null);
-          }
-          bool elseIfCondValue = false;
-
-          if (elseIfCond is bool) {
-            elseIfCondValue = elseIfCond;
-          } else if (elseIfCond is Value) {
-            if (elseIfCond.raw is bool) {
-              elseIfCondValue = elseIfCond.raw;
-            } else if (elseIfCond.raw != null && elseIfCond.raw != false) {
-              elseIfCondValue = true;
-            }
-          }
+          final elseIfCond = await elseIf.cond.accept(this);
+          final elseIfCondValue = _luaConditionValue(elseIfCond);
 
           if (elseIfCondValue) {
             Logger.debugLazy(
@@ -258,18 +242,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       }
 
       final condition = await node.cond.accept(this);
-
-      bool condValue = false;
-
-      if (condition is bool) {
-        condValue = condition;
-      } else if (condition is Value) {
-        if (condition.raw is bool) {
-          condValue = condition.raw;
-        } else if (condition.raw != null && condition.raw != false) {
-          condValue = true;
-        }
-      }
+      final condValue = _luaConditionValue(condition);
 
       Logger.debug(
         'While condition evaluated',
@@ -743,20 +716,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         }
 
         final condition = await node.cond.accept(this);
-
-        if (condition is bool) {
-          condValue = condition;
-        } else if (condition is Value) {
-          if (condition.raw is bool) {
-            condValue = condition.raw;
-          } else if (condition.raw == null || condition.raw == false) {
-            condValue = false;
-          } else {
-            condValue = true;
-          }
-        } else {
-          condValue = false;
-        }
+        condValue = _luaConditionValue(condition);
 
         Logger.debug(
           'Repeat-until condition evaluated',
@@ -854,6 +814,18 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       final baseBindings = Map<String, Box<dynamic>>.from(loopEnv.values);
       final baseKeys = baseBindings.keys.toSet();
       final baseToBeClosedLen = loopEnv.toBeClosedVars.length;
+      final interpreter = this as Interpreter;
+
+      // This loop state exists only in Dart async locals while the coroutine is
+      // suspended. Publish the table and loop environment as temporary GC roots
+      // so a yielded direct-table loop can resume with the same values instead
+      // of being cut off by an in-script `collectgarbage()`.
+      Iterable<Object?> directLoopRoots() sync* {
+        yield table;
+        yield loopEnv;
+      }
+
+      interpreter.pushExternalGcRoots(directLoopRoots);
 
       Future<void> resetLoopEnvironment([Object? error]) async {
         if (loopEnv.toBeClosedVars.length > baseToBeClosedLen) {
@@ -948,6 +920,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         }
         await fireHeaderHook(force: false);
       } finally {
+        interpreter.popExternalGcRoots(directLoopRoots);
         setCurrentEnv(prevEnv);
       }
 
@@ -1097,6 +1070,23 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     final baseBindings = Map<String, Box<dynamic>>.from(loopEnv.values);
     final baseKeys = baseBindings.keys.toSet();
     final baseToBeClosedLen = loopEnv.toBeClosedVars.length;
+    final interpreter = this as Interpreter;
+
+    // Generic-for iterator state is stored in these Dart locals rather than a
+    // Lua-visible environment. If a coroutine yields inside the loop body, the
+    // custom GC must still treat them as live or the iterator can disappear and
+    // the suspended coroutine will appear to die early on the next resume.
+    Iterable<Object?> loopRoots() sync* {
+      yield loopEnv;
+      yield iterCallable;
+      yield state;
+      yield control;
+      if (toCloseVar != null) {
+        yield toCloseVar;
+      }
+    }
+
+    interpreter.pushExternalGcRoots(loopRoots);
 
     Future<void> resetLoopEnvironment([Object? error]) async {
       if (loopEnv.toBeClosedVars.length > baseToBeClosedLen) {
@@ -1323,6 +1313,8 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         );
       }
       rethrow;
+    } finally {
+      interpreter.popExternalGcRoots(loopRoots);
     }
 
     return null;
@@ -1457,17 +1449,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       category: 'ControlFlow',
     );
 
-    bool condValue = false;
-    if (condition is bool) {
-      condValue = condition;
-    } else if (condition is Value) {
-      if (condition.raw is bool) {
-        condValue = condition.raw;
-      } else if (condition.raw != null && condition.raw != false) {
-        // In Lua, anything that's not false or nil is considered true
-        condValue = true;
-      }
-    }
+    final condValue = _luaConditionValue(condition);
 
     if (condValue) {
       // Create a new environment for the block scope
@@ -1567,6 +1549,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       interpreter: this as Interpreter,
     );
     final prevEnv = globals;
+    final interpreter = this as Interpreter;
     final declaredNames = node.names.map((name) => name.name).toList();
     for (final name in declaredNames) {
       loopEnv.declare(name, null);
@@ -1575,6 +1558,17 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     final baseBindings = Map<String, Box<dynamic>>.from(loopEnv.values);
     final baseKeys = baseBindings.keys.toSet();
     final baseToBeClosedLen = loopEnv.toBeClosedVars.length;
+
+    // `pairs(next, t, nil)` loops that were optimized into a direct table walk
+    // still suspend through coroutine yields. Root both the source table and
+    // loop environment explicitly so the GC can see the live loop state even
+    // though there is no Lua-visible iterator object to hold onto.
+    Iterable<Object?> directPairsRoots() sync* {
+      yield table;
+      yield loopEnv;
+    }
+
+    interpreter.pushExternalGcRoots(directPairsRoots);
 
     Future<void> resetLoopEnvironment([Object? error]) async {
       if (loopEnv.toBeClosedVars.length > baseToBeClosedLen) {
@@ -1667,6 +1661,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       }
       await fireHeaderHook(force: false);
     } finally {
+      interpreter.popExternalGcRoots(directPairsRoots);
       setCurrentEnv(prevEnv);
     }
 

@@ -249,10 +249,20 @@ void main() {
         local iter = coroutine.wrap(function() gen("", len) end)
         wrapGenA = iter()
         wrapGenB = iter()
+        wrapGenCount = 2
+        wrapGenLast = wrapGenB
+        while true do
+          local value = iter()
+          if value == nil then break end
+          wrapGenCount = wrapGenCount + 1
+          wrapGenLast = value
+        end
       ''');
 
       expect(lua.getGlobal('wrapGenA').unwrap(), equals('=='));
       expect(lua.getGlobal('wrapGenB').unwrap(), equals('=['));
+      expect(lua.getGlobal('wrapGenCount').unwrap(), equals(16));
+      expect(lua.getGlobal('wrapGenLast').unwrap(), equals('\n\n'));
     });
 
     test('close transitions coroutine to dead state', () async {
@@ -495,6 +505,21 @@ void main() {
         );
       },
     );
+
+    test('wrap with no final values is falsy in loop conditions', () async {
+      await lua.execute(r'''
+        local co = coroutine.wrap(function ()
+          coroutine.yield(1)
+        end)
+
+        loopCount = 0
+        while co() do
+          loopCount = loopCount + 1
+        end
+      ''');
+
+      expect(lua.getGlobal('loopCount').unwrap(), equals(1));
+    });
 
     test('resume reports main-thread and dead-thread errors', () async {
       await lua.execute(r'''

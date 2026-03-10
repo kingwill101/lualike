@@ -420,8 +420,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       Expando<TableStorage>('canonicalTableStorage');
   static final Expando<Map<String, dynamic>> _tableMetatables =
       Expando<Map<String, dynamic>>('tableMetatables');
-  static final Expando<Object> _tableMetatableOwners =
-      Expando<Object>('tableMetatableOwners');
+  static final Expando<Object> _tableMetatableOwners = Expando<Object>(
+    'tableMetatableOwners',
+  );
   // Tracks total credits for string-like keys stored in the underlying Map.
   static final Expando<int> _tableStringKeyBytes = Expando<int>(
     'tableStringKeyBytes',
@@ -685,8 +686,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
               hasBeenReported: e.hasBeenReported,
             );
           }
-        } else if (e is Value &&
-            (e.raw is String || e.raw is LuaString)) {
+        } else if (e is Value && (e.raw is String || e.raw is LuaString)) {
           final message = e.raw.toString();
           if (!message.contains("in metamethod 'close'")) {
             throw LuaError("$message\nin metamethod 'close'");
@@ -1161,10 +1161,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       // Key doesn't exist, check for __index metamethod
       final indexMeta = getMetamethod('__index');
       if (indexMeta != null) {
-        final result = _normalizeIndexMetamethodResult(callMetamethod('__index', [
-          this,
-          key is Value ? key : Value(key),
-        ]));
+        final result = _normalizeIndexMetamethodResult(
+          callMetamethod('__index', [this, key is Value ? key : Value(key)]),
+        );
 
         return result is Value ? result : Value(result);
       }
@@ -1175,10 +1174,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       // Not a table, but might have an __index metamethod
       final indexMeta = getMetamethod('__index');
       if (indexMeta != null) {
-        final result = _normalizeIndexMetamethodResult(callMetamethod('__index', [
-          this,
-          key is Value ? key : Value(key),
-        ]));
+        final result = _normalizeIndexMetamethodResult(
+          callMetamethod('__index', [this, key is Value ? key : Value(key)]),
+        );
         if (result is Value) return result;
         final existing = _lookupTableIdentity(result);
         if (existing != null) return existing;
@@ -1263,9 +1261,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       if (indexMeta != null) {
         var result = _normalizeIndexMetamethodResult(
           await callMetamethodAsync('__index', [
-          this,
-          key is Value ? key : Value(key),
-        ]),
+            this,
+            key is Value ? key : Value(key),
+          ]),
         );
         if (result is Value) return result;
         final existing = _lookupTableIdentity(result);
@@ -1283,9 +1281,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       if (indexMeta != null) {
         var result = _normalizeIndexMetamethodResult(
           await callMetamethodAsync('__index', [
-          this,
-          key is Value ? key : Value(key),
-        ]),
+            this,
+            key is Value ? key : Value(key),
+          ]),
         );
         if (result is Value) return result;
         final existing = _lookupTableIdentity(result);
@@ -2027,10 +2025,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     } else if (method is BuiltinFunction) {
       final interpreter = _resolveInterpreter();
       if (interpreter != null) {
-        final callee = Value(
-          method,
-          functionName: debugMetamethodName,
-        )..interpreter = interpreter;
+        final callee = Value(method, functionName: debugMetamethodName)
+          ..interpreter = interpreter;
         return interpreter.callFunction(
           callee,
           list,
@@ -2093,7 +2089,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           return result;
         }
       } else if (method.raw is BuiltinFunction) {
-        final interpreter = method._resolveInterpreter() ?? _resolveInterpreter();
+        final interpreter =
+            method._resolveInterpreter() ?? _resolveInterpreter();
         if (interpreter != null) {
           return interpreter.callFunction(
             method,
@@ -2788,11 +2785,20 @@ extension OperatorExtension on Value {
 
   // Helper method for Lua truthiness evaluation
   bool isTruthy() {
+    // Empty multi-results represent "no values". Statement conditions must see
+    // that as nil/falsey, or constructs like `while coroutine.wrap(... )() do`
+    // perform one extra iteration and try to resume a dead coroutine.
+    if (isMulti && raw is List && (raw as List).isEmpty) {
+      return false;
+    }
     // In Lua, only nil and false are falsy - everything else is truthy
     return raw != null && raw != false;
   }
 
   bool isFalsy() {
+    if (isMulti && raw is List && (raw as List).isEmpty) {
+      return true;
+    }
     // In Lua, only nil and false are falsy
     return raw == null || raw == false;
   }
