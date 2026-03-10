@@ -16,7 +16,7 @@ import 'stdin_command.dart';
 /// Main command runner for LuaLike following Lua CLI specification
 class LuaLikeCommandRunner extends CommandRunner {
   static const String lualikeVersion = '0.0.1';
-  static const String luaCompatVersion = '5.4';
+  static const String luaCompatVersion = '5.5';
 
   bool debugMode = false;
 
