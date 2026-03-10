@@ -695,6 +695,7 @@ final class _LuaBytecodeStructuredCompiler {
       startPc: hiddenStateStartPc,
     );
     _markCurrentScopeInsideToBeClosed();
+    _enterScope();
     for (var index = 0; index < statement.names.length; index++) {
       _bindAllocatedRegister(
         statement.names[index].name,
@@ -724,6 +725,7 @@ final class _LuaBytecodeStructuredCompiler {
 
     final closePc = _prototype.currentPc;
     _prototype.emitClose(fromRegister: baseRegister);
+    final endPc = _prototype.currentPc;
 
     _prototype.patchBx(
       instructionPc: tforPrepPc,
@@ -732,6 +734,7 @@ final class _LuaBytecodeStructuredCompiler {
     for (final breakJump in _breakFixups.removeLast()) {
       _prototype.patchJumpTarget(instructionPc: breakJump, targetPc: closePc);
     }
+    _exitScope(endPc: endPc + 1, emitCloseInstruction: false);
   }
 
   void _compileRepeatUntilLoop(RepeatUntilLoop statement) {
