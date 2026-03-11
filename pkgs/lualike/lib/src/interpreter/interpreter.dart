@@ -104,6 +104,8 @@ class Interpreter extends AstVisitor<Object?>
 
   /// Weak set of active coroutines for bookkeeping (not used as GC roots).
   final Set<WeakReference<Coroutine>> _activeCoroutines = {};
+  final Expando<WeakReference<Coroutine>> _activeCoroutineRefs =
+      Expando<WeakReference<Coroutine>>('activeCoroutineRefs');
 
   void _pruneDeadCoroutineRefs() {
     _activeCoroutines.removeWhere((ref) => ref.target == null);
@@ -275,9 +277,9 @@ class Interpreter extends AstVisitor<Object?>
           frame.currentLine = line;
         }
       }
-      final hookArgs = <Object?>[Value(event)];
+      final hookArgs = <Object?>[constantStringValue(event.codeUnits)];
       if (line != null) {
-        hookArgs.add(Value(line));
+        hookArgs.add(constantPrimitiveValue(line));
       }
       await _callFunction(hook, hookArgs, callerFunctionName: 'hook');
     } finally {
@@ -646,7 +648,9 @@ class Interpreter extends AstVisitor<Object?>
         contextBuilder: () => {'main_thread_hash': _mainThread.hashCode},
       );
       _mainThread!.status = CoroutineStatus.running;
-      _activeCoroutines.add(WeakReference(_mainThread!));
+      final mainRef = WeakReference(_mainThread!);
+      _activeCoroutines.add(mainRef);
+      _activeCoroutineRefs[_mainThread!] = mainRef;
     }
     return _mainThread!;
   }
@@ -660,15 +664,23 @@ class Interpreter extends AstVisitor<Object?>
       category: 'Coroutine',
       contextBuilder: () => {'coroutine_hash': coroutine.hashCode},
     );
-    _activeCoroutines.add(WeakReference(coroutine));
+    final ref = WeakReference(coroutine);
+    _activeCoroutines.add(ref);
+    _activeCoroutineRefs[coroutine] = ref;
   }
 
   /// Unregister a coroutine that has completed or been closed.
   @override
   void unregisterCoroutine(Coroutine coroutine) {
     _pruneDeadCoroutineRefs();
-    _activeCoroutines.removeWhere((ref) {
-      final target = ref.target;
+    final ref = _activeCoroutineRefs[coroutine];
+    if (ref != null) {
+      _activeCoroutines.remove(ref);
+      _activeCoroutineRefs[coroutine] = null;
+      return;
+    }
+    _activeCoroutines.removeWhere((candidate) {
+      final target = candidate.target;
       return target == null || identical(target, coroutine);
     });
   }
@@ -1315,15 +1327,15 @@ class Interpreter extends AstVisitor<Object?>
         evalStack.push(callResult);
       } else if (callResult is List) {
         if (callResult.isEmpty) {
-          evalStack.push(Value(null));
+          evalStack.push(wrapRuntimeValue(null));
         } else if (callResult.length == 1) {
           final v = callResult[0];
-          evalStack.push(v is Value ? v : Value(v));
+          evalStack.push(v is Value ? v : wrapRuntimeValue(v));
         } else {
           evalStack.push(Value.multi(callResult));
         }
       } else {
-        evalStack.push(Value(callResult));
+        evalStack.push(wrapRuntimeValue(callResult));
       }
     }
 
@@ -1337,10 +1349,11 @@ class Interpreter extends AstVisitor<Object?>
         );
         final callee = executionResult.functionValue is Value
             ? executionResult.functionValue as Value
-            : Value(executionResult.functionValue);
-        final normalizedArgs = executionResult.args
-            .map((a) => a is Value ? a : Value(a))
-            .toList();
+            : wrapRuntimeValue(executionResult.functionValue);
+        final normalizedArgs = <Value>[];
+        for (final arg in executionResult.args) {
+          normalizedArgs.add(arg is Value ? arg : wrapRuntimeValue(arg));
+        }
         pushTopLevelResult(await callFunction(callee, normalizedArgs));
       }
     } on ReturnException catch (e) {
@@ -1361,10 +1374,11 @@ class Interpreter extends AstVisitor<Object?>
       // Handle top-level tail return: execute callee and use its result
       final callee = t.functionValue is Value
           ? t.functionValue as Value
-          : Value(t.functionValue);
-      final normalizedArgs = t.args
-          .map((a) => a is Value ? a : Value(a))
-          .toList();
+          : wrapRuntimeValue(t.functionValue);
+      final normalizedArgs = <Value>[];
+      for (final arg in t.args) {
+        normalizedArgs.add(arg is Value ? arg : wrapRuntimeValue(arg));
+      }
       pushTopLevelResult(await callFunction(callee, normalizedArgs));
     } on GotoException catch (e) {
       Logger.warningLazy(
@@ -1426,8 +1440,11 @@ class Interpreter extends AstVisitor<Object?>
         },
       );
       recordTrace(node);
-      final hookAfterExecution = _fireStatementHookAfterExecution(node);
-      if (!hookAfterExecution) {
+      final hasStatementDebugHooks =
+          !_runningDebugHook && debugHookFunction != null;
+      final hookAfterExecution =
+          hasStatementDebugHooks && _fireStatementHookAfterExecution(node);
+      if (hasStatementDebugHooks && !hookAfterExecution) {
         await maybeFireStatementDebugHooks(node);
       }
       var statementCompleted = false;
@@ -1437,7 +1454,9 @@ class Interpreter extends AstVisitor<Object?>
       }
       try {
         result = await node.accept(this);
-        if (hookAfterExecution && !consumeSuppressedPostExecutionHook(node)) {
+        if (hasStatementDebugHooks &&
+            hookAfterExecution &&
+            !consumeSuppressedPostExecutionHook(node)) {
           await maybeFireStatementDebugHooks(node);
         }
         statementCompleted = true;

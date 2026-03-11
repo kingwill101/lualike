@@ -20,6 +20,9 @@ import 'library.dart';
 const int _luaPatternCacheSize = 128;
 final LinkedHashMap<String, lpc.LuaPattern> _luaPatternCache =
     LinkedHashMap<String, lpc.LuaPattern>();
+const int _binaryFormatCacheSize = 64;
+final LinkedHashMap<String, List<BinaryFormatOption>> _binaryFormatCache =
+    LinkedHashMap<String, List<BinaryFormatOption>>();
 
 lpc.LuaPattern _compileLuaPatternCached(String pattern) {
   final cached = _luaPatternCache.remove(pattern);
@@ -42,6 +45,23 @@ lpc.LuaPattern _compileLuaPatternCached(String pattern) {
     _luaPatternCache.remove(_luaPatternCache.keys.first);
   }
   return compiled;
+}
+
+List<BinaryFormatOption> _parseBinaryFormatCached(String format) {
+  final cached = _binaryFormatCache.remove(format);
+  if (cached != null) {
+    _binaryFormatCache[format] = cached;
+    return cached;
+  }
+
+  final parsed = List<BinaryFormatOption>.unmodifiable(
+    BinaryFormatParser.parse(format),
+  );
+  _binaryFormatCache[format] = parsed;
+  if (_binaryFormatCache.length > _binaryFormatCacheSize) {
+    _binaryFormatCache.remove(_binaryFormatCache.keys.first);
+  }
+  return parsed;
 }
 
 bool _isAnchoredLazyWholeStringPattern(String pattern) => pattern == r'^.-$';
@@ -615,16 +635,22 @@ class _StringByte extends BuiltinFunction {
     if (start < 1) start = 1;
     if (end > bytes.length) end = bytes.length;
 
-    final result = <Value>[];
-    for (var i = start; i <= end; i++) {
-      final byteValue = bytes[i - 1];
-      result.add(Value(byteValue));
+    if (start > end || start > bytes.length || end < 1) {
+      return Value(null);
     }
+
+    final count = end - start + 1;
+    if (count == 1) {
+      return bytes[start - 1];
+    }
+    final result = List<Object?>.generate(
+      count,
+      (index) => bytes[start + index - 1],
+      growable: false,
+    );
 
     if (result.isEmpty) {
       return Value(null);
-    } else if (result.length == 1) {
-      return result[0];
     } else {
       return Value.multi(result);
     }
@@ -637,10 +663,16 @@ class _StringChar extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     final bytes = <int>[];
-    for (var arg in args.where(
-      (arg) => arg is Value && (arg.raw is num || arg.raw is BigInt),
-    )) {
-      final code = NumberUtils.toInt((arg as Value).raw);
+    for (final arg in args) {
+      final raw = switch (arg) {
+        Value(raw: final Object? raw) when raw is num || raw is BigInt => raw,
+        final Object? raw when raw is num || raw is BigInt => raw,
+        _ => null,
+      };
+      if (raw == null) {
+        continue;
+      }
+      final code = NumberUtils.toInt(raw);
       if (code < 0 || code > 255) {
         throw LuaError('out of range $code');
       }
@@ -2582,11 +2614,9 @@ class _StringSub extends BuiltinFunction {
   @override
   Object? call(List<Object?> args) {
     final value = _requireStringLibrarySubject(this, args, 'sub');
-    // Use toLatin1String for byte-level operations to preserve raw bytes
     final strValue = value.raw;
-    final str = strValue is LuaString
-        ? strValue.toLatin1String()
-        : strValue.toString();
+    final str = strValue is LuaString ? null : strValue.toString();
+    final length = strValue is LuaString ? strValue.length : str!.length;
 
     var start = args.length > 1
         ? _requireStringIntegerArgument(
@@ -2605,33 +2635,32 @@ class _StringSub extends BuiltinFunction {
             functionArgNumber: 3,
             methodArgNumber: 2,
           )
-        : str.length;
+        : length;
 
     // Handle negative indices
-    if (start < 0) start = str.length + start + 1;
-    if (end < 0) end = str.length + end + 1;
+    if (start < 0) start = length + start + 1;
+    if (end < 0) end = length + end + 1;
 
     // Clamp to valid range
     if (start < 1) start = 1;
-    if (end > str.length) end = str.length;
+    if (end > length) end = length;
 
     // Handle empty substring
-    if (start > end || start > str.length) {
+    if (start > end || start > length) {
       return Value("");
     }
 
-    // Extract substring (1-based to 0-based conversion)
-    final result = str.substring(start - 1, end);
-
-    // For better interop, return regular strings when they only contain ASCII
-    // Only use LuaString when we have non-ASCII bytes that need preservation
-    if (result.codeUnits.every((c) => c <= 127)) {
-      return Value(result); // Regular Dart string for ASCII content
-    } else {
-      // Return as LuaString to preserve byte sequence integrity for non-ASCII
-      final bytes = result.codeUnits.map((c) => c & 0xFF).toList();
-      return Value(LuaString.fromBytes(Uint8List.fromList(bytes)));
+    if (strValue is LuaString) {
+      final resultBytes = strValue.bytes.sublist(start - 1, end);
+      final isAscii = resultBytes.every((byte) => byte <= 0x7F);
+      if (isAscii) {
+        return Value(latin1.decode(resultBytes));
+      }
+      return Value(LuaString.fromBytes(resultBytes));
     }
+
+    // Extract substring (1-based to 0-based conversion)
+    return Value(str!.substring(start - 1, end));
   }
 }
 
@@ -2663,7 +2692,7 @@ class _StringPack extends BuiltinFunction {
       return mod == BigInt.zero ? BigInt.zero : BigInt.from(align) - mod;
     }
 
-    final options = BinaryFormatParser.parse(format);
+    final options = _parseBinaryFormatCached(format);
     BigInt offset = BigInt.zero;
     for (final opt in options) {
       Value getArg([String kind = 'number']) {
@@ -2993,7 +3022,7 @@ class _StringPackSize extends BuiltinFunction {
 
     // Use the new parser instead of character-by-character parsing
     try {
-      final options = BinaryFormatParser.parse(format);
+      final options = _parseBinaryFormatCached(format);
       BigInt offset = BigInt.zero;
       int maxAlign = 1;
       final maxAllowed = (BinaryTypeSize.j <= BinaryTypeSize.T)
@@ -3170,7 +3199,7 @@ class _StringUnpack extends BuiltinFunction {
     final binaryValue = args[1] as Value;
     final pos = args.length > 2 ? NumberUtils.toInt((args[2] as Value).raw) : 1;
 
-    final results = <Value>[];
+    final results = <Object?>[];
     final bytes = binaryValue.raw is LuaString
         ? (binaryValue.raw as LuaString).bytes
         : LuaString.fromDartString(binaryValue.raw.toString()).bytes;
@@ -3191,7 +3220,7 @@ class _StringUnpack extends BuiltinFunction {
       return mod == 0 ? 0 : align - mod;
     }
 
-    final options = BinaryFormatParser.parse(format);
+    final options = _parseBinaryFormatCached(format);
     var i = 0;
     for (final opt in options) {
       switch (opt.type) {
@@ -3228,10 +3257,10 @@ class _StringUnpack extends BuiltinFunction {
           final strBytes = bytes.sublist(offset, offset + size);
           try {
             final str = utf8.decode(strBytes);
-            results.add(Value(str));
+            results.add(str);
           } catch (_) {
             final luaStr = LuaString.fromBytes(Uint8List.fromList(strBytes));
-            results.add(Value(luaStr));
+            results.add(luaStr);
           }
           offset += size;
           break;
@@ -3312,14 +3341,14 @@ class _StringUnpack extends BuiltinFunction {
                 offset,
                 endianness,
               );
-              results.add(Value(value));
+              results.add(value);
             } else if (opt.type == 'd' || opt.type == 'n') {
               final value = NumberUtils.unpackFloat64(
                 bytes,
                 offset,
                 endianness,
               );
-              results.add(Value(value));
+              results.add(value);
             } else {
               // Integer types
               int value;
@@ -3358,7 +3387,7 @@ class _StringUnpack extends BuiltinFunction {
               }
               // For unsigned types, no additional processing needed
               // Lua integers are always signed, so unsigned formats just affect packing, not unpacking
-              results.add(Value(value));
+              results.add(value);
             }
             offset += size;
             break;
@@ -3383,10 +3412,10 @@ class _StringUnpack extends BuiltinFunction {
             final segment = bytes.sublist(offset, offset + length);
             try {
               final str = utf8.decode(segment);
-              results.add(Value(str));
+              results.add(str);
             } catch (_) {
               final luaStr = LuaString.fromBytes(Uint8List.fromList(segment));
-              results.add(Value(luaStr));
+              results.add(luaStr);
             }
             offset += length;
             break;
@@ -3470,10 +3499,10 @@ class _StringUnpack extends BuiltinFunction {
             var strBytes = bytes.sublist(offset, end);
             try {
               final str = utf8.decode(strBytes);
-              results.add(Value(str));
+              results.add(str);
             } catch (_) {
               final luaStr = LuaString.fromBytes(Uint8List.fromList(strBytes));
-              results.add(Value(luaStr));
+              results.add(luaStr);
             }
             offset = end + 1;
             break;
@@ -3487,7 +3516,7 @@ class _StringUnpack extends BuiltinFunction {
       }
       i++;
     }
-    results.add(Value(offset + 1)); // Next position after unpacking
+    results.add(offset + 1); // Next position after unpacking
     return results;
   }
 }

@@ -1,5 +1,48 @@
 part of 'interpreter.dart';
 
+bool _isInlineableMutableLocalPrimitive(Object? value) {
+  if (value is Value) {
+    final raw = value.raw;
+    if (value.isMulti ||
+        value.metatable != null ||
+        value.metatableRef != null ||
+        value.upvalues != null ||
+        value.functionBody != null ||
+        value.closureEnvironment != null ||
+        value.globalProxyEnvironment != null ||
+        value.functionName != null ||
+        value.debugLineDefined != null ||
+        value.strippedDebugInfo) {
+      return false;
+    }
+    return raw == null || raw is bool || raw is num || raw is BigInt;
+  }
+
+  return value == null || value is bool || value is num || value is BigInt;
+}
+
+Object? _mutableLocalStorageValue(Object? value) {
+  if (_isInlineableMutableLocalPrimitive(value)) {
+    return value is Value ? value.raw : value;
+  }
+  return value;
+}
+
+Value _wrapMutableLocalReadValue(Interpreter interpreter, Object? value) {
+  if (value is Value) {
+    value.interpreter ??= interpreter;
+    return value;
+  }
+
+  return switch (value) {
+    null => interpreter.constantPrimitiveValue(null),
+    final bool raw => interpreter.constantPrimitiveValue(raw),
+    final num raw => Value(raw)..interpreter = interpreter,
+    final BigInt raw => Value(raw)..interpreter = interpreter,
+    _ => interpreter.wrapRuntimeValue(value),
+  };
+}
+
 mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
   // Required getters that must be implemented by the class using this mixin
   Environment get globals;
@@ -50,7 +93,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
   Value _detachPrimitiveValue(Value value) {
     final raw = value.raw;
     if (_isPlainDetachedPrimitive(value)) {
-      return Value(raw);
+      return Value(raw, interpreter: value.interpreter);
     }
     return value;
   }
@@ -84,6 +127,15 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     bool isConst = false,
     bool isToBeClose = false,
   }) {
+    if (_isPlainDetachedPrimitive(value)) {
+      return Value(
+        value.raw,
+        isConst: isConst,
+        isToBeClose: isToBeClose,
+        interpreter: value.interpreter,
+      );
+    }
+
     // Metatable-backed values can own __gc / __close behavior at the wrapper
     // level, so cloning them for a local binding can leave the live local
     // pointing at raw state whose original wrapper is then finalized.
@@ -588,12 +640,8 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         'name': name,
         'hasEnv': envValue != null,
         'hasG': gValue != null,
-        'envRawType': envValue is Value
-            ? envValue.raw.runtimeType.toString()
-            : envValue?.runtimeType.toString(),
-        'globalRawType': gValue is Value
-            ? gValue.raw.runtimeType.toString()
-            : gValue?.runtimeType.toString(),
+        'envRawType': envValue?.raw.runtimeType.toString(),
+        'globalRawType': gValue?.raw.runtimeType.toString(),
       },
     );
     Logger.debugLazy(
@@ -1133,14 +1181,16 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           if (multiValues.isNotEmpty) {
             values.add(multiValues.first);
           } else {
-            values.add(Value(null));
+            values.add(interpreter.wrapRuntimeValue(null));
           }
         } else if (value is List && value.isNotEmpty) {
           // Take only the first value from list
           values.add(value[0]);
         } else {
           // Single value or empty result
-          values.add(value is Value ? value : Value(value));
+          values.add(
+            value is Value ? value : interpreter.wrapRuntimeValue(value),
+          );
         }
       } else if (expr is FunctionCall || expr is MethodCall) {
         // Function and method calls are already evaluated when visited
@@ -1150,7 +1200,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         if (value is Future) {
           value = await value;
         } else if (value is Value && value.raw is Future) {
-          value = Value(await value.raw);
+          value = interpreter.wrapRuntimeValue(await value.raw);
         }
 
         if (value is List) {
@@ -1167,7 +1217,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         if (value is Future) {
           value = await value;
         } else if (value is Value && value.raw is Future) {
-          value = Value(await value.raw);
+          value = interpreter.wrapRuntimeValue(await value.raw);
         }
 
         // Wrap non-Value results
@@ -1175,7 +1225,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           values.addAll(value);
         } else {
           if (value is! Value) {
-            value = Value(value);
+            value = interpreter.wrapRuntimeValue(value);
           }
           final val = value;
           if (val.isMulti) {
@@ -1211,8 +1261,8 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       final Value rawValue = values.isNotEmpty
           ? (values.first is Value
                 ? values.first as Value
-                : Value(values.first))
-          : Value(null); // Default to nil if no values provided
+                : interpreter.wrapRuntimeValue(values.first))
+          : interpreter.wrapRuntimeValue(null); // Default to nil if no values provided
 
       // Apply attributes
       Value valueWithAttributes;
@@ -1234,8 +1284,6 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           }
         }
       } else {
-        // Local declarations must create a fresh binding wrapper. Reusing the
-        // source Value aliases later in-place assignment updates across locals.
         valueWithAttributes = _cloneValueForLocalBinding(rawValue);
       }
 
@@ -1252,7 +1300,9 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         final attribute = node.attributes.length > i
             ? node.attributes[i]
             : null;
-        final rawValue = i < values.length ? values[i] : Value(null);
+        final rawValue = i < values.length
+            ? values[i]
+            : interpreter.wrapRuntimeValue(null);
 
         // Apply attributes
         Value valueWithAttributes;
@@ -1263,38 +1313,46 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
               isConst: true,
             );
           } else {
-            valueWithAttributes = Value(rawValue, isConst: true);
+            valueWithAttributes = Value(
+              rawValue,
+              isConst: true,
+              interpreter: interpreter,
+            );
           }
         } else if (attribute == 'close') {
           if (rawValue is Value) {
-            valueWithAttributes = _cloneValueForLocalBinding(
+            final closableValue = _cloneValueForLocalBinding(
               rawValue,
               isToBeClose: true,
             );
+            valueWithAttributes = closableValue;
 
             // Verify the value has a __close metamethod if it's not nil or false
             if (rawValue.raw != null && rawValue.raw != false) {
-              if (!valueWithAttributes.hasMetamethod('__close')) {
+              if (!closableValue.hasMetamethod('__close')) {
                 throw LuaError("variable '$name' got a non-closable value");
               }
             }
           } else {
-            valueWithAttributes = Value(rawValue, isToBeClose: true);
+            final closableValue = Value(
+              rawValue,
+              isToBeClose: true,
+              interpreter: interpreter,
+            );
+            valueWithAttributes = closableValue;
 
             // Verify the value has a __close metamethod if it's not nil or false
             if (rawValue != null && rawValue != false) {
-              if (!valueWithAttributes.hasMetamethod('__close')) {
+              if (!closableValue.hasMetamethod('__close')) {
                 throw LuaError("variable '$name' got a non-closable value");
               }
             }
           }
         } else {
-          // Create a fresh Value wrapper so locals never alias the source
-          // binding, while preserving the underlying raw object identity.
           if (rawValue is Value) {
             valueWithAttributes = _cloneValueForLocalBinding(rawValue);
           } else {
-            valueWithAttributes = Value(rawValue);
+            valueWithAttributes = interpreter.wrapRuntimeValue(rawValue);
           }
         }
 
@@ -1348,23 +1406,29 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         if (value is Future) {
           value = await value;
         } else if (value is Value && value.raw is Future) {
-          value = Value(await value.raw);
+          value = interpreter.wrapRuntimeValue(await value.raw);
         }
 
         if (value is Value && value.isMulti) {
           final multiValues = value.raw as List;
-          values.add(multiValues.isNotEmpty ? multiValues.first : Value(null));
+          values.add(
+            multiValues.isNotEmpty
+                ? multiValues.first
+                : interpreter.wrapRuntimeValue(null),
+          );
         } else if (value is List && value.isNotEmpty) {
           values.add(value.first);
         } else {
-          values.add(value is Value ? value : Value(value));
+          values.add(
+            value is Value ? value : interpreter.wrapRuntimeValue(value),
+          );
         }
       } else if (expr is FunctionCall || expr is MethodCall) {
         value = await expr.accept(this);
         if (value is Future) {
           value = await value;
         } else if (value is Value && value.raw is Future) {
-          value = Value(await value.raw);
+          value = interpreter.wrapRuntimeValue(await value.raw);
         }
 
         if (value is List) {
@@ -1379,14 +1443,14 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         if (value is Future) {
           value = await value;
         } else if (value is Value && value.raw is Future) {
-          value = Value(await value.raw);
+          value = interpreter.wrapRuntimeValue(await value.raw);
         }
 
         if (value is List) {
           values.addAll(value);
         } else {
           if (value is! Value) {
-            value = Value(value);
+            value = interpreter.wrapRuntimeValue(value);
           }
           final val = value;
           if (val.isMulti) {

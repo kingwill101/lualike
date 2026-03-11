@@ -21,10 +21,10 @@ class UpvalueAnalyzer extends AstVisitor<void> {
   /// Whether the function accesses globals (needs _ENV)
   bool _accessesGlobals = false;
 
-  static Object? _resolveCapturedEnvValue(Environment currentEnv) {
+  static Box<dynamic>? _resolveCapturedEnvBox(Environment currentEnv) {
     final envBox = currentEnv.findBox('_ENV');
-    if (envBox != null && envBox.isLocal && envBox.value != null) {
-      return envBox.value;
+    if (envBox != null) {
+      return envBox;
     }
 
     final runtime = currentEnv.interpreter;
@@ -34,14 +34,23 @@ class UpvalueAnalyzer extends AstVisitor<void> {
         if (currentFunction?.upvalues case final upvalues?) {
           for (final upvalue in upvalues) {
             if (upvalue.name == '_ENV') {
-              return upvalue.getValue();
+              return upvalue.valueBox;
             }
           }
         }
       } catch (_) {}
     }
 
-    return currentEnv.get('_ENV');
+    final envValue = currentEnv.get('_ENV');
+    if (envValue == null) {
+      return null;
+    }
+
+    return Box<dynamic>(
+      envValue,
+      isTransient: true,
+      interpreter: currentEnv.interpreter,
+    );
   }
 
   /// Analyzes a function body and returns the upvalues it needs
@@ -120,10 +129,8 @@ class UpvalueAnalyzer extends AstVisitor<void> {
     // Only add _ENV as upvalue if the function actually accesses globals
     // Don't add it just because there are other upvalues
     if (analyzer._accessesGlobals) {
-      final envValue = _resolveCapturedEnvValue(currentEnv);
-      if (envValue != null) {
-        // Create a synthetic box for _ENV
-        final envBox = Box<dynamic>(envValue);
+      final envBox = _resolveCapturedEnvBox(currentEnv);
+      if (envBox != null) {
         final envUpvalue = Upvalue(
           valueBox: envBox,
           name: '_ENV',
