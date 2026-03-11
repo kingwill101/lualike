@@ -811,6 +811,15 @@ class GenerationalGCManager {
   int _performFinalizingWork() {
     Logger.debugLazy(() => 'Incremental finalizing work', category: 'GC');
 
+    // Weak tables discovered during incremental marking still need the same
+    // cleanup phase a full major collection performs. Without this, the
+    // default incremental collector never clears kv/v/k entries under normal
+    // allocation pressure, which shows up in closure.lua's weak-table loop.
+    _convergeEphemerons();
+    _clearWeakValues();
+    _clearWeakKeys();
+    _clearAllWeak();
+
     if (_toBeFinalized.isNotEmpty) {
       _finalizerActive = true;
       try {
@@ -1313,10 +1322,10 @@ class GenerationalGCManager {
       }
 
       if (obj.marked) {
-        if (_inMajorCollection &&
-            obj is Value &&
+        if (obj is Value &&
             obj.isTable &&
-            obj.tableWeakMode != null) {
+            (obj.tableWeakMode != null &&
+                (_inMajorCollection || obj.tableWeakMode == 'kv'))) {
           _handleTableTraversal(obj);
         }
         return;
@@ -1324,15 +1333,16 @@ class GenerationalGCManager {
 
       obj.marked = true;
 
-      if (obj is Value && obj.isTable) {
+      if (obj is Value &&
+          obj.isTable &&
+          (obj.tableWeakMode != null &&
+              (_inMajorCollection || obj.tableWeakMode == 'kv'))) {
         Logger.debugLazy(
           () => 'Mark table ${obj.hashCode} weakMode=${obj.tableWeakMode}',
           category: 'GC',
         );
-        if (_inMajorCollection) {
-          _handleTableTraversal(obj);
-          return;
-        }
+        _handleTableTraversal(obj);
+        return;
       }
 
       for (final ref in obj.getReferences()) {
@@ -1631,6 +1641,7 @@ class GenerationalGCManager {
       }
       // Recalculate credits after removing entries to update total tracked memory
       if (entriesToRemove.isNotEmpty) {
+        _noteRawWeakTableMutation(table);
         MemoryCredits.instance.recalculate(table);
       }
     }
@@ -1682,7 +1693,7 @@ class GenerationalGCManager {
       // Don't manually adjust the cache - let recalculate() rebuild it from scratch
       // to avoid double-decrement bugs.
       if (keysToRemove.isNotEmpty) {
-        Value.invalidateStringKeyCache(tableMap);
+        _noteRawWeakTableMutation(table);
         MemoryCredits.instance.recalculate(table);
       }
     }
@@ -1809,6 +1820,10 @@ class GenerationalGCManager {
     };
   }
 
+  void _noteRawWeakTableMutation(Value table) {
+    table.noteRawTableMutation();
+  }
+
   void _applyPendingWeakRemovals() {
     void apply(Map<Value, Set<dynamic>> pending) {
       pending.forEach((table, keys) {
@@ -1824,7 +1839,7 @@ class GenerationalGCManager {
         }
         // Invalidate cache and recalculate credits after removing entries
         if (keys.isNotEmpty) {
-          Value.invalidateStringKeyCache(tableMap);
+          _noteRawWeakTableMutation(table);
           MemoryCredits.instance.recalculate(table);
         }
       });
@@ -1913,11 +1928,13 @@ class GenerationalGCManager {
           tableMap.remove(k);
         }
         // Invalidate cache and recalculate credits after removing entries
-        Value.invalidateStringKeyCache(tableMap);
         final ownerForCredits =
             canonicalOwner ?? Value.lookupCanonicalTableWrapper(metaTable);
         if (ownerForCredits != null) {
+          _noteRawWeakTableMutation(ownerForCredits);
           MemoryCredits.instance.recalculate(ownerForCredits);
+        } else {
+          Value.invalidateStringKeyCache(tableMap);
         }
         if (Logger.enabled) {
           Logger.debugLazy(
@@ -1972,7 +1989,7 @@ class GenerationalGCManager {
             tableMap.remove(k);
           }
           // Invalidate cache and recalculate credits after removing entries
-          Value.invalidateStringKeyCache(tableMap);
+          _noteRawWeakTableMutation(val);
           MemoryCredits.instance.recalculate(val);
         }
       }
@@ -2290,6 +2307,12 @@ class GenerationalGCManager {
 
     // Mark from roots
     _markGeneration(youngGen, minorRoots);
+
+    // Minor collections also need all-weak clearing for old kv tables that
+    // receive young entries. Otherwise an old all-weak table is treated as a
+    // strong root for its newest entries and reproduces the upstream Lua
+    // 5.4 generational GC bug guarded by gengc.lua.
+    _clearAllWeak();
 
     final survivors = <GCObject>[];
     for (final obj in youngGen.objects) {
@@ -2702,6 +2725,22 @@ class GenerationalGCManager {
     else if (currentBytes > _lastMinorBytes * (1 + minorMultiplier / 100)) {
       minorCollection(roots);
     }
+  }
+
+  /// Performs one step while the collector is in generational mode.
+  ///
+  /// Unlike [collect], a generational "step" should always do work. Lua's
+  /// generational steps are typically minor collections, escalating to a major
+  /// collection only when the major threshold is exceeded.
+  Future<bool> performGenerationalStep(List<Object?> roots) async {
+    final currentBytes = estimateMemoryUse();
+    if (currentBytes > _lastMajorBytes * (1 + majorMultiplier / 100)) {
+      await majorCollection(roots);
+      return true;
+    }
+
+    minorCollection(roots);
+    return true;
   }
 
   /// Convenience method for major collection using the built root set.

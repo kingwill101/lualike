@@ -504,7 +504,6 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     final prevEnv = globals;
     final loopVarName = node.varName.name;
     loopEnv.declare(loopVarName, Value(start));
-    final loopVarBox = loopEnv.values[loopVarName]!;
 
     final bytecodeChunk = integerLoop
         ? null
@@ -579,7 +578,13 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           await interpreter.maybeFireLineDebugHook(headerLine + 1, force: true);
         }
 
-        loopVarBox.value = Value(current);
+        final iterationLoopVarBox = Box<dynamic>(
+          Value(current),
+          isLocal: true,
+          isTransient: true,
+          interpreter: loopEnv.interpreter,
+        )..debugName = loopVarName;
+        loopEnv.values[loopVarName] = iterationLoopVarBox;
         Logger.debugLazy(
           () => 'ForLoop iteration: i = $current',
           category: 'ControlFlow',
