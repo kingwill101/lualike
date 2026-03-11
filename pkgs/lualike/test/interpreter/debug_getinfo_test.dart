@@ -130,6 +130,24 @@ void main() {
       );
     });
 
+    test('debug.getinfo should expose top-level file-backed main chunk metadata', () async {
+      const script = r'''
+      local info = debug.getinfo(1)
+      local upname = debug.getupvalue(info.func, 1)
+      return info.isvararg, info.nparams, info.nups, upname
+      ''';
+
+      final result = await luaLike.execute(
+        script,
+        scriptPath: 'main_chunk_info.lua',
+      );
+      expect(result, isA<List>());
+      expect(
+        (result as List).map((value) => (value as Value).raw).toList(),
+        equals(<Object?>[true, 0, 1, '_ENV']),
+      );
+    });
+
     test('debug.getinfo should format load chunk names like Lua', () async {
       const script = r'''
       local a = "function f () end"
