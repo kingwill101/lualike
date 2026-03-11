@@ -9,7 +9,6 @@ import 'package:lualike/lualike.dart';
 import 'package:lualike/src/binary_type_size.dart';
 import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/intern.dart';
-import 'package:lualike/src/number.dart';
 import 'package:lualike/src/number_limits.dart';
 import 'package:lualike/src/parsers/pattern.dart' as lpc;
 import 'package:lualike/src/stdlib/lib_utf8.dart' show UTF8Lib;
@@ -29,7 +28,15 @@ lpc.LuaPattern _compileLuaPatternCached(String pattern) {
     return cached;
   }
 
-  final compiled = lpc.LuaPattern.compile(pattern);
+  final compiled = switch (() {
+    try {
+      return lpc.LuaPattern.compile(pattern);
+    } on lpc.LuaPatternTooComplex {
+      throw LuaError('pattern too complex');
+    }
+  }()) {
+    final lpc.LuaPattern compiled => compiled,
+  };
   _luaPatternCache[pattern] = compiled;
   if (_luaPatternCache.length > _luaPatternCacheSize) {
     _luaPatternCache.remove(_luaPatternCache.keys.first);

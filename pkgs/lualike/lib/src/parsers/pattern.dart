@@ -5,6 +5,19 @@ library;
 
 import 'package:petitparser/petitparser.dart';
 
+const int _maxPatternMatchComplexity = 200;
+
+/// Thrown when a Lua pattern would exceed Lua's recursive matcher depth.
+///
+/// Upstream Lua rejects these patterns with `pattern too complex` instead of
+/// letting the recursive matcher overflow the C stack.
+class LuaPatternTooComplex implements Exception {
+  const LuaPatternTooComplex();
+
+  @override
+  String toString() => 'pattern too complex';
+}
+
 Parser<String> _predicate(bool Function(int) test) =>
     any().where((c) => test(c.codeUnitAt(0)));
 
@@ -311,6 +324,7 @@ class LuaPatternCompiler {
 
   final String _pattern;
   int _pos = 0;
+  int _matchComplexity = 0;
   final List<Parser> _captures = [];
   final List<String?> _captureValues = [];
   final List<bool> _completedCaptures = [];
@@ -326,6 +340,13 @@ class LuaPatternCompiler {
       seq = seq.end();
     }
     return _LuaPatternParser(seq.flatten(), _captureValues);
+  }
+
+  void _consumeMatchComplexity([int amount = 1]) {
+    _matchComplexity += amount;
+    if (_matchComplexity > _maxPatternMatchComplexity) {
+      throw const LuaPatternTooComplex();
+    }
   }
 
   bool _isEscaped(int index) =>
@@ -507,6 +528,7 @@ class LuaPatternCompiler {
   }
 
   Parser _applyRepetition(Parser base, String op, bool stopOnRightParen) {
+    _consumeMatchComplexity();
     final startPos = _pos;
     final following = _parseSequence(stopOnRightParen: stopOnRightParen);
     final isEmpty = _pos == startPos;
@@ -664,6 +686,7 @@ class LuaPatternCompiler {
   }
 
   Parser _parseCapture() {
+    _consumeMatchComplexity();
     assert(_pattern[_pos] == '(');
     _pos++;
     final index = _captures.length;
