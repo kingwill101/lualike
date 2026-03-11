@@ -11,6 +11,14 @@ const _scenarioNames = <String>{
   'constructs',
   'constructs-short-circuit',
   'calls',
+  'cstack',
+  'cstack-close-chain',
+  'cstack-coroutine-deep',
+  'cstack-gsub',
+  'cstack-gsub-metatable',
+  'cstack-message',
+  'cstack-recoverable-errors',
+  'cstack-resume-nesting',
   'gc',
   'math',
   'nextvar',
@@ -118,8 +126,18 @@ Future<void> main(List<String> args) async {
         _makeScriptScenario(packageRoot, 'math', soft: soft, port: port),
         _makeScriptScenario(packageRoot, 'constructs', soft: soft, port: port),
       ],
+      'cstack' => _makeCstackScenarios(),
       'constructs-short-circuit' => [
         _constructsShortCircuitScenario(level: constructLevel),
+      ],
+      'cstack-message' => [_makeCstackScenario('cstack-message')],
+      'cstack-gsub' => [_makeCstackScenario('cstack-gsub')],
+      'cstack-gsub-metatable' => [_makeCstackScenario('cstack-gsub-metatable')],
+      'cstack-coroutine-deep' => [_makeCstackScenario('cstack-coroutine-deep')],
+      'cstack-close-chain' => [_makeCstackScenario('cstack-close-chain')],
+      'cstack-resume-nesting' => [_makeCstackScenario('cstack-resume-nesting')],
+      'cstack-recoverable-errors' => [
+        _makeCstackScenario('cstack-recoverable-errors'),
       ],
       _ => [
         _makeScriptScenario(packageRoot, scenarioName, soft: soft, port: port),
@@ -346,6 +364,152 @@ dart_mark("constructs:loadloop:end")
     final lua = LuaLike();
     _installTimelineHelpers(lua);
     await lua.execute(source, scriptPath: '<profile:constructs-short-circuit>');
+  });
+}
+
+List<_ProfileScenario> _makeCstackScenarios() {
+  return const [
+    'cstack-message',
+    'cstack-gsub',
+    'cstack-gsub-metatable',
+    'cstack-coroutine-deep',
+    'cstack-close-chain',
+    'cstack-resume-nesting',
+    'cstack-recoverable-errors',
+  ].map(_makeCstackScenario).toList(growable: false);
+}
+
+_ProfileScenario _makeCstackScenario(String name) {
+  final source = switch (name) {
+    'cstack-message' => '''
+local tracegc = require"tracegc"
+print("testing stack overflow in message handling")
+
+local count = 0
+local function loop (x, y, z)
+  count = count + 1
+  return 1 + loop(x, y, z)
+end
+
+tracegc.stop()
+local res, msg = xpcall(loop, loop)
+tracegc.start()
+assert(msg == "error in error handling")
+print("final count: ", count)
+''',
+    'cstack-gsub' => '''
+local function checkerror (msg, f, ...)
+  local s, err = pcall(f, ...)
+  assert(not s and string.find(err, msg))
+end
+
+print("testing stack-overflow in recursive 'gsub'")
+local count = 0
+local function foo ()
+  count = count + 1
+  string.gsub("a", ".", foo)
+end
+checkerror("stack overflow", foo)
+print("final count: ", count)
+''',
+    'cstack-gsub-metatable' => '''
+local function checkerror (msg, f, ...)
+  local s, err = pcall(f, ...)
+  assert(not s and string.find(err, msg))
+end
+
+print("testing stack-overflow in recursive 'gsub' with metatables")
+local count = 0
+local function foo ()
+  count = count + 1
+  string.gsub("a", ".", foo)
+end
+local t = setmetatable({}, {__index = foo})
+foo = function ()
+  count = count + 1
+  string.gsub("a", ".", t)
+end
+checkerror("stack overflow", foo)
+print("final count: ", count)
+''',
+    'cstack-coroutine-deep' => '''
+print("testing limits in coroutines inside deep calls")
+local count = 0
+local lim = 1000
+local function stack (n)
+  if n > 0 then return stack(n - 1) + 1
+  else coroutine.wrap(function ()
+         count = count + 1
+         stack(lim)
+       end)()
+  end
+end
+
+local st, msg = xpcall(stack, function () return "ok" end, lim)
+assert(not st and msg == "ok")
+print("final count: ", count)
+''',
+    'cstack-close-chain' => '''
+print("chain of 'coroutine.close'")
+local count = 0
+local coro = false
+for i = 1, 1000 do
+  local previous = coro
+  coro = coroutine.create(function()
+    local cc <close> = setmetatable({}, {__close=function()
+      count = count + 1
+      if previous then
+        assert(coroutine.close(previous))
+      end
+    end})
+    coroutine.yield()
+  end)
+  assert(coroutine.resume(coro))
+end
+local st, msg = coroutine.close(coro)
+assert(not st and string.find(msg, "C stack overflow"))
+print("final count: ", count)
+''',
+    'cstack-resume-nesting' => '''
+print("nesting of resuming yielded coroutines")
+local count = 0
+
+local function body ()
+  coroutine.yield()
+  local f = coroutine.wrap(body)
+  f()
+  count = count + 1
+  f()
+end
+
+local f = coroutine.wrap(body)
+f()
+assert(not pcall(f))
+print("final count: ", count)
+''',
+    'cstack-recoverable-errors' => '''
+local function checkerror (msg, f, ...)
+  local s, err = pcall(f, ...)
+  assert(not s and string.find(err, msg))
+end
+
+print("nesting coroutines running after recoverable errors")
+local count = 0
+local function foo()
+  count = count + 1
+  pcall(1)
+  coroutine.wrap(foo)()
+end
+checkerror("C stack overflow", foo)
+print("final count: ", count)
+''',
+    _ => throw ArgumentError.value(name, 'scenario', 'Unknown cstack scenario'),
+  };
+
+  return _ProfileScenario(name, () async {
+    final lua = LuaLike();
+    _installTimelineHelpers(lua);
+    await lua.execute(source, scriptPath: '<profile:$name>');
   });
 }
 

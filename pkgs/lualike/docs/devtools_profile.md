@@ -5,6 +5,9 @@ The profiling harness lives at
 It runs selected Lua suite scenarios under timeline markers so Dart DevTools
 can capture CPU and memory behavior.
 
+For faster local iteration before opening DevTools, use
+[tool/scenario_bench.dart](/run/media/kingwill101/disk2/code/code/dart_packages/lualike/pkgs/lualike/tool/scenario_bench.dart).
+
 ## Launching
 
 Use `--observe` when you want to attach DevTools:
@@ -35,10 +38,32 @@ non-portable `% 0` and `fmod` checks when `_port` is false.
 If the profiler diverges from the test runner prelude, the profile stops being
 representative of the suite and may fail before the measured region starts.
 
+## `cstack` Breakdown
+
+The profiler exposes the main upstream
+[cstack.lua](/run/media/kingwill101/disk2/code/code/dart_packages/lualike/pkgs/lualike/luascripts/test/cstack.lua)
+sections as individual scenarios:
+
+- `--scenario=cstack`
+- `--scenario=cstack-message`
+- `--scenario=cstack-gsub`
+- `--scenario=cstack-gsub-metatable`
+- `--scenario=cstack-coroutine-deep`
+- `--scenario=cstack-close-chain`
+- `--scenario=cstack-resume-nesting`
+- `--scenario=cstack-recoverable-errors`
+
+Use `--scenario=cstack` to run all of those sections in sequence under separate
+timeline markers, or pick one of the `cstack-*` scenarios to profile a single
+failure mode directly.
+
 ## Useful Flags
 
 - `--scenario=math`
 - `--scenario=nextvar`
+- `--scenario=cstack`
+- `--scenario=cstack-message`
+- `--scenario=cstack-close-chain`
 - `--engine=ast|ir`
 - `--warmup=N`
 - `--repeat=N`
