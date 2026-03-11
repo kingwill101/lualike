@@ -18,7 +18,7 @@ import 'prototype.dart';
 const int _returnAll = -1;
 
 class LualikeIrUpvalueCell {
-  LualikeIrUpvalueCell.fromFrame(_IrFrame frame, int index)
+  LualikeIrUpvalueCell.fromFrame(IrFrame frame, int index)
     : _frame = frame,
       _index = index,
       _closedValue = frame.getRegister(index);
@@ -28,7 +28,7 @@ class LualikeIrUpvalueCell {
       _index = -1,
       _closedValue = value;
 
-  _IrFrame? _frame;
+  IrFrame? _frame;
   final int _index;
   dynamic _closedValue;
 
@@ -111,8 +111,8 @@ class LualikeIrClosure implements LuaCallableArtifact {
   }
 }
 
-class _IrFrame {
-  _IrFrame({
+class IrFrame {
+  IrFrame({
     required this.prototype,
     required List<dynamic> args,
     required List<LualikeIrUpvalueCell> capturedUpvalues,
@@ -336,7 +336,7 @@ class LualikeIrVm {
     return value.runtimeType.toString();
   }
 
-  String _describeRegisters(_IrFrame frame, LualikeIrInstruction instruction) {
+  String _describeRegisters(IrFrame frame, LualikeIrInstruction instruction) {
     return instruction.when(
       abc: (instr) {
         final a = frame.getRegister(instr.a);
@@ -364,7 +364,7 @@ class LualikeIrVm {
   }
 
   void _logTableTypeMismatch(
-    _IrFrame frame,
+    IrFrame frame,
     int registerIndex,
     String opcodeName,
   ) {
@@ -398,8 +398,8 @@ class LualikeIrVm {
         'constants': chunk.mainPrototype.constants.length,
       },
     );
-    final rawResults = await _runFrames(<_IrFrame>[
-      _IrFrame(
+    final rawResults = await _runFrames(<IrFrame>[
+      IrFrame(
         prototype: chunk.mainPrototype,
         args: const [],
         capturedUpvalues: const <LualikeIrUpvalueCell>[],
@@ -425,8 +425,8 @@ class LualikeIrVm {
         'expected': expectedResults,
       },
     );
-    final rawResults = await _runFrames(<_IrFrame>[
-      _IrFrame(
+    final rawResults = await _runFrames(<IrFrame>[
+      IrFrame(
         prototype: closure.prototype,
         args: args,
         capturedUpvalues: closure.upvalues,
@@ -438,7 +438,7 @@ class LualikeIrVm {
   }
 
   Future<List<dynamic>> _runFrames(
-    List<_IrFrame> frames, {
+    List<IrFrame> frames, {
     bool isMainChunk = false,
   }) async {
     List<dynamic>? finalResults;
@@ -732,7 +732,7 @@ class LualikeIrVm {
             );
             if (closure != null) {
               frames.add(
-                _IrFrame(
+                IrFrame(
                   prototype: closure.prototype,
                   args: args,
                   capturedUpvalues: closure.upvalues,
@@ -781,7 +781,7 @@ class LualikeIrVm {
               await completed.closeToBeClosed(0);
               completed.closeOpenUpvalues();
               frames.add(
-                _IrFrame(
+                IrFrame(
                   prototype: closure.prototype,
                   args: args,
                   capturedUpvalues: closure.upvalues,
@@ -1485,7 +1485,7 @@ class LualikeIrVm {
   }
 
   List<dynamic> _collectCallArguments(
-    _IrFrame frame,
+    IrFrame frame,
     ABCInstruction instruction,
   ) {
     if (instruction.b == 0) {
@@ -1509,7 +1509,7 @@ class LualikeIrVm {
   }
 
   void _storeResults(
-    _IrFrame frame,
+    IrFrame frame,
     int base,
     int expectedResults,
     List<dynamic> results,
@@ -1531,7 +1531,7 @@ class LualikeIrVm {
   }
 
   Future<void> _handleReturn(
-    List<_IrFrame> frames,
+    List<IrFrame> frames,
     List<dynamic> results,
     void Function(List<dynamic>) onTopLevel, {
     int? returnBase,
@@ -1632,7 +1632,7 @@ class LualikeIrVm {
     return _ensureValue(arg);
   }
 
-  void _pushCallStackFrame(_IrFrame frame, {bool isMainChunk = false}) {
+  void _pushCallStackFrame(IrFrame frame, {bool isMainChunk = false}) {
     final runtime = this.runtime;
     if (runtime == null) {
       return;
@@ -1665,7 +1665,7 @@ class LualikeIrVm {
     runtime?.callStack.pop();
   }
 
-  void _updateCallStackLine(_IrFrame frame, int instructionIndex) {
+  void _updateCallStackLine(IrFrame frame, int instructionIndex) {
     final runtime = this.runtime;
     if (runtime == null) {
       return;
@@ -1703,7 +1703,7 @@ class LualikeIrVm {
     return 'function@${prototype.lineDefined}';
   }
 
-  LualikeIrClosure _createClosure(_IrFrame frame, int prototypeIndex) {
+  LualikeIrClosure _createClosure(IrFrame frame, int prototypeIndex) {
     final child = frame.prototype.prototypes[prototypeIndex];
     final captured = <LualikeIrUpvalueCell>[];
     for (final descriptor in child.upvalueDescriptors) {
@@ -1868,7 +1868,7 @@ class LualikeIrVm {
   }
 
   FutureOr<void> _applyBinaryOperation(
-    _IrFrame frame,
+    IrFrame frame,
     ABCInstruction instruction,
     String operation,
   ) {
@@ -1894,7 +1894,7 @@ class LualikeIrVm {
   }
 
   FutureOr<void> _applyBinaryConstant(
-    _IrFrame frame,
+    IrFrame frame,
     ABCInstruction instruction,
     List<LualikeIrConstant> constants,
     String operation,
@@ -1923,7 +1923,7 @@ class LualikeIrVm {
   }
 
   Future<void> _applyConcatRange(
-    _IrFrame frame,
+    IrFrame frame,
     ABCInstruction instruction,
   ) async {
     final registers = frame.registers;
@@ -1956,7 +1956,7 @@ class LualikeIrVm {
   }
 
   FutureOr<void> _applyBinaryImmediate(
-    _IrFrame frame,
+    IrFrame frame,
     ABCInstruction instruction,
     int immediate,
     String operation,
@@ -2131,7 +2131,7 @@ class LualikeIrVm {
     }
   }
 
-  void _executeForPrep(_IrFrame frame, int base) {
+  void _executeForPrep(IrFrame frame, int base) {
     final registers = frame.registers;
     final initial = _asNumber(registers[base]);
     final step = _asNumber(registers[base + 2]);
@@ -2139,7 +2139,7 @@ class LualikeIrVm {
     frame.setRegister(base + 3, initial);
   }
 
-  bool _executeForLoop(_IrFrame frame, int base) {
+  bool _executeForLoop(IrFrame frame, int base) {
     final registers = frame.registers;
     final step = _asNumber(registers[base + 2]);
     final limit = _asNumber(registers[base + 1]);
@@ -2153,7 +2153,7 @@ class LualikeIrVm {
   }
 
   Future<void> _executeTForCall(
-    _IrFrame frame,
+    IrFrame frame,
     int base,
     int resultCount,
   ) async {
@@ -2277,7 +2277,7 @@ class LualikeIrVm {
   }
 
   Future<void> _applyUnaryMetamethod(
-    _IrFrame frame,
+    IrFrame frame,
     ABCInstruction instruction,
     String metamethod,
     dynamic Function(Value operandValue, dynamic rawOperand) fallback,
@@ -2314,7 +2314,7 @@ class LualikeIrVm {
     }
   }
 
-  Future<void> _unaryNegate(_IrFrame frame, ABCInstruction instruction) {
+  Future<void> _unaryNegate(IrFrame frame, ABCInstruction instruction) {
     return _applyUnaryMetamethod(
       frame,
       instruction,
@@ -2323,7 +2323,7 @@ class LualikeIrVm {
     );
   }
 
-  Future<void> _unaryBitwiseNot(_IrFrame frame, ABCInstruction instruction) {
+  Future<void> _unaryBitwiseNot(IrFrame frame, ABCInstruction instruction) {
     return _applyUnaryMetamethod(
       frame,
       instruction,
@@ -2332,12 +2332,12 @@ class LualikeIrVm {
     );
   }
 
-  void _unaryBoolean(_IrFrame frame, ABCInstruction instruction) {
+  void _unaryBoolean(IrFrame frame, ABCInstruction instruction) {
     final value = frame.registers[instruction.b];
     frame.setRegister(instruction.a, !_isTruthy(value));
   }
 
-  Future<void> _unaryLength(_IrFrame frame, ABCInstruction instruction) {
+  Future<void> _unaryLength(IrFrame frame, ABCInstruction instruction) {
     return _applyUnaryMetamethod(
       frame,
       instruction,
@@ -2486,7 +2486,7 @@ class LualikeIrVm {
   }
 
   Future<void>? _compareAndStore(
-    _IrFrame frame,
+    IrFrame frame,
     int target,
     dynamic left,
     dynamic right,
