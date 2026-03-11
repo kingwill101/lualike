@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:args/args.dart';
+import 'package:artisanal/args.dart';
 import 'package:lualike/src/utils/file_system_utils.dart' as fs;
 import 'package:lualike/src/utils/io_abstractions.dart' as io_abs;
 import 'package:lualike/src/utils/platform_utils.dart' as platform;

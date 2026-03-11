@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:args/command_runner.dart';
+import 'package:artisanal/args.dart';
 import 'package:lualike/src/interop.dart';
 
 /// Base class for all LuaLike commands providing common functionality
