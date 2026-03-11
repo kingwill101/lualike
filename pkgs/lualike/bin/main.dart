@@ -8,7 +8,6 @@ Future<void> main(List<String> args) async {
 
   try {
     await runner.run(args);
-    print("something");
   } catch (e, s) {
     print(s);
     // if (runner.debugMode) {
