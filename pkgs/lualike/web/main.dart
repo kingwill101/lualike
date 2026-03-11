@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:js_interop';
 
 import 'package:lualike/lualike.dart';
@@ -11,7 +12,7 @@ import 'examples.dart';
 import 'output_device.dart';
 
 @JS('mountLuaLikeEditor')
-external JSAny? _mountLuaLikeEditor(JSString initialValue);
+external JSPromise<JSAny?> _mountLuaLikeEditor(JSString initialValue);
 
 @JS('getLuaLikeEditorValue')
 external JSString _getLuaLikeEditorValue();
@@ -50,6 +51,7 @@ print("Hello from lualike!")
   late final web.HTMLSpanElement runStatus =
       web.document.querySelector('#runStatus') as web.HTMLSpanElement;
   late final LuaLike luaLike;
+  bool _plainEditorFallback = false;
 
   void initialize() {
     // Initialize LuaLike interpreter
@@ -69,7 +71,7 @@ print("Hello from lualike!")
 
     // Populate examples dropdown
     populateExamplesDropdown();
-    _mountEditor(_starterSnippet);
+    unawaited(_mountEditor(_starterSnippet));
     _bindEditorEvents();
     _setRunStatus('Ready', 'ready');
 
@@ -179,21 +181,51 @@ print("Hello from lualike!")
     );
   }
 
-  void _mountEditor(String initialValue) {
+  Future<void> _mountEditor(String initialValue) async {
     sourceCode.dataset['ready'] = 'false';
-    _mountLuaLikeEditor(initialValue.toJS);
+    try {
+      await _mountLuaLikeEditor(initialValue.toJS).toDart;
+      _plainEditorFallback = false;
+    } catch (error) {
+      _activatePlainEditorFallback(initialValue, error);
+    }
   }
 
   String _editorValue() {
+    if (_plainEditorFallback) {
+      return sourceCode.textContent ?? '';
+    }
     return _getLuaLikeEditorValue().toDart;
   }
 
   void _setEditorValue(String value) {
+    if (_plainEditorFallback) {
+      sourceCode.textContent = value;
+      return;
+    }
     _setLuaLikeEditorValue(value.toJS);
   }
 
   void _focusEditor() {
+    if (_plainEditorFallback) {
+      sourceCode.focus();
+      return;
+    }
     _focusLuaLikeEditor();
+  }
+
+  void _activatePlainEditorFallback(String initialValue, Object error) {
+    _plainEditorFallback = true;
+    sourceCode.dataset['ready'] = 'true';
+    sourceCode.dataset['mode'] = 'plain';
+    sourceCode.contentEditable = 'true';
+    sourceCode.tabIndex = 0;
+    sourceCode.textContent = initialValue;
+    appendOutput(
+      '⚠️ Interactive editor unavailable; using plain text fallback. ($error)',
+      'info',
+    );
+    _setRunStatus('Fallback editor', 'ready');
   }
 
   void _setRunStatus(String label, String state) {
