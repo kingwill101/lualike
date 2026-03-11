@@ -1959,9 +1959,15 @@ class _GetInfoImpl extends BuiltinFunction {
             debugInfo['extraargs'] = Value(frame.extraArgs);
           }
           if (what.contains('u')) {
-            debugInfo['nups'] = Value(metadata?.nups ?? 0);
-            debugInfo['nparams'] = Value(metadata?.nparams ?? 0);
-            debugInfo['isvararg'] = Value(metadata?.isVararg ?? true);
+            debugInfo['nups'] = Value(
+              isMainChunkFrame ? (metadata?.nups ?? 1) : (metadata?.nups ?? 0),
+            );
+            debugInfo['nparams'] = Value(
+              isMainChunkFrame ? 0 : (metadata?.nparams ?? 0),
+            );
+            debugInfo['isvararg'] = Value(
+              isMainChunkFrame ? true : (metadata?.isVararg ?? true),
+            );
           }
           if (what.contains('r')) {
             debugInfo['ftransfer'] = Value(frame.ftransfer);
@@ -2126,7 +2132,10 @@ Value _collectActiveLines(Value function) {
         }
         visitExpression(left);
         visitExpression(right);
-      case UnaryExpression(:final expr):
+      case UnaryExpression(:final expr, :final int? operatorLine):
+        if (operatorLine != null) {
+          markLine(operatorLine + 1);
+        }
         visitExpression(expr);
       case TableFieldAccess(:final table):
         visitExpression(table);

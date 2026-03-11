@@ -880,15 +880,18 @@ class Environment extends GCObject {
     );
 
     dynamic normalizeCloseError(dynamic error) {
-      if (error case final LuaError luaError
-          when luaError.cause != null && luaError.cause is! LuaError) {
-        return luaError.cause;
+      if (error case final LuaError luaError) {
+        if (luaError.cause != null && luaError.cause is! LuaError) {
+          return luaError.cause;
+        }
+        return luaError.message;
       }
       if (error case final Value value when value.raw is LuaError) {
         final luaError = value.raw as LuaError;
         if (luaError.cause != null && luaError.cause is! LuaError) {
           return luaError.cause;
         }
+        return luaError.message;
       }
       return error;
     }

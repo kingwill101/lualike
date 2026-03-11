@@ -372,6 +372,9 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       _ => false,
     };
 
+    final traceLine = node.operatorLine ?? node.span?.start.line;
+    final lineNumber = traceLine == null ? null : traceLine + 1;
+
     dynamic executeDefaultBinaryOperation(Value left, Value right) {
       return switch (node.op) {
         '+' => left + right,
@@ -398,6 +401,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         'or' => left.or(right),
         _ => throw LuaError.typeError(
           'Operation (${node.op}) not supported for these types [$left, $right]',
+          lineNumber: lineNumber,
         ),
       };
     }
@@ -454,7 +458,10 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       } on UnsupportedError catch (e) {
         // Normalize Dart-side UnsupportedError from direct Value operators into
         // LuaError with the same message to preserve Lua semantics at runtime.
-        throw LuaError.typeError(e.message ?? e.toString());
+        throw LuaError.typeError(
+          e.message ?? e.toString(),
+          lineNumber: lineNumber,
+        );
       } on LuaError catch (e) {
         final arithmeticOperand = arithmeticSourceOperand();
         final message = e.message;
@@ -466,6 +473,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
           }
           throw LuaError.typeError(
             "attempt to perform arithmetic on ${arithmeticOperand.label} (a $type value)",
+            lineNumber: lineNumber,
           );
         }
         if (arithmeticOperand != null &&
@@ -476,6 +484,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
           }
           throw LuaError.typeError(
             "attempt to perform bitwise operation on ${arithmeticOperand.label} (a $type value)",
+            lineNumber: lineNumber,
           );
         }
         final integerLabel = integerRepresentationLabel();
@@ -483,6 +492,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
             message.contains('number has no integer representation')) {
           throw LuaError.typeError(
             "number ($integerLabel) has no integer representation",
+            lineNumber: lineNumber,
           );
         }
         final sourceLabel =
@@ -494,6 +504,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
             )) {
           throw LuaError.typeError(
             "attempt to perform arithmetic on $sourceLabel (a nil value)",
+            lineNumber: lineNumber,
           );
         }
         rethrow;
@@ -786,6 +797,10 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       'light userdata' => true,
       _ => false,
     };
+    final lineNumber =
+        node.operatorLine != null
+            ? node.operatorLine! + 1
+            : (node.span == null ? null : node.span!.start.line + 1);
 
     // Check for metamethods first
     final opMap = {
@@ -831,10 +846,16 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         "not" => Value(!operandWrapped.isTruthy()),
         "~" => ~operandWrapped,
         "#" => operandWrapped.length,
-        _ => throw LuaError.typeError("Unknown unary operator ${node.op}"),
+        _ => throw LuaError.typeError(
+          "Unknown unary operator ${node.op}",
+          lineNumber: lineNumber,
+        ),
       };
     } on UnsupportedError catch (e) {
-      throw LuaError.typeError(e.message ?? e.toString());
+      throw LuaError.typeError(
+        e.message ?? e.toString(),
+        lineNumber: lineNumber,
+      );
     } on LuaError catch (e) {
       final sourceLabel = _sourceLabelForAst(
         (this as Interpreter).getCurrentEnv(),
@@ -856,6 +877,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         }
         throw LuaError.typeError(
           "attempt to perform arithmetic on $sourceLabel (a $type value)",
+          lineNumber: lineNumber,
         );
       }
       if (sourceLabel != null &&
@@ -869,6 +891,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         }
         throw LuaError.typeError(
           "attempt to perform bitwise operation on $sourceLabel (a $type value)",
+          lineNumber: lineNumber,
         );
       }
       rethrow;

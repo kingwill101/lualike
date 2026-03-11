@@ -130,23 +130,35 @@ class SetMetatableFunction extends BuiltinFunction {
 
   @override
   Object? call(List<Object?> args) {
-    if (args.length != 2) {
-      throw LuaError("setmetatable expects two arguments");
+    if (args.isEmpty) {
+      throw LuaError(
+        "bad argument #1 to 'setmetatable' (table expected, got no value)",
+      );
+    }
+    final table = args[0];
+
+    if (table is! Value || table.raw is! Map) {
+      throw LuaError(
+        "bad argument #1 to 'setmetatable' "
+        "(table expected, got ${getLuaType(table)})",
+      );
     }
 
-    final table = args[0];
+    if (args.length < 2) {
+      throw LuaError(
+        "bad argument #2 to 'setmetatable' "
+        "(nil or table expected, got no value)",
+      );
+    }
+
     final metatable = args[1];
 
     if (Logger.enabled) {
       Logger.debugLazy(
         () =>
-            "[SetMetatable] invoked on table=${table is Value ? table.hashCode : table} meta=$metatable",
+            "[SetMetatable] invoked on table=${table.hashCode} meta=$metatable",
         category: 'GC',
       );
-    }
-
-    if (table is! Value || table.raw is! Map) {
-      throw LuaError("setmetatable only supported for table values");
     }
 
     // Check if the current metatable is protected
@@ -208,7 +220,10 @@ class SetMetatableFunction extends BuiltinFunction {
       }
     }
 
-    throw LuaError("metatable must be a table or nil");
+    throw LuaError(
+      "bad argument #2 to 'setmetatable' "
+      "(nil or table expected, got ${getLuaType(metatable)})",
+    );
   }
 }
 
@@ -274,7 +289,12 @@ class AssertFunction extends BuiltinFunction {
 
   @override
   Future<Object?> call(List<Object?> args) async {
-    if (args.isEmpty) throw LuaError("assert requires at least one argument");
+    if (args.isEmpty) {
+      throw LuaError(
+        "bad argument #1 to 'assert' (value expected)",
+        suppressAutomaticLocation: true,
+      );
+    }
     final condition = args[0];
 
     dynamic primaryCondition = condition;
@@ -303,20 +323,36 @@ class AssertFunction extends BuiltinFunction {
     );
 
     if (!isTrue) {
-      final message = args.length > 1
-          ? (args[1] as Value).raw.toString()
-          : "assertion failed! condition: ${primaryCondition is Value ? primaryCondition.raw : primaryCondition}";
+      final explicitMessage = args.length > 1 ? args[1] as Value : null;
+      if (explicitMessage != null && explicitMessage.raw != null) {
+        Logger.debugLazy(
+          () =>
+              'AssertFunction: Assertion failed with explicit message object: ${explicitMessage.raw}',
+          category: 'Base',
+        );
+        throw explicitMessage;
+      }
+
+      const message = 'assertion failed!';
       Logger.debugLazy(
-        () => 'AssertFunction: Assertion failed with message: $message',
+        () => 'AssertFunction: Assertion failed with default message',
         category: 'Base',
       );
-      if (interpreter?.callStack.current?.callNode != null) {
-        throw LuaError.fromNode(
-          interpreter!.callStack.current!.callNode!,
-          message,
+      if (interpreter?.callStack.current?.callNode case final callNode?) {
+        throw LuaError(
+          _formatErrorAtStackLevel(interpreter!, message, 1),
+          node: callNode,
+          span: callNode.span,
+          suppressAutomaticLocation: true,
         );
       }
-      throw LuaError(message);
+      if (interpreter != null) {
+        throw LuaError(
+          _formatErrorAtStackLevel(interpreter!, message, 1),
+          suppressAutomaticLocation: true,
+        );
+      }
+      throw LuaError(message, suppressAutomaticLocation: true);
     }
 
     Logger.debugLazy(
@@ -339,10 +375,14 @@ class AssertFunction extends BuiltinFunction {
 // Static flag to track if an error is already being reported
 bool _errorReporting = false;
 
-Object? _normalizeProtectedCallError(Object error) {
+bool _looksFormattedLuaErrorMessage(String message) {
+  return RegExp(r'^(?:\[[^\n]+\]|[^:\n]+):(?:\d+|\?): ').hasMatch(message);
+}
+
+Object? _normalizeProtectedCallError(LuaRuntime interpreter, Object error) {
   if (error is Value) {
     if (error.raw is Value) {
-      return _normalizeProtectedCallError(error.raw);
+      return _normalizeProtectedCallError(interpreter, error.raw);
     }
     if (error.raw == null) {
       return "<no error object>";
@@ -353,28 +393,115 @@ Object? _normalizeProtectedCallError(Object error) {
     return error.unwrap();
   }
   if (error is LuaError) {
-    return error.message;
+    if (error.suppressAutomaticLocation ||
+        error.suppressProtectedCallLocation ||
+        _looksFormattedLuaErrorMessage(error.message)) {
+      return error.message;
+    }
+    final span = error.span ?? error.node?.span;
+    final sourceUrl = span?.sourceUrl?.toString();
+    final line = switch (error.lineNumber) {
+      final explicitLine? when explicitLine > 0 => explicitLine,
+      _ when span != null => span.start.line + 1,
+      _ => null,
+    };
+    if (sourceUrl != null && sourceUrl.isNotEmpty) {
+      final formattedSource = switch (Uri.tryParse(sourceUrl)) {
+        final Uri uri when uri.scheme == 'file' => uri.toFilePath(),
+        _ => sourceUrl,
+      };
+      if (line != null && line > 0) {
+        return '$formattedSource:$line: ${error.message}';
+      }
+      return '$formattedSource: ${error.message}';
+    }
+    return _formatProtectedCallMessage(
+      interpreter,
+      error.message,
+      lineOverride: error.lineNumber,
+    );
   }
   return error.toString();
 }
 
-String _formatProtectedCallMessage(LuaRuntime interpreter, String message) {
+Value _errorHandlerArgument(Object error) {
+  if (error case final Value value) {
+    return switch (value.raw) {
+      final Value nested => _errorHandlerArgument(nested),
+      _ => value,
+    };
+  }
+  if (error case final LuaError luaError) {
+    return switch (luaError.cause) {
+      null => Value(luaError.message),
+      final Value value => _errorHandlerArgument(value),
+      final Object cause => Value(cause),
+    };
+  }
+  return Value(error.toString());
+}
+
+String _formatProtectedCallMessage(
+  LuaRuntime interpreter,
+  String message, {
+  int? lineOverride,
+}) {
   final topFrame = interpreter.callStack.top;
   final traceFrame = interpreter is Interpreter
       ? interpreter.lastRecordedTraceFrame
       : null;
-  final line = switch (topFrame?.currentLine) {
+  final line = switch (lineOverride) {
+    final currentLine? when currentLine > 0 => currentLine,
+    _ => switch (traceFrame?.currentLine) {
     final currentLine when currentLine != null && currentLine > 0 =>
       currentLine,
-    _ => traceFrame?.currentLine ?? -1,
+    _ => switch (topFrame?.currentLine) {
+        final currentLine when currentLine != null && currentLine > 0 =>
+          currentLine,
+        _ => -1,
+      },},
   };
   final scriptPath =
-      topFrame?.scriptPath ??
       traceFrame?.scriptPath ??
+      topFrame?.scriptPath ??
       interpreter.callStack.scriptPath ??
       interpreter.currentScriptPath;
 
   if (scriptPath != null && line > 0) {
+    return '$scriptPath:$line: $message';
+  }
+  if (scriptPath != null) {
+    return '$scriptPath: $message';
+  }
+  return message;
+}
+
+String _formatErrorAtStackLevel(
+  LuaRuntime interpreter,
+  String message,
+  int level,
+) {
+  final frame = switch (interpreter) {
+    final Interpreter runtime => runtime.getVisibleFrameAtLevel(level + 1),
+    _ => interpreter.callStack.getFrameAtLevel(level + 1),
+  };
+  if (frame == null) {
+    return message;
+  }
+
+  final line = switch (frame.currentLine) {
+    final currentLine when currentLine > 0 => currentLine,
+    _ => switch (frame.callNode?.span) {
+        final span? => span.start.line + 1,
+        _ => null,
+      },
+  };
+  final scriptPath =
+      frame.scriptPath ??
+      interpreter.callStack.scriptPath ??
+      interpreter.currentScriptPath;
+
+  if (scriptPath != null && line != null && line > 0) {
     return '$scriptPath:$line: $message';
   }
   if (scriptPath != null) {
@@ -397,8 +524,8 @@ Object? _packProtectedCallSuccess(Object? result) {
   ]);
 }
 
-Object? _packProtectedCallFailure(Object error) {
-  final normalizedError = _normalizeProtectedCallError(error);
+Object? _packProtectedCallFailure(LuaRuntime interpreter, Object error) {
+  final normalizedError = _normalizeProtectedCallError(interpreter, error);
   return Value.multi(<Object?>[
     Value(false),
     normalizedError is Value ? normalizedError : Value(normalizedError),
@@ -422,11 +549,30 @@ Object? _packXProtectedCallFailure(Object? result) {
 Object? _packXProtectedErrorHandlerFailure(Object error) {
   return Value.multi(<Object?>[
     Value(false),
-    Value("Error in error handler: $error"),
+    Value('error in error handling'),
   ]);
 }
 
+// Lua's xpcall message-handler recursion overflows before the general
+// interpreter call-depth guard. Match the stock errors.lua behavior where
+// 195 recursive handler failures still resolve to "END", but 196 flips to
+// "C stack overflow".
+const int _maxXpcallMessageHandlerDepth = 196;
+
 enum _ProtectedCallPhase { call, errorHandler }
+
+Object? _xpcallErrorSignature(Object error) {
+  final normalized = _errorHandlerArgument(error);
+  final raw = normalized.raw;
+  return switch (raw) {
+    null => 'nil',
+    final String value => 's:$value',
+    final LuaString value => 'ls:${value.toString()}',
+    final num value => 'n:$value',
+    final bool value => 'b:$value',
+    _ => raw,
+  };
+}
 
 final class _ProtectedCallSuspension implements CoroutineContinuation {
   const _ProtectedCallSuspension({
@@ -434,12 +580,14 @@ final class _ProtectedCallSuspension implements CoroutineContinuation {
     this.child,
     this.messageHandler,
     this.phase = _ProtectedCallPhase.call,
+    this.errorHandlerDepth = 0,
   });
 
   final LuaRuntime runtime;
   final CoroutineContinuation? child;
   final Value? messageHandler;
   final _ProtectedCallPhase phase;
+  final int errorHandlerDepth;
 
   @override
   Future<Object?> resume(List<Object?> args) async {
@@ -467,9 +615,9 @@ final class _ProtectedCallSuspension implements CoroutineContinuation {
       rethrow;
     } catch (error) {
       if (messageHandler == null) {
-        return _packProtectedCallFailure(error);
+        return _packProtectedCallFailure(runtime, error);
       }
-      return _invokeErrorHandler(error);
+      return await _invokeErrorHandler(error, depth: errorHandlerDepth + 1);
     }
   }
 
@@ -481,20 +629,20 @@ final class _ProtectedCallSuspension implements CoroutineContinuation {
       _reinstall(error, phase: _ProtectedCallPhase.errorHandler);
       rethrow;
     } catch (error) {
-      return _packXProtectedErrorHandlerFailure(error);
+      return await _invokeErrorHandler(error, depth: errorHandlerDepth + 1);
     }
   }
 
-  Future<Object?> _invokeErrorHandler(Object error) async {
+  Future<Object?> _invokeErrorHandler(Object error, {required int depth}) async {
     final handler = messageHandler;
     if (handler == null) {
-      return _packProtectedCallFailure(error);
+      return _packProtectedCallFailure(runtime, error);
+    }
+    if (depth > _maxXpcallMessageHandlerDepth) {
+      return _packXProtectedCallFailure(Value('C stack overflow'));
     }
 
-    final normalizedError = _normalizeProtectedCallError(error);
-    final errorValue = normalizedError is Value
-        ? normalizedError
-        : Value(normalizedError);
+    final errorValue = _errorHandlerArgument(error);
 
     try {
       final handlerResult = await runtime.callFunction(handler, <Object?>[
@@ -502,10 +650,17 @@ final class _ProtectedCallSuspension implements CoroutineContinuation {
       ]);
       return _packXProtectedCallFailure(handlerResult);
     } on YieldException catch (error) {
-      _reinstall(error, phase: _ProtectedCallPhase.errorHandler);
+      _reinstall(
+        error,
+        phase: _ProtectedCallPhase.errorHandler,
+        errorHandlerDepth: depth,
+      );
       rethrow;
     } catch (handlerError) {
-      return _packXProtectedErrorHandlerFailure(handlerError);
+      if (_xpcallErrorSignature(handlerError) == _xpcallErrorSignature(error)) {
+        return _packXProtectedErrorHandlerFailure(handlerError);
+      }
+      return await _invokeErrorHandler(handlerError, depth: depth + 1);
     }
   }
 
@@ -520,7 +675,11 @@ final class _ProtectedCallSuspension implements CoroutineContinuation {
     return Value.multi(values);
   }
 
-  void _reinstall(YieldException error, {required _ProtectedCallPhase phase}) {
+  void _reinstall(
+    YieldException error, {
+    required _ProtectedCallPhase phase,
+    int? errorHandlerDepth,
+  }) {
     final coroutine = error.coroutine ?? runtime.getCurrentCoroutine();
     if (coroutine == null) {
       return;
@@ -533,6 +692,7 @@ final class _ProtectedCallSuspension implements CoroutineContinuation {
         child: nextChild,
         messageHandler: messageHandler,
         phase: phase,
+        errorHandlerDepth: errorHandlerDepth ?? this.errorHandlerDepth,
       ),
     );
   }
@@ -562,6 +722,7 @@ void _installProtectedCallContinuation(
   LuaRuntime runtime,
   YieldException error, {
   Value? messageHandler,
+  int errorHandlerDepth = 0,
 }) {
   final coroutine = error.coroutine ?? runtime.getCurrentCoroutine();
   if (coroutine == null) {
@@ -574,6 +735,7 @@ void _installProtectedCallContinuation(
       runtime: runtime,
       child: child,
       messageHandler: messageHandler,
+      errorHandlerDepth: errorHandlerDepth,
     ),
   );
 }
@@ -600,6 +762,11 @@ class ErrorFunction extends BuiltinFunction {
     final level = args.length > 1 && args[1] is Value
         ? (args[1] as Value).raw
         : null;
+    final numericLevel = switch (level) {
+      final int value => value,
+      final double value when value.toInt().toDouble() == value => value.toInt(),
+      _ => null,
+    };
     final suppressLocation = switch (level) {
       final int numericLevel => numericLevel <= 0,
       final double numericLevel => numericLevel <= 0,
@@ -607,7 +774,14 @@ class ErrorFunction extends BuiltinFunction {
     };
 
     if (suppressLocation) {
-      throw LuaError(message);
+      throw LuaError(message, suppressAutomaticLocation: true);
+    }
+
+    if (numericLevel != null && numericLevel > 0 && interpreter != null) {
+      throw LuaError(
+        _formatErrorAtStackLevel(interpreter!, message, numericLevel),
+        suppressAutomaticLocation: true,
+      );
     }
 
     // In protected calls, preserve table-like error objects directly, but keep
@@ -1530,7 +1704,7 @@ class PCAllFunction extends BuiltinFunction {
         () => 'pcall caught error: $e (${e.runtimeType})',
         category: 'Debug',
       );
-      return _packProtectedCallFailure(e);
+      return _packProtectedCallFailure(interpreter!, e);
     } finally {
       // Exit protected call context
       interpreter!.exitProtectedCall();
@@ -1609,6 +1783,43 @@ class WarnFunction extends BuiltinFunction {
 class XPCallFunction extends BuiltinFunction {
   XPCallFunction(super.interpreter);
 
+  Future<Object?> _invokeErrorHandler(
+    Value handler,
+    Object error, {
+    required int depth,
+  }) async {
+    if (depth > _maxXpcallMessageHandlerDepth) {
+      return _packXProtectedCallFailure(Value('C stack overflow'));
+    }
+    final errorValue = _errorHandlerArgument(error);
+
+    try {
+      final handlerResult = await interpreter!.callFunction(handler, [
+        errorValue,
+      ]);
+      return _packXProtectedCallFailure(handlerResult);
+    } on CoroutineCloseSignal {
+      rethrow;
+    } on YieldException catch (error) {
+      _installProtectedCallContinuation(
+        interpreter!,
+        error,
+        messageHandler: handler,
+        errorHandlerDepth: depth,
+      );
+      rethrow;
+    } catch (handlerError) {
+      if (_xpcallErrorSignature(handlerError) == _xpcallErrorSignature(error)) {
+        return _packXProtectedErrorHandlerFailure(handlerError);
+      }
+      return await _invokeErrorHandler(
+        handler,
+        handlerError,
+        depth: depth + 1,
+      );
+    }
+  }
+
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 2) {
@@ -1660,18 +1871,7 @@ class XPCallFunction extends BuiltinFunction {
       rethrow;
     } catch (e) {
       // Call the message handler with the error (protected)
-      try {
-        final normalizedError = _normalizeProtectedCallError(e);
-        final errorValue = normalizedError is Value
-            ? normalizedError
-            : Value(normalizedError);
-        final handlerResult = await interpreter!.callFunction(msgh, [
-          errorValue,
-        ]);
-        return _packXProtectedCallFailure(handlerResult);
-      } catch (e2) {
-        return _packXProtectedErrorHandlerFailure(e2);
-      }
+      return await _invokeErrorHandler(msgh, e, depth: 1);
     } finally {
       // Exit protected-call context and restore state
       interpreter!.exitProtectedCall();

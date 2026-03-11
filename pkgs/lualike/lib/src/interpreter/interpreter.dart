@@ -10,13 +10,18 @@ import 'package:lualike/src/gc/generational_gc.dart' show GenerationalGCManager;
 import 'package:lualike/src/gc/gc_access.dart';
 import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/lua_error.dart';
+import 'package:lualike/src/lua_bytecode/chunk.dart';
+import 'package:lualike/src/lua_bytecode/emitter.dart';
+import 'package:lualike/src/lua_bytecode/instruction.dart';
 import 'package:lualike/src/lua_stack_trace.dart';
 import 'package:lualike/src/lua_bytecode/runtime.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/number.dart';
 import 'package:lualike/src/number_limits.dart';
 import 'package:lualike/src/number_utils.dart';
+import 'package:lualike/src/parse.dart' show looksLikeLuaFilePath;
 import 'package:lualike/src/runtime/compiled_artifact_support.dart';
+import 'package:lualike/src/parse.dart' show looksLikeLuaFilePath;
 import 'package:lualike/src/runtime/chunk_loading_support.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/semantic_checker.dart';
@@ -440,6 +445,21 @@ class Interpreter extends AstVisitor<Object?>
       FunctionDef() ||
       LocalFunctionDef() => endLine,
       _ => span.start.line,
+    };
+  }
+
+  int? _traceLineForNode(AstNode node) {
+    final span = node.span;
+    if (span == null) {
+      return null;
+    }
+
+    return switch (node) {
+      BinaryExpression(operatorLine: final operatorLine?) => operatorLine,
+      UnaryExpression(operatorLine: final operatorLine?) => operatorLine,
+      UnaryExpression() || FunctionCall() || MethodCall() || ReturnStatement() =>
+        span.start.line,
+      _ => _debugHookLineForNode(node) ?? span.start.line,
     };
   }
 
@@ -1009,15 +1029,13 @@ class Interpreter extends AstVisitor<Object?>
       ..scriptPath = currentScriptPath
       ..env = null;
 
-    // Capture the current line number from the node's span.
-    // Use the start line for return statements (to avoid off-by-one when a
-    // trailing newline moves the end position to the next line), otherwise
-    // use the end line as before.
+    // Capture the source line associated with the operation currently being
+    // evaluated. For multiline expressions Lua generally blames the operator
+    // or call site, not the final token on the last line of the span.
     int? currentLine;
-    if (node.span != null) {
-      final useStartLine = node is ReturnStatement;
-      currentLine =
-          (useStartLine ? node.span!.start.line : node.span!.end.line) + 1;
+    final traceLine = _traceLineForNode(node);
+    if (traceLine != null) {
+      currentLine = traceLine + 1;
       frame.currentLine = currentLine;
 
       // Update the active call frame to the line of the node currently being
@@ -1586,9 +1604,14 @@ class Interpreter extends AstVisitor<Object?>
 
   @override
   Future<Object?> runAst(List<AstNode> program) {
-    final semanticError = validateProgramSemantics(Program(program));
-    if (semanticError != null) {
-      throw Exception(semanticError);
+    final scriptPath = currentScriptPath ?? callStack.scriptPath;
+    final shouldValidateSemantics =
+        scriptPath == null || !looksLikeLuaFilePath(scriptPath);
+    if (shouldValidateSemantics) {
+      final semanticError = validateProgramSemantics(Program(program));
+      if (semanticError != null) {
+        throw Exception(semanticError);
+      }
     }
     return run(program);
   }

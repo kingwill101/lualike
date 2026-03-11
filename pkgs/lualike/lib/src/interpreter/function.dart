@@ -220,12 +220,47 @@ void _ensureClosureDebugSpan(
   }
 }
 
-String? _sourceLabelForAst(Environment env, AstNode node) => switch (node) {
+bool _shouldReportFieldForMethodCall(Interpreter interpreter, MethodCall node) {
+  if (!node.implicitSelf || node.methodName is! Identifier) {
+    return false;
+  }
+
+  final chunkSource = interpreter.currentScriptPath;
+  if (chunkSource == null ||
+      chunkSource.startsWith('@') ||
+      chunkSource.startsWith('=') ||
+      looksLikeLuaFilePath(chunkSource)) {
+    return false;
+  }
+
+  try {
+    final artifact = const LuaBytecodeEmitter().compileSource(
+      chunkSource,
+      chunkName: chunkSource,
+    );
+    final methodName = (node.methodName as Identifier).name;
+    final constantIndex = artifact.chunk.mainPrototype.constants.indexWhere(
+      (constant) =>
+          constant is LuaBytecodeStringConstant && constant.value == methodName,
+    );
+    return constantIndex > LuaBytecodeInstructionLayout.maxArgC;
+  } catch (_) {
+    return false;
+  }
+}
+
+String? _sourceLabelForAst(
+  Environment env,
+  AstNode node, {
+  Interpreter? interpreter,
+}) => switch (node) {
   Identifier(name: final name) => _bindingScopeLabel(env, name),
   TableFieldAccess(fieldName: final Identifier fieldName) =>
     "field '${fieldName.name}'",
-  MethodCall(methodName: final Identifier methodName) =>
-    "method '${methodName.name}'",
+  MethodCall(methodName: final Identifier methodName) => 
+    interpreter != null && _shouldReportFieldForMethodCall(interpreter, node)
+        ? "field '${methodName.name}'"
+        : "method '${methodName.name}'",
   _ => null,
 };
 
@@ -258,6 +293,30 @@ String? _sourceLabelForAst(Environment env, AstNode node) => switch (node) {
     final name => name,
   };
   return (name: fallbackName, namewhat: '');
+}
+
+int? _callSiteLineNumber(AstNode? callNode) {
+  if (callNode == null) {
+    return null;
+  }
+
+  final zeroBasedLine = switch (callNode) {
+    FunctionCall(name: final AstNode name, args: final args)
+        when args.isNotEmpty &&
+            name.span != null &&
+            args.first.span != null &&
+            args.first.span!.start.line > name.span!.end.line =>
+      args.first.span!.start.line - 1,
+    MethodCall(prefix: final AstNode prefix, args: final args)
+        when args.isNotEmpty &&
+            prefix.span != null &&
+            args.first.span != null &&
+            args.first.span!.start.line > prefix.span!.end.line =>
+      args.first.span!.start.line - 1,
+    _ => callNode.span?.start.line,
+  };
+
+  return zeroBasedLine == null ? null : zeroBasedLine + 1;
 }
 
 bool _hasPendingToBeClosed(Environment? env) {
@@ -627,6 +686,29 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       // Determine the path segments and final function/method name
       final firstName = node.name.first.name;
       final rest = node.name.rest;
+      final interpreter = this as Interpreter;
+
+      Value requireTable(Object? candidate, String sourceLabel) {
+        final lineNumber = node.span == null ? null : node.span!.start.line + 1;
+        final wrapped = candidate is Value
+            ? candidate
+            : interpreter.wrapRuntimeValue(candidate);
+        if (wrapped.raw is Map) {
+          return wrapped;
+        }
+        if (wrapped.raw == null) {
+          throw LuaError.typeError(
+            "attempt to index a nil value ($sourceLabel)",
+            node: node,
+            lineNumber: lineNumber,
+          );
+        }
+        throw LuaError.typeError(
+          "attempt to index a ${getLuaType(wrapped)} value ($sourceLabel)",
+          node: node,
+          lineNumber: lineNumber,
+        );
+      }
 
       late String methodName;
       int pathLen;
@@ -641,28 +723,27 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       }
 
       // Walk down from globals[firstName] through each path segment
-      dynamic current = globals.get(firstName);
-      if (current is! Value || current.raw is! Map) {
-        throw Exception("Cannot define function on non-table value");
-      }
+      var current = requireTable(
+        globals.get(firstName),
+        _sourceLabelForAst(globals, node.name.first) ?? "global '$firstName'",
+      );
 
       final pathSegments = pathLen > 0
           ? rest.sublist(0, pathLen)
           : const <Identifier>[];
       for (final seg in pathSegments) {
-        final next = (current as Value)[seg.name];
-        if (next is! Value || next.raw is! Map) {
-          throw Exception("Cannot define function on non-table value");
-        }
-        current = next;
+        current = requireTable(
+          current[seg.name],
+          "field '${seg.name}'",
+        );
       }
 
-      final targetTable = current as Value; // guaranteed to be a table Value
+      final targetTable = current;
 
       // Create a special environment for the function that includes the target table
       final methodEnv = Environment(
         parent: globals,
-        interpreter: this as Interpreter,
+        interpreter: interpreter,
       );
       // Provide access to the base table name to mirror Lua's resolution rules
       // Without mutating any outer bindings.
@@ -741,7 +822,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       }
     }
 
-    if (envVal is Value && gVal is Value && envVal != gVal) {
+    if (!node.explicitGlobal &&
+        envVal is Value &&
+        gVal is Value &&
+        envVal != gVal) {
       Logger.debugLazy(
         () => 'Defining function in custom _ENV table',
         categories: {'Interpreter', 'Function', 'Environment'},
@@ -776,6 +860,28 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     }
 
     if (node.explicitGlobal) {
+      final writesToRootGlobals =
+          envVal is Value &&
+          gVal is Value &&
+          identical(envVal.raw, gVal.raw);
+      if (writesToRootGlobals) {
+        globals.defineGlobal(node.name.first.name, closure);
+        return closure;
+      }
+      if (envVal is Value) {
+        try {
+          await envVal.setValueAsync(node.name.first.name, closure);
+        } on LuaError catch (error) {
+          throw LuaError.typeError(
+            error.message,
+            node: node,
+            lineNumber: node.span?.start.line == null
+                ? null
+                : node.span!.start.line + 1,
+          );
+        }
+        return closure;
+      }
       globals.defineGlobal(node.name.first.name, closure);
       return closure;
     }
@@ -1891,6 +1997,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       final sourceLabel = _sourceLabelForAst(
         (this as Interpreter).getCurrentEnv(),
         node.prefix,
+        interpreter: interpreter,
       );
       final type = getLuaType(objVal);
       throw LuaError.typeError(
@@ -1971,8 +2078,13 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             FunctionCall(name: final AstNode name) => _sourceLabelForAst(
               currentEnv,
               name,
+              interpreter: interpreter,
             ),
-            MethodCall() => _sourceLabelForAst(currentEnv, callExpr),
+            MethodCall() => _sourceLabelForAst(
+              currentEnv,
+              callExpr,
+              interpreter: interpreter,
+            ),
             _ => null,
           };
           return targetLabel != null
@@ -2038,7 +2150,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
           final args = await evalArgs(e.args);
           if (!func.isCallable()) {
-            throw LuaError.typeError(tailCallTypeError(func, e));
+            throw LuaError.typeError(
+              tailCallTypeError(func, e),
+              lineNumber: _callSiteLineNumber(e),
+            );
           }
           return TailCallSignal(
             func,
@@ -2082,7 +2197,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
               ? func
               : interpreter.wrapRuntimeValue(func);
           if (!callable.isCallable()) {
-            throw LuaError.typeError(tailCallTypeError(callable, e));
+            throw LuaError.typeError(
+              tailCallTypeError(callable, e),
+              lineNumber: _callSiteLineNumber(e),
+            );
           }
 
           final callArgs = e.implicitSelf ? args : [obj, ...args];
@@ -2385,10 +2503,15 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       String callTypeErrorMessage() {
         final env = interpreter.getCurrentEnv();
         final targetLabel = switch (callNode) {
-          MethodCall() => _sourceLabelForAst(env, callNode!),
+          MethodCall() => _sourceLabelForAst(
+            env,
+            callNode!,
+            interpreter: interpreter,
+          ),
           FunctionCall(name: final AstNode name) => _sourceLabelForAst(
             env,
             name,
+            interpreter: interpreter,
           ),
           _ => null,
         };
@@ -2399,6 +2522,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         }
         return "attempt to call a $type value";
       }
+      final callLineNumber = _callSiteLineNumber(callNode);
 
       Future<bool> rebindTailCall(Object? result) async {
         if (result is! TailCallSignal) {
@@ -2501,6 +2625,11 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                   continue;
                 }
                 return returnWithTransfer(result);
+              } on LuaError catch (error) {
+                if (interpreter.isInProtectedCall) {
+                  throw error.withProtectedCallLocationSuppressed();
+                }
+                rethrow;
               } catch (e) {
                 if (Logger.enabled) {
                   Logger.debugLazy(
@@ -2846,6 +2975,11 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                 continue;
               }
               return returnWithTransfer(result);
+            } on LuaError catch (error) {
+              if (interpreter.isInProtectedCall) {
+                throw error.withProtectedCallLocationSuppressed();
+              }
+              rethrow;
             } catch (e) {
               Logger.debugLazy(
                 () => '>>> Error in builtin function: $e',
@@ -2862,7 +2996,10 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
                 '(${func.runtimeType}), functionName="$functionName"',
             category: 'Interpreter',
           );
-          throw LuaError.typeError(callTypeErrorMessage());
+          throw LuaError.typeError(
+            callTypeErrorMessage(),
+            lineNumber: callLineNumber,
+          );
         } on TailCallException catch (t) {
           // Rebind callee/args and continue without pushing a new frame
           if (Logger.enabled) {
