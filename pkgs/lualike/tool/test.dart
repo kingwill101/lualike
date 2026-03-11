@@ -13,9 +13,12 @@ import 'utils.dart';
 
 /// List of Lua test files to run
 final testFiles = [
+  'api.lua',
   'attrib.lua',
   'goto.lua',
   'bitwise.lua',
+  'bwcoercion.lua',
+  'big.lua',
   'strings.lua',
   'literals.lua',
   'tpack.lua',
@@ -25,8 +28,10 @@ final testFiles = [
   'events.lua',
   'calls.lua',
   'gc.lua',
+  'tracegc.lua',
   'constructs.lua',
   'sort.lua',
+  'verybig.lua',
   'math.lua',
   'nextvar.lua',
   'code.lua',
@@ -34,6 +39,7 @@ final testFiles = [
   'pm.lua',
   'locals.lua',
   'db.lua',
+  'errors.lua',
   'heavy.lua',
 ];
 

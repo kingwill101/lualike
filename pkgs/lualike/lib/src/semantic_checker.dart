@@ -8,7 +8,941 @@ String? validateProgramSemantics(Program program) {
     return constError;
   }
 
-  return GlobalChecker().check(program);
+  final globalError = GlobalChecker().check(program);
+  if (globalError != null) {
+    return globalError;
+  }
+
+  final upvalueError = UpvalueLimitChecker().check(program);
+  if (upvalueError != null) {
+    return upvalueError;
+  }
+
+  return LoadLimitChecker().check(program);
+}
+
+const int _maxRegisterLikeArity = 255;
+const int _maxLocalVariables = 200;
+const int _maxUpvalues = 255;
+const int _maxExpressionNesting = 250;
+const int _maxStatementNesting = 250;
+
+final class UpvalueLimitChecker {
+  String? check(Program program) =>
+      _visitStatements(program.statements, _UpvalueFunctionContext.root());
+
+  String? _visitStatements(
+    List<AstNode> statements,
+    _UpvalueFunctionContext context,
+  ) {
+    for (final statement in statements) {
+      final error = _visitStatement(statement, context);
+      if (error != null) {
+        return error;
+      }
+    }
+    return null;
+  }
+
+  String? _visitStatement(
+    AstNode statement,
+    _UpvalueFunctionContext context,
+  ) => switch (statement) {
+    LocalDeclaration() => (() {
+      final error = _visitExpressions(statement.exprs, context);
+      if (error != null) {
+        return error;
+      }
+      for (final name in statement.names) {
+        final localError = context.declareLocal(name.name);
+        if (localError != null) {
+          return localError;
+        }
+      }
+      return null;
+    })(),
+    GlobalDeclaration() => _visitExpressions(statement.exprs, context),
+    Assignment() => (() {
+      final targetError = _visitExpressions(statement.targets, context);
+      if (targetError != null) {
+        return targetError;
+      }
+      return _visitExpressions(statement.exprs, context);
+    })(),
+    ReturnStatement() => _visitExpressions(statement.expr, context),
+    DoBlock() => _visitScopedStatements(statement.body, context),
+    IfStatement() => _visitIfStatement(statement, context),
+    WhileStatement() => (() {
+      final conditionError = _visitExpression(statement.cond, context);
+      if (conditionError != null) {
+        return conditionError;
+      }
+      return _visitScopedStatements(statement.body, context);
+    })(),
+    RepeatUntilLoop() => (() {
+      context.pushScope();
+      final bodyError = _visitStatements(statement.body, context);
+      if (bodyError != null) {
+        context.popScope();
+        return bodyError;
+      }
+      final conditionError = _visitExpression(statement.cond, context);
+      context.popScope();
+      return conditionError;
+    })(),
+    ForLoop() => (() {
+      final startError = _visitExpression(statement.start, context);
+      if (startError != null) {
+        return startError;
+      }
+      final endError = _visitExpression(statement.endExpr, context);
+      if (endError != null) {
+        return endError;
+      }
+      final stepError = _visitExpression(statement.stepExpr, context);
+      if (stepError != null) {
+        return stepError;
+      }
+      context.pushScope();
+      final localError = context.declareLocal(statement.varName.name);
+      if (localError != null) {
+        context.popScope();
+        return localError;
+      }
+      final bodyError = _visitStatements(statement.body, context);
+      context.popScope();
+      return bodyError;
+    })(),
+    ForInLoop() => (() {
+      final iteratorError = _visitExpressions(statement.iterators, context);
+      if (iteratorError != null) {
+        return iteratorError;
+      }
+      context.pushScope();
+      for (final name in statement.names) {
+        final localError = context.declareLocal(name.name);
+        if (localError != null) {
+          context.popScope();
+          return localError;
+        }
+      }
+      final bodyError = _visitStatements(statement.body, context);
+      context.popScope();
+      return bodyError;
+    })(),
+    FunctionDef() => (() {
+      _visitFunctionNameTarget(statement, context);
+      return _visitFunctionBody(
+        statement.body,
+        capturableOuterLocals: context.snapshotCapturableLocals(),
+        implicitSelf: statement.implicitSelf || statement.body.implicitSelf,
+        errorLine: _lineOf(statement.name.first),
+      );
+    })(),
+    LocalFunctionDef() => (() {
+      final localError = context.declareLocal(statement.name.name);
+      if (localError != null) {
+        return localError;
+      }
+      return _visitFunctionBody(
+        statement.funcBody,
+        capturableOuterLocals: context.snapshotCapturableLocals(),
+        errorLine: _lineOf(statement.name),
+      );
+    })(),
+    YieldStatement() => _visitExpressions(statement.expr, context),
+    ExpressionStatement() => _visitExpression(statement.expr, context),
+    AssignmentIndexAccessExpr() => (() {
+      final targetError = _visitExpression(statement.target, context);
+      if (targetError != null) {
+        return targetError;
+      }
+      final indexError = _visitExpression(statement.index, context);
+      if (indexError != null) {
+        return indexError;
+      }
+      return _visitExpression(statement.value, context);
+    })(),
+    Break() || Goto() || Label() => null,
+    final other => _visitExpression(other, context),
+  };
+
+  String? _visitIfStatement(
+    IfStatement statement,
+    _UpvalueFunctionContext context,
+  ) {
+    final conditionError = _visitExpression(statement.cond, context);
+    if (conditionError != null) {
+      return conditionError;
+    }
+
+    final thenError = _visitScopedStatements(statement.thenBlock, context);
+    if (thenError != null) {
+      return thenError;
+    }
+
+    for (final clause in statement.elseIfs) {
+      final elseIfConditionError = _visitExpression(clause.cond, context);
+      if (elseIfConditionError != null) {
+        return elseIfConditionError;
+      }
+
+      final clauseError = _visitScopedStatements(clause.thenBlock, context);
+      if (clauseError != null) {
+        return clauseError;
+      }
+    }
+
+    return _visitScopedStatements(statement.elseBlock, context);
+  }
+
+  String? _visitScopedStatements(
+    List<AstNode> statements,
+    _UpvalueFunctionContext context,
+  ) {
+    context.pushScope();
+    final error = _visitStatements(statements, context);
+    context.popScope();
+    return error;
+  }
+
+  String? _visitExpressions(
+    List<AstNode> expressions,
+    _UpvalueFunctionContext context,
+  ) {
+    for (final expression in expressions) {
+      final error = _visitExpression(expression, context);
+      if (error != null) {
+        return error;
+      }
+    }
+    return null;
+  }
+
+  String? _visitExpression(
+    AstNode expression,
+    _UpvalueFunctionContext context,
+  ) => switch (expression) {
+    Identifier() => (() {
+      context.recordIdentifierUse(expression.name);
+      return null;
+    })(),
+    NumberLiteral() ||
+    StringLiteral() ||
+    BooleanLiteral() ||
+    NilValue() ||
+    VarArg() => null,
+    GroupedExpression() => _visitExpression(expression.expr, context),
+    UnaryExpression() => _visitExpression(expression.expr, context),
+    BinaryExpression() => (() {
+      final leftError = _visitExpression(expression.left, context);
+      if (leftError != null) {
+        return leftError;
+      }
+      return _visitExpression(expression.right, context);
+    })(),
+    FunctionCall() => (() {
+      final targetError = _visitExpression(expression.name, context);
+      if (targetError != null) {
+        return targetError;
+      }
+      return _visitExpressions(expression.args, context);
+    })(),
+    MethodCall() => (() {
+      final prefixError = _visitExpression(expression.prefix, context);
+      if (prefixError != null) {
+        return prefixError;
+      }
+      return _visitExpressions(expression.args, context);
+    })(),
+    TableFieldAccess() => _visitExpression(expression.table, context),
+    TableIndexAccess() => (() {
+      final tableError = _visitExpression(expression.table, context);
+      if (tableError != null) {
+        return tableError;
+      }
+      return _visitExpression(expression.index, context);
+    })(),
+    TableAccessExpr() => (() {
+      final tableError = _visitExpression(expression.table, context);
+      if (tableError != null) {
+        return tableError;
+      }
+      return _visitExpression(expression.index, context);
+    })(),
+    TableConstructor() => _visitTableConstructor(expression, context),
+    FunctionLiteral() => _visitFunctionBody(
+      expression.funcBody,
+      capturableOuterLocals: context.snapshotCapturableLocals(),
+      implicitSelf: expression.funcBody.implicitSelf,
+      errorLine: _lineOf(expression),
+    ),
+    YieldStatement() => _visitExpressions(expression.expr, context),
+    final other => _visitStatement(other, context),
+  };
+
+  String? _visitTableConstructor(
+    TableConstructor constructor,
+    _UpvalueFunctionContext context,
+  ) {
+    for (final entry in constructor.entries) {
+      final error = switch (entry) {
+        KeyedTableEntry() => _visitExpression(entry.value, context),
+        IndexedTableEntry() => (() {
+          final keyError = _visitExpression(entry.key, context);
+          if (keyError != null) {
+            return keyError;
+          }
+          return _visitExpression(entry.value, context);
+        })(),
+        TableEntryLiteral() => _visitExpression(entry.expr, context),
+        final other => _visitExpression(other, context),
+      };
+      if (error != null) {
+        return error;
+      }
+    }
+    return null;
+  }
+
+  void _visitFunctionNameTarget(
+    FunctionDef definition,
+    _UpvalueFunctionContext context,
+  ) {
+    if (definition.explicitGlobal &&
+        definition.name.rest.isEmpty &&
+        definition.name.method == null) {
+      context.recordGlobalAccess();
+      return;
+    }
+
+    context.recordIdentifierUse(definition.name.first.name);
+  }
+
+  String? _visitFunctionBody(
+    FunctionBody body, {
+    required Set<String> capturableOuterLocals,
+    bool implicitSelf = false,
+    int? errorLine,
+  }) {
+    final context = _UpvalueFunctionContext(
+      capturableOuterLocals: capturableOuterLocals,
+      functionLine: errorLine ?? _lineOf(body),
+    );
+
+    if (implicitSelf) {
+      final selfError = context.declareLocal('self');
+      if (selfError != null) {
+        return selfError;
+      }
+    }
+    for (final parameter in body.parameters ?? const <Identifier>[]) {
+      final parameterError = context.declareLocal(parameter.name);
+      if (parameterError != null) {
+        return parameterError;
+      }
+    }
+    if (body.varargName case final Identifier name) {
+      final varargError = context.declareLocal(name.name);
+      if (varargError != null) {
+        return varargError;
+      }
+    }
+
+    final bodyError = _visitStatements(body.body, context);
+    if (bodyError != null) {
+      return bodyError;
+    }
+
+    if (context.upvalueCount > _maxUpvalues) {
+      return "line ${errorLine ?? _lineOf(body)}: too many upvalues";
+    }
+
+    return null;
+  }
+
+  int _lineOf(AstNode node) => (node.span?.start.line ?? 0) + 1;
+}
+
+final class _UpvalueFunctionContext {
+  _UpvalueFunctionContext({
+    required this.capturableOuterLocals,
+    required this.functionLine,
+  });
+
+  factory _UpvalueFunctionContext.root() => _UpvalueFunctionContext(
+    capturableOuterLocals: const <String>{},
+    functionLine: 1,
+  );
+
+  final Set<String> capturableOuterLocals;
+  final int functionLine;
+  final List<Set<String>> _scopes = <Set<String>>[<String>{}];
+  final Map<String, int> _visibleLocalCounts = <String, int>{};
+  final Set<String> _capturedNames = <String>{};
+  bool _accessesGlobals = false;
+  int _activeLocals = 0;
+
+  void pushScope() {
+    _scopes.add(<String>{});
+  }
+
+  void popScope() {
+    final removed = _scopes.removeLast();
+    _activeLocals -= removed.length;
+    for (final name in removed) {
+      final count = _visibleLocalCounts[name];
+      if (count == null || count <= 1) {
+        _visibleLocalCounts.remove(name);
+      } else {
+        _visibleLocalCounts[name] = count - 1;
+      }
+    }
+  }
+
+  String? declareLocal(String name) {
+    if (_scopes.last.add(name)) {
+      _visibleLocalCounts[name] = (_visibleLocalCounts[name] ?? 0) + 1;
+      _activeLocals++;
+      if (_activeLocals > _maxLocalVariables) {
+        return "line $functionLine: too many local variables";
+      }
+    }
+    return null;
+  }
+
+  void recordIdentifierUse(String name) {
+    if (name == '...' || name == '_ENV' || name == '_G') {
+      return;
+    }
+
+    if (_visibleLocalCounts.containsKey(name)) {
+      return;
+    }
+
+    if (capturableOuterLocals.contains(name)) {
+      _capturedNames.add(name);
+      return;
+    }
+
+    _accessesGlobals = true;
+  }
+
+  void recordGlobalAccess() {
+    _accessesGlobals = true;
+  }
+
+  Set<String> snapshotCapturableLocals() => <String>{
+    ...capturableOuterLocals,
+    ..._visibleLocalCounts.keys,
+  };
+
+  int get upvalueCount => _capturedNames.length + (_accessesGlobals ? 1 : 0);
+}
+
+final class LoadLimitChecker {
+  String? check(Program program) => _visitStatements(
+    program.statements,
+    expressionDepth: 0,
+    statementDepth: 0,
+  );
+
+  String? _visitStatements(
+    List<AstNode> statements, {
+    required int expressionDepth,
+    required int statementDepth,
+  }) {
+    for (final statement in statements) {
+      final error = _visitStatement(
+        statement,
+        expressionDepth: expressionDepth,
+        statementDepth: statementDepth,
+      );
+      if (error != null) {
+        return error;
+      }
+    }
+    return null;
+  }
+
+  String? _visitStatement(
+    AstNode statement, {
+    required int expressionDepth,
+    required int statementDepth,
+  }) => switch (statement) {
+    LocalDeclaration() => _visitLocalDeclaration(
+      statement,
+      expressionDepth: expressionDepth,
+    ),
+    GlobalDeclaration() => _visitGlobalDeclaration(
+      statement,
+      expressionDepth: expressionDepth,
+    ),
+    Assignment() => _visitAssignment(statement, expressionDepth: expressionDepth),
+    ReturnStatement() => _visitExpressions(
+      statement.expr,
+      expressionDepth: expressionDepth,
+    ),
+    DoBlock() => _visitNestedStatements(
+      statement,
+      statement.body,
+      expressionDepth: expressionDepth,
+      statementDepth: statementDepth,
+    ),
+    IfStatement() => _visitIfStatement(
+      statement,
+      expressionDepth: expressionDepth,
+      statementDepth: statementDepth,
+    ),
+    WhileStatement() => _visitWhileStatement(
+      statement,
+      expressionDepth: expressionDepth,
+      statementDepth: statementDepth,
+    ),
+    RepeatUntilLoop() => _visitRepeatUntil(
+      statement,
+      expressionDepth: expressionDepth,
+      statementDepth: statementDepth,
+    ),
+    ForLoop() => _visitForLoop(
+      statement,
+      expressionDepth: expressionDepth,
+      statementDepth: statementDepth,
+    ),
+    ForInLoop() => _visitForInLoop(
+      statement,
+      expressionDepth: expressionDepth,
+      statementDepth: statementDepth,
+    ),
+    FunctionDef() => _visitFunctionBody(
+      statement.body,
+      implicitSelf: statement.implicitSelf,
+      statementDepth: statementDepth,
+    ),
+    LocalFunctionDef() => _visitFunctionBody(
+      statement.funcBody,
+      statementDepth: statementDepth,
+    ),
+    YieldStatement() => _visitExpressions(
+      statement.expr,
+      expressionDepth: expressionDepth,
+    ),
+    ExpressionStatement() => _visitExpression(
+      statement.expr,
+      expressionDepth: expressionDepth,
+    ),
+    AssignmentIndexAccessExpr() => _visitAssignmentIndex(
+      statement,
+      expressionDepth: expressionDepth,
+    ),
+    Break() || Goto() || Label() => null,
+    final node => _visitExpression(node, expressionDepth: expressionDepth),
+  };
+
+  String? _visitLocalDeclaration(
+    LocalDeclaration statement, {
+    required int expressionDepth,
+  }) {
+    if (statement.names.length > _maxLocalVariables) {
+      return "line ${_lineOf(statement)}: too many local variables";
+    }
+    return _visitExpressions(statement.exprs, expressionDepth: expressionDepth);
+  }
+
+  String? _visitGlobalDeclaration(
+    GlobalDeclaration statement, {
+    required int expressionDepth,
+  }) {
+    if (statement.names.length > _maxRegisterLikeArity ||
+        statement.exprs.length > _maxRegisterLikeArity) {
+      return "line ${_lineOf(statement)}: too many assignment values";
+    }
+    return _visitExpressions(statement.exprs, expressionDepth: expressionDepth);
+  }
+
+  String? _visitAssignment(
+    Assignment statement, {
+    required int expressionDepth,
+  }) {
+    if (statement.targets.length > _maxRegisterLikeArity ||
+        statement.exprs.length > _maxRegisterLikeArity) {
+      return "line ${_lineOf(statement)}: too many assignment values";
+    }
+
+    final targetError = _visitExpressions(
+      statement.targets,
+      expressionDepth: expressionDepth,
+    );
+    if (targetError != null) {
+      return targetError;
+    }
+    return _visitExpressions(statement.exprs, expressionDepth: expressionDepth);
+  }
+
+  String? _visitIfStatement(
+    IfStatement statement, {
+    required int expressionDepth,
+    required int statementDepth,
+  }) {
+    final conditionError = _visitExpression(
+      statement.cond,
+      expressionDepth: expressionDepth,
+    );
+    if (conditionError != null) {
+      return conditionError;
+    }
+
+    final thenError = _visitNestedStatements(
+      statement,
+      statement.thenBlock,
+      expressionDepth: expressionDepth,
+      statementDepth: statementDepth,
+    );
+    if (thenError != null) {
+      return thenError;
+    }
+
+    for (final clause in statement.elseIfs) {
+      final elseIfError = _visitExpression(
+        clause.cond,
+        expressionDepth: expressionDepth,
+      );
+      if (elseIfError != null) {
+        return elseIfError;
+      }
+      final blockError = _visitNestedStatements(
+        clause,
+        clause.thenBlock,
+        expressionDepth: expressionDepth,
+        statementDepth: statementDepth,
+      );
+      if (blockError != null) {
+        return blockError;
+      }
+    }
+
+    return _visitNestedStatements(
+      statement,
+      statement.elseBlock,
+      expressionDepth: expressionDepth,
+      statementDepth: statementDepth,
+    );
+  }
+
+  String? _visitWhileStatement(
+    WhileStatement statement, {
+    required int expressionDepth,
+    required int statementDepth,
+  }) {
+    final conditionError = _visitExpression(
+      statement.cond,
+      expressionDepth: expressionDepth,
+    );
+    if (conditionError != null) {
+      return conditionError;
+    }
+    return _visitNestedStatements(
+      statement,
+      statement.body,
+      expressionDepth: expressionDepth,
+      statementDepth: statementDepth,
+    );
+  }
+
+  String? _visitRepeatUntil(
+    RepeatUntilLoop statement, {
+    required int expressionDepth,
+    required int statementDepth,
+  }) {
+    final bodyError = _visitNestedStatements(
+      statement,
+      statement.body,
+      expressionDepth: expressionDepth,
+      statementDepth: statementDepth,
+    );
+    if (bodyError != null) {
+      return bodyError;
+    }
+    return _visitExpression(statement.cond, expressionDepth: expressionDepth);
+  }
+
+  String? _visitForLoop(
+    ForLoop statement, {
+    required int expressionDepth,
+    required int statementDepth,
+  }) {
+    final startError = _visitExpression(
+      statement.start,
+      expressionDepth: expressionDepth,
+    );
+    if (startError != null) {
+      return startError;
+    }
+    final endError = _visitExpression(
+      statement.endExpr,
+      expressionDepth: expressionDepth,
+    );
+    if (endError != null) {
+      return endError;
+    }
+    final stepError = _visitExpression(
+      statement.stepExpr,
+      expressionDepth: expressionDepth,
+    );
+    if (stepError != null) {
+      return stepError;
+    }
+    return _visitNestedStatements(
+      statement,
+      statement.body,
+      expressionDepth: expressionDepth,
+      statementDepth: statementDepth,
+    );
+  }
+
+  String? _visitForInLoop(
+    ForInLoop statement, {
+    required int expressionDepth,
+    required int statementDepth,
+  }) {
+    final iteratorError = _visitExpressions(
+      statement.iterators,
+      expressionDepth: expressionDepth,
+    );
+    if (iteratorError != null) {
+      return iteratorError;
+    }
+    return _visitNestedStatements(
+      statement,
+      statement.body,
+      expressionDepth: expressionDepth,
+      statementDepth: statementDepth,
+    );
+  }
+
+  String? _visitFunctionBody(
+    FunctionBody body, {
+    bool implicitSelf = false,
+    required int statementDepth,
+  }) {
+    final parameterCount =
+        (body.parameters?.length ?? 0) +
+        (implicitSelf ? 1 : 0) +
+        (body.varargName != null ? 1 : 0);
+    if (parameterCount > _maxLocalVariables) {
+      return "line ${_lineOf(body)}: too many local variables";
+    }
+    return _visitNestedStatements(
+      body,
+      body.body,
+      expressionDepth: 0,
+      statementDepth: statementDepth,
+    );
+  }
+
+  String? _visitAssignmentIndex(
+    AssignmentIndexAccessExpr statement, {
+    required int expressionDepth,
+  }) {
+    final targetError = _visitExpression(
+      statement.target,
+      expressionDepth: expressionDepth,
+    );
+    if (targetError != null) {
+      return targetError;
+    }
+    final indexError = _visitExpression(
+      statement.index,
+      expressionDepth: expressionDepth,
+    );
+    if (indexError != null) {
+      return indexError;
+    }
+    return _visitExpression(statement.value, expressionDepth: expressionDepth);
+  }
+
+  String? _visitExpressions(
+    List<AstNode> expressions, {
+    required int expressionDepth,
+  }) {
+    for (final expression in expressions) {
+      final error = _visitExpression(
+        expression,
+        expressionDepth: expressionDepth,
+      );
+      if (error != null) {
+        return error;
+      }
+    }
+    return null;
+  }
+
+  String? _visitExpression(
+    AstNode expression, {
+    required int expressionDepth,
+  }) {
+    if (expressionDepth > _maxExpressionNesting) {
+      return "line ${_lineOf(expression)}: expression nesting overflow";
+    }
+
+    return switch (expression) {
+      Identifier() || NumberLiteral() || StringLiteral() || BooleanLiteral() || NilValue() || VarArg() => null,
+      GroupedExpression() => _visitExpression(
+        expression.expr,
+        expressionDepth: expressionDepth + 1,
+      ),
+      UnaryExpression() => _visitExpression(
+        expression.expr,
+        expressionDepth: expressionDepth,
+      ),
+      BinaryExpression() => (() {
+        final leftError = _visitExpression(
+          expression.left,
+          expressionDepth: expressionDepth + 1,
+        );
+        if (leftError != null) {
+          return leftError;
+        }
+        return _visitExpression(
+          expression.right,
+          expressionDepth: expressionDepth + 1,
+        );
+      })(),
+      FunctionCall() => (() {
+        if (expression.args.length > _maxRegisterLikeArity) {
+          return "line ${_lineOf(expression)}: too many registers";
+        }
+        final targetError = _visitExpression(
+          expression.name,
+          expressionDepth: expressionDepth,
+        );
+        if (targetError != null) {
+          return targetError;
+        }
+        return _visitExpressions(
+          expression.args,
+          expressionDepth: expressionDepth + 1,
+        );
+      })(),
+      MethodCall() => (() {
+        if (expression.args.length > _maxRegisterLikeArity) {
+          return "line ${_lineOf(expression)}: too many registers";
+        }
+        final prefixError = _visitExpression(
+          expression.prefix,
+          expressionDepth: expressionDepth,
+        );
+        if (prefixError != null) {
+          return prefixError;
+        }
+        return _visitExpressions(
+          expression.args,
+          expressionDepth: expressionDepth + 1,
+        );
+      })(),
+      TableFieldAccess() => _visitExpression(
+        expression.table,
+        expressionDepth: expressionDepth,
+      ),
+      TableIndexAccess() => (() {
+        final tableError = _visitExpression(
+          expression.table,
+          expressionDepth: expressionDepth,
+        );
+        if (tableError != null) {
+          return tableError;
+        }
+        return _visitExpression(
+          expression.index,
+          expressionDepth: expressionDepth,
+        );
+      })(),
+      TableAccessExpr() => (() {
+        final tableError = _visitExpression(
+          expression.table,
+          expressionDepth: expressionDepth,
+        );
+        if (tableError != null) {
+          return tableError;
+        }
+        return _visitExpression(
+          expression.index,
+          expressionDepth: expressionDepth,
+        );
+      })(),
+      TableConstructor() => _visitTableConstructor(
+        expression,
+        expressionDepth: expressionDepth + 1,
+      ),
+      FunctionLiteral() => _visitFunctionBody(
+        expression.funcBody,
+        statementDepth: 0,
+      ),
+      YieldStatement() => _visitExpressions(
+        expression.expr,
+        expressionDepth: expressionDepth,
+      ),
+      final node => _visitStatement(
+        node,
+        expressionDepth: expressionDepth,
+        statementDepth: 0,
+      ),
+    };
+  }
+
+  String? _visitTableConstructor(
+    TableConstructor node, {
+    required int expressionDepth,
+  }) {
+    for (final entry in node.entries) {
+      final error = switch (entry) {
+        KeyedTableEntry() => _visitExpression(
+          entry.value,
+          expressionDepth: expressionDepth,
+        ),
+        IndexedTableEntry() => (() {
+          final keyError = _visitExpression(
+            entry.key,
+            expressionDepth: expressionDepth,
+          );
+          if (keyError != null) {
+            return keyError;
+          }
+          return _visitExpression(
+            entry.value,
+            expressionDepth: expressionDepth,
+          );
+        })(),
+        TableEntryLiteral() => _visitExpression(
+          entry.expr,
+          expressionDepth: expressionDepth,
+        ),
+        final other => _visitExpression(other, expressionDepth: expressionDepth),
+      };
+      if (error != null) {
+        return error;
+      }
+    }
+    return null;
+  }
+
+  int _lineOf(AstNode node) => (node.span?.start.line ?? 0) + 1;
+
+  String? _visitNestedStatements(
+    AstNode node,
+    List<AstNode> statements, {
+    required int expressionDepth,
+    required int statementDepth,
+  }) {
+    if (statementDepth >= _maxStatementNesting) {
+      return "line ${_lineOf(node)}: statement nesting overflow";
+    }
+    return _visitStatements(
+      statements,
+      expressionDepth: expressionDepth,
+      statementDepth: statementDepth + 1,
+    );
+  }
 }
 
 final class GlobalChecker {

@@ -428,7 +428,8 @@ class _ValidatorState {
       final existing = current.labels[name];
       if (existing != null) {
         final line = _line(existing.label.span);
-        return "label '$name' already defined at line $line";
+        final currentLine = _line(label.span);
+        return ":$currentLine: label '$name' already defined at line $line";
       }
     }
 

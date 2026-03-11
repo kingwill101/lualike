@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:source_span/source_span.dart';
 
 import 'parsers/string.dart';
@@ -1354,8 +1356,9 @@ class BinaryExpression extends AstNode implements Dumpable {
 class UnaryExpression extends AstNode implements Dumpable {
   final String op;
   final AstNode expr;
+  final int? operatorLine;
 
-  UnaryExpression(this.op, this.expr);
+  UnaryExpression(this.op, this.expr, {this.operatorLine});
 
   @override
   Future<T> accept<T>(AstVisitor<T> visitor) =>
@@ -1374,12 +1377,13 @@ class UnaryExpression extends AstNode implements Dumpable {
     'type': 'UnaryExpression',
     'op': op,
     'expr': expr is Dumpable ? (expr as Dumpable).dump() : {'type': 'Unknown'},
+    if (operatorLine != null) 'operatorLine': operatorLine,
   };
 
   static UnaryExpression fromDump(Map<String, dynamic> data) {
     final op = data['op'] as String;
     final expr = undumpAst(Map<String, dynamic>.from(data['expr']));
-    return UnaryExpression(op, expr);
+    return UnaryExpression(op, expr, operatorLine: data['operatorLine'] as int?);
   }
 }
 
@@ -1649,13 +1653,22 @@ class StringLiteral extends AstNode implements Dumpable {
   // Cache the parsed bytes for efficient access
   late final List<int> _bytes;
 
-  StringLiteral(String raw, {this.isLongString = false}) : value = raw {
+  StringLiteral(
+    String raw, {
+    this.isLongString = false,
+    bool sourceCodeUnitsAreBytes = false,
+  }) : value = raw {
     if (isLongString) {
-      // Long strings don't process escape sequences - use raw bytes
-      _bytes = raw.codeUnits;
+      // Long strings don't process escape sequences. Preserve raw bytes for
+      // load(LuaString) transport strings, otherwise re-encode Unicode source
+      // text back to its UTF-8 byte representation.
+      _bytes = sourceCodeUnitsAreBytes ? raw.codeUnits : utf8.encode(raw);
     } else {
       // Regular strings process escape sequences
-      _bytes = LuaStringParser.parseStringContent(raw);
+      _bytes = LuaStringParser.parseStringContent(
+        raw,
+        sourceCodeUnitsAreBytes: sourceCodeUnitsAreBytes,
+      );
     }
   }
 
