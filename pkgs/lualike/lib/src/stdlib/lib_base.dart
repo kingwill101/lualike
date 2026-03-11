@@ -2716,6 +2716,6 @@ class RequireFunction extends BuiltinFunction {
     final errorMsg =
         "module '$moduleName' not found:\n\t${errorLines.join('\n\t')}";
     Logger.debugLazy(() => "Error message: $errorMsg", category: 'Require');
-    throw LuaError(errorMsg);
+    throw LuaError(errorMsg).withProtectedCallLocationSuppressed();
   }
 }

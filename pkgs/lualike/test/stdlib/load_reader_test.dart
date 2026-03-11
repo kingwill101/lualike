@@ -33,6 +33,24 @@ void main() {
       expect(src.unwrap(), equals('modname'));
     });
 
+    test('reports syntax errors after concatenating reader chunks', () async {
+      await lua.execute(r'''
+        local x = "*a = 123"
+        local function read1 (x)
+          local i = 0
+          return function ()
+            i=i+1
+            return string.sub(x, i, i)
+          end
+        end
+        a, err = load(read1(x))
+      ''');
+      final loaded = lua.getGlobal('a') as Value;
+      final err = lua.getGlobal('err') as Value;
+      expect(loaded.unwrap(), isNull);
+      expect(err.unwrap(), contains('unexpected symbol'));
+    });
+
     test('handles invalid reader function return types', () async {
       // Test reader function returning boolean
       await lua.execute(r'''
