@@ -122,17 +122,34 @@ void main() {
           stripped_len = #stripped
         ''');
 
-        expect((bridge.getGlobal('dumped_len') as Value?)?.raw, greaterThan(1000));
+        expect(
+          (bridge.getGlobal('dumped_len') as Value?)?.raw,
+          greaterThan(1000),
+        );
         expect((bridge.getGlobal('dumped_len') as Value?)?.raw, lessThan(2000));
         expect((bridge.getGlobal('result') as Value?)?.raw, equals(8));
-        expect((bridge.getGlobal('f_source') as Value?)?.raw, equals(expectedName));
-        expect((bridge.getGlobal('g_source') as Value?)?.raw, equals(expectedName));
-        expect((bridge.getGlobal('h_source') as Value?)?.raw, equals(expectedName));
-        expect((bridge.getGlobal('stripped_len') as Value?)?.raw, lessThan(500));
+        expect(
+          (bridge.getGlobal('f_source') as Value?)?.raw,
+          equals(expectedName),
+        );
+        expect(
+          (bridge.getGlobal('g_source') as Value?)?.raw,
+          equals(expectedName),
+        );
+        expect(
+          (bridge.getGlobal('h_source') as Value?)?.raw,
+          equals(expectedName),
+        );
+        expect(
+          (bridge.getGlobal('stripped_len') as Value?)?.raw,
+          lessThan(500),
+        );
       });
 
-      test('compact top-level dumps keep one extra copy of string literals', () async {
-        await bridge.execute(r'''
+      test(
+        'compact top-level dumps keep one extra copy of string literals',
+        () async {
+          await bridge.execute(r'''
           str = "|" .. string.rep("X", 50) .. "|"
           prog = string.format([[
             local str <const> = "%s"
@@ -147,8 +164,9 @@ void main() {
           _, count = string.gsub(dumped, str, {})
         ''');
 
-        expect((bridge.getGlobal('count') as Value?)?.raw, equals(2));
-      });
+          expect((bridge.getGlobal('count') as Value?)?.raw, equals(2));
+        },
+      );
     });
 
     group('legacy chunk mode handling', () {
@@ -271,6 +289,52 @@ void main() {
         );
         expect((bridge.getGlobal('c') as Value?)?.raw, isNull);
       });
+
+      test(
+        'reloading the same dumped closure keeps upvalue state separate',
+        () async {
+          await bridge.execute('''
+          function read1(x)
+            local i = 0
+            return function()
+              i = i + 1
+              if i <= #x then
+                return string.sub(x, i, i)
+              else
+                return nil
+              end
+            end
+          end
+
+          local seed = 0
+          local function make_counter()
+            local x = seed
+            return function()
+              x = x + 1
+              return x
+            end
+          end
+
+          dumped = string.dump(make_counter())
+
+          first = assert(load(read1(dumped)))
+          second = assert(load(read1(dumped)))
+
+          assert(debug.setupvalue(first, 1, 10) == "x")
+          assert(debug.setupvalue(second, 1, 20) == "x")
+
+          first_a = first()
+          first_b = first()
+          second_a = second()
+          second_b = second()
+        ''');
+
+          expect((bridge.getGlobal('first_a') as Value?)?.raw, equals(11));
+          expect((bridge.getGlobal('first_b') as Value?)?.raw, equals(12));
+          expect((bridge.getGlobal('second_a') as Value?)?.raw, equals(21));
+          expect((bridge.getGlobal('second_b') as Value?)?.raw, equals(22));
+        },
+      );
     });
 
     group('complex nested functions', () {

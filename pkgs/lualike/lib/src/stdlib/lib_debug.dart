@@ -2088,6 +2088,23 @@ Value _collectActiveLines(Value function) {
   if (function.strippedDebugInfo) {
     return Value(<Object?, Object?>{});
   }
+  if (function.raw case final LuaBytecodeClosure closure) {
+    final prototype = closure.prototype;
+    if (!prototype.hasDebugInfo) {
+      return Value(<Object?, Object?>{});
+    }
+    final lines = <Object?, Object?>{};
+    for (var pc = 0; pc < prototype.code.length; pc++) {
+      final line = prototype.lineForPc(pc);
+      if (line != null && line > 0) {
+        lines[line] = Value(true);
+      }
+    }
+    if (prototype.lastLineDefined > 0) {
+      lines[prototype.lastLineDefined] = Value(true);
+    }
+    return Value(lines);
+  }
   final body = function.functionBody;
   if (body == null) {
     return Value(null);
