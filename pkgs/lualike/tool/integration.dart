@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:artisanal/args.dart';
 import 'package:lualike/integration.dart';
 import 'package:yaml/yaml.dart';
 
@@ -11,7 +12,7 @@ const String defaultConfigFile = 'tool/integration.yaml';
 String testSuitePath = '.lua-tests';
 String logBaseDir = 'test-logs';
 String logDirPath = ''; // Will be set during setup
-String downloadUrl = 'https://www.lua.org/tests/lua-5.4.7-tests.tar.gz';
+String downloadUrl = 'https://www.lua.org/tests/lua-5.5.0-tests.tar.gz';
 bool verbose = false;
 bool parallel = false;
 int parallelJobs = 4;
@@ -29,7 +30,6 @@ void _setupLogging() {
   if (!baseDir.existsSync()) {
     baseDir.createSync(recursive: true);
   }
-
   // Create timestamped directory for this run
   final timestamp = DateTime.now().toIso8601String().replaceAll(':', '-');
   logDirPath = '$logBaseDir/run-$timestamp';
@@ -63,136 +63,152 @@ void _setupLogging() {
   print('Logs will be saved to: $logDirPath');
 }
 
-Future<void> main(List<String> arguments) async {
-  String configFile = defaultConfigFile;
+class IntegrationCommandRunner extends CommandRunner<void> {
+  IntegrationCommandRunner()
+    : super('lualike_test_runner', 'Run lualike integration tests.') {
+    argParser
+      ..addOption(
+        'config',
+        defaultsTo: defaultConfigFile,
+        help: 'Path to integration config YAML file.',
+      )
+      ..addFlag(
+        'internal',
+        negatable: false,
+        help: 'Enable internal tests (requires specific build).',
+      )
+      ..addOption('url', help: 'Override test suite download URL.')
+      ..addOption('log-path', help: 'Base directory for log output.')
+      ..addOption('path', help: 'Path to test suite (default: .lua-tests).')
+      ..addFlag(
+        'parallel',
+        abbr: 'p',
+        negatable: false,
+        help: 'Run tests in parallel.',
+      )
+      ..addOption('jobs', abbr: 'j', help: 'Number of parallel jobs.')
+      ..addOption(
+        'filter',
+        abbr: 'f',
+        help: 'Filter tests by name using regex.',
+      )
+      ..addMultiOption(
+        'category',
+        abbr: 'c',
+        splitCommas: true,
+        help: 'Run tests from specific category.',
+      )
+      ..addFlag(
+        'list-categories',
+        negatable: false,
+        help: 'List available test categories and exit.',
+      )
+      ..addFlag(
+        'keep-only-latest',
+        negatable: false,
+        help: 'Keep only latest run log artifacts.',
+      );
+  }
 
-  // First check if a specific config file is specified
-  for (var i = 0; i < arguments.length; i++) {
-    if (arguments[i] == '--config' && i + 1 < arguments.length) {
-      configFile = arguments[++i];
-      break;
+  @override
+  String get invocation => '$executableName [options]';
+
+  @override
+  Future<void> runCommand(ArgResults topLevelResults) async {
+    if (topLevelResults['help'] as bool) {
+      printUsage();
+      return;
+    }
+    if (topLevelResults.rest.isNotEmpty) {
+      usageException('Unexpected arguments: ${topLevelResults.rest.join(' ')}');
+    }
+
+    await _loadConfigFile(topLevelResults['config'] as String);
+
+    if (topLevelResults['internal'] as bool) {
+      useInternalTests = true;
+    }
+
+    if (topLevelResults.wasParsed('url')) {
+      downloadUrl = topLevelResults['url'] as String;
+    }
+    if (topLevelResults.wasParsed('log-path')) {
+      logBaseDir = topLevelResults['log-path'] as String;
+    }
+    if (topLevelResults.wasParsed('path')) {
+      testSuitePath = topLevelResults['path'] as String;
+    }
+    if (topLevelResults.wasParsed('verbose')) {
+      verbose = topLevelResults['verbose'] as bool;
+    }
+    if (topLevelResults.wasParsed('parallel')) {
+      parallel = topLevelResults['parallel'] as bool;
+    }
+    if (topLevelResults.wasParsed('jobs')) {
+      final parsedJobs = int.tryParse(topLevelResults['jobs'] as String);
+      if (parsedJobs == null || parsedJobs <= 0) {
+        usageException('--jobs must be a positive integer.');
+      }
+      parallelJobs = parsedJobs;
+      parallel = true;
+    }
+    if (topLevelResults.wasParsed('filter')) {
+      filterPattern = topLevelResults['filter'] as String;
+    }
+    if (topLevelResults.wasParsed('keep-only-latest')) {
+      keepOnlyLatest = topLevelResults['keep-only-latest'] as bool;
+    }
+
+    if (topLevelResults['list-categories'] as bool) {
+      print('Available test categories:');
+      for (final entry in testCategories.entries) {
+        print('  ${entry.key}: ${entry.value.join(', ')}');
+      }
+      return;
+    }
+
+    if (topLevelResults.wasParsed('category')) {
+      final selectedCategories =
+          topLevelResults['category'] as List<String>? ?? const <String>[];
+      for (final category in selectedCategories) {
+        if (testCategories.containsKey(category)) {
+          categories.add(category);
+        } else {
+          print('Warning: Unknown category: $category');
+          print('Available categories: ${testCategories.keys.join(', ')}');
+        }
+      }
+    }
+
+    _setupLogging();
+    await checkAndDownloadTestSuite(downloadUrl, testSuitePath);
+
+    final runner = TestRunner(
+      testSuitePath: testSuitePath,
+      useInternalTests: useInternalTests,
+      logDirPath: logDirPath,
+      verbose: verbose,
+      parallel: parallel,
+      parallelJobs: parallelJobs,
+      filterPattern: filterPattern,
+      categories: categories,
+      skipList: skipList,
+    );
+
+    io.info('Running tests');
+    await runner.runTestSuite();
+    io.info('Tests finished');
+    io.info('\nLog files are available at:');
+    io.info('  Current run: $logDirPath');
+    if (!keepOnlyLatest) {
+      io.info('  Latest run symlink: $logBaseDir/latest');
     }
   }
+}
 
-  // Load configuration from file
-  await _loadConfigFile(configFile);
-
-  for (var i = 0; i < arguments.length; i++) {
-    switch (arguments[i]) {
-      case '--config':
-        // Already handled before the main argument parsing
-        if (i + 1 < arguments.length) i++;
-        break;
-      case '--internal':
-        useInternalTests = true;
-        break;
-      case '--url':
-        if (i + 1 < arguments.length) {
-          downloadUrl = arguments[++i];
-        }
-        break;
-      case '--log-path':
-        if (i + 1 < arguments.length) {
-          logBaseDir = arguments[++i];
-        } else {
-          print('Error: --log-path requires an argument');
-          exit(1);
-        }
-        break;
-      case '--path':
-        if (i + 1 < arguments.length) {
-          testSuitePath = arguments[++i];
-        } else {
-          print('Error: --path requires an argument');
-          exit(1);
-        }
-        break;
-      // skip-list is now handled in the config file
-      case '--verbose':
-      case '-v':
-        verbose = true;
-        break;
-      case '--parallel':
-      case '-p':
-        parallel = true;
-        break;
-      case '--jobs':
-      case '-j':
-        if (i + 1 < arguments.length) {
-          parallelJobs = int.tryParse(arguments[++i]) ?? 4;
-          parallel = true;
-        } else {
-          print('Error: --jobs requires an argument');
-          exit(1);
-        }
-        break;
-      case '--filter':
-      case '-f':
-        if (i + 1 < arguments.length) {
-          filterPattern = arguments[++i];
-        } else {
-          print('Error: --filter requires an argument');
-          exit(1);
-        }
-        break;
-      case '--category':
-      case '-c':
-        if (i + 1 < arguments.length) {
-          final category = arguments[++i];
-          if (testCategories.containsKey(category)) {
-            categories.add(category);
-          } else {
-            print('Warning: Unknown category: $category');
-            print('Available categories: ${testCategories.keys.join(', ')}');
-          }
-        } else {
-          print('Error: --category requires an argument');
-          exit(1);
-        }
-        break;
-      case '--list-categories':
-        print('Available test categories:');
-        for (final entry in testCategories.entries) {
-          print('  ${entry.key}: ${entry.value.join(', ')}');
-        }
-        exit(0);
-      case '--keep-only-latest':
-        keepOnlyLatest = true;
-        break;
-      default:
-        print('Unknown option: ${arguments[i]}');
-        printUsage();
-        exit(1);
-    }
-  }
-
-  // Set up logging directory
-  _setupLogging();
-
-  // Skip list is loaded from config file
-
-  // Download test suite if needed
-  await checkAndDownloadTestSuite(downloadUrl, testSuitePath);
-
-  final runner = TestRunner(
-    testSuitePath: testSuitePath,
-    useInternalTests: true,
-    logDirPath: logDirPath,
-    verbose: verbose,
-    parallel: parallel,
-    parallelJobs: parallelJobs,
-    filterPattern: filterPattern,
-    categories: categories,
-    skipList: skipList,
-  );
-  print("Running tests");
-  await runner.runTestSuite();
-  print("Tests finished");
-  print("\nLog files are available at:");
-  print("  Current run: $logDirPath");
-  if (!keepOnlyLatest) {
-    print("  Latest run symlink: $logBaseDir/latest");
-  }
+Future<void> main(List<String> args) async {
+  final runner = IntegrationCommandRunner();
+  await runner.run(args);
 }
 
 Future<void> _loadConfigFile(String configPath) async {
@@ -277,23 +293,4 @@ Future<void> _loadConfigFile(String configPath) async {
   } catch (e) {
     print('Warning: Failed to load configuration: $e');
   }
-}
-
-void printUsage() {
-  print('''
-Usage: lualike_test_runner [options]
-Options:
-  --ast                Run tests using AST interpreter (default)
-  --ir                 Run tests using lualike IR runtime
-  --internal           Enable internal tests (requires specific build)
-  --path <path>        Specify the path to the test suite (default: .lua-tests)
-  --log-path <path>    Specify the path for log files
-  --skip-list <path>   Specify the path to the skip list YAML file (default: tool/skip_tests.yaml)
-  --verbose, -v        Enable verbose output
-  --parallel, -p       Run tests in parallel
-  --jobs, -j <n>       Number of parallel jobs (default: 4)
-  --filter, -f <regex> Filter tests by name using regex
-  --category, -c <cat> Run tests from specific category
-  --list-categories    List available test categories
-''');
 }

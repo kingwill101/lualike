@@ -1,6 +1,6 @@
 import 'dart:developer' as developer;
 
-import 'package:args/args.dart';
+import 'package:artisanal/args.dart';
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/utils/file_system_utils.dart' as fs;
 import 'package:lualike/src/utils/io_abstractions.dart' as io_abs;
