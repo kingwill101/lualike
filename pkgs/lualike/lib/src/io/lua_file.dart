@@ -7,6 +7,7 @@ import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/upvalue.dart';
+import 'package:lualike/src/utils/type.dart' show getLuaType;
 import 'package:lualike/src/value.dart';
 import 'package:lualike/src/gc/gc.dart';
 
@@ -17,9 +18,14 @@ final fileMetamethods = {
   "__name": "FILE*",
   "__gc": (List<Object?> args) async {
     Logger.debugLazy(() => 'Garbage collecting file', category: 'IO');
+    if (args.isEmpty) {
+      throw LuaError("bad argument #1 to '__gc' (FILE* expected, got no value)");
+    }
     final fileValue = args[0];
     if (fileValue is! Value || fileValue.raw is! LuaFile) {
-      throw LuaError.typeError("file expected");
+      throw LuaError(
+        "bad argument #1 to '__gc' (FILE* expected, got ${getLuaType(fileValue)})",
+      );
     }
     final luaFile = fileValue.raw as LuaFile;
 

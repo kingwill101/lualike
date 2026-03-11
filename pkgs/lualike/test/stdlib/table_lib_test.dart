@@ -326,6 +326,21 @@ void main() {
       }
     });
 
+    test('table.sort propagates comparator bad-argument wording', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        okComparator, msgComparator = pcall(function()
+          return table.sort({1, 2, 3}, table.sort)
+        end)
+      ''');
+
+      expect((bridge.getGlobal('okComparator') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('msgComparator') as Value).unwrap(),
+        contains("bad argument #1 to 'table.sort' (table expected, got number)"),
+      );
+    });
+
     test('table.sort with LuaString values', () async {
       final bridge = LuaLike();
 

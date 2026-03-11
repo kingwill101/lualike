@@ -72,6 +72,54 @@ void main() {
       expect((bridge.getGlobal('f') as Value).raw.toString(), equals(""));
     });
 
+    test('string.sub reports bad self and argument positions like Lua 5.5', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        aaa = {}
+        setmetatable(aaa, {__index = string})
+
+        okSelf, msgSelf = pcall(function()
+          return aaa:sub()
+        end)
+
+        okArg2, msgArg2 = pcall(function()
+          return string.sub('a', {})
+        end)
+
+        okMethodArg1, msgMethodArg1 = pcall(function()
+          return ('a'):sub{}
+        end)
+
+        okHugeIndex, msgHugeIndex = pcall(function()
+          return string.sub('a', 2.0^100)
+        end)
+      ''');
+
+      expect((bridge.getGlobal('okSelf') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('msgSelf') as Value).unwrap(),
+        contains("calling 'sub' on bad self (string expected, got table)"),
+      );
+
+      expect((bridge.getGlobal('okArg2') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('msgArg2') as Value).unwrap(),
+        contains("bad argument #2 to 'sub' (number expected, got table)"),
+      );
+
+      expect((bridge.getGlobal('okMethodArg1') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('msgMethodArg1') as Value).unwrap(),
+        contains("bad argument #1 to 'sub' (number expected, got table)"),
+      );
+
+      expect((bridge.getGlobal('okHugeIndex') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('msgHugeIndex') as Value).unwrap(),
+        contains("bad argument #2 to 'sub' (number has no integer representation)"),
+      );
+    });
+
     test('string.upper and string.lower', () async {
       final bridge = LuaLike();
       await bridge.execute('''
@@ -330,6 +378,21 @@ void main() {
       final r3String = r3 is LuaString ? r3.toString() : r3.toString();
       expect(r3String, equals("hello! world! from! lua!"));
       expect((bridge.getGlobal('n3') as Value).raw, equals(4));
+    });
+
+    test('string.gsub preserves callback bad-argument wording', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        okGsubCallback, msgGsubCallback = pcall(function()
+          return string.gsub('s', 's', setmetatable)
+        end)
+      ''');
+
+      expect((bridge.getGlobal('okGsubCallback') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('msgGsubCallback') as Value).unwrap(),
+        contains("bad argument #1 to 'setmetatable' (table expected, got string)"),
+      );
     });
 
     test(
