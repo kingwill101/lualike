@@ -9,6 +9,7 @@ import 'ir/compiler.dart';
 import 'ir/disassembler.dart';
 import 'ir/runtime.dart';
 import 'ir/vm.dart';
+import 'lua_error.dart';
 import 'lua_bytecode/runtime.dart';
 
 typedef RuntimeSetupCallback = void Function(LuaRuntime);
@@ -71,10 +72,16 @@ Future<Object?> executeCode(
     return e.value;
   } on Exception catch (e, s) {
     // Format error message in Lua style
-    String errorMsg = e.toString();
-    if (errorMsg.startsWith('Exception: ')) {
-      errorMsg = errorMsg.substring('Exception: '.length);
-    }
+    final String errorMsg = switch (e) {
+      final LuaError luaError => luaError.message,
+      _ => () {
+        var message = e.toString();
+        if (message.startsWith('Exception: ')) {
+          message = message.substring('Exception: '.length);
+        }
+        return message;
+      }(),
+    };
 
     runtime.reportError(errorMsg, trace: s, error: e);
     rethrow;

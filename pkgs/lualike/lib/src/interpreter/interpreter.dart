@@ -1118,11 +1118,13 @@ class Interpreter extends AstVisitor<Object?>
       // coroutine-owned portion of the explicit call stack before unwinding.
       final activeCoroutine = getCurrentCoroutine();
       activeCoroutine?.captureCurrentCallStack();
-      final luaStackTrace = activeCoroutine != null
-          ? callStack.toLuaStackTraceFromDepth(
-              activeCoroutine.callStackBaseDepth,
-            )
-          : callStack.toLuaStackTrace();
+      final luaStackTrace =
+          luaError?.luaStackTrace ??
+          (activeCoroutine != null
+              ? callStack.toLuaStackTraceFromDepth(
+                  activeCoroutine.callStackBaseDepth,
+                )
+              : callStack.toLuaStackTrace());
       if (luaError != null && luaError.luaStackTrace == null) {
         luaError.luaStackTrace = luaStackTrace;
       }
