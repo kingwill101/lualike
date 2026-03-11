@@ -330,7 +330,38 @@ class AssertFunction extends BuiltinFunction {
               'AssertFunction: Assertion failed with explicit message object: ${explicitMessage.raw}',
           category: 'Base',
         );
-        throw explicitMessage;
+        if (interpreter != null && interpreter!.isInProtectedCall) {
+          throw explicitMessage;
+        }
+
+        final message = explicitMessage.raw.toString();
+        final cause = switch (explicitMessage.raw) {
+          String() || LuaString() => null,
+          final Object raw => raw,
+          _ => null,
+        };
+
+        if (interpreter?.callStack.current?.callNode case final callNode?) {
+          throw LuaError(
+            _formatErrorAtStackLevel(interpreter!, message, 1),
+            cause: cause,
+            node: callNode,
+            span: callNode.span,
+            suppressAutomaticLocation: true,
+          );
+        }
+        if (interpreter != null) {
+          throw LuaError(
+            _formatErrorAtStackLevel(interpreter!, message, 1),
+            cause: cause,
+            suppressAutomaticLocation: true,
+          );
+        }
+        throw LuaError(
+          message,
+          cause: cause,
+          suppressAutomaticLocation: true,
+        );
       }
 
       const message = 'assertion failed!';
@@ -561,17 +592,9 @@ const int _maxXpcallMessageHandlerDepth = 196;
 
 enum _ProtectedCallPhase { call, errorHandler }
 
-Object? _xpcallErrorSignature(Object error) {
+bool _shouldRecurseXpcallHandler(Object error) {
   final normalized = _errorHandlerArgument(error);
-  final raw = normalized.raw;
-  return switch (raw) {
-    null => 'nil',
-    final String value => 's:$value',
-    final LuaString value => 'ls:${value.toString()}',
-    final num value => 'n:$value',
-    final bool value => 'b:$value',
-    _ => raw,
-  };
+  return normalized.raw is num;
 }
 
 final class _ProtectedCallSuspension implements CoroutineContinuation {
@@ -657,10 +680,10 @@ final class _ProtectedCallSuspension implements CoroutineContinuation {
       );
       rethrow;
     } catch (handlerError) {
-      if (_xpcallErrorSignature(handlerError) == _xpcallErrorSignature(error)) {
-        return _packXProtectedErrorHandlerFailure(handlerError);
+      if (_shouldRecurseXpcallHandler(handlerError)) {
+        return await _invokeErrorHandler(handlerError, depth: depth + 1);
       }
-      return await _invokeErrorHandler(handlerError, depth: depth + 1);
+      return _packXProtectedErrorHandlerFailure(handlerError);
     }
   }
 
@@ -1809,14 +1832,14 @@ class XPCallFunction extends BuiltinFunction {
       );
       rethrow;
     } catch (handlerError) {
-      if (_xpcallErrorSignature(handlerError) == _xpcallErrorSignature(error)) {
-        return _packXProtectedErrorHandlerFailure(handlerError);
+      if (_shouldRecurseXpcallHandler(handlerError)) {
+        return await _invokeErrorHandler(
+          handler,
+          handlerError,
+          depth: depth + 1,
+        );
       }
-      return await _invokeErrorHandler(
-        handler,
-        handlerError,
-        depth: depth + 1,
-      );
+      return _packXProtectedErrorHandlerFailure(handlerError);
     }
   }
 
