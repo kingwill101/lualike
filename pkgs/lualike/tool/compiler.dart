@@ -8,6 +8,17 @@ import 'package:path/path.dart' as path;
 import 'test.dart' show console;
 import 'utils.dart';
 
+/// Result of a smart compilation attempt.
+final class SmartCompileResult {
+  const SmartCompileResult({required this.success, required this.recompiled});
+
+  /// Whether the binary is usable after the operation.
+  final bool success;
+
+  /// Whether this call actually rebuilt the binary.
+  final bool recompiled;
+}
+
 /// Smart compilation system that only recompiles when source files change
 class SmartCompiler {
   final String projectRoot;
@@ -250,7 +261,7 @@ class SmartCompiler {
   }
 
   /// Smart compile: only recompile if source files have changed
-  Future<bool> smartCompile({bool force = false}) async {
+  Future<SmartCompileResult> smartCompile({bool force = false}) async {
     if (force) {
       console.setForegroundColor(ConsoleColor.yellow);
       console.write('Force compilation requested');
@@ -265,7 +276,7 @@ class SmartCompiler {
         await _saveCachedCompileTime(compileStopwatch.elapsed);
         _logStats(stats, compileTime: compileStopwatch.elapsed);
       }
-      return success;
+      return SmartCompileResult(success: success, recompiled: true);
     }
 
     console.setForegroundColor(ConsoleColor.cyan);
@@ -306,7 +317,7 @@ class SmartCompiler {
         }
         console.resetColorAttributes();
         console.writeLine();
-        return true;
+        return const SmartCompileResult(success: true, recompiled: false);
       } else {
         console.setForegroundColor(ConsoleColor.yellow);
         console.write('Binary missing or outdated, recompiling...');
@@ -329,7 +340,7 @@ class SmartCompiler {
       await _saveCachedCompileTime(compileStopwatch.elapsed);
     }
 
-    return success;
+    return SmartCompileResult(success: success, recompiled: true);
   }
 
   /// Log compilation statistics

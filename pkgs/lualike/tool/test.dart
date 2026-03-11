@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
-import 'package:args/args.dart';
+import 'package:artisanal/args.dart';
 import 'package:dart_console/dart_console.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as path;
@@ -28,6 +28,7 @@ final testFiles = [
   'events.lua',
   'calls.lua',
   'gc.lua',
+  'gengc.lua',
   'tracegc.lua',
   'constructs.lua',
   'sort.lua',
@@ -40,6 +41,8 @@ final testFiles = [
   'locals.lua',
   'db.lua',
   'errors.lua',
+  'cstack.lua',
+  'closure.lua',
   'heavy.lua',
 ];
 
@@ -53,6 +56,7 @@ class TestResult {
   final Duration duration;
   final List<String> output;
   final List<String> errors;
+  final bool timedOut;
 
   TestResult({
     required this.fileName,
@@ -60,6 +64,7 @@ class TestResult {
     required this.duration,
     required this.output,
     required this.errors,
+    this.timedOut = false,
   });
 
   bool get passed => exitCode == 0;
@@ -198,7 +203,7 @@ Future<void> downloadLuaTestSuite({
 }
 
 /// Compile the lualike binary using smart compilation
-Future<void> compile({
+Future<SmartCompileResult> compile({
   bool force = false,
   String? dartPath,
   String? binaryPath,
@@ -211,8 +216,8 @@ Future<void> compile({
     binaryName: binaryPath ?? 'lualike',
   );
 
-  final success = await compiler.smartCompile(force: force);
-  if (!success) {
+  final result = await compiler.smartCompile(force: force);
+  if (!result.success) {
     console.setForegroundColor(ConsoleColor.red);
     console.setTextStyle(bold: true);
     console.write("Compilation failed");
@@ -220,6 +225,7 @@ Future<void> compile({
     console.writeLine();
     exit(1);
   }
+  return result;
 }
 
 /// Get the absolute path to the Dart executable
@@ -338,6 +344,11 @@ Future<void> main(List<String> args) async {
       abbr: 's',
       negatable: false,
       help: 'Skip compile if lualike binary exists',
+    )
+    ..addOption(
+      'timeout-seconds',
+      help:
+          'Per-test timeout in seconds. Defaults to 45 when reusing an existing binary; set to 0 to disable.',
     )
     ..addFlag(
       'verbose',
@@ -486,16 +497,42 @@ Future<void> main(List<String> args) async {
   final binaryExists = File(lualikeBinaryPath).existsSync();
   final shouldSkipCompile = (r['skip-compile'] as bool) && binaryExists;
 
-  if (!shouldSkipCompile) {
-    await compile(
+  final compileResult = shouldSkipCompile
+      ? const SmartCompileResult(success: true, recompiled: false)
+      : await compile(
       force: force,
       dartPath: dartPath,
       binaryPath: lualikeBinaryPath,
       cacheDir: lualikeCacheDir,
     );
-  } else {
+  if (shouldSkipCompile) {
     console.setForegroundColor(ConsoleColor.yellow);
     console.write("Skip-compile flag specified, using existing binary");
+    console.resetColorAttributes();
+    console.writeLine();
+  }
+
+  int? timeoutSeconds;
+  final timeoutOption = r['timeout-seconds'] as String?;
+  if (timeoutOption != null) {
+    final parsedTimeout = int.tryParse(timeoutOption);
+    if (parsedTimeout == null || parsedTimeout < 0) {
+      console.setForegroundColor(ConsoleColor.red);
+      console.writeLine('Invalid --timeout-seconds value: $timeoutOption');
+      console.resetColorAttributes();
+      exit(64);
+    }
+    timeoutSeconds = parsedTimeout == 0 ? null : parsedTimeout;
+  } else {
+    timeoutSeconds = compileResult.recompiled ? null : 45;
+  }
+
+  if (timeoutSeconds != null) {
+    console.setForegroundColor(ConsoleColor.yellow);
+    console.write('Per-test timeout enabled: ${timeoutSeconds}s');
+    if (!compileResult.recompiled) {
+      console.write(' (reused binary)');
+    }
     console.resetColorAttributes();
     console.writeLine();
   }
@@ -576,6 +613,7 @@ Future<void> main(List<String> args) async {
     debug: debugEnabled, // new debug flag
     ir: r['ir'] as bool,
     luaBytecode: r['lua-bytecode'] as bool,
+    timeoutSeconds: timeoutSeconds,
   );
 
   printTestSummary(results);
@@ -630,6 +668,7 @@ Future<List<TestResult>> runTests({
   bool debug = false, // new debug parameter
   bool ir = false,
   bool luaBytecode = false,
+  int? timeoutSeconds,
 }) async {
   final results = <TestResult>[];
   final testsToRun = inlineCode == null
@@ -742,12 +781,29 @@ Future<List<TestResult>> runTests({
     );
 
     // Wait for process to complete
-    final exitCode = await process.exitCode;
+    var timedOut = false;
+    final exitCode = timeoutSeconds == null
+        ? await process.exitCode
+        : await process.exitCode.timeout(
+            Duration(seconds: timeoutSeconds),
+            onTimeout: () async {
+              timedOut = true;
+              process.kill();
+              await Future<void>.delayed(const Duration(milliseconds: 200));
+              if (process.kill(ProcessSignal.sigkill)) {
+                await Future<void>.delayed(const Duration(milliseconds: 100));
+              }
+              return 124;
+            },
+          );
     stopwatch.stop();
 
     // Get collected output
     final stdout = await stdoutFuture;
     final stderr = await stderrFuture;
+    if (timedOut) {
+      stderr.add('Timed out after ${timeoutSeconds}s');
+    }
 
     // Create test result
     final result = TestResult(
@@ -756,6 +812,7 @@ Future<List<TestResult>> runTests({
       duration: stopwatch.elapsed,
       output: stdout,
       errors: stderr,
+      timedOut: timedOut,
     );
 
     results.add(result);
@@ -768,7 +825,11 @@ Future<List<TestResult>> runTests({
       console.writeLine();
     } else {
       console.setForegroundColor(ConsoleColor.red);
-      console.write("✗ Test failed in ${result.duration.inMilliseconds}ms");
+      if (result.timedOut) {
+        console.write("✗ Test timed out in ${result.duration.inMilliseconds}ms");
+      } else {
+        console.write("✗ Test failed in ${result.duration.inMilliseconds}ms");
+      }
       console.resetColorAttributes();
       console.writeLine();
     }
