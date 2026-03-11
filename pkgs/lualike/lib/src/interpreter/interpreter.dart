@@ -21,7 +21,6 @@ import 'package:lualike/src/number_limits.dart';
 import 'package:lualike/src/number_utils.dart';
 import 'package:lualike/src/parse.dart' show looksLikeLuaFilePath;
 import 'package:lualike/src/runtime/compiled_artifact_support.dart';
-import 'package:lualike/src/parse.dart' show looksLikeLuaFilePath;
 import 'package:lualike/src/runtime/chunk_loading_support.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
 import 'package:lualike/src/semantic_checker.dart';
@@ -1218,7 +1217,11 @@ class Interpreter extends AstVisitor<Object?>
         // Extract just the filename for display
         filename = filepath.split('/').last;
 
-        errorMsg = "$filename: $message";
+        if (message.startsWith(':')) {
+          errorMsg = "$filename$message";
+        } else {
+          errorMsg = "$filename: $message";
+        }
       }
 
       // Get the executable name (lualike or lua)
