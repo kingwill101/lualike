@@ -18,6 +18,18 @@ void main() {
       expect(err.unwrap(), contains("scope of 'aa'"));
     });
 
+    test('rejects goto jumping into wildcard global scope barrier', () async {
+      await lua.execute(r'''
+        f, err = load("goto l2; global *; ::l1:: ::l2:: print(3)")
+      ''');
+
+      final f = lua.getGlobal('f') as Value;
+      final err = lua.getGlobal('err') as Value;
+
+      expect(f.unwrap(), isNull);
+      expect(err.unwrap(), contains("scope of '*'"));
+    });
+
     test('allows valid forward goto', () async {
       await lua.execute(r'''
         loader, loadErr = load([[goto finish; do local x = 1 end ::finish:: return 42]])

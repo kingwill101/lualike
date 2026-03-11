@@ -792,7 +792,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       return storedValue;
     }
 
-    if (envValue is Value && envValue.raw != null) {
+    if (envValue is Value) {
       await envValue.setValueAsync(name, storedValue);
       return storedValue;
     }
@@ -820,7 +820,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       return;
     }
 
-    if (envValue is Value && envValue.raw != null) {
+    if (envValue is Value) {
       await envValue.setValueAsync(name, Value(null));
       return;
     }

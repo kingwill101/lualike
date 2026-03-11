@@ -61,7 +61,7 @@ class LuaStringParser {
     }
   }
 
-  static Parser<List<int>> build() {
+  static Parser<List<int>> build({bool sourceCodeUnitsAreBytes = false}) {
     // Helper parsers for different escape sequences
     final escapeChar = char('\\');
 
@@ -325,6 +325,10 @@ class LuaStringParser {
         if (char <= 0x7F) {
           // ASCII character - always single byte
           result.add(char);
+        } else if (sourceCodeUnitsAreBytes && char <= 0xFF) {
+          // load(LuaString) textual chunks are parsed from a one-byte-per-code
+          // unit transport string, so preserve those raw source bytes.
+          result.add(char);
         } else {
           // All non-ASCII characters should be properly UTF-8 encoded
           // This includes characters in the 128-255 range that represent
@@ -346,7 +350,10 @@ class LuaStringParser {
   }
 
   /// Parse a Lua string literal content and return the resulting bytes
-  static List<int> parseStringContent(String content) {
+  static List<int> parseStringContent(
+    String content, {
+    bool sourceCodeUnitsAreBytes = false,
+  }) {
     // Normalize \xHH (hex escapes) to decimal escapes (\ddd) so that
     // downstream parsing always sees a single uniform form for byte escapes.
     final hexRe = RegExp(r'\\x([0-9A-Fa-f]{2})');
@@ -355,7 +362,9 @@ class LuaStringParser {
       return '\\$v';
     });
 
-    final result = build().end().parse(normalized);
+    final result = build(
+      sourceCodeUnitsAreBytes: sourceCodeUnitsAreBytes,
+    ).end().parse(normalized);
 
     if (result is Success) {
       return result.value;

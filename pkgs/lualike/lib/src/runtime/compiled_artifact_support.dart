@@ -28,6 +28,19 @@ const int _maxCachedAnonymousTextLoads = 128;
 const int _maxCachedAnonymousTextLoadSourceLength = 512;
 final Expando<_AnonymousTextLoadCache> _anonymousTextLoadCaches =
     Expando<_AnonymousTextLoadCache>('anonymousTextLoadCaches');
+final RegExp _formattedLuaErrorMessagePattern = RegExp(
+  r'^(?:\[[^\n]+\]|[^:\n]+):(?:\d+|\?): ',
+);
+
+String _decodeTextualChunkBytes(List<int> bytes) {
+  try {
+    return utf8.decode(bytes);
+  } on FormatException {
+    // Preserve raw offending bytes for malformed textual chunks so load()
+    // diagnostics can still report byte-oriented errors like <\255>.
+    return String.fromCharCodes(bytes);
+  }
+}
 
 void _restoreAmbientEnvironment(LuaRuntime runtime, Environment env) {
   if (runtime case Interpreter interpreter) {
@@ -52,6 +65,123 @@ void _rebindActiveLoadedChunkFrame(
       frame.env = env;
     }
   }
+}
+
+({
+  Value? function,
+  Map<String, Box<dynamic>>? fastLocals,
+})? _pushLoadedChunkFunctionContext(
+  LuaRuntime runtime,
+  Value callable,
+) {
+  if (runtime case Interpreter interpreter) {
+    final savedFunction = interpreter.getCurrentFunction();
+    final savedFastLocals = interpreter.getCurrentFastLocals();
+    interpreter.setCurrentFunction(callable);
+    interpreter.setCurrentFastLocals(null);
+    return (function: savedFunction, fastLocals: savedFastLocals);
+  }
+  return null;
+}
+
+void _popLoadedChunkFunctionContext(
+  LuaRuntime runtime,
+  ({
+    Value? function,
+    Map<String, Box<dynamic>>? fastLocals,
+  })? savedContext,
+) {
+  if (savedContext == null) {
+    return;
+  }
+  if (runtime case Interpreter interpreter) {
+    interpreter.setCurrentFastLocals(savedContext.fastLocals);
+    interpreter.setCurrentFunction(savedContext.function);
+  }
+}
+
+bool _looksFormattedLoadedChunkLuaErrorMessage(String message) {
+  return _formattedLuaErrorMessagePattern.hasMatch(message);
+}
+
+int _loadedChunkErrorLine(
+  LuaRuntime runtime,
+  String chunkName,
+  LuaError error,
+) {
+  if (error.lineNumber case final line? when line > 0) {
+    return line;
+  }
+  if (error.span case final span?) {
+    return span.start.line + 1;
+  }
+  if (error.node?.span case final span?) {
+    return span.start.line + 1;
+  }
+
+  bool matchesChunk(CallFrame? frame) =>
+      frame != null && frame.scriptPath == chunkName && frame.currentLine > 0;
+
+  if (runtime case Interpreter interpreter) {
+    final topFrame = interpreter.callStack.top;
+    if (matchesChunk(topFrame)) {
+      return topFrame!.currentLine;
+    }
+
+    final activeFrame = interpreter.findFrameForCallable(
+      interpreter.getCurrentFunction(),
+    );
+    if (matchesChunk(activeFrame)) {
+      return activeFrame!.currentLine;
+    }
+
+    final traceFrame = interpreter.lastRecordedTraceFrame;
+    if (matchesChunk(traceFrame)) {
+      return traceFrame!.currentLine;
+    }
+  } else {
+    final topFrame = runtime.callStack.top;
+    if (matchesChunk(topFrame)) {
+      return topFrame!.currentLine;
+    }
+  }
+
+  return -1;
+}
+
+String _formatLoadedChunkRuntimeMessage(
+  LuaRuntime runtime,
+  String chunkName,
+  LuaError error,
+) {
+  final source = _shortSource(chunkName);
+  final line = _loadedChunkErrorLine(runtime, chunkName, error);
+  if (line > 0) {
+    return '$source:$line: ${error.message}';
+  }
+  return '$source: ${error.message}';
+}
+
+Never _rethrowLoadedChunkLuaError(
+  LuaRuntime runtime,
+  String chunkName,
+  LuaError error,
+) {
+  if (error.suppressAutomaticLocation ||
+      _looksFormattedLoadedChunkLuaErrorMessage(error.message)) {
+    throw error;
+  }
+
+  throw LuaError(
+    _formatLoadedChunkRuntimeMessage(runtime, chunkName, error),
+    span: error.span,
+    node: error.node,
+    cause: error.cause,
+    stackTrace: error.stackTrace,
+    luaStackTrace: error.luaStackTrace,
+    suppressAutomaticLocation: true,
+    hasBeenReported: error.hasBeenReported,
+  );
 }
 
 Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
@@ -140,11 +270,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
           return LuaChunkLoadResult.failure(_cleanLoadError(e));
         }
       } else {
-        try {
-          source = utf8.decode(luaString.bytes, allowMalformed: true);
-        } catch (_) {
-          source = luaString.toLatin1String();
-        }
+        source = _decodeTextualChunkBytes(luaString.bytes);
       }
     } else if (sourceArg.raw is Function) {
       final chunks = <String>[];
@@ -269,7 +395,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
         );
       }
     } else if (sourceArg.raw is List<int>) {
-      source = utf8.decode(sourceArg.raw as List<int>);
+      source = _decodeTextualChunkBytes(sourceArg.raw as List<int>);
     } else {
       throw LuaError(
         "load() first argument must be string, function or binary",
@@ -369,12 +495,36 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
         parseDuration = Duration.zero;
       }
 
-      // Skip whole-AST validation passes when the source text cannot possibly
-      // contain the relevant syntax. Repeated simple text loads in gc.lua spend a
-      // large amount of time here otherwise.
-      if (!loadedFromAnonymousCache &&
+      final shouldRunAnonymousCompileChecks =
+          !loadedFromAnonymousCache &&
           ast is! _ConstructsShortCircuitProgram &&
-          _semanticLikeTokenPattern.hasMatch(source)) {
+          !looksLikeLuaFilePath(effectiveChunkName);
+
+      // Keep goto validation ahead of the broader semantic passes for
+      // anonymous load()/loadfile() chunks. Some upstream tests intentionally
+      // exercise goto barriers around `global *`, and the generic semantic
+      // checker can recurse before the more precise goto diagnostic gets a
+      // chance to fire.
+      if (shouldRunAnonymousCompileChecks &&
+          (source.contains('goto') || source.contains('::'))) {
+        final gotoValidator = GotoLabelValidator();
+        final gotoError = gotoValidator.checkGotoLabelViolations(ast);
+        if (gotoError != null) {
+          logProfile('goto-error', error: gotoError);
+          return LuaChunkLoadResult.failure(gotoError);
+        }
+      }
+
+      // Load-time semantic limit checks are needed for anonymous load()/loadfile()
+      // style chunks to match Lua's compile-time diagnostics, but running the
+      // full passes on large file-backed suite inputs is both expensive and can
+      // blow the host stack before execution starts. Ordinary source files used
+      // by dofile()/require() historically bypassed these checks in lualike, so
+      // keep them focused on non-file chunks.
+      final shouldRunSemanticChecks =
+          shouldRunAnonymousCompileChecks &&
+          (_semanticLikeTokenPattern.hasMatch(source) || source.length > 256);
+      if (shouldRunSemanticChecks) {
         final semanticError = validateProgramSemantics(ast);
         if (semanticError != null) {
           var adjustedError = semanticError;
@@ -389,17 +539,6 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
           }
           logProfile('semantic-error', error: adjustedError);
           return LuaChunkLoadResult.failure(adjustedError);
-        }
-      }
-
-      if (!loadedFromAnonymousCache &&
-          ast is! _ConstructsShortCircuitProgram &&
-          (source.contains('goto') || source.contains('::'))) {
-        final gotoValidator = GotoLabelValidator();
-        final gotoError = gotoValidator.checkGotoLabelViolations(ast);
-        if (gotoError != null) {
-          logProfile('goto-error', error: gotoError);
-          return LuaChunkLoadResult.failure(gotoError);
         }
       }
       if (anonymousLoadCacheKey case final key?
@@ -417,6 +556,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
       FunctionDef definition => _matchSimpleTopLevelLiteralFunction(
         definition,
         runtime,
+        providedEnv: providedEnv,
       ),
       _ => null,
     };
@@ -440,6 +580,10 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
               runtime: runtime,
               savedEnv: savedEnv,
               providedEnv: providedEnv,
+            );
+            final savedContext = _pushLoadedChunkFunctionContext(
+              runtime,
+              result,
             );
 
             loadEnv.declare("...", Value.multi(callArgs));
@@ -465,7 +609,14 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
                 return funcValue;
               }
               return await runtime.evaluateAst(loadedAstNode);
+            } on LuaError catch (error) {
+              _rethrowLoadedChunkLuaError(
+                runtime,
+                effectiveChunkName,
+                error,
+              );
             } finally {
+              _popLoadedChunkFunctionContext(runtime, savedContext);
               _restoreAmbientEnvironment(runtime, savedEnv);
               runtime.currentScriptPath = prevPath;
               runtime.callStack.setScriptPath(prevPath);
@@ -489,7 +640,11 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
         functionBody: loadedAstNode is FunctionBody
             ? loadedAstNode
             : actualBody,
-        closureEnvironment: runtime.getCurrentEnv(),
+        closureEnvironment: _createLoadedChunkClosureEnvironment(
+          runtime: runtime,
+          savedEnv: runtime.getCurrentEnv(),
+          providedEnv: providedEnv,
+        ),
       );
 
       if (loadedAstNode is FunctionBody) {
@@ -574,6 +729,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
             savedEnv: savedEnv,
             providedEnv: providedEnv,
           );
+          final savedContext = _pushLoadedChunkFunctionContext(runtime, result);
 
           loadEnv.declare("...", Value.multi(callArgs));
           loadEnv.declare(constantName, Value(constantValue, isConst: true));
@@ -613,14 +769,21 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
             };
             logProfile('success');
             return resultValue;
+          } on LuaError catch (error) {
+            _rethrowLoadedChunkLuaError(runtime, effectiveChunkName, error);
           } finally {
+            _popLoadedChunkFunctionContext(runtime, savedContext);
             _restoreAmbientEnvironment(runtime, savedEnv);
             runtime.currentScriptPath = prevPath;
             runtime.callStack.setScriptPath(prevPath);
           }
         },
         functionBody: actualBody,
-        closureEnvironment: runtime.getCurrentEnv(),
+        closureEnvironment: _createLoadedChunkClosureEnvironment(
+          runtime: runtime,
+          savedEnv: runtime.getCurrentEnv(),
+          providedEnv: providedEnv,
+        ),
       );
     } else {
       result = Value(
@@ -642,6 +805,10 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
               runtime: runtime,
               savedEnv: savedEnv,
               providedEnv: providedEnv,
+            );
+            final savedContext = _pushLoadedChunkFunctionContext(
+              runtime,
+              result,
             );
 
             loadEnv.declare("...", Value.multi(callArgs));
@@ -691,7 +858,10 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
 
               logProfile('success');
               return executionResult;
+            } on LuaError catch (error) {
+              _rethrowLoadedChunkLuaError(runtime, effectiveChunkName, error);
             } finally {
+              _popLoadedChunkFunctionContext(runtime, savedContext);
               _restoreAmbientEnvironment(runtime, savedEnv);
               runtime.currentScriptPath = prevPath;
               runtime.callStack.setScriptPath(prevPath);
@@ -719,7 +889,11 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
           }
         },
         functionBody: actualBody,
-        closureEnvironment: runtime.getCurrentEnv(),
+        closureEnvironment: _createLoadedChunkClosureEnvironment(
+          runtime: runtime,
+          savedEnv: runtime.getCurrentEnv(),
+          providedEnv: providedEnv,
+        ),
       );
     }
 
@@ -1126,6 +1300,18 @@ Environment _createDirectAstFunctionCreationEnv({
   return loadEnv;
 }
 
+Environment _createLoadedChunkClosureEnvironment({
+  required LuaRuntime runtime,
+  required Environment savedEnv,
+  required Value? providedEnv,
+}) {
+  return _createDirectAstFunctionCreationEnv(
+    runtime: runtime,
+    savedEnv: savedEnv,
+    providedEnv: providedEnv,
+  );
+}
+
 Environment _createSourceLoadEnv({
   required LuaRuntime runtime,
   required Environment savedEnv,
@@ -1524,8 +1710,9 @@ Program? _tryParseConstructsShortCircuitChunk(String source, String chunkname) {
 
 _SimpleTopLevelLiteralFunctionFactory? _matchSimpleTopLevelLiteralFunction(
   FunctionDef definition,
-  LuaRuntime runtime,
-) {
+  LuaRuntime runtime, {
+  required Value? providedEnv,
+}) {
   if (definition.name.rest.isNotEmpty || definition.implicitSelf) {
     return null;
   }
@@ -1546,13 +1733,18 @@ _SimpleTopLevelLiteralFunctionFactory? _matchSimpleTopLevelLiteralFunction(
   }
 
   final literal = _sharedLiteralLuaString(runtime, expression.bytes);
+  final closureEnv = _createLoadedChunkClosureEnvironment(
+    runtime: runtime,
+    savedEnv: runtime.getCurrentEnv(),
+    providedEnv: providedEnv,
+  );
   return (
     name: definition.name.first.name,
     create: () {
       final functionValue = Value(
         (List<Object?> _) async => Value(literal),
         functionBody: body,
-        closureEnvironment: runtime.getCurrentEnv(),
+        closureEnvironment: closureEnv,
       );
       functionValue.functionName = definition.name.first.name;
       functionValue.interpreter = runtime;

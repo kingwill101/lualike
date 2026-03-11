@@ -94,7 +94,7 @@ class LuaGrammarDefinition extends GrammarDefinition {
   /// file-based chunks (Lua skips the first line if it starts with '#'). This
   /// is consumed only for file chunks inside `start()` (not for load() on
   /// raw strings).
-  Parser _shebang() {
+Parser _shebang() {
     final eol = string('\r\n') | string('\n\r') | char('\n') | char('\r');
     return (string('#') & pattern('\r\n').neg().star() & eol.optional())
         .flatten();
@@ -308,15 +308,11 @@ class LuaGrammarDefinition extends GrammarDefinition {
       ref0(_returnlessExprStatement) |
       // Error case: Detect bare string literals and report appropriate error
       _stringLiteral().map((literal) {
-        // Extract the raw content for error reporting
-        String errorText = literal.value;
-        if (literal.isLongString) {
-          // For long strings, show the full long bracket syntax
-          errorText = '[[${literal.value}]]';
-        } else {
-          // For regular strings, try to reconstruct with quotes
-          errorText = '"${literal.value}"';
-        }
+        final errorText =
+            literal.span?.text ??
+            (literal.isLongString
+                ? '[[${literal.value}]]'
+                : '"${literal.value}"');
 
         throw _createPositionedException(
           literal,
@@ -473,6 +469,15 @@ class LuaGrammarDefinition extends GrammarDefinition {
   // ---------- Operators parsers -------------------------------------------
   Parser _unaryOperator() =>
       (_token('-') | _token('#') | _token('not') | _token('~'));
+
+  Parser _unaryOperatorToken() {
+    return (position() & ref0(_unaryOperator)).map((vals) {
+      final offset = vals[0] as int;
+      final op = vals[1] as String;
+      final line = _sourceFile.location(offset).line;
+      return (op: op, line: line, offset: offset);
+    });
+  }
 
   Parser _mulOperator() => _binaryOperatorToken(
     _token('//') | _token('*') | _token('/') | _token('%'),
@@ -1158,12 +1163,32 @@ class LuaGrammarDefinition extends GrammarDefinition {
 
   // Parses unary prefix operators and builds nested UnaryExpression nodes.
   Parser _unaryExpression() {
-    final unarySeq = (ref0(_unaryOperator).plus() & ref0(_powerExpression)).map(
+    final unarySeq = (ref0(_unaryOperatorToken).plus() & ref0(_powerExpression)).map(
       (vals) {
         final ops = vals[0] as List;
         AstNode node = vals[1] as AstNode;
         for (var i = ops.length - 1; i >= 0; i--) {
-          node = UnaryExpression(ops[i] as String, node);
+          final opSpec = ops[i];
+          final op = switch (opSpec) {
+            String value => value,
+            ({String op, int line, int offset}) value => value.op,
+            _ => opSpec.toString(),
+          };
+          final operatorLine = switch (opSpec) {
+            ({String op, int line, int offset}) value => value.line,
+            _ => null,
+          };
+          final operatorOffset = switch (opSpec) {
+            ({String op, int line, int offset}) value => value.offset,
+            _ => null,
+          };
+          final unary = UnaryExpression(op, node, operatorLine: operatorLine);
+          if (operatorOffset != null && node.span != null) {
+            unary.setSpan(_sourceFile.span(operatorOffset, node.span!.end.offset));
+          } else if (node.span != null) {
+            unary.setSpan(node.span!);
+          }
+          node = unary;
         }
         return node;
       },
@@ -1491,22 +1516,28 @@ class _LongCommentBracketParser extends Parser<String> {
 /// This will eventually replace the old `parse()` from `grammar_parser.dart`.
 const int _luaIdSize = 60;
 
+final RegExp _luaNumberTokenPattern = RegExp(
+  r'^(?:0[xX][0-9A-Fa-f]*(?:\.[0-9A-Fa-f]*)?(?:[pP][+-]?\d+)?|(?:\d+\.\d*|\.\d+|\d+)(?:[eE][+-]?\d+)?)',
+);
+
 String luaChunkId(String source) {
   if (source.isEmpty) {
     return '[string ""]';
   }
   if (source.startsWith('=')) {
     final literal = source.substring(1);
-    return literal.length <= _luaIdSize
+    final budget = _luaIdSize - 1;
+    return literal.length <= budget
         ? literal
-        : literal.substring(0, _luaIdSize - 1);
+        : literal.substring(0, budget);
   }
   if (source.startsWith('@')) {
     final fileName = source.substring(1);
-    if (fileName.length <= _luaIdSize) {
+    final budget = _luaIdSize - 1;
+    if (fileName.length <= budget) {
       return fileName;
     }
-    final keep = _luaIdSize - 3;
+    final keep = budget - 3;
     return '...${fileName.substring(fileName.length - keep)}';
   }
 
@@ -1580,6 +1611,236 @@ int? _findUnclosedBraceLine(String source) {
   return stack.isEmpty ? null : stack.last;
 }
 
+bool _isIdentifierStartCodeUnit(int codeUnit) =>
+    (codeUnit >= 0x41 && codeUnit <= 0x5A) ||
+    (codeUnit >= 0x61 && codeUnit <= 0x7A) ||
+    codeUnit == 0x5F;
+
+bool _isIdentifierContinueCodeUnit(int codeUnit) =>
+    _isIdentifierStartCodeUnit(codeUnit) ||
+    (codeUnit >= 0x30 && codeUnit <= 0x39);
+
+int _skipSyntaxTrivia(String source, int index) {
+  var current = index;
+  while (current < source.length) {
+    final codeUnit = source.codeUnitAt(current);
+    final rune = String.fromCharCode(codeUnit);
+    if (!RegExp(r'\s').hasMatch(rune)) {
+      break;
+    }
+    current++;
+  }
+  return current;
+}
+
+(String token, int nextIndex)? _readSyntaxToken(String source, int index) {
+  final start = _skipSyntaxTrivia(source, index);
+  if (start >= source.length) {
+    return ('<eof>', start);
+  }
+
+  final codeUnit = source.codeUnitAt(start);
+  if (codeUnit < 0x20 || codeUnit == 0x7F || codeUnit > 0x7E) {
+    return ('<\\$codeUnit>', start + 1);
+  }
+
+  if (start + 1 < source.length) {
+    final twoChar = source.substring(start, start + 2);
+    if (twoChar == '<<' || twoChar == '>>') {
+      return (twoChar, start + 2);
+    }
+  }
+
+  if (codeUnit == 0x22 || codeUnit == 0x27) {
+    final quote = codeUnit;
+    var current = start + 1;
+    var escaping = false;
+    while (current < source.length) {
+      final currentCodeUnit = source.codeUnitAt(current);
+      if (!escaping && currentCodeUnit == quote) {
+        current++;
+        break;
+      }
+      if (!escaping && currentCodeUnit == 0x5C) {
+        escaping = true;
+        current++;
+        continue;
+      }
+      escaping = false;
+      current++;
+    }
+    return (source.substring(start, current), current);
+  }
+
+  if (codeUnit == 0x5B) {
+    var current = start + 1;
+    while (current < source.length && source.codeUnitAt(current) == 0x3D) {
+      current++;
+    }
+    if (current < source.length && source.codeUnitAt(current) == 0x5B) {
+      final delimiter = source.substring(start, current + 1);
+      final closing = delimiter.replaceFirst('[', ']');
+      final closeIndex = source.indexOf(closing, current + 1);
+      if (closeIndex != -1) {
+        final end = closeIndex + closing.length;
+        return (source.substring(start, end), end);
+      }
+      return (source.substring(start), source.length);
+    }
+  }
+
+  if ((codeUnit >= 0x30 && codeUnit <= 0x39) ||
+      (codeUnit == 0x2E &&
+          start + 1 < source.length &&
+          RegExp(r'\d').hasMatch(source[start + 1]))) {
+    final match = _luaNumberTokenPattern.matchAsPrefix(source.substring(start));
+    if (match != null) {
+      final token = match.group(0)!;
+      return (token, start + token.length);
+    }
+  }
+
+  if (_isIdentifierStartCodeUnit(codeUnit)) {
+    var current = start + 1;
+    while (current < source.length &&
+        _isIdentifierContinueCodeUnit(source.codeUnitAt(current))) {
+      current++;
+    }
+    return (source.substring(start, current), current);
+  }
+
+  return (String.fromCharCode(codeUnit), start + 1);
+}
+
+bool _isIdentifierLikeToken(String token) =>
+    RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(token);
+
+({String token, int offset}) _tokenNearSyntaxFailure(String source, int position) {
+  final clampedPosition = position.clamp(0, source.length) as int;
+  final primary = _readSyntaxToken(source, clampedPosition);
+  if (primary == null) {
+    return (token: '<eof>', offset: source.length);
+  }
+
+  if (clampedPosition == 0 && _isIdentifierLikeToken(primary.$1)) {
+    final secondary = _readSyntaxToken(source, primary.$2);
+    if (secondary != null && secondary.$1 != '<eof>') {
+      return (token: secondary.$1, offset: _skipSyntaxTrivia(source, primary.$2));
+    }
+  }
+
+  return (token: primary.$1, offset: _skipSyntaxTrivia(source, clampedPosition));
+}
+
+FormatException _formatSyntaxFailure(
+  String source,
+  SourceFile sourceFile,
+  int position, {
+  Object? url,
+  String? sourceName,
+}) {
+  final tokenData = _tokenNearSyntaxFailure(source, position);
+  final token = tokenData.token;
+  final tokenOffset = tokenData.offset;
+  final chunkName = luaChunkId(sourceName ?? url?.toString() ?? '');
+  final line = sourceFile.span(tokenOffset, tokenOffset).start.line + 1;
+
+  String message;
+  if (token == '<eof>') {
+    message = 'unexpected symbol near <eof>';
+  } else if (source.trimLeft().startsWith('for ') && !_isIdentifierLikeToken(token)) {
+    message = "<name> expected near '$token'";
+  } else {
+    message = "unexpected symbol near '$token'";
+  }
+
+  if (sourceName != null && sourceName.contains('=(load)')) {
+    return FormatException(message);
+  }
+  return FormatException('$chunkName:$line: $message');
+}
+
+bool _shouldPreserveParserFailureMessage(String message) {
+  return message.startsWith('[string ') ||
+      message.contains(' near ') ||
+      message.startsWith('unfinished ') ||
+      message.startsWith('unknown attribute ');
+}
+
+FormatException _formatExplicitParserFailure(
+  SourceFile sourceFile,
+  int position,
+  String message, {
+  Object? url,
+  String? sourceName,
+}) {
+  if (message.startsWith('[string ')) {
+    return FormatException(message);
+  }
+
+  final chunkName = luaChunkId(sourceName ?? url?.toString() ?? '');
+  final line = sourceFile.span(position, position).start.line + 1;
+  if (sourceName != null && sourceName.contains('=(load)')) {
+    return FormatException(message);
+  }
+  return FormatException('$chunkName:$line: $message');
+}
+
+FormatException _formatSyntaxOverflow(
+  SourceFile sourceFile, {
+  Object? url,
+  String? sourceName,
+}) {
+  final chunkName = luaChunkId(sourceName ?? url?.toString() ?? '');
+  final line = sourceFile.span(0, 0).start.line + 1;
+  final message = 'expression nesting overflow';
+  if (sourceName != null && sourceName.contains('=(load)')) {
+    return FormatException(message);
+  }
+  return FormatException('$chunkName:$line: $message');
+}
+
+const int _parserMaxLocalVariables = 200;
+
+String? _detectPartialLocalVariableOverflow(String source) {
+  final functionStartPattern = RegExp(
+    r'^(?:local\s+function|global\s+function|function)\b',
+  );
+  final localPattern = RegExp(r'^local\s+(.+)$');
+  final lines = source.split('\n');
+  int? currentFunctionLine;
+
+  for (var index = 0; index < lines.length; index++) {
+    final lineNumber = index + 1;
+    final trimmed = lines[index].trimLeft();
+
+    if (functionStartPattern.hasMatch(trimmed)) {
+      currentFunctionLine = lineNumber;
+    }
+
+    final localMatch = localPattern.firstMatch(trimmed);
+    if (localMatch == null) {
+      continue;
+    }
+
+    final beforeEquals = localMatch.group(1)!.split('=').first.trimRight();
+    if (beforeEquals.isEmpty) {
+      continue;
+    }
+
+    final names = beforeEquals
+        .split(',')
+        .map((name) => name.trim())
+        .where((name) => name.isNotEmpty)
+        .length;
+    if (names > _parserMaxLocalVariables) {
+      return 'line ${currentFunctionLine ?? lineNumber}: too many local variables';
+    }
+  }
+
+  return null;
+}
+
 Program parse(String source, {Object? url, String? sourceName}) {
   // Callers normalize line endings before reaching the parser. Avoid
   // rebuilding the input string here on every load() call.
@@ -1596,21 +1857,44 @@ Program parse(String source, {Object? url, String? sourceName}) {
   } catch (e) {
     // If an exception is thrown inside a combinator (e.g., .map()), try to extract position
     int pos = 0;
-    String message = e.toString();
-
+    String? explicitMessage;
     if (e is ParserException) {
       pos = e.failure.position;
-      message = e.failure.message;
+      explicitMessage = e.failure.message;
     } else if (e is Failure) {
       pos = e.position;
-      message = e.message;
+      explicitMessage = e.message;
+    } else if (e is StackOverflowError) {
+      throw _formatSyntaxOverflow(sourceFile, url: url, sourceName: sourceName);
+    } else {
+      rethrow;
     }
 
-    final span = sourceFile.span(
-      pos,
-      pos < normalizedSource.length ? pos + 1 : pos,
+    final partialLocalLimit = _detectPartialLocalVariableOverflow(
+      normalizedSource,
     );
-    throw LuaError(message, span: span, cause: e);
+    if (partialLocalLimit != null) {
+      throw FormatException(partialLocalLimit);
+    }
+
+    if (explicitMessage != null &&
+        _shouldPreserveParserFailureMessage(explicitMessage)) {
+      throw _formatExplicitParserFailure(
+        sourceFile,
+        pos,
+        explicitMessage,
+        url: url,
+        sourceName: sourceName,
+      );
+    }
+
+    throw _formatSyntaxFailure(
+      normalizedSource,
+      sourceFile,
+      pos,
+      url: url,
+      sourceName: sourceName,
+    );
   }
 
   if (result is Success) {
@@ -1621,6 +1905,11 @@ Program parse(String source, {Object? url, String? sourceName}) {
 
   final failure = result as Failure;
   final pos = failure.position;
+
+  final partialLocalLimit = _detectPartialLocalVariableOverflow(normalizedSource);
+  if (partialLocalLimit != null) {
+    throw FormatException(partialLocalLimit);
+  }
 
   // Heuristic: when parsing code of the form `return <number-like>` and
   // the parser fails, report a Lua-like numeric error instead of a generic
@@ -1688,25 +1977,13 @@ Program parse(String source, {Object? url, String? sourceName}) {
   }
 
   // Generate Lua-compatible error messages
-  String luaErrorMsg;
-
-  if (pos >= normalizedSource.length) {
-    luaErrorMsg = "unexpected symbol near <eof>";
-  } else {
-    final ch = normalizedSource[pos];
-    luaErrorMsg = "unexpected symbol near '$ch'";
-  }
-
-  // For reader-based load() calls, keep the simpler legacy message shape.
-  if (sourceName != null && sourceName.contains('=(load)')) {
-    throw FormatException(luaErrorMsg);
-  }
-
-  // For files and other contexts, include location info
-  final line = span.start.line + 1;
-  final chunkName = luaChunkId(sourceName ?? url?.toString() ?? '');
-  final formatted = "$chunkName:$line: $luaErrorMsg";
-  throw FormatException(formatted);
+  throw _formatSyntaxFailure(
+    normalizedSource,
+    sourceFile,
+    pos,
+    url: url,
+    sourceName: sourceName,
+  );
 }
 
 AstNode parseExpression(String source, {Object? url, String? sourceName}) {
@@ -1727,6 +2004,8 @@ AstNode parseExpression(String source, {Object? url, String? sourceName}) {
     } else if (e is Failure) {
       pos = e.position;
       message = e.message;
+    } else if (e is StackOverflowError) {
+      throw _formatSyntaxOverflow(sourceFile, url: url, sourceName: sourceName);
     }
 
     final span = sourceFile.span(pos, pos < source.length ? pos + 1 : pos);
