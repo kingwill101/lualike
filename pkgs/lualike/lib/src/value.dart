@@ -1615,6 +1615,20 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
   }
 
+  /// Records a raw mutation to this table that bypassed normal `Value` writes.
+  ///
+  /// The GC weak-table cleanup paths remove entries directly from the backing
+  /// map to avoid metamethods. Those removals must still invalidate lookup
+  /// caches and any cached string-key size accounting.
+  void noteRawTableMutation() {
+    if (raw is! Map) {
+      return;
+    }
+    final map = raw as Map;
+    invalidateStringKeyCache(map);
+    _incrementTableVersion();
+  }
+
   @override
   void clear() {
     if (raw is! Map) throw UnsupportedError('Not a table');

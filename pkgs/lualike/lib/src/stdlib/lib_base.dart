@@ -2019,7 +2019,11 @@ class CollectGarbageFunction extends BuiltinFunction {
           // (in Kbytes) had been allocated by Lua
           final stepSize = args.length > 1 ? (args[1] as Value).raw as num : 0;
           bool cycleComplete = false;
-          if (stepSize == 0) {
+          if (_currentMode == "generational") {
+            cycleComplete = await interpreter!.gc.performGenerationalStep(
+              interpreter!.getRoots(),
+            );
+          } else if (stepSize == 0) {
             cycleComplete = interpreter!.gc.performIncrementalStep(1);
           } else {
             final sizeKb = stepSize.abs().toInt().clamp(1, 1 << 20);
