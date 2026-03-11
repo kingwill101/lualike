@@ -39,14 +39,15 @@ Future<Object?> executeCode(
   if (onRuntimeSetup != null) {
     onRuntimeSetup(runtime);
   }
-  final program = parse(sourceCode);
-
-  final semanticError = validateProgramSemantics(program);
-  if (semanticError != null) {
-    throw Exception(semanticError);
-  }
 
   try {
+    final program = parse(sourceCode);
+
+    final semanticError = validateProgramSemantics(program);
+    if (semanticError != null) {
+      throw Exception(semanticError);
+    }
+
     if (selectedMode == EngineMode.ir) {
       final chunk = LualikeIrCompiler().compile(program);
       if (LuaLikeConfig().dumpIr) {
