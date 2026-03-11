@@ -97,8 +97,44 @@ class GenerationalGCManager {
 
   GenerationalGCManager(this._runtime);
 
+  final Expando<GCGenerationSpace> _trackedSpaces = Expando<GCGenerationSpace>(
+    'trackedGenerationSpace',
+  );
+
   void bindRuntime(LuaRuntime runtime) {
     _runtime = runtime;
+  }
+
+  GCGenerationSpace? _trackedSpace(GCObject obj) => _trackedSpaces[obj];
+
+  void _setTrackedSpace(GCObject obj, GCGenerationSpace space) {
+    _trackedSpaces[obj] = space;
+  }
+
+  void _clearTrackedSpace(GCObject obj) {
+    _trackedSpaces[obj] = null;
+  }
+
+  void _trackYoung(GCObject obj) {
+    youngGen.add(obj);
+    _setTrackedSpace(obj, GCGenerationSpace.young);
+  }
+
+  void _trackOld(GCObject obj) {
+    oldGen.add(obj);
+    _setTrackedSpace(obj, GCGenerationSpace.old);
+  }
+
+  void _untrack(GCObject obj) {
+    switch (_trackedSpace(obj)) {
+      case GCGenerationSpace.young:
+        youngGen.remove(obj);
+      case GCGenerationSpace.old:
+        oldGen.remove(obj);
+      case null:
+        break;
+    }
+    _clearTrackedSpace(obj);
   }
 
   /// Whether garbage collection is currently stopped.
@@ -778,8 +814,7 @@ class GenerationalGCManager {
     for (final obj in objectsToFree) {
       MemoryCredits.instance.onFree(obj);
       obj.free();
-      youngGen.remove(obj);
-      oldGen.remove(obj);
+      _untrack(obj);
     }
 
     if (_sweepingIndex >= _objectsToSweep.length) {
@@ -881,8 +916,7 @@ class GenerationalGCManager {
 
           // Free object now in incremental mode
           MemoryCredits.instance.onFree(obj);
-          youngGen.remove(obj);
-          oldGen.remove(obj);
+          _untrack(obj);
           obj.free();
           if (finalized) _alreadyFinalized.remove(obj);
         }
@@ -964,7 +998,7 @@ class GenerationalGCManager {
   }
 
   void ensureTracked(GCObject obj) {
-    if (youngGen.contains(obj) || oldGen.contains(obj)) {
+    if (_trackedSpace(obj) != null) {
       return;
     }
 
@@ -976,12 +1010,12 @@ class GenerationalGCManager {
     }
 
     if (obj.isOld) {
-      oldGen.add(obj);
+      _trackOld(obj);
       if (shouldCount) {
         MemoryCredits.instance.onAllocate(obj, space: GCGenerationSpace.old);
       }
     } else {
-      youngGen.add(obj);
+      _trackYoung(obj);
       if (shouldCount) {
         MemoryCredits.instance.onAllocate(obj, space: GCGenerationSpace.young);
       }
@@ -990,7 +1024,7 @@ class GenerationalGCManager {
   }
 
   bool _isTracked(GCObject obj) {
-    return youngGen.contains(obj) || oldGen.contains(obj);
+    return _trackedSpace(obj) != null;
   }
 
   /// Registers a new object with the garbage collector.
@@ -998,7 +1032,7 @@ class GenerationalGCManager {
   /// New objects are always placed in the young generation (nursery).
   void register(GCObject obj, {bool countAllocation = true}) {
     // Prevent duplicate registrations - if object is already tracked, skip
-    if (youngGen.contains(obj) || oldGen.contains(obj)) {
+    if (_trackedSpace(obj) != null) {
       Logger.debugLazy(
         () =>
             'Skipping duplicate registration: '
@@ -1030,7 +1064,7 @@ class GenerationalGCManager {
         );
       }
     }
-    youngGen.add(obj);
+    _trackYoung(obj);
     if (countAllocation) {
       // Only count allocation in MemoryCredits if countAllocation is true
       // This excludes transient execution context objects (Environments, Boxes)
@@ -1210,8 +1244,10 @@ class GenerationalGCManager {
       () => 'Promote: ${obj.runtimeType} ${obj.hashCode}',
       category: 'GC',
     );
-    youngGen.remove(obj);
-    oldGen.add(obj);
+    if (_trackedSpace(obj) == GCGenerationSpace.young) {
+      youngGen.remove(obj);
+    }
+    _trackOld(obj);
     obj.isOld = true;
     MemoryCredits.instance.onPromote(obj);
     Logger.debugLazy(() => 'Promoted object to old generation', category: 'GC');
@@ -1612,13 +1648,14 @@ class GenerationalGCManager {
           // Re-mark the key to keep it alive during this collection
           preservedKey.marked = true;
           // Add the key back to the appropriate generation so it survives separation
-          if (youngGen.contains(preservedKey)) {
+          final preservedSpace = _trackedSpace(preservedKey);
+          if (preservedSpace == GCGenerationSpace.young) {
             // Key is already in young generation, just keep it marked
-          } else if (oldGen.contains(preservedKey)) {
+          } else if (preservedSpace == GCGenerationSpace.old) {
             // Key is already in old generation, just keep it marked
           } else {
             // Key is not in any generation, add it to young generation
-            youngGen.add(preservedKey);
+            _trackYoung(preservedKey);
             Logger.debugLazy(
               () =>
                   'Added preserved key ${preservedKey.hashCode} back to '
@@ -2164,6 +2201,7 @@ class GenerationalGCManager {
           );
           MemoryCredits.instance.onFree(obj);
           obj.free();
+          _clearTrackedSpace(obj);
         }
       }
     }

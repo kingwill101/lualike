@@ -284,10 +284,21 @@ class Logger {
     if (!enabled) return false;
     if (!_passesLevel(level)) return false;
 
-    final cats = _combineCategories(singleCategory, categories);
-    if (_categoryFilters != null && _categoryFilters!.isNotEmpty) {
-      if (cats.isEmpty) return false;
-      if (!cats.any((c) => _categoryFilters!.contains(c))) return false;
+    final filters = _categoryFilters;
+    if (filters != null && filters.isNotEmpty) {
+      if (singleCategory != null &&
+          singleCategory.isNotEmpty &&
+          filters.contains(singleCategory)) {
+        return true;
+      }
+      if (categories != null && categories.isNotEmpty) {
+        for (final category in categories) {
+          if (filters.contains(category)) {
+            return true;
+          }
+        }
+      }
+      return false;
     }
     return true;
   }

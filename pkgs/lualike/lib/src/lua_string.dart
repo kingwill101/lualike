@@ -4,6 +4,8 @@ import 'package:collection/collection.dart';
 
 class LuaString {
   final Uint8List bytes;
+  String? _utf8Cache;
+  String? _latin1Cache;
 
   LuaString(this.bytes);
 
@@ -18,17 +20,25 @@ class LuaString {
 
   @override
   String toString() {
+    final cached = _utf8Cache;
+    if (cached != null) {
+      return cached;
+    }
     try {
-      return utf8.decode(bytes, allowMalformed: true);
+      return _utf8Cache = utf8.decode(bytes, allowMalformed: true);
     } catch (e) {
       // Fallback for malformed UTF-8, though allowMalformed should handle most cases
-      return bytes.map((byte) => String.fromCharCode(byte)).join();
+      return _utf8Cache = latin1.decode(bytes, allowInvalid: true);
     }
   }
 
   /// Convert to string using Latin-1 interpretation (for Lua string display)
   String toLatin1String() {
-    return bytes.map((byte) => String.fromCharCode(byte)).join();
+    final cached = _latin1Cache;
+    if (cached != null) {
+      return cached;
+    }
+    return _latin1Cache = latin1.decode(bytes, allowInvalid: true);
   }
 
   int get length => bytes.length;

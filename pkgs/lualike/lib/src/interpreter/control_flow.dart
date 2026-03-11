@@ -39,6 +39,51 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     return result;
   }
 
+  bool _branchNeedsBlockEnvironment(List<AstNode> statements) {
+    for (final statement in statements) {
+      if (statement is LocalDeclaration || statement is LocalFunctionDef) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  Future<Object?> _executeIfBranchStatements(List<AstNode> statements) async {
+    if (statements.isEmpty) {
+      return null;
+    }
+
+    if (!_branchNeedsBlockEnvironment(statements)) {
+      return _executeBlockStatements(statements);
+    }
+
+    final prevEnv = globals;
+    final blockEnv = Environment(
+      parent: prevEnv,
+      interpreter: this as Interpreter,
+    );
+
+    try {
+      setCurrentEnv(blockEnv);
+      return await _executeBlockStatements(statements);
+    } on BreakException {
+      await blockEnv.closeVariables();
+      rethrow;
+    } on GotoException {
+      await blockEnv.closeVariables();
+      rethrow;
+    } on ReturnException {
+      await blockEnv.closeVariables();
+      rethrow;
+    } catch (error) {
+      await blockEnv.closeVariables(error);
+      rethrow;
+    } finally {
+      await blockEnv.closeVariables();
+      setCurrentEnv(prevEnv);
+    }
+  }
+
   /// Evaluates an if statement.
   ///
   /// Evaluates the condition and executes either the then branch
@@ -48,16 +93,15 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
   /// Returns the result of the executed branch.
   @override
   Future<Object?> visitIfStatement(IfStatement node) async {
-    (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
+    final interpreter = this is Interpreter ? this as Interpreter : null;
+    interpreter?.recordTrace(node);
     Logger.infoLazy(
       () => 'Entering if block',
       category: 'ControlFlow',
       contextBuilder: () => {},
     );
 
-    this is Interpreter ? (this as Interpreter).recordTrace(node) : null;
-    if (this is Interpreter) {
-      final interpreter = this as Interpreter;
+    if (interpreter != null) {
       interpreter.recordTrace(node.cond);
       await interpreter.maybeFireStatementDebugHooks(node.cond);
     }
@@ -70,35 +114,24 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
       contextBuilder: () => {'condValue': condValue},
     );
 
-    // Create a new environment for the block scope
-    final blockEnv = Environment(
-      parent: globals,
-      interpreter: this as Interpreter,
-    );
-    final prevEnv = globals;
     Object? result;
 
-    try {
-      // Set the block environment as the current environment
-      setCurrentEnv(blockEnv);
-
-      if (condValue) {
+    if (condValue) {
         Logger.debugLazy(
           () => 'Executing then block',
           category: 'ControlFlow',
           contextBuilder: () => {},
         );
-        result = await _executeBlockStatements(node.thenBlock);
+        result = await _executeIfBranchStatements(node.thenBlock);
         if (result is TailCallSignal) {
           return result;
         }
-      } else if (node.elseIfs.isNotEmpty) {
+    } else if (node.elseIfs.isNotEmpty) {
         // Handle elseif clauses
         bool elseIfMatched = false;
         for (final elseIf in node.elseIfs) {
           // Record trace for each elseif condition
-          if (this is Interpreter) {
-            final interpreter = this as Interpreter;
+          if (interpreter != null) {
             interpreter.recordTrace(elseIf.cond);
             await interpreter.maybeFireStatementDebugHooks(elseIf.cond);
           }
@@ -112,7 +145,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
               category: 'ControlFlow',
               contextBuilder: () => {},
             );
-            result = await _executeBlockStatements(elseIf.thenBlock);
+            result = await _executeIfBranchStatements(elseIf.thenBlock);
             if (result is TailCallSignal) {
               return result;
             }
@@ -128,49 +161,22 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
             category: 'ControlFlow',
             contextBuilder: () => {},
           );
-          result = await _executeBlockStatements(node.elseBlock);
+          result = await _executeIfBranchStatements(node.elseBlock);
           if (result is TailCallSignal) {
             return result;
           }
         }
-      } else if (node.elseBlock.isNotEmpty) {
+    } else if (node.elseBlock.isNotEmpty) {
         Logger.debugLazy(
           () => 'Executing else block',
           category: 'ControlFlow',
           contextBuilder: () => {},
         );
-        result = await _executeBlockStatements(node.elseBlock);
+        result = await _executeIfBranchStatements(node.elseBlock);
         if (result is TailCallSignal) {
           return result;
         }
       }
-    } on BreakException {
-      // Close variables before re-throwing
-      await blockEnv.closeVariables();
-      // Re-throw BreakException to be caught by the enclosing loop
-      rethrow;
-    } on GotoException {
-      // Close variables before re-throwing
-      await blockEnv.closeVariables();
-      // Re-throw GotoException to be handled by the enclosing scope
-      rethrow;
-    } on ReturnException {
-      // Close variables before re-throwing
-      await blockEnv.closeVariables();
-      // Re-throw ReturnException to be handled by the function
-      rethrow;
-    } catch (e) {
-      // Close variables with the error
-      await blockEnv.closeVariables(e);
-      // Re-throw the error
-      rethrow;
-    } finally {
-      // Close variables in normal block termination
-      await blockEnv.closeVariables();
-
-      // Restore the previous environment
-      setCurrentEnv(prevEnv);
-    }
 
     return result;
   }
@@ -323,7 +329,6 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     final endResult = await node.endExpr.accept(this);
     final stepResult = await node.stepExpr.accept(this);
     final rawStart = startResult is Value ? startResult.raw : startResult;
-    final rawEnd = endResult is Value ? endResult.raw : endResult;
     final rawStep = stepResult is Value ? stepResult.raw : stepResult;
 
     Never throwForLoopTypeError(String role, Object? value) {
@@ -579,7 +584,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         }
 
         final iterationLoopVarBox = Box<dynamic>(
-          Value(current),
+          current,
           isLocal: true,
           isTransient: true,
           interpreter: loopEnv.interpreter,
@@ -881,7 +886,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           final rawValue = i < values.length ? values[i] : null;
           final box = loopEnv.values[name];
           if (box != null) {
-            box.value = rawValue is Value ? rawValue : Value(rawValue);
+            box.value = _mutableLocalStorageValue(rawValue);
           }
         }
       }
@@ -1152,7 +1157,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         final rawValue = i < values.length ? values[i] : null;
         final box = loopEnv.values[name];
         if (box != null) {
-          box.value = rawValue is Value ? rawValue : rawValue;
+          box.value = _mutableLocalStorageValue(rawValue);
         }
       }
     }
@@ -1628,7 +1633,7 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
         final rawValue = i < values.length ? values[i] : null;
         final box = loopEnv.values[name];
         if (box != null) {
-          box.value = rawValue is Value ? rawValue : Value(rawValue);
+          box.value = _mutableLocalStorageValue(rawValue);
         }
       }
     }

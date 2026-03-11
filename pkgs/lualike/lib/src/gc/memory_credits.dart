@@ -56,7 +56,8 @@ class MemoryCredits {
       return;
     }
 
-    if (_excludedObjects.remove(obj)) {
+    if (_isExcluded(obj)) {
+      _excludedObjects.remove(obj);
       onAllocate(obj, space: space);
       return;
     }
@@ -114,7 +115,7 @@ class MemoryCredits {
 
   /// Adjusts the tracked credits when an object is promoted.
   void onPromote(GCObject obj) {
-    if (_excludedObjects.contains(obj)) {
+    if (_isExcluded(obj)) {
       return;
     }
 
@@ -133,7 +134,8 @@ class MemoryCredits {
 
   /// Updates bookkeeping after an object has been reclaimed.
   void onFree(GCObject obj) {
-    if (_excludedObjects.remove(obj)) {
+    if (_isExcluded(obj)) {
+      _excludedObjects.remove(obj);
       return;
     }
 
@@ -157,7 +159,7 @@ class MemoryCredits {
   /// Recalculates the cost of an object after it changed shape (for example a
   /// table gaining or losing entries).
   void recalculate(GCObject obj) {
-    if (_excludedObjects.contains(obj)) {
+    if (_isExcluded(obj)) {
       return;
     }
 

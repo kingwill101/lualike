@@ -899,14 +899,7 @@ class Environment extends GCObject {
     var currentError = normalizeCloseError(error);
     var closeErrorSeen = false;
 
-    // Close variables in reverse order of declaration. Remove the variable
-    // before invoking its close handler so reentrant safe points do not try
-    // to close it twice while still preserving the remaining variables if a
-    // close handler yields.
-    while (toBeClosedVars.isNotEmpty) {
-      final name = toBeClosedVars.removeLast();
-      final value = values[name]?.value;
-
+    Future<void> closeTrackedValue(String name, Object? value) async {
       Logger.debugLazy(
         () => "Attempting to close variable '$name' = $value",
         category: 'Env',
@@ -929,6 +922,20 @@ class Environment extends GCObject {
           currentError = normalizeCloseError(e);
           closeErrorSeen = true;
         }
+      }
+    }
+
+    if (toBeClosedVars.length == 1) {
+      final name = toBeClosedVars.removeLast();
+      await closeTrackedValue(name, values[name]?.value);
+    } else {
+      // Close variables in reverse order of declaration. Remove the variable
+      // before invoking its close handler so reentrant safe points do not try
+      // to close it twice while still preserving the remaining variables if a
+      // close handler yields.
+      while (toBeClosedVars.isNotEmpty) {
+        final name = toBeClosedVars.removeLast();
+        await closeTrackedValue(name, values[name]?.value);
       }
     }
 

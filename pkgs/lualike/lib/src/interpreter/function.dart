@@ -1125,12 +1125,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         frame.debugLocals.clear();
         for (final name in parameterNames) {
           final rawValue = execEnv.values[name]?.value;
-          final value = rawValue is Value ? rawValue : Value(rawValue);
+          final value = _wrapMutableLocalReadValue(interpreter, rawValue);
           frame.debugLocals.add(MapEntry(name, value));
         }
         if (hasVarargs && namedVararg != null) {
           final rawValue = execEnv.values[namedVararg]?.value;
-          final value = rawValue is Value ? rawValue : Value(rawValue);
+          final value = _wrapMutableLocalReadValue(interpreter, rawValue);
           frame.debugLocals.add(MapEntry(namedVararg, value));
         }
       }
@@ -1247,12 +1247,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         frame.debugLocals.clear();
         for (final name in parameterNames) {
           final rawValue = env.values[name]?.value;
-          final value = rawValue is Value ? rawValue : Value(rawValue);
+          final value = _wrapMutableLocalReadValue(interpreter, rawValue);
           frame.debugLocals.add(MapEntry(name, value));
         }
         if (hasVarargs && namedVararg != null) {
           final rawValue = env.values[namedVararg]?.value;
-          final value = rawValue is Value ? rawValue : Value(rawValue);
+          final value = _wrapMutableLocalReadValue(interpreter, rawValue);
           frame.debugLocals.add(MapEntry(namedVararg, value));
         }
       }
@@ -1785,45 +1785,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
       // Special handling for the last argument
       if (i == node.args.length - 1) {
-        if (value is Value && value.isMulti) {
-          // Expand multi-values from the last argument
-          args.addAll(
-            (value.raw as List<Object?>).map(
-              (v) => v is Value ? v : interpreter.wrapRuntimeValue(v),
-            ),
-          );
-        } else if (value is List) {
-          // Expand list from the last argument
-          args.addAll(
-            value.map((v) => v is Value ? v : interpreter.wrapRuntimeValue(v)),
-          );
-        } else {
-          // Regular value
-          args.add(
-            value is Value ? value : interpreter.wrapRuntimeValue(value),
-          );
-        }
+        _appendExpandedCallResults(args, value, interpreter);
       } else {
-        // For non-last arguments, only take the first value of multi-returns
-        if (value is Value && value.isMulti) {
-          final multiValues = value.raw as List;
-          args.add(
-            multiValues.isNotEmpty
-                ? multiValues.first
-                : interpreter.wrapRuntimeValue(null),
-          );
-        } else if (value is List && value.isNotEmpty) {
-          args.add(
-            value[0] is Value
-                ? value[0]
-                : interpreter.wrapRuntimeValue(value[0]),
-          );
-        } else {
-          // Regular value
-          args.add(
-            value is Value ? value : interpreter.wrapRuntimeValue(value),
-          );
-        }
+        _appendFirstCallResult(args, value, interpreter);
       }
     }
 
@@ -1897,6 +1861,47 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     return result;
   }
 
+  Object? _firstCallResult(Object? value, Interpreter interpreter) {
+    return switch (value) {
+      Value(isMulti: true, raw: final List multiValues) => multiValues.isNotEmpty
+          ? multiValues.first
+          : interpreter.wrapRuntimeValue(null),
+      final List values => values.isNotEmpty
+          ? (values.first is Value
+                ? values.first
+                : interpreter.wrapRuntimeValue(values.first))
+          : interpreter.wrapRuntimeValue(null),
+      _ => value is Value ? value : interpreter.wrapRuntimeValue(value),
+    };
+  }
+
+  void _appendExpandedCallResults(
+    List<Object?> out,
+    Object? value,
+    Interpreter interpreter,
+  ) {
+    switch (value) {
+      case Value(isMulti: true, raw: final List multiValues):
+        out.addAll(multiValues.cast<Object?>());
+      case final List values:
+        for (final entry in values) {
+          out.add(entry is Value ? entry : interpreter.wrapRuntimeValue(entry));
+        }
+      case final Value wrapped:
+        out.add(wrapped);
+      default:
+        out.add(interpreter.wrapRuntimeValue(value));
+    }
+  }
+
+  void _appendFirstCallResult(
+    List<Object?> out,
+    Object? value,
+    Interpreter interpreter,
+  ) {
+    out.add(_firstCallResult(value, interpreter));
+  }
+
   /// Evaluates a method call.
   ///
   /// Evaluates the object expression, method name, and arguments, then calls the method.
@@ -1906,10 +1911,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
   @override
   Future<Object?> visitMethodCall(MethodCall node) async {
     final interpreter = this as Interpreter;
-    Logger.debugLazy(
-      () => 'Visiting MethodCall: {node.prefix}.${node.methodName}',
-      category: 'Interpreter',
-    );
+    if (Logger.enabled) {
+      Logger.debugLazy(
+        () => 'Visiting MethodCall: ${node.prefix}.${node.methodName}',
+        category: 'Interpreter',
+      );
+    }
 
     // Get object
     var obj = await node.prefix.accept(this);
@@ -1920,20 +1927,25 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     );
 
     // Evaluate arguments
-    List<dynamic> args = await Future.wait(
-      node.args.map((a) async => await a.accept(this)).toList(),
-    );
-    Logger.debugLazy(
-      () => '[MethodCall] Arguments before implicitSelf: $args',
-      category: 'Interpreter',
-    );
-
-    if (node.implicitSelf) {
-      args = [objVal, ...args];
+    final args = <Object?>[];
+    for (final argNode in node.args) {
+      args.add(await argNode.accept(this));
+    }
+    if (Logger.enabled) {
       Logger.debugLazy(
-        () => '[MethodCall] Arguments after implicitSelf: $args',
+        () => '[MethodCall] Arguments before implicitSelf: $args',
         category: 'Interpreter',
       );
+    }
+
+    if (node.implicitSelf) {
+      args.insert(0, objVal);
+      if (Logger.enabled) {
+        Logger.debugLazy(
+          () => '[MethodCall] Arguments after implicitSelf: $args',
+          category: 'Interpreter',
+        );
+      }
     }
 
     // Get method name
@@ -1948,7 +1960,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     if (objVal.hasMetamethod('__index')) {
       final aFunc = await objVal.callMetamethodAsync('__index', [
         objVal,
-        Value(methodName),
+        interpreter.constantStringValue(methodName.codeUnits),
       ]);
       if (aFunc != null) {
         Logger.debugLazy(
@@ -2000,7 +2012,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     );
 
     // Build final argument list (prepend receiver when not implicitSelf)
-    final callArgs = node.implicitSelf ? args : [objVal, ...args];
+    final callArgs = node.implicitSelf ? args : <Object?>[objVal, ...args];
     Logger.debugLazy(
       () => '[MethodCall] Dispatch via _callFunction with args: $callArgs',
       category: 'Interpreter',
@@ -2034,6 +2046,25 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     // and signal the caller to invoke it without growing the stack.
     if (node.expr.length == 1) {
       final e = node.expr[0];
+      if (e is! FunctionCall && e is! MethodCall) {
+        final value = await e.accept(this);
+        if (value is Value && value.isMulti) {
+          final multi = value.raw as List<Object?>;
+          throw ReturnException(Value.multi(multi));
+        }
+        if (value is List) {
+          final normalized = value
+              .map((entry) => entry is Value ? entry : interpreter.wrapRuntimeValue(entry))
+              .toList(growable: false);
+          throw ReturnException(
+            normalized.length == 1 ? normalized.first : Value.multi(normalized),
+          );
+        }
+        throw ReturnException(
+          value is Value ? value : interpreter.wrapRuntimeValue(value),
+        );
+      }
+
       final currentEnv = interpreter.getCurrentEnv();
       if (_hasPendingToBeClosed(currentEnv)) {
         Logger.debugLazy(
@@ -2069,38 +2100,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             final v = await argNodes[i].accept(this);
             final isLast = i == argNodes.length - 1;
             if (isLast) {
-              if (v is Value && v.isMulti) {
-                out.addAll(
-                  (v.raw as List<Object?>).map(
-                    (x) => x is Value ? x : interpreter.wrapRuntimeValue(x),
-                  ),
-                );
-              } else if (v is List) {
-                out.addAll(
-                  v.map(
-                    (x) => x is Value ? x : interpreter.wrapRuntimeValue(x),
-                  ),
-                );
-              } else {
-                out.add(v is Value ? v : interpreter.wrapRuntimeValue(v));
-              }
+              _appendExpandedCallResults(out, v, interpreter);
             } else {
-              if (v is Value && v.isMulti) {
-                final multi = v.raw as List;
-                out.add(
-                  multi.isNotEmpty
-                      ? (multi.first is Value
-                            ? multi.first
-                            : interpreter.wrapRuntimeValue(multi.first))
-                      : interpreter.wrapRuntimeValue(null),
-                );
-              } else if (v is List && v.isNotEmpty) {
-                out.add(
-                  v[0] is Value ? v[0] : interpreter.wrapRuntimeValue(v[0]),
-                );
-              } else {
-                out.add(v is Value ? v : interpreter.wrapRuntimeValue(v));
-              }
+              _appendFirstCallResult(out, v, interpreter);
             }
           }
           return out;
@@ -2150,7 +2152,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
           if (obj.hasMetamethod('__index')) {
             final aFunc = await obj.callMetamethodAsync('__index', [
               obj,
-              Value(methodName),
+              interpreter.constantStringValue(methodName.codeUnits),
             ]);
             if (aFunc is Value && aFunc.isCallable()) {
               func = aFunc;
@@ -2196,41 +2198,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
       // Handle multi-value returns and function calls
       if (i == node.expr.length - 1) {
-        // For the last expression, preserve multi-value returns
-        if (value is Value && value.isMulti) {
-          values.addAll((value.raw as List<Object?>));
-        } else if (value is List) {
-          // If the last expression returns a list, expand it
-          values.addAll(
-            value.map((v) => v is Value ? v : interpreter.wrapRuntimeValue(v)),
-          );
-        } else {
-          // Regular value
-          values.add(
-            value is Value ? value : interpreter.wrapRuntimeValue(value),
-          );
-        }
+        _appendExpandedCallResults(values, value, interpreter);
       } else {
-        // For non-last expressions, only take the first value if it's multi
-        if (value is Value && value.isMulti) {
-          final multiValues = value.raw as List;
-          values.add(
-            multiValues.isNotEmpty
-                ? multiValues.first
-                : interpreter.wrapRuntimeValue(null),
-          );
-        } else if (value is List && value.isNotEmpty) {
-          values.add(
-            value[0] is Value
-                ? value[0]
-                : interpreter.wrapRuntimeValue(value[0]),
-          );
-        } else {
-          // Regular value
-          values.add(
-            value is Value ? value : interpreter.wrapRuntimeValue(value),
-          );
-        }
+        _appendFirstCallResult(values, value, interpreter);
       }
     }
 
@@ -2396,17 +2366,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     interpreter.pushExternalGcRoots(activeCallRoots);
     var activeCallRootsRegistered = true;
 
-    List<Value> normalizeTransferValues(Iterable<Object?> values) {
-      final interpreter = this as Interpreter;
-      return values
-          .map(
-            (value) =>
-                value is Value ? value : interpreter.wrapRuntimeValue(value),
-          )
-          .toList(growable: false);
-    }
-
-    List<Object?> callTransferValues() {
+    List<Value> callTransferValues() {
       final callableValue = func is Value ? func : null;
       final functionBody =
           callableValue?.functionBody ??
@@ -2415,34 +2375,45 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             final FunctionBody functionBody => functionBody,
             _ => null,
           };
-      if (functionBody == null) {
-        return List<Object?>.from(args, growable: false);
+      final limit = functionBody == null ? args.length : functionBody.parameters.length;
+      if (limit == 0) {
+        return const <Value>[];
       }
-      final paramCount = functionBody.parameters.length;
-      return args.take(paramCount).toList(growable: false);
+      final normalized = <Value>[];
+      final end = limit < args.length ? limit : args.length;
+      for (var i = 0; i < end; i++) {
+        final value = args[i];
+        normalized.add(
+          value is Value ? value : interpreter.wrapRuntimeValue(value),
+        );
+      }
+      return normalized;
     }
 
-    List<Object?> resultTransferValues(Object? result) {
+    List<Value> resultTransferValues(Object? result) {
       final normalized = _normalizeReturnValue(result);
       return switch (normalized) {
-        Value(isMulti: true, raw: final List values) => List<Object?>.from(
-          values,
-        ),
-        final Value value => <Object?>[value],
-        final List values => List<Object?>.from(values),
-        null => const <Object?>[],
-        final Object? value => <Object?>[value],
+        Value(isMulti: true, raw: final List values) => [
+          for (final value in values)
+            value is Value ? value : interpreter.wrapRuntimeValue(value),
+        ],
+        final Value value => <Value>[value],
+        final List values => [
+          for (final value in values)
+            value is Value ? value : interpreter.wrapRuntimeValue(value),
+        ],
+        null => const <Value>[],
+        final Object? value => <Value>[interpreter.wrapRuntimeValue(value)],
       };
     }
 
-    void setTransferInfo(CallFrame? frame, Iterable<Object?> values) {
+    void setTransferInfo(CallFrame? frame, List<Value> values) {
       if (frame == null) {
         return;
       }
-      final normalized = normalizeTransferValues(values);
-      frame.ftransfer = normalized.isEmpty ? 0 : 1;
-      frame.ntransfer = normalized.length;
-      frame.transferValues = normalized;
+      frame.ftransfer = values.isEmpty ? 0 : 1;
+      frame.ntransfer = values.length;
+      frame.transferValues = values;
     }
 
     void clearTransferInfo(CallFrame? frame) {
@@ -2451,7 +2422,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       }
       frame.ftransfer = 0;
       frame.ntransfer = 0;
-      frame.transferValues = <Value>[];
+      frame.transferValues = const <Value>[];
     }
 
     Object? returnWithTransfer(Object? result) {

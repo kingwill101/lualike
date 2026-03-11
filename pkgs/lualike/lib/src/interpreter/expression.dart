@@ -32,7 +32,7 @@ Value? _activeFunctionUpvalueValue(Interpreter interpreter, String name) {
       }
       return switch (upvalue.getValue()) {
         final Value value => value,
-        final Object? value? => Value(value),
+        final Object? value? => _wrapMutableLocalReadValue(interpreter, value),
         _ => null,
       };
     }
@@ -43,7 +43,7 @@ Value? _activeFunctionUpvalueValue(Interpreter interpreter, String name) {
 Value? _resolveActiveEnvValue(Interpreter interpreter) {
   return switch (interpreter.getCurrentEnv().get('_ENV')) {
     final Value value => value,
-    final Object? value? => Value(value),
+    final Object? value? => interpreter.wrapRuntimeValue(value),
     _ => _activeFunctionUpvalueValue(interpreter, '_ENV'),
   };
 }
@@ -51,7 +51,7 @@ Value? _resolveActiveEnvValue(Interpreter interpreter) {
 Value? _resolveActiveGlobalValue(Interpreter interpreter) {
   return switch (interpreter.getCurrentEnv().get('_G')) {
     final Value value => value,
-    final Object? value? => Value(value),
+    final Object? value? => interpreter.wrapRuntimeValue(value),
     _ => null,
   };
 }
@@ -108,7 +108,11 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         if (env.values.containsKey(node.name) &&
             env.values[node.name]!.isLocal) {
           final val = env.values[node.name]!.value;
-          return (val is Value ? val : Value(val), false, closureBoundary);
+          return (
+            val is Value ? val : interpreter.wrapRuntimeValue(val),
+            false,
+            closureBoundary,
+          );
         }
       }
       if (env.declaredGlobals.containsKey(node.name)) {
@@ -205,12 +209,16 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       // Normalize multi-value results from the left side
       if (leftResult is Value && leftResult.isMulti) {
         final multiValues = leftResult.raw as List;
-        leftResult = multiValues.isNotEmpty ? multiValues[0] : Value(null);
+        leftResult = multiValues.isNotEmpty
+            ? multiValues[0]
+            : (interpreter?.wrapRuntimeValue(null) ?? Value(null));
       } else if (leftResult is List && leftResult.isNotEmpty) {
         leftResult = leftResult[0];
       }
 
-      final leftVal = leftResult is Value ? leftResult : Value(leftResult);
+      final leftVal = leftResult is Value
+          ? leftResult
+          : (interpreter?.wrapRuntimeValue(leftResult) ?? Value(leftResult));
 
       if (node.op == 'and') {
         if (!leftVal.isTruthy()) {
@@ -231,12 +239,16 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
 
       if (rightResult is Value && rightResult.isMulti) {
         final multiValues = rightResult.raw as List;
-        rightResult = multiValues.isNotEmpty ? multiValues[0] : Value(null);
+        rightResult = multiValues.isNotEmpty
+            ? multiValues[0]
+            : (interpreter?.wrapRuntimeValue(null) ?? Value(null));
       } else if (rightResult is List && rightResult.isNotEmpty) {
         rightResult = rightResult[0];
       }
 
-      final rightVal = rightResult is Value ? rightResult : Value(rightResult);
+      final rightVal = rightResult is Value
+          ? rightResult
+          : (interpreter?.wrapRuntimeValue(rightResult) ?? Value(rightResult));
       return rightVal;
     }
 
@@ -248,7 +260,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         (node.right is FunctionCall || node.right is MethodCall)) {
       final tempValue = leftResult is Value
           ? _detachTemporaryValue(leftResult)
-          : Value(leftResult);
+          : (interpreter?.wrapRuntimeValue(leftResult) ?? Value(leftResult));
       temporaryEntry = MapEntry('(temporary)', tempValue);
       currentFrame.debugLocals.add(temporaryEntry);
       leftResult = tempValue;
@@ -277,7 +289,9 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         );
       }
       final multiValues = leftResult.raw as List;
-      leftResult = multiValues.isNotEmpty ? multiValues[0] : Value(null);
+      leftResult = multiValues.isNotEmpty
+          ? multiValues[0]
+          : (interpreter?.wrapRuntimeValue(null) ?? Value(null));
     } else if (leftResult is List && leftResult.isNotEmpty) {
       leftResult = leftResult[0];
     }
@@ -291,13 +305,81 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         );
       }
       final multiValues = rightResult.raw as List;
-      rightResult = multiValues.isNotEmpty ? multiValues[0] : Value(null);
+      rightResult = multiValues.isNotEmpty
+          ? multiValues[0]
+          : (interpreter?.wrapRuntimeValue(null) ?? Value(null));
     } else if (rightResult is List && rightResult.isNotEmpty) {
       rightResult = rightResult[0];
     }
 
-    final leftVal = leftResult is Value ? leftResult : Value(leftResult);
-    final rightVal = rightResult is Value ? rightResult : Value(rightResult);
+    final traceLine = node.operatorLine ?? node.span?.start.line;
+    final lineNumber = traceLine == null ? null : traceLine + 1;
+
+    Object? rawNumericOperand(Object? value) {
+      return value is Value ? value.raw : value;
+    }
+
+    bool hasPerValueMetatable(Object? value) {
+      return value is Value &&
+          (value.metatable != null || value.metatableRef != null);
+    }
+
+    bool canUseRawNumericBinaryFastPath(Object? left, Object? right) {
+      if (MetaTable().numberMetatableEnabled) {
+        return false;
+      }
+      if (hasPerValueMetatable(left) || hasPerValueMetatable(right)) {
+        return false;
+      }
+
+      final leftRaw = rawNumericOperand(left);
+      final rightRaw = rawNumericOperand(right);
+      if (!((leftRaw is num || leftRaw is BigInt) &&
+          (rightRaw is num || rightRaw is BigInt))) {
+        return false;
+      }
+
+      return switch (node.op) {
+        '+' || '-' || '*' || '/' || '%' || '^' || '//' || '&' || '|' || '~' || '<<' || '>>' => true,
+        _ => false,
+      };
+    }
+
+    Object? evaluateRawNumericBinaryFastPath(Object? left, Object? right) {
+      final leftRaw = rawNumericOperand(left);
+      final rightRaw = rawNumericOperand(right);
+      final op = node.op == '~' ? 'bxor' : node.op;
+
+      try {
+        final result = NumberUtils.performArithmetic(op, leftRaw, rightRaw);
+        return interpreter?.wrapRuntimeValue(result) ?? Value(result);
+      } on UnsupportedError catch (error) {
+        throw LuaError.typeError(
+          error.message ?? error.toString(),
+          lineNumber: lineNumber,
+        );
+      } on LuaError catch (error) {
+        throw LuaError.typeError(error.message, lineNumber: lineNumber);
+      }
+    }
+
+    if (canUseRawNumericBinaryFastPath(leftResult, rightResult)) {
+      if (multilineBinaryHook) {
+        await fireBinaryHookLine(leftLine);
+      }
+      final result = evaluateRawNumericBinaryFastPath(leftResult, rightResult);
+      if (multilineBinaryHook) {
+        await fireBinaryHookLine(rightLine);
+      }
+      return result;
+    }
+
+    final leftVal = leftResult is Value
+        ? leftResult
+        : (interpreter?.wrapRuntimeValue(leftResult) ?? Value(leftResult));
+    final rightVal = rightResult is Value
+        ? rightResult
+        : (interpreter?.wrapRuntimeValue(rightResult) ?? Value(rightResult));
 
     String? nilSourceLabel(AstNode expr, Value value) {
       if (value.raw != null) {
@@ -371,9 +453,6 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       'light userdata' => true,
       _ => false,
     };
-
-    final traceLine = node.operatorLine ?? node.span?.start.line;
-    final lineNumber = traceLine == null ? null : traceLine + 1;
 
     dynamic executeDefaultBinaryOperation(Value left, Value right) {
       return switch (node.op) {
@@ -520,7 +599,9 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       if (multilineBinaryHook) {
         await fireBinaryHookLine(rightLine);
       }
-      return result is Value ? result : Value(result);
+      return result is Value
+          ? result
+          : (interpreter?.wrapRuntimeValue(result) ?? Value(result));
     }
 
     if (canUseNumericBinaryFastPath(leftVal, rightVal)) {
@@ -683,15 +764,19 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         // the first result. Normalize here to match Lua semantics.
         if (result is Value && result.isMulti && result.raw is List) {
           final values = result.raw as List;
-          result = values.isNotEmpty ? values.first : Value(null);
+          result = values.isNotEmpty
+              ? values.first
+              : (interpreter?.wrapRuntimeValue(null) ?? Value(null));
         } else if (result is List) {
-          result = result.isNotEmpty ? result.first : Value(null);
+          result = result.isNotEmpty
+              ? result.first
+              : (interpreter?.wrapRuntimeValue(null) ?? Value(null));
         }
 
         // For inequality operators that use __eq, negate the result
         if ((node.op == '~=' || node.op == '!=') && metamethodName == '__eq') {
           if (result is bool) {
-            return Value(!result);
+            return interpreter?.wrapRuntimeValue(!result) ?? Value(!result);
           } else if (result is Value && result.raw is bool) {
             return Value(!result.raw);
           }
@@ -701,11 +786,15 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
           if (result is bool) {
             result = !result;
           } else if (result is Value && result.raw is bool) {
-            result = Value(!result.raw);
+            result =
+                interpreter?.wrapRuntimeValue(!result.raw) ??
+                Value(!result.raw);
           }
         }
 
-        return result is Value ? result : Value(result);
+        return result is Value
+            ? result
+            : (interpreter?.wrapRuntimeValue(result) ?? Value(result));
       }
     }
 
@@ -920,11 +1009,11 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         category: 'Expression',
       );
     }
+    final interpreter = this as Interpreter;
 
     // Special case: always look up _ENV and _G from the global environment directly
     // to avoid infinite recursion
     if (node.name == '_ENV' || node.name == '_G') {
-      final interpreter = this as Interpreter;
       final value = switch (node.name) {
         '_ENV' => _resolveActiveEnvValue(interpreter),
         '_G' => _resolveActiveGlobalValue(interpreter),
@@ -949,23 +1038,20 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       return value;
     }
 
-    if (this is Interpreter) {
-      final interpreter = this as Interpreter;
-      final frameEnv = interpreter
-          .findFrameForCallable(interpreter.getCurrentFunction())
-          ?.env;
-      final frameBox = frameEnv?.values[node.name];
-      if (frameBox != null && frameBox.isLocal) {
-        final value = frameBox.value;
-        return value is Value ? value : Value(value);
-      }
+    final frameEnv = interpreter
+        .findFrameForCallable(interpreter.getCurrentFunction())
+        ?.env;
+    final frameBox = frameEnv?.values[node.name];
+    if (frameBox != null && frameBox.isLocal) {
+      final value = frameBox.value;
+      return _wrapMutableLocalReadValue(interpreter, value);
+    }
 
-      final fastLocals = interpreter.getCurrentFastLocals();
-      final fastBox = fastLocals?[node.name];
-      if (fastBox != null) {
-        final value = fastBox.value;
-        return value is Value ? value : Value(value);
-      }
+    final fastLocals = interpreter.getCurrentFastLocals();
+    final fastBox = fastLocals?[node.name];
+    if (fastBox != null) {
+      final value = fastBox.value;
+      return _wrapMutableLocalReadValue(interpreter, value);
     }
 
     // Check for a local variable in the current environment. When executing
@@ -980,8 +1066,8 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
     }
 
     // Check current function's upvalues if we're executing within a function
-    if (!declaredGlobalInScope && this is Interpreter) {
-      final currentFunction = (this as Interpreter).getCurrentFunction();
+    if (!declaredGlobalInScope) {
+      final currentFunction = interpreter.getCurrentFunction();
       if (currentFunction != null && currentFunction.upvalues != null) {
         for (final upvalue in currentFunction.upvalues!) {
           if (upvalue.name == node.name) {
@@ -992,7 +1078,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
               );
             }
             final value = upvalue.getValue();
-            return value is Value ? value : Value(value);
+            return _wrapMutableLocalReadValue(interpreter, value);
           }
         }
       }
@@ -1000,14 +1086,13 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       final closureBox = closureBoundary?.values[node.name];
       if (closureBox != null && closureBox.isLocal) {
         final value = closureBox.value;
-        return value is Value ? value : Value(value);
+        return _wrapMutableLocalReadValue(interpreter, value);
       }
     }
 
     // Route global lookups through _ENV to match Lua semantics.
     // Use the current globals environment to get _ENV, not the root,
     // so that local _ENV assignments are respected.
-    final interpreter = this as Interpreter;
     Value? envValue = _resolveActiveEnvValue(interpreter);
     Value? gValue = _resolveActiveGlobalValue(interpreter);
 
@@ -1042,7 +1127,9 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         final map = envValue.raw as Map;
         if (map.containsKey(node.name)) {
           final entry = map[node.name];
-          final resolvedValue = entry is Value ? entry : Value(entry);
+          final resolvedValue = entry is Value
+              ? entry
+              : interpreter.wrapRuntimeValue(entry);
 
           if (canUseGlobalCache) {
             cache ??= _IdentifierGlobalCache();
@@ -1060,7 +1147,9 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         // expensive async metamethod calls for common globals like 'assert'.
         final direct = globals.get(node.name);
         if (direct != null) {
-          final resolvedValue = direct is Value ? direct : Value(direct);
+          final resolvedValue = direct is Value
+              ? direct
+              : interpreter.wrapRuntimeValue(direct);
           if (canUseGlobalCache) {
             cache ??= _IdentifierGlobalCache();
             cache
@@ -1077,8 +1166,10 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
             category: 'Expression',
           );
         }
-        final result = await envValue.getValueAsync(Value(node.name));
-        return result is Value ? result : Value(result);
+        final result = await envValue.getValueAsync(
+          interpreter.constantStringValue(node.name.codeUnits),
+        );
+        return result is Value ? result : interpreter.wrapRuntimeValue(result);
       } else if (envValue.raw == null) {
         final envLabel = _bindingScopeLabel(
           interpreter.getCurrentEnv(),
@@ -1110,7 +1201,7 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
         category: 'Expression',
       );
     }
-    return value is Value ? value : Value(value);
+    return value is Value ? value : interpreter.wrapRuntimeValue(value);
   }
 
   /// Processes a vararg expression.

@@ -324,7 +324,6 @@ class AssertFunction extends BuiltinFunction {
 
     if (!isTrue) {
       final explicitMessage = args.length > 1 ? args[1] as Value : null;
-      final luaStackTrace = interpreter?.callStack.toLuaStackTrace();
       if (explicitMessage != null && explicitMessage.raw != null) {
         Logger.debugLazy(
           () =>
@@ -336,6 +335,13 @@ class AssertFunction extends BuiltinFunction {
         }
 
         final message = explicitMessage.raw.toString();
+        final preserveLuaStackTrace =
+            explicitMessage.raw is! String &&
+                explicitMessage.raw is! LuaString ||
+            !message.contains("in metamethod 'close'");
+        final luaStackTrace = preserveLuaStackTrace
+            ? interpreter?.callStack.toLuaStackTrace()
+            : null;
         final cause = switch (explicitMessage.raw) {
           String() || LuaString() => null,
           final Object raw => raw,
@@ -369,6 +375,7 @@ class AssertFunction extends BuiltinFunction {
       }
 
       const message = 'assertion failed!';
+      final luaStackTrace = interpreter?.callStack.toLuaStackTrace();
       Logger.debugLazy(
         () => 'AssertFunction: Assertion failed with default message',
         category: 'Base',

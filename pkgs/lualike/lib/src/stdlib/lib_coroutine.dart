@@ -353,6 +353,14 @@ class _WrappedCoroutineFunction extends BuiltinFunction
 class _CoroutineClose extends BuiltinFunction {
   _CoroutineClose([super.interpreter]);
 
+  Object? _closeResultToValue(List<Object?> result) {
+    if (result.length == 1) {
+      final value = result.first;
+      return value is Value ? value : Value(value);
+    }
+    return Value.multi(result);
+  }
+
   @override
   Future<Object?> call(List<Object?> args) async {
     final LuaRuntime runtime = interpreter!;
@@ -375,7 +383,7 @@ class _CoroutineClose extends BuiltinFunction {
       case CoroutineStatus.dead:
       case CoroutineStatus.suspended:
         final List<Object?> result = await coroutine.close(normalizedError);
-        return Value.multi(result);
+        return _closeResultToValue(result);
       case CoroutineStatus.normal:
         throw LuaError(
           "cannot close a ${_statusToString(runtime, coroutine)} coroutine",
@@ -388,7 +396,7 @@ class _CoroutineClose extends BuiltinFunction {
         if (identical(coroutine, current)) {
           throw CoroutineCloseSignal(result);
         }
-        return Value.multi(result);
+        return _closeResultToValue(result);
     }
   }
 }
