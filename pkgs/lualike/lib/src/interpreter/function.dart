@@ -1708,20 +1708,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       while (fastArgs.length < 2) {
         fastArgs.add(null);
       }
-      try {
-        final result = await _callFunction(func, fastArgs, callNode: node);
-        Logger.debugLazy(
-          () => 'Function call result: $result (${result.runtimeType})',
-          category: 'Interpreter',
-        );
-        return result;
-      } on LuaError catch (e, s) {
-        final interpreter = this as Interpreter;
-        if (!interpreter.isInProtectedCall) {
-          interpreter.reportError(e.message, trace: s, error: e, node: node);
-        }
-        rethrow;
-      }
+      final result = await _callFunction(func, fastArgs, callNode: node);
+      Logger.debugLazy(
+        () => 'Function call result: $result (${result.runtimeType})',
+        category: 'Interpreter',
+      );
+      return result;
     }
 
     // Fast path: trivial closure that always returns nil. Evaluate
@@ -1892,25 +1884,17 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
     }
 
     // Call the function with the determined function name
-    try {
-      final result = await _callFunction(
-        func,
-        args,
-        callerFunctionName: functionName,
-        callNode: node,
-      );
-      Logger.debugLazy(
-        () => 'Function call result: $result (${result.runtimeType})',
-        category: 'Interpreter',
-      );
-      return result;
-    } on LuaError catch (e, s) {
-      final interpreter = this as Interpreter;
-      if (!interpreter.isInProtectedCall) {
-        interpreter.reportError(e.message, trace: s, error: e, node: node);
-      }
-      rethrow;
-    }
+    final result = await _callFunction(
+      func,
+      args,
+      callerFunctionName: functionName,
+      callNode: node,
+    );
+    Logger.debugLazy(
+      () => 'Function call result: $result (${result.runtimeType})',
+      category: 'Interpreter',
+    );
+    return result;
   }
 
   /// Evaluates a method call.
@@ -1977,19 +1961,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         final fnValue = aFunc is Value
             ? aFunc
             : interpreter.wrapRuntimeValue(aFunc);
-        try {
-          return await _callFunction(
-            fnValue,
-            args,
-            callerFunctionName: methodName,
-            callNode: node,
-          );
-        } on LuaError catch (e, s) {
-          if (!interpreter.isInProtectedCall) {
-            interpreter.reportError(e.message, trace: s, error: e, node: node);
-          }
-          rethrow;
-        }
+        return await _callFunction(
+          fnValue,
+          args,
+          callerFunctionName: methodName,
+          callNode: node,
+        );
       }
     }
 
@@ -2028,19 +2005,12 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
       () => '[MethodCall] Dispatch via _callFunction with args: $callArgs',
       category: 'Interpreter',
     );
-    try {
-      return await _callFunction(
-        func,
-        callArgs,
-        callerFunctionName: methodName,
-        callNode: node,
-      );
-    } on LuaError catch (e, s) {
-      if (!interpreter.isInProtectedCall) {
-        interpreter.reportError(e.message, trace: s, error: e, node: node);
-      }
-      rethrow;
-    }
+    return await _callFunction(
+      func,
+      callArgs,
+      callerFunctionName: methodName,
+      callNode: node,
+    );
   }
 
   /// Evaluates a return statement.

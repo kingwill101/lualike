@@ -437,8 +437,8 @@ class Coroutine extends GCObject {
       _finalizeTermination();
       return _handleReturnValue(e.value);
     } catch (e) {
-      Logger.error(
-        'Coroutine.resume: Caught unexpected error: $e',
+      Logger.debugLazy(
+        () => 'Coroutine.resume: Propagating coroutine error: $e',
         category: 'Coroutine',
       );
       // Unexpected error
@@ -1230,7 +1230,10 @@ class Coroutine extends GCObject {
         } catch (closeError) {
           finalError = closeError;
         }
-        Logger.error('Error in _executeCoroutine: $e', category: 'Coroutine');
+        Logger.debugLazy(
+          () => '_executeCoroutine: Propagating coroutine error: $e',
+          category: 'Coroutine',
+        );
         await _completeWithError(finalError);
         Logger.debugLazy(
           () => '_executeCoroutine: Completer completed with error',

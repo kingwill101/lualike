@@ -679,12 +679,11 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         }
         await callMetamethodAsync('__close', args);
       } catch (e) {
-        // Log the error but continue closing other variables
-        Logger.error(
-          'Error in __close metamethod',
-          category: 'Value',
-          error: e,
-        );
+        // Propagate close failures without eagerly reporting them. Lua code can
+        // legitimately catch and inspect these errors through `coroutine.close`,
+        // `pcall`, or nested `assert(coroutine.close(...))` chains, and logging
+        // each intermediate failure makes cases like `cstack.lua` extremely
+        // noisy compared to the stock Lua CLI.
         if (e is LuaError) {
           final message = e.message;
           if (!message.contains("in metamethod 'close'")) {

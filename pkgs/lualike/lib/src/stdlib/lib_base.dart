@@ -324,6 +324,7 @@ class AssertFunction extends BuiltinFunction {
 
     if (!isTrue) {
       final explicitMessage = args.length > 1 ? args[1] as Value : null;
+      final luaStackTrace = interpreter?.callStack.toLuaStackTrace();
       if (explicitMessage != null && explicitMessage.raw != null) {
         Logger.debugLazy(
           () =>
@@ -343,10 +344,11 @@ class AssertFunction extends BuiltinFunction {
 
         if (interpreter?.callStack.current?.callNode case final callNode?) {
           throw LuaError(
-            _formatErrorAtStackLevel(interpreter!, message, 1),
+            _formatErrorAtNode(callNode, message),
             cause: cause,
             node: callNode,
             span: callNode.span,
+            luaStackTrace: luaStackTrace,
             suppressAutomaticLocation: true,
           );
         }
@@ -354,12 +356,14 @@ class AssertFunction extends BuiltinFunction {
           throw LuaError(
             _formatErrorAtStackLevel(interpreter!, message, 1),
             cause: cause,
+            luaStackTrace: luaStackTrace,
             suppressAutomaticLocation: true,
           );
         }
         throw LuaError(
           message,
           cause: cause,
+          luaStackTrace: luaStackTrace,
           suppressAutomaticLocation: true,
         );
       }
@@ -371,19 +375,25 @@ class AssertFunction extends BuiltinFunction {
       );
       if (interpreter?.callStack.current?.callNode case final callNode?) {
         throw LuaError(
-          _formatErrorAtStackLevel(interpreter!, message, 1),
+          _formatErrorAtNode(callNode, message),
           node: callNode,
           span: callNode.span,
+          luaStackTrace: luaStackTrace,
           suppressAutomaticLocation: true,
         );
       }
       if (interpreter != null) {
         throw LuaError(
           _formatErrorAtStackLevel(interpreter!, message, 1),
+          luaStackTrace: luaStackTrace,
           suppressAutomaticLocation: true,
         );
       }
-      throw LuaError(message, suppressAutomaticLocation: true);
+      throw LuaError(
+        message,
+        luaStackTrace: luaStackTrace,
+        suppressAutomaticLocation: true,
+      );
     }
 
     Logger.debugLazy(
@@ -505,6 +515,24 @@ String _formatProtectedCallMessage(
     return '$scriptPath: $message';
   }
   return message;
+}
+
+String _formatErrorAtNode(AstNode node, String message) {
+  final span = node.span;
+  if (span == null) {
+    return message;
+  }
+
+  final sourceUrl = span.sourceUrl?.toString();
+  if (sourceUrl == null || sourceUrl.isEmpty) {
+    return message;
+  }
+
+  final formattedSource = switch (Uri.tryParse(sourceUrl)) {
+    final Uri uri when uri.scheme == 'file' => uri.toFilePath(),
+    _ => sourceUrl,
+  };
+  return '$formattedSource:${span.start.line + 1}: $message';
 }
 
 String _formatErrorAtStackLevel(
