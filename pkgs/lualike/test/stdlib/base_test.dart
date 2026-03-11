@@ -778,6 +778,37 @@ void main() {
       );
     });
 
+    test('comparison diagnostics preserve named userdata types', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        XX = setmetatable({}, {__name = "My Type"})
+        okCompare, msgCompare = pcall(function()
+          return XX < io.stdin
+        end)
+      ''');
+
+      expect((bridge.getGlobal('okCompare') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('msgCompare') as Value).unwrap(),
+        contains('My Type with FILE*'),
+      );
+    });
+
+    test('__gc metamethod reports missing FILE* receiver like Lua 5.5', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        okGc, msgGc = pcall(function()
+          return getmetatable(io.stdin).__gc()
+        end)
+      ''');
+
+      expect((bridge.getGlobal('okGc') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('msgGc') as Value).unwrap(),
+        contains("bad argument #1 to '__gc' (FILE* expected, got no value)"),
+      );
+    });
+
     test(
       'string.dump strip removes debug labels from reloaded functions',
       () async {
@@ -1011,6 +1042,50 @@ void main() {
     });
 
     group("setmetatable", () {
+      test('setmetatable reports Lua-style bad-argument diagnostics', () async {
+        final bridge = LuaLike();
+        await bridge.execute(r'''
+          okSetMetaNoTable, msgSetMetaNoTable = pcall(function()
+            return setmetatable()
+          end)
+          okSetMetaNoMeta, msgSetMetaNoMeta = pcall(function()
+            return setmetatable({})
+          end)
+          okSetMetaBadTable, msgSetMetaBadTable = pcall(function()
+            return setmetatable('s')
+          end)
+          okSetMetaBadMeta, msgSetMetaBadMeta = pcall(function()
+            return setmetatable({}, 'x')
+          end)
+        ''');
+
+        expect((bridge.getGlobal('okSetMetaNoTable') as Value).unwrap(), isFalse);
+        expect(
+          (bridge.getGlobal('msgSetMetaNoTable') as Value).unwrap(),
+          contains("bad argument #1 to 'setmetatable' (table expected, got no value)"),
+        );
+
+        expect((bridge.getGlobal('okSetMetaNoMeta') as Value).unwrap(), isFalse);
+        expect(
+          (bridge.getGlobal('msgSetMetaNoMeta') as Value).unwrap(),
+          contains(
+            "bad argument #2 to 'setmetatable' (nil or table expected, got no value)",
+          ),
+        );
+
+        expect((bridge.getGlobal('okSetMetaBadTable') as Value).unwrap(), isFalse);
+        expect(
+          (bridge.getGlobal('msgSetMetaBadTable') as Value).unwrap(),
+          contains("bad argument #1 to 'setmetatable' (table expected, got string)"),
+        );
+
+        expect((bridge.getGlobal('okSetMetaBadMeta') as Value).unwrap(), isFalse);
+        expect(
+          (bridge.getGlobal('msgSetMetaBadMeta') as Value).unwrap(),
+          contains("bad argument #2 to 'setmetatable' (nil or table expected, got string)"),
+        );
+      });
+
       test('setmetatable with function', () async {
         final bridge = LuaLike();
         await bridge.execute(r'''

@@ -17,9 +17,9 @@ typedef AsyncFunction = Future<Object?> Function(List<Object?> args);
 
 abstract interface class VirtualLuaTable implements Map<dynamic, dynamic> {}
 
-String _comparisonTypeError(Object? leftRaw, Object? rightRaw) {
-  final leftType = getLuaType(Value(leftRaw));
-  final rightType = getLuaType(Value(rightRaw));
+String _comparisonTypeError(Object? left, Object? right) {
+  final leftType = getLuaType(left);
+  final rightType = getLuaType(right);
   return leftType == rightType
       ? 'attempt to compare two $leftType values'
       : 'attempt to compare $leftType with $rightType';
@@ -3089,7 +3089,7 @@ extension OperatorExtension on Value {
     if (raw is String && otherRaw is LuaString) {
       return LuaString.fromDartString(raw) > otherRaw;
     }
-    throw UnsupportedError(_comparisonTypeError(raw, otherRaw));
+    throw UnsupportedError(_comparisonTypeError(this, other));
   }
 
   dynamic operator <(Object other) {
@@ -3177,7 +3177,7 @@ extension OperatorExtension on Value {
     if (raw is String && otherRaw is LuaString) {
       return LuaString.fromDartString(raw) < otherRaw;
     }
-    throw UnsupportedError(_comparisonTypeError(raw, otherRaw));
+    throw UnsupportedError(_comparisonTypeError(this, other));
   }
 
   dynamic operator >=(Object other) {
@@ -3263,7 +3263,7 @@ extension OperatorExtension on Value {
     if (raw is String && otherRaw is LuaString) {
       return LuaString.fromDartString(raw) >= otherRaw;
     }
-    throw UnsupportedError(_comparisonTypeError(raw, otherRaw));
+    throw UnsupportedError(_comparisonTypeError(this, other));
   }
 
   dynamic operator <=(Object other) {
@@ -3349,7 +3349,7 @@ extension OperatorExtension on Value {
     if (raw is String && otherRaw is LuaString) {
       return LuaString.fromDartString(raw) <= otherRaw;
     }
-    throw UnsupportedError(_comparisonTypeError(raw, otherRaw));
+    throw UnsupportedError(_comparisonTypeError(this, other));
   }
 
   bool equals(Object other) {

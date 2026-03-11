@@ -487,7 +487,17 @@ class _TableSort extends BuiltinFunction {
 
     final arg0 = args[0];
     final table = arg0 is Value ? arg0 : Value(arg0);
-    checktab(table, TablePermission.read | TablePermission.write);
+    try {
+      checktab(table, TablePermission.read | TablePermission.write);
+    } on LuaError catch (error) {
+      if (error.message == 'table expected') {
+        throw LuaError(
+          "bad argument #1 to 'table.sort' "
+          "(table expected, got ${getLuaType(table)})",
+        );
+      }
+      rethrow;
+    }
     final comp = args.length > 1 ? args[1] : null;
     final rawSequenceTable =
         table.raw is Map &&

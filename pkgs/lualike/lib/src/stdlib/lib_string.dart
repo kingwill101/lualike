@@ -9,10 +9,12 @@ import 'package:lualike/lualike.dart';
 import 'package:lualike/src/binary_type_size.dart';
 import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/intern.dart';
+import 'package:lualike/src/number.dart';
 import 'package:lualike/src/number_limits.dart';
 import 'package:lualike/src/parsers/pattern.dart' as lpc;
 import 'package:lualike/src/stdlib/lib_utf8.dart' show UTF8Lib;
 import 'package:lualike/src/upvalue.dart';
+import 'package:lualike/src/utils/type.dart' show getLuaType;
 
 import 'library.dart';
 
@@ -444,6 +446,98 @@ int _requireIntegerRepresentation(dynamic value) {
   );
 }
 
+bool _isMethodSyntaxCall(BuiltinFunction builtin) =>
+    builtin.interpreter?.callStack.top?.callNode is MethodCall;
+
+Value _requireStringLibrarySubject(
+  BuiltinFunction builtin,
+  List<Object?> args,
+  String functionName,
+) {
+  return _requireStringLikeArgument(
+    builtin,
+    args,
+    argumentIndex: 0,
+    functionName: functionName,
+  );
+}
+
+Value _requireStringLikeArgument(
+  BuiltinFunction builtin,
+  List<Object?> args, {
+  required int argumentIndex,
+  required String functionName,
+}) {
+  final luaArgumentNumber = argumentIndex + 1;
+  if (args.isEmpty) {
+    throw LuaError.typeError(
+      "bad argument #1 to '$functionName' (string expected, got no value)",
+    );
+  }
+
+  if (argumentIndex >= args.length) {
+    throw LuaError.typeError(
+      "bad argument #$luaArgumentNumber to '$functionName' (string expected, got no value)",
+    );
+  }
+
+  final value = args[argumentIndex] as Value;
+  final raw = value.raw;
+  if (raw is String || raw is LuaString || raw is num || raw is BigInt) {
+    return value;
+  }
+
+  final typeName = getLuaType(value);
+  if (_isMethodSyntaxCall(builtin)) {
+    throw LuaError.typeError(
+      "calling '$functionName' on bad self (string expected, got $typeName)",
+    );
+  }
+
+  throw LuaError.typeError(
+    "bad argument #$luaArgumentNumber to '$functionName' (string expected, got $typeName)",
+  );
+}
+
+int _requireStringIntegerArgument(
+  BuiltinFunction builtin,
+  Value value, {
+  required String functionName,
+  required int functionArgNumber,
+  required int methodArgNumber,
+}) {
+  final integer = NumberUtils.tryToInteger(value.raw);
+  if (integer != null) {
+    return integer;
+  }
+
+  final raw = value.raw;
+  final argNumber = _isMethodSyntaxCall(builtin)
+      ? methodArgNumber
+      : functionArgNumber;
+  if (raw is num || raw is BigInt) {
+    throw LuaError.typeError(
+      "bad argument #$argNumber to '$functionName' "
+      "(number has no integer representation)",
+    );
+  }
+  if (raw is String || raw is LuaString) {
+    try {
+      LuaNumberParser.parse(raw.toString());
+      throw LuaError.typeError(
+        "bad argument #$argNumber to '$functionName' "
+        "(number has no integer representation)",
+      );
+    } on FormatException {
+      // Fall through to the type-based "number expected" message below.
+    }
+  }
+  throw LuaError.typeError(
+    "bad argument #$argNumber to '$functionName' "
+    "(number expected, got ${NumberUtils.typeName(raw)})",
+  );
+}
+
 /// String library implementation using the new Library system
 class StringLibrary extends Library {
   @override
@@ -583,8 +677,15 @@ class _StringFind extends BuiltinFunction {
       throw LuaError.typeError("string.find requires a string and a pattern");
     }
 
-    final strValue = (args[0] as Value).raw;
-    final patternValue = (args[1] as Value).raw;
+    final strValue =
+        _requireStringLibrarySubject(this, args, 'string.find').raw;
+    final patternValue =
+        _requireStringLikeArgument(
+          this,
+          args,
+          argumentIndex: 1,
+          functionName: 'string.find',
+        ).raw;
     final useByteLevel = _shouldUseBytePatternProcessing(
       strValue,
       patternValue,
@@ -2102,6 +2203,8 @@ class _StringGsub extends BuiltinFunction {
       return Value.multi([resultValue, Value(count)]);
     } on CoroutineCloseSignal {
       rethrow;
+    } on LuaError {
+      rethrow;
     } catch (e) {
       throw LuaError.typeError("Error in string.gsub: $e");
     }
@@ -2471,11 +2574,7 @@ class _StringSub extends BuiltinFunction {
 
   @override
   Object? call(List<Object?> args) {
-    if (args.isEmpty) {
-      throw LuaError.typeError("string.sub requires a string argument");
-    }
-
-    final value = args[0] as Value;
+    final value = _requireStringLibrarySubject(this, args, 'sub');
     // Use toLatin1String for byte-level operations to preserve raw bytes
     final strValue = value.raw;
     final str = strValue is LuaString
@@ -2483,10 +2582,22 @@ class _StringSub extends BuiltinFunction {
         : strValue.toString();
 
     var start = args.length > 1
-        ? _requireIntegerRepresentation((args[1] as Value).raw)
+        ? _requireStringIntegerArgument(
+            this,
+            args[1] as Value,
+            functionName: 'sub',
+            functionArgNumber: 2,
+            methodArgNumber: 1,
+          )
         : 1;
     var end = args.length > 2
-        ? _requireIntegerRepresentation((args[2] as Value).raw)
+        ? _requireStringIntegerArgument(
+            this,
+            args[2] as Value,
+            functionName: 'sub',
+            functionArgNumber: 3,
+            methodArgNumber: 2,
+          )
         : str.length;
 
     // Handle negative indices
