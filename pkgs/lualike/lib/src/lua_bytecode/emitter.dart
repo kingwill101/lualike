@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import 'package:source_span/source_span.dart';
+
 import '../ast.dart';
 import '../parse.dart';
 import 'builder.dart';
@@ -77,6 +79,15 @@ final class LuaBytecodeEmitter {
       builder.mainPrototype,
     );
     compiler.compileProgram(program);
+    final mainPrototype = builder.mainPrototype;
+    final lastInstructionLine = mainPrototype.lastInstructionLine;
+    if (lastInstructionLine != null && lastInstructionLine > 0) {
+      final inferredLastLine = lastInstructionLine + 1;
+      if (mainPrototype.lastLineDefined <= 0 ||
+          mainPrototype.lastLineDefined > inferredLastLine) {
+        mainPrototype.lastLineDefined = inferredLastLine;
+      }
+    }
 
     final chunk = builder.build();
     return LuaBytecodeEmitterArtifact(
@@ -180,6 +191,8 @@ final class _LuaBytecodeStructuredCompiler {
   var _hasExplicitReturn = false;
   var _loopDepth = 0;
   var _nextScopeId = 0;
+  var _lastStatementEndLine = 0;
+  int? _stickySourceLineOverride;
 
   bool get _isTopLevel => _parent == null;
 
@@ -192,6 +205,18 @@ final class _LuaBytecodeStructuredCompiler {
   }
 
   void compileProgram(Program program) {
+    if (program.statements.isNotEmpty) {
+      final firstLine = _startLine(program.statements.first);
+      if (!_isTopLevel && _prototype.lineDefined <= 0 && firstLine > 0) {
+        _prototype.lineDefined = firstLine;
+      }
+      final lastLine = _endLine(program.statements.last);
+      if (lastLine > 0 &&
+          (_prototype.lastLineDefined <= 0 ||
+              _prototype.lastLineDefined > lastLine)) {
+        _prototype.lastLineDefined = lastLine;
+      }
+    }
     _compileStatements(program.statements, trackStatementIndexes: _isTopLevel);
     _ensureResolvedGotos();
     _finalizeFunction();
@@ -213,12 +238,42 @@ final class _LuaBytecodeStructuredCompiler {
     }
   }
 
+  T _withSourceLine<T>(int? line, T Function() action) {
+    if (line == null || line <= 0) {
+      return action();
+    }
+    final previousLine = _prototype.currentSourceLine;
+    _prototype.currentSourceLine = line;
+    try {
+      return action();
+    } finally {
+      _prototype.currentSourceLine = previousLine;
+    }
+  }
+
+  T _withStickySourceLine<T>(int? line, T Function() action) {
+    if (line == null || line <= 0) {
+      return action();
+    }
+    final previousLine = _stickySourceLineOverride;
+    _stickySourceLineOverride = line;
+    try {
+      return action();
+    } finally {
+      _stickySourceLineOverride = previousLine;
+    }
+  }
+
   void _compileStatements(
     List<AstNode> statements, {
     required bool trackStatementIndexes,
   }) {
     if (_isTopLevel || _prototypeHasVarargs) {
-      _prototype.emitVarargPrep();
+      if (_isTopLevel) {
+        _prototype.emitVarargPrep();
+      } else {
+        _prototype.emitVarargPrepWithoutLine();
+      }
     }
 
     _compileStatementList(
@@ -246,10 +301,34 @@ final class _LuaBytecodeStructuredCompiler {
   }
 
   void _finalizeFunction() {
+    final previousLine = _prototype.currentSourceLine;
+    final hasExecutableStatements = _lastStatementEndLine > 0;
+    final returnLine = switch (_lastStatementEndLine) {
+      final int line when line > 0 => _prototype.lastLineDefined > 0
+          ? math.min(_prototype.lastLineDefined, line + 1)
+          : line,
+      _ when _prototype.lineDefined > 0 && _prototype.lastLineDefined > 0 =>
+        math.min(_prototype.lastLineDefined, _prototype.lineDefined + 1),
+      _ when _prototype.lineDefined > 0 => _prototype.lineDefined,
+      _ when _prototype.lastLineDefined > 0 => _prototype.lastLineDefined,
+      _ => 0,
+    };
+    if (returnLine > 0) {
+      _prototype.currentSourceLine = returnLine;
+    }
     _prototype.emitReturn(
       firstRegister: _nextRegister == 0 ? 0 : _nextRegister,
       resultCount: 0,
     );
+    _prototype.currentSourceLine = previousLine;
+    if (returnLine > 0) {
+      if (!_isTopLevel && _prototype.lineDefined <= 0) {
+        _prototype.lineDefined = returnLine;
+      }
+      if (hasExecutableStatements || _prototype.lastLineDefined <= 0) {
+        _prototype.lastLineDefined = returnLine;
+      }
+    }
     final endPc = _prototype.currentPc + 1;
     while (_scopes.isNotEmpty) {
       _exitScope(endPc: endPc, emitCloseInstruction: false);
@@ -261,6 +340,10 @@ final class _LuaBytecodeStructuredCompiler {
     required int statementIndex,
     bool terminalLabelInScope = false,
   }) {
+    final statementEndLine = _endLine(statement);
+    if (statementEndLine > _lastStatementEndLine) {
+      _lastStatementEndLine = statementEndLine;
+    }
     _withNodeLine(statement, () {
       switch (statement) {
         case LocalDeclaration():
@@ -376,7 +459,10 @@ final class _LuaBytecodeStructuredCompiler {
       localIndex += 1;
     }
 
-    final startPc = _prototype.currentPc + 1;
+    final needsDeferredActivation = statement.exprs.any(
+      (expr) => _isCallExpression(_unwrapExpression(expr)),
+    );
+    final startPc = _prototype.currentPc + (needsDeferredActivation ? 2 : 1);
     for (final local in pendingLocals) {
       _activatePreparedLocal(local, startPc: startPc);
     }
@@ -394,6 +480,17 @@ final class _LuaBytecodeStructuredCompiler {
     final targets = [
       for (final target in statement.targets) _resolveStoreTarget(target),
     ];
+    BinaryExpression? multilineBinaryExpr;
+    if (statement.targets.length == 1 && statement.exprs.length == 1) {
+      final expr = _unwrapExpression(statement.exprs.single);
+      if (expr is BinaryExpression) {
+        multilineBinaryExpr = expr;
+      }
+    }
+    final storeLine = switch (multilineBinaryExpr) {
+      final BinaryExpression expr => _multilineBinaryRightLine(expr),
+      _ => null,
+    };
     try {
       _emitValueList(
         statement.exprs,
@@ -402,7 +499,10 @@ final class _LuaBytecodeStructuredCompiler {
           if (index >= targets.length) {
             return;
           }
-          _storeRegisterToTarget(register, targets[index]);
+          _withSourceLine(
+            index == 0 ? storeLine : null,
+            () => _storeRegisterToTarget(register, targets[index]),
+          );
         },
         onNil: (index) {
           if (index >= targets.length) {
@@ -464,7 +564,7 @@ final class _LuaBytecodeStructuredCompiler {
 
       if (expr is Call) {
         final base = _reserveTempBlock(_callRegisterWidth(expr));
-        if (_isInsideToBeClosedScope) {
+        if (_hasVisibleCloseOrCapturedLocals || _shouldDeoptTailCall(expr)) {
           _emitOpenResultExpression(expr, baseRegister: base);
         } else {
           _emitTailCall(expr, baseRegister: base);
@@ -515,7 +615,13 @@ final class _LuaBytecodeStructuredCompiler {
     final hasTrailingBranch =
         statement.elseIfs.isNotEmpty || statement.elseBlock.isNotEmpty;
     if (hasTrailingBranch) {
+      final previousLine = _prototype.currentSourceLine;
+      final endLine = _endLine(statement);
+      if (endLine > 0) {
+        _prototype.currentSourceLine = endLine;
+      }
       endJumps.add(_prototype.emitJumpPlaceholder());
+      _prototype.currentSourceLine = previousLine;
     }
     _prototype.patchJumpTarget(
       instructionPc: nextClausePc,
@@ -530,7 +636,13 @@ final class _LuaBytecodeStructuredCompiler {
           index != statement.elseIfs.length - 1 ||
           statement.elseBlock.isNotEmpty;
       if (hasMoreBranches) {
+        final previousLine = _prototype.currentSourceLine;
+        final endLine = _endLine(statement);
+        if (endLine > 0) {
+          _prototype.currentSourceLine = endLine;
+        }
         endJumps.add(_prototype.emitJumpPlaceholder());
+        _prototype.currentSourceLine = previousLine;
       }
       _prototype.patchJumpTarget(
         instructionPc: nextClausePc,
@@ -635,14 +747,20 @@ final class _LuaBytecodeStructuredCompiler {
       a: baseRegister,
       bx: forLoopPc + 1 - bodyStartPc,
     );
+    final closeFrom = _minimumCloseRegisterForLocals(_scopes.last);
     final closePc = _prototype.currentPc;
-    _prototype.emitClose(fromRegister: baseRegister);
-    final endPc = _prototype.currentPc;
-    _prototype.patchBx(instructionPc: forPrepPc, bx: closePc - forPrepPc - 2);
-    for (final breakJump in _breakFixups.removeLast()) {
-      _prototype.patchJumpTarget(instructionPc: breakJump, targetPc: closePc);
+    if (closeFrom != null) {
+      _prototype.emitClose(fromRegister: closeFrom);
     }
-    _exitScope(endPc: endPc + 1);
+    final endPc = _prototype.currentPc;
+    _prototype.patchBx(instructionPc: forPrepPc, bx: endPc - forPrepPc - 2);
+    for (final breakJump in _breakFixups.removeLast()) {
+      _prototype.patchJumpTarget(
+        instructionPc: breakJump,
+        targetPc: closeFrom != null ? closePc : endPc,
+      );
+    }
+    _exitScope(endPc: endPc + (closeFrom != null ? 1 : 0));
   }
 
   void _compileForInLoop(ForInLoop statement) {
@@ -653,6 +771,9 @@ final class _LuaBytecodeStructuredCompiler {
     }
 
     final baseRegister = _allocateRegisters(3 + statement.names.length);
+    final statementLine = _startLine(statement);
+    final iteratorLine = _startLine(statement.iterators.first);
+    final iteratorCallLine = iteratorLine > statementLine ? iteratorLine : null;
     _emitValueList(
       statement.iterators,
       valueCount: 4,
@@ -688,6 +809,7 @@ final class _LuaBytecodeStructuredCompiler {
       '(for state)',
       register: baseRegister + 2,
       startPc: hiddenStateStartPc,
+      attribute: 'close',
     );
     _bindSyntheticLocal(
       '(for state)',
@@ -712,9 +834,12 @@ final class _LuaBytecodeStructuredCompiler {
     _exitScope(endPc: _prototype.currentPc + 1);
 
     final tforCallPc = _prototype.currentPc;
-    _prototype.emitTForCall(
-      baseRegister: baseRegister,
-      loopVariableCount: statement.names.length,
+    _withSourceLine(
+      iteratorCallLine,
+      () => _prototype.emitTForCall(
+        baseRegister: baseRegister,
+        loopVariableCount: statement.names.length,
+      ),
     );
 
     final tforLoopPc = _prototype.currentPc;
@@ -819,6 +944,7 @@ final class _LuaBytecodeStructuredCompiler {
       scopePath: List<int>.from(_scopeIds),
       loopDepth: _loopDepth,
       visibleLocals: _visibleLocals(),
+      closeFrom: null,
     );
     _pendingGotos.add(pending);
     _resolvePendingGotos(statement.label.name);
@@ -843,7 +969,22 @@ final class _LuaBytecodeStructuredCompiler {
       attribute: '',
     );
     _activatePreparedLocal(binding, startPc: _prototype.currentPc + 1);
-    _emitFunctionBodyToRegister(statement.funcBody, binding.register);
+    final previousLine = _prototype.currentSourceLine;
+    if (statement.funcBody.body.isEmpty) {
+      final endLine = _endLine(statement);
+      if (endLine > 0) {
+        _prototype.currentSourceLine = endLine;
+      }
+    }
+    try {
+      _emitFunctionBodyToRegister(
+        statement.funcBody,
+        binding.register,
+        debugNode: statement,
+      );
+    } finally {
+      _prototype.currentSourceLine = previousLine;
+    }
   }
 
   void _compileFunctionDef(FunctionDef statement) {
@@ -864,6 +1005,7 @@ final class _LuaBytecodeStructuredCompiler {
     _emitFunctionBodyToRegister(
       statement.body,
       scratch,
+      debugNode: statement,
       implicitSelf: statement.implicitSelf,
       declaredGlobals: declaresSimpleGlobal
           ? <String>{statement.name.first.name}
@@ -1005,14 +1147,26 @@ final class _LuaBytecodeStructuredCompiler {
   int _emitFalseJumpForCondition(AstNode condition) {
     final register = _reserveTempBlock(1);
     _emitExpressionToRegister(condition, register);
+    final previousLine = _prototype.currentSourceLine;
+    final conditionLine = _endLine(condition);
+    if (conditionLine > 0) {
+      _prototype.currentSourceLine = conditionLine;
+    }
     _prototype.emitTest(register: register, kFlag: false);
     final jumpPc = _prototype.emitJumpPlaceholder();
+    _prototype.currentSourceLine = previousLine;
     _releaseTempBlock(register, 1);
     return jumpPc;
   }
 
-  void _emitExpressionToRegister(AstNode node, int targetRegister) {
-    _withNodeLine(node, () {
+  void _emitExpressionToRegister(
+    AstNode node,
+    int targetRegister, {
+    int? lineOverride,
+  }) {
+    _withSourceLine(
+      _stickySourceLineOverride ?? lineOverride ?? _startLine(node),
+      () {
       final savedTemp = _nextTemp;
       final tempFloor = math.max(_nextTemp, targetRegister + 1);
       _nextTemp = tempFloor;
@@ -1049,7 +1203,13 @@ final class _LuaBytecodeStructuredCompiler {
             op: final op,
             right: final right,
           ):
-            _emitBinaryExpression(left, op, right, targetRegister);
+            _emitBinaryExpression(
+              _unwrapExpression(node) as BinaryExpression,
+              left,
+              op,
+              right,
+              targetRegister,
+            );
           case TableFieldAccess(table: final table, fieldName: final fieldName):
             _emitTableFieldAccess(table, fieldName.name, targetRegister);
           case TableIndexAccess(table: final table, index: final index):
@@ -1069,7 +1229,15 @@ final class _LuaBytecodeStructuredCompiler {
               targetRegister: targetRegister,
             );
           case FunctionLiteral(funcBody: final funcBody):
-            _emitFunctionBodyToRegister(funcBody, targetRegister);
+            _withSourceLine(
+              _endLine(funcBody),
+              () => _emitFunctionBodyToRegister(
+                funcBody,
+                targetRegister,
+                debugNode: node,
+                closureLine: math.max(1, _definitionEndLine(node) - 1),
+              ),
+            );
           default:
             throw UnsupportedError(
               'lua_bytecode emitter does not support '
@@ -1094,7 +1262,8 @@ final class _LuaBytecodeStructuredCompiler {
         }
         _nextTemp = savedTemp;
       }
-    });
+      },
+    );
   }
 
   void _emitIdentifierToRegister(String name, int targetRegister) {
@@ -1352,6 +1521,58 @@ final class _LuaBytecodeStructuredCompiler {
     AstNode right,
     int targetRegister,
   ) {
+    final unwrappedLeft = _unwrapExpression(left);
+    final unwrappedRight = _unwrapExpression(right);
+    if (op == 'and' &&
+        unwrappedLeft is BinaryExpression &&
+        unwrappedRight is BinaryExpression &&
+        _isOrderingComparisonOperator(unwrappedLeft.op) &&
+        _isOrderingComparisonOperator(unwrappedRight.op)) {
+      final operandBase = _reserveTempBlock(2);
+      try {
+        final leftTrueJumpPc = _emitComparisonJumpOnTrue(
+          unwrappedLeft.left,
+          unwrappedLeft.op,
+          unwrappedLeft.right,
+          operandBase,
+        );
+        _prototype.emitLoadLiteral(target: targetRegister, literal: false);
+        final leftFalseEndJumpPc = _prototype.emitJumpPlaceholder();
+        final rightStartPc = _prototype.currentPc;
+        _prototype.patchJumpTarget(
+          instructionPc: leftTrueJumpPc,
+          targetPc: rightStartPc,
+        );
+
+        final rightTrueJumpPc = _emitComparisonJumpOnTrue(
+          unwrappedRight.left,
+          unwrappedRight.op,
+          unwrappedRight.right,
+          operandBase,
+        );
+        _prototype.emitLoadLiteral(target: targetRegister, literal: false);
+        final rightFalseEndJumpPc = _prototype.emitJumpPlaceholder();
+        final truePc = _prototype.currentPc;
+        _prototype.patchJumpTarget(
+          instructionPc: rightTrueJumpPc,
+          targetPc: truePc,
+        );
+        _prototype.emitLoadLiteral(target: targetRegister, literal: true);
+        final endPc = _prototype.currentPc;
+        _prototype.patchJumpTarget(
+          instructionPc: leftFalseEndJumpPc,
+          targetPc: endPc,
+        );
+        _prototype.patchJumpTarget(
+          instructionPc: rightFalseEndJumpPc,
+          targetPc: endPc,
+        );
+      } finally {
+        _releaseTempBlock(operandBase, 2);
+      }
+      return;
+    }
+
     _emitExpressionToRegister(left, targetRegister);
     _prototype.emitTest(register: targetRegister, kFlag: op == 'or');
     final jumpPc = _prototype.emitJumpPlaceholder();
@@ -1363,6 +1584,7 @@ final class _LuaBytecodeStructuredCompiler {
   }
 
   void _emitBinaryExpression(
+    BinaryExpression expression,
     AstNode left,
     String op,
     AstNode right,
@@ -1395,23 +1617,33 @@ final class _LuaBytecodeStructuredCompiler {
     }
 
     final operandBase = _reserveTempBlock(2);
-    _emitExpressionToRegister(left, operandBase);
+    final operatorLine = _multilineBinaryOperatorLine(expression);
+    _withStickySourceLine(
+      operatorLine,
+      () => _emitExpressionToRegister(
+        left,
+        operandBase,
+        lineOverride: operatorLine,
+      ),
+    );
     _emitExpressionToRegister(right, operandBase + 1);
-    _prototype.emitAbc(
-      _binaryOpcodeFor(op),
-      a: operandBase,
-      b: operandBase,
-      c: operandBase + 1,
-    );
-    _prototype.emitAbc(
-      'MMBIN',
-      a: operandBase,
-      b: operandBase + 1,
-      c: _binaryMetamethodEventFor(op),
-    );
-    if (operandBase != targetRegister) {
-      _prototype.emitMove(target: targetRegister, source: operandBase);
-    }
+    _withSourceLine(operatorLine, () {
+      _prototype.emitAbc(
+        _binaryOpcodeFor(op),
+        a: operandBase,
+        b: operandBase,
+        c: operandBase + 1,
+      );
+      _prototype.emitAbc(
+        'MMBIN',
+        a: operandBase,
+        b: operandBase + 1,
+        c: _binaryMetamethodEventFor(op),
+      );
+      if (operandBase != targetRegister) {
+        _prototype.emitMove(target: targetRegister, source: operandBase);
+      }
+    });
     _releaseTempBlock(operandBase, 2);
   }
 
@@ -1470,12 +1702,17 @@ final class _LuaBytecodeStructuredCompiler {
   ) {
     final operandBase = _reserveTempBlock(2);
     final comparison = _comparisonPlanFor(op);
-    _emitExpressionToRegister(comparison.$1 ? right : left, operandBase);
-    _emitExpressionToRegister(comparison.$1 ? left : right, operandBase + 1);
+    final firstOperand = comparison.$1 ? right : left;
+    final secondOperand = comparison.$1 ? left : right;
+    final firstRegister = _emitComparisonOperand(firstOperand, operandBase);
+    final secondRegister = _emitComparisonOperand(
+      secondOperand,
+      firstRegister == operandBase ? operandBase + 1 : operandBase,
+    );
     _prototype.emitAbc(
       comparison.$2,
-      a: operandBase,
-      b: operandBase + 1,
+      a: firstRegister,
+      b: secondRegister,
       c: 0,
       k: comparison.$3,
     );
@@ -1483,6 +1720,42 @@ final class _LuaBytecodeStructuredCompiler {
     _prototype.emitAbc('LFALSESKIP', a: targetRegister, b: 0, c: 0);
     _prototype.emitAbc('LOADTRUE', a: targetRegister, b: 0, c: 0);
     _releaseTempBlock(operandBase, 2);
+  }
+
+  int _emitComparisonOperand(AstNode node, int targetRegister) {
+    if (_unwrapExpression(node) case Identifier(name: final name)) {
+      final resolved = _resolveVariable(name);
+      if (resolved.kind ==
+          _LuaBytecodeStructuredResolvedVariableKind.local) {
+        return resolved.register!;
+      }
+    }
+    _emitExpressionToRegister(node, targetRegister);
+    return targetRegister;
+  }
+
+  int _emitComparisonJumpOnTrue(
+    AstNode left,
+    String op,
+    AstNode right,
+    int operandBase,
+  ) {
+    final comparison = _comparisonPlanFor(op);
+    final firstOperand = comparison.$1 ? right : left;
+    final secondOperand = comparison.$1 ? left : right;
+    final firstRegister = _emitComparisonOperand(firstOperand, operandBase);
+    final secondRegister = _emitComparisonOperand(
+      secondOperand,
+      firstRegister == operandBase ? operandBase + 1 : operandBase,
+    );
+    _prototype.emitAbc(
+      comparison.$2,
+      a: firstRegister,
+      b: secondRegister,
+      c: 0,
+      k: comparison.$3,
+    );
+    return _prototype.emitJumpPlaceholder();
   }
 
   void _emitConcatExpression(AstNode node, int targetRegister) {
@@ -1784,8 +2057,10 @@ final class _LuaBytecodeStructuredCompiler {
   void _emitFunctionBodyToRegister(
     FunctionBody body,
     int targetRegister, {
+    AstNode? debugNode,
     bool implicitSelf = false,
     Set<String> declaredGlobals = const <String>{},
+    int? closureLine,
   }) {
     if (body.implicitSelf && !implicitSelf) {
       throw UnsupportedError(
@@ -1802,9 +2077,11 @@ final class _LuaBytecodeStructuredCompiler {
         (body.varargName != null
             ? LuaBytecodePrototypeFlags.hasVarargTable
             : 0);
+    final functionStartNode = debugNode ?? body;
+    final lineDefined = _startLine(functionStartNode);
     final childPrototype = LuaBytecodePrototypeBuilder(
-      lineDefined: _startLine(body),
-      lastLineDefined: _endLine(body),
+      lineDefined: lineDefined,
+      lastLineDefined: _definitionEndLine(functionStartNode),
       parameterCount: parameterList.length,
       flags: flags,
       source: _prototype.source,
@@ -1824,8 +2101,17 @@ final class _LuaBytecodeStructuredCompiler {
       );
     }
     childCompiler.compileFunctionBody(body.body);
+    final firstInstructionLine = childPrototype.firstInstructionLine;
+    if (childPrototype.lineDefined <= 0 &&
+        firstInstructionLine != null &&
+        firstInstructionLine > 0) {
+      childPrototype.lineDefined = firstInstructionLine;
+    }
     final childIndex = _prototype.addChildPrototype(childPrototype);
-    _prototype.emitClosure(target: targetRegister, childIndex: childIndex);
+    _withSourceLine(
+      closureLine,
+      () => _prototype.emitClosure(target: targetRegister, childIndex: childIndex),
+    );
   }
 
   void _storeRegisterToFunctionNamePath(FunctionName name, int sourceRegister) {
@@ -1921,6 +2207,7 @@ final class _LuaBytecodeStructuredCompiler {
   }
 
   void _emitOpenResultCall(Call call, {required int baseRegister}) {
+    final callLine = _multilineCallLine(call);
     switch (call) {
       case FunctionCall(name: final name, args: final args):
         _emitExpressionToRegister(name, baseRegister);
@@ -1934,13 +2221,19 @@ final class _LuaBytecodeStructuredCompiler {
             args.last,
             baseRegister: baseRegister + args.length,
           );
-          _prototype.emitCallWithOpenArgumentsAndResults(
-            baseRegister: baseRegister,
+          _withSourceLine(
+            callLine,
+            () => _prototype.emitCallWithOpenArgumentsAndResults(
+              baseRegister: baseRegister,
+            ),
           );
         } else {
-          _prototype.emitCallWithOpenResults(
-            baseRegister: baseRegister,
-            argumentCount: args.length,
+          _withSourceLine(
+            callLine,
+            () => _prototype.emitCallWithOpenResults(
+              baseRegister: baseRegister,
+              argumentCount: args.length,
+            ),
           );
         }
       case MethodCall(
@@ -1970,13 +2263,19 @@ final class _LuaBytecodeStructuredCompiler {
             args.last,
             baseRegister: baseRegister + args.length + 1,
           );
-          _prototype.emitCallWithOpenArgumentsAndResults(
-            baseRegister: baseRegister,
+          _withSourceLine(
+            callLine,
+            () => _prototype.emitCallWithOpenArgumentsAndResults(
+              baseRegister: baseRegister,
+            ),
           );
         } else {
-          _prototype.emitCallWithOpenResults(
-            baseRegister: baseRegister,
-            argumentCount: args.length + 1,
+          _withSourceLine(
+            callLine,
+            () => _prototype.emitCallWithOpenResults(
+              baseRegister: baseRegister,
+              argumentCount: args.length + 1,
+            ),
           );
         }
     }
@@ -1987,6 +2286,7 @@ final class _LuaBytecodeStructuredCompiler {
     required int baseRegister,
     required int resultCount,
   }) {
+    final callLine = _multilineCallLine(call);
     switch (call) {
       case FunctionCall(name: final name, args: final args):
         _emitExpressionToRegister(name, baseRegister);
@@ -2000,15 +2300,21 @@ final class _LuaBytecodeStructuredCompiler {
             args.last,
             baseRegister: baseRegister + args.length,
           );
-          _prototype.emitCallWithOpenArguments(
-            baseRegister: baseRegister,
-            resultCount: resultCount,
+          _withSourceLine(
+            callLine,
+            () => _prototype.emitCallWithOpenArguments(
+              baseRegister: baseRegister,
+              resultCount: resultCount,
+            ),
           );
         } else {
-          _prototype.emitCall(
-            baseRegister: baseRegister,
-            argumentCount: args.length,
-            resultCount: resultCount,
+          _withSourceLine(
+            callLine,
+            () => _prototype.emitCall(
+              baseRegister: baseRegister,
+              argumentCount: args.length,
+              resultCount: resultCount,
+            ),
           );
         }
       case MethodCall(
@@ -2038,15 +2344,21 @@ final class _LuaBytecodeStructuredCompiler {
             args.last,
             baseRegister: baseRegister + args.length + 1,
           );
-          _prototype.emitCallWithOpenArguments(
-            baseRegister: baseRegister,
-            resultCount: resultCount,
+          _withSourceLine(
+            callLine,
+            () => _prototype.emitCallWithOpenArguments(
+              baseRegister: baseRegister,
+              resultCount: resultCount,
+            ),
           );
         } else {
-          _prototype.emitCall(
-            baseRegister: baseRegister,
-            argumentCount: args.length + 1,
-            resultCount: resultCount,
+          _withSourceLine(
+            callLine,
+            () => _prototype.emitCall(
+              baseRegister: baseRegister,
+              argumentCount: args.length + 1,
+              resultCount: resultCount,
+            ),
           );
         }
     }
@@ -2093,6 +2405,7 @@ final class _LuaBytecodeStructuredCompiler {
   }
 
   void _emitTailCall(Call call, {required int baseRegister}) {
+    final callLine = _multilineCallLine(call);
     switch (call) {
       case FunctionCall(name: final name, args: final args):
         _emitExpressionToRegister(name, baseRegister);
@@ -2106,11 +2419,19 @@ final class _LuaBytecodeStructuredCompiler {
             args.last,
             baseRegister: baseRegister + args.length,
           );
-          _prototype.emitTailCallWithOpenArguments(baseRegister: baseRegister);
+          _withSourceLine(
+            callLine,
+            () => _prototype.emitTailCallWithOpenArguments(
+              baseRegister: baseRegister,
+            ),
+          );
         } else {
-          _prototype.emitTailCall(
-            baseRegister: baseRegister,
-            argumentCount: args.length,
+          _withSourceLine(
+            callLine,
+            () => _prototype.emitTailCall(
+              baseRegister: baseRegister,
+              argumentCount: args.length,
+            ),
           );
         }
       case MethodCall(
@@ -2140,15 +2461,30 @@ final class _LuaBytecodeStructuredCompiler {
             args.last,
             baseRegister: baseRegister + args.length + 1,
           );
-          _prototype.emitTailCallWithOpenArguments(baseRegister: baseRegister);
+          _withSourceLine(
+            callLine,
+            () => _prototype.emitTailCallWithOpenArguments(
+              baseRegister: baseRegister,
+            ),
+          );
         } else {
-          _prototype.emitTailCall(
-            baseRegister: baseRegister,
-            argumentCount: args.length + 1,
+          _withSourceLine(
+            callLine,
+            () => _prototype.emitTailCall(
+              baseRegister: baseRegister,
+              argumentCount: args.length + 1,
+            ),
           );
         }
     }
   }
+
+  bool _shouldDeoptTailCall(Call call) => switch (_unwrapExpression(call)) {
+    FunctionCall(name: Identifier(name: final name))
+        when name == 'pcall' || name == 'xpcall' =>
+      true,
+    _ => false,
+  };
 
   int _callRegisterWidth(Call call) => switch (call) {
     FunctionCall(args: final args) when _hasTrailingOpenExpression(args) =>
@@ -2488,12 +2824,13 @@ final class _LuaBytecodeStructuredCompiler {
     String name, {
     required int register,
     required int startPc,
+    String attribute = '',
   }) {
     _bindAllocatedRegister(
       name,
       register: register,
       statementIndex: -1,
-      attribute: '',
+      attribute: attribute,
       startPc: startPc,
     );
   }
@@ -2550,11 +2887,10 @@ final class _LuaBytecodeStructuredCompiler {
     final locals = _scopes.last;
     final scopePath = List<int>.from(_scopeIds);
     final scopeLocals = Set<_LuaBytecodeStructuredLocal>.from(locals);
-    final closeFrom = emitCloseInstruction
-        ? _minimumCloseRegisterForLocals(locals)
-        : null;
-    if (closeFrom != null) {
-      _prototype.emitClose(fromRegister: closeFrom);
+    final scopeCloseFrom = _minimumCloseRegisterForLocals(locals);
+    final emittedCloseFrom = emitCloseInstruction ? scopeCloseFrom : null;
+    if (emittedCloseFrom != null) {
+      _prototype.emitClose(fromRegister: emittedCloseFrom);
       endPc += 1;
     }
 
@@ -2571,6 +2907,11 @@ final class _LuaBytecodeStructuredCompiler {
       }
       if (!matchesScope) {
         continue;
+      }
+      if (scopeCloseFrom != null) {
+        pending.closeFrom = pending.closeFrom == null
+            ? scopeCloseFrom
+            : math.min(pending.closeFrom!, scopeCloseFrom);
       }
       pending.scopePath = List<int>.from(scopePath)..removeLast();
       pending.scopeDepth -= 1;
@@ -2619,8 +2960,10 @@ final class _LuaBytecodeStructuredCompiler {
   }
 
   bool get _isInsideToBeClosedScope =>
-      _scopesInsideToBeClosed.isNotEmpty &&
-      _scopesInsideToBeClosed.last;
+      _scopesInsideToBeClosed.isNotEmpty && _scopesInsideToBeClosed.last;
+
+  bool get _hasVisibleCloseOrCapturedLocals =>
+      _minimumCloseRegisterForLocals(_visibleLocals()) != null;
 
   void _markCurrentScopeInsideToBeClosed() {
     if (_scopesInsideToBeClosed.isEmpty || _scopesInsideToBeClosed.last) {
@@ -2681,10 +3024,17 @@ final class _LuaBytecodeStructuredCompiler {
     _LuaBytecodeStructuredPendingGoto pending,
     _LuaBytecodeStructuredLabel label,
   ) {
-    final closeFrom = _minimumCloseRegisterForVisibilityExit(
+    final visibilityCloseFrom = _minimumCloseRegisterForVisibilityExit(
       pending.visibleLocals,
       label.visibleLocals,
     );
+    final closeFrom = switch ((pending.closeFrom, visibilityCloseFrom)) {
+      (final int pendingClose, final int visibleClose) =>
+        math.min(pendingClose, visibleClose),
+      (final int pendingClose, null) => pendingClose,
+      (null, final int visibleClose) => visibleClose,
+      _ => null,
+    };
     if (closeFrom == null) {
       _prototype.patchJumpTarget(
         instructionPc: pending.jumpPc,
@@ -2740,7 +3090,99 @@ final class _LuaBytecodeStructuredCompiler {
     return span != null ? span.start.line + 1 : 0;
   }
 
+  int? _multilineBinaryOperatorLine(BinaryExpression expression) {
+    final leftSpan = expression.left.getSpan();
+    final rightSpan = expression.right.getSpan();
+    final operatorLine = expression.operatorLine;
+    if (operatorLine == null) {
+      return null;
+    }
+    final leftLine = leftSpan?.start.line;
+    final rightLine = rightSpan?.start.line;
+    if (leftLine == operatorLine && rightLine == operatorLine) {
+      return null;
+    }
+    return operatorLine + 1;
+  }
+
+  int? _multilineBinaryRightLine(BinaryExpression expression) {
+    if (_multilineBinaryOperatorLine(expression) == null) {
+      return null;
+    }
+    return _startLine(expression.right);
+  }
+
+  int? _multilineCallLine(Call call) => switch (call) {
+    FunctionCall(name: final name, args: final args) => _multilineCallCalleeLine(
+      call,
+      name,
+      args,
+    ),
+    MethodCall(prefix: final prefix, args: final args) =>
+      _multilineCallCalleeLine(call, prefix, args),
+    _ => null,
+  };
+
+  int? _multilineCallCalleeLine(Call call, AstNode callee, List<AstNode> args) {
+    final calleeLine = _startLine(callee);
+    if (calleeLine <= 0) {
+      return null;
+    }
+    final openingParenLine = _multilineCallOpeningParenLine(call, callee, args);
+    if (openingParenLine != null && openingParenLine > calleeLine) {
+      return openingParenLine;
+    }
+    if (args.isNotEmpty && _startLine(args.first) > calleeLine) {
+      return calleeLine;
+    }
+    return null;
+  }
+
+  int? _multilineCallOpeningParenLine(
+    Call call,
+    AstNode callee,
+    List<AstNode> args,
+  ) {
+    final callSpan = call.getSpan();
+    final calleeSpan = callee.getSpan();
+    if (callSpan is! FileSpan || calleeSpan == null) {
+      return null;
+    }
+    final searchStart = calleeSpan.end.offset;
+    final firstArgSpan = args.firstOrNull?.getSpan();
+    final searchEnd =
+        firstArgSpan != null && firstArgSpan.start.offset > searchStart
+        ? firstArgSpan.start.offset
+        : callSpan.end.offset;
+    if (searchEnd <= searchStart) {
+      return null;
+    }
+    final between = callSpan.file.getText(searchStart, searchEnd);
+    final parenIndex = between.indexOf('(');
+    if (parenIndex < 0) {
+      return null;
+    }
+    return calleeSpan.end.line +
+        1 +
+        '\n'.allMatches(between.substring(0, parenIndex)).length;
+  }
+
   int _endLine(AstNode node) {
+    final span = node.getSpan();
+    if (span == null) {
+      return 0;
+    }
+    var endLine = span.end.line;
+    if (span.end.column == 0 && endLine > span.start.line) {
+      endLine -= 1;
+    } else if (endLine > span.start.line &&
+        RegExp(r'\n[ \t]*$').hasMatch(span.text)) {
+      endLine -= 1;
+    }
+    return endLine + 1;
+  }
+
+  int _definitionEndLine(AstNode node) {
     final span = node.getSpan();
     return span != null ? span.end.line + 1 : 0;
   }
@@ -2854,6 +3296,7 @@ final class _LuaBytecodeStructuredPendingGoto {
     required this.scopePath,
     required this.loopDepth,
     required this.visibleLocals,
+    required this.closeFrom,
   });
 
   final String label;
@@ -2864,6 +3307,7 @@ final class _LuaBytecodeStructuredPendingGoto {
   List<int> scopePath;
   final int loopDepth;
   Set<_LuaBytecodeStructuredLocal> visibleLocals;
+  int? closeFrom;
 }
 
 enum _LuaBytecodeGotoResolution { noMatch, jumpsIntoScope, match }
@@ -3073,6 +3517,9 @@ int _binaryMetamethodEventFor(String op) => switch (op) {
     'lua_bytecode emitter does not support comparison operator $op',
   ),
 };
+
+bool _isOrderingComparisonOperator(String op) =>
+    op == '<' || op == '<=' || op == '>' || op == '>=';
 
 int? _immediateIndex(AstNode node) {
   final expr = _unwrapExpression(node);
