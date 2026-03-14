@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:lualike/src/ast.dart';
@@ -171,8 +172,8 @@ List<int>? _sourceBytes(Value source) {
 String? _sourceText(Value source) {
   return switch (source.raw) {
     final String text => text,
-    final LuaString luaString => String.fromCharCodes(luaString.bytes),
-    final List<int> bytes => String.fromCharCodes(bytes),
+    final LuaString luaString => luaString.toString(),
+    final List<int> bytes => utf8.decode(bytes, allowMalformed: true),
     _ => null,
   };
 }
