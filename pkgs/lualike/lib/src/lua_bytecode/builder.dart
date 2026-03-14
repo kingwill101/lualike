@@ -55,8 +55,8 @@ final class LuaBytecodePrototypeBuilder {
     return builder;
   }
 
-  final int lineDefined;
-  final int lastLineDefined;
+  int lineDefined;
+  int lastLineDefined;
   final int parameterCount;
   final int flags;
   final String source;
@@ -76,6 +76,10 @@ final class LuaBytecodePrototypeBuilder {
   int get currentPc => _code.length;
   int get maxStackSize => _maxStackSize;
   int? get currentSourceLine => _currentSourceLine;
+  int? get firstInstructionLine =>
+      _instructionLines.firstWhere((line) => line > 0, orElse: () => 0);
+  int? get lastInstructionLine =>
+      _instructionLines.lastWhere((line) => line > 0, orElse: () => 0);
 
   set currentSourceLine(int? value) {
     _currentSourceLine = value != null && value > 0 ? value : null;
@@ -145,6 +149,19 @@ final class LuaBytecodePrototypeBuilder {
 
   void emitVarargPrep({int register = 0}) {
     emitAbc('VARARGPREP', a: register, b: 0, c: 0);
+  }
+
+  void emitVarargPrepWithoutLine({int register = 0}) {
+    ensureStack(register + 1);
+    _appendInstructionWithLine(
+      LuaBytecodeInstructionWord.abc(
+        opcode: LuaBytecodeOpcodes.byName('VARARGPREP').code,
+        a: register,
+        b: 0,
+        c: 0,
+      ),
+      0,
+    );
   }
 
   void emitMove({required int target, required int source}) {
@@ -584,6 +601,11 @@ final class LuaBytecodePrototypeBuilder {
               ? _instructionLines.last
               : (lineDefined > 0 ? lineDefined : 0)),
     );
+  }
+
+  void _appendInstructionWithLine(LuaBytecodeInstructionWord word, int line) {
+    _code.add(word);
+    _instructionLines.add(line);
   }
 
   ({List<int> lineInfo, List<LuaBytecodeAbsLineInfo> absoluteLineInfo})

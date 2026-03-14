@@ -171,7 +171,8 @@ List<int>? _sourceBytes(Value source) {
 String? _sourceText(Value source) {
   return switch (source.raw) {
     final String text => text,
-    final LuaString luaString => luaString.toString(),
+    final LuaString luaString => String.fromCharCodes(luaString.bytes),
+    final List<int> bytes => String.fromCharCodes(bytes),
     _ => null,
   };
 }
@@ -287,7 +288,7 @@ class LuaBytecodeRuntime implements LuaRuntime {
         isEntryFrame: true,
       );
       if (results.isEmpty) {
-        return Value(null);
+        return null;
       }
       if (results.length == 1) {
         return results.single;
@@ -296,7 +297,24 @@ class LuaBytecodeRuntime implements LuaRuntime {
       packed.interpreter ??= this;
       return packed;
     }
-    return callee.call(args);
+    final topFrame = callStack.top;
+    final alreadyFramed = identical(topFrame?.callable, callee);
+    if (!alreadyFramed) {
+      callStack.push(
+        debugName ?? callee.functionName ?? 'function',
+        env: getCurrentEnv(),
+        debugName: debugName ?? callee.functionName,
+        debugNameWhat: debugNameWhat,
+        callable: callee,
+      );
+    }
+    try {
+      return await callee.call(args);
+    } finally {
+      if (!alreadyFramed) {
+        callStack.pop();
+      }
+    }
   }
 
   @override
@@ -342,7 +360,9 @@ class LuaBytecodeRuntime implements LuaRuntime {
       final chunk = LuaBytecodeBinaryChunk(
         header: const LuaBytecodeChunkHeader.official(),
         rootUpvalueCount: closure.prototype.upvalues.length,
-        mainPrototype: closure.prototype,
+        mainPrototype: stripDebugInfo
+            ? _stripPrototypeDebugInfo(closure.prototype)
+            : closure.prototype,
       );
       return LuaString.fromBytes(
         Uint8List.fromList(serializeLuaBytecodeChunk(chunk)),
@@ -599,13 +619,11 @@ class LuaBytecodeRuntime implements LuaRuntime {
 
     try {
       final ast = parse(source, url: request.chunkName);
-      if (_semanticLikeTokenPattern.hasMatch(source)) {
-        final semanticError = validateProgramSemantics(ast);
-        if (semanticError != null) {
-          return LuaChunkLoadResult.failure(
-            _adjustLoadValidationError(source, semanticError),
-          );
-        }
+      final semanticError = validateProgramSemantics(ast);
+      if (semanticError != null) {
+        return LuaChunkLoadResult.failure(
+          _adjustLoadValidationError(source, semanticError),
+        );
       }
       if (source.contains('goto') || source.contains('::')) {
         final gotoError = GotoLabelValidator().checkGotoLabelViolations(ast);
@@ -631,12 +649,37 @@ class LuaBytecodeRuntime implements LuaRuntime {
       );
       final value = Value(closure)..interpreter = this;
       return LuaChunkLoadResult.success(value);
+    } on FormatException catch (error) {
+      return LuaChunkLoadResult.failure(error.message);
+    } on RangeError {
+      return const LuaChunkLoadResult.failure('bytecode overflow');
     } on UnsupportedError catch (error) {
       return LuaChunkLoadResult.failure(_cleanEmitterFailure(error));
     } catch (error) {
       return LuaChunkLoadResult.failure(error.toString());
     }
   }
+}
+
+LuaBytecodePrototype _stripPrototypeDebugInfo(LuaBytecodePrototype prototype) {
+  return LuaBytecodePrototype(
+    lineDefined: 0,
+    lastLineDefined: 0,
+    parameterCount: prototype.parameterCount,
+    flags: prototype.flags,
+    maxStackSize: prototype.maxStackSize,
+    code: prototype.code,
+    constants: prototype.constants,
+    upvalues: prototype.upvalues,
+    prototypes: List<LuaBytecodePrototype>.unmodifiable(
+      prototype.prototypes.map(_stripPrototypeDebugInfo),
+    ),
+    source: '=?',
+    lineInfo: const <int>[],
+    absoluteLineInfo: const <LuaBytecodeAbsLineInfo>[],
+    localVariables: const <LuaBytecodeLocalVariableDebugInfo>[],
+    upvalueNames: List<String?>.filled(prototype.upvalues.length, null),
+  );
 }
 
 String _adjustLoadValidationError(String source, String error) {
