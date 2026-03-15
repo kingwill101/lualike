@@ -256,95 +256,57 @@ final class LuaBytecodeVm {
     var currentIsEntryFrame = isEntryFrame;
     var currentIsTailCall = isTailCall;
     var currentExtraArgs = extraArgs;
-    final debugInterpreter = _debugInterpreter;
-    final activeCoroutine = runtime is Interpreter
-        ? null
-        : runtime.getCurrentCoroutine();
-    final debugCoroutine = switch (activeCoroutine) {
-      final Coroutine coroutine
-          when !identical(coroutine, runtime.getMainThread()) =>
-        coroutine,
-      _ => null,
-    };
-    final shouldRestoreInterpreterHookState =
-        debugInterpreter != null && debugCoroutine == null;
-    final savedHookFunction = shouldRestoreInterpreterHookState
-        ? debugInterpreter.debugHookFunction
-        : null;
-    final savedHookMask = shouldRestoreInterpreterHookState
-        ? debugInterpreter.debugHookMask
-        : null;
-    final savedHookCount = shouldRestoreInterpreterHookState
-        ? debugInterpreter.debugHookCount
-        : null;
-    final savedHookCountRemaining = shouldRestoreInterpreterHookState
-        ? debugInterpreter.debugHookCountRemaining
-        : null;
+    while (true) {
+      _guardCallDepth();
 
-    try {
-      while (true) {
-        _guardCallDepth();
+      final frame = _LuaBytecodeFrame(
+        runtime: runtime,
+        closure: currentClosure,
+        functionValue: currentFunctionValue,
+        arguments: currentArgs,
+        callName: currentCallName,
+        callNameWhat: currentCallNameWhat,
+        isEntryFrame: currentIsEntryFrame,
+        isTailCall: currentIsTailCall,
+        extraArgs: currentExtraArgs,
+      );
 
-        final frame = _LuaBytecodeFrame(
-          runtime: runtime,
-          closure: currentClosure,
-          functionValue: currentFunctionValue,
-          arguments: currentArgs,
-          callName: currentCallName,
-          callNameWhat: currentCallNameWhat,
-          isEntryFrame: currentIsEntryFrame,
-          isTailCall: currentIsTailCall,
-          extraArgs: currentExtraArgs,
+      try {
+        return await _runFrame(frame);
+      } on TailCallException catch (tail) {
+        final prepared = _flattenTailCallable(
+          tail.functionValue is Value
+              ? tail.functionValue as Value
+              : Value(tail.functionValue),
+          tail.args
+              .map((arg) => arg is Value ? arg : _runtimeValue(runtime, arg))
+              .toList(growable: false),
         );
-
-        try {
-          return await _runFrame(frame);
-        } on TailCallException catch (tail) {
-          final prepared = _flattenTailCallable(
-            tail.functionValue is Value
-                ? tail.functionValue as Value
-                : Value(tail.functionValue),
-            tail.args
-                .map((arg) => arg is Value ? arg : _runtimeValue(runtime, arg))
-                .toList(growable: false),
-          );
-          final callee = prepared.callee;
-          callee.interpreter ??= runtime;
-          final tailNameInfo = _decodeTailCallNameInfo(tail.callName);
-          if (callee.raw case final LuaBytecodeClosure nextClosure) {
-            currentClosure = nextClosure;
-            currentArgs = prepared.args;
-            currentFunctionValue = callee;
-            if (tail.callName != null) {
-              currentCallName = tailNameInfo.name;
-              currentCallNameWhat = tailNameInfo.namewhat;
-            }
-            currentIsTailCall = true;
-            currentExtraArgs = prepared.extraArgs;
-            continue;
+        final callee = prepared.callee;
+        callee.interpreter ??= runtime;
+        final tailNameInfo = _decodeTailCallNameInfo(tail.callName);
+        if (callee.raw case final LuaBytecodeClosure nextClosure) {
+          currentClosure = nextClosure;
+          currentArgs = prepared.args;
+          currentFunctionValue = callee;
+          if (tail.callName != null) {
+            currentCallName = tailNameInfo.name;
+            currentCallNameWhat = tailNameInfo.namewhat;
           }
-          return _invokePreparedCall(
-            (callee: callee, args: prepared.args),
-            callName: tail.callName != null
-                ? tailNameInfo.name
-                : currentCallName,
-            callNameWhat: tail.callName != null
-                ? tailNameInfo.namewhat
-                : currentCallNameWhat,
-            isTailCall: true,
-          );
+          currentIsTailCall = true;
+          currentExtraArgs = prepared.extraArgs;
+          continue;
         }
-      }
-    } finally {
-      if (debugInterpreter != null && debugCoroutine != null) {
-        debugCoroutine.captureDebugHookStateFrom(debugInterpreter);
-      }
-      if (shouldRestoreInterpreterHookState) {
-        debugInterpreter.debugHookFunction = savedHookFunction;
-        debugInterpreter.debugHookMask = savedHookMask ?? '';
-        debugInterpreter.debugHookCount = savedHookCount ?? 0;
-        debugInterpreter.debugHookCountRemaining =
-            savedHookCountRemaining ?? 0;
+        return _invokePreparedCall(
+          (callee: callee, args: prepared.args),
+          callName: tail.callName != null
+              ? tailNameInfo.name
+              : currentCallName,
+          callNameWhat: tail.callName != null
+              ? tailNameInfo.namewhat
+              : currentCallNameWhat,
+          isTailCall: true,
+        );
       }
     }
   }
@@ -446,17 +408,10 @@ final class LuaBytecodeVm {
         'co=${runtime.getCurrentCoroutine()?.hashCode}',
       );
     }
-    if (entryDebugInterpreter != null) {
-      _setTransferInfo(
-        runtime.callStack.top,
-        [
-          for (var i = 0; i < frame.closure.prototype.parameterCount; i++)
-            frame.register(i),
-        ],
-      );
-      final interpreter = entryDebugInterpreter;
-      await interpreter.fireDebugHook(frame.isTailCall ? 'tail call' : 'call');
-      _clearTransferInfo(runtime.callStack.top);
+    if (entryDebugInterpreter != null &&
+        !frame.didFireEntryCallHook &&
+        !(frame.pc == 0 && frame.closure.prototype.isVararg)) {
+      await _fireFrameCallHook(frame, entryDebugInterpreter);
     }
 
     var suspended = false;
@@ -647,6 +602,8 @@ final class LuaBytecodeVm {
       final opcode = LuaBytecodeOpcodes.byCode(word.opcodeValue);
       final lineNumber = prototype.lineForPc(frame.pc - 1);
       final debugInterpreter = _debugInterpreter;
+      final forceLineHook = frame.forceNextLineHook;
+      frame.forceNextLineHook = false;
       final deferCountHook = _deferCountHookForOpcode(opcode.name);
       if (debugInterpreter != null && !deferCountHook) {
         await debugInterpreter.maybeFireCountDebugHook();
@@ -656,7 +613,10 @@ final class LuaBytecodeVm {
         final suppressOwnLineHook = opcode.name == 'JMP' && word.sJ < 0;
         if (opcode.name != 'VARARGPREP' && !suppressOwnLineHook) {
           if (debugInterpreter != null) {
-            await debugInterpreter.maybeFireLineDebugHook(lineNumber);
+            await debugInterpreter.maybeFireLineDebugHook(
+              lineNumber,
+              force: forceLineHook,
+            );
           }
         }
       }
@@ -1331,6 +1291,10 @@ final class LuaBytecodeVm {
           }
         case 'VARARGPREP':
           {
+            if (debugInterpreter != null && !frame.didFireEntryCallHook) {
+              await _fireFrameCallHook(frame, debugInterpreter);
+              frame.forceNextLineHook = true;
+            }
             break;
           }
         case 'JMP':
@@ -3089,6 +3053,25 @@ final class LuaBytecodeVm {
     frame.transferValues = const <Value>[];
   }
 
+  Future<void> _fireFrameCallHook(
+    _LuaBytecodeFrame frame,
+    Interpreter interpreter,
+  ) async {
+    _setTransferInfo(
+      runtime.callStack.top,
+      [
+        for (var i = 0; i < frame.closure.prototype.parameterCount; i++)
+          frame.register(i),
+      ],
+    );
+    try {
+      await interpreter.fireDebugHook(frame.isTailCall ? 'tail call' : 'call');
+      frame.didFireEntryCallHook = true;
+    } finally {
+      _clearTransferInfo(runtime.callStack.top);
+    }
+  }
+
   void _guardCallDepth() {
     final callStackBaseDepth =
         runtime.getCurrentCoroutine()?.callStackBaseDepth ?? 0;
@@ -4732,6 +4715,8 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
   var safePointCounter = 0;
   var loopGcCounter = 0;
   var closed = false;
+  var didFireEntryCallHook = false;
+  var forceNextLineHook = false;
 
   int get effectiveTop => openTop ?? top;
 
@@ -6528,8 +6513,16 @@ int _signedC(LuaBytecodeInstructionWord word) =>
     LuaRuntime runtime,
     _LuaBytecodeFrame frame,
   ) async {
-  frame.loopGcCounter += 1;
+    frame.loopGcCounter += 1;
     await runtime.runLoopGcAtSafePoint(frame.loopGcCounter);
+    if (runtime.gc.isStopped ||
+        !runtime.gc.autoTriggerEnabled ||
+        runtime.gc.allocationDebt > 0 ||
+        frame.loopGcCounter < 1024 ||
+        frame.loopGcCounter % 1024 != 0) {
+      return;
+    }
+    await runtime.gc.performGenerationalStep(runtime.getRoots());
   }
 
 void _resetBackedgeLineHookState(

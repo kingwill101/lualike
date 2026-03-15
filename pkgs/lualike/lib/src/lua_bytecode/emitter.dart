@@ -742,6 +742,7 @@ final class _LuaBytecodeStructuredCompiler {
       trackStatementIndexes: false,
       allowTerminalLabels: false,
     );
+    final bodyCloseFrom = _minimumCloseRegisterForLocals(_scopes.last);
     _exitScope(endPc: _prototype.currentPc + 1);
     _loopDepth -= 1;
 
@@ -751,6 +752,10 @@ final class _LuaBytecodeStructuredCompiler {
       a: baseRegister,
       bx: forLoopPc + 1 - bodyStartPc,
     );
+    final breakClosePc = _prototype.currentPc;
+    if (bodyCloseFrom != null) {
+      _prototype.emitClose(fromRegister: bodyCloseFrom);
+    }
     final closeFrom = _minimumCloseRegisterForLocals(_scopes.last);
     final closePc = _prototype.currentPc;
     if (closeFrom != null) {
@@ -761,7 +766,7 @@ final class _LuaBytecodeStructuredCompiler {
     for (final breakJump in _breakFixups.removeLast()) {
       _prototype.patchJumpTarget(
         instructionPc: breakJump,
-        targetPc: closeFrom != null ? closePc : endPc,
+        targetPc: breakClosePc < endPc ? breakClosePc : endPc,
       );
     }
     _exitScope(endPc: endPc + (closeFrom != null ? 1 : 0));
