@@ -138,6 +138,7 @@ const Set<String> _leftLinearBinaryOps = <String>{
 final class _LuaBytecodeStructuredCompiler {
   _LuaBytecodeStructuredCompiler.topLevel(this._prototype)
     : _parent = null,
+      _virtualVarargName = null,
       _declaredGlobals = <String>{},
       _inheritedDeclaredGlobals = <String>{},
       _nextRegister = 0,
@@ -150,8 +151,10 @@ final class _LuaBytecodeStructuredCompiler {
     this._parent, {
     required List<Identifier> parameters,
     Set<String> declaredGlobals = const <String>{},
+    String? virtualVarargName,
   }) : _nextRegister = _prototype.parameterCount,
        _nextTemp = _prototype.parameterCount,
+       _virtualVarargName = virtualVarargName,
        _declaredGlobals = <String>{...declaredGlobals},
        _inheritedDeclaredGlobals = <String>{
          ...?_parent?._declaredGlobals,
@@ -165,6 +168,7 @@ final class _LuaBytecodeStructuredCompiler {
 
   final LuaBytecodePrototypeBuilder _prototype;
   final _LuaBytecodeStructuredCompiler? _parent;
+  final String? _virtualVarargName;
   final Set<String> _declaredGlobals;
   final Set<String> _inheritedDeclaredGlobals;
   final Map<String, List<_LuaBytecodeStructuredLocal>> _localsByName =
@@ -1787,6 +1791,9 @@ final class _LuaBytecodeStructuredCompiler {
     String fieldName,
     int targetRegister,
   ) {
+    if (_emitVirtualVarargFieldAccess(table, fieldName, targetRegister)) {
+      return;
+    }
     _emitExpressionToRegister(table, targetRegister);
     _emitFieldAccessToRegister(
       tableRegister: targetRegister,
@@ -1796,6 +1803,9 @@ final class _LuaBytecodeStructuredCompiler {
   }
 
   void _emitTableIndexAccess(AstNode table, AstNode index, int targetRegister) {
+    if (_emitVirtualVarargIndexAccess(table, index, targetRegister)) {
+      return;
+    }
     _emitExpressionToRegister(table, targetRegister);
     final immediateIndex = _immediateIndex(index);
     if (immediateIndex != null) {
@@ -1815,6 +1825,64 @@ final class _LuaBytecodeStructuredCompiler {
       key: keyRegister,
     );
     _releaseTempBlock(keyRegister, 1);
+  }
+
+  bool _emitVirtualVarargFieldAccess(
+    AstNode table,
+    String fieldName,
+    int targetRegister,
+  ) {
+    if (_unwrapExpression(table) case Identifier(name: final name)
+        when name == _virtualVarargName) {
+      return _emitVirtualVarargKeyAccess(
+        literalKey: fieldName,
+        targetRegister: targetRegister,
+      );
+    }
+    return false;
+  }
+
+  bool _emitVirtualVarargIndexAccess(
+    AstNode table,
+    AstNode index,
+    int targetRegister,
+  ) {
+    if (_unwrapExpression(table) case Identifier(name: final name)
+        when name == _virtualVarargName) {
+      final immediateIndex = _immediateIndex(index);
+      if (immediateIndex != null) {
+        return _emitVirtualVarargKeyAccess(
+          literalKey: immediateIndex,
+          targetRegister: targetRegister,
+        );
+      }
+
+      return _emitVirtualVarargKeyAccess(
+        keyExpression: index,
+        targetRegister: targetRegister,
+      );
+    }
+    return false;
+  }
+
+  bool _emitVirtualVarargKeyAccess({
+    Object? literalKey,
+    AstNode? keyExpression,
+    required int targetRegister,
+  }) {
+    final tempBase = _reserveTempBlock(2);
+    final keyRegister = tempBase == targetRegister ? tempBase + 1 : tempBase;
+    try {
+      if (keyExpression != null) {
+        _emitExpressionToRegister(keyExpression, keyRegister);
+      } else {
+        _prototype.emitLoadLiteral(target: keyRegister, literal: literalKey);
+      }
+      _prototype.emitAbc('GETVARG', a: targetRegister, b: 0, c: keyRegister);
+      return true;
+    } finally {
+      _releaseTempBlock(tempBase, 2);
+    }
   }
 
   void _emitLegacyTableAccess(
@@ -2072,9 +2140,10 @@ final class _LuaBytecodeStructuredCompiler {
         (parameterList.isEmpty || parameterList.first.name != 'self')) {
       parameterList.insert(0, Identifier('self'));
     }
+    final needsVarargTable = _needsMaterializedVarargTable(body);
     final flags =
         (body.isVararg ? LuaBytecodePrototypeFlags.hasHiddenVarargs : 0) |
-        (body.varargName != null
+        (needsVarargTable
             ? LuaBytecodePrototypeFlags.hasVarargTable
             : 0);
     final functionStartNode = debugNode ?? body;
@@ -2091,14 +2160,18 @@ final class _LuaBytecodeStructuredCompiler {
       this,
       parameters: parameterList,
       declaredGlobals: declaredGlobals,
+      virtualVarargName: !needsVarargTable ? body.varargName?.name : null,
     );
-    if (body.varargName case final Identifier varargName) {
-      final register = childCompiler._allocateRegisters(1);
-      childCompiler._bindSyntheticLocal(
-        varargName.name,
-        register: register,
-        startPc: 1,
-      );
+    if (needsVarargTable) {
+      final varargName = body.varargName;
+      if (varargName != null) {
+        final register = childCompiler._allocateRegisters(1);
+        childCompiler._bindSyntheticLocal(
+          varargName.name,
+          register: register,
+          startPc: 1,
+        );
+      }
     }
     childCompiler.compileFunctionBody(body.body);
     final firstInstructionLine = childPrototype.firstInstructionLine;
@@ -2112,6 +2185,217 @@ final class _LuaBytecodeStructuredCompiler {
       closureLine,
       () => _prototype.emitClosure(target: targetRegister, childIndex: childIndex),
     );
+  }
+
+  bool _needsMaterializedVarargTable(FunctionBody body) {
+    final varargName = body.varargName?.name;
+    if (varargName == null) {
+      return false;
+    }
+    if (varargName == '_ENV') {
+      return true;
+    }
+
+    var needsTable = false;
+
+    bool nestedFunctionShadows(FunctionBody nestedBody) {
+      for (final parameter in nestedBody.parameters ?? const <Identifier>[]) {
+        if (parameter.name == varargName) {
+          return true;
+        }
+      }
+      return nestedBody.varargName?.name == varargName;
+    }
+
+    void visitNode(
+      AstNode? node, {
+      AstNode? parent,
+      bool assignmentTarget = false,
+      bool nestedFunction = false,
+    }) {
+      if (node == null || needsTable) {
+        return;
+      }
+
+      switch (_unwrapExpression(node)) {
+        case Identifier(name: final name) when name == varargName:
+          final isReadonlyVirtualAccess =
+              !assignmentTarget &&
+              ((parent is TableIndexAccess && identical(parent.table, node)) ||
+                  (parent is TableFieldAccess &&
+                      identical(parent.table, node)) ||
+                  (parent is TableAccessExpr && identical(parent.table, node)));
+          if (!isReadonlyVirtualAccess || nestedFunction) {
+            needsTable = true;
+          }
+        case Identifier():
+          return;
+        case Program(statements: final statements):
+          for (final statement in statements) {
+            visitNode(statement);
+          }
+        case DoBlock(body: final statements):
+          for (final statement in statements) {
+            visitNode(statement);
+          }
+        case Assignment(targets: final targets, exprs: final exprs):
+          for (final target in targets) {
+            visitNode(target, assignmentTarget: true);
+          }
+          for (final expr in exprs) {
+            visitNode(expr);
+          }
+        case LocalDeclaration(exprs: final exprs):
+          for (final expr in exprs) {
+            visitNode(expr);
+          }
+        case GlobalDeclaration(exprs: final exprs):
+          for (final expr in exprs) {
+            visitNode(expr);
+          }
+        case IfStatement(
+              cond: final cond,
+              thenBlock: final thenBlock,
+              elseIfs: final elseIfs,
+              elseBlock: final elseBlock,
+            ):
+          visitNode(cond);
+          for (final clause in elseIfs) {
+            visitNode(clause);
+          }
+          for (final statement in thenBlock) {
+            visitNode(statement);
+          }
+          for (final statement in elseBlock) {
+            visitNode(statement);
+          }
+        case ElseIfClause(cond: final cond, thenBlock: final thenBlock):
+          visitNode(cond);
+          for (final statement in thenBlock) {
+            visitNode(statement);
+          }
+        case WhileStatement(cond: final cond, body: final statements):
+          visitNode(cond);
+          for (final statement in statements) {
+            visitNode(statement);
+          }
+        case ForLoop(
+              start: final start,
+              endExpr: final endExpr,
+              stepExpr: final stepExpr,
+              body: final statements,
+            ):
+          visitNode(start);
+          visitNode(endExpr);
+          visitNode(stepExpr);
+          for (final statement in statements) {
+            visitNode(statement);
+          }
+        case ForInLoop(iterators: final iterators, body: final statements):
+          for (final expr in iterators) {
+            visitNode(expr);
+          }
+          for (final statement in statements) {
+            visitNode(statement);
+          }
+        case RepeatUntilLoop(body: final statements, cond: final cond):
+          for (final statement in statements) {
+            visitNode(statement);
+          }
+          visitNode(cond);
+        case FunctionDef(name: final name, body: final nestedBody):
+          visitNode(name);
+          if (!nestedFunctionShadows(nestedBody)) {
+            for (final statement in nestedBody.body) {
+              visitNode(statement, nestedFunction: true);
+            }
+          }
+        case LocalFunctionDef(funcBody: final nestedBody):
+          if (!nestedFunctionShadows(nestedBody)) {
+            for (final statement in nestedBody.body) {
+              visitNode(statement, nestedFunction: true);
+            }
+          }
+        case FunctionLiteral(funcBody: final nestedBody):
+          if (!nestedFunctionShadows(nestedBody)) {
+            for (final statement in nestedBody.body) {
+              visitNode(statement, nestedFunction: true);
+            }
+          }
+        case ReturnStatement(expr: final values):
+          for (final value in values) {
+            visitNode(value);
+          }
+        case ExpressionStatement(expr: final expr):
+          visitNode(expr);
+        case YieldStatement(expr: final args):
+          for (final arg in args) {
+            visitNode(arg);
+          }
+        case BinaryExpression(left: final left, right: final right):
+          visitNode(left);
+          visitNode(right);
+        case UnaryExpression(expr: final expr):
+          visitNode(expr);
+        case GroupedExpression(expr: final expr):
+          visitNode(expr);
+        case TableAccessExpr(table: final table, index: final index):
+          visitNode(table, parent: node, assignmentTarget: assignmentTarget);
+          visitNode(index);
+        case TableFieldAccess(table: final table):
+          visitNode(table, parent: node, assignmentTarget: assignmentTarget);
+        case TableIndexAccess(table: final table, index: final index):
+          visitNode(table, parent: node, assignmentTarget: assignmentTarget);
+          visitNode(index);
+        case FunctionCall(name: final name, args: final args):
+          visitNode(name);
+          for (final arg in args) {
+            visitNode(arg);
+          }
+        case MethodCall(
+              prefix: final object,
+              methodName: final method,
+              args: final args,
+            ):
+          visitNode(object);
+          visitNode(method);
+          for (final arg in args) {
+            visitNode(arg);
+          }
+        case TableConstructor(entries: final entries):
+          for (final entry in entries) {
+            visitNode(entry);
+          }
+        case KeyedTableEntry(key: final key, value: final value):
+          visitNode(key);
+          visitNode(value);
+        case IndexedTableEntry(key: final index, value: final value):
+          visitNode(index);
+          visitNode(value);
+        case TableEntryLiteral(expr: final value):
+          visitNode(value);
+        case AssignmentIndexAccessExpr(target: final table, index: final index):
+          visitNode(table, parent: node, assignmentTarget: assignmentTarget);
+          visitNode(index);
+        case Break() || Goto() || Label() || NilValue() || NumberLiteral() ||
+            StringLiteral() || BooleanLiteral() || VarArg() ||
+            FunctionName():
+          return;
+        case final other:
+          throw UnsupportedError(
+            'lua_bytecode emitter cannot analyze vararg usage in '
+            '${other.runtimeType}',
+          );
+      }
+    }
+
+    for (final statement in body.body) {
+      visitNode(statement);
+      if (needsTable) {
+        break;
+      }
+    }
+    return needsTable;
   }
 
   void _storeRegisterToFunctionNamePath(FunctionName name, int sourceRegister) {

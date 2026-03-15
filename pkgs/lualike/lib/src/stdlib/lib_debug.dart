@@ -3,6 +3,7 @@ import 'package:lualike/lualike.dart';
 import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/gc/memory_credits.dart';
 import 'package:lualike/src/io/lua_file.dart';
+import 'package:lualike/src/lua_bytecode/runtime.dart';
 import 'package:lualike/src/lua_bytecode/vm.dart';
 import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:lualike/src/stdlib/metatables.dart';
@@ -1271,6 +1272,18 @@ class _Traceback extends BuiltinFunction {
     Coroutine coroutine,
     int startLevel,
   ) sync* {
+    final runtime = coroutine.closureEnvironment.interpreter;
+    if (runtime is LuaBytecodeRuntime &&
+        coroutine.status == CoroutineStatus.suspended) {
+      final bytecodeFrames = bytecodeSuspendedCoroutineFrames(
+        coroutine,
+        startLevel: startLevel,
+      );
+      if (bytecodeFrames.isNotEmpty) {
+        yield* bytecodeFrames;
+        return;
+      }
+    }
     for (var level = startLevel; ; level++) {
       final frame = _resolveDebugCoroutineFrame(coroutine, level);
       if (frame == null) {
@@ -1698,6 +1711,17 @@ class _GetInfoImpl extends BuiltinFunction {
   }
 
   CallFrame? _resolveCoroutineFrame(Coroutine coroutine, int level) {
+    final runtime = coroutine.closureEnvironment.interpreter;
+    if (runtime is LuaBytecodeRuntime &&
+        coroutine.status == CoroutineStatus.suspended) {
+      final bytecodeFrames = bytecodeSuspendedCoroutineFrames(
+        coroutine,
+        startLevel: level,
+      );
+      if (bytecodeFrames.isNotEmpty) {
+        return bytecodeFrames.first;
+      }
+    }
     return _resolveDebugCoroutineFrame(coroutine, level);
   }
 

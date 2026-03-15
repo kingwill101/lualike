@@ -12,6 +12,7 @@ import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/table_storage.dart';
 import 'package:lualike/src/value_class.dart';
+import 'package:lualike/src/runtime/lua_runtime.dart';
 
 import 'exceptions.dart';
 
@@ -48,6 +49,21 @@ Object? _normalizeCoroutineError(Object error) {
     return error.message;
   }
   return error;
+}
+
+Interpreter? _debugInterpreterForRuntime(LuaRuntime? runtime) {
+  if (runtime is Interpreter) {
+    return runtime;
+  }
+  if (runtime == null) {
+    return null;
+  }
+  try {
+    final debugInterpreter = (runtime as dynamic).debugInterpreter;
+    return debugInterpreter is Interpreter ? debugInterpreter : null;
+  } catch (_) {
+    return null;
+  }
 }
 
 /// Engine-owned suspended execution state for a coroutine.
@@ -262,7 +278,7 @@ class Coroutine extends GCObject {
     final runtime = closureEnvironment.interpreter;
     final previousCoroutine = runtime?.getCurrentCoroutine();
     final previousEnv = runtime?.getCurrentEnv();
-    final interpreter = runtime is Interpreter ? runtime : null;
+    final interpreter = _debugInterpreterForRuntime(runtime);
     // Coroutine resumes can pass through helpers such as pcall/xpcall and
     // iterator frames that yield on behalf of the caller. Save the caller's
     // visible function/local context up front so every resume path can restore
@@ -746,7 +762,11 @@ class Coroutine extends GCObject {
     if (base >= frames.length) {
       return const <CallFrame>[];
     }
-    return frames.skip(base).map(_cloneCallFrame).toList(growable: false);
+    return frames
+        .skip(base)
+        .where((frame) => !frame.isDebugHook && frame.debugNameWhat != 'hook')
+        .map(_cloneCallFrame)
+        .toList(growable: false);
   }
 
   void captureCurrentCallStack() {
@@ -1059,6 +1079,11 @@ class Coroutine extends GCObject {
             processedArgs,
           );
           await _completeWithReturn(result);
+        } on CoroutineCloseSignal catch (signal) {
+          if (completer != null && !completer!.isCompleted) {
+            completer!.complete(signal.result);
+          }
+          return;
         } on YieldException {
           return;
         } on TailCallException catch (t) {
@@ -1440,6 +1465,8 @@ class Coroutine extends GCObject {
   }
 
   bool get hasContinuation => _continuation != null;
+
+  CoroutineContinuation? get debugContinuation => _continuation;
 
   CoroutineContinuation? takeContinuation() {
     final continuation = _continuation;

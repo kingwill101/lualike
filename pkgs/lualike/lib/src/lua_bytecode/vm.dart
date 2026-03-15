@@ -34,6 +34,21 @@ final RegExp _bytecodeFormattedLuaErrorPattern = RegExp(
   r'^(?:\[[^\n]+\]|[^:\n]+):(?:\d+|\?): ',
 );
 
+final Expando<_LuaBytecodeFrame> _callFrameBytecodeFrames =
+    Expando<_LuaBytecodeFrame>();
+final Expando<bool> _closeSignalYieldableStates = Expando<bool>();
+
+void _rememberCloseSignalYieldable(
+  CoroutineCloseSignal signal,
+  bool isYieldable,
+) {
+  final previous = _closeSignalYieldableStates[signal];
+  _closeSignalYieldableStates[signal] = switch (previous) {
+    null => isYieldable,
+    final bool prior => prior && isYieldable,
+  };
+}
+
 void _debugFileLog(String message) {
   if (_debugFileOps) {
     print('[file-debug] $message');
@@ -226,6 +241,7 @@ final class LuaBytecodeVm {
   Future<List<Value>> invoke(
     LuaBytecodeClosure closure,
     List<Object?> args, {
+    Value? functionValue,
     String? callName,
     String? callNameWhat,
     bool isEntryFrame = false,
@@ -234,59 +250,93 @@ final class LuaBytecodeVm {
   }) async {
     var currentClosure = closure;
     var currentArgs = args;
+    var currentFunctionValue = functionValue;
     var currentCallName = callName;
     var currentCallNameWhat = callNameWhat;
     var currentIsEntryFrame = isEntryFrame;
     var currentIsTailCall = isTailCall;
     var currentExtraArgs = extraArgs;
+    final debugInterpreter = _debugInterpreter;
+    final activeCoroutine = runtime is Interpreter
+        ? null
+        : runtime.getCurrentCoroutine();
+    final debugCoroutine = switch (activeCoroutine) {
+      final Coroutine coroutine
+          when !identical(coroutine, runtime.getMainThread()) =>
+        coroutine,
+      _ => null,
+    };
+    final savedHookFunction = debugInterpreter?.debugHookFunction;
+    final savedHookMask = debugInterpreter?.debugHookMask;
+    final savedHookCount = debugInterpreter?.debugHookCount;
+    final savedHookCountRemaining = debugInterpreter?.debugHookCountRemaining;
 
-    while (true) {
-      _guardCallDepth();
+    if (debugInterpreter != null && debugCoroutine != null) {
+      debugCoroutine.applyDebugHookStateTo(debugInterpreter);
+    }
 
-      final frame = _LuaBytecodeFrame(
-        runtime: runtime,
-        closure: currentClosure,
-        arguments: currentArgs,
-        callName: currentCallName,
-        callNameWhat: currentCallNameWhat,
-        isEntryFrame: currentIsEntryFrame,
-        isTailCall: currentIsTailCall,
-        extraArgs: currentExtraArgs,
-      );
+    try {
+      while (true) {
+        _guardCallDepth();
 
-      try {
-        return await _runFrame(frame);
-      } on TailCallException catch (tail) {
-        final prepared = _flattenTailCallable(
-          tail.functionValue is Value
-              ? tail.functionValue as Value
-              : Value(tail.functionValue),
-          tail.args
-              .map((arg) => arg is Value ? arg : _runtimeValue(runtime, arg))
-              .toList(growable: false),
+        final frame = _LuaBytecodeFrame(
+          runtime: runtime,
+          closure: currentClosure,
+          functionValue: currentFunctionValue,
+          arguments: currentArgs,
+          callName: currentCallName,
+          callNameWhat: currentCallNameWhat,
+          isEntryFrame: currentIsEntryFrame,
+          isTailCall: currentIsTailCall,
+          extraArgs: currentExtraArgs,
         );
-        final callee = prepared.callee;
-        callee.interpreter ??= runtime;
-        final tailNameInfo = _decodeTailCallNameInfo(tail.callName);
-        if (callee.raw case final LuaBytecodeClosure nextClosure) {
-          currentClosure = nextClosure;
-          currentArgs = prepared.args;
-          if (tail.callName != null) {
-            currentCallName = tailNameInfo.name;
-            currentCallNameWhat = tailNameInfo.namewhat;
+
+        try {
+          return await _runFrame(frame);
+        } on TailCallException catch (tail) {
+          final prepared = _flattenTailCallable(
+            tail.functionValue is Value
+                ? tail.functionValue as Value
+                : Value(tail.functionValue),
+            tail.args
+                .map((arg) => arg is Value ? arg : _runtimeValue(runtime, arg))
+                .toList(growable: false),
+          );
+          final callee = prepared.callee;
+          callee.interpreter ??= runtime;
+          final tailNameInfo = _decodeTailCallNameInfo(tail.callName);
+          if (callee.raw case final LuaBytecodeClosure nextClosure) {
+            currentClosure = nextClosure;
+            currentArgs = prepared.args;
+            currentFunctionValue = callee;
+            if (tail.callName != null) {
+              currentCallName = tailNameInfo.name;
+              currentCallNameWhat = tailNameInfo.namewhat;
+            }
+            currentIsTailCall = true;
+            currentExtraArgs = prepared.extraArgs;
+            continue;
           }
-          currentIsTailCall = true;
-          currentExtraArgs = prepared.extraArgs;
-          continue;
+          return _invokePreparedCall(
+            (callee: callee, args: prepared.args),
+            callName: tail.callName != null
+                ? tailNameInfo.name
+                : currentCallName,
+            callNameWhat: tail.callName != null
+                ? tailNameInfo.namewhat
+                : currentCallNameWhat,
+            isTailCall: true,
+          );
         }
-        return _invokePreparedCall(
-          (callee: callee, args: prepared.args),
-          callName: tail.callName != null ? tailNameInfo.name : currentCallName,
-          callNameWhat: tail.callName != null
-              ? tailNameInfo.namewhat
-              : currentCallNameWhat,
-          isTailCall: true,
-        );
+      }
+    } finally {
+      if (debugInterpreter != null && debugCoroutine != null) {
+        debugCoroutine.captureDebugHookStateFrom(debugInterpreter);
+        debugInterpreter.debugHookFunction = savedHookFunction;
+        debugInterpreter.debugHookMask = savedHookMask ?? '';
+        debugInterpreter.debugHookCount = savedHookCount ?? 0;
+        debugInterpreter.debugHookCountRemaining =
+            savedHookCountRemaining ?? 0;
       }
     }
   }
@@ -345,15 +395,18 @@ final class LuaBytecodeVm {
     final activeScriptPath = closure.prototype.source ?? previousScriptPath;
     runtime.currentScriptPath = activeScriptPath;
     runtime.callStack.setScriptPath(activeScriptPath);
-    final callableValue = Value(
-      closure,
-      functionBody: closure.debugFunctionBody,
-      closureEnvironment: closure.environment,
-      functionName: frame.callName ?? closure.debugInfo.shortSource,
-    )..interpreter = runtime;
+    final callableValue =
+        frame.functionValue ??
+        (Value(
+              closure,
+              functionBody: closure.debugFunctionBody,
+              closureEnvironment: closure.environment,
+              functionName: frame.callName ?? closure.debugInfo.shortSource,
+            )
+            ..interpreter = runtime);
     runtime.callStack.push(
       frame.callName ?? closure.debugInfo.shortSource,
-      env: closure.prototype.isVararg ? frame.debugEnvironment : closure.environment,
+      env: closure.environment,
       debugName: frame.callName,
       debugNameWhat: frame.callName == 'hook'
           ? 'hook'
@@ -363,16 +416,28 @@ final class LuaBytecodeVm {
     if (parentFrame != null) {
       parentFrame.env = parentFrameEnv;
     }
-    if (closure.prototype.isVararg) {
-      runtime.callStack.top?.env = frame.debugEnvironment;
+    final activeCallFrame = runtime.callStack.top;
+    if (activeCallFrame != null) {
+      _callFrameBytecodeFrames[activeCallFrame] = frame;
+      if (parentFrame?.isDebugHook == true ||
+          frame.callName == 'hook' ||
+          frame.callNameWhat == 'hook') {
+        activeCallFrame.isDebugHook = true;
+      }
+      activeCallFrame.isTailCall = frame.isTailCall;
+      activeCallFrame.extraArgs = frame.extraArgs;
     }
-    if (parentFrame?.isDebugHook == true && runtime.callStack.top != null) {
-      runtime.callStack.top!.isDebugHook = true;
-    }
-    runtime.callStack.top?.isTailCall = frame.isTailCall;
-    runtime.callStack.top?.extraArgs = frame.extraArgs;
     _syncDebugLocals(frame);
     final entryDebugInterpreter = _debugInterpreter;
+    if (platform.getEnvironmentVariable('LUALIKE_DEBUG_BYTECODE_HOOKS') ==
+        '1') {
+      print(
+        '[bc-hook] entry debug=${entryDebugInterpreter != null} '
+        'hook=${entryDebugInterpreter?.debugHookFunction != null} '
+        'mask=${entryDebugInterpreter?.debugHookMask} '
+        'co=${runtime.getCurrentCoroutine()?.hashCode}',
+      );
+    }
     if (entryDebugInterpreter != null) {
       _setTransferInfo(
         runtime.callStack.top,
@@ -404,15 +469,61 @@ final class LuaBytecodeVm {
           ),
         );
       }
+      coroutine.captureCurrentCallStack();
       suspended = true;
       rethrow;
-    } on CoroutineCloseSignal {
+    } on CoroutineCloseSignal catch (signal) {
+      var closeYieldable = _closeSignalYieldableStates[signal];
       runtime.callStack.pop();
       poppedCallFrame = true;
+      var closeResult = signal.result;
       if (!frame.closed) {
-        await _closeFrameForCoroutine(frame, error: null);
+        final previousYieldable = runtime.isYieldable;
+        try {
+          if (closeYieldable != null) {
+            runtime.isYieldable = closeYieldable;
+          }
+          await _closeFrameForCoroutine(frame, error: null);
+        } on CoroutineCloseSignal catch (nestedSignal) {
+          closeResult = nestedSignal.result;
+          closeYieldable =
+              _closeSignalYieldableStates[nestedSignal] ?? closeYieldable;
+        } on YieldException {
+          closeResult = <Object?>[
+            Value(false),
+            Value('attempt to yield across a C-call boundary'),
+          ];
+        } catch (error) {
+          final adjustedError = switch (error) {
+            final LuaError luaError
+                when runtime.isInProtectedCall &&
+                    luaError.cause != null &&
+                    luaError.cause is! LuaError =>
+              luaError.cause!,
+            final LuaError luaError => _normalizeStrippedFrameError(
+              frame,
+              _withFrameRuntimeLocation(frame, luaError),
+            ),
+            _ => error,
+          };
+          final normalizedError = _normalizeBytecodeCoroutineCloseError(
+            adjustedError,
+          );
+          closeResult = <Object?>[
+            Value(false),
+            normalizedError is Value
+                ? normalizedError
+                : Value(normalizedError),
+          ];
+        } finally {
+          runtime.isYieldable = previousYieldable;
+        }
       }
-      rethrow;
+      final propagatedSignal = CoroutineCloseSignal(closeResult);
+      if (closeYieldable != null) {
+        _rememberCloseSignalYieldable(propagatedSignal, closeYieldable);
+      }
+      throw propagatedSignal;
     } catch (error, stackTrace) {
       final adjustedError = switch (error) {
         final LuaError luaError
@@ -448,7 +559,7 @@ final class LuaBytecodeVm {
         await _closeFrameForCoroutine(frame, error: null);
       }
       final exitDebugInterpreter = _debugInterpreter;
-      if (!poppedCallFrame && exitDebugInterpreter != null) {
+      if (!suspended && !poppedCallFrame && exitDebugInterpreter != null) {
         _setTransferInfo(runtime.callStack.top, returnTransferValues);
         final interpreter = exitDebugInterpreter;
         await interpreter.fireDebugHook('return');
@@ -456,6 +567,11 @@ final class LuaBytecodeVm {
       }
       if (!poppedCallFrame) {
         runtime.callStack.pop();
+      }
+      if (suspended) {
+        while (runtime.callStack.top?.isDebugHook ?? false) {
+          runtime.callStack.pop();
+        }
       }
       runtime.callStack.setScriptPath(previousCallStackScriptPath);
       runtime.currentScriptPath = previousScriptPath;
@@ -486,6 +602,7 @@ final class LuaBytecodeVm {
             return await invoke(
               nextClosure,
               prepared.args,
+              functionValue: callee,
               callName: tail.callName,
               extraArgs: prepared.extraArgs,
             );
@@ -1525,19 +1642,42 @@ final class LuaBytecodeVm {
           }
         case 'VARARG':
           {
-            final varargResults = frame.expandedVarargs;
-            nextOpenTop = _storeVarargResults(frame, word, varargResults);
+            nextOpenTop = _storeVarargResults(frame, word);
             break;
           }
         case 'GETVARG':
           {
-            final indexValue = frame.register(word.c);
-            final index = _integerValue(indexValue);
-            final expandedVarargs = frame.expandedVarargs;
-            if (index < 1 || index > expandedVarargs.length) {
-              frame.setRegister(word.a, _runtimeValue(runtime, null));
+            final keyValue = frame.register(word.c);
+            final rawKey = keyValue.raw;
+            final index = switch (rawKey) {
+              final int integer => integer,
+              final BigInt integer => NumberUtils.tryToInteger(integer),
+              final double number
+                  when number.isFinite &&
+                      number.truncateToDouble() == number =>
+                number.toInt(),
+              _ => null,
+            };
+            if (index != null) {
+              if (index < 1 || index > frame.varargCount) {
+                frame.setRegister(word.a, runtime.constantPrimitiveValue(null));
+              } else {
+                frame.setRegister(word.a, frame.varargAt(index - 1)!);
+              }
             } else {
-              frame.setRegister(word.a, expandedVarargs[index - 1]);
+              final keyText = switch (rawKey) {
+                final String text => text,
+                final LuaString text => text.toString(),
+                _ => null,
+              };
+              if (keyText == 'n') {
+                frame.setRegister(
+                  word.a,
+                  runtime.constantPrimitiveValue(frame.varargCount),
+                );
+              } else {
+                frame.setRegister(word.a, runtime.constantPrimitiveValue(null));
+              }
             }
             break;
           }
@@ -2123,7 +2263,7 @@ final class LuaBytecodeVm {
         );
       }
     })();
-    final value = _firstResultValue(result);
+    final value = _firstResultValue(runtime, result);
     value.interpreter ??= runtime;
     return value;
   }
@@ -2462,6 +2602,7 @@ final class LuaBytecodeVm {
       return invoke(
         closure,
         args,
+        functionValue: callee,
         callName: callName ?? _callableName(callee),
         callNameWhat: callNameWhat,
         isTailCall: isTailCall,
@@ -2508,12 +2649,18 @@ final class LuaBytecodeVm {
     }
 
     runtime.pushExternalGcRoots(tempRootProvider);
+    final yieldableAtCallEntry = runtime.isYieldable;
     List<Value> returnTransferValues = const <Value>[];
     try {
       final result = await runtime.callFunction(callee, args);
       final normalized = await _normalizeResults(result);
       returnTransferValues = normalized;
       return normalized;
+    } on CoroutineCloseSignal catch (signal) {
+      _closeSignalYieldableStates[signal] =
+          (_closeSignalYieldableStates[signal] ?? true) &&
+          yieldableAtCallEntry;
+      rethrow;
     } finally {
       final returnDebugInterpreter = _debugInterpreter;
       if (returnDebugInterpreter != null) {
@@ -2887,11 +3034,17 @@ final class LuaBytecodeVm {
     }
 
     runtime.pushExternalGcRoots(tempRootProvider);
+    final yieldableAtCallEntry = runtime.isYieldable;
     List<Value> returnTransferValues = const <Value>[];
     try {
       final result = await action();
       returnTransferValues = result;
       return result;
+    } on CoroutineCloseSignal catch (signal) {
+      _closeSignalYieldableStates[signal] =
+          (_closeSignalYieldableStates[signal] ?? true) &&
+          yieldableAtCallEntry;
+      rethrow;
     } finally {
       final returnDebugInterpreter = _debugInterpreter;
       if (returnDebugInterpreter != null) {
@@ -3841,20 +3994,19 @@ final class LuaBytecodeVm {
   int? _storeVarargResults(
     _LuaBytecodeFrame frame,
     LuaBytecodeInstructionWord word,
-    List<Value> varargs,
   ) {
     if (word.c == 0) {
-      for (var index = 0; index < varargs.length; index++) {
-        frame.setRegister(word.a + index, varargs[index]);
+      for (var index = 0; index < frame.varargCount; index++) {
+        frame.setRegister(word.a + index, frame.varargAt(index)!);
       }
-      frame.top = word.a + varargs.length;
+      frame.top = word.a + frame.varargCount;
       return frame.top;
     }
 
     final expectedCount = word.c - 1;
     for (var index = 0; index < expectedCount; index++) {
-      final value = index < varargs.length
-          ? varargs[index]
+      final value = index < frame.varargCount
+          ? frame.varargAt(index)!
           : _runtimeValue(runtime, null);
       frame.setRegister(word.a + index, value);
     }
@@ -3972,6 +4124,7 @@ final class LuaBytecodeVm {
       (callee: iterator, args: <Value>[state, control]),
       frame: frame,
       opcodeName: 'TFORCALL',
+      callName: 'for iterator',
     );
     final expected = List<Value>.generate(
       resultCount,
@@ -4073,6 +4226,22 @@ Object? _normalizeCloseErrorArgument(Object? error) {
   return error;
 }
 
+Object? _normalizeBytecodeCoroutineCloseError(Object error) {
+  if (error is Value) {
+    return error;
+  }
+  if (error is LuaError) {
+    final cause = error.cause;
+    if (cause != null &&
+        cause is! LuaError &&
+        cause.toString() == error.message) {
+      return _normalizeBytecodeCoroutineCloseError(cause);
+    }
+    return error.message;
+  }
+  return error;
+}
+
 Object? _preserveCloseErrorObject(Object? error) {
   if (error case LuaError(cause: final cause?) when cause is! LuaError) {
     return _preserveCloseErrorObject(cause);
@@ -4144,9 +4313,12 @@ CoroutineContinuation _wrapFrameContinuation(
 }
 
 void _tmpDebugFrame(_LuaBytecodeFrame frame, String message) {
-  // Temporary bytecode debug instrumentation is intentionally disabled in
-  // normal runs; callers are left in place so focused debugging can be
-  // re-enabled locally without reshaping resume logic again.
+  if (platform.getEnvironmentVariable('LUALIKE_DEBUG_BYTECODE_CONT') == '1') {
+    print(
+      '[bc-cont] pc=${frame.pc} top=${frame.top} openTop=${frame.openTop} '
+      'closed=${frame.closed} $message',
+    );
+  }
 }
 
 _LuaBytecodeFrame? _tmpContinuationFrame(CoroutineContinuation continuation) {
@@ -4161,7 +4333,94 @@ _LuaBytecodeFrame? _tmpContinuationFrame(CoroutineContinuation continuation) {
   };
 }
 
+CoroutineContinuation? _bytecodeContinuationChild(
+  CoroutineContinuation continuation,
+) {
+  return switch (continuation) {
+    _LuaBytecodeCallSuspension(:final child) => child,
+    _LuaBytecodeProtectedCallSuspension(:final child) => child,
+    _LuaBytecodeCloseSuspension(:final child) => child,
+    _LuaBytecodeFrameSuspension(:final child) => child,
+    _LuaBytecodeReturnSuspension(:final child) => child,
+    _LuaBytecodeTailCallSuspension(:final child) => child,
+    _LuaBytecodeTForCallSuspension(:final child) => child,
+    _ => null,
+  };
+}
+
+CallFrame _bytecodeSuspendedDebugFrame(_LuaBytecodeFrame frame) {
+  final closure = frame.closure;
+  final functionName = switch (frame.callName) {
+    final String name when name.isNotEmpty => name,
+    _ when closure.debugInfo.what == 'main' => 'main',
+    _ => 'unknown',
+  };
+  final callable = Value(
+    closure,
+    functionBody: closure.debugFunctionBody,
+    closureEnvironment: closure.environment,
+    functionName: functionName,
+  )..interpreter = frame.runtime;
+  final currentPc = frame.pc <= 0 ? 0 : frame.pc - 1;
+  final currentLine = closure.prototype.lineForPc(currentPc) ?? -1;
+  return CallFrame(
+    functionName,
+    scriptPath: closure.prototype.source,
+    currentLine: currentLine,
+    env: closure.prototype.isVararg ? frame.debugEnvironment : closure.environment,
+    debugName: frame.callName,
+    debugNameWhat: frame.callNameWhat ?? '',
+    callable: callable,
+    extraArgs: frame.extraArgs,
+    isDebugHook: frame.callName == 'hook' || frame.callNameWhat == 'hook',
+    isTailCall: frame.isTailCall,
+  );
+}
+
+List<CallFrame> bytecodeSuspendedCoroutineFrames(
+  Coroutine coroutine, {
+  int startLevel = 1,
+}) {
+  if (startLevel <= 0) {
+    startLevel = 1;
+  }
+  final continuation = coroutine.debugContinuation;
+  if (continuation == null) {
+    return const <CallFrame>[];
+  }
+  final frames = <CallFrame>[];
+  final seenFrames = <_LuaBytecodeFrame>{};
+  void walk(CoroutineContinuation? current) {
+    if (current == null) {
+      return;
+    }
+    if (_tmpContinuationFrame(current) case final frame?) {
+      if (seenFrames.add(frame)) {
+        frames.add(_bytecodeSuspendedDebugFrame(frame));
+      }
+    }
+    walk(_bytecodeContinuationChild(current));
+  }
+
+  walk(continuation);
+  final visibleFrames = frames
+      .where((frame) => !frame.isDebugHook && frame.debugNameWhat != 'hook')
+      .toList(growable: false)
+      .reversed
+      .toList(growable: false);
+  if (startLevel > visibleFrames.length) {
+    return const <CallFrame>[];
+  }
+  return visibleFrames.skip(startLevel - 1).toList(growable: false);
+}
+
 List<Object?>? _frameDebugVarargs(CallFrame frame) {
+  if (_callFrameBytecodeFrames[frame] case final bytecodeFrame?) {
+    if (!bytecodeFrame.closure.prototype.isVararg) {
+      return null;
+    }
+    return List<Object?>.from(bytecodeFrame.expandedVarargs);
+  }
   Environment? env = frame.env;
   final closureEnv = frame.callable?.closureEnvironment;
   while (env != null) {
@@ -4201,6 +4460,22 @@ CallFrame? _resolveVisibleBytecodeFrame(LuaRuntime runtime, int level) {
 
 void _syncFrameDebugVarargs(CallFrame? frame, List<Object?> values) {
   if (frame == null) {
+    return;
+  }
+  if (_callFrameBytecodeFrames[frame] case final bytecodeFrame?) {
+    final normalized = values
+        .map(
+          (value) => value is Value
+              ? value
+              : _runtimeValue(bytecodeFrame.runtime, value),
+        )
+        .toList(growable: true);
+    bytecodeFrame._materializedVarargs = normalized;
+    bytecodeFrame._varargStart = 0;
+    bytecodeFrame._varargCount = normalized.length;
+    if (bytecodeFrame.debugVarargValue case final Value debugVarargs?) {
+      debugVarargs.raw = normalized;
+    }
     return;
   }
   Environment? env = frame.env;
@@ -4342,6 +4617,7 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
   _LuaBytecodeFrame({
     required this.runtime,
     required this.closure,
+    this.functionValue,
     required List<Object?> arguments,
     this.callName,
     this.callNameWhat,
@@ -4358,7 +4634,7 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
          -1,
          growable: true,
        ),
-       varargs = <Value>[] {
+       _materializedVarargs = null {
     top = closure.prototype.parameterCount;
     final normalizedArgs = arguments
         .map((argument) => _runtimeValue(runtime, argument))
@@ -4371,11 +4647,17 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
           : _runtimeValue(runtime, null);
       setRegister(index, value);
     }
-    if (closure.prototype.isVararg && normalizedArgs.length > parameterCount) {
-      varargs.addAll(normalizedArgs.skip(parameterCount));
-    }
     if (closure.prototype.isVararg) {
-      debugVarargValue = Value.multi(varargs)..interpreter = runtime;
+      _varargStart = parameterCount;
+      _varargCount = normalizedArgs.length > parameterCount
+          ? normalizedArgs.length - parameterCount
+          : 0;
+      if (closure.prototype.needsVarargTable) {
+        _materializedVarargs = List<Value>.of(
+          normalizedArgs.skip(parameterCount),
+          growable: true,
+        );
+      }
     }
     if (closure.prototype.needsVarargTable) {
       final packed = packVarargsTable(varargs);
@@ -4388,6 +4670,7 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
 
   final LuaRuntime runtime;
   final LuaBytecodeClosure closure;
+  final Value? functionValue;
   final String? callName;
   final String? callNameWhat;
   final bool isEntryFrame;
@@ -4397,12 +4680,14 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
   late final Iterable<Object?> Function() externalGcRootProvider = gcReferences;
   final List<Value> registers;
   final List<int> _lastRegisterWritePc;
-  final List<Value> varargs;
+  List<Value>? _materializedVarargs;
   Value? debugVarargValue;
   Environment? _debugEnvironment;
   PackedVarargTable? namedVarargTable;
   final List<_LuaBytecodeUpvalue> _openUpvalues = <_LuaBytecodeUpvalue>[];
   final Set<int> _toBeClosedRegisters = <int>{};
+  var _varargStart = 0;
+  var _varargCount = 0;
 
   var pc = 0;
   var top = 0;
@@ -4422,12 +4707,52 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
       parent: closure.environment,
       interpreter: runtime,
     );
-    if (debugVarargValue case final Value varargValue) {
+    if (_materializeDebugVarargValue() case final Value varargValue) {
       environment.declare('...', varargValue);
     }
     _debugEnvironment = environment;
     return environment;
   }
+
+  Value? _materializeDebugVarargValue() {
+    final existing = debugVarargValue;
+    if (existing != null) {
+      return existing;
+    }
+    if (!closure.prototype.isVararg) {
+      return null;
+    }
+    final value = Value.multi(varargs)..interpreter = runtime;
+    debugVarargValue = value;
+    return value;
+  }
+
+  int get varargCount => switch (namedVarargTable) {
+    final PackedVarargTable table => table.expandedCount(),
+    _ => _materializedVarargs?.length ?? _varargCount,
+  };
+
+  Value? varargAt(int index) {
+    if (index < 0 || index >= varargCount) {
+      return null;
+    }
+    if (namedVarargTable case final PackedVarargTable table) {
+      final value = table[index + 1];
+      return value is Value ? value : _runtimeValue(runtime, value);
+    }
+    final materialized = _materializedVarargs;
+    if (materialized != null) {
+      return materialized[index];
+    }
+    return callArgs[_varargStart + index];
+  }
+
+  List<Value> get varargs =>
+      _materializedVarargs ??= List<Value>.generate(
+        _varargCount,
+        (index) => callArgs[_varargStart + index],
+        growable: true,
+      );
 
   Value register(int index) => slotValue(index);
 
@@ -4489,11 +4814,17 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     }
     if (debugVarargValue case final Value rawVarargs
         when rawVarargs.isMulti && rawVarargs.raw is List) {
-      return (rawVarargs.raw as List<Object?>)
+      final rawList = rawVarargs.raw as List<Object?>;
+      if (identical(rawList, varargs)) {
+        return varargs;
+      }
+      final normalized = rawList
           .map(
             (value) => value is Value ? value : _runtimeValue(runtime, value),
           )
           .toList(growable: false);
+      rawVarargs.raw = normalized;
+      return normalized;
     }
     return varargs;
   }
@@ -4584,7 +4915,10 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
   }
 
   void markToBeClosed(int registerIndex) {
-    final rawValue = slotValue(registerIndex);
+    final rawValue = _detachSharedRuntimeConstantInFrameRegister(
+      this,
+      registerIndex,
+    );
     if (_debugFileOps) {
       _debugFileLog(
         'markToBeClosed register=$registerIndex '
@@ -4630,9 +4964,13 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
       }
       final Value closeValue;
       try {
-        closeValue = slotValue.isToBeClose
-            ? slotValue
-            : Value.toBeClose(slotValue);
+        final mutableSlotValue = _detachSharedRuntimeConstantInFrameRegister(
+          this,
+          registerIndex,
+        );
+        closeValue = mutableSlotValue.isToBeClose
+            ? mutableSlotValue
+            : Value.toBeClose(mutableSlotValue);
       } on UnsupportedError catch (error, stackTrace) {
         final localName = activeLocalName(registerIndex);
         final message = localName != null
@@ -4785,6 +5123,7 @@ final class _LuaBytecodeCallSuspension implements CoroutineContinuation {
           results,
         );
         try {
+          _resetResumeLineHookState(vm.runtime, vm._debugInterpreter, frame);
           final resumedResults = await vm._runFrameWithTailCalls(frame);
           return _packCallResults(vm.runtime, resumedResults);
         } on YieldException catch (error) {
@@ -5618,6 +5957,20 @@ Object? _packCallResults(LuaRuntime runtime, List<Value> results) {
   return packed;
 }
 
+Value _detachSharedRuntimeConstantInFrameRegister(
+  _LuaBytecodeFrame frame,
+  int registerIndex,
+) {
+  final current = frame.slotValue(registerIndex);
+  if (!_isSharedRuntimeConstant(frame.runtime, current)) {
+    return current;
+  }
+  final detached = _cloneBytecodeValue(current);
+  frame.registers[registerIndex] = detached;
+  frame.runtime.gc.noteRootWrite(detached);
+  return detached;
+}
+
 Value _wrapClosure(LuaBytecodeClosure closure) {
   final value = Value(
     closure,
@@ -5694,6 +6047,36 @@ Value _runtimeValue(LuaRuntime runtime, Object? value) {
   return wrapped;
 }
 
+bool _isSharedRuntimeConstant(LuaRuntime runtime, Value value) {
+  final raw = value.raw;
+  return switch (raw) {
+    final LuaString string =>
+      identical(value, runtime.constantStringValue(string.bytes)),
+    _ => false,
+  };
+}
+
+Value _cloneBytecodeValue(Value source) {
+  final clone = Value(
+    source.raw,
+    metatable: source.metatable,
+    isMulti: source.isMulti,
+    isConst: source.isConst,
+    isToBeClose: source.isToBeClose,
+    isTempKey: source.isTempKey,
+    upvalues: source.upvalues,
+    interpreter: source.interpreter,
+    functionBody: source.functionBody,
+    closureEnvironment: source.closureEnvironment,
+    functionName: source.functionName,
+    debugLineDefined: source.debugLineDefined,
+    strippedDebugInfo: source.strippedDebugInfo,
+  );
+  clone.metatableRef = source.metatableRef;
+  clone.globalProxyEnvironment = source.globalProxyEnvironment;
+  return clone;
+}
+
 Value _canonicalizeBytecodeValue(Value value) {
   final raw = value.raw;
   if (raw is! LuaFile) {
@@ -5722,18 +6105,22 @@ Value _trackedLuaFileWrapper(LuaFile file, LuaRuntime runtime) {
   return wrapLuaFileValue(file, interpreter: runtime);
 }
 
-Value _firstResultValue(Object? result) {
+Value _firstResultValue(LuaRuntime runtime, Object? result) {
   if (result case final Value value when value.isMulti) {
     final values = value.raw as List<Object?>;
-    return values.isEmpty ? Value.wrap(null) : Value.wrap(values.first);
+    return values.isEmpty
+        ? _runtimeValue(runtime, null)
+        : _runtimeValue(runtime, values.first);
   }
   if (result case final List<Object?> values) {
-    return values.isEmpty ? Value.wrap(null) : Value.wrap(values.first);
+    return values.isEmpty
+        ? _runtimeValue(runtime, null)
+        : _runtimeValue(runtime, values.first);
   }
   if (result case final Value value) {
     return value;
   }
-  return Value.wrap(result);
+  return _runtimeValue(runtime, result);
 }
 
 bool _canFastPathNumeric(Value value) => _coerceLuaNumber(value.raw) != null;
@@ -6122,6 +6509,18 @@ void _resetBackedgeLineHookState(
   debugInterpreter?.rememberDebugHookLine(
     -1,
     source: runtime.callStack.top?.scriptPath ?? runtime.currentScriptPath,
+  );
+}
+
+void _resetResumeLineHookState(
+  LuaRuntime runtime,
+  Interpreter? debugInterpreter,
+  _LuaBytecodeFrame frame,
+) {
+  runtime.callStack.top?.lastDebugHookLine = -1;
+  debugInterpreter?.rememberDebugHookLine(
+    -1,
+    source: frame.closure.debugInfo.source,
   );
 }
 
