@@ -266,14 +266,20 @@ final class LuaBytecodeVm {
         coroutine,
       _ => null,
     };
-    final savedHookFunction = debugInterpreter?.debugHookFunction;
-    final savedHookMask = debugInterpreter?.debugHookMask;
-    final savedHookCount = debugInterpreter?.debugHookCount;
-    final savedHookCountRemaining = debugInterpreter?.debugHookCountRemaining;
-
-    if (debugInterpreter != null && debugCoroutine != null) {
-      debugCoroutine.applyDebugHookStateTo(debugInterpreter);
-    }
+    final shouldRestoreInterpreterHookState =
+        debugInterpreter != null && debugCoroutine == null;
+    final savedHookFunction = shouldRestoreInterpreterHookState
+        ? debugInterpreter.debugHookFunction
+        : null;
+    final savedHookMask = shouldRestoreInterpreterHookState
+        ? debugInterpreter.debugHookMask
+        : null;
+    final savedHookCount = shouldRestoreInterpreterHookState
+        ? debugInterpreter.debugHookCount
+        : null;
+    final savedHookCountRemaining = shouldRestoreInterpreterHookState
+        ? debugInterpreter.debugHookCountRemaining
+        : null;
 
     try {
       while (true) {
@@ -332,6 +338,8 @@ final class LuaBytecodeVm {
     } finally {
       if (debugInterpreter != null && debugCoroutine != null) {
         debugCoroutine.captureDebugHookStateFrom(debugInterpreter);
+      }
+      if (shouldRestoreInterpreterHookState) {
         debugInterpreter.debugHookFunction = savedHookFunction;
         debugInterpreter.debugHookMask = savedHookMask ?? '';
         debugInterpreter.debugHookCount = savedHookCount ?? 0;
@@ -469,7 +477,6 @@ final class LuaBytecodeVm {
           ),
         );
       }
-      coroutine.captureCurrentCallStack();
       suspended = true;
       rethrow;
     } on CoroutineCloseSignal catch (signal) {
@@ -1736,7 +1743,14 @@ final class LuaBytecodeVm {
     if (callFrame == null) {
       return;
     }
+    callFrame.debugLocals
+      ..clear()
+      ..addAll(_activeBytecodeDebugLocals(frame));
+  }
 
+  List<MapEntry<String, Value>> _activeBytecodeDebugLocals(
+    _LuaBytecodeFrame frame,
+  ) {
     final currentPc = frame.pc + 1;
     final activeLocals = <LuaBytecodeLocalVariableDebugInfo>[
       for (final local in frame.closure.prototype.localVariables)
@@ -1763,20 +1777,16 @@ final class LuaBytecodeVm {
     final varargTableRegister = frame.closure.prototype.needsVarargTable
         ? frame.closure.prototype.parameterCount
         : null;
-    callFrame.debugLocals
-      ..clear()
-      ..addAll([
-        for (final local in activeLocals)
-          if (local.register case final register?)
-            MapEntry(local.name ?? '(local)', frame.register(register)),
-      ])
-      ..addAll([
-        for (var register = 0; register < frame.effectiveTop; register++)
-          if (!activeRegisters.contains(register) &&
-              register != varargTableRegister &&
-              _isVisibleTemporaryRegister(frame, register, currentPc))
-            MapEntry('(temporary)', frame.register(register)),
-      ]);
+    return <MapEntry<String, Value>>[
+      for (final local in activeLocals)
+        if (local.register case final register?)
+          MapEntry(local.name ?? '(local)', frame.register(register)),
+      for (var register = 0; register < frame.effectiveTop; register++)
+        if (!activeRegisters.contains(register) &&
+            register != varargTableRegister &&
+            _isVisibleTemporaryRegister(frame, register, currentPc))
+          MapEntry('(temporary)', frame.register(register)),
+    ];
   }
 
   bool _isVisibleTemporaryRegister(
@@ -4363,11 +4373,11 @@ CallFrame _bytecodeSuspendedDebugFrame(_LuaBytecodeFrame frame) {
   )..interpreter = frame.runtime;
   final currentPc = frame.pc <= 0 ? 0 : frame.pc - 1;
   final currentLine = closure.prototype.lineForPc(currentPc) ?? -1;
-  return CallFrame(
+  final callFrame = CallFrame(
     functionName,
     scriptPath: closure.prototype.source,
     currentLine: currentLine,
-    env: closure.prototype.isVararg ? frame.debugEnvironment : closure.environment,
+    env: frame.debugEnvironment,
     debugName: frame.callName,
     debugNameWhat: frame.callNameWhat ?? '',
     callable: callable,
@@ -4375,6 +4385,33 @@ CallFrame _bytecodeSuspendedDebugFrame(_LuaBytecodeFrame frame) {
     isDebugHook: frame.callName == 'hook' || frame.callNameWhat == 'hook',
     isTailCall: frame.isTailCall,
   );
+  _callFrameBytecodeFrames[callFrame] = frame;
+  final activeLocals = <LuaBytecodeLocalVariableDebugInfo>[
+    for (final local in closure.prototype.localVariables)
+      if (local.register case final register?
+          when local.startPc <= frame.pc + 1 && frame.pc + 1 < local.endPc)
+        local,
+  ]..sort((left, right) {
+    final startOrder = left.startPc.compareTo(right.startPc);
+    if (startOrder != 0) {
+      return startOrder;
+    }
+    final leftRegister = left.register ?? -1;
+    final rightRegister = right.register ?? -1;
+    final registerOrder = leftRegister.compareTo(rightRegister);
+    if (registerOrder != 0) {
+      return registerOrder;
+    }
+    return (left.name ?? '').compareTo(right.name ?? '');
+  });
+  callFrame.debugLocals
+    ..clear()
+    ..addAll([
+      for (final local in activeLocals)
+        if (local.register case final register?)
+          MapEntry(local.name ?? '(local)', frame.register(register)),
+    ]);
+  return callFrame;
 }
 
 List<CallFrame> bytecodeSuspendedCoroutineFrames(

@@ -530,10 +530,19 @@ class _GetLocal extends BuiltinFunction {
           "bad argument #2 to 'debug.getlocal' (level out of range)",
         );
       }
-      final frame = _resolveDebugCoroutineFrame(
-        threadArg.raw as Coroutine,
-        level,
-      );
+      final coroutine = threadArg.raw as Coroutine;
+      final coroutineRuntime = coroutine.closureEnvironment.interpreter;
+      final frame =
+          coroutineRuntime is LuaBytecodeRuntime &&
+              coroutine.status == CoroutineStatus.suspended
+          ? switch (bytecodeSuspendedCoroutineFrames(
+              coroutine,
+              startLevel: level,
+            )) {
+              [final frame, ...] => frame,
+              _ => null,
+            }
+          : _resolveDebugCoroutineFrame(coroutine, level);
       if (frame == null) {
         throw LuaError(
           "bad argument #2 to 'debug.getlocal' (level out of range)",
@@ -888,7 +897,19 @@ class _SetLocal extends BuiltinFunction {
           "bad argument #2 to 'debug.setlocal' (level out of range)",
         );
       }
-      frame = _resolveDebugCoroutineFrame(thread.raw as Coroutine, level);
+      final coroutine = thread.raw as Coroutine;
+      final coroutineRuntime = coroutine.closureEnvironment.interpreter;
+      frame =
+          coroutineRuntime is LuaBytecodeRuntime &&
+              coroutine.status == CoroutineStatus.suspended
+          ? switch (bytecodeSuspendedCoroutineFrames(
+              coroutine,
+              startLevel: level,
+            )) {
+              [final resolved, ...] => resolved,
+              _ => null,
+            }
+          : _resolveDebugCoroutineFrame(coroutine, level);
       if (frame == null) {
         throw LuaError(
           "bad argument #2 to 'debug.setlocal' (level out of range)",
