@@ -172,10 +172,18 @@ List<int>? _sourceBytes(Value source) {
 String? _sourceText(Value source) {
   return switch (source.raw) {
     final String text => text,
-    final LuaString luaString => luaString.toString(),
-    final List<int> bytes => utf8.decode(bytes, allowMalformed: true),
+    final LuaString luaString => _decodeLuaSourceBytes(luaString.bytes),
+    final List<int> bytes => _decodeLuaSourceBytes(bytes),
     _ => null,
   };
+}
+
+String _decodeLuaSourceBytes(List<int> bytes) {
+  try {
+    return utf8.decode(bytes);
+  } on FormatException {
+    return latin1.decode(bytes, allowInvalid: true);
+  }
 }
 
 String _cleanEmitterFailure(Object error) {
@@ -214,6 +222,34 @@ class LuaBytecodeRuntime implements LuaRuntime {
   Value get debugRegistry => _interpreter.debugRegistry;
 
   Interpreter get debugInterpreter => _interpreter;
+
+  Value? get debugHookFunction => _interpreter.debugHookFunction;
+  set debugHookFunction(Value? value) {
+    _interpreter.debugHookFunction = value;
+  }
+
+  String get debugHookMask => _interpreter.debugHookMask;
+  set debugHookMask(String value) {
+    _interpreter.debugHookMask = value;
+  }
+
+  int get debugHookCount => _interpreter.debugHookCount;
+  set debugHookCount(int value) {
+    _interpreter.debugHookCount = value;
+  }
+
+  int get debugHookCountRemaining => _interpreter.debugHookCountRemaining;
+  set debugHookCountRemaining(int value) {
+    _interpreter.debugHookCountRemaining = value;
+  }
+
+  void resetDebugHookCounter() {
+    _interpreter.resetDebugHookCounter();
+  }
+
+  void rememberDebugHookLine(int line, {String? source}) {
+    _interpreter.rememberDebugHookLine(line, source: source);
+  }
 
   Environment get _globals => _globalEnvironment;
 
@@ -285,7 +321,9 @@ class LuaBytecodeRuntime implements LuaRuntime {
       final results = await vm.invoke(
         closure,
         args,
-        callName: callee.functionName,
+        functionValue: callee,
+        callName: debugName ?? callee.functionName,
+        callNameWhat: debugNameWhat,
         isEntryFrame: true,
       );
       if (results.isEmpty) {
