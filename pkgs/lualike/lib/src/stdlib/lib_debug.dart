@@ -35,6 +35,37 @@ Interpreter? _resolveDebugInterpreter(LuaRuntime? runtime) {
   return envInterpreter is Interpreter ? envInterpreter : null;
 }
 
+CallFrame? _resolveVisibleRunningBytecodeCoroutineFrame(
+  LuaBytecodeRuntime runtime,
+  Coroutine coroutine,
+  int level,
+) {
+  if (level <= 0) {
+    return null;
+  }
+  final frames = runtime.callStack.frames.toList(growable: false);
+  final baseDepth = coroutine.debugCallStackBaseDepth;
+  if (baseDepth >= frames.length) {
+    return null;
+  }
+  final visibleFrames = <CallFrame>[];
+  for (final frame in frames.skip(baseDepth).toList(growable: false).reversed) {
+    final isHookFrame = frame.isDebugHook || frame.debugNameWhat == 'hook';
+    final isSyntheticHookWrapper =
+        isHookFrame &&
+        (frame.debugName == null || frame.debugName!.isEmpty) &&
+        frame.debugNameWhat.isEmpty;
+    if (isSyntheticHookWrapper) {
+      continue;
+    }
+    visibleFrames.add(frame);
+  }
+  if (level > visibleFrames.length) {
+    return null;
+  }
+  return visibleFrames[level - 1];
+}
+
 bool _hasStrippedDebugInfo(Value? callable) =>
     callable?.strippedDebugInfo == true;
 
@@ -1295,6 +1326,21 @@ class _Traceback extends BuiltinFunction {
   ) sync* {
     final runtime = coroutine.closureEnvironment.interpreter;
     if (runtime is LuaBytecodeRuntime &&
+        coroutine.status == CoroutineStatus.running &&
+        identical(runtime.getCurrentCoroutine(), coroutine)) {
+      for (var level = startLevel; ; level++) {
+        final frame = _resolveVisibleRunningBytecodeCoroutineFrame(
+          runtime,
+          coroutine,
+          level,
+        );
+        if (frame == null) {
+          return;
+        }
+        yield frame;
+      }
+    }
+    if (runtime is LuaBytecodeRuntime &&
         coroutine.status == CoroutineStatus.suspended) {
       final bytecodeFrames = bytecodeSuspendedCoroutineFrames(
         coroutine,
@@ -1555,13 +1601,19 @@ class _Traceback extends BuiltinFunction {
     }
     final currentCoroutine = runtime.getCurrentCoroutine();
     final mainCoroutine = runtime.getMainThread();
+    var usesCurrentBytecodeCoroutine = false;
     if (thread == null &&
         currentCoroutine != null &&
         !identical(currentCoroutine, mainCoroutine)) {
       thread = currentCoroutine;
+      usesCurrentBytecodeCoroutine =
+          currentCoroutine.closureEnvironment.interpreter
+              is LuaBytecodeRuntime;
     }
     if (thread case final Coroutine coroutine) {
-      final startLevel = level <= 1 ? 1 : level;
+      final startLevel = usesCurrentBytecodeCoroutine
+          ? (level < 0 ? 0 : level) + 1
+          : (level <= 1 ? 1 : level);
       _appendTracebackFrames(
         trace,
         _coroutineFrames(coroutine, startLevel).toList(growable: false),

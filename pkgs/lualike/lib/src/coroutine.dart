@@ -964,6 +964,8 @@ class Coroutine extends GCObject {
 
   int get debugCurrentLine => _resumeLine;
 
+  int get debugCallStackBaseDepth => _callStackBaseDepth;
+
   void _finalizeTermination() {
     if (_unregistered) {
       return;
