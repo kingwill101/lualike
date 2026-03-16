@@ -543,7 +543,8 @@ final class _LuaBytecodeStructuredCompiler {
     }
 
     if (statement.expr.length == 1) {
-      final expr = _unwrapExpression(statement.expr.single);
+      final rawExpr = statement.expr.single;
+      final expr = _unwrapExpression(rawExpr);
       if (expr case Identifier(name: final name)) {
         switch (_resolveVariable(name)) {
           case _LuaBytecodeStructuredResolvedVariable(
@@ -566,7 +567,7 @@ final class _LuaBytecodeStructuredCompiler {
         }
       }
 
-      if (expr is Call) {
+      if (rawExpr is! GroupedExpression && expr is Call) {
         final base = _reserveTempBlock(_callRegisterWidth(expr));
         if (_hasVisibleCloseOrCapturedLocals || _shouldDeoptTailCall(expr)) {
           _emitOpenResultExpression(expr, baseRegister: base);
@@ -577,7 +578,7 @@ final class _LuaBytecodeStructuredCompiler {
         return;
       }
 
-      if (expr case VarArg()) {
+      if (rawExpr is! GroupedExpression && expr is VarArg) {
         final base = _reserveTempBlock(1);
         _emitVarArgExpression(base, resultCount: 0);
         _prototype.emitOpenReturn(firstRegister: base);
@@ -585,7 +586,7 @@ final class _LuaBytecodeStructuredCompiler {
       }
     }
 
-    final lastExpression = _unwrapExpression(statement.expr.last);
+    final lastExpression = statement.expr.last;
     final prefixCount = _isOpenResultExpression(lastExpression)
         ? statement.expr.length - 1
         : statement.expr.length;
@@ -2155,7 +2156,7 @@ final class _LuaBytecodeStructuredCompiler {
     final lineDefined = _startLine(functionStartNode);
     final childPrototype = LuaBytecodePrototypeBuilder(
       lineDefined: lineDefined,
-      lastLineDefined: _definitionEndLine(functionStartNode),
+      lastLineDefined: _endLine(functionStartNode),
       parameterCount: parameterList.length,
       flags: flags,
       source: _prototype.source,

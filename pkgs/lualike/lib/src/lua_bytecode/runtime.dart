@@ -702,8 +702,8 @@ class LuaBytecodeRuntime implements LuaRuntime {
 
 LuaBytecodePrototype _stripPrototypeDebugInfo(LuaBytecodePrototype prototype) {
   return LuaBytecodePrototype(
-    lineDefined: 0,
-    lastLineDefined: 0,
+    lineDefined: prototype.lineDefined,
+    lastLineDefined: prototype.lastLineDefined,
     parameterCount: prototype.parameterCount,
     flags: prototype.flags,
     maxStackSize: prototype.maxStackSize,

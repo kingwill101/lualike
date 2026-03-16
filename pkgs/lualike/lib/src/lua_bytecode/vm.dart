@@ -98,12 +98,7 @@ final class LuaBytecodeClosure extends BuiltinFunction
       (_) => _LuaBytecodeUpvalue.closed(_runtimeValue(runtime, null)),
       growable: false,
     );
-    final shouldBindEnvironment =
-        chunk.mainPrototype.upvalues.isNotEmpty &&
-        (chunk.mainPrototype.upvalues.first.kind ==
-                LuaBytecodeUpvalueKind.globalRegister ||
-            chunk.mainPrototype.upvalues.first.name == '_ENV');
-    if (upvalues.isNotEmpty && shouldBindEnvironment) {
+    if (upvalues.isNotEmpty) {
       final envValue = environment.get('_ENV') ?? environment.root.get('_G');
       upvalues[0] = _LuaBytecodeUpvalue.closed(
         _runtimeValue(runtime, envValue),
@@ -365,15 +360,21 @@ final class LuaBytecodeVm {
     final activeScriptPath = closure.prototype.source ?? previousScriptPath;
     runtime.currentScriptPath = activeScriptPath;
     runtime.callStack.setScriptPath(activeScriptPath);
-    final callableValue =
-        frame.functionValue ??
+    final callableValue = switch (frame.functionValue) {
+      final Value functionValue
+          when functionValue.raw is LuaBytecodeClosure &&
+              functionValue.functionBody == null =>
+        _wrapClosure(closure),
+      final Value functionValue => functionValue,
+      _ =>
         (Value(
               closure,
               functionBody: closure.debugFunctionBody,
               closureEnvironment: closure.environment,
               functionName: frame.callName ?? closure.debugInfo.shortSource,
             )
-            ..interpreter = runtime);
+            ..interpreter = runtime),
+    };
     runtime.callStack.push(
       frame.callName ?? closure.debugInfo.shortSource,
       env: closure.environment,
@@ -394,11 +395,24 @@ final class LuaBytecodeVm {
           frame.callNameWhat == 'hook') {
         activeCallFrame.isDebugHook = true;
       }
+      if (frame.callName == null &&
+          closure.debugInfo.what != 'main' &&
+          activeCallFrame.callable?.functionBody != null) {
+        activeCallFrame.functionName = 'unknown';
+      }
       activeCallFrame.isTailCall = frame.isTailCall;
       activeCallFrame.extraArgs = frame.extraArgs;
     }
     _syncDebugLocals(frame);
     final entryDebugInterpreter = _debugInterpreter;
+    if (frame.pc == 0 &&
+        activeCallFrame != null &&
+        !activeCallFrame.isDebugHook &&
+        entryDebugInterpreter != null &&
+        entryDebugInterpreter.debugHookMask.contains('l') &&
+        !closure.prototype.hasDebugInfo) {
+      await entryDebugInterpreter.fireDebugHook('line');
+    }
     if (platform.getEnvironmentVariable('LUALIKE_DEBUG_BYTECODE_HOOKS') ==
         '1') {
       print(
@@ -3808,12 +3822,7 @@ final class LuaBytecodeVm {
     LuaError error,
   ) {
     final prototype = frame.closure.prototype;
-    if (prototype.source != '=?' ||
-        prototype.lineDefined != 0 ||
-        prototype.lastLineDefined != 0 ||
-        prototype.lineInfo.isNotEmpty ||
-        prototype.absoluteLineInfo.isNotEmpty ||
-        prototype.localVariables.isNotEmpty) {
+    if (prototype.hasDebugInfo) {
       return error;
     }
 
@@ -5483,9 +5492,30 @@ final class _LuaBytecodeFrameSuspension implements CoroutineContinuation {
               'frame-resume child=${nested.runtimeType} sameFrame=${identical(nestedFrame, frame)} '
               'childClosed=${nestedFrame?.closed} closed=${frame.closed} pc=${frame.pc}',
             );
-            final nestedResult = await nested.resume(args);
-            if (frame.closed) {
-              return nestedResult;
+            final nestedChild = _bytecodeContinuationChild(nested);
+            final suspendedCallerFrame =
+                !identical(nestedFrame, frame) ||
+                    (nested is _LuaBytecodeCallSuspension &&
+                        nestedChild is _LuaBytecodeCallSuspension)
+                ? _bytecodeSuspendedDebugFrame(frame)
+                : null;
+            if (suspendedCallerFrame != null) {
+              vm.runtime.callStack.pushFrame(suspendedCallerFrame);
+            }
+            try {
+              final nestedResult = await nested.resume(args);
+              if (frame.closed) {
+                return nestedResult;
+              }
+            } finally {
+              if (suspendedCallerFrame != null) {
+                _callFrameBytecodeFrames[suspendedCallerFrame] = null;
+                if (identical(vm.runtime.callStack.top, suspendedCallerFrame)) {
+                  vm.runtime.callStack.pop();
+                } else {
+                  vm.runtime.callStack.removeFrame(suspendedCallerFrame);
+                }
+              }
             }
           }
           _tmpDebugFrame(frame, 'frame-resume direct pc=${frame.pc}');
@@ -5998,6 +6028,7 @@ Value _wrapClosure(LuaBytecodeClosure closure) {
     closure,
     functionBody: closure.debugFunctionBody,
     closureEnvironment: closure.environment,
+    strippedDebugInfo: !closure.prototype.hasDebugInfo,
   );
   value.interpreter ??= closure.runtime;
   return value;
