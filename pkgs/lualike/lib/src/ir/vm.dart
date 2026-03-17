@@ -2688,16 +2688,6 @@ class LualikeIrVm {
     return false;
   }
 
-  bool _isNil(dynamic value) {
-    if (value == null) {
-      return true;
-    }
-    if (value is Value) {
-      return value.raw == null;
-    }
-    return false;
-  }
-
   int _lengthOf(dynamic value) {
     if (value is Value) {
       return value.length;

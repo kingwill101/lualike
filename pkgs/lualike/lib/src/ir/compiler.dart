@@ -1388,9 +1388,9 @@ class _PrototypeContext {
     }
 
     final base = _allocateRegister();
-    final stateReg = _ensureRegister(base + 1);
-    final controlReg = _ensureRegister(base + 2);
-    final closingReg = _ensureRegister(base + 3);
+    for (var offset = 1; offset <= 3; offset++) {
+      _ensureRegister(base + offset);
+    }
     final loopVarRegs = <int>[];
     for (var i = 0; i < node.names.length; i++) {
       loopVarRegs.add(_ensureRegister(base + 4 + i));
@@ -1469,8 +1469,6 @@ class _PrototypeContext {
       a: base,
       sBx: 0,
     );
-
-    final exitIndex = _currentInstructionIndex;
 
     final patchedTforPrep = AsBxInstruction(
       opcode: LualikeIrOpcode.tForPrep,

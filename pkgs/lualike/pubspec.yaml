@@ -17,9 +17,11 @@ environment:
 
 # Add regular dependencies here.
 dependencies:
+  args: ^2.7.0
   characters: ^1.4.1
   source_span: ^1.10.2
   crypto: ^3.0.7
+  meta: ^1.17.0
   pointycastle: ^4.0.0
 
   path: ^1.9.1

@@ -270,19 +270,6 @@ class _GetLocal extends BuiltinFunction {
     return (value.raw as num).toInt();
   }
 
-  CallFrame _requireFrame(Interpreter runtime, int level) {
-    final frame = runtime.getVisibleFrameAtLevel(
-      level + 1,
-      hideEnclosingDebugHooks: true,
-    );
-    if (frame == null) {
-      throw LuaError(
-        "bad argument #1 to 'debug.getlocal' (level out of range)",
-      );
-    }
-    return frame;
-  }
-
   CallFrame _resolveVisibleFrame(
     Interpreter runtime,
     int level, {
@@ -820,19 +807,6 @@ class _SetLocal extends BuiltinFunction {
       throw LuaError("bad argument to 'debug.setlocal' (number expected)");
     }
     return (value.raw as num).toInt();
-  }
-
-  CallFrame _requireFrame(Interpreter runtime, int level, {int argNumber = 1}) {
-    final frame = runtime.getVisibleFrameAtLevel(
-      level + 1,
-      hideEnclosingDebugHooks: true,
-    );
-    if (frame == null) {
-      throw LuaError(
-        "bad argument #$argNumber to 'debug.setlocal' (level out of range)",
-      );
-    }
-    return frame;
   }
 
   CallFrame _resolveVisibleFrame(Interpreter runtime, int level) {
@@ -1566,11 +1540,6 @@ class _Traceback extends BuiltinFunction {
         return Value('$message\n$formatted');
       }
       final rawTopFrame = coroutine.rawDebugFrameAtLevel(1);
-      final rawTopIsYield =
-          rawTopFrame != null &&
-          rawTopFrame.callable?.functionBody == null &&
-          (rawTopFrame.functionName == 'yield' ||
-              rawTopFrame.callable?.functionName == 'yield');
       final rawTopIsError =
           rawTopFrame != null &&
           rawTopFrame.callable?.functionBody == null &&
@@ -2606,8 +2575,7 @@ void defineDebugLibrary({required Environment env, LuaRuntime? vm}) {
     }
   }
 
-  final fallbackName = switch (frame.functionName ??
-      frame.callable?.functionName) {
+  final fallbackName = switch (frame.functionName) {
     'unknown' || 'function' => null,
     final name => name,
   };

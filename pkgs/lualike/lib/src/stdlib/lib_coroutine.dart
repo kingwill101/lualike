@@ -300,15 +300,14 @@ class _CoroutineWrap extends BuiltinFunction {
     final closureEnv = _resolveClosureEnvironment(_interpreter, functionValue);
     final coroutine = Coroutine(functionValue, body, closureEnv);
     _interpreter.registerCoroutine(coroutine);
-    return Value(_WrappedCoroutineFunction(_interpreter, coroutine));
+    return Value(_WrappedCoroutineFunction(coroutine));
   }
 }
 
 class _WrappedCoroutineFunction extends BuiltinFunction
     implements BuiltinFunctionGcRefs {
-  _WrappedCoroutineFunction(this._interpreter, this._coroutine);
+  _WrappedCoroutineFunction(this._coroutine);
 
-  final LuaRuntime _interpreter;
   final Coroutine _coroutine;
 
   @override

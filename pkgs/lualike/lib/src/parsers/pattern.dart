@@ -420,44 +420,6 @@ class LuaPatternCompiler {
     return parser;
   }
 
-  Parser<String>? _lookaheadItem(int index) {
-    if (index >= _pattern.length) return null;
-    final ch = _pattern[index];
-    if (ch == '%') {
-      if (index + 1 >= _pattern.length) return null;
-      final next = _pattern[index + 1];
-      if (RegExp(r'[a-zA-Z]').hasMatch(next)) {
-        return _classFor(next.toLowerCase());
-      }
-      if (next == 'b' && index + 2 < _pattern.length) {
-        return char(_pattern[index + 2]);
-      }
-      if (next == 'f' &&
-          index + 2 < _pattern.length &&
-          _pattern[index + 2] == '[') {
-        var i = index + 3;
-        return pattern(_readBracketSpecAt(i));
-      }
-      return char(next);
-    } else if (ch == '(') {
-      return _lookaheadItem(index + 1);
-    } else if (ch == '[') {
-      var i = index + 1;
-      var negate = false;
-      if (i < _pattern.length && _pattern[i] == '^') {
-        negate = true;
-        i++;
-      }
-      return _bracketClass(_readBracketSpecAt(i), negate: negate);
-    } else if (ch == '.') {
-      return any();
-    } else if (ch == '^' || ch == '\$' || ch == ')') {
-      return null;
-    } else {
-      return char(ch);
-    }
-  }
-
   Parser _parseSequence({
     bool stopOnRightParen = false,
     int transparentRightParensRemaining = 0,
@@ -781,7 +743,7 @@ class LuaPattern {
         return LuaMatch(
           pos,
           result.position,
-          result.value.toString() ?? '',
+          result.value.toString(),
           captures,
           _positionCaptureIndexes,
         );
@@ -800,7 +762,7 @@ class LuaPattern {
         yield LuaMatch(
           pos,
           result.position,
-          result.value.toString() ?? '',
+          result.value.toString(),
           captures,
           _positionCaptureIndexes,
         );
