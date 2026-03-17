@@ -758,7 +758,6 @@ final class _LuaBytecodeStructuredCompiler {
       _prototype.emitClose(fromRegister: bodyCloseFrom);
     }
     final closeFrom = _minimumCloseRegisterForLocals(_scopes.last);
-    final closePc = _prototype.currentPc;
     if (closeFrom != null) {
       _prototype.emitClose(fromRegister: closeFrom);
     }

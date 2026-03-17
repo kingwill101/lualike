@@ -1732,8 +1732,9 @@ final class LuaBytecodeVm {
     final currentPc = frame.pc + 1;
     final activeLocals = <LuaBytecodeLocalVariableDebugInfo>[
       for (final local in frame.closure.prototype.localVariables)
-        if (local.register case final register?
-            when local.startPc <= currentPc && currentPc < local.endPc)
+        if (local.register != null &&
+            local.startPc <= currentPc &&
+            currentPc < local.endPc)
           local,
     ]..sort((left, right) {
       final startOrder = left.startPc.compareTo(right.startPc);
@@ -2769,7 +2770,7 @@ final class LuaBytecodeVm {
                 frame.transferValues[localIndex - frame.ftransfer],
               ];
             }
-            final locals = _bytecodeFrameLocals(frame!);
+            final locals = _bytecodeFrameLocals(frame);
             if (localIndex > locals.length) {
               return <Value>[Value(null), Value(null)];
             }
@@ -4380,8 +4381,9 @@ CallFrame _bytecodeSuspendedDebugFrame(_LuaBytecodeFrame frame) {
   _callFrameBytecodeFrames[callFrame] = frame;
   final activeLocals = <LuaBytecodeLocalVariableDebugInfo>[
     for (final local in closure.prototype.localVariables)
-      if (local.register case final register?
-          when local.startPc <= frame.pc + 1 && frame.pc + 1 < local.endPc)
+      if (local.register != null &&
+          local.startPc <= frame.pc + 1 &&
+          frame.pc + 1 < local.endPc)
         local,
   ]..sort((left, right) {
     final startOrder = left.startPc.compareTo(right.startPc);
@@ -5077,9 +5079,7 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
         if (upvalue.isOpen) upvalue.registerIndex,
       ..._toBeClosedRegisters,
       for (final local in closure.prototype.localVariables)
-        if (local.register case final register?
-            when local.startPc <= pc + 1 && pc + 1 < local.endPc)
-          register,
+        ?local.register,
     };
     for (final registerIndex in liveRegisters.toList()..sort()) {
       if (registerIndex < registers.length) {
@@ -5380,30 +5380,10 @@ final class _LuaBytecodeCloseSuspension implements CoroutineContinuation {
             fromRegister: fromRegister,
             error: activeError,
           );
-          if (activeError != null) {
-            if (activeErrorStackTrace != null) {
-              Error.throwWithStackTrace(activeError, activeErrorStackTrace);
-            }
-            throw activeError;
+          if (activeErrorStackTrace != null) {
+            Error.throwWithStackTrace(activeError, activeErrorStackTrace);
           }
-          try {
-            final resumedResults = await vm._runFrameWithTailCalls(frame);
-            return _packCallResults(vm.runtime, resumedResults);
-          } on YieldException catch (error) {
-            final coroutine = error.coroutine ?? vm.runtime.getCurrentCoroutine();
-            if (coroutine != null) {
-              final nextChild = coroutine.takeContinuation();
-              coroutine.installContinuation(
-                _wrapFrameContinuation(
-                  vm,
-                  frame,
-                  resumeInProtectedCall,
-                  nextChild,
-                ),
-              );
-            }
-            rethrow;
-          }
+          throw activeError;
         } on YieldException catch (error) {
           final coroutine = error.coroutine ?? vm.runtime.getCurrentCoroutine();
           _tmpDebugFrame(

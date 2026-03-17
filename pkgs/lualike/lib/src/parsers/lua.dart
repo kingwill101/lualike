@@ -1716,7 +1716,7 @@ bool _isIdentifierLikeToken(String token) =>
     RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(token);
 
 ({String token, int offset}) _tokenNearSyntaxFailure(String source, int position) {
-  final clampedPosition = position.clamp(0, source.length) as int;
+  final clampedPosition = position.clamp(0, source.length);
   final primary = _readSyntaxToken(source, clampedPosition);
   if (primary == null) {
     return (token: '<eof>', offset: source.length);
@@ -1877,8 +1877,7 @@ Program parse(String source, {Object? url, String? sourceName}) {
       throw FormatException(partialLocalLimit);
     }
 
-    if (explicitMessage != null &&
-        _shouldPreserveParserFailureMessage(explicitMessage)) {
+    if (_shouldPreserveParserFailureMessage(explicitMessage)) {
       throw _formatExplicitParserFailure(
         sourceFile,
         pos,
@@ -1937,10 +1936,6 @@ Program parse(String source, {Object? url, String? sourceName}) {
       }
     }
   }
-
-  // Clamp end so that we don't exceed length (especially when at EOF).
-  final end = pos < normalizedSource.length ? pos + 1 : pos;
-  final span = sourceFile.span(pos, end);
 
   // Basic heuristic: if we see an identifier followed by whitespace and '...' but no comma,
   // suggest the missing comma (common Lua gotcha).

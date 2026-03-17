@@ -622,7 +622,7 @@ class Coroutine extends GCObject {
     // Save the current execution environment before yielding
     final interpreter = closureEnvironment.interpreter;
     if (interpreter != null) {
-      _resumeEnvironment = interpreter.getCurrentEnv() ?? _executionEnvironment;
+      _resumeEnvironment = interpreter.getCurrentEnv();
       _resumeScriptPath =
           interpreter.currentScriptPath ?? interpreter.callStack.scriptPath;
       if (interpreter case final Interpreter astInterpreter) {
