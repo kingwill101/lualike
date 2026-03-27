@@ -381,7 +381,8 @@ List<_ProfileScenario> _makeCstackScenarios() {
 
 _ProfileScenario _makeCstackScenario(String name) {
   final source = switch (name) {
-    'cstack-message' => '''
+    'cstack-message' =>
+      '''
 local tracegc = require"tracegc"
 print("testing stack overflow in message handling")
 
@@ -397,7 +398,8 @@ tracegc.start()
 assert(msg == "error in error handling")
 print("final count: ", count)
 ''',
-    'cstack-gsub' => '''
+    'cstack-gsub' =>
+      '''
 local function checkerror (msg, f, ...)
   local s, err = pcall(f, ...)
   assert(not s and string.find(err, msg))
@@ -412,7 +414,8 @@ end
 checkerror("stack overflow", foo)
 print("final count: ", count)
 ''',
-    'cstack-gsub-metatable' => '''
+    'cstack-gsub-metatable' =>
+      '''
 local function checkerror (msg, f, ...)
   local s, err = pcall(f, ...)
   assert(not s and string.find(err, msg))
@@ -432,7 +435,8 @@ end
 checkerror("stack overflow", foo)
 print("final count: ", count)
 ''',
-    'cstack-coroutine-deep' => '''
+    'cstack-coroutine-deep' =>
+      '''
 print("testing limits in coroutines inside deep calls")
 local count = 0
 local lim = 1000
@@ -449,7 +453,8 @@ local st, msg = xpcall(stack, function () return "ok" end, lim)
 assert(not st and msg == "ok")
 print("final count: ", count)
 ''',
-    'cstack-close-chain' => '''
+    'cstack-close-chain' =>
+      '''
 print("chain of 'coroutine.close'")
 local count = 0
 local coro = false
@@ -470,7 +475,8 @@ local st, msg = coroutine.close(coro)
 assert(not st and string.find(msg, "C stack overflow"))
 print("final count: ", count)
 ''',
-    'cstack-resume-nesting' => '''
+    'cstack-resume-nesting' =>
+      '''
 print("nesting of resuming yielded coroutines")
 local count = 0
 
@@ -487,7 +493,8 @@ f()
 assert(not pcall(f))
 print("final count: ", count)
 ''',
-    'cstack-recoverable-errors' => '''
+    'cstack-recoverable-errors' =>
+      '''
 local function checkerror (msg, f, ...)
   local s, err = pcall(f, ...)
   assert(not s and string.find(err, msg))

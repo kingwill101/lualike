@@ -170,17 +170,20 @@ void main() {
         expect(e3, contains('continuation byte'));
       });
 
-      test('utf8.offset returns end positions for incomplete sequences', () async {
-        await lua.execute(r'''
+      test(
+        'utf8.offset returns end positions for incomplete sequences',
+        () async {
+          await lua.execute(r'''
           p1, e1 = utf8.offset("\xE0", 1)
           p2, e2 = utf8.offset("\xE0\x9e", -1)
         ''');
 
-        expect((lua.getGlobal('p1') as Value).raw, equals(1));
-        expect((lua.getGlobal('e1') as Value).raw, equals(1));
-        expect((lua.getGlobal('p2') as Value).raw, equals(1));
-        expect((lua.getGlobal('e2') as Value).raw, equals(2));
-      });
+          expect((lua.getGlobal('p1') as Value).raw, equals(1));
+          expect((lua.getGlobal('e1') as Value).raw, equals(1));
+          expect((lua.getGlobal('p2') as Value).raw, equals(1));
+          expect((lua.getGlobal('e2') as Value).raw, equals(2));
+        },
+      );
 
       test('utf8 functions throw error for out of bounds', () async {
         await lua.execute(r'''

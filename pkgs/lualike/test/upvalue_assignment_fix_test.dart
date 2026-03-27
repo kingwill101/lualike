@@ -95,8 +95,10 @@ void main() {
       expect(values[3].raw, equals('c'));
     });
 
-    test('closures created after load stay rooted across collectgarbage', () async {
-      const script = r'''
+    test(
+      'closures created after load stay rooted across collectgarbage',
+      () async {
+        const script = r'''
         local x = "-- a comment\0\0\0\n  x = 10 + \n23; \
            local a = function () x = 'hi' end; \
            return '\0'"
@@ -117,13 +119,14 @@ void main() {
         return {reader(), reader(), reader()}
       ''';
 
-      final result = await lua.evaluate(script);
-      final values = result.raw as Map;
+        final result = await lua.evaluate(script);
+        final values = result.raw as Map;
 
-      expect(values[1].raw, equals('a'));
-      expect(values[2].raw, equals('b'));
-      expect(values[3].raw, equals('c'));
-    });
+        expect(values[1].raw, equals('a'));
+        expect(values[2].raw, equals('b'));
+        expect(values[3].raw, equals('c'));
+      },
+    );
 
     test('original function assignments still work', () async {
       const script = '''

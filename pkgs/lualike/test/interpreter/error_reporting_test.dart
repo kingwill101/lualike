@@ -44,27 +44,33 @@ void main() {
       expect(printed.first, contains('second'));
     });
 
-    test('reports semantic-check failures through Lua-style reporter', () async {
-      final bridge = LuaLike();
-      final buffer = StringBuffer();
+    test(
+      'reports semantic-check failures through Lua-style reporter',
+      () async {
+        final bridge = LuaLike();
+        final buffer = StringBuffer();
 
-      await runZoned(
-        () async {
-          try {
-            await bridge.execute('global none\nx = 1', scriptPath: 'main.lua');
-            fail('expected error');
-          } catch (_) {}
-        },
-        zoneSpecification: ZoneSpecification(
-          print: (self, parent, zone, line) {
-            buffer.writeln(line);
+        await runZoned(
+          () async {
+            try {
+              await bridge.execute(
+                'global none\nx = 1',
+                scriptPath: 'main.lua',
+              );
+              fail('expected error');
+            } catch (_) {}
           },
-        ),
-      );
+          zoneSpecification: ZoneSpecification(
+            print: (self, parent, zone, line) {
+              buffer.writeln(line);
+            },
+          ),
+        );
 
-      final output = buffer.toString();
-      expect(output, contains('main.lua:2'));
-      expect(output, contains("variable 'x' not declared"));
-    });
+        final output = buffer.toString();
+        expect(output, contains('main.lua:2'));
+        expect(output, contains("variable 'x' not declared"));
+      },
+    );
   });
 }

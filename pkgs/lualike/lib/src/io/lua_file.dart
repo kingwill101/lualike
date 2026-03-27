@@ -19,7 +19,9 @@ final fileMetamethods = {
   "__gc": (List<Object?> args) async {
     Logger.debugLazy(() => 'Garbage collecting file', category: 'IO');
     if (args.isEmpty) {
-      throw LuaError("bad argument #1 to '__gc' (FILE* expected, got no value)");
+      throw LuaError(
+        "bad argument #1 to '__gc' (FILE* expected, got no value)",
+      );
     }
     final fileValue = args[0];
     if (fileValue is! Value || fileValue.raw is! LuaFile) {
@@ -603,10 +605,7 @@ final class _LuaFileLineIterator extends BuiltinFunction implements GCObject {
 }
 
 /// Helper function to create a LuaFile wrapped in a Value with proper metamethods
-Value wrapLuaFileValue(
-  LuaFile luaFile, {
-  LuaRuntime? interpreter,
-}) {
+Value wrapLuaFileValue(LuaFile luaFile, {LuaRuntime? interpreter}) {
   final fileValue = Value(
     luaFile,
     metatable: fileMetamethods,

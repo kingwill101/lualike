@@ -1576,8 +1576,7 @@ class _Traceback extends BuiltinFunction {
         !identical(currentCoroutine, mainCoroutine)) {
       thread = currentCoroutine;
       usesCurrentBytecodeCoroutine =
-          currentCoroutine.closureEnvironment.interpreter
-              is LuaBytecodeRuntime;
+          currentCoroutine.closureEnvironment.interpreter is LuaBytecodeRuntime;
     }
     if (thread case final Coroutine coroutine) {
       final startLevel = usesCurrentBytecodeCoroutine

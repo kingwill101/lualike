@@ -117,56 +117,45 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
     Object? result;
 
     if (condValue) {
-        Logger.debugLazy(
-          () => 'Executing then block',
-          category: 'ControlFlow',
-          contextBuilder: () => {},
-        );
-        result = await _executeIfBranchStatements(node.thenBlock);
-        if (result is TailCallSignal) {
-          return result;
-        }
+      Logger.debugLazy(
+        () => 'Executing then block',
+        category: 'ControlFlow',
+        contextBuilder: () => {},
+      );
+      result = await _executeIfBranchStatements(node.thenBlock);
+      if (result is TailCallSignal) {
+        return result;
+      }
     } else if (node.elseIfs.isNotEmpty) {
-        // Handle elseif clauses
-        bool elseIfMatched = false;
-        for (final elseIf in node.elseIfs) {
-          // Record trace for each elseif condition
-          if (interpreter != null) {
-            interpreter.recordTrace(elseIf.cond);
-            await interpreter.maybeFireStatementDebugHooks(elseIf.cond);
-          }
-
-          final elseIfCond = await elseIf.cond.accept(this);
-          final elseIfCondValue = _luaConditionValue(elseIfCond);
-
-          if (elseIfCondValue) {
-            Logger.debugLazy(
-              () => 'Executing elseif block',
-              category: 'ControlFlow',
-              contextBuilder: () => {},
-            );
-            result = await _executeIfBranchStatements(elseIf.thenBlock);
-            if (result is TailCallSignal) {
-              return result;
-            }
-            elseIfMatched = true;
-            break;
-          }
+      // Handle elseif clauses
+      bool elseIfMatched = false;
+      for (final elseIf in node.elseIfs) {
+        // Record trace for each elseif condition
+        if (interpreter != null) {
+          interpreter.recordTrace(elseIf.cond);
+          await interpreter.maybeFireStatementDebugHooks(elseIf.cond);
         }
 
-        // If no elseif matched, execute the else block
-        if (!elseIfMatched && node.elseBlock.isNotEmpty) {
+        final elseIfCond = await elseIf.cond.accept(this);
+        final elseIfCondValue = _luaConditionValue(elseIfCond);
+
+        if (elseIfCondValue) {
           Logger.debugLazy(
-            () => 'Executing else block',
+            () => 'Executing elseif block',
             category: 'ControlFlow',
             contextBuilder: () => {},
           );
-          result = await _executeIfBranchStatements(node.elseBlock);
+          result = await _executeIfBranchStatements(elseIf.thenBlock);
           if (result is TailCallSignal) {
             return result;
           }
+          elseIfMatched = true;
+          break;
         }
-    } else if (node.elseBlock.isNotEmpty) {
+      }
+
+      // If no elseif matched, execute the else block
+      if (!elseIfMatched && node.elseBlock.isNotEmpty) {
         Logger.debugLazy(
           () => 'Executing else block',
           category: 'ControlFlow',
@@ -177,6 +166,17 @@ mixin InterpreterControlFlowMixin on AstVisitor<Object?> {
           return result;
         }
       }
+    } else if (node.elseBlock.isNotEmpty) {
+      Logger.debugLazy(
+        () => 'Executing else block',
+        category: 'ControlFlow',
+        contextBuilder: () => {},
+      );
+      result = await _executeIfBranchStatements(node.elseBlock);
+      if (result is TailCallSignal) {
+        return result;
+      }
+    }
 
     return result;
   }

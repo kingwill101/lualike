@@ -407,9 +407,7 @@ void main() {
 
       test('loaded chunks keep global file handles alive during gc', () async {
         final bridge = LuaLike();
-        bridge.vm.fileManager.registerVirtualFile(
-          'gc_write_loaded.lua',
-          r'''
+        bridge.vm.fileManager.registerVirtualFile('gc_write_loaded.lua', r'''
             local file = os.tmpname()
             f = assert(io.open(file, "w"))
             assert(f:write("1234"))
@@ -430,8 +428,7 @@ void main() {
             assert(r:close())
             assert(os.remove(file))
             return true
-          ''',
-        );
+          ''');
 
         await bridge.execute("return dofile('gc_write_loaded.lua')");
       });
@@ -470,9 +467,11 @@ void main() {
         },
       );
 
-      test('block-scoped file handles survive loop-triggered minor GC', () async {
-        final bridge = LuaLike();
-        await bridge.execute(r'''
+      test(
+        'block-scoped file handles survive loop-triggered minor GC',
+        () async {
+          final bridge = LuaLike();
+          await bridge.execute(r'''
           local file = os.tmpname()
           do
             local f = assert(io.open(file, "w"))
@@ -488,7 +487,8 @@ void main() {
           assert(r:close())
           assert(os.remove(file))
         ''');
-      });
+        },
+      );
 
       test(
         'file handles survive GC pressure after default input/output churn',

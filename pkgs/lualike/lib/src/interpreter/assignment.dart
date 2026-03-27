@@ -1262,7 +1262,9 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           ? (values.first is Value
                 ? values.first as Value
                 : interpreter.wrapRuntimeValue(values.first))
-          : interpreter.wrapRuntimeValue(null); // Default to nil if no values provided
+          : interpreter.wrapRuntimeValue(
+              null,
+            ); // Default to nil if no values provided
 
       // Apply attributes
       Value valueWithAttributes;

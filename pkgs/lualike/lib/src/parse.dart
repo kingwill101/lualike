@@ -25,9 +25,7 @@ bool _looksLikeFilePath(String urlString) {
       urlString.startsWith('../')) {
     return true;
   }
-  return RegExp(
-    r'^[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$',
-  ).hasMatch(urlString);
+  return RegExp(r'^[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$').hasMatch(urlString);
 }
 
 Object? _sourceFileUrl(Object? url) => switch (url) {

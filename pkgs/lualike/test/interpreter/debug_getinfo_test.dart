@@ -130,23 +130,26 @@ void main() {
       );
     });
 
-    test('debug.getinfo should expose top-level file-backed main chunk metadata', () async {
-      const script = r'''
+    test(
+      'debug.getinfo should expose top-level file-backed main chunk metadata',
+      () async {
+        const script = r'''
       local info = debug.getinfo(1)
       local upname = debug.getupvalue(info.func, 1)
       return info.isvararg, info.nparams, info.nups, upname
       ''';
 
-      final result = await luaLike.execute(
-        script,
-        scriptPath: 'main_chunk_info.lua',
-      );
-      expect(result, isA<List>());
-      expect(
-        (result as List).map((value) => (value as Value).raw).toList(),
-        equals(<Object?>[true, 0, 1, '_ENV']),
-      );
-    });
+        final result = await luaLike.execute(
+          script,
+          scriptPath: 'main_chunk_info.lua',
+        );
+        expect(result, isA<List>());
+        expect(
+          (result as List).map((value) => (value as Value).raw).toList(),
+          equals(<Object?>[true, 0, 1, '_ENV']),
+        );
+      },
+    );
 
     test('debug.getinfo should format load chunk names like Lua', () async {
       const script = r'''
@@ -216,8 +219,10 @@ void main() {
       expect(thirdString, 'a');
     });
 
-    test('debug.getinfo should report extraargs through __call chains', () async {
-      const script = r'''
+    test(
+      'debug.getinfo should report extraargs through __call chains',
+      () async {
+        const script = r'''
       local function u (...)
         return debug.getinfo(1, 't').extraargs, select('#', ...)
       end
@@ -230,13 +235,14 @@ void main() {
       return a, b, c, d, e, f
       ''';
 
-      final result = await luaLike.execute(script);
-      expect(result.raw, isA<List>());
-      expect(
-        (result.raw as List).map((value) => (value as Value).raw).toList(),
-        equals(<Object?>[0, 0, 1, 1, 2, 2]),
-      );
-    });
+        final result = await luaLike.execute(script);
+        expect(result.raw, isA<List>());
+        expect(
+          (result.raw as List).map((value) => (value as Value).raw).toList(),
+          equals(<Object?>[0, 0, 1, 1, 2, 2]),
+        );
+      },
+    );
 
     test('debug.getinfo should report sparse activelines like Lua', () async {
       const script = r'''
@@ -273,19 +279,24 @@ void main() {
       );
     });
 
-    test('debug.getinfo should return empty activelines for stripped chunks', () async {
-      const script = r'''
+    test(
+      'debug.getinfo should return empty activelines for stripped chunks',
+      () async {
+        const script = r'''
       local func = load(string.dump(load("print(10)"), true))
       local actl = debug.getinfo(func, "L").activelines
       return next(actl) == nil
       ''';
 
-      final result = await luaLike.execute(script);
-      expect(result.raw, isTrue);
-    });
+        final result = await luaLike.execute(script);
+        expect(result.raw, isTrue);
+      },
+    );
 
-    test('stripped chunks should hide local names and source details', () async {
-      const script = r'''
+    test(
+      'stripped chunks should hide local names and source details',
+      () async {
+        const script = r'''
       local prog = [[
         local a = 12
         local function foo()
@@ -304,27 +315,30 @@ void main() {
       return f()
       ''';
 
-      final result = await luaLike.execute(script);
-      expect(result.raw, isA<List>());
-      expect(
-        (result.raw as List).map((value) => (value as Value).raw).toList(),
-        equals(<Object?>[
-          '(temporary)',
-          12,
-          '(no name)',
-          12,
-          '(no name)',
-          '?',
-          true,
-          true,
-          -1,
-          true,
-        ]),
-      );
-    });
+        final result = await luaLike.execute(script);
+        expect(result.raw, isA<List>());
+        expect(
+          (result.raw as List).map((value) => (value as Value).raw).toList(),
+          equals(<Object?>[
+            '(temporary)',
+            12,
+            '(no name)',
+            12,
+            '(no name)',
+            '?',
+            true,
+            true,
+            -1,
+            true,
+          ]),
+        );
+      },
+    );
 
-    test('re-dumping a function from a stripped chunk should keep stripped debug info', () async {
-      const script = r'''
+    test(
+      're-dumping a function from a stripped chunk should keep stripped debug info',
+      () async {
+        const script = r'''
       local prog = [[
         local a = 12
         local f = function (x, y) return x + y + a end
@@ -336,16 +350,19 @@ void main() {
       return f()
       ''';
 
-      final result = await luaLike.execute(script);
-      expect(result.raw, isA<List>());
-      expect(
-        (result.raw as List).map((value) => (value as Value).raw).toList(),
-        equals(<Object?>[null, true, true, '?']),
-      );
-    });
+        final result = await luaLike.execute(script);
+        expect(result.raw, isA<List>());
+        expect(
+          (result.raw as List).map((value) => (value as Value).raw).toList(),
+          equals(<Object?>[null, true, true, '?']),
+        );
+      },
+    );
 
-    test('stripped functions should fire line hooks without a line payload', () async {
-      const script = r'''
+    test(
+      'stripped functions should fire line hooks without a line payload',
+      () async {
+        const script = r'''
       local prog = [[
         local function foo()
           local b = 2
@@ -364,32 +381,38 @@ void main() {
       return f()
       ''';
 
-      final result = await luaLike.execute(script);
-      expect(result.raw, isA<List>());
-      expect(
-        (result.raw as List).map((value) => (value as Value).raw).toList(),
-        equals(<Object?>[2, null]),
-      );
-    });
+        final result = await luaLike.execute(script);
+        expect(result.raw, isA<List>());
+        expect(
+          (result.raw as List).map((value) => (value as Value).raw).toList(),
+          equals(<Object?>[2, null]),
+        );
+      },
+    );
 
-    test('debug.getregistry should expose a stable weak-key hook table', () async {
-      const script = r'''
+    test(
+      'debug.getregistry should expose a stable weak-key hook table',
+      () async {
+        const script = r'''
       local r1 = debug.getregistry()
       local r2 = debug.getregistry()
       local mt = getmetatable(r1._HOOKKEY)
       return type(r1), r1 == r2, type(r1._HOOKKEY), mt and mt.__mode
       ''';
 
-      final result = await luaLike.execute(script);
-      expect(result.raw, isA<List>());
-      expect(
-        (result.raw as List).map((value) => (value as Value).raw).toList(),
-        equals(<Object?>['table', true, 'table', 'k']),
-      );
-    });
+        final result = await luaLike.execute(script);
+        expect(result.raw, isA<List>());
+        expect(
+          (result.raw as List).map((value) => (value as Value).raw).toList(),
+          equals(<Object?>['table', true, 'table', 'k']),
+        );
+      },
+    );
 
-    test('debug.getinfo currentline should not jump ahead of the active statement', () async {
-      const script = r'''
+    test(
+      'debug.getinfo currentline should not jump ahead of the active statement',
+      () async {
+        const script = r'''
       local L = nil
       local glob = 1
       local oldglob = glob
@@ -411,16 +434,19 @@ void main() {
       return current, marker
       ''';
 
-      final result = await luaLike.execute(script);
-      expect(result.raw, isA<List>());
-      expect(
-        (result.raw as List).map((value) => (value as Value).raw).toList(),
-        equals(<Object?>[14, 13]),
-      );
-    });
+        final result = await luaLike.execute(script);
+        expect(result.raw, isA<List>());
+        expect(
+          (result.raw as List).map((value) => (value as Value).raw).toList(),
+          equals(<Object?>[14, 13]),
+        );
+      },
+    );
 
-    test('debug.setlocal should account for the implicit vararg table slot', () async {
-      const script = r'''
+    test(
+      'debug.setlocal should account for the implicit vararg table slot',
+      () async {
+        const script = r'''
       local debug = require "debug"
       local function f(a, b)
         return debug.setlocal(2, 4, "pera"), debug.setlocal(2, 5, "manga")
@@ -435,22 +461,25 @@ void main() {
       return g()
       ''';
 
-      final result = await luaLike.execute(script);
-      expect(result.raw, isA<List>());
-      Object? normalize(Object? value) => switch (value) {
-        final LuaString luaString => luaString.toString(),
-        _ => value,
-      };
-      expect(
-        (result.raw as List)
-            .map((value) => normalize((value as Value).raw))
-            .toList(),
-        equals(<Object?>['AAAA', 'B', 'pera', 'manga']),
-      );
-    });
+        final result = await luaLike.execute(script);
+        expect(result.raw, isA<List>());
+        Object? normalize(Object? value) => switch (value) {
+          final LuaString luaString => luaString.toString(),
+          _ => value,
+        };
+        expect(
+          (result.raw as List)
+              .map((value) => normalize((value as Value).raw))
+              .toList(),
+          equals(<Object?>['AAAA', 'B', 'pera', 'manga']),
+        );
+      },
+    );
 
-    test('debug.getlocal should see locals from the current block scope', () async {
-      const script = r'''
+    test(
+      'debug.getlocal should see locals from the current block scope',
+      () async {
+        const script = r'''
       local debug = require "debug"
       local function g(...)
         local arg = {...}
@@ -465,19 +494,20 @@ void main() {
       return g()
       ''';
 
-      final result = await luaLike.execute(script);
-      expect(result.raw, isA<List>());
-      Object? normalize(Object? value) => switch (value) {
-        final LuaString luaString => luaString.toString(),
-        _ => value,
-      };
-      expect(
-        (result.raw as List)
-            .map((value) => normalize((value as Value).raw))
-            .toList(),
-        equals(<Object?>['B', 13]),
-      );
-    });
+        final result = await luaLike.execute(script);
+        expect(result.raw, isA<List>());
+        Object? normalize(Object? value) => switch (value) {
+          final LuaString luaString => luaString.toString(),
+          _ => value,
+        };
+        expect(
+          (result.raw as List)
+              .map((value) => normalize((value as Value).raw))
+              .toList(),
+          equals(<Object?>['B', 13]),
+        );
+      },
+    );
 
     test('debug.setlocal should mutate caller Lua temporaries', () async {
       const script = r'''
@@ -517,8 +547,10 @@ void main() {
       );
     });
 
-    test('debug.getinfo should report current line inside nested line hooks', () async {
-      const script = r'''
+    test(
+      'debug.getinfo should report current line inside nested line hooks',
+      () async {
+        const script = r'''
       local observed
 
       debug.sethook(function ()
@@ -536,12 +568,15 @@ void main() {
       return observed
       ''';
 
-      final result = await luaLike.execute(script);
-      expect(result.raw, isTrue);
-    });
+        final result = await luaLike.execute(script);
+        expect(result.raw, isTrue);
+      },
+    );
 
-    test('debug.getlocal should preserve hooked frame locals after hook calls load', () async {
-      const script = r'''
+    test(
+      'debug.getlocal should preserve hooked frame locals after hook calls load',
+      () async {
+        const script = r'''
       local function dostring(s)
         local f, err = load(s)
         if not f then error(err) end
@@ -581,16 +616,19 @@ void main() {
       return X.self == a, X.a, X.b, X.c, XX
       ''';
 
-      final result = await luaLike.execute(script);
-      expect(result.raw, isA<List>());
-      expect(
-        (result.raw as List).map((value) => (value as Value).raw).toList(),
-        equals(<Object?>[true, 1, 2, null, 12]),
-      );
-    });
+        final result = await luaLike.execute(script);
+        expect(result.raw, isA<List>());
+        expect(
+          (result.raw as List).map((value) => (value as Value).raw).toList(),
+          equals(<Object?>[true, 1, 2, null, 12]),
+        );
+      },
+    );
 
-    test('hooked method calls should restore the main frame after returning', () async {
-      const script = r'''
+    test(
+      'hooked method calls should restore the main frame after returning',
+      () async {
+        const script = r'''
       local function dostring(s)
         local f, err = load(s)
         if not f then error(err) end
@@ -630,12 +668,15 @@ void main() {
       return debug.getinfo(1, "S").what
       ''';
 
-      final result = await luaLike.execute(script);
-      expect(result.raw, 'main');
-    });
+        final result = await luaLike.execute(script);
+        expect(result.raw, 'main');
+      },
+    );
 
-    test('debug.getlocal should expose completed local function definitions in loaded chunks', () async {
-      const script = r'''
+    test(
+      'debug.getlocal should expose completed local function definitions in loaded chunks',
+      () async {
+        const script = r'''
       local co = load[[
         local A = function ()
           return x
@@ -656,13 +697,14 @@ void main() {
       return seen3, seen4
       ''';
 
-      final result = await luaLike.execute(script);
-      expect(result.raw, isA<List>());
-      expect(
-        (result.raw as List).map((value) => (value as Value).raw).toList(),
-        equals(<Object?>['(temporary)', 'A']),
-      );
-    });
+        final result = await luaLike.execute(script);
+        expect(result.raw, isA<List>());
+        expect(
+          (result.raw as List).map((value) => (value as Value).raw).toList(),
+          equals(<Object?>['(temporary)', 'A']),
+        );
+      },
+    );
 
     test('debug.getinfo should support coroutine thread levels', () async {
       const script = r'''
@@ -680,14 +722,18 @@ void main() {
 
       final result = await luaLike.execute(script);
       expect(result.raw, isA<List>());
-      final values = (result.raw as List).map((value) => (value as Value).raw).toList();
+      final values = (result.raw as List)
+          .map((value) => (value as Value).raw)
+          .toList();
       expect(values[0], equals(values[1]));
       expect(values[2], equals(true));
       expect(values[3], equals('function'));
     });
 
-    test('debug.getlocal and setlocal should resolve coroutine lexical frames', () async {
-      const script = r'''
+    test(
+      'debug.getlocal and setlocal should resolve coroutine lexical frames',
+      () async {
+        const script = r'''
       local co = coroutine.create(function (x)
         local a = 1
         coroutine.yield(debug.getinfo(1, "l"))
@@ -704,22 +750,25 @@ void main() {
       return n1, v1, n2, v2, resumed
       ''';
 
-      final result = await luaLike.execute(script);
-      expect(result.raw, isA<List>());
-      Object? normalize(Object? value) => switch (value) {
-        final LuaString luaString => luaString.toString(),
-        _ => value,
-      };
-      expect(
-        (result.raw as List)
-            .map((value) => normalize((value as Value).raw))
-            .toList(),
-        equals(<Object?>['x', 10, 'a', 1, 'hi']),
-      );
-    });
+        final result = await luaLike.execute(script);
+        expect(result.raw, isA<List>());
+        Object? normalize(Object? value) => switch (value) {
+          final LuaString luaString => luaString.toString(),
+          _ => value,
+        };
+        expect(
+          (result.raw as List)
+              .map((value) => normalize((value as Value).raw))
+              .toList(),
+          equals(<Object?>['x', 10, 'a', 1, 'hi']),
+        );
+      },
+    );
 
-    test('debug.traceback should not append extra suspended coroutine frames', () async {
-      const script = r'''
+    test(
+      'debug.traceback should not append extra suspended coroutine frames',
+      () async {
+        const script = r'''
       local function countlines(tb)
         local n = 0
         for _ in string.gmatch(tb, "[^\n]+\n?") do
@@ -746,12 +795,13 @@ void main() {
              countlines(debug.traceback(co, nil, 40))
       ''';
 
-      final result = await luaLike.execute(script);
-      expect(result.raw, isA<List>());
-      expect(
-        (result.raw as List).map((value) => (value as Value).raw).toList(),
-        equals(<Object?>[6, 5, 4, 2, 1]),
-      );
-    });
+        final result = await luaLike.execute(script);
+        expect(result.raw, isA<List>());
+        expect(
+          (result.raw as List).map((value) => (value as Value).raw).toList(),
+          equals(<Object?>[6, 5, 4, 2, 1]),
+        );
+      },
+    );
   });
 }

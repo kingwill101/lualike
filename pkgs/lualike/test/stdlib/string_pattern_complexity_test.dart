@@ -6,8 +6,10 @@ void main() {
 
     setUp(() => lua = LuaLike());
 
-    test('string.match rejects overly recursive optional-pattern chains', () async {
-      await lua.execute(r'''
+    test(
+      'string.match rejects overly recursive optional-pattern chains',
+      () async {
+        await lua.execute(r'''
         local function f(size)
           local s = string.rep("a", size)
           local p = string.rep(".?", size)
@@ -19,11 +21,12 @@ void main() {
         result_err = tostring(err)
       ''');
 
-      expect(lua.getGlobal('result_ok').unwrap(), isFalse);
-      expect(
-        lua.getGlobal('result_err').unwrap(),
-        contains('pattern too complex'),
-      );
-    });
+        expect(lua.getGlobal('result_ok').unwrap(), isFalse);
+        expect(
+          lua.getGlobal('result_err').unwrap(),
+          contains('pattern too complex'),
+        );
+      },
+    );
   });
 }

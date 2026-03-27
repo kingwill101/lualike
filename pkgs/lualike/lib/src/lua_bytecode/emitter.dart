@@ -308,9 +308,10 @@ final class _LuaBytecodeStructuredCompiler {
     final previousLine = _prototype.currentSourceLine;
     final hasExecutableStatements = _lastStatementEndLine > 0;
     final returnLine = switch (_lastStatementEndLine) {
-      final int line when line > 0 => _prototype.lastLineDefined > 0
-          ? math.min(_prototype.lastLineDefined, line + 1)
-          : line,
+      final int line when line > 0 =>
+        _prototype.lastLineDefined > 0
+            ? math.min(_prototype.lastLineDefined, line + 1)
+            : line,
       _ when _prototype.lineDefined > 0 && _prototype.lastLineDefined > 0 =>
         math.min(_prototype.lastLineDefined, _prototype.lineDefined + 1),
       _ when _prototype.lineDefined > 0 => _prototype.lineDefined,
@@ -1176,101 +1177,110 @@ final class _LuaBytecodeStructuredCompiler {
     _withSourceLine(
       _stickySourceLineOverride ?? lineOverride ?? _startLine(node),
       () {
-      final savedTemp = _nextTemp;
-      final tempFloor = math.max(_nextTemp, targetRegister + 1);
-      _nextTemp = tempFloor;
-      try {
-        switch (_unwrapExpression(node)) {
-          case NilValue():
-            _prototype.emitLoadNil(target: targetRegister);
-          case BooleanLiteral(value: final value):
-            _prototype.emitLoadLiteral(target: targetRegister, literal: value);
-          case NumberLiteral(value: final value):
-            _prototype.emitLoadLiteral(target: targetRegister, literal: value);
-          case StringLiteral(bytes: final bytes):
-            _prototype.emitLoadLiteral(
-              target: targetRegister,
-              literal: String.fromCharCodes(bytes),
-            );
-          case Identifier(name: final name):
-            _emitIdentifierToRegister(name, targetRegister);
-          case VarArg():
-            _emitVarArgExpression(targetRegister);
-          case UnaryExpression(op: final op, expr: final expr):
-            _emitUnaryExpression(op, expr, targetRegister);
-          case BinaryExpression(
-                left: final left,
-                op: final op,
-                right: final right,
-              )
-              when op == 'and' || op == 'or':
-            _emitLogicalBinaryExpression(left, op, right, targetRegister);
-          case BinaryExpression(op: '..'):
-            _emitConcatExpression(node, targetRegister);
-          case BinaryExpression(
-            left: final left,
-            op: final op,
-            right: final right,
-          ):
-            _emitBinaryExpression(
-              _unwrapExpression(node) as BinaryExpression,
-              left,
-              op,
-              right,
-              targetRegister,
-            );
-          case TableFieldAccess(table: final table, fieldName: final fieldName):
-            _emitTableFieldAccess(table, fieldName.name, targetRegister);
-          case TableIndexAccess(table: final table, index: final index):
-            _emitTableIndexAccess(table, index, targetRegister);
-          case TableAccessExpr(table: final table, index: final index):
-            _emitLegacyTableAccess(table, index, targetRegister);
-          case TableConstructor(entries: final entries):
-            _emitTableConstructor(entries, targetRegister);
-          case FunctionCall():
-            _emitSingleResultCall(
-              _unwrapExpression(node) as FunctionCall,
-              targetRegister: targetRegister,
-            );
-          case MethodCall():
-            _emitSingleResultCall(
-              _unwrapExpression(node) as MethodCall,
-              targetRegister: targetRegister,
-            );
-          case FunctionLiteral(funcBody: final funcBody):
-            _withSourceLine(
-              _endLine(funcBody),
-              () => _emitFunctionBodyToRegister(
-                funcBody,
+        final savedTemp = _nextTemp;
+        final tempFloor = math.max(_nextTemp, targetRegister + 1);
+        _nextTemp = tempFloor;
+        try {
+          switch (_unwrapExpression(node)) {
+            case NilValue():
+              _prototype.emitLoadNil(target: targetRegister);
+            case BooleanLiteral(value: final value):
+              _prototype.emitLoadLiteral(
+                target: targetRegister,
+                literal: value,
+              );
+            case NumberLiteral(value: final value):
+              _prototype.emitLoadLiteral(
+                target: targetRegister,
+                literal: value,
+              );
+            case StringLiteral(bytes: final bytes):
+              _prototype.emitLoadLiteral(
+                target: targetRegister,
+                literal: String.fromCharCodes(bytes),
+              );
+            case Identifier(name: final name):
+              _emitIdentifierToRegister(name, targetRegister);
+            case VarArg():
+              _emitVarArgExpression(targetRegister);
+            case UnaryExpression(op: final op, expr: final expr):
+              _emitUnaryExpression(op, expr, targetRegister);
+            case BinaryExpression(
+                  left: final left,
+                  op: final op,
+                  right: final right,
+                )
+                when op == 'and' || op == 'or':
+              _emitLogicalBinaryExpression(left, op, right, targetRegister);
+            case BinaryExpression(op: '..'):
+              _emitConcatExpression(node, targetRegister);
+            case BinaryExpression(
+              left: final left,
+              op: final op,
+              right: final right,
+            ):
+              _emitBinaryExpression(
+                _unwrapExpression(node) as BinaryExpression,
+                left,
+                op,
+                right,
                 targetRegister,
-                debugNode: node,
-                closureLine: math.max(1, _definitionEndLine(node) - 1),
-              ),
+              );
+            case TableFieldAccess(
+              table: final table,
+              fieldName: final fieldName,
+            ):
+              _emitTableFieldAccess(table, fieldName.name, targetRegister);
+            case TableIndexAccess(table: final table, index: final index):
+              _emitTableIndexAccess(table, index, targetRegister);
+            case TableAccessExpr(table: final table, index: final index):
+              _emitLegacyTableAccess(table, index, targetRegister);
+            case TableConstructor(entries: final entries):
+              _emitTableConstructor(entries, targetRegister);
+            case FunctionCall():
+              _emitSingleResultCall(
+                _unwrapExpression(node) as FunctionCall,
+                targetRegister: targetRegister,
+              );
+            case MethodCall():
+              _emitSingleResultCall(
+                _unwrapExpression(node) as MethodCall,
+                targetRegister: targetRegister,
+              );
+            case FunctionLiteral(funcBody: final funcBody):
+              _withSourceLine(
+                _endLine(funcBody),
+                () => _emitFunctionBodyToRegister(
+                  funcBody,
+                  targetRegister,
+                  debugNode: node,
+                  closureLine: math.max(1, _definitionEndLine(node) - 1),
+                ),
+              );
+            default:
+              throw UnsupportedError(
+                'lua_bytecode emitter does not support '
+                '${node.runtimeType} expressions',
+              );
+          }
+        } finally {
+          if (_nextTemp != tempFloor) {
+            final snippet = node
+                .toSource()
+                .replaceAll('\n', r'\n')
+                .replaceAll('\r', r'\r');
+            final trimmedSnippet = snippet.length > 160
+                ? '${snippet.substring(0, 157)}...'
+                : snippet;
+            throw StateError(
+              'lua_bytecode emitter leaked temporaries while lowering '
+              '${node.runtimeType} at line ${_startLine(node)}: '
+              'expected $tempFloor, found $_nextTemp '
+              '(source=${_prototype.source}, snippet=$trimmedSnippet)',
             );
-          default:
-            throw UnsupportedError(
-              'lua_bytecode emitter does not support '
-              '${node.runtimeType} expressions',
-            );
+          }
+          _nextTemp = savedTemp;
         }
-      } finally {
-        if (_nextTemp != tempFloor) {
-          final snippet = node
-              .toSource()
-              .replaceAll('\n', r'\n')
-              .replaceAll('\r', r'\r');
-          final trimmedSnippet = snippet.length > 160
-              ? '${snippet.substring(0, 157)}...'
-              : snippet;
-          throw StateError(
-            'lua_bytecode emitter leaked temporaries while lowering '
-            '${node.runtimeType} at line ${_startLine(node)}: '
-            'expected $tempFloor, found $_nextTemp '
-            '(source=${_prototype.source}, snippet=$trimmedSnippet)',
-          );
-        }
-        _nextTemp = savedTemp;
-      }
       },
     );
   }
@@ -1734,8 +1744,7 @@ final class _LuaBytecodeStructuredCompiler {
   int _emitComparisonOperand(AstNode node, int targetRegister) {
     if (_unwrapExpression(node) case Identifier(name: final name)) {
       final resolved = _resolveVariable(name);
-      if (resolved.kind ==
-          _LuaBytecodeStructuredResolvedVariableKind.local) {
+      if (resolved.kind == _LuaBytecodeStructuredResolvedVariableKind.local) {
         return resolved.register!;
       }
     }
@@ -1837,8 +1846,9 @@ final class _LuaBytecodeStructuredCompiler {
     String fieldName,
     int targetRegister,
   ) {
-    if (_unwrapExpression(table) case Identifier(name: final name)
-        when name == _virtualVarargName) {
+    if (_unwrapExpression(table) case Identifier(
+      name: final name,
+    ) when name == _virtualVarargName) {
       return _emitVirtualVarargKeyAccess(
         literalKey: fieldName,
         targetRegister: targetRegister,
@@ -1852,8 +1862,9 @@ final class _LuaBytecodeStructuredCompiler {
     AstNode index,
     int targetRegister,
   ) {
-    if (_unwrapExpression(table) case Identifier(name: final name)
-        when name == _virtualVarargName) {
+    if (_unwrapExpression(table) case Identifier(
+      name: final name,
+    ) when name == _virtualVarargName) {
       final immediateIndex = _immediateIndex(index);
       if (immediateIndex != null) {
         return _emitVirtualVarargKeyAccess(
@@ -2148,9 +2159,7 @@ final class _LuaBytecodeStructuredCompiler {
     final needsVarargTable = _needsMaterializedVarargTable(body);
     final flags =
         (body.isVararg ? LuaBytecodePrototypeFlags.hasHiddenVarargs : 0) |
-        (needsVarargTable
-            ? LuaBytecodePrototypeFlags.hasVarargTable
-            : 0);
+        (needsVarargTable ? LuaBytecodePrototypeFlags.hasVarargTable : 0);
     final functionStartNode = debugNode ?? body;
     final lineDefined = _startLine(functionStartNode);
     final childPrototype = LuaBytecodePrototypeBuilder(
@@ -2188,7 +2197,10 @@ final class _LuaBytecodeStructuredCompiler {
     final childIndex = _prototype.addChildPrototype(childPrototype);
     _withSourceLine(
       closureLine,
-      () => _prototype.emitClosure(target: targetRegister, childIndex: childIndex),
+      () => _prototype.emitClosure(
+        target: targetRegister,
+        childIndex: childIndex,
+      ),
     );
   }
 
@@ -2259,11 +2271,11 @@ final class _LuaBytecodeStructuredCompiler {
             visitNode(expr);
           }
         case IfStatement(
-              cond: final cond,
-              thenBlock: final thenBlock,
-              elseIfs: final elseIfs,
-              elseBlock: final elseBlock,
-            ):
+          cond: final cond,
+          thenBlock: final thenBlock,
+          elseIfs: final elseIfs,
+          elseBlock: final elseBlock,
+        ):
           visitNode(cond);
           for (final clause in elseIfs) {
             visitNode(clause);
@@ -2285,11 +2297,11 @@ final class _LuaBytecodeStructuredCompiler {
             visitNode(statement);
           }
         case ForLoop(
-              start: final start,
-              endExpr: final endExpr,
-              stepExpr: final stepExpr,
-              body: final statements,
-            ):
+          start: final start,
+          endExpr: final endExpr,
+          stepExpr: final stepExpr,
+          body: final statements,
+        ):
           visitNode(start);
           visitNode(endExpr);
           visitNode(stepExpr);
@@ -2358,10 +2370,10 @@ final class _LuaBytecodeStructuredCompiler {
             visitNode(arg);
           }
         case MethodCall(
-              prefix: final object,
-              methodName: final method,
-              args: final args,
-            ):
+          prefix: final object,
+          methodName: final method,
+          args: final args,
+        ):
           visitNode(object);
           visitNode(method);
           for (final arg in args) {
@@ -2382,8 +2394,14 @@ final class _LuaBytecodeStructuredCompiler {
         case AssignmentIndexAccessExpr(target: final table, index: final index):
           visitNode(table, parent: node, assignmentTarget: assignmentTarget);
           visitNode(index);
-        case Break() || Goto() || Label() || NilValue() || NumberLiteral() ||
-            StringLiteral() || BooleanLiteral() || VarArg() ||
+        case Break() ||
+            Goto() ||
+            Label() ||
+            NilValue() ||
+            NumberLiteral() ||
+            StringLiteral() ||
+            BooleanLiteral() ||
+            VarArg() ||
             FunctionName():
           return;
         case final other:
@@ -3318,8 +3336,10 @@ final class _LuaBytecodeStructuredCompiler {
       label.visibleLocals,
     );
     final closeFrom = switch ((pending.closeFrom, visibilityCloseFrom)) {
-      (final int pendingClose, final int visibleClose) =>
-        math.min(pendingClose, visibleClose),
+      (final int pendingClose, final int visibleClose) => math.min(
+        pendingClose,
+        visibleClose,
+      ),
       (final int pendingClose, null) => pendingClose,
       (null, final int visibleClose) => visibleClose,
       _ => null,
@@ -3402,11 +3422,8 @@ final class _LuaBytecodeStructuredCompiler {
   }
 
   int? _multilineCallLine(Call call) => switch (call) {
-    FunctionCall(name: final name, args: final args) => _multilineCallCalleeLine(
-      call,
-      name,
-      args,
-    ),
+    FunctionCall(name: final name, args: final args) =>
+      _multilineCallCalleeLine(call, name, args),
     MethodCall(prefix: final prefix, args: final args) =>
       _multilineCallCalleeLine(call, prefix, args),
     _ => null,

@@ -94,10 +94,7 @@ void main() {
 
       final parsedConstant =
           parsed.mainPrototype.constants.single as LuaBytecodeIntegerConstant;
-      expect(
-        parsedConstant.value,
-        equals(-9223372036854775808),
-      );
+      expect(parsedConstant.value, equals(-9223372036854775808));
     });
 
     test('line mapping follows absolute checkpoints and deltas', () {

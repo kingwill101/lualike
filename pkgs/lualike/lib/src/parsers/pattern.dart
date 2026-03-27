@@ -262,11 +262,9 @@ class _LuaPatternParser extends Parser<String> {
 
 Parser<String> _bracketClass(String spec, {required bool negate}) {
   final allowed = <Parser<String>>[];
-  ({
-    Parser<String> parser,
-    int nextIndex,
-    int? literalCodeUnit,
-  }) readToken(int index) {
+  ({Parser<String> parser, int nextIndex, int? literalCodeUnit}) readToken(
+    int index,
+  ) {
     if (index >= spec.length) {
       throw FormatException('Malformed set: \$spec');
     }

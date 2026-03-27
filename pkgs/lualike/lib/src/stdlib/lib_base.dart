@@ -501,13 +501,14 @@ String _formatProtectedCallMessage(
   final line = switch (lineOverride) {
     final currentLine? when currentLine > 0 => currentLine,
     _ => switch (traceFrame?.currentLine) {
-    final currentLine when currentLine != null && currentLine > 0 =>
-      currentLine,
-    _ => switch (topFrame?.currentLine) {
+      final currentLine when currentLine != null && currentLine > 0 =>
+        currentLine,
+      _ => switch (topFrame?.currentLine) {
         final currentLine when currentLine != null && currentLine > 0 =>
           currentLine,
         _ => -1,
-      },},
+      },
+    },
   };
   final scriptPath =
       traceFrame?.scriptPath ??
@@ -558,9 +559,9 @@ String _formatErrorAtStackLevel(
   final line = switch (frame.currentLine) {
     final currentLine when currentLine > 0 => currentLine,
     _ => switch (frame.callNode?.span) {
-        final span? => span.start.line + 1,
-        _ => null,
-      },
+      final span? => span.start.line + 1,
+      _ => null,
+    },
   };
   final scriptPath =
       frame.scriptPath ??
@@ -613,10 +614,7 @@ Object? _packXProtectedCallFailure(Object? result) {
 }
 
 Object? _packXProtectedErrorHandlerFailure(Object error) {
-  return Value.multi(<Object?>[
-    Value(false),
-    Value('error in error handling'),
-  ]);
+  return Value.multi(<Object?>[Value(false), Value('error in error handling')]);
 }
 
 // Lua's xpcall message-handler recursion overflows before the general
@@ -691,7 +689,10 @@ final class _ProtectedCallSuspension implements CoroutineContinuation {
     }
   }
 
-  Future<Object?> _invokeErrorHandler(Object error, {required int depth}) async {
+  Future<Object?> _invokeErrorHandler(
+    Object error, {
+    required int depth,
+  }) async {
     final handler = messageHandler;
     if (handler == null) {
       return _packProtectedCallFailure(runtime, error);
@@ -822,7 +823,8 @@ class ErrorFunction extends BuiltinFunction {
         : null;
     final numericLevel = switch (level) {
       final int value => value,
-      final double value when value.toInt().toDouble() == value => value.toInt(),
+      final double value when value.toInt().toDouble() == value =>
+        value.toInt(),
       _ => null,
     };
     final suppressLocation = switch (level) {

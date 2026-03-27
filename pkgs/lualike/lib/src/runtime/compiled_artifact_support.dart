@@ -67,13 +67,8 @@ void _rebindActiveLoadedChunkFrame(
   }
 }
 
-({
-  Value? function,
-  Map<String, Box<dynamic>>? fastLocals,
-})? _pushLoadedChunkFunctionContext(
-  LuaRuntime runtime,
-  Value callable,
-) {
+({Value? function, Map<String, Box<dynamic>>? fastLocals})?
+_pushLoadedChunkFunctionContext(LuaRuntime runtime, Value callable) {
   if (runtime case Interpreter interpreter) {
     final savedFunction = interpreter.getCurrentFunction();
     final savedFastLocals = interpreter.getCurrentFastLocals();
@@ -86,10 +81,7 @@ void _rebindActiveLoadedChunkFrame(
 
 void _popLoadedChunkFunctionContext(
   LuaRuntime runtime,
-  ({
-    Value? function,
-    Map<String, Box<dynamic>>? fastLocals,
-  })? savedContext,
+  ({Value? function, Map<String, Box<dynamic>>? fastLocals})? savedContext,
 ) {
   if (savedContext == null) {
     return;
@@ -610,11 +602,7 @@ Future<LuaChunkLoadResult> loadChunkWithLegacyAstSupport(
               }
               return await runtime.evaluateAst(loadedAstNode);
             } on LuaError catch (error) {
-              _rethrowLoadedChunkLuaError(
-                runtime,
-                effectiveChunkName,
-                error,
-              );
+              _rethrowLoadedChunkLuaError(runtime, effectiveChunkName, error);
             } finally {
               _popLoadedChunkFunctionContext(runtime, savedContext);
               _restoreAmbientEnvironment(runtime, savedEnv);

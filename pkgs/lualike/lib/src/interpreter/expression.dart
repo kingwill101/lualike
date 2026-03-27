@@ -340,7 +340,18 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       }
 
       return switch (node.op) {
-        '+' || '-' || '*' || '/' || '%' || '^' || '//' || '&' || '|' || '~' || '<<' || '>>' => true,
+        '+' ||
+        '-' ||
+        '*' ||
+        '/' ||
+        '%' ||
+        '^' ||
+        '//' ||
+        '&' ||
+        '|' ||
+        '~' ||
+        '<<' ||
+        '>>' => true,
         _ => false,
       };
     }
@@ -886,10 +897,9 @@ mixin InterpreterExpressionMixin on AstVisitor<Object?> {
       'light userdata' => true,
       _ => false,
     };
-    final lineNumber =
-        node.operatorLine != null
-            ? node.operatorLine! + 1
-            : (node.span == null ? null : node.span!.start.line + 1);
+    final lineNumber = node.operatorLine != null
+        ? node.operatorLine! + 1
+        : (node.span == null ? null : node.span!.start.line + 1);
 
     // Check for metamethods first
     final opMap = {

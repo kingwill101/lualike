@@ -337,7 +337,9 @@ void main() {
       expect((bridge.getGlobal('okComparator') as Value).unwrap(), isFalse);
       expect(
         (bridge.getGlobal('msgComparator') as Value).unwrap(),
-        contains("bad argument #1 to 'table.sort' (table expected, got number)"),
+        contains(
+          "bad argument #1 to 'table.sort' (table expected, got number)",
+        ),
       );
     });
 
