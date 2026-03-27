@@ -253,18 +253,37 @@ final class LuaBytecodePrototype {
       (flags & LuaBytecodePrototypeFlags.fixedMemory) != 0;
   bool get hasDebugInfo => lineInfo.isNotEmpty;
 
+  /// Returns the cached source line for [pc].
+  ///
+  /// The VM consults this in the main dispatch loop, so precomputing the
+  /// per-PC mapping avoids repeating the checkpoint walk on every instruction.
   int? lineForPc(int pc) {
     if (!hasDebugInfo || pc < 0 || pc >= code.length) {
       return null;
     }
+    return _linesByPcFor(this)[pc];
+  }
 
-    final (:baseLine, :basePc) = _baselineForPc(pc);
-    var currentLine = baseLine;
-    var currentPc = basePc;
-    while (currentPc++ < pc) {
-      currentLine += lineInfo[currentPc];
+  List<int?> _buildLinesByPc() {
+    if (!hasDebugInfo) {
+      return List<int?>.filled(code.length, null, growable: false);
     }
-    return currentLine;
+    final absoluteLines = <int, int>{
+      for (final checkpoint in absoluteLineInfo) checkpoint.pc: checkpoint.line,
+    };
+    final lines = List<int?>.filled(code.length, null, growable: false);
+    var currentLine = lineDefined;
+    var basePc = -1;
+    for (var pc = 0; pc < code.length; pc++) {
+      if (absoluteLines[pc] case final absoluteLine?) {
+        currentLine = absoluteLine;
+        basePc = pc;
+      } else if (pc > basePc) {
+        currentLine += pc < lineInfo.length ? lineInfo[pc] : 0;
+      }
+      lines[pc] = currentLine;
+    }
+    return lines;
   }
 
   ({int baseLine, int basePc}) _baselineForPc(int pc) {
@@ -286,6 +305,20 @@ final class LuaBytecodePrototype {
     final checkpoint = absoluteLineInfo[estimate];
     return (baseLine: checkpoint.line, basePc: checkpoint.pc);
   }
+}
+
+final Expando<List<int?>> _prototypeLinesByPc = Expando<List<int?>>(
+  'luaBytecodePrototypeLinesByPc',
+);
+
+List<int?> _linesByPcFor(LuaBytecodePrototype prototype) {
+  final cached = _prototypeLinesByPc[prototype];
+  if (cached != null) {
+    return cached;
+  }
+  final built = prototype._buildLinesByPc();
+  _prototypeLinesByPc[prototype] = built;
+  return built;
 }
 
 final class LuaBytecodeBinaryChunk {
