@@ -726,7 +726,7 @@ class WhileStatement extends AstNode implements Dumpable {
   }
 }
 
-/// for var = start, end [, step] do body end
+/// A numeric `for` loop, as in `for var = start, end [, step] do ... end`.
 class ForLoop extends AstNode implements Dumpable {
   final Identifier varName;
   final AstNode start;
@@ -1246,7 +1246,7 @@ class TableFieldAccess extends AstNode implements Dumpable {
   }
 }
 
-/// Table index access expression (table[expr]) - bracket notation
+/// A table index access expression, as in `table[expr]`.
 class TableIndexAccess extends AstNode implements Dumpable {
   final AstNode table;
   final AstNode index; // Any expression for index access

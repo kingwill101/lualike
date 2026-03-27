@@ -36,7 +36,7 @@ Lualike is a Lua interpreter written in Dart, designed as a drop-in replacement 
 ### Best Practices
 - Keep changes minimal and focused.
 - Document non-obvious decisions in comments.
-- Update `docs/` directory as needed.
+- Update `doc/` directory as needed.
 - Use `dart format .` and `dart fix --apply` for code formatting.
 - Follow Dart style guide for consistency.
 
@@ -109,4 +109,4 @@ lualike --level WARNING                        # REPL with warnings
 LOGGING_ENABLED=true lualike myscript.lua       # Env logging
 ```
 
-See `docs/cli.md` for advanced usage.
+See `doc/cli.md` for advanced usage.

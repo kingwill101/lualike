@@ -149,4 +149,4 @@ If no script or code is provided, starts REPL mode.
   LOGGING_ENABLED=true LOGGING_LEVEL=INFO lualike myscript.lua
   ```
 
-See the CLI documentation in `docs/cli.md` for more details and advanced usage.
+See the CLI documentation in `doc/cli.md` for more details and advanced usage.

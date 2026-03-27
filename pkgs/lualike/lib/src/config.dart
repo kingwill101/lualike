@@ -1,4 +1,17 @@
-enum EngineMode { ast, ir, luaBytecode }
+/// Supported execution engines for LuaLike.
+enum EngineMode {
+  /// Parses source and executes it directly with the AST interpreter.
+  ast,
+
+  /// Compiles source into the experimental IR pipeline.
+  ir,
+
+  /// Emits Lua-compatible bytecode and runs it through the bytecode VM.
+  ///
+  /// This backend currently passes the Lua compatibility suite, but it is
+  /// still slower than [ast] in the current implementation.
+  luaBytecode,
+}
 
 /// Global configuration settings for the LuaLike interpreter
 class LuaLikeConfig {

@@ -993,7 +993,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     throw LuaError("Cannot assign to field of non-Value", node: target);
   }
 
-  /// Handles assignment to table index access (table[expr] = value).
+  /// Handles assignment to a table index access, as in `table[expr] = value`.
   ///
   /// For bracket notation, evaluates the index expression to get the key.
   ///
