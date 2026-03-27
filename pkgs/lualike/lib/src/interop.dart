@@ -219,6 +219,7 @@ class LuaLike {
         code,
         vm: vm,
         mode: mode,
+        url: scriptPath,
         onRuntimeSetup: (runtime) {
           runtime.globals.interpreter = runtime;
           final debugLib = runtime.globals.get('debug');
@@ -262,6 +263,7 @@ class LuaLike {
         code,
         vm: vm,
         mode: EngineMode.ast,
+        url: scriptPath,
         onRuntimeSetup: (runtime) {
           runtime.globals.interpreter = runtime;
           final debugLib = runtime.globals.get('debug');
