@@ -112,7 +112,7 @@ enum _LuaBinaryOperation {
 }
 
 final class LuaBytecodeClosure extends BuiltinFunction
-    implements LuaCallableArtifact {
+    implements LuaCallableArtifact, BuiltinFunctionGcRefs {
   factory LuaBytecodeClosure.main({
     required LuaRuntime runtime,
     required LuaBytecodeBinaryChunk chunk,
@@ -235,6 +235,22 @@ final class LuaBytecodeClosure extends BuiltinFunction
     final vm = LuaBytecodeVm(runtime);
     final results = await vm.invoke(this, args, isEntryFrame: true);
     return _packCallResults(runtime, results);
+  }
+
+  @override
+  Iterable<Object?> getGcReferences() sync* {
+    yield environment;
+    // Suspended bytecode frames often keep `__close` handlers or iterator
+    // callbacks alive only through ordinary Lua Values such as table fields.
+    // Exposing the captured upvalue contents here keeps those closures' state
+    // reachable without having to retain stale registers past their live range.
+    for (final upvalue in _upvalues) {
+      final value = upvalue.read();
+      yield value;
+      if (value.metatableRef case final Value metatable?) {
+        yield metatable;
+      }
+    }
   }
 }
 
@@ -567,10 +583,12 @@ final class LuaBytecodeVm {
       }
       final exitDebugInterpreter = _debugInterpreter;
       if (!suspended && !poppedCallFrame && exitDebugInterpreter != null) {
-        _setTransferInfo(runtime.callStack.top, returnTransferValues);
+        final topFrame = runtime.callStack.top;
+        _syncCallFrameDebugLocals(topFrame);
+        _setTransferInfo(topFrame, returnTransferValues);
         final interpreter = exitDebugInterpreter;
         await interpreter.fireDebugHook('return');
-        _clearTransferInfo(runtime.callStack.top);
+        _clearTransferInfo(topFrame);
       }
       if (!poppedCallFrame) {
         runtime.callStack.pop();
@@ -1861,10 +1879,17 @@ final class LuaBytecodeVm {
       // instruction after the call. Debug locals should still reflect the
       // call-site window, so resync against `pc - 1` to keep generic-for
       // state and to-be-closed aliases visible while helpers inspect them.
+      //
+      // Closed bytecode frames are the opposite case: they remain on the stack
+      // only long enough for a pending `return` hook, and Lua still expects the
+      // return-scope locals to be visible there. Those ranges are keyed to the
+      // current 1-based PC, so keep the advanced PC once the frame is closed.
       _syncDebugLocals(
         bytecodeFrame,
         callFrame: callFrame,
-        currentPc: bytecodeFrame.pc <= 1 ? 1 : bytecodeFrame.pc - 1,
+        currentPc: bytecodeFrame.closed
+            ? (bytecodeFrame.pc == 0 ? 1 : bytecodeFrame.pc)
+            : (bytecodeFrame.pc <= 1 ? 1 : bytecodeFrame.pc - 1),
       );
     }
   }
