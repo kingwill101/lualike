@@ -163,8 +163,7 @@ class NumberUtils {
       return (mantissa, exponent - _subnormalFrexpScale);
     }
 
-    final fractionMask =
-        (1 << NumberLimits.doubleStoredSignificandBits) - 1;
+    final fractionMask = (1 << NumberLimits.doubleStoredSignificandBits) - 1;
     final mantissaBits =
         (bits & fractionMask) |
         (_frexpMantissaExponent << NumberLimits.doubleStoredSignificandBits);

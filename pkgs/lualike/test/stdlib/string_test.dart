@@ -72,9 +72,11 @@ void main() {
       expect((bridge.getGlobal('f') as Value).raw.toString(), equals(""));
     });
 
-    test('string.sub reports bad self and argument positions like Lua 5.5', () async {
-      final bridge = LuaLike();
-      await bridge.execute(r'''
+    test(
+      'string.sub reports bad self and argument positions like Lua 5.5',
+      () async {
+        final bridge = LuaLike();
+        await bridge.execute(r'''
         aaa = {}
         setmetatable(aaa, {__index = string})
 
@@ -95,30 +97,33 @@ void main() {
         end)
       ''');
 
-      expect((bridge.getGlobal('okSelf') as Value).unwrap(), isFalse);
-      expect(
-        (bridge.getGlobal('msgSelf') as Value).unwrap(),
-        contains("calling 'sub' on bad self (string expected, got table)"),
-      );
+        expect((bridge.getGlobal('okSelf') as Value).unwrap(), isFalse);
+        expect(
+          (bridge.getGlobal('msgSelf') as Value).unwrap(),
+          contains("calling 'sub' on bad self (string expected, got table)"),
+        );
 
-      expect((bridge.getGlobal('okArg2') as Value).unwrap(), isFalse);
-      expect(
-        (bridge.getGlobal('msgArg2') as Value).unwrap(),
-        contains("bad argument #2 to 'sub' (number expected, got table)"),
-      );
+        expect((bridge.getGlobal('okArg2') as Value).unwrap(), isFalse);
+        expect(
+          (bridge.getGlobal('msgArg2') as Value).unwrap(),
+          contains("bad argument #2 to 'sub' (number expected, got table)"),
+        );
 
-      expect((bridge.getGlobal('okMethodArg1') as Value).unwrap(), isFalse);
-      expect(
-        (bridge.getGlobal('msgMethodArg1') as Value).unwrap(),
-        contains("bad argument #1 to 'sub' (number expected, got table)"),
-      );
+        expect((bridge.getGlobal('okMethodArg1') as Value).unwrap(), isFalse);
+        expect(
+          (bridge.getGlobal('msgMethodArg1') as Value).unwrap(),
+          contains("bad argument #1 to 'sub' (number expected, got table)"),
+        );
 
-      expect((bridge.getGlobal('okHugeIndex') as Value).unwrap(), isFalse);
-      expect(
-        (bridge.getGlobal('msgHugeIndex') as Value).unwrap(),
-        contains("bad argument #2 to 'sub' (number has no integer representation)"),
-      );
-    });
+        expect((bridge.getGlobal('okHugeIndex') as Value).unwrap(), isFalse);
+        expect(
+          (bridge.getGlobal('msgHugeIndex') as Value).unwrap(),
+          contains(
+            "bad argument #2 to 'sub' (number has no integer representation)",
+          ),
+        );
+      },
+    );
 
     test('string.upper and string.lower', () async {
       final bridge = LuaLike();
@@ -391,7 +396,9 @@ void main() {
       expect((bridge.getGlobal('okGsubCallback') as Value).unwrap(), isFalse);
       expect(
         (bridge.getGlobal('msgGsubCallback') as Value).unwrap(),
-        contains("bad argument #1 to 'setmetatable' (table expected, got string)"),
+        contains(
+          "bad argument #1 to 'setmetatable' (table expected, got string)",
+        ),
       );
     });
 

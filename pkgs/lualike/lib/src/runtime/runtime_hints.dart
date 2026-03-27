@@ -8,8 +8,7 @@ bool isInsideSortComparator(LuaRuntime runtime) {
 }
 
 void enterSortComparator(LuaRuntime runtime) {
-  final hints =
-      _runtimeExecutionHints[runtime] ??= _RuntimeExecutionHints();
+  final hints = _runtimeExecutionHints[runtime] ??= _RuntimeExecutionHints();
   hints.sortComparatorDepth++;
 }
 

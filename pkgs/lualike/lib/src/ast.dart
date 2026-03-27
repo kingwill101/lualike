@@ -1383,7 +1383,11 @@ class UnaryExpression extends AstNode implements Dumpable {
   static UnaryExpression fromDump(Map<String, dynamic> data) {
     final op = data['op'] as String;
     final expr = undumpAst(Map<String, dynamic>.from(data['expr']));
-    return UnaryExpression(op, expr, operatorLine: data['operatorLine'] as int?);
+    return UnaryExpression(
+      op,
+      expr,
+      operatorLine: data['operatorLine'] as int?,
+    );
   }
 }
 

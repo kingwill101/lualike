@@ -257,7 +257,7 @@ String? _sourceLabelForAst(
   Identifier(name: final name) => _bindingScopeLabel(env, name),
   TableFieldAccess(fieldName: final Identifier fieldName) =>
     "field '${fieldName.name}'",
-  MethodCall(methodName: final Identifier methodName) => 
+  MethodCall(methodName: final Identifier methodName) =>
     interpreter != null && _shouldReportFieldForMethodCall(interpreter, node)
         ? "field '${methodName.name}'"
         : "method '${methodName.name}'",
@@ -732,19 +732,13 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
           ? rest.sublist(0, pathLen)
           : const <Identifier>[];
       for (final seg in pathSegments) {
-        current = requireTable(
-          current[seg.name],
-          "field '${seg.name}'",
-        );
+        current = requireTable(current[seg.name], "field '${seg.name}'");
       }
 
       final targetTable = current;
 
       // Create a special environment for the function that includes the target table
-      final methodEnv = Environment(
-        parent: globals,
-        interpreter: interpreter,
-      );
+      final methodEnv = Environment(parent: globals, interpreter: interpreter);
       // Provide access to the base table name to mirror Lua's resolution rules
       // Without mutating any outer bindings.
       methodEnv.declare(firstName, globals.get(firstName));
@@ -861,9 +855,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
     if (node.explicitGlobal) {
       final writesToRootGlobals =
-          envVal is Value &&
-          gVal is Value &&
-          identical(envVal.raw, gVal.raw);
+          envVal is Value && gVal is Value && identical(envVal.raw, gVal.raw);
       if (writesToRootGlobals) {
         globals.defineGlobal(node.name.first.name, closure);
         return closure;
@@ -1863,14 +1855,16 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
   Object? _firstCallResult(Object? value, Interpreter interpreter) {
     return switch (value) {
-      Value(isMulti: true, raw: final List multiValues) => multiValues.isNotEmpty
-          ? multiValues.first
-          : interpreter.wrapRuntimeValue(null),
-      final List values => values.isNotEmpty
-          ? (values.first is Value
-                ? values.first
-                : interpreter.wrapRuntimeValue(values.first))
-          : interpreter.wrapRuntimeValue(null),
+      Value(isMulti: true, raw: final List multiValues) =>
+        multiValues.isNotEmpty
+            ? multiValues.first
+            : interpreter.wrapRuntimeValue(null),
+      final List values =>
+        values.isNotEmpty
+            ? (values.first is Value
+                  ? values.first
+                  : interpreter.wrapRuntimeValue(values.first))
+            : interpreter.wrapRuntimeValue(null),
       _ => value is Value ? value : interpreter.wrapRuntimeValue(value),
     };
   }
@@ -2054,7 +2048,11 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         }
         if (value is List) {
           final normalized = value
-              .map((entry) => entry is Value ? entry : interpreter.wrapRuntimeValue(entry))
+              .map(
+                (entry) => entry is Value
+                    ? entry
+                    : interpreter.wrapRuntimeValue(entry),
+              )
               .toList(growable: false);
           throw ReturnException(
             normalized.length == 1 ? normalized.first : Value.multi(normalized),
@@ -2375,7 +2373,9 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
             final FunctionBody functionBody => functionBody,
             _ => null,
           };
-      final limit = functionBody == null ? args.length : functionBody.parameters.length;
+      final limit = functionBody == null
+          ? args.length
+          : functionBody.parameters.length;
       if (limit == 0) {
         return const <Value>[];
       }
@@ -2463,6 +2463,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
         }
         return "attempt to call a $type value";
       }
+
       final callLineNumber = _callSiteLineNumber(callNode);
 
       Future<bool> rebindTailCall(Object? result) async {

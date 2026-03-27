@@ -26,15 +26,14 @@ void main() {
     final result = await lua.execute(script) as Value;
     final message = result.raw as String;
 
-    expect(
-      message,
-      contains('[string "local a = 2.0^100; x = a << 2"]:1:'),
-    );
+    expect(message, contains('[string "local a = 2.0^100; x = a << 2"]:1:'));
     expect(message, contains("local 'a'"));
   });
 
-  test('pcall(load(...)) preserves error(message, 0) location suppression', () async {
-    const script = r'''
+  test(
+    'pcall(load(...)) preserves error(message, 0) location suppression',
+    () async {
+      const script = r'''
       local function doit (s)
         local f, msg = load(s)
         if not f then return msg end
@@ -45,12 +44,15 @@ void main() {
       return doit("error('hi', 0)")
     ''';
 
-    final result = await lua.execute(script) as Value;
-    expect(result.raw, equals('hi'));
-  });
+      final result = await lua.execute(script) as Value;
+      expect(result.raw, equals('hi'));
+    },
+  );
 
-  test('pcall(require(...)) preserves builtin module-not-found messages', () async {
-    const script = r'''
+  test(
+    'pcall(require(...)) preserves builtin module-not-found messages',
+    () async {
+      const script = r'''
       local oldpath = package.path
       local oldcpath = package.cpath
 
@@ -65,23 +67,24 @@ void main() {
       return ok, msg
     ''';
 
-    final result = await lua.execute(script) as List<Object?>;
-    final ok = unwrapRaw(result[0]);
-    final message = unwrapRaw(result[1]) as String;
+      final result = await lua.execute(script) as List<Object?>;
+      final ok = unwrapRaw(result[0]);
+      final message = unwrapRaw(result[1]) as String;
 
-    expect(ok, isFalse);
-    expect(
-      message,
-      equals(
-        "module 'XXX' not found:\n"
-        "\tno field package.preload['XXX']\n"
-        "\tno file 'XXX.lua'\n"
-        "\tno file 'XXX/XXX'\n"
-        "\tno file 'XXX.so'\n"
-        "\tno file 'XXX/init'",
-      ),
-    );
-  });
+      expect(ok, isFalse);
+      expect(
+        message,
+        equals(
+          "module 'XXX' not found:\n"
+          "\tno field package.preload['XXX']\n"
+          "\tno file 'XXX.lua'\n"
+          "\tno file 'XXX/XXX'\n"
+          "\tno file 'XXX.so'\n"
+          "\tno file 'XXX/init'",
+        ),
+      );
+    },
+  );
 
   test('pcall preserves stripped-debug unknown location prefixes', () async {
     const script = r'''
@@ -97,8 +100,10 @@ void main() {
     expect(result.raw, contains('table value'));
   });
 
-  test('pcall(load(...)) preserves field diagnostics when SELF overflows', () async {
-    const script = r'''
+  test(
+    'pcall(load(...)) preserves field diagnostics when SELF overflows',
+    () async {
+      const script = r'''
       local t = {}
       for i = 1, 1000 do
         t[i] = "aaa = x" .. i
@@ -111,12 +116,13 @@ void main() {
       return err
     ''';
 
-    final result = await lua.execute(script) as Value;
-    final message = result.raw as String;
+      final result = await lua.execute(script) as Value;
+      final message = result.raw as String;
 
-    expect(message, contains("field 'bbb'"));
-    expect(message, isNot(contains("method 'bbb'")));
-  });
+      expect(message, contains("field 'bbb'"));
+      expect(message, isNot(contains("method 'bbb'")));
+    },
+  );
 
   test('load syntax errors cap @ and = chunk ids at LUA_IDSIZE - 1', () async {
     const script = r'''
@@ -134,7 +140,9 @@ void main() {
       final LuaString value => value.toString(),
       final String value => value,
       final Value value => normalize(value.raw),
-      final Object? other => throw StateError('unexpected prefix value: $other'),
+      final Object? other => throw StateError(
+        'unexpected prefix value: $other',
+      ),
     };
     final expected = '...${List.filled(56, 'x').join()}';
     final atPrefix = normalize(result[0]);
@@ -160,8 +168,10 @@ void main() {
     expect(message, contains("attempt to index a nil value (global 'a')"));
   });
 
-  test('multiline load runtime errors report operator and call lines', () async {
-    const script = r'''
+  test(
+    'multiline load runtime errors report operator and call lines',
+    () async {
+      const script = r'''
       local function lineerror (s)
         local f = assert(load(s))
         local _, msg = pcall(f)
@@ -179,15 +189,16 @@ void main() {
       return line1, msg1, lineUnary, msgUnary, line2, msg2
     ''';
 
-    final result = await lua.execute(script) as List<Object?>;
+      final result = await lua.execute(script) as List<Object?>;
 
-    expect((result[0] as Value).raw, equals(3));
-    expect((result[1] as Value).raw, contains('arithmetic'));
-    expect((result[2] as Value).raw, equals(3));
-    expect((result[3] as Value).raw, contains('arithmetic'));
-    expect((result[4] as Value).raw, equals(2));
-    expect((result[5] as Value).raw, contains('call'));
-  });
+      expect((result[0] as Value).raw, equals(3));
+      expect((result[1] as Value).raw, contains('arithmetic'));
+      expect((result[2] as Value).raw, equals(3));
+      expect((result[3] as Value).raw, contains('arithmetic'));
+      expect((result[4] as Value).raw, equals(2));
+      expect((result[5] as Value).raw, contains('call'));
+    },
+  );
 
   test('global function definitions write through active _ENV', () async {
     const script = r'''
@@ -289,8 +300,10 @@ void main() {
     expect(result.raw, contains("scope of '*'"));
   });
 
-  test('xpcall recurses through error-handler failures until completion', () async {
-    const script = r'''
+  test(
+    'xpcall recurses through error-handler failures until completion',
+    () async {
+      const script = r'''
       local function err (n)
         if type(n) ~= "number" then
           return n
@@ -306,15 +319,18 @@ void main() {
       return res1, msg1, res2, msg2
     ''';
 
-    final result = await lua.execute(script) as List<Object?>;
-    expect(unwrapRaw(result[0]), isFalse);
-    expect(unwrapRaw(result[1]), equals('END'));
-    expect(unwrapRaw(result[2]), isFalse);
-    expect(unwrapRaw(result[3]), equals('C stack overflow'));
-  });
+      final result = await lua.execute(script) as List<Object?>;
+      expect(unwrapRaw(result[0]), isFalse);
+      expect(unwrapRaw(result[1]), equals('END'));
+      expect(unwrapRaw(result[2]), isFalse);
+      expect(unwrapRaw(result[3]), equals('C stack overflow'));
+    },
+  );
 
-  test('assert preserves explicit message objects and defaults location text', () async {
-    const script = r'''
+  test(
+    'assert preserves explicit message objects and defaults location text',
+    () async {
+      const script = r'''
       local t = {}
 
       local ok1, msg1 = pcall(assert, false, "X", t)
@@ -326,32 +342,36 @@ void main() {
       return ok1, msg1, ok2, msg2, ok3, msg3 == t, ok4, msg4, ok5, msg5
     ''';
 
-    final result = await lua.execute(script) as List<Object?>;
+      final result = await lua.execute(script) as List<Object?>;
 
-    expect(unwrapRaw(result[0]), isFalse);
-    expect(unwrapRaw(result[1]), equals('X'));
-    expect(unwrapRaw(result[2]), isFalse);
-    expect(unwrapRaw(result[3]), contains('assertion failed!'));
-    expect(unwrapRaw(result[4]), isFalse);
-    expect(unwrapRaw(result[5]), isTrue);
-    expect(unwrapRaw(result[6]), isFalse);
-    expect(unwrapRaw(result[7]), isA<String>());
-    expect(unwrapRaw(result[8]), isFalse);
-    expect(unwrapRaw(result[9]), contains('value expected'));
-  });
+      expect(unwrapRaw(result[0]), isFalse);
+      expect(unwrapRaw(result[1]), equals('X'));
+      expect(unwrapRaw(result[2]), isFalse);
+      expect(unwrapRaw(result[3]), contains('assertion failed!'));
+      expect(unwrapRaw(result[4]), isFalse);
+      expect(unwrapRaw(result[5]), isTrue);
+      expect(unwrapRaw(result[6]), isFalse);
+      expect(unwrapRaw(result[7]), isA<String>());
+      expect(unwrapRaw(result[8]), isFalse);
+      expect(unwrapRaw(result[9]), contains('value expected'));
+    },
+  );
 
-  test('xpcall preserves message-handler objects for bad string.find arguments', () async {
-    const script = r'''
+  test(
+    'xpcall preserves message-handler objects for bad string.find arguments',
+    () async {
+      const script = r'''
       local a, b, c = xpcall(string.find, function (x) return {} end, true, "al")
       return a, type(b), c == nil
     ''';
 
-    final result = await lua.execute(script) as List<Object?>;
+      final result = await lua.execute(script) as List<Object?>;
 
-    expect(unwrapRaw(result[0]), isFalse);
-    expect(unwrapRaw(result[1]), equals('table'));
-    expect(unwrapRaw(result[2]), isTrue);
-  });
+      expect(unwrapRaw(result[0]), isFalse);
+      expect(unwrapRaw(result[1]), equals('table'));
+      expect(unwrapRaw(result[2]), isTrue);
+    },
+  );
 
   test('load syntax errors report whole offending tokens', () async {
     const script = r'''
@@ -403,10 +423,22 @@ void main() {
 
     final result = await lua.execute(script) as List<Object?>;
 
-    expect(unwrapRaw(result[0]), anyOf(contains('too many'), contains('overflow')));
-    expect(unwrapRaw(result[1]), anyOf(contains('too many'), contains('overflow')));
-    expect(unwrapRaw(result[2]), anyOf(contains('too many'), contains('overflow')));
-    expect(unwrapRaw(result[3]), anyOf(contains('too many'), contains('overflow')));
+    expect(
+      unwrapRaw(result[0]),
+      anyOf(contains('too many'), contains('overflow')),
+    );
+    expect(
+      unwrapRaw(result[1]),
+      anyOf(contains('too many'), contains('overflow')),
+    );
+    expect(
+      unwrapRaw(result[2]),
+      anyOf(contains('too many'), contains('overflow')),
+    );
+    expect(
+      unwrapRaw(result[3]),
+      anyOf(contains('too many'), contains('overflow')),
+    );
   });
 
   test('load rejects calls with too many registers', () async {
@@ -419,8 +451,10 @@ void main() {
     expect(result.raw, contains('too many registers'));
   });
 
-  test('load rejects functions with too many upvalues before expression overflow', () async {
-    const script = r'''
+  test(
+    'load rejects functions with too many upvalues before expression overflow',
+    () async {
+      const script = r'''
       local lim = 127
       local s = "local function fooA ()\n  local "
       for j = 1, lim do
@@ -441,15 +475,18 @@ void main() {
       return msg
     ''';
 
-    final result = await lua.execute(script) as Value;
-    final message = result.raw as String;
+      final result = await lua.execute(script) as Value;
+      final message = result.raw as String;
 
-    expect(message, contains('too many upvalues'));
-    expect(message, contains('line 5'));
-  });
+      expect(message, contains('too many upvalues'));
+      expect(message, contains('line 5'));
+    },
+  );
 
-  test('load rejects oversized local declarations before missing-end parser failures', () async {
-    const script = r'''
+  test(
+    'load rejects oversized local declarations before missing-end parser failures',
+    () async {
+      const script = r'''
       local s = "\nfunction foo ()\n  local "
       for j = 1, 200 do
         s = s .. "a" .. j .. ", "
@@ -459,10 +496,11 @@ void main() {
       return msg
     ''';
 
-    final result = await lua.execute(script) as Value;
-    final message = result.raw as String;
+      final result = await lua.execute(script) as Value;
+      final message = result.raw as String;
 
-    expect(message, contains('too many local variables'));
-    expect(message, contains('line 2'));
-  });
+      expect(message, contains('too many local variables'));
+      expect(message, contains('line 2'));
+    },
+  );
 }

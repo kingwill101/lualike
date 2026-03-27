@@ -794,20 +794,23 @@ void main() {
       );
     });
 
-    test('__gc metamethod reports missing FILE* receiver like Lua 5.5', () async {
-      final bridge = LuaLike();
-      await bridge.execute(r'''
+    test(
+      '__gc metamethod reports missing FILE* receiver like Lua 5.5',
+      () async {
+        final bridge = LuaLike();
+        await bridge.execute(r'''
         okGc, msgGc = pcall(function()
           return getmetatable(io.stdin).__gc()
         end)
       ''');
 
-      expect((bridge.getGlobal('okGc') as Value).unwrap(), isFalse);
-      expect(
-        (bridge.getGlobal('msgGc') as Value).unwrap(),
-        contains("bad argument #1 to '__gc' (FILE* expected, got no value)"),
-      );
-    });
+        expect((bridge.getGlobal('okGc') as Value).unwrap(), isFalse);
+        expect(
+          (bridge.getGlobal('msgGc') as Value).unwrap(),
+          contains("bad argument #1 to '__gc' (FILE* expected, got no value)"),
+        );
+      },
+    );
 
     test(
       'string.dump strip removes debug labels from reloaded functions',
@@ -1059,13 +1062,21 @@ void main() {
           end)
         ''');
 
-        expect((bridge.getGlobal('okSetMetaNoTable') as Value).unwrap(), isFalse);
+        expect(
+          (bridge.getGlobal('okSetMetaNoTable') as Value).unwrap(),
+          isFalse,
+        );
         expect(
           (bridge.getGlobal('msgSetMetaNoTable') as Value).unwrap(),
-          contains("bad argument #1 to 'setmetatable' (table expected, got no value)"),
+          contains(
+            "bad argument #1 to 'setmetatable' (table expected, got no value)",
+          ),
         );
 
-        expect((bridge.getGlobal('okSetMetaNoMeta') as Value).unwrap(), isFalse);
+        expect(
+          (bridge.getGlobal('okSetMetaNoMeta') as Value).unwrap(),
+          isFalse,
+        );
         expect(
           (bridge.getGlobal('msgSetMetaNoMeta') as Value).unwrap(),
           contains(
@@ -1073,16 +1084,26 @@ void main() {
           ),
         );
 
-        expect((bridge.getGlobal('okSetMetaBadTable') as Value).unwrap(), isFalse);
+        expect(
+          (bridge.getGlobal('okSetMetaBadTable') as Value).unwrap(),
+          isFalse,
+        );
         expect(
           (bridge.getGlobal('msgSetMetaBadTable') as Value).unwrap(),
-          contains("bad argument #1 to 'setmetatable' (table expected, got string)"),
+          contains(
+            "bad argument #1 to 'setmetatable' (table expected, got string)",
+          ),
         );
 
-        expect((bridge.getGlobal('okSetMetaBadMeta') as Value).unwrap(), isFalse);
+        expect(
+          (bridge.getGlobal('okSetMetaBadMeta') as Value).unwrap(),
+          isFalse,
+        );
         expect(
           (bridge.getGlobal('msgSetMetaBadMeta') as Value).unwrap(),
-          contains("bad argument #2 to 'setmetatable' (nil or table expected, got string)"),
+          contains(
+            "bad argument #2 to 'setmetatable' (nil or table expected, got string)",
+          ),
         );
       });
 

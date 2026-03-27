@@ -8,8 +8,10 @@ void main() {
       lua = LuaLike();
     });
 
-    test('reverse comparator preserves side effects with bounded comparisons', () async {
-      await lua.execute(r'''
+    test(
+      'reverse comparator preserves side effects with bounded comparisons',
+      () async {
+        await lua.execute(r'''
         math.randomseed(1234)
         local limit = 1000
         local counter = 0
@@ -34,11 +36,12 @@ void main() {
         comparatorCalls = counter
       ''');
 
-      expect(lua.getGlobal('reverseSorted').unwrap(), isTrue);
-      final calls = lua.getGlobal('comparatorCalls').unwrap() as num;
-      expect(calls, greaterThan(0));
-      expect(calls, lessThan(20000));
-    });
+        expect(lua.getGlobal('reverseSorted').unwrap(), isTrue);
+        final calls = lua.getGlobal('comparatorCalls').unwrap() as num;
+        expect(calls, greaterThan(0));
+        expect(calls, lessThan(20000));
+      },
+    );
 
     test('manual collect throttling engages for repeated collects', () async {
       final interpreter = Interpreter();

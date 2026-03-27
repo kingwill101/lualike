@@ -500,11 +500,11 @@ Future<void> main(List<String> args) async {
   final compileResult = shouldSkipCompile
       ? const SmartCompileResult(success: true, recompiled: false)
       : await compile(
-      force: force,
-      dartPath: dartPath,
-      binaryPath: lualikeBinaryPath,
-      cacheDir: lualikeCacheDir,
-    );
+          force: force,
+          dartPath: dartPath,
+          binaryPath: lualikeBinaryPath,
+          cacheDir: lualikeCacheDir,
+        );
   if (shouldSkipCompile) {
     console.setForegroundColor(ConsoleColor.yellow);
     console.write("Skip-compile flag specified, using existing binary");
@@ -826,7 +826,9 @@ Future<List<TestResult>> runTests({
     } else {
       console.setForegroundColor(ConsoleColor.red);
       if (result.timedOut) {
-        console.write("✗ Test timed out in ${result.duration.inMilliseconds}ms");
+        console.write(
+          "✗ Test timed out in ${result.duration.inMilliseconds}ms",
+        );
       } else {
         console.write("✗ Test failed in ${result.duration.inMilliseconds}ms");
       }

@@ -38,7 +38,9 @@ void main() {
       final runtime = Interpreter();
       final loadResult = await runtime.loadChunk(
         LuaChunkLoadRequest(
-          source: Value(LuaString.fromBytes(Uint8List.fromList(artifact.bytes))),
+          source: Value(
+            LuaString.fromBytes(Uint8List.fromList(artifact.bytes)),
+          ),
           chunkName: chunkName,
           mode: 'b',
         ),
@@ -46,10 +48,7 @@ void main() {
 
       expect(loadResult.isSuccess, isTrue);
       final execution = await loadResult.chunk!.call(const []);
-      expect(
-        _flattenResult(execution),
-        equals(<Object?>[1, true, 'ok', null]),
-      );
+      expect(_flattenResult(execution), equals(<Object?>[1, true, 'ok', null]));
     });
 
     test('disassembles emitted locals and identifier moves', () {
@@ -61,13 +60,10 @@ void main() {
       final parsed = const LuaBytecodeParser().parse(artifact.bytes);
       final disassembly = const LuaBytecodeDisassembler().disassemble(parsed);
 
-      expect(
-        [
-          for (final instruction in disassembly.mainPrototype.instructions)
-            instruction.opcode.name,
-        ],
-        equals(<String>['VARARGPREP', 'LOADI', 'MOVE', 'RETURN', 'RETURN']),
-      );
+      expect([
+        for (final instruction in disassembly.mainPrototype.instructions)
+          instruction.opcode.name,
+      ], equals(<String>['VARARGPREP', 'LOADI', 'MOVE', 'RETURN', 'RETURN']));
       expect(
         parsed.mainPrototype.localVariables.map((local) => local.name).toList(),
         equals(<String?>['x', 'y']),
@@ -75,10 +71,7 @@ void main() {
     });
 
     test('matches luac opcode shape for stable foundation programs', () {
-      for (final source in <String>[
-        'return 1\n',
-        'local x = 41\nreturn x\n',
-      ]) {
+      for (final source in <String>['return 1\n', 'local x = 41\nreturn x\n']) {
         final fixture = _compileFixture(luacBinary!, source);
         final emitted = const LuaBytecodeEmitter().compileSource(
           source,

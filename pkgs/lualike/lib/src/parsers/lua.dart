@@ -94,7 +94,7 @@ class LuaGrammarDefinition extends GrammarDefinition {
   /// file-based chunks (Lua skips the first line if it starts with '#'). This
   /// is consumed only for file chunks inside `start()` (not for load() on
   /// raw strings).
-Parser _shebang() {
+  Parser _shebang() {
     final eol = string('\r\n') | string('\n\r') | char('\n') | char('\r');
     return (string('#') & pattern('\r\n').neg().star() & eol.optional())
         .flatten();
@@ -384,21 +384,15 @@ Parser _shebang() {
     // --- multiplicative */%// ---
     builder.group().left(
       ref0(_mulOperator),
-      (dynamic a, dynamic op, dynamic b) => _makeBinaryExpression(
-        a as AstNode,
-        op,
-        b as AstNode,
-      ),
+      (dynamic a, dynamic op, dynamic b) =>
+          _makeBinaryExpression(a as AstNode, op, b as AstNode),
     );
 
     // --- additive + - ---
     builder.group().left(
       ref0(_addOperator),
-      (dynamic a, dynamic op, dynamic b) => _makeBinaryExpression(
-        a as AstNode,
-        op,
-        b as AstNode,
-      ),
+      (dynamic a, dynamic op, dynamic b) =>
+          _makeBinaryExpression(a as AstNode, op, b as AstNode),
     );
 
     // --- concatenation .. (right-assoc) ---
@@ -411,11 +405,8 @@ Parser _shebang() {
     // --- bitwise shift << >> ---
     builder.group().left(
       ref0(_shiftOperator),
-      (dynamic a, dynamic op, dynamic b) => _makeBinaryExpression(
-        a as AstNode,
-        op,
-        b as AstNode,
-      ),
+      (dynamic a, dynamic op, dynamic b) =>
+          _makeBinaryExpression(a as AstNode, op, b as AstNode),
     );
 
     // --- bitwise and & ---
@@ -442,11 +433,8 @@ Parser _shebang() {
     // --- comparison < > <= >= == ~= ---
     builder.group().left(
       ref0(_comparisonOperator),
-      (dynamic a, dynamic op, dynamic b) => _makeBinaryExpression(
-        a as AstNode,
-        op,
-        b as AstNode,
-      ),
+      (dynamic a, dynamic op, dynamic b) =>
+          _makeBinaryExpression(a as AstNode, op, b as AstNode),
     );
 
     // --- logical and ---
@@ -494,8 +482,7 @@ Parser _shebang() {
         _token('~='),
   );
 
-  Parser _shiftOperator() =>
-      _binaryOperatorToken(_token('<<') | _token('>>'));
+  Parser _shiftOperator() => _binaryOperatorToken(_token('<<') | _token('>>'));
 
   // ---------- Primary expressions -----------------------------------------
   Parser _primaryExpression() =>
@@ -1163,36 +1150,37 @@ Parser _shebang() {
 
   // Parses unary prefix operators and builds nested UnaryExpression nodes.
   Parser _unaryExpression() {
-    final unarySeq = (ref0(_unaryOperatorToken).plus() & ref0(_powerExpression)).map(
-      (vals) {
-        final ops = vals[0] as List;
-        AstNode node = vals[1] as AstNode;
-        for (var i = ops.length - 1; i >= 0; i--) {
-          final opSpec = ops[i];
-          final op = switch (opSpec) {
-            String value => value,
-            ({String op, int line, int offset}) value => value.op,
-            _ => opSpec.toString(),
-          };
-          final operatorLine = switch (opSpec) {
-            ({String op, int line, int offset}) value => value.line,
-            _ => null,
-          };
-          final operatorOffset = switch (opSpec) {
-            ({String op, int line, int offset}) value => value.offset,
-            _ => null,
-          };
-          final unary = UnaryExpression(op, node, operatorLine: operatorLine);
-          if (operatorOffset != null && node.span != null) {
-            unary.setSpan(_sourceFile.span(operatorOffset, node.span!.end.offset));
-          } else if (node.span != null) {
-            unary.setSpan(node.span!);
+    final unarySeq = (ref0(_unaryOperatorToken).plus() & ref0(_powerExpression))
+        .map((vals) {
+          final ops = vals[0] as List;
+          AstNode node = vals[1] as AstNode;
+          for (var i = ops.length - 1; i >= 0; i--) {
+            final opSpec = ops[i];
+            final op = switch (opSpec) {
+              String value => value,
+              ({String op, int line, int offset}) value => value.op,
+              _ => opSpec.toString(),
+            };
+            final operatorLine = switch (opSpec) {
+              ({String op, int line, int offset}) value => value.line,
+              _ => null,
+            };
+            final operatorOffset = switch (opSpec) {
+              ({String op, int line, int offset}) value => value.offset,
+              _ => null,
+            };
+            final unary = UnaryExpression(op, node, operatorLine: operatorLine);
+            if (operatorOffset != null && node.span != null) {
+              unary.setSpan(
+                _sourceFile.span(operatorOffset, node.span!.end.offset),
+              );
+            } else if (node.span != null) {
+              unary.setSpan(node.span!);
+            }
+            node = unary;
           }
-          node = unary;
-        }
-        return node;
-      },
-    );
+          return node;
+        });
 
     // If there is no unary operator, just parse the power expression.
     return unarySeq | ref0(_powerExpression);
@@ -1249,8 +1237,9 @@ Parser _shebang() {
         final betweenText = _sourceFile.span(searchStart, searchEnd).text;
         final opIndex = betweenText.lastIndexOf(op);
         if (opIndex >= 0) {
-          adjustedOperatorLine =
-              _sourceFile.location(searchStart + opIndex).line;
+          adjustedOperatorLine = _sourceFile
+              .location(searchStart + opIndex)
+              .line;
         } else if (adjustedOperatorLine != null &&
             left.span!.start.line != right.span!.start.line &&
             right.span!.start.line > left.span!.start.line + 1 &&
@@ -1267,7 +1256,9 @@ Parser _shebang() {
       operatorLine: adjustedOperatorLine,
     );
     if (left.span != null && right.span != null) {
-      node.setSpan(_sourceFile.span(left.span!.start.offset, right.span!.end.offset));
+      node.setSpan(
+        _sourceFile.span(left.span!.start.offset, right.span!.end.offset),
+      );
     } else if (left.span != null) {
       node.setSpan(left.span!);
     } else if (right.span != null) {
@@ -1527,9 +1518,7 @@ String luaChunkId(String source) {
   if (source.startsWith('=')) {
     final literal = source.substring(1);
     final budget = _luaIdSize - 1;
-    return literal.length <= budget
-        ? literal
-        : literal.substring(0, budget);
+    return literal.length <= budget ? literal : literal.substring(0, budget);
   }
   if (source.startsWith('@')) {
     final fileName = source.substring(1);
@@ -1715,7 +1704,10 @@ int _skipSyntaxTrivia(String source, int index) {
 bool _isIdentifierLikeToken(String token) =>
     RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(token);
 
-({String token, int offset}) _tokenNearSyntaxFailure(String source, int position) {
+({String token, int offset}) _tokenNearSyntaxFailure(
+  String source,
+  int position,
+) {
   final clampedPosition = position.clamp(0, source.length);
   final primary = _readSyntaxToken(source, clampedPosition);
   if (primary == null) {
@@ -1725,11 +1717,17 @@ bool _isIdentifierLikeToken(String token) =>
   if (clampedPosition == 0 && _isIdentifierLikeToken(primary.$1)) {
     final secondary = _readSyntaxToken(source, primary.$2);
     if (secondary != null && secondary.$1 != '<eof>') {
-      return (token: secondary.$1, offset: _skipSyntaxTrivia(source, primary.$2));
+      return (
+        token: secondary.$1,
+        offset: _skipSyntaxTrivia(source, primary.$2),
+      );
     }
   }
 
-  return (token: primary.$1, offset: _skipSyntaxTrivia(source, clampedPosition));
+  return (
+    token: primary.$1,
+    offset: _skipSyntaxTrivia(source, clampedPosition),
+  );
 }
 
 FormatException _formatSyntaxFailure(
@@ -1748,7 +1746,8 @@ FormatException _formatSyntaxFailure(
   String message;
   if (token == '<eof>') {
     message = 'unexpected symbol near <eof>';
-  } else if (source.trimLeft().startsWith('for ') && !_isIdentifierLikeToken(token)) {
+  } else if (source.trimLeft().startsWith('for ') &&
+      !_isIdentifierLikeToken(token)) {
     message = "<name> expected near '$token'";
   } else {
     message = "unexpected symbol near '$token'";
@@ -1905,7 +1904,9 @@ Program parse(String source, {Object? url, String? sourceName}) {
   final failure = result as Failure;
   final pos = failure.position;
 
-  final partialLocalLimit = _detectPartialLocalVariableOverflow(normalizedSource);
+  final partialLocalLimit = _detectPartialLocalVariableOverflow(
+    normalizedSource,
+  );
   if (partialLocalLimit != null) {
     throw FormatException(partialLocalLimit);
   }

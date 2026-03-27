@@ -63,9 +63,9 @@ Y = 1
 ''', mode: mode),
             throwsA(
               predicate(
-                (error) => error
-                    .toString()
-                    .contains("attempt to assign to const variable 'Y'"),
+                (error) => error.toString().contains(
+                  "attempt to assign to const variable 'Y'",
+                ),
               ),
             ),
           );
@@ -99,8 +99,10 @@ return fat
           },
         );
 
-        test('global initialization uses pre-declaration scope for rhs', () async {
-          final result = await executeCode('''
+        test(
+          'global initialization uses pre-declaration scope for rhs',
+          () async {
+            final result = await executeCode('''
 local a, b = 100, 200
 do
   global a, b = a, b
@@ -108,11 +110,14 @@ end
 return a, b, _ENV.a, _ENV.b
 ''', mode: mode);
 
-          expect(_flatten(result), equals([100, 200, 100, 200]));
-        });
+            expect(_flatten(result), equals([100, 200, 100, 200]));
+          },
+        );
 
-        test('global function declares explicit global without shadowing local', () async {
-          final result = await executeCode('''
+        test(
+          'global function declares explicit global without shadowing local',
+          () async {
+            final result = await executeCode('''
 local foo = 20
 do
   global function foo (x)
@@ -126,11 +131,14 @@ end
 return foo, _ENV.foo(4)
 ''', mode: mode);
 
-          expect(_flatten(result), equals([20, 16]));
-        });
+            expect(_flatten(result), equals([20, 16]));
+          },
+        );
 
-        test('global function honors lexical _ENV for reads and writes', () async {
-          final result = await executeCode('''
+        test(
+          'global function honors lexical _ENV for reads and writes',
+          () async {
+            final result = await executeCode('''
 global <const> *
 do
   local mt = {_G = _G}
@@ -148,11 +156,14 @@ do
 end
 ''', mode: mode);
 
-          expect(_flatten(result), equals(['hi', 1000, 'hi*']));
-        });
+            expect(_flatten(result), equals(['hi', 1000, 'hi*']));
+          },
+        );
 
-        test('explicit global assignment does not overwrite outer local', () async {
-          final result = await executeCode('''
+        test(
+          'explicit global assignment does not overwrite outer local',
+          () async {
+            final result = await executeCode('''
 do
   local X = 10
   do
@@ -163,12 +174,14 @@ do
 end
 ''', mode: mode);
 
-          expect(_flatten(result), equals([10, 20]));
-        });
+            expect(_flatten(result), equals([10, 20]));
+          },
+        );
 
-
-        test('redeclaring globals in the same scope refreshes nil bindings', () async {
-          final result = await executeCode('''
+        test(
+          'redeclaring globals in the same scope refreshes nil bindings',
+          () async {
+            final result = await executeCode('''
 do
   global<const> a, b, c = 10, 20, 30
   _ENV.a = nil; _ENV.b = nil; _ENV.c = nil
@@ -178,8 +191,9 @@ do
 end
 ''', mode: mode);
 
-          expect(_flatten(result), equals([10, null, null]));
-        });
+            expect(_flatten(result), equals([10, null, null]));
+          },
+        );
 
         test('global initialization rejects already defined names', () async {
           await expectLater(
@@ -208,36 +222,42 @@ end
           );
         });
 
-        test('plain function definition still needs declaration after global none', () async {
-          await expectLater(
-            () => executeCode('''
+        test(
+          'plain function definition still needs declaration after global none',
+          () async {
+            await expectLater(
+              () => executeCode('''
 global none
 function XX () end
 ''', mode: mode),
-            throwsA(
-              predicate(
-                (error) =>
-                    error.toString().contains("variable 'XX' not declared"),
+              throwsA(
+                predicate(
+                  (error) =>
+                      error.toString().contains("variable 'XX' not declared"),
+                ),
               ),
-            ),
-          );
-        });
+            );
+          },
+        );
 
-        test('local<const> compact syntax applies default attributes', () async {
-          await expectLater(
-            () => executeCode('''
+        test(
+          'local<const> compact syntax applies default attributes',
+          () async {
+            await expectLater(
+              () => executeCode('''
 local<const> foo = 10
 foo = 11
 ''', mode: mode),
-            throwsA(
-              predicate(
-                (error) => error
-                    .toString()
-                    .contains("attempt to assign to const variable 'foo'"),
+              throwsA(
+                predicate(
+                  (error) => error.toString().contains(
+                    "attempt to assign to const variable 'foo'",
+                  ),
+                ),
               ),
-            ),
-          );
-        });
+            );
+          },
+        );
       });
     }
   });

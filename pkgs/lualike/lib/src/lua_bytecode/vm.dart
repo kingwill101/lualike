@@ -294,9 +294,7 @@ final class LuaBytecodeVm {
         }
         return _invokePreparedCall(
           (callee: callee, args: prepared.args),
-          callName: tail.callName != null
-              ? tailNameInfo.name
-              : currentCallName,
+          callName: tail.callName != null ? tailNameInfo.name : currentCallName,
           callNameWhat: tail.callName != null
               ? tailNameInfo.namewhat
               : currentCallNameWhat,
@@ -366,14 +364,12 @@ final class LuaBytecodeVm {
               functionValue.functionBody == null =>
         _wrapClosure(closure),
       final Value functionValue => functionValue,
-      _ =>
-        (Value(
-              closure,
-              functionBody: closure.debugFunctionBody,
-              closureEnvironment: closure.environment,
-              functionName: frame.callName ?? closure.debugInfo.shortSource,
-            )
-            ..interpreter = runtime),
+      _ => (Value(
+        closure,
+        functionBody: closure.debugFunctionBody,
+        closureEnvironment: closure.environment,
+        functionName: frame.callName ?? closure.debugInfo.shortSource,
+      )..interpreter = runtime),
     };
     runtime.callStack.push(
       frame.callName ?? closure.debugInfo.shortSource,
@@ -487,9 +483,7 @@ final class LuaBytecodeVm {
           );
           closeResult = <Object?>[
             Value(false),
-            normalizedError is Value
-                ? normalizedError
-                : Value(normalizedError),
+            normalizedError is Value ? normalizedError : Value(normalizedError),
           ];
         } finally {
           runtime.isYieldable = previousYieldable;
@@ -1463,7 +1457,9 @@ final class LuaBytecodeVm {
         case 'CALL':
           {
             try {
-              final callTop = word.b == 0 ? frame.effectiveTop : word.a + word.b;
+              final callTop = word.b == 0
+                  ? frame.effectiveTop
+                  : word.a + word.b;
               frame.top = callTop;
               frame.openTop = word.b == 0 ? callTop : null;
               if (_debugFileOps) {
@@ -1476,8 +1472,8 @@ final class LuaBytecodeVm {
                 final receiverDetail = switch (receiver?.raw) {
                   final LuaFile file =>
                     ' receiverValue=${identityHashCode(receiver)}'
-                    ' receiverRaw=${identityHashCode(file)}'
-                    ' trackedValue=${identityHashCode(IOLib.trackedOpenFileWrapper(file))}',
+                        ' receiverRaw=${identityHashCode(file)}'
+                        ' trackedValue=${identityHashCode(IOLib.trackedOpenFileWrapper(file))}',
                   _ => '',
                 };
                 _debugFileLog(
@@ -1499,7 +1495,9 @@ final class LuaBytecodeVm {
         case 'TAILCALL':
           {
             try {
-              final callTop = word.b == 0 ? frame.effectiveTop : word.a + word.b;
+              final callTop = word.b == 0
+                  ? frame.effectiveTop
+                  : word.a + word.b;
               frame.top = callTop;
               frame.openTop = word.b == 0 ? callTop : null;
               final call = _resolveCall(frame, word);
@@ -1638,8 +1636,7 @@ final class LuaBytecodeVm {
               final int integer => integer,
               final BigInt integer => NumberUtils.tryToInteger(integer),
               final double number
-                  when number.isFinite &&
-                      number.truncateToDouble() == number =>
+                  when number.isFinite && number.truncateToDouble() == number =>
                 number.toInt(),
               _ => null,
             };
@@ -1730,25 +1727,26 @@ final class LuaBytecodeVm {
     _LuaBytecodeFrame frame,
   ) {
     final currentPc = frame.pc + 1;
-    final activeLocals = <LuaBytecodeLocalVariableDebugInfo>[
-      for (final local in frame.closure.prototype.localVariables)
-        if (local.register != null &&
-            local.startPc <= currentPc &&
-            currentPc < local.endPc)
-          local,
-    ]..sort((left, right) {
-      final startOrder = left.startPc.compareTo(right.startPc);
-      if (startOrder != 0) {
-        return startOrder;
-      }
-      final leftRegister = left.register ?? -1;
-      final rightRegister = right.register ?? -1;
-      final registerOrder = leftRegister.compareTo(rightRegister);
-      if (registerOrder != 0) {
-        return registerOrder;
-      }
-      return (left.name ?? '').compareTo(right.name ?? '');
-    });
+    final activeLocals =
+        <LuaBytecodeLocalVariableDebugInfo>[
+          for (final local in frame.closure.prototype.localVariables)
+            if (local.register != null &&
+                local.startPc <= currentPc &&
+                currentPc < local.endPc)
+              local,
+        ]..sort((left, right) {
+          final startOrder = left.startPc.compareTo(right.startPc);
+          if (startOrder != 0) {
+            return startOrder;
+          }
+          final leftRegister = left.register ?? -1;
+          final rightRegister = right.register ?? -1;
+          final registerOrder = leftRegister.compareTo(rightRegister);
+          if (registerOrder != 0) {
+            return registerOrder;
+          }
+          return (left.name ?? '').compareTo(right.name ?? '');
+        });
     final activeRegisters = <int>{
       for (final local in activeLocals)
         if (local.register case final int register) register,
@@ -1837,13 +1835,13 @@ final class LuaBytecodeVm {
       'NEWTABLE' ||
       'VARARG' ||
       'VARARGPREP' ||
-      'CLOSURE' =>
-        false,
+      'CLOSURE' => false,
       'GETTABLE' => word.b == register || word.c == register,
       'GETI' || 'GETFIELD' => word.b == register,
       'SETTABUP' => word.a == register || word.b == register,
       'SETUPVAL' => word.a == register,
-      'SETTABLE' => word.a == register || word.b == register || word.c == register,
+      'SETTABLE' =>
+        word.a == register || word.b == register || word.c == register,
       'SETI' || 'SETFIELD' => word.a == register || word.b == register,
       'SELF' => word.b == register,
       'ADD' ||
@@ -1858,9 +1856,7 @@ final class LuaBytecodeVm {
       'BXOR' ||
       'SHL' ||
       'SHR' => word.b == register || word.c == register,
-      'ADDI' ||
-      'SHLI' ||
-      'SHRI' => word.b == register,
+      'ADDI' || 'SHLI' || 'SHRI' => word.b == register,
       'ADDK' ||
       'SUBK' ||
       'MULK' ||
@@ -1871,25 +1867,14 @@ final class LuaBytecodeVm {
       'BANDK' ||
       'BORK' ||
       'BXORK' => word.b == register,
-      'UNM' ||
-      'BNOT' ||
-      'NOT' ||
-      'LEN' => word.b == register,
+      'UNM' || 'BNOT' || 'NOT' || 'LEN' => word.b == register,
       'CONCAT' => register >= word.b && register <= word.c,
       'JMP' => false,
-      'EQ' ||
-      'LT' ||
-      'LE' => word.b == register || word.c == register,
-      'EQK' ||
-      'EQI' ||
-      'LTI' ||
-      'LEI' ||
-      'GTI' ||
-      'GEI' => word.a == register,
+      'EQ' || 'LT' || 'LE' => word.b == register || word.c == register,
+      'EQK' || 'EQI' || 'LTI' || 'LEI' || 'GTI' || 'GEI' => word.a == register,
       'TEST' => word.a == register,
       'TESTSET' => word.b == register,
-      'CALL' ||
-      'TAILCALL' => switch (word.b) {
+      'CALL' || 'TAILCALL' => switch (word.b) {
         0 => register >= word.a,
         _ => register >= word.a && register < word.a + word.b,
       },
@@ -1908,8 +1893,7 @@ final class LuaBytecodeVm {
       },
       'TFORLOOP' => word.a == register,
       'SETLIST' => register >= word.a && register <= word.a + word.b,
-      'CLOSE' ||
-      'TBC' => false,
+      'CLOSE' || 'TBC' => false,
       'MMBIN' ||
       'MMBINI' ||
       'MMBINK' => word.a == register || word.b == register,
@@ -1988,12 +1972,7 @@ final class LuaBytecodeVm {
         _forceBinaryOperation(operation, left, right),
       );
     } on LuaError catch (error) {
-      throw _rewriteBinaryOperandError(
-        frame,
-        left,
-        right,
-        error,
-      );
+      throw _rewriteBinaryOperandError(frame, left, right, error);
     }
   }
 
@@ -2105,9 +2084,8 @@ final class LuaBytecodeVm {
     required Value left,
     required Value right,
   }) async {
-    final (leftLabel, rightLabel) = _binaryOperandSourceLabelsForPreviousInstruction(
-      frame,
-    );
+    final (leftLabel, rightLabel) =
+        _binaryOperandSourceLabelsForPreviousInstruction(frame);
     final metamethodResult = await _invokeBinaryMetamethod(
       metamethod,
       left,
@@ -2355,8 +2333,7 @@ final class LuaBytecodeVm {
     } on Exception catch (error) {
       if (error.toString().contains('attempt to call a non-function value')) {
         final targetLabel = switch ((callName, callNameWhat)) {
-          (final String name, final String namewhat)
-              when namewhat.isNotEmpty =>
+          (final String name, final String namewhat) when namewhat.isNotEmpty =>
             "$namewhat '$name'",
           (final String label, _) when label.contains("'") => label,
           _ => null,
@@ -2365,10 +2342,7 @@ final class LuaBytecodeVm {
         final message = targetLabel != null
             ? "attempt to call $targetLabel (a $type value)"
             : "attempt to call a $type value";
-        throw LuaError(
-          message,
-          lineNumber: _callSiteLine(frame),
-        );
+        throw LuaError(message, lineNumber: _callSiteLine(frame));
       }
       rethrow;
     }
@@ -2409,10 +2383,7 @@ final class LuaBytecodeVm {
     throw YieldException(error.values, error.resumeFuture, coroutine);
   }
 
-  Never _suspendTailCall(
-    _LuaBytecodeFrame frame,
-    YieldException error,
-  ) {
+  Never _suspendTailCall(_LuaBytecodeFrame frame, YieldException error) {
     final coroutine = _requireCoroutineForYield(frame, error);
     final child = coroutine.takeContinuation();
     _tmpDebugFrame(
@@ -2566,24 +2537,24 @@ final class LuaBytecodeVm {
     extraArgs += prepared.extraArgs;
     callee.interpreter ??= runtime;
     if (await _tryHandleDebugLocalBuiltin(
-      callee,
-      args,
-      callName: callName,
-      callNameWhat: callNameWhat,
-      extraArgs: extraArgs,
-      callerFrame: callerFrame,
-    )
+          callee,
+          args,
+          callName: callName,
+          callNameWhat: callNameWhat,
+          extraArgs: extraArgs,
+          callerFrame: callerFrame,
+        )
         case final handled?) {
       return handled;
     }
     if (await _tryHandleProtectedCallBuiltin(
-      callee,
-      args,
-      callName: callName,
-      callNameWhat: callNameWhat,
-      extraArgs: extraArgs,
-      callerFrame: callerFrame,
-    )
+          callee,
+          args,
+          callName: callName,
+          callNameWhat: callNameWhat,
+          extraArgs: extraArgs,
+          callerFrame: callerFrame,
+        )
         case final handled?) {
       return handled;
     }
@@ -2647,8 +2618,7 @@ final class LuaBytecodeVm {
       return normalized;
     } on CoroutineCloseSignal catch (signal) {
       _closeSignalYieldableStates[signal] =
-          (_closeSignalYieldableStates[signal] ?? true) &&
-          yieldableAtCallEntry;
+          (_closeSignalYieldableStates[signal] ?? true) && yieldableAtCallEntry;
       rethrow;
     } finally {
       final returnDebugInterpreter = _debugInterpreter;
@@ -2680,7 +2650,8 @@ final class LuaBytecodeVm {
     }
 
     final functionArg = args.first;
-    if (functionArg.raw is! LuaBytecodeClosure || functionArg.functionBody == null) {
+    if (functionArg.raw is! LuaBytecodeClosure ||
+        functionArg.functionBody == null) {
       return args;
     }
 
@@ -2732,10 +2703,7 @@ final class LuaBytecodeVm {
     };
     final frame = switch (adjustedLevel) {
       final int visibleLevel when visibleLevel > 0 =>
-        _resolveVisibleBytecodeFrame(
-          runtime,
-          visibleLevel,
-        ),
+        _resolveVisibleBytecodeFrame(runtime, visibleLevel),
       _ => null,
     };
     if (frame?.callable?.raw is! LuaBytecodeClosure) {
@@ -2837,9 +2805,7 @@ final class LuaBytecodeVm {
           throw LuaError('pcall requires a function');
         }
         final func = args.first;
-        final callArgs = args.length == 1
-            ? const <Value>[]
-            : args.sublist(1);
+        final callArgs = args.length == 1 ? const <Value>[] : args.sublist(1);
         return _invokeBytecodePCall(func, callArgs);
       },
     );
@@ -2873,10 +2839,7 @@ final class LuaBytecodeVm {
       if (coroutine != null) {
         final nextChild = coroutine.takeContinuation();
         coroutine.installContinuation(
-          _LuaBytecodeProtectedCallSuspension(
-            vm: this,
-            child: nextChild,
-          ),
+          _LuaBytecodeProtectedCallSuspension(vm: this, child: nextChild),
         );
       }
       rethrow;
@@ -2891,7 +2854,10 @@ final class LuaBytecodeVm {
     if (result == null) {
       return <Value>[_runtimeValue(runtime, true)];
     }
-    if (result case Value(isMulti: true, raw: final List<Object?> multiValues)) {
+    if (result case Value(
+      isMulti: true,
+      raw: final List<Object?> multiValues,
+    )) {
       return <Value>[
         _runtimeValue(runtime, true),
         ...multiValues.map(
@@ -2951,7 +2917,10 @@ final class LuaBytecodeVm {
         }
         return '$formattedSource: ${error.message}';
       }
-      return _formatBytecodeProtectedCallMessage(error.message, lineOverride: error.lineNumber);
+      return _formatBytecodeProtectedCallMessage(
+        error.message,
+        lineOverride: error.lineNumber,
+      );
     }
     return error.toString();
   }
@@ -2964,12 +2933,15 @@ final class LuaBytecodeVm {
     final line = switch (lineOverride) {
       final currentLine? when currentLine > 0 => currentLine,
       _ => switch (topFrame?.currentLine) {
-        final currentLine when currentLine != null && currentLine > 0 => currentLine,
+        final currentLine when currentLine != null && currentLine > 0 =>
+          currentLine,
         _ => -1,
       },
     };
     final scriptPath =
-        topFrame?.scriptPath ?? runtime.callStack.scriptPath ?? runtime.currentScriptPath;
+        topFrame?.scriptPath ??
+        runtime.callStack.scriptPath ??
+        runtime.currentScriptPath;
     if (scriptPath != null && line > 0) {
       return '$scriptPath:$line: $message';
     }
@@ -3031,8 +3003,7 @@ final class LuaBytecodeVm {
       return result;
     } on CoroutineCloseSignal catch (signal) {
       _closeSignalYieldableStates[signal] =
-          (_closeSignalYieldableStates[signal] ?? true) &&
-          yieldableAtCallEntry;
+          (_closeSignalYieldableStates[signal] ?? true) && yieldableAtCallEntry;
       rethrow;
     } finally {
       final returnDebugInterpreter = _debugInterpreter;
@@ -3072,13 +3043,10 @@ final class LuaBytecodeVm {
     _LuaBytecodeFrame frame,
     Interpreter interpreter,
   ) async {
-    _setTransferInfo(
-      runtime.callStack.top,
-      [
-        for (var i = 0; i < frame.closure.prototype.parameterCount; i++)
-          frame.register(i),
-      ],
-    );
+    _setTransferInfo(runtime.callStack.top, [
+      for (var i = 0; i < frame.closure.prototype.parameterCount; i++)
+        frame.register(i),
+    ]);
     try {
       await interpreter.fireDebugHook(frame.isTailCall ? 'tail call' : 'call');
       frame.didFireEntryCallHook = true;
@@ -3147,7 +3115,11 @@ final class LuaBytecodeVm {
           final localValue = frame.register(localRegister);
           if ((identical(localValue, callee) ||
                   identical(localValue.raw, callee.raw)) &&
-              _isUnambiguousMoveAlias(frame, register, beforePc: currentPc - 2)) {
+              _isUnambiguousMoveAlias(
+                frame,
+                register,
+                beforePc: currentPc - 2,
+              )) {
             return (name: name, namewhat: 'local');
           }
         }
@@ -3191,58 +3163,53 @@ final class LuaBytecodeVm {
         return (name: null, namewhat: '');
       }
       return switch (opcode) {
-        'MOVE' => _isUnambiguousMoveAlias(frame, register, beforePc: beforePc)
-            ? (() {
-                for (final local in prototype.localVariables) {
-                  if (!(local.startPc <= beforePc + 1 &&
-                      beforePc + 1 < local.endPc)) {
-                    continue;
+        'MOVE' =>
+          _isUnambiguousMoveAlias(frame, register, beforePc: beforePc)
+              ? (() {
+                  for (final local in prototype.localVariables) {
+                    if (!(local.startPc <= beforePc + 1 &&
+                        beforePc + 1 < local.endPc)) {
+                      continue;
+                    }
+                    final name = local.name;
+                    if (name == null || name.isEmpty || name.startsWith('(')) {
+                      continue;
+                    }
+                    if (local.register == word.b) {
+                      return (name: name, namewhat: 'local');
+                    }
                   }
-                  final name = local.name;
-                  if (name == null || name.isEmpty || name.startsWith('(')) {
-                    continue;
-                  }
-                  if (local.register == word.b) {
-                    return (name: name, namewhat: 'local');
-                  }
-                }
-                return _inferRegisterCallNameInfo(
-                  frame,
-                  word.b,
-                  beforePc: pc - 1,
-                  visitedRegisters: visitedRegisters,
-                );
-              })()
-            : (name: null, namewhat: ''),
-        'GETTABLE' => switch (
-          _stringKeyForRegister(
+                  return _inferRegisterCallNameInfo(
+                    frame,
+                    word.b,
+                    beforePc: pc - 1,
+                    visitedRegisters: visitedRegisters,
+                  );
+                })()
+              : (name: null, namewhat: ''),
+        'GETTABLE' => switch (_stringKeyForRegister(
+          frame,
+          word.c,
+          beforePc: pc - 1,
+          visitedRegisters: <int>{},
+        )) {
+          final String key => switch (_isEnvironmentRegister(
             frame,
-            word.c,
+            word.b,
             beforePc: pc - 1,
             visitedRegisters: <int>{},
-          )
-        ) {
-          final String key => switch (
-            _isEnvironmentRegister(
-              frame,
-              word.b,
-              beforePc: pc - 1,
-              visitedRegisters: <int>{},
-            )
-          ) {
+          )) {
             true => (name: key, namewhat: 'global'),
             false => (name: key, namewhat: 'field'),
           },
           _ => (name: null, namewhat: ''),
         },
-        'GETFIELD' => switch (
-          _isEnvironmentRegister(
-            frame,
-            word.b,
-            beforePc: pc - 1,
-            visitedRegisters: <int>{},
-          )
-        ) {
+        'GETFIELD' => switch (_isEnvironmentRegister(
+          frame,
+          word.b,
+          beforePc: pc - 1,
+          visitedRegisters: <int>{},
+        )) {
           true => (
             name: _stringConstant(runtime, prototype, word.c).raw.toString(),
             namewhat: 'global',
@@ -3260,7 +3227,10 @@ final class LuaBytecodeVm {
           name: _stringConstant(runtime, prototype, word.c).raw.toString(),
           namewhat: 'global',
         ),
-        'GETUPVAL' => (name: frame.closure.upvalueName(word.b), namewhat: 'upvalue'),
+        'GETUPVAL' => (
+          name: frame.closure.upvalueName(word.b),
+          namewhat: 'upvalue',
+        ),
         'LOADK' => switch (_constantValue(runtime, prototype, word.bx).raw) {
           final String name => (
             name: name,
@@ -3268,10 +3238,7 @@ final class LuaBytecodeVm {
           ),
           final LuaString name => (
             name: name.toString(),
-            namewhat: _inferCallNameWhatFromEnvironment(
-              frame,
-              name.toString(),
-            ),
+            namewhat: _inferCallNameWhatFromEnvironment(frame, name.toString()),
           ),
           _ => (name: null, namewhat: ''),
         },
@@ -3286,10 +3253,7 @@ final class LuaBytecodeVm {
           ),
           final LuaString name => (
             name: name.toString(),
-            namewhat: _inferCallNameWhatFromEnvironment(
-              frame,
-              name.toString(),
-            ),
+            namewhat: _inferCallNameWhatFromEnvironment(frame, name.toString()),
           ),
           _ => (name: null, namewhat: ''),
         },
@@ -3299,7 +3263,10 @@ final class LuaBytecodeVm {
     return (name: null, namewhat: '');
   }
 
-  String _inferCallNameWhatFromEnvironment(_LuaBytecodeFrame frame, String name) {
+  String _inferCallNameWhatFromEnvironment(
+    _LuaBytecodeFrame frame,
+    String name,
+  ) {
     Environment? env = frame.closure.environment;
     while (env != null) {
       if (env.values.containsKey(name)) {
@@ -3377,7 +3344,8 @@ final class LuaBytecodeVm {
     }
 
     final offending =
-        _coerceLuaNumber(left.raw) == null && _coerceLuaNumber(right.raw) != null
+        _coerceLuaNumber(left.raw) == null &&
+            _coerceLuaNumber(right.raw) != null
         ? left
         : right;
     final offendingType = getLuaType(offending);
@@ -3433,7 +3401,11 @@ final class LuaBytecodeVm {
 
   String? _valueSourceLabel(_LuaBytecodeFrame frame, Value value) {
     final currentPc = frame.pc;
-    for (var registerIndex = 0; registerIndex < frame.registers.length; registerIndex++) {
+    for (
+      var registerIndex = 0;
+      registerIndex < frame.registers.length;
+      registerIndex++
+    ) {
       final registerValue = frame.registers[registerIndex];
       if (identical(registerValue, value) ||
           (value.raw != null && identical(registerValue.raw, value.raw))) {
@@ -3506,11 +3478,7 @@ final class LuaBytecodeVm {
   }
 
   String? _registerSourceLabel(_LuaBytecodeFrame frame, int? register) {
-    return _registerSourceLabelBefore(
-      frame,
-      register,
-      beforePc: frame.pc - 2,
-    );
+    return _registerSourceLabelBefore(frame, register, beforePc: frame.pc - 2);
   }
 
   String? _registerSourceLabelBefore(
@@ -3557,49 +3525,45 @@ final class LuaBytecodeVm {
       }
 
       return switch (opcode) {
-        'MOVE' => _isUnambiguousMoveAlias(frame, register, beforePc: beforePc)
-            ? (_activeLocalSourceLabel(frame, word.b) ??
-                  _inferRegisterSourceLabel(
-                    frame,
-                    word.b,
-                    beforePc: pc - 1,
-                    visitedRegisters: visitedRegisters,
-                  ))
-            : null,
-        'GETTABLE' => switch (
-          _stringKeyForRegister(
+        'MOVE' =>
+          _isUnambiguousMoveAlias(frame, register, beforePc: beforePc)
+              ? (_activeLocalSourceLabel(frame, word.b) ??
+                    _inferRegisterSourceLabel(
+                      frame,
+                      word.b,
+                      beforePc: pc - 1,
+                      visitedRegisters: visitedRegisters,
+                    ))
+              : null,
+        'GETTABLE' => switch (_stringKeyForRegister(
+          frame,
+          word.c,
+          beforePc: pc - 1,
+          visitedRegisters: <int>{},
+        )) {
+          final String key => switch (_isEnvironmentRegister(
             frame,
-            word.c,
+            word.b,
             beforePc: pc - 1,
             visitedRegisters: <int>{},
-          )
-        ) {
-          final String key => switch (
-            _isEnvironmentRegister(
-              frame,
-              word.b,
-              beforePc: pc - 1,
-              visitedRegisters: <int>{},
-            )
-          ) {
+          )) {
             true => "global '$key'",
             false => "field '$key'",
           },
           _ => null,
         },
-        'GETFIELD' => switch (
-          _isEnvironmentRegister(
-            frame,
-            word.b,
-            beforePc: pc - 1,
-            visitedRegisters: <int>{},
-          )
-        ) {
+        'GETFIELD' => switch (_isEnvironmentRegister(
+          frame,
+          word.b,
+          beforePc: pc - 1,
+          visitedRegisters: <int>{},
+        )) {
           true => "global '${_stringConstant(runtime, prototype, word.c).raw}'",
           false => "field '${_stringConstant(runtime, prototype, word.c).raw}'",
         },
         'SELF' => "method '${_stringConstant(runtime, prototype, word.c).raw}'",
-        'GETTABUP' => "global '${_stringConstant(runtime, prototype, word.c).raw}'",
+        'GETTABUP' =>
+          "global '${_stringConstant(runtime, prototype, word.c).raw}'",
         'GETUPVAL' => switch (frame.closure.upvalueName(word.b)) {
           final String name when name.isNotEmpty => "upvalue '$name'",
           _ => null,
@@ -3748,15 +3712,15 @@ final class LuaBytecodeVm {
           final previousOpcode = LuaBytecodeOpcodes.byCode(
             previous.opcodeValue,
           ).name;
-        if (previousOpcode == 'RETURN' || previousOpcode == 'TAILCALL') {
-          return true;
+          if (previousOpcode == 'RETURN' || previousOpcode == 'TAILCALL') {
+            return true;
+          }
+          if (_instructionWritesRegister(previous, previousOpcode, register)) {
+            return true;
+          }
         }
-        if (_instructionWritesRegister(previous, previousOpcode, register)) {
-          return true;
-        }
+        return true;
       }
-      return true;
-    }
     }
     return false;
   }
@@ -3832,7 +3796,8 @@ final class LuaBytecodeVm {
           RegExp(
             r"attempt to perform arithmetic on (?:local|global|upvalue|field|method) '[^']+' \(a ([^)]+) value\)",
           ),
-          (match) => 'attempt to perform arithmetic on a ${match.group(1)} value',
+          (match) =>
+              'attempt to perform arithmetic on a ${match.group(1)} value',
         )
         .replaceAllMapped(
           RegExp(
@@ -3853,10 +3818,7 @@ final class LuaBytecodeVm {
     );
   }
 
-  LuaError _withFrameRuntimeLocation(
-    _LuaBytecodeFrame frame,
-    LuaError error,
-  ) {
+  LuaError _withFrameRuntimeLocation(_LuaBytecodeFrame frame, LuaError error) {
     if (error.suppressAutomaticLocation) {
       return error;
     }
@@ -3869,12 +3831,17 @@ final class LuaBytecodeVm {
     final currentLine =
         runtime.callStack.top?.currentLine ??
         frame.closure.prototype.lineForPc(frame.pc > 0 ? frame.pc - 1 : 0);
-    if (source == null || source.isEmpty || currentLine == null || currentLine <= 0) {
+    if (source == null ||
+        source.isEmpty ||
+        currentLine == null ||
+        currentLine <= 0) {
       return error;
     }
 
     var strippedMessage = message;
-    final locationPrefixMatch = RegExp(r'^([^:\n]+): (.*)$').firstMatch(message);
+    final locationPrefixMatch = RegExp(
+      r'^([^:\n]+): (.*)$',
+    ).firstMatch(message);
     if (locationPrefixMatch != null) {
       final prefix = locationPrefixMatch.group(1)!;
       final looksLikeLocation =
@@ -4271,9 +4238,7 @@ Future<void> _closeFrameForCoroutine(
     await frame.closeResources(fromRegister: fromRegister, error: error);
   } on LuaError catch (luaError) {
     final cause = luaError.cause;
-    if (cause != null &&
-        cause is! LuaError &&
-        cause is! UnsupportedError) {
+    if (cause != null && cause is! LuaError && cause is! UnsupportedError) {
       throw cause;
     }
     rethrow;
@@ -4379,25 +4344,26 @@ CallFrame _bytecodeSuspendedDebugFrame(_LuaBytecodeFrame frame) {
     isTailCall: frame.isTailCall,
   );
   _callFrameBytecodeFrames[callFrame] = frame;
-  final activeLocals = <LuaBytecodeLocalVariableDebugInfo>[
-    for (final local in closure.prototype.localVariables)
-      if (local.register != null &&
-          local.startPc <= frame.pc + 1 &&
-          frame.pc + 1 < local.endPc)
-        local,
-  ]..sort((left, right) {
-    final startOrder = left.startPc.compareTo(right.startPc);
-    if (startOrder != 0) {
-      return startOrder;
-    }
-    final leftRegister = left.register ?? -1;
-    final rightRegister = right.register ?? -1;
-    final registerOrder = leftRegister.compareTo(rightRegister);
-    if (registerOrder != 0) {
-      return registerOrder;
-    }
-    return (left.name ?? '').compareTo(right.name ?? '');
-  });
+  final activeLocals =
+      <LuaBytecodeLocalVariableDebugInfo>[
+        for (final local in closure.prototype.localVariables)
+          if (local.register != null &&
+              local.startPc <= frame.pc + 1 &&
+              frame.pc + 1 < local.endPc)
+            local,
+      ]..sort((left, right) {
+        final startOrder = left.startPc.compareTo(right.startPc);
+        if (startOrder != 0) {
+          return startOrder;
+        }
+        final leftRegister = left.register ?? -1;
+        final rightRegister = right.register ?? -1;
+        final registerOrder = leftRegister.compareTo(rightRegister);
+        if (registerOrder != 0) {
+          return registerOrder;
+        }
+        return (left.name ?? '').compareTo(right.name ?? '');
+      });
   callFrame.debugLocals
     ..clear()
     ..addAll([
@@ -4555,31 +4521,32 @@ List<MapEntry<String, Value>> _bytecodeFrameLocals(CallFrame frame) {
         if (entry.key != '(temporary)' && entry.key != '(vararg table)')
           entry.key,
     };
-    final placeholders = <LuaBytecodeLocalVariableDebugInfo>[
-      for (final local in closure.prototype.localVariables)
-        if (local.name case final String name
-            when name.isNotEmpty &&
-                !name.startsWith('(') &&
-                !seenNames.contains(name) &&
-                _localStartsOnCurrentLine(
-                  closure.prototype,
-                  local,
-                  frame.currentLine,
-                ))
-          local,
-    ]..sort((left, right) {
-      final startOrder = left.startPc.compareTo(right.startPc);
-      if (startOrder != 0) {
-        return startOrder;
-      }
-      final leftRegister = left.register ?? -1;
-      final rightRegister = right.register ?? -1;
-      final registerOrder = leftRegister.compareTo(rightRegister);
-      if (registerOrder != 0) {
-        return registerOrder;
-      }
-      return (left.name ?? '').compareTo(right.name ?? '');
-    });
+    final placeholders =
+        <LuaBytecodeLocalVariableDebugInfo>[
+          for (final local in closure.prototype.localVariables)
+            if (local.name case final String name
+                when name.isNotEmpty &&
+                    !name.startsWith('(') &&
+                    !seenNames.contains(name) &&
+                    _localStartsOnCurrentLine(
+                      closure.prototype,
+                      local,
+                      frame.currentLine,
+                    ))
+              local,
+        ]..sort((left, right) {
+          final startOrder = left.startPc.compareTo(right.startPc);
+          if (startOrder != 0) {
+            return startOrder;
+          }
+          final leftRegister = left.register ?? -1;
+          final rightRegister = right.register ?? -1;
+          final registerOrder = leftRegister.compareTo(rightRegister);
+          if (registerOrder != 0) {
+            return registerOrder;
+          }
+          return (left.name ?? '').compareTo(right.name ?? '');
+        });
     for (final local in placeholders) {
       locals.add(MapEntry(local.name!, Value(null)));
     }
@@ -4780,12 +4747,11 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     return callArgs[_varargStart + index];
   }
 
-  List<Value> get varargs =>
-      _materializedVarargs ??= List<Value>.generate(
-        _varargCount,
-        (index) => callArgs[_varargStart + index],
-        growable: true,
-      );
+  List<Value> get varargs => _materializedVarargs ??= List<Value>.generate(
+    _varargCount,
+    (index) => callArgs[_varargStart + index],
+    growable: true,
+  );
 
   Value register(int index) => slotValue(index);
 
@@ -4840,7 +4806,8 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
             (value) => value is Value ? value : _runtimeValue(runtime, value),
           )
           .toList(growable: false);
-      if (debugVarargValue case final Value rawVarargs when rawVarargs.isMulti) {
+      if (debugVarargValue case final Value rawVarargs
+          when rawVarargs.isMulti) {
         rawVarargs.raw = expanded;
       }
       return expanded;
@@ -5078,8 +5045,7 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
       for (final upvalue in _openUpvalues)
         if (upvalue.isOpen) upvalue.registerIndex,
       ..._toBeClosedRegisters,
-      for (final local in closure.prototype.localVariables)
-        ?local.register,
+      for (final local in closure.prototype.localVariables) ?local.register,
     };
     for (final registerIndex in liveRegisters.toList()..sort()) {
       if (registerIndex < registers.length) {
@@ -5114,75 +5080,66 @@ final class _LuaBytecodeCallSuspension implements CoroutineContinuation {
 
   @override
   Future<Object?> resume(List<Object?> args) {
-    return _withProtectedCallResume(
-      vm.runtime,
-      resumeInProtectedCall,
-      () async {
-        late final List<Value> results;
-        try {
-          results = await _resumeResults(args);
-          _tmpDebugFrame(
-            frame,
-            'call-resume register=$register resultSpec=$resultSpec '
-            'results=${results.map((v) => "${v.raw.runtimeType}:${v.isMulti}").join(",")} '
-            'top=${frame.top} openTop=${frame.openTop} pc=${frame.pc}',
-          );
-        } on YieldException catch (error) {
-          final coroutine = error.coroutine ?? vm.runtime.getCurrentCoroutine();
-          if (coroutine != null) {
-            final nextChild = coroutine.takeContinuation();
-            coroutine.installContinuation(
-              _LuaBytecodeCallSuspension(
-                vm: vm,
-                frame: frame,
-                register: register,
-                resultSpec: resultSpec,
-                resumeInProtectedCall: resumeInProtectedCall,
-                child: nextChild,
-              ),
-            );
-          }
-          rethrow;
-        }
-        if (resultSpec == 1) {
-          await vm._closeDiscardedCallResults(frame, results);
-        }
-        frame.openTop = vm._storeCallResults(
+    return _withProtectedCallResume(vm.runtime, resumeInProtectedCall, () async {
+      late final List<Value> results;
+      try {
+        results = await _resumeResults(args);
+        _tmpDebugFrame(
           frame,
-          register,
-          resultSpec,
-          results,
+          'call-resume register=$register resultSpec=$resultSpec '
+          'results=${results.map((v) => "${v.raw.runtimeType}:${v.isMulti}").join(",")} '
+          'top=${frame.top} openTop=${frame.openTop} pc=${frame.pc}',
         );
-        try {
-          _resetResumeLineHookState(vm.runtime, vm._debugInterpreter, frame);
-          final resumedResults = await vm._runFrameWithTailCalls(frame);
-          return _packCallResults(vm.runtime, resumedResults);
-        } on YieldException catch (error) {
-          final coroutine = error.coroutine ?? vm.runtime.getCurrentCoroutine();
+      } on YieldException catch (error) {
+        final coroutine = error.coroutine ?? vm.runtime.getCurrentCoroutine();
+        if (coroutine != null) {
+          final nextChild = coroutine.takeContinuation();
+          coroutine.installContinuation(
+            _LuaBytecodeCallSuspension(
+              vm: vm,
+              frame: frame,
+              register: register,
+              resultSpec: resultSpec,
+              resumeInProtectedCall: resumeInProtectedCall,
+              child: nextChild,
+            ),
+          );
+        }
+        rethrow;
+      }
+      if (resultSpec == 1) {
+        await vm._closeDiscardedCallResults(frame, results);
+      }
+      frame.openTop = vm._storeCallResults(
+        frame,
+        register,
+        resultSpec,
+        results,
+      );
+      try {
+        _resetResumeLineHookState(vm.runtime, vm._debugInterpreter, frame);
+        final resumedResults = await vm._runFrameWithTailCalls(frame);
+        return _packCallResults(vm.runtime, resumedResults);
+      } on YieldException catch (error) {
+        final coroutine = error.coroutine ?? vm.runtime.getCurrentCoroutine();
+        _tmpDebugFrame(
+          frame,
+          'call-resume-yield register=$register resultSpec=$resultSpec '
+          'values=${error.values} pc=${frame.pc}',
+        );
+        if (coroutine != null) {
+          final nextChild = coroutine.takeContinuation();
           _tmpDebugFrame(
             frame,
-            'call-resume-yield register=$register resultSpec=$resultSpec '
-            'values=${error.values} pc=${frame.pc}',
+            'call-resume-yield-next child=${nextChild.runtimeType} pc=${frame.pc}',
           );
-          if (coroutine != null) {
-            final nextChild = coroutine.takeContinuation();
-            _tmpDebugFrame(
-              frame,
-              'call-resume-yield-next child=${nextChild.runtimeType} pc=${frame.pc}',
-            );
-            coroutine.installContinuation(
-              _wrapFrameContinuation(
-                vm,
-                frame,
-                resumeInProtectedCall,
-                nextChild,
-              ),
-            );
-          }
-          rethrow;
+          coroutine.installContinuation(
+            _wrapFrameContinuation(vm, frame, resumeInProtectedCall, nextChild),
+          );
         }
-      },
-    );
+        rethrow;
+      }
+    });
   }
 
   Future<List<Value>> _resumeResults(List<Object?> args) async {
@@ -5237,10 +5194,7 @@ final class _LuaBytecodeCallSuspension implements CoroutineContinuation {
 
 final class _LuaBytecodeProtectedCallSuspension
     implements CoroutineContinuation {
-  const _LuaBytecodeProtectedCallSuspension({
-    required this.vm,
-    this.child,
-  });
+  const _LuaBytecodeProtectedCallSuspension({required this.vm, this.child});
 
   final LuaBytecodeVm vm;
   final CoroutineContinuation? child;
@@ -5259,10 +5213,7 @@ final class _LuaBytecodeProtectedCallSuspension
         if (coroutine != null) {
           final nextChild = coroutine.takeContinuation();
           coroutine.installContinuation(
-            _LuaBytecodeProtectedCallSuspension(
-              vm: vm,
-              child: nextChild,
-            ),
+            _LuaBytecodeProtectedCallSuspension(vm: vm, child: nextChild),
           );
         }
         rethrow;
@@ -5328,92 +5279,88 @@ final class _LuaBytecodeCloseSuspension implements CoroutineContinuation {
 
   @override
   Future<Object?> resume(List<Object?> args) {
-    return _withProtectedCallResume(
-      vm.runtime,
-      resumeInProtectedCall,
-      () async {
-        var activeError = pendingError;
-        var activeErrorStackTrace = pendingErrorStackTrace;
-        try {
-          if (child case final nested?) {
-            try {
-              _tmpDebugFrame(
-                frame,
-                'close-resume child=${nested.runtimeType} closed=${frame.closed} pc=${frame.pc}',
-              );
-              final nestedResult = await nested.resume(args);
-              _tmpDebugFrame(
-                frame,
-                'close-resume-result child=${nested.runtimeType} frameClosed=${frame.closed} '
-                'resultType=${nestedResult.runtimeType}',
-              );
-              if (_continuationCompletesFrame(nested, frame)) {
-                return nestedResult;
-              }
-            } on YieldException {
-              rethrow;
-            } catch (error, stackTrace) {
-              final pendingError = _preserveCloseErrorObject(error);
-              activeError = pendingError;
-              activeErrorStackTrace = stackTrace;
-              frame.top = savedTop;
-              frame.openTop = savedOpenTop;
-              await _closeFrameForCoroutine(
-                frame,
-                fromRegister: fromRegister,
-                error: pendingError,
-              );
-              if (pendingError != null) {
-                Error.throwWithStackTrace(pendingError, stackTrace);
-              }
-              rethrow;
-            }
-          }
-          frame.top = savedTop;
-          frame.openTop = savedOpenTop;
-          if (activeError == null) {
-            final resumedResults = await vm._runFrameWithTailCalls(frame);
-            return _packCallResults(vm.runtime, resumedResults);
-          }
-          await _closeFrameForCoroutine(
-            frame,
-            fromRegister: fromRegister,
-            error: activeError,
-          );
-          if (activeErrorStackTrace != null) {
-            Error.throwWithStackTrace(activeError, activeErrorStackTrace);
-          }
-          throw activeError;
-        } on YieldException catch (error) {
-          final coroutine = error.coroutine ?? vm.runtime.getCurrentCoroutine();
-          _tmpDebugFrame(
-            frame,
-            'close-resume-yield fromRegister=$fromRegister values=${error.values} pc=${frame.pc}',
-          );
-          if (coroutine != null) {
-            final nextChild = coroutine.takeContinuation();
+    return _withProtectedCallResume(vm.runtime, resumeInProtectedCall, () async {
+      var activeError = pendingError;
+      var activeErrorStackTrace = pendingErrorStackTrace;
+      try {
+        if (child case final nested?) {
+          try {
             _tmpDebugFrame(
               frame,
-              'close-resume-yield-next child=${nextChild.runtimeType} pc=${frame.pc}',
+              'close-resume child=${nested.runtimeType} closed=${frame.closed} pc=${frame.pc}',
             );
-            coroutine.installContinuation(
-              _LuaBytecodeCloseSuspension(
-                vm: vm,
-                frame: frame,
-                fromRegister: fromRegister,
-                savedTop: savedTop,
-                savedOpenTop: savedOpenTop,
-                resumeInProtectedCall: resumeInProtectedCall,
-                pendingError: activeError,
-                pendingErrorStackTrace: activeErrorStackTrace,
-                child: nextChild,
-              ),
+            final nestedResult = await nested.resume(args);
+            _tmpDebugFrame(
+              frame,
+              'close-resume-result child=${nested.runtimeType} frameClosed=${frame.closed} '
+              'resultType=${nestedResult.runtimeType}',
             );
+            if (_continuationCompletesFrame(nested, frame)) {
+              return nestedResult;
+            }
+          } on YieldException {
+            rethrow;
+          } catch (error, stackTrace) {
+            final pendingError = _preserveCloseErrorObject(error);
+            activeError = pendingError;
+            activeErrorStackTrace = stackTrace;
+            frame.top = savedTop;
+            frame.openTop = savedOpenTop;
+            await _closeFrameForCoroutine(
+              frame,
+              fromRegister: fromRegister,
+              error: pendingError,
+            );
+            if (pendingError != null) {
+              Error.throwWithStackTrace(pendingError, stackTrace);
+            }
+            rethrow;
           }
-          rethrow;
         }
-      },
-    );
+        frame.top = savedTop;
+        frame.openTop = savedOpenTop;
+        if (activeError == null) {
+          final resumedResults = await vm._runFrameWithTailCalls(frame);
+          return _packCallResults(vm.runtime, resumedResults);
+        }
+        await _closeFrameForCoroutine(
+          frame,
+          fromRegister: fromRegister,
+          error: activeError,
+        );
+        if (activeErrorStackTrace != null) {
+          Error.throwWithStackTrace(activeError, activeErrorStackTrace);
+        }
+        throw activeError;
+      } on YieldException catch (error) {
+        final coroutine = error.coroutine ?? vm.runtime.getCurrentCoroutine();
+        _tmpDebugFrame(
+          frame,
+          'close-resume-yield fromRegister=$fromRegister values=${error.values} pc=${frame.pc}',
+        );
+        if (coroutine != null) {
+          final nextChild = coroutine.takeContinuation();
+          _tmpDebugFrame(
+            frame,
+            'close-resume-yield-next child=${nextChild.runtimeType} pc=${frame.pc}',
+          );
+          coroutine.installContinuation(
+            _LuaBytecodeCloseSuspension(
+              vm: vm,
+              frame: frame,
+              fromRegister: fromRegister,
+              savedTop: savedTop,
+              savedOpenTop: savedOpenTop,
+              resumeInProtectedCall: resumeInProtectedCall,
+              pendingError: activeError,
+              pendingErrorStackTrace: activeErrorStackTrace,
+              child: nextChild,
+            ),
+          );
+        }
+        rethrow;
+      }
+    });
   }
 
   @override
@@ -5460,68 +5407,59 @@ final class _LuaBytecodeFrameSuspension implements CoroutineContinuation {
 
   @override
   Future<Object?> resume(List<Object?> args) {
-    return _withProtectedCallResume(
-      vm.runtime,
-      resumeInProtectedCall,
-      () async {
-        try {
-          if (child case final nested?) {
-            final nestedFrame = _tmpContinuationFrame(nested);
-            _tmpDebugFrame(
-              frame,
-              'frame-resume child=${nested.runtimeType} sameFrame=${identical(nestedFrame, frame)} '
-              'childClosed=${nestedFrame?.closed} closed=${frame.closed} pc=${frame.pc}',
-            );
-            final nestedChild = _bytecodeContinuationChild(nested);
-            final suspendedCallerFrame =
-                !identical(nestedFrame, frame) ||
-                    (nested is _LuaBytecodeCallSuspension &&
-                        nestedChild is _LuaBytecodeCallSuspension)
-                ? _bytecodeSuspendedDebugFrame(frame)
-                : null;
-            if (suspendedCallerFrame != null) {
-              vm.runtime.callStack.pushFrame(suspendedCallerFrame);
-            }
-            try {
-              final nestedResult = await nested.resume(args);
-              if (frame.closed) {
-                return nestedResult;
-              }
-            } finally {
-              if (suspendedCallerFrame != null) {
-                _callFrameBytecodeFrames[suspendedCallerFrame] = null;
-                if (identical(vm.runtime.callStack.top, suspendedCallerFrame)) {
-                  vm.runtime.callStack.pop();
-                } else {
-                  vm.runtime.callStack.removeFrame(suspendedCallerFrame);
-                }
-              }
-            }
-          }
-          _tmpDebugFrame(frame, 'frame-resume direct pc=${frame.pc}');
-          final resumedResults = await vm._runFrameWithTailCalls(frame);
+    return _withProtectedCallResume(vm.runtime, resumeInProtectedCall, () async {
+      try {
+        if (child case final nested?) {
+          final nestedFrame = _tmpContinuationFrame(nested);
           _tmpDebugFrame(
             frame,
-            'frame-resume direct-result count=${resumedResults.length} closed=${frame.closed} pc=${frame.pc}',
+            'frame-resume child=${nested.runtimeType} sameFrame=${identical(nestedFrame, frame)} '
+            'childClosed=${nestedFrame?.closed} closed=${frame.closed} pc=${frame.pc}',
           );
-          return _packCallResults(vm.runtime, resumedResults);
-        } on YieldException catch (error) {
-          final coroutine = error.coroutine ?? vm.runtime.getCurrentCoroutine();
-          if (coroutine != null) {
-            final nextChild = coroutine.takeContinuation();
-            coroutine.installContinuation(
-              _wrapFrameContinuation(
-                vm,
-                frame,
-                resumeInProtectedCall,
-                nextChild,
-              ),
-            );
+          final nestedChild = _bytecodeContinuationChild(nested);
+          final suspendedCallerFrame =
+              !identical(nestedFrame, frame) ||
+                  (nested is _LuaBytecodeCallSuspension &&
+                      nestedChild is _LuaBytecodeCallSuspension)
+              ? _bytecodeSuspendedDebugFrame(frame)
+              : null;
+          if (suspendedCallerFrame != null) {
+            vm.runtime.callStack.pushFrame(suspendedCallerFrame);
           }
-          rethrow;
+          try {
+            final nestedResult = await nested.resume(args);
+            if (frame.closed) {
+              return nestedResult;
+            }
+          } finally {
+            if (suspendedCallerFrame != null) {
+              _callFrameBytecodeFrames[suspendedCallerFrame] = null;
+              if (identical(vm.runtime.callStack.top, suspendedCallerFrame)) {
+                vm.runtime.callStack.pop();
+              } else {
+                vm.runtime.callStack.removeFrame(suspendedCallerFrame);
+              }
+            }
+          }
         }
-      },
-    );
+        _tmpDebugFrame(frame, 'frame-resume direct pc=${frame.pc}');
+        final resumedResults = await vm._runFrameWithTailCalls(frame);
+        _tmpDebugFrame(
+          frame,
+          'frame-resume direct-result count=${resumedResults.length} closed=${frame.closed} pc=${frame.pc}',
+        );
+        return _packCallResults(vm.runtime, resumedResults);
+      } on YieldException catch (error) {
+        final coroutine = error.coroutine ?? vm.runtime.getCurrentCoroutine();
+        if (coroutine != null) {
+          final nextChild = coroutine.takeContinuation();
+          coroutine.installContinuation(
+            _wrapFrameContinuation(vm, frame, resumeInProtectedCall, nextChild),
+          );
+        }
+        rethrow;
+      }
+    });
   }
 
   @override
@@ -5580,86 +5518,82 @@ final class _LuaBytecodeReturnSuspension implements CoroutineContinuation {
 
   @override
   Future<Object?> resume(List<Object?> args) {
-    return _withProtectedCallResume(
-      vm.runtime,
-      resumeInProtectedCall,
-      () async {
-        var activeError = pendingError;
-        var activeErrorStackTrace = pendingErrorStackTrace;
-        try {
-          if (child case final nested?) {
-            try {
-              _tmpDebugFrame(
-                frame,
-                'return-resume-child child=${nested.runtimeType} closed=${frame.closed} pc=${frame.pc}',
-              );
-              final nestedResult = await nested.resume(args);
-              _tmpDebugFrame(
-                frame,
-                'return-resume-child-result child=${nested.runtimeType} frameClosed=${frame.closed} '
-                'resultType=${nestedResult.runtimeType}',
-              );
-              if (_continuationCompletesFrame(nested, frame)) {
-                return nestedResult;
-              }
-            } on YieldException {
-              rethrow;
-            } catch (error, stackTrace) {
-              final pendingError = _preserveCloseErrorObject(error);
-              activeError = pendingError;
-              activeErrorStackTrace = stackTrace;
-              frame.top = savedTop;
-              frame.openTop = savedOpenTop;
-              await _closeFrameForCoroutine(frame, error: pendingError);
-              if (pendingError != null) {
-                Error.throwWithStackTrace(pendingError, stackTrace);
-              }
-              rethrow;
-            }
-          }
-          frame.top = savedTop;
-          frame.openTop = savedOpenTop;
-          await _closeFrameForCoroutine(frame, error: activeError);
-          if (activeError != null) {
-            if (activeErrorStackTrace != null) {
-              Error.throwWithStackTrace(activeError, activeErrorStackTrace);
-            }
-            throw activeError;
-          }
-          final resumedResults = await vm._runFrameWithTailCalls(frame);
-          return _packCallResults(vm.runtime, resumedResults);
-        } on YieldException catch (error) {
-          final coroutine = error.coroutine ?? vm.runtime.getCurrentCoroutine();
-          _tmpDebugFrame(
-            frame,
-            'return-resume-yield register=$register resultSpec=$resultSpec '
-            'values=${error.values} pc=${frame.pc}',
-          );
-          if (coroutine != null) {
-            final nextChild = coroutine.takeContinuation();
+    return _withProtectedCallResume(vm.runtime, resumeInProtectedCall, () async {
+      var activeError = pendingError;
+      var activeErrorStackTrace = pendingErrorStackTrace;
+      try {
+        if (child case final nested?) {
+          try {
             _tmpDebugFrame(
               frame,
-              'return-resume-yield-next child=${nextChild.runtimeType} pc=${frame.pc}',
+              'return-resume-child child=${nested.runtimeType} closed=${frame.closed} pc=${frame.pc}',
             );
-            coroutine.installContinuation(
-              _LuaBytecodeReturnSuspension(
-                vm: vm,
-                frame: frame,
-                register: register,
-                resultSpec: resultSpec,
-                savedTop: savedTop,
-                savedOpenTop: savedOpenTop,
-                resumeInProtectedCall: resumeInProtectedCall,
-                pendingError: activeError,
-                pendingErrorStackTrace: activeErrorStackTrace,
-                child: nextChild,
-              ),
+            final nestedResult = await nested.resume(args);
+            _tmpDebugFrame(
+              frame,
+              'return-resume-child-result child=${nested.runtimeType} frameClosed=${frame.closed} '
+              'resultType=${nestedResult.runtimeType}',
             );
+            if (_continuationCompletesFrame(nested, frame)) {
+              return nestedResult;
+            }
+          } on YieldException {
+            rethrow;
+          } catch (error, stackTrace) {
+            final pendingError = _preserveCloseErrorObject(error);
+            activeError = pendingError;
+            activeErrorStackTrace = stackTrace;
+            frame.top = savedTop;
+            frame.openTop = savedOpenTop;
+            await _closeFrameForCoroutine(frame, error: pendingError);
+            if (pendingError != null) {
+              Error.throwWithStackTrace(pendingError, stackTrace);
+            }
+            rethrow;
           }
-          rethrow;
         }
-      },
-    );
+        frame.top = savedTop;
+        frame.openTop = savedOpenTop;
+        await _closeFrameForCoroutine(frame, error: activeError);
+        if (activeError != null) {
+          if (activeErrorStackTrace != null) {
+            Error.throwWithStackTrace(activeError, activeErrorStackTrace);
+          }
+          throw activeError;
+        }
+        final resumedResults = await vm._runFrameWithTailCalls(frame);
+        return _packCallResults(vm.runtime, resumedResults);
+      } on YieldException catch (error) {
+        final coroutine = error.coroutine ?? vm.runtime.getCurrentCoroutine();
+        _tmpDebugFrame(
+          frame,
+          'return-resume-yield register=$register resultSpec=$resultSpec '
+          'values=${error.values} pc=${frame.pc}',
+        );
+        if (coroutine != null) {
+          final nextChild = coroutine.takeContinuation();
+          _tmpDebugFrame(
+            frame,
+            'return-resume-yield-next child=${nextChild.runtimeType} pc=${frame.pc}',
+          );
+          coroutine.installContinuation(
+            _LuaBytecodeReturnSuspension(
+              vm: vm,
+              frame: frame,
+              register: register,
+              resultSpec: resultSpec,
+              savedTop: savedTop,
+              savedOpenTop: savedOpenTop,
+              resumeInProtectedCall: resumeInProtectedCall,
+              pendingError: activeError,
+              pendingErrorStackTrace: activeErrorStackTrace,
+              child: nextChild,
+            ),
+          );
+        }
+        rethrow;
+      }
+    });
   }
 
   @override
@@ -5725,49 +5659,45 @@ final class _LuaBytecodeTailCallSuspension implements CoroutineContinuation {
 
   @override
   Future<Object?> resume(List<Object?> args) {
-    return _withProtectedCallResume(
-      vm.runtime,
-      resumeInProtectedCall,
-      () async {
-        try {
+    return _withProtectedCallResume(vm.runtime, resumeInProtectedCall, () async {
+      try {
+        _tmpDebugFrame(
+          frame,
+          'tail-resume child=${child.runtimeType} closed=${frame.closed} pc=${frame.pc}',
+        );
+        final results = await _resumeResults(args);
+        _tmpDebugFrame(
+          frame,
+          'tail-resume-results '
+          'results=${results.map((v) => "${v.raw.runtimeType}:${v.isMulti}").join(",")} '
+          'closed=${frame.closed} pc=${frame.pc}',
+        );
+        await _closeFrameForCoroutine(frame, error: null);
+        return _packCallResults(vm.runtime, results);
+      } on YieldException catch (error) {
+        final coroutine = error.coroutine ?? vm.runtime.getCurrentCoroutine();
+        _tmpDebugFrame(
+          frame,
+          'tail-resume-yield values=${error.values} pc=${frame.pc}',
+        );
+        if (coroutine != null) {
+          final nextChild = coroutine.takeContinuation();
           _tmpDebugFrame(
             frame,
-            'tail-resume child=${child.runtimeType} closed=${frame.closed} pc=${frame.pc}',
+            'tail-resume-yield-next child=${nextChild.runtimeType} pc=${frame.pc}',
           );
-          final results = await _resumeResults(args);
-          _tmpDebugFrame(
-            frame,
-            'tail-resume-results '
-            'results=${results.map((v) => "${v.raw.runtimeType}:${v.isMulti}").join(",")} '
-            'closed=${frame.closed} pc=${frame.pc}',
+          coroutine.installContinuation(
+            _LuaBytecodeTailCallSuspension(
+              vm: vm,
+              frame: frame,
+              resumeInProtectedCall: resumeInProtectedCall,
+              child: nextChild,
+            ),
           );
-          await _closeFrameForCoroutine(frame, error: null);
-          return _packCallResults(vm.runtime, results);
-        } on YieldException catch (error) {
-          final coroutine = error.coroutine ?? vm.runtime.getCurrentCoroutine();
-          _tmpDebugFrame(
-            frame,
-            'tail-resume-yield values=${error.values} pc=${frame.pc}',
-          );
-          if (coroutine != null) {
-            final nextChild = coroutine.takeContinuation();
-            _tmpDebugFrame(
-              frame,
-              'tail-resume-yield-next child=${nextChild.runtimeType} pc=${frame.pc}',
-            );
-            coroutine.installContinuation(
-              _LuaBytecodeTailCallSuspension(
-                vm: vm,
-                frame: frame,
-                resumeInProtectedCall: resumeInProtectedCall,
-                child: nextChild,
-              ),
-            );
-          }
-          rethrow;
         }
-      },
-    );
+        rethrow;
+      }
+    });
   }
 
   Future<List<Value>> _resumeResults(List<Object?> args) async {
@@ -5949,12 +5879,11 @@ final class _LuaBytecodeUpvalue {
 
   bool get isOpen => _frame != null;
 
-  Box<dynamic> get identity =>
-      _identity ??= Box<dynamic>(
-        null,
-        isTransient: true,
-        interpreter: _frame?.runtime ?? _closedValue?.interpreter,
-      );
+  Box<dynamic> get identity => _identity ??= Box<dynamic>(
+    null,
+    isTransient: true,
+    interpreter: _frame?.runtime ?? _closedValue?.interpreter,
+  );
 
   Value read() => _frame?.register(registerIndex) ?? _closedValue!;
 
@@ -6068,12 +5997,11 @@ Value _runtimeValue(LuaRuntime runtime, Object? value) {
   final wrapped = switch (value) {
     final Value existing => _canonicalizeBytecodeValue(existing),
     final LuaFile file => _trackedLuaFileWrapper(file, runtime),
-    final LuaBytecodeClosure closure =>
-      Value(
-        closure,
-        functionBody: closure.debugFunctionBody,
-        closureEnvironment: closure.environment,
-      ),
+    final LuaBytecodeClosure closure => Value(
+      closure,
+      functionBody: closure.debugFunctionBody,
+      closureEnvironment: closure.environment,
+    ),
     _ => Value.wrap(value),
   };
   wrapped.interpreter ??= runtime;
@@ -6083,8 +6011,10 @@ Value _runtimeValue(LuaRuntime runtime, Object? value) {
 bool _isSharedRuntimeConstant(LuaRuntime runtime, Value value) {
   final raw = value.raw;
   return switch (raw) {
-    final LuaString string =>
-      identical(value, runtime.constantStringValue(string.bytes)),
+    final LuaString string => identical(
+      value,
+      runtime.constantStringValue(string.bytes),
+    ),
     _ => false,
   };
 }
@@ -6381,7 +6311,9 @@ int _lengthOf(Value value) {
     final String stringValue => stringValue.length,
     final List<dynamic> listValue => listValue.length,
     final Map<dynamic, dynamic> mapValue => _tableBoundaryLength(mapValue),
-    _ => throw LuaError('attempt to get length of a ${getLuaType(value)} value'),
+    _ => throw LuaError(
+      'attempt to get length of a ${getLuaType(value)} value',
+    ),
   };
 }
 
@@ -6520,28 +6452,28 @@ int _signedB(LuaBytecodeInstructionWord word) =>
 int _signedC(LuaBytecodeInstructionWord word) =>
     word.c - LuaBytecodeInstructionLayout.offsetSC;
 
-  Future<void> _runGcLoopSafePoint(
-    LuaRuntime runtime,
-    _LuaBytecodeFrame frame,
-  ) async {
-    frame.loopGcCounter += 1;
-    await runtime.runLoopGcAtSafePoint(frame.loopGcCounter);
-    if (runtime.gc.isStopped ||
-        !runtime.gc.autoTriggerEnabled ||
-        runtime.gc.allocationDebt > 0 ||
-        frame.loopGcCounter < 1024 ||
-        frame.loopGcCounter % 1024 != 0) {
-      return;
-    }
-    await runtime.gc.performGenerationalStep(runtime.getRoots());
+Future<void> _runGcLoopSafePoint(
+  LuaRuntime runtime,
+  _LuaBytecodeFrame frame,
+) async {
+  frame.loopGcCounter += 1;
+  await runtime.runLoopGcAtSafePoint(frame.loopGcCounter);
+  if (runtime.gc.isStopped ||
+      !runtime.gc.autoTriggerEnabled ||
+      runtime.gc.allocationDebt > 0 ||
+      frame.loopGcCounter < 1024 ||
+      frame.loopGcCounter % 1024 != 0) {
+    return;
   }
+  await runtime.gc.performGenerationalStep(runtime.getRoots());
+}
 
 void _resetBackedgeLineHookState(
   LuaRuntime runtime,
   Interpreter? debugInterpreter,
-  _LuaBytecodeFrame frame,
-  {required int loopLine,}
-) {
+  _LuaBytecodeFrame frame, {
+  required int loopLine,
+}) {
   final targetLine = frame.closure.prototype.lineForPc(frame.pc);
   if (targetLine == null || targetLine != loopLine) {
     return;

@@ -716,15 +716,17 @@ class _StringFind extends BuiltinFunction {
       throw LuaError.typeError("string.find requires a string and a pattern");
     }
 
-    final strValue =
-        _requireStringLibrarySubject(this, args, 'string.find').raw;
-    final patternValue =
-        _requireStringLikeArgument(
-          this,
-          args,
-          argumentIndex: 1,
-          functionName: 'string.find',
-        ).raw;
+    final strValue = _requireStringLibrarySubject(
+      this,
+      args,
+      'string.find',
+    ).raw;
+    final patternValue = _requireStringLikeArgument(
+      this,
+      args,
+      argumentIndex: 1,
+      functionName: 'string.find',
+    ).raw;
     final useByteLevel = _shouldUseBytePatternProcessing(
       strValue,
       patternValue,

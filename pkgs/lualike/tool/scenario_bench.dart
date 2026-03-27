@@ -31,13 +31,7 @@ const _groupScenarios = <String, List<String>>{
     'lua-string-latin1',
     'binary-format-mixed',
   ],
-  'interpreter-all': <String>[
-    'calls',
-    'sort',
-    'math',
-    'constructs',
-    'nextvar',
-  ],
+  'interpreter-all': <String>['calls', 'sort', 'math', 'constructs', 'nextvar'],
   'parse-all': <String>[
     'parse-calls',
     'parse-sort',
@@ -45,10 +39,7 @@ const _groupScenarios = <String, List<String>>{
     'parse-constructs',
     'parse-nextvar',
   ],
-  'legacy-all': <String>[
-    'legacy-deserialize-calls',
-    'legacy-deserialize-math',
-  ],
+  'legacy-all': <String>['legacy-deserialize-calls', 'legacy-deserialize-math'],
   'string-all': <String>[
     'lua-string-latin1',
     'lua-string-slice',
@@ -86,8 +77,10 @@ final _leafScenarios = <String>{
   'binary-format-mixed',
 };
 
-final List<String> _scenarioNames =
-    (<String>{..._groupScenarios.keys, ..._leafScenarios}).toList()..sort();
+final List<String> _scenarioNames = (<String>{
+  ..._groupScenarios.keys,
+  ..._leafScenarios,
+}).toList()..sort();
 
 final class _BenchOptions {
   const _BenchOptions({
@@ -144,10 +137,7 @@ final class _BenchScenario {
 }
 
 final class _BenchContext {
-  _BenchContext({
-    required this.options,
-    required this.packageRoot,
-  });
+  _BenchContext({required this.options, required this.packageRoot});
 
   final _BenchOptions options;
   final String packageRoot;
@@ -158,7 +148,12 @@ final class _BenchContext {
     if (existing != null) {
       return existing;
     }
-    final scriptPath = path.join(packageRoot, 'luascripts', 'test', '$name.lua');
+    final scriptPath = path.join(
+      packageRoot,
+      'luascripts',
+      'test',
+      '$name.lua',
+    );
     if (!await fs.fileExists(scriptPath)) {
       throw ArgumentError.value(name, 'scenario', 'Unknown script scenario');
     }
@@ -257,11 +252,7 @@ Future<void> main(List<String> args) async {
       help: 'Warmup iterations before measured runs.',
       defaultsTo: '1',
     )
-    ..addOption(
-      'repeat',
-      help: 'Measured iterations to run.',
-      defaultsTo: '5',
-    )
+    ..addOption('repeat', help: 'Measured iterations to run.', defaultsTo: '5')
     ..addFlag(
       'soft',
       help: 'Enable _soft mode for Lua script scenarios.',
@@ -423,18 +414,24 @@ Future<_BenchScenario> _buildScenario(
   String name,
 ) async {
   return switch (name) {
-    'calls' || 'sort' || 'math' || 'constructs' || 'nextvar' =>
-      _scriptExecuteScenario(name),
+    'calls' ||
+    'sort' ||
+    'math' ||
+    'constructs' ||
+    'nextvar' => _scriptExecuteScenario(name),
     'parse-calls' => _scriptParseScenario(await context.script('calls')),
     'parse-sort' => _scriptParseScenario(await context.script('sort')),
     'parse-math' => _scriptParseScenario(await context.script('math')),
-    'parse-constructs' =>
-      _scriptParseScenario(await context.script('constructs')),
+    'parse-constructs' => _scriptParseScenario(
+      await context.script('constructs'),
+    ),
     'parse-nextvar' => _scriptParseScenario(await context.script('nextvar')),
-    'legacy-deserialize-calls' =>
-      _legacyDeserializeScenario(await context.script('calls')),
-    'legacy-deserialize-math' =>
-      _legacyDeserializeScenario(await context.script('math')),
+    'legacy-deserialize-calls' => _legacyDeserializeScenario(
+      await context.script('calls'),
+    ),
+    'legacy-deserialize-math' => _legacyDeserializeScenario(
+      await context.script('math'),
+    ),
     'lua-string-latin1' => _luaStringLatin1Scenario(),
     'lua-string-slice' => _luaStringSliceScenario(),
     'string-sub' => _stringLuaScenario(

@@ -458,8 +458,10 @@ class Interpreter extends AstVisitor<Object?>
     return switch (node) {
       BinaryExpression(operatorLine: final operatorLine?) => operatorLine,
       UnaryExpression(operatorLine: final operatorLine?) => operatorLine,
-      UnaryExpression() || FunctionCall() || MethodCall() || ReturnStatement() =>
-        span.start.line,
+      UnaryExpression() ||
+      FunctionCall() ||
+      MethodCall() ||
+      ReturnStatement() => span.start.line,
       _ => _debugHookLineForNode(node) ?? span.start.line,
     };
   }

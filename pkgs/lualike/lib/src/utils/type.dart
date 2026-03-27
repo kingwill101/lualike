@@ -37,7 +37,8 @@ String getLuaType(Object? value) {
     Map() || List() || TableStorage() => 'table',
     Coroutine() => 'thread',
     _ when t.runtimeType.toString() == 'LuaFile' => 'userdata',
-    _ when t.runtimeType.toString() == 'Box' ||
+    _
+        when t.runtimeType.toString() == 'Box' ||
             t.runtimeType.toString().startsWith('Box<') =>
       'light userdata',
     _ => 'userdata',
