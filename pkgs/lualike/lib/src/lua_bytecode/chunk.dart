@@ -285,7 +285,6 @@ final class LuaBytecodePrototype {
     }
     return lines;
   }
-
 }
 
 final Expando<List<int?>> _prototypeLinesByPc = Expando<List<int?>>(
