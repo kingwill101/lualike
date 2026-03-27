@@ -549,7 +549,10 @@ class LuaBytecodeRuntime implements LuaRuntime {
 
   @override
   void runAutoGcAtSafePoint() {
-    if (gc.isStopped || !gc.autoTriggerEnabled) {
+    if (gc.isStopped ||
+        !gc.autoTriggerEnabled ||
+        gc.isManualCollectRunning ||
+        gc.isFinalizerActive) {
       return;
     }
     final threshold = gc.autoTriggerDebtThreshold;
@@ -565,11 +568,137 @@ class LuaBytecodeRuntime implements LuaRuntime {
     if (gc.isStopped || !gc.autoTriggerEnabled) {
       return;
     }
-    final debt = gc.allocationDebt;
-    if (debt <= 0) {
+    if (gc.isManualCollectRunning || gc.isFinalizerActive) {
       return;
     }
-    runAutoGcAtSafePoint();
+    if (_needsAsyncFinalizerDrain) {
+      await _finishBytecodeFinalizerCycle();
+      return;
+    }
+    final debt = gc.allocationDebt;
+    if (debt > 0) {
+      runAutoGcAtSafePoint();
+      if (_needsAsyncFinalizerDrain) {
+        await _finishBytecodeFinalizerCycle();
+        return;
+      }
+    }
+    final threshold = gc.autoTriggerDebtThreshold;
+    if (_shouldForceAsyncLoopRescue(loopCounter, debt, threshold)) {
+      await _finishBytecodeFinalizerCycle();
+      return;
+    }
+    if (!_shouldAdvanceIncrementalLoopCycle(loopCounter)) {
+      return;
+    }
+    gc.performIncrementalStep(_loopIncrementalGcBudget());
+    if (_needsAsyncFinalizerDrain) {
+      await _finishBytecodeFinalizerCycle();
+      return;
+    }
+    if (gc.hasPendingAsyncFinalizers) {
+      await gc.drainPendingAsyncFinalizers();
+    }
+  }
+
+  /// Whether the current incremental cycle has crossed into work that needs
+  /// the awaited GC path.
+  ///
+  /// Bytecode closures run via [LuaBytecodeVm.invoke], which returns a
+  /// `Future`. Once an incremental cycle queues `__gc` work, we must stop
+  /// using the GC manager's synchronous finalizing step or debug-sensitive
+  /// finalizers such as `db.lua` will observe the caller (`collectgarbage`,
+  /// loop scaffolding, etc.) instead of `metamethod/__gc`.
+  bool get _needsAsyncFinalizerDrain =>
+      gc.currentPhase == GCPhase.finalizing ||
+      gc.hasPendingFinalizers ||
+      gc.hasPendingAsyncFinalizers;
+
+  /// Finishes bytecode-visible finalization with the collector's async path.
+  ///
+  /// A full major collection is heavier than another incremental slice, but
+  /// this branch only runs once a cycle already has pending finalizers. At
+  /// that point correctness matters more than throughput: the async major
+  /// collector awaits bytecode `__gc` bodies before the object is freed, which
+  /// preserves Lua's `debug.getinfo(1)` / traceback semantics inside finalizers.
+  Future<void> _finishBytecodeFinalizerCycle() async {
+    await gc.majorCollection(getRoots());
+  }
+
+  /// Whether the tracked heap currently contains any object that could still
+  /// require `__gc`-driven progress.
+  ///
+  /// The sparse loop rescue exists only for finalizer-sensitive bytecode
+  /// workloads. Numeric hot loops should stay on incremental GC alone, so do
+  /// not fire the rescue unless the generations still contain a finalizable
+  /// object (or one has already been queued for finalization).
+  bool get _hasTrackedFinalizerCandidates {
+    bool containsFinalizerCandidate(Iterable<Object?> objects) {
+      for (final object in objects) {
+        if (object case final Value value
+            when value.finalizerEligible &&
+                !value.metatableOwnerHasWeakValues) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    return gc.hasPendingFinalizers ||
+        gc.hasPendingAsyncFinalizers ||
+        containsFinalizerCandidate(gc.youngGen.objects) ||
+        containsFinalizerCandidate(gc.oldGen.objects);
+  }
+
+  /// Long-lived allocation loops can keep debt above zero forever, which means
+  /// the VM-level "only rescue once debt is cleared" path never runs.
+  ///
+  /// Force a full async collection very sparsely when a bytecode loop has kept
+  /// either GC debt or an in-flight incremental cycle alive for a long stretch.
+  /// This is the escape hatch that keeps `db.lua`-style `repeat {} until __gc`
+  /// loops from starving finalizers without making math/sort-heavy benchmarks
+  /// pay a major-collection cost every few backedges.
+  bool _shouldForceAsyncLoopRescue(int loopCounter, int debt, int threshold) {
+    if (loopCounter < 65536 || loopCounter % 65536 != 0) {
+      return false;
+    }
+    if (!_hasTrackedFinalizerCandidates) {
+      return false;
+    }
+    return debt >= threshold || gc.isCycleActive;
+  }
+
+  /// Tight bytecode loops can burn through allocation debt before an
+  /// incremental cycle reaches sweeping/finalizing. Keep feeding that cycle a
+  /// small budget so `__gc`-driven control flow (for example `db.lua`) does not
+  /// stall forever, but scale the cadence by phase so hot numeric loops do not
+  /// regress back to the old "collector dominates execution" behaviour.
+  bool _shouldAdvanceIncrementalLoopCycle(int loopCounter) {
+    if (!gc.isCycleActive &&
+        !gc.hasPendingFinalizers &&
+        !gc.hasPendingAsyncFinalizers) {
+      return false;
+    }
+    final interval = switch (gc.currentPhase) {
+      GCPhase.idle => 0,
+      GCPhase.marking => 64,
+      GCPhase.sweeping => 8,
+      GCPhase.finalizing => 4,
+    };
+    return interval > 0 && loopCounter % interval == 0;
+  }
+
+  /// Finalization work drains the whole pending list in one step, so it can
+  /// use a modestly larger budget. Marking and sweeping stay smaller to avoid
+  /// slowing math/sort-heavy loops that allocate frequently but do not rely on
+  /// finalizer latency.
+  int _loopIncrementalGcBudget() {
+    return switch (gc.currentPhase) {
+      GCPhase.idle => 0,
+      GCPhase.marking => 16,
+      GCPhase.sweeping => 128,
+      GCPhase.finalizing => 32,
+    };
   }
 
   ({Value callee, List<Object?> args}) _prepareCallable(

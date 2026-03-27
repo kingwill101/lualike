@@ -50,6 +50,13 @@ class CallFrame {
   /// Whether this frame was entered via a tail call.
   bool isTailCall;
 
+  /// Engine-specific execution state associated with this call frame.
+  ///
+  /// The AST interpreter leaves this unset. The bytecode VM uses it to keep
+  /// the live register frame attached even when coroutine machinery snapshots
+  /// and restores [CallFrame] objects.
+  Object? engineFrameState;
+
   /// Creates a new call frame with the given function name and call node.
   CallFrame(
     this.functionName, {
@@ -68,6 +75,7 @@ class CallFrame {
     this.extraArgs = 0,
     this.isDebugHook = false,
     this.isTailCall = false,
+    this.engineFrameState,
   }) : debugLocals = debugLocals ?? <MapEntry<String, Value>>[],
        transferValues = transferValues ?? <Value>[];
 

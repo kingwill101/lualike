@@ -754,6 +754,9 @@ class Coroutine extends GCObject {
       extraArgs: frame.extraArgs,
       isDebugHook: frame.isDebugHook,
       isTailCall: frame.isTailCall,
+      // Preserve engine-owned execution state so restored bytecode frames keep
+      // their register/PC identity for debug APIs such as `debug.getlocal`.
+      engineFrameState: frame.engineFrameState,
     );
   }
 
