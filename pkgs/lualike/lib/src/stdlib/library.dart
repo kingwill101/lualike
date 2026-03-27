@@ -8,43 +8,73 @@ import 'metatables.dart' show MetaTable;
 
 /// Abstract base class for organizing standard library functions.
 ///
-/// Each library (string, table, math, etc.) should extend this class
-/// and define their functions in a structured way.
+/// Extend this class to register a reusable namespaced or global library with a
+/// [LuaRuntime]. LuaLike's built-in `string`, `table`, `math`, and `debug`
+/// libraries all implement this interface.
+///
+/// A library with a non-empty [name] is installed as a table and can be loaded
+/// lazily through [LibraryRegistry]. A library with an empty [name] injects its
+/// functions directly into the global environment, which is how the base
+/// library is modeled.
 abstract class Library {
-  /// The name of this library (e.g., "string", "table", "math")
+  /// The public Lua name for this library, such as `string` or `math`.
+  ///
+  /// Return an empty string for libraries that should populate the global
+  /// namespace instead of a namespaced table.
   String get name;
 
-  /// The runtime instance associated with this library
+  /// The runtime currently initializing this library.
+  ///
+  /// LuaLike sets this field before calling [registerFunctions]. Most custom
+  /// libraries can access the runtime through [LibraryContext.interpreter] and
+  /// do not need to retain this field directly.
   LuaRuntime? interpreter;
 
-  /// Optional: metamethods for this library's values
+  /// Optional metamethods attached to the exported library table.
+  ///
+  /// Override this when the library itself should behave like an object with
+  /// custom indexing, call behavior, or other metatable-driven operations.
   Map<String, Function>? getMetamethods(LuaRuntime interpreter) => null;
 
   /// Register all functions for this library.
   ///
-  /// This method is called during interpreter initialization and should
-  /// define all builtin functions for this library.
+  /// Use [LibraryRegistrationContext.define] to add functions or constants to
+  /// this library. Registration happens once per runtime.
   void registerFunctions(LibraryRegistrationContext context);
 }
 
-/// Context provided to libraries during registration
+/// Registration context passed to [Library.registerFunctions].
+///
+/// This exposes the active [environment] and [interpreter] so library code can
+/// look up globals, cache helpers, or create runtime-aware builtins.
 class LibraryContext {
+  /// The environment receiving this library's exported values.
   final Environment environment;
+
+  /// The runtime performing registration.
   final LuaRuntime? interpreter;
 
+  /// Creates a registration context for a specific [environment].
   LibraryContext({required this.environment, this.interpreter});
 
-  /// Get the appropriate interpreter instance
+  /// The active runtime, exposed with the legacy `vm` name for older code.
   LuaRuntime? get vm => interpreter;
 }
 
-/// Helper class for building builtin functions with proper interpreter context
+/// Builds [BuiltinFunction] instances bound to a registration context.
+///
+/// Use this when a native function should participate in runtime services such
+/// as cached primitive values through [BuiltinFunction.primitiveValue].
 class BuiltinFunctionBuilder {
   final LibraryContext _context;
 
+  /// Creates a builder that binds new functions to [_context].
   BuiltinFunctionBuilder(this._context);
 
-  /// Create a builtin function with interpreter context
+  /// Creates a [BuiltinFunction] that keeps the active runtime reference.
+  ///
+  /// This is the preferred path for native functions that create many scalar
+  /// values and want to reuse cached wrappers where available.
   BuiltinFunction create(Object? Function(List<Object?> args) implementation) {
     final interpreter = _context.vm;
     if (interpreter == null) {
@@ -53,14 +83,16 @@ class BuiltinFunctionBuilder {
     return _BuiltinFunctionImpl(interpreter, implementation);
   }
 
-  /// Create a simple function that doesn't need interpreter context
-  /// (for backwards compatibility with existing functions)
+  /// Creates a [Value]-wrapped function without attaching interpreter context.
+  ///
+  /// This is mainly useful for backwards compatibility with older builtins that
+  /// do not need runtime-aware helpers.
   Value createSimple(Object? Function(List<Object?> args) implementation) {
     return Value(implementation);
   }
 }
 
-/// Internal implementation of BuiltinFunction that wraps a function
+/// Internal [BuiltinFunction] wrapper created by [BuiltinFunctionBuilder].
 class _BuiltinFunctionImpl extends BuiltinFunction {
   final Object? Function(List<Object?> args) _implementation;
 
@@ -72,7 +104,11 @@ class _BuiltinFunctionImpl extends BuiltinFunction {
   }
 }
 
-/// Registry for managing all standard libraries
+/// Registry for all standard and user-defined libraries in a runtime.
+///
+/// A [LuaRuntime] owns a single registry. Register a [Library] instance and
+/// then call [initializeLibrary], [initializeLibraryByName], or
+/// [initializeAll] to expose it to scripts.
 class LibraryRegistry {
   final List<Library> _libraries = [];
   final Map<String, Library> _librariesByName = {};
@@ -81,10 +117,13 @@ class LibraryRegistry {
 
   LibraryRegistry(this._interpreter);
 
-  /// Access the registered libraries
+  /// The libraries registered with this runtime in registration order.
   List<Library> get libraries => List.unmodifiable(_libraries);
 
-  /// Register a library
+  /// Registers [library] with this runtime.
+  ///
+  /// Registration does not expose the library immediately. Call one of the
+  /// initialization methods to populate globals or library tables.
   void register(Library library) {
     _libraries.add(library);
     if (library.name.isNotEmpty) {
@@ -92,7 +131,7 @@ class LibraryRegistry {
     }
   }
 
-  /// Initialize all registered libraries
+  /// Initializes every registered library.
   void initializeAll() {
     for (final library in _libraries) {
       initializeLibrary(library);
@@ -109,6 +148,9 @@ class LibraryRegistry {
   }
 
   /// Initialize the provided library instance if it hasn't been already.
+  ///
+  /// Returns the exported library table for namespaced libraries and `null` for
+  /// global libraries.
   Value? initializeLibrary(Library library) {
     if (_initialized.contains(library)) {
       if (library.name.isEmpty) {
@@ -216,6 +258,7 @@ void _updatePackageLoaded(
 }
 
 class LazyLibraryMap extends MapBase<String, dynamic> {
+  /// Creates a lazy view that initializes [libraryName] on first access.
   LazyLibraryMap({
     required this.env,
     required this.registry,
@@ -262,7 +305,6 @@ class LazyLibraryMap extends MapBase<String, dynamic> {
   }
 
   @override
-  @override
   Iterable<String> get keys => _ensureResolved().keys;
 
   @override
@@ -285,14 +327,18 @@ class LazyLibraryMap extends MapBase<String, dynamic> {
   dynamic remove(Object? key) => _ensureResolved().remove(key);
 }
 
-/// Extended context for library registration that allows defining functions
+/// Registration context that collects the exported values for a [Library].
 class LibraryRegistrationContext extends LibraryContext {
   final Map<String, dynamic> _functionMap;
 
   LibraryRegistrationContext._internal(LibraryContext base, this._functionMap)
     : super(environment: base.environment, interpreter: base.interpreter);
 
-  /// Define a function in this library
+  /// Defines an exported [function] or constant under [name].
+  ///
+  /// Plain Dart callables and [BuiltinFunction] instances are wrapped once in a
+  /// [Value] during registration so repeated global lookups do not allocate new
+  /// wrappers.
   void define(String name, dynamic function) {
     // Wrap builtin functions in Value objects once during registration
     // to avoid creating new Value wrappers on every identifier access.

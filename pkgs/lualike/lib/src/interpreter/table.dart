@@ -340,7 +340,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
     return interpreter.wrapRuntimeValue(null);
   }
 
-  /// Evaluates a table index access expression (table[expr]).
+  /// Evaluates a table index access expression, as in `table[expr]`.
   ///
   /// For bracket notation, the index expression is evaluated to get the key.
   ///
@@ -528,7 +528,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
 
   /// Evaluates an indexed table entry.
   ///
-  /// Represents a key-value pair using index syntax [key] = value.
+  /// Represents a key-value pair using index syntax, as in `[key] = value`.
   ///
   /// [node] - The indexed table entry node
   /// Returns the key-value pair.
@@ -652,7 +652,7 @@ mixin InterpreterTableMixin on AstVisitor<Object?> {
   /// Handles all Lua table constructor semantics including:
   /// - Array-like entries with automatic indexing
   /// - Keyed entries with explicit keys
-  /// - Indexed entries with [key] = value syntax
+  /// - Indexed entries with `[key] = value` syntax
   /// - Function call expansion (last vs non-last position)
   /// - Grouped expression handling
   /// - Vararg expansion

@@ -28,4 +28,6 @@ bin/lualike_bytecode
 bin/lualike_dbg
 bin/lualike_dbg2
 
-benchmarks/
+benchmarks/*
+!benchmarks/tt_after_env_cache.log
+!benchmarks/tt_before_env_cache.log

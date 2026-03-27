@@ -6,8 +6,6 @@ import 'package:lualike/lualike.dart';
 import 'package:lualike/src/goto_validator.dart';
 import 'package:lualike/src/interpreter/upvalue_analyzer.dart';
 import 'package:lualike/src/legacy_ast_chunk_transport.dart';
-import 'package:lualike/src/parse.dart'
-    show looksLikeLuaFilePath, luaChunkId, parseExpression;
 import 'package:lualike/src/semantic_checker.dart';
 import 'package:lualike/src/upvalue.dart';
 import 'package:path/path.dart' as path;

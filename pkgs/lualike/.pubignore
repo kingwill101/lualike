@@ -1,0 +1,21 @@
+# Generated API docs and local build outputs are useful during development but
+# should not be shipped in the published package archive.
+doc/api/
+build/
+.build_cache/
+.codex-bin/
+libs/
+
+# Local binaries and scratch outputs.
+lualike
+lualikebc
+test_runner
+test_runnerbc
+tool/test_runner_dbg
+tmp/
+tmp_db_debug.lua
+luac.out
+
+# Generated maps and local benchmark output snapshots.
+web/*.map
+benchmarks/*.log
