@@ -459,7 +459,7 @@ local function foo (...)
 end
 
 local st, msg = xpcall(foo, debug.traceback)
-return st, string.match(msg, "^[^ ]* @Y") ~= nil
+return st, msg
 ''');
 
           final scriptPath = nestedFile.path.replaceAll(r'\', r'\\');
@@ -468,7 +468,16 @@ return st, string.match(msg, "^[^ ]* @Y") ~= nil
             mode: EngineMode.luaBytecode,
           );
 
-          expect(_flatten(result), equals(<Object?>[false, true]));
+          final flattened = _flatten(result);
+          expect(flattened[0], isFalse);
+
+          final message = flattened[1] as String;
+          final normalizedMessage = _normalizePathSeparators(message);
+
+          // Tracebacks surface the nested chunk source name, not necessarily
+          // its absolute host path. Assert on the stable cross-platform signal.
+          expect(normalizedMessage, contains(nestedFile.uri.pathSegments.last));
+          expect(normalizedMessage, contains('@Y'));
         } finally {
           if (await tempDir.exists()) {
             await tempDir.delete(recursive: true);
@@ -1182,7 +1191,7 @@ return table.unpack(results)
         final moduleFile = File('${tempDir.path}/names.lua');
         await moduleFile.writeAsString('return {...}\n');
 
-        final modulePath = moduleFile.path.replaceAll('\\', '/');
+        final modulePath = moduleFile.path;
         final searchPath = '${tempDir.path.replaceAll('\\', '/')}/?.lua';
 
         final result = await executeCode('''
@@ -1191,7 +1200,12 @@ local loaded = require("names")
 return loaded[1], loaded[2]
 ''', mode: EngineMode.luaBytecode);
 
-        expect(_flatten(result), equals(<Object?>['names', modulePath]));
+        final flattened = _flatten(result);
+        expect(flattened[0], equals('names'));
+        expect(
+          _normalizePathSeparators(flattened[1] as String),
+          equals(_normalizePathSeparators(modulePath)),
+        );
       },
     );
 
@@ -1412,6 +1426,10 @@ List<Object?> _flatten(Object? value) {
 String _luaStringLiteral(String value) {
   final escaped = value.replaceAll(r'\', r'\\').replaceAll("'", r"\'");
   return "'$escaped'";
+}
+
+String _normalizePathSeparators(String value) {
+  return value.replaceAll(r'\', '/');
 }
 
 String _setlistBackedConstructorSource() {
