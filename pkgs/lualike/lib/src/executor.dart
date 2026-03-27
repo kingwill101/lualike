@@ -20,6 +20,7 @@ typedef RuntimeSetupCallback = void Function(LuaRuntime);
 /// [mode] - Whether to use AST interpretation or IR compilation
 /// [environment] - Optional environment for variable scope
 /// [fileManager] - Optional file manager for I/O operations
+/// [url] - Optional chunk source name or file path used for parser context
 ///
 /// Returns the result of executing the code.
 Future<Object?> executeCode(
@@ -28,6 +29,7 @@ Future<Object?> executeCode(
   RuntimeSetupCallback? onRuntimeSetup,
   LuaRuntime? vm,
   EngineMode? mode,
+  Object? url,
 }) async {
   final selectedMode = mode ?? LuaLikeConfig().defaultEngineMode;
   final runtime =
@@ -42,7 +44,9 @@ Future<Object?> executeCode(
   }
 
   try {
-    final program = parse(sourceCode);
+    // Preserve the caller's chunk source so file-backed parse behavior such as
+    // shebang stripping and diagnostic source names matches Lua's file loader.
+    final program = parse(sourceCode, url: url);
 
     final semanticError = validateProgramSemantics(program);
     if (semanticError != null) {
