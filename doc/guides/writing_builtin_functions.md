@@ -1,159 +1,237 @@
 # Writing Native Functions in Dart
 
-This guide explains how a Dart developer can extend the `lualike` engine by writing custom "native" functions in Dart.
+This guide explains the supported ways to extend LuaLike with Dart code.
 
-## Overview
+## Table of Contents
 
-You can add your own functionality to `lualike` by creating Dart classes that implement the `BuiltinFunction` interface. These functions can then be registered as global variables or added to library tables (like `string` or `math`), making them directly callable from within a `lualike` script.
+- [Choose the right extension surface](#choose-the-right-extension-surface)
+- [Implementing a builtin function](#implementing-a-builtin-function)
+- [Working with arguments](#working-with-arguments)
+- [Returning values](#returning-values)
+- [Reporting errors](#reporting-errors)
+- [Registering functions in a library](#registering-functions-in-a-library)
+- [Async functions](#async-functions)
+- [GC-visible references](#gc-visible-references)
+- [Complete example](#complete-example)
 
-This allows you to create powerful bridges between your Dart application and the `lualike` scripting environment.
+## Choose the right extension surface
 
-## The `BuiltinFunction` Interface
+LuaLike exposes two main ways to attach Dart behavior.
 
-The core of a native function is a Dart class that implements `BuiltinFunction`. This interface requires a single `call` method, which is what the `lualike` interpreter will execute.
+### `LuaLike.expose()`
+
+Use this for one-off integration with a specific runtime instance.
 
 ```dart
-import 'package:lualike/lualike.dart';
+final lua = LuaLike();
+lua.expose('double', (List<Object?> args) {
+  final value = Value.wrap(args.first).unwrap() as num;
+  return Value(value * 2);
+});
+```
 
-class MyNativeFunction implements BuiltinFunction {
+### `Library` and `LibraryRegistry`
+
+Use this when you want a reusable namespaced library or object model that can
+be registered in multiple runtimes.
+
+For this surface, import `package:lualike/library_builder.dart`.
+
+## Implementing a builtin function
+
+At the lowest level, a native function is a Dart type that extends
+`BuiltinFunction` and implements `call()`.
+
+```dart
+import 'package:lualike/library_builder.dart';
+
+class NativeAdd extends BuiltinFunction {
+  NativeAdd(super.interpreter);
+
   @override
   Object? call(List<Object?> args) {
-    // Your Dart logic goes here
-    return Value(null); // Return nil
+    final a = Value.wrap(args[0]).unwrap() as num;
+    final b = Value.wrap(args[1]).unwrap() as num;
+    return primitiveValue(a + b);
   }
 }
 ```
 
-## Step-by-Step Guide
+If you create builtins inside a `Library`, prefer `BuiltinFunctionBuilder`.
+That gives the builtin access to the active runtime automatically.
 
-### Step 1: Handling Arguments
+## Working with arguments
 
-Arguments from a `lualike` script are passed to your `call` method as a `List<Object?>`. Each element in the list is typically a `Value` object, which wraps the raw `lualike` value.
+Builtin functions receive `List<Object?> args`.
 
-It is crucial to validate the number of arguments and their types.
+Recommended pattern:
+
+1. validate arity explicitly
+2. normalize arguments with `Value.wrap()`
+3. unwrap the raw Dart values you need
 
 ```dart
 @override
 Object? call(List<Object?> args) {
-  // 1. Check argument count
   if (args.length < 2) {
-    throw Exception("my_function requires at least two arguments");
+    throw LuaError("add requires two arguments");
   }
 
-  // 2. Safely cast and unwrap values
-  final firstArg = args[0] as Value;
-  final secondArg = args[1] as Value;
+  final a = Value.wrap(args[0]).unwrap();
+  final b = Value.wrap(args[1]).unwrap();
 
-  // 3. Check the underlying raw types
-  if (firstArg.raw is! num || secondArg.raw is! num) {
-    throw Exception("arguments must be numbers");
+  if (a is! num || b is! num) {
+    throw LuaError("add requires numeric arguments");
   }
 
-  // 4. Use the raw values
-  final num1 = firstArg.raw as num;
-  final num2 = secondArg.raw as num;
-
-  // ...
+  return Value(a + b);
 }
 ```
 
-### Step 2: Returning Values
+Use `Value.wrap()` instead of direct casts when you want the same coercion and
+wrapping behavior the runtime uses elsewhere.
 
-Your function must return a value that `lualike` can understand.
+## Returning values
 
--   **A single value:** Wrap your return value in a `Value` object.
--   **Multiple values:** Use the `Value.multi()` factory, passing it a `List` of `Value` objects.
--   **No value (`nil`):** Return a `Value` wrapping `null`, or simply `null`.
+Return shapes follow LuaLike value conventions:
+
+- single result: `Value(...)`
+- multiple results: `Value.multi([...])`
+- nil: `Value(null)` or `null`
 
 ```dart
-// Return a single number
-return Value(num1 + num2);
+return Value(42);
 
-// Return multiple values
-return Value.multi([Value("Success!"), Value(true)]);
+return Value.multi([Value('ok'), Value(true)]);
 
-// Return nil
 return Value(null);
 ```
 
-### Step 3: Handling Errors
+If your builtin has access to a runtime through `BuiltinFunction`, prefer
+`primitiveValue(...)` for scalar results. It lets the runtime reuse cached
+wrappers for primitive values when supported.
 
-To signal an error from your native function back to the `lualike` script, simply throw a Dart `Exception`. The interpreter will catch it and convert it into a `lualike` error.
+## Reporting errors
+
+Throw a `LuaError` when you want the runtime to surface a Lua-style failure:
 
 ```dart
-if (num2 == 0) {
-  throw Exception("cannot divide by zero");
+if (divisor == 0) {
+  throw LuaError('division by zero');
 }
-return Value(num1 / num2);
 ```
 
-### Step 4: Registering Your Function
+Throwing plain Dart exceptions also works, but `LuaError` is the clearest way
+to communicate script-facing failures.
 
-To make your function available to scripts, you must define it in the `lualike` environment.
+## Registering functions in a library
+
+When you are inside a `Library`, use `LibraryRegistrationContext.define()` to
+publish functions or constants:
 
 ```dart
-// Assumes 'lualike' is an instance of your interpreter bridge
-final lualike = LuaLike();
+class GreetingLibrary extends Library {
+  @override
+  String get name => 'greeting';
 
-// Register a global function named 'my_native_add'
-lualike.env.define("my_native_add", Value(MyNativeAdd()));
+  @override
+  void registerFunctions(LibraryRegistrationContext context) {
+    final builder = BuiltinFunctionBuilder(context);
 
-// Now you can call it from a script
-await lualike.execute('''
-  local result = my_native_add(10, 20)
-  print(result) -- Prints: 30
-''');
+    context.define('hello', builder.create((args) {
+      final who = args.isEmpty ? 'world' : Value.wrap(args.first).unwrap();
+      return Value('hello, $who');
+    }));
+  }
+}
 ```
 
-## Complete Example: A Simple `add` Function
+`define()` wraps plain Dart callables and `BuiltinFunction` instances in
+`Value`s once during registration so repeated lookups do not create fresh
+wrappers.
 
-Here is the complete code for a native `add` function.
+## Async functions
+
+`BuiltinFunction.call()` may return a `Future`, so asynchronous native
+functions are supported:
 
 ```dart
+class NativeNow extends BuiltinFunction {
+  @override
+  Future<Object?> call(List<Object?> args) async {
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    return Value(DateTime.now().toIso8601String());
+  }
+}
+```
+
+## GC-visible references
+
+If a builtin needs to hold references that the garbage collector should see,
+implement `BuiltinFunctionGcRefs`:
+
+```dart
+class HolderBuiltin extends BuiltinFunction implements BuiltinFunctionGcRefs {
+  HolderBuiltin(this._held);
+
+  final List<Object?> _held;
+
+  @override
+  Iterable<Object?> getGcReferences() => _held;
+
+  @override
+  Object? call(List<Object?> args) => Value(_held.length);
+}
+```
+
+This is only needed for builtins that keep state across calls.
+
+## Complete example
+
+```dart
+import 'package:lualike/library_builder.dart';
 import 'package:lualike/lualike.dart';
 
-// The function implementation
-class NativeAdd implements BuiltinFunction {
+class StatsLibrary extends Library {
   @override
-  Object? call(List<Object?> args) {
-    if (args.length < 2) {
-      throw Exception("add requires two arguments");
-    }
+  String get name => 'stats';
 
-    final a = args[0] as Value;
-    final b = args[1] as Value;
+  @override
+  void registerFunctions(LibraryRegistrationContext context) {
+    final builder = BuiltinFunctionBuilder(context);
 
-    if (a.raw is! num || b.raw is! num) {
-      throw Exception("add requires numeric arguments");
-    }
+    context.define('sum', builder.create((args) {
+      if (args.isEmpty) {
+        return Value(0);
+      }
 
-    return Value((a.raw as num) + (b.raw as num));
+      final table = Value.wrap(args.first).unwrap();
+      if (table is! Map) {
+        throw LuaError('stats.sum expects a table');
+      }
+
+      num sum = 0;
+      for (final entry in table.entries) {
+        final raw = Value.wrap(entry.value).unwrap();
+        if (raw is num) {
+          sum += raw;
+        }
+      }
+
+      return Value(sum);
+    }));
   }
 }
 
-// How to register and use it
-void main() async {
-  final lualike = LuaLike();
-  lualike.env.define("native_add", Value(NativeAdd()));
+Future<void> main() async {
+  final lua = LuaLike();
+  lua.vm.libraryRegistry.register(StatsLibrary());
+  lua.vm.libraryRegistry.initializeLibraryByName('stats');
 
-  await lualike.execute('''
-    local sum = native_add(5, 12)
-    print("The sum is: " .. sum) -- Prints: The sum is: 17
-  ''');
+  final result = await lua.execute('return stats.sum({1, 2, 3, 4})');
+  print((result as Value).unwrap());
 }
 ```
 
-## Advanced Topics
-
-### Asynchronous Functions
-
-If your function needs to perform an async operation (like a network request or file I/O), simply make your `call` method `async` and return a `Future`. The `lualike` interpreter will automatically `await` the result.
-
-```dart
-@override
-Future<Object?> call(List<Object?> args) async {
-  final response = await http.get(Uri.parse('...'));
-  return Value(response.body);
-}
-```
-
+For richer object-style APIs, continue with
+[Building a Lua-like Library with Builder Interface](./BUILDER_PATTERN.md).

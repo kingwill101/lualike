@@ -1,10 +1,26 @@
-# Metatables and Metamethods in Lualike
+# Metatables and Metamethods in LuaLike
 
-This guide explains how to use metatables in `lualike` to change the behavior of tables, allowing for powerful features like operator overloading and object-oriented programming.
+This guide explains how to use metatables in LuaLike to change the behavior of
+tables, allowing for powerful features like operator overloading and
+object-oriented programming.
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Common metamethods](#common-metamethods)
+- [Examples](#examples)
+- [Creating classes with metatables](#creating-classes-with-metatables)
+- [`__newindex`: writing to a table](#__newindex-writing-to-a-table)
+- [Edge case: method calls on primitive types](#edge-case-method-calls-on-primitive-types)
 
 ## Overview
 
-In `lualike`, every table can have a **metatable**. A metatable is a regular table that contains special functions called **metamethods**. When you perform an operation on a table (like adding it to another value, calling it like a function, or accessing a field), `lualike` checks if the table has a metatable with a corresponding metamethod. If it does, that metamethod is called to perform the action.
+In LuaLike, every table can have a **metatable**. A metatable is a regular
+table that contains special functions called **metamethods**. When you perform
+an operation on a table, such as adding it to another value, calling it like a
+function, or accessing a field, LuaLike checks whether the table has a
+metatable with a corresponding metamethod. If it does, that metamethod is
+called to perform the action.
 
 The `getmetatable` and `setmetatable` functions are used to inspect and change the metatable of a table.
 
@@ -88,7 +104,8 @@ local val = my_table.some_key
 
 **Using a table for `__index`:**
 
-If `__index` is a table, `lualike` will look for the missing key in that table instead. This is the foundation of object-oriented programming.
+If `__index` is a table, LuaLike will look for the missing key in that table
+instead. This is the foundation of object-oriented programming.
 
 ```lua
 local defaults = {
@@ -161,7 +178,8 @@ print(my_table.new_key) -- Prints: 123
 
 A subtle but important edge case arises when implementing object-oriented-style method calls on primitive types that have default metatables, such as `string`.
 
-Consider a `lualike` call like `s:len()`, where `s` is a string. This involves two core mechanisms:
+Consider a LuaLike call like `s:len()`, where `s` is a string. This involves
+two core mechanisms:
 
 1.  **Interpreter**: When the interpreter encounters a method call with colon syntax (`:`), it automatically adds the receiver (`s` in this case) as the first argument to the function call. This is the standard behavior for providing `self` to a method.
 
@@ -180,4 +198,8 @@ This typically results in an error, as most functions are not expecting the dupl
 
 ### The Solution
 
-This is handled internally by `lualike`. The function returned by the metatable's `__index` is smart enough to check if the `self` argument is already present before adding it. This ensures that the `self` argument is only ever passed once, making both `string.len(s)` and `s:len()` work correctly without conflict.
+This is handled internally by LuaLike. The function returned by the
+metatable's `__index` is smart enough to check whether the `self` argument is
+already present before adding it. This ensures that the `self` argument is
+only ever passed once, making both `string.len(s)` and `s:len()` work
+correctly without conflict.

@@ -1,84 +1,101 @@
 # `os` Library
 
-The `os` library provides functions for interacting with the operating system. This includes functions for getting the time, executing commands, and working with environment variables.
+The `os` library provides time, filesystem, environment, and shell-adjacent
+helpers.
 
-## `os.clock()`
+## Table of Contents
 
-Returns an approximation of the amount of CPU time used by the program in seconds.
+- [Overview](#overview)
+- [Time and date helpers](#time-and-date-helpers)
+- [Filesystem and process helpers](#filesystem-and-process-helpers)
+- [Locale and environment helpers](#locale-and-environment-helpers)
+- [Portability notes](#portability-notes)
 
--   **Returns**: The number of seconds of CPU time.
+## Overview
 
-## `os.date([format [, time]])`
+LuaLike registers `os` as a module-style table with the familiar Lua entry
+points:
 
-Returns a string or a table containing date and time information.
+- `os.clock()`
+- `os.date([format [, time]])`
+- `os.difftime(t2, t1)`
+- `os.execute([command])`
+- `os.exit([code])`
+- `os.getenv(varname)`
+- `os.remove(filename)`
+- `os.rename(oldname, newname)`
+- `os.setlocale(locale, [category])`
+- `os.time([table])`
+- `os.tmpname()`
 
--   `format` (optional): A string specifying the format of the returned value.
-    -   If `format` starts with `!`, the time is formatted in UTC.
-    -   If `format` is `*t`, a table with the fields `year`, `month`, `day`, `hour`, `min`, `sec`, `wday`, `yday`, and `isdst` is returned.
-    -   Otherwise, `format` is a string that follows the same rules as the C `strftime` function.
--   `time` (optional): A timestamp (number of seconds since the epoch) to format. Defaults to the current time.
--   **Returns**: A formatted date string or a table of time components.
+## Time and date helpers
 
-## `os.difftime(t2, t1)`
+### `os.clock()`
 
-Returns the difference in seconds between two timestamps `t2` and `t1`.
+Returns an approximation of CPU time used by the process.
 
--   `t2`: The first timestamp.
--   `t1`: The second timestamp.
--   **Returns**: The difference in seconds (`t2` - `t1`).
+### `os.date([format [, time]])`
 
-## `os.execute([command])`
+Formats a timestamp or returns a date table.
 
-Executes a command using the operating system's shell.
+Important forms include:
 
--   `command` (optional): The command to execute. If omitted, it returns `true` if a shell is available.
--   **Returns**: `true` on success, or `nil` plus an error message and code.
+- `os.date()` for a formatted local-time string
+- `os.date("!*t")` for a UTC date table
+- `os.date("*t")` for a local-time date table
 
-## `os.exit([code])`
+### `os.difftime(t2, t1)`
 
-Exits the program with an optional exit `code`.
+Returns the difference between two timestamps.
 
--   `code` (optional): The exit code.
+### `os.time([table])`
 
-## `os.getenv(varname)`
+Returns the current timestamp or converts a date table into one.
 
-Returns the value of an environment variable.
+## Filesystem and process helpers
 
--   `varname`: The name of the environment variable.
--   **Returns**: The value of the variable, or `nil` if it is not defined.
+### `os.execute([command])`
 
-## `os.remove(filename)`
+Runs a shell command when supported by the host environment.
 
-Deletes a file.
+With no argument, it reports whether a shell is available.
 
--   `filename`: The name of the file to delete.
--   **Returns**: `true` on success, or `nil` plus an error message.
+### `os.remove(filename)`
 
-## `os.rename(oldname, newname)`
+Deletes a file and returns `true` on success or `nil, error` on failure.
 
-Renames a file.
+### `os.rename(oldname, newname)`
 
--   `oldname`: The current name of the file.
--   `newname`: The new name for the file.
--   **Returns**: `true` on success, or `nil` plus an error message.
+Renames or moves a file and returns `true` on success or `nil, error` on
+failure.
 
-## `os.setlocale(locale, [category])`
+### `os.tmpname()`
 
-Sets the current locale for the program. This function is not fully supported in the current environment but will track the requested locale.
+Returns a temporary file name string.
 
--   `locale`: The locale string.
--   `category` (optional): The category to set.
--   **Returns**: The name of the new locale, or `nil` on failure.
+### `os.exit([code])`
 
-## `os.time([table])`
+Requests process termination.
 
-Returns the current time as a timestamp (number of seconds since the epoch).
+This is a strong side effect and is primarily relevant when you intentionally
+let LuaLike control process exit behavior.
 
--   `table` (optional): A table with `year`, `month`, `day`, etc., to convert to a timestamp.
--   **Returns**: The timestamp.
+## Locale and environment helpers
 
-## `os.tmpname()`
+### `os.getenv(varname)`
 
-Returns a string with a file name that can be used for a temporary file.
+Returns the value of an environment variable or `nil` if it is unset.
 
--   **Returns**: A temporary file name.
+### `os.setlocale(locale, [category])`
+
+Tracks locale requests in a Lua-compatible shape.
+
+The function exists for compatibility, but locale behavior still depends on
+what the host Dart environment can meaningfully represent.
+
+## Portability notes
+
+- `os.execute()` and `os.exit()` are inherently host-dependent.
+- `os.setlocale()` is compatibility-oriented rather than a full locale system.
+- File and shell behavior will vary across operating systems and CI
+  environments.

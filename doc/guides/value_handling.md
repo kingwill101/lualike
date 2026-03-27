@@ -1,12 +1,27 @@
-# Data Types in Lualike
+# Data Types and Values in LuaLike
 
-This guide provides an overview of the fundamental data types available in the `lualike` language.
+This guide provides an overview of the fundamental data types available in
+LuaLike and how they map back to Dart-facing values.
+
+## Table of Contents
+
+- [Overview](#overview)
+- [`nil`](#nil)
+- [`boolean`](#boolean)
+- [`number`](#number)
+- [`string`](#string)
+- [`table`](#table)
+- [`function`](#function)
+- [Type coercion](#type-coercion)
+- [Creating values in Dart](#creating-values-in-dart)
 
 ## Overview
 
-`lualike` is a dynamically-typed language, which means that variables do not have types; only values do. All values carry their own type information.
+LuaLike is a dynamically-typed language, which means that variables do not
+have types; only values do. All values carry their own type information.
 
-There are six basic types in `lualike`: `nil`, `boolean`, `number`, `string`, `table`, and `function`.
+There are six basic types in LuaLike: `nil`, `boolean`, `number`, `string`,
+`table`, and `function`.
 
 The built-in `type()` function can be used to get the type of any value as a string.
 
@@ -46,7 +61,8 @@ print(10 > 5)  -- Prints: true
 print(10 == 20) -- Prints: false
 ```
 
-In `lualike`, both `false` and `nil` are considered "falsy" in conditional expressions. Any other value is considered "truthy".
+In LuaLike, both `false` and `nil` are considered "falsy" in conditional
+expressions. Any other value is considered "truthy".
 
 ```lua
 if 0 then
@@ -81,7 +97,8 @@ local s1 = 'hello'
 local s2 = "world"
 ```
 
-Strings in `lualike` are immutable. Functions like `string.upper` do not change the original string; they return a new one.
+Strings in LuaLike are immutable. Functions like `string.upper` do not change
+the original string; they return a new one.
 
 The `..` operator is used for string concatenation.
 ```lua
@@ -91,14 +108,16 @@ print(message) -- Prints: hello world
 
 ## `table`
 
-The `table` type is the most powerful and versatile data structure in `lualike`. A table can be used as an array, a dictionary (or map), or a combination of both.
+The `table` type is the most powerful and versatile data structure in
+LuaLike. A table can be used as an array, a dictionary, or a combination of
+both.
 
 **As an array:**
 ```lua
 local my_list = { "a", "b", "c" }
 print(my_list[1]) -- Prints: a
 ```
-> Note: By convention, arrays in `lualike` are 1-based.
+> Note: By convention, arrays in LuaLike are 1-based.
 
 **As a dictionary:**
 ```lua
@@ -111,7 +130,8 @@ print(person.name) -- Prints: John Doe
 
 ## `function`
 
-Functions are first-class citizens in `lualike`. This means they can be stored in variables, passed as arguments to other functions, and returned as results.
+Functions are first-class citizens in LuaLike. This means they can be stored
+in variables, passed as arguments to other functions, and returned as results.
 
 ```lua
 function add(a, b)
@@ -124,7 +144,10 @@ print(my_add(10, 20)) -- Prints: 30
 
 ## Type Coercion
 
-`lualike` provides automatic conversion (coercion) between string and number values at run time. When a string is used in an arithmetic operation, it is converted to a number. When a number is used where a string is expected, it is converted to a string.
+LuaLike provides automatic conversion between string and number values at run
+time. When a string is used in an arithmetic operation, it is converted to a
+number. When a number is used where a string is expected, it is converted to a
+string.
 
 ```lua
 -- String to number coercion
@@ -144,7 +167,9 @@ This only works for strings that look like numbers. The following would cause an
 
 ## Creating Values in Dart
 
-When working with `lualike` from Dart, you'll often need to create values that can be passed into the Lua environment. The `ValueClass` provides a convenient way to create values with their default metatables attached.
+When working with LuaLike from Dart, you'll often need to create values that
+can be passed into the Lua environment. The `ValueClass` provides a convenient
+way to create values with their default metatables attached.
 
 ### Basic Types
 
@@ -161,11 +186,13 @@ final myString = ValueClass.string("hello");
 final myNumber = ValueClass.number(123);
 ```
 
-These static methods ensure that the created values behave as expected within the `lualike` environment, with all standard metamethods available.
+These static methods ensure that the created values behave as expected within
+the LuaLike environment, with all standard metamethods available.
 
 ### Custom Classes
 
-You can also create your own "classes" with custom metamethods. This is useful for creating complex objects in Dart that can be manipulated from `lualike`.
+You can also create your own "classes" with custom metamethods. This is useful
+for creating complex objects in Dart that can be manipulated from LuaLike.
 
 ```dart
 // Create a Point class with metamethods

@@ -1,16 +1,24 @@
 # Table Library Implementation
 
-This document details the Dart implementation of the `lualike` table library, found in `lib/src/stdlib/lib_table.dart`.
+This document details the Dart implementation of the LuaLike table library,
+found in `lib/src/stdlib/lib_table.dart`.
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Function implementations](#function-implementations)
 
 ## Overview
 
-The table library provides functions for manipulating tables. In `lualike`, it is loaded as a module, and its functions are typically accessed through a table, e.g., `table.insert(my_table, "value")`.
+The table library provides functions for manipulating tables. In LuaLike, it
+is loaded as a module and its functions are typically accessed through a table
+such as `table.insert(my_table, "value")`.
 
 ## Function Implementations
 
 ### `table.concat`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 local t = {"a", "b", "c"}
 print(table.concat(t, ":")) --> "a:b:c"
@@ -21,7 +29,7 @@ Joins the string elements of a table's array part into a single string. It takes
 
 ### `table.insert`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 local t = {"a", "c"}
 table.insert(t, 2, "b")
@@ -33,7 +41,7 @@ Inserts an element into a table's array part at a specified position, shifting e
 
 ### `table.move`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 local t1 = {1, 2, 3, 4, 5}
 local t2 = {}
@@ -46,7 +54,7 @@ Copies elements from a source table to a destination table. It can copy within t
 
 ### `table.pack`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 local t = table.pack(1, "a", nil, "b")
 print(t.n) -- 4
@@ -58,7 +66,7 @@ Creates a new table from a variable number of arguments. It packs all arguments 
 
 ### `table.remove`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 local t = {"a", "b", "c"}
 print(table.remove(t, 2)) --> "b"
@@ -70,7 +78,7 @@ Removes an element from a table's array part at a specified position, shifting s
 
 ### `table.sort`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 local t = {3, 1, 2}
 table.sort(t)
@@ -82,11 +90,16 @@ table.sort(t2, function(a, b) return a < b end)
 ```
 
 **Implementation Details:**
-Sorts the elements in a table's array part in place. It can take an optional custom comparison function. If no function is provided, it uses the standard `<` operator for comparison. The implementation retrieves all elements from the table's array part into a Dart `List`, sorts that list using Dart's `List.sort`, and then writes the sorted elements back into the original `lualike` table. The sort is not guaranteed to be stable.
+Sorts the elements in a table's array part in place. It can take an optional
+custom comparison function. If no function is provided, it uses the standard
+`<` operator for comparison. The implementation retrieves all elements from
+the table's array part into a Dart `List`, sorts that list using Dart's
+`List.sort`, and then writes the sorted elements back into the original
+LuaLike table. The sort is not guaranteed to be stable.
 
 ### `table.unpack`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 local t = {"a", "b", "c"}
 print(table.unpack(t)) --> "a", "b", "c"
