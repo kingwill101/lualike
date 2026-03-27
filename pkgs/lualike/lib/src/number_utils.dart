@@ -115,14 +115,21 @@ class NumberUtils {
   }
 
   /// Returns the raw IEEE-754 bit pattern for a double.
-  static int doubleToRawBits(double value) {
+  ///
+  /// Use 32-bit halves instead of `getUint64` so this works under dart2js,
+  /// which does not implement the 64-bit typed-data accessors.
+  static BigInt doubleToRawBits(double value) {
     final data = ByteData(8)..setFloat64(0, value, Endian.big);
-    return data.getUint64(0, Endian.big);
+    final high = data.getUint32(0, Endian.big);
+    final low = data.getUint32(4, Endian.big);
+    return (BigInt.from(high) << 32) | BigInt.from(low);
   }
 
   /// Reconstructs a double from its raw IEEE-754 bit pattern.
-  static double rawBitsToDouble(int bits) {
-    final data = ByteData(8)..setUint64(0, bits, Endian.big);
+  static double rawBitsToDouble(BigInt bits) {
+    final data = ByteData(8)
+      ..setUint32(0, (bits >> 32).toInt(), Endian.big)
+      ..setUint32(4, (bits & BigInt.from(0xffffffff)).toInt(), Endian.big);
     return data.getFloat64(0, Endian.big);
   }
 
@@ -133,13 +140,13 @@ class NumberUtils {
     }
     if (exponent >= NumberLimits.doubleMinExponent) {
       return rawBitsToDouble(
-        (exponent + NumberLimits.doubleExponentBias) <<
+        BigInt.from(exponent + NumberLimits.doubleExponentBias) <<
             NumberLimits.doubleStoredSignificandBits,
       );
     }
     if (exponent >= NumberLimits.doubleMinSubnormalExponent) {
       return rawBitsToDouble(
-        1 << (exponent - NumberLimits.doubleMinSubnormalExponent),
+        BigInt.one << (exponent - NumberLimits.doubleMinSubnormalExponent),
       );
     }
     return 0.0;
@@ -154,7 +161,9 @@ class NumberUtils {
 
     final bits = doubleToRawBits(number);
     final exponentBits =
-        (bits >> NumberLimits.doubleStoredSignificandBits) & 0x7ff;
+        ((bits >> NumberLimits.doubleStoredSignificandBits) &
+                BigInt.from(0x7ff))
+            .toInt();
 
     if (exponentBits == 0) {
       final (mantissa, exponent) = frexp(
@@ -163,10 +172,12 @@ class NumberUtils {
       return (mantissa, exponent - _subnormalFrexpScale);
     }
 
-    final fractionMask = (1 << NumberLimits.doubleStoredSignificandBits) - 1;
+    final fractionMask =
+        (BigInt.one << NumberLimits.doubleStoredSignificandBits) - BigInt.one;
     final mantissaBits =
         (bits & fractionMask) |
-        (_frexpMantissaExponent << NumberLimits.doubleStoredSignificandBits);
+        (BigInt.from(_frexpMantissaExponent) <<
+            NumberLimits.doubleStoredSignificandBits);
     final mantissa = rawBitsToDouble(mantissaBits);
     return (
       number.isNegative ? -mantissa : mantissa,

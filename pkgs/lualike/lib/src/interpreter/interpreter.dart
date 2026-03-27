@@ -182,7 +182,7 @@ class Interpreter extends AstVisitor<Object?>
   Value? _cachedTrueValue;
   Value? _cachedFalseValue;
   final Map<int, Value> _cachedIntValues = <int, Value>{};
-  final Map<int, Value> _cachedDoubleValues = <int, Value>{};
+  final Map<BigInt, Value> _cachedDoubleValues = <BigInt, Value>{};
   final Map<BigInt, Value> _cachedBigIntValues = <BigInt, Value>{};
 
   @override
