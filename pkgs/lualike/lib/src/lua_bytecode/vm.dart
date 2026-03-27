@@ -2912,10 +2912,7 @@ final class LuaBytecodeVm {
         // to-be-closed loop lookups, etc.) sees the current registers/PC rather
         // than whatever frame state was snapshotted at the last yield point.
         _bindBytecodeCallFrame(callerCallFrame, parentBytecodeFrame);
-        _syncDebugLocals(
-          parentBytecodeFrame,
-          callFrame: callerCallFrame,
-        );
+        _syncDebugLocals(parentBytecodeFrame, callFrame: callerCallFrame);
       }
     }
     // `debug.getlocal` / `debug.setlocal` need the paused caller's live local
