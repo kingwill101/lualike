@@ -1,13 +1,5 @@
 import 'ast.dart';
 
-/// Mixin for AST nodes that can be serialized ("dumped") into a
-/// data structure and reconstructed ("undumped") later.
-mixin Dumpable on AstNode {
-  /// Returns a JSON-serializable representation of this AST node.
-  /// Implementations should include a 'type' field to assist decoding.
-  Map<String, dynamic> dump();
-}
-
 /// Helper for encoding/decoding AST nodes that implement [Dumpable].
 ///
 /// This is intentionally minimal and focused on nodes we need for
@@ -52,6 +44,8 @@ AstNode undumpAst(Map<String, dynamic> data) {
       return Assignment.fromDump(data);
     case 'LocalDeclaration':
       return LocalDeclaration.fromDump(data);
+    case 'GlobalDeclaration':
+      return GlobalDeclaration.fromDump(data);
     case 'IfStatement':
       return IfStatement.fromDump(data);
     case 'ElseIfClause':

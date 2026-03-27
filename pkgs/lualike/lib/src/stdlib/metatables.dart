@@ -4,7 +4,8 @@ import 'package:lualike/src/utils/type.dart';
 
 import '../../lualike.dart';
 
-/// Handles default metatables and metamethods for built-in types
+/// Provides the default metatables and metamethod caches for built-in Lua
+/// types.
 class MetaTable {
   static final MetaTable _instance = MetaTable._internal();
 
@@ -27,11 +28,21 @@ class MetaTable {
 
   MetaTable._internal();
 
+  /// Initializes the singleton with the active runtime.
+  ///
+  /// Repeated calls are allowed. The first call installs the default
+  /// metatables, and later calls simply refresh the runtime handle used for
+  /// stdlib lookups and string-method caching.
   static void initialize(LuaRuntime interpreter) {
     _instance._interpreter = interpreter;
     _instance._initialize(interpreter);
   }
 
+  /// Refreshes cached string-library method lookups for the current runtime.
+  ///
+  /// String indexing uses this cache on hot paths to avoid repeated library
+  /// table lookups and wrapper allocation for method dispatch like
+  /// `"abc":sub(...)`.
   static void refreshStringCache() {
     final instance = _instance;
     final interpreter = instance._interpreter;
@@ -43,21 +54,21 @@ class MetaTable {
 
   void _initialize(LuaRuntime interpreter) {
     if (_initialized) {
-      Logger.debug(
-        'MetaTable already initialized, skipping',
+      Logger.debugLazy(
+        () => 'MetaTable already initialized, skipping',
         category: 'Metatables',
       );
       return;
     }
 
-    Logger.debug('Initializing MetaTable', category: 'Metatables');
+    Logger.debugLazy(() => 'Initializing MetaTable', category: 'Metatables');
 
     // String metatable
     _typeMetatables['string'] = ValueClass.create({
       '__len': (List<Object?> args) {
         final str = args[0] as Value;
-        Logger.debug(
-          'String __len metamethod called for "${str.raw}"',
+        Logger.debugLazy(
+          () => 'String __len metamethod called for "${str.raw}"',
           category: 'Metatables',
         );
         if (str.raw is LuaString) {
@@ -68,21 +79,25 @@ class MetaTable {
       '__index': (List<Object?> args) {
         final str = args[0] as Value;
         final key = args[1] as Value;
-        Logger.debug(
-          'String __index metamethod called for "${str.raw}"[${key.raw}]',
+        Logger.debugLazy(
+          () => 'String __index metamethod called for "${str.raw}"[${key.raw}]',
           category: 'Metatables',
         );
 
-        if (key.raw is String) {
-          final keyStr = key.raw as String;
+        final keyStr = switch (key.raw) {
+          final String stringValue => stringValue,
+          final LuaString stringValue => stringValue.toString(),
+          _ => null,
+        };
 
+        if (keyStr != null) {
           // Check if we've cached a wrapper for this string+method combination
           var methodCache = _stringMethodCache[str];
           if (methodCache != null) {
             final cachedWrapper = methodCache[keyStr];
             if (cachedWrapper != null) {
-              Logger.debug(
-                'Returning cached method wrapper for $keyStr',
+              Logger.debugLazy(
+                () => 'Returning cached method wrapper for $keyStr',
                 category: 'Metatables',
               );
               return cachedWrapper;
@@ -90,17 +105,23 @@ class MetaTable {
           }
 
           // Use cached method lookup to avoid repeated string table access
-          final method = _cachedStringMethods[keyStr];
+          var method = _cachedStringMethods[keyStr];
+          if (method == null && _interpreter != null) {
+            _interpreter!.libraryRegistry.initializeLibraryByName('string');
+            _cacheStdlibMethods(_interpreter!, force: true);
+            method = _cachedStringMethods[keyStr];
+          }
           if (method != null) {
-            Logger.debug(
-              'Found cached string method: $keyStr',
+            Logger.debugLazy(
+              () => 'Found cached string method: $keyStr',
               category: 'Metatables',
             );
 
             // Create method wrapper and cache it on this string instance
             final wrapper = Value((callArgs) {
-              Logger.debug(
-                'String method ${key.raw} called with ${callArgs.length} arguments',
+              Logger.debugLazy(
+                () =>
+                    'String method ${key.raw} called with ${callArgs.length} arguments',
                 category: 'Metatables',
               );
 
@@ -144,8 +165,8 @@ class MetaTable {
           }
         }
 
-        Logger.debug(
-          'String method not found: ${key.raw}',
+        Logger.debugLazy(
+          () => 'String method not found: ${key.raw}',
           category: 'Metatables',
         );
         return Value(null);
@@ -153,14 +174,17 @@ class MetaTable {
       '__eq': (List<Object?> args) {
         final a = args[0] as Value;
         final b = args[1] as Value;
-        Logger.debug(
-          'String __eq metamethod called: "${a.raw}" == "${b.raw}"',
+        Logger.debugLazy(
+          () => 'String __eq metamethod called: "${a.raw}" == "${b.raw}"',
           category: 'Metatables',
         );
         return Value(a == b);
       },
     });
-    Logger.debug('String metatable initialized', category: 'Metatables');
+    Logger.debugLazy(
+      () => 'String metatable initialized',
+      category: 'Metatables',
+    );
 
     // Number metatable
     _typeMetatables['number'] = ValueClass.create({
@@ -197,7 +221,10 @@ class MetaTable {
       '__le': (List<Object?> args) =>
           Value(Value.wrap(args[0]) <= Value.wrap(args[1])),
     });
-    Logger.debug('Number metatable initialized', category: 'Metatables');
+    Logger.debugLazy(
+      () => 'Number metatable initialized',
+      category: 'Metatables',
+    );
 
     // Table metatable (do not define __len by default; '#' should use array boundary rule)
     _typeMetatables['table'] = ValueClass.create({
@@ -205,17 +232,18 @@ class MetaTable {
       // These should only be present when explicitly set by the user
       '__pairs': (List<Object?> args) {
         final table = args[0] as Value;
-        Logger.debug(
-          'Table __pairs metamethod called for table:${table.hashCode}',
+        Logger.debugLazy(
+          () => 'Table __pairs metamethod called for table:${table.hashCode}',
           category: 'Metatables',
         );
-        Logger.debug(
-          'Table content: ${(table.raw as Map).toString()}',
+        Logger.debugLazy(
+          () => 'Table content: ${(table.raw as Map).toString()}',
           category: 'Metatables',
         );
         if (table.raw is! Map) {
-          Logger.debug(
-            'Error: Attempt to iterate over non-table value of type ${table.raw.runtimeType}',
+          Logger.debugLazy(
+            () =>
+                'Error: Attempt to iterate over non-table value of type ${table.raw.runtimeType}',
             category: 'Metatables',
           );
           throw LuaError("attempt to iterate over non-table value");
@@ -223,69 +251,75 @@ class MetaTable {
 
         // Create a filtered map without nil values
         final map = table.raw as Map;
-        Logger.debug(
-          'Raw map entries before filtering: ${map.entries.length}',
+        Logger.debugLazy(
+          () => 'Raw map entries before filtering: ${map.entries.length}',
           category: 'Metatables',
         );
         final filteredEntries = map.entries.where((entry) {
           final value = entry.value;
           final keep =
               !(value == null || (value is Value && value.raw == null));
-          Logger.debug(
-            'Filter entry: key=${entry.key}, value=${entry.value}, keep=$keep',
+          Logger.debugLazy(
+            () =>
+                'Filter entry: key=${entry.key}, value=${entry.value}, keep=$keep',
             category: 'Metatables',
           );
           return keep;
         }).toList();
 
-        Logger.debug(
-          'Table pairs iterator created with ${filteredEntries.length} entries',
+        Logger.debugLazy(
+          () =>
+              'Table pairs iterator created with ${filteredEntries.length} entries',
           category: 'Metatables',
         );
         for (final entry in filteredEntries) {
-          Logger.debug(
-            'Entry in filtered list: ${entry.key} -> ${entry.value}',
+          Logger.debugLazy(
+            () => 'Entry in filtered list: ${entry.key} -> ${entry.value}',
             category: 'Metatables',
           );
         }
 
         // Return iterator function, table, and nil
-        Logger.debug(
-          'Returning iterator function and state',
+        Logger.debugLazy(
+          () => 'Returning iterator function and state',
           category: 'Metatables',
         );
         return Value.multi([
           Value((List<Object?> args) {
             final state = args[0] as Value;
             final k = args[1] as Value;
-            Logger.debug(
-              'Table pairs iterator called with state:${state.hashCode} key: ${k.raw}',
+            Logger.debugLazy(
+              () =>
+                  'Table pairs iterator called with state:${state.hashCode} key: ${k.raw}',
               category: 'Metatables',
             );
 
             int foundIndex = -1;
             if (k.raw == null) {
-              Logger.debug(
-                'Initial call with nil key, returning first entry if available',
+              Logger.debugLazy(
+                () =>
+                    'Initial call with nil key, returning first entry if available',
                 category: 'Metatables',
               );
               foundIndex = 0;
             } else {
-              Logger.debug(
-                'Looking for entry after key ${k.raw}',
+              Logger.debugLazy(
+                () => 'Looking for entry after key ${k.raw}',
                 category: 'Metatables',
               );
               // Find the index of the entry that matches the current key
               for (int i = 0; i < filteredEntries.length; i++) {
                 final entry = filteredEntries[i];
-                Logger.debug(
-                  'Checking entry $i: key=${entry.key}, current key=${k.raw}',
+                Logger.debugLazy(
+                  () =>
+                      'Checking entry $i: key=${entry.key}, current key=${k.raw}',
                   category: 'Metatables',
                 );
                 if (entry.key == k.raw) {
                   foundIndex = i + 1; // Return next entry
-                  Logger.debug(
-                    'Found matching entry at index $i, will return index $foundIndex next',
+                  Logger.debugLazy(
+                    () =>
+                        'Found matching entry at index $i, will return index $foundIndex next',
                     category: 'Metatables',
                   );
                   break;
@@ -295,8 +329,9 @@ class MetaTable {
 
             if (foundIndex >= 0 && foundIndex < filteredEntries.length) {
               final entry = filteredEntries[foundIndex];
-              Logger.debug(
-                'Returning next entry: key=${entry.key}, value=${entry.value}',
+              Logger.debugLazy(
+                () =>
+                    'Returning next entry: key=${entry.key}, value=${entry.value}',
                 category: 'Metatables',
               );
               return [
@@ -305,8 +340,8 @@ class MetaTable {
               ];
             }
 
-            Logger.debug(
-              'Table pairs iterator finished, no more entries',
+            Logger.debugLazy(
+              () => 'Table pairs iterator finished, no more entries',
               category: 'Metatables',
             );
             return [Value(null)];
@@ -316,57 +351,62 @@ class MetaTable {
         ]);
       },
     });
-    Logger.debug('Table metatable initialized', category: 'Metatables');
+    Logger.debugLazy(
+      () => 'Table metatable initialized',
+      category: 'Metatables',
+    );
 
     // Function metatable
     _typeMetatables['function'] = ValueClass.create({
       '__call': (List<Object?> args) {
         final func = args[0] as Value;
         final callArgs = args.sublist(1);
-        Logger.debug(
-          'Function __call metamethod called for function:${func.hashCode} with ${callArgs.length} args',
+        Logger.debugLazy(
+          () =>
+              'Function __call metamethod called for function:${func.hashCode} with ${callArgs.length} args',
           category: 'Metatables',
         );
         if (func.raw is Function) {
           final result = (func.raw as Function)(callArgs);
-          Logger.debug('Function call result: $result', category: 'Metatables');
+          Logger.debugLazy(
+            () => 'Function call result: $result',
+            category: 'Metatables',
+          );
           return result;
         } else if (func.raw is BuiltinFunction) {
           final result = (func.raw as BuiltinFunction).call(callArgs);
-          Logger.debug('Function call result: $result', category: 'Metatables');
+          Logger.debugLazy(
+            () => 'Function call result: $result',
+            category: 'Metatables',
+          );
           return result;
         }
 
         throw LuaError("attempt to call non-function value");
       },
     });
-    Logger.debug('Function metatable initialized', category: 'Metatables');
+    Logger.debugLazy(
+      () => 'Function metatable initialized',
+      category: 'Metatables',
+    );
 
     // Coroutine metatable
     _typeMetatables['thread'] = ValueClass.create({
       '__tostring': (List<Object?> args) {
         final thread = args[0] as Value;
         final coroutine = thread.raw as Coroutine;
-        Logger.debug(
-          'Thread __tostring metamethod called for coroutine:${thread.hashCode}',
+        Logger.debugLazy(
+          () =>
+              'Thread __tostring metamethod called for coroutine:${thread.hashCode}',
           category: 'Metatables',
         );
         return Value('thread: ${thread.hashCode} [${coroutine.status}]');
       },
-      '__gc': (List<Object?> args) {
-        final thread = args[0] as Value;
-        final coroutine = thread.raw as Coroutine;
-        Logger.debug(
-          'Thread __gc metamethod called for coroutine:${thread.hashCode}',
-          category: 'Metatables',
-        );
-
-        // Close the coroutine when it's collected
-        coroutine.markAsDead();
-        return Value(null);
-      },
     });
-    Logger.debug('Thread metatable initialized', category: 'Metatables');
+    Logger.debugLazy(
+      () => 'Thread metatable initialized',
+      category: 'Metatables',
+    );
     // Register coroutine metatable as a default for thread objects
     registerDefaultMetatable('thread', _typeMetatables['thread']!);
 
@@ -374,16 +414,18 @@ class MetaTable {
     _typeMetatables['userdata'] = ValueClass.create({
       '__tostring': (List<Object?> args) {
         final userdata = args[0] as Value;
-        Logger.debug(
-          'Userdata __tostring metamethod called for userdata:${userdata.hashCode}',
+        Logger.debugLazy(
+          () =>
+              'Userdata __tostring metamethod called for userdata:${userdata.hashCode}',
           category: 'Metatables',
         );
         return Value('userdata: ${userdata.hashCode}');
       },
       '__len': (List<Object?> args) {
         final table = args[0] as Value;
-        Logger.debug(
-          'Userdata __len metamethod called for userdata:${table.hashCode}',
+        Logger.debugLazy(
+          () =>
+              'Userdata __len metamethod called for userdata:${table.hashCode}',
           category: 'Metatables',
         );
 
@@ -399,21 +441,25 @@ class MetaTable {
       },
       '__gc': (List<Object?> args) {
         final userdata = args[0] as Value;
-        Logger.debug(
-          'Userdata __gc metamethod called for userdata:${userdata.hashCode}',
+        Logger.debugLazy(
+          () =>
+              'Userdata __gc metamethod called for userdata:${userdata.hashCode}',
           category: 'Metatables',
         );
         return Value(null);
       },
     });
-    Logger.debug('Userdata metatable initialized', category: 'Metatables');
+    Logger.debugLazy(
+      () => 'Userdata metatable initialized',
+      category: 'Metatables',
+    );
 
     // Pre-cache string table and methods to reduce wrapper creation
     _cacheStdlibMethods(interpreter);
 
     _initialized = true;
-    Logger.debug(
-      'All default metatables initialized successfully',
+    Logger.debugLazy(
+      () => 'All default metatables initialized successfully',
       category: 'Metatables',
     );
   }
@@ -433,8 +479,8 @@ class MetaTable {
         _cachedStringMethods[entry.key.toString()] = entry.value;
       }
 
-      Logger.debug(
-        'Cached ${_cachedStringMethods.length} string methods',
+      Logger.debugLazy(
+        () => 'Cached ${_cachedStringMethods.length} string methods',
         category: 'Metatables',
       );
     }
@@ -442,9 +488,20 @@ class MetaTable {
 
   /// Get metatable for a given type
   ValueClass? getTypeMetatable(String type) {
-    Logger.debug('Getting type metatable for: $type', category: 'Metatables');
+    Logger.debugLazy(
+      () => 'Getting type metatable for: $type',
+      category: 'Metatables',
+    );
     return _typeMetatables[type];
   }
+
+  bool get numberMetatableEnabled => _numberMetatableEnabled;
+
+  bool isDefaultMetatableActive(String type) => switch (type) {
+    'table' => false,
+    'number' => _numberMetatableEnabled,
+    _ => _typeMetatables.containsKey(type),
+  };
 
   /// Register a default metatable for a type. If [metatable] is null, any
   /// existing default metatable for the type will be removed.
@@ -453,8 +510,8 @@ class MetaTable {
     ValueClass? metatable, [
     Value? original,
   ]) {
-    Logger.debug(
-      'Registering default metatable for type: $type',
+    Logger.debugLazy(
+      () => 'Registering default metatable for type: $type',
       category: 'Metatables',
     );
     if (metatable == null) {
@@ -488,13 +545,16 @@ class MetaTable {
       _initialize(_interpreter!);
     }
     final type = getLuaType(value);
-    Logger.debug('Determined type for value: $type', category: 'Metatables');
+    Logger.debugLazy(
+      () => 'Determined type for value: $type',
+      category: 'Metatables',
+    );
 
     // Tables do not receive a default metatable. Numbers only receive one
     // after debug.setmetatable registers it.
     if (type == 'table' || (type == 'number' && !_numberMetatableEnabled)) {
-      Logger.debug(
-        'Not applying default metatable to $type - defaults are nil',
+      Logger.debugLazy(
+        () => 'Not applying default metatable to $type - defaults are nil',
         category: 'Metatables',
       );
       return;
@@ -502,12 +562,15 @@ class MetaTable {
 
     final metatable = getTypeMetatable(type);
     if (metatable != null) {
-      Logger.debug('Setting metatable for $type value', category: 'Metatables');
+      Logger.debugLazy(
+        () => 'Setting metatable for $type value',
+        category: 'Metatables',
+      );
       value.setMetatable(metatable.metamethods);
       value.metatableRef = _typeMetatableRefs[type];
     } else {
-      Logger.debug(
-        'No default metatable found for type: $type',
+      Logger.debugLazy(
+        () => 'No default metatable found for type: $type',
         category: 'Metatables',
       );
     }

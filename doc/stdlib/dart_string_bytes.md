@@ -1,50 +1,46 @@
 # `dart.string.bytes` Library
 
-The `dart.string.bytes` library provides functions for low-level byte manipulation, allowing for conversion between Lua strings and byte representations like `Uint8List`.
+The `dart.string.bytes` sub-library exposes low-level UTF-8 conversion helpers
+under `dart.string.bytes`.
 
-This library is available under the `dart.string` table.
+## Table of Contents
+
+- [Overview](#overview)
+- [`dart.string.bytes.toBytes(str)`](#dartstringbytestobytesstr)
+- [`dart.string.bytes.fromBytes(bytes)`](#dartstringbytesfrombytesbytes)
+- [Notes](#notes)
+
+## Overview
+
+Use this library when you need to move explicitly between strings and byte
+arrays from LuaLike code.
+
+```lua
+local bytes = dart.string.bytes.toBytes("hello")
+local text = dart.string.bytes.fromBytes(bytes)
+```
 
 ## `dart.string.bytes.toBytes(str)`
 
-Converts a string into a `Uint8List` of its UTF-8 encoded bytes.
+Encodes `str` as UTF-8 and returns a `Uint8List`.
 
-### Parameters
+This is a convenient bridge into other byte-oriented libraries such as
+[`convert`](./convert.md) and [`crypto`](./crypto.md).
 
--   `str` (string): The string to convert.
+## `dart.string.bytes.fromBytes(bytes)`
 
-### Returns
+Decodes bytes as UTF-8 and returns a Dart string.
 
--   (`Uint8List`): A `Uint8List` object representing the UTF-8 bytes of the input string.
+Accepted inputs include:
 
-### Example
+- `Uint8List`
+- a Lua array-style table of integers
+- a Dart `List<int>` value exposed into the runtime
 
-```lua
-local bytes = dart.string.bytes.toBytes("hello")
--- bytes is a Uint8List object
-```
+## Notes
 
-## `dart.string.bytes.fromBytes(bytes_data)`
-
-Converts byte data into a string using UTF-8 decoding. The input can be a `Uint8List`, a Lua table of integers, or a `List<int>`.
-
-### Parameters
-
--   `bytes_data` (`Uint8List` | `table` | `List<int>`): The byte data to convert into a string.
-
-### Returns
-
--   (string): The decoded string.
-
-### Example
-
-```lua
--- From Uint8List
-local bytes = dart.string.bytes.toBytes("hello")
-local str = dart.string.bytes.fromBytes(bytes)
--- str is "hello"
-
--- From a table of integers
-local byte_table = {104, 101, 108, 108, 111}
-local str_from_table = dart.string.bytes.fromBytes(byte_table)
--- str_from_table is "hello"
-```
+- This library is UTF-8 oriented.
+- If you need byte-preserving Latin-1 behavior, use `convert.latin1Encode()`
+  and `convert.latin1Decode()` instead.
+- The returned `Uint8List` can be passed directly into `crypto` and `convert`
+  helpers.

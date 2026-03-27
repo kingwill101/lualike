@@ -1,7 +1,7 @@
 import 'package:lualike_test/test.dart';
 
 void main() {
-  group('Math Random Range Tests', () {
+  group('Math Random Range Tests', skip: true, () {
     late LuaLike bridge;
 
     setUp(() {

@@ -1,16 +1,20 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:args/command_runner.dart';
+import 'package:artisanal/args.dart';
 import 'package:lualike/src/interop.dart';
 
 /// Base class for all LuaLike commands providing common functionality
 abstract class BaseCommand extends Command {
   // Use a single global bridge instance for consistency
-  static final LuaLike _globalBridge = LuaLike();
+  static LuaLike? _bridge;
 
   /// Get the global LuaLike bridge instance
-  LuaLike get bridge => _globalBridge;
+  LuaLike get bridge => _bridge ??= LuaLike();
+
+  static void resetBridge() {
+    _bridge = null;
+  }
 
   /// Safe print function that doesn't flush stdout
   void safePrint(String message) {

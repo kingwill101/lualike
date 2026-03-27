@@ -72,6 +72,59 @@ void main() {
       expect((bridge.getGlobal('f') as Value).raw.toString(), equals(""));
     });
 
+    test(
+      'string.sub reports bad self and argument positions like Lua 5.5',
+      () async {
+        final bridge = LuaLike();
+        await bridge.execute(r'''
+        aaa = {}
+        setmetatable(aaa, {__index = string})
+
+        okSelf, msgSelf = pcall(function()
+          return aaa:sub()
+        end)
+
+        okArg2, msgArg2 = pcall(function()
+          return string.sub('a', {})
+        end)
+
+        okMethodArg1, msgMethodArg1 = pcall(function()
+          return ('a'):sub{}
+        end)
+
+        okHugeIndex, msgHugeIndex = pcall(function()
+          return string.sub('a', 2.0^100)
+        end)
+      ''');
+
+        expect((bridge.getGlobal('okSelf') as Value).unwrap(), isFalse);
+        expect(
+          (bridge.getGlobal('msgSelf') as Value).unwrap(),
+          contains("calling 'sub' on bad self (string expected, got table)"),
+        );
+
+        expect((bridge.getGlobal('okArg2') as Value).unwrap(), isFalse);
+        expect(
+          (bridge.getGlobal('msgArg2') as Value).unwrap(),
+          contains("bad argument #2 to 'sub' (number expected, got table)"),
+        );
+
+        expect((bridge.getGlobal('okMethodArg1') as Value).unwrap(), isFalse);
+        expect(
+          (bridge.getGlobal('msgMethodArg1') as Value).unwrap(),
+          contains("bad argument #1 to 'sub' (number expected, got table)"),
+        );
+
+        expect((bridge.getGlobal('okHugeIndex') as Value).unwrap(), isFalse);
+        expect(
+          (bridge.getGlobal('msgHugeIndex') as Value).unwrap(),
+          contains(
+            "bad argument #2 to 'sub' (number has no integer representation)",
+          ),
+        );
+      },
+    );
+
     test('string.upper and string.lower', () async {
       final bridge = LuaLike();
       await bridge.execute('''
@@ -142,6 +195,144 @@ void main() {
       ); // "o." not found as plain text
     });
 
+    test('string.find honors anchored start patterns', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        start_i, start_j = string.find("alo123alo", "^12")
+        any_i, any_j = string.find("alo123alo", "12")
+      ''');
+
+      expect((bridge.getGlobal('start_i') as Value).raw, isNull);
+      expect((bridge.getGlobal('start_j') as Value).raw, isNull);
+      expect((bridge.getGlobal('any_i') as Value).raw, equals(4));
+      expect((bridge.getGlobal('any_j') as Value).raw, equals(5));
+    });
+
+    test('string.match handles lazy repetition with end anchor', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        lazy_all = string.match("aaa", "^.-$")
+      ''');
+
+      expect((bridge.getGlobal('lazy_all') as Value).raw, equals("aaa"));
+    });
+
+    test(
+      'string patterns handle lazy captures followed by trailing tokens',
+      () async {
+        final bridge = LuaLike();
+        await bridge.execute(r'''
+        sample = "00.001"
+        plain = string.match(sample, "(%d.-%d)0*$")
+        anchored = string.match(sample, "^0*(%d.-%d)0*$")
+        trimmed, replacements = string.gsub(sample, "^0*(%d.-%d)0*$", "%1")
+      ''');
+
+        final plain = (bridge.getGlobal('plain') as Value).raw.toString();
+        final anchored = (bridge.getGlobal('anchored') as Value).raw.toString();
+        final trimmed = (bridge.getGlobal('trimmed') as Value).raw.toString();
+
+        expect(plain, equals("00.001"));
+        expect(anchored, equals("0.001"));
+        expect(trimmed, equals("0.001"));
+        expect((bridge.getGlobal('replacements') as Value).raw, equals(1));
+      },
+    );
+
+    test(
+      'string.gsub callbacks using load share the caller global environment',
+      () async {
+        final bridge = LuaLike();
+        await bridge.execute(r'''
+        a = "a@b@çd"
+        local function dostring (s) return load(s, "")() or "" end
+        gsub_result = string.gsub("alo $a='x'$ novamente $return a$",
+                                  "$([^$]*)%$",
+                                  dostring)
+      ''');
+
+        expect(
+          (bridge.getGlobal('gsub_result') as Value).unwrap(),
+          equals('alo  novamente x'),
+        );
+        expect((bridge.getGlobal('a') as Value).unwrap(), equals('x'));
+      },
+    );
+
+    test('pattern helpers preserve utf8 bytes through gsub and find', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        local function PU(p)
+          p = string.gsub(p, "(" .. utf8.charpattern .. ")%?", function (c)
+            return string.gsub(c, ".", "%0?")
+          end)
+          p = string.gsub(p, "%.", utf8.charpattern)
+          return p
+        end
+
+        local p = PU("á?")
+        utf8_find_i, utf8_find_j = string.find("á", p)
+      ''');
+
+      expect((bridge.getGlobal('utf8_find_i') as Value).raw, equals(1));
+      expect((bridge.getGlobal('utf8_find_j') as Value).raw, equals(2));
+    });
+
+    test(
+      'utf8 adapted patterns do not leak phantom captures from lookahead',
+      () async {
+        final bridge = LuaLike();
+        await bridge.execute(r'''
+        local function PU (p)
+          p = string.gsub(p, "(" .. utf8.charpattern .. ")%?", function (c)
+            return string.gsub(c, ".", "%0?")
+          end)
+          p = string.gsub(p, "%.", utf8.charpattern)
+          return p
+        end
+
+        a, b, c, d, e = string.match("âlo alo", PU("^(((.).). (%w*))$"))
+      ''');
+
+        expect((bridge.getGlobal('a') as Value).unwrap(), equals('âlo alo'));
+        expect((bridge.getGlobal('b') as Value).unwrap(), equals('âl'));
+        expect((bridge.getGlobal('c') as Value).unwrap(), equals('â'));
+        expect((bridge.getGlobal('d') as Value).unwrap(), equals('alo'));
+        expect((bridge.getGlobal('e') as Value).raw, isNull);
+      },
+    );
+
+    test(
+      'string.find allows ] as the first character in a bracket class',
+      () async {
+        final bridge = LuaLike();
+        await bridge.execute(r'''
+        bracket_match = string.match("]]]áb", "[^]]+")
+      ''');
+
+        expect(
+          (bridge.getGlobal('bracket_match') as Value).raw.toString(),
+          equals("áb"),
+        );
+      },
+    );
+
+    test('string balanced patterns support identical delimiters', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        balanced_i, balanced_j = string.find("alo 'oi' alo", "%b''")
+        balanced_gsub, balanced_count = string.gsub("alo 'oi' alo", "%b''", '"')
+      ''');
+
+      expect((bridge.getGlobal('balanced_i') as Value).raw, equals(5));
+      expect((bridge.getGlobal('balanced_j') as Value).raw, equals(8));
+      expect(
+        (bridge.getGlobal('balanced_gsub') as Value).unwrap(),
+        equals('alo " alo'),
+      );
+      expect((bridge.getGlobal('balanced_count') as Value).unwrap(), equals(1));
+    });
+
     test('string.find with captures', () async {
       final bridge = LuaLike();
       await bridge.execute('''
@@ -152,8 +343,8 @@ void main() {
 
       expect((bridge.getGlobal('i') as Value).raw, equals(1));
       expect((bridge.getGlobal('j') as Value).raw, equals(11));
-      expect((bridge.getGlobal('first') as Value).raw, equals("hello"));
-      expect((bridge.getGlobal('second') as Value).raw, equals("world"));
+      expect((bridge.getGlobal('first') as Value).unwrap(), equals("hello"));
+      expect((bridge.getGlobal('second') as Value).unwrap(), equals("world"));
     });
 
     test('string.match', () async {
@@ -165,9 +356,9 @@ void main() {
         no_match = string.match(s, "bye")
       ''');
 
-      expect((bridge.getGlobal('word') as Value).raw, equals("hello"));
-      expect((bridge.getGlobal('w1') as Value).raw, equals("hello"));
-      expect((bridge.getGlobal('w2') as Value).raw, equals("world"));
+      expect((bridge.getGlobal('word') as Value).unwrap(), equals("hello"));
+      expect((bridge.getGlobal('w1') as Value).unwrap(), equals("hello"));
+      expect((bridge.getGlobal('w2') as Value).unwrap(), equals("world"));
       expect((bridge.getGlobal('no_match') as Value).raw, isNull);
     });
 
@@ -194,6 +385,39 @@ void main() {
       expect((bridge.getGlobal('n3') as Value).raw, equals(4));
     });
 
+    test('string.gsub preserves callback bad-argument wording', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        okGsubCallback, msgGsubCallback = pcall(function()
+          return string.gsub('s', 's', setmetatable)
+        end)
+      ''');
+
+      expect((bridge.getGlobal('okGsubCallback') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('msgGsubCallback') as Value).unwrap(),
+        contains(
+          "bad argument #1 to 'setmetatable' (table expected, got string)",
+        ),
+      );
+    });
+
+    test(
+      'string.gsub uses whole match for %1 when there are no captures',
+      () async {
+        final bridge = LuaLike();
+        await bridge.execute(r'''
+        s, n = string.gsub("abc", "%w", "%1%0")
+      ''');
+
+        expect(
+          (bridge.getGlobal('s') as Value).unwrap().toString(),
+          equals("aabbcc"),
+        );
+        expect((bridge.getGlobal('n') as Value).unwrap(), equals(3));
+      },
+    );
+
     test('string.gsub zero-length pattern', () async {
       final bridge = LuaLike();
       await bridge.execute('''
@@ -202,6 +426,54 @@ void main() {
       expect((bridge.getGlobal('s') as Value).unwrap(), equals("-a-b-c-"));
       expect((bridge.getGlobal('n') as Value).unwrap(), equals(4));
     });
+
+    test('string.gsub callable replacement resolves tail calls', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        local function incd (n)
+          local s = string.format("%d", n)
+          s = string.gsub(s, "%d$", function (d)
+            return string.char(string.byte(d) + 1)
+          end)
+          return s
+        end
+
+        incd_result = incd(math.maxinteger)
+        incd_ok = incd_result == "9223372036854775808"
+        tonumber_ok = tonumber(incd_result) == math.maxinteger + 1.0
+      ''');
+
+      expect(
+        (bridge.getGlobal('incd_result') as Value).unwrap(),
+        equals("9223372036854775808"),
+      );
+      expect((bridge.getGlobal('incd_ok') as Value).unwrap(), isTrue);
+      expect((bridge.getGlobal('tonumber_ok') as Value).unwrap(), isTrue);
+    });
+
+    test(
+      'string.gsub callable replacement preserves original text on nil return',
+      () async {
+        final bridge = LuaLike();
+        await bridge.execute(r'''
+        seen = {}
+        original, replacements = string.gsub("a alo jose  joao", "()(%w+)()", function (a, w, b)
+          seen[a] = b - a
+        end)
+      ''');
+
+        expect(
+          (bridge.getGlobal('original') as Value).unwrap(),
+          equals("a alo jose  joao"),
+        );
+        expect((bridge.getGlobal('replacements') as Value).unwrap(), equals(4));
+        final seen = (bridge.getGlobal('seen') as Value).raw as Map;
+        expect((seen[1] as Value).raw, equals(1));
+        expect((seen[3] as Value).raw, equals(3));
+        expect((seen[7] as Value).raw, equals(4));
+        expect((seen[13] as Value).raw, equals(4));
+      },
+    );
 
     test('string.gmatch', () async {
       final bridge = LuaLike();

@@ -7,7 +7,7 @@ test_suite:
 
 # Execution settings
 execution:
-  mode: ast  # 'ast' or 'bytecode'
+  mode: ast  # 'ast' or 'ir'
   use_internal_tests: false
   parallel: false
   jobs: 4

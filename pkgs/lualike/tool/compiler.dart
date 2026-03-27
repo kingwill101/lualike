@@ -8,6 +8,17 @@ import 'package:path/path.dart' as path;
 import 'test.dart' show console;
 import 'utils.dart';
 
+/// Result of a smart compilation attempt.
+final class SmartCompileResult {
+  const SmartCompileResult({required this.success, required this.recompiled});
+
+  /// Whether the binary is usable after the operation.
+  final bool success;
+
+  /// Whether this call actually rebuilt the binary.
+  final bool recompiled;
+}
+
 /// Smart compilation system that only recompiles when source files change
 class SmartCompiler {
   final String projectRoot;
@@ -25,11 +36,30 @@ class SmartCompiler {
   }) : binaryName = getExecutableName(binaryName),
        dartPath = getExecutableName(dartPath);
 
-  String get _hashFilePath => path.join(cacheDir, 'source_hash.txt');
+  String get _resolvedBinaryPath => path.normalize(
+    path.isAbsolute(binaryName)
+        ? binaryName
+        : path.join(projectRoot, binaryName),
+  );
+
+  String get _cacheNamespace {
+    final baseName = path
+        .basename(binaryName)
+        .replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '_');
+    final digest = sha256
+        .convert(utf8.encode(_resolvedBinaryPath))
+        .toString()
+        .substring(0, 12);
+    return '${baseName}_$digest';
+  }
+
+  String get _cachePath => path.join(cacheDir, _cacheNamespace);
+
+  String get _hashFilePath => path.join(_cachePath, 'source_hash.txt');
 
   String get _binaryPath => path.join(projectRoot, binaryName);
 
-  String get _compileTimeFilePath => path.join(cacheDir, 'compile_time.txt');
+  String get _compileTimeFilePath => path.join(_cachePath, 'compile_time.txt');
 
   /// Calculate hash of all source files in the specified directories
   Future<(String, Map<String, dynamic>)> _calculateSourceHash() async {
@@ -231,7 +261,7 @@ class SmartCompiler {
   }
 
   /// Smart compile: only recompile if source files have changed
-  Future<bool> smartCompile({bool force = false}) async {
+  Future<SmartCompileResult> smartCompile({bool force = false}) async {
     if (force) {
       console.setForegroundColor(ConsoleColor.yellow);
       console.write('Force compilation requested');
@@ -246,7 +276,7 @@ class SmartCompiler {
         await _saveCachedCompileTime(compileStopwatch.elapsed);
         _logStats(stats, compileTime: compileStopwatch.elapsed);
       }
-      return success;
+      return SmartCompileResult(success: success, recompiled: true);
     }
 
     console.setForegroundColor(ConsoleColor.cyan);
@@ -287,7 +317,7 @@ class SmartCompiler {
         }
         console.resetColorAttributes();
         console.writeLine();
-        return true;
+        return const SmartCompileResult(success: true, recompiled: false);
       } else {
         console.setForegroundColor(ConsoleColor.yellow);
         console.write('Binary missing or outdated, recompiling...');
@@ -310,7 +340,7 @@ class SmartCompiler {
       await _saveCachedCompileTime(compileStopwatch.elapsed);
     }
 
-    return success;
+    return SmartCompileResult(success: success, recompiled: true);
   }
 
   /// Log compilation statistics

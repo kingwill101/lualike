@@ -50,7 +50,7 @@ void main() {
       expect(err3, isA<Map>());
 
       expect(lua.getGlobal("status4").unwrap(), equals(false));
-      expect(lua.getGlobal("err4").unwrap(), isNull);
+      expect(lua.getGlobal("err4").unwrap(), equals("<no error object>"));
 
       expect(lua.getGlobal("status5").unwrap(), equals(false));
       final err5 = lua.getGlobal("err5").unwrap();
@@ -312,7 +312,7 @@ void main() {
 
       // Verify that nil errors are preserved correctly
       expect(lua.getGlobal("status4").unwrap(), equals(false));
-      expect(lua.getGlobal("err4").unwrap(), isNull);
+      expect(lua.getGlobal("err4").unwrap(), equals("<no error object>"));
 
       // Verify that complex objects are preserved correctly
       expect(lua.getGlobal("status5").unwrap(), equals(false));

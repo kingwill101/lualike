@@ -18,8 +18,8 @@ class InMemoryIODevice extends BaseIODevice {
   /// Set the current file content for operations
   void setFileContent(String filename, String content) {
     _files[filename] = content;
-    Logger.debug(
-      'Set content for file: $filename (${content.length} chars)',
+    Logger.debugLazy(
+      () => 'Set content for file: $filename (${content.length} chars)',
       category: 'InMemoryIO',
     );
   }
@@ -42,8 +42,8 @@ class InMemoryIODevice extends BaseIODevice {
       _position = _currentContent.length;
     }
 
-    Logger.debug(
-      'Opened file: $filename with mode: $mode',
+    Logger.debugLazy(
+      () => 'Opened file: $filename with mode: $mode',
       category: 'InMemoryIO',
     );
   }
@@ -53,7 +53,10 @@ class InMemoryIODevice extends BaseIODevice {
     if (!isClosed && _currentFile != null) {
       await flush();
       isClosed = true;
-      Logger.debug('Closed file: $_currentFile', category: 'InMemoryIO');
+      Logger.debugLazy(
+        () => 'Closed file: $_currentFile',
+        category: 'InMemoryIO',
+      );
     }
   }
 
@@ -78,7 +81,10 @@ class InMemoryIODevice extends BaseIODevice {
       }
       _currentContent = _files[_currentFile!]!;
       _writeBuffer.clear();
-      Logger.debug('Flushed file: $_currentFile', category: 'InMemoryIO');
+      Logger.debugLazy(
+        () => 'Flushed file: $_currentFile',
+        category: 'InMemoryIO',
+      );
     }
   }
 
@@ -200,7 +206,10 @@ class InMemoryIODevice extends BaseIODevice {
     _currentContent = '';
     _position = 0;
     _writeBuffer.clear();
-    Logger.debug('Cleared all in-memory files', category: 'InMemoryIO');
+    Logger.debugLazy(
+      () => 'Cleared all in-memory files',
+      category: 'InMemoryIO',
+    );
   }
 
   /// Get all files (for debugging)

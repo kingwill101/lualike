@@ -15,6 +15,30 @@ class _CollectingDriver implements ctx.LogDriver {
   }
 
   void clear() => entries.clear();
+
+  @override
+  // TODO: implement isShutdown
+  bool get isShutdown => throw UnimplementedError();
+
+  @override
+  // TODO: implement isShuttingDown
+  bool get isShuttingDown => throw UnimplementedError();
+
+  @override
+  Future<void> notifyShutdown() {
+    // TODO: implement notifyShutdown
+    throw UnimplementedError();
+  }
+
+  @override
+  // TODO: implement onShutdown
+  Future<void> get onShutdown => throw UnimplementedError();
+
+  @override
+  Future<void> performShutdown() {
+    // TODO: implement performShutdown
+    throw UnimplementedError();
+  }
 }
 
 void main() {
@@ -115,7 +139,7 @@ void main() {
       var debugExecuted = false;
       var errorExecuted = false;
 
-      Logger.setLevelFilter(ctx.Level.error);
+      Logger.setLevelFilter(Level.error);
       Logger.setEnabled(true);
 
       // Should not execute (below threshold)

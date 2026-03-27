@@ -1,8 +1,9 @@
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:contextual/contextual.dart' as ctx;
 import 'package:lualike/command/version_command.dart';
+import 'package:lualike/src/config.dart';
+import 'package:lualike/src/logging/level.dart' as ctx;
 import 'package:lualike/src/logging/logging.dart';
 
 import 'base_command.dart';
@@ -15,7 +16,7 @@ import 'stdin_command.dart';
 /// Main command runner for LuaLike following Lua CLI specification
 class LuaLikeCommandRunner extends CommandRunner {
   static const String lualikeVersion = '0.0.1';
-  static const String luaCompatVersion = '5.4';
+  static const String luaCompatVersion = '5.5';
 
   bool debugMode = false;
 
@@ -51,7 +52,20 @@ class LuaLikeCommandRunner extends CommandRunner {
       defaultsTo: true,
     );
 
-    argParser.addFlag('bytecode', help: 'Use bytecode VM', defaultsTo: false);
+    argParser.addFlag('ir', help: 'Use lualike IR runtime', defaultsTo: false);
+
+    argParser.addFlag(
+      'lua-bytecode',
+      help: 'Use the opt-in lua_bytecode source engine',
+      defaultsTo: false,
+    );
+
+    argParser.addFlag(
+      'dump-ir',
+      help: 'Print IR instructions after compilation (IR mode)',
+      negatable: false,
+      defaultsTo: false,
+    );
 
     // Add standard Lua options
     argParser.addMultiOption(
@@ -103,6 +117,20 @@ class LuaLikeCommandRunner extends CommandRunner {
       if (argResults['help'] as bool) {
         throw UsageException(usage, usage);
       }
+
+      final config = LuaLikeConfig();
+      final useIr = argResults['ir'] as bool;
+      final useLuaBytecode = argResults['lua-bytecode'] as bool;
+      final useAst = argResults['ast'] as bool;
+      if (useLuaBytecode) {
+        config.defaultEngineMode = EngineMode.luaBytecode;
+      } else if (useIr || !useAst) {
+        config.defaultEngineMode = EngineMode.ir;
+      } else {
+        config.defaultEngineMode = EngineMode.ast;
+      }
+      config.dumpIr = argResults['dump-ir'] as bool;
+      BaseCommand.resetBridge();
 
       // Handle debug mode
       if (argResults['debug'] as bool) {

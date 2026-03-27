@@ -1,81 +1,89 @@
 # `io` Library
 
-The `io` library provides functions for file manipulation and input/output operations.
+The `io` library provides file and stream operations close to stock Lua's
+`io` module.
 
-## `io.close([file])`
+## Table of Contents
 
-Closes a `file`. If `file` is omitted, the default output file is closed.
+- [Overview](#overview)
+- [Standard streams](#standard-streams)
+- [Top-level functions](#top-level-functions)
+- [File handle methods](#file-handle-methods)
+- [Portability notes](#portability-notes)
 
--   `file` (optional): The file handle to close.
--   **Returns**: `true` on success, or `nil` plus an error message.
+## Overview
 
-## `io.flush()`
+LuaLike registers `io` as a namespaced library and also exposes the standard
+streams as fields on that table.
 
-Flushes the default output buffer.
+The top-level functions follow the usual Lua shape:
 
--   **Returns**: `true` on success, or `nil` plus an error message.
+- `io.close([file])`
+- `io.flush()`
+- `io.input([file])`
+- `io.lines([filename, ...])`
+- `io.open(filename, [mode])`
+- `io.output([file])`
+- `io.popen(prog, [mode])`
+- `io.read(...)`
+- `io.tmpfile()`
+- `io.type(obj)`
+- `io.write(...)`
 
-## `io.input([file])`
+## Standard streams
 
-Sets the default input file or returns the current default input file.
+LuaLike registers these default handles:
 
--   `file` (optional): A file name or a file handle to set as the default input.
--   **Returns**: The current default input file.
+- `io.stdin`
+- `io.stdout`
+- `io.stderr`
 
-## `io.lines([filename, ...])`
+These are backed by runtime IO devices and are treated specially so normal GC
+cleanup does not accidentally close the process standard streams.
 
-Returns an iterator function that, each time it is called, reads the file according to the given formats.
+## Top-level functions
 
--   `filename` (optional): The name of the file to read from. If omitted, it reads from the default input file.
--   `...` (optional): A sequence of format strings.
--   **Returns**: An iterator function.
+### Open, select, and close files
 
-## `io.open(filename, [mode])`
+- `io.open(filename, [mode])` opens a file and returns a file handle or
+  `nil, error`.
+- `io.input([file])` gets or sets the default input handle.
+- `io.output([file])` gets or sets the default output handle.
+- `io.close([file])` closes an explicit handle or the current default output
+  handle.
 
-Opens a file with the given `mode`.
+### Read and write
 
--   `filename`: The name of the file to open.
--   `mode` (optional): A string specifying the file mode (e.g., "r", "w", "a").
--   **Returns**: A new file handle, or `nil` plus an error message.
+- `io.read(...)` reads from the current default input.
+- `io.write(...)` writes to the current default output.
+- `io.flush()` flushes the current default output.
+- `io.lines([filename, ...])` returns an iterator over line or format reads.
 
-## `io.output([file])`
+### Miscellaneous helpers
 
-Sets the default output file or returns the current default output file.
+- `io.tmpfile()` creates a temporary file handle.
+- `io.type(obj)` returns `"file"`, `"closed file"`, or `nil`.
+- `io.popen(...)` is present for compatibility but currently reports that the
+  feature is unsupported.
 
--   `file` (optional): A file name or a file handle to set as the default output.
--   **Returns**: The current default output file.
+## File handle methods
 
-## `io.popen(prog, [mode])`
+Handles returned from `io.open()` and related helpers expose method-style
+operations:
 
-Starts a program `prog` in a separate process. This function is not supported.
+- `file:close()`
+- `file:flush()`
+- `file:read(...)`
+- `file:write(...)`
+- `file:seek(whence, [offset])`
+- `file:lines(...)`
+- `file:setvbuf(...)`
 
--   `prog`: The program to start.
--   `mode` (optional): The mode to open the program with.
--   **Returns**: `nil` and an error message.
+## Portability notes
 
-## `io.read(...)`
-
-Reads from the default input file, according to the given formats.
-
--   `...`: A sequence of format strings.
--   **Returns**: The read values, or `nil` on failure.
-
-## `io.tmpfile()`
-
-Returns a handle for a temporary file.
-
--   **Returns**: A file handle for a temporary file.
-
-## `io.type(obj)`
-
-Checks if an `obj` is a file handle.
-
--   `obj`: The object to check.
---  **Returns**: The string "file" if `obj` is an open file handle, "closed file" if it is a closed file handle, or `nil` otherwise.
-
-## `io.write(...)`
-
-Writes values to the default output file.
-
--   `...`: A sequence of values to write.
--   **Returns**: `true` on success, or `nil` plus an error message.
+- Platform-specific devices such as `/dev/full` or shell-backed behavior may
+  differ across operating systems.
+- `io.popen()` is intentionally a compatibility stub rather than a process
+  launcher.
+- File handles are runtime objects, so exact GC timing should not be relied on
+  for closing resources. Prefer explicit `:close()`.

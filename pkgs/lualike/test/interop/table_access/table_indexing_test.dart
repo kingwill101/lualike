@@ -104,5 +104,30 @@ void main() {
       expect(valueMap[5], equals("deep5"));
       //test deep assignment
     });
+
+    test('table index cache snapshots loop indices', () async {
+      final bridge = LuaLike();
+
+      await bridge.execute(r'''
+        local p = {"yield", "db.lua", "db.lua", "db.lua", "db.lua"}
+        local tb = "stack traceback:\n\t[C]: in function 'yield'\n\tdb.lua:1: in function 'yield'\n\tdb.lua:1: in function 'f'\n\tdb.lua:1: in function 'f'\n"
+        local i = 0
+        local seen = {}
+        for _ in string.gmatch(tb, "[^\n]+\n?") do
+          if i > 0 then
+            seen[i] = p[i]
+          end
+          i = i + 1
+        end
+        result = seen
+      ''');
+
+      final result = bridge.getGlobal('result') as Value;
+      final map = result.raw as Map<dynamic, dynamic>;
+      expect(map[1], equals(Value('yield')));
+      expect(map[2], equals(Value('db.lua')));
+      expect(map[3], equals(Value('db.lua')));
+      expect(map[4], equals(Value('db.lua')));
+    });
   });
 }

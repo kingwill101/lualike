@@ -23,8 +23,20 @@ class LuaGrammarDefinition extends GrammarDefinition {
   /// Expose whitespace/comments parser for testing
   Parser whiteSpaceAndCommentsForTest() => _whiteSpaceAndComments();
 
+  /// Expose a complete expression parser for narrow load() fast paths.
+  Parser expressionParser() =>
+      ((_whiteSpaceAndComments().star() &
+                  ref0(_expression) &
+                  _whiteSpaceAndComments().star())
+              .pick(1))
+          .end();
+
   /// Source file used for span annotations.
-  final SourceFile _sourceFile;
+  SourceFile _sourceFile;
+
+  void updateSourceFile(SourceFile sourceFile) {
+    _sourceFile = sourceFile;
+  }
 
   // ---------- Helpers -------------------------------------------------------
 
@@ -88,9 +100,9 @@ class LuaGrammarDefinition extends GrammarDefinition {
         .flatten();
   }
 
-  /// Optional ESC (0x1B) marker used by our pseudo-binary chunks. Accepting it
-  /// here allows loader code to uniformly pass decoded text to the parser even
-  /// when a chunk starts with ESC.
+  /// Optional ESC (0x1B) marker used by the legacy AST/internal chunk path.
+  /// Accepting it here allows loader code to uniformly pass decoded text to
+  /// the parser even when a legacy chunk starts with ESC.
   Parser _escMarker() => (pattern('\u001B')).flatten();
 
   /// Optional UTF-8 BOM at the very start of a file. When present, it is
@@ -157,13 +169,15 @@ class LuaGrammarDefinition extends GrammarDefinition {
     );
   }
 
-  Parser _span(Parser inner) => (position() & inner & position()).map((vals) {
-    final start = vals[0] as int;
-    final node = vals[1] as AstNode;
-    final end = vals[2] as int;
-    node.setSpan(_sourceFile.span(start, end));
-    return node;
-  });
+  Parser _span(Parser inner) {
+    return (position() & inner & position()).map((vals) {
+      final start = vals[0] as int;
+      final node = vals[1] as AstNode;
+      final end = vals[2] as int;
+      node.setSpan(_sourceFile.span(start, end));
+      return node;
+    });
+  }
 
   Parser _identifier() {
     final base = (_letter() & (_letter() | digit()).star()).flatten();
@@ -177,7 +191,6 @@ class LuaGrammarDefinition extends GrammarDefinition {
           final text = vals[1] as String;
           final end = vals[2] as int;
           final id = Identifier(text);
-
           id.setSpan(_sourceFile.span(start, end));
           return id;
         })
@@ -246,7 +259,7 @@ class LuaGrammarDefinition extends GrammarDefinition {
     final isFileChunk = urlStr.isNotEmpty && urlStr != '=(load)';
     final maybeShebang = isFileChunk ? ref0(_shebang).optional() : epsilon();
 
-    // Accept optional ESC marker after BOM/shebang for pseudo-binary chunks.
+    // Accept optional ESC marker after BOM/shebang for legacy AST chunks.
     final maybeEsc = ref0(_escMarker).optional();
 
     // Do not require .end() so trailing trivia is allowed, matching Lua.
@@ -278,6 +291,7 @@ class LuaGrammarDefinition extends GrammarDefinition {
   // stat ::= empty ';' or assignment or expression statement
   Parser _stat() =>
       _token(';').map((_) => null) |
+      ref0(_globalStat) |
       ref0(_localFunctionDefStat) |
       ref0(_functionDefStat) |
       ref0(_localDeclaration) |
@@ -294,15 +308,11 @@ class LuaGrammarDefinition extends GrammarDefinition {
       ref0(_returnlessExprStatement) |
       // Error case: Detect bare string literals and report appropriate error
       _stringLiteral().map((literal) {
-        // Extract the raw content for error reporting
-        String errorText = literal.value;
-        if (literal.isLongString) {
-          // For long strings, show the full long bracket syntax
-          errorText = '[[${literal.value}]]';
-        } else {
-          // For regular strings, try to reconstruct with quotes
-          errorText = '"${literal.value}"';
-        }
+        final errorText =
+            literal.span?.text ??
+            (literal.isLongString
+                ? '[[${literal.value}]]'
+                : '"${literal.value}"');
 
         throw _createPositionedException(
           literal,
@@ -375,70 +385,70 @@ class LuaGrammarDefinition extends GrammarDefinition {
     builder.group().left(
       ref0(_mulOperator),
       (dynamic a, dynamic op, dynamic b) =>
-          BinaryExpression(a as AstNode, op as String, b as AstNode),
+          _makeBinaryExpression(a as AstNode, op, b as AstNode),
     );
 
     // --- additive + - ---
     builder.group().left(
       ref0(_addOperator),
       (dynamic a, dynamic op, dynamic b) =>
-          BinaryExpression(a as AstNode, op as String, b as AstNode),
+          _makeBinaryExpression(a as AstNode, op, b as AstNode),
     );
 
     // --- concatenation .. (right-assoc) ---
     builder.group().right(
-      _token('..'),
+      _binaryOperatorToken(_token('..')),
       (dynamic a, dynamic op, dynamic b) =>
-          BinaryExpression(a as AstNode, '..', b as AstNode),
+          _makeBinaryExpression(a as AstNode, op, b as AstNode),
     );
 
     // --- bitwise shift << >> ---
     builder.group().left(
       ref0(_shiftOperator),
       (dynamic a, dynamic op, dynamic b) =>
-          BinaryExpression(a as AstNode, op as String, b as AstNode),
+          _makeBinaryExpression(a as AstNode, op, b as AstNode),
     );
 
     // --- bitwise and & ---
     builder.group().left(
-      _token('&'),
+      _binaryOperatorToken(_token('&')),
       (dynamic a, dynamic op, dynamic b) =>
-          BinaryExpression(a as AstNode, '&', b as AstNode),
+          _makeBinaryExpression(a as AstNode, op, b as AstNode),
     );
 
     // --- bitwise xor ~ ---
     builder.group().left(
-      _token('~'),
+      _binaryOperatorToken(_token('~')),
       (dynamic a, dynamic op, dynamic b) =>
-          BinaryExpression(a as AstNode, '~', b as AstNode),
+          _makeBinaryExpression(a as AstNode, op, b as AstNode),
     );
 
     // --- bitwise or | ---
     builder.group().left(
-      _token('|'),
+      _binaryOperatorToken(_token('|')),
       (dynamic a, dynamic op, dynamic b) =>
-          BinaryExpression(a as AstNode, '|', b as AstNode),
+          _makeBinaryExpression(a as AstNode, op, b as AstNode),
     );
 
     // --- comparison < > <= >= == ~= ---
     builder.group().left(
       ref0(_comparisonOperator),
       (dynamic a, dynamic op, dynamic b) =>
-          BinaryExpression(a as AstNode, op as String, b as AstNode),
+          _makeBinaryExpression(a as AstNode, op, b as AstNode),
     );
 
     // --- logical and ---
     builder.group().left(
-      _token('and'),
+      _binaryOperatorToken(_token('and')),
       (dynamic a, dynamic op, dynamic b) =>
-          BinaryExpression(a as AstNode, 'and', b as AstNode),
+          _makeBinaryExpression(a as AstNode, op, b as AstNode),
     );
 
     // --- logical or (lowest precedence) ---
     builder.group().left(
-      _token('or'),
+      _binaryOperatorToken(_token('or')),
       (dynamic a, dynamic op, dynamic b) =>
-          BinaryExpression(a as AstNode, 'or', b as AstNode),
+          _makeBinaryExpression(a as AstNode, op, b as AstNode),
     );
 
     return builder.build().cast<AstNode>();
@@ -448,20 +458,31 @@ class LuaGrammarDefinition extends GrammarDefinition {
   Parser _unaryOperator() =>
       (_token('-') | _token('#') | _token('not') | _token('~'));
 
-  Parser _mulOperator() =>
-      _token('//') | _token('*') | _token('/') | _token('%');
+  Parser _unaryOperatorToken() {
+    return (position() & ref0(_unaryOperator)).map((vals) {
+      final offset = vals[0] as int;
+      final op = vals[1] as String;
+      final line = _sourceFile.location(offset).line;
+      return (op: op, line: line, offset: offset);
+    });
+  }
 
-  Parser _addOperator() => _token('+') | _token('-');
+  Parser _mulOperator() => _binaryOperatorToken(
+    _token('//') | _token('*') | _token('/') | _token('%'),
+  );
 
-  Parser _comparisonOperator() =>
-      _token('<=') |
-      _token('>=') |
-      _token('<') |
-      _token('>') |
-      _token('==') |
-      _token('~=');
+  Parser _addOperator() => _binaryOperatorToken(_token('+') | _token('-'));
 
-  Parser _shiftOperator() => _token('<<') | _token('>>');
+  Parser _comparisonOperator() => _binaryOperatorToken(
+    _token('<=') |
+        _token('>=') |
+        _token('<') |
+        _token('>') |
+        _token('==') |
+        _token('~='),
+  );
+
+  Parser _shiftOperator() => _binaryOperatorToken(_token('<<') | _token('>>'));
 
   // ---------- Primary expressions -----------------------------------------
   Parser _primaryExpression() =>
@@ -475,8 +496,11 @@ class LuaGrammarDefinition extends GrammarDefinition {
       ref0(_tableConstructor).trim(ref0(_whiteSpaceAndComments)) |
       ref0(_groupedExpression).trim(ref0(_whiteSpaceAndComments));
 
-  Parser _groupedExpression() => (_token('(') & ref0(_expression) & _token(')'))
-      .map((values) => GroupedExpression(values[1] as AstNode));
+  Parser _groupedExpression() => _span(
+    (_token('(') & ref0(_expression) & _token(')')).map(
+      (values) => GroupedExpression(values[1] as AstNode),
+    ),
+  );
 
   Parser _nilLiteral() => position()
       .seq(_token('nil'))
@@ -959,26 +983,30 @@ class LuaGrammarDefinition extends GrammarDefinition {
   // ----------------- Local Declaration ------------------------------------
 
   Parser _localDeclaration() => _span(
-    (_token('local') & _attNameList() & (_token('=') & _explist()).optional()).map((
-      vals,
-    ) {
-      // _attNameList now returns a List of [Identifier, attribute] pairs in order
-      final pairList = vals[1] as List<List>;
+    (_token('local') &
+            _attrib().optional() &
+            _attNameList() &
+            (_token('=') & _explist()).optional())
+        .map((vals) {
+          final defaultAttribute = vals[1] as String? ?? '';
+          // _attNameList now returns a List of [Identifier, attribute] pairs in order
+          final pairList = vals[2] as List<List>;
 
-      // Separate into parallel name/attribute lists while preserving duplicates and order
-      final names = <Identifier>[];
-      final attributes = <String>[];
-      for (final pair in pairList) {
-        names.add(pair[0] as Identifier);
-        attributes.add(pair[1] as String);
-      }
+          // Separate into parallel name/attribute lists while preserving duplicates and order
+          final names = <Identifier>[];
+          final attributes = <String>[];
+          for (final pair in pairList) {
+            names.add(pair[0] as Identifier);
+            final attribute = pair[1] as String;
+            attributes.add(attribute.isNotEmpty ? attribute : defaultAttribute);
+          }
 
-      final exprs = vals[2] == null
-          ? <AstNode>[]
-          : (vals[2] as List)[1] as List<AstNode>; // [ '=', explist ]
+          final exprs = vals[3] == null
+              ? <AstNode>[]
+              : (vals[3] as List)[1] as List<AstNode>; // [ '=', explist ]
 
-      return LocalDeclaration(names, attributes, exprs);
-    }),
+          return LocalDeclaration(names, attributes, exprs);
+        }),
   );
 
   Parser _attNameList() =>
@@ -1014,6 +1042,57 @@ class LuaGrammarDefinition extends GrammarDefinition {
     }
     return attributeName;
   });
+
+  Parser _globalStat() => _span(
+    (_token('global') &
+            ((_token('function') & _identifier() & _funcBody()).map((vals) {
+                  return FunctionDef(
+                    FunctionName(vals[1] as Identifier, const [], null),
+                    vals[2] as FunctionBody,
+                    explicitGlobal: true,
+                  );
+                }) |
+                (_attrib().optional() &
+                        (_token('*') |
+                            (_attNameList() &
+                                (_token('=') & _explist()).optional())))
+                    .map((vals) {
+                      final defaultAttribute = vals[0] as String? ?? '';
+                      final declaration = vals[1];
+
+                      if (declaration == '*') {
+                        return GlobalDeclaration(
+                          defaultAttribute: defaultAttribute,
+                          isWildcard: true,
+                          names: const <Identifier>[],
+                          attributes: const <String>[],
+                          exprs: const <AstNode>[],
+                        );
+                      }
+
+                      final parts = declaration as List;
+                      final pairList = parts[0] as List<List>;
+                      final exprs = parts[1] == null
+                          ? <AstNode>[]
+                          : (parts[1] as List)[1] as List<AstNode>;
+
+                      final names = <Identifier>[];
+                      final attributes = <String>[];
+                      for (final pair in pairList) {
+                        names.add(pair[0] as Identifier);
+                        attributes.add(pair[1] as String);
+                      }
+
+                      return GlobalDeclaration(
+                        defaultAttribute: defaultAttribute,
+                        isWildcard: false,
+                        names: names,
+                        attributes: attributes,
+                        exprs: exprs,
+                      );
+                    })))
+        .pick(1),
+  );
 
   // ----------------- For Loops -------------------------------------------
 
@@ -1071,16 +1150,37 @@ class LuaGrammarDefinition extends GrammarDefinition {
 
   // Parses unary prefix operators and builds nested UnaryExpression nodes.
   Parser _unaryExpression() {
-    final unarySeq = (ref0(_unaryOperator).plus() & ref0(_powerExpression)).map(
-      (vals) {
-        final ops = vals[0] as List;
-        AstNode node = vals[1] as AstNode;
-        for (var i = ops.length - 1; i >= 0; i--) {
-          node = UnaryExpression(ops[i] as String, node);
-        }
-        return node;
-      },
-    );
+    final unarySeq = (ref0(_unaryOperatorToken).plus() & ref0(_powerExpression))
+        .map((vals) {
+          final ops = vals[0] as List;
+          AstNode node = vals[1] as AstNode;
+          for (var i = ops.length - 1; i >= 0; i--) {
+            final opSpec = ops[i];
+            final op = switch (opSpec) {
+              String value => value,
+              ({String op, int line, int offset}) value => value.op,
+              _ => opSpec.toString(),
+            };
+            final operatorLine = switch (opSpec) {
+              ({String op, int line, int offset}) value => value.line,
+              _ => null,
+            };
+            final operatorOffset = switch (opSpec) {
+              ({String op, int line, int offset}) value => value.offset,
+              _ => null,
+            };
+            final unary = UnaryExpression(op, node, operatorLine: operatorLine);
+            if (operatorOffset != null && node.span != null) {
+              unary.setSpan(
+                _sourceFile.span(operatorOffset, node.span!.end.offset),
+              );
+            } else if (node.span != null) {
+              unary.setSpan(node.span!);
+            }
+            node = unary;
+          }
+          return node;
+        });
 
     // If there is no unary operator, just parse the power expression.
     return unarySeq | ref0(_powerExpression);
@@ -1089,7 +1189,8 @@ class LuaGrammarDefinition extends GrammarDefinition {
   // Parses a chain of '^' operators with right associativity. The right-hand
   // operand is a full unary expression, matching Lua’s grammar.
   Parser _powerExpression() {
-    final tail = (_token('^') & ref0(_unaryExpression)).star();
+    final tail = (_binaryOperatorToken(_token('^')) & ref0(_unaryExpression))
+        .star();
 
     return (ref0(_primaryExpression) & tail).map((vals) {
       AstNode node = vals[0] as AstNode;
@@ -1097,11 +1198,73 @@ class LuaGrammarDefinition extends GrammarDefinition {
 
       // Build right-associative: process from right to left.
       for (var i = rest.length - 1; i >= 0; i--) {
-        final rhs = rest[i][1] as AstNode; // pair = [ '^', rhs ]
-        node = BinaryExpression(node, '^', rhs);
+        final op = rest[i][0];
+        final rhs = rest[i][1] as AstNode;
+        node = _makeBinaryExpression(node, op, rhs);
       }
       return node;
     });
+  }
+
+  Parser _binaryOperatorToken(Parser tokenParser) {
+    return (position() & tokenParser).map((vals) {
+      final offset = vals[0] as int;
+      final op = vals[1] as String;
+      final line = _sourceFile.location(offset).line;
+      return (op: op, line: line);
+    });
+  }
+
+  BinaryExpression _makeBinaryExpression(
+    AstNode left,
+    dynamic opSpec,
+    AstNode right,
+  ) {
+    final op = switch (opSpec) {
+      String value => value,
+      ({String op, int line}) value => value.op,
+      _ => opSpec.toString(),
+    };
+    final operatorLine = switch (opSpec) {
+      ({String op, int line}) value => value.line,
+      _ => null,
+    };
+    int? adjustedOperatorLine = operatorLine;
+    if (left.span != null && right.span != null) {
+      final searchStart = left.span!.start.offset;
+      final searchEnd = right.span!.start.offset;
+      if (searchStart <= searchEnd) {
+        final betweenText = _sourceFile.span(searchStart, searchEnd).text;
+        final opIndex = betweenText.lastIndexOf(op);
+        if (opIndex >= 0) {
+          adjustedOperatorLine = _sourceFile
+              .location(searchStart + opIndex)
+              .line;
+        } else if (adjustedOperatorLine != null &&
+            left.span!.start.line != right.span!.start.line &&
+            right.span!.start.line > left.span!.start.line + 1 &&
+            adjustedOperatorLine <= left.span!.start.line) {
+          adjustedOperatorLine = right.span!.start.line - 1;
+        }
+      }
+    }
+
+    final node = BinaryExpression(
+      left,
+      op,
+      right,
+      operatorLine: adjustedOperatorLine,
+    );
+    if (left.span != null && right.span != null) {
+      node.setSpan(
+        _sourceFile.span(left.span!.start.offset, right.span!.end.offset),
+      );
+    } else if (left.span != null) {
+      node.setSpan(left.span!);
+    } else if (right.span != null) {
+      node.setSpan(right.span!);
+    }
+    return node;
   }
 
   // ----------------- Function Definitions ---------------------------------
@@ -1125,8 +1288,10 @@ class LuaGrammarDefinition extends GrammarDefinition {
     }),
   );
 
-  Parser _functionLiteral() => (_token('function') & _funcBody()).map(
-    (vals) => FunctionLiteral(vals[1] as FunctionBody),
+  Parser _functionLiteral() => _span(
+    (_token('function') & _funcBody()).map(
+      (vals) => FunctionLiteral(vals[1] as FunctionBody),
+    ),
   );
 
   Parser _funcName() =>
@@ -1155,24 +1320,45 @@ class LuaGrammarDefinition extends GrammarDefinition {
               _token('end'))
           .map((vals) {
             final parResult =
-                vals[1] as Map? ?? {'params': <Identifier>[], 'vararg': false};
+                vals[1] as Map? ??
+                {'params': <Identifier>[], 'vararg': false, 'varargName': null};
             final params = parResult['params'] as List<Identifier>;
             final hasVararg = parResult['vararg'] as bool;
+            final varargName = parResult['varargName'] as Identifier?;
             final body = vals[3] as List<AstNode>;
-            return FunctionBody(params, body, hasVararg);
+            return FunctionBody(
+              params,
+              body,
+              hasVararg,
+              varargName: varargName,
+            );
           });
 
   Parser _parlist() {
-    final varargOnly = _token(
-      '...',
-    ).map((_) => {'params': <Identifier>[], 'vararg': true});
+    final namedVararg = (_token('...') & ref0(_identifier)).map((values) {
+      final name = values[1] as Identifier;
+      return {'params': <Identifier>[], 'vararg': true, 'varargName': name};
+    });
+
+    final varargOnly = _token('...').map(
+      (_) => {'params': <Identifier>[], 'vararg': true, 'varargName': null},
+    );
+
+    final namesWithNamedVararg =
+        (_namelist() & _token(',') & _token('...') & ref0(_identifier)).map((
+          vals,
+        ) {
+          final ids = vals[0] as List<Identifier>;
+          final name = vals[3] as Identifier;
+          return {'params': ids, 'vararg': true, 'varargName': name};
+        });
 
     // names followed by ',', '...'
     final namesWithVararg = (_namelist() & _token(',') & _token('...')).map((
       vals,
     ) {
       final ids = vals[0] as List<Identifier>;
-      return {'params': ids, 'vararg': true};
+      return {'params': ids, 'vararg': true, 'varargName': null};
     });
 
     // names only (no vararg) — but *must not* be immediately followed by
@@ -1180,10 +1366,18 @@ class LuaGrammarDefinition extends GrammarDefinition {
     // "function f(a, b ...)" (missing comma before `...`). We add a
     // negative look-ahead (`not()`) for the ellipsis.
     final namesOnly = (_namelist() & _token('...').not()).map(
-      (vals) => {'params': (vals[0] as List<Identifier>), 'vararg': false},
+      (vals) => {
+        'params': (vals[0] as List<Identifier>),
+        'vararg': false,
+        'varargName': null,
+      },
     );
 
-    return namesWithVararg | namesOnly | varargOnly;
+    return namesWithNamedVararg |
+        namesWithVararg |
+        namedVararg |
+        namesOnly |
+        varargOnly;
   }
 
   // Utility to annotate a literal node with span
@@ -1311,21 +1505,350 @@ class _LongCommentBracketParser extends Parser<String> {
 /// Parse [source] into an [AST] using the **new PetitParser** implementation.
 ///
 /// This will eventually replace the old `parse()` from `grammar_parser.dart`.
-Program parse(String source, {Uri? url}) {
-  // Normalize all line endings to '\n' so the grammar and span calculations
-  // behave consistently across inputs using CR, LFCR, or CRLF.
-  // This mirrors Lua's tolerance for platform-specific newlines while keeping
-  // line counts stable for debug.getinfo and error reporting.
-  final normalizedSource = source
-      .replaceAll('\r\n', '\n')
-      .replaceAll('\n\r', '\n')
-      .replaceAll('\r', '\n');
+const int _luaIdSize = 60;
+
+final RegExp _luaNumberTokenPattern = RegExp(
+  r'^(?:0[xX][0-9A-Fa-f]*(?:\.[0-9A-Fa-f]*)?(?:[pP][+-]?\d+)?|(?:\d+\.\d*|\.\d+|\d+)(?:[eE][+-]?\d+)?)',
+);
+
+String luaChunkId(String source) {
+  if (source.isEmpty) {
+    return '[string ""]';
+  }
+  if (source.startsWith('=')) {
+    final literal = source.substring(1);
+    final budget = _luaIdSize - 1;
+    return literal.length <= budget ? literal : literal.substring(0, budget);
+  }
+  if (source.startsWith('@')) {
+    final fileName = source.substring(1);
+    final budget = _luaIdSize - 1;
+    if (fileName.length <= budget) {
+      return fileName;
+    }
+    final keep = budget - 3;
+    return '...${fileName.substring(fileName.length - keep)}';
+  }
+
+  const prefix = '[string "';
+  const suffix = '"]';
+  final newline = source.indexOf('\n');
+  final singleLineSource = newline == -1
+      ? source
+      : source.substring(0, newline);
+  final budget = _luaIdSize - prefix.length - suffix.length - 3 - 1;
+  if (newline == -1 && singleLineSource.length <= budget) {
+    return '$prefix$singleLineSource$suffix';
+  }
+  final clipped = singleLineSource.length > budget
+      ? singleLineSource.substring(0, budget)
+      : singleLineSource;
+  return '$prefix$clipped...$suffix';
+}
+
+int? _findUnclosedBraceLine(String source) {
+  final stack = <int>[];
+  String? quote;
+  var escape = false;
+  var inLineComment = false;
+  var line = 1;
+
+  for (var i = 0; i < source.length; i++) {
+    final ch = source[i];
+    if (ch == '\n') {
+      line++;
+      inLineComment = false;
+    }
+
+    if (inLineComment) {
+      continue;
+    }
+
+    if (quote != null) {
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (ch == r'\') {
+        escape = true;
+        continue;
+      }
+      if (ch == quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (ch == '"' || ch == "'") {
+      quote = ch;
+      continue;
+    }
+    if (ch == '-' && i + 1 < source.length && source[i + 1] == '-') {
+      inLineComment = true;
+      i++;
+      continue;
+    }
+    if (ch == '{') {
+      stack.add(line);
+      continue;
+    }
+    if (ch == '}' && stack.isNotEmpty) {
+      stack.removeLast();
+    }
+  }
+
+  return stack.isEmpty ? null : stack.last;
+}
+
+bool _isIdentifierStartCodeUnit(int codeUnit) =>
+    (codeUnit >= 0x41 && codeUnit <= 0x5A) ||
+    (codeUnit >= 0x61 && codeUnit <= 0x7A) ||
+    codeUnit == 0x5F;
+
+bool _isIdentifierContinueCodeUnit(int codeUnit) =>
+    _isIdentifierStartCodeUnit(codeUnit) ||
+    (codeUnit >= 0x30 && codeUnit <= 0x39);
+
+int _skipSyntaxTrivia(String source, int index) {
+  var current = index;
+  while (current < source.length) {
+    final codeUnit = source.codeUnitAt(current);
+    final rune = String.fromCharCode(codeUnit);
+    if (!RegExp(r'\s').hasMatch(rune)) {
+      break;
+    }
+    current++;
+  }
+  return current;
+}
+
+(String token, int nextIndex)? _readSyntaxToken(String source, int index) {
+  final start = _skipSyntaxTrivia(source, index);
+  if (start >= source.length) {
+    return ('<eof>', start);
+  }
+
+  final codeUnit = source.codeUnitAt(start);
+  if (codeUnit < 0x20 || codeUnit == 0x7F || codeUnit > 0x7E) {
+    return ('<\\$codeUnit>', start + 1);
+  }
+
+  if (start + 1 < source.length) {
+    final twoChar = source.substring(start, start + 2);
+    if (twoChar == '<<' || twoChar == '>>') {
+      return (twoChar, start + 2);
+    }
+  }
+
+  if (codeUnit == 0x22 || codeUnit == 0x27) {
+    final quote = codeUnit;
+    var current = start + 1;
+    var escaping = false;
+    while (current < source.length) {
+      final currentCodeUnit = source.codeUnitAt(current);
+      if (!escaping && currentCodeUnit == quote) {
+        current++;
+        break;
+      }
+      if (!escaping && currentCodeUnit == 0x5C) {
+        escaping = true;
+        current++;
+        continue;
+      }
+      escaping = false;
+      current++;
+    }
+    return (source.substring(start, current), current);
+  }
+
+  if (codeUnit == 0x5B) {
+    var current = start + 1;
+    while (current < source.length && source.codeUnitAt(current) == 0x3D) {
+      current++;
+    }
+    if (current < source.length && source.codeUnitAt(current) == 0x5B) {
+      final delimiter = source.substring(start, current + 1);
+      final closing = delimiter.replaceFirst('[', ']');
+      final closeIndex = source.indexOf(closing, current + 1);
+      if (closeIndex != -1) {
+        final end = closeIndex + closing.length;
+        return (source.substring(start, end), end);
+      }
+      return (source.substring(start), source.length);
+    }
+  }
+
+  if ((codeUnit >= 0x30 && codeUnit <= 0x39) ||
+      (codeUnit == 0x2E &&
+          start + 1 < source.length &&
+          RegExp(r'\d').hasMatch(source[start + 1]))) {
+    final match = _luaNumberTokenPattern.matchAsPrefix(source.substring(start));
+    if (match != null) {
+      final token = match.group(0)!;
+      return (token, start + token.length);
+    }
+  }
+
+  if (_isIdentifierStartCodeUnit(codeUnit)) {
+    var current = start + 1;
+    while (current < source.length &&
+        _isIdentifierContinueCodeUnit(source.codeUnitAt(current))) {
+      current++;
+    }
+    return (source.substring(start, current), current);
+  }
+
+  return (String.fromCharCode(codeUnit), start + 1);
+}
+
+bool _isIdentifierLikeToken(String token) =>
+    RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(token);
+
+({String token, int offset}) _tokenNearSyntaxFailure(
+  String source,
+  int position,
+) {
+  final clampedPosition = position.clamp(0, source.length);
+  final primary = _readSyntaxToken(source, clampedPosition);
+  if (primary == null) {
+    return (token: '<eof>', offset: source.length);
+  }
+
+  if (clampedPosition == 0 && _isIdentifierLikeToken(primary.$1)) {
+    final secondary = _readSyntaxToken(source, primary.$2);
+    if (secondary != null && secondary.$1 != '<eof>') {
+      return (
+        token: secondary.$1,
+        offset: _skipSyntaxTrivia(source, primary.$2),
+      );
+    }
+  }
+
+  return (
+    token: primary.$1,
+    offset: _skipSyntaxTrivia(source, clampedPosition),
+  );
+}
+
+FormatException _formatSyntaxFailure(
+  String source,
+  SourceFile sourceFile,
+  int position, {
+  Object? url,
+  String? sourceName,
+}) {
+  final tokenData = _tokenNearSyntaxFailure(source, position);
+  final token = tokenData.token;
+  final tokenOffset = tokenData.offset;
+  final chunkName = luaChunkId(sourceName ?? url?.toString() ?? '');
+  final line = sourceFile.span(tokenOffset, tokenOffset).start.line + 1;
+
+  String message;
+  if (token == '<eof>') {
+    message = 'unexpected symbol near <eof>';
+  } else if (source.trimLeft().startsWith('for ') &&
+      !_isIdentifierLikeToken(token)) {
+    message = "<name> expected near '$token'";
+  } else {
+    message = "unexpected symbol near '$token'";
+  }
+
+  if (sourceName != null && sourceName.contains('=(load)')) {
+    return FormatException(message);
+  }
+  return FormatException('$chunkName:$line: $message');
+}
+
+bool _shouldPreserveParserFailureMessage(String message) {
+  return message.startsWith('[string ') ||
+      message.contains(' near ') ||
+      message.startsWith('unfinished ') ||
+      message.startsWith('unknown attribute ');
+}
+
+FormatException _formatExplicitParserFailure(
+  SourceFile sourceFile,
+  int position,
+  String message, {
+  Object? url,
+  String? sourceName,
+}) {
+  if (message.startsWith('[string ')) {
+    return FormatException(message);
+  }
+
+  final chunkName = luaChunkId(sourceName ?? url?.toString() ?? '');
+  final line = sourceFile.span(position, position).start.line + 1;
+  if (sourceName != null && sourceName.contains('=(load)')) {
+    return FormatException(message);
+  }
+  return FormatException('$chunkName:$line: $message');
+}
+
+FormatException _formatSyntaxOverflow(
+  SourceFile sourceFile, {
+  Object? url,
+  String? sourceName,
+}) {
+  final chunkName = luaChunkId(sourceName ?? url?.toString() ?? '');
+  final line = sourceFile.span(0, 0).start.line + 1;
+  final message = 'expression nesting overflow';
+  if (sourceName != null && sourceName.contains('=(load)')) {
+    return FormatException(message);
+  }
+  return FormatException('$chunkName:$line: $message');
+}
+
+const int _parserMaxLocalVariables = 200;
+
+String? _detectPartialLocalVariableOverflow(String source) {
+  final functionStartPattern = RegExp(
+    r'^(?:local\s+function|global\s+function|function)\b',
+  );
+  final localPattern = RegExp(r'^local\s+(.+)$');
+  final lines = source.split('\n');
+  int? currentFunctionLine;
+
+  for (var index = 0; index < lines.length; index++) {
+    final lineNumber = index + 1;
+    final trimmed = lines[index].trimLeft();
+
+    if (functionStartPattern.hasMatch(trimmed)) {
+      currentFunctionLine = lineNumber;
+    }
+
+    final localMatch = localPattern.firstMatch(trimmed);
+    if (localMatch == null) {
+      continue;
+    }
+
+    final beforeEquals = localMatch.group(1)!.split('=').first.trimRight();
+    if (beforeEquals.isEmpty) {
+      continue;
+    }
+
+    final names = beforeEquals
+        .split(',')
+        .map((name) => name.trim())
+        .where((name) => name.isNotEmpty)
+        .length;
+    if (names > _parserMaxLocalVariables) {
+      return 'line ${currentFunctionLine ?? lineNumber}: too many local variables';
+    }
+  }
+
+  return null;
+}
+
+Program parse(String source, {Object? url, String? sourceName}) {
+  // Callers normalize line endings before reaching the parser. Avoid
+  // rebuilding the input string here on every load() call.
+  final normalizedSource = source;
 
   // Build a SourceFile so we can provide detailed spans on errors.
   final sourceFile = SourceFile.fromString(normalizedSource, url: url);
-
-  final definition = LuaGrammarDefinition(sourceFile);
-  final parser = definition.build();
+  _sharedLuaParser.definition.updateSourceFile(sourceFile);
+  final parser = _sharedLuaParser.parser;
 
   Result result;
   try {
@@ -1333,29 +1856,60 @@ Program parse(String source, {Uri? url}) {
   } catch (e) {
     // If an exception is thrown inside a combinator (e.g., .map()), try to extract position
     int pos = 0;
-    String message = e.toString();
-
+    String? explicitMessage;
     if (e is ParserException) {
       pos = e.failure.position;
-      message = e.failure.message;
+      explicitMessage = e.failure.message;
     } else if (e is Failure) {
       pos = e.position;
-      message = e.message;
+      explicitMessage = e.message;
+    } else if (e is StackOverflowError) {
+      throw _formatSyntaxOverflow(sourceFile, url: url, sourceName: sourceName);
+    } else {
+      rethrow;
     }
 
-    final span = sourceFile.span(
-      pos,
-      pos < normalizedSource.length ? pos + 1 : pos,
+    final partialLocalLimit = _detectPartialLocalVariableOverflow(
+      normalizedSource,
     );
-    throw LuaError(message, span: span, cause: e);
+    if (partialLocalLimit != null) {
+      throw FormatException(partialLocalLimit);
+    }
+
+    if (_shouldPreserveParserFailureMessage(explicitMessage)) {
+      throw _formatExplicitParserFailure(
+        sourceFile,
+        pos,
+        explicitMessage,
+        url: url,
+        sourceName: sourceName,
+      );
+    }
+
+    throw _formatSyntaxFailure(
+      normalizedSource,
+      sourceFile,
+      pos,
+      url: url,
+      sourceName: sourceName,
+    );
   }
 
   if (result is Success) {
-    return result.value as Program;
+    final program = result.value as Program;
+    program.setSpan(sourceFile.span(0, normalizedSource.length));
+    return program;
   }
 
   final failure = result as Failure;
   final pos = failure.position;
+
+  final partialLocalLimit = _detectPartialLocalVariableOverflow(
+    normalizedSource,
+  );
+  if (partialLocalLimit != null) {
+    throw FormatException(partialLocalLimit);
+  }
 
   // Heuristic: when parsing code of the form `return <number-like>` and
   // the parser fails, report a Lua-like numeric error instead of a generic
@@ -1384,10 +1938,6 @@ Program parse(String source, {Uri? url}) {
     }
   }
 
-  // Clamp end so that we don't exceed length (especially when at EOF).
-  final end = pos < normalizedSource.length ? pos + 1 : pos;
-  final span = sourceFile.span(pos, end);
-
   // Basic heuristic: if we see an identifier followed by whitespace and '...' but no comma,
   // suggest the missing comma (common Lua gotcha).
   final _ = pos >= 30 ? pos - 30 : 0;
@@ -1405,24 +1955,82 @@ Program parse(String source, {Uri? url}) {
     );
   }
 
+  final unclosedBraceLine = _findUnclosedBraceLine(normalizedSource);
+  if (unclosedBraceLine != null &&
+      (failMsg == 'end of input expected' ||
+          pos >= normalizedSource.length ||
+          normalizedSource.trimRight().endsWith('{4'))) {
+    final chunkId = luaChunkId(sourceName ?? url?.toString() ?? '');
+    final eofLine =
+        sourceFile
+            .span(normalizedSource.length, normalizedSource.length)
+            .start
+            .line +
+        1;
+    throw FormatException(
+      "$chunkId:$eofLine: '}' expected (to close '{' at line $unclosedBraceLine) near <eof>",
+    );
+  }
+
   // Generate Lua-compatible error messages
-  String luaErrorMsg;
-
-  if (pos >= normalizedSource.length) {
-    luaErrorMsg = "unexpected symbol near <eof>";
-  } else {
-    final ch = normalizedSource[pos];
-    luaErrorMsg = "unexpected symbol near '$ch'";
-  }
-
-  // For load() calls, return simple error message without location
-  if (url != null && url.toString().contains('=(load)')) {
-    throw FormatException(luaErrorMsg);
-  }
-
-  // For files and other contexts, include location info
-  final line = span.start.line + 1;
-  final chunkName = url?.toString() ?? "string";
-  final formatted = "$chunkName:$line: $luaErrorMsg";
-  throw FormatException(formatted);
+  throw _formatSyntaxFailure(
+    normalizedSource,
+    sourceFile,
+    pos,
+    url: url,
+    sourceName: sourceName,
+  );
 }
+
+AstNode parseExpression(String source, {Object? url, String? sourceName}) {
+  final sourceFile = SourceFile.fromString(source, url: url);
+  _sharedLuaExpressionParser.definition.updateSourceFile(sourceFile);
+  final parser = _sharedLuaExpressionParser.parser;
+
+  Result result;
+  try {
+    result = parser.parse(source);
+  } catch (e) {
+    int pos = 0;
+    String message = e.toString();
+
+    if (e is ParserException) {
+      pos = e.failure.position;
+      message = e.failure.message;
+    } else if (e is Failure) {
+      pos = e.position;
+      message = e.message;
+    } else if (e is StackOverflowError) {
+      throw _formatSyntaxOverflow(sourceFile, url: url, sourceName: sourceName);
+    }
+
+    final span = sourceFile.span(pos, pos < source.length ? pos + 1 : pos);
+    throw LuaError(message, span: span, cause: e);
+  }
+
+  if (result case Success(value: final AstNode expression)) {
+    if (expression.span == null) {
+      expression.setSpan(sourceFile.span(0, source.length));
+    }
+    return expression;
+  }
+
+  final failure = result as Failure;
+  final pos = failure.position;
+  final span = sourceFile.span(pos, pos < source.length ? pos + 1 : pos);
+  throw LuaError(failure.message, span: span);
+}
+
+final ({LuaGrammarDefinition definition, Parser parser}) _sharedLuaParser = () {
+  final definition = LuaGrammarDefinition(SourceFile.fromString(''));
+  return (definition: definition, parser: definition.build());
+}();
+
+final ({LuaGrammarDefinition definition, Parser parser})
+_sharedLuaExpressionParser = () {
+  final definition = LuaGrammarDefinition(SourceFile.fromString(''));
+  return (
+    definition: definition,
+    parser: definition.buildFrom(definition.expressionParser()),
+  );
+}();

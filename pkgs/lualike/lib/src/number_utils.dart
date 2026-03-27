@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:typed_data'; // Added for ByteData
 
+import 'builtin_function.dart';
 import 'logging/logger.dart';
 import 'lua_error.dart';
 import 'lua_string.dart';
@@ -13,14 +14,66 @@ import 'value.dart';
 class NumberUtils {
   NumberUtils._(); // Prevent instantiation
 
+  static const int _frexpMantissaExponent = NumberLimits.doubleExponentBias - 1;
+  static const int _subnormalFrexpScale = 54;
+
+  static bool _isBitwiseOperator(String op) => switch (op) {
+    '&' || '|' || 'bxor' || '<<' || '>>' || '~' => true,
+    _ => false,
+  };
+
+  static String _luaValueType(dynamic value) {
+    return typeName(value);
+  }
+
+  static Never _throwNumericTypeError(String op, dynamic value) {
+    final operation = _isBitwiseOperator(op)
+        ? 'bitwise operation'
+        : 'arithmetic';
+    throw LuaError.typeError(
+      'attempt to perform $operation on a ${_luaValueType(value)} value',
+    );
+  }
+
   /// Get type name for error messages
   static String typeName(dynamic value) {
+    if (value is Value) {
+      final name = value.getMetamethod('__name');
+      final rawName = name is Value ? name.raw : name;
+      switch (rawName) {
+        case final String stringName:
+          return stringName;
+        case final LuaString stringName:
+          return stringName.toString();
+      }
+      value = value.raw;
+    }
+
+    if (value case final Map<dynamic, dynamic> table) {
+      final wrapped = Value.lookupCanonicalTableWrapper(table);
+      if (wrapped != null) {
+        final name = wrapped.getMetamethod('__name');
+        final rawName = name is Value ? name.raw : name;
+        switch (rawName) {
+          case final String stringName:
+            return stringName;
+          case final LuaString stringName:
+            return stringName.toString();
+        }
+      }
+    }
+
     if (value == null) return 'nil';
     if (value is bool) return 'boolean';
-    if (value is num) return 'number';
+    if (value is num || value is BigInt) return 'number';
     if (value is String || value is LuaString) return 'string';
     if (value is List || value is Map) return 'table';
-    if (value is Function) return 'function';
+    if (value is Function || value is BuiltinFunction) return 'function';
+    final runtimeTypeName = value.runtimeType.toString();
+    if (runtimeTypeName == 'LuaFile') return 'FILE*';
+    if (runtimeTypeName == 'Box' || runtimeTypeName.startsWith('Box<')) {
+      return 'light userdata';
+    }
     return value.runtimeType.toString();
   }
 
@@ -59,6 +112,95 @@ class NumberUtils {
     }
     if (number is BigInt) return number.toDouble();
     return (number as num).toDouble();
+  }
+
+  /// Returns the raw IEEE-754 bit pattern for a double.
+  static int doubleToRawBits(double value) {
+    final data = ByteData(8)..setFloat64(0, value, Endian.big);
+    return data.getUint64(0, Endian.big);
+  }
+
+  /// Reconstructs a double from its raw IEEE-754 bit pattern.
+  static double rawBitsToDouble(int bits) {
+    final data = ByteData(8)..setUint64(0, bits, Endian.big);
+    return data.getFloat64(0, Endian.big);
+  }
+
+  /// Returns an exact power-of-two double when it is representable.
+  static double powerOfTwo(int exponent) {
+    if (exponent > NumberLimits.doubleMaxExponent) {
+      return double.infinity;
+    }
+    if (exponent >= NumberLimits.doubleMinExponent) {
+      return rawBitsToDouble(
+        (exponent + NumberLimits.doubleExponentBias) <<
+            NumberLimits.doubleStoredSignificandBits,
+      );
+    }
+    if (exponent >= NumberLimits.doubleMinSubnormalExponent) {
+      return rawBitsToDouble(
+        1 << (exponent - NumberLimits.doubleMinSubnormalExponent),
+      );
+    }
+    return 0.0;
+  }
+
+  /// Decomposes a number into a mantissa in [0.5, 1) and a binary exponent.
+  static (double mantissa, int exponent) frexp(dynamic value) {
+    final number = toDouble(value);
+    if (number == 0.0 || !number.isFinite) {
+      return (number, 0);
+    }
+
+    final bits = doubleToRawBits(number);
+    final exponentBits =
+        (bits >> NumberLimits.doubleStoredSignificandBits) & 0x7ff;
+
+    if (exponentBits == 0) {
+      final (mantissa, exponent) = frexp(
+        number * powerOfTwo(_subnormalFrexpScale),
+      );
+      return (mantissa, exponent - _subnormalFrexpScale);
+    }
+
+    final fractionMask = (1 << NumberLimits.doubleStoredSignificandBits) - 1;
+    final mantissaBits =
+        (bits & fractionMask) |
+        (_frexpMantissaExponent << NumberLimits.doubleStoredSignificandBits);
+    final mantissa = rawBitsToDouble(mantissaBits);
+    return (
+      number.isNegative ? -mantissa : mantissa,
+      exponentBits - _frexpMantissaExponent,
+    );
+  }
+
+  /// Multiplies a number by an integral power of two.
+  static double ldexp(dynamic value, int exponent) {
+    final number = toDouble(value);
+    if (number == 0.0 || !number.isFinite || exponent == 0) {
+      return number;
+    }
+
+    var result = number;
+    var remainingExponent = exponent;
+
+    while (remainingExponent > NumberLimits.doubleMaxExponent) {
+      result *= powerOfTwo(NumberLimits.doubleMaxExponent);
+      if (!result.isFinite) {
+        return result;
+      }
+      remainingExponent -= NumberLimits.doubleMaxExponent;
+    }
+
+    while (remainingExponent < NumberLimits.doubleMinSubnormalExponent) {
+      result *= powerOfTwo(NumberLimits.doubleMinSubnormalExponent);
+      if (result == 0.0) {
+        return result;
+      }
+      remainingExponent -= NumberLimits.doubleMinSubnormalExponent;
+    }
+
+    return result * powerOfTwo(remainingExponent);
   }
 
   /// Convert any numeric type to int (with overflow handling)
@@ -308,44 +450,15 @@ class NumberUtils {
 
   /// Perform right shift with proper 64-bit signed integer semantics
   static dynamic rightShift(dynamic a, dynamic shiftAmount) {
-    // Validate that both operands are valid integers
-    if (a is double) {
-      if (!a.isFinite) {
-        if (a == double.infinity) {
-          throw LuaError("number (field 'huge') has no integer representation");
-        } else if (a == double.negativeInfinity) {
-          throw LuaError("number (field 'huge') has no integer representation");
-        }
-        throw LuaError("number has no integer representation");
-      }
-      if (a.floorToDouble() != a) {
-        throw LuaError('number has no integer representation');
-      }
-    }
-    if (shiftAmount is double) {
-      if (!shiftAmount.isFinite) {
-        if (shiftAmount == double.infinity) {
-          throw LuaError("number (field 'huge') has no integer representation");
-        } else if (shiftAmount == double.negativeInfinity) {
-          throw LuaError("number (field 'huge') has no integer representation");
-        }
-        throw LuaError("number has no integer representation");
-      }
-      if (shiftAmount.floorToDouble() != shiftAmount) {
-        throw LuaError('number has no integer representation');
-      }
-    }
-
     final mask64 = BigInt.parse('FFFFFFFFFFFFFFFF', radix: 16);
-    final shiftBig = toBigInt(shiftAmount);
+    final bigA = _validateAndConvertToInteger(a, op: '>>') & mask64;
+    final shiftBig = _validateAndConvertToInteger(shiftAmount, op: '>>');
 
     if (shiftBig.abs() >= BigInt.from(NumberLimits.sizeInBits)) {
       return 0;
     }
 
     final shift = shiftBig.toInt();
-
-    final bigA = toBigInt(a) & mask64;
     final useBigInt = a is BigInt || shiftAmount is BigInt;
 
     // Handle negative shift by reversing operation
@@ -367,35 +480,7 @@ class NumberUtils {
 
   /// Perform left shift with proper 64-bit signed integer wrap-around semantics
   static dynamic leftShift(dynamic a, dynamic shiftAmount) {
-    // Validate that both operands are valid integers
-    if (a is double) {
-      if (!a.isFinite) {
-        if (a == double.infinity) {
-          throw LuaError("number (field 'huge') has no integer representation");
-        } else if (a == double.negativeInfinity) {
-          throw LuaError("number (field 'huge') has no integer representation");
-        }
-        throw LuaError("number has no integer representation");
-      }
-      if (a.floorToDouble() != a) {
-        throw LuaError('number has no integer representation');
-      }
-    }
-    if (shiftAmount is double) {
-      if (!shiftAmount.isFinite) {
-        if (shiftAmount == double.infinity) {
-          throw LuaError("number (field 'huge') has no integer representation");
-        } else if (shiftAmount == double.negativeInfinity) {
-          throw LuaError("number (field 'huge') has no integer representation");
-        }
-        throw LuaError("number has no integer representation");
-      }
-      if (shiftAmount.floorToDouble() != shiftAmount) {
-        throw LuaError('number has no integer representation');
-      }
-    }
-
-    final shiftBig = toBigInt(shiftAmount);
+    final shiftBig = _validateAndConvertToInteger(shiftAmount, op: '<<');
     if (shiftBig.abs() >= BigInt.from(NumberLimits.sizeInBits)) {
       return 0;
     }
@@ -415,7 +500,7 @@ class NumberUtils {
     }
 
     // For regular int, apply wrap-around semantics
-    final bigA = toBigInt(a);
+    final bigA = _validateAndConvertToInteger(a, op: '<<');
 
     // Handle negative shift by reversing operation
     if (shift < 0) {
@@ -565,6 +650,9 @@ class NumberUtils {
 
   /// Perform modulo operation with Lua semantics
   static dynamic modulo(dynamic a, dynamic b) {
+    if (isZero(b)) {
+      throw LuaError("attempt to perform 'n%0'");
+    }
     if ((a is int || a is BigInt) && (b is int || b is BigInt)) {
       if (a is BigInt || b is BigInt) {
         // BigInt modulo
@@ -619,8 +707,8 @@ class NumberUtils {
 
   /// Perform bitwise AND with integer validation
   static dynamic bitwiseAnd(dynamic a, dynamic b) {
-    final bigA = _validateAndConvertToInteger(a);
-    final bigB = _validateAndConvertToInteger(b);
+    final bigA = _validateAndConvertToInteger(a, op: '&');
+    final bigB = _validateAndConvertToInteger(b, op: '&');
 
     final result = bigA & bigB;
 
@@ -635,8 +723,8 @@ class NumberUtils {
 
   /// Perform bitwise OR with integer validation
   static dynamic bitwiseOr(dynamic a, dynamic b) {
-    final bigA = _validateAndConvertToInteger(a);
-    final bigB = _validateAndConvertToInteger(b);
+    final bigA = _validateAndConvertToInteger(a, op: '|');
+    final bigB = _validateAndConvertToInteger(b, op: '|');
 
     final result = bigA | bigB;
 
@@ -651,8 +739,8 @@ class NumberUtils {
 
   /// Perform bitwise XOR with integer validation
   static dynamic bitwiseXor(dynamic a, dynamic b) {
-    final bigA = _validateAndConvertToInteger(a);
-    final bigB = _validateAndConvertToInteger(b);
+    final bigA = _validateAndConvertToInteger(a, op: 'bxor');
+    final bigB = _validateAndConvertToInteger(b, op: 'bxor');
 
     final result = bigA ^ bigB;
 
@@ -672,13 +760,11 @@ class NumberUtils {
       try {
         a = LuaNumberParser.parse(a.toString());
       } catch (e) {
-        throw LuaError.typeError(
-          "attempt to perform arithmetic on a string value",
-        );
+        _throwNumericTypeError('~', a);
       }
     }
 
-    final bigA = _validateAndConvertToInteger(a);
+    final bigA = _validateAndConvertToInteger(a, op: '~');
     final result = ~bigA;
 
     // Return appropriate type
@@ -691,12 +777,12 @@ class NumberUtils {
   }
 
   /// Helper method to validate and convert to integer for bitwise operations
-  static BigInt _validateAndConvertToInteger(dynamic value) {
+  static BigInt _validateAndConvertToInteger(dynamic value, {String op = '&'}) {
     if (value is String || value is LuaString) {
       try {
         value = LuaNumberParser.parse(value.toString());
       } catch (_) {
-        throw LuaError.typeError('number has no integer representation');
+        _throwNumericTypeError(op, value);
       }
     }
     if (value is BigInt) return value;
@@ -711,30 +797,40 @@ class NumberUtils {
       if (value.floorToDouble() != value) {
         throw LuaError('number has no integer representation');
       }
-      final bi = BigInt.parse(value.toStringAsFixed(0));
+      final BigInt bi;
+      try {
+        bi = BigInt.from(value);
+      } on FormatException {
+        throw LuaError('number has no integer representation');
+      }
       if (bi < BigInt.from(NumberLimits.minInteger) ||
           bi > BigInt.from(NumberLimits.maxInteger)) {
         throw LuaError('number has no integer representation');
       }
       return bi;
     }
-    throw LuaError.typeError('number has no integer representation');
+    _throwNumericTypeError(op, value);
   }
 
   /// Perform arithmetic operation with full Lua semantics including string conversion
   static dynamic performArithmetic(String op, dynamic r1, dynamic r2) {
-    Logger.debug(
-      'ARITH: START op=$op, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
+    Logger.debugLazy(
+      () =>
+          'ARITH: START op=$op, r1=$r1 (${r1.runtimeType}), '
+          'r2=$r2 (${r2.runtimeType})',
       category: 'NumberUtils',
     );
 
     // Try to convert strings to numbers (Lua automatic conversion)
     if (r1 is String || r1 is LuaString) {
-      Logger.debug('ARITH: r1 is String, parsing...', category: 'NumberUtils');
+      Logger.debugLazy(
+        () => 'ARITH: r1 is String, parsing...',
+        category: 'NumberUtils',
+      );
       try {
         r1 = LuaNumberParser.parse(r1.toString());
-        Logger.debug(
-          'ARITH: r1 parsed to $r1 (${r1.runtimeType})',
+        Logger.debugLazy(
+          () => 'ARITH: r1 parsed to $r1 (${r1.runtimeType})',
           category: 'NumberUtils',
         );
       } catch (e) {
@@ -743,18 +839,19 @@ class NumberUtils {
           category: 'NumberUtils',
           error: e,
         );
-        throw LuaError.typeError(
-          "attempt to perform arithmetic on a string value",
-        );
+        _throwNumericTypeError(op, r1);
       }
     }
 
     if (r2 is String || r2 is LuaString) {
-      Logger.debug('ARITH: r2 is String, parsing...', category: 'NumberUtils');
+      Logger.debugLazy(
+        () => 'ARITH: r2 is String, parsing...',
+        category: 'NumberUtils',
+      );
       try {
         r2 = LuaNumberParser.parse(r2.toString());
-        Logger.debug(
-          'ARITH: r2 parsed to $r2 (${r2.runtimeType})',
+        Logger.debugLazy(
+          () => 'ARITH: r2 parsed to $r2 (${r2.runtimeType})',
           category: 'NumberUtils',
         );
       } catch (e) {
@@ -763,14 +860,14 @@ class NumberUtils {
           category: 'NumberUtils',
           error: e,
         );
-        throw LuaError.typeError(
-          "attempt to perform arithmetic on a string value",
-        );
+        _throwNumericTypeError(op, r2);
       }
     }
 
-    Logger.debug(
-      'ARITH: after string parse, r1=$r1 (${r1.runtimeType}), r2=$r2 (${r2.runtimeType})',
+    Logger.debugLazy(
+      () =>
+          'ARITH: after string parse, r1=$r1 (${r1.runtimeType}), '
+          'r2=$r2 (${r2.runtimeType})',
       category: 'NumberUtils',
     );
 
@@ -780,9 +877,7 @@ class NumberUtils {
         'ARITH: type error, non-number values',
         category: 'NumberUtils',
       );
-      throw LuaError.typeError(
-        "attempt to perform arithmetic on non-number values ${r1.runtimeType} and ${r2.runtimeType}",
-      );
+      _throwNumericTypeError(op, (r1 is! num && r1 is! BigInt) ? r1 : r2);
     }
 
     // Delegate all arithmetic operations to the appropriate methods
@@ -841,8 +936,8 @@ class NumberUtils {
       rethrow;
     }
 
-    Logger.debug(
-      'ARITH: result: $result (${result.runtimeType})',
+    Logger.debugLazy(
+      () => 'ARITH: result: $result (${result.runtimeType})',
       category: 'NumberUtils',
     );
     return result;

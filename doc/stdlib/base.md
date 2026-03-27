@@ -1,10 +1,19 @@
 # Base Library Implementation
 
-This document details the Dart implementation of the `lualike` base library, found in `lib/src/stdlib/lib_base.dart`.
+This document details the Dart implementation of the LuaLike base library,
+found in `lib/src/stdlib/lib_base.dart`.
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Function implementations](#function-implementations)
 
 ## Overview
 
-The base library provides essential, globally-available functions for `lualike` scripts. These include functions for type checking, error handling, metatable manipulation, and iteration. Unlike other standard library modules, these functions are typically registered directly into the global environment.
+The base library provides essential, globally-available functions for LuaLike
+scripts. These include helpers for type checking, error handling, metatable
+manipulation, and iteration. Unlike other standard library modules, these
+functions are typically registered directly into the global environment.
 
 Each function is implemented in Dart as a class that adheres to the `BuiltinFunction` interface.
 
@@ -12,18 +21,22 @@ Each function is implemented in Dart as a class that adheres to the `BuiltinFunc
 
 ### `assert`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 assert(1 + 1 == 2, "Math is broken") -- Does nothing
 -- assert(false, "This will error")
 ```
 
 **Implementation Details:**
-The `assert` function checks if its first argument is "truthy". In `lualike`, only `false` and `nil` are considered falsy; all other values (including `0` and empty strings) are truthy. If the check fails, it throws an error using the second argument as the message. If the assertion passes, it returns all of its original arguments, allowing it to be used in expressions.
+The `assert` function checks if its first argument is "truthy". In LuaLike,
+only `false` and `nil` are considered falsy; all other values, including `0`
+and empty strings, are truthy. If the check fails, it throws an error using
+the second argument as the message. If the assertion passes, it returns all of
+its original arguments, allowing it to be used in expressions.
 
 ### `error`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 -- error("Something went wrong")
 -- error("Something went wrong", 2) -- Level 2 indicates where to blame the error
@@ -34,7 +47,7 @@ Throws an error, which immediately terminates the script unless it is caught by 
 
 ### `getmetatable`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 local my_table = {}
 setmetatable(my_table, { __index = function() return "default" end })
@@ -47,7 +60,7 @@ Retrieves the metatable of a given value. If the metatable has a `__metatable` f
 
 ### `ipairs`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 local t = { "a", "b", "c" }
 for i, v in ipairs(t) do
@@ -63,7 +76,7 @@ Returns an iterator function designed for use in a `for` loop, specifically for 
 
 ### `next`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 local t = { first = 1, second = 2 }
 local k, v = next(t)
@@ -77,7 +90,7 @@ Provides a primitive mechanism for iterating through all keys in a table, regard
 
 ### `pairs`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 local t = { first = 1, second = 2, [3] = "three" }
 for k, v in pairs(t) do
@@ -91,7 +104,7 @@ Returns an iterator function for a generic `for` loop to iterate over all key-va
 
 ### `pcall` and `xpcall`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 local ok, result = pcall(function() return 1 + 1 end)
 print(ok, result) -- true, 2
@@ -101,11 +114,16 @@ print(ok_err, err_msg) -- false, "an error"
 ```
 
 **Implementation Details:**
-These functions execute a given function in "protected mode," allowing for errors to be caught without halting the entire script. The implementation uses a Dart `try...catch` block. A key feature of the `lualike` implementation is its ability to handle both synchronous and asynchronous (returning a `Future`) functions seamlessly. `xpcall` is more advanced, as it also accepts a custom error handler function which is called inside the `catch` block if an error occurs.
+These functions execute a given function in "protected mode", allowing errors
+to be caught without halting the entire script. The implementation uses a Dart
+`try...catch` block. A key feature of the LuaLike implementation is its
+ability to handle both synchronous and asynchronous functions seamlessly.
+`xpcall` is more advanced, as it also accepts a custom error handler function
+which is called inside the `catch` block if an error occurs.
 
 ### `print`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 print("Hello", "world", 123) -- "Hello   world   123"
 ```
@@ -115,7 +133,7 @@ Prints its arguments to the configured standard output (`stdout`). It iterates t
 
 ### `rawequal`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 local t1 = {}
 local t2 = {}
@@ -127,7 +145,7 @@ Compares two values for equality without invoking the `__eq` metamethod. The imp
 
 ### `rawget` and `rawset`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 local t = {}
 setmetatable(t, { __index = function() return "default" end })
@@ -138,11 +156,14 @@ print(t.other_key) -- "default"
 ```
 
 **Implementation Details:**
-These functions allow getting or setting a value in a table while bypassing the `__index` and `__newindex` metamethods, respectively. They achieve this by directly accessing the underlying `Map` data structure of the `lualike` table object, ignoring any metatable logic.
+These functions allow getting or setting a value in a table while bypassing
+the `__index` and `__newindex` metamethods, respectively. They achieve this by
+directly accessing the underlying `Map` data structure of the LuaLike table
+object, ignoring any metatable logic.
 
 ### `select`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 local args = { "a", "b", "c" }
 print(select("#", unpack(args))) -- 3
@@ -156,7 +177,7 @@ A versatile function for working with a variable number of arguments.
 
 ### `tonumber`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 print(tonumber("123"))     -- 123
 print(tonumber("ff", 16))   -- 255
@@ -168,7 +189,7 @@ Converts a value to a number. If the value is already a number, it is returned d
 
 ### `tostring`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 print(tostring(123)) -- "123"
 print(tostring({})) -- "table: 0x..."
@@ -179,7 +200,7 @@ Converts a given value to its string representation. The implementation first ch
 
 ### `type`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 print(type(123))         -- "number"
 print(type("hello"))       -- "string"
@@ -188,4 +209,7 @@ print(type(print))       -- "function"
 ```
 
 **Implementation Details:**
-Returns the `lualike` type of a value as a string. The implementation uses a helper function that inspects the raw Dart type of the `Value` object's contents and returns the corresponding `lualike` type name (e.g., "string", "number", "table", "function").
+Returns the LuaLike type of a value as a string. The implementation uses a
+helper function that inspects the raw Dart type of the `Value` object's
+contents and returns the corresponding LuaLike type name such as `"string"`,
+`"number"`, `"table"`, or `"function"`.

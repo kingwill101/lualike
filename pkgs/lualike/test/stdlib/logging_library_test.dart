@@ -1,4 +1,3 @@
-import 'package:contextual/contextual.dart' as ctx;
 import 'package:lualike/lualike.dart';
 import 'package:test/test.dart';
 
@@ -20,7 +19,7 @@ void main() {
     final bridge = LuaLike();
     await bridge.execute('logging.enable()');
     expect(Logger.enabled, isTrue);
-    expect(Logger.logLevelFilter, equals(ctx.Level.debug));
+    expect(Logger.logLevelFilter, equals(Level.debug));
 
     await bridge.execute('logging.disable()');
     expect(Logger.enabled, isFalse);
@@ -29,7 +28,7 @@ void main() {
   test('logging.set_level updates filters from Lua', () async {
     final bridge = LuaLike();
     await bridge.execute('logging.set_level("WARNING")');
-    expect(Logger.logLevelFilter, equals(ctx.Level.warning));
+    expect(Logger.logLevelFilter, equals(Level.warning));
   });
 
   test('logging.set_category and reset_filters update configuration', () async {
@@ -168,7 +167,7 @@ void main() {
       logging.warning("Should not appear")
       logging.error("Should appear")
     ''');
-    expect(Logger.logLevelFilter, equals(ctx.Level.error));
+    expect(Logger.logLevelFilter, equals(Level.error));
   });
 
   test('reset_filters clears all filters', () async {

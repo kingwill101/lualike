@@ -13,6 +13,9 @@ Future<String?> readFileAsString(String path) async => null;
 /// Platform-safe way to read a file as bytes - always null on web
 Future<List<int>?> readFileAsBytes(String path) async => null;
 
+/// Platform-safe way to get the last modified time - always null on web
+Future<DateTime?> getLastModified(String path) async => null;
+
 /// Platform-safe way to get current working directory - null on web
 String? getCurrentDirectory() => null;
 

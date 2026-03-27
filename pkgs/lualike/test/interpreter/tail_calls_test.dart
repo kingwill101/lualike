@@ -49,21 +49,44 @@ void main() {
       expect((res[3] as Value).unwrap(), equals(-1));
     });
 
-    test('__call chain in tail call', () async {
-      await lua.execute('''
-        local n = 2000
-        local function foo()
-          if n == 0 then return 123
-          else n = n - 1; return foo() end
-        end
+    test('__call chain in tail call raises chain limit error', () async {
+      await expectLater(
+        () => lua.execute('''
+          local n = 2000
+          local function foo()
+            if n == 0 then return 123
+            else n = n - 1; return foo() end
+          end
 
-        for i = 1, 20 do
-          foo = setmetatable({}, {__call = foo})
-        end
+          for i = 1, 20 do
+            foo = setmetatable({}, {__call = foo})
+          end
 
-        result = coroutine.wrap(function() return foo() end)()
-      ''');
-      expect(lua.getGlobal('result').unwrap(), equals(123));
+          result = coroutine.wrap(function() return foo() end)()
+        '''),
+        throwsA(
+          predicate(
+            (error) => error.toString().contains("'__call' chain too long"),
+          ),
+        ),
+      );
+    });
+
+    test('__call chain too long raises an error', () async {
+      await expectLater(
+        () => lua.execute('''
+          local f = function () return 1 end
+          for _ = 1, 16 do
+            f = setmetatable({}, {__call = f})
+          end
+          return f()
+        '''),
+        throwsA(
+          predicate(
+            (error) => error.toString().contains("'__call' chain too long"),
+          ),
+        ),
+      );
     });
   });
 }

@@ -1,10 +1,21 @@
-# Error Handling in Lualike
+# Error Handling in LuaLike
 
-This guide explains how to handle errors gracefully in `lualike` using protected calls and custom error handling.
+This guide explains how to handle errors gracefully in LuaLike using protected
+calls and custom error handling.
+
+## Table of Contents
+
+- [Overview](#overview)
+- [The `error` function](#the-error-function)
+- [Protected calls with `pcall`](#protected-calls-with-pcall)
+- [Advanced protected calls with `xpcall`](#advanced-protected-calls-with-xpcall)
+- [Common error handling patterns](#common-error-handling-patterns)
 
 ## Overview
 
-In `lualike`, an error interrupts the normal flow of a program. To manage this, you can execute code in "protected mode". This allows you to catch errors and handle them without crashing the script.
+In LuaLike, an error interrupts the normal flow of a program. To manage this,
+you can execute code in "protected mode". This allows you to catch errors and
+handle them without crashing the script.
 
 The primary tools for this are the built-in functions `pcall` and `xpcall`.
 

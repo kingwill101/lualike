@@ -1,18 +1,29 @@
 # String Library Implementation
 
-This document details the Dart implementation of the `lualike` string library, found in `lib/src/stdlib/lib_string.dart`.
+This document details the Dart implementation of the LuaLike string library,
+found in `lib/src/stdlib/lib_string.dart`.
 
 > **Note:** Functions that rely on pattern matching (`string.find`, `string.gmatch`, `string.gsub`, `string.match`) may not work as expected due to limitations in the current pattern matching implementation. For more reliable string manipulation, consider using the `dart.string` library.
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Function implementations](#function-implementations)
+
 ## Overview
 
-The string library provides functions for string manipulation, such as finding and extracting substrings, pattern matching, and formatting. In `lualike`, it is loaded as a module, and its functions are typically accessed either as a table (`string.len(s)`) or as methods on string values (`s:len()`). The method-style access is enabled by setting a metatable for all strings that points the `__index` field to the string library's table.
+The string library provides functions for string manipulation, such as finding
+and extracting substrings, pattern matching, and formatting. In LuaLike, it is
+loaded as a module, and its functions are typically accessed either as a table
+(`string.len(s)`) or as methods on string values (`s:len()`). The method-style
+access is enabled by setting a metatable for all strings that points the
+`__index` field to the string library's table.
 
 ## Function Implementations
 
 ### `string.byte`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 print(string.byte("abc", 2)) -- 98
 ```
@@ -21,7 +32,7 @@ Returns the numerical byte code of characters in a string. It can take optional 
 
 ### `string.char`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 print(string.char(97, 98, 99)) -- "abc"
 ```
@@ -30,18 +41,22 @@ Converts one or more integer byte codes into a string. It iterates through the a
 
 ### `string.dump`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 local f = function() print("hello") end
 local dumped = string.dump(f)
 -- dumped is now a binary string
 ```
 **Implementation Details:**
-Takes a `lualike` function and returns a binary representation of its bytecode. This can be used for serialization. The implementation accesses the function's underlying `Prototype` and uses a `BytecodeSerializer` to convert it into a byte array, which is then returned as a string. An option to strip debug information is also provided.
+Takes a LuaLike function and returns a binary representation of its bytecode.
+This can be used for serialization. The implementation accesses the function's
+underlying `Prototype` and uses a `BytecodeSerializer` to convert it into a
+byte array, which is then returned as a string. An option to strip debug
+information is also provided.
 
 ### `string.find`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 local s = "hello world"
 print(string.find(s, "world")) -- 7, 11
@@ -51,16 +66,20 @@ Searches for a pattern within a string. It can take an optional starting index a
 
 ### `string.format`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 print(string.format("result: %d", 123)) -- "result: 123"
 ```
 **Implementation Details:**
-Creates a formatted string based on a format specifier. It's a complex function that parses the format string for options like `%s`, `%d`, `%f`, etc., and applies them to the corresponding arguments. The `lualike` implementation uses a custom parser that iterates through the format string, and for each format specifier, it processes flags, width, and precision to correctly format the argument value.
+Creates a formatted string based on a format specifier. It parses the format
+string for options like `%s`, `%d`, and `%f`, then applies them to the
+corresponding arguments. The LuaLike implementation uses a custom parser that
+iterates through the format string and processes flags, width, and precision
+for each conversion.
 
 ### `string.gmatch`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 local s = "hello world from lua"
 for word in string.gmatch(s, "%a+") do
@@ -73,10 +92,10 @@ Returns an iterator function that, for each call, finds the next match of a patt
 
 ### `string.gsub`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 local s = "hello world"
-print(string.gsub(s, "world", "lualike")) -- "hello lualike", 1
+print(string.gsub(s, "world", "LuaLike")) -- "hello LuaLike", 1
 ```
 **Implementation Details:**
 Performs a global substitution of a pattern in a string. The replacement can be a string, a table, or a function.
@@ -87,7 +106,7 @@ The implementation repeatedly finds the pattern and builds the new string using 
 
 ### `string.len`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 print(string.len("hello")) -- 5
 print(#"hello")           -- 5 (equivalent)
@@ -97,7 +116,7 @@ Returns the length of a string. This is a simple implementation that gets the `.
 
 ### `string.lower` and `string.upper`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 print(string.lower("HELLO")) -- "hello"
 print(string.upper("hello")) -- "HELLO"
@@ -107,7 +126,7 @@ Converts a string to lowercase or uppercase. The implementation calls Dart's `to
 
 ### `string.match`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 local s = "hello world"
 print(string.match(s, "w...d")) -- "world"
@@ -117,7 +136,7 @@ Matches a pattern in a string and returns the captured substrings. If the patter
 
 ### `string.rep`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 print(string.rep("a", 5)) -- "aaaaa"
 ```
@@ -126,7 +145,7 @@ Returns a string that is a concatenation of a given string repeated `n` times. T
 
 ### `string.reverse`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 print(string.reverse("hello")) -- "olleh"
 ```
@@ -135,7 +154,7 @@ Reverses a string. The implementation splits the string into a list of character
 
 ### `string.sub`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 print(string.sub("hello", 2, 4)) -- "ell"
 ```
@@ -144,7 +163,7 @@ Extracts a substring from a string based on start and end indices. The implement
 
 ### `string.pack`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 local binary_data = string.pack("i4", 1234)
 ```
@@ -153,7 +172,7 @@ Packs binary data into a string according to a format string (e.g., `i4`, `f`, `
 
 ### `string.packsize`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 -- Get the size of an integer (4 bytes) and a char (1 byte)
 print(string.packsize("ic")) -- 5
@@ -163,7 +182,7 @@ Takes a format string and returns the length in bytes that the packed string wou
 
 ### `string.unpack`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 local packed = string.pack("i2i2", 1, 2)
 local a, b = string.unpack("i2i2", packed)

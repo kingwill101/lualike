@@ -2,6 +2,16 @@
 
 This guide covers how strings work in LuaLike, focusing on the `LuaString` class, encoding differences, and proper string handling.
 
+## Table of Contents
+
+- [Core concepts](#core-concepts)
+- [String creation and conversion](#string-creation-and-conversion)
+- [Encoding handling](#encoding-handling)
+- [String operations](#string-operations)
+- [Working with binary data](#working-with-binary-data)
+- [Custom string functions](#custom-string-functions)
+- [String interning](#string-interning)
+
 ## Core Concepts
 
 ### LuaString vs Dart String

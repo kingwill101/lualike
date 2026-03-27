@@ -96,6 +96,22 @@ void main() {
       Logger.setEnabled(false);
     });
 
+    test('collectgarbage param exposes Lua 5.5 tuning accessors', () async {
+      final bridge = LuaLike();
+      await bridge.execute('''
+        collectgarbage("incremental", 100, 200, 50)
+        oldPause = collectgarbage("param", "pause", 123)
+        oldStepmul = collectgarbage("param", "stepmul", 456)
+        newPause = collectgarbage("param", "pause")
+        newStepmul = collectgarbage("param", "stepmul")
+      ''');
+
+      expect((bridge.getGlobal('oldPause') as Value).unwrap(), equals(100));
+      expect((bridge.getGlobal('oldStepmul') as Value).unwrap(), equals(200));
+      expect((bridge.getGlobal('newPause') as Value).unwrap(), equals(123));
+      expect((bridge.getGlobal('newStepmul') as Value).unwrap(), equals(456));
+    });
+
     test('error', () async {
       final bridge = LuaLike();
 
@@ -118,6 +134,702 @@ void main() {
       }
       expect(errorThrown, isTrue);
     });
+
+    test('pcall preserves bare level 0 error messages', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        ok, msg = pcall(function()
+          error("hi", 0)
+        end)
+      ''');
+
+      expect((bridge.getGlobal('ok') as Value).unwrap(), isFalse);
+      expect((bridge.getGlobal('msg') as Value).unwrap(), equals('hi'));
+    });
+
+    test('load rejects invalid multiple to-be-closed locals', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        ok1, msg1 = load("local <close> a, b")
+        ok2, msg2 = load("local a<close>, b<close>")
+        ok3, msg3 = load("local a<close>, b")
+      ''');
+
+      expect((bridge.getGlobal('ok1') as Value).unwrap(), isNull);
+      expect(
+        (bridge.getGlobal('msg1') as Value).unwrap().toString(),
+        contains('multiple'),
+      );
+      expect((bridge.getGlobal('ok2') as Value).unwrap(), isNull);
+      expect(
+        (bridge.getGlobal('msg2') as Value).unwrap().toString(),
+        contains('multiple'),
+      );
+      expect((bridge.getGlobal('ok3') as Value).unwrap(), isNotNull);
+      expect((bridge.getGlobal('msg3') as Value).unwrap(), isNull);
+    });
+
+    test('load rejects chunks with too many returns', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        local code = "return 10" .. string.rep(",10", 254)
+        status, msg = load(code)
+      ''');
+
+      expect((bridge.getGlobal('status') as Value).unwrap(), isNull);
+      expect(
+        (bridge.getGlobal('msg') as Value).unwrap().toString(),
+        contains('too many returns'),
+      );
+    });
+
+    test('function-scope close handlers preserve return values', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        X = false
+
+        local function func2close(f, x, y)
+          local obj = setmetatable({}, {__close = f})
+          if x then
+            return x, obj, y
+          else
+            return obj
+          end
+        end
+
+        local _, closescope = func2close(function (_, msg)
+          X = true
+        end, 100)
+
+        local function foo(v)
+          local _ <close> = closescope
+          return v, X, 23
+        end
+
+        a, b, c = foo(1.5)
+      ''');
+
+      expect((bridge.getGlobal('a') as Value).unwrap(), equals(1.5));
+      expect((bridge.getGlobal('b') as Value).unwrap(), isFalse);
+      expect((bridge.getGlobal('c') as Value).unwrap(), equals(23));
+      expect((bridge.getGlobal('X') as Value).unwrap(), isTrue);
+    });
+
+    test(
+      'block close handlers run once in reverse declaration order',
+      () async {
+        final bridge = LuaLike();
+        await bridge.execute(r'''
+        local function func2close(f, x, y)
+          local obj = setmetatable({}, {__close = f})
+          if x then
+            return x, obj, y
+          else
+            return obj
+          end
+        end
+
+        a = {}
+        do
+          local b <close> = false
+          local x <close> = setmetatable({"x"}, {
+            __close = function (self)
+              a[#a + 1] = self[1]
+            end
+          })
+          local w, y <close>, z = func2close(function (_, err)
+            a[#a + 1] = "y"
+          end, 10, 20)
+          local c <close> = nil
+          a[#a + 1] = "in"
+        end
+        a[#a + 1] = "out"
+        r1, r2, r3, r4, rn = a[1], a[2], a[3], a[4], #a
+      ''');
+
+        expect((bridge.getGlobal('r1') as Value).unwrap(), equals('in'));
+        expect((bridge.getGlobal('r2') as Value).unwrap(), equals('y'));
+        expect((bridge.getGlobal('r3') as Value).unwrap(), equals('x'));
+        expect((bridge.getGlobal('r4') as Value).unwrap(), equals('out'));
+        expect((bridge.getGlobal('rn') as Value).unwrap(), equals(4));
+      },
+    );
+
+    test('normal close handlers receive only the object argument', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        local observedN, observedSame
+        local obj = setmetatable({}, {
+          __close = function (...)
+            observedN = select("#", ...)
+            observedSame = (...) == obj
+          end
+        })
+
+        do
+          local x <close> = obj
+        end
+
+        n, same = observedN, observedSame
+      ''');
+
+      expect((bridge.getGlobal('n') as Value).unwrap(), equals(1));
+      expect((bridge.getGlobal('same') as Value).unwrap(), isFalse);
+    });
+
+    test(
+      'pending to-be-closed locals disable tail-call optimization',
+      () async {
+        final bridge = LuaLike();
+        await bridge.execute(r'''
+        local function func2close(f)
+          return setmetatable({}, {__close = f})
+        end
+
+        X, Y = nil, nil
+
+        local function foo()
+          local _ <close> = func2close(function () Y = 10 end)
+          return 1, 2, 3
+        end
+
+        local function bar()
+          local _ <close> = func2close(function () X = false end)
+          X = true
+          do
+            return foo()
+          end
+        end
+
+        a, b, c, d = bar()
+      ''');
+
+        expect((bridge.getGlobal('a') as Value).unwrap(), equals(1));
+        expect((bridge.getGlobal('b') as Value).unwrap(), equals(2));
+        expect((bridge.getGlobal('c') as Value).unwrap(), equals(3));
+        expect((bridge.getGlobal('d') as Value).unwrap(), isNull);
+        expect((bridge.getGlobal('X') as Value).unwrap(), isFalse);
+        expect((bridge.getGlobal('Y') as Value).unwrap(), equals(10));
+      },
+    );
+
+    test(
+      'generic for close values also disable tail-call optimization',
+      () async {
+        final bridge = LuaLike();
+        await bridge.execute(r'''
+        local function func2close(f)
+          return setmetatable({}, {__close = f})
+        end
+
+        closed = false
+
+        local function foo()
+          return function () return true end, 0, 0,
+                 func2close(function () closed = true end)
+        end
+
+        local function tail()
+          return closed
+        end
+
+        local function foo1()
+          for k in foo() do
+            return tail()
+          end
+        end
+
+        ok = foo1()
+      ''');
+
+        expect((bridge.getGlobal('ok') as Value).unwrap(), isFalse);
+        expect((bridge.getGlobal('closed') as Value).unwrap(), isTrue);
+      },
+    );
+
+    test(
+      'direct pairs fast path still closes implicit loop resources',
+      () async {
+        final bridge = LuaLike();
+        await bridge.execute(r'''
+        closed = false
+        local o1 = setmetatable({}, {__close=function() closed = true end})
+
+        local function test()
+          for k, v in next, {}, nil, o1 do
+            local function f()
+              return k
+            end
+            break
+          end
+        end
+
+        test()
+      ''');
+
+        expect((bridge.getGlobal('closed') as Value).unwrap(), isTrue);
+      },
+    );
+
+    test('close handler errors propagate the latest close error', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        local function func2close(f)
+          return setmetatable({}, {__close = f})
+        end
+
+        local function foo()
+          local x <close> =
+            func2close(function (_, msg)
+              assert(string.find(msg, "@y"))
+              error("@x")
+            end)
+
+          local y <close> =
+            func2close(function (_, msg)
+              assert(string.find(msg, "@z"))
+              error("@y")
+            end)
+
+          local z <close> =
+            func2close(function (_, msg)
+              assert(msg == nil)
+              error("@z")
+            end)
+
+          return 200
+        end
+
+        stat, msg = pcall(foo)
+      ''');
+
+      expect((bridge.getGlobal('stat') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('msg') as Value).unwrap().toString(),
+        contains('@x'),
+      );
+    });
+
+    test(
+      'function close handlers on errors run after the frame unwinds',
+      () async {
+        final bridge = LuaLike();
+        await bridge.execute(r'''
+        local function func2close(f)
+          return setmetatable({}, {__close = f})
+        end
+
+        local function foo()
+          local x <close> =
+            func2close(function (_, msg)
+              caller = debug.getinfo(2).name
+              incoming = msg
+              error("@x")
+            end)
+
+          error(4)
+        end
+
+        stat, msg = pcall(foo)
+      ''');
+
+        expect((bridge.getGlobal('stat') as Value).unwrap(), isFalse);
+        expect((bridge.getGlobal('caller') as Value).unwrap(), equals('pcall'));
+        expect((bridge.getGlobal('incoming') as Value).unwrap(), equals(4));
+        expect(
+          (bridge.getGlobal('msg') as Value).unwrap().toString(),
+          contains('@x'),
+        );
+      },
+    );
+
+    test('arithmetic and bitwise type errors use lua-facing wording', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        okAdd, msgAdd = pcall(function()
+          local a = {} + 1
+        end)
+
+        okBor, msgBor = pcall(function()
+          local a = {} | 1
+        end)
+      ''');
+
+      expect((bridge.getGlobal('okAdd') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('msgAdd') as Value).unwrap(),
+        contains('attempt to perform arithmetic on a table value'),
+      );
+      expect((bridge.getGlobal('okBor') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('msgBor') as Value).unwrap(),
+        contains('attempt to perform bitwise operation on a table value'),
+      );
+    });
+
+    test('call and field diagnostics preserve Lua-facing names', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        okGlobal, msgGlobal = pcall(function()
+          aaa=1; bbbb=2; aaa=math.sin(3)+bbbb(3)
+        end)
+
+        okMethod, msgMethod = pcall(function()
+          aaa={}; do local aaa=1 end aaa:bbbb(3)
+        end)
+
+        okField, msgField = pcall(function()
+          local a={}; a.bbbb(3)
+        end)
+
+        okGlobalField, msgGlobalField = pcall(function()
+          aaa = nil
+          aaa.bbb:ddd(9)
+        end)
+
+        okConcat, msgConcat = pcall(function()
+          aaa=(1)..{}
+        end)
+
+        okNilField, msgNilField = pcall(function()
+          a = {_ENV = {}}
+          print(a._ENV.x + 1)
+        end)
+
+        okUpvalueNil, msgUpvalueNil = pcall(function()
+          local a, b, c
+          (function () a = b + 1.1 end)()
+        end)
+
+        okUpvalueAssignField, msgUpvalueAssignField = pcall(function()
+          local a, b, cc
+          (function () a.x = 1 end)()
+        end)
+
+        okLocalTableArithmetic, msgLocalTableArithmetic = pcall(function()
+          BB = 1
+          local aaa = {}
+          x = aaa + BB
+        end)
+
+        okGlobalUnaryMinus, msgGlobalUnaryMinus = pcall(function()
+          aaa = {}
+          x = -aaa
+        end)
+
+        okFunctionCompare, msgFunctionCompare = pcall(function()
+          print(print < print)
+        end)
+
+        okBitwiseIntegerLabel, msgBitwiseIntegerLabel = pcall(function()
+          local a = 2.0 ^ 100
+          x = a << 2
+        end)
+      ''');
+
+      expect((bridge.getGlobal('okGlobal') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('msgGlobal') as Value).unwrap(),
+        contains("global 'bbbb'"),
+      );
+      expect((bridge.getGlobal('okMethod') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('msgMethod') as Value).unwrap(),
+        contains("method 'bbbb'"),
+      );
+      expect((bridge.getGlobal('okField') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('msgField') as Value).unwrap(),
+        contains("field 'bbbb'"),
+      );
+      expect((bridge.getGlobal('okGlobalField') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('msgGlobalField') as Value).unwrap(),
+        contains("global 'aaa'"),
+      );
+      expect((bridge.getGlobal('okConcat') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('msgConcat') as Value).unwrap(),
+        contains('a table value'),
+      );
+      expect((bridge.getGlobal('okNilField') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('msgNilField') as Value).unwrap(),
+        contains("field 'x'"),
+      );
+      expect((bridge.getGlobal('okUpvalueNil') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('msgUpvalueNil') as Value).unwrap(),
+        contains("upvalue 'b'"),
+      );
+      expect(
+        (bridge.getGlobal('okUpvalueAssignField') as Value).unwrap(),
+        isFalse,
+      );
+      expect(
+        (bridge.getGlobal('msgUpvalueAssignField') as Value).unwrap(),
+        contains("upvalue 'a'"),
+      );
+      expect(
+        (bridge.getGlobal('okLocalTableArithmetic') as Value).unwrap(),
+        isFalse,
+      );
+      expect(
+        (bridge.getGlobal('msgLocalTableArithmetic') as Value).unwrap(),
+        contains("local 'aaa'"),
+      );
+      expect(
+        (bridge.getGlobal('okGlobalUnaryMinus') as Value).unwrap(),
+        isFalse,
+      );
+      expect(
+        (bridge.getGlobal('msgGlobalUnaryMinus') as Value).unwrap(),
+        contains("global 'aaa'"),
+      );
+      expect(
+        (bridge.getGlobal('okFunctionCompare') as Value).unwrap(),
+        isFalse,
+      );
+      expect(
+        (bridge.getGlobal('msgFunctionCompare') as Value).unwrap(),
+        contains('two function values'),
+      );
+      expect(
+        (bridge.getGlobal('okBitwiseIntegerLabel') as Value).unwrap(),
+        isFalse,
+      );
+      expect(
+        (bridge.getGlobal('msgBitwiseIntegerLabel') as Value).unwrap(),
+        contains('number has no integer representation'),
+      );
+    });
+
+    test('metamethod diagnostics use Lua-facing names', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        okAddMeta, msgAddMeta = pcall(function()
+          local a = setmetatable({}, {__add = 34})
+          a = a + 1
+        end)
+
+        okLtMeta, msgLtMeta = pcall(function()
+          local a = setmetatable({}, {__lt = {}})
+          a = a > a
+        end)
+      ''');
+
+      expect((bridge.getGlobal('okAddMeta') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('msgAddMeta') as Value).unwrap(),
+        contains("metamethod 'add'"),
+      );
+      expect((bridge.getGlobal('okLtMeta') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('msgLtMeta') as Value).unwrap(),
+        contains("metamethod 'lt'"),
+      );
+    });
+
+    test(
+      'tail calls and length errors preserve Lua-facing diagnostics',
+      () async {
+        final bridge = LuaLike();
+        await bridge.execute(r'''
+        okTailField, msgTailField = pcall(function()
+          local a={}; return a.bbbb(3)
+        end)
+
+        okTailMethod, msgTailMethod = pcall(function()
+          aaa={}; do local aaa=1 end; return aaa:bbbb(3)
+        end)
+
+        okLenFunc, msgLenFunc = pcall(function()
+          aaa = #print
+        end)
+
+        okLenNum, msgLenNum = pcall(function()
+          aaa = #3
+        end)
+      ''');
+
+        expect((bridge.getGlobal('okTailField') as Value).unwrap(), isFalse);
+        expect(
+          (bridge.getGlobal('msgTailField') as Value).unwrap(),
+          contains("field 'bbbb'"),
+        );
+        expect((bridge.getGlobal('okTailMethod') as Value).unwrap(), isFalse);
+        expect(
+          (bridge.getGlobal('msgTailMethod') as Value).unwrap(),
+          contains("method 'bbbb'"),
+        );
+        expect((bridge.getGlobal('okLenFunc') as Value).unwrap(), isFalse);
+        expect(
+          (bridge.getGlobal('msgLenFunc') as Value).unwrap(),
+          contains('length of a function value'),
+        );
+        expect((bridge.getGlobal('okLenNum') as Value).unwrap(), isFalse);
+        expect(
+          (bridge.getGlobal('msgLenNum') as Value).unwrap(),
+          contains('length of a number value'),
+        );
+      },
+    );
+
+    test('numeric for diagnostics preserve Lua 5.5 roles and types', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        okInitTable, msgInitTable = pcall(function()
+          for i = {}, 10 do end
+        end)
+
+        okInitFile, msgInitFile = pcall(function()
+          for i = io.stdin, 10 do end
+        end)
+
+        okLimitString, msgLimitString = pcall(function()
+          for i = 1, 'x', 10 do end
+        end)
+
+        okLimitTable, msgLimitTable = pcall(function()
+          for i = 1, {}, 10 do end
+        end)
+
+        okStepTable, msgStepTable = pcall(function()
+          for i = 1, 10, {} do end
+        end)
+      ''');
+
+      expect((bridge.getGlobal('okInitTable') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('msgInitTable') as Value).unwrap(),
+        contains("bad 'for' initial value"),
+      );
+      expect(
+        (bridge.getGlobal('msgInitTable') as Value).unwrap(),
+        contains('table'),
+      );
+
+      expect((bridge.getGlobal('okInitFile') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('msgInitFile') as Value).unwrap(),
+        contains("bad 'for' initial value"),
+      );
+      expect(
+        (bridge.getGlobal('msgInitFile') as Value).unwrap(),
+        contains('FILE*'),
+      );
+
+      expect((bridge.getGlobal('okLimitString') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('msgLimitString') as Value).unwrap(),
+        contains("bad 'for' limit"),
+      );
+      expect(
+        (bridge.getGlobal('msgLimitString') as Value).unwrap(),
+        contains('string'),
+      );
+
+      expect((bridge.getGlobal('okLimitTable') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('msgLimitTable') as Value).unwrap(),
+        contains("bad 'for' limit"),
+      );
+      expect(
+        (bridge.getGlobal('msgLimitTable') as Value).unwrap(),
+        contains('table'),
+      );
+
+      expect((bridge.getGlobal('okStepTable') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('msgStepTable') as Value).unwrap(),
+        contains("bad 'for' step"),
+      );
+      expect(
+        (bridge.getGlobal('msgStepTable') as Value).unwrap(),
+        contains('table'),
+      );
+    });
+
+    test('named type and light userdata diagnostics match Lua 5.5', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        XX = setmetatable({}, {__name = "My Type"})
+
+        okNamedType, msgNamedType = pcall(function()
+          return XX + 1
+        end)
+
+        local x = debug.upvalueid(function () return debug end, 1)
+        okLightUserdata, msgLightUserdata = pcall(function()
+          return debug.setuservalue(x, {})
+        end)
+      ''');
+
+      expect((bridge.getGlobal('okNamedType') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('msgNamedType') as Value).unwrap(),
+        contains('My Type'),
+      );
+
+      expect((bridge.getGlobal('okLightUserdata') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('msgLightUserdata') as Value).unwrap(),
+        contains('light userdata'),
+      );
+    });
+
+    test('comparison diagnostics preserve named userdata types', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        XX = setmetatable({}, {__name = "My Type"})
+        okCompare, msgCompare = pcall(function()
+          return XX < io.stdin
+        end)
+      ''');
+
+      expect((bridge.getGlobal('okCompare') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('msgCompare') as Value).unwrap(),
+        contains('My Type with FILE*'),
+      );
+    });
+
+    test(
+      '__gc metamethod reports missing FILE* receiver like Lua 5.5',
+      () async {
+        final bridge = LuaLike();
+        await bridge.execute(r'''
+        okGc, msgGc = pcall(function()
+          return getmetatable(io.stdin).__gc()
+        end)
+      ''');
+
+        expect((bridge.getGlobal('okGc') as Value).unwrap(), isFalse);
+        expect(
+          (bridge.getGlobal('msgGc') as Value).unwrap(),
+          contains("bad argument #1 to '__gc' (FILE* expected, got no value)"),
+        );
+      },
+    );
+
+    test(
+      'string.dump strip removes debug labels from reloaded functions',
+      () async {
+        final bridge = LuaLike();
+        await bridge.execute(r'''
+        local f = function () local a; a = {}; return a + 2 end
+        local g = assert(load(string.dump(f, true)))
+        okStripped, msgStripped = pcall(g)
+      ''');
+
+        expect((bridge.getGlobal('okStripped') as Value).unwrap(), isFalse);
+        final msg =
+            (bridge.getGlobal('msgStripped') as Value).unwrap() as String;
+        expect(msg, startsWith('?:?:'));
+        expect(msg, contains('table value'));
+        expect(msg, isNot(contains("local 'a'")));
+      },
+    );
 
     test('_G global variable', () async {
       final bridge = LuaLike();
@@ -142,7 +854,259 @@ void main() {
       );
     });
 
+    test('_G iteration includes registered globals', () async {
+      final bridge = LuaLike();
+      await bridge.execute('''
+        sawPrint = false
+        sawAssert = false
+        for k, v in pairs(_G) do
+          if k == "print" then
+            sawPrint = (v == print)
+          elseif k == "assert" then
+            sawAssert = (v == assert)
+          end
+        end
+      ''');
+
+      expect((bridge.getGlobal('sawPrint') as Value).unwrap(), isTrue);
+      expect((bridge.getGlobal('sawAssert') as Value).unwrap(), isTrue);
+    });
+
+    test('package.loaded contains the package table itself', () async {
+      final bridge = LuaLike();
+      await bridge.execute('''
+        packageSelfLoaded = (package.loaded["package"] == package)
+      ''');
+
+      expect((bridge.getGlobal('packageSelfLoaded') as Value).unwrap(), isTrue);
+    });
+
+    test('load rejects assignment to const for-control variables', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        st1, msg1 = load("for i = 1, 10 do i = 10 end")
+        st2, msg2 = load([[
+          local sum = 0
+          for _, v in pairs({11, 22}) do
+            v = v + 1
+            sum = sum + v
+          end
+          return sum
+        ]])
+        ok2, res2 = pcall(st2)
+
+        ok1 = (st1 == nil) and (string.find(msg1, "assign to const variable 'i'") ~= nil)
+        ok2 = ok2 and (res2 == 35)
+      ''');
+
+      expect((bridge.getGlobal('ok1') as Value).unwrap(), isTrue);
+      expect((bridge.getGlobal('ok2') as Value).unwrap(), isTrue);
+    });
+
+    test('numeric for coerces string bounds', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        count = 0
+        for i = "10", "1", "-2" do
+          count = count + 1
+        end
+      ''');
+
+      expect((bridge.getGlobal('count') as Value).unwrap(), equals(5));
+    });
+
+    test('numeric for preserves float control variables', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        a = {}
+        for i = 1.0, 3 do
+          a[#a + 1] = math.type(i)
+        end
+
+        b = {}
+        for i = -1, -3, -1.0 do
+          b[#b + 1] = math.type(i)
+        end
+
+        typesA = table.concat(a, ",")
+        typesB = table.concat(b, ",")
+      ''');
+
+      expect(
+        (bridge.getGlobal('typesA') as Value).unwrap(),
+        equals('float,float,float'),
+      );
+      expect(
+        (bridge.getGlobal('typesB') as Value).unwrap(),
+        equals('float,float,float'),
+      );
+    });
+
+    test('numeric for handles wrapped integer ranges', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        local maxi = math.maxinteger
+        local mini = math.mininteger
+
+        ca = 0
+        for i = mini, maxi, maxi do
+          ca = ca + 1
+          if ca == 1 then a1 = i end
+          if ca == 2 then a2 = i end
+          if ca == 3 then a3 = i end
+        end
+
+        cb = 0
+        for i = maxi, mini, -maxi do
+          cb = cb + 1
+          if cb == 1 then b1 = i end
+          if cb == 2 then b2 = i end
+          if cb == 3 then b3 = i end
+        end
+      ''');
+
+      expect((bridge.getGlobal('ca') as Value).unwrap(), equals(3));
+      expect(
+        (bridge.getGlobal('a1') as Value).unwrap(),
+        equals(-9223372036854775808),
+      );
+      expect((bridge.getGlobal('a2') as Value).unwrap(), equals(-1));
+      expect(
+        (bridge.getGlobal('a3') as Value).unwrap(),
+        equals(9223372036854775806),
+      );
+
+      expect((bridge.getGlobal('cb') as Value).unwrap(), equals(3));
+      expect(
+        (bridge.getGlobal('b1') as Value).unwrap(),
+        equals(9223372036854775807),
+      );
+      expect((bridge.getGlobal('b2') as Value).unwrap(), equals(0));
+      expect(
+        (bridge.getGlobal('b3') as Value).unwrap(),
+        equals(-9223372036854775807),
+      );
+    });
+
+    test('pairs closes 4th iterator result with __close', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        local closed = false
+        local a = {}
+
+        local function foo(e, i)
+          if i <= 3 then
+            return i + 1, i + 2
+          end
+        end
+
+        setmetatable(a, {
+          __pairs = function(x)
+            local tbc = setmetatable({}, {
+              __close = function() closed = true end
+            })
+            return foo, x, 0, tbc
+          end
+        })
+
+        local count = 0
+        for k, v in pairs(a) do
+          count = count + 1
+        end
+
+        closedResult = closed
+        countResult = count
+      ''');
+
+      expect((bridge.getGlobal('closedResult') as Value).unwrap(), isTrue);
+      expect((bridge.getGlobal('countResult') as Value).unwrap(), equals(4));
+    });
+
+    test('ipairs respects __index metamethods', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        local a = {n = 5}
+        setmetatable(a, {
+          __index = function(t, k)
+            if k <= t.n then
+              return k * 10
+            end
+          end
+        })
+
+        count = 0
+        for k, v in ipairs(a) do
+          count = count + 1
+          assert(k == count and v == k * 10)
+        end
+      ''');
+
+      expect((bridge.getGlobal('count') as Value).unwrap(), equals(5));
+    });
+
     group("setmetatable", () {
+      test('setmetatable reports Lua-style bad-argument diagnostics', () async {
+        final bridge = LuaLike();
+        await bridge.execute(r'''
+          okSetMetaNoTable, msgSetMetaNoTable = pcall(function()
+            return setmetatable()
+          end)
+          okSetMetaNoMeta, msgSetMetaNoMeta = pcall(function()
+            return setmetatable({})
+          end)
+          okSetMetaBadTable, msgSetMetaBadTable = pcall(function()
+            return setmetatable('s')
+          end)
+          okSetMetaBadMeta, msgSetMetaBadMeta = pcall(function()
+            return setmetatable({}, 'x')
+          end)
+        ''');
+
+        expect(
+          (bridge.getGlobal('okSetMetaNoTable') as Value).unwrap(),
+          isFalse,
+        );
+        expect(
+          (bridge.getGlobal('msgSetMetaNoTable') as Value).unwrap(),
+          contains(
+            "bad argument #1 to 'setmetatable' (table expected, got no value)",
+          ),
+        );
+
+        expect(
+          (bridge.getGlobal('okSetMetaNoMeta') as Value).unwrap(),
+          isFalse,
+        );
+        expect(
+          (bridge.getGlobal('msgSetMetaNoMeta') as Value).unwrap(),
+          contains(
+            "bad argument #2 to 'setmetatable' (nil or table expected, got no value)",
+          ),
+        );
+
+        expect(
+          (bridge.getGlobal('okSetMetaBadTable') as Value).unwrap(),
+          isFalse,
+        );
+        expect(
+          (bridge.getGlobal('msgSetMetaBadTable') as Value).unwrap(),
+          contains(
+            "bad argument #1 to 'setmetatable' (table expected, got string)",
+          ),
+        );
+
+        expect(
+          (bridge.getGlobal('okSetMetaBadMeta') as Value).unwrap(),
+          isFalse,
+        );
+        expect(
+          (bridge.getGlobal('msgSetMetaBadMeta') as Value).unwrap(),
+          contains(
+            "bad argument #2 to 'setmetatable' (nil or table expected, got string)",
+          ),
+        );
+      });
+
       test('setmetatable with function', () async {
         final bridge = LuaLike();
         await bridge.execute(r'''
@@ -201,6 +1165,22 @@ result = tostring(t)
       ''');
 
       // We can't easily test the output, but at least we can verify it doesn't throw errors
+    });
+
+    test('ipairs returns a stable iterator function', () async {
+      final bridge = LuaLike();
+      await bridge.execute('''
+        local iter1 = ipairs({})
+        local iter2 = ipairs({})
+        sameIterator = (iter1 == iter2)
+        directSameIterator = (ipairs{} == ipairs{})
+      ''');
+
+      expect((bridge.getGlobal('sameIterator') as Value).unwrap(), isTrue);
+      expect(
+        (bridge.getGlobal('directSameIterator') as Value).unwrap(),
+        isTrue,
+      );
     });
 
     test('type', () async {
@@ -577,6 +1557,113 @@ result = tostring(t)
       expect(keys.length, equals(2));
       expect(values.length, equals(2));
       expect((bridge.getGlobal('isEmpty') as Value).raw, isTrue);
+    });
+
+    test('next rejects invalid keys', () async {
+      final bridge = LuaLike();
+
+      try {
+        await bridge.execute('''
+          next({10, 20}, 3)
+        ''');
+        fail('Expected invalid key error');
+      } on LuaError catch (e) {
+        expect(e.message, contains("invalid key"));
+      }
+    });
+
+    test('next treats explicit nil key as start of iteration', () async {
+      final bridge = LuaLike();
+
+      await bridge.execute(r'''
+        local t = {x = 1, y = 2, z = 3}
+        local k, v = next(t, nil)
+        hasEntry = k ~= nil and v ~= nil and t[k] == v
+      ''');
+
+      expect((bridge.getGlobal('hasEntry') as Value).raw, isTrue);
+    });
+
+    test('next continues past deleted hash keys', () async {
+      final bridge = LuaLike();
+
+      await bridge.execute(r'''
+        local t = {a = 1, b = 2, c = 3, d = 4, e = 5}
+        local count = 0
+        for k, v in pairs(t) do
+          count = count + 1
+          assert(t[k] == v)
+          t[k] = nil
+          collectgarbage()
+          assert(t[k] == nil)
+        end
+        result = count
+      ''');
+
+      expect((bridge.getGlobal('result') as Value).raw, equals(5));
+    });
+
+    test('next continues past deleted dense keys', () async {
+      final bridge = LuaLike();
+
+      await bridge.execute(r'''
+        local t = {[1] = 'a', [2] = 'b', [3] = 'c', tail = 'z'}
+        local seen = {}
+        local count = 0
+        for k, v in pairs(t) do
+          count = count + 1
+          seen[count] = k
+          if k == 2 then
+            t[k] = nil
+            collectgarbage()
+          end
+        end
+        result = count
+        k3 = seen[3]
+        k4 = seen[4]
+      ''');
+
+      expect((bridge.getGlobal('result') as Value).raw, equals(4));
+      expect((bridge.getGlobal('k3') as Value).raw, equals(3));
+      expect((bridge.getGlobal('k4') as Value).raw, equals('tail'));
+    });
+
+    test('next continues past deleted table keys', () async {
+      final bridge = LuaLike();
+
+      await bridge.execute(r'''
+        local t = {[{1}] = 1, [{2}] = 2, [string.rep("x ", 4)] = 3,
+                   [100.3] = 4, [4] = 5}
+        local count = 0
+        for k, v in pairs(t) do
+          count = count + 1
+          assert(t[k] == v)
+          t[k] = nil
+          collectgarbage()
+          assert(t[k] == nil)
+        end
+        result = count
+      ''');
+
+      expect((bridge.getGlobal('result') as Value).raw, equals(5));
+    });
+
+    test('pairs and ipairs report bad argument for missing table', () async {
+      final bridge = LuaLike();
+
+      try {
+        await bridge.execute('pairs()');
+        fail('Expected pairs() to fail');
+      } on LuaError catch (e) {
+        expect(e.message, contains('bad argument'));
+      }
+
+      try {
+        await bridge.execute('ipairs()');
+        fail('Expected ipairs() to fail');
+      } on LuaError catch (e) {
+        expect(e.message, contains('bad argument'));
+      }
     });
 
     test('pairs', () async {

@@ -237,7 +237,14 @@ class LazyLibraryMap extends MapBase<String, dynamic> {
       return <String, dynamic>{};
     }
     _loading = true;
-    registry.initializeLibraryByName(libraryName);
+    final initialized = registry.initializeLibraryByName(libraryName);
+    if (initialized is Value && initialized.raw is Map) {
+      _resolved = initialized.raw as Map<String, dynamic>;
+    }
+    if (_resolved != null) {
+      _loading = false;
+      return _resolved!;
+    }
     final value = env.get(libraryName);
     if (value is Value && value.raw is Map) {
       _resolved = value.raw as Map<String, dynamic>;
@@ -257,6 +264,11 @@ class LazyLibraryMap extends MapBase<String, dynamic> {
   @override
   @override
   Iterable<String> get keys => _ensureResolved().keys;
+
+  @override
+  bool containsKey(Object? key) {
+    return _ensureResolved().containsKey(key);
+  }
 
   @override
   dynamic operator [](Object? key) => _ensureResolved()[key];
@@ -287,7 +299,7 @@ class LibraryRegistrationContext extends LibraryContext {
     // This prevents temporary Value allocations that affect collectgarbage("count").
     if ((function is BuiltinFunction || function is Function) &&
         function is! Value) {
-      _functionMap[name] = Value(function);
+      _functionMap[name] = Value(function, functionName: name);
     } else {
       _functionMap[name] = function;
     }

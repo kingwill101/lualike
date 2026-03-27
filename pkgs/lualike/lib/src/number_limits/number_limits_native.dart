@@ -15,5 +15,26 @@ class NumberLimits {
   /// Minimum value for a 32-bit signed integer (INT_MIN in C/Lua)
   static const int minInt32 = -2147483648; // -2^31
 
+  /// Number of explicitly stored significand bits in an IEEE-754 double.
+  static const int doubleStoredSignificandBits = 52;
+
+  /// Exponent bias for an IEEE-754 double.
+  static const int doubleExponentBias = 1023;
+
+  /// Largest unbiased exponent for a finite IEEE-754 double.
+  static const int doubleMaxExponent = 1023;
+
+  /// Smallest unbiased exponent for a normal IEEE-754 double.
+  static const int doubleMinExponent = -1022;
+
+  /// Smallest unbiased exponent for a subnormal IEEE-754 double.
+  static const int doubleMinSubnormalExponent = -1074;
+
+  /// Sign bit plus fraction bits from an IEEE-754 double bit pattern.
+  static final int doubleSignAndFractionMask = int.parse(
+    '800fffffffffffff',
+    radix: 16,
+  );
+
   static const int sizeInBits = 64;
 }

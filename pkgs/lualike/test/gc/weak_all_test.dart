@@ -308,27 +308,29 @@ void main() {
       },
     );
 
-    test('minor collections do not apply all-weak semantics', () async {
-      final allWeakTable = Value({});
-      allWeakTable.setMetatable({'__mode': 'kv'});
+    test(
+      'generational steps clear young entries from old all-weak tables',
+      () async {
+        final lua = LuaLike();
+        final result =
+            await lua.execute('''
+        local t = setmetatable({}, {__mode = "kv"})
+        collectgarbage()
+        collectgarbage("generational")
 
-      final key = Value('key');
-      final value = Value('value');
-      allWeakTable.raw[key] = value;
+        t[1] = {10}
+        collectgarbage("step")
+        collectgarbage("step")
 
-      // Root references only the table
-      final rootEnv = Environment();
-      rootEnv.define('all_weak_table', Box<Value>(allWeakTable));
+        t[1] = {10}
+        collectgarbage("step")
+        return t[1]
+      ''')
+                as Value;
 
-      expect((allWeakTable.raw as Map).length, 1);
-
-      // Perform minor collection (should not apply weak semantics)
-      gc.minorCollection([rootEnv]);
-
-      // Entry should still be there after minor collection
-      expect((allWeakTable.raw as Map).length, 1);
-      expect((allWeakTable.raw as Map)[key], equals(value));
-    });
+        expect(result.unwrap(), isNull);
+      },
+    );
 
     test('all-weak tables are tracked during major collection', () async {
       final allWeakTable1 = Value({});

@@ -20,6 +20,43 @@ void main() {
       }
     });
 
+    test('table.create', () async {
+      final bridge = LuaLike();
+
+      try {
+        await bridge.execute('''
+          local t = table.create(4, 8)
+          t[1] = "a"
+          t[4] = "d"
+          t.x = 10
+          return #t, t[1], t[4], t.x
+        ''');
+      } on ReturnException catch (e) {
+        final result = (e.value as Value).unwrap();
+        expect(result[0], equals(4));
+        expect(result[1], equals("a"));
+        expect(result[2], equals("d"));
+        expect(result[3], equals(10));
+      }
+    });
+
+    test('table.create reserves memory in collectgarbage count', () async {
+      final bridge = LuaLike();
+
+      try {
+        await bridge.execute('''
+          collectgarbage("collect")
+          local before = collectgarbage("count") * 1024
+          local arr = table.create(256, 128)
+          local after = collectgarbage("count") * 1024
+          return after - before
+        ''');
+      } on ReturnException catch (e) {
+        final memDiff = ((e.value as Value).unwrap() as num).toDouble();
+        expect(memDiff, greaterThan(256 * 4));
+      }
+    });
+
     test('table.insert at end', () async {
       final bridge = LuaLike();
 
@@ -72,6 +109,39 @@ void main() {
         expect(t1[3], equals(3));
       }
     });
+
+    test('table.remove defaults to zero border for zero-index table', () async {
+      final bridge = LuaLike();
+
+      try {
+        await bridge.execute('''
+          local t = {[0] = "ban"}
+          local removed = table.remove(t)
+          return #t, removed, t[0]
+        ''');
+      } on ReturnException catch (e) {
+        final results = (e.value as Value).unwrap();
+        expect(results[0], equals(0));
+        expect(results[1], equals("ban"));
+        expect(results[2], isNull);
+      }
+    });
+
+    test(
+      'table.remove rejects position zero for non-empty sequences',
+      () async {
+        final bridge = LuaLike();
+
+        try {
+          await bridge.execute('''
+          table.remove({10, 20, 30}, 0)
+        ''');
+          fail('Expected position out of bounds error');
+        } on LuaError catch (e) {
+          expect(e.message, contains('position out of bounds'));
+        }
+      },
+    );
 
     test('table.concat', () async {
       final bridge = LuaLike();
@@ -227,8 +297,9 @@ void main() {
         ''');
       } on ReturnException catch (e) {
         var results = (e.value as Value).unwrap();
-        Logger.debug(
-          "Results: ${results[0]}, ${results[1]}, ${results[2]}, ${results[3]}, ${results[4]}",
+        Logger.debugLazy(
+          () =>
+              "Results: ${results[0]}, ${results[1]}, ${results[2]}, ${results[3]}, ${results[4]}",
         );
         expect(results[0], equals(5));
         expect(results[1], equals(4));
@@ -253,6 +324,23 @@ void main() {
       } on LuaError catch (e) {
         expect(e.message, contains('invalid order function'));
       }
+    });
+
+    test('table.sort propagates comparator bad-argument wording', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        okComparator, msgComparator = pcall(function()
+          return table.sort({1, 2, 3}, table.sort)
+        end)
+      ''');
+
+      expect((bridge.getGlobal('okComparator') as Value).unwrap(), isFalse);
+      expect(
+        (bridge.getGlobal('msgComparator') as Value).unwrap(),
+        contains(
+          "bad argument #1 to 'table.sort' (table expected, got number)",
+        ),
+      );
     });
 
     test('table.sort with LuaString values', () async {
@@ -525,5 +613,98 @@ void main() {
         expect(results[2], equals(30));
       }
     });
+
+    test(
+      'table length returns a usable border for sparse powers of two',
+      () async {
+        final bridge = LuaLike();
+
+        try {
+          await bridge.execute('''
+          local t = {}
+          for i = 20, 0, -1 do
+            t[2 ^ i] = true
+          end
+          local n = #t
+          return n, t[n] ~= nil, t[n + 1] == nil
+        ''');
+        } on ReturnException catch (e) {
+          final results = (e.value as Value).unwrap();
+          expect(results[0], lessThan(1000));
+          expect(results[1], isTrue);
+          expect(results[2], isTrue);
+        }
+      },
+    );
+
+    test(
+      'table length for random sparse tables returns a valid border',
+      () async {
+        final bridge = LuaLike();
+
+        try {
+          await bridge.execute('''
+          math.randomseed(1234)
+          local failures = 0
+          for i = 1, 200 do
+            local t = table.create(math.random(64))
+            for j = 1, math.random(64) do
+              t[math.random(64)] = true
+            end
+            local n = #t
+            if not (n == 0 or (t[n] and t[n + 1] == nil)) then
+              failures = failures + 1
+            end
+          end
+          return failures
+        ''');
+        } on ReturnException catch (e) {
+          expect((e.value as Value).raw, equals(0));
+        }
+      },
+    );
+
+    test(
+      'table library sequence operations respect proxy metamethods',
+      () async {
+        final bridge = LuaLike();
+
+        try {
+          await bridge.execute('''
+          local t = {}
+          local proxy = setmetatable({}, {
+            __len = function() return #t end,
+            __index = t,
+            __newindex = t,
+          })
+
+          for i = 1, 5 do
+            table.insert(proxy, 1, i)
+          end
+
+          local before = table.concat(proxy, ",")
+          table.sort(proxy)
+          local after = table.concat(proxy, ",")
+          local r1 = table.remove(proxy, 1)
+          local r2 = table.remove(proxy)
+          local a, b, c, d = table.unpack(proxy)
+
+          return before, after, #proxy, #t, r1, r2, a, b, c, d
+        ''');
+        } on ReturnException catch (e) {
+          final result = (e.value as Value).unwrap();
+          expect(result[0], equals('5,4,3,2,1'));
+          expect(result[1], equals('1,2,3,4,5'));
+          expect(result[2], equals(3));
+          expect(result[3], equals(3));
+          expect(result[4], equals(1));
+          expect(result[5], equals(5));
+          expect(result[6], equals(2));
+          expect(result[7], equals(3));
+          expect(result[8], equals(4));
+          expect(result[9], isNull);
+        }
+      },
+    );
   });
 }

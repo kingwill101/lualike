@@ -1,198 +1,103 @@
 # `dart.string` Library
 
-The `dart.string` library provides a set of utility functions to manipulate strings, leveraging Dart's powerful string-handling capabilities.
+The `dart.string` helpers expose Dart-native string operations under the global
+`dart` table.
 
-## `dart.string.split(s, separator)`
+Use this library when you want Dart indexing and trimming semantics rather than
+Lua's byte-oriented `string` library behavior.
 
-Splits a string `s` by a `separator` and returns a table containing the substrings.
+## Table of Contents
 
--   `s`: The string to be split.
--   `separator`: The string to split by.
--   **Returns**: A table of substrings.
+- [Namespace layout](#namespace-layout)
+- [Indexing semantics](#indexing-semantics)
+- [Available functions](#available-functions)
+- [Bytes sub-library](#bytes-sub-library)
+- [Example](#example)
 
-## `dart.string.trim(s)`
+## Namespace layout
 
-Removes leading and trailing whitespace from a string `s`.
+The library is available as `dart.string`:
 
--   `s`: The string to be trimmed.
--   **Returns**: The trimmed string.
+```lua
+local parts = dart.string.split("a,b,c", ",")
+```
 
-## `dart.string.toUpperCase(s)`
+The registered functions are:
 
-Converts a string `s` to uppercase.
+- `split`
+- `trim`
+- `toUpperCase`
+- `toLowerCase`
+- `contains`
+- `replaceAll`
+- `substring`
+- `trimLeft`
+- `trimRight`
+- `padLeft`
+- `padRight`
+- `startsWith`
+- `endsWith`
+- `indexOf`
+- `lastIndexOf`
+- `replaceFirst`
+- `isEmpty`
+- `fromCharCodes`
 
--   `s`: The string to convert.
--   **Returns**: The uppercase string.
+## Indexing semantics
 
-## `dart.string.toLowerCase(s)`
+This library delegates to Dart `String` methods, so indexes are:
 
-Converts a string `s` to lowercase.
+- zero-based
+- based on Dart string indexing rules
+- not the same as Lua's usual 1-based byte positions
 
--   `s`: The string to convert.
--   **Returns**: The lowercase string.
+That difference is the main reason this library exists separately from the
+standard `string` module.
 
-## `dart.string.contains(s, other, [startIndex])`
+## Available functions
 
-Checks if a string `s` contains another string `other`. An optional `startIndex` can be provided.
+### Whitespace and case helpers
 
--   `s`: The string to check.
--   `other`: The string to search for.
--   `startIndex` (optional): The index to start searching from.
--   **Returns**: `true` if `s` contains `other`, `false` otherwise.
+- `dart.string.trim(s)`
+- `dart.string.trimLeft(s)`
+- `dart.string.trimRight(s)`
+- `dart.string.toUpperCase(s)`
+- `dart.string.toLowerCase(s)`
 
-## `dart.string.replaceAll(s, from, to)`
+### Search helpers
 
-Replaces all occurrences of a substring `from` with another substring `to` in a string `s`.
+- `dart.string.contains(s, other, [startIndex])`
+- `dart.string.startsWith(s, pattern, [index])`
+- `dart.string.endsWith(s, other)`
+- `dart.string.indexOf(s, pattern, [start])`
+- `dart.string.lastIndexOf(s, pattern, [start])`
 
--   `s`: The string to perform replacements on.
--   `from`: The substring to be replaced.
--   `to`: The substring to replace with.
--   **Returns**: The new string with replacements.
+### Transformation helpers
 
-## `dart.string.substring(s, startIndex, [endIndex])`
+- `dart.string.split(s, separator)`
+- `dart.string.replaceAll(s, from, to)`
+- `dart.string.replaceFirst(s, from, to, [startIndex])`
+- `dart.string.substring(s, startIndex, [endIndex])`
+- `dart.string.padLeft(s, width, [padding])`
+- `dart.string.padRight(s, width, [padding])`
+- `dart.string.fromCharCodes(table)`
 
-Returns a substring of `s` from `startIndex` to an optional `endIndex`.
+### Predicates
 
--   `s`: The string to get a substring from.
--   `startIndex`: The starting index (inclusive).
--   `endIndex` (optional): The ending index (exclusive).
--   **Returns**: The substring.
+- `dart.string.isEmpty(s)`
 
-## `dart.string.trimLeft(s)`
+## Bytes sub-library
 
-Removes leading whitespace from a string `s`.
+`dart.string.bytes` exposes UTF-8 byte conversion helpers. See
+[`dart.string.bytes`](./dart_string_bytes.md).
 
--   `s`: The string to be trimmed.
--   **Returns**: The trimmed string.
+## Example
 
-## `dart.string.trimRight(s)`
+```lua
+local raw = "  LuaLike  "
+local trimmed = dart.string.trim(raw)
 
-Removes trailing whitespace from a string `s`.
-
--   `s`: The string to be trimmed.
--   **Returns**: The trimmed string.
-
-## `dart.string.padLeft(s, width, [padding])`
-
-Pads a string `s` on the left to a certain `width` with an optional `padding` string.
-
--   `s`: The string to pad.
--   `width`: The minimum width of the padded string.
--   `padding` (optional): The string to use for padding. Defaults to a space.
--   **Returns**: The padded string.
-
-## `dart.string.padRight(s, width, [padding])`
-
-Pads a string `s` on the right to a certain `width` with an optional `padding` string.
-
--   `s`: The string to pad.
--   `width`: The minimum width of the padded string.
--   `padding` (optional): The string to use for padding. Defaults to a space.
--   **Returns**: The padded string.
-
-## `dart.string.startsWith(s, pattern, [index])`
-
-Checks if a string `s` starts with `pattern`. An optional `index` can be provided to start searching from.
-
--   `s`: The string to check.
--   `pattern`: The pattern to check for.
--   `index` (optional): The index to start searching from.
--   **Returns**: `true` if `s` starts with `pattern`, `false` otherwise.
-
-## `dart.string.endsWith(s, other)`
-
-Checks if a string `s` ends with another string `other`.
-
--   `s`: The string to check.
--   `other`: The string to check for.
--   **Returns**: `true` if `s` ends with `other`, `false` otherwise.
-
-## `dart.string.indexOf(s, pattern, [start])`
-
-Returns the index of the first occurrence of `pattern` in a string `s`. An optional `start` index can be provided.
-
--   `s`: The string to search in.
--   `pattern`: The pattern to search for.
--   `start` (optional): The index to start searching from.
--   **Returns**: The index of the first occurrence, or -1 if not found.
-
-## `dart.string.lastIndexOf(s, pattern, [start])`
-
-Returns the index of the last occurrence of `pattern` in a string `s`. An optional `start` index can be provided to search backwards from.
-
--   `s`: The string to search in.
--   `pattern`: The pattern to search for.
--   `start` (optional): The index to start searching backwards from.
--   **Returns**: The index of the last occurrence, or -1 if not found.
-
-## `dart.string.replaceFirst(s, from, to, [startIndex])`
-
-Replaces the first occurrence of `from` with `to` in a string `s`. An optional `startIndex` can be provided.
-
--   `s`: The string to perform the replacement on.
--   `from`: The substring to be replaced.
--   `to`: The substring to replace with.
--   `startIndex` (optional): The index to start searching from.
--   **Returns**: The new string with the replacement.
-
-## `dart.string.isEmpty(s)`
-
-Checks if a string `s` is empty.
-
--   `s`: The string to check.
--   **Returns**: `true` if the string is empty, `false` otherwise.
-
-## `dart.string.isNotEmpty(s)`
-
-Checks if a string `s` is not empty.
-
--   `s`: The string to check.
--   **Returns**: `true` if the string is not empty, `false` otherwise.
-
-## `dart.string.rep(s, times)`
-
-Repeats a string `s` a number of `times`.
-
--   `s`: The string to repeat.
--   `times`: The number of times to repeat the string.
--   **Returns**: The repeated string.
-
-## `dart.string.replaceRange(s, start, end, replacement)`
-
-Replaces a range in a string `s` with a `replacement` string.
-
--   `s`: The string to perform the replacement on.
--   `start`: The starting index of the range (inclusive).
--   `end`: The ending index of the range (exclusive).
--   `replacement`: The string to replace the range with.
--   **Returns**: The new string with the replacement.
-
-## `dart.string.length(s)`
-
-Returns the length of a string `s`.
-
--   `s`: The string to get the length of.
--   **Returns**: The length of the string.
-
-## `dart.string.codeUnitAt(s, index)`
-
-Returns the 16-bit UTF-16 code unit at the given `index` of a string `s`.
-
--   `s`: The string to get the code unit from.
--   `index`: The index of the code unit.
--   **Returns**: The code unit at the given index.
-
-## `dart.string.fromCharCodes(table)`
-
-Creates a string from a table of character codes.
-
--   `table`: A table of character codes.
--   **Returns**: The new string.
-
----
-
-## Sub-Libraries
-
-### `dart.string.bytes`
-
-The `dart.string` library contains a sub-library, `bytes`, for low-level byte manipulation. See the [`dart.string.bytes` documentation](./dart_string_bytes.md) for more details.
+print(trimmed)
+print(dart.string.startsWith(trimmed, "Lua"))
+print(dart.string.substring(trimmed, 0, 3))
+```

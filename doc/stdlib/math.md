@@ -1,16 +1,25 @@
 # Math Library Implementation
 
-This document details the Dart implementation of the `lualike` math library, found in `lib/src/stdlib/lib_math.dart`.
+This document details the Dart implementation of the LuaLike math library,
+found in `lib/src/stdlib/lib_math.dart`.
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Function and constant implementations](#function-and-constant-implementations)
 
 ## Overview
 
-The math library provides a collection of standard mathematical functions. In `lualike`, it is loaded as a module and its functions are typically accessed through a table, e.g., `math.sin(x)`. It also provides constants like `math.pi` and `math.huge`.
+The math library provides a collection of standard mathematical functions. In
+LuaLike, it is loaded as a module and its functions are typically accessed
+through a table such as `math.sin(x)`. It also provides constants like
+`math.pi` and `math.huge`.
 
 ## Function and Constant Implementations
 
 ### Constants
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 print(math.pi)   -- 3.141592653589793
 print(math.huge) -- inf
@@ -21,11 +30,13 @@ print(math.mininteger) -- -9223372036854775808
 **Implementation Details:**
 - `math.pi`: Implemented using the `pi` constant from Dart's `dart:math` library.
 - `math.huge`: Represents infinity. Implemented using Dart's `double.infinity`.
-- `math.maxinteger` and `math.mininteger`: Represent the maximum and minimum values for a `lualike` integer. In the Dart implementation, these correspond to the limits of a 64-bit signed integer.
+- `math.maxinteger` and `math.mininteger`: Represent the maximum and minimum
+  values for a LuaLike integer. In the Dart implementation, these correspond
+  to the limits of a 64-bit signed integer.
 
 ### `math.abs`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 print(math.abs(-10)) -- 10
 ```
@@ -35,7 +46,7 @@ Calculates the absolute value of a number. It's implemented by calling the `.abs
 
 ### `math.acos`, `math.asin`, `math.atan`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 print(math.acos(0)) -- 1.5707963267948966
 ```
@@ -45,7 +56,7 @@ These are the standard trigonometric functions for arc cosine, arc sine, and arc
 
 ### `math.ceil`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 print(math.ceil(5.1)) -- 6
 ```
@@ -55,7 +66,7 @@ Returns the smallest integer greater than or equal to `x`. This is implemented u
 
 ### `math.cos`, `math.sin`, `math.tan`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 print(math.cos(math.pi)) -- -1
 ```
@@ -65,7 +76,7 @@ Standard trigonometric functions implemented by calling `cos`, `sin`, and `tan` 
 
 ### `math.deg` and `math.rad`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 print(math.deg(math.pi)) -- 180
 print(math.rad(180))     -- 3.14159...
@@ -76,7 +87,7 @@ Convert between degrees and radians. `math.deg` converts radians to degrees, and
 
 ### `math.exp`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 print(math.exp(1)) -- 2.71828... (e)
 ```
@@ -86,7 +97,7 @@ Computes *e* raised to the power of `x`. Implemented using `exp` from `dart:math
 
 ### `math.floor`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 print(math.floor(5.9)) -- 5
 ```
@@ -96,7 +107,7 @@ Returns the largest integer less than or equal to `x`. This is implemented using
 
 ### `math.fmod`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 print(math.fmod(10, 3)) -- 1
 print(10 % 3)           -- 1
@@ -107,7 +118,7 @@ Returns the remainder of the division of `x` by `y` that rounds the quotient tow
 
 ### `math.log`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 print(math.log(math.exp(1))) -- 1
 print(math.log(100, 10))     -- 2
@@ -118,7 +129,7 @@ Computes the logarithm of `x`. If a second argument `base` is provided, it compu
 
 ### `math.max` and `math.min`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 print(math.max(1, 10, -5, 20)) -- 20
 print(math.min(1, 10, -5, 20)) -- -5
@@ -129,7 +140,7 @@ Return the maximum or minimum value from a list of arguments. The implementation
 
 ### `math.modf`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 local int, frac = math.modf(3.14)
 print(int, frac) -- 3, 0.14000000000000012
@@ -140,7 +151,7 @@ Splits a number into its integer and fractional parts. The implementation uses `
 
 ### `math.random`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 -- A float between 0.0 and 1.0
 print(math.random())
@@ -160,7 +171,7 @@ This implementation relies on the `xrandom` package for the underlying generator
 
 ### `math.randomseed`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 math.randomseed(os.time())
 ```
@@ -170,7 +181,7 @@ Sets the seed for the pseudo-random number generator. Two integers can be suppli
 
 ### `math.sqrt`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 print(math.sqrt(16)) -- 4
 ```
@@ -180,7 +191,7 @@ Computes the square root of a number, implemented by calling `sqrt` from `dart:m
 
 ### `math.type`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 print(math.type(3))   -- "integer"
 print(math.type(3.0)) -- "float"
@@ -191,7 +202,7 @@ Returns "integer" if the value is an integer, "float" if it is a float, or `nil`
 
 ### `math.ult`
 
-**Lualike Usage:**
+**LuaLike Usage:**
 ```lua
 -- Compare two numbers as if they were unsigned integers
 print(math.ult(-1, 0)) -- true (-1 is larger than 0 in unsigned)

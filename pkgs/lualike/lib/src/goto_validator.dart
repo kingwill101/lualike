@@ -19,11 +19,12 @@ class GotoLabelValidator {
   /// Validates a nested [FunctionBody]. Used when function literals or
   /// declarations appear inside a chunk.
   String? checkFunctionBody(FunctionBody body) {
+    final parameters = <Identifier>[
+      ...?body.parameters,
+      if (body.varargName case final Identifier name) name,
+    ];
     final state = _ValidatorState();
-    return state.validateChunk(
-      body.body,
-      parameters: body.parameters ?? const <Identifier>[],
-    );
+    return state.validateChunk(body.body, parameters: parameters);
   }
 }
 
@@ -58,8 +59,25 @@ class _ValidatorState {
   }
 
   String? _processBlock(List<AstNode> statements, _BlockContext block) {
-    for (final stmt in statements) {
-      final error = _visitStatement(stmt, block);
+    return _processBlockWithOptions(statements, block);
+  }
+
+  String? _processBlockWithOptions(
+    List<AstNode> statements,
+    _BlockContext block, {
+    bool allowTerminalLabels = true,
+  }) {
+    for (var index = 0; index < statements.length; index++) {
+      final stmt = statements[index];
+      final terminalLabelInScope =
+          allowTerminalLabels &&
+          stmt is Label &&
+          statements.skip(index + 1).every((statement) => statement is Label);
+      final error = _visitStatement(
+        stmt,
+        block,
+        terminalLabelInScope: terminalLabelInScope,
+      );
       if (error != null) {
         return error;
       }
@@ -92,26 +110,63 @@ class _ValidatorState {
     return null;
   }
 
-  String? _visitStatement(AstNode node, _BlockContext block) {
+  String? _visitStatement(
+    AstNode node,
+    _BlockContext block, {
+    bool terminalLabelInScope = false,
+  }) {
     if (node is Label) {
-      return _handleLabel(node, block);
+      return _handleLabel(
+        node,
+        block,
+        terminalLabelInScope: terminalLabelInScope,
+      );
     }
 
     if (node is Goto) {
-      block.pendingGotos.add(
-        _PendingGoto(
-          node: node,
-          labelName: node.label.name,
-          activeLocalCount: _activeLocals.length,
-          originBlock: block,
-        ),
+      final pending = _PendingGoto(
+        node: node,
+        labelName: node.label.name,
+        activeLocalCount: _activeLocals.length,
+        originBlock: block,
       );
+      block.pendingGotos.add(pending);
+      for (_BlockContext? ctx = block; ctx != null; ctx = ctx.parent) {
+        final label = ctx.labels[node.label.name];
+        if (label == null || !pending.originBlock.isDescendantOf(ctx)) {
+          continue;
+        }
+        final error = _validateGotoAgainstLabel(
+          pending,
+          localLimit: label.localLimit,
+        );
+        if (error != null) {
+          return error;
+        }
+        block.pendingGotos.removeLast();
+        return null;
+      }
       return null;
     }
 
     if (node is LocalDeclaration) {
       for (final name in node.names) {
         _addLocal(name.name, name.span ?? node.span, block);
+      }
+      for (final expr in node.exprs) {
+        final error = _visitExpression(expr, block);
+        if (error != null) return error;
+      }
+      return null;
+    }
+
+    if (node is GlobalDeclaration) {
+      if (node.isWildcard) {
+        _addLocal('*', node.span, block);
+      } else {
+        for (final name in node.names) {
+          _addLocal(name.name, name.span ?? node.span, block);
+        }
       }
       for (final expr in node.exprs) {
         final error = _visitExpression(expr, block);
@@ -168,7 +223,11 @@ class _ValidatorState {
     }
 
     if (node is RepeatUntilLoop) {
-      final bodyError = _withChildBlock(node.body, block);
+      final bodyError = _withChildBlock(
+        node.body,
+        block,
+        allowTerminalLabels: false,
+      );
       if (bodyError != null) return bodyError;
       return _visitExpression(node.cond, block);
     }
@@ -247,6 +306,7 @@ class _ValidatorState {
   String? _withChildBlock(
     List<AstNode> statements,
     _BlockContext parent, {
+    bool allowTerminalLabels = true,
     void Function(_BlockContext child)? onEnter,
   }) {
     final child = _BlockContext(
@@ -257,7 +317,11 @@ class _ValidatorState {
 
     onEnter?.call(child);
 
-    final error = _processBlock(statements, child);
+    final error = _processBlockWithOptions(
+      statements,
+      child,
+      allowTerminalLabels: allowTerminalLabels,
+    );
     if (error != null) {
       return error;
     }
@@ -349,18 +413,27 @@ class _ValidatorState {
     return null;
   }
 
-  String? _handleLabel(Label label, _BlockContext block) {
+  String? _handleLabel(
+    Label label,
+    _BlockContext block, {
+    bool terminalLabelInScope = false,
+  }) {
     final name = label.label.name;
+    final localLimit = terminalLabelInScope
+        ? block.activeLocalStartIndex
+        : _activeLocals.length;
 
     for (_BlockContext? ctx = block; ctx != null; ctx = ctx.parent) {
       final current = ctx;
-      if (current.labels.containsKey(name)) {
-        final line = _line(label.span);
-        return "label '$name' already defined at line $line";
+      final existing = current.labels[name];
+      if (existing != null) {
+        final line = _line(existing.label.span);
+        final currentLine = _line(label.span);
+        return ":$currentLine: label '$name' already defined at line $line";
       }
     }
 
-    block.labels[name] = label;
+    block.labels[name] = _LabelInfo(label: label, localLimit: localLimit);
 
     for (_BlockContext? ctx = block; ctx != null; ctx = ctx.parent) {
       final current = ctx;
@@ -376,7 +449,10 @@ class _ValidatorState {
           continue;
         }
 
-        final error = _validateGotoAgainstLabel(pending);
+        final error = _validateGotoAgainstLabel(
+          pending,
+          localLimit: localLimit,
+        );
         if (error != null) {
           return error;
         }
@@ -389,11 +465,14 @@ class _ValidatorState {
     return null;
   }
 
-  String? _validateGotoAgainstLabel(_PendingGoto pending) {
-    if (pending.activeLocalCount < _activeLocals.length) {
+  String? _validateGotoAgainstLabel(
+    _PendingGoto pending, {
+    required int localLimit,
+  }) {
+    if (pending.activeLocalCount < localLimit) {
       final local = _activeLocals[pending.activeLocalCount];
       final line = _line(pending.node.span);
-      return "<goto ${pending.labelName}> at line $line jumps into the scope of local '${local.name}'";
+      return "<goto ${pending.labelName}> at line $line jumps into the scope of '${local.name}'";
     }
     return null;
   }
@@ -430,7 +509,7 @@ class _BlockContext {
   final _BlockContext? parent;
   final int depth;
   final int activeLocalStartIndex;
-  final Map<String, Label> labels = {};
+  final Map<String, _LabelInfo> labels = {};
   final List<_PendingGoto> pendingGotos = [];
 
   bool isDescendantOf(_BlockContext other) {
@@ -442,6 +521,13 @@ class _BlockContext {
     }
     return false;
   }
+}
+
+class _LabelInfo {
+  _LabelInfo({required this.label, required this.localLimit});
+
+  final Label label;
+  final int localLimit;
 }
 
 class _PendingGoto {

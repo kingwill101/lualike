@@ -3,15 +3,19 @@ import 'dart:convert';
 
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/builtin_function.dart';
-import 'package:lualike/src/const_checker.dart';
+import 'package:lualike/src/config.dart';
+import 'package:lualike/src/executor.dart';
 import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/lua_error.dart';
 import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/parse.dart';
+import 'package:lualike/src/lua_bytecode/runtime.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
+import 'package:lualike/src/semantic_checker.dart';
 import 'package:lualike/src/stdlib/lib_debug.dart';
 import 'package:lualike/src/value.dart';
 import 'package:lualike/src/utils/file_system_utils.dart' as fs;
+import 'package:lualike/src/ir/runtime.dart';
 import 'package:path/path.dart' as path;
 
 /// Wrapper for Dart functions to make them callable from LuaLike.
@@ -75,11 +79,9 @@ extension VMInterop on LuaRuntime {
   Future<Object?> evaluate(String code, {String? scriptPath}) async {
     final ast = parse(code, url: scriptPath); // Assuming parse() is available
 
-    // Check for const variable assignment errors
-    final constChecker = ConstChecker();
-    final constError = constChecker.checkConstViolations(ast);
-    if (constError != null) {
-      throw Exception(constError);
+    final semanticError = validateProgramSemantics(ast);
+    if (semanticError != null) {
+      throw Exception(semanticError);
     }
 
     // Store the script path in the interpreter
@@ -98,15 +100,16 @@ extension VMInterop on LuaRuntime {
           } else {
             absolutePath = path.absolute(scriptPath);
           }
-          Logger.debug(
-            "Resolved relative script path '$scriptPath' to absolute path '$absolutePath' using current directory",
+          Logger.debugLazy(
+            () =>
+                "Resolved relative script path '$scriptPath' to absolute path '$absolutePath' using current directory",
             category: 'Interpreter',
           );
         } catch (e) {
           // Fallback to simple absolute path
           absolutePath = path.absolute(scriptPath);
-          Logger.debug(
-            "Error resolving script path: $e, using $absolutePath",
+          Logger.debugLazy(
+            () => "Error resolving script path: $e, using $absolutePath",
             category: 'Interpreter',
           );
         }
@@ -129,8 +132,9 @@ extension VMInterop on LuaRuntime {
       );
       globals.define('_SCRIPT_DIR', Value(normalizedScriptDir));
 
-      Logger.debug(
-        "Set script path globals: _SCRIPT_PATH(norm)=$normalizedAbsolutePath, _SCRIPT_DIR(norm)=$normalizedScriptDir | originals: path=$absolutePath, dir=$scriptDir",
+      Logger.debugLazy(
+        () =>
+            "Set script path globals: _SCRIPT_PATH(norm)=$normalizedAbsolutePath, _SCRIPT_DIR(norm)=$normalizedScriptDir | originals: path=$absolutePath, dir=$scriptDir",
         category: 'Interpreter',
       );
 
@@ -152,14 +156,17 @@ extension VMInterop on LuaRuntime {
     // Create function call AST node
     final call = FunctionCall(
       Identifier(functionName),
-      args.map((arg) {
-        // Convert Dart values to LuaLike AST nodes
-        if (arg is num) return NumberLiteral(arg);
-        if (arg is String) return StringLiteral(arg);
-        if (arg is bool) return BooleanLiteral(arg);
-        if (arg == null) return NilValue();
-        throw LuaError('Unsupported argument type: ${arg.runtimeType}');
-      }).toList(),
+      args
+          .map((arg) {
+            // Convert Dart values to LuaLike AST nodes
+            if (arg is num) return NumberLiteral(arg);
+            if (arg is String) return StringLiteral(arg);
+            if (arg is bool) return BooleanLiteral(arg);
+            if (arg == null) return NilValue();
+            throw LuaError('Unsupported argument type: ${arg.runtimeType}');
+          })
+          .toList()
+          .cast<AstNode>(),
     );
 
     // Execute the function call
@@ -177,8 +184,14 @@ class LuaLike {
 
   /// Creates a new bridge with a runtime instance.
   /// If none is provided, a fresh AST interpreter is created.
-  factory LuaLike({LuaRuntime? runtime}) =>
-      LuaLike._internal(runtime ?? Interpreter());
+  factory LuaLike({LuaRuntime? runtime}) {
+    runtime ??= switch (LuaLikeConfig().defaultEngineMode) {
+      EngineMode.ir => LualikeIrRuntime(),
+      EngineMode.luaBytecode => LuaBytecodeRuntime(),
+      EngineMode.ast => Interpreter(),
+    };
+    return LuaLike._internal(runtime);
+  }
 
   /// Internal constructor
   LuaLike._internal(LuaRuntime runtime) : vm = runtime;
@@ -196,23 +209,29 @@ class LuaLike {
   /// and ensuring the debug library has access to the interpreter
   Future<Object?> execute(String code, {String? scriptPath}) async {
     try {
-      // Set the interpreter reference in the environment
-      // This ensures debug.getinfo can access the interpreter for line info
-      vm.globals.interpreter = vm;
+      final mode = LuaLikeConfig().defaultEngineMode;
 
-      // Ensure the debug library has a reference to the interpreter
-      final debugLib = vm.globals.get('debug');
-      if (debugLib != null && debugLib.isTable) {
-        // Reinitialize debug library with the interpreter reference
-        defineDebugLibrary(env: vm.globals, vm: vm);
-        Logger.debug(
-          'Updated debug library with interpreter reference',
-          category: 'LineTracking',
-        );
+      if (scriptPath != null) {
+        _updateScriptMetadata(vm, scriptPath);
       }
 
-      // Use our evaluate method to handle line tracking correctly
-      final result = await evaluate(code, scriptPath: scriptPath);
+      final result = await executeCode(
+        code,
+        vm: vm,
+        mode: mode,
+        url: scriptPath,
+        onRuntimeSetup: (runtime) {
+          runtime.globals.interpreter = runtime;
+          final debugLib = runtime.globals.get('debug');
+          if (debugLib != null && debugLib.isTable) {
+            defineDebugLibrary(env: runtime.globals, vm: runtime);
+            Logger.debugLazy(
+              () => 'Updated debug library with interpreter reference',
+              category: 'LineTracking',
+            );
+          }
+        },
+      );
 
       // If a multi-value was returned, unwrap it into a Dart List so callers
       // receive a simple List<Value> like the top-level runCode helper.
@@ -236,28 +255,48 @@ class LuaLike {
   /// while ensuring line information is correctly set
   Future<Object?> evaluate(String code, {String? scriptPath}) async {
     try {
-      // Parse the code to generate AST with line information
-      final program = parse(code, url: scriptPath);
-
-      // Set script path in environment if provided
       if (scriptPath != null) {
-        // Normalize using path library so code and tests see a consistent path format
-        final normalized = path.url.joinAll(
-          path.split(path.normalize(scriptPath)),
-        );
-        Logger.debug(
-          'LuaLike.evaluate: setting _SCRIPT_PATH (norm)=$normalized | original=$scriptPath',
-          category: 'Interpreter',
-        );
-        vm.globals.define('_SCRIPT_PATH', Value(normalized));
-        vm.callStack.setScriptPath(normalized);
+        _updateScriptMetadata(vm, scriptPath);
       }
 
-      // Run the program statements with line tracking
-      return await vm.runAst(program.statements);
+      return await executeCode(
+        code,
+        vm: vm,
+        mode: EngineMode.ast,
+        url: scriptPath,
+        onRuntimeSetup: (runtime) {
+          runtime.globals.interpreter = runtime;
+          final debugLib = runtime.globals.get('debug');
+          if (debugLib != null && debugLib.isTable) {
+            defineDebugLibrary(env: runtime.globals, vm: runtime);
+          }
+        },
+      );
     } catch (e) {
       Logger.error("Error evaluating code: $e");
       rethrow;
+    }
+  }
+
+  void _updateScriptMetadata(LuaRuntime runtime, String scriptPath) {
+    final normalizedPath = path.url.joinAll(
+      path.split(path.normalize(scriptPath)),
+    );
+    Logger.debugLazy(
+      () =>
+          'Setting script metadata _SCRIPT_PATH=$normalizedPath (original=$scriptPath)',
+      category: 'Interpreter',
+    );
+    runtime.globals.define('_SCRIPT_PATH', Value(normalizedPath));
+    runtime.callStack.setScriptPath(normalizedPath);
+
+    final scriptDir = path.dirname(scriptPath);
+    final normalizedDir = path.url.joinAll(
+      path.split(path.normalize(scriptDir)),
+    );
+    runtime.globals.define('_SCRIPT_DIR', Value(normalizedDir));
+    if (scriptDir.isNotEmpty) {
+      runtime.fileManager.addSearchPath(scriptDir);
     }
   }
 
@@ -307,8 +346,9 @@ Future<List<Value>> runFile(String pathStr, {Map<String, dynamic>? env}) async {
   final normalizedEnvPath = path.url.joinAll(
     path.split(path.normalize(pathStr)),
   );
-  Logger.debug(
-    'runFile: setting _SCRIPT_PATH (norm)=$normalizedEnvPath | original=$pathStr',
+  Logger.debugLazy(
+    () =>
+        'runFile: setting _SCRIPT_PATH (norm)=$normalizedEnvPath | original=$pathStr',
     category: 'Interpreter',
   );
   env['_SCRIPT_PATH'] = normalizedEnvPath;
@@ -335,8 +375,9 @@ Future<List<Value>> runCode(
     final normalizedEnvPath = path.url.joinAll(
       path.split(path.normalize(filePath)),
     );
-    Logger.debug(
-      'runCode: setting _SCRIPT_PATH (norm)=$normalizedEnvPath | original=$filePath',
+    Logger.debugLazy(
+      () =>
+          'runCode: setting _SCRIPT_PATH (norm)=$normalizedEnvPath | original=$filePath',
       category: 'Interpreter',
     );
     env['_SCRIPT_PATH'] = normalizedEnvPath;

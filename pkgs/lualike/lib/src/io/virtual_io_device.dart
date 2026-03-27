@@ -18,7 +18,9 @@ class VirtualIODevice extends BaseIODevice {
       isWriteOnly = initialContent == null || initialContent.startsWith('w'),
       super(initialContent ?? 'r+') {
     if (initialContent != null) {
-      Logger.debug('Initializing virtual device with content: $initialContent');
+      Logger.debugLazy(
+        () => 'Initializing virtual device with content: $initialContent',
+      );
       _buffer.write(initialContent);
     }
   }
@@ -27,27 +29,29 @@ class VirtualIODevice extends BaseIODevice {
 
   @override
   Future<void> close() async {
-    Logger.debug('Closing virtual device');
+    Logger.debugLazy(() => 'Closing virtual device');
     checkOpen();
     isClosed = true;
   }
 
   @override
   Future<bool> isEOF() async {
-    Logger.debug('Checking EOF at position $_position');
+    Logger.debugLazy(() => 'Checking EOF at position $_position');
     checkOpen();
     return _position >= _buffer.toString().length;
   }
 
   @override
   Future<ReadResult> read([String format = 'a']) async {
-    Logger.debug("Reading from virtual device with format: $format");
+    Logger.debugLazy(() => "Reading from virtual device with format: $format");
     checkOpen();
     validateReadFormat(format);
 
     final content = _buffer.toString();
     if (_position >= content.length) {
-      Logger.debug('Read position beyond content length, returning null');
+      Logger.debugLazy(
+        () => 'Read position beyond content length, returning null',
+      );
       return ReadResult(null);
     }
 
@@ -56,23 +60,23 @@ class VirtualIODevice extends BaseIODevice {
       // Read a number
       final match = RegExp(r'-?\d+\.?\d*').matchAsPrefix(content, _position);
       if (match == null) {
-        Logger.debug('No number found at current position');
+        Logger.debugLazy(() => 'No number found at current position');
         return ReadResult(null);
       }
       result = match.group(0)!;
       _position = match.end;
-      Logger.debug('Read number: $result');
+      Logger.debugLazy(() => 'Read number: $result');
     } else if (format == 'a') {
       // Read all remaining content
       result = content.substring(_position);
       _position = content.length;
-      Logger.debug('Read all remaining content: $result');
+      Logger.debugLazy(() => 'Read all remaining content: $result');
     } else if (format == 'l' || format == 'L') {
       // Read line
       final newlineIndex = content.indexOf('\n', _position);
       if (newlineIndex == -1) {
         if (_position >= content.length) {
-          Logger.debug('No more lines to read');
+          Logger.debugLazy(() => 'No more lines to read');
           return ReadResult(null);
         }
         result = content.substring(_position);
@@ -84,17 +88,17 @@ class VirtualIODevice extends BaseIODevice {
         );
         _position = newlineIndex + 1;
       }
-      Logger.debug('Read line: $result');
+      Logger.debugLazy(() => 'Read line: $result');
     } else {
       // Read n bytes
       final n = int.parse(format);
       if (_position + n > content.length) {
-        Logger.debug('Not enough bytes left to read');
+        Logger.debugLazy(() => 'Not enough bytes left to read');
         return ReadResult(null);
       }
       result = content.substring(_position, _position + n);
       _position += n;
-      Logger.debug('Read $n bytes: $result');
+      Logger.debugLazy(() => 'Read $n bytes: $result');
     }
 
     return ReadResult(result);
@@ -102,11 +106,11 @@ class VirtualIODevice extends BaseIODevice {
 
   @override
   Future<WriteResult> write(Object? data) async {
-    Logger.debug('Writing to virtual device: $data');
+    Logger.debugLazy(() => 'Writing to virtual device: $data');
     checkOpen();
 
     if (data == null) {
-      Logger.debug('Write data is null, returning');
+      Logger.debugLazy(() => 'Write data is null, returning');
       return WriteResult(true);
     }
 
@@ -119,14 +123,16 @@ class VirtualIODevice extends BaseIODevice {
       str = data.toString();
     }
 
-    Logger.debug('Converted data to string: $str');
+    Logger.debugLazy(() => 'Converted data to string: $str');
     _buffer.write(str);
     return WriteResult(true);
   }
 
   @override
   Future<WriteResult> writeBytes(List<int> bytes) async {
-    Logger.debug('Writing raw bytes to virtual device: ${bytes.length} bytes');
+    Logger.debugLazy(
+      () => 'Writing raw bytes to virtual device: ${bytes.length} bytes',
+    );
     checkOpen();
     final str = String.fromCharCodes(bytes);
     _buffer.write(str);
@@ -135,7 +141,7 @@ class VirtualIODevice extends BaseIODevice {
 
   @override
   Future<int> seek(SeekWhence whence, int offset) async {
-    Logger.debug('Seeking with whence: $whence, offset: $offset');
+    Logger.debugLazy(() => 'Seeking with whence: $whence, offset: $offset');
     checkOpen();
 
     final length = _buffer.toString().length;
@@ -153,20 +159,20 @@ class VirtualIODevice extends BaseIODevice {
 
     // Clamp position to valid range
     _position = _position.clamp(0, length);
-    Logger.debug('New position after seek: $_position');
+    Logger.debugLazy(() => 'New position after seek: $_position');
     return _position;
   }
 
   @override
   Future<int> getPosition() async {
-    Logger.debug('Getting current position: $_position');
+    Logger.debugLazy(() => 'Getting current position: $_position');
     checkOpen();
     return _position;
   }
 
   @override
   Future<void> flush() async {
-    Logger.debug('Flushing virtual device');
+    Logger.debugLazy(() => 'Flushing virtual device');
     checkOpen();
     // No-op for virtual device
   }
