@@ -471,12 +471,19 @@ do print("testing flush")
   assert(io.flush())        -- write to device
   assert(f:close())
 
-  local f = io.output("/dev/full")
-  assert(f:write("abcd"))   -- write to buffer
-  assert(not f:flush())     -- cannot write to device
-  assert(f:write("abcd"))   -- write to buffer
-  assert(not io.flush())    -- cannot write to device
-  assert(f:close())
+  -- Some CI environments (notably GitHub macOS runners) expose '/dev/full'
+  -- with permissions that prevent opening it at all. Skip only this
+  -- non-portable device-specific assertion when the sink is unavailable.
+  local ok, f = pcall(io.output, "/dev/full")
+  if ok then
+    assert(f:write("abcd"))   -- write to buffer
+    assert(not f:flush())     -- cannot write to device
+    assert(f:write("abcd"))   -- write to buffer
+    assert(not io.flush())    -- cannot write to device
+    assert(f:close())
+  else
+    print("\n  >>> unable to open '/dev/full': skipping flush-failure tests <<<")
+  end
 end
 
 
@@ -1000,5 +1007,4 @@ s = tonumber(s)
 io.write(string.format('test done on %2.2d/%2.2d/%d', d, m, a))
 io.write(string.format(', at %2.2d:%2.2d:%2.2d\n', h, min, s))
 io.write(string.format('%s\n', _VERSION))
-
 
