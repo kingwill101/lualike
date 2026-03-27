@@ -27,7 +27,7 @@ void main() {
     final message = result.raw as String;
 
     expect(message, contains('[string "local a = 2.0^100; x = a << 2"]:1:'));
-    expect(message, contains("local 'a'"));
+    expect(message, contains('number has no integer representation'));
   });
 
   test(

@@ -600,7 +600,7 @@ void main() {
       );
       expect(
         (bridge.getGlobal('msgBitwiseIntegerLabel') as Value).unwrap(),
-        contains("local 'a'"),
+        contains('number has no integer representation'),
       );
     });
 

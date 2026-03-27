@@ -6,36 +6,27 @@ void main() {
       final bridge = LuaLike();
 
       await bridge.execute('''
-        -- Create and abandon objects
-        local function createObjects()
-          local t1 = {value = "test1"}
-          local t2 = {value = "test2"}
-          -- t1 and t2 go out of scope
+        -- `collectgarbage("count")` is allocator- and accounting-dependent, so
+        -- use weak references to assert object liveness directly instead of
+        -- assuming heap usage must fall monotonically after a collection.
+        local refs = setmetatable({}, {__mode = "v"})
+
+        do
+          local holder = {}
+          for i = 1, 100 do
+            local obj = {value = i}
+            holder[i] = obj
+            refs[i] = obj
+          end
+
+          assert(refs[1] ~= nil and refs[100] ~= nil,
+            "Weak table should see live objects while strong references exist")
         end
 
-        createObjects()
         collectgarbage("collect")
-
-        -- Check memory usage
-        local mem1 = collectgarbage("count")
-
-        -- Create more objects and keep references
-        local holder = {}
-        for i = 1, 100 do
-          holder[i] = {value = "test" .. i}
-        end
-
-        local mem2 = collectgarbage("count")
-        assert(mem2 > mem1, "Memory should increase with new objects")
-
-        -- Clear references and collect
-        holder = nil
         collectgarbage("collect")
-        -- A second collection is often needed in Lua to collect finalized objects
-        collectgarbage("collect")
-
-        local mem3 = collectgarbage("count")
-        assert(mem3 < mem2, "Memory should decrease after collection")
+        assert(next(refs) == nil,
+          "Objects should disappear once only weak references remain")
       ''');
 
       Logger.setEnabled(false);
