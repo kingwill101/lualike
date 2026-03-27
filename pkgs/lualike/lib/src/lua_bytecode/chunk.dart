@@ -286,25 +286,6 @@ final class LuaBytecodePrototype {
     return lines;
   }
 
-  ({int baseLine, int basePc}) _baselineForPc(int pc) {
-    if (absoluteLineInfo.isEmpty || pc < absoluteLineInfo.first.pc) {
-      return (baseLine: lineDefined, basePc: -1);
-    }
-
-    var estimate =
-        (pc ~/ LuaBytecodeDebugLayout.maxInstructionsWithoutAbsoluteLineInfo) -
-        1;
-    if (estimate < 0) {
-      estimate = 0;
-    }
-    while (estimate + 1 < absoluteLineInfo.length &&
-        pc >= absoluteLineInfo[estimate + 1].pc) {
-      estimate++;
-    }
-
-    final checkpoint = absoluteLineInfo[estimate];
-    return (baseLine: checkpoint.line, basePc: checkpoint.pc);
-  }
 }
 
 final Expando<List<int?>> _prototypeLinesByPc = Expando<List<int?>>(

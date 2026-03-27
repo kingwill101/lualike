@@ -1,6 +1,5 @@
 import 'package:lualike_test/test.dart';
 import 'package:lualike/src/ir/loop_compiler.dart';
-import 'package:lualike/src/parse.dart';
 
 void main() {
   group('Loop lualike IR compiler', () {
