@@ -1,5 +1,6 @@
 import 'package:lualike_test/test.dart';
 import 'package:lualike/src/ir/loop_compiler.dart';
+import 'package:lualike/src/parse.dart';
 
 void main() {
   group('Loop lualike IR compiler', () {
@@ -100,39 +101,14 @@ void main() {
 
     test('increments dense table slots', () async {
       final vm = Interpreter();
-      final countsInit = Assignment(
-        [Identifier('counts')],
-        [
-          TableConstructor([
-            TableEntryLiteral(NumberLiteral(0)),
-            TableEntryLiteral(NumberLiteral(0)),
-            TableEntryLiteral(NumberLiteral(0)),
-            TableEntryLiteral(NumberLiteral(0)),
-            TableEntryLiteral(NumberLiteral(0)),
-          ]),
-        ],
-      );
+      final program = parse('''
+        counts = {0, 0, 0, 0, 0}
+        for i = 1, 5, 1 do
+          counts[i] = counts[i] + 1
+        end
+      ''');
 
-      final loop = ForLoop(
-        Identifier('i'),
-        NumberLiteral(1),
-        NumberLiteral(5),
-        NumberLiteral(1),
-        [
-          Assignment(
-            [TableAccessExpr(Identifier('counts'), Identifier('i'))],
-            [
-              BinaryExpression(
-                TableAccessExpr(Identifier('counts'), Identifier('i')),
-                '+',
-                NumberLiteral(1),
-              ),
-            ],
-          ),
-        ],
-      );
-
-      await vm.run([countsInit, loop]);
+      await vm.run(program.statements);
       final Value countsValue = await Identifier('counts').accept(vm) as Value;
       final Map<dynamic, dynamic> rawCounts =
           countsValue.raw as Map<dynamic, dynamic>;

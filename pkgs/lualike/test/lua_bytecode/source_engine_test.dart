@@ -984,13 +984,13 @@ return t[1], t[2], t.x, t[key]
       () async {
         LuaLikeConfig().defaultEngineMode = EngineMode.luaBytecode;
         final bridge = LuaLike();
-        bridge.setGlobal('t', <Object?, Object?>{
-          'a': <Object?, Object?>{
-            'b': <Object?, Object?>{'base': 4},
-          },
-        });
 
         final result = await bridge.execute('''
+-- Keep this focused on source-engine lowering. Using a Dart-provided nested
+-- map here would exercise interop table wrapping instead of emitted function
+-- definition semantics.
+t = { a = { b = { base = 4 } } }
+
 function t.a.b.add(x)
   return x + 2
 end
