@@ -1338,6 +1338,8 @@ return a[2], b, c == print, a[1].alo == assert
     });
 
     test('CLI runs raw luac chunks under --lua-bytecode', () async {
+      // This exercises the real `dart run bin/main.dart` path, so a clean
+      // machine can spend most of the default test budget compiling the CLI.
       final tempDir = Directory.systemTemp.createTempSync(
         'lualike_lua_bytecode_cli_',
       );
@@ -1365,7 +1367,7 @@ return a[2], b, c == print, a[1].alo == assert
       } finally {
         tempDir.deleteSync(recursive: true);
       }
-    }, skip: skipReason);
+    }, skip: skipReason, timeout: Timeout.factor(4));
 
     test(
       'unsupported source subsets fail explicitly without AST fallback',
