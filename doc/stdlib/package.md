@@ -1,41 +1,89 @@
 # `package` Library
 
-The `package` library provides functions for loading modules in `lualike`.
+The `package` library controls module loading state for `require()` and related
+helpers.
 
-## `package.loadlib(libname, funcname)`
+## Table of Contents
 
-Dynamically links the host program with the C library `libname`. This is not supported in `lualike`.
+- [Overview](#overview)
+- [Core fields](#core-fields)
+- [Functions](#functions)
+- [How `require()` fits in](#how-require-fits-in)
+- [Compatibility notes](#compatibility-notes)
 
-## `package.searchpath(name, path, [sep, [rep]])`
+## Overview
 
-Searches for a `name` in a `path`.
+LuaLike installs `package` as a global table and also wires `require()` into
+the base library so scripts can load modules in the usual Lua style.
 
--   `name`: The name of the module to search for.
--   `path`: A string specifying the search path.
--   `sep` (optional): The separator for the path elements. Defaults to ".".
--   `rep` (optional): The replacement for the separator in the module name. Defaults to the system's directory separator.
--   **Returns**: The path where the module was found. If no file is located, it returns `nil` followed by an error string listing each file it tried.
+The runtime keeps `package.loaded` synchronized with both built-in libraries
+and loaded script modules.
 
-## `package.preload`
+## Core fields
 
-A table to store loader functions for specific modules. When `require` is called, it will first look in this table.
+### `package.preload`
 
-## `package.loaded`
+A table of loader functions checked before filesystem searchers.
 
-A table used by `require` to control which modules are already loaded.
+### `package.loaded`
 
-## `package.path`
+A table used to track modules and libraries that have already been initialized.
 
-A string that `require` uses to search for a Lua loader.
+### `package.path`
 
-## `package.cpath`
+The search template string used for Lua-style module loading.
 
-A string that `require` uses to search for a C loader.
+### `package.cpath`
 
-## `package.config`
+The compatibility search template string for native modules.
 
-A string describing some compile-time configurations for `lualike`.
+LuaLike does not implement real C extension loading, but the field is present
+because Lua programs often inspect it.
 
-## `package.searchers`
+### `package.config`
 
-A table used by `require` to search for modules. It is a sequence of searcher functions.
+A newline-delimited configuration string describing path separators and related
+loader conventions.
+
+### `package.searchers`
+
+The ordered list of searcher functions consulted by `require()`.
+
+LuaLike includes preload and Lua-file searchers, plus compatibility stubs for
+the unsupported native-loading entries.
+
+## Functions
+
+### `package.searchpath(name, path, [sep, [rep]])`
+
+Resolves a module-like name against a search path template string.
+
+On success it returns the first matching path. On failure it returns `nil`
+plus an error string listing the attempted filenames.
+
+### `package.loadlib(libname, funcname)`
+
+Compatibility entrypoint for native library loading.
+
+LuaLike does not dynamically load C modules. The function reports success only
+for the limited compatibility cases it can model and otherwise returns
+Lua-style failure tuples.
+
+## How `require()` fits in
+
+`require()` is exposed globally, but it relies on `package` internals:
+
+- `package.loaded` tracks already-loaded modules
+- `package.searchers` defines lookup order
+- `package.path` and `package.searchpath()` drive Lua-file resolution
+
+If you are embedding LuaLike and want custom module loading, `package.preload`
+is often the simplest insertion point.
+
+## Compatibility notes
+
+- Native dynamic library loading is not implemented.
+- Search behavior is still file-manager-dependent because LuaLike can run in
+  embedded host environments, not just from the local filesystem.
+- The `package` table is a runtime object, so host code can override or extend
+  its fields if needed.
