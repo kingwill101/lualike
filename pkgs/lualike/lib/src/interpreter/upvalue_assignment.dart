@@ -17,10 +17,14 @@ class UpvalueAssignmentHandler {
 
     for (final upvalue in currentFunction.upvalues!) {
       if (upvalue.name == varName) {
-        Logger.debug(
-          'UpvalueAssignment: Updating upvalue $varName from ${upvalue.getValue()} to ${newValue.raw}',
+        Logger.debugLazy(
+          () =>
+              'UpvalueAssignment: Updating upvalue $varName from ${upvalue.getValue()} to ${newValue.raw}',
           category: 'UpvalueAssignment',
-          context: {'varName': varName, 'hasValue': upvalue.getValue() != null},
+          contextBuilder: () => {
+            'varName': varName,
+            'hasValue': upvalue.getValue() != null,
+          },
         );
         upvalue.setValue(newValue.raw);
         return true;

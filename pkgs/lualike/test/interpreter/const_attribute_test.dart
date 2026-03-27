@@ -178,6 +178,53 @@ void main() {
       );
     });
 
+    test('numeric for loop control variables are read only', () async {
+      expect(
+        () async {
+          await lua.execute('''
+          for i = 1, 3 do
+            i = i + 1
+          end
+        ''');
+        },
+        throwsA(
+          predicate(
+            (e) =>
+                e.toString().contains('attempt to assign to const variable') &&
+                e.toString().contains('i'),
+          ),
+        ),
+      );
+    });
+
+    test('generic for loop variables are writable', () async {
+      await lua.execute('''
+        local sum = 0
+        for _, value in ipairs({1, 2, 3}) do
+          value = value + 1
+          sum = sum + value
+        end
+        result = sum
+      ''');
+      expect(lua.getGlobal("result").unwrap(), equals(9));
+    });
+
+    test('load allows assignment to secondary generic for variables', () async {
+      await lua.execute('''
+        local chunk, err = load([[
+          local sum = 0
+          for _, value in ipairs({1, 2, 3}) do
+            value = value + 1
+            sum = sum + value
+          end
+          result = sum
+        ]])
+        assert(chunk and err == nil)
+        chunk()
+      ''');
+      expect(lua.getGlobal("result").unwrap(), equals(9));
+    });
+
     test('const variables with complex expressions', () async {
       await lua.execute('''
         local a <const> = 10 + 20 * 2

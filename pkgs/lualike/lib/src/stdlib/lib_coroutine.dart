@@ -65,21 +65,32 @@ bool _isTrue(Object? value) {
 
 String _statusToString(LuaRuntime interpreter, Coroutine coroutine) {
   final Coroutine main = interpreter.getMainThread();
-  final Coroutine? current = interpreter.getCurrentCoroutine();
+  final Coroutine? current = Coroutine.active;
 
-  if (identical(coroutine, main)) {
-    return coroutine.status == CoroutineStatus.dead ? "dead" : "running";
-  }
-
-  if (identical(coroutine, current)) {
+  if (identical(coroutine, current ?? main)) {
     return "running";
   }
 
   return switch (coroutine.status) {
-    CoroutineStatus.running => "running",
+    CoroutineStatus.running => "normal",
     CoroutineStatus.normal => "normal",
     CoroutineStatus.suspended => "suspended",
     CoroutineStatus.dead => "dead",
+  };
+}
+
+CoroutineStatus _closeStatus(LuaRuntime interpreter, Coroutine coroutine) {
+  final Coroutine main = interpreter.getMainThread();
+  final Coroutine current =
+      Coroutine.active ?? interpreter.getCurrentCoroutine() ?? main;
+
+  if (identical(coroutine, current)) {
+    return CoroutineStatus.running;
+  }
+
+  return switch (coroutine.status) {
+    CoroutineStatus.running => CoroutineStatus.normal,
+    final status => status,
   };
 }
 
@@ -149,9 +160,8 @@ class _CoroutineRunning extends BuiltinFunction {
 
   @override
   Object? call(List<Object?> args) {
-    final Coroutine current =
-        _interpreter.getCurrentCoroutine() ?? _interpreter.getMainThread();
     final Coroutine main = _interpreter.getMainThread();
+    final Coroutine current = Coroutine.active ?? main;
     final isMain = identical(current, main);
     return Value.multi([_threadValue(_interpreter, current), Value(isMain)]);
   }
@@ -254,6 +264,9 @@ class _CoroutineYield extends BuiltinFunction {
     if (identical(current, main)) {
       throw LuaError("attempt to yield from outside a coroutine");
     }
+    if (!_interpreter.isYieldable) {
+      throw LuaError("attempt to yield across a C-call boundary");
+    }
 
     await current.yield_(args);
     return Value(null); // Unreachable, included for completeness
@@ -287,59 +300,103 @@ class _CoroutineWrap extends BuiltinFunction {
     final closureEnv = _resolveClosureEnvironment(_interpreter, functionValue);
     final coroutine = Coroutine(functionValue, body, closureEnv);
     _interpreter.registerCoroutine(coroutine);
+    return Value(_WrappedCoroutineFunction(coroutine));
+  }
+}
 
-    return Value((List<Object?> callArgs) async {
-      final Value resumeResult = await coroutine.resume(_cloneArgs(callArgs));
+class _WrappedCoroutineFunction extends BuiltinFunction
+    implements BuiltinFunctionGcRefs {
+  _WrappedCoroutineFunction(this._coroutine);
 
-      if (!resumeResult.isMulti) {
-        return resumeResult;
-      }
+  final Coroutine _coroutine;
 
-      final raw = resumeResult.raw as List<Object?>;
-      if (raw.isEmpty) {
-        return Value(null);
-      }
+  @override
+  Iterable<Object?> getGcReferences() sync* {
+    yield _coroutine;
+  }
 
-      final success = _isTrue(raw.first);
-      if (!success) {
-        final Object? errValue = raw.length > 1 ? raw[1] : Value(null);
-        final message = errValue is Value ? errValue.unwrap() : errValue;
-        throw LuaError(message?.toString() ?? 'nil');
-      }
+  @override
+  Future<Object?> call(List<Object?> callArgs) async {
+    final Value resumeResult = await _coroutine.resume(_cloneArgs(callArgs));
 
-      if (raw.length == 1) {
-        return Value(null);
-      }
+    if (!resumeResult.isMulti) {
+      return resumeResult;
+    }
 
-      final values = raw
-          .sublist(1)
-          .map((v) => v is Value ? v : Value(v))
-          .toList();
-      if (values.length == 1) {
-        return values.first;
-      }
-      return Value.multi(values);
-    });
+    final raw = resumeResult.raw as List<Object?>;
+    if (raw.isEmpty) {
+      return Value(null);
+    }
+
+    final success = _isTrue(raw.first);
+    if (!success) {
+      final Object? errValue = raw.length > 1 ? raw[1] : Value(null);
+      throw errValue is Value ? errValue : Value(errValue);
+    }
+
+    if (raw.length == 1) {
+      return Value.multi(const <Object?>[]);
+    }
+
+    final values = raw
+        .sublist(1)
+        .map((v) => v is Value ? v : Value(v))
+        .toList();
+    if (values.length == 1) {
+      return values.first;
+    }
+    return Value.multi(values);
   }
 }
 
 class _CoroutineClose extends BuiltinFunction {
   _CoroutineClose([super.interpreter]);
 
+  Object? _closeResultToValue(List<Object?> result) {
+    if (result.length == 1) {
+      final value = result.first;
+      return value is Value ? value : Value(value);
+    }
+    return Value.multi(result);
+  }
+
   @override
   Future<Object?> call(List<Object?> args) async {
-    if (args.isEmpty) {
-      throw LuaError.typeError(
-        "bad argument #1 to 'close' (thread expected, got no value)",
-      );
-    }
+    final LuaRuntime runtime = interpreter!;
+    final Coroutine main = runtime.getMainThread();
+    final Coroutine current =
+        Coroutine.active ?? runtime.getCurrentCoroutine() ?? main;
 
-    final Coroutine coroutine = _expectCoroutine(args[0], "close", 1);
-    final Object? error = args.length > 1 ? args[1] : null;
+    final Coroutine coroutine = args.isEmpty
+        ? current
+        : _expectCoroutine(args[0], "close", 1);
+    final Object? error = args.isEmpty
+        ? null
+        : args.length > 1
+        ? args[1]
+        : null;
     final normalizedError = error is Value ? error.raw : error;
+    final CoroutineStatus status = _closeStatus(runtime, coroutine);
 
-    final List<Object?> result = await coroutine.close(normalizedError);
-    return Value.multi(result);
+    switch (status) {
+      case CoroutineStatus.dead:
+      case CoroutineStatus.suspended:
+        final List<Object?> result = await coroutine.close(normalizedError);
+        return _closeResultToValue(result);
+      case CoroutineStatus.normal:
+        throw LuaError(
+          "cannot close a ${_statusToString(runtime, coroutine)} coroutine",
+        );
+      case CoroutineStatus.running:
+        if (identical(coroutine, main)) {
+          throw LuaError("cannot close main thread");
+        }
+        final List<Object?> result = await coroutine.close(normalizedError);
+        if (identical(coroutine, current)) {
+          throw CoroutineCloseSignal(result);
+        }
+        return _closeResultToValue(result);
+    }
   }
 }
 
@@ -351,7 +408,7 @@ class _CoroutineIsYieldable extends BuiltinFunction {
     final Coroutine main = interpreter!.getMainThread();
 
     if (args.isEmpty) {
-      final Coroutine current = interpreter!.getCurrentCoroutine() ?? main;
+      final Coroutine current = Coroutine.active ?? main;
       return Value(current.isYieldable(main));
     }
 

@@ -72,6 +72,62 @@ void main() {
       expect(result.raw, equals(true));
     });
 
+    test('active closure stays rooted across collectgarbage', () async {
+      const script = r'''
+        local function read1 (x)
+          local i = 0
+          return function ()
+            collectgarbage()
+            i = i + 1
+            return string.sub(x, i, i)
+          end
+        end
+
+        local reader = read1("abc")
+        return {reader(), reader(), reader()}
+      ''';
+
+      final result = await lua.evaluate(script);
+      final values = result.raw as Map;
+
+      expect(values[1].raw, equals('a'));
+      expect(values[2].raw, equals('b'));
+      expect(values[3].raw, equals('c'));
+    });
+
+    test(
+      'closures created after load stay rooted across collectgarbage',
+      () async {
+        const script = r'''
+        local x = "-- a comment\0\0\0\n  x = 10 + \n23; \
+           local a = function () x = 'hi' end; \
+           return '\0'"
+
+        local function read1 (x)
+          local i = 0
+          return function ()
+            collectgarbage()
+            i = i + 1
+            return string.sub(x, i, i)
+          end
+        end
+
+        local a = assert(load(read1(x), "modname", "t", _G))
+        assert(a() == "\0" and _G.x == 33)
+
+        local reader = read1("abc")
+        return {reader(), reader(), reader()}
+      ''';
+
+        final result = await lua.evaluate(script);
+        final values = result.raw as Map;
+
+        expect(values[1].raw, equals('a'));
+        expect(values[2].raw, equals('b'));
+        expect(values[3].raw, equals('c'));
+      },
+    );
+
     test('original function assignments still work', () async {
       const script = '''
         local a = 10
@@ -251,6 +307,37 @@ void main() {
         result.raw.toString(),
         equals("hello world"),
       ); // str should be "hello world"
+    });
+
+    test('preserves Lua upvalue slot ordering for shared upvalues', () async {
+      const script = '''
+        local a, b, c = 1, 2, 3
+        local function foo1(a) b = a; return c end
+        local function foo2(x) a = x; return c + b end
+
+        assert(debug.setupvalue(foo1, 1, "xuxu") == "b")
+        local name, value = debug.getupvalue(foo2, 3)
+        return {name, value}
+      ''';
+
+      final result = await lua.evaluate(script);
+      final values = result.raw as Map;
+
+      expect(values[1].raw, equals('b'));
+      expect(values[2].raw.toString(), equals('xuxu'));
+    });
+
+    test('C closures expose empty-string upvalue names', () async {
+      const script = '''
+        local name, value = debug.getupvalue(string.gmatch("x", "x"), 1)
+        return {name, value}
+      ''';
+
+      final result = await lua.evaluate(script);
+      final values = result.raw as Map;
+
+      expect(values[1].raw, equals(''));
+      expect(values[2].raw.toString(), equals('x'));
     });
   });
 }

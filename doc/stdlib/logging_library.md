@@ -1,6 +1,21 @@
 # Enhanced Logging Library
 
-The lualike logging library provides powerful structured logging capabilities powered by the `contextual` package. It supports multiple log levels, categories, and rich context data.
+The LuaLike logging library provides structured logging capabilities powered by
+the `contextual` package. It supports multiple log levels, categories, and
+rich context data.
+
+## Table of Contents
+
+- [Features](#features)
+- [Configuration functions](#configuration-functions)
+- [Logging functions](#logging-functions)
+- [Options table format](#options-table-format)
+- [Usage examples](#usage-examples)
+- [Output format](#output-format)
+- [Best practices](#best-practices)
+- [Migration from old API](#migration-from-old-api)
+- [Implementation notes](#implementation-notes)
+- [See also](#see-also)
 
 ## Features
 
@@ -391,4 +406,3 @@ The old `enable()` and `disable()` still work for backward compatibility.
 - Example script: `luascripts/logging_example.lua`
 - Clean demo: `luascripts/logging_demo_clean.lua`
 - Tests: `test/stdlib/logging_library_test.dart`
-

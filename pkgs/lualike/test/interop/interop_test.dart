@@ -2,6 +2,16 @@ import 'package:lualike_test/test.dart';
 
 void main() {
   group('Dart-LuaLike Interop', () {
+    late EngineMode originalMode;
+
+    setUp(() {
+      originalMode = LuaLikeConfig().defaultEngineMode;
+    });
+
+    tearDown(() {
+      LuaLikeConfig().defaultEngineMode = originalMode;
+    });
+
     test('can call Dart function from LuaLike', () async {
       final vm = Interpreter();
 
@@ -67,6 +77,24 @@ void main() {
       expect(personMap['age'], equals(30));
       expect(personMap['score'], equals(95));
     });
+
+    for (final mode in EngineMode.values) {
+      test(
+        'execute preserves file-backed parsing context for shebang chunks in ${mode.name}',
+        () async {
+          LuaLikeConfig().defaultEngineMode = mode;
+          final bridge = LuaLike();
+
+          final result = await bridge.execute(
+            '#!/usr/bin/env lua\nreturn 42',
+            scriptPath: 'tools/shebang_test.lua',
+          );
+
+          final unwrapped = result is Value ? result.raw : result;
+          expect(unwrapped, equals(42));
+        },
+      );
+    }
   });
 
   test('supports __newindex metamethod', () async {

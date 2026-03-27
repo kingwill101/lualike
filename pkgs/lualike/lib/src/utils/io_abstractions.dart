@@ -2,8 +2,8 @@
 library;
 
 // Conditional imports for platform-specific functionality
-import 'io_abstractions_web.dart'
-    if (dart.library.io) 'io_abstractions_io.dart'
+import 'io_abstractions_io.dart'
+    if (dart.library.js_interop) 'io_abstractions_web.dart'
     as io_impl;
 
 /// Platform-safe way to get stdout stream

@@ -1,5 +1,6 @@
 import 'package:lualike/lualike.dart';
 
+import 'package:lualike/src/runtime/runtime_hints.dart';
 import 'package:lualike/src/table_storage.dart';
 import 'package:lualike/src/utils/type.dart';
 import 'library.dart';
@@ -24,6 +25,8 @@ class TableLibrary extends Library {
       switch (keyStr) {
         case "concat":
           return _TableConcat();
+        case "create":
+          return _TableCreate();
         case "insert":
           return _TableInsert();
         case "move":
@@ -48,9 +51,10 @@ class TableLibrary extends Library {
     context.define("insert", _TableInsert());
     context.define("remove", _TableRemove());
     context.define("concat", _TableConcat());
+    context.define("create", _TableCreate());
     context.define("move", _TableMove());
     context.define("pack", _TablePack());
-    context.define("sort", _TableSort());
+    context.define("sort", _TableSort(context.vm));
     context.define("unpack", _TableUnpack());
   }
 }
@@ -96,8 +100,9 @@ Future<int> getTableLength(Value table, {String? context}) async {
   if (table.hasMetamethod('__len')) {
     try {
       final lenResult = await table.callMetamethodAsync('__len', [table]);
-      Logger.debug(
-        "getTableLength: lenResult = $lenResult, type = ${lenResult.runtimeType}",
+      Logger.debugLazy(
+        () =>
+            "getTableLength: lenResult = $lenResult, type = ${lenResult.runtimeType}",
       );
       if (lenResult is Value) {
         final lenValue = lenResult.raw;
@@ -145,107 +150,36 @@ Future<int> getTableLength(Value table, {String? context}) async {
   }
 
   // No __len metamethod, use regular table length calculation
-  if (table.raw is Map) {
-    return _getTableLength(table.raw as Map);
-  }
-
-  throw LuaError.typeError("table expected");
+  return switch (table.raw) {
+    final TableStorage storage => storage.luaLengthBoundary(),
+    final Map<dynamic, dynamic> map => _getTableLength(map),
+    _ => throw LuaError.typeError("table expected"),
+  };
 }
 
 /// Helper method to calculate table length using Lua semantics
 /// This finds the largest integer key n such that t[n] is not nil
 /// and t[n+1] is nil
 int _getTableLength(Map map) {
-  Logger.debug(
-    "_getTableLength: Starting with ${map.length} keys",
-    category: 'Table',
-  );
-  dynamic length = 0;
-
-  // Find the largest integer key with a non-nil value
-  for (var key in map.keys) {
-    Logger.debug(
-      "_getTableLength: Processing key: $key (${key.runtimeType})",
-      category: 'Table',
-    );
-    if (key is int && key > 0) {
-      Logger.debug(
-        "_getTableLength: Key is positive int: $key",
-        category: 'Table',
-      );
-      final value = map[key];
-      if (value != null && !(value is Value && value.raw == null)) {
-        Logger.debug(
-          "_getTableLength: Key has non-nil value, comparing with length: $length",
-          category: 'Table',
-        );
-        if (NumberUtils.compare(key, length) > 0) {
-          length = key;
-          Logger.debug("_getTableLength: Updated length to: $length");
-        }
-      } else {
-        Logger.debug(
-          "_getTableLength: Key has nil value, skipping",
-          category: 'Table',
-        );
-      }
-    } else {
-      Logger.debug(
-        "_getTableLength: Key is not positive int, skipping",
-        category: 'Table',
-      );
-    }
+  if (map case final TableStorage storage) {
+    return storage.luaLengthBoundary();
   }
+  return luaTableLengthFromMap(map.cast<dynamic, dynamic>());
+}
 
-  // Now check if t[length+1] is nil to confirm the boundary
-  final nextKey = NumberUtils.add(length, 1);
-  final nextValue = map[nextKey];
-  final nextIsNil =
-      nextValue == null || (nextValue is Value && nextValue.raw == null);
+Value _wrapSequenceValue(Object? value) => switch (value) {
+  final Value wrapped => wrapped,
+  _ => Value(value),
+};
 
-  Logger.debug(
-    "_getTableLength: Checking boundary at $nextKey, is nil: $nextIsNil",
-    category: 'Table',
-  );
+Future<Value> _tableSequenceReadAsync(Value table, int index) async {
+  final value = await table.getValueAsync(index);
+  return _wrapSequenceValue(value);
+}
 
-  // If t[length+1] is not nil, we need to find the actual boundary
-  if (!nextIsNil) {
-    Logger.debug(
-      "_getTableLength: Boundary check failed, finding actual boundary",
-      category: 'Table',
-    );
-    // Find the actual boundary by checking consecutive keys
-    var boundary = length;
-    var checkKey = NumberUtils.add(boundary, 1);
-
-    // Limit the search to prevent infinite loops
-    final maxSearch = 1000;
-    var searchCount = 0;
-
-    while (searchCount < maxSearch) {
-      final checkValue = map[checkKey];
-      final checkIsNil =
-          checkValue == null || (checkValue is Value && checkValue.raw == null);
-
-      if (checkIsNil) {
-        Logger.debug(
-          "_getTableLength: Found boundary at $boundary",
-          category: 'Table',
-        );
-        break;
-      }
-
-      boundary = checkKey;
-      checkKey = NumberUtils.add(checkKey, 1);
-      searchCount++;
-    }
-
-    length = boundary;
-  }
-
-  final result = NumberUtils.toInt(length);
-  Logger.debug("_getTableLength: Final result: $result", category: 'Table');
-  return result;
+Future<void> _tableSequenceWriteAsync(Value table, int index, Object? value) {
+  final wrapped = value is Value ? value : Value(value);
+  return table.setValueAsync(index, wrapped);
 }
 
 class TableLib {
@@ -253,11 +187,60 @@ class TableLib {
     "insert": _TableInsert(),
     "remove": _TableRemove(),
     "concat": _TableConcat(),
+    "create": _TableCreate(),
     "move": _TableMove(),
     "pack": _TablePack(),
     "sort": _TableSort(),
     "unpack": _TableUnpack(),
   };
+}
+
+class _TableCreate extends BuiltinFunction {
+  _TableCreate() : super();
+
+  @override
+  Object? call(List<Object?> args) {
+    if (args.length > 2) {
+      throw LuaError("wrong number of arguments to 'create'");
+    }
+
+    int parseSize(Object? value, String label) {
+      final raw = value is Value ? value.raw : value;
+      if (raw == null) {
+        return 0;
+      }
+      if (raw is! num && raw is! BigInt) {
+        throw LuaError(
+          "bad argument to 'table.create' ($label must be an integer)",
+        );
+      }
+      final sizeBig = NumberUtils.toBigInt(raw);
+      if (sizeBig < BigInt.zero) {
+        throw LuaError(
+          "bad argument to 'table.create' ($label must be non-negative)",
+        );
+      }
+      if (sizeBig > BigInt.from(NumberLimits.maxInt32)) {
+        throw LuaError("bad argument to 'table.create' ($label out of range)");
+      }
+      if (sizeBig == BigInt.from(NumberLimits.maxInt32)) {
+        throw LuaError('table overflow');
+      }
+      return sizeBig.toInt();
+    }
+
+    final arraySize = args.isEmpty ? 0 : parseSize(args[0], 'array size');
+    final hashSize = args.length < 2 ? 0 : parseSize(args[1], 'hash size');
+
+    final table = TableStorage();
+    if (arraySize > 0) {
+      table.ensureArrayCapacity(arraySize);
+    }
+    if (hashSize > 0) {
+      table.reserveHashCapacity(hashSize);
+    }
+    return ValueClass.table(table);
+  }
 }
 
 class _TableInsert extends BuiltinFunction {
@@ -274,8 +257,6 @@ class _TableInsert extends BuiltinFunction {
       table,
       TablePermission.read | TablePermission.write | TablePermission.length,
     );
-    final map = table.raw as Map;
-
     final int baseLength = await getTableLength(table, context: "table.insert");
     final int firstEmpty = baseLength + 1;
 
@@ -295,10 +276,11 @@ class _TableInsert extends BuiltinFunction {
       }
       // Move up elements: for (i = firstEmpty; i > pos; i--) t[i] = t[i-1]
       for (var i = firstEmpty; i > pos; i--) {
-        map[i] = map[i - 1];
+        final shifted = await _tableSequenceReadAsync(table, i - 1);
+        await _tableSequenceWriteAsync(table, i, shifted);
       }
     }
-    map[pos] = value;
+    await _tableSequenceWriteAsync(table, pos, value);
     return Value(null);
   }
 }
@@ -306,46 +288,52 @@ class _TableInsert extends BuiltinFunction {
 class _TableRemove extends BuiltinFunction {
   _TableRemove() : super();
   @override
-  Object? call(List<Object?> args) {
+  Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
       throw LuaError.typeError("table.remove requires a table argument");
     }
     final table = args[0] is Value ? args[0] as Value : Value(args[0]);
     checktab(table, TablePermission.read | TablePermission.write);
 
-    final map = table.raw as Map;
-    final pos = args.length > 1 ? (args[1] as Value).raw as int : map.length;
+    final size = await getTableLength(table);
+    final pos = args.length > 1 ? (args[1] as Value).raw as int : size;
 
-    if (map.isEmpty) {
+    if (pos == 0 && size > 0) {
+      throw LuaError("bad argument #2 to 'remove' (position out of bounds)");
+    }
+
+    if (pos < 0 || pos > size) {
       return Value(null);
     }
 
-    final removed = map[pos];
+    final removed = await _tableSequenceReadAsync(table, pos);
 
     // Shift elements
-    for (var i = pos; i < map.length; i++) {
-      map[i] = map[i + 1];
+    for (var i = pos; i < size; i++) {
+      final shifted = await _tableSequenceReadAsync(table, i + 1);
+      await _tableSequenceWriteAsync(table, i, shifted);
     }
-    map.remove(map.length);
+    await _tableSequenceWriteAsync(table, size, Value(null));
 
-    return removed as Value;
+    return removed;
   }
 }
 
 class _TableConcat extends BuiltinFunction {
   _TableConcat() : super();
   @override
-  Object? call(List<Object?> args) {
+  Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
       throw LuaError.typeError("table expected");
     }
     final table = args[0] is Value ? args[0] as Value : Value(args[0]);
     checktab(table, TablePermission.read);
 
-    final map = table.raw as Map;
     final sep = args.length > 1 ? (args[1] as Value).raw.toString() : "";
     final start = args.length > 2 ? (args[2] as Value).raw as int : 1;
-    final end = args.length > 3 ? (args[3] as Value).raw as int : map.length;
+    final end = args.length > 3
+        ? (args[3] as Value).raw as int
+        : await getTableLength(table);
 
     // If start > end, return empty string (Lua behavior)
     if (start > end) {
@@ -358,14 +346,14 @@ class _TableConcat extends BuiltinFunction {
       if (NumberUtils.compare(i, start) > 0) {
         buffer.write(sep);
       }
-      final value = map[i];
-      if (value == null || (value is Value && value.raw == null)) {
+      final value = await _tableSequenceReadAsync(table, i);
+      if (value.raw == null) {
         // Lua throws an error when encountering nil values in the range
         throw LuaError("invalid value (nil) at index $i in table for 'concat'");
       }
 
       // Validate that the value is a string or number
-      final rawValue = (value as Value).raw;
+      final rawValue = value.raw;
       NumberUtils.validateStringOrNumber(rawValue, 'concat', i);
 
       buffer.write(rawValue.toString());
@@ -385,7 +373,7 @@ class _TableMove extends BuiltinFunction {
   _TableMove() : super();
   @override
   Future<Object?> call(List<Object?> args) async {
-    Logger.debug("_TableMove: Starting with ${args.length} args");
+    Logger.debugLazy(() => "_TableMove: Starting with ${args.length} args");
 
     if (args.length < 4) {
       throw LuaError.typeError("table.move requires at least 4 arguments");
@@ -393,7 +381,9 @@ class _TableMove extends BuiltinFunction {
 
     // Ensure all arguments are Value objects
     final a1 = args[0] is Value ? args[0] as Value : Value(args[0]);
-    Logger.debug("_TableMove: a1 = $a1, type = ${a1.raw.runtimeType}");
+    Logger.debugLazy(
+      () => "_TableMove: a1 = $a1, type = ${a1.raw.runtimeType}",
+    );
 
     final f = NumberUtils.toInt(
       (args[1] is Value ? args[1] as Value : Value(args[1])).raw,
@@ -408,16 +398,17 @@ class _TableMove extends BuiltinFunction {
         ? (args[4] is Value ? args[4] as Value : Value(args[4]))
         : a1;
 
-    Logger.debug("_TableMove: f=$f, e=$e, t=$t, a2=$a2");
-    Logger.debug(
-      "_TableMove: maxI=${NumberLimits.maxInteger}, minI=${NumberLimits.minInteger}",
+    Logger.debugLazy(() => "_TableMove: f=$f, e=$e, t=$t, a2=$a2");
+    Logger.debugLazy(
+      () =>
+          "_TableMove: maxI=${NumberLimits.maxInteger}, minI=${NumberLimits.minInteger}",
     );
 
-    Logger.debug("_TableMove: About to checktab a1");
+    Logger.debugLazy(() => "_TableMove: About to checktab a1");
     checktab(a1, TablePermission.read);
-    Logger.debug("_TableMove: About to checktab a2");
+    Logger.debugLazy(() => "_TableMove: About to checktab a2");
     checktab(a2, TablePermission.write);
-    Logger.debug("_TableMove: checktab completed");
+    Logger.debugLazy(() => "_TableMove: checktab completed");
 
     if (e >= f) {
       /* otherwise, nothing to move */
@@ -449,15 +440,16 @@ class _TableMove extends BuiltinFunction {
         for (var i = 0; NumberUtils.compare(i, n) < 0; i++) {
           final srcIndex = NumberUtils.add(f, i);
           final destIndex = NumberUtils.add(t, i);
-          Logger.debug(
-            "_TableMove: i=$i, srcIndex=$srcIndex, destIndex=$destIndex",
+          Logger.debugLazy(
+            () => "_TableMove: i=$i, srcIndex=$srcIndex, destIndex=$destIndex",
           );
           // Use proper table access that respects metamethods and awaits Future results
           var value = await a1.getValueAsync(Value(srcIndex));
           // Handle null values properly - convert to Value(null)
           final valueToStore = value is Value ? value : Value(value);
-          Logger.debug(
-            "_TableMove: writing value=$valueToStore to destIndex=$destIndex",
+          Logger.debugLazy(
+            () =>
+                "_TableMove: writing value=$valueToStore to destIndex=$destIndex",
           );
           // Use proper table assignment that respects __newindex metamethod and awaits Future results
           await a2.setValueAsync(Value(destIndex), valueToStore);
@@ -486,7 +478,7 @@ class _TableMove extends BuiltinFunction {
 }
 
 class _TableSort extends BuiltinFunction {
-  _TableSort() : super();
+  _TableSort([super.interpreter]);
   @override
   Object? call(List<Object?> args) async {
     if (args.isEmpty) {
@@ -495,10 +487,23 @@ class _TableSort extends BuiltinFunction {
 
     final arg0 = args[0];
     final table = arg0 is Value ? arg0 : Value(arg0);
-    checktab(table, TablePermission.read | TablePermission.write);
-
-    final map = table.raw as Map;
+    try {
+      checktab(table, TablePermission.read | TablePermission.write);
+    } on LuaError catch (error) {
+      if (error.message == 'table expected') {
+        throw LuaError(
+          "bad argument #1 to 'table.sort' "
+          "(table expected, got ${getLuaType(table)})",
+        );
+      }
+      rethrow;
+    }
     final comp = args.length > 1 ? args[1] : null;
+    final rawSequenceTable =
+        table.raw is Map &&
+        table.getMetamethod('__index') == null &&
+        table.getMetamethod('__newindex') == null;
+    final map = rawSequenceTable ? table.raw as Map : null;
 
     // Validate comparison function if provided
     if (comp != null && comp is! Value) {
@@ -515,150 +520,131 @@ class _TableSort extends BuiltinFunction {
       );
     }
 
-    // Check for "array too big" (from C implementation)
-    try {
-      final tableLength = await getTableLength(table, context: "table.sort");
-      if (tableLength >= NumberLimits.maxInt32) {
-        throw LuaError("bad argument #1 to 'table.sort' (array too big)");
-      }
-    } catch (e) {
-      if (e is LuaError &&
-          e.message.contains("object length is not an integer")) {
-        if (table.metatable != null) {
-          final lenMetamethod = table.metatable!['__len'];
-          if (lenMetamethod != null) {
-            try {
-              final lenResult = lenMetamethod.call([table]);
-              if (lenResult is Value) {
-                final lenValue = lenResult.raw;
-                if (lenValue is BigInt &&
-                    lenValue >= BigInt.from(NumberLimits.maxInt32)) {
-                  throw LuaError(
-                    "bad argument #1 to 'table.sort' (array too big)",
-                  );
-                }
-              } else if (lenResult is BigInt &&
-                  lenResult >= BigInt.from(NumberLimits.maxInt32)) {
-                throw LuaError(
-                  "bad argument #1 to 'table.sort' (array too big)",
-                );
-              }
-            } catch (_) {
-              rethrow;
-            }
-          }
-        }
-      }
-      rethrow;
+    final n = await getTableLength(table, context: "table.sort");
+    if (n >= NumberLimits.maxInt32) {
+      throw LuaError("bad argument #1 to 'table.sort' (array too big)");
     }
-
-    // Get the array length using Lua semantics
-    final n = _getTableLength(map);
-    if (n == 0) {
+    if (n <= 1) {
       return Value(null);
     }
 
     // Validate the order function if provided
-    await _validateOrderFunction(map, n, comp);
+    if (_shouldValidateOrderFunction(comp)) {
+      await _validateOrderFunction(table, n, comp);
+    }
 
-    // Fast path: default comparator and homogeneous primitive array (numbers or strings)
-    final isDefaultComparator =
-        comp == null || (comp is Value && comp.raw == null);
-    if (isDefaultComparator) {
-      var allNums = true;
-      var allStrs = true;
-      var complex = false;
-
-      for (var i = 1; i <= n; i++) {
-        final v = map[i];
-        if (v is Value) {
-          if (v.metatable != null) {
-            complex = true;
-            break;
-          }
-          final raw = v.raw;
-          if (raw is num) {
-            allStrs = false;
-          } else if (raw is String || raw is LuaString) {
-            allNums = false;
-          } else {
-            complex = true;
-            break;
-          }
-        } else if (v is num) {
-          allStrs = false;
-        } else if (v is String || v is LuaString) {
-          allNums = false;
-        } else {
-          complex = true;
-          break;
-        }
-      }
-
-      if (!complex && (allNums || allStrs)) {
-        if (allNums) {
-          Logger.debug(
-            'table.sort fast path (numeric) length=$n',
-            category: 'TableSort',
-          );
-          final arr = List<double>.generate(n, (i) {
-            final vv = map[i + 1];
-            if (vv is Value) return (vv.raw as num).toDouble();
-            return (vv as num).toDouble();
-          });
-          arr.sort();
-          for (var i = 1; i <= n; i++) {
-            final orig = map[i];
-            final v = arr[i - 1];
-            if (orig is Value) {
-              orig.raw = v;
-              map[i] = orig;
-            } else {
-              map[i] = v;
-            }
-          }
-          return Value(null);
-        } else if (allStrs) {
-          Logger.debug(
-            'table.sort fast path (string) length=$n',
-            category: 'TableSort',
-          );
-          final arr = List<String>.generate(n, (i) {
-            final vv = map[i + 1];
-            if (vv is Value) {
-              final raw = vv.raw;
-              return raw is LuaString ? raw.toString() : raw.toString();
-            }
-            return vv is LuaString ? vv.toString() : vv.toString();
-          });
-          arr.sort();
-          for (var i = 1; i <= n; i++) {
-            final orig = map[i];
-            final v = arr[i - 1];
-            if (orig is Value) {
-              orig.raw = v;
-              map[i] = orig;
-            } else {
-              map[i] = v;
-            }
-          }
-          return Value(null);
-        }
-      }
+    final primitiveSortDirection = _primitiveSortDirection(comp);
+    if (primitiveSortDirection != 0 &&
+        map != null &&
+        _trySortPrimitiveArray(map, n, primitiveSortDirection)) {
+      return Value(null);
     }
 
     // Perform in-place quicksort using Lua's algorithm
-    await _auxSort(map, 1, n, comp, 0);
+    await _auxSort(table, 1, n, comp, 0);
 
     return Value(null);
   }
 
+  int _primitiveSortDirection(Object? comp) => switch (comp) {
+    null => 1,
+    Value(raw: null) => 1,
+    Value(isLessComparator: true) => 1,
+    Value(isLessComparatorReversed: true) => -1,
+    _ => 0,
+  };
+
+  bool _shouldValidateOrderFunction(Object? comp) => switch (comp) {
+    null => false,
+    Value(raw: null) => false,
+    Value(isCountedLessComparator: true) => false,
+    Value(isCountedLessComparatorReversed: true) => false,
+    Value(isLessComparator: true) => false,
+    Value(isLessComparatorReversed: true) => false,
+    Value(isNilReturningClosure: true) => false,
+    _ => true,
+  };
+
+  bool _trySortPrimitiveArray(Map map, int n, int direction) {
+    List<num>? numericValues = <num>[];
+    List<String>? stringValues = <String>[];
+
+    for (var i = 1; i <= n; i++) {
+      final cell = map[i];
+      if (cell is Value && cell.metatable != null) {
+        return false;
+      }
+
+      final raw = cell is Value ? cell.raw : cell;
+      switch (raw) {
+        case num value when stringValues != null:
+          stringValues = null;
+          numericValues?.add(value);
+        case String() || LuaString():
+          numericValues = null;
+          stringValues?.add(raw.toString());
+        default:
+          return false;
+      }
+
+      if (numericValues == null && stringValues == null) {
+        return false;
+      }
+    }
+
+    if (numericValues != null) {
+      Logger.debugLazy(
+        () => 'table.sort fast path (numeric) length=$n direction=$direction',
+        category: 'TableSort',
+      );
+      numericValues.sort((a, b) => a.compareTo(b));
+      _writeSortedValues(map, numericValues, direction);
+      return true;
+    }
+
+    if (stringValues != null) {
+      Logger.debugLazy(
+        () => 'table.sort fast path (string) length=$n direction=$direction',
+        category: 'TableSort',
+      );
+      stringValues.sort();
+      _writeSortedValues(map, stringValues, direction);
+      return true;
+    }
+
+    return false;
+  }
+
+  void _writeSortedValues<T>(Map map, List<T> values, int direction) {
+    for (var i = 1; i <= values.length; i++) {
+      final sortedValue = direction > 0
+          ? values[i - 1]
+          : values[values.length - i];
+      final original = map[i];
+      if (original is Value) {
+        original.raw = sortedValue;
+        map[i] = original;
+      } else {
+        map[i] = sortedValue;
+      }
+    }
+  }
+
   // Simple in-place quicksort implementation
-  Future<void> _auxSort(Map map, int lo, int up, Object? comp, int rnd) async {
-    Logger.debug("_auxSort: lo=$lo, up=$up", category: 'TableSort');
+  Future<void> _auxSort(
+    Value table,
+    int lo,
+    int up,
+    Object? comp,
+    int rnd,
+  ) async {
+    Logger.debugLazy(() => "_auxSort: lo=$lo, up=$up", category: 'TableSort');
 
     if (lo >= up) {
-      Logger.debug("_auxSort: base case reached", category: 'TableSort');
+      Logger.debugLazy(
+        () => "_auxSort: base case reached",
+        category: 'TableSort',
+      );
       return; // base case
     }
 
@@ -668,116 +654,118 @@ class _TableSort extends BuiltinFunction {
       bool alwaysFalse = true;
       // Test a few comparisons to see if they all return false
       for (int i = 0; i < 3 && alwaysFalse; i++) {
-        final testResult = await _sortComp(map, lo + i, lo + i + 1, comp);
+        final testResult = await _sortComp(table, lo + i, lo + i + 1, comp);
         if (testResult) {
           alwaysFalse = false;
         }
       }
       if (alwaysFalse) {
-        Logger.debug(
-          "_auxSort: degenerate case - all comparisons return false, using fast path",
+        Logger.debugLazy(
+          () =>
+              "_auxSort: degenerate case - all comparisons return false, using fast path",
           category: 'TableSort',
         );
         // For degenerate cases, just run a minimal sort to maintain compatibility
         // but use insertion sort which is efficient for this case
-        await _insertionSort(map, lo, up, comp);
+        await _insertionSort(table, lo, up, comp);
         return;
       }
     }
 
     // For small arrays or degenerate cases, use insertion sort
     if (up - lo < 10) {
-      Logger.debug(
-        "_auxSort: using insertion sort for small array",
+      Logger.debugLazy(
+        () => "_auxSort: using insertion sort for small array",
         category: 'TableSort',
       );
-      await _insertionSort(map, lo, up, comp);
+      await _insertionSort(table, lo, up, comp);
       return;
     }
 
     // Choose pivot (middle element)
     int pivot = (lo + up) ~/ 2;
-    Logger.debug(
-      "_auxSort: chosen pivot at index $pivot",
+    Logger.debugLazy(
+      () => "_auxSort: chosen pivot at index $pivot",
       category: 'TableSort',
     );
 
     // Move pivot to end
-    _set2(map, pivot, up);
+    await _set2(table, pivot, up);
 
     // Partition
     int i = lo - 1;
     for (int j = lo; j < up; j++) {
-      final compResult = await _sortComp(map, j, up, comp);
-      Logger.debug(
-        "_auxSort: comparing indices $j and $up, result=$compResult",
+      final compResult = await _sortComp(table, j, up, comp);
+      Logger.debugLazy(
+        () => "_auxSort: comparing indices $j and $up, result=$compResult",
         category: 'TableSort',
       );
       if (compResult) {
         i++;
-        _set2(map, i, j);
-        Logger.debug(
-          "_auxSort: swapped elements at indices $i and $j",
+        await _set2(table, i, j);
+        Logger.debugLazy(
+          () => "_auxSort: swapped elements at indices $i and $j",
           category: 'TableSort',
         );
       }
     }
 
     // Move pivot to correct position
-    _set2(map, i + 1, up);
+    await _set2(table, i + 1, up);
     pivot = i + 1;
-    Logger.debug(
-      "_auxSort: pivot moved to position $pivot",
+    Logger.debugLazy(
+      () => "_auxSort: pivot moved to position $pivot",
       category: 'TableSort',
     );
 
     // Handle degenerate case: if pivot is at the beginning or end,
     // we need to ensure progress to avoid infinite recursion
     if (pivot <= lo) {
-      Logger.debug(
-        "_auxSort: degenerate case - pivot at beginning, sorting rest",
+      Logger.debugLazy(
+        () => "_auxSort: degenerate case - pivot at beginning, sorting rest",
         category: 'TableSort',
       );
       // Pivot is at the beginning, sort the rest
-      await _auxSort(map, lo + 1, up, comp, rnd);
+      await _auxSort(table, lo + 1, up, comp, rnd);
     } else if (pivot >= up) {
-      Logger.debug(
-        "_auxSort: degenerate case - pivot at end, sorting rest",
+      Logger.debugLazy(
+        () => "_auxSort: degenerate case - pivot at end, sorting rest",
         category: 'TableSort',
       );
       // Pivot is at the end, sort the rest
-      await _auxSort(map, lo, up - 1, comp, rnd);
+      await _auxSort(table, lo, up - 1, comp, rnd);
     } else {
-      Logger.debug(
-        "_auxSort: normal case - sorting left and right parts",
+      Logger.debugLazy(
+        () => "_auxSort: normal case - sorting left and right parts",
         category: 'TableSort',
       );
       // Normal case: recursively sort left and right parts
-      await _auxSort(map, lo, pivot - 1, comp, rnd);
-      await _auxSort(map, pivot + 1, up, comp, rnd);
+      await _auxSort(table, lo, pivot - 1, comp, rnd);
+      await _auxSort(table, pivot + 1, up, comp, rnd);
     }
   }
 
   // Insertion sort for small arrays or degenerate cases
-  Future<void> _insertionSort(Map map, int lo, int up, Object? comp) async {
+  Future<void> _insertionSort(Value table, int lo, int up, Object? comp) async {
     for (int i = lo + 1; i <= up; i++) {
-      for (int j = i; j > lo && await _sortComp(map, j, j - 1, comp); j--) {
-        Logger.debug(
-          "_insertionSort: should swap? j=$j, result=true",
+      for (int j = i; j > lo && await _sortComp(table, j, j - 1, comp); j--) {
+        Logger.debugLazy(
+          () => "_insertionSort: should swap? j=$j, result=true",
           category: 'TableSort',
         );
-        _set2(map, j, j - 1);
+        await _set2(table, j, j - 1);
       }
     }
   }
 
   // Return true iff value at index 'a' is less than the value at index 'b'
-  Future<bool> _sortComp(Map map, int a, int b, Object? comp) async {
-    final valA = map[a];
-    final valB = map[b];
+  Future<bool> _sortComp(Value table, int a, int b, Object? comp) async {
+    final valA = await _tableSequenceReadAsync(table, a);
+    final valB = await _tableSequenceReadAsync(table, b);
 
-    Logger.debug(
-      "_sortComp: comparing indices a=$a (${valA.runtimeType}) with b=$b (${valB.runtimeType})",
+    Logger.debugLazy(
+      () =>
+          "_sortComp: comparing indices a=$a (${valA.runtimeType}) with b=$b (${valB.runtimeType})",
       category: 'TableSort',
     );
 
@@ -799,10 +787,7 @@ class _TableSort extends BuiltinFunction {
     }
 
     // If either value is nil, raise an error (Lua behavior)
-    if (valA == null ||
-        (valA is Value && valA.raw == null) ||
-        valB == null ||
-        (valB is Value && valB.raw == null)) {
+    if (valA.raw == null || valB.raw == null) {
       throw LuaError.typeError("attempt to compare nil value");
     }
 
@@ -810,12 +795,12 @@ class _TableSort extends BuiltinFunction {
       // no function?
 
       // Fast path: number/number or string/string (including LuaString) comparisons
-      final aVal = valA is Value ? (valA).raw : valA;
-      final bVal = valB is Value ? (valB).raw : valB;
+      final aVal = valA.raw;
+      final bVal = valB.raw;
       if (aVal is num && bVal is num) {
         final res = aVal < bVal;
-        Logger.debug(
-          "_sortComp (fast num): $aVal < $bVal => $res",
+        Logger.debugLazy(
+          () => "_sortComp (fast num): $aVal < $bVal => $res",
           category: 'TableSort',
         );
         return res;
@@ -825,15 +810,18 @@ class _TableSort extends BuiltinFunction {
         final aStr = aVal.toString();
         final bStr = bVal.toString();
         final res = aStr.compareTo(bStr) < 0;
-        Logger.debug(
-          "_sortComp (fast str): '$aStr' < '$bStr' => $res",
+        Logger.debugLazy(
+          () => "_sortComp (fast str): '$aStr' < '$bStr' => $res",
           category: 'TableSort',
         );
         return res;
       }
 
       final result = await _compareValues(valA, valB) < 0; // a < b
-      Logger.debug("_sortComp: result = $result", category: 'TableSort');
+      Logger.debugLazy(
+        () => "_sortComp: result = $result",
+        category: 'TableSort',
+      );
       return result;
     } else {
       // function
@@ -843,13 +831,28 @@ class _TableSort extends BuiltinFunction {
           return false;
         }
 
+        if (comp.isCountedLessComparator ||
+            comp.isCountedLessComparatorReversed) {
+          final fast = comp.isCountedLessComparator
+              ? fastLessThan(valA, valB)
+              : fastLessThan(valB, valA);
+          if (fast != null) {
+            _incrementComparatorCounter(comp);
+            Logger.debugLazy(
+              () => "_sortComp: counted comparator fast result = $fast",
+              category: 'TableSort',
+            );
+            return fast;
+          }
+        }
+
         if (comp.isLessComparator || comp.isLessComparatorReversed) {
           final fast = comp.isLessComparator
               ? fastLessThan(valA, valB)
               : fastLessThan(valB, valA);
           if (fast != null) {
-            Logger.debug(
-              "_sortComp: comparator hint fast result = $fast",
+            Logger.debugLazy(
+              () => "_sortComp: comparator hint fast result = $fast",
               category: 'TableSort',
             );
             return fast;
@@ -857,11 +860,28 @@ class _TableSort extends BuiltinFunction {
         }
 
         final func = comp.raw;
-        final result = await func([valA, valB]);
+        final runtime = interpreter;
+        final previousYieldable = runtime?.isYieldable;
+        if (runtime != null) {
+          enterSortComparator(runtime);
+          runtime.isYieldable = false;
+        }
+        late final Object? result;
+        try {
+          result = await func([valA, valB]);
+        } finally {
+          if (runtime != null) {
+            runtime.isYieldable = previousYieldable ?? true;
+            exitSortComparator(runtime);
+          }
+        }
         final boolResult = result is Value
             ? result.raw == true
             : result == true;
-        Logger.debug("_sortComp: result = $boolResult", category: 'TableSort');
+        Logger.debugLazy(
+          () => "_sortComp: result = $boolResult",
+          category: 'TableSort',
+        );
         return boolResult;
       } else {
         throw LuaError("invalid order function");
@@ -869,8 +889,38 @@ class _TableSort extends BuiltinFunction {
     }
   }
 
+  void _incrementComparatorCounter(Value comparator) {
+    final counterBox = comparator.comparatorCounterBox;
+    if (counterBox == null) {
+      return;
+    }
+
+    final current = counterBox.value;
+    switch (current) {
+      case Value(raw: final int value):
+        current.raw = value + 1;
+      case Value(raw: final double value):
+        current.raw = value + 1;
+      case Value(raw: final BigInt value):
+        current.raw = value + BigInt.one;
+      case final Value wrapped:
+        final raw = wrapped.raw;
+        if (raw is num) {
+          wrapped.raw = raw + 1;
+        } else if (raw is BigInt) {
+          wrapped.raw = raw + BigInt.one;
+        }
+      case final int value:
+        counterBox.value = value + 1;
+      case final double value:
+        counterBox.value = value + 1;
+      case final BigInt value:
+        counterBox.value = value + BigInt.one;
+    }
+  }
+
   // Validate that the comparison function provides a consistent ordering
-  Future<void> _validateOrderFunction(Map map, int n, Object? comp) async {
+  Future<void> _validateOrderFunction(Value table, int n, Object? comp) async {
     if (comp == null || n < 2) return;
 
     if (comp is Value &&
@@ -883,11 +933,25 @@ class _TableSort extends BuiltinFunction {
       final maxTests = n < 10 ? n : 10; // Test up to 10 pairs or all if n < 10
 
       for (int i = 1; i < maxTests; i++) {
-        final valA = map[i];
-        final valB = map[i + 1];
+        final valA = await _tableSequenceReadAsync(table, i);
+        final valB = await _tableSequenceReadAsync(table, i + 1);
 
-        if (valA != null && valB != null) {
-          final result = await func([valA, valB]);
+        if (valA.raw != null && valB.raw != null) {
+          final runtime = interpreter;
+          final previousYieldable = runtime?.isYieldable;
+          if (runtime != null) {
+            enterSortComparator(runtime);
+            runtime.isYieldable = false;
+          }
+          late final Object? result;
+          try {
+            result = await func([valA, valB]);
+          } finally {
+            if (runtime != null) {
+              runtime.isYieldable = previousYieldable ?? true;
+              exitSortComparator(runtime);
+            }
+          }
           final boolResult = result is Value
               ? result.raw == true
               : result == true;
@@ -907,11 +971,22 @@ class _TableSort extends BuiltinFunction {
       // Functions that always return false or nil are valid (they just don't change the order)
       if (testCount >= 2 && firstResult == true) {
         // Test one more pair in reverse order to confirm
-        final valA = map[2];
-        final valB = map[1];
+        final valA = await _tableSequenceReadAsync(table, 2);
+        final valB = await _tableSequenceReadAsync(table, 1);
 
-        if (valA != null && valB != null) {
-          final result = await func([valA, valB]);
+        if (valA.raw != null && valB.raw != null) {
+          final runtime = interpreter;
+          if (runtime != null) {
+            enterSortComparator(runtime);
+          }
+          late final Object? result;
+          try {
+            result = await func([valA, valB]);
+          } finally {
+            if (runtime != null) {
+              exitSortComparator(runtime);
+            }
+          }
           final boolResult = result is Value
               ? result.raw == true
               : result == true;
@@ -944,8 +1019,9 @@ class _TableSort extends BuiltinFunction {
     }
 
     // Debug logging
-    Logger.debug(
-      "_compareValues: comparing a=$a (${a.runtimeType}) with b=$b (${b.runtimeType})",
+    Logger.debugLazy(
+      () =>
+          "_compareValues: comparing a=$a (${a.runtimeType}) with b=$b (${b.runtimeType})",
       category: 'TableSort',
     );
 
@@ -974,8 +1050,8 @@ class _TableSort extends BuiltinFunction {
               : (result == true);
           return boolRes ? -1 : 1;
         } catch (e) {
-          Logger.debug(
-            "_compareValues: __lt metamethod failed for a: $e",
+          Logger.debugLazy(
+            () => "_compareValues: __lt metamethod failed for a: $e",
             category: 'TableSort',
           );
         }
@@ -993,8 +1069,8 @@ class _TableSort extends BuiltinFunction {
               : (result == true);
           return boolRes ? 1 : -1;
         } catch (e) {
-          Logger.debug(
-            "_compareValues: __lt metamethod failed for b: $e",
+          Logger.debugLazy(
+            () => "_compareValues: __lt metamethod failed for b: $e",
             category: 'TableSort',
           );
         }
@@ -1006,14 +1082,15 @@ class _TableSort extends BuiltinFunction {
   }
 
   // Swap two elements in the map
-  void _set2(Map map, int i, int j) {
-    Logger.debug(
-      "_set2: swapping elements at indices $i and $j",
+  Future<void> _set2(Value table, int i, int j) async {
+    Logger.debugLazy(
+      () => "_set2: swapping elements at indices $i and $j",
       category: 'TableSort',
     );
-    final temp = map[i];
-    map[i] = map[j];
-    map[j] = temp;
+    final temp = await _tableSequenceReadAsync(table, i);
+    final other = await _tableSequenceReadAsync(table, j);
+    await _tableSequenceWriteAsync(table, i, other);
+    await _tableSequenceWriteAsync(table, j, temp);
   }
 
   // Partition function (similar to C implementation)
@@ -1023,11 +1100,15 @@ class _TablePack extends BuiltinFunction {
   _TablePack() : super();
   @override
   Object? call(List<Object?> args) {
-    final table = <dynamic, dynamic>{};
+    final table = TableStorage();
     for (var i = 0; i < args.length; i++) {
-      table[i + 1] = args[i];
+      final value = args[i];
+      if (isLuaNilValue(value)) {
+        continue;
+      }
+      table.setDense(i + 1, value is Value ? value : Value(value));
     }
-    table['n'] = args.length;
+    table['n'] = Value(args.length);
     return ValueClass.table(table);
   }
 }
@@ -1038,7 +1119,9 @@ class _TableUnpack extends BuiltinFunction {
   Object? call(List<Object?> args) async {
     final bool log = Logger.enabled;
     if (log) {
-      Logger.debug("_TableUnpack: Starting unpack with ${args.length} args");
+      Logger.debugLazy(
+        () => "_TableUnpack: Starting unpack with ${args.length} args",
+      );
     }
 
     if (args.isEmpty) {
@@ -1047,9 +1130,10 @@ class _TableUnpack extends BuiltinFunction {
 
     final table = args[0] is Value ? args[0] as Value : Value(args[0]);
     checktab(table, TablePermission.read);
-    final map = table.raw as Map;
     if (log) {
-      Logger.debug("_TableUnpack: Got table with ${map.length} entries");
+      Logger.debugLazy(
+        () => "_TableUnpack: Got table value ${table.raw.runtimeType}",
+      );
     }
 
     int i, j;
@@ -1058,8 +1142,9 @@ class _TableUnpack extends BuiltinFunction {
     if (args.length > 1) {
       final startArg = args[1] as Value;
       if (log) {
-        Logger.debug(
-          "_TableUnpack: Start arg raw value: ${startArg.raw}, type: ${startArg.raw.runtimeType}",
+        Logger.debugLazy(
+          () =>
+              "_TableUnpack: Start arg raw value: ${startArg.raw}, type: ${startArg.raw.runtimeType}",
         );
       }
       if (startArg.raw == null) {
@@ -1070,13 +1155,16 @@ class _TableUnpack extends BuiltinFunction {
       try {
         i = NumberUtils.toInt(startArg.raw);
         if (log) {
-          Logger.debug(
-            "_TableUnpack: Converted start index to: $i, type: ${i.runtimeType}",
+          Logger.debugLazy(
+            () =>
+                "_TableUnpack: Converted start index to: $i, type: ${i.runtimeType}",
           );
         }
       } catch (e) {
         if (log) {
-          Logger.debug("_TableUnpack: Error converting start index: $e");
+          Logger.debugLazy(
+            () => "_TableUnpack: Error converting start index: $e",
+          );
         }
         throw LuaError.typeError(
           "bad argument #2 to 'unpack' (number expected)",
@@ -1085,7 +1173,7 @@ class _TableUnpack extends BuiltinFunction {
     } else {
       i = 1;
       if (log) {
-        Logger.debug("_TableUnpack: Using default start index: $i");
+        Logger.debugLazy(() => "_TableUnpack: Using default start index: $i");
       }
     }
 
@@ -1093,27 +1181,33 @@ class _TableUnpack extends BuiltinFunction {
     if (args.length > 2) {
       final endArg = args[2] as Value;
       if (log) {
-        Logger.debug(
-          "_TableUnpack: End arg raw value: ${endArg.raw}, type: ${endArg.raw.runtimeType}",
+        Logger.debugLazy(
+          () =>
+              "_TableUnpack: End arg raw value: ${endArg.raw}, type: ${endArg.raw.runtimeType}",
         );
       }
       if (endArg.raw == null) {
         // nil means use table length (same as not providing the argument)
         if (log) {
-          Logger.debug("_TableUnpack: End arg is nil, getting table length");
+          Logger.debugLazy(
+            () => "_TableUnpack: End arg is nil, getting table length",
+          );
         }
         j = await getTableLength(table, context: null);
       } else {
         try {
           j = NumberUtils.toInt(endArg.raw);
           if (log) {
-            Logger.debug(
-              "_TableUnpack: Converted end index to: $j, type: ${j.runtimeType}",
+            Logger.debugLazy(
+              () =>
+                  "_TableUnpack: Converted end index to: $j, type: ${j.runtimeType}",
             );
           }
         } catch (e) {
           if (log) {
-            Logger.debug("_TableUnpack: Error converting end index: $e");
+            Logger.debugLazy(
+              () => "_TableUnpack: Error converting end index: $e",
+            );
           }
           throw LuaError.typeError(
             "bad argument #3 to 'unpack' (number expected)",
@@ -1122,14 +1216,16 @@ class _TableUnpack extends BuiltinFunction {
       }
     } else {
       if (log) {
-        Logger.debug("_TableUnpack: No end arg, getting table length");
+        Logger.debugLazy(
+          () => "_TableUnpack: No end arg, getting table length",
+        );
       }
       j = await getTableLength(table, context: null);
     }
 
     if (log) {
-      Logger.debug(
-        "_TableUnpack: i=$i (${i.runtimeType}), j=$j (${j.runtimeType})",
+      Logger.debugLazy(
+        () => "_TableUnpack: i=$i (${i.runtimeType}), j=$j (${j.runtimeType})",
       );
     }
 
@@ -1137,8 +1233,8 @@ class _TableUnpack extends BuiltinFunction {
     final int end = j;
     if (start > end) {
       if (log) {
-        Logger.debug(
-          "_TableUnpack: Empty range (i > j), returning zero values",
+        Logger.debugLazy(
+          () => "_TableUnpack: Empty range (i > j), returning zero values",
         );
       }
       return Value.multi(<dynamic>[]);
@@ -1149,8 +1245,8 @@ class _TableUnpack extends BuiltinFunction {
     final BigInt rawCount = endBig - startBig + BigInt.one;
     if (rawCount.isNegative || rawCount >= BigInt.from(NumberLimits.maxInt32)) {
       if (log) {
-        Logger.debug(
-          "_TableUnpack: count=$rawCount outside limits, throwing error",
+        Logger.debugLazy(
+          () => "_TableUnpack: count=$rawCount outside limits, throwing error",
         );
       }
       throw LuaError("too many results to unpack");
@@ -1158,27 +1254,8 @@ class _TableUnpack extends BuiltinFunction {
 
     final int count = rawCount.toInt();
     final result = List<Value?>.filled(count, null, growable: false);
-    if (map is TableStorage) {
-      final storage = map;
-      for (var offset = 0; offset < count; offset++) {
-        final value = storage.arrayValueAt(start + offset);
-        if (value == null) {
-          result[offset] = Value(null);
-        } else if (value is Value) {
-          result[offset] = value;
-        } else {
-          result[offset] = Value(value);
-        }
-      }
-    } else {
-      for (var offset = 0; offset < count; offset++) {
-        final value = map[start + offset];
-        if (value == null || (value is Value && value.raw == null)) {
-          result[offset] = Value(null);
-        } else {
-          result[offset] = value is Value ? value : Value(value);
-        }
-      }
+    for (var offset = 0; offset < count; offset++) {
+      result[offset] = await _tableSequenceReadAsync(table, start + offset);
     }
 
     if (count == 0) {

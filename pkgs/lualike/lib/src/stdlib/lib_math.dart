@@ -13,32 +13,36 @@ class MathLibrary extends Library {
 
   @override
   void registerFunctions(LibraryRegistrationContext context) {
+    final interpreter = context.vm;
+
     // Register all math functions directly
-    context.define("abs", _MathAbs());
-    context.define("acos", _MathAcos());
-    context.define("asin", _MathAsin());
-    context.define("atan", _MathAtan());
-    context.define("ceil", _MathCeil());
-    context.define("cos", _MathCos());
-    context.define("deg", _MathDeg());
-    context.define("exp", _MathExp());
-    context.define("floor", _MathFloor());
-    context.define("fmod", _MathFmod());
-    context.define("log", _MathLog());
-    context.define("max", _MathMax());
-    context.define("min", _MathMin());
-    context.define("modf", _MathModf());
+    context.define("abs", _MathAbs(interpreter));
+    context.define("acos", _MathAcos(interpreter));
+    context.define("asin", _MathAsin(interpreter));
+    context.define("atan", _MathAtan(interpreter));
+    context.define("ceil", _MathCeil(interpreter));
+    context.define("cos", _MathCos(interpreter));
+    context.define("deg", _MathDeg(interpreter));
+    context.define("exp", _MathExp(interpreter));
+    context.define("floor", _MathFloor(interpreter));
+    context.define("fmod", _MathFmod(interpreter));
+    context.define("frexp", _MathFrexp(interpreter));
+    context.define("ldexp", _MathLdexp(interpreter));
+    context.define("log", _MathLog(interpreter));
+    context.define("max", _MathMax(interpreter));
+    context.define("min", _MathMin(interpreter));
+    context.define("modf", _MathModf(interpreter));
     context.define("pi", Value(math.pi));
-    context.define("rad", _MathRad());
-    final randomFunc = _MathRandom();
+    context.define("rad", _MathRad(interpreter));
+    final randomFunc = _MathRandom(interpreter);
     context.define("random", randomFunc);
     context.define("randomseed", _MathRandomseed(randomFunc));
-    context.define("sin", _MathSin());
-    context.define("sqrt", _MathSqrt());
-    context.define("tan", _MathTan());
-    context.define("tointeger", _MathTointeger());
-    context.define("ult", _MathUlt());
-    context.define("type", _MathType());
+    context.define("sin", _MathSin(interpreter));
+    context.define("sqrt", _MathSqrt(interpreter));
+    context.define("tan", _MathTan(interpreter));
+    context.define("tointeger", _MathTointeger(interpreter));
+    context.define("ult", _MathUlt(interpreter));
+    context.define("type", _MathType(interpreter));
     context.define("huge", Value(double.infinity));
     context.define("maxinteger", Value(limits.NumberLimits.maxInteger));
     context.define("mininteger", Value(limits.NumberLimits.minInteger));
@@ -51,6 +55,8 @@ dynamic _getNumber(Value value, String funcName, int argNum) {
 }
 
 class _MathAbs extends BuiltinFunction {
+  _MathAbs([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -59,11 +65,13 @@ class _MathAbs extends BuiltinFunction {
       );
     }
     final number = _getNumber(args[0] as Value, "abs", 1);
-    return Value(NumberUtils.abs(number));
+    return primitiveValue(NumberUtils.abs(number));
   }
 }
 
 class _MathAcos extends BuiltinFunction {
+  _MathAcos([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -72,11 +80,13 @@ class _MathAcos extends BuiltinFunction {
       );
     }
     final number = _getNumber(args[0] as Value, "acos", 1);
-    return Value(math.acos(NumberUtils.toDouble(number)));
+    return primitiveValue(math.acos(NumberUtils.toDouble(number)));
   }
 }
 
 class _MathAsin extends BuiltinFunction {
+  _MathAsin([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -85,11 +95,13 @@ class _MathAsin extends BuiltinFunction {
       );
     }
     final number = _getNumber(args[0] as Value, "asin", 1);
-    return Value(math.asin(NumberUtils.toDouble(number)));
+    return primitiveValue(math.asin(NumberUtils.toDouble(number)));
   }
 }
 
 class _MathAtan extends BuiltinFunction {
+  _MathAtan([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -104,14 +116,16 @@ class _MathAtan extends BuiltinFunction {
     if (args.length > 1) {
       final x = _getNumber(args[1] as Value, "atan", 2);
       final double xDouble = NumberUtils.toDouble(x);
-      return Value(math.atan2(yDouble, xDouble));
+      return primitiveValue(math.atan2(yDouble, xDouble));
     }
 
-    return Value(math.atan(yDouble));
+    return primitiveValue(math.atan(yDouble));
   }
 }
 
 class _MathCeil extends BuiltinFunction {
+  _MathCeil([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -121,17 +135,19 @@ class _MathCeil extends BuiltinFunction {
     }
     final number = _getNumber(args[0] as Value, "ceil", 1);
     if (number is BigInt || number is int) {
-      return Value(number);
+      return primitiveValue(number);
     }
     final double n = NumberUtils.toDouble(number);
-    if (!n.isFinite) return Value(n);
+    if (!n.isFinite) return primitiveValue(n);
 
     final doubleRes = n.ceilToDouble();
-    return Value(NumberUtils.optimizeNumericResult(doubleRes));
+    return primitiveValue(NumberUtils.optimizeNumericResult(doubleRes));
   }
 }
 
 class _MathCos extends BuiltinFunction {
+  _MathCos([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -140,11 +156,13 @@ class _MathCos extends BuiltinFunction {
       );
     }
     final number = _getNumber(args[0] as Value, "cos", 1);
-    return Value(math.cos(NumberUtils.toDouble(number)));
+    return primitiveValue(math.cos(NumberUtils.toDouble(number)));
   }
 }
 
 class _MathDeg extends BuiltinFunction {
+  _MathDeg([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -153,11 +171,13 @@ class _MathDeg extends BuiltinFunction {
       );
     }
     final number = _getNumber(args[0] as Value, "deg", 1);
-    return Value(NumberUtils.toDouble(number) * 180 / math.pi);
+    return primitiveValue(NumberUtils.toDouble(number) * 180 / math.pi);
   }
 }
 
 class _MathExp extends BuiltinFunction {
+  _MathExp([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -166,11 +186,13 @@ class _MathExp extends BuiltinFunction {
       );
     }
     final number = _getNumber(args[0] as Value, "exp", 1);
-    return Value(math.exp(NumberUtils.toDouble(number)));
+    return primitiveValue(math.exp(NumberUtils.toDouble(number)));
   }
 }
 
 class _MathFloor extends BuiltinFunction {
+  _MathFloor([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -180,17 +202,19 @@ class _MathFloor extends BuiltinFunction {
     }
     final number = _getNumber(args[0] as Value, "floor", 1);
     if (number is BigInt || number is int) {
-      return Value(number);
+      return primitiveValue(number);
     }
     final double n = NumberUtils.toDouble(number);
-    if (!n.isFinite) return Value(n);
+    if (!n.isFinite) return primitiveValue(n);
 
     final doubleRes = n.floorToDouble();
-    return Value(NumberUtils.optimizeNumericResult(doubleRes));
+    return primitiveValue(NumberUtils.optimizeNumericResult(doubleRes));
   }
 }
 
 class _MathFmod extends BuiltinFunction {
+  _MathFmod([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -207,11 +231,67 @@ class _MathFmod extends BuiltinFunction {
     final x = _getNumber(args[0] as Value, "fmod", 1);
     final y = _getNumber(args[1] as Value, "fmod", 2);
 
-    return Value(NumberUtils.fmod(x, y));
+    return primitiveValue(NumberUtils.fmod(x, y));
+  }
+}
+
+class _MathFrexp extends BuiltinFunction {
+  _MathFrexp([super.interpreter]);
+
+  @override
+  Object? call(List<Object?> args) {
+    if (args.isEmpty) {
+      throw LuaError.typeError(
+        "bad argument #1 to 'frexp' (number expected, got no value)",
+      );
+    }
+
+    final number = _getNumber(args[0] as Value, "frexp", 1);
+    final (mantissa, exponent) = NumberUtils.frexp(number);
+    return Value.multi([primitiveValue(mantissa), primitiveValue(exponent)]);
+  }
+}
+
+class _MathLdexp extends BuiltinFunction {
+  _MathLdexp([super.interpreter]);
+
+  @override
+  Object? call(List<Object?> args) {
+    if (args.isEmpty) {
+      throw LuaError.typeError(
+        "bad argument #1 to 'ldexp' (number expected, got no value)",
+      );
+    }
+    if (args.length < 2) {
+      throw LuaError.typeError(
+        "bad argument #2 to 'ldexp' (number expected, got no value)",
+      );
+    }
+
+    final number = _getNumber(args[0] as Value, "ldexp", 1);
+    final exponentValue = args[1] as Value;
+    final exponentRaw = exponentValue.raw;
+    if (exponentRaw is! num && exponentRaw is! BigInt) {
+      throw LuaError.typeError(
+        "bad argument #2 to 'ldexp' "
+        "(number expected, got ${NumberUtils.typeName(exponentRaw)})",
+      );
+    }
+
+    final exponent = NumberUtils.tryToInteger(exponentRaw);
+    if (exponent == null) {
+      throw LuaError.typeError(
+        "bad argument #2 to 'ldexp' (number has no integer representation)",
+      );
+    }
+
+    return primitiveValue(NumberUtils.ldexp(number, exponent));
   }
 }
 
 class _MathLog extends BuiltinFunction {
+  _MathLog([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -226,14 +306,16 @@ class _MathLog extends BuiltinFunction {
     if (args.length > 1) {
       final base = _getNumber(args[1] as Value, "log", 2);
       final double baseDouble = NumberUtils.toDouble(base);
-      return Value(math.log(xDouble) / math.log(baseDouble));
+      return primitiveValue(math.log(xDouble) / math.log(baseDouble));
     }
 
-    return Value(math.log(xDouble));
+    return primitiveValue(math.log(xDouble));
   }
 }
 
 class _MathMax extends BuiltinFunction {
+  _MathMax(super.interpreter);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -247,11 +329,13 @@ class _MathMax extends BuiltinFunction {
       max = NumberUtils.max(max, num);
     }
 
-    return Value(max);
+    return primitiveValue(max);
   }
 }
 
 class _MathMin extends BuiltinFunction {
+  _MathMin(super.interpreter);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -265,11 +349,13 @@ class _MathMin extends BuiltinFunction {
       min = NumberUtils.min(min, num);
     }
 
-    return Value(min);
+    return primitiveValue(min);
   }
 }
 
 class _MathModf extends BuiltinFunction {
+  _MathModf(super.interpreter);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -278,29 +364,33 @@ class _MathModf extends BuiltinFunction {
 
     final number = _getNumber(args[0] as Value, "modf", 1);
     final (intPart, fracPart) = NumberUtils.modf(number);
-    return Value.multi([Value(intPart), Value(fracPart)]);
+    return Value.multi([primitiveValue(intPart), primitiveValue(fracPart)]);
   }
 }
 
 class _MathRad extends BuiltinFunction {
+  _MathRad([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw LuaError.typeError("math.rad requires a number argument");
     }
     final number = _getNumber(args[0] as Value, "rad", 1);
-    return Value(NumberUtils.toDouble(number) * math.pi / 180);
+    return primitiveValue(NumberUtils.toDouble(number) * math.pi / 180);
   }
 }
 
 class _MathRandom extends BuiltinFunction {
+  _MathRandom([super.interpreter]);
+
   Xoshiro256ss _random = Xoshiro256ss.seeded();
 
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       // No arguments: return float between 0 and 1
-      return Value(_random.nextDouble());
+      return primitiveValue(_random.nextDouble());
     } else if (args.length == 1) {
       // Single argument: return integer in [1, n] or full integer if n=0
       final n = _getNumber(args[0] as Value, "random", 1);
@@ -308,7 +398,7 @@ class _MathRandom extends BuiltinFunction {
       if (intN == 0) {
         // Return full random 64-bit integer (signed)
         final raw = _random.nextRaw64();
-        return Value(raw);
+        return primitiveValue(raw);
       }
       if (intN < 1) {
         throw LuaError.typeError(
@@ -318,7 +408,7 @@ class _MathRandom extends BuiltinFunction {
       // Use project method for range [1, n]
       final rv = _random.nextRaw64();
       final projected = _project(rv, intN);
-      return Value(1 + projected);
+      return primitiveValue(1 + projected);
     } else if (args.length == 2) {
       // Two arguments: return integer in [low, up]
       final m = _getNumber(args[0] as Value, "random", 1);
@@ -355,7 +445,7 @@ class _MathRandom extends BuiltinFunction {
         throw LuaError.typeError("random result overflow");
       }
 
-      return Value(finalResult.toInt());
+      return primitiveValue(finalResult.toInt());
     } else {
       throw LuaError.typeError("wrong number of arguments to 'random'");
     }
@@ -374,7 +464,7 @@ class _MathRandom extends BuiltinFunction {
 
 class _MathRandomseed extends BuiltinFunction {
   final _MathRandom _randomFunc;
-  _MathRandomseed(this._randomFunc);
+  _MathRandomseed(this._randomFunc) : super(_randomFunc.interpreter);
 
   @override
   Object? call(List<Object?> args) {
@@ -400,44 +490,52 @@ class _MathRandomseed extends BuiltinFunction {
     }
     _randomFunc._random = rng;
 
-    return Value.multi([Value(n1), Value(n2)]);
+    return Value.multi([primitiveValue(n1), primitiveValue(n2)]);
   }
 }
 
 class _MathSin extends BuiltinFunction {
+  _MathSin([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw LuaError.typeError("math.sin requires a number argument");
     }
     final number = _getNumber(args[0] as Value, "sin", 1);
-    return Value(math.sin(NumberUtils.toDouble(number)));
+    return primitiveValue(math.sin(NumberUtils.toDouble(number)));
   }
 }
 
 class _MathSqrt extends BuiltinFunction {
+  _MathSqrt([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw LuaError.typeError("math.sqrt requires a number argument");
     }
     final number = _getNumber(args[0] as Value, "sqrt", 1);
-    return Value(math.sqrt(NumberUtils.toDouble(number)));
+    return primitiveValue(math.sqrt(NumberUtils.toDouble(number)));
   }
 }
 
 class _MathTan extends BuiltinFunction {
+  _MathTan([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
       throw LuaError.typeError("math.tan requires a number argument");
     }
     final number = _getNumber(args[0] as Value, "tan", 1);
-    return Value(math.tan(NumberUtils.toDouble(number)));
+    return primitiveValue(math.tan(NumberUtils.toDouble(number)));
   }
 }
 
 class _MathTointeger extends BuiltinFunction {
+  _MathTointeger([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -446,11 +544,13 @@ class _MathTointeger extends BuiltinFunction {
 
     dynamic value = args[0] is Value ? (args[0] as Value).raw : args[0];
     final result = NumberUtils.tryToInteger(value);
-    return Value(result);
+    return primitiveValue(result);
   }
 }
 
 class _MathType extends BuiltinFunction {
+  _MathType([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.isEmpty) {
@@ -463,12 +563,14 @@ class _MathType extends BuiltinFunction {
     } else if (value.raw is double) {
       return Value("float");
     } else {
-      return Value(null);
+      return primitiveValue(null);
     }
   }
 }
 
 class _MathUlt extends BuiltinFunction {
+  _MathUlt([super.interpreter]);
+
   @override
   Object? call(List<Object?> args) {
     if (args.length < 2) {
@@ -478,6 +580,6 @@ class _MathUlt extends BuiltinFunction {
     dynamic m = args[0] is Value ? (args[0] as Value).raw : args[0];
     dynamic n = args[1] is Value ? (args[1] as Value).raw : args[1];
 
-    return Value(NumberUtils.unsignedLessThan(m, n));
+    return primitiveValue(NumberUtils.unsignedLessThan(m, n));
   }
 }

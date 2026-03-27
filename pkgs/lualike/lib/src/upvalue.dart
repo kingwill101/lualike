@@ -58,7 +58,19 @@ class Upvalue extends GCObject {
       return _joinedUpvalue!.getValue();
     }
 
-    return _isOpen ? valueBox.value : _closedValue;
+    if (_isOpen) {
+      return valueBox.value;
+    }
+
+    // Some interpreter paths can still keep the canonical storage box alive
+    // even after this upvalue was prematurely closed to nil. In that case,
+    // prefer the live box contents over the stale closed snapshot so older
+    // closures keep seeing the same binding as newly-created closures.
+    if (_closedValue == null && valueBox.value != null) {
+      return valueBox.value;
+    }
+
+    return _closedValue;
   }
 
   /// Sets the value of the upvalue.
@@ -108,8 +120,9 @@ class Upvalue extends GCObject {
     // Store a reference to the target upvalue for delegation
     _joinedUpvalue = other;
 
-    Logger.debug(
-      'UpvalueJoin: Joined upvalue ${name ?? 'unnamed'} with ${other.name ?? 'unnamed'}',
+    Logger.debugLazy(
+      () =>
+          'UpvalueJoin: Joined upvalue ${name ?? 'unnamed'} with ${other.name ?? 'unnamed'}',
       category: 'Debug',
     );
   }
@@ -170,7 +183,10 @@ class Upvalue extends GCObject {
     _joinedUpvalue = null;
     _closedValue = null;
 
-    Logger.debug('Upvalue[${name ?? 'unnamed'}] freed', category: 'GC');
+    Logger.debugLazy(
+      () => 'Upvalue[${name ?? 'unnamed'}] freed',
+      category: 'GC',
+    );
   }
 
   @override

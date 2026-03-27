@@ -1,6 +1,7 @@
 import 'dart:async' show FutureOr;
 
 import 'package:lualike/src/runtime/lua_runtime.dart';
+import 'package:lualike/src/value.dart';
 
 /// Abstract base class representing a built-in function in the interpreter.
 ///
@@ -20,4 +21,15 @@ abstract class BuiltinFunction {
   /// [args] - The list of arguments passed to the function.
   /// Returns the result of the function call, which may be null.
   FutureOr<Object?> call(List<Object?> args);
+
+  /// Reuses cached wrappers for primitive Lua values when the active runtime
+  /// supports it, falling back to a fresh wrapper otherwise.
+  Value primitiveValue(Object? raw) {
+    return interpreter?.constantPrimitiveValue(raw) ?? Value(raw);
+  }
+}
+
+/// Optional interface for builtins that need to keep GC-visible references.
+abstract interface class BuiltinFunctionGcRefs {
+  Iterable<Object?> getGcReferences();
 }

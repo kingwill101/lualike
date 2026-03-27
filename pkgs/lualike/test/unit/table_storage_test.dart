@@ -1,4 +1,5 @@
 import 'package:lualike/src/table_storage.dart';
+import 'package:lualike/src/lua_string.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -94,6 +95,23 @@ void main() {
       expect(storage.containsKey('foo'), isFalse);
     });
 
+    test('tracks raw string key chars incrementally for hash entries', () {
+      final storage = TableStorage()
+        ..['foo'] = 1
+        ..[LuaString.fromDartString('bar')] = 2;
+
+      expect(storage.rawStringKeyChars, 6);
+
+      storage['foo'] = 3;
+      expect(storage.rawStringKeyChars, 6);
+
+      storage.remove('foo');
+      expect(storage.rawStringKeyChars, 3);
+
+      storage.clear();
+      expect(storage.rawStringKeyChars, 0);
+    });
+
     test('factory constructor copies existing map content', () {
       final original = {1: 'one', 'foo': 'bar', 50: 'fifty'};
 
@@ -130,6 +148,84 @@ void main() {
 
       expect(storage[hugeIndex], 'huge');
       expect(storage.containsKey(hugeIndex), isTrue);
+    });
+
+    test('tracks recently deleted hash keys for next-style iteration', () {
+      final storage = TableStorage()
+        ..['a'] = 1
+        ..['b'] = 2
+        ..['c'] = 3;
+
+      expect(storage.firstHashEntry()?.key, 'a');
+      expect(storage.nextHashEntryAfter('a')?.key, 'b');
+
+      storage.remove('b');
+
+      expect(storage.containsKey('b'), isFalse);
+      expect(storage.containsIterationKey('b'), isTrue);
+      expect(storage.keys.toList(), equals(['a', 'c']));
+      expect(storage.nextHashEntryAfter('b')?.key, 'c');
+    });
+
+    test('tracks recently deleted dense keys for next-style iteration', () {
+      final storage = TableStorage()
+        ..[1] = 'a'
+        ..[2] = 'b'
+        ..[3] = 'c';
+
+      expect(storage.containsDenseIterationIndex(2), isTrue);
+
+      storage.remove(2);
+
+      expect(storage.containsKey(2), isFalse);
+      expect(storage.containsIterationKey(2), isTrue);
+      expect(storage.containsDenseIterationIndex(2), isTrue);
+      expect(storage.containsDenseIterationIndex(3), isTrue);
+    });
+
+    test('interior dense deletes do not shrink the dense backing array', () {
+      final storage = TableStorage()
+        ..[1] = 'a'
+        ..[2] = 'b'
+        ..[3] = 'c';
+
+      storage.remove(2);
+
+      expect(storage.arrayLength, 3);
+      expect(storage[3], 'c');
+    });
+
+    test('tail dense deletes shrink only trailing empty slots', () {
+      final storage = TableStorage()
+        ..[1] = 'a'
+        ..[2] = 'b'
+        ..[3] = 'c';
+
+      storage.remove(3);
+
+      expect(storage.arrayLength, 2);
+      expect(storage[1], 'a');
+      expect(storage[2], 'b');
+    });
+
+    test('GC traversal helpers visit hash keys and all stored values', () {
+      final storage = TableStorage()
+        ..[1] = 'dense'
+        ..['k'] = 'hash'
+        ..[-1] = 'negative';
+
+      final visitedKeys = <dynamic>[];
+      storage.forEachStoredHashKey(visitedKeys.add);
+
+      final visitedValues = <dynamic>[];
+      storage.forEachStoredValue(visitedValues.add);
+
+      expect(visitedKeys, containsAll(<dynamic>['k', -1]));
+      expect(visitedKeys, isNot(contains(1)));
+      expect(
+        visitedValues,
+        containsAll(<dynamic>['dense', 'hash', 'negative']),
+      );
     });
   });
 }

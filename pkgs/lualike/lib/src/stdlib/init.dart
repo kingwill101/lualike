@@ -99,6 +99,11 @@ void _populatePackageLoaded(Environment env, LibraryRegistry registry) {
           loadedMap[library.name] = value;
         }
       }
+
+      final packageValue = env.get('package');
+      if (packageValue is Value) {
+        loadedMap['package'] = packageValue;
+      }
     }
   }
 }
@@ -140,7 +145,9 @@ void _ensureGlobalTable(Environment env) {
     },
   };
 
-  final gValue = Value(gBacking)..setMetatable(proxyMetatable);
+  final gValue = Value(gBacking)
+    ..setMetatable(proxyMetatable)
+    ..globalProxyEnvironment = env;
 
   // self-reference
   gBacking['_G'] = gValue;
@@ -149,6 +156,19 @@ void _ensureGlobalTable(Environment env) {
   env.define('_G', gValue);
   // _ENV starts out pointing at _G
   env.define('_ENV', gValue);
+
+  for (final MapEntry(key: name, value: box) in env.root.values.entries) {
+    if (name == '_G') {
+      continue;
+    }
+    final boxedValue = box.value;
+    if (boxedValue is Value ? boxedValue.raw == null : boxedValue == null) {
+      gBacking.remove(name);
+      continue;
+    }
+    gBacking[name] = boxedValue is Value ? boxedValue : Value(boxedValue);
+  }
+  gValue.markTableModified();
 }
 
 void _installLazyLibraryStub({

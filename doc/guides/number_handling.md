@@ -2,6 +2,18 @@
 
 This guide covers how numbers work in LuaLike, focusing on the `NumberUtils` class, Lua number semantics, and proper number handling.
 
+## Table of Contents
+
+- [Core concepts](#core-concepts)
+- [Number semantics](#number-semantics)
+- [Using `NumberUtils`](#using-numberutils)
+- [Number formatting](#number-formatting)
+- [Working with large numbers](#working-with-large-numbers)
+- [Bitwise operations](#bitwise-operations)
+- [Special values](#special-values)
+- [Common patterns](#common-patterns)
+- [Key differences from Dart numbers](#key-differences-from-dart-numbers)
+
 ## Core Concepts
 
 ### Lua Number Types

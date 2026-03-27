@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:typed_data';
 
 import 'package:petitparser/petitparser.dart';
@@ -31,6 +32,10 @@ class SpecifierPart extends FormatPart {
 }
 
 class FormatStringParser {
+  static const int _cacheSize = 128;
+  static final LinkedHashMap<String, List<FormatPart>> _parseCache =
+      LinkedHashMap<String, List<FormatPart>>();
+
   static Parser<String> get percent => char('%');
   static Parser<String> get flags => pattern('-+ 0#').star().flatten();
   static Parser<String> get width => digit().plus().flatten();
@@ -92,6 +97,22 @@ class FormatStringParser {
     } else {
       throw FormatException('Invalid format string: ${result.message}');
     }
+  }
+
+  /// Parses and caches format strings, which are often reused in tight loops.
+  static List<FormatPart> parseCached(String input) {
+    final cached = _parseCache.remove(input);
+    if (cached != null) {
+      _parseCache[input] = cached;
+      return cached;
+    }
+
+    final parsed = List<FormatPart>.unmodifiable(parse(input));
+    _parseCache[input] = parsed;
+    if (_parseCache.length > _cacheSize) {
+      _parseCache.remove(_parseCache.keys.first);
+    }
+    return parsed;
   }
 
   /// Escapes a byte list according to Lua's %q format rules.

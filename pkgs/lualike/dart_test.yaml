@@ -3,10 +3,13 @@ timeout: 30s
 reporter: expanded
 
 tags:
-  # Tags for different test categories
-  bytecode: {
-    skip:  "Bytecode can be officially tested after we complete enough work on the interpreter."
-  }
+  # Artifact-family tags
+  ir: {}
+  legacy_chunk: {}
+  lua_bytecode: {}
+  shared_semantics: {}
+
+  # Functional area tags
   pm: {}
   stdlib: {}
   interop: {}

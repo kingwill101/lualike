@@ -1,25 +1,20 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
-import 'package:lualike/src/chunk_serializer.dart';
 
 import 'package:lualike/lualike.dart';
 
-import 'package:lualike/src/const_checker.dart';
-import 'package:lualike/src/goto_validator.dart';
+import 'package:lualike/src/coroutine.dart';
+import 'package:lualike/src/gc/gc.dart';
 import 'package:lualike/src/io/lua_file.dart';
-import 'package:lualike/src/upvalue.dart';
-import 'package:lualike/src/interpreter/upvalue_analyzer.dart';
+import 'package:lualike/src/runtime/runtime_hints.dart';
+import 'package:lualike/src/table_storage.dart';
 import 'package:lualike/src/utils/file_system_utils.dart';
 import 'package:lualike/src/utils/type.dart';
 import 'package:path/path.dart' as path;
-import 'package:source_span/source_span.dart';
 
 import 'lib_io.dart';
 import 'library.dart';
-
-final bool _loadProfileEnabled =
-    getEnvironmentVariable('LUALIKE_PROFILE_LOAD') == '1';
 
 /// Base library implementation using the new Library system
 /// Note: Base functions are global, so they don't have a namespace
@@ -47,6 +42,7 @@ class BaseLibrary extends Library {
     context.define("type", TypeFunction(interpreter));
     context.define("tonumber", ToNumberFunction(interpreter));
     context.define("tostring", ToStringFunction(interpreter));
+    context.define("tointeger", _BaseTointeger());
     context.define("select", SelectFunction(interpreter));
 
     // File operations
@@ -134,22 +130,35 @@ class SetMetatableFunction extends BuiltinFunction {
 
   @override
   Object? call(List<Object?> args) {
-    if (args.length != 2) {
-      throw LuaError("setmetatable expects two arguments");
+    if (args.isEmpty) {
+      throw LuaError(
+        "bad argument #1 to 'setmetatable' (table expected, got no value)",
+      );
     }
-
     final table = args[0];
-    final metatable = args[1];
 
-    if (Logger.enabled) {
-      Logger.debug(
-        "[SetMetatable] invoked on table=${table is Value ? table.hashCode : table} meta=$metatable",
-        category: 'GC',
+    if (table is! Value || table.raw is! Map) {
+      throw LuaError(
+        "bad argument #1 to 'setmetatable' "
+        "(table expected, got ${getLuaType(table)})",
       );
     }
 
-    if (table is! Value || table.raw is! Map) {
-      throw LuaError("setmetatable only supported for table values");
+    if (args.length < 2) {
+      throw LuaError(
+        "bad argument #2 to 'setmetatable' "
+        "(nil or table expected, got no value)",
+      );
+    }
+
+    final metatable = args[1];
+
+    if (Logger.enabled) {
+      Logger.debugLazy(
+        () =>
+            "[SetMetatable] invoked on table=${table.hashCode} meta=$metatable",
+        category: 'GC',
+      );
     }
 
     // Check if the current metatable is protected
@@ -161,8 +170,9 @@ class SetMetatableFunction extends BuiltinFunction {
 
     if (metatable is Value) {
       if (metatable.raw is Map) {
-        Logger.debug(
-          "[SetMetatable] on table=${table.hashCode} raw=${table.raw.hashCode} using meta raw=${metatable.raw.hashCode}",
+        Logger.debugLazy(
+          () =>
+              "[SetMetatable] on table=${table.hashCode} raw=${table.raw.hashCode} using meta raw=${metatable.raw.hashCode}",
           category: 'Metatables',
         );
         // Preserve identity by keeping a reference to the original Value.
@@ -171,11 +181,12 @@ class SetMetatableFunction extends BuiltinFunction {
         final rawMeta = Map.castFrom<dynamic, dynamic, String, dynamic>(
           metatable.raw as Map,
         );
-        table.setMetatable(rawMeta);
+        table.setMetatable(rawMeta, ownerRaw: metatable.raw);
         if (Logger.enabled) {
           final mode = rawMeta['__mode'];
-          Logger.debug(
-            "[SetMetatable] applied metatable to table=${table.hashCode} metaKeys=${rawMeta.keys.toList()} __mode=$mode",
+          Logger.debugLazy(
+            () =>
+                "[SetMetatable] applied metatable to table=${table.hashCode} metaKeys=${rawMeta.keys.toList()} __mode=$mode",
             category: 'GC',
           );
         }
@@ -209,7 +220,10 @@ class SetMetatableFunction extends BuiltinFunction {
       }
     }
 
-    throw LuaError("metatable must be a table or nil");
+    throw LuaError(
+      "bad argument #2 to 'setmetatable' "
+      "(nil or table expected, got ${getLuaType(metatable)})",
+    );
   }
 }
 
@@ -261,48 +275,136 @@ class RawSetFunction extends BuiltinFunction {
 class AssertFunction extends BuiltinFunction {
   AssertFunction(super.interpreter);
 
+  Object? _normalizeSuccessfulArg(Object? value) {
+    if (value case Value(isMulti: false, raw: final raw)
+        when raw == null ||
+            raw is num ||
+            raw is bool ||
+            raw is String ||
+            raw is LuaString) {
+      return Value(raw);
+    }
+    return value;
+  }
+
   @override
   Future<Object?> call(List<Object?> args) async {
-    if (args.isEmpty) throw LuaError("assert requires at least one argument");
+    if (args.isEmpty) {
+      throw LuaError(
+        "bad argument #1 to 'assert' (value expected)",
+        suppressAutomaticLocation: true,
+      );
+    }
     final condition = args[0];
 
-    bool isTrue;
-    if (condition is Value) {
-      if (condition.raw is bool) {
-        isTrue = condition.raw as bool;
-      } else {
-        isTrue = condition.raw != null;
-      }
-    } else if (condition is bool) {
-      isTrue = condition;
-    } else {
-      isTrue = condition != null;
+    dynamic primaryCondition = condition;
+    if (condition is Value && condition.isMulti && condition.raw is List) {
+      final values = condition.raw as List;
+      primaryCondition = values.isNotEmpty ? values.first : Value(null);
     }
 
-    Logger.debug(
-      'AssertFunction: Assertion condition: $condition, evaluated to: $isTrue',
+    bool isTrue;
+    if (primaryCondition is Value) {
+      if (primaryCondition.raw is bool) {
+        isTrue = primaryCondition.raw as bool;
+      } else {
+        isTrue = primaryCondition.raw != null;
+      }
+    } else if (primaryCondition is bool) {
+      isTrue = primaryCondition;
+    } else {
+      isTrue = primaryCondition != null;
+    }
+
+    Logger.debugLazy(
+      () =>
+          'AssertFunction: Assertion condition: $condition, evaluated to: $isTrue',
       category: 'Base',
     );
 
     if (!isTrue) {
-      final message = args.length > 1
-          ? (args[1] as Value).raw.toString()
-          : "assertion failed! condition: ${condition is Value ? condition.raw : condition}";
-      Logger.debug(
-        'AssertFunction: Assertion failed with message: $message',
-        category: 'Base',
-      );
-      if (interpreter?.callStack.current?.callNode != null) {
-        throw LuaError.fromNode(
-          interpreter!.callStack.current!.callNode!,
+      final explicitMessage = args.length > 1 ? args[1] as Value : null;
+      if (explicitMessage != null && explicitMessage.raw != null) {
+        Logger.debugLazy(
+          () =>
+              'AssertFunction: Assertion failed with explicit message object: ${explicitMessage.raw}',
+          category: 'Base',
+        );
+        if (interpreter != null && interpreter!.isInProtectedCall) {
+          throw explicitMessage;
+        }
+
+        final message = explicitMessage.raw.toString();
+        final preserveLuaStackTrace =
+            explicitMessage.raw is! String &&
+                explicitMessage.raw is! LuaString ||
+            !message.contains("in metamethod 'close'");
+        final luaStackTrace = preserveLuaStackTrace
+            ? interpreter?.callStack.toLuaStackTrace()
+            : null;
+        final cause = switch (explicitMessage.raw) {
+          String() || LuaString() => null,
+          final Object raw => raw,
+          _ => null,
+        };
+
+        if (interpreter?.callStack.current?.callNode case final callNode?) {
+          throw LuaError(
+            _formatErrorAtNode(callNode, message),
+            cause: cause,
+            node: callNode,
+            span: callNode.span,
+            luaStackTrace: luaStackTrace,
+            suppressAutomaticLocation: true,
+          );
+        }
+        if (interpreter != null) {
+          throw LuaError(
+            _formatErrorAtStackLevel(interpreter!, message, 1),
+            cause: cause,
+            luaStackTrace: luaStackTrace,
+            suppressAutomaticLocation: true,
+          );
+        }
+        throw LuaError(
           message,
+          cause: cause,
+          luaStackTrace: luaStackTrace,
+          suppressAutomaticLocation: true,
         );
       }
-      throw LuaError(message);
+
+      const message = 'assertion failed!';
+      final luaStackTrace = interpreter?.callStack.toLuaStackTrace();
+      Logger.debugLazy(
+        () => 'AssertFunction: Assertion failed with default message',
+        category: 'Base',
+      );
+      if (interpreter?.callStack.current?.callNode case final callNode?) {
+        throw LuaError(
+          _formatErrorAtNode(callNode, message),
+          node: callNode,
+          span: callNode.span,
+          luaStackTrace: luaStackTrace,
+          suppressAutomaticLocation: true,
+        );
+      }
+      if (interpreter != null) {
+        throw LuaError(
+          _formatErrorAtStackLevel(interpreter!, message, 1),
+          luaStackTrace: luaStackTrace,
+          suppressAutomaticLocation: true,
+        );
+      }
+      throw LuaError(
+        message,
+        luaStackTrace: luaStackTrace,
+        suppressAutomaticLocation: true,
+      );
     }
 
-    Logger.debug(
-      'AssertFunction: Assertion passed, returning original arguments',
+    Logger.debugLazy(
+      () => 'AssertFunction: Assertion passed, returning original arguments',
       category: 'Base',
     );
 
@@ -310,14 +412,392 @@ class AssertFunction extends BuiltinFunction {
     // first return value in callee position when writing patterns like
     // assert(load(x), "")().
     if (args.length <= 1) {
-      return args.isEmpty ? Value(null) : args[0];
+      return args.isEmpty ? Value(null) : _normalizeSuccessfulArg(args[0]);
     }
-    return Value.multi(args);
+    return Value.multi(
+      args.map<Object?>((arg) => _normalizeSuccessfulArg(arg)).toList(),
+    );
   }
 }
 
 // Static flag to track if an error is already being reported
 bool _errorReporting = false;
+
+bool _looksFormattedLuaErrorMessage(String message) {
+  return RegExp(r'^(?:\[[^\n]+\]|[^:\n]+):(?:\d+|\?): ').hasMatch(message);
+}
+
+Object? _normalizeProtectedCallError(LuaRuntime interpreter, Object error) {
+  if (error is Value) {
+    if (error.raw is Value) {
+      return _normalizeProtectedCallError(interpreter, error.raw);
+    }
+    if (error.raw == null) {
+      return "<no error object>";
+    }
+    if (error.raw is Map || error.raw is TableStorage) {
+      return error;
+    }
+    return error.unwrap();
+  }
+  if (error is LuaError) {
+    if (error.suppressAutomaticLocation ||
+        error.suppressProtectedCallLocation ||
+        _looksFormattedLuaErrorMessage(error.message)) {
+      return error.message;
+    }
+    final span = error.span ?? error.node?.span;
+    final sourceUrl = span?.sourceUrl?.toString();
+    final line = switch (error.lineNumber) {
+      final explicitLine? when explicitLine > 0 => explicitLine,
+      _ when span != null => span.start.line + 1,
+      _ => null,
+    };
+    if (sourceUrl != null && sourceUrl.isNotEmpty) {
+      final formattedSource = switch (Uri.tryParse(sourceUrl)) {
+        final Uri uri when uri.scheme == 'file' => uri.toFilePath(),
+        _ => sourceUrl,
+      };
+      if (line != null && line > 0) {
+        return '$formattedSource:$line: ${error.message}';
+      }
+      return '$formattedSource: ${error.message}';
+    }
+    return _formatProtectedCallMessage(
+      interpreter,
+      error.message,
+      lineOverride: error.lineNumber,
+    );
+  }
+  return error.toString();
+}
+
+Value _errorHandlerArgument(Object error) {
+  if (error case final Value value) {
+    return switch (value.raw) {
+      final Value nested => _errorHandlerArgument(nested),
+      _ => value,
+    };
+  }
+  if (error case final LuaError luaError) {
+    return switch (luaError.cause) {
+      null => Value(luaError.message),
+      final Value value => _errorHandlerArgument(value),
+      final Object cause => Value(cause),
+    };
+  }
+  return Value(error.toString());
+}
+
+String _formatProtectedCallMessage(
+  LuaRuntime interpreter,
+  String message, {
+  int? lineOverride,
+}) {
+  final topFrame = interpreter.callStack.top;
+  final traceFrame = interpreter is Interpreter
+      ? interpreter.lastRecordedTraceFrame
+      : null;
+  final line = switch (lineOverride) {
+    final currentLine? when currentLine > 0 => currentLine,
+    _ => switch (traceFrame?.currentLine) {
+      final currentLine when currentLine != null && currentLine > 0 =>
+        currentLine,
+      _ => switch (topFrame?.currentLine) {
+        final currentLine when currentLine != null && currentLine > 0 =>
+          currentLine,
+        _ => -1,
+      },
+    },
+  };
+  final scriptPath =
+      traceFrame?.scriptPath ??
+      topFrame?.scriptPath ??
+      interpreter.callStack.scriptPath ??
+      interpreter.currentScriptPath;
+
+  if (scriptPath != null && line > 0) {
+    return '$scriptPath:$line: $message';
+  }
+  if (scriptPath != null) {
+    return '$scriptPath: $message';
+  }
+  return message;
+}
+
+String _formatErrorAtNode(AstNode node, String message) {
+  final span = node.span;
+  if (span == null) {
+    return message;
+  }
+
+  final sourceUrl = span.sourceUrl?.toString();
+  if (sourceUrl == null || sourceUrl.isEmpty) {
+    return message;
+  }
+
+  final formattedSource = switch (Uri.tryParse(sourceUrl)) {
+    final Uri uri when uri.scheme == 'file' => uri.toFilePath(),
+    _ => sourceUrl,
+  };
+  return '$formattedSource:${span.start.line + 1}: $message';
+}
+
+String _formatErrorAtStackLevel(
+  LuaRuntime interpreter,
+  String message,
+  int level,
+) {
+  final frame = switch (interpreter) {
+    final Interpreter runtime => runtime.getVisibleFrameAtLevel(level + 1),
+    _ => interpreter.callStack.getFrameAtLevel(level + 1),
+  };
+  if (frame == null) {
+    return message;
+  }
+
+  final line = switch (frame.currentLine) {
+    final currentLine when currentLine > 0 => currentLine,
+    _ => switch (frame.callNode?.span) {
+      final span? => span.start.line + 1,
+      _ => null,
+    },
+  };
+  final scriptPath =
+      frame.scriptPath ??
+      interpreter.callStack.scriptPath ??
+      interpreter.currentScriptPath;
+
+  if (scriptPath != null && line != null && line > 0) {
+    return '$scriptPath:$line: $message';
+  }
+  if (scriptPath != null) {
+    return '$scriptPath: $message';
+  }
+  return message;
+}
+
+Object? _packProtectedCallSuccess(Object? result) {
+  if (result case Value(isMulti: true, raw: final List<Object?> multiValues)) {
+    return Value.multi(<Object?>[
+      Value(true),
+      ...multiValues.map((value) => value is Value ? value : Value(value)),
+    ]);
+  }
+
+  return Value.multi(<Object?>[
+    Value(true),
+    result is Value ? result : Value(result),
+  ]);
+}
+
+Object? _packProtectedCallFailure(LuaRuntime interpreter, Object error) {
+  final normalizedError = _normalizeProtectedCallError(interpreter, error);
+  return Value.multi(<Object?>[
+    Value(false),
+    normalizedError is Value ? normalizedError : Value(normalizedError),
+  ]);
+}
+
+Object? _packXProtectedCallFailure(Object? result) {
+  if (result case Value(isMulti: true, raw: final List<Object?> multiValues)) {
+    return Value.multi(<Object?>[
+      Value(false),
+      ...multiValues.map((value) => value is Value ? value : Value(value)),
+    ]);
+  }
+
+  return Value.multi(<Object?>[
+    Value(false),
+    result is Value ? result : Value(result),
+  ]);
+}
+
+Object? _packXProtectedErrorHandlerFailure(Object error) {
+  return Value.multi(<Object?>[Value(false), Value('error in error handling')]);
+}
+
+// Lua's xpcall message-handler recursion overflows before the general
+// interpreter call-depth guard. Match the stock errors.lua behavior where
+// 195 recursive handler failures still resolve to "END", but 196 flips to
+// "C stack overflow".
+const int _maxXpcallMessageHandlerDepth = 196;
+
+enum _ProtectedCallPhase { call, errorHandler }
+
+bool _shouldRecurseXpcallHandler(Object error) {
+  final normalized = _errorHandlerArgument(error);
+  return normalized.raw is num;
+}
+
+final class _ProtectedCallSuspension implements CoroutineContinuation {
+  const _ProtectedCallSuspension({
+    required this.runtime,
+    this.child,
+    this.messageHandler,
+    this.phase = _ProtectedCallPhase.call,
+    this.errorHandlerDepth = 0,
+  });
+
+  final LuaRuntime runtime;
+  final CoroutineContinuation? child;
+  final Value? messageHandler;
+  final _ProtectedCallPhase phase;
+  final int errorHandlerDepth;
+
+  @override
+  Future<Object?> resume(List<Object?> args) async {
+    final previousYieldable = runtime.isYieldable;
+    runtime.isYieldable = false;
+    runtime.enterProtectedCall();
+
+    try {
+      return switch (phase) {
+        _ProtectedCallPhase.call => _resumeCall(args),
+        _ProtectedCallPhase.errorHandler => _resumeErrorHandler(args),
+      };
+    } finally {
+      runtime.exitProtectedCall();
+      runtime.isYieldable = previousYieldable;
+    }
+  }
+
+  Future<Object?> _resumeCall(List<Object?> args) async {
+    try {
+      final result = await _resumeChild(args);
+      return _packProtectedCallSuccess(result);
+    } on YieldException catch (error) {
+      _reinstall(error, phase: _ProtectedCallPhase.call);
+      rethrow;
+    } catch (error) {
+      if (messageHandler == null) {
+        return _packProtectedCallFailure(runtime, error);
+      }
+      return await _invokeErrorHandler(error, depth: errorHandlerDepth + 1);
+    }
+  }
+
+  Future<Object?> _resumeErrorHandler(List<Object?> args) async {
+    try {
+      final result = await _resumeChild(args);
+      return _packXProtectedCallFailure(result);
+    } on YieldException catch (error) {
+      _reinstall(error, phase: _ProtectedCallPhase.errorHandler);
+      rethrow;
+    } catch (error) {
+      return await _invokeErrorHandler(error, depth: errorHandlerDepth + 1);
+    }
+  }
+
+  Future<Object?> _invokeErrorHandler(
+    Object error, {
+    required int depth,
+  }) async {
+    final handler = messageHandler;
+    if (handler == null) {
+      return _packProtectedCallFailure(runtime, error);
+    }
+    if (depth > _maxXpcallMessageHandlerDepth) {
+      return _packXProtectedCallFailure(Value('C stack overflow'));
+    }
+
+    final errorValue = _errorHandlerArgument(error);
+
+    try {
+      final handlerResult = await runtime.callFunction(handler, <Object?>[
+        errorValue,
+      ]);
+      return _packXProtectedCallFailure(handlerResult);
+    } on YieldException catch (error) {
+      _reinstall(
+        error,
+        phase: _ProtectedCallPhase.errorHandler,
+        errorHandlerDepth: depth,
+      );
+      rethrow;
+    } catch (handlerError) {
+      if (_shouldRecurseXpcallHandler(handlerError)) {
+        return await _invokeErrorHandler(handlerError, depth: depth + 1);
+      }
+      return _packXProtectedErrorHandlerFailure(handlerError);
+    }
+  }
+
+  Future<Object?> _resumeChild(List<Object?> args) async {
+    if (child case final nested?) {
+      return nested.resume(args);
+    }
+
+    final values = args
+        .map<Object?>((arg) => arg is Value ? arg : Value(arg))
+        .toList(growable: false);
+    return Value.multi(values);
+  }
+
+  void _reinstall(
+    YieldException error, {
+    required _ProtectedCallPhase phase,
+    int? errorHandlerDepth,
+  }) {
+    final coroutine = error.coroutine ?? runtime.getCurrentCoroutine();
+    if (coroutine == null) {
+      return;
+    }
+
+    final nextChild = coroutine.takeContinuation();
+    coroutine.installContinuation(
+      _ProtectedCallSuspension(
+        runtime: runtime,
+        child: nextChild,
+        messageHandler: messageHandler,
+        phase: phase,
+        errorHandlerDepth: errorHandlerDepth ?? this.errorHandlerDepth,
+      ),
+    );
+  }
+
+  @override
+  Future<void> close([Object? error]) async {
+    if (child case final nested?) {
+      await nested.close(error);
+    }
+  }
+
+  @override
+  Iterable<GCObject> getReferences() sync* {
+    if (child case final nested?) {
+      yield* nested.getReferences();
+    }
+    if (messageHandler?.raw case final GCObject handlerObject) {
+      yield handlerObject;
+    }
+    if (messageHandler?.metatableRef?.raw case final GCObject metatableObject) {
+      yield metatableObject;
+    }
+  }
+}
+
+void _installProtectedCallContinuation(
+  LuaRuntime runtime,
+  YieldException error, {
+  Value? messageHandler,
+  int errorHandlerDepth = 0,
+}) {
+  final coroutine = error.coroutine ?? runtime.getCurrentCoroutine();
+  if (coroutine == null) {
+    return;
+  }
+
+  final child = coroutine.takeContinuation();
+  coroutine.installContinuation(
+    _ProtectedCallSuspension(
+      runtime: runtime,
+      child: child,
+      messageHandler: messageHandler,
+      errorHandlerDepth: errorHandlerDepth,
+    ),
+  );
+}
 
 class ErrorFunction extends BuiltinFunction {
   ErrorFunction(super.interpreter);
@@ -332,17 +812,50 @@ class ErrorFunction extends BuiltinFunction {
     // Get the error value
     final errorValue = args[0] as Value;
 
-    // If we're in a protected call (pcall/xpcall), always throw the Value directly
-    if (interpreter != null && interpreter!.isInProtectedCall) {
-      throw errorValue;
-    }
-
     // If the error value is a table, preserve it
     if (errorValue.raw is Map) {
       throw errorValue; // Throw the Value directly instead of converting to Exception
     }
 
     final message = errorValue.raw.toString();
+    final level = args.length > 1 && args[1] is Value
+        ? (args[1] as Value).raw
+        : null;
+    final numericLevel = switch (level) {
+      final int value => value,
+      final double value when value.toInt().toDouble() == value =>
+        value.toInt(),
+      _ => null,
+    };
+    final suppressLocation = switch (level) {
+      final int numericLevel => numericLevel <= 0,
+      final double numericLevel => numericLevel <= 0,
+      _ => false,
+    };
+
+    if (suppressLocation) {
+      throw LuaError(message, suppressAutomaticLocation: true);
+    }
+
+    if (numericLevel != null && numericLevel > 0 && interpreter != null) {
+      throw LuaError(
+        _formatErrorAtStackLevel(interpreter!, message, numericLevel),
+        suppressAutomaticLocation: true,
+      );
+    }
+
+    // In protected calls, preserve table-like error objects directly, but keep
+    // string errors in their usual Lua "file:line: message" form unless the
+    // caller explicitly suppressed location with level 0.
+    if (interpreter != null && interpreter!.isInProtectedCall) {
+      if (errorValue.raw is Map) {
+        throw errorValue;
+      }
+      if (errorValue.raw is String || errorValue.raw is LuaString) {
+        throw LuaError(_formatProtectedCallMessage(interpreter!, message));
+      }
+      throw errorValue;
+    }
 
     // If we're already reporting an error, just throw the exception
     // without calling reportError again
@@ -354,8 +867,15 @@ class ErrorFunction extends BuiltinFunction {
     _errorReporting = true;
 
     try {
+      Coroutine.active?.captureCurrentCallStack();
+      interpreter?.getCurrentCoroutine()?.captureCurrentCallStack();
       // Let the interpreter handle the error reporting with proper stack trace
-      final luaError = LuaError(message);
+      final luaError = LuaError(
+        message,
+        cause: errorValue.raw is String || errorValue.raw is LuaString
+            ? null
+            : errorValue.raw,
+      );
       interpreter!.reportError(message, error: luaError);
       // This will never be reached, but needed for type safety
       throw luaError;
@@ -369,93 +889,45 @@ class ErrorFunction extends BuiltinFunction {
 class IPairsFunction extends BuiltinFunction {
   IPairsFunction(super.interpreter);
 
+  late final Value _iteratorFunction = Value((List<Object?> iterArgs) async {
+    if (iterArgs.length < 2) {
+      throw LuaError("iterator requires a table and an index");
+    }
+
+    final t = iterArgs[0] as Value;
+
+    if (t.raw is! Map) {
+      throw LuaError("iterator requires a table as first argument");
+    }
+
+    if (iterArgs[1] is! Value || (iterArgs[1] as Value).raw is! num) {
+      throw LuaError("iterator index must be a number");
+    }
+
+    final index = (iterArgs[1] as Value).raw as num;
+    final nextIndex = index + 1;
+    final value = await t.getValueAsync(Value(nextIndex));
+    if (value == null || (value is Value && value.raw == null)) {
+      return Value(null);
+    }
+
+    final nextValue = value is Value ? value : Value(value);
+    return Value.multi([Value(nextIndex), nextValue]);
+  });
+
   @override
   Object? call(List<Object?> args) {
-    if (args.isEmpty) throw LuaError("ipairs requires a table");
+    if (args.isEmpty) {
+      throw LuaError(_badTableArgumentMessage('ipairs', null));
+    }
     final table = args[0] as Value;
-    if (table.raw is! Map) throw LuaError("ipairs requires a table");
-
-    // Debug logging disabled for performance
-    // Logger.debug(
-    //   'IPairsFunction: Creating iterator for table: ${table.raw}',
-    //   category: 'Base',
-    // );
-
-    // Create a function that returns the next index and value
-    final iteratorFunction = Value((List<Object?> iterArgs) {
-      if (iterArgs.length < 2) {
-        throw LuaError("iterator requires a table and an index");
-      }
-
-      final t = iterArgs[0] as Value;
-
-      if (t.raw is! Map) {
-        throw LuaError("iterator requires a table as first argument");
-      }
-
-      final map = t.raw as Map;
-
-      // The second argument must be a number
-      if (iterArgs[1] is! Value || (iterArgs[1] as Value).raw is! num) {
-        throw LuaError("iterator index must be a number");
-      }
-
-      final index = (iterArgs[1] as Value).raw as num;
-
-      // Debug logging disabled for performance
-      // Logger.debug(
-      //   'IPairsFunction.iterator: Called with index: $index',
-      //   category: 'Base',
-      // );
-
-      // In Lua, ipairs iterates over consecutive integer keys starting from 1
-      // It stops at the first nil value or non-integer key
-      final nextIndex = index + 1;
-
-      // Check if the next index exists in the table
-      if (!map.containsKey(nextIndex)) {
-        // Debug logging disabled for performance
-        // Logger.debug(
-        //   'IPairsFunction.iterator: No next index, returning nil',
-        //   category: 'Base',
-        // );
-        return Value(null);
-      }
-
-      // Get the value at the next index
-      final value = map[nextIndex];
-
-      // If the value is nil, stop iteration
-      if (value == null || (value is Value && value.raw == null)) {
-        // Debug logging disabled for performance
-        // Logger.debug(
-        //   'IPairsFunction.iterator: Value at index $nextIndex is nil, returning nil',
-        //   category: 'Base',
-        // );
-        return Value(null);
-      }
-
-      final nextValue = value is Value ? value : Value(value);
-
-      // Debug logging disabled for performance
-      // Logger.debug(
-      //   'IPairsFunction.iterator: Found next index: $nextIndex, value: $nextValue',
-      //   category: 'Base',
-      // );
-
-      // Return the index and value as multiple values
-      return Value.multi([Value(nextIndex), nextValue]);
-    });
-
-    // Debug logging disabled for performance
-    // Logger.debug(
-    //   'IPairsFunction: Returning iterator components via Value.multi',
-    //   category: 'Base',
-    // );
+    if (table.raw is! Map) {
+      throw LuaError(_badTableArgumentMessage('ipairs', table));
+    }
 
     // Return iterator function, table, and initial control value (0) using Value.multi
     // This matches Lua's behavior: ipairs(t) returns iterator, t, 0
-    return Value.multi([iteratorFunction, table, Value(0)]);
+    return Value.multi([_iteratorFunction, table, Value(0)]);
   }
 }
 
@@ -521,7 +993,7 @@ class TypeFunction extends BuiltinFunction {
     if (args.isEmpty) throw LuaError("type requires an argument");
     final value = args[0] as Value;
 
-    return getLuaType(value);
+    return getLuaBaseType(value);
   }
 }
 
@@ -551,7 +1023,7 @@ class ToNumberFunction extends BuiltinFunction {
       // Reject strings like "+ 0.01" or "- 123"
       if (str.startsWith('+') || str.startsWith('-')) {
         if (str.length > 1 && str[1] == ' ') {
-          return Value(null);
+          return primitiveValue(null);
         }
       }
 
@@ -559,23 +1031,23 @@ class ToNumberFunction extends BuiltinFunction {
         final radix = base.raw as int;
         try {
           final intVal = int.parse(str, radix: radix);
-          return Value(intVal);
+          return primitiveValue(intVal);
         } on FormatException {
-          return Value(null);
+          return primitiveValue(null);
         }
       }
       try {
-        return Value(LuaNumberParser.parse(str));
+        return primitiveValue(LuaNumberParser.parse(str));
       } on FormatException {
-        return Value(null);
+        return primitiveValue(null);
       }
     } else if (value.raw is num) {
       return value;
     } else if (value.raw is BigInt) {
-      return Value((value.raw as BigInt).toInt());
+      return primitiveValue((value.raw as BigInt).toInt());
     }
 
-    return Value(null);
+    return primitiveValue(null);
   }
 }
 
@@ -589,8 +1061,9 @@ class ToStringFunction extends BuiltinFunction {
 
     // Check for __tostring metamethod
     if (value.hasMetamethod("__tostring")) {
-      Logger.debug(
-        'tostring: __tostring metamethod found on value ${value.hashCode}',
+      Logger.debugLazy(
+        () =>
+            'tostring: __tostring metamethod found on value ${value.hashCode}',
         category: 'Base',
       );
       try {
@@ -598,16 +1071,17 @@ class ToStringFunction extends BuiltinFunction {
         final awaitedResult = await value.callMetamethodAsync('__tostring', [
           value,
         ]);
-        Logger.debug(
-          'tostring: metamethod result type=${awaitedResult.runtimeType} value=$awaitedResult',
+        Logger.debugLazy(
+          () =>
+              'tostring: metamethod result type=${awaitedResult.runtimeType} value=$awaitedResult',
           category: 'Base',
         );
 
         // Validate that __tostring returned a string
         if (awaitedResult is Value) {
           if (awaitedResult.raw is String || awaitedResult.raw is LuaString) {
-            Logger.debug(
-              'tostring: returning Value string ${awaitedResult.raw}',
+            Logger.debugLazy(
+              () => 'tostring: returning Value string ${awaitedResult.raw}',
               category: 'Base',
             );
             return awaitedResult;
@@ -615,8 +1089,8 @@ class ToStringFunction extends BuiltinFunction {
             throw LuaError("'__tostring' must return a string");
           }
         } else if (awaitedResult is String) {
-          Logger.debug(
-            'tostring: returning raw String $awaitedResult',
+          Logger.debugLazy(
+            () => 'tostring: returning raw String $awaitedResult',
             category: 'Base',
           );
           return Value(awaitedResult);
@@ -624,8 +1098,9 @@ class ToStringFunction extends BuiltinFunction {
           throw LuaError("'__tostring' must return a string");
         }
       } on TailCallException catch (e) {
-        Logger.debug(
-          'tostring: TailCallException caught, calling function value ${e.functionValue.hashCode}',
+        Logger.debugLazy(
+          () =>
+              'tostring: TailCallException caught, calling function value ${e.functionValue.hashCode}',
           category: 'Base',
         );
         return await e.functionValue.call(e.args);
@@ -648,12 +1123,33 @@ class ToStringFunction extends BuiltinFunction {
     if (value.raw is String || value.raw is LuaString) {
       return Value(value.raw.toString());
     }
+    final typeNameMeta = value.getMetamethod('__name');
+    final rawTypeName = typeNameMeta is Value ? typeNameMeta.raw : typeNameMeta;
+    switch (rawTypeName) {
+      case final String stringName:
+        return Value("$stringName: ${value.raw.hashCode}");
+      case final LuaString stringName:
+        return Value("${stringName.toString()}: ${value.raw.hashCode}");
+    }
     if (value.raw is Map) return Value("table: ${value.raw.hashCode}");
     if (value.raw is Function || value.raw is BuiltinFunction) {
       return Value("function: ${value.raw.hashCode}");
     }
 
     return Value(value.raw.toString());
+  }
+}
+
+class _BaseTointeger extends BuiltinFunction {
+  @override
+  Object? call(List<Object?> args) {
+    if (args.isEmpty) {
+      throw LuaError.typeError('tointeger requires one argument');
+    }
+
+    dynamic value = args[0] is Value ? (args[0] as Value).raw : args[0];
+    final result = NumberUtils.tryToInteger(value);
+    return Value(result);
   }
 }
 
@@ -706,788 +1202,55 @@ class LoadFunction extends BuiltinFunction {
 
   @override
   Future<Object?> call(List<Object?> args) async {
-    late String source;
-    late String chunkname;
-    late String mode;
-    Value? providedEnv;
-    ChunkInfo? readerChunkInfo; // Store ChunkInfo from reader functions
-
-    final Stopwatch? totalTimer = _loadProfileEnabled
-        ? (Stopwatch()..start())
-        : null;
-    Stopwatch? parseTimer;
-    Duration? parseDuration;
-    var loggedProfile = false;
-
-    void logProfile(String phase, {String? error}) {
-      if (!_loadProfileEnabled || loggedProfile) {
-        return;
-      }
-      if (totalTimer != null && totalTimer.isRunning) {
-        totalTimer.stop();
-      }
-      final totalMicros = totalTimer?.elapsedMicroseconds ?? -1;
-      final parseMicros = parseDuration?.inMicroseconds ?? -1;
-      final message = error != null
-          ? 'load profile [$phase]: chunk="$chunkname" len=${source.length} '
-                'parse_us=$parseMicros total_us=$totalMicros error=$error'
-          : 'load profile [$phase]: chunk="$chunkname" len=${source.length} '
-                'parse_us=$parseMicros total_us=$totalMicros';
-      Logger.info(message, category: 'LoadProfile');
-      loggedProfile = true;
-    }
-
     if (args.isEmpty) {
       throw LuaError("load() requires a string or function argument");
     }
-
-    // Handle chunkname parameter (2nd argument)
-    chunkname = args.length > 1 ? (args[1] as Value).raw.toString() : "=(load)";
-
-    // Handle mode parameter (3rd argument)
-    if (args.length > 2) {
-      final modeValue = (args[2] as Value).raw;
-      mode = modeValue == null ? 'bt' : modeValue.toString();
-    } else {
-      mode = 'bt';
-    }
-
-    // Handle environment parameter (4th argument). Keep as Value to preserve metatable/proxy
-    if (args.length > 3) {
-      providedEnv = args[3] as Value;
-    }
-
-    bool isBinaryChunk = false;
-    ChunkInfo? chunkInfo;
-
-    if (args[0] is Value) {
-      if ((args[0] as Value).raw is String) {
-        // Load from string
-        source = (args[0] as Value).raw as String;
-        // Check if it starts with ESC (0x1B) to detect binary chunks
-        isBinaryChunk = source.isNotEmpty && source.codeUnitAt(0) == 0x1B;
-        Logger.debug(
-          "LoadFunction: String source, length=${source.length}, isBinaryChunk=$isBinaryChunk",
-          category: 'Load',
-        );
-        if (isBinaryChunk) {
-          // Use ChunkSerializer to handle binary chunk deserialization
-          try {
-            chunkInfo = ChunkSerializer.deserializeChunk(source);
-            source = chunkInfo.source;
-            Logger.debug(
-              "LoadFunction: Deserialized chunk: $chunkInfo",
-              category: 'Load',
-            );
-          } catch (e) {
-            // Return error for invalid binary chunks
-            String errorMsg = e.toString();
-            // Clean up error message format - remove "Exception: " prefix
-            if (errorMsg.startsWith('Exception: ')) {
-              errorMsg = errorMsg.substring('Exception: '.length);
-            }
-            return [Value(null), Value(errorMsg)];
-          }
-        }
-      } else if ((args[0] as Value).raw is LuaString) {
-        // Load from LuaString - convert bytes to UTF-8 string to preserve encoding
-        final luaString = (args[0] as Value).raw as LuaString;
-        // Check if it starts with ESC (0x1B) to detect binary chunks
-        isBinaryChunk =
-            luaString.bytes.isNotEmpty && luaString.bytes[0] == 0x1B;
-        Logger.debug(
-          "LoadFunction: LuaString source, length=${luaString.bytes.length}, first byte=${luaString.bytes.isNotEmpty ? luaString.bytes[0] : 'none'}, isBinaryChunk=$isBinaryChunk",
-          category: 'Load',
-        );
-        if (isBinaryChunk) {
-          // Handle LuaString binary chunk directly
-          try {
-            chunkInfo = ChunkSerializer.deserializeChunkFromLuaString(
-              luaString,
-            );
-            source = chunkInfo.source;
-            Logger.debug(
-              "LoadFunction: Deserialized LuaString chunk: $chunkInfo",
-              category: 'Load',
-            );
-          } catch (e) {
-            // Return error for invalid binary chunks
-            String errorMsg = e.toString();
-            // Clean up error message format - remove "Exception: " prefix
-            if (errorMsg.startsWith('Exception: ')) {
-              errorMsg = errorMsg.substring('Exception: '.length);
-            }
-            return [Value(null), Value(errorMsg)];
-          }
-        } else {
-          try {
-            source = utf8.decode(luaString.bytes, allowMalformed: true);
-          } catch (e) {
-            // Fallback to Latin-1 if UTF-8 decode fails
-            source = luaString.toLatin1String();
-          }
-        }
-      } else if ((args[0] as Value).raw is Function) {
-        // Load from reader function
-        final chunks = <String>[];
-        final readerVal = args[0] as Value;
-        int readCount = 0;
-        while (true) {
-          Object? chunk;
-          try {
-            chunk = await interpreter!.callFunction(readerVal, const []);
-          } catch (e) {
-            // If reader function throws an error, return it as load error
-            String errorMsg = e.toString();
-            // Clean up error message format - remove "Exception: " prefix
-            if (errorMsg.startsWith('Exception: ')) {
-              errorMsg = errorMsg.substring('Exception: '.length);
-            }
-            return [Value(null), Value(errorMsg)];
-          }
-          // End of input on nil or empty string
-          if (chunk == null) break;
-          if (chunk is Value) {
-            if (chunk.raw == null) break;
-            // Accept both String and LuaString; empty string signals end
-            if (chunk.raw is LuaString) {
-              final s = (chunk.raw as LuaString).toLatin1String();
-              if (s.isEmpty) break;
-              readCount++;
-              if (Logger.enabled) {
-                final prev = s.length > 10 ? s.substring(0, 10) : s;
-                Logger.debug(
-                  "load(reader): chunk #$readCount (LuaString) len=${s.length} head='${prev.replaceAll('\n', '\\n')}'",
-                  category: 'Load',
-                );
-              }
-              chunks.add(s);
-            } else if (chunk.raw is String) {
-              final s = chunk.raw as String;
-              if (s.isEmpty) break;
-              readCount++;
-              if (Logger.enabled) {
-                final prev = s.length > 10 ? s.substring(0, 10) : s;
-                Logger.debug(
-                  "load(reader): chunk #$readCount (String) len=${s.length} head='${prev.replaceAll('\n', '\\n')}'",
-                  category: 'Load',
-                );
-              }
-              chunks.add(s);
-            } else {
-              // Reader function must return string or nil
-              return [
-                Value(null),
-                Value("reader function must return a string"),
-              ];
-            }
-          } else {
-            // Non-Value return from reader function is invalid
-            return [Value(null), Value("reader function must return a string")];
-          }
-
-          // Try to parse incrementally to detect lexical errors early like Lua
-          // This prevents infinite loops with invalid repeating chunks
-          if (chunks.length >= 2) {
-            final testSource = chunks.join();
-            try {
-              // Try parsing to see if we get a lexical error
-              parse(testSource, url: chunkname);
-            } catch (e) {
-              // If we get a FormatException (parse error), check if it's a lexical error
-              // Only catch errors that suggest the input will never be valid
-              if (e is FormatException && e.message.contains('malformed')) {
-                // Return lexical errors immediately, like Lua does
-                return [Value(null), Value(e.message)];
-              }
-              // For other parse errors (like incomplete input), continue reading
-            }
-          }
-
-          // Prevent infinite loops by limiting chunk count
-          if (readCount > 10000) {
-            return [Value(null), Value("too many chunks from reader function")];
-          }
-        }
-        // Handle binary chunks properly by reconstructing bytes
-        // Check if the concatenated source from reader is a binary chunk
-        if (chunks.isNotEmpty &&
-            chunks[0].isNotEmpty &&
-            chunks[0].codeUnitAt(0) == 0x1B) {
-          // This is a binary chunk, reconstruct the bytes properly
-          final allBytes = <int>[];
-          for (final chunk in chunks) {
-            for (int i = 0; i < chunk.length; i++) {
-              allBytes.add(chunk.codeUnitAt(i));
-            }
-          }
-
-          // Skip the ESC byte and convert remaining bytes to string
-          if (allBytes.length > 1) {
-            final payloadBytes = allBytes.sublist(1);
-            try {
-              source = utf8.decode(payloadBytes, allowMalformed: true);
-            } catch (e) {
-              // Fallback to byte-by-byte conversion if UTF-8 fails
-              source = String.fromCharCodes(payloadBytes);
-            }
-            isBinaryChunk = true;
-
-            // Use ChunkSerializer to handle binary chunk from reader
-            final binaryChunkLuaString = LuaString.fromBytes(
-              Uint8List.fromList(allBytes),
-            );
-            try {
-              final chunkInfo = ChunkSerializer.deserializeChunkFromLuaString(
-                binaryChunkLuaString,
-              );
-              // Store ChunkInfo for later AST evaluation
-              readerChunkInfo = chunkInfo;
-              source = chunkInfo.source;
-            } catch (e) {
-              // Return error for invalid binary chunks
-              String errorMsg = e.toString();
-              // Clean up error message format - remove "Exception: " prefix
-              if (errorMsg.startsWith('Exception: ')) {
-                errorMsg = errorMsg.substring('Exception: '.length);
-              }
-              return [Value(null), Value(errorMsg)];
-            }
-
-            Logger.debug(
-              "LoadFunction: Deserialized reader chunk: $chunkInfo",
-              category: 'Load',
-            );
-
-            Logger.debug(
-              "LoadFunction: Reader produced binary chunk, final source='$source'",
-              category: 'Load',
-            );
-          } else {
-            source = '';
-            isBinaryChunk = true;
-          }
-        } else {
-          // Regular text chunks
-          source = chunks.join();
-          isBinaryChunk = false;
-        }
-        if (Logger.enabled) {
-          final prev = source.length > 40 ? source.substring(0, 40) : source;
-          Logger.debug(
-            "load(reader): total chunks=$readCount, source len=${source.length}, isBinaryChunk=$isBinaryChunk, head='${prev.replaceAll('\n', '\\n')}'",
-            category: 'Load',
-          );
-        }
-      } else if ((args[0] as Value).raw is List<int>) {
-        // Load from binary chunk
-        final bytes = (args[0] as Value).raw as List<int>;
-        source = utf8.decode(bytes);
-      } else {
-        throw LuaError(
-          "load() first argument must be string, function or binary",
-        );
-      }
-      // chunkname already assigned above
-    } else {
+    final source = args[0];
+    if (source is! Value) {
       throw LuaError("load() first argument must be a string");
     }
+    final nameArg = args.length > 1 ? args[1] as Value : null;
+    final modeArg = args.length > 2 ? args[2] as Value : null;
+    final envArg = args.length > 3 ? args[3] as Value : null;
 
-    // Check mode compatibility with chunk type
-    final allowBinary = mode.contains('b');
-    final allowText = mode.contains('t');
+    final defaultChunkName = switch (source.raw) {
+      String text =>
+        text.isNotEmpty && text.codeUnitAt(0) == 0x1B ? "=(load)" : text,
+      LuaString luaString =>
+        luaString.bytes.isNotEmpty && luaString.bytes.first == 0x1B
+            ? "=(load)"
+            : luaString.toString(),
+      _ => "=(load)",
+    };
+    final chunkname = switch (nameArg?.raw) {
+      null => defaultChunkName,
+      _ => nameArg!.raw.toString(),
+    };
+    final mode = switch (modeArg?.raw) {
+      null => 'bt',
+      _ => modeArg!.raw.toString(),
+    };
+    if (mode.isEmpty || !RegExp(r'^[bt]+$').hasMatch(mode)) {
+      throw LuaError("bad argument #3 to 'load' (invalid mode)");
+    }
+    final providedEnv = args.length > 3 ? envArg : null;
+    final runtime = interpreter;
+    if (runtime == null) {
+      throw LuaError("No interpreter context available");
+    }
 
-    Logger.debug(
-      "LoadFunction: mode='$mode', allowBinary=$allowBinary, allowText=$allowText, isBinaryChunk=$isBinaryChunk",
-      category: 'Load',
+    final result = await runtime.loadChunk(
+      LuaChunkLoadRequest(
+        source: source,
+        chunkName: chunkname,
+        mode: mode,
+        environment: providedEnv,
+      ),
     );
-
-    if (isBinaryChunk && !allowBinary) {
-      Logger.debug(
-        "LoadFunction: Rejecting binary chunk because mode '$mode' doesn't allow binary",
-        category: 'Load',
-      );
-      return [
-        Value(null),
-        Value("attempt to load a binary chunk (mode is '$mode')"),
-      ];
+    if (result.isSuccess) {
+      return result.chunk!;
     }
-    if (!isBinaryChunk && !allowText) {
-      Logger.debug(
-        "LoadFunction: Rejecting text chunk because mode '$mode' doesn't allow text",
-        category: 'Load',
-      );
-      return [
-        Value(null),
-        Value("attempt to load a text chunk (mode is '$mode')"),
-      ];
-    }
-
-    try {
-      if (_loadProfileEnabled) {
-        parseTimer = Stopwatch()..start();
-      }
-      // Centralized normalization happens in parse(); just pass source through.
-      final ast = parse(source, url: chunkname);
-      if (parseTimer != null) {
-        parseTimer.stop();
-        parseDuration = parseTimer.elapsed;
-      }
-
-      // Check for const variable assignment errors
-      final constChecker = ConstChecker();
-      final constError = constChecker.checkConstViolations(ast);
-      if (constError != null) {
-        // Adjust line numbers for multi-line strings with leading empty lines
-        String adjustedError = constError;
-        if (source.startsWith('\n')) {
-          // If source starts with newline, adjust line numbers down by 1
-          adjustedError = constError.replaceAllMapped(RegExp(r':(\d+):'), (
-            match,
-          ) {
-            final lineNum = int.parse(match.group(1)!);
-            final adjustedLine = lineNum > 1 ? lineNum - 1 : lineNum;
-            return ':$adjustedLine:';
-          });
-        }
-        // Return error in load() format: [nil, error_message]
-        logProfile('const-error', error: adjustedError);
-        return [Value(null), Value(adjustedError)];
-      }
-
-      final gotoValidator = GotoLabelValidator();
-      final gotoError = gotoValidator.checkGotoLabelViolations(ast);
-      if (gotoError != null) {
-        logProfile('goto-error', error: gotoError);
-        return [Value(null), Value(gotoError)];
-      }
-
-      final sourceFile = path.url.joinAll(
-        path.split(path.normalize(chunkname)),
-      );
-
-      // Check if this was a string.dump function and use direct AST evaluation if available
-      bool hasDirectAST = false;
-      AstNode? directASTNode;
-      List<String>? originalUpvalueNames;
-      List<dynamic>? originalUpvalueValues;
-
-      // For binary chunks, check if we have a direct AST node
-      if (isBinaryChunk && chunkInfo != null) {
-        if (chunkInfo.originalFunctionBody != null) {
-          hasDirectAST = true;
-          directASTNode = chunkInfo.originalFunctionBody;
-          originalUpvalueNames = chunkInfo.upvalueNames;
-          originalUpvalueValues = chunkInfo.upvalueValues;
-        } else {
-          // Even without direct AST, we might have upvalue information for source-based loading
-          originalUpvalueNames = chunkInfo.upvalueNames;
-          originalUpvalueValues = chunkInfo.upvalueValues;
-        }
-      }
-
-      // Check for reader function ChunkInfo
-      if (readerChunkInfo != null &&
-          readerChunkInfo.originalFunctionBody != null) {
-        hasDirectAST = true;
-        directASTNode = readerChunkInfo.originalFunctionBody;
-        originalUpvalueNames = readerChunkInfo.upvalueNames;
-      }
-
-      // Create a function body with the actual AST
-      final actualBody = FunctionBody([], ast.statements, false);
-      try {
-        final file = SourceFile.fromString(source, url: sourceFile);
-        actualBody.setSpan(file.span(0, source.length));
-      } catch (_) {
-        // If we cannot create a SourceFile, leave span null
-      }
-
-      // For chunks with direct AST, use AST evaluation; otherwise use source execution
-      final Value result;
-      if (hasDirectAST && directASTNode != null) {
-        // Direct AST evaluation for string.dump functions
-        result = Value(
-          (List<Object?> callArgs) async {
-            try {
-              // Save the current environment
-              final savedEnv = interpreter!.getCurrentEnv();
-
-              // Set up environment for AST evaluation
-              final Environment loadEnv;
-              if (providedEnv != null) {
-                loadEnv = Environment(
-                  parent: null,
-                  interpreter: interpreter!,
-                  isLoadIsolated: true,
-                );
-                final gValue =
-                    savedEnv.get('_G') ?? savedEnv.root.get('_G') ?? Value({});
-                loadEnv.declare('_ENV', providedEnv);
-                loadEnv.declare('_G', gValue);
-              } else {
-                loadEnv = Environment(
-                  parent: savedEnv.root,
-                  interpreter: interpreter!,
-                );
-                final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G');
-                if (gValue is Value) {
-                  loadEnv.declare('_ENV', gValue);
-                }
-              }
-
-              // Set up varargs in the load environment
-              loadEnv.declare("...", Value.multi(callArgs));
-
-              interpreter!.setCurrentEnv(loadEnv);
-              final prevPath = interpreter!.currentScriptPath;
-              interpreter!.currentScriptPath = chunkname;
-              interpreter!.callStack.setScriptPath(chunkname);
-
-              try {
-                // For string.dump functions, we want to execute the function and return its results
-                if (directASTNode is FunctionBody) {
-                  // Create a function value from the AST that will inherit upvalues
-                  final funcValue =
-                      await interpreter!.evaluateAst(directASTNode) as Value;
-                  if (funcValue.raw is Function) {
-                    return await interpreter!.callFunction(funcValue, callArgs);
-                  } else {
-                    return funcValue;
-                  }
-                } else {
-                  // For other AST nodes, evaluate directly
-                  return await interpreter!.evaluateAst(directASTNode!);
-                }
-              } finally {
-                interpreter!.setCurrentEnv(savedEnv);
-                interpreter!.currentScriptPath = prevPath;
-              }
-            } on ReturnException catch (e) {
-              return e.value;
-            } on TailCallException catch (t) {
-              final callee = t.functionValue is Value
-                  ? t.functionValue as Value
-                  : Value(t.functionValue);
-              final normalizedArgs = t.args
-                  .map((a) => a is Value ? a : Value(a))
-                  .toList();
-              return await interpreter!.callFunction(callee, normalizedArgs);
-            } catch (e) {
-              throw LuaError("Error executing AST chunk '$chunkname': $e");
-            }
-          },
-          functionBody: directASTNode is FunctionBody
-              ? directASTNode
-              : actualBody,
-          closureEnvironment: interpreter!.getCurrentEnv(),
-        );
-
-        // For string.dump functions, return the function created from the AST directly
-        // This ensures upvalues can be set on the actual function that gets executed
-        if (hasDirectAST && directASTNode is FunctionBody) {
-          // Create and return the function directly from the AST
-          final savedEnv = interpreter!.getCurrentEnv();
-          final loadEnv = Environment(
-            parent: savedEnv.root,
-            interpreter: interpreter!,
-          );
-
-          // Set up the environment for function creation to preserve provided _ENV semantics
-          if (providedEnv != null) {
-            if (providedEnv.raw != null) {
-              // Custom environment provided: set _ENV to the provided environment
-              loadEnv.declare('_ENV', providedEnv);
-              // Also set _G to the global _G for consistency
-              final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G');
-              if (gValue is Value) {
-                loadEnv.declare('_G', gValue);
-              }
-            } else {
-              // Explicit nil environment provided: set _ENV to nil
-              // This allows functions to check type(_ENV) and get 'nil'
-              loadEnv.declare('_ENV', providedEnv); // This is Value(null)
-            }
-          }
-          // Note: When no environment is provided (providedEnv == null), we don't set up _ENV.
-          // This preserves the existing behavior for upvalue tests and other binary chunk usage.
-
-          interpreter!.setCurrentEnv(loadEnv);
-          try {
-            final functionBody = directASTNode;
-            final directFunction =
-                await interpreter!.evaluateAst(functionBody) as Value;
-
-            // Initialize upvalues for this function using original upvalue names
-            directFunction.upvalues = [];
-
-            // Use upvalue names and values from ChunkInfo if available, otherwise analyze
-            if (originalUpvalueNames != null &&
-                originalUpvalueNames.isNotEmpty) {
-              // Use the original upvalue structure with preserved values
-              for (int i = 0; i < originalUpvalueNames.length; i++) {
-                final upvalueName = originalUpvalueNames[i];
-                // If no environment provided (nil), set upvalues to null but preserve names for debug.setupvalue
-                // If environment provided, use original upvalue values
-                final upvalueValue =
-                    (providedEnv != null &&
-                        providedEnv.raw != null &&
-                        originalUpvalueValues != null &&
-                        i < originalUpvalueValues.length)
-                    ? originalUpvalueValues[i]
-                    : null;
-                final box = Box<dynamic>(upvalueValue);
-                final upvalue = Upvalue(
-                  valueBox: box,
-                  name: upvalueName,
-                  interpreter: interpreter,
-                );
-                upvalue.close();
-                directFunction.upvalues!.add(upvalue);
-              }
-            } else {
-              // Fallback to analysis if no upvalue names stored
-              final analyzedUpvalues = await UpvalueAnalyzer.analyzeFunction(
-                functionBody,
-                loadEnv,
-              );
-              for (final analyzed in analyzedUpvalues) {
-                final box = Box<dynamic>(null);
-                final upvalue = Upvalue(
-                  valueBox: box,
-                  name: analyzed.name,
-                  interpreter: interpreter,
-                );
-                upvalue.close();
-                directFunction.upvalues!.add(upvalue);
-              }
-            }
-
-            logProfile('success');
-            return directFunction;
-          } finally {
-            interpreter!.setCurrentEnv(savedEnv);
-          }
-        }
-      } else {
-        // Standard source-based execution
-        result = Value(
-          (List<Object?> callArgs) async {
-            try {
-              // Save the current environment
-              final savedEnv = interpreter!.getCurrentEnv();
-
-              // Create a new environment for the loaded code
-              final Environment loadEnv;
-              if (providedEnv != null) {
-                // If an environment was provided, create completely isolated environment
-                // This prevents access to local variables from calling scope
-                loadEnv = Environment(
-                  parent: null,
-                  interpreter: interpreter!,
-                  isLoadIsolated: true,
-                );
-                Logger.debug(
-                  "LoadFunction: Created isolated environment ${loadEnv.hashCode} with isLoadIsolated=${loadEnv.isLoadIsolated}",
-                  category: 'Load',
-                );
-
-                // Use the provided environment Value directly to preserve proxy/metatable
-                final gValue =
-                    savedEnv.get('_G') ?? savedEnv.root.get('_G') ?? Value({});
-                final envValue = providedEnv;
-                loadEnv.declare('_ENV', envValue);
-                loadEnv.declare('_G', gValue);
-                Logger.debug(
-                  "LoadFunction: Declared _ENV and _G in isolated environment",
-                  category: 'Load',
-                );
-              } else {
-                // When no environment is provided (nil), create a restricted environment
-                // that only has access to the global _G table, not the local calling scope
-                loadEnv = Environment(
-                  parent: null,
-                  interpreter: interpreter,
-                  isLoadIsolated: true,
-                );
-
-                // Only provide access to the global _G table
-                final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G');
-                if (gValue is Value) {
-                  loadEnv.declare('_ENV', gValue);
-                  loadEnv.declare('_G', gValue);
-                }
-              }
-
-              // Set up varargs in the load environment
-              loadEnv.declare("...", Value.multi(callArgs));
-
-              // Switch to the load environment to execute the loaded code
-              Logger.debug(
-                "LoadFunction: Switching to load environment ${loadEnv.hashCode}",
-                category: 'Load',
-              );
-              interpreter!.setCurrentEnv(loadEnv);
-              Logger.debug(
-                "LoadFunction: Environment switched, current env is now ${interpreter!.getCurrentEnv().hashCode}",
-                category: 'Load',
-              );
-
-              // Set script path for debug.getinfo and error reporting
-              final prevPath = interpreter!.currentScriptPath;
-              final normalizedChunk = chunkname;
-              interpreter!.currentScriptPath = normalizedChunk;
-              interpreter!.callStack.setScriptPath(normalizedChunk);
-              loadEnv.declare('_SCRIPT_PATH', Value(normalizedChunk));
-
-              try {
-                Logger.debug(
-                  "LoadFunction: About to execute code in environment ${interpreter!.getCurrentEnv().hashCode}",
-                  category: 'Load',
-                );
-                final result = await interpreter!.runAst(ast.statements);
-                Logger.debug(
-                  "LoadFunction: Code execution completed in environment ${interpreter!.getCurrentEnv().hashCode}",
-                  category: 'Load',
-                );
-
-                // If we have upvalue information and the result is a function, set up the upvalues
-                if (originalUpvalueNames != null &&
-                    originalUpvalueNames.isNotEmpty &&
-                    result is Value &&
-                    result.raw is Function) {
-                  final upvalues = <Upvalue>[];
-                  for (int i = 0; i < originalUpvalueNames.length; i++) {
-                    final upvalueName = originalUpvalueNames[i];
-                    // If no environment provided (nil), set upvalues to null but preserve names for debug.setupvalue
-                    // If environment provided, use original upvalue values
-                    final upvalueValue =
-                        (providedEnv != null &&
-                            providedEnv.raw != null &&
-                            originalUpvalueValues != null &&
-                            i < originalUpvalueValues.length)
-                        ? originalUpvalueValues[i]
-                        : null;
-                    final box = Box<dynamic>(upvalueValue);
-                    final uv = Upvalue(
-                      valueBox: box,
-                      name: upvalueName,
-                      interpreter: interpreter,
-                    );
-                    upvalues.add(uv);
-                  }
-                  result.upvalues = upvalues;
-                }
-
-                logProfile('success');
-                return result;
-              } finally {
-                // Restore the previous environment
-                Logger.debug(
-                  "LoadFunction: Restoring previous environment ${savedEnv.hashCode}",
-                  category: 'Load',
-                );
-                interpreter!.setCurrentEnv(savedEnv);
-                interpreter!.currentScriptPath = prevPath;
-              }
-            } on ReturnException catch (e) {
-              // return statements inside the loaded chunk should just
-              // provide values to the caller, not unwind the interpreter
-              logProfile('success');
-              return e.value;
-            } on TailCallException catch (t) {
-              // Proper tail call from inside loaded chunk: invoke callee here
-              // without growing the call stack at the Lua level.
-              final callee = t.functionValue is Value
-                  ? t.functionValue as Value
-                  : Value(t.functionValue);
-              final normalizedArgs = t.args
-                  .map((a) => a is Value ? a : Value(a))
-                  .toList();
-              final value = await interpreter!.callFunction(
-                callee,
-                normalizedArgs,
-              );
-              logProfile('success');
-              return value;
-            } catch (e) {
-              throw LuaError("Error executing loaded chunk '$chunkname': $e");
-            }
-          },
-          functionBody: actualBody,
-          closureEnvironment: interpreter!.getCurrentEnv(),
-        );
-      }
-
-      // For loaded functions, we need to ensure _ENV is available as an upvalue
-      // since they typically access globals. This simulates Lua's behavior where
-      // loaded chunks have _ENV as an upvalue for global access.
-      final currentEnv = interpreter!.getCurrentEnv();
-      final upvalues = <Upvalue>[];
-
-      // Use preserved upvalue values if available (from string.dump functions)
-      if (originalUpvalueNames != null && originalUpvalueNames.isNotEmpty) {
-        // Create upvalues with preserved values
-        for (int i = 0; i < originalUpvalueNames.length; i++) {
-          final upvalueName = originalUpvalueNames[i];
-          // If no environment provided (nil), set upvalues to null but preserve names for debug.setupvalue
-          // If environment provided, use original upvalue values
-          final upvalueValue =
-              (providedEnv != null &&
-                  providedEnv.raw != null &&
-                  originalUpvalueValues != null &&
-                  i < originalUpvalueValues.length)
-              ? originalUpvalueValues[i]
-              : null;
-          final box = Box<dynamic>(upvalueValue);
-          final upvalue = Upvalue(
-            valueBox: box,
-            name: upvalueName,
-            interpreter: interpreter,
-          );
-          upvalue.close();
-          upvalues.add(upvalue);
-        }
-      } else {
-        // Default behavior for regular loaded functions
-        // Add placeholder for first upvalue (index 1) - typically local variables
-        final placeholder = Upvalue(
-          valueBox: Box<dynamic>(null),
-          name: null,
-          interpreter: interpreter,
-        );
-        placeholder.close();
-        upvalues.add(placeholder);
-
-        // Add _ENV as second upvalue (index 2) to match Lua behavior
-        final envValue = currentEnv.get('_ENV') ?? currentEnv.get('_G');
-        if (envValue != null) {
-          final envBox = Box<dynamic>(envValue);
-          final envUpvalue = Upvalue(
-            valueBox: envBox,
-            name: '_ENV',
-            interpreter: interpreter,
-          );
-          envUpvalue.close();
-          upvalues.add(envUpvalue);
-        }
-      }
-
-      result.upvalues = upvalues;
-
-      result.interpreter = interpreter!;
-      logProfile('success');
-      return result;
-    } catch (e) {
-      // For FormatException, return just the message without prefix
-      // to match Lua's error format
-      if (e is FormatException) {
-        logProfile('parse-error', error: e.message);
-        return [Value(null), Value(e.message)];
-      }
-      logProfile('parse-error', error: e.toString());
-      return [Value(null), Value("Error parsing source code: $e")];
-    }
+    return [Value(null), Value(result.errorMessage)];
   }
 }
 
@@ -1498,32 +1261,29 @@ class DoFileFunction extends BuiltinFunction {
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) throw LuaError("dofile requires a filename");
     final filename = (args[0] as Value).raw.toString();
-
-    // Load source using FileManager
-    final source = await interpreter!.fileManager.loadSource(filename);
-    if (source == null) {
-      throw LuaError("Cannot open file '$filename'");
+    final runtime = interpreter;
+    if (runtime == null) {
+      throw LuaError("No interpreter context available");
     }
 
+    final loaded = await LoadfileFunction(
+      runtime,
+    ).call(<Object?>[Value(filename)]);
+    if (loaded is Value && loaded.raw == null) {
+      throw LuaError("Cannot open file '$filename'");
+    }
+    if (loaded is List) {
+      final error = loaded.length > 1 && loaded[1] is Value
+          ? (loaded[1] as Value).raw
+          : loaded;
+      throw LuaError("Error in dofile('$filename'): $error");
+    }
+
+    final chunk = loaded is Value ? loaded : Value.wrap(loaded);
     try {
-      // Parse content into AST
-      final ast = parse(source, url: filename);
-
-      // Execute in current VM context
-      final result = await interpreter!.runAst(ast.statements);
-
-      // Return result or nil if no result
-      return result;
-    } on ReturnException catch (e) {
-      return e.value;
-    } on TailCallException catch (t) {
-      final callee = t.functionValue is Value
-          ? t.functionValue as Value
-          : Value(t.functionValue);
-      final normalizedArgs = t.args
-          .map((a) => a is Value ? a : Value(a))
-          .toList();
-      return await interpreter!.callFunction(callee, normalizedArgs);
+      return await runtime.callFunction(chunk, const <Object?>[]);
+    } on YieldException {
+      rethrow;
     } catch (e) {
       throw LuaError("Error in dofile('$filename'): $e");
     }
@@ -1558,8 +1318,9 @@ class SetmetaFunction extends BuiltinFunction {
     }
 
     if (meta.raw is Map) {
-      Logger.debug(
-        "setmetatable called on table with raw: ${table.raw} and meta: ${meta.raw}",
+      Logger.debugLazy(
+        () =>
+            "setmetatable called on table with raw: ${table.raw} and meta: ${meta.raw}",
         category: "Metatables",
       );
       final rawMeta = <String, dynamic>{};
@@ -1576,13 +1337,13 @@ class SetmetaFunction extends BuiltinFunction {
         }
       });
       table.metatableRef = meta;
-      table.setMetatable(rawMeta);
-      Logger.debug(
-        "Metatable set. Weak mode now ${table.tableWeakMode}",
+      table.setMetatable(rawMeta, ownerRaw: meta.raw);
+      Logger.debugLazy(
+        () => "Metatable set. Weak mode now ${table.tableWeakMode}",
         category: 'Metatables',
       );
-      Logger.debug(
-        "Metatable set. New metatable: ${table.getMetatable()}",
+      Logger.debugLazy(
+        () => "Metatable set. New metatable: ${table.getMetatable()}",
         category: "Metatables",
       );
       return table;
@@ -1597,185 +1358,29 @@ class LoadfileFunction extends BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
     final filename = args.isNotEmpty ? (args[0] as Value).raw.toString() : null;
-    // mode: 'b', 't', or 'bt' (default)
     final modeStr = args.length > 1 ? (args[1] as Value).raw.toString() : 'bt';
-    // env parameter (3rd argument). Important: even when explicitly passed as
-    // nil, Lua considers the environment "provided" and sets _ENV to nil for
-    // the loaded function. Distinguish between not-provided and provided-nil.
-    final bool envProvided = args.length > 2;
-    final env = envProvided ? (args[2] as Value).raw : null;
-
-    // If a filename is provided and it does not exist, follow Lua semantics: return nil
-    if (filename != null && !(await fileExists(filename))) {
-      return Value(null);
+    final providedEnv = args.length > 2 ? args[2] as Value : null;
+    final runtime = interpreter;
+    if (runtime == null) {
+      throw LuaError("No interpreter context available");
     }
 
-    // Decide text/binary and get source now (Lua compiles at load time).
-    final allowText = modeStr.contains('t');
-    final allowBinary = modeStr.contains('b');
-    String sourceCode;
-
     try {
+      Value sourceValue;
       if (filename == null) {
-        // Read all from default input
         final defaultInput = IOLib.defaultInput;
         final luaFile = defaultInput.raw as LuaFile;
         final result = await luaFile.read('a');
-        sourceCode = result[0]?.toString() ?? '';
-        // Enforce mode on textual source too: if begins with ESC -> binary
-        final startsEsc =
-            sourceCode.isNotEmpty && sourceCode.codeUnitAt(0) == 0x1B;
-        if (startsEsc && !allowBinary) {
-          return [Value(null), Value("a binary chunk")];
-        }
-        if (!startsEsc && !allowText) {
-          return [Value(null), Value("a text chunk")];
-        }
-
-        // Handle binary chunks from standard input
-        if (startsEsc) {
-          // Use ChunkSerializer for consistent binary chunk handling
-          ChunkInfo chunkInfo;
-          try {
-            chunkInfo = ChunkSerializer.deserializeChunk(sourceCode);
-          } catch (e) {
-            return [Value(null), Value(e.toString())];
-          }
-          if (chunkInfo.originalFunctionBody != null) {
-            // Use direct AST evaluation for string.dump functions
-            return Value((List<Object?> callArgs) async {
-              final currentVm = interpreter;
-              if (currentVm == null) {
-                throw LuaError("No interpreter context available");
-              }
-              try {
-                final savedEnv = currentVm.getCurrentEnv();
-                final loadEnv = Environment(
-                  parent: savedEnv.root,
-                  interpreter: currentVm,
-                );
-                if (envProvided) {
-                  loadEnv.declare("_ENV", Value(env));
-                } else {
-                  final gValue = savedEnv.get('_G') ?? savedEnv.root.get('_G');
-                  if (gValue is Value) {
-                    loadEnv.declare('_ENV', gValue);
-                  }
-                }
-                loadEnv.declare("...", Value.multi(callArgs));
-                currentVm.setCurrentEnv(loadEnv);
-                final prevPath = currentVm.currentScriptPath;
-                currentVm.currentScriptPath = filename;
-                try {
-                  final astNode = chunkInfo.originalFunctionBody!;
-                  final funcValue =
-                      await currentVm.evaluateAst(astNode) as Value;
-                  if (funcValue.raw is Function) {
-                    return await currentVm.callFunction(funcValue, callArgs);
-                  } else {
-                    return funcValue;
-                  }
-                } finally {
-                  currentVm.setCurrentEnv(savedEnv);
-                  currentVm.currentScriptPath = prevPath;
-                }
-              } on ReturnException catch (e) {
-                return e.value;
-              } catch (e) {
-                throw LuaError("Error executing AST chunk: $e");
-              }
-            });
-          } else {
-            sourceCode = chunkInfo.source;
-            Logger.debug(
-              "LoadfileFunction: Deserialized chunk from stdin: $chunkInfo",
-              category: 'Load',
-            );
-          }
-        }
+        sourceValue = Value(result[0]?.toString() ?? '');
       } else {
-        // Inspect raw bytes to decide text/binary
         final bytes = await readFileAsBytes(filename);
         if (bytes == null) {
-          // Fall back to text loader
-          final src = await interpreter?.fileManager.loadSource(filename);
+          final src = await runtime.fileManager.loadSource(filename);
           if (src == null) {
             return Value(null);
           }
-          final startsEsc = src.isNotEmpty && src.codeUnitAt(0) == 0x1B;
-          if (startsEsc && !allowBinary) {
-            return [Value(null), Value("a binary chunk")];
-          }
-          if (!startsEsc && !allowText) {
-            return [Value(null), Value("a text chunk")];
-          }
-
-          // Handle binary chunks from file fallback
-          if (startsEsc) {
-            // Use ChunkSerializer for consistent binary chunk handling
-            ChunkInfo chunkInfo;
-            try {
-              chunkInfo = ChunkSerializer.deserializeChunk(src);
-            } catch (e) {
-              return [Value(null), Value(e.toString())];
-            }
-            if (chunkInfo.originalFunctionBody != null) {
-              // Use direct AST evaluation for string.dump functions
-              return Value((List<Object?> callArgs) async {
-                final currentVm = interpreter;
-                if (currentVm == null) {
-                  throw LuaError("No interpreter context available");
-                }
-                try {
-                  final savedEnv = currentVm.getCurrentEnv();
-                  final loadEnv = Environment(
-                    parent: savedEnv.root,
-                    interpreter: currentVm,
-                  );
-                  if (envProvided) {
-                    loadEnv.declare("_ENV", Value(env));
-                  } else {
-                    final gValue =
-                        savedEnv.get('_G') ?? savedEnv.root.get('_G');
-                    if (gValue is Value) {
-                      loadEnv.declare('_ENV', gValue);
-                    }
-                  }
-                  loadEnv.declare("...", Value.multi(callArgs));
-                  currentVm.setCurrentEnv(loadEnv);
-                  final prevPath = currentVm.currentScriptPath;
-                  currentVm.currentScriptPath = filename;
-                  try {
-                    final astNode = chunkInfo.originalFunctionBody!;
-                    final funcValue =
-                        await currentVm.evaluateAst(astNode) as Value;
-                    if (funcValue.raw is Function) {
-                      return await currentVm.callFunction(funcValue, callArgs);
-                    } else {
-                      return funcValue;
-                    }
-                  } finally {
-                    currentVm.setCurrentEnv(savedEnv);
-                    currentVm.currentScriptPath = prevPath;
-                  }
-                } on ReturnException catch (e) {
-                  return e.value;
-                } catch (e) {
-                  throw LuaError("Error executing AST chunk: $e");
-                }
-              });
-            } else {
-              sourceCode = chunkInfo.source;
-              Logger.debug(
-                "LoadfileFunction: Deserialized chunk from file fallback: $chunkInfo",
-                category: 'Load',
-              );
-            }
-          } else {
-            sourceCode = src;
-          }
+          sourceValue = Value(src);
         } else {
-          // Check for binary chunk - may start with ESC or appear after comment
           int binaryStart = -1;
           for (int i = 0; i < bytes.length; i++) {
             if (bytes[i] == 0x1B) {
@@ -1783,156 +1388,37 @@ class LoadfileFunction extends BuiltinFunction {
               break;
             }
           }
-
-          final isBinary = binaryStart >= 0;
-          if (isBinary && !allowBinary) {
-            return [Value(null), Value("a binary chunk")];
-          }
-          if (!isBinary && !allowText) {
-            return [Value(null), Value("a text chunk")];
-          }
-          // Use ChunkSerializer for consistent binary chunk handling
-          if (isBinary) {
-            // Extract binary chunk from the position where ESC byte is found
-            final binaryBytes = bytes.sublist(binaryStart);
-            final binaryChunkLuaString = LuaString.fromBytes(
-              Uint8List.fromList(binaryBytes),
+          if (binaryStart >= 0) {
+            sourceValue = Value(
+              LuaString.fromBytes(
+                Uint8List.fromList(bytes.sublist(binaryStart)),
+              ),
             );
-            ChunkInfo chunkInfo;
-            try {
-              chunkInfo = ChunkSerializer.deserializeChunkFromLuaString(
-                binaryChunkLuaString,
-              );
-            } catch (e) {
-              return [Value(null), Value(e.toString())];
-            }
-            if (chunkInfo.originalFunctionBody != null) {
-              // Use direct AST evaluation for string.dump functions
-              return Value((List<Object?> callArgs) async {
-                final currentVm = interpreter;
-                if (currentVm == null) {
-                  throw LuaError("No interpreter context available");
-                }
-                try {
-                  final savedEnv = currentVm.getCurrentEnv();
-                  final loadEnv = Environment(
-                    parent: savedEnv.root,
-                    interpreter: currentVm,
-                  );
-                  if (envProvided) {
-                    loadEnv.declare("_ENV", Value(env));
-                  } else {
-                    final gValue =
-                        savedEnv.get('_G') ?? savedEnv.root.get('_G');
-                    if (gValue is Value) {
-                      loadEnv.declare('_ENV', gValue);
-                    }
-                  }
-                  loadEnv.declare("...", Value.multi(callArgs));
-                  currentVm.setCurrentEnv(loadEnv);
-                  final prevPath = currentVm.currentScriptPath;
-                  currentVm.currentScriptPath = filename;
-                  try {
-                    final astNode = chunkInfo.originalFunctionBody!;
-                    final funcValue =
-                        await currentVm.evaluateAst(astNode) as Value;
-                    if (funcValue.raw is Function) {
-                      return await currentVm.callFunction(funcValue, callArgs);
-                    } else {
-                      return funcValue;
-                    }
-                  } finally {
-                    currentVm.setCurrentEnv(savedEnv);
-                    currentVm.currentScriptPath = prevPath;
-                  }
-                } on ReturnException catch (e) {
-                  return e.value;
-                } catch (e) {
-                  throw LuaError("Error executing AST chunk: $e");
-                }
-              });
-            } else {
-              sourceCode = chunkInfo.source;
-            }
           } else {
-            sourceCode = utf8.decode(bytes, allowMalformed: true);
+            sourceValue = Value(utf8.decode(bytes, allowMalformed: true));
           }
         }
       }
 
-      // Empty chunk yields function that returns nil
-      if (sourceCode.trim().isEmpty) {
-        return Value((List<Object?> _) async => Value(null));
-      }
-
-      Logger.debug(
-        'loadfile: source head: ${sourceCode.length > 80 ? sourceCode.substring(0, 80) : sourceCode}',
-        category: 'Load',
+      final result = await runtime.loadChunk(
+        LuaChunkLoadRequest(
+          source: sourceValue,
+          chunkName: filename ?? 'stdin',
+          mode: modeStr,
+          environment: providedEnv,
+        ),
       );
-      final ast = parse(sourceCode, url: filename ?? 'stdin');
-
-      // Build the callable chunk that runs the parsed AST under the right env
-      return Value((List<Object?> callArgs) async {
-        final currentVm = interpreter;
-        if (currentVm == null) {
-          throw LuaError("No interpreter context available");
-        }
-        try {
-          if (envProvided) {
-            final savedEnv = currentVm.getCurrentEnv();
-            final loadEnv = Environment(
-              parent: savedEnv.root,
-              interpreter: currentVm,
-            );
-            loadEnv.declare("_ENV", Value(env));
-            loadEnv.declare("...", Value.multi(callArgs));
-            final prevPath = currentVm.currentScriptPath;
-            currentVm.setCurrentEnv(loadEnv);
-            currentVm.currentScriptPath = filename;
-            try {
-              final r = await currentVm.runAst(ast.statements);
-              Logger.debug(
-                'loadfile: executed chunk, result=$r',
-                category: 'Load',
-              );
-              return r;
-            } finally {
-              currentVm.setCurrentEnv(savedEnv);
-              currentVm.currentScriptPath = prevPath;
-            }
-          } else {
-            final prevPath = currentVm.currentScriptPath;
-            currentVm.currentScriptPath = filename;
-            try {
-              final r = await currentVm.runAst(ast.statements);
-              Logger.debug(
-                'loadfile: executed chunk, result=$r',
-                category: 'Load',
-              );
-              return r;
-            } finally {
-              currentVm.currentScriptPath = prevPath;
-            }
-          }
-        } on ReturnException catch (e) {
-          return e.value;
-        } on TailCallException catch (t) {
-          final callee = t.functionValue is Value
-              ? t.functionValue as Value
-              : Value(t.functionValue);
-          final normalizedArgs = t.args
-              .map((a) => a is Value ? a : Value(a))
-              .toList();
-          return await currentVm.callFunction(callee, normalizedArgs);
-        } catch (e) {
-          throw LuaError("Error executing loaded chunk: $e");
-        }
-      });
-    } catch (e) {
-      if (e is FormatException) {
-        return [Value(null), Value(e.message)];
+      if (result.isSuccess) {
+        return result.chunk!;
       }
-      return [Value(null), Value("Error parsing source code: $e")];
+      return [Value(null), Value(result.errorMessage)];
+    } catch (e) {
+      return [
+        Value(null),
+        Value(
+          e is FormatException ? e.message : "Error parsing source code: $e",
+        ),
+      ];
     }
   }
 }
@@ -1949,6 +1435,16 @@ class NextFunction extends BuiltinFunction {
 
     final keyValue = args.length > 1 ? args[1] as Value : null;
     final keyRaw = keyValue?.raw;
+    if (keyValue != null &&
+        keyRaw != null &&
+        !_containsIterationKey(map, keyValue, keyRaw)) {
+      throw LuaError("invalid key to 'next'");
+    }
+
+    if (map case final TableStorage storage) {
+      return _nextFromTableStorage(table, storage, keyValue, keyRaw) ??
+          Value(null);
+    }
 
     var returnNext = keyValue == null || keyRaw == null;
     for (final entry in map.entries) {
@@ -1997,8 +1493,9 @@ class NextFunction extends BuiltinFunction {
         if (Logger.enabled &&
             table.tableWeakMode != null &&
             (table.hasWeakKeys || table.hasWeakValues || table.isAllWeak)) {
-          Logger.debug(
-            'next(pair): weak table (${table.tableWeakMode}) -> k=${nextKey.raw} (${nextKey.raw.runtimeType}) v=${nextValue.raw} (${nextValue.raw.runtimeType})',
+          Logger.debugLazy(
+            () =>
+                'next(pair): weak table (${table.tableWeakMode}) -> k=${nextKey.raw} (${nextKey.raw.runtimeType}) v=${nextValue.raw} (${nextValue.raw.runtimeType})',
             category: 'GC',
           );
         }
@@ -2009,6 +1506,166 @@ class NextFunction extends BuiltinFunction {
     }
 
     return Value(null);
+  }
+
+  Object? _nextFromTableStorage(
+    Value table,
+    TableStorage storage,
+    Value? keyValue,
+    dynamic keyRaw,
+  ) {
+    final previousDenseIndex = _denseIndex(keyRaw);
+    final previousKeyWasDense = switch (previousDenseIndex) {
+      final index?
+          when index > 0 && storage.containsDenseIterationIndex(index) =>
+        true,
+      _ => false,
+    };
+
+    final denseStart = switch (previousDenseIndex) {
+      final index? when index > 0 && previousKeyWasDense => index + 1,
+      _ when keyValue == null || keyRaw == null => 1,
+      _ => null,
+    };
+
+    if (denseStart case final int startIndex) {
+      for (var index = startIndex; index <= storage.arrayLength; index++) {
+        final entryValue = storage.denseValueAt(index);
+        if (entryValue == null) {
+          continue;
+        }
+        final wrapped = _wrapNextResult(index, entryValue);
+        return Value.multi([wrapped.$1, wrapped.$2]);
+      }
+
+      final hashKeyValue = previousKeyWasDense ? null : keyValue;
+      final hashKeyRaw = previousKeyWasDense ? null : keyRaw;
+      final hashEntry = hashKeyRaw == null
+          ? storage.firstHashEntry()
+          : _nextHashEntryAfterCursor(storage, hashKeyValue, hashKeyRaw);
+      if (hashEntry == null) {
+        return null;
+      }
+      final wrapped = _wrapNextResult(hashEntry.key, hashEntry.value);
+      if (_shouldSkipWeakKey(table, wrapped.$1)) {
+        return _nextFromEntries(
+          storage.hashEntries,
+          table,
+          wrapped.$1,
+          wrapped.$1.raw,
+        );
+      }
+      return Value.multi([wrapped.$1, wrapped.$2]);
+    }
+
+    final hashEntry = keyRaw == null
+        ? storage.firstHashEntry()
+        : _nextHashEntryAfterCursor(storage, keyValue, keyRaw);
+    if (hashEntry == null) {
+      return null;
+    }
+    final wrapped = _wrapNextResult(hashEntry.key, hashEntry.value);
+    if (_shouldSkipWeakKey(table, wrapped.$1)) {
+      return _nextFromEntries(
+        storage.hashEntries,
+        table,
+        wrapped.$1,
+        wrapped.$1.raw,
+      );
+    }
+    return Value.multi([wrapped.$1, wrapped.$2]);
+  }
+
+  Object? _nextFromEntries(
+    Iterable<MapEntry<dynamic, dynamic>> entries,
+    Value table,
+    Value? keyValue,
+    dynamic keyRaw,
+  ) {
+    var returnNext = keyValue == null || keyRaw == null;
+    for (final entry in entries) {
+      if (!returnNext) {
+        if (_keysMatch(entry.key, keyValue, keyRaw)) {
+          returnNext = true;
+        }
+        continue;
+      }
+
+      final wrapped = _wrapNextResult(entry.key, entry.value);
+      if (_shouldSkipWeakKey(table, wrapped.$1)) {
+        continue;
+      }
+      return Value.multi([wrapped.$1, wrapped.$2]);
+    }
+    return null;
+  }
+
+  MapEntry<dynamic, dynamic>? _nextHashEntryAfterCursor(
+    TableStorage storage,
+    Value? keyValue,
+    dynamic keyRaw,
+  ) {
+    if (keyValue != null) {
+      final byValue = storage.nextHashEntryAfter(keyValue);
+      if (byValue != null) {
+        return byValue;
+      }
+    }
+    return storage.nextHashEntryAfter(keyRaw);
+  }
+
+  (Value, Value) _wrapNextResult(dynamic key, dynamic value) {
+    final nextKey = switch (key) {
+      final Value value => value,
+      final String value => Value(value, isTempKey: true),
+      final LuaString value => Value(value, isTempKey: true),
+      final num value => Value(value, isTempKey: true),
+      final bool value => Value(value, isTempKey: true),
+      null => Value(null, isTempKey: true),
+      _ => Value(key),
+    };
+    final nextValue = switch (value) {
+      final Value wrapped => wrapped,
+      final String value => Value(value, isTempKey: true),
+      final LuaString value => Value(value, isTempKey: true),
+      final num value => Value(value, isTempKey: true),
+      final bool value => Value(value, isTempKey: true),
+      null => Value(null, isTempKey: true),
+      _ => Value(value),
+    };
+    return (nextKey, nextValue);
+  }
+
+  bool _shouldSkipWeakKey(Value table, Value nextKey) {
+    if (table.tableWeakMode == null ||
+        (!table.hasWeakKeys && !table.isAllWeak)) {
+      return false;
+    }
+
+    final vm = interpreter!;
+    if (vm.gc.isFinalizing || nextKey.isPrimitiveLike) {
+      return false;
+    }
+
+    final inYoung = vm.gc.youngGen.objects.contains(nextKey);
+    final inOld = vm.gc.oldGen.objects.contains(nextKey);
+    return (!inYoung && !inOld) || nextKey.isFreed;
+  }
+
+  int? _denseIndex(dynamic keyRaw) {
+    if (keyRaw is int) {
+      return keyRaw > 0 ? keyRaw : null;
+    }
+    if (keyRaw is num) {
+      if (keyRaw is double && !keyRaw.isFinite) {
+        return null;
+      }
+      final dense = keyRaw.toInt();
+      if (dense > 0 && dense.toDouble() == keyRaw.toDouble()) {
+        return dense;
+      }
+    }
+    return null;
   }
 
   bool _keysMatch(dynamic candidate, Value? keyValue, dynamic keyRaw) {
@@ -2034,6 +1691,26 @@ class NextFunction extends BuiltinFunction {
 
     return false;
   }
+
+  bool _containsIterationKey(
+    Map<dynamic, dynamic> map,
+    Value keyValue,
+    dynamic keyRaw,
+  ) {
+    if (map case final TableStorage storage) {
+      return storage.containsKey(keyRaw) ||
+          storage.containsKey(keyValue) ||
+          storage.containsIterationKey(keyRaw) ||
+          storage.containsIterationKey(keyValue);
+    }
+
+    for (final entry in map.entries) {
+      if (_keysMatch(entry.key, keyValue, keyRaw)) {
+        return true;
+      }
+    }
+    return false;
+  }
 }
 
 class PCAllFunction extends BuiltinFunction {
@@ -2041,13 +1718,15 @@ class PCAllFunction extends BuiltinFunction {
 
   @override
   Future<Object?> call(List<Object?> args) async {
+    if (Logger.enabled) {
+      Logger.debugLazy(
+        () => 'pcall invoked with ${args.length - 1} argument(s)',
+        category: 'Debug',
+      );
+    }
     if (args.isEmpty) throw LuaError("pcall requires a function");
     final func = args[0] as Value;
     final callArgs = args.sublist(1);
-
-    // Set non-yieldable state for this protected call
-    final previousYieldable = interpreter!.isYieldable;
-    interpreter!.isYieldable = false;
 
     // Enter protected call context
     interpreter!.enterProtectedCall();
@@ -2056,24 +1735,12 @@ class PCAllFunction extends BuiltinFunction {
       // Delegate invocation to the interpreter so that all callable
       // forms are supported (BuiltinFunction, Dart Function, FunctionBody,
       // FunctionDef, and values with __call).
-      if (!(func.isCallable() ||
-          func.raw is BuiltinFunction ||
-          func.raw is Function ||
-          func.raw is FunctionBody ||
-          func.raw is FunctionDef)) {
+      if (!func.isCallable()) {
         throw LuaError.typeError("attempt to call a ${getLuaType(func)} value");
       }
 
       final callResult = await interpreter!.callFunction(func, callArgs);
-
-      if (callResult is Value && callResult.isMulti) {
-        final multiValues = callResult.raw as List;
-        return Value.multi([true, ...multiValues]);
-      }
-      return Value.multi([
-        true,
-        callResult is Value ? callResult.raw : callResult,
-      ]);
+      return _packProtectedCallSuccess(callResult);
     } on TailCallException catch (t) {
       // Perform the tail call using the interpreter and return as success
       final callee = t.functionValue is Value
@@ -2086,31 +1753,21 @@ class PCAllFunction extends BuiltinFunction {
         callee,
         normalizedArgs,
       );
-      if (awaitedResult is Value && awaitedResult.isMulti) {
-        final multiValues = awaitedResult.raw as List;
-        return Value.multi([true, ...multiValues]);
-      } else {
-        return Value.multi([
-          true,
-          awaitedResult is Value ? awaitedResult.raw : awaitedResult,
-        ]);
-      }
+      return _packProtectedCallSuccess(awaitedResult);
+    } on CoroutineCloseSignal {
+      rethrow;
+    } on YieldException catch (error) {
+      _installProtectedCallContinuation(interpreter!, error);
+      rethrow;
     } catch (e) {
-      // If the error is a Value object, return its raw value
-      // If it's a LuaError, return just the message
-      // Otherwise, convert to string
-      final errorValue = e is Value
-          ? e.raw
-          : e is LuaError
-          ? e.message
-          : e.toString();
-      return Value.multi([false, errorValue]);
+      Logger.debugLazy(
+        () => 'pcall caught error: $e (${e.runtimeType})',
+        category: 'Debug',
+      );
+      return _packProtectedCallFailure(interpreter!, e);
     } finally {
       // Exit protected call context
       interpreter!.exitProtectedCall();
-
-      // Restore previous yieldable state
-      interpreter!.isYieldable = previousYieldable;
     }
   }
 }
@@ -2186,6 +1843,43 @@ class WarnFunction extends BuiltinFunction {
 class XPCallFunction extends BuiltinFunction {
   XPCallFunction(super.interpreter);
 
+  Future<Object?> _invokeErrorHandler(
+    Value handler,
+    Object error, {
+    required int depth,
+  }) async {
+    if (depth > _maxXpcallMessageHandlerDepth) {
+      return _packXProtectedCallFailure(Value('C stack overflow'));
+    }
+    final errorValue = _errorHandlerArgument(error);
+
+    try {
+      final handlerResult = await interpreter!.callFunction(handler, [
+        errorValue,
+      ]);
+      return _packXProtectedCallFailure(handlerResult);
+    } on CoroutineCloseSignal {
+      rethrow;
+    } on YieldException catch (error) {
+      _installProtectedCallContinuation(
+        interpreter!,
+        error,
+        messageHandler: handler,
+        errorHandlerDepth: depth,
+      );
+      rethrow;
+    } catch (handlerError) {
+      if (_shouldRecurseXpcallHandler(handlerError)) {
+        return await _invokeErrorHandler(
+          handler,
+          handlerError,
+          depth: depth + 1,
+        );
+      }
+      return _packXProtectedErrorHandlerFailure(handlerError);
+    }
+  }
+
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.length < 2) {
@@ -2195,36 +1889,24 @@ class XPCallFunction extends BuiltinFunction {
     final msgh = args[1] as Value;
     final callArgs = args.sublist(2);
 
-    if (func.raw is! Function && func.raw is! BuiltinFunction) {
+    if (!func.isCallable()) {
       throw LuaError.typeError(
         "xpcall requires a function as its first argument",
       );
     }
 
-    if (msgh.raw is! Function && msgh.raw is! BuiltinFunction) {
+    if (!msgh.isCallable()) {
       throw LuaError.typeError(
         "xpcall requires a function as its second argument",
       );
     }
 
-    // Set protected-call flags similar to pcall
-    final previousYieldable = interpreter!.isYieldable;
-    interpreter!.isYieldable = false;
     interpreter!.enterProtectedCall();
 
     try {
       // Execute the function via interpreter to honor tail calls/yields
       final callResult = await interpreter!.callFunction(func, callArgs);
-
-      // Normalize return for success: true + results
-      if (callResult is Value && callResult.isMulti) {
-        final multiValues = callResult.raw as List;
-        return Value.multi([Value(true), ...multiValues]);
-      }
-      return Value.multi([
-        Value(true),
-        callResult is Value ? callResult.raw : callResult,
-      ]);
+      return _packProtectedCallSuccess(callResult);
     } on TailCallException catch (t) {
       // Complete the tail call and still report success
       final callee = t.functionValue is Value
@@ -2237,42 +1919,22 @@ class XPCallFunction extends BuiltinFunction {
         callee,
         normalizedArgs,
       );
-      if (awaitedResult is Value && awaitedResult.isMulti) {
-        final multiValues = awaitedResult.raw as List;
-        return Value.multi([Value(true), ...multiValues]);
-      }
-      return Value.multi([
-        Value(true),
-        awaitedResult is Value ? awaitedResult.raw : awaitedResult,
-      ]);
+      return _packProtectedCallSuccess(awaitedResult);
+    } on CoroutineCloseSignal {
+      rethrow;
+    } on YieldException catch (error) {
+      _installProtectedCallContinuation(
+        interpreter!,
+        error,
+        messageHandler: msgh,
+      );
+      rethrow;
     } catch (e) {
       // Call the message handler with the error (protected)
-      try {
-        final errorValue = e is Value
-            ? (e.raw is Value ? e.raw : e)
-            : Value(e.toString());
-        final handlerResult = await interpreter!.callFunction(msgh, [
-          errorValue,
-        ]);
-
-        if (handlerResult is Value && handlerResult.isMulti) {
-          final multiValues = handlerResult.raw as List;
-          return Value.multi([Value(false), ...multiValues]);
-        }
-        return Value.multi([
-          Value(false),
-          handlerResult is Value ? handlerResult : Value(handlerResult),
-        ]);
-      } catch (e2) {
-        return Value.multi([
-          Value(false),
-          Value("Error in error handler: $e2"),
-        ]);
-      }
+      return await _invokeErrorHandler(msgh, e, depth: 1);
     } finally {
       // Exit protected-call context and restore state
       interpreter!.exitProtectedCall();
-      interpreter!.isYieldable = previousYieldable;
     }
   }
 }
@@ -2287,29 +1949,39 @@ class CollectGarbageFunction extends BuiltinFunction {
     final option = args.isNotEmpty
         ? (args[0] as Value).raw.toString()
         : "collect";
-    Logger.debug('CollectGarbageFunction: option: $option', category: 'Base');
+    Logger.debugLazy(
+      () => 'CollectGarbageFunction: option: $option',
+      category: 'Base',
+    );
 
     return () async {
       switch (option) {
         case "collect":
           // "collect": Performs a full garbage-collection cycle
           final gcManager = interpreter!.gc;
+          final runtime = interpreter!;
+          final insideSortComparator = isInsideSortComparator(runtime);
+          final shouldAbandonIncrementalCycle =
+              insideSortComparator ||
+              runtime.shouldAbandonIncrementalCycleBeforeManualCollect;
           if (gcManager.isFinalizerActive) {
             // Lua returns false when collection is in a finalizer to prevent
             // re-entrancy (the finalizer may attempt another collect).
             return Value(false);
           }
-          if (gcManager.isCycleActive) {
-            final drained = gcManager.drainCurrentIncrementalCycle(
-              maxIterations: 8192,
-              stepSize: 512,
-            );
-            if (!drained && Logger.enabled) {
-              Logger.debug(
-                'collectgarbage("collect") could not drain incremental cycle before manual collect (phase=${gcManager.currentPhase})',
+          if (gcManager.isCycleActive && shouldAbandonIncrementalCycle) {
+            gcManager.abandonIncrementalCycleForMajorCollect();
+            if (Logger.enabled) {
+              Logger.debugLazy(
+                () =>
+                    'collectgarbage("collect") abandoned incremental cycle before manual collect',
                 category: 'Base',
               );
             }
+          }
+          if (insideSortComparator && gcManager.shouldThrottleManualCollect()) {
+            gcManager.noteManualCollectSkip();
+            return Value(true);
           }
           if (!gcManager.tryEnterManualCollect()) {
             return Value(false);
@@ -2333,8 +2005,9 @@ class CollectGarbageFunction extends BuiltinFunction {
               await gcManager.majorCollection(interpreter!.getRoots());
               sw.stop();
               if (Logger.enabled) {
-                Logger.debug(
-                  'manual collect major pass #$pass took ${sw.elapsedMilliseconds}ms',
+                Logger.debugLazy(
+                  () =>
+                      'manual collect major pass #$pass took ${sw.elapsedMilliseconds}ms',
                   category: 'GC',
                 );
               }
@@ -2383,7 +2056,11 @@ class CollectGarbageFunction extends BuiltinFunction {
           // (in Kbytes) had been allocated by Lua
           final stepSize = args.length > 1 ? (args[1] as Value).raw as num : 0;
           bool cycleComplete = false;
-          if (stepSize == 0) {
+          if (_currentMode == "generational") {
+            cycleComplete = await interpreter!.gc.performGenerationalStep(
+              interpreter!.getRoots(),
+            );
+          } else if (stepSize == 0) {
             cycleComplete = interpreter!.gc.performIncrementalStep(1);
           } else {
             final sizeKb = stepSize.abs().toInt().clamp(1, 1 << 20);
@@ -2429,6 +2106,42 @@ class CollectGarbageFunction extends BuiltinFunction {
             interpreter!.gc.majorMultiplier = (args[2] as Value).raw as int;
           }
           return Value(oldMode);
+
+        case "param":
+          if (args.length < 2) {
+            throw LuaError('collectgarbage("param") requires a parameter name');
+          }
+          final paramName = (args[1] as Value).raw.toString();
+
+          int currentValue() => switch (paramName) {
+            "pause" => interpreter!.gc.majorMultiplier,
+            "stepmul" => interpreter!.gc.minorMultiplier,
+            "stepsize" => interpreter!.gc.stepSize,
+            "minormul" => interpreter!.gc.minorMultiplier,
+            "majormul" => interpreter!.gc.majorMultiplier,
+            _ => throw LuaError('invalid collectgarbage parameter: $paramName'),
+          };
+
+          final previousValue = currentValue();
+          if (args.length > 2) {
+            final newValue = ((args[2] as Value).raw as num).toInt();
+            switch (paramName) {
+              case "pause":
+              case "majormul":
+                interpreter!.gc.majorMultiplier = newValue;
+                break;
+              case "stepmul":
+              case "minormul":
+                interpreter!.gc.minorMultiplier = newValue;
+                break;
+              case "stepsize":
+                interpreter!.gc.stepSize = newValue;
+                break;
+              default:
+                throw LuaError('invalid collectgarbage parameter: $paramName');
+            }
+          }
+          return Value(previousValue);
 
         case "isrunning":
           // "isrunning": Returns a boolean that tells whether the collector
@@ -2508,7 +2221,7 @@ class PairsFunction extends BuiltinFunction {
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) {
-      throw LuaError("pairs requires a table argument");
+      throw LuaError(_badTableArgumentMessage('pairs', null));
     }
 
     final table = args[0] as Value;
@@ -2517,33 +2230,69 @@ class PairsFunction extends BuiltinFunction {
     }
 
     if (table.raw is! Map) {
-      throw LuaError("pairs requires a table argument");
+      throw LuaError(_badTableArgumentMessage('pairs', table));
     }
     final nextFunc = interpreter!.globals.get('next');
     final nextValue = nextFunc is Value ? nextFunc : Value(nextFunc);
-
-    final iterator = Value((List<Object?> iterArgs) async {
-      final normalizedArgs = iterArgs
-          .map((arg) => arg is Value ? arg : Value(arg))
-          .toList();
-      return await interpreter!.callFunction(nextValue, normalizedArgs);
-    });
-
-    return Value.multi([iterator, table, Value(null)]);
+    return Value.multi([nextValue, table, Value(null)]);
   }
+}
+
+String _badTableArgumentMessage(String functionName, Value? value) {
+  final typeName = switch (value) {
+    null => 'no value',
+    final Value value => getLuaType(value.raw),
+  };
+  return "bad argument #1 to '$functionName' (table expected, got $typeName)";
 }
 
 class RequireFunction extends BuiltinFunction {
   RequireFunction(super.interpreter, this.packageTable);
 
   final Value packageTable;
+  static const List<String> _standardLibs = [
+    "string",
+    "table",
+    "math",
+    "io",
+    "os",
+    "debug",
+    "utf8",
+    "coroutine",
+  ];
+
+  Value? _resolveStandardLibrary(String moduleName) {
+    if (!_standardLibs.contains(moduleName)) {
+      return null;
+    }
+    final initialized = interpreter!.libraryRegistry.initializeLibraryByName(
+      moduleName,
+    );
+    if (initialized != null) {
+      return initialized;
+    }
+    final globalLib = interpreter!.globals.get(moduleName);
+    return globalLib is Value ? globalLib : null;
+  }
 
   @override
   Future<Object?> call(List<Object?> args) async {
     if (args.isEmpty) throw LuaError("require() needs a module name");
     final moduleName = (args[0] as Value).raw.toString();
 
-    Logger.debug("Looking for module '$moduleName'", category: 'Require');
+    Logger.debugLazy(
+      () => "Looking for module '$moduleName'",
+      category: 'Require',
+    );
+
+    final standardLibrary = _resolveStandardLibrary(moduleName);
+    if (standardLibrary != null) {
+      Logger.debugLazy(
+        () => "Resolved standard library module '$moduleName'",
+        category: 'Require',
+      );
+      return standardLibrary;
+    }
 
     // Get package.loaded table first to check for standard library modules
     if (packageTable.raw is Map) {
@@ -2555,37 +2304,14 @@ class RequireFunction extends BuiltinFunction {
           if (loadedEarly.containsKey(moduleName)) {
             final val = loadedEarly[moduleName];
             if (val is Value && val.raw != false) {
-              Logger.debug(
-                "Found module '$moduleName' in package.loaded",
+              Logger.debugLazy(
+                () => "Found module '$moduleName' in package.loaded",
                 category: 'Require',
               );
               return val;
             }
           }
         }
-      }
-    }
-
-    // Check for standard library modules by looking at global variables
-    // This ensures that require("string") == string, etc.
-    final standardLibs = [
-      "string",
-      "table",
-      "math",
-      "io",
-      "os",
-      "debug",
-      "utf8",
-      "coroutine",
-    ];
-    if (standardLibs.contains(moduleName)) {
-      final globalLib = interpreter!.globals.get(moduleName);
-      if (globalLib != null) {
-        Logger.debug(
-          "Found standard library module '$moduleName' in globals",
-          category: 'Require',
-        );
-        return globalLib;
       }
     }
 
@@ -2610,15 +2336,18 @@ class RequireFunction extends BuiltinFunction {
     // Ensure package.loaded exists
     if (!packageTable.containsKey("loaded")) {
       packageTable["loaded"] = Value({});
-      Logger.debug("Created new package.loaded table", category: 'Require');
+      Logger.debugLazy(
+        () => "Created new package.loaded table",
+        category: 'Require',
+      );
     }
 
     // Get the loaded table as a Value
     final loadedValue = packageTable["loaded"] as Value;
     final loaded = loadedValue;
 
-    Logger.debug(
-      "Loaded: $loaded with keys: ${loaded.keys}",
+    Logger.debugLazy(
+      () => "Loaded: $loaded with keys: ${loaded.keys}",
       category: 'Require',
     );
 
@@ -2626,8 +2355,8 @@ class RequireFunction extends BuiltinFunction {
     if (loaded.containsKey(moduleName)) {
       final loadedVal = loaded[moduleName];
       if (loadedVal is Value && loadedVal.raw != false) {
-        Logger.debug(
-          "Module '$moduleName' already loaded: $loadedVal",
+        Logger.debugLazy(
+          () => "Module '$moduleName' already loaded: $loadedVal",
           category: 'Require',
         );
         return loadedVal;
@@ -2644,20 +2373,21 @@ class RequireFunction extends BuiltinFunction {
         preloadTable.raw is Map) {
       final preloadMap = preloadTable.raw as Map;
       if (preloadMap.containsKey(moduleName)) {
-        Logger.debug(
-          "Found module '$moduleName' in preload table",
+        Logger.debugLazy(
+          () => "Found module '$moduleName' in preload table",
           category: 'Require',
         );
         final loader = preloadMap[moduleName];
 
         if (loader is Value && loader.isCallable()) {
           try {
-            final result = await (loader.raw as Function)([
+            final result = await interpreter!.callFunction(loader, [
               Value(moduleName),
               Value(':preload:'),
             ]);
-            loaded[moduleName] = result;
-            return Value.multi([result, Value(':preload:')]);
+            final stored = result is Value ? result : Value(result);
+            loaded[moduleName] = stored;
+            return Value.multi([stored, Value(':preload:')]);
           } catch (e) {
             throw LuaError(
               "error loading module '$moduleName' from preload: $e",
@@ -2686,20 +2416,22 @@ class RequireFunction extends BuiltinFunction {
         interpreter!.currentScriptPath != null) {
       final scriptDir = path.dirname(interpreter!.currentScriptPath!);
       final directPath = path.join(scriptDir, '$moduleName.lua');
-      Logger.debug(
-        "DEBUG: Trying direct path in script directory: $directPath",
+      Logger.debugLazy(
+        () => "DEBUG: Trying direct path in script directory: $directPath",
       );
 
       if (await fileExists(directPath)) {
-        Logger.debug("DEBUG: Module found in script directory: $directPath");
+        Logger.debugLazy(
+          () => "DEBUG: Module found in script directory: $directPath",
+        );
         modulePath = directPath;
       }
     }
 
     // If not found in the script directory, use the regular resolution
     if (modulePath == null) {
-      Logger.debug(
-        "Resolving module path for '$moduleName'",
+      Logger.debugLazy(
+        () => "Resolving module path for '$moduleName'",
         category: 'Require',
       );
       modulePath = await interpreter!.fileManager.resolveModulePath(moduleName);
@@ -2710,29 +2442,21 @@ class RequireFunction extends BuiltinFunction {
 
     final modulePathStr = modulePath;
     if (modulePathStr != null) {
-      Logger.debug(
-        "(REQUIRE) RequireFunction: Loading module '$moduleName' from path: $modulePathStr",
+      Logger.debugLazy(
+        () =>
+            "(REQUIRE) RequireFunction: Loading module '$moduleName' from path: $modulePathStr",
         category: 'Require',
       );
 
       final source = await interpreter!.fileManager.loadSource(modulePathStr);
       if (source != null) {
         try {
-          Logger.debug(
-            "REQUIRE: Module source loaded, parsing and executing",
+          Logger.debugLazy(
+            () => "REQUIRE: Module source loaded, parsing and executing",
             category: 'Require',
           );
           // Parse the module code
           final ast = parse(source, url: modulePathStr);
-
-          // Execute module code in an isolated module environment.
-          // After execution, propagate specific globals expected by tests.
-          final moduleEnv = Environment.createModuleEnvironment(
-            interpreter!.globals,
-          )..interpreter = interpreter!;
-
-          // We'll execute the module code using the current interpreter to
-          // ensure package.loaded is shared.
 
           // Resolve the absolute path for the module
           String absoluteModulePath;
@@ -2752,34 +2476,33 @@ class RequireFunction extends BuiltinFunction {
             path.split(path.normalize(moduleDir)),
           );
 
-          // Temporarily switch to the module environment
           final prevEnv = interpreter!.getCurrentEnv();
+          final moduleEnv = Environment(
+            parent: prevEnv,
+            interpreter: interpreter!,
+          );
           final prevPath = interpreter!.currentScriptPath;
           interpreter!.setCurrentEnv(moduleEnv);
           interpreter!.currentScriptPath = absoluteModulePath;
 
-          // Store the script path in the module environment (normalized)
-          Logger.debug(
-            'Require: setting module env paths _SCRIPT_PATH(norm)=$normalizedModulePath, _SCRIPT_DIR(norm)=$normalizedModuleDir | originals: path=$absoluteModulePath, dir=$moduleDir',
+          Logger.debugLazy(
+            () =>
+                'Require: setting module env paths _SCRIPT_PATH(norm)=$normalizedModulePath, _SCRIPT_DIR(norm)=$normalizedModuleDir | originals: path=$absoluteModulePath, dir=$moduleDir',
           );
-          moduleEnv.define('_SCRIPT_PATH', Value(normalizedModulePath));
-          moduleEnv.define('_SCRIPT_DIR', Value(normalizedModuleDir));
+          moduleEnv.declare('_SCRIPT_PATH', Value(normalizedModulePath));
+          moduleEnv.declare('_SCRIPT_DIR', Value(normalizedModuleDir));
 
-          // Also set _MODULE_NAME global
-          moduleEnv.define('_MODULE_NAME', Value(moduleName));
-          moduleEnv.define('_MAIN_CHUNK', Value(false));
+          moduleEnv.declare('_MODULE_NAME', Value(moduleName));
+          moduleEnv.declare('_MAIN_CHUNK', Value(false));
 
-          // Preserve existing varargs and provide new ones with module name and path
-          final oldVarargs = moduleEnv.contains('...')
-              ? moduleEnv.get('...') as Value
-              : null;
           moduleEnv.declare(
             '...',
             Value.multi([Value(moduleName), Value(modulePathStr)]),
           );
 
-          Logger.debug(
-            "DEBUG: Module environment set up with _SCRIPT_PATH=$absoluteModulePath, _SCRIPT_DIR=$moduleDir, _MODULE_NAME=$moduleName",
+          Logger.debugLazy(
+            () =>
+                "DEBUG: Module environment set up with _SCRIPT_PATH=$absoluteModulePath, _SCRIPT_DIR=$moduleDir, _MODULE_NAME=$moduleName",
           );
 
           Object? result;
@@ -2800,16 +2523,8 @@ class RequireFunction extends BuiltinFunction {
                 .toList();
             result = await interpreter!.callFunction(callee, normalizedArgs);
           } finally {
-            // Restore previous environment and script path
             interpreter!.setCurrentEnv(prevEnv);
             interpreter!.currentScriptPath = prevPath;
-
-            // Restore previous varargs
-            if (oldVarargs != null) {
-              moduleEnv.declare('...', oldVarargs);
-            } else {
-              moduleEnv.declare('...', Value(null));
-            }
           }
 
           // If the module didn't return anything, Lua stores 'true'
@@ -2817,8 +2532,9 @@ class RequireFunction extends BuiltinFunction {
             result = Value(true);
           }
 
-          Logger.debug(
-            "(REQUIRE) RequireFunction: Module '$moduleName' loaded successfully",
+          Logger.debugLazy(
+            () =>
+                "(REQUIRE) RequireFunction: Module '$moduleName' loaded successfully",
             category: 'Require',
           );
 
@@ -2831,20 +2547,20 @@ class RequireFunction extends BuiltinFunction {
               result = loadedVal;
             } else {
               loaded[moduleName] = result;
-              Logger.debug(
-                "Module '$moduleName' stored in package.loaded",
+              Logger.debugLazy(
+                () => "Module '$moduleName' stored in package.loaded",
                 category: 'Require',
               );
             }
           } else {
             loaded[moduleName] = result;
-            Logger.debug(
-              "Module '$moduleName' stored in package.loaded",
+            Logger.debugLazy(
+              () => "Module '$moduleName' stored in package.loaded",
               category: 'Require',
             );
           }
-          Logger.debug(
-            "Loaded table now contains: ${loaded.keys.join(",")}",
+          Logger.debugLazy(
+            () => "Loaded table now contains: ${loaded.keys.join(", ")}",
             category: 'Require',
           );
 
@@ -2866,7 +2582,10 @@ class RequireFunction extends BuiltinFunction {
       final typeName = searchersAny == null
           ? 'null'
           : searchersAny.runtimeType.toString();
-      Logger.debug("package.searchers typeof=$typeName", category: 'Require');
+      Logger.debugLazy(
+        () => "package.searchers typeof=$typeName",
+        category: 'Require',
+      );
     }
     final pkgMapForSearchers = packageTable.raw as Map;
     final searchersEntry = pkgMapForSearchers['searchers'];
@@ -2888,8 +2607,8 @@ class RequireFunction extends BuiltinFunction {
         continue;
       }
 
-      Logger.debug(
-        "RequireFunction: Trying searcher #$i for '$moduleName'",
+      Logger.debugLazy(
+        () => "RequireFunction: Trying searcher #$i for '$moduleName'",
         category: 'Require',
       );
 
@@ -2905,8 +2624,9 @@ class RequireFunction extends BuiltinFunction {
           final loader = result[0] as Value;
           final loaderData = result.length > 1 ? result[1] : Value(null);
 
-          Logger.debug(
-            "RequireFunction: Found loader for '$moduleName' with data: $loaderData",
+          Logger.debugLazy(
+            () =>
+                "RequireFunction: Found loader for '$moduleName' with data: $loaderData",
             category: 'Require',
           );
 
@@ -2997,7 +2717,7 @@ class RequireFunction extends BuiltinFunction {
 
     final errorMsg =
         "module '$moduleName' not found:\n\t${errorLines.join('\n\t')}";
-    Logger.debug("Error message: $errorMsg", category: 'Require');
-    throw LuaError(errorMsg);
+    Logger.debugLazy(() => "Error message: $errorMsg", category: 'Require');
+    throw LuaError(errorMsg).withProtectedCallLocationSuppressed();
   }
 }

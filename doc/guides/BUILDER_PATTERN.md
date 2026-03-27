@@ -1,236 +1,171 @@
 # Building a Lua-like Library with Builder Interface
 
-This document shows the easiest way to create a library with a builder interface similar to how strings work in Lua, where you can call methods directly on objects using the colon syntax (`obj:method()`).
+This guide shows how to expose builder-style objects from Dart so LuaLike code
+can use natural method syntax such as `obj:add("x"):build()`.
 
-## The Pattern
+## Table of Contents
 
-Looking at how the string library is implemented in `lib_string.dart`, the key components are:
+- [When to use this pattern](#when-to-use-this-pattern)
+- [Public APIs involved](#public-apis-involved)
+- [The basic structure](#the-basic-structure)
+- [Minimal example](#minimal-example)
+- [Registering the library](#registering-the-library)
+- [Using it from LuaLike](#using-it-from-lualike)
+- [Design notes](#design-notes)
 
-### 1. **Library Functions Map**
+## When to use this pattern
 
-First, create a map of your library functions:
+Use this pattern when you want to expose an object-like API instead of a flat
+set of global functions.
 
-```dart
-class MyBuilderLib {
-  static final Map<String, dynamic> functions = {
-    "create": Value(_Create()),
-    "build": Value(_Build()),
-    "add": Value(_Add()),
-    "size": Value(_Size()),
-    "clear": Value(_Clear()),
-  };
-}
-```
+Typical cases:
 
-### 2. **ValueClass with `__index` Metamethod**
+- builders that accumulate state and then emit a final result
+- handles that support method chaining
+- object wrappers that need custom `__index`, `__len`, or `__tostring`
+  behavior
 
-The magic happens in the `__index` metamethod that enables method calls on objects:
+For simple host integration, `LuaLike.expose()` is usually enough. Use this
+builder pattern when you need a reusable library or a metatable-backed object
+model.
 
-```dart
-static final ValueClass builderClass = ValueClass.create({
-  '__index': (List<Object?> args) {
-    final obj = args[0] as Value;  // The object being accessed
-    final key = args[1] as Value;  // The method name
-    
-    if (key.raw is String) {
-      final method = functions[key.raw];
-      if (method != null) {
-        // Return a function that will be called later
-        return Value((callArgs) {
-          // Handle both obj:method() and obj.method(obj) syntax
-          if (callArgs.isNotEmpty && callArgs.first == obj) {
-            return method.call(callArgs);
-          }
-          return method.call([obj, ...callArgs]);
-        });
-      }
-    }
-    
-    return Value(null);
-  },
-  // Other metamethods like __len, __tostring, etc.
-});
-```
+## Public APIs involved
 
-### 3. **Apply Metatable to Objects**
+Use `package:lualike/library_builder.dart` for this pattern.
 
-When creating objects, apply the metatable:
+The main types are:
+
+- `Library`
+- `LibraryRegistrationContext`
+- `BuiltinFunctionBuilder`
+- `Value`
+- `ValueClass`
+
+## The basic structure
+
+There are two moving parts:
+
+1. A namespaced library table such as `mybuilder`.
+2. A metatable-backed object returned by `mybuilder.create()`.
+
+The library table usually exposes constructors or top-level helpers. The
+builder object exposes methods through `__index` and often returns itself from
+mutating operations so LuaLike code can chain calls.
+
+## Minimal example
 
 ```dart
-class _Create implements BuiltinFunction {
-  @override
-  Object? call(List<Object?> args) {
-    final builder = MyBuilder();
-    final value = Value(builder);
-    
-    // Apply the metatable to enable method chaining
-    value.setMetatable(MyBuilderLib.builderClass.metamethods);
-    
-    return value;
-  }
-}
-```
-
-### 4. **Library Registration**
-
-Register your library with the environment:
-
-```dart
-void defineMyBuilderLibrary({required Environment env}) {
-  final builderTable = <String, dynamic>{};
-  
-  for (final entry in MyBuilderLib.functions.entries) {
-    builderTable[entry.key] = entry.value;
-  }
-  
-  env.define(
-    "mybuilder", 
-    Value(builderTable, metatable: MyBuilderLib.builderClass.metamethods),
-  );
-}
-```
-
-## Complete Example
-
-Here's a complete working example in `lib/src/stdlib/my_builder_lib.dart`:
-
-```dart
+import 'package:lualike/library_builder.dart';
 import 'package:lualike/lualike.dart';
-import 'package:lualike/src/stdlib/metatables.dart';
 
-/// A simple builder class that accumulates items
 class MyBuilder {
-  final List<String> items = [];
-  
+  final List<String> items = <String>[];
+
   void add(String item) => items.add(item);
   void clear() => items.clear();
   String build() => items.join(' ');
-  int get size => items.length;
-  
+
   @override
   String toString() => 'MyBuilder(${items.length} items)';
 }
 
-class MyBuilderLib {
-  static final Map<String, dynamic> functions = {
-    "create": Value(_Create()),
-    "build": Value(_Build()),
-    "add": Value(_Add()),
-    "size": Value(_Size()),
-    "clear": Value(_Clear()),
-  };
-  
-  static final ValueClass builderClass = ValueClass.create({
-    '__len': (List<Object?> args) {
-      final obj = args[0] as Value;
-      final builder = obj.raw as MyBuilder;
-      return Value(builder.items.length);
-    },
-    '__index': (List<Object?> args) {
-      final obj = args[0] as Value;
-      final key = args[1] as Value;
-      
-      if (key.raw is String) {
-        final method = functions[key.raw];
-        if (method != null) {
-          return Value((callArgs) {
-            if (callArgs.isNotEmpty && callArgs.first == obj) {
-              return method.call(callArgs);
-            }
-            return method.call([obj, ...callArgs]);
-          });
-        }
-      }
-      
-      return Value(null);
-    },
-    '__tostring': (List<Object?> args) {
-      final obj = args[0] as Value;
-      final builder = obj.raw as MyBuilder;
-      return Value(builder.toString());
-    },
-  });
-}
-
-// Function implementations...
-class _Create implements BuiltinFunction {
+class MyBuilderLibrary extends Library {
   @override
-  Object? call(List<Object?> args) {
-    final builder = MyBuilder();
-    final value = Value(builder);
-    value.setMetatable(MyBuilderLib.builderClass.metamethods);
-    return value;
+  String get name => 'mybuilder';
+
+  @override
+  void registerFunctions(LibraryRegistrationContext context) {
+    final builder = BuiltinFunctionBuilder(context);
+
+    context.define('create', builder.create((args) {
+      final value = Value(MyBuilder());
+      value.setMetatable(_builderMetatable);
+      return value;
+    }));
   }
 }
 
-class _Add implements BuiltinFunction {
-  @override
-  Object? call(List<Object?> args) {
-    if (args.length < 2) {
-      throw LuaError.typeError("add requires a MyBuilder object and an item");
+final Map<String, Function> _builderMetatable = <String, Function>{
+  '__index': (List<Object?> args) {
+    final self = args[0] as Value;
+    final key = Value.wrap(args[1]).unwrap();
+
+    if (key == 'add') {
+      return Value((List<Object?> callArgs) {
+        final target = callArgs.first as Value;
+        final item = Value.wrap(callArgs[1]).unwrap().toString();
+        (target.raw as MyBuilder).add(item);
+        return target;
+      });
     }
-    
-    final obj = args[0] as Value;
-    final builder = obj.raw as MyBuilder;
-    final item = (args[1] as Value).raw.toString();
-    
-    builder.add(item);
-    return obj; // Return builder for method chaining
-  }
-}
 
-// ... other function implementations
+    if (key == 'build') {
+      return Value((List<Object?> callArgs) {
+        final target = callArgs.first as Value;
+        return Value((target.raw as MyBuilder).build());
+      });
+    }
 
-void defineMyBuilderLibrary({required Environment env}) {
-  final builderTable = <String, dynamic>{};
-  
-  for (final entry in MyBuilderLib.functions.entries) {
-    builderTable[entry.key] = entry.value;
-  }
-  
-  env.define(
-    "mybuilder", 
-    Value(builderTable, metatable: MyBuilderLib.builderClass.metamethods),
-  );
-}
+    if (key == 'clear') {
+      return Value((List<Object?> callArgs) {
+        final target = callArgs.first as Value;
+        (target.raw as MyBuilder).clear();
+        return target;
+      });
+    }
+
+    return Value(null);
+  },
+  '__len': (List<Object?> args) {
+    final self = args[0] as Value;
+    return Value((self.raw as MyBuilder).items.length);
+  },
+  '__tostring': (List<Object?> args) {
+    final self = args[0] as Value;
+    return Value((self.raw as MyBuilder).toString());
+  },
+};
 ```
 
-## Usage in Lua
+## Registering the library
 
-Once registered, you can use it in Lua code like this:
+Register the library through the runtime's `LibraryRegistry`:
+
+```dart
+final lua = LuaLike();
+lua.vm.libraryRegistry.register(MyBuilderLibrary());
+lua.vm.libraryRegistry.initializeLibraryByName('mybuilder');
+```
+
+That makes the library available to scripts as `mybuilder`.
+
+## Using it from LuaLike
 
 ```lua
--- Create a new builder
 local builder = mybuilder.create()
 
--- Use method chaining (like strings in Lua)
-builder:add("Hello")
-builder:add("World")
-builder:add("!")
+builder:add("hello")
+builder:add("world")
 
--- Build the result
-local result = builder:build()
-print("Result: " .. result)
+print(builder:build())   -- "hello world"
+print(#builder)          -- 2
+print(tostring(builder)) -- "MyBuilder(2 items)"
 
--- Check size
-print("Size: " .. builder:size())
-
--- Can also use length operator
-print("Length: " .. #builder)
-
--- Clear and rebuild with method chaining
-builder:clear()
-builder:add("New"):add("Content"):add("Here")
-print("New result: " .. builder:build())
+builder:clear():add("new"):add("content")
+print(builder:build())   -- "new content"
 ```
 
-## Key Points
+## Design notes
 
-1. **`__index` metamethod** is what makes `obj:method()` work
-2. **Method chaining** works by returning the object from methods that modify it
-3. **Metatable application** happens when creating objects, not when defining the library
-4. **Both syntaxes** `obj:method()` and `obj.method(obj)` are handled by the same metamethod
-5. **Type checking** should be done in each function implementation
-6. **Error handling** follows Lua conventions using `LuaError.typeError()`
-
-This pattern allows you to create fluent, chainable APIs that feel natural in Lua while being implemented efficiently in Dart.
+- Put constructors on the library table.
+  `mybuilder.create()` is clearer than exposing the object metatable directly.
+- Return the object from mutating methods.
+  That is what enables fluent chaining.
+- Use `Value.wrap()` when reading arguments.
+  It gives you the same conversion semantics as the runtime.
+- Keep object methods behind `__index`.
+  That preserves both `obj:method()` and `obj.method(obj)` calling styles.
+- Use `BuiltinFunctionBuilder` for runtime-aware library functions.
+  That keeps access to runtime services such as cached primitive values.
+- Prefer `package:lualike/library_builder.dart` over reaching into `lib/src/`.
+  It is the public extension surface for this pattern.

@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import 'package:lualike/src/ast.dart';
 import 'package:lualike/src/builtin_function.dart';
 import 'package:lualike/src/call_stack.dart';
@@ -8,21 +10,37 @@ import 'package:lualike/src/gc/generational_gc.dart' show GenerationalGCManager;
 import 'package:lualike/src/gc/gc_access.dart';
 import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/lua_error.dart';
+import 'package:lualike/src/lua_bytecode/chunk.dart';
+import 'package:lualike/src/lua_bytecode/emitter.dart';
+import 'package:lualike/src/lua_bytecode/instruction.dart';
 import 'package:lualike/src/lua_stack_trace.dart';
+import 'package:lualike/src/lua_bytecode/runtime.dart';
 import 'package:lualike/src/lua_string.dart';
+import 'package:lualike/src/number.dart';
+import 'package:lualike/src/number_limits.dart';
+import 'package:lualike/src/number_utils.dart';
+import 'package:lualike/src/parse.dart' show looksLikeLuaFilePath;
+import 'package:lualike/src/runtime/compiled_artifact_support.dart';
+import 'package:lualike/src/runtime/chunk_loading_support.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
+import 'package:lualike/src/semantic_checker.dart';
 import 'package:lualike/src/stack.dart';
 import 'package:lualike/src/stdlib/init.dart' show initializeStandardLibrary;
+import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:lualike/src/stdlib/library.dart' show LibraryRegistry;
+import 'package:lualike/src/stdlib/metatables.dart';
 import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:lualike/src/utils/type.dart';
+import 'package:lualike/src/upvalue.dart';
 import 'package:lualike/src/value.dart';
 import 'package:lualike/src/value_class.dart';
 import 'package:lualike/src/table_storage.dart';
 import 'package:lualike/src/utils/file_system_utils.dart' as fs;
 import 'package:lualike/src/interpreter/upvalue_assignment.dart';
-import 'package:lualike/src/bytecode/loop_compiler.dart';
-import 'package:lualike/src/bytecode/vm.dart';
+import 'package:lualike/src/ir/loop_compiler.dart';
+import 'package:lualike/src/ir/serialization.dart';
+import 'package:lualike/src/ir/vm.dart';
+import 'package:source_span/source_span.dart';
 
 import '../exceptions.dart';
 import '../extensions/extensions.dart';
@@ -37,6 +55,32 @@ part 'table.dart';
 
 /// Static flag to track if an error is already being reported
 bool _errorReporting = false;
+
+class _StatementBlockMetadata {
+  Map<String, int>? labelMap;
+}
+
+final Expando<_StatementBlockMetadata> _statementBlockMetadata =
+    Expando<_StatementBlockMetadata>('statementBlockMetadata');
+
+Map<String, int> _statementLabelMap(List<AstNode> statements) {
+  final metadata = _statementBlockMetadata[statements] ??=
+      _StatementBlockMetadata();
+  final cached = metadata.labelMap;
+  if (cached != null) {
+    return cached;
+  }
+
+  Map<String, int>? labels;
+  for (var i = 0; i < statements.length; i++) {
+    final node = statements[i];
+    if (node is Label) {
+      (labels ??= <String, int>{})[node.label.name] = i;
+    }
+  }
+
+  return metadata.labelMap = labels ?? const <String, int>{};
+}
 
 /// Virtual Machine for the LuaLike interpreter.
 ///
@@ -60,6 +104,12 @@ class Interpreter extends AstVisitor<Object?>
 
   /// Weak set of active coroutines for bookkeeping (not used as GC roots).
   final Set<WeakReference<Coroutine>> _activeCoroutines = {};
+  final Expando<WeakReference<Coroutine>> _activeCoroutineRefs =
+      Expando<WeakReference<Coroutine>>('activeCoroutineRefs');
+
+  void _pruneDeadCoroutineRefs() {
+    _activeCoroutines.removeWhere((ref) => ref.target == null);
+  }
 
   /// File manager for handling source code loading.
   @override
@@ -69,11 +119,40 @@ class Interpreter extends AstVisitor<Object?>
   @override
   late final LibraryRegistry libraryRegistry = LibraryRegistry(this);
 
+  @override
+  Value constantStringValue(List<int> bytes) {
+    final key = bytes.join(',');
+    final cached = literalValueCache[key];
+    if (cached != null) {
+      cached.interpreter ??= this;
+      return cached;
+    }
+
+    final luaString = literalStringInternPool[key] ??= LuaString.fromBytes(
+      bytes,
+    );
+    final value = Value(luaString)..interpreter = this;
+    literalValueCache[key] = value;
+    return value;
+  }
+
   /// Current environment for variable scope.
   Environment _currentEnv;
 
   /// Current function being executed (for upvalue resolution)
   Value? _currentFunction;
+
+  /// Installed debug hook callback and configuration.
+  Value? debugHookFunction;
+  String debugHookMask = '';
+  int debugHookCount = 0;
+  int debugHookCountRemaining = 0;
+  @override
+  late final Value debugRegistry = _createDebugRegistry();
+  bool _runningDebugHook = false;
+  bool _nextCallIsDebugHook = false;
+  final Map<String?, int> _lastDebugHookLineBySource = <String?, int>{};
+  final Set<AstNode> _skipPostExecutionHooks = HashSet<AstNode>.identity();
 
   /// Fast path cache for local variable boxes in the current function.
   Map<String, Box<dynamic>>? _currentFastLocals;
@@ -99,6 +178,308 @@ class Interpreter extends AstVisitor<Object?>
   @override
   final Map<String, Value> literalValueCache = <String, Value>{};
 
+  Value? _cachedNilValue;
+  Value? _cachedTrueValue;
+  Value? _cachedFalseValue;
+  final Map<int, Value> _cachedIntValues = <int, Value>{};
+  final Map<int, Value> _cachedDoubleValues = <int, Value>{};
+  final Map<BigInt, Value> _cachedBigIntValues = <BigInt, Value>{};
+
+  @override
+  Value constantPrimitiveValue(Object? raw) {
+    Value create(Object? value) => Value(value)..interpreter = this;
+
+    return switch (raw) {
+      null => _cachedNilValue ??= create(null),
+      true => _cachedTrueValue ??= create(true),
+      false => _cachedFalseValue ??= create(false),
+      final int value => _cachedIntValues.putIfAbsent(
+        value,
+        () => create(value),
+      ),
+      final double value => _cachedDoubleValues.putIfAbsent(
+        NumberUtils.doubleToRawBits(value),
+        () => create(value),
+      ),
+      final BigInt value => _cachedBigIntValues.putIfAbsent(
+        value,
+        () => create(value),
+      ),
+      _ => throw ArgumentError.value(raw, 'raw', 'Not a cached primitive'),
+    };
+  }
+
+  /// Wraps a runtime value while reusing stable wrappers for plain primitives
+  /// and canonical wrappers for tables when possible.
+  ///
+  /// Hot interpreter paths such as table reads, call argument staging, and
+  /// return propagation frequently need a [Value] view over raw Dart objects.
+  /// Creating a fresh wrapper every time is expensive because each wrapper is a
+  /// GC-tracked runtime object. For immutable primitives whose type-wide
+  /// metatables are inactive, we can safely reuse the per-interpreter cached
+  /// wrappers that literals already use.
+  Value wrapRuntimeValue(Object? raw) {
+    if (raw is Value) {
+      raw.interpreter ??= this;
+      return raw;
+    }
+
+    if (raw is Map) {
+      final canonical = Value.lookupCanonicalTableWrapper(raw);
+      if (canonical != null) {
+        canonical.interpreter ??= this;
+        return canonical;
+      }
+    }
+
+    if (raw == null && !MetaTable().isDefaultMetatableActive('nil')) {
+      return constantPrimitiveValue(null);
+    }
+    if (raw is bool && !MetaTable().isDefaultMetatableActive('boolean')) {
+      return constantPrimitiveValue(raw);
+    }
+    if ((raw is num || raw is BigInt) &&
+        !MetaTable().isDefaultMetatableActive('number')) {
+      return constantPrimitiveValue(raw);
+    }
+
+    return Value(raw)..interpreter = this;
+  }
+
+  Future<void> fireDebugHook(String event, {int? line}) async {
+    if (_runningDebugHook) {
+      return;
+    }
+    final hook = debugHookFunction;
+    final eventKey = switch (event) {
+      'line' => 'l',
+      'call' => 'c',
+      'tail call' => 'c',
+      'return' || 'tail return' => 'r',
+      'count' => '',
+      _ => event.isEmpty ? '' : event.substring(0, 1),
+    };
+    final enabled =
+        hook != null &&
+        ((event == 'count' && debugHookCount > 0) ||
+            (eventKey.isNotEmpty && debugHookMask.contains(eventKey)));
+    if (!enabled) {
+      return;
+    }
+
+    _runningDebugHook = true;
+    _nextCallIsDebugHook = true;
+    try {
+      if (line != null) {
+        final frame =
+            getVisibleFrameAtLevel(1, skipDebugHooks: true) ?? callStack.top;
+        if (frame != null) {
+          frame.currentLine = line;
+        }
+      }
+      final hookArgs = <Object?>[constantStringValue(event.codeUnits)];
+      if (line != null) {
+        hookArgs.add(constantPrimitiveValue(line));
+      }
+      await _callFunction(hook, hookArgs, callerFunctionName: 'hook');
+    } finally {
+      _runningDebugHook = false;
+    }
+  }
+
+  void resetDebugHookCounter() {
+    debugHookCountRemaining = debugHookCount;
+  }
+
+  Value _createDebugRegistry() {
+    final hookKey = Value(
+      {},
+      interpreter: this,
+      metatable: <String, dynamic>{'__mode': Value('k')},
+    );
+    return Value(<String, dynamic>{'_HOOKKEY': hookKey}, interpreter: this);
+  }
+
+  void rememberDebugHookLine(int line, {String? source}) {
+    if (line < 0) {
+      if (source == null) {
+        _lastDebugHookLineBySource.clear();
+      } else {
+        _lastDebugHookLineBySource.remove(source);
+      }
+      return;
+    }
+    _lastDebugHookLineBySource[source] = line;
+  }
+
+  Future<void> maybeFireLineDebugHook(
+    int oneBasedLine, {
+    bool force = false,
+  }) async {
+    if (_runningDebugHook || debugHookFunction == null) {
+      return;
+    }
+    if (!debugHookMask.contains('l')) {
+      return;
+    }
+
+    final top = callStack.top;
+    if (top == null || top.isDebugHook) {
+      return;
+    }
+    if (top.callable?.strippedDebugInfo == true) {
+      return;
+    }
+
+    final source = top.scriptPath ?? currentScriptPath;
+    if (!force) {
+      if (top.lastDebugHookLine == oneBasedLine) {
+        return;
+      }
+      if (_lastDebugHookLineBySource[source] == oneBasedLine) {
+        return;
+      }
+    }
+
+    top.lastDebugHookLine = oneBasedLine;
+    rememberDebugHookLine(oneBasedLine, source: source);
+    await fireDebugHook('line', line: oneBasedLine);
+  }
+
+  void suppressPostExecutionHook(AstNode node) {
+    _skipPostExecutionHooks.add(node);
+  }
+
+  bool consumeSuppressedPostExecutionHook(AstNode node) {
+    return _skipPostExecutionHooks.remove(node);
+  }
+
+  bool shouldFireStatementHookAfterExecution(AstNode node) {
+    return _fireStatementHookAfterExecution(node);
+  }
+
+  Future<void> maybeFireStatementDebugHooks(AstNode node) async {
+    if (_runningDebugHook || debugHookFunction == null) {
+      return;
+    }
+
+    await maybeFireCountDebugHook();
+
+    if (!debugHookMask.contains('l')) {
+      return;
+    }
+
+    final line = _debugHookLineForNode(node);
+    if (line == null) {
+      return;
+    }
+
+    final top = callStack.top;
+    if (top == null || top.isDebugHook) {
+      return;
+    }
+    if (top.callable?.strippedDebugInfo == true) {
+      return;
+    }
+
+    final oneBasedLine = line + 1;
+    await maybeFireLineDebugHook(oneBasedLine);
+  }
+
+  Future<void> maybeFireCountDebugHook() async {
+    if (_runningDebugHook || debugHookFunction == null || debugHookCount <= 0) {
+      return;
+    }
+
+    debugHookCountRemaining -= 1;
+    if (debugHookCountRemaining <= 0) {
+      resetDebugHookCounter();
+      await fireDebugHook('count');
+    }
+  }
+
+  int? _debugHookLineForNode(AstNode node) {
+    int lastMeaningfulSpanLine(SourceSpan span) {
+      var endLine = span.end.line;
+      if (span.end.column == 0 && endLine > span.start.line) {
+        return endLine - 1;
+      }
+      if (endLine > span.start.line &&
+          RegExp(r'\n[ \t]*$').hasMatch(span.text)) {
+        return endLine - 1;
+      }
+      return endLine;
+    }
+
+    if (node case Assignment(exprs: final exprs) when exprs.length == 1) {
+      final expr = exprs.first;
+      if (expr is BinaryExpression &&
+          expr.operatorLine != null &&
+          expr.right.span != null &&
+          expr.left.span != null &&
+          expr.left.span!.start.line != expr.right.span!.start.line) {
+        return expr.operatorLine;
+      }
+    }
+
+    final span = node.span;
+    if (span == null) {
+      return null;
+    }
+
+    var endLine = span.end.line;
+    if (span.end.column == 0 && endLine > span.start.line) {
+      endLine -= 1;
+    }
+
+    return switch (node) {
+      LocalDeclaration(exprs: final exprs, span: final SourceSpan span)
+          when exprs.any((expr) => expr is FunctionLiteral) =>
+        lastMeaningfulSpanLine(span),
+      DoBlock() => null,
+      IfStatement() ||
+      ElseIfClause() ||
+      WhileStatement() ||
+      RepeatUntilLoop() ||
+      ForLoop() ||
+      ForInLoop() ||
+      FunctionDef() ||
+      LocalFunctionDef() => endLine,
+      _ => span.start.line,
+    };
+  }
+
+  int? _traceLineForNode(AstNode node) {
+    final span = node.span;
+    if (span == null) {
+      return null;
+    }
+
+    return switch (node) {
+      BinaryExpression(operatorLine: final operatorLine?) => operatorLine,
+      UnaryExpression(operatorLine: final operatorLine?) => operatorLine,
+      UnaryExpression() ||
+      FunctionCall() ||
+      MethodCall() ||
+      ReturnStatement() => span.start.line,
+      _ => _debugHookLineForNode(node) ?? span.start.line,
+    };
+  }
+
+  bool _fireStatementHookAfterExecution(AstNode node) {
+    return switch (node) {
+      IfStatement() ||
+      ElseIfClause() ||
+      WhileStatement() ||
+      RepeatUntilLoop() ||
+      ForLoop() ||
+      ForInLoop() ||
+      FunctionDef() ||
+      LocalFunctionDef() => true,
+      _ => false,
+    };
+  }
+
   /// Global environment for variable storage.
   @override
   Environment get globals {
@@ -120,6 +501,10 @@ class Interpreter extends AstVisitor<Object?>
   /// Call stack for function calls.
   @override
   final CallStack callStack = CallStack();
+
+  /// Frames whose environments are unwinding via deferred close handlers
+  /// should be hidden from debug.getinfo level lookups.
+  final Set<Environment> _hiddenDebugFrameEnvs = <Environment>{};
 
   /// Maximum call depth for non-tail calls to simulate Lua's C stack limits.
   /// Tail calls do not grow the stack thanks to tail-call optimization.
@@ -166,6 +551,7 @@ class Interpreter extends AstVisitor<Object?>
       },
     );
     _currentCoroutine = coroutine;
+    gc.noteRootWrite(coroutine);
     Logger.infoLazy(
       () => 'setCurrentCoroutine() finished',
       categories: {'Interpreter', 'Coroutine'},
@@ -176,9 +562,70 @@ class Interpreter extends AstVisitor<Object?>
     );
   }
 
+  void hideDebugFrameEnv(Environment env) {
+    _hiddenDebugFrameEnvs.add(env);
+  }
+
+  void unhideDebugFrameEnv(Environment env) {
+    _hiddenDebugFrameEnvs.remove(env);
+  }
+
+  CallFrame? getVisibleFrameAtLevel(
+    int level, {
+    bool skipDebugHooks = false,
+    bool hideEnclosingDebugHooks = false,
+  }) {
+    if (level <= 0) {
+      return null;
+    }
+
+    var visibleLevel = 0;
+    var keptCurrentHookFrame = false;
+    for (final frame in callStack.frames.toList().reversed) {
+      final isHookFrame = frame.isDebugHook || frame.debugNameWhat == 'hook';
+      if (skipDebugHooks && isHookFrame) {
+        continue;
+      }
+      if (hideEnclosingDebugHooks && isHookFrame) {
+        if (keptCurrentHookFrame) {
+          continue;
+        }
+        keptCurrentHookFrame = true;
+      }
+      final env = frame.env;
+      if (env != null && _hiddenDebugFrameEnvs.contains(env)) {
+        continue;
+      }
+      visibleLevel++;
+      if (visibleLevel == level) {
+        return frame;
+      }
+    }
+    return null;
+  }
+
+  CallFrame? findFrameForCallable(Value? callable) {
+    if (callable == null) {
+      return null;
+    }
+    for (final frame in callStack.frames.toList().reversed) {
+      if (identical(frame.callable, callable)) {
+        return frame;
+      }
+    }
+    return null;
+  }
+
+  CallFrame? get lastRecordedTraceFrame {
+    final index = (_traceIndex - 1 + _maxTraceFrames) % _maxTraceFrames;
+    final frame = _traceBuffer[index];
+    return frame.callNode != null ? frame : null;
+  }
+
   /// Gets the main thread coroutine
   @override
   Coroutine getMainThread() {
+    _pruneDeadCoroutineRefs();
     Logger.infoLazy(
       () => 'getMainThread() called',
       categories: {'Interpreter', 'Coroutine'},
@@ -203,7 +650,9 @@ class Interpreter extends AstVisitor<Object?>
         contextBuilder: () => {'main_thread_hash': _mainThread.hashCode},
       );
       _mainThread!.status = CoroutineStatus.running;
-      _activeCoroutines.add(WeakReference(_mainThread!));
+      final mainRef = WeakReference(_mainThread!);
+      _activeCoroutines.add(mainRef);
+      _activeCoroutineRefs[_mainThread!] = mainRef;
     }
     return _mainThread!;
   }
@@ -211,19 +660,29 @@ class Interpreter extends AstVisitor<Object?>
   /// Register a coroutine with the interpreter
   @override
   void registerCoroutine(Coroutine coroutine) {
-    Logger.info(
-      'Interpreter.registerCoroutine() called, registering coroutine',
+    _pruneDeadCoroutineRefs();
+    Logger.infoLazy(
+      () => 'Interpreter.registerCoroutine() called, registering coroutine',
       category: 'Coroutine',
-      context: {'coroutine_hash': coroutine.hashCode},
+      contextBuilder: () => {'coroutine_hash': coroutine.hashCode},
     );
-    _activeCoroutines.add(WeakReference(coroutine));
+    final ref = WeakReference(coroutine);
+    _activeCoroutines.add(ref);
+    _activeCoroutineRefs[coroutine] = ref;
   }
 
   /// Unregister a coroutine that has completed or been closed.
   @override
   void unregisterCoroutine(Coroutine coroutine) {
-    _activeCoroutines.removeWhere((ref) {
-      final target = ref.target;
+    _pruneDeadCoroutineRefs();
+    final ref = _activeCoroutineRefs[coroutine];
+    if (ref != null) {
+      _activeCoroutines.remove(ref);
+      _activeCoroutineRefs[coroutine] = null;
+      return;
+    }
+    _activeCoroutines.removeWhere((candidate) {
+      final target = candidate.target;
       return target == null || identical(target, coroutine);
     });
   }
@@ -253,6 +712,7 @@ class Interpreter extends AstVisitor<Object?>
 
   /// Stack of active protected call contexts
   final List<bool> _protectedCallStack = [];
+  final List<Iterable<Object?> Function()> _externalGcRootProviders = [];
 
   /// Check if we're currently in a protected call context
   @override
@@ -294,15 +754,117 @@ class Interpreter extends AstVisitor<Object?>
   /// will not be accessed again in the normal execution of the program."
   @override
   List<Object?> getRoots() {
+    _pruneDeadCoroutineRefs();
+    final activeFunction = _currentFunction;
     return [
       _currentEnv, // Current environment (includes globals)
       callStack, // Active call stack
+      // Active closure/function value when executing AST code. This root is
+      // intentionally strong because the active function owns live upvalue
+      // boxes, but it means coroutine resume/yield paths must restore it
+      // precisely. A stale activeFunction can keep self-referential suspended
+      // threads alive through one captured box even after lexical scope ends.
+      activeFunction,
       evalStack, // Evaluation stack
       _traceBuffer, // The circular buffer
       _currentCoroutine, // Currently executing coroutine
       _mainThread, // Main thread coroutine
+      debugRegistry, // Persistent debug registry
+      ...IOLib.gcRoots, // Current/default I/O handles live outside environments
+      if (activeFunction != null) activeFunction.closureEnvironment,
+      if (activeFunction != null && activeFunction.upvalues != null) ...[
+        ...activeFunction.upvalues!,
+        for (final upvalue in activeFunction.upvalues!) upvalue.valueBox,
+      ],
+      for (final frame in callStack.frames) frame.env,
+      for (final frame in callStack.frames) frame.callable,
+      for (final frame in callStack.frames)
+        if (frame.callable case final Value callable?) ...[
+          callable.closureEnvironment,
+          if (callable.upvalues != null) ...[
+            ...callable.upvalues!,
+            for (final upvalue in callable.upvalues!) upvalue.valueBox,
+          ],
+        ],
+      // Some call sites register temporary GC roots for the duration of an
+      // active call. Suspended coroutines must detach these interpreter-global
+      // providers and keep only a snapshot of the concrete objects they need;
+      // otherwise the global provider list would pin paused coroutine stacks
+      // and defeat weak-table / self-cycle collection tests.
+      for (final provider in _externalGcRootProviders) ...provider(),
     ];
   }
+
+  @override
+  void pushExternalGcRoots(Iterable<Object?> Function() provider) {
+    _externalGcRootProviders.add(provider);
+  }
+
+  @override
+  void popExternalGcRoots(Iterable<Object?> Function() provider) {
+    _externalGcRootProviders.remove(provider);
+  }
+
+  @override
+  void runAutoGcAtSafePoint() {
+    if (gc.isStopped || !gc.autoTriggerEnabled) {
+      return;
+    }
+    final threshold = gc.autoTriggerDebtThreshold;
+    final debt = gc.allocationDebt;
+    if (debt < threshold) {
+      return;
+    }
+    gc.runPendingAutoTrigger();
+  }
+
+  @override
+  Future<void> runLoopGcAtSafePoint(int loopCounter) async {
+    if (gc.isStopped || !gc.autoTriggerEnabled) {
+      return;
+    }
+    final debt = gc.allocationDebt;
+    if (debt <= 0) {
+      return;
+    }
+    runAutoGcAtSafePoint();
+  }
+
+  int get externalGcRootProviderCount => _externalGcRootProviders.length;
+
+  List<Iterable<Object?> Function()> snapshotExternalGcRootProvidersFrom(
+    int baseCount,
+  ) {
+    if (baseCount >= _externalGcRootProviders.length) {
+      return const <Iterable<Object?> Function()>[];
+    }
+    return List<Iterable<Object?> Function()>.from(
+      _externalGcRootProviders.getRange(
+        baseCount,
+        _externalGcRootProviders.length,
+      ),
+      growable: false,
+    );
+  }
+
+  void appendExternalGcRootProviders(
+    Iterable<Iterable<Object?> Function()> providers,
+  ) {
+    _externalGcRootProviders.addAll(providers);
+  }
+
+  void trimExternalGcRootProviders(int baseCount) {
+    final normalizedBase = baseCount.clamp(0, _externalGcRootProviders.length);
+    if (normalizedBase < _externalGcRootProviders.length) {
+      _externalGcRootProviders.removeRange(
+        normalizedBase,
+        _externalGcRootProviders.length,
+      );
+    }
+  }
+
+  @override
+  bool get shouldAbandonIncrementalCycleBeforeManualCollect => false;
 
   /// Sets the current environment.
   ///
@@ -310,36 +872,84 @@ class Interpreter extends AstVisitor<Object?>
   /// during function calls.
   @override
   void setCurrentEnv(Environment env) {
-    Logger.debug(
-      'Interpreter.setCurrentEnv() called, changing environment',
+    Logger.debugLazy(
+      () => 'Interpreter.setCurrentEnv() called, changing environment',
       category: 'Interpreter',
-      context: {'from_hash': _currentEnv.hashCode, 'to_hash': env.hashCode},
+      contextBuilder: () => {
+        'from_hash': _currentEnv.hashCode,
+        'to_hash': env.hashCode,
+      },
     );
     _currentEnv = env;
+    gc.noteRootWrite(env);
+    if (callStack.top case final CallFrame frame?) {
+      frame.env = env;
+    }
   }
 
-  /// Gets the current function being executed.
+  /// Restores the interpreter's ambient environment without rebinding the
+  /// currently executing frame's local environment snapshot.
+  ///
+  /// Function-body cleanup uses this when unwinding back to a caller so debug
+  /// hooks can still inspect the callee frame's locals before it is popped.
+  void restoreCurrentEnv(Environment env) {
+    Logger.debugLazy(
+      () => 'Interpreter.restoreCurrentEnv() called, restoring environment',
+      category: 'Interpreter',
+      contextBuilder: () => {
+        'from_hash': _currentEnv.hashCode,
+        'to_hash': env.hashCode,
+      },
+    );
+    _currentEnv = env;
+    gc.noteRootWrite(env);
+  }
+
+  /// Returns the callable that is currently treated as ambient execution state.
+  ///
+  /// This is narrower than the full call stack. The interpreter uses this
+  /// handle for lookups that need the active closure metadata before or after a
+  /// physical frame is pushed, such as resolving upvalues, exposing debug
+  /// information, or running coroutine root code that shares this interpreter.
   Value? getCurrentFunction() {
     return _currentFunction;
   }
 
-  /// Sets the current function being executed.
+  /// Sets the callable that should be treated as this interpreter's ambient
+  /// active function.
+  ///
+  /// Callers use this when control moves across frame boundaries that do not
+  /// line up exactly with the ordinary stack model, such as coroutine entry,
+  /// yielded builtins, or debug-hook execution. Updating the GC root tracking
+  /// here keeps the active callable and its reachable closure state alive while
+  /// that ambient state is in effect.
   void setCurrentFunction(Value? function) {
-    Logger.debug(
-      'Setting current function',
+    Logger.debugLazy(
+      () => 'Setting current function',
       category: 'Interpreter',
-      context: {
+      contextBuilder: () => {
         'from_hash': _currentFunction?.hashCode,
         'to_hash': function?.hashCode,
       },
     );
     _currentFunction = function;
+    gc.noteRootWrite(function);
   }
 
-  /// Gets the cached local boxes for the current function, if any.
+  /// Returns the cached local boxes for the ambient active function, if any.
+  ///
+  /// Fast locals let identifier resolution bypass a full environment walk for
+  /// ordinary local reads and writes. The cache is valid only for the exact
+  /// function context that created it.
   Map<String, Box<dynamic>>? getCurrentFastLocals() => _currentFastLocals;
 
-  /// Sets the cached local boxes for the current function.
+  /// Installs the cached local boxes for the ambient active function.
+  ///
+  /// Callers must clear or replace this cache whenever execution crosses into a
+  /// different logical function context, especially when entering coroutines or
+  /// debug helpers. Reusing the caller's cache in a different function can make
+  /// identifier resolution read or write the wrong locals before it ever
+  /// consults the callee's own environment or upvalues.
   void setCurrentFastLocals(Map<String, Box<dynamic>>? locals) {
     _currentFastLocals = locals;
   }
@@ -419,33 +1029,39 @@ class Interpreter extends AstVisitor<Object?>
   void recordTrace(AstNode node, {String? functionName}) {
     final actualFunctionName =
         functionName ??
-        (node is FunctionCall
-            ? node.name.toString()
-            : node.runtimeType.toString());
+        switch (node) {
+          FunctionCall(:final name) => name.toString(),
+          _ => null,
+        };
 
     // Don't add to call stack - only add to the trace buffer for error reporting
     // The call stack should only contain actual function calls, not every AST node
-    final frame = CallFrame(actualFunctionName, callNode: node);
+    final frame = _traceBuffer[_traceIndex]
+      ..functionName = actualFunctionName ?? ''
+      ..callNode = node
+      ..scriptPath = currentScriptPath
+      ..env = null;
 
-    // Capture the current line number from the node's span.
-    // Use the start line for return statements (to avoid off-by-one when a
-    // trailing newline moves the end position to the next line), otherwise
-    // use the end line as before.
+    // Capture the source line associated with the operation currently being
+    // evaluated. For multiline expressions Lua generally blames the operator
+    // or call site, not the final token on the last line of the span.
     int? currentLine;
-    if (node.span != null) {
-      final useStartLine = node is ReturnStatement;
-      currentLine =
-          (useStartLine ? node.span!.start.line : node.span!.end.line) + 1;
+    final traceLine = _traceLineForNode(node);
+    if (traceLine != null) {
+      currentLine = traceLine + 1;
       frame.currentLine = currentLine;
 
-      // Update the active call frame, keeping line numbers non-decreasing
+      // Update the active call frame to the line of the node currently being
+      // evaluated. Using a monotonic max drifts `debug.getinfo(..., "l")`
+      // forward to later statements inside the same function.
       final top = callStack.top;
-      if (top != null && top.currentLine < currentLine) {
+      if (top != null) {
         top.currentLine = currentLine;
       }
+    } else {
+      frame.currentLine = -1;
     }
 
-    _traceBuffer[_traceIndex] = frame;
     _traceIndex = (_traceIndex + 1) % _maxTraceFrames;
   }
 
@@ -457,18 +1073,18 @@ class Interpreter extends AstVisitor<Object?>
   /// Returns true if the exception was handled, false otherwise.
   bool handleControlFlow(Object exception, {AstNode? node}) {
     if (exception is GotoException) {
-      Logger.info(
-        'GotoException caught',
+      Logger.infoLazy(
+        () => 'GotoException caught',
         category: 'ControlFlow',
-        context: {'label': exception.label},
+        contextBuilder: () => {'label': exception.label},
         node: node,
       );
       return true;
     } else if (exception is ReturnException) {
-      Logger.info(
-        'ReturnException caught',
+      Logger.infoLazy(
+        () => 'ReturnException caught',
         category: 'ControlFlow',
-        context: {'hasValue': exception.value != null},
+        contextBuilder: () => {'hasValue': exception.value != null},
         node: node,
       );
       return true;
@@ -512,32 +1128,46 @@ class Interpreter extends AstVisitor<Object?>
     try {
       luaError?.hasBeenReported = true;
 
-      // Build stack trace
-      final luaStackTrace = callStack.toLuaStackTrace();
+      // Build stack trace. For active coroutines, preserve only the
+      // coroutine-owned portion of the explicit call stack before unwinding.
+      final activeCoroutine = getCurrentCoroutine();
+      activeCoroutine?.captureCurrentCallStack();
+      final luaStackTrace =
+          luaError?.luaStackTrace ??
+          (activeCoroutine != null
+              ? callStack.toLuaStackTraceFromDepth(
+                  activeCoroutine.callStackBaseDepth,
+                )
+              : callStack.toLuaStackTrace());
+      if (luaError != null && luaError.luaStackTrace == null) {
+        luaError.luaStackTrace = luaStackTrace;
+      }
 
-      // Add recent call frames
-      int start = _traceIndex;
-      final List<LuaStackFrame> recentTrace = [];
-      for (int i = 0; i < _maxTraceFrames; i++) {
-        final frame = _traceBuffer[(start + i) % _maxTraceFrames];
-        if (frame.callNode != null) {
-          // Only add frames that have a call node and aren't duplicates
-          bool isDuplicate = false;
-          for (final existingFrame in luaStackTrace.frames) {
-            if (frame.callNode == existingFrame.node) {
-              isDuplicate = true;
-              break;
+      // Add recent call frames for non-coroutine errors only. Coroutine
+      // tracebacks need to stay scoped to the coroutine-owned stack slice.
+      if (activeCoroutine == null) {
+        int start = _traceIndex;
+        final List<LuaStackFrame> recentTrace = [];
+        for (int i = 0; i < _maxTraceFrames; i++) {
+          final frame = _traceBuffer[(start + i) % _maxTraceFrames];
+          if (frame.callNode != null) {
+            bool isDuplicate = false;
+            for (final existingFrame in luaStackTrace.frames) {
+              if (frame.callNode == existingFrame.node) {
+                isDuplicate = true;
+                break;
+              }
+            }
+
+            if (!isDuplicate) {
+              recentTrace.add(
+                LuaStackFrame.fromNode(frame.callNode!, frame.functionName),
+              );
             }
           }
-
-          if (!isDuplicate) {
-            recentTrace.add(
-              LuaStackFrame.fromNode(frame.callNode!, frame.functionName),
-            );
-          }
         }
+        luaStackTrace.frames.addAll(recentTrace);
       }
-      luaStackTrace.frames.addAll(recentTrace);
 
       // Format error message like Lua CLI
       String errorMsg = message;
@@ -603,7 +1233,11 @@ class Interpreter extends AstVisitor<Object?>
         // Extract just the filename for display
         filename = filepath.split('/').last;
 
-        errorMsg = "$filename: $message";
+        if (message.startsWith(':')) {
+          errorMsg = "$filename$message";
+        } else {
+          errorMsg = "$filename: $message";
+        }
       }
 
       // Get the executable name (lualike or lua)
@@ -647,10 +1281,10 @@ class Interpreter extends AstVisitor<Object?>
   /// [program] - List of AST nodes representing the program to execute
   /// Returns the result of the last executed statement, or null.
   Future<Object?> run(List<AstNode> program) async {
-    Logger.info(
-      'Running program',
+    Logger.infoLazy(
+      () => 'Running program',
       category: 'Interpreter',
-      context: {'statementsCount': program.length},
+      contextBuilder: () => {'statementsCount': program.length},
     );
 
     // Set the script path in the call stack if available
@@ -675,57 +1309,79 @@ class Interpreter extends AstVisitor<Object?>
     // Create a script environment for main script execution
     // This ensures local variables in the main script don't affect globals
     final savedEnv = _currentEnv;
+    final savedFunction = _currentFunction;
+    final savedFastLocals = _currentFastLocals;
+    final savedExternalRootCount = _externalGcRootProviders.length;
     final scriptEnv = Environment(parent: savedEnv, interpreter: this);
     // Propagate load-isolated flag so loaded chunks keep using provided _ENV
     scriptEnv.isLoadIsolated = savedEnv.isLoadIsolated;
     _currentEnv = scriptEnv;
+    gc.noteRootWrite(scriptEnv);
 
     // Push a top-level frame to track currentline via AST spans, bound to script env
     callStack.push(currentScriptPath ?? 'chunk', env: _currentEnv);
 
+    void pushTopLevelResult(Object? callResult) {
+      if (callResult == null) {
+        return;
+      }
+      if (callResult is Value) {
+        evalStack.push(callResult);
+      } else if (callResult is List) {
+        if (callResult.isEmpty) {
+          evalStack.push(wrapRuntimeValue(null));
+        } else if (callResult.length == 1) {
+          final v = callResult[0];
+          evalStack.push(v is Value ? v : wrapRuntimeValue(v));
+        } else {
+          evalStack.push(Value.multi(callResult));
+        }
+      } else {
+        evalStack.push(wrapRuntimeValue(callResult));
+      }
+    }
+
     try {
-      await _executeStatements(program);
+      final executionResult = await _executeStatements(program);
+      if (executionResult is TailCallSignal) {
+        Logger.debugLazy(
+          () => 'Top-level tail return detected; invoking callee',
+          category: 'Interpreter',
+          contextBuilder: () => {'argsCount': executionResult.args.length},
+        );
+        final callee = executionResult.functionValue is Value
+            ? executionResult.functionValue as Value
+            : wrapRuntimeValue(executionResult.functionValue);
+        final normalizedArgs = <Value>[];
+        for (final arg in executionResult.args) {
+          normalizedArgs.add(arg is Value ? arg : wrapRuntimeValue(arg));
+        }
+        pushTopLevelResult(await callFunction(callee, normalizedArgs));
+      }
     } on ReturnException catch (e) {
-      Logger.debug(
-        'Top-level return',
+      Logger.debugLazy(
+        () => 'Top-level return',
         category: 'Interpreter',
-        context: {'hasValue': e.value != null},
+        contextBuilder: () => {'hasValue': e.value != null},
       );
       // Handle top-level return statements - this is valid in Lua
       // Push the return value to eval stack so it can be retrieved
-      if (e.value != null) {
-        evalStack.push(e.value);
-      }
+      pushTopLevelResult(e.value);
     } on TailCallException catch (t) {
-      Logger.debug(
-        'Top-level tail return detected; invoking callee',
+      Logger.debugLazy(
+        () => 'Top-level tail return detected; invoking callee',
         category: 'Interpreter',
-        context: {'argsCount': t.args.length},
+        contextBuilder: () => {'argsCount': t.args.length},
       );
       // Handle top-level tail return: execute callee and use its result
       final callee = t.functionValue is Value
           ? t.functionValue as Value
-          : Value(t.functionValue);
-      final normalizedArgs = t.args
-          .map((a) => a is Value ? a : Value(a))
-          .toList();
-      final callResult = await callFunction(callee, normalizedArgs);
-      if (callResult != null) {
-        if (callResult is Value) {
-          evalStack.push(callResult);
-        } else if (callResult is List) {
-          if (callResult.isEmpty) {
-            evalStack.push(Value(null));
-          } else if (callResult.length == 1) {
-            final v = callResult[0];
-            evalStack.push(v is Value ? v : Value(v));
-          } else {
-            evalStack.push(Value.multi(callResult));
-          }
-        } else {
-          evalStack.push(Value(callResult));
-        }
+          : wrapRuntimeValue(t.functionValue);
+      final normalizedArgs = <Value>[];
+      for (final arg in t.args) {
+        normalizedArgs.add(arg is Value ? arg : wrapRuntimeValue(arg));
       }
+      pushTopLevelResult(await callFunction(callee, normalizedArgs));
     } on GotoException catch (e) {
       Logger.warningLazy(
         () => 'Undefined label',
@@ -736,6 +1392,16 @@ class Interpreter extends AstVisitor<Object?>
     } finally {
       // Restore the original environment
       _currentEnv = savedEnv;
+      _currentFunction = savedFunction;
+      gc.noteRootWrite(savedEnv);
+      gc.noteRootWrite(savedFunction);
+      _currentFastLocals = savedFastLocals;
+      if (_externalGcRootProviders.length > savedExternalRootCount) {
+        _externalGcRootProviders.removeRange(
+          savedExternalRootCount,
+          _externalGcRootProviders.length,
+        );
+      }
     }
 
     Logger.infoLazy(
@@ -755,13 +1421,7 @@ class Interpreter extends AstVisitor<Object?>
   }
 
   Future<Object?> _executeStatements(List<AstNode> statements) async {
-    final labelMap = <String, int>{};
-    for (var i = 0; i < statements.length; i++) {
-      final node = statements[i];
-      if (node is Label) {
-        labelMap[node.label.name] = i;
-      }
-    }
+    final labelMap = _statementLabelMap(statements);
     Logger.infoLazy(
       () => 'Label map',
       category: 'Interpreter',
@@ -773,12 +1433,22 @@ class Interpreter extends AstVisitor<Object?>
     while (index < statements.length) {
       final node = statements[index];
       final currentIndex = index;
-      Logger.debug(
-        'Visiting node',
+      Logger.debugLazy(
+        () => 'Visiting node',
         category: 'Interpreter',
-        context: {'nodeType': node.runtimeType.toString(), 'index': index},
+        contextBuilder: () => {
+          'nodeType': node.runtimeType.toString(),
+          'index': index,
+        },
       );
       recordTrace(node);
+      final hasStatementDebugHooks =
+          !_runningDebugHook && debugHookFunction != null;
+      final hookAfterExecution =
+          hasStatementDebugHooks && _fireStatementHookAfterExecution(node);
+      if (hasStatementDebugHooks && !hookAfterExecution) {
+        await maybeFireStatementDebugHooks(node);
+      }
       var statementCompleted = false;
       Stopwatch? statementStopwatch;
       if (Logger.enabled) {
@@ -786,14 +1456,24 @@ class Interpreter extends AstVisitor<Object?>
       }
       try {
         result = await node.accept(this);
+        if (hasStatementDebugHooks &&
+            hookAfterExecution &&
+            !consumeSuppressedPostExecutionHook(node)) {
+          await maybeFireStatementDebugHooks(node);
+        }
         statementCompleted = true;
-        index++;
       } on GotoException catch (e) {
         if (!labelMap.containsKey(e.label)) {
           // Propagate to outer scope for resolution
           throw GotoException(e.label);
         }
-        index = labelMap[e.label]!;
+        final targetIndex = labelMap[e.label]!;
+        await _rewindLocalsForGoto(
+          statements,
+          targetIndex: targetIndex,
+          currentIndex: currentIndex,
+        );
+        index = targetIndex;
       } finally {
         if (statementStopwatch != null) {
           statementStopwatch.stop();
@@ -815,10 +1495,10 @@ class Interpreter extends AstVisitor<Object?>
             final script =
                 callStack.scriptPath ?? currentScriptPath ?? '<chunk>';
             final currentFunction = callStack.top?.functionName ?? '<global>';
-            Logger.debug(
-              'Statement execution time',
+            Logger.debugLazy(
+              () => 'Statement execution time',
               category: 'Performance',
-              context: {
+              contextBuilder: () => {
                 'nodeType': node.runtimeType.toString(),
                 'index': currentIndex,
                 'elapsedMs': elapsedMs,
@@ -840,11 +1520,63 @@ class Interpreter extends AstVisitor<Object?>
               evalStack.pop();
             }
           }
-          _runAutoGCAtSafePoint();
+          await _runAutoGCAtSafePoint();
         }
+      }
+
+      if (result is TailCallSignal) {
+        return result;
+      }
+
+      if (statementCompleted) {
+        index++;
       }
     }
     return result;
+  }
+
+  Future<void> _rewindLocalsForGoto(
+    List<AstNode> statements, {
+    required int targetIndex,
+    required int currentIndex,
+  }) async {
+    if (targetIndex >= currentIndex) {
+      return;
+    }
+
+    final namesToDiscard = <String>{};
+    for (var i = targetIndex + 1; i <= currentIndex; i++) {
+      final statement = statements[i];
+      switch (statement) {
+        case LocalDeclaration(:final names):
+          for (final name in names) {
+            namesToDiscard.add(name.name);
+          }
+        case LocalFunctionDef(:final name):
+          namesToDiscard.add(name.name);
+        default:
+          break;
+      }
+    }
+
+    for (final name in namesToDiscard) {
+      final box = _currentEnv.values[name];
+      if (box == null || !box.isLocal) {
+        continue;
+      }
+
+      if (_currentEnv.toBeClosedVars.remove(name)) {
+        final value = box.value;
+        if (value is Value) {
+          await value.close();
+        }
+      }
+
+      if (!box.hasUpvalueReferences) {
+        box.value = null;
+      }
+      _currentEnv.values.remove(name);
+    }
   }
 
   /// Evaluates a program.
@@ -872,39 +1604,104 @@ class Interpreter extends AstVisitor<Object?>
   /// Add this method to the Interpreter class
   @override
   Environment getCurrentEnv() {
-    Logger.info(
-      'Interpreter.getCurrentEnv() called',
+    Logger.infoLazy(
+      () => 'Interpreter.getCurrentEnv() called',
       category: 'Interpreter',
-      context: {'env_hash': _currentEnv.hashCode},
+      contextBuilder: () => {'env_hash': _currentEnv.hashCode},
     );
     return _currentEnv;
   }
 
   /// Explicitly call a function with the given arguments
   @override
-  Future<Object?> callFunction(Value function, List<Object?> args) async {
-    return await _callFunction(function, args);
+  Future<Object?> callFunction(
+    Value function,
+    List<Object?> args, {
+    String? debugName,
+    String debugNameWhat = '',
+  }) async {
+    return await _callFunction(
+      function,
+      args,
+      debugNameOverride: debugName,
+      debugNameWhatOverride: debugNameWhat,
+    );
   }
 
   @override
-  Future<Object?> runAst(List<AstNode> program) => run(program);
+  Future<Object?> runAst(List<AstNode> program) {
+    final scriptPath = currentScriptPath ?? callStack.scriptPath;
+    final shouldValidateSemantics =
+        scriptPath == null || !looksLikeLuaFilePath(scriptPath);
+    if (shouldValidateSemantics) {
+      final semanticError = validateProgramSemantics(Program(program));
+      if (semanticError != null) {
+        throw Exception(semanticError);
+      }
+    }
+    return run(program);
+  }
 
   @override
   Future<Object?> evaluateAst(AstNode node) => node.accept(this);
 
-  void _runAutoGCAtSafePoint() {
+  @override
+  Future<LuaChunkLoadResult> loadChunk(LuaChunkLoadRequest request) async {
+    final normalized = await normalizeChunkLoadRequest(this, request);
+    if (normalized.failure case final failure?) {
+      return failure;
+    }
+
+    final normalizedRequest = normalized.request;
+    final binarySource = compiledArtifactSourceBytes(normalizedRequest.source);
+    if (binarySource != null && looksLikeLualikeIrBytes(binarySource)) {
+      return const LuaChunkLoadResult.failure(
+        'lualike_ir artifacts require the IR runtime',
+      );
+    }
+
+    final luaBytecodeResult = tryLoadLuaBytecodeArtifact(
+      this,
+      normalizedRequest,
+    );
+    if (luaBytecodeResult != null) {
+      return luaBytecodeResult;
+    }
+
+    return loadChunkWithLegacyAstSupport(this, normalizedRequest);
+  }
+
+  @override
+  Object? dumpFunction(Value function, {bool stripDebugInfo = false}) {
+    return dumpFunctionWithLegacyAstTransport(
+      function,
+      stripDebugInfo: stripDebugInfo,
+    );
+  }
+
+  @override
+  LuaFunctionDebugInfo? debugInfoForFunction(Value function) {
+    return defaultDebugInfoForFunction(this, function);
+  }
+
+  Future<void> _runAutoGCAtSafePoint() async {
     final threshold = gc.autoTriggerDebtThreshold;
     final debt = gc.allocationDebt;
     if (Logger.enabled) {
-      Logger.debug(
-        'Safe point debt check',
+      Logger.debugLazy(
+        () => 'Safe point debt check',
         category: 'GC',
-        context: {'debt': debt, 'threshold': threshold},
+        contextBuilder: () => {'debt': debt, 'threshold': threshold},
       );
     }
-    if (debt < threshold) {
+    if (debt < threshold && !gc.hasPendingAsyncFinalizers) {
       return;
     }
-    gc.runPendingAutoTrigger();
+    if (debt >= threshold) {
+      gc.runPendingAutoTrigger();
+    }
+    if (gc.hasPendingAsyncFinalizers) {
+      await gc.drainPendingAsyncFinalizers();
+    }
   }
 }

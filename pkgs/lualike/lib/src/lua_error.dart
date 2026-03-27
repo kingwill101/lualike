@@ -23,7 +23,30 @@ class LuaError implements Exception {
   final StackTrace? stackTrace;
 
   /// The Lua call stack at the time the error occurred.
-  final LuaStackTrace? luaStackTrace;
+  LuaStackTrace? luaStackTrace;
+
+  /// Whether protected-call packaging should leave the message unadorned.
+  ///
+  /// This is used for cases like `error(message, 0)`, where Lua suppresses the
+  /// automatic `file:line:` prefix even when the error object flows through
+  /// `pcall`/`xpcall`.
+  final bool suppressAutomaticLocation;
+
+  /// Whether protected-call packaging should preserve this message verbatim.
+  ///
+  /// Builtin functions behave like Lua C functions: under `pcall`/`xpcall`
+  /// their errors are typically returned as raw messages, while unprotected
+  /// execution still reports the caller location when the error escapes the
+  /// chunk. This flag lets the protected-call layer preserve that behavior
+  /// without suppressing normal top-level reporting.
+  final bool suppressProtectedCallLocation;
+
+  /// Optional 1-based source line override for protected-call packaging.
+  ///
+  /// Some runtime errors originate from operators or call sites inside larger
+  /// multiline spans. Lua reports the operator/call line for those failures,
+  /// which can be more precise than the active statement line or the node span.
+  final int? lineNumber;
 
   /// Tracks whether this error has already been reported to avoid duplicate output.
   bool hasBeenReported;
@@ -36,6 +59,9 @@ class LuaError implements Exception {
     this.cause,
     this.stackTrace,
     this.luaStackTrace,
+    this.suppressAutomaticLocation = false,
+    this.suppressProtectedCallLocation = false,
+    this.lineNumber,
     this.hasBeenReported = false,
   });
 
@@ -54,6 +80,9 @@ class LuaError implements Exception {
       cause: cause,
       stackTrace: stackTrace,
       luaStackTrace: luaStackTrace,
+      suppressAutomaticLocation: false,
+      suppressProtectedCallLocation: false,
+      lineNumber: null,
     );
   }
 
@@ -78,6 +107,9 @@ class LuaError implements Exception {
       cause: exception,
       stackTrace: stackTrace,
       luaStackTrace: luaStackTrace,
+      suppressAutomaticLocation: false,
+      suppressProtectedCallLocation: false,
+      lineNumber: null,
     );
   }
 
@@ -91,6 +123,7 @@ class LuaError implements Exception {
     Object? cause,
     StackTrace? stackTrace,
     LuaStackTrace? luaStackTrace,
+    int? lineNumber,
   }) {
     return LuaError(
       message,
@@ -99,6 +132,28 @@ class LuaError implements Exception {
       cause: cause,
       stackTrace: stackTrace,
       luaStackTrace: luaStackTrace,
+      suppressAutomaticLocation: false,
+      suppressProtectedCallLocation: false,
+      lineNumber: lineNumber,
+    );
+  }
+
+  /// Returns a copy that preserves the current message under protected calls.
+  LuaError withProtectedCallLocationSuppressed() {
+    if (suppressProtectedCallLocation) {
+      return this;
+    }
+    return LuaError(
+      message,
+      span: span,
+      node: node,
+      cause: cause,
+      stackTrace: stackTrace,
+      luaStackTrace: luaStackTrace,
+      suppressAutomaticLocation: suppressAutomaticLocation,
+      suppressProtectedCallLocation: true,
+      lineNumber: lineNumber,
+      hasBeenReported: hasBeenReported,
     );
   }
 
@@ -119,7 +174,7 @@ class LuaError implements Exception {
       buffer.write(luaStackTrace!.format());
     }
 
-    if (cause != null && cause != this) {
+    if (cause != null && cause != this && cause.toString() != message) {
       buffer.writeln();
       buffer.write('Caused by: $cause');
     }

@@ -1,6 +1,6 @@
 export 'logger.dart';
 
-import 'package:contextual/contextual.dart' as ctx;
+import 'level.dart' as ctx;
 import 'package:lualike/src/logging/logger.dart';
 import 'package:lualike/src/utils/platform_utils.dart' as platform;
 

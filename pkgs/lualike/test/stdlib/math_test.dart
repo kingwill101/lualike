@@ -156,6 +156,36 @@ void main() {
       expect((f as Value).raw, closeTo(0.14, 1e-10));
     });
 
+    test('frexp and ldexp functions', () async {
+      await bridge.execute('''
+        m1, e1 = math.frexp(10)
+        x1 = math.ldexp(m1, e1)
+        m2, e2 = math.frexp(-math.pi)
+        x2 = math.ldexp(m2, e2)
+        m3, e3 = math.frexp(math.huge)
+        x3 = math.ldexp(m3, e3)
+        x4 = math.ldexp(0.5, 1024)
+      ''');
+
+      final m1 = bridge.getGlobal('m1') as Value;
+      final e1 = bridge.getGlobal('e1') as Value;
+      final x1 = bridge.getGlobal('x1') as Value;
+      final x2 = bridge.getGlobal('x2') as Value;
+      final m3 = bridge.getGlobal('m3') as Value;
+      final e3 = bridge.getGlobal('e3') as Value;
+      final x3 = bridge.getGlobal('x3') as Value;
+      final x4 = bridge.getGlobal('x4') as Value;
+
+      expect(m1.raw, equals(0.625));
+      expect(e1.raw, equals(4));
+      expect(x1.raw, equals(10.0));
+      expect(x2.raw, closeTo(-math.pi, 1e-12));
+      expect(m3.raw, equals(double.infinity));
+      expect(e3.raw, equals(0));
+      expect(x3.raw, equals(double.infinity));
+      expect(x4.raw, closeTo(8.98846567431158e307, 1e294));
+    });
+
     test('constants', () async {
       await bridge.execute('''
         pi = math.pi

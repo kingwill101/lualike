@@ -2,8 +2,8 @@ import 'package:lualike/src/parsers/pattern.dart' as lpc;
 import 'package:lualike_test/test.dart';
 
 void main() {
-  Logger.debug(
-    '[${DateTime.now().toString().split('.').first}] Logging enabled',
+  Logger.debugLazy(
+    () => '[${DateTime.now().toString().split('.').first}] Logging enabled',
   );
 
   // Test cases for deeply nested balanced patterns
@@ -42,7 +42,7 @@ void main() {
     '{function() { if (condition) { return { nested: "object" }; } }}',
   );
 
-  Logger.debug('All nested balanced pattern tests completed');
+  Logger.debugLazy(() => 'All nested balanced pattern tests completed');
 }
 
 void testNestedBalanced(String pattern, String text, String? expected) {
@@ -52,31 +52,37 @@ void testNestedBalanced(String pattern, String text, String? expected) {
       final match = lp.firstMatch(text);
       if (match != null) {
         final result = match.match;
-        Logger.debug('Match found: "$result"');
+        Logger.debugLazy(() => 'Match found: "$result"');
 
         if (expected != null && result != expected) {
-          Logger.debug('ERROR: Expected "$expected" but got "$result"');
+          Logger.debugLazy(
+            () => 'ERROR: Expected "$expected" but got "$result"',
+          );
         } else if (expected == null) {
-          Logger.debug('ERROR: Expected no match but got "$result"');
+          Logger.debugLazy(() => 'ERROR: Expected no match but got "$result"');
         } else {
-          Logger.debug('SUCCESS: Match is correct');
+          Logger.debugLazy(() => 'SUCCESS: Match is correct');
         }
       } else {
-        Logger.debug('No match found');
+        Logger.debugLazy(() => 'No match found');
 
         if (expected != null) {
-          Logger.debug('ERROR: Expected "$expected" but no match was found');
+          Logger.debugLazy(
+            () => 'ERROR: Expected "$expected" but no match was found',
+          );
         } else {
-          Logger.debug('SUCCESS: No match expected, none found');
+          Logger.debugLazy(() => 'SUCCESS: No match expected, none found');
         }
       }
     } catch (e) {
-      Logger.debug('ERROR: Exception occurred: $e');
+      Logger.debugLazy(() => 'ERROR: Exception occurred: $e');
       if (expected != null) {
-        Logger.debug('ERROR: Expected "$expected" but got an exception');
+        Logger.debugLazy(
+          () => 'ERROR: Expected "$expected" but got an exception',
+        );
       }
     }
   });
 
-  Logger.debug('---');
+  Logger.debugLazy(() => '---');
 }

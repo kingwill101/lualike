@@ -1,8 +1,11 @@
+@Tags(['legacy_chunk'])
+library;
+
 import 'package:test/test.dart';
 import 'package:lualike/lualike.dart';
 
 void main() {
-  group('Binary Chunk Tests', () {
+  group('Legacy AST/Internal Chunk Transport', () {
     late LuaLike bridge;
 
     setUp(() {
@@ -14,6 +17,30 @@ void main() {
     });
 
     group('string.dump basic functionality', () {
+      test('dumped chunk uses Lua 5.5-compatible header', () async {
+        await bridge.execute(r'''
+          f = function() return 42 end
+          dumped = string.dump(f)
+          header = string.pack("c4BBc6Bi4BI4BjBn",
+            "\27Lua",
+            0x55,
+            0,
+            "\x19\x93\r\n\x1a\n",
+            string.packsize("i4"),
+            -0x5678,
+            string.packsize("I4"),
+            0x12345678,
+            string.packsize("j"),
+            -0x5678,
+            string.packsize("n"),
+            -370.5
+          )
+          matches_header = string.sub(dumped, 1, #header) == header
+        ''');
+
+        expect((bridge.getGlobal('matches_header') as Value?)?.raw, isTrue);
+      });
+
       test('simple function with no parameters', () async {
         await bridge.execute('''
           f = function() return 42 end
@@ -68,9 +95,81 @@ void main() {
         expect((bridge.getGlobal('b') as Value?)?.raw.toString(), equals('y'));
         expect((bridge.getGlobal('c') as Value?)?.raw.toString(), equals('z'));
       });
+
+      test('top-level loaded chunks do not repeat source in dump', () async {
+        final expectedName = List.filled(1000, 'x').join();
+        await bridge.execute(r'''
+          prog = [[
+            return function (x)
+              return function (y)
+                return x + y
+              end
+            end
+          ]]
+          name = string.rep("x", 1000)
+          p = assert(load(prog, name))
+          dumped = string.dump(p)
+          dumped_len = #dumped
+          f = assert(load(dumped))
+          g = f()
+          h = g(3)
+          result = h(5)
+          f_source = debug.getinfo(f).source
+          g_source = debug.getinfo(g).source
+          h_source = debug.getinfo(h).source
+
+          stripped = string.dump(p, true)
+          stripped_len = #stripped
+        ''');
+
+        expect(
+          (bridge.getGlobal('dumped_len') as Value?)?.raw,
+          greaterThan(1000),
+        );
+        expect((bridge.getGlobal('dumped_len') as Value?)?.raw, lessThan(2000));
+        expect((bridge.getGlobal('result') as Value?)?.raw, equals(8));
+        expect(
+          (bridge.getGlobal('f_source') as Value?)?.raw,
+          equals(expectedName),
+        );
+        expect(
+          (bridge.getGlobal('g_source') as Value?)?.raw,
+          equals(expectedName),
+        );
+        expect(
+          (bridge.getGlobal('h_source') as Value?)?.raw,
+          equals(expectedName),
+        );
+        expect(
+          (bridge.getGlobal('stripped_len') as Value?)?.raw,
+          lessThan(500),
+        );
+      });
+
+      test(
+        'compact top-level dumps keep one extra copy of string literals',
+        () async {
+          await bridge.execute(r'''
+          str = "|" .. string.rep("X", 50) .. "|"
+          prog = string.format([[
+            local str <const> = "%s"
+            return {
+              function () return str end,
+              function () return str end,
+              function () return str end
+            }
+          ]], str)
+          f = assert(load(prog))
+          dumped = string.dump(f)
+          _, count = string.gsub(dumped, str, {})
+        ''');
+
+          expect((bridge.getGlobal('count') as Value?)?.raw, equals(2));
+        },
+      );
     });
 
-    group('binary chunk with different modes', () {
+    group('legacy chunk mode handling', () {
       test('load with binary mode "b"', () async {
         await bridge.execute('''
           f = function() return 123 end
@@ -108,7 +207,7 @@ void main() {
       });
     });
 
-    group('reader functions with binary chunks', () {
+    group('reader functions with legacy chunks', () {
       test('reader function byte-by-byte', () async {
         await bridge.execute('''
           function read1(x)
@@ -190,6 +289,52 @@ void main() {
         );
         expect((bridge.getGlobal('c') as Value?)?.raw, isNull);
       });
+
+      test(
+        'reloading the same dumped closure keeps upvalue state separate',
+        () async {
+          await bridge.execute('''
+          function read1(x)
+            local i = 0
+            return function()
+              i = i + 1
+              if i <= #x then
+                return string.sub(x, i, i)
+              else
+                return nil
+              end
+            end
+          end
+
+          local seed = 0
+          local function make_counter()
+            local x = seed
+            return function()
+              x = x + 1
+              return x
+            end
+          end
+
+          dumped = string.dump(make_counter())
+
+          first = assert(load(read1(dumped)))
+          second = assert(load(read1(dumped)))
+
+          assert(debug.setupvalue(first, 1, 10) == "x")
+          assert(debug.setupvalue(second, 1, 20) == "x")
+
+          first_a = first()
+          first_b = first()
+          second_a = second()
+          second_b = second()
+        ''');
+
+          expect((bridge.getGlobal('first_a') as Value?)?.raw, equals(11));
+          expect((bridge.getGlobal('first_b') as Value?)?.raw, equals(12));
+          expect((bridge.getGlobal('second_a') as Value?)?.raw, equals(21));
+          expect((bridge.getGlobal('second_b') as Value?)?.raw, equals(22));
+        },
+      );
     });
 
     group('complex nested functions', () {
@@ -265,7 +410,7 @@ void main() {
       });
     });
 
-    group('loadfile with binary chunks', () {
+    group('loadfile with legacy chunks', () {
       test('loadfile with simple binary function', () async {
         await bridge.execute('''
           -- Create a temporary file with binary chunk
@@ -381,10 +526,14 @@ void main() {
           f = function() return type(_ENV) end
           dumped = string.dump(f)
           loaded = load(dumped, nil, "b", nil)
-          result = loaded()
+          ok, result = pcall(loaded)
         ''');
 
-        expect((bridge.getGlobal('result') as Value?)?.raw, equals('nil'));
+        expect((bridge.getGlobal('ok') as Value?)?.raw, isFalse);
+        expect(
+          (bridge.getGlobal('result') as Value?)?.raw,
+          contains("upvalue '_ENV'"),
+        );
       });
     });
 
@@ -466,8 +615,9 @@ void main() {
           result = loaded()
         ''');
 
-        // Reference Lua behavior: binary chunks preserve original source location,
-        // custom chunkname is not used for debug.getinfo
+        // This is legacy AST/internal transport behavior, not a real
+        // upstream Lua bytecode contract. Today the loaded function falls
+        // back to a C-style source marker in this environment.
         expect(
           (bridge.getGlobal('result') as Value?)?.raw,
           equals('=[C]'), // Test environment fallback
@@ -482,8 +632,9 @@ void main() {
           result = loaded()
         ''');
 
-        // Reference Lua behavior: binary chunks preserve original source location,
-        // default chunkname is not used for debug.getinfo
+        // This is legacy AST/internal transport behavior, not a real
+        // upstream Lua bytecode contract. Today the loaded function falls
+        // back to a C-style source marker in this environment.
         expect(
           (bridge.getGlobal('result') as Value?)?.raw,
           equals('=[C]'),

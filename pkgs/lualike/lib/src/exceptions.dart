@@ -8,6 +8,8 @@ library;
 import 'dart:async';
 
 import 'package:lualike/src/coroutine.dart' show Coroutine;
+import 'package:lualike/src/ast.dart' show AstNode;
+import 'package:lualike/src/environment.dart' show Environment;
 import 'package:lualike/src/value.dart';
 
 /// Base class for exceptions used by the interpreter for control flow.
@@ -31,12 +33,37 @@ class ReturnException extends ControlFlowException {
 class TailCallException extends ControlFlowException {
   final dynamic functionValue; // Value | Function* variants | BuiltinFunction
   final List<Object?> args; // Already normalized argument list
+  final String? callName;
 
-  TailCallException(this.functionValue, this.args);
+  TailCallException(this.functionValue, this.args, {this.callName});
 
   @override
   String toString() =>
       "TailCallException(${functionValue.runtimeType}, ${args.length} args)";
+}
+
+/// Non-exception tail-call handoff used by the AST interpreter.
+///
+/// This lets tail calls propagate through blocks and loops without repeatedly
+/// paying Dart exception costs for hot recursive paths such as `deep(30000)`.
+class TailCallSignal {
+  final dynamic functionValue;
+  final List<Object?> args;
+  final AstNode? callNode;
+  final String? callName;
+  final Environment? callEnv;
+
+  const TailCallSignal(
+    this.functionValue,
+    this.args, {
+    this.callNode,
+    this.callName,
+    this.callEnv,
+  });
+
+  @override
+  String toString() =>
+      "TailCallSignal(${functionValue.runtimeType}, ${args.length} args)";
 }
 
 /// Exception thrown for 'break' statements.

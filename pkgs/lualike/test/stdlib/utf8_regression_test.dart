@@ -34,6 +34,8 @@ void main() {
 
           off1 = utf8.offset(s, 2)
           off2 = utf8.offset(s2, 2)
+          off1s, off1e = utf8.offset(s, 2)
+          off2s, off2e = utf8.offset(s2, 2)
         ''');
 
         expect((lua.getGlobal('len1') as Value).raw, equals(5));
@@ -51,6 +53,10 @@ void main() {
 
         expect((lua.getGlobal('off1') as Value).raw, equals(2));
         expect((lua.getGlobal('off2') as Value).raw, equals(2));
+        expect((lua.getGlobal('off1s') as Value).raw, equals(2));
+        expect((lua.getGlobal('off1e') as Value).raw, equals(2));
+        expect((lua.getGlobal('off2s') as Value).raw, equals(2));
+        expect((lua.getGlobal('off2e') as Value).raw, equals(2));
       });
 
       test('utf8 functions work with LuaString objects', () async {
@@ -61,6 +67,7 @@ void main() {
           len = utf8.len(s)
           cp = utf8.codepoint(s, 1, 1)
           off = utf8.offset(s, 1)
+          offs, offe = utf8.offset(s, 1)
 
           codes = {}
           for p, c in utf8.codes(s) do
@@ -71,6 +78,8 @@ void main() {
         expect((lua.getGlobal('len') as Value).raw, equals(1));
         expect((lua.getGlobal('cp') as Value).raw, equals(128)); // U+0080
         expect((lua.getGlobal('off') as Value).raw, equals(1));
+        expect((lua.getGlobal('offs') as Value).raw, equals(1));
+        expect((lua.getGlobal('offe') as Value).raw, equals(2));
 
         final codesVal = lua.getGlobal('codes') as Value;
         final codesTable = codesVal.raw as Map;
@@ -145,17 +154,36 @@ void main() {
           -- Test continuation byte errors
           s1, e1 = test_continuation_error("\xC2\x80", 1, 2)  -- Position 2 is continuation
           s2, e2 = test_continuation_error("\x80", 1)         -- Position 1 is continuation
+          s3, e3 = test_continuation_error("\x9c", -1)        -- Backward default start is continuation
         ''');
 
         expect((lua.getGlobal('s1') as Value).raw, equals(false));
         expect((lua.getGlobal('s2') as Value).raw, equals(false));
+        expect((lua.getGlobal('s3') as Value).raw, equals(false));
 
         final e1 = (lua.getGlobal('e1') as Value).raw.toString();
         final e2 = (lua.getGlobal('e2') as Value).raw.toString();
+        final e3 = (lua.getGlobal('e3') as Value).raw.toString();
 
         expect(e1, contains('continuation byte'));
         expect(e2, contains('continuation byte'));
+        expect(e3, contains('continuation byte'));
       });
+
+      test(
+        'utf8.offset returns end positions for incomplete sequences',
+        () async {
+          await lua.execute(r'''
+          p1, e1 = utf8.offset("\xE0", 1)
+          p2, e2 = utf8.offset("\xE0\x9e", -1)
+        ''');
+
+          expect((lua.getGlobal('p1') as Value).raw, equals(1));
+          expect((lua.getGlobal('e1') as Value).raw, equals(1));
+          expect((lua.getGlobal('p2') as Value).raw, equals(1));
+          expect((lua.getGlobal('e2') as Value).raw, equals(2));
+        },
+      );
 
       test('utf8 functions throw error for out of bounds', () async {
         await lua.execute(r'''

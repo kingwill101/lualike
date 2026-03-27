@@ -15,6 +15,16 @@ import 'table_storage.dart';
 /// Represents an asynchronous function that can be called with a list of arguments.
 typedef AsyncFunction = Future<Object?> Function(List<Object?> args);
 
+abstract interface class VirtualLuaTable implements Map<dynamic, dynamic> {}
+
+String _comparisonTypeError(Object? left, Object? right) {
+  final leftType = getLuaType(left);
+  final rightType = getLuaType(right);
+  return leftType == rightType
+      ? 'attempt to compare two $leftType values'
+      : 'attempt to compare $leftType with $rightType';
+}
+
 /// Represents a value in the LuaLike runtime system.
 ///
 /// Values can hold any Dart object and optionally have an associated metatable
@@ -51,8 +61,25 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// Captured environment for Lua functions to support coroutine cloning.
   Environment? closureEnvironment;
 
+  /// Backing environment for the canonical `_G` proxy table.
+  ///
+  /// Raw writes to `_G` can bypass the proxy metatable when the key already
+  /// exists. Keeping this reference lets those writes mirror the environment
+  /// binding so subsequent `__index` fallback reads stay consistent.
+  Environment? globalProxyEnvironment;
+
   /// The name of the function, if this value is a named function.
   String? functionName;
+
+  /// Source line (0-based) where the function definition begins.
+  int? debugLineDefined;
+
+  /// Whether debug inspection should behave like a stripped Lua chunk.
+  ///
+  /// This preserves Lua 5.5 semantics for functions loaded from stripped
+  /// legacy chunks: no real local/upvalue names, no source lines, and empty
+  /// activelines.
+  bool strippedDebugInfo = false;
 
   /// Whether this value is a multi-result value.
   bool isMulti = false;
@@ -82,6 +109,19 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// checks in tight loops.
   bool isLessComparatorReversed = false;
 
+  /// Hint for a comparator of the form
+  /// `function(x, y) counter = counter + 1; return x < y end`.
+  /// This preserves the counter side effect while still allowing the sort
+  /// path to bypass a full Lua closure call for primitive comparisons.
+  bool isCountedLessComparator = false;
+
+  /// Hint for a comparator of the form
+  /// `function(x, y) counter = counter + 1; return y < x end`.
+  bool isCountedLessComparatorReversed = false;
+
+  /// Captured counter box for counted comparator fast paths.
+  Box<dynamic>? comparatorCounterBox;
+
   /// Whether this value has been initialized (used for const variables)
   bool _isInitialized = false;
 
@@ -109,28 +149,32 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     var size = GcWeights.gcObjectHeader + GcWeights.valueBase;
     if (isTable && raw is Map) {
       final map = raw as Map;
-      size += map.length * GcWeights.tableEntry;
-      // Count only RAW string keys, not Value-wrapped keys.
-      // Value keys are separate GC objects already tracked; counting their
-      // content again would double-count them.
-      int? bytes = _tableStringKeyBytes[map];
-      if (bytes == null) {
-        var total = 0;
-        try {
-          for (final k in map.keys) {
-            // Only count raw strings - Value keys are tracked separately
-            if (k is String) {
-              total += k.length * GcWeights.stringUnit;
-            } else if (k is LuaString) {
-              total += k.length * GcWeights.stringUnit;
+      if (map is TableStorage) {
+        size += map.arrayLength * GcWeights.tableEntry;
+        size += map.reservedHashSlots * GcWeights.tableEntry;
+        size += map.rawStringKeyChars * GcWeights.stringUnit;
+      } else {
+        size += map.length * GcWeights.tableEntry;
+        // Count only RAW string keys, not Value-wrapped keys.
+        // Value keys are separate GC objects already tracked; counting their
+        // content again would double-count them.
+        int? bytes = _tableStringKeyBytes[map];
+        if (bytes == null) {
+          var total = 0;
+          try {
+            for (final k in map.keys) {
+              if (k is String) {
+                total += k.length * GcWeights.stringUnit;
+              } else if (k is LuaString) {
+                total += k.length * GcWeights.stringUnit;
+              }
             }
-            // Removed: Don't count Value-wrapped strings - they're separate GC objects
-          }
-        } catch (_) {}
-        _tableStringKeyBytes[map] = total;
-        bytes = total;
+          } catch (_) {}
+          _tableStringKeyBytes[map] = total;
+          bytes = total;
+        }
+        size += bytes;
       }
-      size += bytes;
     }
 
     if (upvalues != null) {
@@ -177,8 +221,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       }
     }
     dynamic mode = mt['__mode'];
-    Logger.debug(
-      'tableWeakMode raw metatable __mode: $mode (${mode.runtimeType})',
+    Logger.debugLazy(
+      () =>
+          'tableWeakMode raw metatable __mode: $mode '
+          '(${mode.runtimeType})',
       category: 'Value',
     );
     if (mode is Value) {
@@ -213,6 +259,70 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// already freed but we still need to honor semantics for this cycle.
   bool get cachedHasWeakValues => _cachedWeakMode?.contains('v') ?? false;
 
+  static String? _weakModeFromMetatableMap(Map<String, dynamic>? mt) {
+    if (mt == null) return null;
+    dynamic mode = mt['__mode'];
+    if (mode is Value) {
+      mode = mode.raw;
+    }
+    if (mode == null) return null;
+    final modeStr = switch (mode) {
+      final LuaString luaString => luaString.toString(),
+      final String string => string,
+      _ => mode.toString(),
+    };
+    if (modeStr.contains('k') && modeStr.contains('v')) return 'kv';
+    if (modeStr.contains('k')) return 'k';
+    if (modeStr.contains('v')) return 'v';
+    return null;
+  }
+
+  static String? weakModeForTableObject(Object? table) {
+    if (table is Value) {
+      return table.tableWeakMode ?? table._cachedWeakMode;
+    }
+    if (table is! Map) return null;
+
+    final registered = _weakModeFromMetatableMap(_tableMetatables[table]);
+    if (registered != null) return registered;
+
+    final canonical = _lookupTableIdentity(table);
+    if (canonical != null) {
+      return canonical.tableWeakMode ?? canonical._cachedWeakMode;
+    }
+
+    return null;
+  }
+
+  static bool tableObjectHasWeakValues(Object? table) =>
+      weakModeForTableObject(table)?.contains('v') ?? false;
+
+  static Object? rawMetatableOwnerForTable(Object? table) {
+    if (table is! Map) return null;
+    try {
+      return _tableMetatableOwners[table];
+    } catch (_) {
+      return null;
+    }
+  }
+
+  bool get metatableOwnerHasWeakValues {
+    if (isTable) {
+      final rawOwner = rawMetatableOwnerForTable(raw);
+      if (rawOwner != null && tableObjectHasWeakValues(rawOwner)) {
+        return true;
+      }
+    }
+    final ownerMap = getMetatable();
+    if (ownerMap != null && tableObjectHasWeakValues(ownerMap)) {
+      return true;
+    }
+    if (metatableRef != null && tableObjectHasWeakValues(metatableRef)) {
+      return true;
+    }
+    return false;
+  }
+
   /// Set the raw value with attribute enforcement
   set raw(dynamic value) {
     if (isConst && _isInitialized) {
@@ -222,7 +332,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     if (normalized is Map) {
       if (normalized is TableStorage) {
         _canonicalTableStorage[normalized] ??= normalized;
-      } else if (normalized is! MapBase<String, dynamic>) {
+      } else if (normalized is! VirtualLuaTable &&
+          normalized is! MapBase<String, dynamic>) {
         normalized = _ensureCanonicalStorage(normalized);
       }
     }
@@ -251,6 +362,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   Value(
     dynamic raw, {
     Map<String, dynamic>? metatable,
+    this.isMulti = false,
     this.isConst = false,
     this.isToBeClose = false,
     this.isTempKey = false,
@@ -259,12 +371,15 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     this.functionBody,
     this.closureEnvironment,
     this.functionName,
+    this.debugLineDefined,
+    this.strippedDebugInfo = false,
   }) {
     dynamic normalized = raw;
     if (normalized is Map) {
       if (normalized is TableStorage) {
         _canonicalTableStorage[normalized] ??= normalized;
-      } else if (normalized is! MapBase<String, dynamic>) {
+      } else if (normalized is! VirtualLuaTable &&
+          normalized is! MapBase<String, dynamic>) {
         normalized = _ensureCanonicalStorage(normalized);
       }
     }
@@ -283,9 +398,15 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     // This mirrors Lua's behavior where strings, numbers, etc. share
     // common metatables giving them methods like string.find.
     if (metatable == null) {
-      MetaTable().applyDefaultMetatable(this);
+      final skipDefaultMetatable =
+          _raw is Map ||
+          ((_raw is num || _raw is BigInt) &&
+              !MetaTable().numberMetatableEnabled);
+      if (!skipDefaultMetatable) {
+        MetaTable().applyDefaultMetatable(this);
+      }
     } else {
-      this.metatable = metatable;
+      setMetatable(metatable);
     }
 
     // Always register with the GC so mark/unmark and separation logic
@@ -303,6 +424,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       Expando<TableStorage>('canonicalTableStorage');
   static final Expando<Map<String, dynamic>> _tableMetatables =
       Expando<Map<String, dynamic>>('tableMetatables');
+  static final Expando<Object> _tableMetatableOwners = Expando<Object>(
+    'tableMetatableOwners',
+  );
   // Tracks total credits for string-like keys stored in the underlying Map.
   static final Expando<int> _tableStringKeyBytes = Expando<int>(
     'tableStringKeyBytes',
@@ -320,6 +444,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     int deltaChars,
   ) {
     if (deltaChars == 0) return;
+    if (map is TableStorage) {
+      return;
+    }
     try {
       final current = _tableStringKeyBytes[map] ?? 0;
       _tableStringKeyBytes[map] = current + deltaChars * GcWeights.stringUnit;
@@ -330,6 +457,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// This forces estimatedSize to recalculate from scratch on next access.
   /// Used by GC when removing multiple keys to avoid double-decrement bugs.
   static void invalidateStringKeyCache(Map map) {
+    if (map is TableStorage) {
+      return;
+    }
     try {
       _tableStringKeyBytes[map] = null;
     } catch (_) {}
@@ -337,6 +467,21 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   void _registerTableIdentity(Map table) {
     try {
+      final existing = _tableIdentity[table];
+      if (existing != null && !identical(existing, this)) {
+        final existingHasMetadata =
+            existing.metatable != null ||
+            existing.metatableRef != null ||
+            existing.functionName != null;
+        final currentHasMetadata =
+            metatable != null || metatableRef != null || functionName != null;
+
+        // Do not let transient wrappers from returns/indexing clobber the
+        // canonical wrapper that carries the table's metatable identity.
+        if (existingHasMetadata && !currentHasMetadata) {
+          return;
+        }
+      }
       _tableIdentity[table] = this;
     } catch (_) {
       // If Expando association fails for any reason, ignore; behavior remains correct
@@ -392,10 +537,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// debt for them to avoid frequent auto-GC triggers in tight loops.
   bool _shouldCountAllocation() {
     if (isMulti) return false; // short-lived carrier, don't count
+    if (raw is VirtualLuaTable) return false;
     if (isTempKey) {
       if (Logger.enabled) {
-        Logger.debug(
-          'Value $hashCode (${raw.runtimeType}) marked as temp key, NOT counting allocation',
+        Logger.debugLazy(
+          () =>
+              'Value $hashCode (${raw.runtimeType}) marked as temp key, NOT counting allocation',
           category: 'GC',
         );
       }
@@ -415,8 +562,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         final len = payload is String
             ? payload.length
             : (payload as LuaString).length;
-        Logger.debug(
-          'Value $hashCode wrapping ${payload.runtimeType}(len=$len), WILL count allocation',
+        Logger.debugLazy(
+          () =>
+              'Value $hashCode wrapping ${payload.runtimeType}(len=$len), WILL count allocation',
           category: 'GC',
         );
       }
@@ -450,9 +598,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   }
 
   factory Value.multi(List<dynamic> values) {
-    final value = Value(values);
-    value.isMulti = true;
-    return value;
+    return Value(values, isMulti: true);
   }
 
   /// Creates a constant value that cannot be modified after initialization
@@ -478,6 +624,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
     // No interpreter found
     return null;
+  }
+
+  bool _isLuaClosureValue() {
+    return functionBody != null ||
+        closureEnvironment != null ||
+        (upvalues?.isNotEmpty ?? false);
   }
 
   factory Value.toBeClose(dynamic value, {Map<String, dynamic>? metatable}) {
@@ -509,28 +661,48 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       return; // Only close to-be-closed variables with non-false values
     }
 
+    isToBeClose = false;
     final closeMeta = getMetamethod('__close');
+    if (closeMeta == null && raw != null && raw != false) {
+      throw LuaError("attempt to call a nil value (metamethod 'close')");
+    }
+    if (closeMeta is Value && !closeMeta.isCallable()) {
+      throw LuaError(
+        "attempt to call a ${getLuaType(closeMeta)} value (metamethod 'close')",
+      );
+    }
     if (closeMeta != null) {
       try {
-        dynamic result;
-        if (closeMeta is Function) {
-          result = closeMeta([this, error is Value ? error : Value(error)]);
-        } else if (closeMeta is Value && closeMeta.raw is Function) {
-          result = closeMeta.raw([this, error is Value ? error : Value(error)]);
+        final args = <Value>[this];
+        if (error != null) {
+          args.add(error is Value ? error : Value(error));
         }
-
-        // If the result is a Future, await it
-        if (result is Future) {
-          await result;
-        }
+        await callMetamethodAsync('__close', args);
       } catch (e) {
-        // Log the error but continue closing other variables
-        Logger.error(
-          'Error in __close metamethod',
-          category: 'Value',
-          error: e,
-        );
-        // Re-throw the error after closing
+        // Propagate close failures without eagerly reporting them. Lua code can
+        // legitimately catch and inspect these errors through `coroutine.close`,
+        // `pcall`, or nested `assert(coroutine.close(...))` chains, and logging
+        // each intermediate failure makes cases like `cstack.lua` extremely
+        // noisy compared to the stock Lua CLI.
+        if (e is LuaError) {
+          final message = e.message;
+          if (!message.contains("in metamethod 'close'")) {
+            throw LuaError(
+              "$message\nin metamethod 'close'",
+              span: e.span,
+              node: e.node,
+              cause: e.cause,
+              stackTrace: e.stackTrace,
+              luaStackTrace: e.luaStackTrace,
+              hasBeenReported: e.hasBeenReported,
+            );
+          }
+        } else if (e is Value && (e.raw is String || e.raw is LuaString)) {
+          final message = e.raw.toString();
+          if (!message.contains("in metamethod 'close'")) {
+            throw LuaError("$message\nin metamethod 'close'");
+          }
+        }
         rethrow;
       }
     }
@@ -557,6 +729,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         functionBody: functionBody,
         closureEnvironment: closureEnvironment,
         functionName: functionName,
+        debugLineDefined: debugLineDefined,
+        strippedDebugInfo: strippedDebugInfo,
       );
     }
     // For non-table values, copy with metatable
@@ -570,6 +744,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       functionBody: functionBody,
       closureEnvironment: closureEnvironment,
       functionName: functionName,
+      debugLineDefined: debugLineDefined,
+      strippedDebugInfo: strippedDebugInfo,
     );
   }
 
@@ -591,8 +767,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// Sets a new metatable for this value.
   ///
   /// [mt] - The new metatable to associate with this value.
-  void setMetatable(Map<String, dynamic> mt) {
+  void setMetatable(Map<String, dynamic> mt, {Object? ownerRaw}) {
     metatable = mt;
+    finalizerEligible = mt.containsKey('__gc');
     // Cache weak mode string for later semantics checks even if this
     // metatable is freed before finalization runs.
     try {
@@ -624,6 +801,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     if (raw is Map) {
       try {
         _tableMetatables[raw as Map] = mt;
+        _tableMetatableOwners[raw as Map] = ownerRaw ?? mt;
       } catch (_) {}
     }
     final gcLocal3 = GCAccess.fromValue(this);
@@ -643,70 +821,29 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       // __mode = 'v'), then a GC cycle may have logically cleared this entry
       // even if the raw map still contains it. Respect that by treating
       // unmarked GC values as absent when the owner metatable has weak values.
-      if (metatableRef is Value) {
-        final owner = metatableRef as Value;
-        bool ownerWeakV =
-            owner.isTable && (owner.hasWeakValues || owner.cachedHasWeakValues);
-        if (!ownerWeakV && owner.isTable && owner.metatable == null) {
-          // Fallback: inspect owner's metatableRef raw map for '__mode' even
-          // if the live metatable is gone (e.g., freed earlier in GC). Keys
-          // may be LuaString or Value-wrapped strings.
-          try {
-            final meta = owner.metatableRef;
-            if (meta is Value && meta.raw is Map) {
-              final m = meta.raw as Map;
-              dynamic rawMode = m['__mode'];
-              if (rawMode == null) {
-                for (final k in m.keys) {
-                  String? ks;
-                  if (k is LuaString) {
-                    ks = k.toString();
-                  } else if (k is Value) {
-                    final kr = k.raw;
-                    if (kr is LuaString) {
-                      ks = kr.toString();
-                    } else if (kr is String) {
-                      ks = kr;
-                    }
-                  }
-                  if (ks == '__mode') {
-                    rawMode = m[k];
-                    break;
-                  }
-                }
-              }
-              String modeStr;
-              if (rawMode is LuaString) {
-                modeStr = rawMode.toString();
-              } else if (rawMode is Value) {
-                modeStr = rawMode.raw?.toString() ?? '';
-              } else {
-                modeStr = rawMode?.toString() ?? '';
-              }
-              if (modeStr.contains('v')) ownerWeakV = true;
-            }
-          } catch (_) {}
-        }
-        if (ownerWeakV) {
+      if (metatableOwnerHasWeakValues) {
+        final owner = metatableRef;
+        if (owner is Value) {
           if (Logger.enabled && event == '__gc') {
-            Logger.debug(
-              'getMetamethod("__gc"): owner=${owner.hashCode} weakMode=${owner.tableWeakMode} methodType=${method.runtimeType}',
+            Logger.debugLazy(
+              () =>
+                  'getMetamethod("__gc"): owner=${owner.hashCode} weakMode=${weakModeForTableObject(owner) ?? weakModeForTableObject(getMetatable())} methodType=${method.runtimeType}',
               category: 'GC',
             );
           }
-          // For __gc specifically, weak-values metatables should not drive
-          // finalization; Lua tests rely on this pattern to ensure that
-          // setting __gc under a weak-values metatable does not run.
-          if (event == '__gc') {
+        }
+        // For __gc specifically, weak-values metatables should not drive
+        // finalization; Lua tests rely on this pattern to ensure that
+        // setting __gc under a weak-values metatable does not run.
+        if (event == '__gc') {
+          return null;
+        }
+        if (method is Value) {
+          if (!method.isPrimitiveLike && (!method.marked || method.isFreed)) {
             return null;
           }
-          if (method is Value) {
-            if (!method.isPrimitiveLike && (!method.marked || method.isFreed)) {
-              return null;
-            }
-          } else if (method is GCObject) {
-            if (!method.marked) return null;
-          }
+        } else if (method is GCObject) {
+          if (!method.marked) return null;
         }
       }
       return method;
@@ -734,8 +871,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// Checks if this value is callable (is a function or has __call metamethod)
   bool isCallable() {
     return raw is Function ||
+        raw is BuiltinFunction ||
         raw is FunctionDef ||
         raw is FunctionLiteral ||
+        raw is LuaCallableArtifact ||
         raw is FunctionBody ||
         hasMetamethod('__call');
   }
@@ -910,10 +1049,22 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         return result is Value ? result.raw.toString() : result.toString();
       } catch (e) {
         // If metamethod call fails, fall back to default behavior
-        Logger.debug('Error in __tostring metamethod: $e', category: 'Value');
+        Logger.debugLazy(
+          () => 'Error in __tostring metamethod: $e',
+          category: 'Value',
+        );
       } finally {
         _toStringGuard.remove(objectId);
       }
+    }
+
+    final typeNameMeta = getMetamethod('__name');
+    final rawTypeName = typeNameMeta is Value ? typeNameMeta.raw : typeNameMeta;
+    switch (rawTypeName) {
+      case final String stringName:
+        return "$stringName: ${raw.hashCode}";
+      case final LuaString stringName:
+        return "${stringName.toString()}: ${raw.hashCode}";
     }
 
     if (raw == null) return "Value:<nil>";
@@ -983,6 +1134,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       final storageKey = _computeStorageKey(key);
       if ((raw as Map).containsKey(storageKey)) {
         final result = (raw as Map)[storageKey];
+        if (raw is VirtualLuaTable) {
+          return result;
+        }
         if (result is Value) {
           // If this Value wraps a Map and there is a canonical wrapper
           // registered for that Map, return the canonical one to preserve
@@ -1022,10 +1176,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       // Key doesn't exist, check for __index metamethod
       final indexMeta = getMetamethod('__index');
       if (indexMeta != null) {
-        final result = callMetamethod('__index', [
-          this,
-          key is Value ? key : Value(key),
-        ]);
+        final result = _normalizeIndexMetamethodResult(
+          callMetamethod('__index', [this, key is Value ? key : Value(key)]),
+        );
 
         return result is Value ? result : Value(result);
       }
@@ -1036,10 +1189,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       // Not a table, but might have an __index metamethod
       final indexMeta = getMetamethod('__index');
       if (indexMeta != null) {
-        final result = callMetamethod('__index', [
-          this,
-          key is Value ? key : Value(key),
-        ]);
+        final result = _normalizeIndexMetamethodResult(
+          callMetamethod('__index', [this, key is Value ? key : Value(key)]),
+        );
         if (result is Value) return result;
         final existing = _lookupTableIdentity(result);
         if (existing != null) return existing;
@@ -1092,6 +1244,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       }
       if ((raw as Map).containsKey(storageKey)) {
         final result = (raw as Map)[storageKey];
+        if (raw is VirtualLuaTable) {
+          return result;
+        }
         if (result is Value) {
           if (result.raw is Map) {
             final existing = _lookupTableIdentity(result.raw);
@@ -1119,10 +1274,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
       final indexMeta = getMetamethod('__index');
       if (indexMeta != null) {
-        var result = await callMetamethodAsync('__index', [
-          this,
-          key is Value ? key : Value(key),
-        ]);
+        var result = _normalizeIndexMetamethodResult(
+          await callMetamethodAsync('__index', [
+            this,
+            key is Value ? key : Value(key),
+          ]),
+        );
         if (result is Value) return result;
         final existing = _lookupTableIdentity(result);
         if (existing != null) return existing;
@@ -1137,10 +1294,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     } else {
       final indexMeta = getMetamethod('__index');
       if (indexMeta != null) {
-        var result = await callMetamethodAsync('__index', [
-          this,
-          key is Value ? key : Value(key),
-        ]);
+        var result = _normalizeIndexMetamethodResult(
+          await callMetamethodAsync('__index', [
+            this,
+            key is Value ? key : Value(key),
+          ]),
+        );
         if (result is Value) return result;
         final existing = _lookupTableIdentity(result);
         if (existing != null) return existing;
@@ -1149,6 +1308,25 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       final tname = NumberUtils.typeName(raw);
       throw LuaError.typeError('attempt to index a $tname value');
     }
+  }
+
+  dynamic _normalizeIndexMetamethodResult(Object? result) {
+    if (result is Value && result.isMulti && result.raw is List) {
+      final values = result.raw as List;
+      if (values.isEmpty) {
+        return Value(null);
+      }
+      final first = values.first;
+      return first is Value ? first : Value(first);
+    }
+    if (result is List) {
+      if (result.isEmpty) {
+        return Value(null);
+      }
+      final first = result.first;
+      return first is Value ? first : Value(first);
+    }
+    return result;
   }
 
   @override
@@ -1210,6 +1388,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       if (newindexMeta != null) {
         visited ??= <Value>{};
         if (visited.contains(this)) {
+          Logger.debugLazy(
+            () => 'loop in settable triggered: table=$hashCode key=$key',
+            category: 'Value',
+          );
           throw LuaError('loop in settable');
         }
         visited.add(this);
@@ -1243,8 +1425,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     final storageKey = _computeStorageKey(key);
     final storageValue = valueToSet;
     final map = raw as Map;
-    // Seed cache if missing (first mutation may precede a count)
-    if (_tableStringKeyBytes[map] == null) {
+    if (map is! TableStorage && _tableStringKeyBytes[map] == null) {
       var total = 0;
       try {
         for (final k in map.keys) {
@@ -1274,8 +1455,9 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         final keyRawType = storageKey is Value
             ? storageKey.raw.runtimeType
             : keyType;
-        Logger.debug(
-          'setRawTableEntry: weak-k store keyType=$keyType keyRawType=$keyRawType',
+        Logger.debugLazy(
+          () =>
+              'setRawTableEntry: weak-k store keyType=$keyType keyRawType=$keyRawType',
           category: 'GC',
         );
       } catch (_) {}
@@ -1295,32 +1477,65 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           storageValue.interpreter = interpreter;
         }
         manager.ensureTracked(storageValue);
+        manager.noteReferenceWrite(this, storageKey);
+        manager.noteReferenceWrite(this, storageValue);
       }
     }
     _incrementTableVersion();
+    if (map is! TableStorage) {
+      try {
+        int keyLen(Object k) {
+          if (k is String) return k.length * GcWeights.stringUnit;
+          if (k is LuaString) return k.length * GcWeights.stringUnit;
+          return 0;
+        }
+
+        if (!existed && (storageKey is String || storageKey is LuaString)) {
+          _tableStringKeyBytes[map] =
+              (_tableStringKeyBytes[map] ?? 0) + keyLen(storageKey);
+        }
+        if (valueToSet.isNil &&
+            existed &&
+            (storageKey is String || storageKey is LuaString)) {
+          _tableStringKeyBytes[map] = null;
+        }
+      } catch (_) {}
+    }
+
+    _syncGlobalProxyBinding(storageKey, valueToSet);
     final gcLocal4 = GCAccess.fromValue(this);
     if (gcLocal4 != null) {
       MemoryCredits.instance.recalculate(this);
     }
-    // Maintain string-key credits incrementally when keys are Strings.
-    try {
-      int keyLen(Object k) {
-        if (k is String) return k.length * GcWeights.stringUnit;
-        if (k is LuaString) return k.length * GcWeights.stringUnit;
-        return 0;
-      }
+  }
 
-      if (!existed && (storageKey is String || storageKey is LuaString)) {
-        _tableStringKeyBytes[map] =
-            (_tableStringKeyBytes[map] ?? 0) + keyLen(storageKey);
-      }
-      if (valueToSet.isNil &&
-          existed &&
-          (storageKey is String || storageKey is LuaString)) {
-        _tableStringKeyBytes[map] =
-            (_tableStringKeyBytes[map] ?? 0) - keyLen(storageKey);
-      }
-    } catch (_) {}
+  void _syncGlobalProxyBinding(Object? storageKey, Value value) {
+    final env = globalProxyEnvironment;
+    if (env == null || storageKey is! String) {
+      return;
+    }
+
+    final rootEnv = env.root;
+    if (value.isNil) {
+      rootEnv.values.remove(storageKey);
+      return;
+    }
+
+    final existing = rootEnv.values[storageKey];
+    if (existing == null) {
+      final box = Box(
+        value,
+        isTransient: true,
+        interpreter: rootEnv.interpreter,
+      );
+      rootEnv.values[storageKey] = box;
+      final gc = rootEnv.interpreter?.gc ?? GCAccess.defaultManager;
+      gc?.noteReferenceWrite(rootEnv, box);
+      return;
+    }
+
+    existing.interpreter ??= rootEnv.interpreter;
+    existing.value = value;
   }
 
   /// Marks the underlying table as modified so cached lookups can be
@@ -1357,6 +1572,8 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           value.interpreter = interpreter;
         }
         manager.ensureTracked(value);
+        manager.noteReferenceWrite(this, index);
+        manager.noteReferenceWrite(this, value);
         final pending = (_tableDenseWriteDebt[this] ?? 0) + 1;
         if (pending >= 1024) {
           _tableDenseWriteDebt[this] = 0;
@@ -1395,6 +1612,20 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     if (raw is Map) {
       _tableVersion++;
     }
+  }
+
+  /// Records a raw mutation to this table that bypassed normal `Value` writes.
+  ///
+  /// The GC weak-table cleanup paths remove entries directly from the backing
+  /// map to avoid metamethods. Those removals must still invalidate lookup
+  /// caches and any cached string-key size accounting.
+  void noteRawTableMutation() {
+    if (raw is! Map) {
+      return;
+    }
+    final map = raw as Map;
+    invalidateStringKeyCache(map);
+    _incrementTableVersion();
   }
 
   @override
@@ -1496,29 +1727,16 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
 
     if (raw is! Map) {
-      throw LuaError.typeError('attempt to get length of a ${raw.runtimeType}');
+      throw LuaError.typeError(
+        'attempt to get length of a ${getLuaType(raw)} value',
+      );
     }
 
     final map = raw as Map;
-    // Lua's length is undefined for tables with holes; adopt a practical rule:
-    // use the highest positive integer index whose value is non-nil. This
-    // lets callers iterate 1..#t across sparse results (e.g., unpack) while
-    // ignoring trailing stored-nil slots like those from table.pack(...).
-    int maxIndex = 0;
-    map.forEach((k, v) {
-      var key = k;
-      if (key is Value) key = key.raw;
-      // Only consider non-nil values
-      final nonNil = !(v == null || (v is Value && v.raw == null));
-      if (!nonNil) return;
-      if (key is int && key > maxIndex) {
-        maxIndex = key;
-      } else if (key is num && key == key.floorToDouble()) {
-        final asInt = key.toInt();
-        if (asInt > maxIndex) maxIndex = asInt;
-      }
-    });
-    return maxIndex;
+    if (map case final TableStorage storage) {
+      return storage.luaLengthBoundary();
+    }
+    return luaTableLengthFromMap(map.cast<dynamic, dynamic>());
   }
 
   @override
@@ -1621,7 +1839,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
     final pairsMeta = getMetamethod('__pairs');
     if (pairsMeta != null) {
-      Logger.debug('Using __pairs metamethod for entries', category: 'Value');
+      Logger.debugLazy(
+        () => 'Using __pairs metamethod for entries',
+        category: 'Value',
+      );
 
       final entries = <MapEntry<String, dynamic>>[];
       final iter = callMetamethod('__pairs', [this]);
@@ -1721,9 +1942,17 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   /// Asynchronous version of callMetamethod for use in async contexts
   Future<Object?> callMetamethodAsync(String s, List<Value> list) async {
-    Logger.debug(
-      'callMetamethodAsync called with $s, args: ${list.map((e) => e.raw)}',
+    Logger.debugLazy(
+      () =>
+          'callMetamethodAsync called with $s, args: '
+          '${list.map((e) => e.raw)}',
+      category: 'Value',
     );
+    final debugMetamethodName = switch (s) {
+      '__gc' => '__gc',
+      _ when s.startsWith('__') && s.length > 2 => s.substring(2),
+      _ => s,
+    };
     final method = getMetamethod(s);
     if (method == null) {
       throw UnsupportedError("attempt to call a nil value");
@@ -1760,10 +1989,62 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       }
     }
 
+    Future<Object?> normalizeTailCallSignal(Object? result) async {
+      if (result is! TailCallSignal) {
+        return result;
+      }
+
+      final interpreter =
+          (result.functionValue is Value
+              ? (result.functionValue as Value)._resolveInterpreter()
+              : null) ??
+          _resolveInterpreter();
+      if (interpreter == null) {
+        return result;
+      }
+
+      final callee = result.functionValue is Value
+          ? result.functionValue as Value
+          : Value(result.functionValue);
+      return interpreter.callFunction(callee, result.args);
+    }
+
+    if (method is Value) {
+      if (method.functionName == null && s.startsWith('__') && s.length > 2) {
+        method.functionName = s.substring(2);
+      }
+      if (s == '__index') {
+        if (method.raw is Map) {
+          if (list.length >= 2) {
+            final key = list[1];
+            return method.getValueAsync(key);
+          }
+        } else if (!method.isCallable()) {
+          throw LuaError.typeError(
+            'attempt to index a ${getLuaType(method)} value',
+          );
+        }
+      } else if (s == '__newindex') {
+        if (method.raw is Map) {
+          if (list.length >= 3) {
+            final key = list[1];
+            final value = list[2];
+            await method.setValueAsync(key, value, <Value>{this});
+            return null;
+          }
+        } else if (!method.isCallable()) {
+          throw LuaError.typeError(
+            'attempt to index a ${getLuaType(method)} value',
+          );
+        }
+      }
+    }
+
     if (method is Function) {
       try {
         var result = method(list);
         if (result is Future) result = await result;
+        result = await normalizeTailCallSignal(result);
         return result;
       } on TailCallException catch (t) {
         final callee = t.functionValue is Value
@@ -1781,9 +2062,21 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         return result;
       }
     } else if (method is BuiltinFunction) {
+      final interpreter = _resolveInterpreter();
+      if (interpreter != null) {
+        final callee = Value(method, functionName: debugMetamethodName)
+          ..interpreter = interpreter;
+        return interpreter.callFunction(
+          callee,
+          list,
+          debugName: debugMetamethodName,
+          debugNameWhat: 'metamethod',
+        );
+      }
       try {
         var result = method.call(list);
         if (result is Future) result = await result;
+        result = await normalizeTailCallSignal(result);
         return result;
       } on TailCallException catch (t) {
         final callee = t.functionValue is Value
@@ -1802,9 +2095,22 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       }
     } else if (method is Value) {
       if (method.raw is Function) {
+        final interpreter =
+            method._resolveInterpreter() ?? _resolveInterpreter();
+        if (interpreter != null && method._isLuaClosureValue()) {
+          var result = await interpreter.callFunction(
+            method,
+            list,
+            debugName: debugMetamethodName,
+            debugNameWhat: 'metamethod',
+          );
+          result = await normalizeTailCallSignal(result);
+          return result;
+        }
         try {
           var result = (method.raw as Function)(list);
           if (result is Future) result = await result;
+          result = await normalizeTailCallSignal(result);
           return result;
         } on TailCallException catch (t) {
           final callee = t.functionValue is Value
@@ -1822,6 +2128,16 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
           return result;
         }
       } else if (method.raw is BuiltinFunction) {
+        final interpreter =
+            method._resolveInterpreter() ?? _resolveInterpreter();
+        if (interpreter != null) {
+          return interpreter.callFunction(
+            method,
+            list,
+            debugName: debugMetamethodName,
+            debugNameWhat: 'metamethod',
+          );
+        }
         try {
           var result = (method.raw as BuiltinFunction).call(list);
           if (result is Future) result = await result;
@@ -1849,8 +2165,54 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         final interpreter = _resolveInterpreter();
         if (interpreter != null) {
           try {
-            final result = await interpreter.callFunction(method, list);
+            final result = await interpreter.callFunction(
+              method,
+              list,
+              debugName: debugMetamethodName,
+              debugNameWhat: 'metamethod',
+            );
             // For __index metamethod, only return the first value if multiple values are returned
+            if (s == '__index') {
+              if (result is Value && result.isMulti && result.raw is List) {
+                final values = result.raw as List;
+                return values.isNotEmpty ? values.first : Value(null);
+              } else if (result is List && result.isNotEmpty) {
+                return result.first is Value
+                    ? result.first
+                    : Value(result.first);
+              }
+            }
+            return result;
+          } on TailCallException catch (t) {
+            final callee = t.functionValue is Value
+                ? t.functionValue as Value
+                : Value(t.functionValue);
+            final result = await callee.call(t.args);
+            if (s == '__index') {
+              if (result is Value && result.isMulti && result.raw is List) {
+                final values = result.raw as List;
+                return values.isNotEmpty ? values.first : Value(null);
+              } else if (result is List && result.isNotEmpty) {
+                return result.first is Value
+                    ? result.first
+                    : Value(result.first);
+              }
+            }
+            return result;
+          }
+        }
+        throw UnsupportedError("No interpreter available to call function");
+      } else if (method.raw is LuaCallableArtifact) {
+        final interpreter =
+            method._resolveInterpreter() ?? _resolveInterpreter();
+        if (interpreter != null) {
+          try {
+            final result = await interpreter.callFunction(
+              method,
+              list,
+              debugName: debugMetamethodName,
+              debugNameWhat: 'metamethod',
+            );
             if (s == '__index') {
               if (result is Value && result.isMulti && result.raw is List) {
                 final values = result.raw as List;
@@ -1887,7 +2249,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       final interpreter = _resolveInterpreter();
       if (interpreter != null) {
         try {
-          final result = await interpreter.callFunction(Value(method), list);
+          final result = await interpreter.callFunction(
+            Value(method),
+            list,
+            debugName: debugMetamethodName,
+            debugNameWhat: 'metamethod',
+          );
           return result;
         } on TailCallException catch (t) {
           final callee = t.functionValue is Value
@@ -1905,65 +2272,123 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   }
 
   Object? callMetamethod(String s, List<Value> list) {
+    final debugMetamethodName = switch (s) {
+      '__gc' => '__gc',
+      _ when s.startsWith('__') && s.length > 2 => s.substring(2),
+      _ => s,
+    };
     final method = getMetamethod(s);
     if (method == null) {
       throw UnsupportedError("attempt to call a nil value");
     }
 
-    // Special handling for __index and __newindex when they are tables
-    if (s == '__index' && method is Value && method.raw is Map) {
-      // __index is a table, so do lookup through that table
-      if (list.length >= 2) {
-        final key = list[1];
-        // Use the Value's indexing mechanism to handle potential metamethods
-        final result = method[key];
-
+    Object? normalizeTailCallSignal(Object? result) {
+      if (result is! TailCallSignal) {
         return result;
       }
-    } else if (s == '__newindex' && method is Value && method.raw is Map) {
-      // __newindex is a table, so repeat the assignment on that table and
-      // propagate any asynchronous result up to the caller.
-      if (list.length >= 3) {
-        final key = list[1];
-        final value = list[2];
-        return method.setValueAsync(key, value, <Value>{this});
+
+      final interpreter =
+          (result.functionValue is Value
+              ? (result.functionValue as Value)._resolveInterpreter()
+              : null) ??
+          _resolveInterpreter();
+      if (interpreter == null) {
+        return result;
+      }
+
+      final callee = result.functionValue is Value
+          ? result.functionValue as Value
+          : Value(result.functionValue);
+      return interpreter.callFunction(callee, result.args);
+    }
+
+    // Special handling for __index and __newindex when they are tables.
+    if (method is Value) {
+      if (s == '__index') {
+        if (method.raw is Map) {
+          if (list.length >= 2) {
+            final key = list[1];
+            return method[key];
+          }
+        } else if (!method.isCallable()) {
+          throw LuaError.typeError(
+            'attempt to index a ${getLuaType(method)} value',
+          );
+        }
+      } else if (s == '__newindex') {
+        if (method.raw is Map) {
+          if (list.length >= 3) {
+            final key = list[1];
+            final value = list[2];
+            return method.setValueAsync(key, value, <Value>{this});
+          }
+        } else if (!method.isCallable()) {
+          throw LuaError.typeError(
+            'attempt to index a ${getLuaType(method)} value',
+          );
+        }
       }
     }
 
     if (method is Function) {
-      return method(list);
+      return normalizeTailCallSignal(method(list));
     } else if (method is BuiltinFunction) {
-      return method.call(list);
+      return normalizeTailCallSignal(method.call(list));
     } else if (method is Value) {
+      if (method.functionName == null && s.startsWith('__') && s.length > 2) {
+        method.functionName = debugMetamethodName;
+      }
       if (method.raw is Function) {
-        // This is a Lua function - calling it directly returns a Future
-        // For synchronous contexts like toString(), we need to avoid this
+        final interpreter =
+            method._resolveInterpreter() ?? _resolveInterpreter();
+        if (interpreter != null && method._isLuaClosureValue()) {
+          return interpreter.callFunction(
+            method,
+            list,
+            debugName: debugMetamethodName,
+            debugNameWhat: 'metamethod',
+          );
+        }
         final result = (method.raw as Function)(list);
-        return result;
+        return normalizeTailCallSignal(result);
       } else if (method.raw is BuiltinFunction) {
-        return (method.raw as BuiltinFunction).call(list);
+        return normalizeTailCallSignal(
+          (method.raw as BuiltinFunction).call(list),
+        );
       } else if (method.raw is FunctionDef ||
           method.raw is FunctionLiteral ||
           method.raw is FunctionBody) {
-        // This is a Lua function defined as an AST node
-        // We need to call it using the interpreter
         final interpreter = _resolveInterpreter();
         if (interpreter != null) {
-          // Call the function directly using the interpreter
-          final result = interpreter.callFunction(method, list);
-
-          // Note: This may return a Future, which should be handled by callers
-          // For synchronous contexts, this will not work properly
-          return result;
+          return interpreter.callFunction(
+            method,
+            list,
+            debugName: debugMetamethodName,
+            debugNameWhat: 'metamethod',
+          );
+        }
+        throw UnsupportedError("No interpreter available to call function");
+      } else if (method.raw is LuaCallableArtifact) {
+        final interpreter = _resolveInterpreter();
+        if (interpreter != null) {
+          return interpreter.callFunction(
+            method,
+            list,
+            debugName: debugMetamethodName,
+            debugNameWhat: 'metamethod',
+          );
         }
         throw UnsupportedError("No interpreter available to call function");
       }
     } else if (method is FunctionDef) {
-      // Handle direct FunctionDef nodes
       final interpreter = _resolveInterpreter();
       if (interpreter != null) {
-        // Call the function directly using the interpreter
-        return interpreter.callFunction(Value(method), list);
+        return interpreter.callFunction(
+          Value(method),
+          list,
+          debugName: debugMetamethodName,
+          debugNameWhat: 'metamethod',
+        );
       }
       throw UnsupportedError("No interpreter available to call function");
     }
@@ -2129,24 +2554,32 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   Future<Object?> call(List<Object?> args) async {
     if (raw is Function) {
       // Direct function call
-      return raw(args);
+      final result = raw(args);
+      return result is Future ? await result : result;
     } else if (raw is BuiltinFunction) {
       final result = raw.call(args);
       return result is Future ? await result : result;
+    } else if (raw is LuaCallableArtifact) {
+      final interpreter = _resolveInterpreter();
+      if (interpreter != null) {
+        return await interpreter.callFunction(this, args);
+      }
     } else if (hasMetamethod('__call')) {
       // Use __call metamethod
       final callMethod = getMetamethod('__call');
       final callArgs = [this, ...args];
 
       if (callMethod is Function) {
-        return await callMethod(callArgs);
+        final result = callMethod(callArgs);
+        return result is Future ? await result : result;
       } else if (callMethod is Value) {
         // If the metamethod is a Value, it may be:
         // - a direct Dart function (raw is Function)
         // - a Lua function (FunctionDef/FunctionBody/Literal)
         // - a table with its own __call chain
         if (callMethod.raw is Function) {
-          return await callMethod.raw(callArgs);
+          final result = callMethod.raw(callArgs);
+          return result is Future ? await result : result;
         }
         final interpreter = _resolveInterpreter();
         if (interpreter != null) {
@@ -2187,25 +2620,51 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       final tableMap = raw as Map;
 
       // Add keys if they should be treated as strong references
-      if (strongKeys) {
-        for (final key in tableMap.keys) {
-          if (key is GCObject || key is Value || _containsGCObject(key)) {
-            refs.add(key);
+      if (tableMap case final TableStorage storage) {
+        if (strongKeys) {
+          storage.forEachStoredHashKey((key) {
+            if (key is GCObject || key is Value || _containsGCObject(key)) {
+              refs.add(key);
+            }
+          });
+        }
+
+        if (strongValues) {
+          storage.forEachStoredValue((value) {
+            if (value is GCObject ||
+                value is Value ||
+                _containsGCObject(value)) {
+              refs.add(value);
+            }
+          });
+        }
+      } else {
+        if (strongKeys) {
+          for (final key in tableMap.keys) {
+            if (key is GCObject || key is Value || _containsGCObject(key)) {
+              refs.add(key);
+            }
           }
         }
-      }
 
-      // Add values if they should be treated as strong references
-      if (strongValues) {
-        for (final value in tableMap.values) {
-          if (value is GCObject || value is Value || _containsGCObject(value)) {
-            refs.add(value);
+        // Add values if they should be treated as strong references
+        if (strongValues) {
+          for (final value in tableMap.values) {
+            if (value is GCObject ||
+                value is Value ||
+                _containsGCObject(value)) {
+              refs.add(value);
+            }
           }
         }
       }
     } else if (raw is Value) {
       // Non-table Value containing another Value
       refs.add(raw);
+    } else if (raw is GCObject) {
+      refs.add(raw);
+    } else if (raw is BuiltinFunctionGcRefs) {
+      refs.addAll(raw.getGcReferences());
     } else if (raw is List) {
       // Value containing a List - traverse list items
       for (final item in raw as List) {
@@ -2276,11 +2735,21 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     if (key is Value) {
       final rawKey = key.raw;
 
-      // For weak-key tables, ALWAYS preserve the Value wrapper so GC can track it.
-      // Otherwise inline expressions like a[string.rep(...)] will unwrap to raw
-      // strings, the Value wrapper gets freed, and credits are lost.
+      // For weak-key tables, preserve wrappers only for collectable keys.
+      // Lua treats primitive keys (numbers/strings/booleans) as non-collectable,
+      // so storing them as Value wrappers makes them act like weak keys and they
+      // can disappear mid-execution under auto-GC.
       if (tableWeakMode != null && tableWeakMode!.contains('k')) {
-        // Weak keys: keep Value wrapper for GC tracking
+        if (rawKey is LuaString) {
+          return rawKey.toString();
+        }
+        if (rawKey is num) {
+          return rawKey == 0 ? 0.0 : rawKey;
+        }
+        if (_isPrimitiveKey(rawKey)) {
+          return rawKey;
+        }
+        // Weak keys: keep collectable keys wrapped for GC tracking.
         return key;
       }
 
@@ -2323,7 +2792,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   void free() {
     // Reset GC bookkeeping so stale values don't remain marked when
     // referenced from weak tables after they've otherwise been collected.
-    Logger.debug('Value.free() called for $hashCode', category: 'GC');
+    Logger.debugLazy(() => 'Value.free() called for $hashCode', category: 'GC');
     _marked = false;
     isOld = false;
     _isFreed = true;
@@ -2331,6 +2800,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
 
   /// Whether this value has been freed by the GC.
   bool get isFreed => _isFreed;
+
+  /// Clear a stale freed marker when this value is rediscovered from a live
+  /// root in a later collection cycle.
+  void revive() {
+    _isFreed = false;
+  }
 
   @override
   bool get marked => _marked;
@@ -2371,11 +2846,20 @@ extension OperatorExtension on Value {
 
   // Helper method for Lua truthiness evaluation
   bool isTruthy() {
+    // Empty multi-results represent "no values". Statement conditions must see
+    // that as nil/falsey, or constructs like `while coroutine.wrap(... )() do`
+    // perform one extra iteration and try to resume a dead coroutine.
+    if (isMulti && raw is List && (raw as List).isEmpty) {
+      return false;
+    }
     // In Lua, only nil and false are falsy - everything else is truthy
     return raw != null && raw != false;
   }
 
   bool isFalsy() {
+    if (isMulti && raw is List && (raw as List).isEmpty) {
+      return true;
+    }
     // In Lua, only nil and false are falsy
     return raw == null || raw == false;
   }
@@ -2386,8 +2870,8 @@ extension OperatorExtension on Value {
     // Lua: NaN ~= anything is always true
     if ((raw is num && (raw as num).isNaN) ||
         (otherRaw is num && (otherRaw).isNaN)) {
-      Logger.debug(
-        'COMPARE ~=: NaN detected, returning true',
+      Logger.debugLazy(
+        () => 'COMPARE ~=: NaN detected, returning true',
         category: 'Value',
       );
       return true;
@@ -2395,8 +2879,8 @@ extension OperatorExtension on Value {
     // Lua: int ~= float if float does not exactly represent int
     if ((raw is int || raw is BigInt) && otherRaw is double) {
       if (!otherRaw.isFinite) {
-        Logger.debug(
-          'COMPARE ~=: int ~= non-finite double, returning true',
+        Logger.debugLazy(
+          () => 'COMPARE ~=: int ~= non-finite double, returning true',
           category: 'Value',
         );
         return true;
@@ -2415,8 +2899,10 @@ extension OperatorExtension on Value {
     }
     if (raw is double && (otherRaw is int || otherRaw is BigInt)) {
       if (!(raw).isFinite) {
-        Logger.debug(
-          'COMPARE ~=: double ~= int, but double is not finite, returning true',
+        Logger.debugLazy(
+          () =>
+              'COMPARE ~=: double ~= int, but double is not finite, '
+              'returning true',
           category: 'Value',
         );
         return true;
@@ -2492,57 +2978,31 @@ extension OperatorExtension on Value {
 
   // Overload the concatenation operator
   Value concat(dynamic other) {
-    // Wrap the other value if needed
-    final wrappedOther = other is Value ? other : Value.wrap(other);
+    final otherRaw = other is Value ? other.raw : other;
 
-    // Handle LuaString concatenation
-    if (raw is LuaString) {
-      if (wrappedOther.raw is LuaString) {
-        return Value((raw as LuaString) + (wrappedOther.raw as LuaString));
-      } else if (wrappedOther.raw is num) {
-        final otherStr = LuaString.fromDartString(wrappedOther.raw.toString());
-        return Value((raw as LuaString) + otherStr);
-      } else {
-        final otherStr = LuaString.fromDartString(wrappedOther.raw.toString());
-        return Value((raw as LuaString) + otherStr);
-      }
+    if (raw == null || otherRaw == null) {
+      throw LuaError.typeError('attempt to concatenate a nil value');
     }
 
-    if (wrappedOther.raw is LuaString) {
-      if (raw is num) {
-        final thisStr = LuaString.fromDartString(raw.toString());
-        return Value(thisStr + (wrappedOther.raw as LuaString));
-      } else {
-        final thisStr = LuaString.fromDartString(raw.toString());
-        return Value(thisStr + (wrappedOther.raw as LuaString));
-      }
+    LuaString toLuaString(dynamic value) {
+      return switch (value) {
+        LuaString string => string,
+        String string => LuaString.fromDartString(string),
+        num number => LuaString.fromDartString(number.toString()),
+        _ => LuaString.fromDartString(value.toString()),
+      };
     }
 
-    // Regular string concatenation - return Dart strings for better interop
-    if (raw is String) {
-      if (wrappedOther.raw is String) {
-        return Value(raw + wrappedOther.raw);
-      } else if (wrappedOther.raw is num) {
-        return Value(raw + wrappedOther.raw.toString());
-      }
-      return Value(raw + wrappedOther.raw.toString());
+    final leftIsConcatable = raw is LuaString || raw is String || raw is num;
+    final rightIsConcatable =
+        otherRaw is LuaString || otherRaw is String || otherRaw is num;
+    if (leftIsConcatable && rightIsConcatable) {
+      return Value(toLuaString(raw) + toLuaString(otherRaw));
     }
 
-    if (raw is num) {
-      if (wrappedOther.raw is String) {
-        return Value(raw.toString() + wrappedOther.raw);
-      } else if (wrappedOther.raw is num) {
-        return Value(raw.toString() + wrappedOther.raw.toString());
-      }
-      return Value(raw.toString() + wrappedOther.raw.toString());
-    }
-
-    if (raw == null || other == null) {
-      throw LuaError.typeError('Attempt to concatenate a nil value');
-    }
-
+    final badValue = !leftIsConcatable ? raw : otherRaw;
     throw LuaError.typeError(
-      'Concatenation not supported for these types ${raw.runtimeType} and ${wrappedOther.raw.runtimeType}',
+      'attempt to concatenate a ${getLuaType(badValue)} value',
     );
   }
 
@@ -2551,8 +3011,8 @@ extension OperatorExtension on Value {
     // Lua: NaN > anything is always false
     if ((raw is num && (raw as num).isNaN) ||
         (otherRaw is num && (otherRaw).isNaN)) {
-      Logger.debug(
-        'COMPARE >: NaN detected, returning false',
+      Logger.debugLazy(
+        () => 'COMPARE >: NaN detected, returning false',
         category: 'Value',
       );
       return false;
@@ -2574,8 +3034,10 @@ extension OperatorExtension on Value {
       final intVal = raw is BigInt ? raw as BigInt : BigInt.from(raw);
       final doubleVal = otherRaw;
       final doubleFromInt = intVal.toDouble();
-      Logger.debug(
-        'COMPARE >: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt',
+      Logger.debugLazy(
+        () =>
+            'COMPARE >: int=$intVal, double=$doubleVal, '
+            'doubleFromInt=$doubleFromInt',
         category: 'Value',
       );
       if (doubleFromInt == doubleVal) {
@@ -2601,8 +3063,10 @@ extension OperatorExtension on Value {
       final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
       final doubleVal = raw;
       final doubleFromInt = intVal.toDouble();
-      Logger.debug(
-        'COMPARE >: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt',
+      Logger.debugLazy(
+        () =>
+            'COMPARE >: double=$doubleVal, int=$intVal, '
+            'doubleFromInt=$doubleFromInt',
         category: 'Value',
       );
       if (doubleFromInt == doubleVal) {
@@ -2638,9 +3102,7 @@ extension OperatorExtension on Value {
     if (raw is String && otherRaw is LuaString) {
       return LuaString.fromDartString(raw) > otherRaw;
     }
-    throw UnsupportedError(
-      'attempt to compare ${getLuaType(Value(raw))} with ${getLuaType(Value(otherRaw))}',
-    );
+    throw UnsupportedError(_comparisonTypeError(this, other));
   }
 
   dynamic operator <(Object other) {
@@ -2648,8 +3110,8 @@ extension OperatorExtension on Value {
     // Lua: NaN < anything is always false
     if ((raw is num && (raw as num).isNaN) ||
         (otherRaw is num && (otherRaw).isNaN)) {
-      Logger.debug(
-        'COMPARE <: NaN detected, returning false',
+      Logger.debugLazy(
+        () => 'COMPARE <: NaN detected, returning false',
         category: 'Value',
       );
       return false;
@@ -2670,8 +3132,10 @@ extension OperatorExtension on Value {
       final intVal = raw is BigInt ? raw as BigInt : BigInt.from(raw);
       final doubleVal = otherRaw;
       final doubleFromInt = intVal.toDouble();
-      Logger.debug(
-        'COMPARE <: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt',
+      Logger.debugLazy(
+        () =>
+            'COMPARE <: int=$intVal, double=$doubleVal, '
+            'doubleFromInt=$doubleFromInt',
         category: 'Value',
       );
       if (doubleFromInt == doubleVal) {
@@ -2692,8 +3156,10 @@ extension OperatorExtension on Value {
       final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
       final doubleVal = raw;
       final doubleFromInt = intVal.toDouble();
-      Logger.debug(
-        'COMPARE <: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt',
+      Logger.debugLazy(
+        () =>
+            'COMPARE <: double=$doubleVal, int=$intVal, '
+            'doubleFromInt=$doubleFromInt',
         category: 'Value',
       );
       if (doubleFromInt == doubleVal) {
@@ -2724,9 +3190,7 @@ extension OperatorExtension on Value {
     if (raw is String && otherRaw is LuaString) {
       return LuaString.fromDartString(raw) < otherRaw;
     }
-    throw UnsupportedError(
-      'attempt to compare ${getLuaType(Value(raw))} with ${getLuaType(Value(otherRaw))}',
-    );
+    throw UnsupportedError(_comparisonTypeError(this, other));
   }
 
   dynamic operator >=(Object other) {
@@ -2734,8 +3198,8 @@ extension OperatorExtension on Value {
     // Lua: NaN >= anything is always false
     if ((raw is num && (raw as num).isNaN) ||
         (otherRaw is num && (otherRaw).isNaN)) {
-      Logger.debug(
-        'COMPARE >=: NaN detected, returning false',
+      Logger.debugLazy(
+        () => 'COMPARE >=: NaN detected, returning false',
         category: 'Value',
       );
       return false;
@@ -2755,8 +3219,10 @@ extension OperatorExtension on Value {
       final intVal = raw is BigInt ? raw as BigInt : BigInt.from(raw);
       final doubleVal = otherRaw;
       final doubleFromInt = intVal.toDouble();
-      Logger.debug(
-        'COMPARE >=: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt',
+      Logger.debugLazy(
+        () =>
+            'COMPARE >=: int=$intVal, double=$doubleVal, '
+            'doubleFromInt=$doubleFromInt',
         category: 'Value',
       );
       if (doubleFromInt == doubleVal) {
@@ -2776,8 +3242,10 @@ extension OperatorExtension on Value {
       final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
       final doubleVal = raw;
       final doubleFromInt = intVal.toDouble();
-      Logger.debug(
-        'COMPARE >=: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt',
+      Logger.debugLazy(
+        () =>
+            'COMPARE >=: double=$doubleVal, int=$intVal, '
+            'doubleFromInt=$doubleFromInt',
         category: 'Value',
       );
       if (doubleFromInt == doubleVal) {
@@ -2808,9 +3276,7 @@ extension OperatorExtension on Value {
     if (raw is String && otherRaw is LuaString) {
       return LuaString.fromDartString(raw) >= otherRaw;
     }
-    throw UnsupportedError(
-      'attempt to compare ${getLuaType(Value(raw))} with ${getLuaType(Value(otherRaw))}',
-    );
+    throw UnsupportedError(_comparisonTypeError(this, other));
   }
 
   dynamic operator <=(Object other) {
@@ -2818,8 +3284,8 @@ extension OperatorExtension on Value {
     // Lua: NaN <= anything is always false
     if ((raw is num && (raw as num).isNaN) ||
         (otherRaw is num && (otherRaw).isNaN)) {
-      Logger.debug(
-        'COMPARE <=: NaN detected, returning false',
+      Logger.debugLazy(
+        () => 'COMPARE <=: NaN detected, returning false',
         category: 'Value',
       );
       return false;
@@ -2839,8 +3305,10 @@ extension OperatorExtension on Value {
       final intVal = raw is BigInt ? raw as BigInt : BigInt.from(raw);
       final doubleVal = otherRaw;
       final doubleFromInt = intVal.toDouble();
-      Logger.debug(
-        'COMPARE <=: int=$intVal, double=$doubleVal, doubleFromInt=$doubleFromInt',
+      Logger.debugLazy(
+        () =>
+            'COMPARE <=: int=$intVal, double=$doubleVal, '
+            'doubleFromInt=$doubleFromInt',
         category: 'Value',
       );
       if (doubleFromInt == doubleVal) {
@@ -2860,8 +3328,10 @@ extension OperatorExtension on Value {
       final intVal = otherRaw is BigInt ? otherRaw : BigInt.from(otherRaw);
       final doubleVal = raw;
       final doubleFromInt = intVal.toDouble();
-      Logger.debug(
-        'COMPARE <=: double=$doubleVal, int=$intVal, doubleFromInt=$doubleFromInt',
+      Logger.debugLazy(
+        () =>
+            'COMPARE <=: double=$doubleVal, int=$intVal, '
+            'doubleFromInt=$doubleFromInt',
         category: 'Value',
       );
       if (doubleFromInt == doubleVal) {
@@ -2892,17 +3362,15 @@ extension OperatorExtension on Value {
     if (raw is String && otherRaw is LuaString) {
       return LuaString.fromDartString(raw) <= otherRaw;
     }
-    throw UnsupportedError(
-      'attempt to compare ${getLuaType(Value(raw))} with ${getLuaType(Value(otherRaw))}',
-    );
+    throw UnsupportedError(_comparisonTypeError(this, other));
   }
 
   bool equals(Object other) {
     final otherRaw = other is Value ? other.raw : other;
     // Lua: NaN == anything is always false
     if ((raw is num && raw.isNaN) || (otherRaw is num && otherRaw.isNaN)) {
-      Logger.debug(
-        'COMPARE ==: NaN detected, returning false',
+      Logger.debugLazy(
+        () => 'COMPARE ==: NaN detected, returning false',
         category: 'Value',
       );
       return false;
@@ -2910,8 +3378,8 @@ extension OperatorExtension on Value {
     // Lua: int == float only if float is finite and exactly represents int
     if ((raw is int || raw is BigInt) && otherRaw is double) {
       if (!otherRaw.isFinite) {
-        Logger.debug(
-          'COMPARE ==: int == non-finite double, returning false',
+        Logger.debugLazy(
+          () => 'COMPARE ==: int == non-finite double, returning false',
           category: 'Value',
         );
         return false;
@@ -2946,8 +3414,10 @@ extension OperatorExtension on Value {
     }
     if (raw is double && (otherRaw is int || otherRaw is BigInt)) {
       if (!raw.isFinite) {
-        Logger.debug(
-          'COMPARE ==: double == int, but double is not finite, returning false',
+        Logger.debugLazy(
+          () =>
+              'COMPARE ==: double == int, but double is not finite, '
+              'returning false',
           category: 'Value',
         );
         return false;

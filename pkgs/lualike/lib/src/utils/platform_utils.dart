@@ -2,8 +2,8 @@
 library;
 
 // Conditional imports for platform-specific functionality
-import 'platform_utils_web.dart'
-    if (dart.library.io) 'platform_utils_io.dart'
+import 'platform_utils_io.dart'
+    if (dart.library.js_interop) 'platform_utils_web.dart'
     as platform_impl;
 
 /// Detect if we're running in product mode (compiled executable)
@@ -47,3 +47,6 @@ String? get scriptPath => platform_impl.scriptPath;
 /// Platform-safe way to get the resolved executable path of the current process
 /// For compiled binaries, this is the absolute path to the binary.
 String get resolvedExecutablePath => platform_impl.resolvedExecutablePath;
+
+/// Platform-safe way to get the current process RSS in bytes.
+int get currentRssBytes => platform_impl.currentRssBytes;

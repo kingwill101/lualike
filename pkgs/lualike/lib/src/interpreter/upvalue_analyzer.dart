@@ -21,6 +21,38 @@ class UpvalueAnalyzer extends AstVisitor<void> {
   /// Whether the function accesses globals (needs _ENV)
   bool _accessesGlobals = false;
 
+  static Box<dynamic>? _resolveCapturedEnvBox(Environment currentEnv) {
+    final envBox = currentEnv.findBox('_ENV');
+    if (envBox != null) {
+      return envBox;
+    }
+
+    final runtime = currentEnv.interpreter;
+    if (runtime != null) {
+      try {
+        final currentFunction = (runtime as dynamic).getCurrentFunction();
+        if (currentFunction?.upvalues case final upvalues?) {
+          for (final upvalue in upvalues) {
+            if (upvalue.name == '_ENV') {
+              return upvalue.valueBox;
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    final envValue = currentEnv.get('_ENV');
+    if (envValue == null) {
+      return null;
+    }
+
+    return Box<dynamic>(
+      envValue,
+      isTransient: true,
+      interpreter: currentEnv.interpreter,
+    );
+  }
+
   /// Analyzes a function body and returns the upvalues it needs
   static Future<List<Upvalue>> analyzeFunction(
     FunctionBody functionBody,
@@ -34,6 +66,9 @@ class UpvalueAnalyzer extends AstVisitor<void> {
         analyzer._parameters.add(param.name);
       }
     }
+    if (functionBody.varargName case final Identifier name) {
+      analyzer._localVars.add(name.name);
+    }
 
     // Analyze the function body
     for (final stmt in functionBody.body) {
@@ -44,9 +79,7 @@ class UpvalueAnalyzer extends AstVisitor<void> {
     analyzer._accessesGlobals = false;
 
     final upvalues = <Upvalue>[];
-    final upvalueNames = <String>{};
-
-    // For each referenced variable, determine if it's an upvalue
+    final unresolvedReferences = <String>{};
     for (final varName in analyzer._referencedVars) {
       // Skip if it's a parameter or local variable declared within the function
       if (analyzer._parameters.contains(varName) ||
@@ -59,44 +92,45 @@ class UpvalueAnalyzer extends AstVisitor<void> {
         continue;
       }
 
-      // Look for the variable in the environment chain starting from current
-      // This ensures local variables shadow global variables (Lua semantics)
-      Environment? env = currentEnv;
-      bool foundAsUpvalue = false;
-      while (env != null) {
-        if (env.values.containsKey(varName)) {
-          final box = env.values[varName]!;
+      unresolvedReferences.add(varName);
+    }
 
-          // Only add if it's a local variable (upvalue candidate)
-          if (box.isLocal) {
-            final upvalue = Upvalue(
+    // Preserve first-reference order for upvalue slots, but still resolve each
+    // name lexically through the enclosing local environments.
+    for (final varName in analyzer._referencedVars) {
+      if (!unresolvedReferences.contains(varName)) {
+        continue;
+      }
+
+      Environment? env = currentEnv;
+      while (env != null) {
+        final box = env.values[varName];
+        if (box != null && box.isLocal) {
+          upvalues.add(
+            Upvalue(
               valueBox: box,
               name: varName,
               interpreter: currentEnv.interpreter,
-            );
-            upvalues.add(upvalue);
-            upvalueNames.add(varName);
-            foundAsUpvalue = true;
-
-            break;
-          }
+            ),
+          );
+          unresolvedReferences.remove(varName);
+          break;
         }
         env = env.parent;
       }
+    }
 
-      if (!foundAsUpvalue) {
-        // This variable is truly a global access since it's not an upvalue
-        analyzer._accessesGlobals = true;
-      }
+    if (unresolvedReferences.isNotEmpty) {
+      // These names were referenced but not captured from any enclosing local.
+      // They are therefore resolved as globals through _ENV.
+      analyzer._accessesGlobals = true;
     }
 
     // Only add _ENV as upvalue if the function actually accesses globals
     // Don't add it just because there are other upvalues
     if (analyzer._accessesGlobals) {
-      final envValue = currentEnv.get('_ENV');
-      if (envValue != null) {
-        // Create a synthetic box for _ENV
-        final envBox = Box<dynamic>(envValue);
+      final envBox = _resolveCapturedEnvBox(currentEnv);
+      if (envBox != null) {
         final envUpvalue = Upvalue(
           valueBox: envBox,
           name: '_ENV',
@@ -105,21 +139,6 @@ class UpvalueAnalyzer extends AstVisitor<void> {
         upvalues.add(envUpvalue);
       }
     }
-
-    // Sort upvalues to match Lua's ordering behavior
-    // In Lua, regular upvalues come first in declaration order, then _ENV comes last
-    upvalues.sort((a, b) {
-      final nameA = a.name ?? '';
-      final nameB = b.name ?? '';
-
-      // _ENV should always come last
-      if (nameA == '_ENV' && nameB != '_ENV') return 1;
-      if (nameB == '_ENV' && nameA != '_ENV') return -1;
-      if (nameA == '_ENV' && nameB == '_ENV') return 0;
-
-      // For regular upvalues, sort by name (which generally matches declaration order)
-      return nameA.compareTo(nameB);
-    });
 
     return upvalues;
   }
@@ -146,15 +165,22 @@ class UpvalueAnalyzer extends AstVisitor<void> {
   }
 
   @override
-  Future<void> visitAssignment(Assignment node) async {
-    // Visit the expressions first to catch references
+  Future<void> visitGlobalDeclaration(GlobalDeclaration node) async {
     for (final expr in node.exprs) {
       await expr.accept(this);
     }
+  }
 
-    // Visit targets to catch any table accesses
+  @override
+  Future<void> visitAssignment(Assignment node) async {
+    // Preserve source order for upvalue slots: assignment targets appear
+    // before the right-hand side in Lua source.
     for (final target in node.targets) {
       await target.accept(this);
+    }
+
+    for (final expr in node.exprs) {
+      await expr.accept(this);
     }
   }
 
@@ -169,7 +195,6 @@ class UpvalueAnalyzer extends AstVisitor<void> {
   @override
   Future<void> visitMethodCall(MethodCall node) async {
     await node.prefix.accept(this);
-    await node.methodName.accept(this);
     for (final arg in node.args) {
       await arg.accept(this);
     }
@@ -184,7 +209,6 @@ class UpvalueAnalyzer extends AstVisitor<void> {
   @override
   Future<void> visitTableFieldAccess(TableFieldAccess node) async {
     await node.table.accept(this);
-    await node.fieldName.accept(this);
   }
 
   @override
@@ -384,12 +408,6 @@ class UpvalueAnalyzer extends AstVisitor<void> {
   @override
   Future<void> visitFunctionName(FunctionName node) async {
     await node.first.accept(this);
-    for (final part in node.rest) {
-      await part.accept(this);
-    }
-    if (node.method != null) {
-      await node.method!.accept(this);
-    }
   }
 
   @override

@@ -89,10 +89,6 @@ void main() {
       final rootBox = Box<Value>(table);
       rootEnv.define('table_var', rootBox);
 
-      // Get initial count
-      final initialCount =
-          gc.youngGen.objects.length + gc.oldGen.objects.length;
-
       // Perform major collection
       await gc.majorCollection([rootEnv]);
 
@@ -102,9 +98,15 @@ void main() {
       expect(allObjects.contains(referencedValue), true);
       expect(allObjects.contains(unreferencedValue), false);
 
-      // Total object count should be less than initial
-      final finalCount = gc.youngGen.objects.length + gc.oldGen.objects.length;
-      expect(finalCount, lessThan(initialCount));
+      // Root environments/boxes can be enrolled during collection, so total
+      // tracked-object count is not a stable signal. Check the created objects
+      // directly instead.
+      final survivingTargets = [
+        table,
+        referencedValue,
+        unreferencedValue,
+      ].where(allObjects.contains).length;
+      expect(survivingTargets, 2);
     });
 
     test('table keys are also preserved', () async {

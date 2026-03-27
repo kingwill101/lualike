@@ -41,14 +41,14 @@ class FileManager {
       final currentDir = fs.getCurrentDirectory();
       if (currentDir != null && !_searchPaths.contains(currentDir)) {
         _searchPaths.add(currentDir);
-        Logger.debug(
-          "Added current working directory to search paths: $currentDir",
+        Logger.debugLazy(
+          () => "Added current working directory to search paths: $currentDir",
           category: 'FileManager',
         );
       }
     } catch (e) {
-      Logger.debug(
-        "Could not add current working directory to search paths: $e",
+      Logger.debugLazy(
+        () => "Could not add current working directory to search paths: $e",
         category: 'FileManager',
       );
     }
@@ -61,8 +61,8 @@ class FileManager {
         try {
           dartScriptPath = platform.scriptPath;
         } catch (e) {
-          Logger.debug(
-            "Platform.script not available: $e",
+          Logger.debugLazy(
+            () => "Platform.script not available: $e",
             category: 'FileManager',
           );
         }
@@ -71,8 +71,9 @@ class FileManager {
           final dartScriptDir = path.dirname(dartScriptPath);
           if (!_searchPaths.contains(dartScriptDir)) {
             _searchPaths.add(dartScriptDir);
-            Logger.debug(
-              "Added Dart script directory to search paths: $dartScriptDir",
+            Logger.debugLazy(
+              () =>
+                  "Added Dart script directory to search paths: $dartScriptDir",
               category: 'FileManager',
             );
           }
@@ -82,27 +83,28 @@ class FileManager {
             final projectRoot = path.dirname(path.dirname(dartScriptPath));
             if (!_searchPaths.contains(projectRoot)) {
               _searchPaths.add(projectRoot);
-              Logger.debug(
-                "Added project root to search paths: $projectRoot",
+              Logger.debugLazy(
+                () => "Added project root to search paths: $projectRoot",
                 category: 'FileManager',
               );
             }
           } catch (e) {
-            Logger.debug(
-              "Could not add project root to search paths: $e",
+            Logger.debugLazy(
+              () => "Could not add project root to search paths: $e",
               category: 'FileManager',
             );
           }
         }
       } catch (e) {
-        Logger.debug(
-          "Could not add Dart script directory to search paths: $e",
+        Logger.debugLazy(
+          () => "Could not add Dart script directory to search paths: $e",
           category: 'FileManager',
         );
       }
     } else {
-      Logger.debug(
-        "Running as compiled executable, skipping Platform.script path resolution",
+      Logger.debugLazy(
+        () =>
+            "Running as compiled executable, skipping Platform.script path resolution",
         category: 'FileManager',
       );
     }
@@ -112,8 +114,8 @@ class FileManager {
       final scriptDir = path.dirname(_interpreter!.currentScriptPath!);
       if (!_searchPaths.contains(scriptDir)) {
         _searchPaths.add(scriptDir);
-        Logger.debug(
-          "Added script directory to search paths: $scriptDir",
+        Logger.debugLazy(
+          () => "Added script directory to search paths: $scriptDir",
           category: 'FileManager',
         );
       }
@@ -141,8 +143,8 @@ class FileManager {
       final scriptDir = path.dirname(_interpreter!.currentScriptPath!);
       if (!_searchPaths.contains(scriptDir)) {
         _searchPaths.add(scriptDir);
-        Logger.debug(
-          "Added script directory to search paths: $scriptDir",
+        Logger.debugLazy(
+          () => "Added script directory to search paths: $scriptDir",
           category: 'FileManager',
         );
       }
@@ -171,8 +173,8 @@ class FileManager {
       }
     }
 
-    Logger.debug(
-      "Registered virtual file: $normalizedPath",
+    Logger.debugLazy(
+      () => "Registered virtual file: $normalizedPath",
       category: 'FileManager',
     );
   }
@@ -219,8 +221,8 @@ class FileManager {
       final scriptDir = path.dirname(_interpreter!.currentScriptPath!);
       if (!_searchPaths.contains(scriptDir)) {
         _searchPaths.add(scriptDir);
-        Logger.debug(
-          "Added script directory to search paths: $scriptDir",
+        Logger.debugLazy(
+          () => "Added script directory to search paths: $scriptDir",
           category: 'FileManager',
         );
       }
@@ -231,14 +233,14 @@ class FileManager {
       final currentDir = fs.getCurrentDirectory();
       if (currentDir != null && !_searchPaths.contains(currentDir)) {
         _searchPaths.add(currentDir);
-        Logger.debug(
-          "Added current working directory to search paths: $currentDir",
+        Logger.debugLazy(
+          () => "Added current working directory to search paths: $currentDir",
           category: 'FileManager',
         );
       }
     } catch (e) {
-      Logger.debug(
-        "Could not add current working directory to search paths: $e",
+      Logger.debugLazy(
+        () => "Could not add current working directory to search paths: $e",
         category: 'FileManager',
       );
     }
@@ -253,8 +255,8 @@ class FileManager {
         final dartScriptDir = path.dirname(dartScriptPath);
         if (!_searchPaths.contains(dartScriptDir)) {
           _searchPaths.add(dartScriptDir);
-          Logger.debug(
-            "Added Dart script directory to search paths: $dartScriptDir",
+          Logger.debugLazy(
+            () => "Added Dart script directory to search paths: $dartScriptDir",
             category: 'FileManager',
           );
         }
@@ -263,8 +265,8 @@ class FileManager {
         final projectRoot = path.dirname(path.dirname(dartScriptPath));
         if (!_searchPaths.contains(projectRoot)) {
           _searchPaths.add(projectRoot);
-          Logger.debug(
-            "Added project root to search paths: $projectRoot",
+          Logger.debugLazy(
+            () => "Added project root to search paths: $projectRoot",
             category: 'FileManager',
           );
         }
@@ -278,21 +280,22 @@ class FileManager {
         for (final dir in specialDirs) {
           if (!_searchPaths.contains(dir) && (await fs.directoryExists(dir))) {
             _searchPaths.add(dir);
-            Logger.debug(
-              "Added special directory to search paths: $dir",
+            Logger.debugLazy(
+              () => "Added special directory to search paths: $dir",
               category: 'FileManager',
             );
           }
         }
       } catch (e) {
-        Logger.debug(
-          "Could not add Dart script directory to search paths: $e",
+        Logger.debugLazy(
+          () => "Could not add Dart script directory to search paths: $e",
           category: 'FileManager',
         );
       }
     } else {
-      Logger.debug(
-        "Running as compiled executable, skipping Platform.script path resolution in loadSource",
+      Logger.debugLazy(
+        () =>
+            "Running as compiled executable, skipping Platform.script path resolution in loadSource",
         category: 'FileManager',
       );
     }
@@ -351,8 +354,8 @@ class FileManager {
           }
         }
       } catch (e) {
-        Logger.debug(
-          "Error resolving path relative to current directory: $e",
+        Logger.debugLazy(
+          () => "Error resolving path relative to current directory: $e",
           category: 'FileManager',
         );
       }
@@ -403,8 +406,8 @@ class FileManager {
           }
         }
       } catch (e) {
-        Logger.debug(
-          "Error resolving path relative to Dart script path: $e",
+        Logger.debugLazy(
+          () => "Error resolving path relative to Dart script path: $e",
           category: 'FileManager',
         );
       }
@@ -418,19 +421,21 @@ class FileManager {
     String file,
     bool preserveRawBytes,
   ) async {
+    final bytes = await fs.readFileAsBytes(file);
+    if (bytes == null) {
+      return null;
+    }
+
     if (preserveRawBytes) {
-      // Read as raw bytes and convert to Latin-1 string to preserve byte values
-      // This ensures that high bytes (like 225) are preserved as individual bytes
-      // instead of being interpreted as UTF-8 sequences
-      final bytes = await fs.readFileAsBytes(file);
-      if (bytes == null) {
-        return null;
-      }
+      // Preserve byte identity for legacy Lua source/binary payloads.
+      return latin1.decode(bytes);
+    }
+
+    try {
       return utf8.decode(bytes);
-    } else {
-      // Read as UTF-8 string (default behavior)
-      // This properly handles UTF-8 characters like å, æ, ö
-      return await fs.readFileAsString(file);
+    } on FormatException {
+      // Upstream suite files such as strings.lua still use ISO Latin bytes.
+      return latin1.decode(bytes);
     }
   }
 
@@ -462,27 +467,31 @@ class FileManager {
     // Clear previous resolved globs for this resolution
     clearResolvedGlobs();
 
-    Logger.debug("DEBUG: Resolving module path for: $moduleName");
-    Logger.debug("DEBUG: Current search paths: $_searchPaths");
+    Logger.debugLazy(() => "DEBUG: Resolving module path for: $moduleName");
+    Logger.debugLazy(() => "DEBUG: Current search paths: $_searchPaths");
 
     // Try exact module name first
     for (final ext in extensions) {
       final name = path.normalize(normalizedModuleName + ext);
       if (_virtualFiles.containsKey(name)) {
-        Logger.debug(
-          "Module '$moduleName' found in virtual files as '$name'",
+        Logger.debugLazy(
+          () => "Module '$moduleName' found in virtual files as '$name'",
           category: 'FileManager',
         );
         return name;
       }
     }
 
-    Logger.debug('Module name: $moduleName', category: 'FileManager');
-    Logger.debug(
-      'Module name with dots: ${moduleName.replaceAll('.', path.separator)}',
+    Logger.debugLazy(() => 'Module name: $moduleName', category: 'FileManager');
+    Logger.debugLazy(
+      () =>
+          'Module name with dots: ${moduleName.replaceAll('.', path.separator)}',
       category: 'FileManager',
     );
-    Logger.debug("Search paths: $_searchPaths", category: 'FileManager');
+    Logger.debugLazy(
+      () => "Search paths: $_searchPaths",
+      category: 'FileManager',
+    );
 
     // Get package.path if available
     String packagePath = '';
@@ -491,13 +500,16 @@ class FileManager {
       final packagePathValue = _getPackagePath();
       if (packagePathValue != null) {
         packagePath = packagePathValue;
-        Logger.debug(
-          "Using package.path: $packagePath",
+        Logger.debugLazy(
+          () => "Using package.path: $packagePath",
           category: 'FileManager',
         );
       }
     } catch (e) {
-      Logger.debug("Error getting package.path: $e", category: 'FileManager');
+      Logger.debugLazy(
+        () => "Error getting package.path: $e",
+        category: 'FileManager',
+      );
       // Don't rethrow the exception, just continue with default paths
       // This allows the require function to handle the error
     }
@@ -520,8 +532,8 @@ class FileManager {
       if (currentDir == null) {
         throw Exception("Current directory is null");
       }
-      Logger.debug(
-        "Using current working directory: $currentDir",
+      Logger.debugLazy(
+        () => "Using current working directory: $currentDir",
         category: 'FileManager',
       );
 
@@ -529,8 +541,8 @@ class FileManager {
       if (!templates.contains('$currentDir/?.lua')) {
         templates.insert(0, '$currentDir/?/init.lua');
         templates.insert(0, '$currentDir/?.lua');
-        Logger.debug(
-          "Added current directory templates to beginning of search path",
+        Logger.debugLazy(
+          () => "Added current directory templates to beginning of search path",
           category: 'FileManager',
         );
       }
@@ -545,21 +557,21 @@ class FileManager {
               !templates.contains('$projectRoot/?.lua')) {
             templates.insert(0, '$projectRoot/?/init.lua');
             templates.insert(0, '$projectRoot/?.lua');
-            Logger.debug(
-              "Added project root templates to beginning of search path",
+            Logger.debugLazy(
+              () => "Added project root templates to beginning of search path",
               category: 'FileManager',
             );
           }
         } catch (e) {
-          Logger.debug(
-            "Error getting project root: $e",
+          Logger.debugLazy(
+            () => "Error getting project root: $e",
             category: 'FileManager',
           );
         }
       }
     } catch (e) {
-      Logger.debug(
-        "Error getting current working directory: $e",
+      Logger.debugLazy(
+        () => "Error getting current working directory: $e",
         category: 'FileManager',
       );
     }
@@ -568,8 +580,8 @@ class FileManager {
     String? scriptDir;
     if (_interpreter?.currentScriptPath != null) {
       scriptDir = path.dirname(_interpreter!.currentScriptPath!);
-      Logger.debug(
-        "Using script directory: $scriptDir",
+      Logger.debugLazy(
+        () => "Using script directory: $scriptDir",
         category: 'FileManager',
       );
 
@@ -577,8 +589,8 @@ class FileManager {
       if (!templates.contains('$scriptDir/?.lua')) {
         templates.insert(0, '$scriptDir/?/init.lua');
         templates.insert(0, '$scriptDir/?.lua');
-        Logger.debug(
-          "Added script directory templates to beginning of search path",
+        Logger.debugLazy(
+          () => "Added script directory templates to beginning of search path",
           category: 'FileManager',
         );
       }
@@ -592,8 +604,8 @@ class FileManager {
           throw Exception("Dart script path is null");
         }
         final dartScriptDir = path.dirname(dartScriptPath);
-        Logger.debug(
-          "Using Dart script directory: $dartScriptDir",
+        Logger.debugLazy(
+          () => "Using Dart script directory: $dartScriptDir",
           category: 'FileManager',
         );
 
@@ -601,20 +613,22 @@ class FileManager {
         if (!templates.contains('$dartScriptDir/?.lua')) {
           templates.insert(0, '$dartScriptDir/?/init.lua');
           templates.insert(0, '$dartScriptDir/?.lua');
-          Logger.debug(
-            "Added Dart script directory templates to beginning of search path",
+          Logger.debugLazy(
+            () =>
+                "Added Dart script directory templates to beginning of search path",
             category: 'FileManager',
           );
         }
       } catch (e) {
-        Logger.debug(
-          "Error getting Dart script directory: $e",
+        Logger.debugLazy(
+          () => "Error getting Dart script directory: $e",
           category: 'FileManager',
         );
       }
     } else {
-      Logger.debug(
-        "Running as compiled executable, skipping Platform.script path resolution in resolveModulePath",
+      Logger.debugLazy(
+        () =>
+            "Running as compiled executable, skipping Platform.script path resolution in resolveModulePath",
         category: 'FileManager',
       );
     }
@@ -628,15 +642,15 @@ class FileManager {
       );
       final fileName = path.normalize(template.replaceAll('?', modNameWithSep));
 
-      Logger.debug(
-        "Trying template: $template -> $fileName",
+      Logger.debugLazy(
+        () => "Trying template: $template -> $fileName",
         category: 'FileManager',
       );
 
       // Check virtual files
       if (_virtualFiles.containsKey(fileName)) {
-        Logger.debug(
-          "Module found in virtual files as '$fileName'",
+        Logger.debugLazy(
+          () => "Module found in virtual files as '$fileName'",
           category: 'FileManager',
         );
         return fileName;
@@ -645,8 +659,8 @@ class FileManager {
       // Check physical files
       final file = await fs.fileExists(fileName);
       if (file) {
-        Logger.debug(
-          "Module found in physical files as '$fileName'",
+        Logger.debugLazy(
+          () => "Module found in physical files as '$fileName'",
           category: 'FileManager',
         );
         return fileName;
@@ -666,8 +680,8 @@ class FileManager {
             if (await fs.fileExists(entity)) {
               final basename = path.basename(entity);
               if (_matchesGlobPattern(basename, pattern)) {
-                Logger.debug(
-                  "Module found via glob as '$entity'",
+                Logger.debugLazy(
+                  () => "Module found via glob as '$entity'",
                   category: 'FileManager',
                 );
 
@@ -683,14 +697,14 @@ class FileManager {
             }
           }
         } else {
-          Logger.debug(
-            "DEBUG: Directory $directory does not exist",
+          Logger.debugLazy(
+            () => "DEBUG: Directory $directory does not exist",
             category: "FileManager",
           );
         }
       } catch (e) {
-        Logger.debug(
-          "Error with glob pattern '$fileName': $e",
+        Logger.debugLazy(
+          () => "Error with glob pattern '$fileName': $e",
           category: 'FileManager',
         );
       }
@@ -712,8 +726,9 @@ class FileManager {
 
         for (final fullPath in paths) {
           if (_virtualFiles.containsKey(fullPath)) {
-            Logger.debug(
-              "Module found in virtual files with search path as '$fullPath'",
+            Logger.debugLazy(
+              () =>
+                  "Module found in virtual files with search path as '$fullPath'",
               category: 'FileManager',
             );
             return fullPath;
@@ -721,8 +736,9 @@ class FileManager {
 
           final file = await fs.fileExists(fullPath);
           if (file) {
-            Logger.debug(
-              "Module found in physical files with search path as '$fullPath'",
+            Logger.debugLazy(
+              () =>
+                  "Module found in physical files with search path as '$fullPath'",
               category: 'FileManager',
             );
             return fullPath;
@@ -737,17 +753,20 @@ class FileManager {
             final dir = await fs.directoryExists(directory);
             if (dir) {
               final entities = await fs.listDirectory(directory);
-              Logger.debug(
-                category: "FileManager",
-                "DEBUG: Found ${entities.length} files/directories in $directory",
+              Logger.debugLazy(
+                () =>
+                    "DEBUG: Found ${entities.length} files/directories in "
+                    '$directory',
+                category: 'FileManager',
               );
 
               for (final entity in entities) {
                 if (await fs.fileExists(entity)) {
                   final basename = path.basename(entity);
                   if (_matchesGlobPattern(basename, pattern)) {
-                    Logger.debug(
-                      "Module found via glob with search path as '$entity'",
+                    Logger.debugLazy(
+                      () =>
+                          "Module found via glob with search path as '$entity'",
                       category: 'FileManager',
                     );
 
@@ -765,8 +784,8 @@ class FileManager {
             }
           } catch (e) {
             // If directory doesn't exist or can't be accessed, just continue
-            Logger.debug(
-              "Error with glob pattern '$fullPath': $e",
+            Logger.debugLazy(
+              () => "Error with glob pattern '$fullPath': $e",
               category: 'FileManager',
             );
           }
@@ -795,8 +814,8 @@ class FileManager {
           path.join(projectRoot, '.lua-tests'),
         ]);
       } catch (e) {
-        Logger.debug(
-          "Error adding project root special directories: $e",
+        Logger.debugLazy(
+          () => "Error adding project root special directories: $e",
           category: 'FileManager',
         );
       }
@@ -831,7 +850,10 @@ class FileManager {
       }
     }
 
-    Logger.debug("Module '$moduleName' not found", category: 'FileManager');
+    Logger.debugLazy(
+      () => "Module '$moduleName' not found",
+      category: 'FileManager',
+    );
     return null;
   }
 
@@ -850,8 +872,9 @@ class FileManager {
           } else {
             // If path is not a string, return default path instead of throwing an error
             // This matches Lua's behavior when package.path is set to a non-string value
-            Logger.debug(
-              "package.path is not a string (${rawPath.runtimeType}), using default path",
+            Logger.debugLazy(
+              () =>
+                  "package.path is not a string (${rawPath.runtimeType}), using default path",
               category: 'FileManager',
             );
             return "./?.lua;./?/init.lua";
@@ -880,8 +903,8 @@ class FileManager {
       final matches = regex.hasMatch(filename);
       return matches;
     } catch (e) {
-      Logger.debug(
-        "Error creating regex from pattern '$pattern': $e",
+      Logger.debugLazy(
+        () => "Error creating regex from pattern '$pattern': $e",
         category: 'FileManager',
       );
       return false;
@@ -921,8 +944,8 @@ class FileManager {
 
     // If the path is already absolute, return it as is
     if (path.isAbsolute(normalizedModulePath)) {
-      Logger.debug(
-        "Module path is already absolute: $normalizedModulePath",
+      Logger.debugLazy(
+        () => "Module path is already absolute: $normalizedModulePath",
         category: 'FileManager',
       );
       return normalizedModulePath;
@@ -936,8 +959,9 @@ class FileManager {
         final resolvedPath = path.normalize(
           path.join(scriptDir, normalizedModulePath),
         );
-        Logger.debug(
-          "Resolved module path relative to current script: $resolvedPath",
+        Logger.debugLazy(
+          () =>
+              "Resolved module path relative to current script: $resolvedPath",
           category: 'FileManager',
         );
         return resolvedPath;
@@ -952,8 +976,9 @@ class FileManager {
         final resolvedPath = path.normalize(
           path.join(currentDir, normalizedModulePath),
         );
-        Logger.debug(
-          "Resolved module path relative to current directory: $resolvedPath",
+        Logger.debugLazy(
+          () =>
+              "Resolved module path relative to current directory: $resolvedPath",
           category: 'FileManager',
         );
         return resolvedPath;
@@ -970,22 +995,24 @@ class FileManager {
             final resolvedPath = path.normalize(
               path.join(dartScriptDir, normalizedModulePath),
             );
-            Logger.debug(
-              "Resolved module path relative to Dart script: $resolvedPath",
+            Logger.debugLazy(
+              () =>
+                  "Resolved module path relative to Dart script: $resolvedPath",
               category: 'FileManager',
             );
             return resolvedPath;
           } else {
-            Logger.debug(
-              "Running as compiled executable, skipping Platform.script path resolution",
+            Logger.debugLazy(
+              () =>
+                  "Running as compiled executable, skipping Platform.script path resolution",
               category: 'FileManager',
             );
             // In product mode, skip Platform.script and use simple absolute path
             final resolvedPath = path.normalize(
               path.absolute(normalizedModulePath),
             );
-            Logger.debug(
-              "Using simple absolute path in product mode: $resolvedPath",
+            Logger.debugLazy(
+              () => "Using simple absolute path in product mode: $resolvedPath",
               category: 'FileManager',
             );
             return resolvedPath;
@@ -995,8 +1022,9 @@ class FileManager {
           final resolvedPath = path.normalize(
             path.absolute(normalizedModulePath),
           );
-          Logger.debug(
-            "Error resolving module path, using simple absolute path: $resolvedPath",
+          Logger.debugLazy(
+            () =>
+                "Error resolving module path, using simple absolute path: $resolvedPath",
             category: 'FileManager',
           );
           return resolvedPath;
@@ -1005,8 +1033,9 @@ class FileManager {
     } catch (e) {
       // Fallback to simple absolute path
       final resolvedPath = path.normalize(path.absolute(normalizedModulePath));
-      Logger.debug(
-        "Error resolving module path: $e, using simple absolute path: $resolvedPath",
+      Logger.debugLazy(
+        () =>
+            "Error resolving module path: $e, using simple absolute path: $resolvedPath",
         category: 'FileManager',
       );
       return resolvedPath;

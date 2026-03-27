@@ -22,6 +22,8 @@ class ConstChecker {
   String? _checkStatement(AstNode stmt) {
     if (stmt is LocalDeclaration) {
       return _checkLocalDeclaration(stmt);
+    } else if (stmt is GlobalDeclaration) {
+      return _checkGlobalDeclaration(stmt);
     } else if (stmt is Assignment) {
       return _checkAssignment(stmt);
     } else if (stmt is DoBlock) {
@@ -74,6 +76,33 @@ class ConstChecker {
     return null;
   }
 
+  String? _checkGlobalDeclaration(GlobalDeclaration stmt) {
+    if (stmt.isWildcard) {
+      return null;
+    }
+
+    final defaultAttribute = stmt.defaultAttribute;
+    for (var i = 0; i < stmt.names.length; i++) {
+      final name = stmt.names[i].name;
+      final attribute =
+          i < stmt.attributes.length && stmt.attributes[i].isNotEmpty
+          ? stmt.attributes[i]
+          : defaultAttribute;
+      if (attribute == 'const' || attribute == 'close') {
+        _constVariables.add(name);
+      } else if (attribute.isEmpty) {
+        _constVariables.remove(name);
+      } else if (attribute.isNotEmpty) {
+        int lineNumber = 1;
+        if (stmt.span != null) {
+          lineNumber = stmt.span!.start.line + 1;
+        }
+        return ":$lineNumber: unknown attribute '$attribute'";
+      }
+    }
+    return null;
+  }
+
   String? _checkAssignment(Assignment stmt) {
     // Check each assignment target
     for (final target in stmt.targets) {
@@ -111,6 +140,7 @@ class ConstChecker {
 
   String? _checkForLoop(ForLoop stmt) {
     final savedConsts = Set<String>.from(_constVariables);
+    _constVariables.add(stmt.varName.name);
     for (final s in stmt.body) {
       final error = _checkStatement(s);
       if (error != null) {
@@ -126,6 +156,9 @@ class ConstChecker {
 
   String? _checkForInLoop(ForInLoop stmt) {
     final savedConsts = Set<String>.from(_constVariables);
+    if (stmt.names.isNotEmpty) {
+      _constVariables.add(stmt.names.first.name);
+    }
     for (final s in stmt.body) {
       final error = _checkStatement(s);
       if (error != null) {
@@ -210,9 +243,20 @@ class ConstChecker {
   }
 
   String? _checkFunctionDef(FunctionDef stmt) {
+    if (stmt.explicitGlobal && _constVariables.contains(stmt.name.first.name)) {
+      int lineNumber = 1;
+      if (stmt.span != null) {
+        lineNumber = stmt.span!.start.line + 1;
+      }
+      return ":$lineNumber: attempt to assign to const variable '${stmt.name.first.name}'";
+    }
+
     // Function definitions create new scopes but const variables
     // from outer scopes are still visible and assignable
     final savedConsts = Set<String>.from(_constVariables);
+    if (stmt.body.varargName case final Identifier name) {
+      _constVariables.add(name.name);
+    }
 
     // Check function body for const violations
     for (final s in stmt.body.body) {
@@ -233,6 +277,9 @@ class ConstChecker {
     // Local function definitions create new scopes but const variables
     // from outer scopes are still visible and assignable
     final savedConsts = Set<String>.from(_constVariables);
+    if (stmt.funcBody.varargName case final Identifier name) {
+      _constVariables.add(name.name);
+    }
 
     // Check function body for const violations
     for (final s in stmt.funcBody.body) {
@@ -307,6 +354,9 @@ class ConstChecker {
     // Function literals create new scopes but const variables
     // from outer scopes are still visible and assignable
     final savedConsts = Set<String>.from(_constVariables);
+    if (expr.funcBody.varargName case final Identifier name) {
+      _constVariables.add(name.name);
+    }
 
     // Check function body for const violations
     for (final s in expr.funcBody.body) {

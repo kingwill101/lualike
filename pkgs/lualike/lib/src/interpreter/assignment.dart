@@ -1,20 +1,218 @@
 part of 'interpreter.dart';
 
+bool _isInlineableMutableLocalPrimitive(Object? value) {
+  if (value is Value) {
+    final raw = value.raw;
+    if (value.isMulti ||
+        value.metatable != null ||
+        value.metatableRef != null ||
+        value.upvalues != null ||
+        value.functionBody != null ||
+        value.closureEnvironment != null ||
+        value.globalProxyEnvironment != null ||
+        value.functionName != null ||
+        value.debugLineDefined != null ||
+        value.strippedDebugInfo) {
+      return false;
+    }
+    return raw == null || raw is bool || raw is num || raw is BigInt;
+  }
+
+  return value == null || value is bool || value is num || value is BigInt;
+}
+
+Object? _mutableLocalStorageValue(Object? value) {
+  if (_isInlineableMutableLocalPrimitive(value)) {
+    return value is Value ? value.raw : value;
+  }
+  return value;
+}
+
+Value _wrapMutableLocalReadValue(Interpreter interpreter, Object? value) {
+  if (value is Value) {
+    value.interpreter ??= interpreter;
+    return value;
+  }
+
+  return switch (value) {
+    null => interpreter.constantPrimitiveValue(null),
+    final bool raw => interpreter.constantPrimitiveValue(raw),
+    final num raw => Value(raw)..interpreter = interpreter,
+    final BigInt raw => Value(raw)..interpreter = interpreter,
+    _ => interpreter.wrapRuntimeValue(value),
+  };
+}
+
 mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
   // Required getters that must be implemented by the class using this mixin
   Environment get globals;
 
+  Never _throwTableAssignmentTypeError(
+    AstNode tableExpr,
+    Value tableValue,
+    AstNode node,
+  ) {
+    final sourceLabel = _sourceLabelForAst(globals, tableExpr);
+    final type = getLuaType(tableValue);
+    throw LuaError(
+      sourceLabel != null
+          ? "attempt to index $sourceLabel (a $type value)"
+          : "attempt to index a $type value",
+      node: node,
+    );
+  }
+
+  bool _isPlainDetachedPrimitive(Value value) {
+    final raw = value.raw;
+    if (value.isMulti ||
+        value.isConst ||
+        value.isToBeClose ||
+        value.isTempKey) {
+      return false;
+    }
+    if (value.metatable != null || value.metatableRef != null) {
+      return false;
+    }
+    if (value.upvalues != null ||
+        value.functionBody != null ||
+        value.closureEnvironment != null ||
+        value.globalProxyEnvironment != null ||
+        value.functionName != null ||
+        value.debugLineDefined != null ||
+        value.strippedDebugInfo) {
+      return false;
+    }
+    return raw == null ||
+        raw is bool ||
+        raw is num ||
+        raw is BigInt ||
+        raw is String ||
+        raw is LuaString;
+  }
+
   Value _detachPrimitiveValue(Value value) {
     final raw = value.raw;
-    if (!value.isMulti &&
-        (raw == null ||
-            raw is num ||
-            raw is bool ||
-            raw is String ||
-            raw is LuaString)) {
-      return Value(raw);
+    if (_isPlainDetachedPrimitive(value)) {
+      return Value(raw, interpreter: value.interpreter);
     }
     return value;
+  }
+
+  bool _shouldPreserveLocalBindingIdentity(
+    Value value, {
+    required bool isConst,
+    required bool isToBeClose,
+  }) {
+    // `<close>` is a property of the binding, not of the transported value.
+    // Copying a hidden loop/file state into a plain local must not make the
+    // new local implicitly closable.
+    if (value.isToBeClose && !isToBeClose) {
+      return false;
+    }
+    if (isConst) {
+      return false;
+    }
+    return value.metatable != null || value.metatableRef != null;
+  }
+
+  Object? _snapshotAssignmentResult(Object? value) {
+    if (value is Value) {
+      return _detachPrimitiveValue(value);
+    }
+    return value;
+  }
+
+  Value _cloneValueForLocalBinding(
+    Value value, {
+    bool isConst = false,
+    bool isToBeClose = false,
+  }) {
+    if (_isPlainDetachedPrimitive(value)) {
+      return Value(
+        value.raw,
+        isConst: isConst,
+        isToBeClose: isToBeClose,
+        interpreter: value.interpreter,
+      );
+    }
+
+    // Metatable-backed values can own __gc / __close behavior at the wrapper
+    // level, so cloning them for a local binding can leave the live local
+    // pointing at raw state whose original wrapper is then finalized.
+    if (_shouldPreserveLocalBindingIdentity(
+      value,
+      isConst: isConst,
+      isToBeClose: isToBeClose,
+    )) {
+      if (isToBeClose) {
+        value.isToBeClose = true;
+      }
+      return value;
+    }
+
+    final cloned = Value(
+      value.raw,
+      isConst: isConst,
+      isToBeClose: isToBeClose,
+      upvalues: value.upvalues,
+      interpreter: value.interpreter,
+      functionBody: value.functionBody,
+      closureEnvironment: value.closureEnvironment,
+      functionName: value.functionName,
+      debugLineDefined: value.debugLineDefined,
+      strippedDebugInfo: value.strippedDebugInfo,
+    );
+    if (value.metatable != null) {
+      cloned.setMetatable(
+        value.metatable!,
+        ownerRaw:
+            Value.rawMetatableOwnerForTable(value.raw) ??
+            value.metatableRef?.raw ??
+            value.metatable,
+      );
+    }
+    cloned.metatableRef = value.metatableRef;
+    return cloned;
+  }
+
+  bool _updateActiveFunctionLocal(
+    String name,
+    dynamic value,
+    Interpreter interpreter,
+  ) {
+    final currentFunction = interpreter.getCurrentFunction();
+    if (currentFunction == null) {
+      return globals.updateLocal(name, value);
+    }
+
+    final closureBoundary = currentFunction.closureEnvironment;
+    Environment? current = interpreter.getCurrentEnv();
+    while (current != null && !identical(current, closureBoundary)) {
+      final box = current.values[name];
+      if (box != null && box.isLocal) {
+        final currentValue = box.value;
+        if (currentValue is Value &&
+            (currentValue.isConst || currentValue.isToBeClose)) {
+          throw LuaError("attempt to assign to const variable '$name'");
+        }
+        box.value = value;
+        return true;
+      }
+      current = current.parent;
+    }
+
+    final closureBox = closureBoundary?.values[name];
+    if (closureBox != null && closureBox.isLocal) {
+      final currentValue = closureBox.value;
+      if (currentValue is Value &&
+          (currentValue.isConst || currentValue.isToBeClose)) {
+        throw LuaError("attempt to assign to const variable '$name'");
+      }
+      closureBox.value = value;
+      return true;
+    }
+
+    return false;
   }
 
   /// Handles assignment to a variable.
@@ -27,53 +225,68 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
   /// Returns the assigned value.
   @override
   Future<Object?> visitAssignment(Assignment node) async {
-    (this is Interpreter) ? (this as Interpreter).recordTrace(node) : null;
+    final interpreter = this as Interpreter;
+    interpreter.recordTrace(node);
 
-    Logger.debug(
-      'Visiting Assignment: ${node.targets} = ${node.exprs}',
+    Logger.debugLazy(
+      () => 'Visiting Assignment: ${node.targets} = ${node.exprs}',
       category: 'Interpreter',
-      context: {'targets': node.targets.length, 'exprs': node.exprs.length},
+      contextBuilder: () => {
+        'targets': node.targets.length,
+        'exprs': node.exprs.length,
+      },
     );
 
     // Evaluate the expressions on the right-hand side into a list
     final expressions = <Object?>[];
     for (int i = 0; i < node.exprs.length; i++) {
       final expr = node.exprs[i];
-      Logger.debug(
-        'visitAssignment: Evaluating expr of type: ${expr.runtimeType}',
+      Logger.debugLazy(
+        () => 'visitAssignment: Evaluating expr of type: ${expr.runtimeType}',
         category: 'Assignment',
-        context: {'exprIndex': i, 'exprType': expr.runtimeType.toString()},
+        contextBuilder: () => {
+          'exprIndex': i,
+          'exprType': expr.runtimeType.toString(),
+        },
       );
       var value = await expr.accept(this);
-      Logger.debug(
-        'visitAssignment: Evaluated value: $value (type: ${value.runtimeType})',
+      Logger.debugLazy(
+        () =>
+            'visitAssignment: Evaluated value: $value '
+            '(type: ${value.runtimeType})',
         category: 'Assignment',
-        context: {'exprIndex': i, 'valueType': value.runtimeType.toString()},
+        contextBuilder: () => {
+          'exprIndex': i,
+          'valueType': value.runtimeType.toString(),
+        },
       );
 
       // Handle Future values - both direct Futures and Values containing Futures
       if (value is Future) {
         value = await value;
-        Logger.debug(
-          'visitAssignment: Awaited direct future value: $value',
+        Logger.debugLazy(
+          () => 'visitAssignment: Awaited direct future value: $value',
           category: 'Assignment',
-          context: {'exprIndex': i},
+          contextBuilder: () => {'exprIndex': i},
         );
       } else if (value is Value && value.raw is Future) {
         value = Value(await value.raw);
-        Logger.debug(
-          'visitAssignment: Awaited future value from Value.raw: $value',
+        Logger.debugLazy(
+          () => 'visitAssignment: Awaited future value from Value.raw: $value',
           category: 'Assignment',
-          context: {'exprIndex': i},
+          contextBuilder: () => {'exprIndex': i},
         );
       }
 
       // Special handling for grouped expressions with function calls
       if (expr is GroupedExpression) {
-        Logger.debug(
-          'Assignment: handling GroupedExpression result: $value',
+        Logger.debugLazy(
+          () => 'Assignment: handling GroupedExpression result: $value',
           category: 'Interpreter',
-          context: {'exprIndex': i, 'isMulti': value is Value && value.isMulti},
+          contextBuilder: () => {
+            'exprIndex': i,
+            'isMulti': value is Value && value.isMulti,
+          },
         );
 
         // In Lua, when a function call is wrapped in parentheses (e.g., (f())),
@@ -82,28 +295,30 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           // Extract only the first value from multi-value
           var multiValues = value.raw as List;
           if (multiValues.isNotEmpty) {
-            expressions.add(multiValues.first);
+            expressions.add(_snapshotAssignmentResult(multiValues.first));
           } else {
             expressions.add(Value(null));
           }
         } else if (value is List && value.isNotEmpty) {
           // Take only the first value
-          expressions.add(value.first);
+          expressions.add(_snapshotAssignmentResult(value.first));
         } else {
           // Regular value, add directly
-          expressions.add(value);
+          expressions.add(_snapshotAssignmentResult(value));
         }
       } else if (value is List) {
         if (expr is TableConstructor && value.isEmpty) {
           final tableValue = await expr.accept(this);
-          Logger.debug(
-            'visitAssignment: TableConstructor with empty list, using tableValue: $tableValue',
+          Logger.debugLazy(
+            () =>
+                'visitAssignment: TableConstructor with empty list, '
+                'using tableValue: $tableValue',
             category: 'Assignment',
-            context: {'exprIndex': i},
+            contextBuilder: () => {'exprIndex': i},
           );
           expressions.add(tableValue);
         } else {
-          expressions.addAll(value);
+          expressions.addAll(value.map(_snapshotAssignmentResult));
         }
       } else if (value is Value && value.isMulti) {
         // For multi-value expressions (like varargs or function calls):
@@ -111,10 +326,15 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         // - If it's not the last expression, only use the first value
         if (i == node.exprs.length - 1) {
           // Last expression: expand all values
-          Logger.debug(
-            'Assignment: Last expression is multi-value, expanding all: ${value.raw}',
+          Logger.debugLazy(
+            () =>
+                'Assignment: Last expression is multi-value, '
+                'expanding all: ${value.raw}',
             category: 'Assignment',
-            context: {'exprIndex': i, 'valueCount': (value.raw as List).length},
+            contextBuilder: () => {
+              'exprIndex': i,
+              'valueCount': (value.raw as List).length,
+            },
           );
           expressions.addAll(value.raw);
         } else {
@@ -123,44 +343,56 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           final firstValue = multiValues.isNotEmpty
               ? multiValues.first
               : Value(null);
-          Logger.debug(
-            'Assignment: Non-last expression is multi-value, taking first: $firstValue',
+          Logger.debugLazy(
+            () =>
+                'Assignment: Non-last expression is multi-value, '
+                'taking first: $firstValue',
             category: 'Assignment',
-            context: {'exprIndex': i, 'totalValues': multiValues.length},
+            contextBuilder: () => {
+              'exprIndex': i,
+              'totalValues': multiValues.length,
+            },
           );
-          expressions.add(firstValue);
+          expressions.add(_snapshotAssignmentResult(firstValue));
         }
       } else if (expr is TableAccessExpr &&
           value is Value &&
           value.raw is Coroutine) {
         // Patch: If the right-hand side is a TableAccessExpr and the value is a Coroutine, assign an empty table
-        Logger.debug(
-          'visitAssignment: TableAccessExpr evaluated to Coroutine, assigning empty table instead',
+        Logger.debugLazy(
+          () =>
+              'visitAssignment: TableAccessExpr evaluated to Coroutine, '
+              'assigning empty table instead',
           category: 'Assignment',
-          context: {'exprIndex': i},
+          contextBuilder: () => {'exprIndex': i},
         );
         expressions.add(ValueClass.table());
       } else {
-        expressions.add(value);
+        expressions.add(_snapshotAssignmentResult(value));
       }
       if (expressions.isNotEmpty) {
-        Logger.debug(
-          'visitAssignment: Final value added to expressions: ${expressions.last}',
+        Logger.debugLazy(
+          () =>
+              'visitAssignment: Final value added to expressions: '
+              '${expressions.last}',
           category: 'Assignment',
-          context: {'exprIndex': i, 'expressionsCount': expressions.length},
+          contextBuilder: () => {
+            'exprIndex': i,
+            'expressionsCount': expressions.length,
+          },
         );
       } else {
-        Logger.debug(
-          'visitAssignment: Expression produced no values',
+        Logger.debugLazy(
+          () => 'visitAssignment: Expression produced no values',
           category: 'Assignment',
-          context: {'exprIndex': i},
+          contextBuilder: () => {'exprIndex': i},
         );
       }
     }
-    Logger.debug(
-      'Assignment expressions evaluated: $expressions',
+    Logger.debugLazy(
+      () => 'Assignment expressions evaluated: $expressions',
       category: 'Interpreter',
-      context: {'expressionsCount': expressions.length},
+      contextBuilder: () => {'expressionsCount': expressions.length},
     );
 
     // For multiple targets, value should be a list or multi-value
@@ -190,7 +422,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           indexVal = vals.isNotEmpty ? vals[0] : Value(null);
         }
         preTables.add(tableVal as Value?);
-        preIndices.add(indexVal);
+        preIndices.add(_snapshotAssignmentResult(indexVal));
       } else {
         preTables.add(null);
         preIndices.add(null);
@@ -202,10 +434,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       final target = node.targets[i];
       final targetValue = i < values.length ? values[i] : Value(null);
 
-      Logger.debug(
-        "[visitAssignment] Assigning $targetValue to $target",
+      Logger.debugLazy(
+        () => '[visitAssignment] Assigning $targetValue to $target',
         category: 'Interpreter',
-        context: {
+        contextBuilder: () => {
           'targetIndex': i,
           'targetType': target.runtimeType.toString(),
         },
@@ -254,20 +486,22 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     Value wrappedValue,
   ) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(target) : null;
-    Logger.debug(
-      '_handleTableAccessAssignment: Assigning $wrappedValue to $target',
+    Logger.debugLazy(
+      () => '_handleTableAccessAssignment: Assigning $wrappedValue to $target',
       category: 'Interpreter',
-      context: {'targetType': target.runtimeType.toString()},
+      contextBuilder: () => {'targetType': target.runtimeType.toString()},
     );
     var tableValue = await target.table.accept(this);
     if (tableValue is Value && tableValue.isMulti && tableValue.raw is List) {
       final values = tableValue.raw as List;
       tableValue = values.isNotEmpty ? values[0] : Value(null);
     }
-    Logger.debug(
-      '_handleTableAccessAssignment: tableValue: $tableValue',
+    Logger.debugLazy(
+      () => '_handleTableAccessAssignment: tableValue: $tableValue',
       category: 'Interpreter',
-      context: {'tableValueType': tableValue.runtimeType.toString()},
+      contextBuilder: () => {
+        'tableValueType': tableValue.runtimeType.toString(),
+      },
     );
 
     if (tableValue is Value) {
@@ -293,10 +527,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         // If key doesn't exist in raw table, try __newindex metamethod
         if (!tableValue.rawContainsKey((target.index as Identifier).name)) {
           if (tableValue.hasMetamethod('__newindex')) {
-            Logger.debug(
-              '_handleTableAccessAssignment: __newindex metamethod found',
+            Logger.debugLazy(
+              () => '_handleTableAccessAssignment: __newindex metamethod found',
               category: 'Interpreter',
-              context: {'key': (target.index as Identifier).name},
+              contextBuilder: () => {'key': (target.index as Identifier).name},
             );
             final result = await tableValue.callMetamethodAsync('__newindex', [
               tableValue,
@@ -345,15 +579,16 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
         await tableValue.setValueAsync(identifier, storedValue);
 
-        Logger.debug(
-          '_handleTableAccessAssignment: Assigned ${storedValue.raw} to ${(target.index as Identifier).name}',
+        Logger.debugLazy(
+          () =>
+              '_handleTableAccessAssignment: Assigned ${storedValue.raw} to ${(target.index as Identifier).name}',
           category: 'Interpreter',
-          context: {'key': (target.index as Identifier).name},
+          contextBuilder: () => {'key': (target.index as Identifier).name},
         );
         return storedValue;
       }
 
-      throw LuaError("Cannot assign to field of non-table value", node: target);
+      _throwTableAssignmentTypeError(target.table, tableValue, target);
     }
 
     throw LuaError("Cannot assign to field of non-Value", node: target);
@@ -393,21 +628,28 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     }
 
     // Check if there's a custom _ENV that is different from the initial _G
-    final envValue = globals.get('_ENV');
-    final gValue = globals.get('_G');
-    Logger.debug(
-      "ENV assign context: name=$name, _ENV=$envValue (rawType: ${envValue is Value ? envValue.raw.runtimeType : envValue?.runtimeType}), _G=$gValue (rawType: ${gValue is Value ? gValue.raw.runtimeType : gValue?.runtimeType})",
+    final interpreter = this as Interpreter;
+    final envValue = _resolveActiveEnvValue(interpreter);
+    final gValue = _resolveActiveGlobalValue(interpreter);
+    Logger.debugLazy(
+      () =>
+          'ENV assign context: name=$name, '
+          '_ENV=$envValue, _G=$gValue',
       category: 'Assignment',
-      context: {
+      contextBuilder: () => {
         'name': name,
         'hasEnv': envValue != null,
         'hasG': gValue != null,
+        'envRawType': envValue?.raw.runtimeType.toString(),
+        'globalRawType': gValue?.raw.runtimeType.toString(),
       },
     );
-    Logger.debug(
-      "Assignment: globals.hashCode=${globals.hashCode}, globals.isLoadIsolated=${globals.isLoadIsolated}",
+    Logger.debugLazy(
+      () =>
+          'Assignment globals context: ${globals.hashCode} '
+          'loadIsolated=${globals.isLoadIsolated}',
       category: 'Assignment',
-      context: {
+      contextBuilder: () => {
         'globalsHash': globals.hashCode,
         'isLoadIsolated': globals.isLoadIsolated,
       },
@@ -428,22 +670,28 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     }
 
     final bool useCustomEnv =
-        (isInLoadIsolatedContext &&
-            envValue is Value &&
-            envValue.raw != null) ||
-        (envValue is Value &&
-            envValue.raw != null &&
-            gValue is Value &&
-            envValue != gValue);
-    Logger.debug(
-      "Assignment: isLoadIsolated=${globals.isLoadIsolated}, isInLoadIsolatedContext=$isInLoadIsolatedContext, envValue is Value=${envValue is Value}, gValue is Value=${gValue is Value}, envValue != gValue=${envValue is Value && gValue is Value ? envValue != gValue : 'N/A'}, useCustomEnv=$useCustomEnv",
+        (isInLoadIsolatedContext && envValue?.raw != null) ||
+        (envValue?.raw != null && gValue != null && envValue != gValue);
+    Logger.debugLazy(
+      () =>
+          'Assignment env mode: loadIsolated=${globals.isLoadIsolated} '
+          'chainIsolated=$isInLoadIsolatedContext useCustomEnv=$useCustomEnv',
       category: 'Assignment',
-      context: {
+      contextBuilder: () => {
         'isLoadIsolated': globals.isLoadIsolated,
         'isInLoadIsolatedContext': isInLoadIsolatedContext,
+        'envIsValue': envValue is Value,
+        'globalIsValue': gValue is Value,
+        'envDiffersFromGlobal': envValue is Value && gValue is Value
+            ? envValue != gValue
+            : null,
         'useCustomEnv': useCustomEnv,
       },
     );
+    if (globals.resolvesThroughDeclaredGlobal(name)) {
+      return _handleExplicitGlobalAssignment(name, wrappedValue);
+    }
+
     if (useCustomEnv) {
       // In isolated environments (load with custom env), we need to be careful about
       // local vs global variable assignment. Local variables declared within the loaded
@@ -455,10 +703,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       Environment? env = globals;
       while (env != null) {
         if (env.values.containsKey(name) && env.values[name]!.isLocal) {
-          Logger.debug(
-            'Updating local variable: $name',
+          Logger.debugLazy(
+            () => 'Updating local variable: $name',
             category: 'Assignment',
-            context: {'name': name, 'envHash': env.hashCode},
+            contextBuilder: () => {'name': name, 'envHash': env.hashCode},
           );
           env.define(name, storedValue);
           return storedValue;
@@ -466,23 +714,44 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         env = env.parent;
       }
 
-      // If no local variable found, use _ENV for global assignment
-      Logger.debug(
-        'Using custom _ENV for variable assignment: $name',
-        category: 'Assignment',
-        context: {'name': name},
+      final currentFunc = interpreter.getCurrentFunction();
+      final upvalueAssigned = UpvalueAssignmentHandler.tryAssignToUpvalue(
+        name,
+        storedValue,
+        currentFunc,
       );
-      Logger.debug(
-        'Assignment: About to call setValueAsync on _ENV for $name = $wrappedValue',
+      if (upvalueAssigned) {
+        Logger.debugLazy(
+          () => 'Assignment: $name updated via upvalue in custom _ENV context',
+          category: 'Assignment',
+          contextBuilder: () => {'name': name},
+        );
+        return storedValue;
+      }
+
+      final envTarget = envValue;
+      if (envTarget == null || envTarget.raw == null) {
+        throw LuaError("attempt to index a nil value ('_ENV')", node: target);
+      }
+
+      // If no local variable found, use _ENV for global assignment
+      Logger.debugLazy(
+        () => 'Using custom _ENV for variable assignment: $name',
         category: 'Assignment',
-        context: {'name': name},
+        contextBuilder: () => {'name': name},
+      );
+      Logger.debugLazy(
+        () =>
+            'Assignment: About to call setValueAsync on _ENV for $name = $wrappedValue',
+        category: 'Assignment',
+        contextBuilder: () => {'name': name},
       );
       // This will correctly handle tables, metamethods, or throw for non-tables
-      await envValue.setValueAsync(name, storedValue);
-      Logger.debug(
-        'Assignment: setValueAsync completed for $name',
+      await envTarget.setValueAsync(name, storedValue);
+      Logger.debugLazy(
+        () => 'Assignment: setValueAsync completed for $name',
         category: 'Assignment',
-        context: {'name': name},
+        contextBuilder: () => {'name': name},
       );
       return storedValue;
     }
@@ -500,7 +769,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     // Step 1: Check if this is a local variable assignment
     // updateLocal() searches only for variables with isLocal=true and updates
     // the first one found. Returns true if a local was updated.
-    if (globals.updateLocal(name, storedValue)) {
+    if (_updateActiveFunctionLocal(name, storedValue, interpreter)) {
       Logger.debugLazy(
         () => 'Updated local variable: $name',
         category: 'Assignment',
@@ -511,7 +780,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
     // Step 2: Check if this is an upvalue assignment
     // Only check upvalues after local variables have been ruled out
-    final currentFunc = (this as Interpreter).getCurrentFunction();
+    final currentFunc = interpreter.getCurrentFunction();
     final upvalueAssigned = UpvalueAssignmentHandler.tryAssignToUpvalue(
       name,
       storedValue,
@@ -519,10 +788,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     );
 
     if (upvalueAssigned) {
-      Logger.debug(
-        'Assignment: $name updated via upvalue',
+      Logger.debugLazy(
+        () => 'Assignment: $name updated via upvalue',
         category: 'Assignment',
-        context: {'name': name},
+        contextBuilder: () => {'name': name},
       );
       return storedValue;
     }
@@ -533,10 +802,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     // the same name in the current scope chain.
     try {
       globals.defineGlobal(name, storedValue);
-      Logger.debug(
-        'Assigned to global variable: $name',
+      Logger.debugLazy(
+        () => 'Assigned to global variable: $name',
         category: 'Assignment',
-        context: {'name': name},
+        contextBuilder: () => {'name': name},
       );
     } catch (e) {
       throw LuaError(
@@ -546,6 +815,82 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       );
     }
     return storedValue;
+  }
+
+  Future<Object?> _handleExplicitGlobalAssignment(
+    String name,
+    Value wrappedValue,
+  ) async {
+    final storedValue = _detachPrimitiveValue(wrappedValue);
+    final interpreter = this as Interpreter;
+    final envValue = _resolveActiveEnvValue(interpreter);
+    final rootGlobalValue = _resolveActiveGlobalValue(interpreter);
+
+    if (name == '_ENV') {
+      globals.defineGlobal(name, storedValue);
+      return storedValue;
+    }
+
+    final writesToRootGlobals =
+        envValue is Value &&
+        rootGlobalValue is Value &&
+        identical(envValue.raw, rootGlobalValue.raw);
+    if (writesToRootGlobals) {
+      globals.defineGlobal(name, storedValue);
+      return storedValue;
+    }
+
+    if (envValue is Value) {
+      await envValue.setValueAsync(name, storedValue);
+      return storedValue;
+    }
+
+    globals.defineGlobal(name, storedValue);
+    return storedValue;
+  }
+
+  Future<void> _clearExplicitGlobalBinding(String name) async {
+    final interpreter = this as Interpreter;
+    final envValue = _resolveActiveEnvValue(interpreter);
+    final rootGlobalValue = _resolveActiveGlobalValue(interpreter);
+
+    if (name == '_ENV') {
+      globals.clearGlobal(name);
+      return;
+    }
+
+    final writesToRootGlobals =
+        envValue is Value &&
+        rootGlobalValue is Value &&
+        identical(envValue.raw, rootGlobalValue.raw);
+    if (writesToRootGlobals) {
+      globals.clearGlobal(name);
+      return;
+    }
+
+    if (envValue is Value) {
+      await envValue.setValueAsync(name, Value(null));
+      return;
+    }
+
+    globals.clearGlobal(name);
+  }
+
+  Future<bool> _explicitGlobalIsAlreadyDefined(String name) async {
+    if (name == '_ENV') {
+      final current = globals.root.get(name);
+      return current != null && current is! Value ||
+          (current is Value && !current.isNil);
+    }
+
+    final envValue = globals.get('_ENV');
+    if (envValue is Value && envValue.raw != null) {
+      final current = await envValue.getValueAsync(name);
+      return current is Value ? !current.isNil : current != null;
+    }
+
+    final current = globals.readRootGlobal(name);
+    return current is Value ? !current.isNil : current != null;
   }
 
   /// Handles assignment to a function.
@@ -560,10 +905,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     Value wrappedValue,
   ) async {
     final funcName = target.name;
-    Logger.debug(
-      'Assign function $funcName = $wrappedValue',
+    Logger.debugLazy(
+      () => 'Assign function $funcName = $wrappedValue',
       category: 'Interpreter',
-      context: {'funcName': funcName},
+      contextBuilder: () => {'funcName': funcName},
     );
     globals.define(funcName, wrappedValue);
     return wrappedValue;
@@ -582,10 +927,12 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     Value? preTable,
   }) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(target) : null;
-    Logger.debug(
-      '_handleTableFieldAssignment: Assigning $wrappedValue to ${target.table}.${target.fieldName.name}',
+    Logger.debugLazy(
+      () =>
+          '_handleTableFieldAssignment: Assigning $wrappedValue to '
+          '${target.table}.${target.fieldName.name}',
       category: 'Interpreter',
-      context: {'fieldName': target.fieldName.name},
+      contextBuilder: () => {'fieldName': target.fieldName.name},
     );
     var tableValue = preTable ?? await target.table.accept<Object?>(this);
     if (tableValue is Value && tableValue.isMulti && tableValue.raw is List) {
@@ -603,10 +950,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         final keyExists = tableValue.rawContainsKey(fieldKey);
         if (!keyExists) {
           if (tableValue.hasMetamethod('__newindex')) {
-            Logger.debug(
-              '_handleTableFieldAssignment: __newindex metamethod found',
+            Logger.debugLazy(
+              () => '_handleTableFieldAssignment: __newindex metamethod found',
               category: 'Interpreter',
-              context: {'fieldKey': fieldKey},
+              contextBuilder: () => {'fieldKey': fieldKey},
             );
             final result = await tableValue.callMetamethodAsync('__newindex', [
               tableValue,
@@ -631,15 +978,16 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           interpreter.gc.ensureTracked(storedValue);
         }
 
-        Logger.debug(
-          '_handleTableFieldAssignment: Assigned ${storedValue.raw} to ${target.fieldName.name}',
+        Logger.debugLazy(
+          () =>
+              '_handleTableFieldAssignment: Assigned ${storedValue.raw} to ${target.fieldName.name}',
           category: 'Interpreter',
-          context: {'fieldName': target.fieldName.name},
+          contextBuilder: () => {'fieldName': target.fieldName.name},
         );
         return storedValue;
       }
 
-      throw LuaError("Cannot assign to field of non-table value", node: target);
+      _throwTableAssignmentTypeError(target.table, tableValue, target);
     }
 
     throw LuaError("Cannot assign to field of non-Value", node: target);
@@ -659,10 +1007,12 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
     Object? preIndex,
   }) async {
     (this is Interpreter) ? (this as Interpreter).recordTrace(target) : null;
-    Logger.debug(
-      '_handleTableIndexAssignment: Assigning $wrappedValue to ${target.table}[${target.index}]',
+    Logger.debugLazy(
+      () =>
+          '_handleTableIndexAssignment: Assigning $wrappedValue to '
+          '${target.table}[${target.index}]',
       category: 'Interpreter',
-      context: {'targetType': target.runtimeType.toString()},
+      contextBuilder: () => {'targetType': target.runtimeType.toString()},
     );
     var tableValue = preTable ?? await target.table.accept<Object?>(this);
     if (tableValue is Value && tableValue.isMulti && tableValue.raw is List) {
@@ -695,10 +1045,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
 
         // If key doesn't exist in raw table, try __newindex metamethod
         if (!keyExists && hasNewIndexMeta) {
-          Logger.debug(
-            '_handleTableIndexAssignment: __newindex metamethod found',
+          Logger.debugLazy(
+            () => '_handleTableIndexAssignment: __newindex metamethod found',
             category: 'Interpreter',
-            context: {'keyIsNil': keyValue.isNil},
+            contextBuilder: () => {'keyIsNil': keyValue.isNil},
           );
           final result = await tableValue.callMetamethodAsync('__newindex', [
             tableValue,
@@ -733,10 +1083,14 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
               storedValue.interpreter ??= interpreter;
               interpreter.gc.ensureTracked(storedValue);
             }
-            Logger.debug(
-              '_handleTableIndexAssignment: Assigned ${storedValue.raw} to dense index ${keyValue.raw}',
+            Logger.debugLazy(
+              () =>
+                  '_handleTableIndexAssignment: Assigned '
+                  '${storedValue.raw} to dense index ${keyValue.raw}',
               category: 'Interpreter',
-              context: {'keyType': keyValue.raw.runtimeType.toString()},
+              contextBuilder: () => {
+                'keyType': keyValue.raw.runtimeType.toString(),
+              },
             );
             return storedValue;
           }
@@ -750,15 +1104,19 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           interpreter.gc.ensureTracked(storedValue);
         }
 
-        Logger.debug(
-          '_handleTableIndexAssignment: Assigned ${storedValue.raw} to index ${keyValue.raw}',
+        Logger.debugLazy(
+          () =>
+              '_handleTableIndexAssignment: Assigned ${storedValue.raw} '
+              'to index ${keyValue.raw}',
           category: 'Interpreter',
-          context: {'keyType': keyValue.raw.runtimeType.toString()},
+          contextBuilder: () => {
+            'keyType': keyValue.raw.runtimeType.toString(),
+          },
         );
         return storedValue;
       }
 
-      throw LuaError("Cannot assign to field of non-table value", node: target);
+      _throwTableAssignmentTypeError(target.table, tableValue, target);
     }
 
     throw LuaError("Cannot assign to field of non-Value", node: target);
@@ -774,16 +1132,17 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
   /// Returns null.
   @override
   Future<Object?> visitLocalDeclaration(LocalDeclaration node) async {
-    Logger.debug(
-      'Visiting LocalDeclaration: ${node.names}',
+    final interpreter = this as Interpreter;
+    Logger.debugLazy(
+      () => 'Visiting LocalDeclaration: ${node.names}',
       category: 'Interpreter',
-      context: {'namesCount': node.names.length},
+      contextBuilder: () => {'namesCount': node.names.length},
     );
 
     void updateFastLocalBinding(String name) {
       if (this is Interpreter) {
         final fastLocals = (this as Interpreter).getCurrentFastLocals();
-        if (fastLocals != null && fastLocals.containsKey(name)) {
+        if (fastLocals != null) {
           final box = globals.values[name];
           if (box != null) {
             fastLocals[name] = box;
@@ -809,8 +1168,10 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           value = Value(await value.raw);
         }
 
-        Logger.debug(
-          'LocalDeclaration: handling GroupedExpression with inner result: $value',
+        Logger.debugLazy(
+          () =>
+              'LocalDeclaration: handling GroupedExpression with inner result: '
+              '$value',
           category: 'Interpreter',
         );
 
@@ -820,14 +1181,16 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           if (multiValues.isNotEmpty) {
             values.add(multiValues.first);
           } else {
-            values.add(Value(null));
+            values.add(interpreter.wrapRuntimeValue(null));
           }
         } else if (value is List && value.isNotEmpty) {
           // Take only the first value from list
           values.add(value[0]);
         } else {
           // Single value or empty result
-          values.add(value is Value ? value : Value(value));
+          values.add(
+            value is Value ? value : interpreter.wrapRuntimeValue(value),
+          );
         }
       } else if (expr is FunctionCall || expr is MethodCall) {
         // Function and method calls are already evaluated when visited
@@ -837,7 +1200,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         if (value is Future) {
           value = await value;
         } else if (value is Value && value.raw is Future) {
-          value = Value(await value.raw);
+          value = interpreter.wrapRuntimeValue(await value.raw);
         }
 
         if (value is List) {
@@ -854,7 +1217,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         if (value is Future) {
           value = await value;
         } else if (value is Value && value.raw is Future) {
-          value = Value(await value.raw);
+          value = interpreter.wrapRuntimeValue(await value.raw);
         }
 
         // Wrap non-Value results
@@ -862,7 +1225,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
           values.addAll(value);
         } else {
           if (value is! Value) {
-            value = Value(value);
+            value = interpreter.wrapRuntimeValue(value);
           }
           final val = value;
           if (val.isMulti) {
@@ -898,53 +1261,39 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       final Value rawValue = values.isNotEmpty
           ? (values.first is Value
                 ? values.first as Value
-                : Value(values.first))
-          : Value(null); // Default to nil if no values provided
+                : interpreter.wrapRuntimeValue(values.first))
+          : interpreter.wrapRuntimeValue(
+              null,
+            ); // Default to nil if no values provided
 
       // Apply attributes
       Value valueWithAttributes;
       if (attribute == 'const') {
-        valueWithAttributes = Value(
-          rawValue.raw,
-          metatable: rawValue.metatable,
+        valueWithAttributes = _cloneValueForLocalBinding(
+          rawValue,
           isConst: true,
         );
       } else if (attribute == 'close') {
-        valueWithAttributes = Value(
-          rawValue.raw,
-          metatable: rawValue.metatable,
+        valueWithAttributes = _cloneValueForLocalBinding(
+          rawValue,
           isToBeClose: true,
         );
 
         // Verify the value has a __close metamethod if it's not nil or false
         if (rawValue.raw != null && rawValue.raw != false) {
           if (!valueWithAttributes.hasMetamethod('__close')) {
-            throw UnsupportedError(
-              "to-be-closed variable value must have a __close metamethod",
-            );
+            throw LuaError("variable '$name' got a non-closable value");
           }
         }
       } else {
-        // Reuse the existing Value if it doesn't have const/close attributes
-        // to avoid double-wrapping (which causes double allocation + GC overhead)
-        if (rawValue.isConst == false && rawValue.isToBeClose == false) {
-          valueWithAttributes = rawValue;
-        } else {
-          // Create a new Value to avoid inheriting const/close attributes from source
-          valueWithAttributes = Value(
-            rawValue.raw,
-            metatable: rawValue.metatable,
-            // Explicitly do not copy isConst or isToBeClose
-            upvalues: rawValue.upvalues,
-            interpreter: rawValue.interpreter,
-            functionBody: rawValue.functionBody,
-            closureEnvironment: rawValue.closureEnvironment,
-            functionName: rawValue.functionName,
-          );
-        }
+        valueWithAttributes = _cloneValueForLocalBinding(rawValue);
       }
 
-      globals.declare(name, valueWithAttributes);
+      globals.declare(
+        name,
+        valueWithAttributes,
+        trackToBeClosed: attribute == 'close',
+      );
       updateFastLocalBinding(name);
     } else {
       // Assign values to the respective names, defaulting to nil if fewer expressions than names.
@@ -953,72 +1302,221 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         final attribute = node.attributes.length > i
             ? node.attributes[i]
             : null;
-        final rawValue = i < values.length ? values[i] : Value(null);
+        final rawValue = i < values.length
+            ? values[i]
+            : interpreter.wrapRuntimeValue(null);
 
         // Apply attributes
         Value valueWithAttributes;
         if (attribute == 'const') {
           if (rawValue is Value) {
-            valueWithAttributes = Value(
-              rawValue.raw,
-              metatable: rawValue.metatable,
+            valueWithAttributes = _cloneValueForLocalBinding(
+              rawValue,
               isConst: true,
             );
           } else {
-            valueWithAttributes = Value(rawValue, isConst: true);
+            valueWithAttributes = Value(
+              rawValue,
+              isConst: true,
+              interpreter: interpreter,
+            );
           }
         } else if (attribute == 'close') {
           if (rawValue is Value) {
-            valueWithAttributes = Value(
-              rawValue.raw,
-              metatable: rawValue.metatable,
+            final closableValue = _cloneValueForLocalBinding(
+              rawValue,
               isToBeClose: true,
             );
+            valueWithAttributes = closableValue;
 
             // Verify the value has a __close metamethod if it's not nil or false
             if (rawValue.raw != null && rawValue.raw != false) {
-              if (!valueWithAttributes.hasMetamethod('__close')) {
-                throw UnsupportedError(
-                  "to-be-closed variable value must have a __close metamethod",
-                );
+              if (!closableValue.hasMetamethod('__close')) {
+                throw LuaError("variable '$name' got a non-closable value");
               }
             }
           } else {
-            valueWithAttributes = Value(rawValue, isToBeClose: true);
+            final closableValue = Value(
+              rawValue,
+              isToBeClose: true,
+              interpreter: interpreter,
+            );
+            valueWithAttributes = closableValue;
 
             // Verify the value has a __close metamethod if it's not nil or false
             if (rawValue != null && rawValue != false) {
-              if (!valueWithAttributes.hasMetamethod('__close')) {
-                throw UnsupportedError(
-                  "to-be-closed variable value must have a __close metamethod",
-                );
+              if (!closableValue.hasMetamethod('__close')) {
+                throw LuaError("variable '$name' got a non-closable value");
               }
             }
           }
         } else {
-          // Create a new Value to avoid inheriting const/close attributes from source
           if (rawValue is Value) {
-            valueWithAttributes = Value(
-              rawValue.raw,
-              metatable: rawValue.metatable,
-              // Explicitly do not copy isConst or isToBeClose
-            );
+            valueWithAttributes = _cloneValueForLocalBinding(rawValue);
           } else {
-            valueWithAttributes = Value(rawValue);
+            valueWithAttributes = interpreter.wrapRuntimeValue(rawValue);
           }
         }
 
-        Logger.debug(
-          'Local declare $name = $valueWithAttributes (attribute: $attribute)',
+        Logger.debugLazy(
+          () =>
+              'Local declare $name = $valueWithAttributes (attribute: $attribute)',
           category: 'Interpreter',
-          context: {'name': name, 'attribute': attribute ?? 'none'},
+          contextBuilder: () => {
+            'name': name,
+            'attribute': attribute ?? 'none',
+          },
         );
         // Use declare() for local variable declarations
         // declare() creates a new local variable with isLocal=true that
         // shadows any existing variables with the same name
-        globals.declare(name, valueWithAttributes);
+        globals.declare(
+          name,
+          valueWithAttributes,
+          trackToBeClosed: attribute == 'close',
+        );
         updateFastLocalBinding(name);
       }
+    }
+
+    return null;
+  }
+
+  @override
+  Future<Object?> visitGlobalDeclaration(GlobalDeclaration node) async {
+    final interpreter = this as Interpreter;
+    Logger.debugLazy(
+      () => 'Visiting GlobalDeclaration: ${node.names}',
+      category: 'Interpreter',
+      contextBuilder: () => {
+        'namesCount': node.names.length,
+        'isWildcard': node.isWildcard,
+        'defaultAttribute': node.defaultAttribute,
+      },
+    );
+
+    if (node.isWildcard) {
+      return null;
+    }
+
+    final values = <Object?>[];
+    for (final expr in node.exprs) {
+      Object? value;
+
+      if (expr is GroupedExpression) {
+        value = await expr.expr.accept(this);
+        if (value is Future) {
+          value = await value;
+        } else if (value is Value && value.raw is Future) {
+          value = interpreter.wrapRuntimeValue(await value.raw);
+        }
+
+        if (value is Value && value.isMulti) {
+          final multiValues = value.raw as List;
+          values.add(
+            multiValues.isNotEmpty
+                ? multiValues.first
+                : interpreter.wrapRuntimeValue(null),
+          );
+        } else if (value is List && value.isNotEmpty) {
+          values.add(value.first);
+        } else {
+          values.add(
+            value is Value ? value : interpreter.wrapRuntimeValue(value),
+          );
+        }
+      } else if (expr is FunctionCall || expr is MethodCall) {
+        value = await expr.accept(this);
+        if (value is Future) {
+          value = await value;
+        } else if (value is Value && value.raw is Future) {
+          value = interpreter.wrapRuntimeValue(await value.raw);
+        }
+
+        if (value is List) {
+          values.addAll(value);
+        } else if (value is Value && value.isMulti) {
+          values.addAll(value.raw);
+        } else {
+          values.add(value);
+        }
+      } else {
+        value = await expr.accept(this);
+        if (value is Future) {
+          value = await value;
+        } else if (value is Value && value.raw is Future) {
+          value = interpreter.wrapRuntimeValue(await value.raw);
+        }
+
+        if (value is List) {
+          values.addAll(value);
+        } else {
+          if (value is! Value) {
+            value = interpreter.wrapRuntimeValue(value);
+          }
+          final val = value;
+          if (val.isMulti) {
+            values.addAll(val.raw);
+          } else {
+            values.add(val);
+          }
+        }
+      }
+    }
+
+    if (node.exprs.isNotEmpty) {
+      for (final name in node.names) {
+        if (await _explicitGlobalIsAlreadyDefined(name.name)) {
+          throw LuaError("global '${name.name}' already defined", node: name);
+        }
+      }
+    }
+
+    for (var index = 0; index < node.names.length; index++) {
+      globals.declareGlobalBinding(node.names[index].name);
+    }
+
+    if (node.exprs.isEmpty) {
+      return null;
+    }
+
+    for (var index = 0; index < node.names.length; index++) {
+      final name = node.names[index].name;
+      if (index >= values.length) {
+        await _clearExplicitGlobalBinding(name);
+        continue;
+      }
+      final rawValue = values[index];
+      final attribute =
+          index < node.attributes.length && node.attributes[index].isNotEmpty
+          ? node.attributes[index]
+          : node.defaultAttribute;
+
+      final baseValue = rawValue is Value ? rawValue : Value(rawValue);
+      final valueWithAttributes = switch (attribute) {
+        'const' => Value(
+          baseValue.raw,
+          metatable: baseValue.metatable,
+          isConst: true,
+        ),
+        'close' => throw UnsupportedError(
+          'global variables cannot be to-be-closed',
+        ),
+        _ =>
+          baseValue.isConst || baseValue.isToBeClose
+              ? Value(
+                  baseValue.raw,
+                  metatable: baseValue.metatable,
+                  upvalues: baseValue.upvalues,
+                  interpreter: baseValue.interpreter,
+                  functionBody: baseValue.functionBody,
+                  closureEnvironment: baseValue.closureEnvironment,
+                  functionName: baseValue.functionName,
+                )
+              : baseValue,
+      };
+
+      await _handleExplicitGlobalAssignment(name, valueWithAttributes);
     }
 
     return null;
@@ -1035,6 +1533,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
   Future<Object?> visitAssignmentIndexAccessExpr(
     AssignmentIndexAccessExpr node,
   ) async {
+    final interpreter = this as Interpreter;
     // Evaluate the target table
     final targetValue = await node.target.accept(this);
 
@@ -1052,13 +1551,15 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       if (result is Future) {
         result = await result;
       } else if (result is Value && result.raw is Future) {
-        result = Value(await result.raw);
+        result = interpreter.wrapRuntimeValue(await result.raw);
       }
 
-      Logger.debug(
-        'AssignmentIndexAccessExpr: handling GroupedExpression with inner result: $result',
+      Logger.debugLazy(
+        () =>
+            'AssignmentIndexAccessExpr: handling GroupedExpression with '
+            'inner result: $result',
         category: 'Interpreter',
-        context: {'isMulti': result is Value && result.isMulti},
+        contextBuilder: () => {'isMulti': result is Value && result.isMulti},
       );
 
       // In Lua, when a function call is wrapped in parentheses, only the first return value is used
@@ -1066,7 +1567,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
         var multiValues = result.raw as List;
         valueToAssign = multiValues.isNotEmpty
             ? multiValues.first
-            : Value(null);
+            : interpreter.wrapRuntimeValue(null);
       } else if (result is List && result.isNotEmpty) {
         valueToAssign = result[0];
       } else {
@@ -1079,17 +1580,21 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       if (valueToAssign is Future) {
         valueToAssign = await valueToAssign;
       } else if (valueToAssign is Value && valueToAssign.raw is Future) {
-        valueToAssign = Value(await valueToAssign.raw);
+        valueToAssign = interpreter.wrapRuntimeValue(await valueToAssign.raw);
       }
     }
 
     // Wrap the value if needed
     final wrappedValue = valueToAssign is Value
         ? valueToAssign
-        : Value(valueToAssign);
+        : interpreter.wrapRuntimeValue(valueToAssign);
 
-    final targetVal = targetValue is Value ? targetValue : Value(targetValue);
-    final indexVal = indexValue is Value ? indexValue : Value(indexValue);
+    final targetVal = targetValue is Value
+        ? targetValue
+        : interpreter.wrapRuntimeValue(targetValue);
+    final indexVal = indexValue is Value
+        ? indexValue
+        : interpreter.wrapRuntimeValue(indexValue);
 
     if (targetVal.raw is! Map) {
       throw Exception('Cannot assign to index of non-table value');
@@ -1124,15 +1629,17 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       return null;
     }
 
+    final storedValue = _detachPrimitiveValue(wrappedValue);
+
     if (map is TableStorage && (!hasNewindex || keyExists) && !hasIndexMeta) {
       final denseIndex = positiveInteger(indexVal);
       if (denseIndex != null) {
-        targetVal.setNumericIndex(denseIndex, wrappedValue);
-        return wrappedValue;
+        targetVal.setNumericIndex(denseIndex, storedValue);
+        return storedValue;
       }
     }
 
-    map[rawKey] = wrappedValue;
-    return wrappedValue;
+    map[rawKey] = storedValue;
+    return storedValue;
   }
 }

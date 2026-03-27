@@ -15,7 +15,19 @@ void main() {
       final err = lua.getGlobal('err') as Value;
 
       expect(f.unwrap(), isNull);
-      expect(err.unwrap(), contains("local 'aa'"));
+      expect(err.unwrap(), contains("scope of 'aa'"));
+    });
+
+    test('rejects goto jumping into wildcard global scope barrier', () async {
+      await lua.execute(r'''
+        f, err = load("goto l2; global *; ::l1:: ::l2:: print(3)")
+      ''');
+
+      final f = lua.getGlobal('f') as Value;
+      final err = lua.getGlobal('err') as Value;
+
+      expect(f.unwrap(), isNull);
+      expect(err.unwrap(), contains("scope of '*'"));
     });
 
     test('allows valid forward goto', () async {
@@ -32,5 +44,26 @@ void main() {
       final result = await lua.execute('return loader()') as Value;
       expect(result.unwrap(), equals(42));
     });
+
+    test(
+      'rejects repeat-until continue label that jumps into loop-local scope',
+      () async {
+        await lua.execute(r'''
+          loader, loadErr = load([[
+            repeat
+              if x then goto cont end
+              local xuxu = 10
+              ::cont::
+            until xuxu < x
+          ]])
+        ''');
+
+        final loader = lua.getGlobal('loader') as Value;
+        final loadErr = lua.getGlobal('loadErr') as Value;
+
+        expect(loader.unwrap(), isNull);
+        expect(loadErr.unwrap(), contains("scope of 'xuxu'"));
+      },
+    );
   });
 }

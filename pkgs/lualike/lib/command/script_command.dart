@@ -1,6 +1,13 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'dart:io';
+
+import 'package:lualike/src/lua_bytecode/runtime.dart';
+import 'package:lualike/src/lua_string.dart';
+import 'package:lualike/src/runtime/lua_runtime.dart';
+import 'package:lualike/src/value.dart';
+import 'package:path/path.dart' as path;
 
 import 'base_command.dart';
 
@@ -35,19 +42,59 @@ class ScriptCommand extends BaseCommand {
         exit(1);
       }
 
-      final sourceCode = await file.readAsBytes().then(
-        (bytes) => utf8.decode(bytes),
-      );
+      final bytes = await file.readAsBytes();
 
       // Get absolute path for better debugging
       final absolutePath = file.absolute.path;
+      _updateScriptMetadata(absolutePath);
 
-      // Execute with script path set for proper line number tracking
+      if (looksLikeTrackedLuaBytecodeBytes(bytes)) {
+        final loadResult = await bridge.vm.loadChunk(
+          LuaChunkLoadRequest(
+            source: Value(LuaString.fromBytes(Uint8List.fromList(bytes))),
+            chunkName: absolutePath,
+            mode: 'b',
+          ),
+        );
+        if (!loadResult.isSuccess) {
+          throw Exception(loadResult.errorMessage ?? 'failed to load chunk');
+        }
+        await bridge.vm.callFunction(loadResult.chunk!, const <Object?>[]);
+        return;
+      }
+
+      final sourceCode = () {
+        try {
+          return utf8.decode(bytes);
+        } on FormatException {
+          // Lua suite files such as strings.lua still use raw Latin-1 bytes.
+          return latin1.decode(bytes);
+        }
+      }();
+
       await bridge.execute(sourceCode, scriptPath: absolutePath);
     } catch (e, s) {
       safePrint('Error executing script "$scriptPath": $e');
       safePrint(s.toString());
       rethrow;
+    }
+  }
+
+  void _updateScriptMetadata(String scriptPath) {
+    final normalizedPath = path.url.joinAll(
+      path.split(path.normalize(scriptPath)),
+    );
+    bridge.vm.globals.define('_SCRIPT_PATH', Value(normalizedPath));
+    bridge.vm.callStack.setScriptPath(normalizedPath);
+    bridge.vm.currentScriptPath = normalizedPath;
+
+    final scriptDir = path.dirname(scriptPath);
+    final normalizedDir = path.url.joinAll(
+      path.split(path.normalize(scriptDir)),
+    );
+    bridge.vm.globals.define('_SCRIPT_DIR', Value(normalizedDir));
+    if (scriptDir.isNotEmpty) {
+      bridge.vm.fileManager.addSearchPath(scriptDir);
     }
   }
 }

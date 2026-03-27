@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/gc/gc.dart';
 
@@ -22,6 +24,7 @@ class MemoryCredits {
   final Expando<GCGenerationSpace> _objectSpaces = Expando<GCGenerationSpace>(
     'gcSpace',
   );
+  final Set<GCObject> _excludedObjects = HashSet<GCObject>.identity();
 
   // Debug: Track allocation stack traces
   static bool enableStackTraces = false;
@@ -38,6 +41,8 @@ class MemoryCredits {
   int get youngCredits => _young;
   int get oldCredits => _old;
 
+  bool _isExcluded(GCObject obj) => _excludedObjects.contains(obj);
+
   /// Records a freshly allocated object.
   void onAllocate(GCObject obj, {required GCGenerationSpace space}) {
     // Check if object already has credits assigned - if so, skip to avoid double-counting
@@ -48,6 +53,12 @@ class MemoryCredits {
       if (existingSpace != space) {
         _objectSpaces[obj] = space;
       }
+      return;
+    }
+
+    if (_isExcluded(obj)) {
+      _excludedObjects.remove(obj);
+      onAllocate(obj, space: space);
       return;
     }
 
@@ -72,8 +83,9 @@ class MemoryCredits {
       final objType = obj is Value
           ? 'Value(${obj.raw?.runtimeType ?? 'null'})'
           : obj.runtimeType.toString();
-      Logger.debug(
-        '[MemoryCredits] onAllocate during large op: $objType#${obj.hashCode}, credits=$credits, _total: $_total -> ${_total + credits}',
+      Logger.debugLazy(
+        () =>
+            '[MemoryCredits] onAllocate during large op: $objType#${obj.hashCode}, credits=$credits, _total: $_total -> ${_total + credits}',
         category: 'GC',
       );
     }
@@ -88,28 +100,50 @@ class MemoryCredits {
     }
   }
 
+  /// Tracks an object for generation bookkeeping without charging it against
+  /// Lua-visible memory use.
+  ///
+  /// This is used for wrappers and runtime helpers that still need correct
+  /// generation placement, promotion, and reclamation bookkeeping, but should
+  /// not contribute to Lua's externally reported memory pressure. Recording the
+  /// generation here avoids special cases later in [onPromote], [onFree], and
+  /// [reconcileGenerations], while the zero credit keeps them out of the
+  /// collector's accounting totals.
+  void onTrackExcluded(GCObject obj, {required GCGenerationSpace space}) {
+    _excludedObjects.add(obj);
+  }
+
   /// Adjusts the tracked credits when an object is promoted.
   void onPromote(GCObject obj) {
+    if (_isExcluded(obj)) {
+      return;
+    }
+
     final credits = _objectCredits[obj];
     if (credits == null) {
       return;
     }
+
     final space = _objectSpaces[obj];
     if (space == GCGenerationSpace.young) {
       _young -= credits;
       _old += credits;
-      _objectSpaces[obj] = GCGenerationSpace.old;
-    } else {
-      _objectSpaces[obj] = GCGenerationSpace.old;
     }
+    _objectSpaces[obj] = GCGenerationSpace.old;
   }
 
   /// Updates bookkeeping after an object has been reclaimed.
   void onFree(GCObject obj) {
+    if (_isExcluded(obj)) {
+      _excludedObjects.remove(obj);
+      return;
+    }
+
     final credits = _objectCredits[obj];
     if (credits == null) {
       return;
     }
+
     final space = _objectSpaces[obj];
     if (space == GCGenerationSpace.young) {
       _young -= credits;
@@ -117,6 +151,7 @@ class MemoryCredits {
       _old -= credits;
     }
     _total -= credits;
+
     _objectCredits[obj] = null;
     _objectSpaces[obj] = null;
   }
@@ -124,6 +159,10 @@ class MemoryCredits {
   /// Recalculates the cost of an object after it changed shape (for example a
   /// table gaining or losing entries).
   void recalculate(GCObject obj) {
+    if (_isExcluded(obj)) {
+      return;
+    }
+
     final space = _objectSpaces[obj];
     if (space == null) {
       return;
@@ -154,17 +193,33 @@ class MemoryCredits {
     var recalculatedOld = 0;
 
     for (final obj in young) {
-      final credits = obj.estimatedSize;
-      recalculatedYoung += credits;
-      _objectCredits[obj] = credits;
-      _objectSpaces[obj] = GCGenerationSpace.young;
+      final excluded = _isExcluded(obj);
+      final credits = excluded ? 0 : obj.estimatedSize;
+      if (!excluded) {
+        recalculatedYoung += credits;
+      }
+      if (excluded) {
+        _objectCredits[obj] = null;
+        _objectSpaces[obj] = null;
+      } else {
+        _objectCredits[obj] = credits;
+        _objectSpaces[obj] = GCGenerationSpace.young;
+      }
     }
 
     for (final obj in old) {
-      final credits = obj.estimatedSize;
-      recalculatedOld += credits;
-      _objectCredits[obj] = credits;
-      _objectSpaces[obj] = GCGenerationSpace.old;
+      final excluded = _isExcluded(obj);
+      final credits = excluded ? 0 : obj.estimatedSize;
+      if (!excluded) {
+        recalculatedOld += credits;
+      }
+      if (excluded) {
+        _objectCredits[obj] = null;
+        _objectSpaces[obj] = null;
+      } else {
+        _objectCredits[obj] = credits;
+        _objectSpaces[obj] = GCGenerationSpace.old;
+      }
     }
 
     _young = recalculatedYoung;

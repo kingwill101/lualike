@@ -7,6 +7,49 @@ import 'package:lualike/src/io/filesystem_provider.dart';
 import 'package:lualike/src/stdlib/lib_io.dart';
 import 'package:lualike_test/test.dart';
 
+class _CountingIODevice extends BaseIODevice {
+  static int openCount = 0;
+  static int closeCount = 0;
+
+  _CountingIODevice(String path, super.mode) {
+    openCount++;
+  }
+
+  static void reset() {
+    openCount = 0;
+    closeCount = 0;
+  }
+
+  @override
+  Future<void> close() async {
+    if (isClosed) return;
+    await Future<void>.delayed(Duration.zero);
+    isClosed = true;
+    closeCount++;
+  }
+
+  @override
+  Future<void> flush() async {}
+
+  @override
+  Future<int> getPosition() async => 0;
+
+  @override
+  Future<bool> isEOF() async => true;
+
+  @override
+  Future<ReadResult> read([String format = "l"]) async => ReadResult(null);
+
+  @override
+  Future<int> seek(SeekWhence whence, int offset) async => 0;
+
+  @override
+  Future<WriteResult> write(String data) async => WriteResult(true);
+
+  @override
+  Future<WriteResult> writeBytes(List<int> bytes) async => WriteResult(true);
+}
+
 void main() {
   group('IO library', () {
     late Directory tempDir;
@@ -68,9 +111,32 @@ void main() {
         var writeResult = await device.write('test');
         expect(writeResult.success, true);
       });
+
+      test('FileIODevice flush treats writable /dev/null as success', () async {
+        if (!Platform.isLinux) {
+          return;
+        }
+
+        final device = await FileIODevice.open('/dev/null', 'w');
+        final writeResult = await device.write('test');
+        expect(writeResult.success, true);
+
+        await device.flush();
+        await device.close();
+      });
     });
 
     group('LuaFile', () {
+      test('createLuaFile marks file values as finalizer eligible', () async {
+        final filePath = '$tempPath/test.txt';
+        final device = await FileIODevice.open(filePath, 'w');
+        final fileValue = createLuaFile(device);
+
+        expect(fileValue.finalizerEligible, isTrue);
+
+        await (fileValue.raw as LuaFile).close();
+      });
+
       test('Basic file operations', () async {
         final filePath = '$tempPath/test.txt';
 
@@ -98,6 +164,22 @@ void main() {
         expect(file.isClosed, true);
       });
 
+      test('closing /dev/full succeeds after a failed flush', () async {
+        if (!Platform.isLinux) {
+          return;
+        }
+
+        final device = await FileIODevice.open('/dev/full', 'w');
+        final file = LuaFile(device);
+
+        expect((await file.write('abcd'))[0], true);
+        final flushResult = await file.flush();
+        expect(flushResult[0], isNull);
+
+        final closeResult = await file.close();
+        expect(closeResult[0], true);
+      });
+
       test('Lines iterator', () async {
         final filePath = '$tempPath/test.txt';
 
@@ -117,9 +199,8 @@ void main() {
 
         // Read lines
         final lines = <String>[];
-        final func = iterator.raw as Function;
         while (true) {
-          final result = await func([]);
+          final result = await iterator.call([]) as Value;
           if (result.raw == null) break;
           lines.add(result.raw.toString());
         }
@@ -143,6 +224,338 @@ void main() {
         expect(IOLib.defaultInput, isNotNull);
         expect(IOLib.defaultOutput, isNotNull);
       });
+
+      test('gc roots retain current default input handle', () async {
+        final previousProvider = IOLib.fileSystemProvider;
+        _CountingIODevice.reset();
+        IOLib.fileSystemProvider = FileSystemProvider(
+          ioDeviceFactory: (path, mode) async => _CountingIODevice(path, mode),
+          providerName: 'CountingIODevice',
+        );
+
+        try {
+          final bridge = LuaLike();
+          await bridge.execute(r'''
+            for i = 1, 40 do
+              io.input("counting.txt")
+              collectgarbage()
+            end
+          ''');
+
+          expect(_CountingIODevice.openCount, equals(40));
+          expect(_CountingIODevice.closeCount, equals(39));
+        } finally {
+          IOLib.fileSystemProvider = previousProvider;
+        }
+      });
+
+      test('discarded io.lines(filename) iterators are finalized', () async {
+        final previousProvider = IOLib.fileSystemProvider;
+        _CountingIODevice.reset();
+        IOLib.fileSystemProvider = FileSystemProvider(
+          ioDeviceFactory: (path, mode) async => _CountingIODevice(path, mode),
+          providerName: 'CountingIODevice',
+        );
+
+        try {
+          final bridge = LuaLike();
+          await bridge.execute(r'''
+            for i = 1, 40 do
+              io.lines("counting.txt")
+              collectgarbage()
+            end
+          ''');
+
+          expect(_CountingIODevice.openCount, equals(40));
+          expect(_CountingIODevice.closeCount, equals(40));
+        } finally {
+          IOLib.fileSystemProvider = previousProvider;
+        }
+      });
+
+      test(
+        'batched auto gc drains discarded io.lines(filename) handles',
+        () async {
+          final previousProvider = IOLib.fileSystemProvider;
+          _CountingIODevice.reset();
+          IOLib.fileSystemProvider = FileSystemProvider(
+            ioDeviceFactory: (path, mode) async =>
+                _CountingIODevice(path, mode),
+            providerName: 'CountingIODevice',
+          );
+
+          try {
+            final bridge = LuaLike();
+            await bridge.execute(r'''
+            for i = 1, 60 do
+              io.lines("counting.txt")
+              if i % 5 == 0 then
+                collectgarbage()
+              end
+            end
+            collectgarbage()
+          ''');
+
+            expect(_CountingIODevice.openCount, equals(60));
+            expect(_CountingIODevice.closeCount, equals(60));
+          } finally {
+            IOLib.fileSystemProvider = previousProvider;
+          }
+        },
+      );
+
+      test('io.lines(filename) survives gc during iteration', () async {
+        final bridge = LuaLike();
+        await bridge.execute(r'''
+          local file = os.tmpname()
+          local f = assert(io.open(file, "w"))
+          f:write("one\n", "two\n", "three\n")
+          f:close()
+
+          local lines = {}
+          for line in io.lines(file) do
+            lines[#lines + 1] = line
+            collectgarbage()
+          end
+
+          assert(#lines == 3)
+          assert(lines[1] == "one")
+          assert(lines[2] == "two")
+          assert(lines[3] == "three")
+          assert(os.remove(file))
+        ''');
+      });
+
+      test(
+        'debug.getlocal on io.lines loop state does not adopt close semantics',
+        () async {
+          final bridge = LuaLike();
+          await bridge.execute(r'''
+            local file = os.tmpname()
+            io.output(file)
+            io.write("a = 10 + 34\na = 2*a\na = -a\n"):close()
+
+            local t = {}
+            assert(load(io.lines(file, "L"), nil, nil, t))()
+            assert(t.a == -((10 + 34) * 2))
+
+            local function gettoclose(lv)
+              lv = lv + 1
+              local stvar = 0
+              for i = 1, 1000 do
+                local n, v = debug.getlocal(lv, i)
+                if n == "(for state)" then
+                  stvar = stvar + 1
+                  if stvar == 3 then
+                    return v
+                  end
+                end
+              end
+            end
+
+            local f
+            for l in io.lines(file) do
+              f = gettoclose(1)
+              assert(io.type(f) == "file")
+              break
+            end
+
+            assert(io.type(f) == "closed file")
+            assert(os.remove(file))
+          ''');
+        },
+      );
+
+      test('local file handles survive gc between writes', () async {
+        final bridge = LuaLike();
+        await bridge.execute(r'''
+          local file = os.tmpname()
+          local f = assert(io.open(file, "w"))
+          assert(f:write("abc"))
+          collectgarbage()
+          assert(f:write("def"))
+          assert(f:close())
+
+          local r = assert(io.open(file, "r"))
+          assert(r:read("*a") == "abcdef")
+          assert(r:close())
+          assert(os.remove(file))
+        ''');
+      });
+
+      test('file handles survive repeated write chaining in loops', () async {
+        final bridge = LuaLike();
+        await bridge.execute(r'''
+          local file = os.tmpname()
+          local f = assert(io.open(file, "w"))
+          assert(f:write("1234"))
+          for i = 1, 1000 do
+            assert(f:write("0"))
+          end
+          assert(f:write("\n"))
+          assert(f:close())
+
+          local r = assert(io.open(file, "r"))
+          local contents = assert(r:read("*a"))
+          assert(#contents == 1005)
+          assert(string.sub(contents, 1, 4) == "1234")
+          assert(string.sub(contents, -1) == "\n")
+          assert(r:close())
+          assert(os.remove(file))
+        ''');
+      });
+
+      test('loaded chunks keep global file handles alive during gc', () async {
+        final bridge = LuaLike();
+        bridge.vm.fileManager.registerVirtualFile('gc_write_loaded.lua', r'''
+            local file = os.tmpname()
+            f = assert(io.open(file, "w"))
+            assert(f:write("1234"))
+            for i = 1, 1000 do
+              if i % 25 == 0 then
+                collectgarbage()
+              end
+              assert(f:write("0"))
+            end
+            assert(f:write("\n"))
+            assert(f:close())
+
+            local r = assert(io.open(file, "r"))
+            local contents = assert(r:read("*a"))
+            assert(#contents == 1005)
+            assert(string.sub(contents, 1, 4) == "1234")
+            assert(string.sub(contents, -1) == "\n")
+            assert(r:close())
+            assert(os.remove(file))
+            return true
+          ''');
+
+        await bridge.execute("return dofile('gc_write_loaded.lua')");
+      });
+
+      test(
+        'loaded chunks keep reassigned global file handles alive under auto gc',
+        () async {
+          final bridge = LuaLike();
+          bridge.vm.fileManager.registerVirtualFile(
+            'gc_write_reassign_loaded.lua',
+            r'''
+              local file = os.tmpname()
+              f = coroutine.wrap(function() return true end)
+              assert(f())
+
+              f = assert(io.open(file, "w"))
+              f:write("1234")
+              for i = 1, 1000 do
+                f:write("0")
+              end
+              f:write("\n")
+              assert(f:close())
+
+              local r = assert(io.open(file, "r"))
+              local contents = assert(r:read("*a"))
+              assert(#contents == 1005)
+              assert(string.sub(contents, 1, 4) == "1234")
+              assert(string.sub(contents, -1) == "\n")
+              assert(r:close())
+              assert(os.remove(file))
+              return true
+            ''',
+          );
+
+          await bridge.execute("return dofile('gc_write_reassign_loaded.lua')");
+        },
+      );
+
+      test(
+        'block-scoped file handles survive loop-triggered minor GC',
+        () async {
+          final bridge = LuaLike();
+          await bridge.execute(r'''
+          local file = os.tmpname()
+          do
+            local f = assert(io.open(file, "w"))
+            for i = 1, 200 do
+              assert(f:write("0123456789"))
+            end
+            assert(f:close())
+          end
+
+          local r = assert(io.open(file, "r"))
+          local contents = assert(r:read("*a"))
+          assert(#contents == 2000)
+          assert(r:close())
+          assert(os.remove(file))
+        ''');
+        },
+      );
+
+      test(
+        'file handles survive GC pressure after default input/output churn',
+        () async {
+          final bridge = LuaLike();
+          await bridge.execute(r'''
+            local file = os.tmpname()
+            local otherfile = os.tmpname()
+
+            io.input(io.stdin)
+            io.output(io.stdout)
+            os.remove(file)
+            assert(not io.open(file))
+
+            io.output(file)
+            assert(io.write("alo alo"):seek() == string.len("alo alo"))
+            io.output(io.stdout)
+            collectgarbage()
+
+            for i = 1, 120 do
+              for j = 1, 5 do
+                io.input(file)
+                assert(io.open(file, "r"))
+                io.lines(file)
+              end
+              collectgarbage()
+            end
+
+            io.input():close()
+            io.close()
+            assert(os.rename(file, otherfile))
+            io.output(io.open(otherfile, "ab"))
+            assert(io.write("\n\n\t\t  ", 3450, "\n"))
+            io.close()
+
+            local f = assert(io.open(file, "w"))
+            f:write[[
+-12.3-	-0xffff+  .3|5.E-3X  +234e+13E 0xDEADBEEFDEADBEEFx
+0x1.13Ap+3e
+]]
+            assert(f:write("1234"))
+            for i = 1, 1000 do
+              assert(f:write("0"))
+            end
+            assert(f:write("\n"))
+            assert(f:close())
+
+            assert(os.remove(file))
+            assert(os.remove(otherfile))
+          ''');
+        },
+      );
+
+      test(
+        'type reports default streams as userdata while io.type reports file',
+        () async {
+          final bridge = LuaLike();
+          final result =
+              await bridge.execute(
+                    'return type(io.input()), io.type(io.output())',
+                  )
+                  as List<Object?>;
+
+          expect((result[0] as Value).unwrap(), equals('userdata'));
+          expect((result[1] as Value).unwrap(), equals('file'));
+        },
+      );
 
       test('File operations', () async {
         final filePath = '$tempPath/test.txt';

@@ -16,10 +16,17 @@ test_*.lua
 .idea/
 .vscode/
 build/
+.codex/
+.opencode/
+.ai/
 .kiro/
 .DS_Store.kiro/
 .lua-tests/
 .dart_tool/
 build
+/pkgs/lualike/.build_cache/
+/pkgs/lualike/.codex-bin/
+/pkgs/lualike/web/*.map
+/pkgs/lualike/libs/
 /pkgs/lualike/.build_cache/compile_time.txt
 /pkgs/lualike/.build_cache/source_hash.txt

@@ -2,6 +2,7 @@
 library;
 
 import 'package:lualike_test/test.dart';
+import 'package:lualike/src/semantic_checker.dart';
 
 void main() {
   group('Vararg Functionality Tests', () {
@@ -86,6 +87,114 @@ void main() {
 
         expect((result1 as Value).unwrap(), equals(0));
         expect((result2 as Value).unwrap(), equals(3));
+      });
+
+      test('named vararg table packs values and count', () async {
+        final bridge = LuaLike();
+
+        await bridge.execute('''
+          function namedVarargs(...t)
+            return select("#", ...), t.n, t[1], t[2] == nil, t[3]
+          end
+
+          countArgs, countTable, first, secondIsNil, third = namedVarargs(10, nil, 30)
+        ''');
+
+        expect((bridge.getGlobal('countArgs') as Value).unwrap(), equals(3));
+        expect((bridge.getGlobal('countTable') as Value).unwrap(), equals(3));
+        expect((bridge.getGlobal('first') as Value).unwrap(), equals(10));
+        expect(
+          (bridge.getGlobal('secondIsNil') as Value).unwrap(),
+          equals(true),
+        );
+        expect((bridge.getGlobal('third') as Value).unwrap(), equals(30));
+      });
+
+      test('named _ENV globals do not alias outer locals', () async {
+        final bridge = LuaLike();
+
+        await bridge.execute('''
+          local a, b = 55, 2
+
+          local function aux(..._ENV)
+            global a
+            a = 10
+            return a
+          end
+
+          result = table.pack(aux(), a, rawget(_G, 'a'))
+        ''');
+
+        final result = bridge.getGlobal('result') as Value;
+        final table = result.raw as Map;
+        expect((table[1] as Value).unwrap(), equals(10));
+        expect((table[2] as Value).unwrap(), equals(55));
+        expect(table[3], isNull);
+      });
+
+      test('named vararg table mutations are reflected by ...', () async {
+        final bridge = LuaLike();
+
+        await bridge.execute('''
+          local function aux(a, v, ...t)
+            for k, val in pairs(v) do
+              t[k] = val
+            end
+            return ...
+          end
+
+          packed = table.pack(aux(10, {11, [5] = 24}, 1, 2, 3, nil, 4))
+        ''');
+
+        final packed = bridge.getGlobal('packed') as Value;
+        final table = packed.raw as Map;
+        final count = switch (table['n']) {
+          final Value value => value.unwrap(),
+          final Object? value => value,
+        };
+        expect(count, equals(5));
+        expect((table[1] as Value).unwrap(), equals(11));
+        expect((table[2] as Value).unwrap(), equals(2));
+        expect((table[3] as Value).unwrap(), equals(3));
+        expect(table[4], isNull);
+        expect((table[5] as Value).unwrap(), equals(24));
+      });
+
+      test('debug.getinfo counts named vararg tables as vararg only', () async {
+        final bridge = LuaLike();
+
+        await bridge.execute('''
+          local info = debug.getinfo(function(a, b, ...t)
+            t.n = 2
+            return t[a]
+          end, "u")
+
+          nparams = info.nparams
+          isvararg = info.isvararg
+          nups = info.nups
+        ''');
+
+        expect((bridge.getGlobal('nparams') as Value).unwrap(), equals(2));
+        expect((bridge.getGlobal('isvararg') as Value).unwrap(), equals(true));
+        expect((bridge.getGlobal('nups') as Value).unwrap(), equals(0));
+      });
+
+      test('load rejects assignment to named vararg tables', () async {
+        final semanticError = validateProgramSemantics(
+          parse('return function (... t) t = 10 end'),
+        );
+        expect(semanticError, contains("const variable 't'"));
+
+        final bridge = LuaLike();
+
+        await bridge.execute('''
+          st, msg = load("return function (... t) t = 10 end")
+          isNil = (st == nil)
+          hasConstMessage = (msg ~= nil) and (string.find(msg, "const variable 't'") ~= nil)
+        ''');
+
+        expect((bridge.getGlobal('isNil') as Value).unwrap(), isTrue);
+        expect((bridge.getGlobal('hasConstMessage') as Value).unwrap(), isTrue);
       });
 
       test('named parameters with comma before vararg', () async {
@@ -213,12 +322,12 @@ void main() {
 
       await bridge.execute('''
         function format(template, ...)
-          print("format", #...)
+          print("format", select("#", ...))
           return string.format(template, ...)
         end
 
         function printAll(...)
-        print("printAll", #...)
+        print("printAll", select("#", ...))
           return format("Count: %d, First: %s", select("#", ...), select(1, ...))
         end
 
@@ -628,6 +737,31 @@ void main() {
 
         var result = bridge.getGlobal('result');
         expect((result as Value).unwrap(), equals(100));
+      });
+
+      test('named vararg read access does not grow gc count', () async {
+        final bridge = LuaLike();
+
+        await bridge.execute('''
+          local function notab(keys, t, ...v)
+            for _, k in pairs(keys) do
+              assert(t[k] == v[k])
+            end
+            assert(t.n == v.n)
+            return ...
+          end
+
+          local t = table.pack(10, 20, 30)
+          local keys = {-1, 0, 1, t.n, t.n + 1, 1.0, 1.1, "n", print, "k", "1"}
+          notab(keys, t, 10, 20, 30)
+          before = collectgarbage("count")
+          notab(keys, t, 10, 20, 30)
+          after = collectgarbage("count")
+        ''');
+
+        final before = bridge.getGlobal('before');
+        final after = bridge.getGlobal('after');
+        expect((before as Value).unwrap(), equals((after as Value).unwrap()));
       });
     });
   });
