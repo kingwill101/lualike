@@ -186,4 +186,19 @@ class LualikeIrOpcode {
     varArgPrep,
     extraArg,
   ];
+
+  static final Map<String, LualikeIrOpcode> _byName =
+      Map<String, LualikeIrOpcode>.fromEntries(
+        values.map((opcode) => MapEntry(opcode.name, opcode)),
+      );
+
+  static LualikeIrOpcode? tryByName(String name) => _byName[name];
+
+  static LualikeIrOpcode byName(String name) {
+    final opcode = tryByName(name);
+    if (opcode == null) {
+      throw ArgumentError.value(name, 'name', 'Unknown lualike_ir opcode');
+    }
+    return opcode;
+  }
 }
