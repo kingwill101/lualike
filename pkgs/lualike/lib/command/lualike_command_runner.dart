@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:lualike/command/version_command.dart';
 import 'package:lualike/src/config.dart';
+import 'package:lualike/src/lua_bytecode/runtime.dart';
 import 'package:lualike/src/logging/level.dart' as ctx;
 import 'package:lualike/src/logging/logging.dart';
 
@@ -113,6 +114,7 @@ class LuaLikeCommandRunner extends CommandRunner {
     try {
       // Parse arguments
       final argResults = argParser.parse(args);
+      final restArgs = argResults.rest;
 
       if (argResults['help'] as bool) {
         throw UsageException(usage, usage);
@@ -122,7 +124,10 @@ class LuaLikeCommandRunner extends CommandRunner {
       final useIr = argResults['ir'] as bool;
       final useLuaBytecode = argResults['lua-bytecode'] as bool;
       final useAst = argResults['ast'] as bool;
-      if (useLuaBytecode) {
+      final autoUseLuaBytecode =
+          restArgs.isNotEmpty &&
+          _looksLikeTrackedLuaBytecodeScript(restArgs.first);
+      if (useLuaBytecode || autoUseLuaBytecode) {
         config.defaultEngineMode = EngineMode.luaBytecode;
       } else if (useIr || !useAst) {
         config.defaultEngineMode = EngineMode.ir;
@@ -206,7 +211,6 @@ class LuaLikeCommandRunner extends CommandRunner {
       }
 
       // Handle script file and arguments
-      final restArgs = argResults.rest;
       if (restArgs.isNotEmpty) {
         final scriptPath = restArgs.first;
         final scriptArgs = restArgs.skip(1).toList();
@@ -226,6 +230,22 @@ class LuaLikeCommandRunner extends CommandRunner {
       }
       rethrow;
     }
+  }
+}
+
+bool _looksLikeTrackedLuaBytecodeScript(String scriptPath) {
+  if (scriptPath == '-') {
+    return false;
+  }
+
+  try {
+    final file = File(scriptPath);
+    if (!file.existsSync()) {
+      return false;
+    }
+    return looksLikeTrackedLuaBytecodeBytes(file.readAsBytesSync());
+  } catch (_) {
+    return false;
   }
 }
 
