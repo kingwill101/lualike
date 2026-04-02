@@ -94,6 +94,12 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// Temporary keys are not counted for GC debt to avoid tracking overhead.
   bool isTempKey = false;
 
+  /// Whether this wrapper should be excluded from allocation-debt accounting.
+  ///
+  /// This keeps bookkeeping-neutral clones of shared runtime constants from
+  /// perturbing Lua-visible `collectgarbage("count")` results.
+  bool skipAllocationDebt = false;
+
   /// Hint for fast-calling simple Lua closures (e.g., comparator x < y)
   /// Currently used to accelerate very common patterns in tight loops.
   bool isLessComparator = false;
@@ -366,6 +372,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     this.isConst = false,
     this.isToBeClose = false,
     this.isTempKey = false,
+    this.skipAllocationDebt = false,
     this.upvalues,
     this.interpreter,
     this.functionBody,
@@ -538,6 +545,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   bool _shouldCountAllocation() {
     if (isMulti) return false; // short-lived carrier, don't count
     if (raw is VirtualLuaTable) return false;
+    if (skipAllocationDebt) return false;
     if (isTempKey) {
       if (Logger.enabled) {
         Logger.debugLazy(
@@ -724,6 +732,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         metatable: metatable != null ? Map.from(metatable!) : null,
         isConst: isConst,
         isToBeClose: isToBeClose,
+        skipAllocationDebt: skipAllocationDebt,
         upvalues: upvalues,
         interpreter: interpreter,
         functionBody: functionBody,
@@ -739,6 +748,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       metatable: metatable != null ? Map.from(metatable!) : null,
       isConst: isConst,
       isToBeClose: isToBeClose,
+      skipAllocationDebt: skipAllocationDebt,
       upvalues: upvalues,
       interpreter: interpreter,
       functionBody: functionBody,

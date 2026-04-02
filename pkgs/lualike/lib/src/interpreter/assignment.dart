@@ -154,6 +154,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       value.raw,
       isConst: isConst,
       isToBeClose: isToBeClose,
+      skipAllocationDebt: value.skipAllocationDebt,
       upvalues: value.upvalues,
       interpreter: value.interpreter,
       functionBody: value.functionBody,
