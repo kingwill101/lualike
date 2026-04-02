@@ -64,7 +64,7 @@ failure mode directly.
 - `--scenario=cstack`
 - `--scenario=cstack-message`
 - `--scenario=cstack-close-chain`
-- `--engine=ast|ir`
+- `--engine=ast|ir|bytecode`
 - `--warmup=N`
 - `--repeat=N`
 - `--wait-seconds=N`
@@ -77,7 +77,7 @@ failure mode directly.
 ```sh
 dart run --observe tool/devtools_profile/main.dart \
   --scenario=math \
-  --engine=ast \
+  --engine=bytecode \
   --warmup=0 \
   --repeat=1 \
   --wait-seconds=10
