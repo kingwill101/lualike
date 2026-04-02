@@ -35,6 +35,9 @@ class CallFrame {
   /// Debug locals for this frame, in enumeration order (1-based for Lua)
   /// Each entry stores the visible name and the underlying Value
   final List<MapEntry<String, Value>> debugLocals;
+  Object? debugLocalsOwner;
+  int debugLocalsPc;
+  int debugLocalsVersion;
 
   /// Transfer metadata used by Lua 5.5 call/return hooks.
   int ftransfer;
@@ -69,6 +72,9 @@ class CallFrame {
     this.callable,
     this.lastDebugHookLine = -1,
     List<MapEntry<String, Value>>? debugLocals,
+    this.debugLocalsOwner,
+    this.debugLocalsPc = -1,
+    this.debugLocalsVersion = -1,
     this.ftransfer = 0,
     this.ntransfer = 0,
     List<Value>? transferValues,
