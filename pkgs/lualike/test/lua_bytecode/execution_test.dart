@@ -223,6 +223,29 @@ return 0.0 % 0,
       );
     }, skip: skipReason);
 
+    test('skips dead placeholder CLOSE emitted after goto', () async {
+      final results = await _executeFixture(luacBinary!, '''
+local events = {}
+local mt = {
+  __close = function(x)
+    events[#events + 1] = x.name
+  end
+}
+
+do
+  local x <close> = setmetatable({name = 'x'}, mt)
+  goto skip
+  events[#events + 1] = 'body'
+  ::skip::
+  events[#events + 1] = 'after'
+end
+
+return table.concat(events, ',')
+''');
+
+      expect(results, equals(<Object?>['after,x']));
+    }, skip: skipReason);
+
     test('rejects invalid ordering comparisons', () async {
       await expectLater(
         _executeFixture(luacBinary!, '''
@@ -475,6 +498,20 @@ return f()
         ),
       );
     }, skip: skipReason);
+
+    test(
+      'does not count cloned shared string constants in collectgarbage count deltas',
+      () async {
+        final results = await _executeFixture(luacBinary!, '''
+local m = collectgarbage('count')
+local n = collectgarbage('count')
+return n - m
+''');
+
+        expect(results, equals(<Object?>[0.0]));
+      },
+      skip: skipReason,
+    );
   });
 }
 

@@ -64,6 +64,7 @@ Value _detachTemporaryValue(Value value) {
     isConst: value.isConst,
     isToBeClose: value.isToBeClose,
     isTempKey: value.isTempKey,
+    skipAllocationDebt: value.skipAllocationDebt,
     upvalues: value.upvalues,
     interpreter: value.interpreter,
     functionBody: value.functionBody,

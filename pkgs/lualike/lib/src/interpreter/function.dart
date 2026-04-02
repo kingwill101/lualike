@@ -350,6 +350,7 @@ Object? _snapshotReturnPayload(Object? value) {
           : null,
       isConst: original.isConst,
       isToBeClose: original.isToBeClose,
+      skipAllocationDebt: original.skipAllocationDebt,
       upvalues: original.upvalues,
       interpreter: original.interpreter,
       functionBody: original.functionBody,
