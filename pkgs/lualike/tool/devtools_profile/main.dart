@@ -26,7 +26,7 @@ const _scenarioNames = <String>{
   'all',
 };
 
-const _engineNames = <String>{'ast', 'ir'};
+const _engineNames = <String>{'ast', 'ir', 'bytecode'};
 
 Future<void> main(List<String> args) async {
   final parser = ArgParser()
@@ -96,6 +96,7 @@ Future<void> main(List<String> args) async {
 
   final packageRoot = await _findPackageRoot();
   final engineMode = switch (engineName) {
+    'bytecode' => EngineMode.luaBytecode,
     'ir' => EngineMode.ir,
     _ => EngineMode.ast,
   };
