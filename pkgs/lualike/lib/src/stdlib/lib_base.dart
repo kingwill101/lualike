@@ -275,6 +275,12 @@ class RawSetFunction extends BuiltinFunction {
 class AssertFunction extends BuiltinFunction {
   AssertFunction(super.interpreter);
 
+  @override
+  bool get canBytecodeInlineWithoutManagedFrame => true;
+
+  @override
+  bool get isBytecodeAssertBuiltin => true;
+
   Object? _normalizeSuccessfulArg(Object? value) {
     if (value case Value(isMulti: false, raw: final raw)
         when raw == null ||

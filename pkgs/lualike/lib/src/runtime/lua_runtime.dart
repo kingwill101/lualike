@@ -119,6 +119,7 @@ abstract interface class LuaRuntime {
   void pushExternalGcRoots(Iterable<Object?> Function() provider);
   void popExternalGcRoots(Iterable<Object?> Function() provider);
   void runAutoGcAtSafePoint();
+  bool shouldRunLoopGcAtSafePoint(int loopCounter);
   Future<void> runLoopGcAtSafePoint(int loopCounter);
 
   // IO / modules

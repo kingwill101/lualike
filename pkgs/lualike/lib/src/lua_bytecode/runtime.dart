@@ -417,7 +417,7 @@ class LuaBytecodeRuntime implements LuaRuntime {
 
   @override
   Value constantStringValue(List<int> bytes) {
-    final key = bytes.join(',');
+    final key = String.fromCharCodes(bytes);
     final cached = _interpreter.literalValueCache[key];
     if (cached != null) {
       _ensureValueInterpreter(cached);
@@ -561,6 +561,26 @@ class LuaBytecodeRuntime implements LuaRuntime {
       return;
     }
     gc.runPendingAutoTrigger();
+  }
+
+  @override
+  bool shouldRunLoopGcAtSafePoint(int loopCounter) {
+    if (gc.isStopped || !gc.autoTriggerEnabled) {
+      return false;
+    }
+    if (gc.isManualCollectRunning || gc.isFinalizerActive) {
+      return false;
+    }
+    if (_needsAsyncFinalizerDrain) {
+      return true;
+    }
+    final debt = gc.allocationDebt;
+    if (debt > 0) {
+      return true;
+    }
+    final threshold = gc.autoTriggerDebtThreshold;
+    return _shouldForceAsyncLoopRescue(loopCounter, debt, threshold) ||
+        _shouldAdvanceIncrementalLoopCycle(loopCounter);
   }
 
   @override
