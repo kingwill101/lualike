@@ -1,47 +1,75 @@
 @Tags(['ir'])
 library;
 
-import 'package:lualike/src/ir/compiler.dart';
-import 'package:lualike/src/ir/vm.dart';
-import 'package:lualike/src/environment.dart';
-import 'package:lualike/src/parse.dart';
+import 'package:lualike/src/config.dart';
+import 'package:lualike/src/executor.dart';
+import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/value.dart';
 import 'package:test/test.dart';
 
+Object? _unwrapValue(Object? value) {
+  if (value is Value) {
+    return _unwrapValue(value.raw);
+  }
+  if (value is LuaString) {
+    return value.toString();
+  }
+  return value;
+}
+
 void main() {
-  group('LualikeIrVm table assignments', () {
+  group('IR table assignments', () {
     test('executes table field assignment', () async {
-      final program = parse('tbl.value = 99; return tbl.value');
-      final chunk = LualikeIrCompiler().compile(program);
-      final env = Environment()..define('tbl', Value.wrap({'value': 1}));
-      final result = await LualikeIrVm(environment: env).execute(chunk);
-      final actual = result is Value ? result.raw : result;
+      final result = await executeCode(
+        'tbl.value = 99; return tbl.value',
+        mode: EngineMode.ir,
+        onRuntimeSetup: (runtime) {
+          runtime.globals.define('tbl', Value.wrap({'value': 1}));
+        },
+      );
+      final actual = _unwrapValue(result);
       expect(actual, equals(99));
     });
 
     test('executes table index assignment with literal', () async {
-      final program = parse('arr[1] = "first"; return arr[1]');
-      final chunk = LualikeIrCompiler().compile(program);
-      final env = Environment()..define('arr', Value.wrap({}));
-      final result = await LualikeIrVm(environment: env).execute(chunk);
-      final actual = result is Value ? result.raw : result;
+      final result = await executeCode(
+        'arr[1] = "first"; return arr[1]',
+        mode: EngineMode.ir,
+        onRuntimeSetup: (runtime) {
+          runtime.globals.define('arr', Value.wrap({}));
+        },
+      );
+      final actual = _unwrapValue(result);
       expect(actual, equals('first'));
     });
 
     test('executes table index assignment with dynamic key', () async {
-      final program = parse('arr[idx] = 7; return arr[idx]');
-      final chunk = LualikeIrCompiler().compile(program);
-      final env = Environment()
-        ..define('arr', Value.wrap({}))
-        ..define('idx', Value('foo'));
-      final result = await LualikeIrVm(environment: env).execute(chunk);
-      final actual = result is Value ? result.raw : result;
+      final result = await executeCode(
+        'arr[idx] = 7; return arr[idx]',
+        mode: EngineMode.ir,
+        onRuntimeSetup: (runtime) {
+          runtime.globals
+            ..define('arr', Value.wrap({}))
+            ..define('idx', Value('foo'));
+        },
+      );
+      final actual = _unwrapValue(result);
       expect(actual, equals(7));
     });
 
+    test('executes table index assignment with large literal fallback', () async {
+      final result = await executeCode(
+        'arr[999] = "big"; return arr[999]',
+        mode: EngineMode.ir,
+        onRuntimeSetup: (runtime) {
+          runtime.globals.define('arr', Value.wrap({}));
+        },
+      );
+      final actual = _unwrapValue(result);
+      expect(actual, equals('big'));
+    });
+
     test('honours __newindex metamethod', () async {
-      final program = parse('proxy.key = 1; return backing.key');
-      final chunk = LualikeIrCompiler().compile(program);
       final backing = Value.wrap({});
       final proxy = Value.wrap({})
         ..metatable = {
@@ -52,27 +80,33 @@ void main() {
             return null;
           },
         };
-      final env = Environment()
-        ..define('proxy', proxy)
-        ..define('backing', backing);
-      final result = await LualikeIrVm(environment: env).execute(chunk);
-      final actual = result is Value ? result.raw : result;
+      final result = await executeCode(
+        'proxy.key = 1; return backing.key',
+        mode: EngineMode.ir,
+        onRuntimeSetup: (runtime) {
+          runtime.globals
+            ..define('proxy', proxy)
+            ..define('backing', backing);
+        },
+      );
+      final actual = _unwrapValue(result);
       expect(actual, equals(1));
     });
 
     test('executes multi-target table field assignment', () async {
-      final program = parse(
+      Value? tableValue;
+      final result = await executeCode(
         'tbl.one, tbl.two = 10, 20; return tbl.one == 10 and tbl.two == 20',
+        mode: EngineMode.ir,
+        onRuntimeSetup: (runtime) {
+          tableValue = Value.wrap({'one': 0, 'two': 0});
+          runtime.globals.define('tbl', tableValue!);
+        },
       );
-      final chunk = LualikeIrCompiler().compile(program);
-      final env = Environment()
-        ..define('tbl', Value.wrap({'one': 0, 'two': 0}));
-      final result = await LualikeIrVm(environment: env).execute(chunk);
-      final actual = result is Value ? result.raw : result;
+      final actual = _unwrapValue(result);
       expect(actual, isTrue);
 
-      final tblValue = env.get('tbl') as Value?;
-      final table = tblValue?.raw;
+      final table = tableValue?.raw;
       expect(table, isA<Map>());
       final mapTable = table as Map;
       final first = mapTable['one'];

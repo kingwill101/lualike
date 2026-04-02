@@ -61,14 +61,30 @@ void main() {
     test('compiles table index assignment with dynamic key', () {
       final program = parse('arr[key] = value');
       final chunk = LualikeIrCompiler().compile(program);
-      final proto = chunk.mainPrototype;
-      final instructions = _stripVarArgPrep(proto);
+      final instructions = _stripVarArgPrep(chunk.mainPrototype);
 
       final setTable = instructions.whereType<ABCInstruction>().firstWhere(
         (instr) => instr.opcode == LualikeIrOpcode.setTable,
       );
       expect(setTable.opcode, LualikeIrOpcode.setTable);
-      expect(setTable.a, equals(0));
+      expect(setTable.b, isNot(equals(setTable.a)));
+      expect(setTable.c, isNot(anyOf(equals(setTable.a), equals(setTable.b))));
+    });
+
+    test('compiles large integer literal assignment with SETTABLE fallback', () {
+      final program = parse('arr[999] = value');
+      final instructions = _stripVarArgPrep(
+        LualikeIrCompiler().compile(program).mainPrototype,
+      );
+
+      expect(
+        instructions.any((instr) => instr.opcode == LualikeIrOpcode.setI),
+        isFalse,
+      );
+      expect(
+        instructions.any((instr) => instr.opcode == LualikeIrOpcode.setTable),
+        isTrue,
+      );
     });
 
     test('compiles multi-target table field assignment', () {

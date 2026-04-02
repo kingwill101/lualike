@@ -19,12 +19,17 @@ class LualikeIrPrototypeBuilder {
   int lineDefined;
   int lastLineDefined;
   String? sourcePath;
+  String? preferredDebugName;
+  String preferredDebugNameWhat = '';
 
   final List<LualikeIrInstruction> _instructions = [];
   final List<LualikeIrConstant> _constants = [];
   final Map<Object?, int> _constantIndex = {};
   final List<LualikeIrPrototypeBuilder> _childBuilders = [];
   final List<LualikeIrUpvalueDescriptor> upvalueDescriptors = [];
+  final List<String> upvalueNames = [];
+  final List<LocalDebugEntry> localDebugEntries = [];
+  final Map<int, String> toBeClosedNamesByPc = <int, String>{};
   LualikeIrDebugInfo? debugInfo;
   final List<int> _lineInfo = [];
   final Set<int> _constRegisters = <int>{};
@@ -84,12 +89,40 @@ class LualikeIrPrototypeBuilder {
         List<int>.filled(_instructions.length - _lineInfo.length, 0),
       );
     }
-    if (info == null && (_lineInfo.isNotEmpty || sourcePath != null)) {
+    if (info == null &&
+        (_lineInfo.isNotEmpty ||
+            sourcePath != null ||
+            preferredDebugName != null ||
+            preferredDebugNameWhat.isNotEmpty)) {
       info = LualikeIrDebugInfo(
         lineInfo: List.unmodifiable(_lineInfo),
         absoluteSourcePath: sourcePath,
-        localNames: const [],
-        upvalueNames: const [],
+        localNames: List.unmodifiable(localDebugEntries),
+        upvalueNames: List.unmodifiable(upvalueNames),
+        toBeClosedNamesByPc: Map<int, String>.unmodifiable(toBeClosedNamesByPc),
+        preferredName: preferredDebugName,
+        preferredNameWhat: preferredDebugNameWhat,
+      );
+    } else if (info != null &&
+        (preferredDebugName != null ||
+            preferredDebugNameWhat.isNotEmpty ||
+            toBeClosedNamesByPc.isNotEmpty)) {
+      info = LualikeIrDebugInfo(
+        lineInfo: info.lineInfo,
+        absoluteSourcePath: info.absoluteSourcePath,
+        localNames: info.localNames.isEmpty
+            ? List.unmodifiable(localDebugEntries)
+            : info.localNames,
+        upvalueNames: info.upvalueNames.isEmpty
+            ? List.unmodifiable(upvalueNames)
+            : info.upvalueNames,
+        toBeClosedNamesByPc: info.toBeClosedNamesByPc.isEmpty
+            ? Map<int, String>.unmodifiable(toBeClosedNamesByPc)
+            : info.toBeClosedNamesByPc,
+        preferredName: preferredDebugName ?? info.preferredName,
+        preferredNameWhat: preferredDebugNameWhat.isNotEmpty
+            ? preferredDebugNameWhat
+            : info.preferredNameWhat,
       );
     }
 

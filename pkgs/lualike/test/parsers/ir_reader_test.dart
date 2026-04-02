@@ -1,6 +1,7 @@
 import 'package:lualike/parsers.dart';
 import 'package:lualike/src/ir/instruction.dart';
 import 'package:lualike/src/ir/prototype.dart';
+import 'package:lualike/src/ir/textual_formatter.dart';
 import 'package:lualike/src/ir/vm.dart';
 import 'package:test/test.dart';
 
@@ -44,9 +45,12 @@ void main() {
             preferred_name "main";
             preferred_name_what "global";
             local_names {
-              local name="value" start_pc=0 end_pc=2;
+              local name="value" start_pc=0 end_pc=2 register=1;
             }
             upvalue_names ["_ENV"];
+            to_be_closed_names {
+              tbc pc=1 name="value";
+            }
           }
           prototype child register_count=1 param_count=0 is_vararg=false {
             instructions {
@@ -130,6 +134,8 @@ void main() {
       expect(debugInfo.localNames.first.name, equals('value'));
       expect(debugInfo.localNames.first.startPc, equals(0));
       expect(debugInfo.localNames.first.endPc, equals(2));
+      expect(debugInfo.localNames.first.register, equals(1));
+      expect(debugInfo.toBeClosedNamesByPc, equals(<int, String>{1: 'value'}));
 
       expect(proto.prototypes, hasLength(1));
       expect(proto.prototypes.single.registerCount, equals(1));
@@ -178,6 +184,65 @@ void main() {
       expect(
         () => LualikeIrReader.parse(source),
         throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('round-trips formatter output through the reader', () {
+      const source = '''
+      chunk has_debug_info=true has_constant_hash=true {
+        prototype main register_count=2 param_count=0 is_vararg=true {
+          constants {
+            int 42;
+            short "value";
+          }
+          register_const_flags [false, true];
+          const_seal_points {
+            seal instruction_index=1 registers=[0];
+          }
+          instructions {
+            abc VARARGPREP a=0 b=0 c=0;
+            abx LOADK a=0 bx=0;
+            abc RETURN1 a=0 b=0 c=0;
+          }
+          debug_info {
+            line_info [1, 1, 1];
+            preferred_name "main";
+            preferred_name_what "global";
+            local_names {
+              local name="tmp" start_pc=0 end_pc=2 register=0;
+            }
+            upvalue_names ["_ENV"];
+            to_be_closed_names {
+              tbc pc=1 name="tmp";
+            }
+          }
+          prototype child register_count=1 param_count=0 is_vararg=false {
+            instructions {
+              abc RETURN0 a=0 b=0 c=0;
+            }
+          }
+        }
+      }
+      ''';
+
+      final original = LualikeIrReader.parse(source);
+      final formatted = formatLualikeIrChunk(original);
+      final reparsed = LualikeIrReader.parse(formatted);
+
+      expect(reparsed.flags.hasDebugInfo, isTrue);
+      expect(reparsed.flags.hasConstantHash, isTrue);
+      expect(reparsed.mainPrototype.registerCount, equals(2));
+      expect(reparsed.mainPrototype.constants, hasLength(2));
+      expect(reparsed.mainPrototype.instructions, hasLength(3));
+      expect(reparsed.mainPrototype.prototypes, hasLength(1));
+      expect(reparsed.mainPrototype.debugInfo?.preferredName, equals('main'));
+      expect(
+        reparsed.mainPrototype.debugInfo?.localNames.single.register,
+        equals(0),
+      );
+      expect(
+        reparsed.mainPrototype.debugInfo?.toBeClosedNamesByPc,
+        equals(<int, String>{1: 'tmp'}),
       );
     });
   });

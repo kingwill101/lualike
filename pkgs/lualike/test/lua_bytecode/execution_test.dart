@@ -198,6 +198,31 @@ return sample(7, 3, 2)
       );
     }, skip: skipReason);
 
+    test('executes float modulo edge cases like upstream Lua', () async {
+      final results = await _executeFixture(luacBinary!, '''
+return 0.0 % 0,
+       1.3 % 0,
+       1 % math.huge,
+       1e30 % math.huge,
+       1e30 % -math.huge,
+       -1 % math.huge,
+       -1 % -math.huge
+''');
+
+      expect(results[0] is double && (results[0] as double).isNaN, isTrue);
+      expect(results[1] is double && (results[1] as double).isNaN, isTrue);
+      expect(
+        results.sublist(2),
+        equals(<Object?>[
+          1,
+          1e30,
+          double.negativeInfinity,
+          double.infinity,
+          -1,
+        ]),
+      );
+    }, skip: skipReason);
+
     test('rejects invalid ordering comparisons', () async {
       await expectLater(
         _executeFixture(luacBinary!, '''

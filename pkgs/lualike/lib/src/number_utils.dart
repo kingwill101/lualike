@@ -661,10 +661,10 @@ class NumberUtils {
 
   /// Perform modulo operation with Lua semantics
   static dynamic modulo(dynamic a, dynamic b) {
-    if (isZero(b)) {
-      throw LuaError("attempt to perform 'n%0'");
-    }
     if ((a is int || a is BigInt) && (b is int || b is BigInt)) {
+      if (isZero(b)) {
+        throw LuaError("attempt to perform 'n%0'");
+      }
       if (a is BigInt || b is BigInt) {
         // BigInt modulo
         final bigA = toBigInt(a);
