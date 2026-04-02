@@ -43,6 +43,85 @@ final Expando<bool> _closeSignalYieldableStates = Expando<bool>();
 const int _opcodeMmbin = 46;
 const int _opcodeMmbini = 47;
 const int _opcodeMmbink = 48;
+const int _opcodeMove = 0;
+const int _opcodeLoadI = 1;
+const int _opcodeLoadF = 2;
+const int _opcodeLoadK = 3;
+const int _opcodeLoadKx = 4;
+const int _opcodeLoadFalse = 5;
+const int _opcodeLFalseSkip = 6;
+const int _opcodeLoadTrue = 7;
+const int _opcodeLoadNil = 8;
+const int _opcodeGetUpval = 9;
+const int _opcodeSetUpval = 10;
+const int _opcodeGetTabUp = 11;
+const int _opcodeGetTable = 12;
+const int _opcodeGetI = 13;
+const int _opcodeGetField = 14;
+const int _opcodeSetTabUp = 15;
+const int _opcodeSetTable = 16;
+const int _opcodeSetI = 17;
+const int _opcodeSetField = 18;
+const int _opcodeNewTable = 19;
+const int _opcodeSelf = 20;
+const int _opcodeAddI = 21;
+const int _opcodeAddK = 22;
+const int _opcodeSubK = 23;
+const int _opcodeMulK = 24;
+const int _opcodeModK = 25;
+const int _opcodePowK = 26;
+const int _opcodeDivK = 27;
+const int _opcodeIDivK = 28;
+const int _opcodeBandK = 29;
+const int _opcodeBorK = 30;
+const int _opcodeBxorK = 31;
+const int _opcodeShlI = 32;
+const int _opcodeShrI = 33;
+const int _opcodeAdd = 34;
+const int _opcodeSub = 35;
+const int _opcodeMul = 36;
+const int _opcodeMod = 37;
+const int _opcodePow = 38;
+const int _opcodeDiv = 39;
+const int _opcodeIDiv = 40;
+const int _opcodeBand = 41;
+const int _opcodeBor = 42;
+const int _opcodeBxor = 43;
+const int _opcodeShl = 44;
+const int _opcodeShr = 45;
+const int _opcodeUnm = 49;
+const int _opcodeBNot = 50;
+const int _opcodeNot = 51;
+const int _opcodeLen = 52;
+const int _opcodeConcat = 53;
+const int _opcodeClose = 54;
+const int _opcodeTbc = 55;
+const int _opcodeJmp = 56;
+const int _opcodeEq = 57;
+const int _opcodeLt = 58;
+const int _opcodeLe = 59;
+const int _opcodeEqK = 60;
+const int _opcodeEqI = 61;
+const int _opcodeLtI = 62;
+const int _opcodeLeI = 63;
+const int _opcodeGtI = 64;
+const int _opcodeGeI = 65;
+const int _opcodeTest = 66;
+const int _opcodeTestSet = 67;
+const int _opcodeCall = 68;
+const int _opcodeTailCall = 69;
+const int _opcodeReturn = 70;
+const int _opcodeReturn0 = 71;
+const int _opcodeReturn1 = 72;
+const int _opcodeForLoop = 73;
+const int _opcodeForPrep = 74;
+const int _opcodeTForPrep = 75;
+const int _opcodeTForCall = 76;
+const int _opcodeTForLoop = 77;
+const int _opcodeSetList = 78;
+const int _opcodeClosure = 79;
+const int _opcodeVararg = 80;
+const int _opcodeVarargPrep = 83;
 
 final class _LuaBytecodeProfileEntry {
   int count = 0;
@@ -2165,9 +2244,18 @@ final class LuaBytecodeVm {
     if (targetCallFrame == null) {
       return;
     }
+    final effectivePc = currentPc ?? (frame.pc == 0 ? 1 : frame.pc);
+    if (identical(targetCallFrame.debugLocalsOwner, frame) &&
+        targetCallFrame.debugLocalsPc == effectivePc &&
+        targetCallFrame.debugLocalsVersion == frame.debugStateVersion) {
+      return;
+    }
     targetCallFrame.debugLocals
       ..clear()
-      ..addAll(_activeBytecodeDebugLocals(frame, currentPc: currentPc));
+      ..addAll(_activeBytecodeDebugLocals(frame, currentPc: effectivePc));
+    targetCallFrame.debugLocalsOwner = frame;
+    targetCallFrame.debugLocalsPc = effectivePc;
+    targetCallFrame.debugLocalsVersion = frame.debugStateVersion;
   }
 
   void _syncCallFrameDebugLocals(CallFrame? callFrame) {
@@ -2201,24 +2289,12 @@ final class LuaBytecodeVm {
     currentPc ??= frame.pc == 0 ? 1 : frame.pc;
     final activeLocals =
         <LuaBytecodeLocalVariableDebugInfo>[
-          for (final local in frame.closure.prototype.localVariables)
+          for (final local in frame.sortedDebugLocals)
             if (local.register != null &&
                 local.startPc <= currentPc &&
                 currentPc < local.endPc)
               local,
-        ]..sort((left, right) {
-          final startOrder = left.startPc.compareTo(right.startPc);
-          if (startOrder != 0) {
-            return startOrder;
-          }
-          final leftRegister = left.register ?? -1;
-          final rightRegister = right.register ?? -1;
-          final registerOrder = leftRegister.compareTo(rightRegister);
-          if (registerOrder != 0) {
-            return registerOrder;
-          }
-          return (left.name ?? '').compareTo(right.name ?? '');
-        });
+        ];
     final activeRegisters = <int>{
       for (final local in activeLocals)
         if (local.register case final int register) register,
@@ -2257,9 +2333,17 @@ final class LuaBytecodeVm {
     final prototype = frame.closure.prototype;
     for (var pc = currentPc; pc < prototype.code.length; pc++) {
       final word = prototype.code[pc];
-      final opcode = LuaBytecodeOpcodes.byCode(word.opcodeValue).name;
-      final reads = _instructionReadsRegister(word, opcode, register);
-      final writes = _instructionWritesRegister(word, opcode, register);
+      final opcodeValue = word.opcodeValue;
+      final reads = _instructionReadsRegisterByOpcodeValue(
+        word,
+        opcodeValue,
+        register,
+      );
+      final writes = _instructionWritesRegisterByOpcodeValue(
+        word,
+        opcodeValue,
+        register,
+      );
       if (reads) {
         return true;
       }
@@ -2286,13 +2370,12 @@ final class LuaBytecodeVm {
       return false;
     }
     final word = frame.closure.prototype.code[currentPc];
-    final opcode = LuaBytecodeOpcodes.byCode(word.opcodeValue).name;
-    return switch (opcode) {
-      'CALL' || 'TAILCALL' => switch (word.b) {
+    return switch (word.opcodeValue) {
+      _opcodeCall || _opcodeTailCall => switch (word.b) {
         0 => register >= word.a,
         _ => register >= word.a && register < word.a + word.b,
       },
-      'TFORCALL' => switch (word.c) {
+      _opcodeTForCall => switch (word.c) {
         0 => register >= word.a,
         _ => register >= word.a && register < word.a + word.c + 1,
       },
@@ -2309,8 +2392,7 @@ final class LuaBytecodeVm {
       return false;
     }
     final previous = frame.closure.prototype.code[currentPc - 1];
-    final previousOpcode = LuaBytecodeOpcodes.byCode(previous.opcodeValue).name;
-    if (previousOpcode != 'CALL') {
+    if (previous.opcodeValue != _opcodeCall) {
       return false;
     }
     final base = previous.a;
@@ -2321,88 +2403,93 @@ final class LuaBytecodeVm {
     return register >= base && register < base + (resultCount - 1);
   }
 
-  bool _instructionReadsRegister(
+  bool _instructionReadsRegisterByOpcodeValue(
     LuaBytecodeInstructionWord word,
-    String opcode,
+    int opcodeValue,
     int register,
   ) {
-    return switch (opcode) {
-      'MOVE' => word.b == register,
-      'LOADI' ||
-      'LOADF' ||
-      'LOADK' ||
-      'LOADKX' ||
-      'LOADFALSE' ||
-      'LFALSESKIP' ||
-      'LOADTRUE' ||
-      'GETUPVAL' ||
-      'GETTABUP' ||
-      'NEWTABLE' ||
-      'VARARG' ||
-      'VARARGPREP' ||
-      'CLOSURE' => false,
-      'GETTABLE' => word.b == register || word.c == register,
-      'GETI' || 'GETFIELD' => word.b == register,
-      'SETTABUP' => word.a == register || word.b == register,
-      'SETUPVAL' => word.a == register,
-      'SETTABLE' =>
+    return switch (opcodeValue) {
+      _opcodeMove => word.b == register,
+      _opcodeLoadI ||
+      _opcodeLoadF ||
+      _opcodeLoadK ||
+      _opcodeLoadKx ||
+      _opcodeLoadFalse ||
+      _opcodeLFalseSkip ||
+      _opcodeLoadTrue ||
+      _opcodeGetUpval ||
+      _opcodeGetTabUp ||
+      _opcodeNewTable ||
+      _opcodeVararg ||
+      _opcodeVarargPrep ||
+      _opcodeClosure => false,
+      _opcodeGetTable => word.b == register || word.c == register,
+      _opcodeGetI || _opcodeGetField => word.b == register,
+      _opcodeSetTabUp => word.a == register || word.b == register,
+      _opcodeSetUpval => word.a == register,
+      _opcodeSetTable =>
         word.a == register || word.b == register || word.c == register,
-      'SETI' || 'SETFIELD' => word.a == register || word.b == register,
-      'SELF' => word.b == register,
-      'ADD' ||
-      'SUB' ||
-      'MUL' ||
-      'MOD' ||
-      'POW' ||
-      'DIV' ||
-      'IDIV' ||
-      'BAND' ||
-      'BOR' ||
-      'BXOR' ||
-      'SHL' ||
-      'SHR' => word.b == register || word.c == register,
-      'ADDI' || 'SHLI' || 'SHRI' => word.b == register,
-      'ADDK' ||
-      'SUBK' ||
-      'MULK' ||
-      'MODK' ||
-      'POWK' ||
-      'DIVK' ||
-      'IDIVK' ||
-      'BANDK' ||
-      'BORK' ||
-      'BXORK' => word.b == register,
-      'UNM' || 'BNOT' || 'NOT' || 'LEN' => word.b == register,
-      'CONCAT' => register >= word.b && register <= word.c,
-      'JMP' => false,
-      'EQ' || 'LT' || 'LE' => word.b == register || word.c == register,
-      'EQK' || 'EQI' || 'LTI' || 'LEI' || 'GTI' || 'GEI' => word.a == register,
-      'TEST' => word.a == register,
-      'TESTSET' => word.b == register,
-      'CALL' || 'TAILCALL' => switch (word.b) {
+      _opcodeSetI || _opcodeSetField => word.a == register || word.b == register,
+      _opcodeSelf => word.b == register,
+      _opcodeAdd ||
+      _opcodeSub ||
+      _opcodeMul ||
+      _opcodeMod ||
+      _opcodePow ||
+      _opcodeDiv ||
+      _opcodeIDiv ||
+      _opcodeBand ||
+      _opcodeBor ||
+      _opcodeBxor ||
+      _opcodeShl ||
+      _opcodeShr => word.b == register || word.c == register,
+      _opcodeAddI || _opcodeShlI || _opcodeShrI => word.b == register,
+      _opcodeAddK ||
+      _opcodeSubK ||
+      _opcodeMulK ||
+      _opcodeModK ||
+      _opcodePowK ||
+      _opcodeDivK ||
+      _opcodeIDivK ||
+      _opcodeBandK ||
+      _opcodeBorK ||
+      _opcodeBxorK => word.b == register,
+      _opcodeUnm || _opcodeBNot || _opcodeNot || _opcodeLen => word.b == register,
+      _opcodeConcat => register >= word.b && register <= word.c,
+      _opcodeJmp => false,
+      _opcodeEq || _opcodeLt || _opcodeLe => word.b == register || word.c == register,
+      _opcodeEqK ||
+      _opcodeEqI ||
+      _opcodeLtI ||
+      _opcodeLeI ||
+      _opcodeGtI ||
+      _opcodeGeI => word.a == register,
+      _opcodeTest => word.a == register,
+      _opcodeTestSet => word.b == register,
+      _opcodeCall || _opcodeTailCall => switch (word.b) {
         0 => register >= word.a,
         _ => register >= word.a && register < word.a + word.b,
       },
-      'RETURN' => switch (word.b) {
+      _opcodeReturn => switch (word.b) {
         0 => register >= word.a,
         1 => false,
         _ => register >= word.a && register < word.a + (word.b - 1),
       },
-      'RETURN0' || 'RETURN1' => false,
-      'FORLOOP' => register >= word.a && register <= word.a + 3,
-      'FORPREP' => register >= word.a && register <= word.a + 2,
-      'TFORPREP' => word.a == register,
-      'TFORCALL' => switch (word.c) {
+      _opcodeReturn0 || _opcodeReturn1 => false,
+      _opcodeForLoop => register >= word.a && register <= word.a + 3,
+      _opcodeForPrep => register >= word.a && register <= word.a + 2,
+      _opcodeTForPrep => word.a == register,
+      _opcodeTForCall => switch (word.c) {
         0 => register >= word.a,
         _ => register >= word.a && register < word.a + word.c + 1,
       },
-      'TFORLOOP' => word.a == register,
-      'SETLIST' => register >= word.a && register <= word.a + word.b,
-      'CLOSE' || 'TBC' => false,
-      'MMBIN' ||
-      'MMBINI' ||
-      'MMBINK' => word.a == register || word.b == register,
-      'EXTRAARG' => false,
+      _opcodeTForLoop => word.a == register,
+      _opcodeSetList => register >= word.a && register <= word.a + word.b,
+      _opcodeClose || _opcodeTbc => false,
+      _opcodeMmbin ||
+      _opcodeMmbini ||
+      _opcodeMmbink => word.a == register || word.b == register,
+      84 => false,
       _ => false,
     };
   }
@@ -4274,15 +4361,15 @@ final class LuaBytecodeVm {
     final prototype = frame.closure.prototype;
     for (var pc = beforePc; pc >= 0; pc--) {
       final word = prototype.code[pc];
-      final opcode = LuaBytecodeOpcodes.byCode(word.opcodeValue).name;
-      if (!_instructionWritesRegister(word, opcode, register)) {
+      final opcodeValue = word.opcodeValue;
+      if (!_instructionWritesRegisterByOpcodeValue(word, opcodeValue, register)) {
         continue;
       }
       if (_isLogicalMergeWrite(frame, register, pc, usePc: beforePc + 1)) {
         return (name: null, namewhat: '');
       }
-      return switch (opcode) {
-        'MOVE' =>
+      return switch (opcodeValue) {
+        _opcodeMove =>
           _isUnambiguousMoveAlias(frame, register, beforePc: beforePc)
               ? (() {
                   for (final local in prototype.localVariables) {
@@ -4306,7 +4393,7 @@ final class LuaBytecodeVm {
                   );
                 })()
               : (name: null, namewhat: ''),
-        'GETTABLE' => switch (_stringKeyForRegister(
+        _opcodeGetTable => switch (_stringKeyForRegister(
           frame,
           word.c,
           beforePc: pc - 1,
@@ -4323,7 +4410,7 @@ final class LuaBytecodeVm {
           },
           _ => (name: null, namewhat: ''),
         },
-        'GETFIELD' => switch (_isEnvironmentRegister(
+        _opcodeGetField => switch (_isEnvironmentRegister(
           frame,
           word.b,
           beforePc: pc - 1,
@@ -4338,19 +4425,19 @@ final class LuaBytecodeVm {
             namewhat: 'field',
           ),
         },
-        'SELF' => (
+        _opcodeSelf => (
           name: _stringConstantRaw(prototype, word.c),
           namewhat: 'method',
         ),
-        'GETTABUP' => (
+        _opcodeGetTabUp => (
           name: _stringConstantRaw(prototype, word.c),
           namewhat: 'global',
         ),
-        'GETUPVAL' => (
+        _opcodeGetUpval => (
           name: frame.closure.upvalueName(word.b),
           namewhat: 'upvalue',
         ),
-        'LOADK' => switch (_constantRaw(prototype, word.bx)) {
+        _opcodeLoadK => switch (_constantRaw(prototype, word.bx)) {
           final String name => (
             name: name,
             namewhat: _inferCallNameWhatFromEnvironment(frame, name),
@@ -4361,7 +4448,10 @@ final class LuaBytecodeVm {
           ),
           _ => (name: null, namewhat: ''),
         },
-        'LOADKX' => switch (_constantRaw(prototype, prototype.code[pc + 1].ax)) {
+        _opcodeLoadKx => switch (_constantRaw(
+          prototype,
+          prototype.code[pc + 1].ax,
+        )) {
           final String name => (
             name: name,
             namewhat: _inferCallNameWhatFromEnvironment(frame, name),
@@ -4631,16 +4721,16 @@ final class LuaBytecodeVm {
     final prototype = frame.closure.prototype;
     for (var pc = beforePc; pc >= 0; pc--) {
       final word = prototype.code[pc];
-      final opcode = LuaBytecodeOpcodes.byCode(word.opcodeValue).name;
-      if (!_instructionWritesRegister(word, opcode, register)) {
+      final opcodeValue = word.opcodeValue;
+      if (!_instructionWritesRegisterByOpcodeValue(word, opcodeValue, register)) {
         continue;
       }
       if (_isLogicalMergeWrite(frame, register, pc, usePc: beforePc + 1)) {
         return null;
       }
 
-      return switch (opcode) {
-        'MOVE' =>
+      return switch (opcodeValue) {
+        _opcodeMove =>
           _isUnambiguousMoveAlias(frame, register, beforePc: beforePc)
               ? (_activeLocalSourceLabel(frame, word.b) ??
                     _inferRegisterSourceLabel(
@@ -4650,7 +4740,7 @@ final class LuaBytecodeVm {
                       visitedRegisters: visitedRegisters,
                     ))
               : null,
-        'GETTABLE' => switch (_stringKeyForRegister(
+        _opcodeGetTable => switch (_stringKeyForRegister(
           frame,
           word.c,
           beforePc: pc - 1,
@@ -4667,19 +4757,18 @@ final class LuaBytecodeVm {
           },
           _ => null,
         },
-        'GETFIELD' => switch (_isEnvironmentRegister(
+        _opcodeGetField => switch (_isEnvironmentRegister(
           frame,
           word.b,
           beforePc: pc - 1,
           visitedRegisters: <int>{},
         )) {
-          true => "global '${_stringConstant(runtime, prototype, word.c).raw}'",
-          false => "field '${_stringConstant(runtime, prototype, word.c).raw}'",
+          true => "global '${_stringConstantRaw(prototype, word.c)}'",
+          false => "field '${_stringConstantRaw(prototype, word.c)}'",
         },
-        'SELF' => "method '${_stringConstant(runtime, prototype, word.c).raw}'",
-        'GETTABUP' =>
-          "global '${_stringConstant(runtime, prototype, word.c).raw}'",
-        'GETUPVAL' => switch (frame.closure.upvalueName(word.b)) {
+        _opcodeSelf => "method '${_stringConstantRaw(prototype, word.c)}'",
+        _opcodeGetTabUp => "global '${_stringConstantRaw(prototype, word.c)}'",
+        _opcodeGetUpval => switch (frame.closure.upvalueName(word.b)) {
           final String name when name.isNotEmpty => "upvalue '$name'",
           _ => null,
         },
@@ -4697,11 +4786,20 @@ final class LuaBytecodeVm {
     final prototype = frame.closure.prototype;
     for (var pc = beforePc; pc >= 0; pc--) {
       final word = prototype.code[pc];
-      final opcode = LuaBytecodeOpcodes.byCode(word.opcodeValue).name;
-      if (!_instructionWritesRegister(word, opcode, register)) {
+      if (!_instructionWritesRegisterByOpcodeValue(
+        word,
+        word.opcodeValue,
+        register,
+      )) {
         continue;
       }
-      return _isLogicalMergeWrite(frame, register, pc, usePc: beforePc + 1);
+      final result = _isLogicalMergeWrite(
+        frame,
+        register,
+        pc,
+        usePc: beforePc + 1,
+      );
+      return result;
     }
     return false;
   }
@@ -4735,22 +4833,20 @@ final class LuaBytecodeVm {
     final prototype = frame.closure.prototype;
     for (var pc = beforePc; pc >= 0; pc--) {
       final word = prototype.code[pc];
-      final opcode = LuaBytecodeOpcodes.byCode(word.opcodeValue).name;
-      if (!_instructionWritesRegister(word, opcode, register)) {
+      final opcodeValue = word.opcodeValue;
+      if (!_instructionWritesRegisterByOpcodeValue(word, opcodeValue, register)) {
         continue;
       }
-      return switch (opcode) {
-        'MOVE' => _stringKeyForRegister(
+      return switch (opcodeValue) {
+        _opcodeMove => _stringKeyForRegister(
           frame,
           word.b,
           beforePc: pc - 1,
           visitedRegisters: visitedRegisters,
         ),
-        'LOADK' => _stringConstantValue(
-          _constantValue(runtime, prototype, word.bx),
-        ),
-        'LOADKX' => _stringConstantValue(
-          _constantValue(runtime, prototype, prototype.code[pc + 1].ax),
+        _opcodeLoadK => _stringConstantFromRaw(_constantRaw(prototype, word.bx)),
+        _opcodeLoadKx => _stringConstantFromRaw(
+          _constantRaw(prototype, prototype.code[pc + 1].ax),
         ),
         _ => null,
       };
@@ -4758,8 +4854,8 @@ final class LuaBytecodeVm {
     return null;
   }
 
-  String? _stringConstantValue(Value value) {
-    return switch (value.raw) {
+  String? _stringConstantFromRaw(Object? raw) {
+    return switch (raw) {
       final String stringValue => stringValue,
       final LuaString stringValue => stringValue.toString(),
       _ => null,
@@ -4777,7 +4873,8 @@ final class LuaBytecodeVm {
     }
 
     final currentPc = frame.pc;
-    for (final local in frame.closure.prototype.localVariables) {
+    final prototype = frame.closure.prototype;
+    for (final local in prototype.localVariables) {
       if (!(local.startPc <= currentPc && currentPc < local.endPc)) {
         continue;
       }
@@ -4786,22 +4883,21 @@ final class LuaBytecodeVm {
       }
     }
 
-    final prototype = frame.closure.prototype;
     for (var pc = beforePc; pc >= 0; pc--) {
       final word = prototype.code[pc];
-      final opcode = LuaBytecodeOpcodes.byCode(word.opcodeValue).name;
-      if (!_instructionWritesRegister(word, opcode, register)) {
+      final opcodeValue = word.opcodeValue;
+      if (!_instructionWritesRegisterByOpcodeValue(word, opcodeValue, register)) {
         continue;
       }
 
-      return switch (opcode) {
-        'MOVE' => _isEnvironmentRegister(
+      return switch (opcodeValue) {
+        _opcodeMove => _isEnvironmentRegister(
           frame,
           word.b,
           beforePc: pc - 1,
           visitedRegisters: visitedRegisters,
         ),
-        'GETUPVAL' => frame.closure.upvalueName(word.b) == '_ENV',
+        _opcodeGetUpval => frame.closure.upvalueName(word.b) == '_ENV',
         _ => false,
       };
     }
@@ -4817,20 +4913,23 @@ final class LuaBytecodeVm {
     final prototype = frame.closure.prototype;
     for (var pc = beforePc; pc >= 0; pc--) {
       final word = prototype.code[pc];
-      final opcode = LuaBytecodeOpcodes.byCode(word.opcodeValue).name;
-      if (_instructionWritesRegister(word, opcode, register)) {
-        if (opcode != 'MOVE') {
+      final opcodeValue = word.opcodeValue;
+      if (_instructionWritesRegisterByOpcodeValue(word, opcodeValue, register)) {
+        if (opcodeValue != _opcodeMove) {
           return false;
         }
         for (var lookback = pc - 1; lookback >= 0; lookback--) {
           final previous = prototype.code[lookback];
-          final previousOpcode = LuaBytecodeOpcodes.byCode(
-            previous.opcodeValue,
-          ).name;
-          if (previousOpcode == 'RETURN' || previousOpcode == 'TAILCALL') {
+          final previousOpcodeValue = previous.opcodeValue;
+          if (previousOpcodeValue == _opcodeReturn ||
+              previousOpcodeValue == _opcodeTailCall) {
             return true;
           }
-          if (_instructionWritesRegister(previous, previousOpcode, register)) {
+          if (_instructionWritesRegisterByOpcodeValue(
+            previous,
+            previousOpcodeValue,
+            register,
+          )) {
             return true;
           }
         }
@@ -4851,48 +4950,46 @@ final class LuaBytecodeVm {
     }
     final prototype = frame.closure.prototype;
     final jumpWord = prototype.code[writePc - 1];
-    final jumpOpcode = LuaBytecodeOpcodes.byCode(jumpWord.opcodeValue).name;
-    if (jumpOpcode != 'JMP') {
+    if (jumpWord.opcodeValue != _opcodeJmp) {
       return false;
     }
     final testWord = prototype.code[writePc - 2];
-    final testOpcode = LuaBytecodeOpcodes.byCode(testWord.opcodeValue).name;
-    if (testOpcode != 'TEST' || testWord.a != register) {
+    if (testWord.opcodeValue != _opcodeTest || testWord.a != register) {
       return false;
     }
     final jumpTargetPc = (writePc - 1) + 1 + jumpWord.sJ;
     return usePc >= jumpTargetPc;
   }
 
-  bool _instructionWritesRegister(
+  bool _instructionWritesRegisterByOpcodeValue(
     LuaBytecodeInstructionWord word,
-    String opcode,
+    int opcodeValue,
     int register,
   ) {
-    return switch (opcode) {
-      'MOVE' ||
-      'LOADI' ||
-      'LOADF' ||
-      'LOADK' ||
-      'LOADKX' ||
-      'LOADFALSE' ||
-      'LFALSESKIP' ||
-      'LOADTRUE' ||
-      'GETUPVAL' ||
-      'GETTABUP' ||
-      'GETTABLE' ||
-      'GETI' ||
-      'GETFIELD' ||
-      'NEWTABLE' ||
-      'SELF' ||
-      'CLOSURE' ||
-      'VARARGPREP' ||
-      'VARARG' => word.a == register,
-      'LOADNIL' => register >= word.a && register <= word.a + word.b,
-      'CALL' || 'TAILCALL' =>
-        word.c == 0
-            ? register >= word.a
-            : register >= word.a && register < word.a + word.c - 1,
+    return switch (opcodeValue) {
+      _opcodeMove ||
+      _opcodeLoadI ||
+      _opcodeLoadF ||
+      _opcodeLoadK ||
+      _opcodeLoadKx ||
+      _opcodeLoadFalse ||
+      _opcodeLFalseSkip ||
+      _opcodeLoadTrue ||
+      _opcodeGetUpval ||
+      _opcodeGetTabUp ||
+      _opcodeGetTable ||
+      _opcodeGetI ||
+      _opcodeGetField ||
+      _opcodeNewTable ||
+      _opcodeSelf ||
+      _opcodeClosure ||
+      _opcodeVarargPrep ||
+      _opcodeVararg => word.a == register,
+      _opcodeLoadNil => register >= word.a && register <= word.a + word.b,
+      _opcodeCall || _opcodeTailCall => switch (word.c) {
+        0 => register >= word.a,
+        _ => register >= word.a && register < word.a + word.c - 1,
+      },
       _ => false,
     };
   }
@@ -6104,6 +6201,23 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     }
     return flags;
   }();
+  late final List<LuaBytecodeLocalVariableDebugInfo> sortedDebugLocals =
+      List<LuaBytecodeLocalVariableDebugInfo>.of(
+        closure.prototype.localVariables,
+        growable: false,
+      )..sort((left, right) {
+        final startOrder = left.startPc.compareTo(right.startPc);
+        if (startOrder != 0) {
+          return startOrder;
+        }
+        final leftRegister = left.register ?? -1;
+        final rightRegister = right.register ?? -1;
+        final registerOrder = leftRegister.compareTo(rightRegister);
+        if (registerOrder != 0) {
+          return registerOrder;
+        }
+        return (left.name ?? '').compareTo(right.name ?? '');
+      });
   final List<_LuaBytecodeUpvalue> _openUpvalues = <_LuaBytecodeUpvalue>[];
   final Set<int> _toBeClosedRegisters = <int>{};
   var _varargStart = 0;
@@ -6113,6 +6227,7 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
   var top = 0;
   int? openTop;
   var safePointCounter = 0;
+  var debugStateVersion = 0;
   var loopGcCounter = 0;
   var closed = false;
   var didFireEntryCallHook = false;
@@ -6207,6 +6322,7 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
         : value;
     storedValue.interpreter ??= runtime;
     registers[index] = storedValue;
+    debugStateVersion++;
     final gc = runtime.gc;
     if (gc.isCycleActive) {
       gc.noteRootWrite(storedValue);
