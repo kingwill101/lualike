@@ -54,7 +54,44 @@ dynamic _getNumber(Value value, String funcName, int argNum) {
   return NumberUtils.getNumber(value, funcName, argNum);
 }
 
-class _MathAbs extends BuiltinFunction {
+dynamic _getFastNumber(Object? value, String funcName, int argNum) {
+  if (value case Value(isMulti: false, raw: final rawNumber)
+      when rawNumber is int || rawNumber is double || rawNumber is BigInt) {
+    return rawNumber;
+  }
+  return _getNumber(value as Value, funcName, argNum);
+}
+
+Object? _tryFastMinMaxNumericResult(
+  Object? arg0,
+  Object? arg1, {
+  required bool wantMax,
+}) {
+  if (arg0 case Value(isMulti: false, raw: final leftRaw)) {
+    if (arg1 case Value(isMulti: false, raw: final rightRaw)) {
+      if (leftRaw is num && rightRaw is num) {
+        return wantMax
+            ? (leftRaw >= rightRaw ? leftRaw : rightRaw)
+            : (leftRaw <= rightRaw ? leftRaw : rightRaw);
+      }
+      if (leftRaw is BigInt && rightRaw is BigInt) {
+        return wantMax
+            ? (leftRaw >= rightRaw ? leftRaw : rightRaw)
+            : (leftRaw <= rightRaw ? leftRaw : rightRaw);
+      }
+    }
+  }
+  return null;
+}
+
+abstract class _MathBuiltin extends BuiltinFunction {
+  _MathBuiltin([super.interpreter]);
+
+  @override
+  bool get canBytecodeInlineWithoutManagedFrame => true;
+}
+
+class _MathAbs extends _MathBuiltin {
   _MathAbs([super.interpreter]);
 
   @override
@@ -69,7 +106,7 @@ class _MathAbs extends BuiltinFunction {
   }
 }
 
-class _MathAcos extends BuiltinFunction {
+class _MathAcos extends _MathBuiltin {
   _MathAcos([super.interpreter]);
 
   @override
@@ -84,7 +121,7 @@ class _MathAcos extends BuiltinFunction {
   }
 }
 
-class _MathAsin extends BuiltinFunction {
+class _MathAsin extends _MathBuiltin {
   _MathAsin([super.interpreter]);
 
   @override
@@ -99,7 +136,7 @@ class _MathAsin extends BuiltinFunction {
   }
 }
 
-class _MathAtan extends BuiltinFunction {
+class _MathAtan extends _MathBuiltin {
   _MathAtan([super.interpreter]);
 
   @override
@@ -123,7 +160,7 @@ class _MathAtan extends BuiltinFunction {
   }
 }
 
-class _MathCeil extends BuiltinFunction {
+class _MathCeil extends _MathBuiltin {
   _MathCeil([super.interpreter]);
 
   @override
@@ -145,7 +182,7 @@ class _MathCeil extends BuiltinFunction {
   }
 }
 
-class _MathCos extends BuiltinFunction {
+class _MathCos extends _MathBuiltin {
   _MathCos([super.interpreter]);
 
   @override
@@ -160,7 +197,7 @@ class _MathCos extends BuiltinFunction {
   }
 }
 
-class _MathDeg extends BuiltinFunction {
+class _MathDeg extends _MathBuiltin {
   _MathDeg([super.interpreter]);
 
   @override
@@ -175,7 +212,7 @@ class _MathDeg extends BuiltinFunction {
   }
 }
 
-class _MathExp extends BuiltinFunction {
+class _MathExp extends _MathBuiltin {
   _MathExp([super.interpreter]);
 
   @override
@@ -190,7 +227,7 @@ class _MathExp extends BuiltinFunction {
   }
 }
 
-class _MathFloor extends BuiltinFunction {
+class _MathFloor extends _MathBuiltin {
   _MathFloor([super.interpreter]);
 
   @override
@@ -212,7 +249,7 @@ class _MathFloor extends BuiltinFunction {
   }
 }
 
-class _MathFmod extends BuiltinFunction {
+class _MathFmod extends _MathBuiltin {
   _MathFmod([super.interpreter]);
 
   @override
@@ -235,7 +272,7 @@ class _MathFmod extends BuiltinFunction {
   }
 }
 
-class _MathFrexp extends BuiltinFunction {
+class _MathFrexp extends _MathBuiltin {
   _MathFrexp([super.interpreter]);
 
   @override
@@ -252,7 +289,7 @@ class _MathFrexp extends BuiltinFunction {
   }
 }
 
-class _MathLdexp extends BuiltinFunction {
+class _MathLdexp extends _MathBuiltin {
   _MathLdexp([super.interpreter]);
 
   @override
@@ -289,7 +326,7 @@ class _MathLdexp extends BuiltinFunction {
   }
 }
 
-class _MathLog extends BuiltinFunction {
+class _MathLog extends _MathBuiltin {
   _MathLog([super.interpreter]);
 
   @override
@@ -313,8 +350,24 @@ class _MathLog extends BuiltinFunction {
   }
 }
 
-class _MathMax extends BuiltinFunction {
+class _MathMax extends _MathBuiltin {
   _MathMax(super.interpreter);
+
+  @override
+  Object? fastCall2(Object? arg0, Object? arg1) {
+    final fastResult = _tryFastMinMaxNumericResult(
+      arg0,
+      arg1,
+      wantMax: true,
+    );
+    if (fastResult != null) {
+      return fastResult;
+    }
+    return NumberUtils.max(
+      _getFastNumber(arg0, "max", 1),
+      _getFastNumber(arg1, "max", 2),
+    );
+  }
 
   @override
   Object? call(List<Object?> args) {
@@ -333,8 +386,24 @@ class _MathMax extends BuiltinFunction {
   }
 }
 
-class _MathMin extends BuiltinFunction {
+class _MathMin extends _MathBuiltin {
   _MathMin(super.interpreter);
+
+  @override
+  Object? fastCall2(Object? arg0, Object? arg1) {
+    final fastResult = _tryFastMinMaxNumericResult(
+      arg0,
+      arg1,
+      wantMax: false,
+    );
+    if (fastResult != null) {
+      return fastResult;
+    }
+    return NumberUtils.min(
+      _getFastNumber(arg0, "min", 1),
+      _getFastNumber(arg1, "min", 2),
+    );
+  }
 
   @override
   Object? call(List<Object?> args) {
@@ -353,7 +422,7 @@ class _MathMin extends BuiltinFunction {
   }
 }
 
-class _MathModf extends BuiltinFunction {
+class _MathModf extends _MathBuiltin {
   _MathModf(super.interpreter);
 
   @override
@@ -368,7 +437,7 @@ class _MathModf extends BuiltinFunction {
   }
 }
 
-class _MathRad extends BuiltinFunction {
+class _MathRad extends _MathBuiltin {
   _MathRad([super.interpreter]);
 
   @override
@@ -381,10 +450,67 @@ class _MathRad extends BuiltinFunction {
   }
 }
 
-class _MathRandom extends BuiltinFunction {
+class _MathRandom extends _MathBuiltin {
   _MathRandom([super.interpreter]);
 
   Xoshiro256ss _random = Xoshiro256ss.seeded();
+
+  @override
+  Object? fastCall0() {
+    return _random.nextDouble();
+  }
+
+  @override
+  Object? fastCall1(Object? arg0) {
+    final n = _getFastNumber(arg0, "random", 1);
+    final intN = NumberUtils.toInt(n);
+    if (intN == 0) {
+      return _random.nextRaw64();
+    }
+    if (intN < 1) {
+      throw LuaError.typeError(
+        "bad argument #1 to 'random' (interval is empty)",
+      );
+    }
+    final rv = _random.nextRaw64();
+    final projected = _project(rv, intN);
+    return 1 + projected;
+  }
+
+  @override
+  Object? fastCall2(Object? arg0, Object? arg1) {
+    final m = _getFastNumber(arg0, "random", 1);
+    final n = _getFastNumber(arg1, "random", 2);
+    final intM = NumberUtils.toInt(m);
+    final intN = NumberUtils.toInt(n);
+
+    if (intM > intN) {
+      throw LuaError.typeError(
+        "bad argument #1 to 'random' (interval is empty)",
+      );
+    }
+
+    final rangePlusOne = intN - intM + 1;
+    final bigM = NumberUtils.toBigInt(intM);
+    final rv = _random.nextRaw64();
+    if (rangePlusOne > 0 && rangePlusOne <= limits.NumberLimits.maxInteger) {
+      final projected = _project(rv, rangePlusOne);
+      return intM + projected;
+    }
+
+    final urv = rv.toUnsigned(64);
+    final bigN = NumberUtils.toBigInt(intN);
+    final bigRangePlusOne = (bigN - bigM) + BigInt.one;
+    final bigResult = BigInt.from(urv) % bigRangePlusOne;
+    final finalResult = bigM + bigResult;
+
+    if (finalResult < NumberUtils.toBigInt(limits.NumberLimits.minInteger) ||
+        finalResult > NumberUtils.toBigInt(limits.NumberLimits.maxInteger)) {
+      throw LuaError.typeError("random result overflow");
+    }
+
+    return finalResult.toInt();
+  }
 
   @override
   Object? call(List<Object?> args) {
@@ -422,6 +548,13 @@ class _MathRandom extends BuiltinFunction {
         );
       }
 
+      final rangePlusOne = intN - intM + 1;
+      final rv = _random.nextRaw64();
+      if (rangePlusOne > 0 && rangePlusOne <= limits.NumberLimits.maxInteger) {
+        final projected = _project(rv, rangePlusOne);
+        return primitiveValue(intM + projected);
+      }
+
       // Use BigInt arithmetic to safely calculate range size and avoid overflow
       final bigM = NumberUtils.toBigInt(intM);
       final bigN = NumberUtils.toBigInt(intN);
@@ -429,8 +562,6 @@ class _MathRandom extends BuiltinFunction {
 
       // Check if range size + 1 exceeds what we can handle with int64
       final bigRangePlusOne = bigRangeSize + BigInt.one;
-
-      final rv = _random.nextRaw64();
       final urv = rv.toUnsigned(64);
 
       // Use BigInt modulo to handle large ranges safely
@@ -462,7 +593,7 @@ class _MathRandom extends BuiltinFunction {
   }
 }
 
-class _MathRandomseed extends BuiltinFunction {
+class _MathRandomseed extends _MathBuiltin {
   final _MathRandom _randomFunc;
   _MathRandomseed(this._randomFunc) : super(_randomFunc.interpreter);
 
@@ -494,7 +625,7 @@ class _MathRandomseed extends BuiltinFunction {
   }
 }
 
-class _MathSin extends BuiltinFunction {
+class _MathSin extends _MathBuiltin {
   _MathSin([super.interpreter]);
 
   @override
@@ -507,7 +638,7 @@ class _MathSin extends BuiltinFunction {
   }
 }
 
-class _MathSqrt extends BuiltinFunction {
+class _MathSqrt extends _MathBuiltin {
   _MathSqrt([super.interpreter]);
 
   @override
@@ -520,7 +651,7 @@ class _MathSqrt extends BuiltinFunction {
   }
 }
 
-class _MathTan extends BuiltinFunction {
+class _MathTan extends _MathBuiltin {
   _MathTan([super.interpreter]);
 
   @override
@@ -533,7 +664,7 @@ class _MathTan extends BuiltinFunction {
   }
 }
 
-class _MathTointeger extends BuiltinFunction {
+class _MathTointeger extends _MathBuiltin {
   _MathTointeger([super.interpreter]);
 
   @override
@@ -548,7 +679,7 @@ class _MathTointeger extends BuiltinFunction {
   }
 }
 
-class _MathType extends BuiltinFunction {
+class _MathType extends _MathBuiltin {
   _MathType([super.interpreter]);
 
   @override
@@ -568,7 +699,7 @@ class _MathType extends BuiltinFunction {
   }
 }
 
-class _MathUlt extends BuiltinFunction {
+class _MathUlt extends _MathBuiltin {
   _MathUlt([super.interpreter]);
 
   @override

@@ -121,10 +121,11 @@ class Interpreter extends AstVisitor<Object?>
 
   @override
   Value constantStringValue(List<int> bytes) {
-    final key = bytes.join(',');
+    final key = String.fromCharCodes(bytes);
     final cached = literalValueCache[key];
     if (cached != null) {
       cached.interpreter ??= this;
+      _syncCachedTypeMetatable(cached, type: 'string');
       return cached;
     }
 
@@ -132,6 +133,7 @@ class Interpreter extends AstVisitor<Object?>
       bytes,
     );
     final value = Value(luaString)..interpreter = this;
+    _syncCachedTypeMetatable(value, type: 'string');
     literalValueCache[key] = value;
     return value;
   }
@@ -189,7 +191,7 @@ class Interpreter extends AstVisitor<Object?>
   Value constantPrimitiveValue(Object? raw) {
     Value create(Object? value) => Value(value)..interpreter = this;
 
-    return switch (raw) {
+    final cached = switch (raw) {
       null => _cachedNilValue ??= create(null),
       true => _cachedTrueValue ??= create(true),
       false => _cachedFalseValue ??= create(false),
@@ -207,6 +209,24 @@ class Interpreter extends AstVisitor<Object?>
       ),
       _ => throw ArgumentError.value(raw, 'raw', 'Not a cached primitive'),
     };
+    cached.interpreter ??= this;
+    _syncCachedTypeMetatable(cached, type: _cachedPrimitiveType(raw));
+    return cached;
+  }
+
+  String _cachedPrimitiveType(Object? raw) => switch (raw) {
+    null => 'nil',
+    bool() => 'boolean',
+    _ => 'number',
+  };
+
+  void _syncCachedTypeMetatable(Value value, {required String type}) {
+    if (!MetaTable().isDefaultMetatableActive(type)) {
+      value.metatable = null;
+      value.metatableRef = null;
+      return;
+    }
+    MetaTable().applyDefaultMetatable(value);
   }
 
   /// Wraps a runtime value while reusing stable wrappers for plain primitives
@@ -816,6 +836,14 @@ class Interpreter extends AstVisitor<Object?>
       return;
     }
     gc.runPendingAutoTrigger();
+  }
+
+  @override
+  bool shouldRunLoopGcAtSafePoint(int loopCounter) {
+    if (gc.isStopped || !gc.autoTriggerEnabled) {
+      return false;
+    }
+    return gc.allocationDebt > 0;
   }
 
   @override

@@ -286,6 +286,11 @@ class LualikeIrRuntime implements LuaRuntime {
   }
 
   @override
+  bool shouldRunLoopGcAtSafePoint(int loopCounter) {
+    return _interpreter.shouldRunLoopGcAtSafePoint(loopCounter);
+  }
+
+  @override
   Future<void> runLoopGcAtSafePoint(int loopCounter) {
     return _interpreter.runLoopGcAtSafePoint(loopCounter);
   }
