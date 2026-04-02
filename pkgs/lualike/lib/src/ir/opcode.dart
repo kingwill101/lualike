@@ -31,6 +31,7 @@ class LualikeIrOpcode {
   static const LualikeIrOpcode getI = LualikeIrOpcode._('GETI');
   static const LualikeIrOpcode getField = LualikeIrOpcode._('GETFIELD');
   static const LualikeIrOpcode setTabUp = LualikeIrOpcode._('SETTABUP');
+  static const LualikeIrOpcode checkGlobal = LualikeIrOpcode._('CHECKGLOBAL');
   static const LualikeIrOpcode setTable = LualikeIrOpcode._('SETTABLE');
   static const LualikeIrOpcode setI = LualikeIrOpcode._('SETI');
   static const LualikeIrOpcode setField = LualikeIrOpcode._('SETFIELD');
@@ -117,6 +118,7 @@ class LualikeIrOpcode {
     getI,
     getField,
     setTabUp,
+    checkGlobal,
     setTable,
     setI,
     setField,

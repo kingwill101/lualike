@@ -2,11 +2,14 @@
 library;
 
 import 'package:lualike/lualike.dart';
+import 'package:lualike/src/ir/bytecode_lowering.dart';
 import 'package:lualike/src/ir/compiler.dart';
 import 'package:lualike/src/ir/disassembler.dart';
+import 'package:lualike/src/ir/prototype.dart';
 import 'package:lualike/src/ir/runtime.dart';
 import 'package:lualike/src/ir/serialization.dart';
-import 'package:lualike/src/ir/vm.dart';
+import 'package:lualike/src/lua_bytecode/runtime.dart';
+import 'package:lualike/src/lua_bytecode/vm.dart';
 import 'package:test/test.dart';
 
 Object? _unwrap(Object? candidate) {
@@ -18,6 +21,20 @@ Object? _unwrap(Object? candidate) {
     return candidate.toString();
   }
   return candidate;
+}
+
+Future<Object?> _executeLoweredChunk(
+  LualikeIrRuntime runtime,
+  LualikeIrChunk chunk,
+) {
+  final lowered = lowerIrChunkToLuaBytecodeChunk(chunk);
+  final closure = LuaBytecodeClosure.main(
+    runtime: runtime,
+    chunk: lowered,
+    chunkName: '=(lualike_ir)',
+    environment: runtime.globals,
+  );
+  return closure.call(const <Object?>[]);
 }
 
 void main() {
@@ -55,15 +72,14 @@ return outer(10, 23)
       );
 
       final runtime = LualikeIrRuntime();
-      final vm = LualikeIrVm(environment: runtime.globals, runtime: runtime);
-      final originalResult = await vm.execute(originalChunk);
-      final decodedResult = await vm.execute(decodedChunk);
+      final originalResult = await _executeLoweredChunk(runtime, originalChunk);
+      final decodedResult = await _executeLoweredChunk(runtime, decodedChunk);
 
       expect(_unwrap(decodedResult), equals(_unwrap(originalResult)));
     });
 
     test(
-      'string.dump emits lualike_ir artifacts that load and execute',
+      'string.dump emits tracked bytecode artifacts that load and execute',
       () async {
         final bridge = LuaLike(runtime: LualikeIrRuntime());
 
@@ -81,8 +97,7 @@ return outer(10, 23)
         expect(dumped.raw, isA<LuaString>());
 
         final bytes = (dumped.raw as LuaString).bytes;
-        expect(looksLikeLualikeIrBytes(bytes), isTrue);
-        expect(bytes.take(4).toList(), equals(<int>[0x1B, 0x4C, 0x49, 0x52]));
+        expect(looksLikeTrackedLuaBytecodeBytes(bytes), isTrue);
         expect(_unwrap(bridge.getGlobal('result')), equals(42));
       },
     );
@@ -107,6 +122,7 @@ return outer(10, 23)
 
         expect(loadResult.isSuccess, isTrue);
         final loaded = loadResult.chunk!;
+        expect(loaded.raw, isA<LuaBytecodeClosure>());
         final result = await runtime.callFunction(loaded, const []);
         expect(_unwrap(result), equals(42));
 
@@ -138,6 +154,7 @@ return outer(10, 23)
         );
 
         expect(readerLoadResult.isSuccess, isTrue);
+        expect(readerLoadResult.chunk!.raw, isA<LuaBytecodeClosure>());
         final readerResult = await runtime.callFunction(
           readerLoadResult.chunk!,
           <Object?>[Value(41)],

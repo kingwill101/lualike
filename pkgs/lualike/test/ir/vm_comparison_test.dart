@@ -1,50 +1,64 @@
 @Tags(['ir'])
 library;
 
-import 'package:lualike/src/ir/compiler.dart';
-import 'package:lualike/src/ir/vm.dart';
 import 'package:lualike/src/environment.dart';
-import 'package:lualike/src/parse.dart';
+import 'package:lualike/src/config.dart';
+import 'package:lualike/src/executor.dart';
 import 'package:lualike/src/value.dart';
 import 'package:test/test.dart';
 
 void main() {
-  group('LualikeIrVm comparisons', () {
+  group('Lualike IR lowered comparisons', () {
     test('executes comparisons', () async {
-      final ltChunk = LualikeIrCompiler().compile(parse('return 3 < 4'));
-      final geChunk = LualikeIrCompiler().compile(parse('return 4 >= 4'));
-      final gtChunk = LualikeIrCompiler().compile(parse('return 4 > 5'));
-      final leChunk = LualikeIrCompiler().compile(parse('return 5 <= 5'));
-      expect(await LualikeIrVm().execute(ltChunk), isTrue);
-      expect(await LualikeIrVm().execute(geChunk), isTrue);
-      expect(await LualikeIrVm().execute(gtChunk), isFalse);
-      expect(await LualikeIrVm().execute(leChunk), isTrue);
+      expect(await executeCode('return 3 < 4', mode: EngineMode.ir), isTrue);
+      expect(await executeCode('return 4 >= 4', mode: EngineMode.ir), isTrue);
+      expect(await executeCode('return 4 > 5', mode: EngineMode.ir), isFalse);
+      expect(await executeCode('return 5 <= 5', mode: EngineMode.ir), isTrue);
     });
 
     test('executes equality and inequality', () async {
-      final eqChunk = LualikeIrCompiler().compile(parse('return 3 == 3'));
-      final neqChunk = LualikeIrCompiler().compile(parse('return 3 ~= 4'));
-      expect(await LualikeIrVm().execute(eqChunk), isTrue);
-      expect(await LualikeIrVm().execute(neqChunk), isTrue);
+      expect(await executeCode('return 3 == 3', mode: EngineMode.ir), isTrue);
+      expect(await executeCode('return 3 ~= 4', mode: EngineMode.ir), isTrue);
     });
 
     test('executes equality with string literal', () async {
-      final program = parse('return x == "foo"');
-      final chunk = LualikeIrCompiler().compile(program);
       final env = EnvironmentFactory.stringEnv('foo');
-      final vm = LualikeIrVm(environment: env);
-      expect(await vm.execute(chunk), isTrue);
+      expect(
+        await executeCode(
+          'return x == "foo"',
+          mode: EngineMode.ir,
+          onRuntimeSetup: (runtime) => runtime.globals.define('x', env.get('x')!),
+        ),
+        isTrue,
+      );
     });
 
     test('executes literal comparisons with integers', () async {
-      final eqChunk = LualikeIrCompiler().compile(parse('return x == 5'));
-      final ltChunk = LualikeIrCompiler().compile(parse('return x < 10'));
-      final geChunk = LualikeIrCompiler().compile(parse('return x >= 3'));
       final env = EnvironmentFactory.intEnv(5);
-      final vm = LualikeIrVm(environment: env);
-      expect(await vm.execute(eqChunk), isTrue);
-      expect(await vm.execute(ltChunk), isTrue);
-      expect(await vm.execute(geChunk), isTrue);
+      expect(
+        await executeCode(
+          'return x == 5',
+          mode: EngineMode.ir,
+          onRuntimeSetup: (runtime) => runtime.globals.define('x', env.get('x')!),
+        ),
+        isTrue,
+      );
+      expect(
+        await executeCode(
+          'return x < 10',
+          mode: EngineMode.ir,
+          onRuntimeSetup: (runtime) => runtime.globals.define('x', env.get('x')!),
+        ),
+        isTrue,
+      );
+      expect(
+        await executeCode(
+          'return x >= 3',
+          mode: EngineMode.ir,
+          onRuntimeSetup: (runtime) => runtime.globals.define('x', env.get('x')!),
+        ),
+        isTrue,
+      );
     });
   });
 }

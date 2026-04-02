@@ -1,28 +1,23 @@
 @Tags(['ir'])
 library;
 
-import 'package:lualike/src/ir/compiler.dart';
-import 'package:lualike/src/ir/vm.dart';
-import 'package:lualike/src/environment.dart';
-import 'package:lualike/src/parse.dart';
+import 'package:lualike/src/interop.dart';
+import 'package:lualike/src/ir/runtime.dart';
 import 'package:lualike/src/value.dart';
 import 'package:test/test.dart';
 
 void main() {
-  group('LualikeIrVm to-be-closed locals', () {
-    test('invokes __close before evaluating return expression', () async {
+  group('IR to-be-closed locals', () {
+    test('captures return values before invoking __close', () async {
       final env = _buildEnv();
       const script = '''
 local resource <close> = make()
-return closed
+return closed == false
 ''';
 
-      final chunk = LualikeIrCompiler().compile(parse(script));
-      final result = await LualikeIrVm(
-        environment: env.environment,
-      ).execute(chunk);
+      final result = await _executeWithBindings(script, env.bindings);
 
-      expect(result, equals(true));
+      expect(_unwrap(result), isTrue);
       expect(env.closedValue.raw, isTrue);
     });
 
@@ -35,12 +30,9 @@ end
 return closed
 ''';
 
-      final chunk = LualikeIrCompiler().compile(parse(script));
-      final result = await LualikeIrVm(
-        environment: env.environment,
-      ).execute(chunk);
+      final result = await _executeWithBindings(script, env.bindings);
 
-      expect(result, equals(true));
+      expect(_unwrap(result), equals(true));
       expect(env.closedValue.raw, isTrue);
     });
 
@@ -53,12 +45,9 @@ end
 return closed
 ''';
 
-      final chunk = LualikeIrCompiler().compile(parse(script));
-      final result = await LualikeIrVm(
-        environment: env.environment,
-      ).execute(chunk);
+      final result = await _executeWithBindings(script, env.bindings);
 
-      expect(result, equals(true));
+      expect(_unwrap(result), equals(true));
       expect(env.closedValue.raw, isTrue);
     });
 
@@ -73,72 +62,84 @@ end
 return closed
 ''';
 
-      final chunk = LualikeIrCompiler().compile(parse(script));
-      final result = await LualikeIrVm(
-        environment: env.environment,
-      ).execute(chunk);
+      final result = await _executeWithBindings(script, env.bindings);
 
-      expect(result, equals(2));
+      expect(_unwrap(result), equals(2));
       expect(env.closeCount.value, equals(2));
     });
   });
 }
 
-class _EnvContext {
-  _EnvContext({required this.environment, required this.closedValue});
+Future<Object?> _executeWithBindings(
+  String source,
+  Map<String, Value> bindings,
+) async {
+  final bridge = LuaLike(runtime: LualikeIrRuntime());
+  for (final entry in bindings.entries) {
+    bridge.vm.globals.define(entry.key, entry.value);
+  }
+  return bridge.execute(source);
+}
 
-  final Environment environment;
+Object? _unwrap(Object? value) {
+  if (value is Value) {
+    return _unwrap(value.raw);
+  }
+  if (value is List) {
+    return value.map(_unwrap).toList();
+  }
+  return value;
+}
+
+class _EnvContext {
+  _EnvContext({required this.bindings, required this.closedValue});
+
+  final Map<String, Value> bindings;
   final Value closedValue;
 }
 
 class _CountingContext {
-  _CountingContext({required this.environment, required this.closeCount});
+  _CountingContext({required this.bindings, required this.closeCount});
 
-  final Environment environment;
+  final Map<String, Value> bindings;
   final _CloseCounter closeCount;
 }
 
 _EnvContext _buildEnv({Map<String, Value> extraBindings = const {}}) {
   final closedValue = Value(false);
-  final environment = Environment()
-    ..define('closed', closedValue)
-    ..define(
-      'make',
-      Value((List<Object?> _) {
-        final resource = Value(<String, dynamic>{});
-        resource.metatable = {
-          '__close': (List<Object?> _) {
-            closedValue.raw = true;
-            return null;
-          },
-        };
-        return resource;
-      }),
-    );
-  for (final entry in extraBindings.entries) {
-    environment.define(entry.key, entry.value);
-  }
-  return _EnvContext(environment: environment, closedValue: closedValue);
+  final bindings = <String, Value>{
+    'closed': closedValue,
+    'make': Value((List<Object?> _) {
+      final resource = Value(<String, dynamic>{});
+      resource.metatable = {
+        '__close': (List<Object?> _) {
+          closedValue.raw = true;
+          return null;
+        },
+      };
+      return resource;
+    }),
+    ...extraBindings,
+  };
+  return _EnvContext(bindings: bindings, closedValue: closedValue);
 }
 
 _CountingContext _buildCountingEnv() {
   final counter = _CloseCounter();
-  final environment = Environment()
-    ..define('closed', Value(0))
-    ..define(
-      'make',
-      Value((List<Object?> _) {
-        final resource = Value(<String, dynamic>{});
-        resource.metatable = {
-          '__close': (List<Object?> _) {
-            counter.value += 1;
-            return null;
-          },
-        };
-        return resource;
-      }),
-    );
-  return _CountingContext(environment: environment, closeCount: counter);
+  final bindings = <String, Value>{
+    'closed': Value(0),
+    'make': Value((List<Object?> _) {
+      final resource = Value(<String, dynamic>{});
+      resource.metatable = {
+        '__close': (List<Object?> _) {
+          counter.value += 1;
+          return null;
+        },
+      };
+      return resource;
+    }),
+  };
+  return _CountingContext(bindings: bindings, closeCount: counter);
 }
 
 class _CloseCounter {

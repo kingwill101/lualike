@@ -1,21 +1,34 @@
 @Tags(['ir'])
 library;
 
-import 'package:lualike/src/ir/compiler.dart';
-import 'package:lualike/src/ir/vm.dart';
-import 'package:lualike/src/lua_error.dart';
-import 'package:lualike/src/parse.dart';
+import 'package:lualike/src/interop.dart';
+import 'package:lualike/src/ir/runtime.dart';
+import 'package:lualike/src/lua_string.dart';
+import 'package:lualike/src/value.dart';
 import 'package:test/test.dart';
 
+Object? _unwrapResult(Object? value) {
+  if (value is Value) {
+    return _unwrapResult(value.raw);
+  }
+  if (value is LuaString) {
+    return value.toString();
+  }
+  if (value is List) {
+    return value.map(_unwrapResult).toList();
+  }
+  return value;
+}
+
 void main() {
-  group('LualikeIrVm const locals', () {
+  group('IR const locals', () {
     test('initialises const locals and returns their values', () async {
       const source = '''
 local a <const>, b <const> = 1, 2
 return a, b
 ''';
-      final chunk = LualikeIrCompiler().compile(parse(source));
-      final result = await LualikeIrVm().execute(chunk);
+      final bridge = LuaLike(runtime: LualikeIrRuntime());
+      final result = _unwrapResult(await bridge.execute(source));
       expect(result, equals(<dynamic>[1, 2]));
     });
 
@@ -28,8 +41,8 @@ end
 
 return pair(3, 4, 5)
 ''';
-      final chunk = LualikeIrCompiler().compile(parse(source));
-      final result = await LualikeIrVm().execute(chunk);
+      final bridge = LuaLike(runtime: LualikeIrRuntime());
+      final result = _unwrapResult(await bridge.execute(source));
       expect(result, equals(<dynamic>[3, 4]));
     });
 
@@ -38,12 +51,12 @@ return pair(3, 4, 5)
 local a <const> = 1
 a = 2
 ''';
-      final chunk = LualikeIrCompiler().compile(parse(source));
-      expect(
-        () => LualikeIrVm().execute(chunk),
+      final bridge = LuaLike(runtime: LualikeIrRuntime());
+      await expectLater(
+        bridge.execute(source),
         throwsA(
-          isA<LuaError>().having(
-            (error) => error.message,
+          isA<Exception>().having(
+            (error) => error.toString(),
             'message',
             contains('attempt to assign to const variable'),
           ),
@@ -64,12 +77,12 @@ end
 
 outer()
 ''';
-      final chunk = LualikeIrCompiler().compile(parse(source));
-      expect(
-        () => LualikeIrVm().execute(chunk),
+      final bridge = LuaLike(runtime: LualikeIrRuntime());
+      await expectLater(
+        bridge.execute(source),
         throwsA(
-          isA<LuaError>().having(
-            (error) => error.message,
+          isA<Exception>().having(
+            (error) => error.toString(),
             'message',
             contains('attempt to assign to const variable'),
           ),

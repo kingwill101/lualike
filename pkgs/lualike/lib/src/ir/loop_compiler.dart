@@ -46,6 +46,7 @@ class LoopIrCompiler {
     protoBuilder.upvalueDescriptors.add(
       const LualikeIrUpvalueDescriptor(inStack: 0, index: 0),
     );
+    protoBuilder.upvalueNames.add('_ENV');
 
     // Load start/end/step constants into registers R0..R2, set R3 = start.
     final startConst = _makeNumberConstant(startValue);

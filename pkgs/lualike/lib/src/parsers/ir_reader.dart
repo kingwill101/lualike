@@ -264,12 +264,31 @@ class _LualikeIrReaderDefinition extends GrammarDefinition {
               final names = (values[1] as List).cast<String>();
               return (builder) => builder.setUpvalueNames(names);
             }) |
+        (_token('to_be_closed_names') &
+                _braced(_terminatedEntries(ref0(_toBeClosedDebugEntry))))
+            .map<_DebugUpdate>((values) {
+              final entries = (values[1] as List).cast<MapEntry<int, String>>();
+              return (builder) => builder.setToBeClosedNames(entries);
+            }) |
         (_token('local_names') &
                 _braced(_terminatedEntries(ref0(_localDebugEntry))))
             .map<_DebugUpdate>((values) {
               final entries = (values[1] as List).cast<LocalDebugEntry>();
               return (builder) => builder.setLocalNames(entries);
             });
+  }
+
+  Parser _toBeClosedDebugEntry() {
+    return (_token('tbc') &
+            _propertyEntries(ref0(_toBeClosedDebugProperty))).map((values) {
+      final properties = (values[1] as List).cast<MapEntry<String, Object?>>();
+      return _buildToBeClosedDebugEntry(properties);
+    });
+  }
+
+  Parser _toBeClosedDebugProperty() {
+    return _assignment('pc', ref0(_intLiteral)) |
+        _assignment('name', ref0(_stringLiteral));
   }
 
   Parser _localDebugEntry() {
@@ -284,7 +303,8 @@ class _LualikeIrReaderDefinition extends GrammarDefinition {
   Parser _localDebugProperty() {
     return _assignment('name', ref0(_stringLiteral)) |
         _assignment('start_pc', ref0(_intLiteral)) |
-        _assignment('end_pc', ref0(_intLiteral));
+        _assignment('end_pc', ref0(_intLiteral)) |
+        _assignment('register', ref0(_intLiteral));
   }
 
   Parser _assignment(String key, Parser value) {
@@ -514,6 +534,17 @@ LocalDebugEntry _buildLocalDebugEntry(
     name: _requireString(values, 'name', context: 'local'),
     startPc: _requireInt(values, 'start_pc', context: 'local'),
     endPc: _requireInt(values, 'end_pc', context: 'local'),
+    register: _optionalInt(values, 'register', context: 'local'),
+  );
+}
+
+MapEntry<int, String> _buildToBeClosedDebugEntry(
+  List<MapEntry<String, Object?>> properties,
+) {
+  final values = _collectProperties(properties, context: 'tbc');
+  return MapEntry(
+    _requireInt(values, 'pc', context: 'tbc'),
+    _requireString(values, 'name', context: 'tbc'),
   );
 }
 
@@ -799,6 +830,7 @@ class _ParsedDebugInfoBuilder {
   bool _sawPreferredNameWhat = false;
   bool _sawLocalNames = false;
   bool _sawUpvalueNames = false;
+  bool _sawToBeClosedNames = false;
 
   List<int>? _lineInfo;
   String? _absoluteSourcePath;
@@ -806,6 +838,7 @@ class _ParsedDebugInfoBuilder {
   String _preferredNameWhat = '';
   List<LocalDebugEntry>? _localNames;
   List<String>? _upvalueNames;
+  Map<int, String>? _toBeClosedNamesByPc;
 
   void setLineInfo(List<int> lineInfo) {
     _checkDebugDuplicate(_sawLineInfo, 'line_info');
@@ -843,6 +876,21 @@ class _ParsedDebugInfoBuilder {
     _upvalueNames = names;
   }
 
+  void setToBeClosedNames(List<MapEntry<int, String>> entries) {
+    _checkDebugDuplicate(_sawToBeClosedNames, 'to_be_closed_names');
+    _sawToBeClosedNames = true;
+    final values = <int, String>{};
+    for (final entry in entries) {
+      if (values.containsKey(entry.key)) {
+        throw FormatException(
+          'Duplicate to_be_closed_names entry for pc ${entry.key}',
+        );
+      }
+      values[entry.key] = entry.value;
+    }
+    _toBeClosedNamesByPc = Map<int, String>.unmodifiable(values);
+  }
+
   LualikeIrDebugInfo build() {
     return LualikeIrDebugInfo(
       lineInfo: List<int>.unmodifiable(_lineInfo ?? const <int>[]),
@@ -852,6 +900,9 @@ class _ParsedDebugInfoBuilder {
       ),
       upvalueNames: List<String>.unmodifiable(
         _upvalueNames ?? const <String>[],
+      ),
+      toBeClosedNamesByPc: Map<int, String>.unmodifiable(
+        _toBeClosedNamesByPc ?? const <int, String>{},
       ),
       preferredName: _preferredName,
       preferredNameWhat: _preferredNameWhat,

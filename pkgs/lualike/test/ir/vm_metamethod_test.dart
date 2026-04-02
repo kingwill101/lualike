@@ -1,56 +1,54 @@
 @Tags(['ir'])
 library;
 
-import 'package:lualike/src/ir/compiler.dart';
-import 'package:lualike/src/ir/vm.dart';
-import 'package:lualike/src/environment.dart';
-import 'package:lualike/src/parse.dart';
+import 'package:lualike/src/interop.dart';
+import 'package:lualike/src/ir/runtime.dart';
+import 'package:lualike/src/lua_string.dart';
 import 'package:lualike/src/value.dart';
 import 'package:test/test.dart';
 
-void main() {
-  group('LualikeIrVm metamethods', () {
-    test('invokes __add when operands provide metamethod', () async {
-      final chunk = LualikeIrCompiler().compile(parse('return lhs + rhs'));
-      final metatable = <String, dynamic>{
-        '__add': (List<Object?> args) {
-          final left = args[0] as Value;
-          final right = args[1] as Value;
-          final leftValue = (left.raw as Map)['value'] as num;
-          final rightValue = (right.raw as Map)['value'] as num;
-          return Value(leftValue + rightValue + 10);
-        },
-      };
-      final lhs = Value(<String, dynamic>{'value': 2})..metatable = metatable;
-      final rhs = Value(<String, dynamic>{'value': 3})..metatable = metatable;
-      final env = Environment()
-        ..define('lhs', lhs)
-        ..define('rhs', rhs);
+Object? _unwrapResult(Object? value) {
+  if (value is Value) {
+    return _unwrapResult(value.raw);
+  }
+  if (value is LuaString) {
+    return value.toString();
+  }
+  if (value is List) {
+    return value.map(_unwrapResult).toList();
+  }
+  return value;
+}
 
-      final result = await LualikeIrVm(environment: env).execute(chunk);
+void main() {
+  group('IR metamethods', () {
+    test('invokes __add when operands provide metamethod', () async {
+      final bridge = LuaLike(runtime: LualikeIrRuntime());
+      final result = await bridge.execute('''
+        local mt = {
+          __add = function(left, right)
+            return left.value + right.value + 10
+          end,
+        }
+        local lhs = setmetatable({value = 2}, mt)
+        local rhs = setmetatable({value = 3}, mt)
+        return lhs + rhs
+      ''');
       expect(result, equals(15));
     });
 
     test('invokes __concat when operands provide metamethod', () async {
-      final chunk = LualikeIrCompiler().compile(parse('return left .. right'));
-      final metatable = <String, dynamic>{
-        '__concat': (List<Object?> args) {
-          final left = args[0] as Value;
-          final right = args[1] as Value;
-          final leftText = (left.raw as Map)['value'] as String;
-          final rightText = (right.raw as Map)['value'] as String;
-          return Value('meta:$leftText+$rightText');
-        },
-      };
-      final left = Value(<String, dynamic>{'value': 'A'})
-        ..metatable = metatable;
-      final right = Value(<String, dynamic>{'value': 'B'})
-        ..metatable = metatable;
-      final env = Environment()
-        ..define('left', left)
-        ..define('right', right);
-
-      final result = await LualikeIrVm(environment: env).execute(chunk);
+      final bridge = LuaLike(runtime: LualikeIrRuntime());
+      final result = _unwrapResult(await bridge.execute('''
+        local mt = {
+          __concat = function(left, right)
+            return 'meta:' .. left.value .. '+' .. right.value
+          end,
+        }
+        local left = setmetatable({value = 'A'}, mt)
+        local right = setmetatable({value = 'B'}, mt)
+        return left .. right
+      '''));
       expect(result, equals('meta:A+B'));
     });
   });

@@ -1,4 +1,5 @@
 import 'package:lualike/src/ast.dart';
+import 'package:lualike/src/lua_bytecode/instruction.dart';
 
 import 'chunk_builder.dart';
 import 'emitter.dart';
@@ -18,12 +19,7 @@ class LualikeIrCompiler {
     final prototypeBuilder = chunkBuilder.mainPrototypeBuilder;
     final context = _PrototypeContext(prototypeBuilder, isVararg: true);
 
-    for (final statement in program.statements) {
-      final completed = context.emitStatement(statement);
-      if (completed) {
-        break;
-      }
-    }
+    context._emitBlock(program.statements, useNewScope: false);
 
     context.finalize();
     return chunkBuilder.build();
@@ -40,6 +36,20 @@ class _CallEmissionResult {
   final int base;
   final int resultCount;
   final bool capturesAll;
+}
+
+final class _CurrentFunctionBinding {
+  const _CurrentFunctionBinding._({this.register, required this.isGlobal});
+
+  const _CurrentFunctionBinding.local(int register)
+    : this._(register: register, isGlobal: false);
+
+  const _CurrentFunctionBinding.global() : this._(isGlobal: true);
+
+  const _CurrentFunctionBinding.none() : this._(isGlobal: false);
+
+  final int? register;
+  final bool isGlobal;
 }
 
 class _ExpressionListResult {
@@ -106,6 +116,9 @@ class _PrototypeContext {
     this.isVararg = false,
   }) : emitter = LualikeIrEmitter(builder),
        _localScopes = <Map<String, int>>[<String, int>{}],
+       _globalBindingScopes = <Set<String>>[<String>{}],
+       _wildcardGlobalScopes = <bool>[false],
+       _localDebugScopes = <List<_ActiveLocalDebug>>[<_ActiveLocalDebug>[]],
        _toBeClosedScopes = <List<int>>[<int>[]],
        _nextRegister = parameterNames.length,
        _maxRegister = parameterNames.length {
@@ -113,7 +126,7 @@ class _PrototypeContext {
     builder.isVararg = isVararg;
 
     for (var i = 0; i < parameterNames.length; i++) {
-      _localScopes.last[parameterNames[i]] = i;
+      _declareLocal(parameterNames[i], i, startPc: 0);
     }
 
     if (isVararg) {
@@ -131,10 +144,32 @@ class _PrototypeContext {
   int _nextRegister;
   int _maxRegister;
   final List<Map<String, int>> _localScopes;
+  final List<Set<String>> _globalBindingScopes;
+  final List<bool> _wildcardGlobalScopes;
+  final List<List<_ActiveLocalDebug>> _localDebugScopes;
   final List<List<int>> _toBeClosedScopes;
+  final List<int> _activeImplicitToBeClosedRegisters = <int>[];
   final Map<String, int> _upvalues = <String, int>{};
-  final Map<String, int> _labelPositions = <String, int>{};
+  final List<Map<String, int>> _labelScopes = <Map<String, int>>[
+    <String, int>{},
+  ];
+  final List<int> _scopeIdStack = <int>[0];
   final List<_PendingGoto> _pendingGotos = <_PendingGoto>[];
+  final List<_LoopContext> _loopStack = <_LoopContext>[];
+  int _nextScopeId = 1;
+
+  _CurrentFunctionBinding _resolveCurrentFunctionBinding(String name) {
+    for (var i = _localScopes.length - 1; i >= 0; i--) {
+      final reg = _localScopes[i][name];
+      if (reg != null) {
+        return _CurrentFunctionBinding.local(reg);
+      }
+      if (_wildcardGlobalScopes[i] || _globalBindingScopes[i].contains(name)) {
+        return const _CurrentFunctionBinding.global();
+      }
+    }
+    return const _CurrentFunctionBinding.none();
+  }
 
   bool _isRegisterOccupiedByLocal(int reg) {
     for (final scope in _localScopes) {
@@ -159,26 +194,49 @@ class _PrototypeContext {
 
   void _pushLocalScope() {
     _localScopes.add(<String, int>{});
+    _globalBindingScopes.add(<String>{});
+    _wildcardGlobalScopes.add(false);
+    _localDebugScopes.add(<_ActiveLocalDebug>[]);
     _toBeClosedScopes.add(<int>[]);
+    _labelScopes.add(<String, int>{});
+    _scopeIdStack.add(_nextScopeId++);
   }
 
-  void _popLocalScope() {
+  void _popLocalScope({bool emitClose = true}) {
     assert(_localScopes.length > 1, 'Cannot pop the root scope');
-    final closables = _toBeClosedScopes.removeLast();
-    if (closables.isNotEmpty) {
-      closables.sort();
-      emitter.emitABC(
-        opcode: LualikeIrOpcode.close,
-        a: closables.first,
-        b: 0,
-        c: 0,
+    final scopeIndex = _localScopes.length - 1;
+    if (emitClose) {
+      _emitCloseForScope(scopeIndex);
+    }
+    final debugScope = _localDebugScopes.removeLast();
+    final endPc = _currentInstructionIndex;
+    for (final local in debugScope) {
+      builder.localDebugEntries.add(
+        LocalDebugEntry(
+          name: local.name,
+          startPc: local.startPc,
+          endPc: endPc,
+          register: local.register,
+        ),
       );
     }
+    _toBeClosedScopes.removeLast();
     _localScopes.removeLast();
+    _globalBindingScopes.removeLast();
+    _wildcardGlobalScopes.removeLast();
+    _labelScopes.removeLast();
+    _scopeIdStack.removeLast();
   }
 
-  void _declareLocal(String name, int register) {
+  void _declareLocal(String name, int register, {int? startPc}) {
     _localScopes.last[name] = register;
+    _localDebugScopes.last.add(
+      _ActiveLocalDebug(
+        name: name,
+        register: register,
+        startPc: startPc ?? _currentInstructionIndex,
+      ),
+    );
   }
 
   bool _reassignLocalRegister(int oldRegister, int newRegister) {
@@ -204,8 +262,44 @@ class _PrototypeContext {
     return null;
   }
 
+  void _declareGlobalBinding(String name) {
+    _globalBindingScopes.last.add(name);
+  }
+
+  void _declareWildcardGlobalBinding() {
+    _wildcardGlobalScopes[_wildcardGlobalScopes.length - 1] = true;
+  }
+
+  bool _resolvesCurrentFunctionBindingAsGlobal(String name) {
+    return _resolveCurrentFunctionBinding(name).isGlobal;
+  }
+
   void _recordToBeClosed(int register) {
     _toBeClosedScopes.last.add(register);
+  }
+
+  int? _lowestToBeClosedRegisterForScope(int scopeIndex) {
+    int? minReg;
+    for (final reg in _toBeClosedScopes[scopeIndex]) {
+      if (minReg == null || reg < minReg) {
+        minReg = reg;
+      }
+    }
+    return minReg;
+  }
+
+  int? _lowestToBeClosedRegisterForScopesFrom(int scopeCount) {
+    int? minReg;
+    for (var i = scopeCount; i < _localScopes.length; i++) {
+      final scopeMin = _lowestToBeClosedRegisterForScope(i);
+      if (scopeMin == null) {
+        continue;
+      }
+      if (minReg == null || scopeMin < minReg) {
+        minReg = scopeMin;
+      }
+    }
+    return minReg;
   }
 
   int? _lowestActiveToBeClosedRegister() {
@@ -215,6 +309,11 @@ class _PrototypeContext {
         if (minReg == null || reg < minReg) {
           minReg = reg;
         }
+      }
+    }
+    for (final reg in _activeImplicitToBeClosedRegisters) {
+      if (minReg == null || reg < minReg) {
+        minReg = reg;
       }
     }
     return minReg;
@@ -232,6 +331,69 @@ class _PrototypeContext {
       }
     }
     return true;
+  }
+
+  bool _emitCloseForActiveImplicitToBeClosed() {
+    if (_activeImplicitToBeClosedRegisters.isEmpty) {
+      return false;
+    }
+    var minReg = _activeImplicitToBeClosedRegisters.first;
+    for (final reg in _activeImplicitToBeClosedRegisters.skip(1)) {
+      if (reg < minReg) {
+        minReg = reg;
+      }
+    }
+    emitter.emitABC(opcode: LualikeIrOpcode.close, a: minReg, b: 0, c: 0);
+    return true;
+  }
+
+  bool _emitCloseForScope(int scopeIndex) {
+    final minReg = _lowestToBeClosedRegisterForScope(scopeIndex);
+    if (minReg == null) {
+      return false;
+    }
+    emitter.emitABC(opcode: LualikeIrOpcode.close, a: minReg, b: 0, c: 0);
+    return true;
+  }
+
+  bool _emitCloseForExitedScopesFrom(int scopeCount) {
+    final minReg = _lowestToBeClosedRegisterForScopesFrom(scopeCount);
+    if (minReg == null) {
+      return false;
+    }
+    emitter.emitABC(opcode: LualikeIrOpcode.close, a: minReg, b: 0, c: 0);
+    return true;
+  }
+
+  int? _lowestLocalRegisterHiddenByGoto(int targetPc, int targetScopeIndex) {
+    int? minReg;
+    for (var i = targetScopeIndex; i < _localDebugScopes.length; i++) {
+      for (final local in _localDebugScopes[i]) {
+        final leavesScope = i > targetScopeIndex;
+        final declaredAfterLabel = i == targetScopeIndex && local.startPc > targetPc;
+        if (leavesScope || declaredAfterLabel) {
+          if (minReg == null || local.register < minReg) {
+            minReg = local.register;
+          }
+        }
+      }
+    }
+    return minReg;
+  }
+
+  _LoopContext _beginLoop() {
+    final loop = _LoopContext(scopeCountBeforeLoop: _localScopes.length);
+    _loopStack.add(loop);
+    return loop;
+  }
+
+  void _endLoop(_LoopContext loop) {
+    final removed = _loopStack.removeLast();
+    assert(identical(loop, removed), 'Loop contexts must unwind in order');
+    final endIndex = _currentInstructionIndex;
+    for (final jumpIndex in loop.breakJumps) {
+      _patchJump(jumpIndex, endIndex);
+    }
   }
 
   void _emitVarargPrep(int fixedParamCount) {
@@ -260,8 +422,8 @@ class _PrototypeContext {
     if (resolved == null) {
       return null;
     }
-    final index = builder.upvalueDescriptors.length;
-    builder.upvalueDescriptors.add(
+    final index = _addUpvalueDescriptor(
+      name,
       LualikeIrUpvalueDescriptor(
         inStack: resolved.inStack ? 1 : 0,
         index: resolved.index,
@@ -274,12 +436,15 @@ class _PrototypeContext {
   _UpvalueReference? _ensureUpvalueForChild(String name) {
     final localRegister = _lookupLocal(name);
     if (localRegister != null) {
-      if (localRegister >= builder.paramCount) {
-        builder.upvalueDescriptors.add(
-          LualikeIrUpvalueDescriptor(inStack: 1, index: localRegister),
-        );
-      }
       return _UpvalueReference(inStack: true, index: localRegister);
+    }
+
+    if (name == '_ENV' && parent == null) {
+      return const _UpvalueReference(inStack: false, index: 0);
+    }
+
+    if (name != '_ENV' && _resolvesCurrentFunctionBindingAsGlobal(name)) {
+      return null;
     }
 
     final existing = _upvalues[name];
@@ -292,8 +457,8 @@ class _PrototypeContext {
       return null;
     }
 
-    final index = builder.upvalueDescriptors.length;
-    builder.upvalueDescriptors.add(
+    final index = _addUpvalueDescriptor(
+      name,
       LualikeIrUpvalueDescriptor(
         inStack: ancestor.inStack ? 1 : 0,
         index: ancestor.index,
@@ -301,6 +466,16 @@ class _PrototypeContext {
     );
     _upvalues[name] = index;
     return _UpvalueReference(inStack: false, index: index);
+  }
+
+  int _addUpvalueDescriptor(
+    String name,
+    LualikeIrUpvalueDescriptor descriptor,
+  ) {
+    final index = builder.upvalueDescriptors.length;
+    builder.upvalueDescriptors.add(descriptor);
+    builder.upvalueNames.add(name);
+    return index;
   }
 
   bool emitStatement(AstNode node) {
@@ -315,6 +490,9 @@ class _PrototypeContext {
         return _emitIfStatement(node);
       case WhileStatement():
         _emitWhileStatement(node);
+        return false;
+      case RepeatUntilLoop():
+        _emitRepeatUntilLoop(node);
         return false;
       case ForLoop():
         _emitForLoop(node);
@@ -353,9 +531,12 @@ class _PrototypeContext {
         _trackSource(node);
         _defineLabel(node.label.name);
         return false;
+      case Break():
+        _emitBreak(node);
+        return true;
       case Goto():
         _emitGoto(node);
-        return false;
+        return true;
       default:
         throw UnsupportedError(
           'Lualike IR compiler does not yet support statement type: '
@@ -367,7 +548,7 @@ class _PrototypeContext {
   void _emitReturn(ReturnStatement node) {
     _trackSource(node);
     hasExplicitReturn = true;
-    _emitCloseForActiveToBeClosed(clear: true);
+    final hasActiveToBeClosed = _lowestActiveToBeClosedRegister() != null;
 
     if (node.expr.isEmpty) {
       emitter.emitABC(opcode: LualikeIrOpcode.return0, a: 0, b: 0, c: 0);
@@ -377,12 +558,32 @@ class _PrototypeContext {
     if (node.expr.length == 1) {
       final expression = node.expr.first;
       if (expression is FunctionCall) {
-        _emitFunctionCall(expression, discardResult: false, asTailCall: true);
+        if (hasActiveToBeClosed) {
+          final call = _emitFunctionCall(expression, captureAll: true);
+          emitter.emitABC(
+            opcode: LualikeIrOpcode.ret,
+            a: call.base,
+            b: 0,
+            c: 0,
+          );
+        } else {
+          _emitFunctionCall(expression, discardResult: false, asTailCall: true);
+        }
         return;
       }
 
       if (expression is MethodCall) {
-        _emitMethodCall(expression, discardResult: false, asTailCall: true);
+        if (hasActiveToBeClosed) {
+          final call = _emitMethodCall(expression, captureAll: true);
+          emitter.emitABC(
+            opcode: LualikeIrOpcode.ret,
+            a: call.base,
+            b: 0,
+            c: 0,
+          );
+        } else {
+          _emitMethodCall(expression, discardResult: false, asTailCall: true);
+        }
         return;
       }
 
@@ -441,7 +642,7 @@ class _PrototypeContext {
       valueRegs.add(reg);
     }
 
-    final returnBase = valueRegs.first;
+    var returnBase = valueRegs.first;
     if (capturesAll) {
       final fixedCount = valueRegs.length - 1;
       emitter.emitABC(
@@ -454,6 +655,24 @@ class _PrototypeContext {
     }
 
     final valueCount = valueRegs.length;
+    final packedBase = _allocateRegister();
+    if (valueCount > 1) {
+      _ensureRegister(packedBase + valueCount - 1);
+    }
+    for (var i = 0; i < valueCount; i++) {
+      final sourceReg = valueRegs[i];
+      final targetReg = packedBase + i;
+      if (sourceReg == targetReg) {
+        continue;
+      }
+      emitter.emitABC(
+        opcode: LualikeIrOpcode.move,
+        a: targetReg,
+        b: sourceReg,
+        c: 0,
+      );
+    }
+    returnBase = packedBase;
     emitter.emitABC(
       opcode: LualikeIrOpcode.ret,
       a: returnBase,
@@ -499,7 +718,8 @@ class _PrototypeContext {
         emitter.emitABx(opcode: LualikeIrOpcode.loadK, a: reg, bx: index);
         return reg;
       case Identifier(:final name):
-        final localReg = _lookupLocal(name);
+        final binding = _resolveCurrentFunctionBinding(name);
+        final localReg = binding.register;
         if (localReg != null) {
           if (target != null) {
             final dest = _materializeRegister(target);
@@ -521,6 +741,24 @@ class _PrototypeContext {
             c: 0,
           );
           return temp;
+        }
+        if (binding.isGlobal) {
+          final envField = _emitEnvFieldRead(name, target: target);
+          if (envField != null) {
+            return envField;
+          }
+          final reg = _materializeRegister(target);
+          final constant = name.length <= 40
+              ? ShortStringConstant(name)
+              : LongStringConstant(name);
+          final index = builder.addConstant(constant);
+          emitter.emitABC(
+            opcode: LualikeIrOpcode.getTabUp,
+            a: reg,
+            b: 0,
+            c: index,
+          );
+          return reg;
         }
         final upvalueIndex = _resolveUpvalueIndex(name);
         if (upvalueIndex != null) {
@@ -635,7 +873,6 @@ class _PrototypeContext {
     }
 
     final result = _emitAssignmentValues(node.exprs, node.targets.length);
-    final protected = <int>{};
 
     for (var i = 0; i < targetPlans.length; i++) {
       final plan = targetPlans[i];
@@ -652,8 +889,6 @@ class _PrototypeContext {
               b: valueReg,
               c: 0,
             );
-          } else {
-            protected.add(valueReg);
           }
           continue;
         }
@@ -724,21 +959,7 @@ class _PrototypeContext {
       );
     }
 
-    for (var i = result.temporaries.length - 1; i >= 0; i--) {
-      final reg = result.temporaries[i];
-      if (protected.contains(reg)) {
-        continue;
-      }
-      _releaseRegister(reg);
-    }
-
-    for (var i = targetTemporaries.length - 1; i >= 0; i--) {
-      final reg = targetTemporaries[i];
-      if (protected.contains(reg)) {
-        continue;
-      }
-      _releaseRegister(reg);
-    }
+    _releaseDownTo(_firstFreeRegister());
   }
 
   _AssignmentTargetPlan _prepareAssignmentTarget(AstNode target) {
@@ -794,7 +1015,7 @@ class _PrototypeContext {
     final tableReg = _emitExpression(tableNode);
     final temporaries = <int>[tableReg];
     final numericIndex = _numericLiteralValue(indexNode);
-    if (numericIndex is int) {
+    if (numericIndex is int && _fitsInlineTableIntegerIndex(numericIndex)) {
       return _TableIndexAssignmentPlan(
         tableReg: tableReg,
         numericIndex: numericIndex,
@@ -845,10 +1066,11 @@ class _PrototypeContext {
       );
     }
 
-    if (closableIndices.isNotEmpty && closableIndices.first != nameCount - 1) {
-      throw UnsupportedError(
-        'to-be-closed variable must be the last name in the declaration.',
-      );
+    // Lowered bytecode currently mishandles direct `<close>` bindings that
+    // occupy register 0. Keep the first closable local off register 0 so IR
+    // execution continues to route through the shared bytecode VM.
+    if (closableIndices.isNotEmpty && _nextRegister == 0) {
+      _allocateRegister();
     }
 
     final targets = <({String name, int register})>[];
@@ -857,8 +1079,6 @@ class _PrototypeContext {
       targets.add((name: identifier.name, register: register));
     }
     final result = _emitAssignmentValues(node.exprs, nameCount);
-    final protected = <int>{};
-
     for (var i = 0; i < nameCount; i++) {
       final target = targets[i];
       _declareLocal(target.name, target.register);
@@ -878,7 +1098,6 @@ class _PrototypeContext {
           builder.scheduleConstSeal(sealPc, targetReg);
         }
       } else {
-        protected.add(valueReg);
         if (isConst) {
           final sealPc = _currentInstructionIndex - 1;
           builder.scheduleConstSeal(sealPc, targetReg);
@@ -890,27 +1109,30 @@ class _PrototypeContext {
     }
 
     if (closableIndices.isNotEmpty) {
-      final reg = targets[closableIndices.first].register;
+      final closableIndex = closableIndices.first;
+      final reg = targets[closableIndex].register;
+      builder.toBeClosedNamesByPc[_currentInstructionIndex] =
+          targets[closableIndex].name;
       emitter.emitABC(opcode: LualikeIrOpcode.tbc, a: reg, b: 0, c: 0);
       _recordToBeClosed(reg);
     }
 
-    for (var i = result.temporaries.length - 1; i >= 0; i--) {
-      final reg = result.temporaries[i];
-      if (protected.contains(reg)) {
-        continue;
-      }
-      _releaseRegister(reg);
-    }
+    _releaseDownTo(_firstFreeRegister());
   }
 
   void _emitGlobalDeclaration(GlobalDeclaration node) {
     _trackSource(node);
     if (node.isWildcard || node.names.isEmpty) {
+      if (node.isWildcard) {
+        _declareWildcardGlobalBinding();
+      }
       return;
     }
 
     if (node.exprs.isEmpty) {
+      for (final name in node.names) {
+        _declareGlobalBinding(name.name);
+      }
       return;
     }
 
@@ -920,6 +1142,7 @@ class _PrototypeContext {
         final name = node.names[index].name;
         final valueReg = result.registers[index];
         _ensureRegister(valueReg);
+        _emitCheckGlobalUndefined(name);
         if (_emitEnvFieldWrite(name, valueReg)) {
           continue;
         }
@@ -932,10 +1155,58 @@ class _PrototypeContext {
         );
       }
     } finally {
-      for (var i = result.temporaries.length - 1; i >= 0; i--) {
-        _releaseRegister(result.temporaries[i]);
-      }
+      _releaseTemporaryRegisters(result.temporaries);
     }
+    for (final name in node.names) {
+      _declareGlobalBinding(name.name);
+    }
+  }
+
+  void _emitCheckGlobalUndefined(String name) {
+    final constantIndex = _ensureConstantIndex(name);
+    final localEnvReg = _lookupLocal('_ENV');
+    final upvalueEnvIndex = localEnvReg == null
+        ? _resolveUpvalueIndex('_ENV')
+        : null;
+    if (localEnvReg != null) {
+      emitter.emitABx(
+        opcode: LualikeIrOpcode.checkGlobal,
+        a: localEnvReg,
+        bx: constantIndex,
+      );
+      return;
+    }
+    if (upvalueEnvIndex != null) {
+      final envValueReg = _allocateRegister();
+      emitter.emitABC(
+        opcode: LualikeIrOpcode.getUpval,
+        a: envValueReg,
+        b: upvalueEnvIndex,
+        c: 0,
+      );
+      emitter.emitABx(
+        opcode: LualikeIrOpcode.checkGlobal,
+        a: envValueReg,
+        bx: constantIndex,
+      );
+      _releaseRegister(envValueReg);
+      return;
+    }
+
+    // The lowered main prototype synthesizes `_ENV` as upvalue 0.
+    final envValueReg = _allocateRegister();
+    emitter.emitABC(
+      opcode: LualikeIrOpcode.getUpval,
+      a: envValueReg,
+      b: 0,
+      c: 0,
+    );
+    emitter.emitABx(
+      opcode: LualikeIrOpcode.checkGlobal,
+      a: envValueReg,
+      bx: constantIndex,
+    );
+    _releaseRegister(envValueReg);
   }
 
   bool _emitDoBlock(DoBlock node) {
@@ -1066,7 +1337,7 @@ class _PrototypeContext {
               b: fieldIndex,
               c: valueReg,
             );
-            _releaseRegister(valueReg);
+            _releaseDownTo(tableReg + 1);
           } else {
             emitter.emitABC(
               opcode: LualikeIrOpcode.setTable,
@@ -1074,8 +1345,7 @@ class _PrototypeContext {
               b: keyReg!,
               c: valueReg,
             );
-            _releaseRegister(valueReg);
-            _releaseRegister(keyReg);
+            _releaseDownTo(tableReg + 1);
           }
           break;
         case IndexedTableEntry():
@@ -1087,8 +1357,7 @@ class _PrototypeContext {
             b: keyReg,
             c: valueReg,
           );
-          _releaseRegister(valueReg);
-          _releaseRegister(keyReg);
+          _releaseDownTo(tableReg + 1);
           break;
         default:
           throw UnsupportedError(
@@ -1121,7 +1390,7 @@ class _PrototypeContext {
         b: fieldIndex,
         c: valueReg,
       );
-      _releaseRegister(valueReg);
+      _releaseDownTo(valueReg);
       return;
     }
 
@@ -1133,8 +1402,7 @@ class _PrototypeContext {
       b: fieldIndex,
       c: valueReg,
     );
-    _releaseRegister(valueReg);
-    _releaseRegister(tableReg);
+    _releaseDownTo(tableReg);
   }
 
   void _emitTableIndexAssignment(
@@ -1144,7 +1412,7 @@ class _PrototypeContext {
   ) {
     final tableReg = _emitExpression(tableNode);
     final numericIndex = _numericLiteralValue(indexNode);
-    if (numericIndex is int) {
+    if (numericIndex is int && _fitsInlineTableIntegerIndex(numericIndex)) {
       final valueReg = _emitExpression(valueNode);
       emitter.emitABC(
         opcode: LualikeIrOpcode.setI,
@@ -1152,8 +1420,7 @@ class _PrototypeContext {
         b: numericIndex,
         c: valueReg,
       );
-      _releaseRegister(valueReg);
-      _releaseRegister(tableReg);
+      _releaseDownTo(tableReg);
       return;
     }
 
@@ -1167,8 +1434,7 @@ class _PrototypeContext {
         b: fieldIndex,
         c: valueReg,
       );
-      _releaseRegister(valueReg);
-      _releaseRegister(tableReg);
+      _releaseDownTo(tableReg);
       return;
     }
 
@@ -1180,15 +1446,117 @@ class _PrototypeContext {
       b: indexReg,
       c: valueReg,
     );
-    _releaseRegister(valueReg);
-    _releaseRegister(indexReg);
-    _releaseRegister(tableReg);
+    _releaseDownTo(tableReg);
   }
 
   void _emitIdentifierAssignment(String name, AstNode valueNode) {
-    final localReg = _lookupLocal(name);
+    final binding = _resolveCurrentFunctionBinding(name);
+    final localReg = binding.register;
+    if (valueNode is FunctionLiteral) {
+      if (localReg != null) {
+        final valueReg = _emitFunctionLiteral(
+          valueNode,
+          debugName: name,
+          debugNameWhat: 'local',
+        );
+        if (valueReg != localReg) {
+          emitter.emitABC(
+            opcode: LualikeIrOpcode.move,
+            a: localReg,
+            b: valueReg,
+            c: 0,
+          );
+          _releaseDownTo(valueReg);
+        }
+        return;
+      }
+
+      if (binding.isGlobal) {
+        final valueReg = _emitFunctionLiteral(
+          valueNode,
+          debugName: name,
+          debugNameWhat: 'global',
+        );
+        if (_emitEnvFieldWrite(name, valueReg)) {
+          _releaseDownTo(valueReg);
+          return;
+        }
+        final constantIndex = _ensureConstantIndex(name);
+        emitter.emitABC(
+          opcode: LualikeIrOpcode.setTabUp,
+          a: 0,
+          b: constantIndex,
+          c: valueReg,
+        );
+        _releaseDownTo(valueReg);
+        return;
+      }
+
+      final upvalueIndex = _resolveUpvalueIndex(name);
+      if (upvalueIndex != null) {
+        final valueReg = _emitFunctionLiteral(
+          valueNode,
+          debugName: name,
+          debugNameWhat: 'upvalue',
+        );
+        emitter.emitABC(
+          opcode: LualikeIrOpcode.setUpval,
+          a: 0,
+          b: upvalueIndex,
+          c: valueReg,
+        );
+        _releaseDownTo(valueReg);
+        return;
+      }
+
+      final valueReg = _emitFunctionLiteral(
+        valueNode,
+        debugName: name,
+        debugNameWhat: 'global',
+      );
+      if (_emitEnvFieldWrite(name, valueReg)) {
+        _releaseDownTo(valueReg);
+        return;
+      }
+      final constantIndex = _ensureConstantIndex(name);
+      emitter.emitABC(
+        opcode: LualikeIrOpcode.setTabUp,
+        a: 0,
+        b: constantIndex,
+        c: valueReg,
+      );
+      _releaseDownTo(valueReg);
+      return;
+    }
+
     if (localReg != null) {
-      _emitExpression(valueNode, target: localReg);
+      final valueReg = _emitExpression(valueNode);
+      if (valueReg != localReg) {
+        emitter.emitABC(
+          opcode: LualikeIrOpcode.move,
+          a: localReg,
+          b: valueReg,
+          c: 0,
+        );
+        _releaseDownTo(valueReg);
+      }
+      return;
+    }
+
+    if (binding.isGlobal) {
+      final valueReg = _emitExpression(valueNode);
+      if (_emitEnvFieldWrite(name, valueReg)) {
+        _releaseDownTo(valueReg);
+        return;
+      }
+      final constantIndex = _ensureConstantIndex(name);
+      emitter.emitABC(
+        opcode: LualikeIrOpcode.setTabUp,
+        a: 0,
+        b: constantIndex,
+        c: valueReg,
+      );
+      _releaseDownTo(valueReg);
       return;
     }
 
@@ -1201,13 +1569,13 @@ class _PrototypeContext {
         b: upvalueIndex,
         c: valueReg,
       );
-      _releaseRegister(valueReg);
+      _releaseDownTo(valueReg);
       return;
     }
 
     final valueReg = _emitExpression(valueNode);
     if (_emitEnvFieldWrite(name, valueReg)) {
-      _releaseRegister(valueReg);
+      _releaseDownTo(valueReg);
       return;
     }
     final constantIndex = _ensureConstantIndex(name);
@@ -1217,22 +1585,27 @@ class _PrototypeContext {
       b: constantIndex,
       c: valueReg,
     );
-    _releaseRegister(valueReg);
+    _releaseDownTo(valueReg);
   }
 
   int? _emitEnvFieldRead(String name, {int? target}) {
-    final envReg = _lookupLocal('_ENV');
-    if (envReg == null) {
+    final dest = _materializeRegister(target);
+    final localEnvReg = _lookupLocal('_ENV');
+    final upvalueEnvIndex = localEnvReg == null
+        ? _resolveUpvalueIndex('_ENV')
+        : null;
+    if (localEnvReg == null && upvalueEnvIndex == null) {
       return null;
     }
-    final dest = _materializeRegister(target);
-    final envValueReg = _allocateRegister();
-    emitter.emitABC(
-      opcode: LualikeIrOpcode.move,
-      a: envValueReg,
-      b: envReg,
-      c: 0,
-    );
+    final envValueReg = localEnvReg ?? _allocateRegister();
+    if (upvalueEnvIndex != null) {
+      emitter.emitABC(
+        opcode: LualikeIrOpcode.getUpval,
+        a: envValueReg,
+        b: upvalueEnvIndex,
+        c: 0,
+      );
+    }
     final constant = name.length <= 40
         ? ShortStringConstant(name)
         : LongStringConstant(name);
@@ -1243,22 +1616,29 @@ class _PrototypeContext {
       b: envValueReg,
       c: index,
     );
-    _releaseRegister(envValueReg);
+    if (upvalueEnvIndex != null) {
+      _releaseRegister(envValueReg);
+    }
     return dest;
   }
 
   bool _emitEnvFieldWrite(String name, int valueReg) {
-    final envReg = _lookupLocal('_ENV');
-    if (envReg == null) {
+    final localEnvReg = _lookupLocal('_ENV');
+    final upvalueEnvIndex = localEnvReg == null
+        ? _resolveUpvalueIndex('_ENV')
+        : null;
+    if (localEnvReg == null && upvalueEnvIndex == null) {
       return false;
     }
-    final envValueReg = _allocateRegister();
-    emitter.emitABC(
-      opcode: LualikeIrOpcode.move,
-      a: envValueReg,
-      b: envReg,
-      c: 0,
-    );
+    final envValueReg = localEnvReg ?? _allocateRegister();
+    if (upvalueEnvIndex != null) {
+      emitter.emitABC(
+        opcode: LualikeIrOpcode.getUpval,
+        a: envValueReg,
+        b: upvalueEnvIndex,
+        c: 0,
+      );
+    }
     final constant = name.length <= 40
         ? ShortStringConstant(name)
         : LongStringConstant(name);
@@ -1269,7 +1649,9 @@ class _PrototypeContext {
       b: index,
       c: valueReg,
     );
-    _releaseRegister(envValueReg);
+    if (upvalueEnvIndex != null) {
+      _releaseRegister(envValueReg);
+    }
     return true;
   }
 
@@ -1311,6 +1693,7 @@ class _PrototypeContext {
 
   void _emitWhileStatement(WhileStatement node) {
     _trackSource(node);
+    final loop = _beginLoop();
     final loopStart = _currentInstructionIndex;
     final exitJump = _emitConditionJump(node.cond, jumpWhenTrue: false);
     _emitBlock(node.body, useNewScope: true);
@@ -1318,21 +1701,48 @@ class _PrototypeContext {
     final backJumpIndex = emitter.emitAsJ(opcode: LualikeIrOpcode.jmp, sJ: 0);
     _patchJump(backJumpIndex, loopStart);
     _patchJump(exitJump, _currentInstructionIndex);
+    _endLoop(loop);
+  }
+
+  void _emitRepeatUntilLoop(RepeatUntilLoop node) {
+    _trackSource(node);
+    final loop = _beginLoop();
+    final loopStart = _currentInstructionIndex;
+    _pushLocalScope();
+
+    final terminated = _emitBlock(node.body, useNewScope: false);
+    if (!terminated) {
+      final condReg = _emitExpression(node.cond);
+      _emitCloseForScope(_localScopes.length - 1);
+      emitter.emitABC(
+        opcode: LualikeIrOpcode.test,
+        a: condReg,
+        b: 0,
+        c: 0,
+        k: false,
+      );
+      final continueJump = _emitJumpPlaceholder();
+      _releaseRegister(condReg);
+      _popLocalScope(emitClose: false);
+      _patchJump(continueJump, loopStart);
+    } else {
+      _popLocalScope();
+    }
+
+    _endLoop(loop);
   }
 
   void _emitForLoop(ForLoop node) {
     _trackSource(node);
+    final loop = _beginLoop();
     final base = _allocateRegister();
     final limitReg = _allocateRegister();
     final stepReg = _allocateRegister();
-    final controlReg = _allocateRegister();
 
     _emitExpression(node.start, target: base);
     _emitExpression(node.endExpr, target: limitReg);
 
     _emitExpression(node.stepExpr, target: stepReg);
-
-    emitter.emitABC(opcode: LualikeIrOpcode.move, a: controlReg, b: base, c: 0);
 
     final forPrepIndex = emitter.emitAsBx(
       opcode: LualikeIrOpcode.forPrep,
@@ -1343,7 +1753,7 @@ class _PrototypeContext {
     final bodyStart = _currentInstructionIndex;
 
     _pushLocalScope();
-    _declareLocal(node.varName.name, controlReg);
+    _declareLocal(node.varName.name, stepReg);
     _emitBlock(node.body, useNewScope: false);
     _popLocalScope();
 
@@ -1351,6 +1761,11 @@ class _PrototypeContext {
       opcode: LualikeIrOpcode.forLoop,
       a: base,
       sBx: 0,
+    );
+    _extendRecentLocalDebugLifetime(
+      node.varName.name,
+      register: stepReg,
+      endPc: forLoopIndex + 1,
     );
 
     final patchedForPrep = AsBxInstruction(
@@ -1368,69 +1783,44 @@ class _PrototypeContext {
     );
     builder.replaceInstruction(forLoopIndex, patchedForLoop);
 
-    _releaseRegister(controlReg);
-    _releaseRegister(stepReg);
-    _releaseRegister(limitReg);
-    _releaseRegister(base);
+    _endLoop(loop);
+    _releaseDownTo(base);
   }
 
   void _emitForInLoop(ForInLoop node) {
     _trackSource(node);
+    final loop = _beginLoop();
     if (node.iterators.isEmpty || node.names.isEmpty) {
       throw UnsupportedError('Generic for loop requires iterators and names');
-    }
-
-    final iteratorCount = node.iterators.length;
-    if (iteratorCount > 3) {
-      throw UnsupportedError(
-        'Lualike IR compiler supports up to three iterator expressions',
-      );
     }
 
     final base = _allocateRegister();
     for (var offset = 1; offset <= 3; offset++) {
       _ensureRegister(base + offset);
     }
-    final loopVarRegs = <int>[];
-    for (var i = 0; i < node.names.length; i++) {
-      loopVarRegs.add(_ensureRegister(base + 4 + i));
-    }
 
-    var filledSlots = 0;
-    for (var i = 0; i < iteratorCount; i++) {
-      final iterator = node.iterators[i];
-      final targetReg = base + i;
-      final isFirstIterator = i == 0;
-      if (isFirstIterator) {
-        switch (iterator) {
-          case FunctionCall():
-            _emitFunctionCall(
-              iterator,
-              resultCount: 3,
-              baseRegister: targetReg,
-            );
-            filledSlots = 3;
-            continue;
-          case MethodCall():
-            _emitMethodCall(iterator, resultCount: 3, baseRegister: targetReg);
-            filledSlots = 3;
-            continue;
-          default:
-            break;
+    final iteratorValues = _emitAssignmentValues(node.iterators, 4);
+    try {
+      for (var i = 0; i < 4; i++) {
+        final sourceReg = iteratorValues.registers[i];
+        final targetReg = base + i;
+        if (sourceReg == targetReg) {
+          continue;
         }
-      }
-      _emitExpression(iterator, target: targetReg);
-      filledSlots = i + 1;
-    }
-    if (filledSlots < 3) {
-      for (var i = filledSlots; i < 3; i++) {
         emitter.emitABC(
-          opcode: LualikeIrOpcode.loadNil,
-          a: base + i,
-          b: 0,
+          opcode: LualikeIrOpcode.move,
+          a: targetReg,
+          b: sourceReg,
           c: 0,
         );
       }
+    } finally {
+      _releaseDownTo(base + 4);
+    }
+
+    final loopVarRegs = <int>[];
+    for (var i = 0; i < node.names.length; i++) {
+      loopVarRegs.add(_ensureRegister(base + 3 + i));
     }
 
     final tforPrepIndex = emitter.emitAsBx(
@@ -1441,21 +1831,17 @@ class _PrototypeContext {
 
     final bodyStart = _currentInstructionIndex;
 
-    for (var i = node.names.length - 1; i >= 0; i--) {
-      emitter.emitABC(
-        opcode: LualikeIrOpcode.move,
-        a: loopVarRegs[i],
-        b: base + 4 + i,
-        c: 0,
-      );
+    _activeImplicitToBeClosedRegisters.add(base + 2);
+    try {
+      _pushLocalScope();
+      for (var i = 0; i < node.names.length; i++) {
+        _declareLocal(node.names[i].name, loopVarRegs[i]);
+      }
+      _emitBlock(node.body, useNewScope: false);
+      _popLocalScope();
+    } finally {
+      _activeImplicitToBeClosedRegisters.removeLast();
     }
-
-    _pushLocalScope();
-    for (var i = 0; i < node.names.length; i++) {
-      _declareLocal(node.names[i].name, loopVarRegs[i]);
-    }
-    _emitBlock(node.body, useNewScope: false);
-    _popLocalScope();
 
     final tforCallIndex = emitter.emitABC(
       opcode: LualikeIrOpcode.tForCall,
@@ -1484,15 +1870,59 @@ class _PrototypeContext {
     );
     builder.replaceInstruction(tforLoopIndex, patchedTforLoop);
 
-    for (var reg = _nextRegister - 1; reg >= base; reg--) {
-      _releaseRegister(reg);
-    }
+    // Breaks must land on the closing instruction so the loop's implicit
+    // to-be-closed slot is finalized before control leaves the loop.
+    _endLoop(loop);
+    emitter.emitABC(opcode: LualikeIrOpcode.close, a: base, b: 0, c: 0);
+    _releaseDownTo(base);
   }
 
   void _emitFunctionDef(FunctionDef node) {
     _trackSource(node);
     final register = _allocateRegister();
-    final prototypeIndex = _compileFunctionBody(node.body);
+    final simpleName = node.name.first.name;
+    final hasSimpleName = !node.implicitSelf && node.name.rest.isEmpty;
+    final declaresSimpleGlobal =
+        node.explicitGlobal && hasSimpleName && node.name.method == null;
+    if (declaresSimpleGlobal) {
+      _declareGlobalBinding(simpleName);
+    }
+    final currentBinding = hasSimpleName
+        ? _resolveCurrentFunctionBinding(simpleName)
+        : const _CurrentFunctionBinding.none();
+    final debugName = node.implicitSelf
+        ? node.name.method!.name
+        : node.name.rest.isNotEmpty
+        ? node.name.rest.last.name
+        : simpleName;
+    final localTarget = hasSimpleName && !node.explicitGlobal
+        ? currentBinding.register
+        : null;
+    final upvalueTarget =
+        hasSimpleName &&
+            !node.explicitGlobal &&
+            localTarget == null &&
+            !currentBinding.isGlobal
+        ? _resolveUpvalueIndex(simpleName)
+        : null;
+    final debugNameWhat = switch ((
+      node.implicitSelf,
+      hasSimpleName,
+      localTarget,
+      upvalueTarget,
+    )) {
+      (true, _, _, _) => 'method',
+      (false, false, _, _) => 'field',
+      (false, true, int _, _) => 'local',
+      (false, true, null, int _) => 'upvalue',
+      _ => 'global',
+    };
+    final prototypeIndex = _compileFunctionBody(
+      node.body,
+      debugName: debugName,
+      debugNameWhat: debugNameWhat,
+      declaredGlobals: declaresSimpleGlobal ? <String>{simpleName} : const {},
+    );
     emitter.emitABx(
       opcode: LualikeIrOpcode.closure,
       a: register,
@@ -1501,23 +1931,48 @@ class _PrototypeContext {
 
     final rest = node.name.rest;
     if (!node.implicitSelf && rest.isEmpty) {
-      final envReg = _lookupLocal('_ENV');
-      final constantIndex = _ensureConstantIndex(node.name.first.name);
-      if (envReg != null) {
+      final name = node.name.first.name;
+      final binding = node.explicitGlobal
+          ? const _CurrentFunctionBinding.global()
+          : _resolveCurrentFunctionBinding(name);
+      final localReg = binding.register;
+      if (localReg != null) {
         emitter.emitABC(
-          opcode: LualikeIrOpcode.setField,
-          a: envReg,
-          b: constantIndex,
-          c: register,
+          opcode: LualikeIrOpcode.move,
+          a: localReg,
+          b: register,
+          c: 0,
         );
-      } else {
-        emitter.emitABC(
-          opcode: LualikeIrOpcode.setTabUp,
-          a: 0,
-          b: constantIndex,
-          c: register,
-        );
+        _releaseRegister(register);
+        return;
       }
+
+      final upvalueIndex = node.explicitGlobal || binding.isGlobal
+          ? null
+          : _resolveUpvalueIndex(name);
+      if (upvalueIndex != null) {
+        emitter.emitABC(
+          opcode: LualikeIrOpcode.setUpval,
+          a: 0,
+          b: upvalueIndex,
+          c: register,
+        );
+        _releaseRegister(register);
+        return;
+      }
+
+      if (_emitEnvFieldWrite(name, register)) {
+        _releaseRegister(register);
+        return;
+      }
+
+      final constantIndex = _ensureConstantIndex(name);
+      emitter.emitABC(
+        opcode: LualikeIrOpcode.setTabUp,
+        a: 0,
+        b: constantIndex,
+        c: register,
+      );
       _releaseRegister(register);
       return;
     }
@@ -1589,15 +2044,18 @@ class _PrototypeContext {
       b: fieldIndex,
       c: register,
     );
-    _releaseRegister(tableReg);
-    _releaseRegister(register);
+    _releaseDownTo(_firstFreeRegister());
   }
 
   void _emitLocalFunctionDef(LocalFunctionDef node) {
     _trackSource(node);
     final register = _allocateRegister();
     _declareLocal(node.name.name, register);
-    final prototypeIndex = _compileFunctionBody(node.funcBody);
+    final prototypeIndex = _compileFunctionBody(
+      node.funcBody,
+      debugName: node.name.name,
+      debugNameWhat: 'local',
+    );
     emitter.emitABx(
       opcode: LualikeIrOpcode.closure,
       a: register,
@@ -1605,7 +2063,12 @@ class _PrototypeContext {
     );
   }
 
-  int _compileFunctionBody(FunctionBody body) {
+  int _compileFunctionBody(
+    FunctionBody body, {
+    String? debugName,
+    String debugNameWhat = '',
+    Set<String> declaredGlobals = const <String>{},
+  }) {
     final positionalParams = <String>[
       for (final param in body.parameters ?? const <Identifier>[]) param.name,
     ];
@@ -1617,29 +2080,34 @@ class _PrototypeContext {
     }
 
     final childBuilder = builder.createChild();
+    childBuilder.builder.preferredDebugName = debugName;
+    childBuilder.builder.preferredDebugNameWhat = debugNameWhat;
     final childContext = _PrototypeContext(
       childBuilder.builder,
       parent: this,
       parameterNames: positionalParams,
       isVararg: body.isVararg,
     );
+    for (final name in declaredGlobals) {
+      childContext._declareGlobalBinding(name);
+    }
     if (body.varargName case final Identifier varargName) {
       final register = childContext._allocateRegister();
       childContext._declareLocal(varargName.name, register);
       childBuilder.builder.namedVarargRegister = register;
     }
 
-    for (final statement in body.body) {
-      final terminated = childContext.emitStatement(statement);
-      if (terminated) {
-        break;
-      }
-    }
+    childContext._emitBlock(body.body, useNewScope: false);
     childContext.finalize();
     return childBuilder.index;
   }
 
-  int _emitFunctionLiteral(FunctionLiteral node, {int? target}) {
+  int _emitFunctionLiteral(
+    FunctionLiteral node, {
+    int? target,
+    String? debugName,
+    String debugNameWhat = '',
+  }) {
     final originalTarget = target;
     int? preservedLocalRegister;
     if (target != null && _isRegisterOccupiedByLocal(target)) {
@@ -1659,7 +2127,11 @@ class _PrototypeContext {
     } else {
       register = _materializeRegister(target);
     }
-    final prototypeIndex = _compileFunctionBody(node.funcBody);
+    final prototypeIndex = _compileFunctionBody(
+      node.funcBody,
+      debugName: debugName,
+      debugNameWhat: debugNameWhat,
+    );
     emitter.emitABx(
       opcode: LualikeIrOpcode.closure,
       a: register,
@@ -1715,9 +2187,15 @@ class _PrototypeContext {
       _pushLocalScope();
     }
     for (final statement in statements) {
+      if (returned) {
+        if (statement is Label) {
+          emitStatement(statement);
+          returned = false;
+        }
+        continue;
+      }
       if (emitStatement(statement)) {
         returned = true;
-        break;
       }
     }
     if (useNewScope) {
@@ -1857,9 +2335,7 @@ class _PrototypeContext {
     }
 
     if (baseRegister == null && !hasVariadicArgs && !captureAll) {
-      for (var i = argRegs.length - 1; i >= 0; i--) {
-        _releaseRegister(argRegs[i]);
-      }
+      _releaseDownTo(base + 1);
     }
 
     if (asTailCall || discardResult) {
@@ -2122,10 +2598,15 @@ class _PrototypeContext {
       '<=',
       '>=',
     }.contains(node.op);
+    final canWriteDirectlyToTarget =
+        !isComparison && target != null && !_isRegisterOccupiedByLocal(target);
 
     final leftReg = isComparison
         ? _emitExpression(node.left)
-        : _emitExpression(node.left, target: target);
+        : _emitExpression(
+            node.left,
+            target: canWriteDirectlyToTarget ? target : null,
+          );
     final resultReg = target != null ? _materializeRegister(target) : leftReg;
 
     final literalInfo = _literalValue(node.right);
@@ -2173,9 +2654,7 @@ class _PrototypeContext {
           _ => false,
         };
         if (handled) {
-          if (resultReg != leftReg) {
-            _releaseRegister(leftReg);
-          }
+          _releaseDownTo(_releaseFloorForResult(resultReg));
           return resultReg;
         }
       }
@@ -2238,10 +2717,7 @@ class _PrototypeContext {
           );
           break;
       }
-      _releaseRegister(rightReg);
-      if (resultReg != leftReg) {
-        _releaseRegister(leftReg);
-      }
+      _releaseDownTo(_releaseFloorForResult(resultReg));
       return resultReg;
     }
 
@@ -2254,7 +2730,13 @@ class _PrototypeContext {
           b: leftReg,
           c: intLiteral & 0x1FF,
         );
-        return leftReg;
+        final finalReg = _finalizeBinaryResult(
+          leftReg,
+          target: target,
+          canWriteDirectlyToTarget: canWriteDirectlyToTarget,
+        );
+        _releaseDownTo(_releaseFloorForResult(finalReg));
+        return finalReg;
       }
       if (node.op == '>>' && intLiteral >= 0 && intLiteral <= 255) {
         emitter.emitABC(
@@ -2263,7 +2745,13 @@ class _PrototypeContext {
           b: leftReg,
           c: intLiteral & 0x1FF,
         );
-        return leftReg;
+        final finalReg = _finalizeBinaryResult(
+          leftReg,
+          target: target,
+          canWriteDirectlyToTarget: canWriteDirectlyToTarget,
+        );
+        _releaseDownTo(_releaseFloorForResult(finalReg));
+        return finalReg;
       }
     }
 
@@ -2279,7 +2767,13 @@ class _PrototypeContext {
           c: constantIndex,
           k: true,
         );
-        return leftReg;
+        final finalReg = _finalizeBinaryResult(
+          leftReg,
+          target: target,
+          canWriteDirectlyToTarget: canWriteDirectlyToTarget,
+        );
+        _releaseDownTo(_releaseFloorForResult(finalReg));
+        return finalReg;
       }
     }
 
@@ -2321,7 +2815,11 @@ class _PrototypeContext {
         _ => false,
       };
       if (handled) {
-        return leftReg;
+        return _finalizeBinaryResult(
+          leftReg,
+          target: target,
+          canWriteDirectlyToTarget: canWriteDirectlyToTarget,
+        );
       }
     }
 
@@ -2398,8 +2896,33 @@ class _PrototypeContext {
         emitter.emitABC(opcode: opcode, a: leftReg, b: leftReg, c: rightReg);
     }
 
-    _releaseRegister(rightReg);
-    return leftReg;
+    final finalReg = _finalizeBinaryResult(
+      leftReg,
+      target: target,
+      canWriteDirectlyToTarget: canWriteDirectlyToTarget,
+    );
+    _releaseDownTo(_releaseFloorForResult(finalReg));
+    return finalReg;
+  }
+
+  int _finalizeBinaryResult(
+    int valueReg, {
+    required int? target,
+    required bool canWriteDirectlyToTarget,
+  }) {
+    if (target == null || canWriteDirectlyToTarget || target == valueReg) {
+      return valueReg;
+    }
+
+    final dest = _materializeRegister(target);
+    emitter.emitABC(opcode: LualikeIrOpcode.move, a: dest, b: valueReg, c: 0);
+    return dest;
+  }
+
+  int _releaseFloorForResult(int resultReg) {
+    final firstFree = _firstFreeRegister();
+    final keepResultFloor = resultReg + 1;
+    return keepResultFloor > firstFree ? keepResultFloor : firstFree;
   }
 
   int _emitConcatenation(BinaryExpression node, {int? target}) {
@@ -2511,6 +3034,12 @@ class _PrototypeContext {
     }
   }
 
+  bool _fitsInlineTableIntegerIndex(int index) => index >= 0 && index <= 0xFF;
+
+  bool _fitsInlineCompareInteger(int value) =>
+      value >= -LuaBytecodeInstructionLayout.offsetSB &&
+      value <= LuaBytecodeInstructionLayout.offsetSB;
+
   ({bool isLiteral, Object? value}) _literalValue(AstNode node) {
     switch (node) {
       case NilValue():
@@ -2534,7 +3063,7 @@ class _PrototypeContext {
     Object? value, {
     required bool negate,
   }) {
-    if (value is int) {
+    if (value is int && _fitsInlineCompareInteger(value)) {
       emitter.emitABC(
         opcode: LualikeIrOpcode.eqI,
         a: resultReg,
@@ -2569,7 +3098,7 @@ class _PrototypeContext {
     Object? value,
     LualikeIrOpcode opcode,
   ) {
-    if (value is! int) {
+    if (value is! int || !_fitsInlineCompareInteger(value)) {
       return false;
     }
     emitter.emitABC(opcode: opcode, a: resultReg, b: leftReg, c: value);
@@ -2627,7 +3156,7 @@ class _PrototypeContext {
   }) {
     final tableReg = _emitExpression(tableNode, target: target);
     final numericIndex = _numericLiteralValue(indexNode);
-    if (numericIndex is int) {
+    if (numericIndex is int && _fitsInlineTableIntegerIndex(numericIndex)) {
       emitter.emitABC(
         opcode: LualikeIrOpcode.getI,
         a: tableReg,
@@ -2675,8 +3204,44 @@ class _PrototypeContext {
       throw UnsupportedError('no visible label for goto $unresolved');
     }
 
+    final rootEndPc = _currentInstructionIndex;
+    for (final local in _localDebugScopes.first) {
+      builder.localDebugEntries.add(
+        LocalDebugEntry(
+          name: local.name,
+          startPc: local.startPc,
+          endPc: rootEndPc,
+          register: local.register,
+        ),
+      );
+    }
+    _localDebugScopes.first.clear();
+
     final registers = _maxRegister == 0 ? 1 : _maxRegister;
     builder.registerCount = registers;
+  }
+
+  void _extendRecentLocalDebugLifetime(
+    String name, {
+    required int register,
+    required int endPc,
+  }) {
+    for (var index = builder.localDebugEntries.length - 1; index >= 0; index--) {
+      final entry = builder.localDebugEntries[index];
+      if (entry.name != name || entry.register != register) {
+        continue;
+      }
+      if (entry.endPc >= endPc) {
+        return;
+      }
+      builder.localDebugEntries[index] = LocalDebugEntry(
+        name: entry.name,
+        startPc: entry.startPc,
+        endPc: endPc,
+        register: entry.register,
+      );
+      return;
+    }
   }
 
   void _trackSource(AstNode node) {
@@ -2711,27 +3276,76 @@ class _PrototypeContext {
 
   void _emitGoto(Goto node) {
     _trackSource(node);
+    final visibleTarget = _findVisibleLabel(node.label.name);
+    if (visibleTarget != null) {
+      final (target, targetScopeIndex) = visibleTarget;
+      final closeFrom = _lowestLocalRegisterHiddenByGoto(
+        target,
+        targetScopeIndex,
+      );
+      if (closeFrom != null) {
+        emitter.emitABC(opcode: LualikeIrOpcode.close, a: closeFrom, b: 0, c: 0);
+      } else {
+        _emitCloseForActiveImplicitToBeClosed();
+      }
+      final offset = target - _currentInstructionIndex - 1;
+      emitter.emitAsJ(opcode: LualikeIrOpcode.jmp, sJ: offset);
+      return;
+    }
+
+    _emitCloseForActiveImplicitToBeClosed();
     final jumpIndex = emitter.emitAsJ(opcode: LualikeIrOpcode.jmp, sJ: 0);
     _pendingGotos.add(
-      _PendingGoto(label: node.label.name, jumpIndex: jumpIndex),
+      _PendingGoto(
+        label: node.label.name,
+        jumpIndex: jumpIndex,
+        visibleScopeIds: List<int>.unmodifiable(List<int>.from(_scopeIdStack)),
+      ),
     );
     _resolveGoto(node.label.name);
   }
 
   void _defineLabel(String name) {
     final position = _currentInstructionIndex;
-    _labelPositions[name] = position;
-    _resolveGoto(name);
+    for (var i = _labelScopes.length - 1; i >= 0; i--) {
+      if (_labelScopes[i].containsKey(name)) {
+        throw UnsupportedError("label '$name' already defined");
+      }
+    }
+    _labelScopes.last[name] = position;
+    _resolveGoto(name, targetScopeId: _scopeIdStack.last);
   }
 
-  void _resolveGoto(String label) {
-    final target = _labelPositions[label];
+  void _resolveGoto(String label, {int? targetScopeId}) {
+    int? resolvedTarget;
+    int? resolvedScopeId;
+    if (targetScopeId != null) {
+      final scopeIndex = _scopeIdStack.indexOf(targetScopeId);
+      if (scopeIndex != -1) {
+        final target = _labelScopes[scopeIndex][label];
+        if (target != null) {
+          resolvedTarget = target;
+          resolvedScopeId = targetScopeId;
+        }
+      }
+    } else {
+      for (var i = _labelScopes.length - 1; i >= 0; i--) {
+        final target = _labelScopes[i][label];
+        if (target != null) {
+          resolvedTarget = target;
+          resolvedScopeId = _scopeIdStack[i];
+          break;
+        }
+      }
+    }
+    final target = resolvedTarget;
     if (target == null) {
       return;
     }
     for (var i = 0; i < _pendingGotos.length;) {
       final entry = _pendingGotos[i];
-      if (entry.label != label) {
+      if (entry.label != label ||
+          !entry.visibleScopeIds.contains(resolvedScopeId)) {
         i += 1;
         continue;
       }
@@ -2744,6 +3358,27 @@ class _PrototypeContext {
       );
       _pendingGotos.removeAt(i);
     }
+  }
+
+  (int, int)? _findVisibleLabel(String label) {
+    for (var i = _labelScopes.length - 1; i >= 0; i--) {
+      final target = _labelScopes[i][label];
+      if (target != null) {
+        return (target, i);
+      }
+    }
+    return null;
+  }
+
+  void _emitBreak(Break node) {
+    _trackSource(node);
+    if (_loopStack.isEmpty) {
+      throw UnsupportedError('break statement is not inside a loop');
+    }
+
+    final loop = _loopStack.last;
+    _emitCloseForExitedScopesFrom(loop.scopeCountBeforeLoop);
+    loop.breakJumps.add(_emitJumpPlaceholder());
   }
 
   int _materializeRegister(int? target) {
@@ -2782,7 +3417,8 @@ class _PrototypeContext {
     }
     assert(
       reg == _nextRegister - 1,
-      'Registers must be released in LIFO order',
+      'Registers must be released in LIFO order '
+      '(attempted=$reg, expected=${_nextRegister - 1}, next=$_nextRegister)',
     );
     _nextRegister -= 1;
     final minFree = _firstFreeRegister();
@@ -2790,13 +3426,61 @@ class _PrototypeContext {
       _nextRegister = minFree;
     }
   }
+
+  void _releaseDownTo(int nextRegister) {
+    while (_nextRegister > nextRegister) {
+      _releaseRegister(_nextRegister - 1);
+    }
+  }
+
+  void _releaseTemporaryRegisters(
+    Iterable<int> registers, {
+    Set<int> protected = const <int>{},
+  }) {
+    final seen = <int>{};
+    final ordered = <int>[];
+    for (final reg in registers) {
+      if (protected.contains(reg) || !seen.add(reg)) {
+        continue;
+      }
+      ordered.add(reg);
+    }
+    ordered.sort((left, right) => right.compareTo(left));
+    for (final reg in ordered) {
+      _releaseRegister(reg);
+    }
+  }
+}
+
+class _ActiveLocalDebug {
+  const _ActiveLocalDebug({
+    required this.name,
+    required this.register,
+    required this.startPc,
+  });
+
+  final String name;
+  final int register;
+  final int startPc;
 }
 
 class _PendingGoto {
-  const _PendingGoto({required this.label, required this.jumpIndex});
+  const _PendingGoto({
+    required this.label,
+    required this.jumpIndex,
+    required this.visibleScopeIds,
+  });
 
   final String label;
   final int jumpIndex;
+  final List<int> visibleScopeIds;
+}
+
+class _LoopContext {
+  _LoopContext({required this.scopeCountBeforeLoop});
+
+  final int scopeCountBeforeLoop;
+  final List<int> breakJumps = <int>[];
 }
 
 class _TableConstructorHints {

@@ -1,18 +1,23 @@
 import 'package:lualike/src/ast.dart';
+import 'package:lualike/src/ir/bytecode_lowering.dart';
 import 'package:lualike/src/ir/compiler.dart';
-import 'package:lualike/src/ir/disassembler.dart';
 import 'package:lualike/src/ir/prototype.dart';
 import 'package:lualike/src/ir/serialization.dart';
-import 'package:lualike/src/ir/vm.dart';
+import 'package:lualike/src/ir/textual_formatter.dart';
 import 'package:lualike/src/call_stack.dart';
 import 'package:lualike/src/config.dart';
 import 'package:lualike/src/coroutine.dart';
 import 'package:lualike/src/environment.dart';
 import 'package:lualike/src/file_manager.dart';
 import 'package:lualike/src/gc/generational_gc.dart';
+import 'package:lualike/src/goto_validator.dart';
 import 'package:lualike/src/interpreter/interpreter.dart';
 import 'package:lualike/src/lua_bytecode/runtime.dart';
+import 'package:lualike/src/lua_bytecode/chunk.dart';
+import 'package:lualike/src/lua_bytecode/serializer.dart';
+import 'package:lualike/src/lua_bytecode/vm.dart';
 import 'package:lualike/src/lua_string.dart';
+import 'package:lualike/src/parse.dart';
 import 'package:lualike/src/runtime/compiled_artifact_support.dart';
 import 'package:lualike/src/runtime/chunk_loading_support.dart';
 import 'package:lualike/src/runtime/lua_runtime.dart';
@@ -38,6 +43,8 @@ class LualikeIrRuntime implements LuaRuntime {
 
   final Interpreter _interpreter;
   late final LibraryRegistry _libraryRegistry;
+
+  Interpreter get debugInterpreter => _interpreter;
 
   Environment get _globals => _interpreter.globals;
 
@@ -73,6 +80,9 @@ class LualikeIrRuntime implements LuaRuntime {
     }
     final chunk = LualikeIrCompiler().compile(ast);
     _dumpDisassemblyIfEnabled(chunk);
+    if (LuaLikeConfig().dumpIr) {
+      return null;
+    }
     return _executeChunk(chunk);
   }
 
@@ -94,15 +104,27 @@ class LualikeIrRuntime implements LuaRuntime {
     final callee = _resolveCallable(function);
     _ensureValueInterpreter(callee);
     _attachInterpreterToArgs(args);
-
     final raw = callee.raw;
-    if (raw is LualikeIrClosure) {
-      return _invokeClosure(raw, args);
+    if (raw is LuaBytecodeClosure) {
+      final vm = LuaBytecodeVm(this);
+      final results = await vm.invoke(
+        raw,
+        args,
+        functionValue: callee,
+        callName: debugName ?? callee.functionName,
+        callNameWhat: debugNameWhat,
+        isEntryFrame: true,
+      );
+      if (results.isEmpty) {
+        return null;
+      }
+      if (results.length == 1) {
+        return results.single;
+      }
+      final packed = Value.multi(results);
+      packed.interpreter ??= this;
+      return packed;
     }
-    if (raw is _LoadedLualikeIrFunction) {
-      return _invokeLoadedFunction(raw, args);
-    }
-
     return callee.call(args);
   }
 
@@ -117,6 +139,24 @@ class LualikeIrRuntime implements LuaRuntime {
     }
 
     final normalizedRequest = normalized.request;
+    final textSource = switch (normalizedRequest.source.raw) {
+      final String text => text,
+      final LuaString luaString => luaString.toLatin1String(),
+      _ => null,
+    };
+    if (textSource != null &&
+        (textSource.contains('goto') || textSource.contains('::'))) {
+      try {
+        final ast = parse(textSource, url: normalizedRequest.chunkName);
+        final gotoError = GotoLabelValidator().checkGotoLabelViolations(ast);
+        if (gotoError != null) {
+          return LuaChunkLoadResult.failure(gotoError);
+        }
+      } on Exception catch (error) {
+        return LuaChunkLoadResult.failure(error.toString());
+      }
+    }
+
     final luaBytecodeResult = tryLoadLuaBytecodeArtifact(
       this,
       normalizedRequest,
@@ -137,20 +177,15 @@ class LualikeIrRuntime implements LuaRuntime {
   Object? dumpFunction(Value function, {bool stripDebugInfo = false}) {
     _ensureValueInterpreter(function);
     switch (function.raw) {
-      case LualikeIrClosure(:final prototype):
-        return serializeLualikeIrChunkAsLuaString(
-          LualikeIrChunk(
-            flags: _chunkFlagsForPrototype(prototype),
-            mainPrototype: prototype,
-          ),
+      case LuaBytecodeClosure(:final prototype):
+        final chunk = LuaBytecodeBinaryChunk(
+          header: const LuaBytecodeChunkHeader.official(),
+          rootUpvalueCount: prototype.upvalues.length,
+          mainPrototype: stripDebugInfo
+              ? _stripBytecodePrototypeDebugInfo(prototype)
+              : prototype,
         );
-      case _LoadedLualikeIrFunction(:final closure):
-        return serializeLualikeIrChunkAsLuaString(
-          LualikeIrChunk(
-            flags: _chunkFlagsForPrototype(closure.prototype),
-            mainPrototype: closure.prototype,
-          ),
-        );
+        return LuaString.fromBytes(serializeLuaBytecodeChunk(chunk));
     }
     return dumpFunctionWithLegacyAstTransport(
       function,
@@ -308,28 +343,17 @@ class LualikeIrRuntime implements LuaRuntime {
   Future<Object?> _executeChunk(LualikeIrChunk chunk) {
     final env = _interpreter.getCurrentEnv();
     _ensureEnvironmentBinding(env);
-    final vm = LualikeIrVm(environment: env, runtime: this);
-    return vm.execute(chunk);
-  }
-
-  Future<Object?> _invokeClosure(LualikeIrClosure closure, List<Object?> args) {
-    final env = _interpreter.getCurrentEnv();
-    _ensureEnvironmentBinding(env);
-    final vm = LualikeIrVm(environment: env, runtime: this);
-    return vm.invokeClosure(closure, args);
-  }
-
-  Future<Object?> _invokeLoadedFunction(
-    _LoadedLualikeIrFunction function,
-    List<Object?> args,
-  ) async {
-    final savedEnv = getCurrentEnv();
-    setCurrentEnv(function.environment);
-    try {
-      return await _invokeClosure(function.closure, args);
-    } finally {
-      setCurrentEnv(savedEnv);
-    }
+    final lowered = lowerIrChunkToLuaBytecodeChunk(
+      chunk,
+      chunkName: currentScriptPath ?? '=(lualike_ir)',
+    );
+    final closure = LuaBytecodeClosure.main(
+      runtime: this,
+      chunk: lowered,
+      chunkName: currentScriptPath ?? '=(lualike_ir)',
+      environment: env,
+    );
+    return closure.call(const <Object?>[]);
   }
 
   void _dumpDisassemblyIfEnabled(LualikeIrChunk chunk) {
@@ -337,15 +361,15 @@ class LualikeIrRuntime implements LuaRuntime {
       return;
     }
 
-    final disassembly = disassembleChunk(chunk);
-    if (disassembly.isEmpty) {
+    final formatted = formatLualikeIrChunk(chunk);
+    if (formatted.isEmpty) {
       return;
     }
 
     // Use print so output is visible even when logging is disabled.
-    print('--- Lualike IR Disassembly ---');
-    print(disassembly);
-    print('--- End Lualike IR Disassembly ---');
+    print('--- Lualike IR ---');
+    print(formatted);
+    print('--- End Lualike IR ---');
   }
 
   LuaChunkLoadResult? _loadIrArtifact(LuaChunkLoadRequest request) {
@@ -365,20 +389,17 @@ class LualikeIrRuntime implements LuaRuntime {
         currentEnv: getCurrentEnv(),
         providedEnv: request.environment,
       );
-      final closure = LualikeIrClosure(
-        prototype: chunk.mainPrototype,
-        upvalues: List<LualikeIrUpvalueCell>.generate(
-          chunk.mainPrototype.upvalueCount,
-          (_) => LualikeIrUpvalueCell.closed(),
-          growable: false,
-        ),
+      final lowered = lowerIrChunkToLuaBytecodeChunk(
+        chunk,
+        chunkName: request.chunkName,
       );
-      final value = Value(
-        _LoadedLualikeIrFunction(
-          closure: closure,
-          environment: loadEnvironment,
-        ),
-      )..interpreter = this;
+      final closure = LuaBytecodeClosure.main(
+        runtime: this,
+        chunk: lowered,
+        chunkName: request.chunkName,
+        environment: loadEnvironment,
+      );
+      final value = Value(closure)..interpreter = this;
       return LuaChunkLoadResult.success(value);
     } on FormatException catch (error) {
       return LuaChunkLoadResult.failure(error.message);
@@ -419,38 +440,27 @@ class LualikeIrRuntime implements LuaRuntime {
       _ => null,
     };
   }
-
-  LualikeIrChunkFlags _chunkFlagsForPrototype(LualikeIrPrototype prototype) {
-    return LualikeIrChunkFlags(
-      hasDebugInfo: _prototypeHasDebugInfo(prototype),
-      hasConstantHash: false,
-    );
-  }
-
-  bool _prototypeHasDebugInfo(LualikeIrPrototype prototype) {
-    if (prototype.debugInfo != null) {
-      return true;
-    }
-
-    for (final child in prototype.prototypes) {
-      if (_prototypeHasDebugInfo(child)) {
-        return true;
-      }
-    }
-
-    return false;
-  }
 }
 
-class _LoadedLualikeIrFunction implements LuaCallableArtifact {
-  const _LoadedLualikeIrFunction({
-    required this.closure,
-    required this.environment,
-  });
-
-  final LualikeIrClosure closure;
-  final Environment environment;
-
-  @override
-  LuaFunctionDebugInfo? get debugInfo => closure.debugInfo;
+LuaBytecodePrototype _stripBytecodePrototypeDebugInfo(
+  LuaBytecodePrototype prototype,
+) {
+  return LuaBytecodePrototype(
+    lineDefined: prototype.lineDefined,
+    lastLineDefined: prototype.lastLineDefined,
+    parameterCount: prototype.parameterCount,
+    flags: prototype.flags,
+    maxStackSize: prototype.maxStackSize,
+    code: prototype.code,
+    constants: prototype.constants,
+    upvalues: prototype.upvalues,
+    prototypes: List<LuaBytecodePrototype>.unmodifiable(
+      prototype.prototypes.map(_stripBytecodePrototypeDebugInfo),
+    ),
+    source: prototype.source,
+    lineInfo: const <int>[],
+    absoluteLineInfo: const <LuaBytecodeAbsLineInfo>[],
+    localVariables: const <LuaBytecodeLocalVariableDebugInfo>[],
+    upvalueNames: const <String?>[],
+  );
 }

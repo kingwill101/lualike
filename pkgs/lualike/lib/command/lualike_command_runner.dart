@@ -63,7 +63,7 @@ class LuaLikeCommandRunner extends CommandRunner {
 
     argParser.addFlag(
       'dump-ir',
-      help: 'Print IR instructions after compilation (IR mode)',
+      help: 'Print IR instructions and exit without executing (IR mode)',
       negatable: false,
       defaultsTo: false,
     );

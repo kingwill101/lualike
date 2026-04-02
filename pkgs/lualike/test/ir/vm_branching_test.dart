@@ -1,89 +1,112 @@
 @Tags(['ir'])
 library;
 
-import 'package:lualike/src/ir/compiler.dart';
-import 'package:lualike/src/ir/vm.dart';
-import 'package:lualike/src/environment.dart';
-import 'package:lualike/src/parse.dart';
+import 'package:lualike/src/config.dart';
+import 'package:lualike/src/executor.dart';
 import 'package:lualike/src/value.dart';
 import 'package:test/test.dart';
 
 void main() {
   dynamic unwrap(dynamic value) => value is Value ? value.raw : value;
 
-  group('LualikeIrVm branching', () {
+  group('IR branching', () {
     test('executes if/else branches', () async {
-      final program = parse('''
+      final resultTrue = await executeCode(
+        '''
         if cond then
           tbl.value = tbl.value + 1
         else
           tbl.value = tbl.value - 1
         end
         return tbl.value
-      ''');
-      final chunk = LualikeIrCompiler().compile(program);
-
-      final envTrue = Environment()
-        ..define('cond', Value(true))
-        ..define('tbl', Value.wrap({'value': 1}));
-      final resultTrue = await LualikeIrVm(environment: envTrue).execute(chunk);
+        ''',
+        mode: EngineMode.ir,
+        onRuntimeSetup: (runtime) {
+          runtime.globals
+            ..define('cond', Value(true))
+            ..define('tbl', Value.wrap({'value': 1}));
+        },
+      );
       expect(unwrap(resultTrue), equals(2));
 
-      final envFalse = Environment()
-        ..define('cond', Value(false))
-        ..define('tbl', Value.wrap({'value': 1}));
-      final resultFalse = await LualikeIrVm(
-        environment: envFalse,
-      ).execute(chunk);
+      final resultFalse = await executeCode(
+        '''
+        if cond then
+          tbl.value = tbl.value + 1
+        else
+          tbl.value = tbl.value - 1
+        end
+        return tbl.value
+        ''',
+        mode: EngineMode.ir,
+        onRuntimeSetup: (runtime) {
+          runtime.globals
+            ..define('cond', Value(false))
+            ..define('tbl', Value.wrap({'value': 1}));
+        },
+      );
       expect(unwrap(resultFalse), equals(0));
     });
 
     test('executes while loop', () async {
-      final program = parse('''
+      final result = await executeCode(
+        '''
         while state.i < 3 do
           state.i = state.i + 1
         end
         return state.i
-      ''');
-      final chunk = LualikeIrCompiler().compile(program);
-      final env = Environment()..define('state', Value.wrap({'i': 0}));
-      final result = await LualikeIrVm(environment: env).execute(chunk);
+        ''',
+        mode: EngineMode.ir,
+        onRuntimeSetup: (runtime) {
+          runtime.globals.define('state', Value.wrap({'i': 0}));
+        },
+      );
       expect(unwrap(result), equals(3));
     });
 
     test('short-circuit and/or expressions', () async {
-      final compiler = LualikeIrCompiler();
-      final andChunk = compiler.compile(parse('return cond and arr[1]'));
-      final orChunk = compiler.compile(parse('return cond or arr[1]'));
-
-      final envAndTrue = Environment()
-        ..define('cond', Value(true))
-        ..define('arr', Value.wrap({1: 42}));
-      final andTrue = await LualikeIrVm(
-        environment: envAndTrue,
-      ).execute(andChunk);
+      final andTrue = await executeCode(
+        'return cond and arr[1]',
+        mode: EngineMode.ir,
+        onRuntimeSetup: (runtime) {
+          runtime.globals
+            ..define('cond', Value(true))
+            ..define('arr', Value.wrap({1: 42}));
+        },
+      );
       expect(unwrap(andTrue), equals(42));
 
-      final envAndFalse = Environment()
-        ..define('cond', Value(false))
-        ..define('arr', Value.wrap({1: 42}));
-      final andFalse = await LualikeIrVm(
-        environment: envAndFalse,
-      ).execute(andChunk);
+      final andFalse = await executeCode(
+        'return cond and arr[1]',
+        mode: EngineMode.ir,
+        onRuntimeSetup: (runtime) {
+          runtime.globals
+            ..define('cond', Value(false))
+            ..define('arr', Value.wrap({1: 42}));
+        },
+      );
       expect(unwrap(andFalse), isFalse);
 
-      final envOrTrue = Environment()
-        ..define('cond', Value(true))
-        ..define('arr', Value.wrap({1: 7}));
-      final orTrue = await LualikeIrVm(environment: envOrTrue).execute(orChunk);
+      final orTrue = await executeCode(
+        'return cond or arr[1]',
+        mode: EngineMode.ir,
+        onRuntimeSetup: (runtime) {
+          runtime.globals
+            ..define('cond', Value(true))
+            ..define('arr', Value.wrap({1: 7}));
+        },
+      );
       expect(unwrap(orTrue), isTrue);
 
-      final envOrFalse = Environment()
-        ..define('cond', Value(false))
-        ..define('arr', Value.wrap({1: 7}));
-      final orFalse = await LualikeIrVm(
-        environment: envOrFalse,
-      ).execute(orChunk);
+      final orFalse = await executeCode(
+        'return cond or arr[1]',
+        mode: EngineMode.ir,
+        onRuntimeSetup: (runtime) {
+          runtime.globals
+            ..define('cond', Value(false))
+            ..define('arr', Value.wrap({1: 7}));
+        },
+      );
       expect(unwrap(orFalse), equals(7));
     });
   });

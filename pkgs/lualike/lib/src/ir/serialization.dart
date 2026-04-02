@@ -168,13 +168,25 @@ void _writePrototype(_LualikeIrWriter writer, LualikeIrPrototype prototype) {
   }
 
   writer.writeNullableString(debugInfo.absoluteSourcePath);
+  writer.writeNullableString(debugInfo.preferredName);
+  writer.writeString(debugInfo.preferredNameWhat);
+
+  final tbcEntries = debugInfo.toBeClosedNamesByPc.entries.toList()
+    ..sort((left, right) => left.key.compareTo(right.key));
+  writer.writeUint32(tbcEntries.length);
+  for (final entry in tbcEntries) {
+    writer
+      ..writeUint32(entry.key)
+      ..writeString(entry.value);
+  }
 
   writer.writeUint32(debugInfo.localNames.length);
   for (final entry in debugInfo.localNames) {
     writer
       ..writeString(entry.name)
       ..writeUint32(entry.startPc)
-      ..writeUint32(entry.endPc);
+      ..writeUint32(entry.endPc)
+      ..writeUint32(entry.register ?? 0xffffffff);
   }
 
   writer.writeUint32(debugInfo.upvalueNames.length);
@@ -270,6 +282,13 @@ LualikeIrDebugInfo _readDebugInfo(_LualikeIrReader reader) {
   );
 
   final absoluteSourcePath = reader.readNullableString();
+  final preferredName = reader.readNullableString();
+  final preferredNameWhat = reader.readString();
+  final tbcEntryCount = reader.readUint32();
+  final toBeClosedNamesByPc = <int, String>{};
+  for (var i = 0; i < tbcEntryCount; i++) {
+    toBeClosedNamesByPc[reader.readUint32()] = reader.readString();
+  }
   final localEntryCount = reader.readUint32();
   final localNames = List<LocalDebugEntry>.generate(
     localEntryCount,
@@ -277,6 +296,10 @@ LualikeIrDebugInfo _readDebugInfo(_LualikeIrReader reader) {
       name: reader.readString(),
       startPc: reader.readUint32(),
       endPc: reader.readUint32(),
+      register: switch (reader.readUint32()) {
+        0xffffffff => null,
+        final register => register,
+      },
     ),
     growable: false,
   );
@@ -293,6 +316,9 @@ LualikeIrDebugInfo _readDebugInfo(_LualikeIrReader reader) {
     absoluteSourcePath: absoluteSourcePath,
     localNames: localNames,
     upvalueNames: upvalueNames,
+    toBeClosedNamesByPc: Map<int, String>.unmodifiable(toBeClosedNamesByPc),
+    preferredName: preferredName,
+    preferredNameWhat: preferredNameWhat,
   );
 }
 
