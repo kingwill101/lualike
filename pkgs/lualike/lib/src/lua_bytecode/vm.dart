@@ -3129,6 +3129,14 @@ final class LuaBytecodeVm {
     LuaBytecodeInstructionWord word,
   ) async {
     final call = _resolveCall(frame, word);
+    if (_debugInterpreter?.debugHookFunction == null) {
+      final rawCallee = call.callee.raw;
+      if (rawCallee is BuiltinFunction &&
+          _canInlineBuiltinWithoutManagedFrame(rawCallee) &&
+          !(runtime.isInProtectedCall && rawCallee.isBytecodeAssertBuiltin)) {
+        return _invokePreparedCall(call, frame: frame);
+      }
+    }
     final nameInfo = _callSiteNameInfo(frame, word.a, call.callee);
     return _invokePreparedCall(
       call,
