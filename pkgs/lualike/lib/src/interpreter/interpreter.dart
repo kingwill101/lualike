@@ -189,7 +189,7 @@ class Interpreter extends AstVisitor<Object?>
 
   @override
   Value constantPrimitiveValue(Object? raw) {
-    Value create(Object? value) => Value(value)..interpreter = this;
+    Value create(Object? value) => Value.primitive(value, interpreter: this);
 
     final cached = switch (raw) {
       null => _cachedNilValue ??= create(null),

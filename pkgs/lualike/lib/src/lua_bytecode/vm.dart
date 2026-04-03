@@ -8444,7 +8444,7 @@ Value _runtimeValue(LuaRuntime runtime, Object? value) {
 }
 
 Value _framePrimitiveValue(LuaRuntime runtime, Object? value) {
-  return Value(
+  return Value.primitive(
     value,
     interpreter: runtime,
     skipAllocationDebt: true,
@@ -8468,8 +8468,32 @@ bool _isSharedRuntimeConstant(LuaRuntime runtime, Value value) {
 }
 
 Value _cloneBytecodeValue(Value source) {
+  final raw = source.raw;
+  if (raw == null || raw is bool || raw is num || raw is BigInt) {
+    final clone = Value.primitive(
+      raw,
+      isMulti: source.isMulti,
+      isConst: source.isConst,
+      isToBeClose: source.isToBeClose,
+      isTempKey: source.isTempKey,
+      skipAllocationDebt:
+          source.skipAllocationDebt || _isBookkeepingNeutralClone(source),
+      skipGcRegistration:
+          source.skipGcRegistration || _isGcTrackingNeutralClone(source),
+      upvalues: source.upvalues,
+      interpreter: source.interpreter,
+      functionBody: source.functionBody,
+      closureEnvironment: source.closureEnvironment,
+      functionName: source.functionName,
+      debugLineDefined: source.debugLineDefined,
+      strippedDebugInfo: source.strippedDebugInfo,
+    );
+    clone.metatableRef = source.metatableRef;
+    clone.globalProxyEnvironment = source.globalProxyEnvironment;
+    return clone;
+  }
   final clone = Value(
-    source.raw,
+    raw,
     metatable: source.metatable,
     isMulti: source.isMulti,
     isConst: source.isConst,

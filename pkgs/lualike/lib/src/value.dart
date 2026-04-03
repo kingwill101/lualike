@@ -434,6 +434,40 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     }
   }
 
+  Value.primitive(
+    Object? raw, {
+    this.isMulti = false,
+    this.isConst = false,
+    this.isToBeClose = false,
+    this.isTempKey = false,
+    this.skipAllocationDebt = false,
+    this.skipGcRegistration = false,
+    this.upvalues,
+    this.interpreter,
+    this.functionBody,
+    this.closureEnvironment,
+    this.functionName,
+    this.debugLineDefined,
+    this.strippedDebugInfo = false,
+  }) : _raw = raw {
+    _isInitialized = true;
+    _isFreed = false;
+
+    final type = switch (raw) {
+      null => 'nil',
+      bool() => 'boolean',
+      _ => 'number',
+    };
+    if (MetaTable().isDefaultMetatableActive(type)) {
+      MetaTable().applyDefaultMetatable(this);
+    }
+
+    if (!skipGcRegistration) {
+      final gcLocal = GCAccess.fromValue(this);
+      gcLocal?.register(this, countAllocation: _shouldCountAllocation());
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Identity registry for table (Map) values
   // ---------------------------------------------------------------------------
