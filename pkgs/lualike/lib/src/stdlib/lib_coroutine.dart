@@ -34,7 +34,8 @@ FunctionBody? _requireFunctionBody(Value functionValue, String functionName) {
   }
 
   final raw = functionValue.raw;
-  if (raw is Function ||
+  if (raw is LuaCallableArtifact ||
+      raw is Function ||
       raw is BuiltinFunction ||
       raw is FunctionDef ||
       raw is FunctionLiteral ||
