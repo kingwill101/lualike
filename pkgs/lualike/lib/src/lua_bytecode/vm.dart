@@ -4371,7 +4371,7 @@ final class LuaBytecodeVm {
     for (var pc = beforePc; pc >= 0; pc--) {
       final word = prototype.code[pc];
       final opcodeValue = word.opcodeValue;
-      if (!_instructionWritesRegisterByOpcodeValue(word, opcodeValue, register)) {
+      if (!frame.instructionWritesRegister(pc, register)) {
         continue;
       }
       if (_isLogicalMergeWrite(frame, register, pc, usePc: beforePc + 1)) {
@@ -4721,7 +4721,7 @@ final class LuaBytecodeVm {
     for (var pc = beforePc; pc >= 0; pc--) {
       final word = prototype.code[pc];
       final opcodeValue = word.opcodeValue;
-      if (!_instructionWritesRegisterByOpcodeValue(word, opcodeValue, register)) {
+      if (!frame.instructionWritesRegister(pc, register)) {
         continue;
       }
       if (_isLogicalMergeWrite(frame, register, pc, usePc: beforePc + 1)) {
@@ -4782,14 +4782,8 @@ final class LuaBytecodeVm {
     int register, {
     required int beforePc,
   }) {
-    final prototype = frame.closure.prototype;
     for (var pc = beforePc; pc >= 0; pc--) {
-      final word = prototype.code[pc];
-      if (!_instructionWritesRegisterByOpcodeValue(
-        word,
-        word.opcodeValue,
-        register,
-      )) {
+      if (!frame.instructionWritesRegister(pc, register)) {
         continue;
       }
       final result = _isLogicalMergeWrite(
@@ -4823,7 +4817,7 @@ final class LuaBytecodeVm {
     for (var pc = beforePc; pc >= 0; pc--) {
       final word = prototype.code[pc];
       final opcodeValue = word.opcodeValue;
-      if (!_instructionWritesRegisterByOpcodeValue(word, opcodeValue, register)) {
+      if (!frame.instructionWritesRegister(pc, register)) {
         continue;
       }
       return switch (opcodeValue) {
@@ -4869,7 +4863,7 @@ final class LuaBytecodeVm {
     for (var pc = beforePc; pc >= 0; pc--) {
       final word = prototype.code[pc];
       final opcodeValue = word.opcodeValue;
-      if (!_instructionWritesRegisterByOpcodeValue(word, opcodeValue, register)) {
+      if (!frame.instructionWritesRegister(pc, register)) {
         continue;
       }
 
@@ -4897,7 +4891,7 @@ final class LuaBytecodeVm {
     for (var pc = beforePc; pc >= 0; pc--) {
       final word = prototype.code[pc];
       final opcodeValue = word.opcodeValue;
-      if (_instructionWritesRegisterByOpcodeValue(word, opcodeValue, register)) {
+      if (frame.instructionWritesRegister(pc, register)) {
         if (opcodeValue != _opcodeMove) {
           return false;
         }
@@ -4908,11 +4902,7 @@ final class LuaBytecodeVm {
               previousOpcodeValue == _opcodeTailCall) {
             return true;
           }
-          if (_instructionWritesRegisterByOpcodeValue(
-            previous,
-            previousOpcodeValue,
-            register,
-          )) {
+          if (frame.instructionWritesRegister(lookback, register)) {
             return true;
           }
         }
@@ -6247,6 +6237,41 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     }
     return flags;
   }();
+  late final List<({int start, int? end})?> _writtenRegisterRangesByPc = () {
+    return List<({int start, int? end})?>.generate(
+      closure.prototype.code.length,
+      (pc) {
+        final word = closure.prototype.code[pc];
+        return switch (word.opcodeValue) {
+          _opcodeMove ||
+          _opcodeLoadI ||
+          _opcodeLoadF ||
+          _opcodeLoadK ||
+          _opcodeLoadKx ||
+          _opcodeLoadFalse ||
+          _opcodeLFalseSkip ||
+          _opcodeLoadTrue ||
+          _opcodeGetUpval ||
+          _opcodeGetTabUp ||
+          _opcodeGetTable ||
+          _opcodeGetI ||
+          _opcodeGetField ||
+          _opcodeNewTable ||
+          _opcodeSelf ||
+          _opcodeClosure ||
+          _opcodeVarargPrep ||
+          _opcodeVararg => (start: word.a, end: word.a),
+          _opcodeLoadNil => (start: word.a, end: word.a + word.b),
+          _opcodeCall || _opcodeTailCall => (
+            start: word.a,
+            end: word.c == 0 ? null : word.a + word.c - 2,
+          ),
+          _ => null,
+        };
+      },
+      growable: false,
+    );
+  }();
   late final List<LuaBytecodeLocalVariableDebugInfo> sortedDebugLocals =
       List<LuaBytecodeLocalVariableDebugInfo>.of(
         closure.prototype.localVariables,
@@ -6723,6 +6748,21 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
       return false;
     }
     return _environmentRegistersByPc[currentPc].contains(registerIndex);
+  }
+
+  bool instructionWritesRegister(int instructionPc, int registerIndex) {
+    if (instructionPc < 0 || instructionPc >= _writtenRegisterRangesByPc.length) {
+      return false;
+    }
+    final range = _writtenRegisterRangesByPc[instructionPc];
+    if (range == null) {
+      return false;
+    }
+    final start = range.start;
+    final end = range.end;
+    return end == null
+        ? registerIndex >= start
+        : registerIndex >= start && registerIndex <= end;
   }
 
   void expireDeadLocals() {
