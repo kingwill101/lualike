@@ -351,6 +351,7 @@ Object? _snapshotReturnPayload(Object? value) {
       isConst: original.isConst,
       isToBeClose: original.isToBeClose,
       skipAllocationDebt: original.skipAllocationDebt,
+      skipGcRegistration: original.skipGcRegistration,
       upvalues: original.upvalues,
       interpreter: original.interpreter,
       functionBody: original.functionBody,

@@ -557,6 +557,9 @@ class Interpreter extends AstVisitor<Object?>
   @override
   void setCurrentCoroutine(Coroutine? coroutine) {
     final oldCoroutine = _currentCoroutine;
+    if (identical(oldCoroutine, coroutine)) {
+      return;
+    }
     final oldStatus = oldCoroutine?.status;
     final newStatus = coroutine?.status;
 
