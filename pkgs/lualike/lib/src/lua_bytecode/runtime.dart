@@ -492,10 +492,7 @@ class LuaBytecodeRuntime implements LuaRuntime {
   GenerationalGCManager get gc => _interpreter.gc;
 
   @override
-  List<Object?> getRoots() => <Object?>[
-    ..._interpreter.getRoots(),
-    for (final provider in _activeFrameRoots) ...provider.gcReferences(),
-  ];
+  List<Object?> getRoots() => _interpreter.getRoots();
 
   @override
   bool get shouldAbandonIncrementalCycleBeforeManualCollect => true;
