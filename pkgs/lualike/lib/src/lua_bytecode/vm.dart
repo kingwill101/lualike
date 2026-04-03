@@ -809,9 +809,10 @@ final class LuaBytecodeVm {
 
   Future<List<Value>> _executeFrame(_LuaBytecodeFrame frame) async {
     final prototype = frame.closure.prototype;
+    final mainThread = runtime.getMainThread();
     while (frame.pc < prototype.code.length) {
       frame.expireDeadLocals();
-      _syncCurrentCoroutine();
+      final currentCoroutine = _syncCurrentCoroutine(mainThread);
       // AST execution only checks auto-GC at statement boundaries. Bytecode
       // runs many more VM instructions per statement, and tighter polling here
       // makes collector debt dominate random-heavy loops. Loop backedges still
@@ -829,10 +830,8 @@ final class LuaBytecodeVm {
       final previousVisibleLine = hasDebugHook
           ? runtime.callStack.top?.currentLine ?? -1
           : -1;
-      final currentCoroutine = runtime.getCurrentCoroutine();
       final needsCoroutineWideBoundary =
-          currentCoroutine != null &&
-          !identical(currentCoroutine, runtime.getMainThread());
+          currentCoroutine != null && !identical(currentCoroutine, mainThread);
       final profile = _activeProfile;
       final opTimer = profile == null ? null : (Stopwatch()..start());
       try {
@@ -842,7 +841,10 @@ final class LuaBytecodeVm {
               opcode.name,
               word,
             )) {
-          await _preserveSuspendingBytecodeBoundary();
+          await _preserveSuspendingBytecodeBoundary(
+            currentCoroutine: currentCoroutine,
+            mainThread: mainThread,
+          );
         }
         final forceLineHook = frame.forceNextLineHook;
         frame.forceNextLineHook = false;
@@ -2502,21 +2504,27 @@ final class LuaBytecodeVm {
         opcodeName == 'TESTSET';
   }
 
-  void _syncCurrentCoroutine() {
+  Coroutine? _syncCurrentCoroutine(Coroutine mainThread) {
+    final current = runtime.getCurrentCoroutine();
     if (Coroutine.active case final active?) {
       if (active.status == CoroutineStatus.normal) {
         active.status = CoroutineStatus.running;
       }
-      runtime.setCurrentCoroutine(active);
-      return;
+      if (!identical(current, active)) {
+        runtime.setCurrentCoroutine(active);
+      }
+      return active;
     }
 
-    final current = runtime.getCurrentCoroutine();
-    if (current != null && !identical(current, runtime.getMainThread())) {
-      return;
+    if (current != null) {
+      if (!identical(current, mainThread)) {
+        return current;
+      }
+      return current;
     }
 
-    runtime.setCurrentCoroutine(runtime.getMainThread());
+    runtime.setCurrentCoroutine(mainThread);
+    return mainThread;
   }
 
   LuaBytecodeClosure _createClosure(
@@ -2868,13 +2876,14 @@ final class LuaBytecodeVm {
     return value;
   }
 
-  Future<void> _preserveSuspendingBytecodeBoundary() async {
+  Future<void> _preserveSuspendingBytecodeBoundary({
+    required Coroutine? currentCoroutine,
+    required Coroutine mainThread,
+  }) async {
     if (_debugInterpreter?.debugHookFunction != null) {
       return;
     }
-    final currentCoroutine = runtime.getCurrentCoroutine();
-    if (currentCoroutine != null &&
-        !identical(currentCoroutine, runtime.getMainThread())) {
+    if (currentCoroutine != null && !identical(currentCoroutine, mainThread)) {
       // Non-main coroutines still rely on the legacy per-opcode async split to
       // preserve suspended expression state across yield/resume hops. Keep that
       // broader boundary only there so hot main-thread loops stay fast.
@@ -8115,6 +8124,7 @@ Value _framePrimitiveValue(LuaRuntime runtime, Object? value) {
     value,
     interpreter: runtime,
     skipAllocationDebt: true,
+    skipGcRegistration: _isGcTrackingNeutralPrimitive(value),
   );
 }
 
@@ -8142,6 +8152,7 @@ Value _cloneBytecodeValue(Value source) {
     isToBeClose: source.isToBeClose,
     isTempKey: source.isTempKey,
     skipAllocationDebt: source.skipAllocationDebt || _isBookkeepingNeutralClone(source),
+    skipGcRegistration: source.skipGcRegistration || _isGcTrackingNeutralClone(source),
     upvalues: source.upvalues,
     interpreter: source.interpreter,
     functionBody: source.functionBody,
@@ -8158,6 +8169,17 @@ Value _cloneBytecodeValue(Value source) {
 bool _isBookkeepingNeutralClone(Value source) {
   return switch (source.raw) {
     null || bool() || num() || BigInt() || String() || LuaString() => true,
+    _ => false,
+  };
+}
+
+bool _isGcTrackingNeutralClone(Value source) {
+  return _isGcTrackingNeutralPrimitive(source.raw);
+}
+
+bool _isGcTrackingNeutralPrimitive(Object? value) {
+  return switch (value) {
+    null || bool() || num() || BigInt() => true,
     _ => false,
   };
 }

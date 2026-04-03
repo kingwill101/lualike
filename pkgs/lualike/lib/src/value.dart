@@ -100,6 +100,14 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
   /// perturbing Lua-visible `collectgarbage("count")` results.
   bool skipAllocationDebt = false;
 
+  /// Whether this wrapper should skip eager GC registration.
+  ///
+  /// Some hot bytecode-only wrappers carry primitive payloads that do not own
+  /// per-instance GC references. They can stay off the generational tracking
+  /// sets until they escape into a tracked container or a collection discovers
+  /// them from roots, which avoids repeated registration churn in tight loops.
+  bool skipGcRegistration = false;
+
   /// Hint for fast-calling simple Lua closures (e.g., comparator x < y)
   /// Currently used to accelerate very common patterns in tight loops.
   bool isLessComparator = false;
@@ -373,6 +381,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     this.isToBeClose = false,
     this.isTempKey = false,
     this.skipAllocationDebt = false,
+    this.skipGcRegistration = false,
     this.upvalues,
     this.interpreter,
     this.functionBody,
@@ -419,8 +428,10 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
     // Always register with the GC so mark/unmark and separation logic
     // remains correct, but avoid charging allocation debt for
     // primitive-like wrappers to reduce auto-trigger overhead.
-    final gcLocal2 = GCAccess.fromValue(this);
-    gcLocal2?.register(this, countAllocation: _shouldCountAllocation());
+    if (!skipGcRegistration) {
+      final gcLocal2 = GCAccess.fromValue(this);
+      gcLocal2?.register(this, countAllocation: _shouldCountAllocation());
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -733,6 +744,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
         isConst: isConst,
         isToBeClose: isToBeClose,
         skipAllocationDebt: skipAllocationDebt,
+        skipGcRegistration: skipGcRegistration,
         upvalues: upvalues,
         interpreter: interpreter,
         functionBody: functionBody,
@@ -749,6 +761,7 @@ class Value extends Object implements Map<String, dynamic>, GCObject {
       isConst: isConst,
       isToBeClose: isToBeClose,
       skipAllocationDebt: skipAllocationDebt,
+      skipGcRegistration: skipGcRegistration,
       upvalues: upvalues,
       interpreter: interpreter,
       functionBody: functionBody,

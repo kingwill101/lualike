@@ -155,6 +155,7 @@ mixin InterpreterAssignmentMixin on AstVisitor<Object?> {
       isConst: isConst,
       isToBeClose: isToBeClose,
       skipAllocationDebt: value.skipAllocationDebt,
+      skipGcRegistration: value.skipGcRegistration,
       upvalues: value.upvalues,
       interpreter: value.interpreter,
       functionBody: value.functionBody,
