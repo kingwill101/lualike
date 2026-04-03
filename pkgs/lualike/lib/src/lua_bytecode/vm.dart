@@ -4614,7 +4614,6 @@ final class LuaBytecodeVm {
   }
 
   String? _valueSourceLabel(_LuaBytecodeFrame frame, Value value) {
-    final currentPc = frame.pc;
     for (
       var registerIndex = 0;
       registerIndex < frame.registers.length;
@@ -4623,17 +4622,8 @@ final class LuaBytecodeVm {
       final registerValue = frame.registers[registerIndex];
       if (identical(registerValue, value) ||
           (value.raw != null && identical(registerValue.raw, value.raw))) {
-        for (final local in frame.closure.prototype.localVariables) {
-          if (!(local.startPc <= currentPc && currentPc < local.endPc)) {
-            continue;
-          }
-          final name = local.name;
-          if (local.register == registerIndex &&
-              name != null &&
-              name.isNotEmpty &&
-              !name.startsWith('(')) {
-            return "local '$name'";
-          }
+        if (_activeLocalSourceLabel(frame, registerIndex) case final label?) {
+          return label;
         }
         return _inferRegisterSourceLabel(
           frame,
@@ -4814,20 +4804,10 @@ final class LuaBytecodeVm {
   }
 
   String? _activeLocalSourceLabel(_LuaBytecodeFrame frame, int register) {
-    final currentPc = frame.pc;
-    for (final local in frame.closure.prototype.localVariables) {
-      if (!(local.startPc <= currentPc && currentPc < local.endPc)) {
-        continue;
-      }
-      final name = local.name;
-      if (local.register == register &&
-          name != null &&
-          name.isNotEmpty &&
-          !name.startsWith('(')) {
-        return "local '$name'";
-      }
-    }
-    return null;
+    return switch (frame.visibleNamedLocals[register]) {
+      final String name => "local '$name'",
+      _ => null,
+    };
   }
 
   String? _stringKeyForRegister(
@@ -4881,17 +4861,11 @@ final class LuaBytecodeVm {
       return false;
     }
 
-    final currentPc = frame.pc;
-    final prototype = frame.closure.prototype;
-    for (final local in prototype.localVariables) {
-      if (!(local.startPc <= currentPc && currentPc < local.endPc)) {
-        continue;
-      }
-      if (local.register == register && local.name == '_ENV') {
-        return true;
-      }
+    if (frame.isEnvironmentLocalRegister(register)) {
+      return true;
     }
 
+    final prototype = frame.closure.prototype;
     for (var pc = beforePc; pc >= 0; pc--) {
       final word = prototype.code[pc];
       final opcodeValue = word.opcodeValue;
@@ -6180,7 +6154,7 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
       growable: false,
     );
     for (final local in closure.prototype.localVariables) {
-      if (local.register == null) {
+      if (local.register == null || local.endPc <= local.startPc) {
         continue;
       }
       final endPc = local.endPc;
@@ -6290,6 +6264,256 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
         }
         return (left.name ?? '').compareTo(right.name ?? '');
       });
+  late final List<Map<int, String>> _activeNamedLocalsByPc = () {
+    final codeLength = closure.prototype.code.length;
+    final startsByPc = List<List<LuaBytecodeLocalVariableDebugInfo>>.generate(
+      codeLength,
+      (_) => <LuaBytecodeLocalVariableDebugInfo>[],
+      growable: false,
+    );
+    final endsByPc = List<List<LuaBytecodeLocalVariableDebugInfo>>.generate(
+      codeLength,
+      (_) => <LuaBytecodeLocalVariableDebugInfo>[],
+      growable: false,
+    );
+    for (final local in closure.prototype.localVariables) {
+      if (local.register == null || local.endPc <= local.startPc) {
+        continue;
+      }
+      final startPc = local.startPc;
+      if (startPc >= 0 && startPc < codeLength) {
+        startsByPc[startPc].add(local);
+      }
+      final endPc = local.endPc;
+      if (endPc >= 0 && endPc < codeLength) {
+        endsByPc[endPc].add(local);
+      }
+    }
+
+    final activeLocalsByRegister =
+        <int, List<LuaBytecodeLocalVariableDebugInfo>>{};
+    var currentNamedLocals = const <int, String>{};
+    final snapshots = List<Map<int, String>>.filled(
+      codeLength,
+      const <int, String>{},
+      growable: false,
+    );
+
+    Map<int, String> snapshotNamedLocals() {
+      if (activeLocalsByRegister.isEmpty) {
+        return const <int, String>{};
+      }
+      final namedLocals = <int, String>{};
+      for (final entry in activeLocalsByRegister.entries) {
+        for (final local in entry.value.reversed) {
+          final name = local.name;
+          if (name == null || name.isEmpty || name.startsWith('(')) {
+            continue;
+          }
+          namedLocals[entry.key] = name;
+          break;
+        }
+      }
+      return namedLocals.isEmpty ? const <int, String>{} : namedLocals;
+    }
+
+    for (var pc = 0; pc < codeLength; pc++) {
+      var changed = false;
+      for (final local in endsByPc[pc]) {
+        final register = local.register!;
+        final locals = activeLocalsByRegister[register];
+        if (locals == null) {
+          continue;
+        }
+        locals.remove(local);
+        if (locals.isEmpty) {
+          activeLocalsByRegister.remove(register);
+        }
+        changed = true;
+      }
+      for (final local in startsByPc[pc]) {
+        final register = local.register!;
+        activeLocalsByRegister
+            .putIfAbsent(
+              register,
+              () => <LuaBytecodeLocalVariableDebugInfo>[],
+            )
+            .add(local);
+        changed = true;
+      }
+      if (changed) {
+        currentNamedLocals = snapshotNamedLocals();
+      }
+      snapshots[pc] = currentNamedLocals;
+    }
+
+    return snapshots;
+  }();
+  late final List<Map<int, String>> _visibleNamedLocalsByPc = () {
+    final codeLength = closure.prototype.code.length;
+    final startsByPc = List<List<LuaBytecodeLocalVariableDebugInfo>>.generate(
+      codeLength,
+      (_) => <LuaBytecodeLocalVariableDebugInfo>[],
+      growable: false,
+    );
+    final endsByPc = List<List<LuaBytecodeLocalVariableDebugInfo>>.generate(
+      codeLength,
+      (_) => <LuaBytecodeLocalVariableDebugInfo>[],
+      growable: false,
+    );
+    for (final local in closure.prototype.localVariables) {
+      if (local.register == null) {
+        continue;
+      }
+      final startPc = local.startPc;
+      if (startPc >= 0 && startPc < codeLength) {
+        startsByPc[startPc].add(local);
+      }
+      final endPc = local.endPc;
+      if (endPc >= 0 && endPc < codeLength) {
+        endsByPc[endPc].add(local);
+      }
+    }
+
+    final activeLocalsByRegister =
+        <int, List<LuaBytecodeLocalVariableDebugInfo>>{};
+    var currentVisibleLocals = const <int, String>{};
+    final snapshots = List<Map<int, String>>.filled(
+      codeLength,
+      const <int, String>{},
+      growable: false,
+    );
+
+    Map<int, String> snapshotVisibleLocals() {
+      if (activeLocalsByRegister.isEmpty) {
+        return const <int, String>{};
+      }
+      final visibleLocals = <int, String>{};
+      for (final entry in activeLocalsByRegister.entries) {
+        for (final local in entry.value) {
+          final name = local.name;
+          if (name == null || name.isEmpty || name.startsWith('(')) {
+            continue;
+          }
+          visibleLocals[entry.key] = name;
+          break;
+        }
+      }
+      return visibleLocals.isEmpty ? const <int, String>{} : visibleLocals;
+    }
+
+    for (var pc = 0; pc < codeLength; pc++) {
+      var changed = false;
+      for (final local in endsByPc[pc]) {
+        final register = local.register!;
+        final locals = activeLocalsByRegister[register];
+        if (locals == null) {
+          continue;
+        }
+        locals.remove(local);
+        if (locals.isEmpty) {
+          activeLocalsByRegister.remove(register);
+        }
+        changed = true;
+      }
+      for (final local in startsByPc[pc]) {
+        final register = local.register!;
+        activeLocalsByRegister
+            .putIfAbsent(
+              register,
+              () => <LuaBytecodeLocalVariableDebugInfo>[],
+            )
+            .add(local);
+        changed = true;
+      }
+      if (changed) {
+        currentVisibleLocals = snapshotVisibleLocals();
+      }
+      snapshots[pc] = currentVisibleLocals;
+    }
+
+    return snapshots;
+  }();
+  late final List<Set<int>> _environmentRegistersByPc = () {
+    final codeLength = closure.prototype.code.length;
+    final startsByPc = List<List<LuaBytecodeLocalVariableDebugInfo>>.generate(
+      codeLength,
+      (_) => <LuaBytecodeLocalVariableDebugInfo>[],
+      growable: false,
+    );
+    final endsByPc = List<List<LuaBytecodeLocalVariableDebugInfo>>.generate(
+      codeLength,
+      (_) => <LuaBytecodeLocalVariableDebugInfo>[],
+      growable: false,
+    );
+    for (final local in closure.prototype.localVariables) {
+      if (local.register == null) {
+        continue;
+      }
+      final startPc = local.startPc;
+      if (startPc >= 0 && startPc < codeLength) {
+        startsByPc[startPc].add(local);
+      }
+      final endPc = local.endPc;
+      if (endPc >= 0 && endPc < codeLength) {
+        endsByPc[endPc].add(local);
+      }
+    }
+
+    final activeLocalsByRegister =
+        <int, List<LuaBytecodeLocalVariableDebugInfo>>{};
+    var currentEnvironmentRegisters = const <int>{};
+    final snapshots = List<Set<int>>.filled(
+      codeLength,
+      const <int>{},
+      growable: false,
+    );
+
+    Set<int> snapshotEnvironmentRegisters() {
+      if (activeLocalsByRegister.isEmpty) {
+        return const <int>{};
+      }
+      final envRegisters = <int>{};
+      for (final entry in activeLocalsByRegister.entries) {
+        if (entry.value.any((local) => local.name == '_ENV')) {
+          envRegisters.add(entry.key);
+        }
+      }
+      return envRegisters.isEmpty ? const <int>{} : envRegisters;
+    }
+
+    for (var pc = 0; pc < codeLength; pc++) {
+      var changed = false;
+      for (final local in endsByPc[pc]) {
+        final register = local.register!;
+        final locals = activeLocalsByRegister[register];
+        if (locals == null) {
+          continue;
+        }
+        locals.remove(local);
+        if (locals.isEmpty) {
+          activeLocalsByRegister.remove(register);
+        }
+        changed = true;
+      }
+      for (final local in startsByPc[pc]) {
+        final register = local.register!;
+        activeLocalsByRegister
+            .putIfAbsent(
+              register,
+              () => <LuaBytecodeLocalVariableDebugInfo>[],
+            )
+            .add(local);
+        changed = true;
+      }
+      if (changed) {
+        currentEnvironmentRegisters = snapshotEnvironmentRegisters();
+      }
+      snapshots[pc] = currentEnvironmentRegisters;
+    }
+
+    return snapshots;
+  }();
   final List<_LuaBytecodeUpvalue> _openUpvalues = <_LuaBytecodeUpvalue>[];
   final Set<int> _toBeClosedRegisters = <int>{};
   var _varargStart = 0;
@@ -6471,30 +6695,34 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
 
   String? activeLocalName(int registerIndex) {
     final currentPc = pc;
-    final activeLocals = <LuaBytecodeLocalVariableDebugInfo>[
-      for (final local in closure.prototype.localVariables)
-        if (local.startPc <= currentPc && currentPc < local.endPc) local,
-    ];
-
-    for (final local in activeLocals.reversed) {
-      final name = local.name;
-      if (name == null || name.isEmpty || name.startsWith('(')) {
-        continue;
-      }
-      if (local.register == registerIndex) {
-        return name;
-      }
+    if (currentPc < 0 || currentPc >= _activeNamedLocalsByPc.length) {
+      return null;
     }
+    return _activeNamedLocalsByPc[currentPc][registerIndex];
+  }
 
-    if (registerIndex >= 0 && registerIndex < activeLocals.length) {
-      final fallback = activeLocals[registerIndex].name;
-      if (fallback != null &&
-          fallback.isNotEmpty &&
-          !fallback.startsWith('(')) {
-        return fallback;
-      }
+  Map<int, String> get activeNamedLocals {
+    final currentPc = pc;
+    if (currentPc < 0 || currentPc >= _activeNamedLocalsByPc.length) {
+      return const <int, String>{};
     }
-    return null;
+    return _activeNamedLocalsByPc[currentPc];
+  }
+
+  Map<int, String> get visibleNamedLocals {
+    final currentPc = pc;
+    if (currentPc < 0 || currentPc >= _visibleNamedLocalsByPc.length) {
+      return const <int, String>{};
+    }
+    return _visibleNamedLocalsByPc[currentPc];
+  }
+
+  bool isEnvironmentLocalRegister(int registerIndex) {
+    final currentPc = pc;
+    if (currentPc < 0 || currentPc >= _environmentRegistersByPc.length) {
+      return false;
+    }
+    return _environmentRegistersByPc[currentPc].contains(registerIndex);
   }
 
   void expireDeadLocals() {
