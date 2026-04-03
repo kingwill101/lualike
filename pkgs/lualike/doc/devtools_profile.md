@@ -23,6 +23,28 @@ You can launch it from either the `pkgs/lualike` package directory or the
 monorepo root. The harness resolves `pkgs/lualike` automatically in both
 layouts.
 
+## Scenario Paths
+
+`--scenario` accepts either a built-in scenario name or a Lua file path.
+
+Examples:
+
+- `--scenario=math`
+- `--scenario=math.lua`
+- `--scenario=luascripts/test/math.lua`
+- `--scenario=../some/other/profile_target.lua`
+
+Resolution order for non-built-in values:
+
+- absolute path as given
+- relative to the current working directory
+- relative to the package root
+- relative to `luascripts/test/`
+- `luascripts/test/<name>.lua` when no `.lua` suffix is present
+
+That means you can point the profiler directly at any test-suite file without
+adding a new built-in scenario first.
+
 ## Runner Parity
 
 Lua suite scenarios should run with the same prelude as
@@ -64,6 +86,8 @@ failure mode directly.
 - `--scenario=cstack`
 - `--scenario=cstack-message`
 - `--scenario=cstack-close-chain`
+- `--scenario=math.lua`
+- `--scenario=luascripts/test/sort.lua`
 - `--engine=ast|ir|bytecode`
 - `--warmup=N`
 - `--repeat=N`
@@ -76,7 +100,7 @@ failure mode directly.
 
 ```sh
 dart run --observe tool/devtools_profile/main.dart \
-  --scenario=math \
+  --scenario=luascripts/test/math.lua \
   --engine=bytecode \
   --warmup=0 \
   --repeat=1 \
