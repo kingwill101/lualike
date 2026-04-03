@@ -7,25 +7,6 @@ import 'package:lualike/src/utils/io_abstractions.dart' as io_abs;
 import 'package:lualike/src/utils/platform_utils.dart' as platform;
 import 'package:path/path.dart' as path;
 
-const _scenarioNames = <String>{
-  'constructs',
-  'constructs-short-circuit',
-  'calls',
-  'cstack',
-  'cstack-close-chain',
-  'cstack-coroutine-deep',
-  'cstack-gsub',
-  'cstack-gsub-metatable',
-  'cstack-message',
-  'cstack-recoverable-errors',
-  'cstack-resume-nesting',
-  'gc',
-  'math',
-  'nextvar',
-  'sort',
-  'all',
-};
-
 const _engineNames = <String>{'ast', 'ir', 'bytecode'};
 
 Future<void> main(List<String> args) async {
@@ -33,8 +14,9 @@ Future<void> main(List<String> args) async {
     ..addOption(
       'scenario',
       abbr: 's',
-      help: 'Scenario to run for profiling.',
-      allowed: _scenarioNames.toList()..sort(),
+      help:
+          'Built-in scenario name, or a relative/absolute Lua file path. '
+          'Examples: math, math.lua, luascripts/test/math.lua, ../foo.lua',
       defaultsTo: 'constructs-short-circuit',
     )
     ..addOption(
@@ -141,7 +123,12 @@ Future<void> main(List<String> args) async {
         _makeCstackScenario('cstack-recoverable-errors'),
       ],
       _ => [
-        _makeScriptScenario(packageRoot, scenarioName, soft: soft, port: port),
+        await _makeScriptPathScenario(
+          packageRoot,
+          scenarioName,
+          soft: soft,
+          port: port,
+        ),
       ],
     };
 
@@ -274,11 +261,37 @@ _ProfileScenario _makeScriptScenario(
   required bool port,
 }) {
   final scriptPath = path.join(packageRoot, 'luascripts', 'test', '$name.lua');
+  return _makeResolvedScriptScenario(
+    name: name,
+    scriptPath: scriptPath,
+    soft: soft,
+    port: port,
+  );
+}
 
+Future<_ProfileScenario> _makeScriptPathScenario(
+  String packageRoot,
+  String scenarioOrPath, {
+  required bool soft,
+  required bool port,
+}) async {
+  final scriptPath = await _resolveScriptPath(packageRoot, scenarioOrPath);
+  final displayName = _displayScriptScenarioName(packageRoot, scriptPath);
+  return _makeResolvedScriptScenario(
+    name: displayName,
+    scriptPath: scriptPath,
+    soft: soft,
+    port: port,
+  );
+}
+
+_ProfileScenario _makeResolvedScriptScenario({
+  required String name,
+  required String scriptPath,
+  required bool soft,
+  required bool port,
+}) {
   return _ProfileScenario(name, () async {
-    if (!await fs.fileExists(scriptPath)) {
-      throw ArgumentError.value(name, 'scenario', 'Unknown script scenario');
-    }
     final scriptSource = await fs.readFileAsString(scriptPath);
     if (scriptSource == null) {
       throw StateError('Could not read scenario source at $scriptPath');
@@ -292,6 +305,50 @@ _ProfileScenario _makeScriptScenario(
     source.write(scriptSource);
     await lua.execute(source.toString(), scriptPath: scriptPath);
   });
+}
+
+Future<String> _resolveScriptPath(
+  String packageRoot,
+  String scenarioOrPath,
+) async {
+  final normalizedInput = path.normalize(scenarioOrPath);
+  final currentDirectory = fs.getCurrentDirectory() ?? packageRoot;
+  final candidates = <String>{
+    if (path.isAbsolute(normalizedInput)) normalizedInput,
+    if (!path.isAbsolute(normalizedInput))
+      path.normalize(path.join(currentDirectory, normalizedInput)),
+    if (!path.isAbsolute(normalizedInput))
+      path.normalize(path.join(packageRoot, normalizedInput)),
+    if (!path.isAbsolute(normalizedInput))
+      path.normalize(
+        path.join(packageRoot, 'luascripts', 'test', normalizedInput),
+      ),
+    if (!normalizedInput.endsWith('.lua'))
+      path.normalize(
+        path.join(packageRoot, 'luascripts', 'test', '$normalizedInput.lua'),
+      ),
+  };
+
+  for (final candidate in candidates) {
+    if (await fs.fileExists(candidate)) {
+      return candidate;
+    }
+  }
+
+  throw ArgumentError.value(
+    scenarioOrPath,
+    'scenario',
+    'Unknown scenario or Lua file path',
+  );
+}
+
+String _displayScriptScenarioName(String packageRoot, String scriptPath) {
+  final normalizedRoot = path.normalize(packageRoot);
+  final normalizedScript = path.normalize(scriptPath);
+  if (path.isWithin(normalizedRoot, normalizedScript)) {
+    return path.relative(normalizedScript, from: normalizedRoot);
+  }
+  return normalizedScript;
 }
 
 _ProfileScenario _constructsShortCircuitScenario({required int level}) {
