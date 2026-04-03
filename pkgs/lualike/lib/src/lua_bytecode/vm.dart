@@ -6190,6 +6190,69 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
     }
     return flags;
   }();
+  late final List<List<({int register, int endPc})>> _expiredRegisterCandidatesByPc =
+      () {
+        final codeLength = closure.prototype.code.length;
+        final startRegistersByPc = List<List<int>>.generate(
+          codeLength,
+          (_) => <int>[],
+          growable: false,
+        );
+        final endRegistersByPc = List<List<({int register, int endPc})>>.generate(
+          codeLength,
+          (_) => <({int register, int endPc})>[],
+          growable: false,
+        );
+        for (final local in closure.prototype.localVariables) {
+          final register = local.register;
+          if (register == null) {
+            continue;
+          }
+          final startPc = local.startPc;
+          if (startPc >= 0 && startPc < codeLength) {
+            startRegistersByPc[startPc].add(register);
+          }
+          final endPc = local.endPc;
+          if (endPc >= 0 && endPc < codeLength) {
+            endRegistersByPc[endPc].add((register: register, endPc: endPc));
+          }
+        }
+
+        final activeCounts = <int, int>{};
+        final latestExpiredEndPcByRegister = <int, int>{};
+        final candidatesByPc = List<List<({int register, int endPc})>>.generate(
+          codeLength,
+          (_) => <({int register, int endPc})>[],
+          growable: false,
+        );
+
+        for (var pc = 0; pc < codeLength; pc++) {
+          for (final (:register, :endPc) in endRegistersByPc[pc]) {
+            final nextCount = (activeCounts[register] ?? 0) - 1;
+            if (nextCount > 0) {
+              activeCounts[register] = nextCount;
+            } else {
+              activeCounts.remove(register);
+            }
+            final previousEndPc = latestExpiredEndPcByRegister[register];
+            if (previousEndPc == null || endPc > previousEndPc) {
+              latestExpiredEndPcByRegister[register] = endPc;
+            }
+          }
+          for (final register in startRegistersByPc[pc]) {
+            activeCounts[register] = (activeCounts[register] ?? 0) + 1;
+          }
+          if (!_localExpiryFlags[pc]) {
+            continue;
+          }
+          candidatesByPc[pc] = <({int register, int endPc})>[
+            for (final entry in latestExpiredEndPcByRegister.entries)
+              if ((activeCounts[entry.key] ?? 0) == 0)
+                (register: entry.key, endPc: entry.value),
+          ];
+        }
+        return candidatesByPc;
+      }();
   late final List<bool> _trackedRegisterWriteFlags = () {
     final flags = List<bool>.filled(
       closure.prototype.maxStackSize,
@@ -6441,14 +6504,14 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
         !_localExpiryFlags[currentPc]) {
       return;
     }
-    final registersToClear = <int>{};
+    final registersToClear = _expiredRegisterCandidatesByPc[currentPc];
+    if (registersToClear.isEmpty) {
+      return;
+    }
 
-    for (final local in closure.prototype.localVariables) {
-      final registerIndex = local.register;
-      if (registerIndex == null) {
-        continue;
-      }
-      if (local.endPc > currentPc) {
+    for (final (:register, :endPc) in registersToClear) {
+      final registerIndex = register;
+      if (registerIndex >= registers.length) {
         continue;
       }
       if (_toBeClosedRegisters.contains(registerIndex)) {
@@ -6459,22 +6522,7 @@ final class _LuaBytecodeFrame implements LuaBytecodeGCRootProvider {
       )) {
         continue;
       }
-      final stillActive = closure.prototype.localVariables.any(
-        (candidate) =>
-            candidate.register == registerIndex &&
-            candidate.startPc <= currentPc &&
-            currentPc < candidate.endPc,
-      );
-      if (!stillActive) {
-        if (_lastRegisterWritePc[registerIndex] >= local.endPc) {
-          continue;
-        }
-        registersToClear.add(registerIndex);
-      }
-    }
-
-    for (final registerIndex in registersToClear) {
-      if (registerIndex >= registers.length) {
+      if (_lastRegisterWritePc[registerIndex] >= endPc) {
         continue;
       }
       final value = registers[registerIndex];
