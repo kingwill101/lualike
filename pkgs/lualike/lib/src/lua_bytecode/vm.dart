@@ -8322,7 +8322,6 @@ Value _detachSharedRuntimeConstantInFrameRegister(
 Value _wrapClosure(LuaBytecodeClosure closure) {
   final value = Value(
     closure,
-    functionBody: closure.debugFunctionBody,
     closureEnvironment: closure.environment,
     strippedDebugInfo: !closure.prototype.hasDebugInfo,
   );
@@ -8433,7 +8432,6 @@ Value _runtimeValue(LuaRuntime runtime, Object? value) {
     final LuaFile file => _trackedLuaFileWrapper(file, runtime),
     final LuaBytecodeClosure closure => Value(
       closure,
-      functionBody: closure.debugFunctionBody,
       closureEnvironment: closure.environment,
       interpreter: runtime,
     ),

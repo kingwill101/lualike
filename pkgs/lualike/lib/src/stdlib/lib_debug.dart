@@ -453,6 +453,21 @@ class _GetLocal extends BuiltinFunction {
     if (index <= 0) {
       return null;
     }
+    if (functionValue.raw case final LuaBytecodeClosure closure) {
+      if (index > closure.prototype.parameterCount) {
+        return null;
+      }
+      final register = index - 1;
+      for (final local in closure.prototype.localVariables) {
+        final name = local.name;
+        if (local.register == register &&
+            name != null &&
+            !name.startsWith('(')) {
+          return Value(name);
+        }
+      }
+      return null;
+    }
     final functionBody =
         functionValue.functionBody ??
         switch (functionValue.raw) {
