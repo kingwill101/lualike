@@ -1,0 +1,27 @@
+/// LOVE 11.5 compatibility planning and generated stub surface for LuaLike.
+library;
+
+export 'src/generated/love_api_reference.g.dart' hide installLove2d;
+export 'src/generated/love_api_stubs.g.dart' show loveApiStubImplementations;
+export 'src/install_love2d.dart' show attachLoveHost, installLove2d;
+export 'src/love_api_overrides.dart' show loveApiOverrides;
+export 'src/love_api_support.dart';
+export 'src/runtime/flame/love_flame_harness.dart' show LoveFlameHarness;
+export 'src/runtime/flame/love_flame_host.dart' show LoveFlameHost;
+export 'src/runtime/flame/love_flame_input.dart' show LoveFlameInputAdapter;
+export 'src/runtime/input/love_joystick_input_adapter.dart'
+    show LoveJoystickInputAdapter;
+export 'src/runtime/filesystem/love_asset_bundle_filesystem.dart'
+    show LoveAssetBundleFilesystemAdapter;
+export 'src/runtime/filesystem/love_flutter_filesystem.dart'
+    show LoveFlutterFilesystemAdapter;
+export 'src/runtime/filesystem/love_filesystem_runtime.dart'
+    show
+        LoveFilesystemAdapter,
+        LoveFilesystemFileData,
+        LoveFilesystemInfo,
+        LoveFilesystemNodeType,
+        LoveLualikeFilesystemAdapter;
+export 'src/runtime/love_script_runtime.dart'
+    show LoveScriptRuntime, LoveScriptRuntimeJoystickCallbacks;
+export 'src/runtime/love_runtime.dart';

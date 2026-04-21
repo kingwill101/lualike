@@ -1,0 +1,18 @@
+targets:
+  $default:
+    builders:
+      love2d|love_api_builder:
+        enabled: true
+        generate_for:
+          - lib/src/generated/*.love_api.json
+
+builders:
+  love_api_builder:
+    import: "package:love2d/builder.dart"
+    builder_factories: ["loveApiBuilder"]
+    build_extensions:
+      ".love_api.json":
+        - "_reference.g.dart"
+        - "_stubs.g.dart"
+    auto_apply: root_package
+    build_to: source

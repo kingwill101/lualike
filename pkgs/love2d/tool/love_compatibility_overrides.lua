@@ -1,0 +1,1146 @@
+local overrides = {
+  modules = {
+    ['love'] = {
+      status = 'implemented',
+      conformance = 'smoke-tested',
+      notes = 'Owns bootstrap, callback dispatch, lifecycle shims, and global compatibility behavior. LOVE version queries, deprecation-output state helpers, love.conf bootstrap, the default love.run frame loop, love.errorhandler error-loop integration, and the shared Data/Object base-type surface are implemented.',
+    },
+    ['love.data'] = {
+      status = 'implemented',
+      conformance = 'smoke-tested',
+      notes = 'Backed by pure-Dart data wrappers for ByteData, DataView, and CompressedData, plus LOVE-style encode/decode, hashing, pack/unpack, and enum tables. Compression and decompression support zlib, gzip, deflate, and LOVE-compatible LZ4 blocks with the same 4-byte uncompressed-size header used by upstream LOVE. The current Dart LZ4 encoder prioritizes block-format compatibility over matching liblz4\'s compression-ratio heuristics.',
+    },
+    ['love.event'] = {
+      status = 'implemented',
+      conformance = 'smoke-tested',
+      notes = 'Backed by a runtime-managed event queue with LOVE-style poll, wait, quit, callback dispatch integration, and Event enum tables.',
+    },
+    ['love.audio'] = {
+      status = 'implemented',
+      conformance = 'smoke-tested',
+      notes = 'Backed by host-managed listener, source, and recording-device state with LOVE-style Source, queueable-source, enum, and effect/filter APIs. Playback is delegated to host-provided backends; the default headless backend is silent, and effect/filter bindings currently round-trip logical state rather than applying DSP themselves.',
+    },
+    ['love.filesystem'] = {
+      notes = 'Maps LOVE filesystem semantics onto Flutter assets plus persistent save directories.',
+    },
+    ['love.graphics'] = {
+      notes = 'Largest rendering surface; expected to bridge onto Flame rendering and Flutter canvas primitives.',
+    },
+    ['love.image'] = {
+      status = 'implemented',
+      conformance = 'smoke-tested',
+      notes = 'Backed by pure-Dart ImageData and CompressedImageData wrappers with LOVE-style decode-from-bytes/filesystem/Data inputs, pixel mutation, paste/mapPixel, encode-to-FileData, mipmap generation, and compressed texture metadata parsing for DDS, KTX, PKM, ASTC, and PVR containers. Encoded raster export currently supports PNG, JPG, BMP, and TGA.',
+    },
+    ['love.joystick'] = {
+      status = 'implemented',
+      conformance = 'smoke-tested',
+      notes = 'Backed by host-managed joystick descriptors with LOVE-style querying, virtual gamepad mappings, enum tables, mapping-string persistence, filesystem round-tripping, runtime callback wrapper plus dispatch helpers, a host-side joystick input adapter for native ingestion, and Flame key-event routing for supported Flutter gamepad and DPAD device sources. Direct platform wiring remains integration-specific.',
+    },
+    ['love.keyboard'] = {
+      status = 'implemented',
+      conformance = 'smoke-tested',
+      notes = 'Backed by host-managed key and scancode state with LOVE-style key/scancode mapping, pressed-state queries, key-repeat flags, screen-keyboard capability, and text-input area tracking. Flame integration also dispatches key, textinput, and textedited callbacks from Flutter input events.',
+    },
+    ['love.math'] = {
+      status = 'implemented',
+      conformance = 'smoke-tested',
+      notes = 'Backed by pure-Dart color conversion, gamma helpers, deterministic random-generator state, noise, polygon helpers, and BezierCurve/Transform object wrappers, including MatrixLayout enum support.',
+    },
+    ['love.mouse'] = {
+      status = 'implemented',
+      conformance = 'smoke-tested',
+      notes = 'Backed by host-managed pointer state with LOVE-style position, button, visibility, grab, relative-mode, and cursor APIs plus Cursor objects for system and image cursors. Flame integration applies supported system cursors through Flutter mouse regions and falls back gracefully where arbitrary native image cursors are unavailable.',
+    },
+    ['love.physics'] = {
+      notes = 'Backed by a Forge2D bridge for LOVE-style meter scaling, World/Body/Fixture/Shape/Contact/Joint object wrappers, circle/polygon/edge/chain constructors, all documented LOVE 11.5 joint constructors plus object surfaces, distance queries, transform and state mutation, fixture filter helpers, fixture and shape ray casts, world query and ray-cast callbacks, contact-count and body-touching queries, body inertia mutation, fixture bounds and mass-data queries, contact enumeration and manifold queries, fixture shape cloning, rebuild-on-shape-mutation behavior, and destroyed-object error semantics. Contact friction and restitution setters are replayed into Forge2D through temporary fixture-material reset shims so overrides affect later solver steps even though Forge2D does not expose public direct setters for the underlying contact core. World collision callbacks are queued during the Forge2D step and dispatched immediately after World:update returns, so preSolve mutation timing is compatibility-oriented rather than solver-accurate, although queued contact enable and material changes affect later steps. Contact filtering callbacks are pre-evaluated for fixture pairs whose current or linearly swept AABBs can overlap during World:update and then served through a synchronous Forge2D filter cache, so callback timing remains compatibility-oriented rather than true on-demand broad-phase hooks.',
+    },
+    ['love.sound'] = {
+      status = 'implemented',
+      conformance = 'smoke-tested',
+      notes = 'Backed by pure-Dart SoundData and Decoder wrappers with LOVE-style sample access, cloning, chunked decode, decoder-drain construction, WAV encoding, and filesystem/Data overloads. Decoder coverage currently targets WAV containers, including PCM and IEEE float variants normalized into LOVE-compatible sample data.',
+    },
+    ['love.system'] = {
+      status = 'implemented',
+      conformance = 'smoke-tested',
+      notes = 'Backed by host-managed platform service state for clipboard, URL launching, power info, vibration, and processor metadata, including LOVE enum tables for power-state constants.',
+    },
+    ['love.thread'] = {
+      status = 'implemented',
+      conformance = 'smoke-tested',
+      notes = 'Backed by shared async worker runtimes with LOVE-style Channel and Thread objects, named-channel registry, code-string and filesystem-backed thread loading, threaderror event dispatch, and message marshalling for booleans, numbers, strings, Channel, Thread, and table payloads compatible with the implemented runtime. Worker runtimes currently execute asynchronously within the same Dart isolate while sharing the parent host, event queue bridge, and filesystem adapter state.',
+    },
+    ['love.timer'] = {
+      status = 'implemented',
+      conformance = 'smoke-tested',
+      notes = 'Backed by the host clock for LOVE-style time, delta, FPS, average delta, frame stepping, and sleep semantics.',
+    },
+    ['love.touch'] = {
+      status = 'implemented',
+      conformance = 'smoke-tested',
+      notes = 'Backed by host-managed active touch state with LOVE-style touch id ordering, position and pressure queries, and adapter-driven touch callback dispatch.',
+    },
+    ['love.video'] = {
+      status = 'shimmed',
+      conformance = 'smoke-tested',
+      notes = 'Backed by a control-layer VideoStream wrapper with filename/File construction, playback-state timing, seek/rewind/tell semantics, and sync sharing with Source objects or other streams. Actual Theora frame decoding and graphics-side drawable Video integration are not implemented in this layer yet.',
+    },
+    ['love.window'] = {
+      status = 'implemented',
+      conformance = 'smoke-tested',
+      notes = 'Backed by host-managed window metrics, display descriptors, and message-box callbacks, including LOVE enum tables for display orientation, fullscreen type, and message-box type constants.',
+    },
+  },
+  symbols = {
+    ['love.run'] = {
+      phase = 'foundation',
+      notes = 'Default LOVE main-loop closure, including load bootstrap, event pump and quit semantics, timer stepping, per-frame origin reset before draw, and sleep pacing.',
+    },
+    ['love.load'] = {
+      phase = 'foundation',
+      notes = 'Startup hook for user code after runtime bootstrap and before steady-state frames.',
+    },
+    ['love.update'] = {
+      phase = 'foundation',
+      notes = 'Maps LOVE update timing onto Flame update ticks.',
+    },
+    ['love.draw'] = {
+      phase = 'foundation',
+      notes = 'Maps LOVE draw callback onto Flame plus Flutter render flow.',
+    },
+    ['love.conf'] = {
+      phase = 'foundation',
+      notes = 'Configuration bootstrap is applied before main.lua runs, including identity, audio, window, and module toggle state.',
+    },
+    ['love.graphics.newCanvas'] = {
+      phase = 'high',
+      notes = 'Requires an offscreen rendering strategy compatible with Flutter and Flame.',
+    },
+    ['love.graphics.newShader'] = {
+      phase = 'high',
+      notes = 'Will likely require a substantial shader compatibility shim instead of direct 1:1 execution.',
+    },
+    ['love.physics.newWorld'] = {
+      phase = 'high',
+      notes = 'Root Forge2D bridge constructor for LOVE physics compatibility.',
+    },
+    ['love.audio.newSource'] = {
+      phase = 'high',
+      notes = 'Primary audio object constructor and likely the anchor for the audio bridge surface.',
+    },
+  },
+}
+
+local function merge_fields(target, fields)
+  for key, value in pairs(fields) do
+    target[key] = value
+  end
+end
+
+local function apply_symbol_overrides(symbols, fields)
+  for _, symbol in ipairs(symbols) do
+    local entry = overrides.symbols[symbol] or {}
+    merge_fields(entry, fields)
+    overrides.symbols[symbol] = entry
+  end
+end
+
+merge_fields(overrides.modules['love.filesystem'], {
+  status = 'partial',
+  conformance = 'smoke-tested',
+  notes = 'Maps LOVE filesystem semantics onto Flutter assets plus persistent save directories. Directory mounts, save identity writes, File/FileData wrappers, LOVE enum tables for file, buffer, decoder, and node-type constants, source-parity File:getExtension support, host-provided DroppedFile wrappers, Lua package loading, and zip plus tar-family archive mounts from direct filesystem paths, logical source/save-relative paths, DroppedFile, FileData, and generic Data wrappers are implemented; broader archive coverage remains partial.',
+})
+
+apply_symbol_overrides({
+  'love.math.colorFromBytes',
+  'love.math.colorToBytes',
+  'love.math.gammaToLinear',
+  'love.math.getRandomSeed',
+  'love.math.getRandomState',
+  'love.math.isConvex',
+  'love.math.linearToGamma',
+  'love.math.newBezierCurve',
+  'love.math.newRandomGenerator',
+  'love.math.newTransform',
+  'love.math.noise',
+  'love.math.random',
+  'love.math.randomNormal',
+  'love.math.setRandomSeed',
+  'love.math.setRandomState',
+  'love.math.triangulate',
+  'BezierCurve',
+  'BezierCurve:evaluate',
+  'BezierCurve:getControlPoint',
+  'BezierCurve:getControlPointCount',
+  'BezierCurve:getDegree',
+  'BezierCurve:getDerivative',
+  'BezierCurve:getSegment',
+  'BezierCurve:insertControlPoint',
+  'BezierCurve:removeControlPoint',
+  'BezierCurve:render',
+  'BezierCurve:renderSegment',
+  'BezierCurve:rotate',
+  'BezierCurve:scale',
+  'BezierCurve:setControlPoint',
+  'BezierCurve:translate',
+  'RandomGenerator',
+  'RandomGenerator:getSeed',
+  'RandomGenerator:getState',
+  'RandomGenerator:random',
+  'RandomGenerator:randomNormal',
+  'RandomGenerator:setSeed',
+  'RandomGenerator:setState',
+  'Transform',
+  'Transform:apply',
+  'Transform:clone',
+  'Transform:getMatrix',
+  'Transform:inverse',
+  'Transform:inverseTransformPoint',
+  'Transform:isAffine2DTransform',
+  'Transform:reset',
+  'Transform:rotate',
+  'Transform:scale',
+  'Transform:setMatrix',
+  'Transform:setTransformation',
+  'Transform:shear',
+  'Transform:transformPoint',
+  'Transform:translate',
+  'MatrixLayout',
+  'MatrixLayout.row',
+  'MatrixLayout.column',
+}, {
+  status = 'implemented',
+  conformance = 'smoke-tested',
+})
+
+apply_symbol_overrides({
+  'love.data.decode',
+  'love.data.encode',
+  'love.data.getPackedSize',
+  'love.data.hash',
+  'love.data.newByteData',
+  'love.data.newDataView',
+  'love.data.pack',
+  'love.data.unpack',
+  'ByteData',
+  'CompressedData',
+  'CompressedData:getFormat',
+  'CompressedDataFormat',
+  'CompressedDataFormat.lz4',
+  'CompressedDataFormat.zlib',
+  'CompressedDataFormat.gzip',
+  'CompressedDataFormat.deflate',
+  'ContainerType',
+  'ContainerType.data',
+  'ContainerType.string',
+  'EncodeFormat',
+  'EncodeFormat.base64',
+  'EncodeFormat.hex',
+  'HashFunction',
+  'HashFunction.md5',
+  'HashFunction.sha1',
+  'HashFunction.sha224',
+  'HashFunction.sha256',
+  'HashFunction.sha384',
+  'HashFunction.sha512',
+}, {
+  status = 'implemented',
+  conformance = 'smoke-tested',
+})
+
+apply_symbol_overrides({
+  'love.physics',
+}, {
+  status = 'partial',
+  conformance = 'smoke-tested',
+})
+
+apply_symbol_overrides({
+  'love.physics.getDistance',
+  'love.physics.getMeter',
+  'love.physics.newBody',
+  'love.physics.newChainShape',
+  'love.physics.newCircleShape',
+  'love.physics.newDistanceJoint',
+  'love.physics.newEdgeShape',
+  'love.physics.newFrictionJoint',
+  'love.physics.newFixture',
+  'love.physics.newGearJoint',
+  'love.physics.newMotorJoint',
+  'love.physics.newMouseJoint',
+  'love.physics.newPolygonShape',
+  'love.physics.newPrismaticJoint',
+  'love.physics.newPulleyJoint',
+  'love.physics.newRectangleShape',
+  'love.physics.newRevoluteJoint',
+  'love.physics.newRopeJoint',
+  'love.physics.newWeldJoint',
+  'love.physics.newWheelJoint',
+  'love.physics.newWorld',
+  'love.physics.setMeter',
+  'Body',
+  'Body:applyAngularImpulse',
+  'Body:applyForce',
+  'Body:applyLinearImpulse',
+  'Body:applyTorque',
+  'Body:destroy',
+  'Body:getAngle',
+  'Body:getAngularDamping',
+  'Body:getAngularVelocity',
+  'Body:getContacts',
+  'Body:getFixtures',
+  'Body:getGravityScale',
+  'Body:getInertia',
+  'Body:getJoints',
+  'Body:getLinearDamping',
+  'Body:getLinearVelocity',
+  'Body:getLinearVelocityFromLocalPoint',
+  'Body:getLinearVelocityFromWorldPoint',
+  'Body:getLocalCenter',
+  'Body:getLocalPoint',
+  'Body:getLocalPoints',
+  'Body:getLocalVector',
+  'Body:getMass',
+  'Body:getMassData',
+  'Body:getPosition',
+  'Body:getTransform',
+  'Body:getType',
+  'Body:getUserData',
+  'Body:getWorld',
+  'Body:getWorldCenter',
+  'Body:getWorldPoint',
+  'Body:getWorldPoints',
+  'Body:getWorldVector',
+  'Body:getX',
+  'Body:getY',
+  'Body:isActive',
+  'Body:isAwake',
+  'Body:isBullet',
+  'Body:isDestroyed',
+  'Body:isFixedRotation',
+  'Body:isSleepingAllowed',
+  'Body:isTouching',
+  'Body:resetMassData',
+  'Body:setActive',
+  'Body:setAngle',
+  'Body:setAngularDamping',
+  'Body:setAngularVelocity',
+  'Body:setAwake',
+  'Body:setBullet',
+  'Body:setFixedRotation',
+  'Body:setGravityScale',
+  'Body:setInertia',
+  'Body:setLinearDamping',
+  'Body:setLinearVelocity',
+  'Body:setMass',
+  'Body:setMassData',
+  'Body:setPosition',
+  'Body:setSleepingAllowed',
+  'Body:setTransform',
+  'Body:setType',
+  'Body:setUserData',
+  'Body:setX',
+  'Body:setY',
+  'BodyType',
+  'BodyType.static',
+  'BodyType.dynamic',
+  'BodyType.kinematic',
+  'ChainShape',
+  'ChainShape:getChildEdge',
+  'ChainShape:getNextVertex',
+  'ChainShape:getPoint',
+  'ChainShape:getPoints',
+  'ChainShape:getPreviousVertex',
+  'ChainShape:getVertexCount',
+  'ChainShape:setNextVertex',
+  'ChainShape:setPreviousVertex',
+  'Contact',
+  'Contact:getChildren',
+  'Contact:getFixtures',
+  'Contact:getFriction',
+  'Contact:getNormal',
+  'Contact:getPositions',
+  'Contact:getRestitution',
+  'Contact:isEnabled',
+  'Contact:isTouching',
+  'Contact:resetFriction',
+  'Contact:resetRestitution',
+  'Contact:setEnabled',
+  'Contact:setFriction',
+  'Contact:setRestitution',
+  'CircleShape',
+  'CircleShape:getPoint',
+  'CircleShape:getRadius',
+  'CircleShape:setPoint',
+  'CircleShape:setRadius',
+  'DistanceJoint',
+  'DistanceJoint:getDampingRatio',
+  'DistanceJoint:getFrequency',
+  'DistanceJoint:getLength',
+  'DistanceJoint:setDampingRatio',
+  'DistanceJoint:setFrequency',
+  'DistanceJoint:setLength',
+  'EdgeShape',
+  'EdgeShape:getNextVertex',
+  'EdgeShape:getPoints',
+  'EdgeShape:getPreviousVertex',
+  'EdgeShape:setNextVertex',
+  'EdgeShape:setPreviousVertex',
+  'Fixture',
+  'Fixture:destroy',
+  'Fixture:getBody',
+  'Fixture:getBoundingBox',
+  'Fixture:getCategory',
+  'Fixture:getDensity',
+  'Fixture:getFilterData',
+  'Fixture:getFriction',
+  'Fixture:getGroupIndex',
+  'Fixture:getMask',
+  'Fixture:getMassData',
+  'Fixture:getRestitution',
+  'Fixture:getShape',
+  'Fixture:getUserData',
+  'Fixture:isDestroyed',
+  'Fixture:isSensor',
+  'Fixture:rayCast',
+  'Fixture:setCategory',
+  'Fixture:setDensity',
+  'Fixture:setFilterData',
+  'Fixture:setFriction',
+  'Fixture:setGroupIndex',
+  'Fixture:setMask',
+  'Fixture:setRestitution',
+  'Fixture:setSensor',
+  'Fixture:setUserData',
+  'Fixture:testPoint',
+  'FrictionJoint',
+  'FrictionJoint:getMaxForce',
+  'FrictionJoint:getMaxTorque',
+  'FrictionJoint:setMaxForce',
+  'FrictionJoint:setMaxTorque',
+  'GearJoint',
+  'GearJoint:getJoints',
+  'GearJoint:getRatio',
+  'GearJoint:setRatio',
+  'Joint',
+  'Joint:destroy',
+  'Joint:getAnchors',
+  'Joint:getBodies',
+  'Joint:getCollideConnected',
+  'Joint:getReactionForce',
+  'Joint:getReactionTorque',
+  'Joint:getType',
+  'Joint:getUserData',
+  'Joint:isDestroyed',
+  'Joint:setUserData',
+  'JointType',
+  'JointType.distance',
+  'JointType.friction',
+  'JointType.gear',
+  'JointType.mouse',
+  'JointType.prismatic',
+  'JointType.pulley',
+  'JointType.revolute',
+  'JointType.rope',
+  'MotorJoint',
+  'MotorJoint:getAngularOffset',
+  'MotorJoint:getLinearOffset',
+  'MotorJoint:setAngularOffset',
+  'MotorJoint:setLinearOffset',
+  'MouseJoint',
+  'MouseJoint:getDampingRatio',
+  'MouseJoint:getFrequency',
+  'MouseJoint:getMaxForce',
+  'MouseJoint:getTarget',
+  'MouseJoint:setDampingRatio',
+  'MouseJoint:setFrequency',
+  'MouseJoint:setMaxForce',
+  'MouseJoint:setTarget',
+  'PrismaticJoint',
+  'PrismaticJoint:areLimitsEnabled',
+  'PrismaticJoint:getAxis',
+  'PrismaticJoint:getJointSpeed',
+  'PrismaticJoint:getJointTranslation',
+  'PrismaticJoint:getLimits',
+  'PrismaticJoint:getLowerLimit',
+  'PrismaticJoint:getMaxMotorForce',
+  'PrismaticJoint:getMotorForce',
+  'PrismaticJoint:getMotorSpeed',
+  'PrismaticJoint:getReferenceAngle',
+  'PrismaticJoint:getUpperLimit',
+  'PrismaticJoint:isMotorEnabled',
+  'PrismaticJoint:setLimits',
+  'PrismaticJoint:setLimitsEnabled',
+  'PrismaticJoint:setLowerLimit',
+  'PrismaticJoint:setMaxMotorForce',
+  'PrismaticJoint:setMotorEnabled',
+  'PrismaticJoint:setMotorSpeed',
+  'PrismaticJoint:setUpperLimit',
+  'PulleyJoint',
+  'PulleyJoint:getConstant',
+  'PulleyJoint:getGroundAnchors',
+  'PulleyJoint:getLengthA',
+  'PulleyJoint:getLengthB',
+  'PulleyJoint:getMaxLengths',
+  'PulleyJoint:getRatio',
+  'PulleyJoint:setConstant',
+  'PulleyJoint:setMaxLengths',
+  'PulleyJoint:setRatio',
+  'JointType.weld',
+  'PolygonShape',
+  'PolygonShape:getPoints',
+  'RevoluteJoint',
+  'RevoluteJoint:areLimitsEnabled',
+  'RevoluteJoint:getJointAngle',
+  'RevoluteJoint:getJointSpeed',
+  'RevoluteJoint:getLimits',
+  'RevoluteJoint:getLowerLimit',
+  'RevoluteJoint:getMaxMotorTorque',
+  'RevoluteJoint:getMotorSpeed',
+  'RevoluteJoint:getMotorTorque',
+  'RevoluteJoint:getReferenceAngle',
+  'RevoluteJoint:getUpperLimit',
+  'RevoluteJoint:hasLimitsEnabled',
+  'RevoluteJoint:isMotorEnabled',
+  'RevoluteJoint:setLimits',
+  'RevoluteJoint:setLimitsEnabled',
+  'RevoluteJoint:setLowerLimit',
+  'RevoluteJoint:setMaxMotorTorque',
+  'RevoluteJoint:setMotorEnabled',
+  'RevoluteJoint:setMotorSpeed',
+  'RevoluteJoint:setUpperLimit',
+  'RopeJoint',
+  'RopeJoint:getMaxLength',
+  'RopeJoint:setMaxLength',
+  'Shape',
+  'Shape:computeAABB',
+  'Shape:computeMass',
+  'Shape:getChildCount',
+  'Shape:getRadius',
+  'Shape:getType',
+  'Shape:rayCast',
+  'Shape:testPoint',
+  'ShapeType',
+  'ShapeType.circle',
+  'ShapeType.polygon',
+  'ShapeType.edge',
+  'ShapeType.chain',
+  'WeldJoint',
+  'WeldJoint:getDampingRatio',
+  'WeldJoint:getFrequency',
+  'WeldJoint:getReferenceAngle',
+  'WeldJoint:setDampingRatio',
+  'WeldJoint:setFrequency',
+  'WheelJoint',
+  'WheelJoint:getAxis',
+  'WheelJoint:getJointSpeed',
+  'WheelJoint:getJointTranslation',
+  'WheelJoint:getMaxMotorTorque',
+  'WheelJoint:getMotorSpeed',
+  'WheelJoint:getMotorTorque',
+  'WheelJoint:getSpringDampingRatio',
+  'WheelJoint:getSpringFrequency',
+  'WheelJoint:isMotorEnabled',
+  'WheelJoint:setMaxMotorTorque',
+  'WheelJoint:setMotorEnabled',
+  'WheelJoint:setMotorSpeed',
+  'WheelJoint:setSpringDampingRatio',
+  'WheelJoint:setSpringFrequency',
+  'World',
+  'World:destroy',
+  'World:getBodies',
+  'World:getBodyCount',
+  'World:getContactCount',
+  'World:getContacts',
+  'World:getGravity',
+  'World:getJointCount',
+  'World:getJoints',
+  'World:isDestroyed',
+  'World:isLocked',
+  'World:isSleepingAllowed',
+  'World:queryBoundingBox',
+  'World:rayCast',
+  'World:setGravity',
+  'World:setSleepingAllowed',
+  'World:translateOrigin',
+  'World:update',
+}, {
+  status = 'implemented',
+  conformance = 'smoke-tested',
+})
+
+apply_symbol_overrides({
+  'love.data.compress',
+  'love.data.decompress',
+}, {
+  status = 'implemented',
+  conformance = 'smoke-tested',
+  notes = 'Implemented for zlib, gzip, deflate, and LOVE-compatible LZ4 blocks. LZ4 payloads use the same 4-byte little-endian uncompressed-size header as upstream LOVE, and the current encoder favors interoperable output over native liblz4 ratio parity.',
+})
+
+apply_symbol_overrides({
+  'World:getCallbacks',
+}, {
+  status = 'implemented',
+  conformance = 'smoke-tested',
+  notes = 'Returns the currently registered world collision callbacks, including when called from Lua coroutines.',
+})
+
+apply_symbol_overrides({
+  'World:setCallbacks',
+}, {
+  status = 'partial',
+  conformance = 'smoke-tested',
+  notes = 'Collision callbacks are queued while Forge2D steps and dispatched immediately after World:update returns. world:isLocked() is emulated during callback dispatch, and queued contact enable and material mutations affect later steps, but Lua preSolve mutations still cannot affect the solver pass already in progress. Like upstream Box2D-style stepping, continuous-collision processing can surface multiple preSolve and postSolve callbacks for the same contact within a single World:update.',
+})
+
+apply_symbol_overrides({
+  'World:getContactFilter',
+}, {
+  status = 'implemented',
+  conformance = 'smoke-tested',
+  notes = 'Returns the currently registered contact-filter callback, including when called from Lua coroutines.',
+})
+
+apply_symbol_overrides({
+  'World:setContactFilter',
+}, {
+  status = 'partial',
+  conformance = 'smoke-tested',
+  notes = 'The Lua filter callback is pre-evaluated before World:update for fixture pairs that pass default group/category filtering and whose current or linearly swept AABBs can overlap during the step. The resulting decisions are then served through a synchronous Forge2D contact filter. This covers refiltering and mid-step contacts from linear motion, but callback timing remains compatibility-oriented rather than a true synchronous broad-phase hook.',
+})
+
+apply_symbol_overrides({
+  'love.event',
+  'love.event.clear',
+  'love.event.poll',
+  'love.event.pump',
+  'love.event.push',
+  'love.event.quit',
+  'love.event.wait',
+  'Event',
+  'Event.focus',
+  'Event.joystickpressed',
+  'Event.joystickreleased',
+  'Event.keypressed',
+  'Event.keyreleased',
+  'Event.mousepressed',
+  'Event.mousereleased',
+  'Event.quit',
+  'Event.resize',
+  'Event.visible',
+  'Event.mousefocus',
+  'Event.threaderror',
+  'Event.joystickadded',
+  'Event.joystickremoved',
+  'Event.joystickaxis',
+  'Event.joystickhat',
+  'Event.gamepadpressed',
+  'Event.gamepadreleased',
+  'Event.gamepadaxis',
+  'Event.textinput',
+  'Event.mousemoved',
+  'Event.lowmemory',
+  'Event.textedited',
+  'Event.wheelmoved',
+  'Event.touchpressed',
+  'Event.touchreleased',
+  'Event.touchmoved',
+  'Event.directorydropped',
+  'Event.filedropped',
+  'Event.jp',
+  'Event.jr',
+  'Event.kp',
+  'Event.kr',
+  'Event.mp',
+  'Event.mr',
+  'Event.q',
+  'Event.f',
+}, {
+  status = 'implemented',
+  conformance = 'smoke-tested',
+})
+
+apply_symbol_overrides({
+  'love',
+  'love.getVersion',
+  'love.hasDeprecationOutput',
+  'love.isVersionCompatible',
+  'love.setDeprecationOutput',
+}, {
+  status = 'implemented',
+  conformance = 'smoke-tested',
+})
+
+overrides.symbols['love'] = overrides.symbols['love'] or {}
+merge_fields(overrides.symbols['love'], {
+  status = 'implemented',
+  conformance = 'smoke-tested',
+})
+
+apply_symbol_overrides({
+  'love.load',
+  'love.update',
+  'love.draw',
+  'love.errorhandler',
+  'love.run',
+  'love.conf',
+  'love.quit',
+  'love.resize',
+  'love.lowmemory',
+  'love.visible',
+  'love.directorydropped',
+  'love.displayrotated',
+  'love.filedropped',
+  'love.threaderror',
+}, {
+  status = 'implemented',
+  conformance = 'smoke-tested',
+})
+
+overrides.symbols['love.run'] = overrides.symbols['love.run'] or {}
+merge_fields(overrides.symbols['love.run'], {
+  notes = 'Default LOVE main-loop semantics are implemented, including love.load bootstrap, queued event dispatch, love.quit abort and exit handling, timer stepping, per-frame origin reset before draw, and host-backed sleep pacing. love.arg.parseGameArguments is used when available, and the raw arg table is still forwarded as the second love.load argument.',
+})
+
+overrides.symbols['love.errorhandler'] = overrides.symbols['love.errorhandler'] or {}
+merge_fields(overrides.symbols['love.errorhandler'], {
+  notes = 'Default LOVE error-handler semantics are implemented through a runtime-managed error loop that resets input and graphics state, renders an error screen, supports clipboard copy shortcuts, and is invoked automatically by the Flame harness when LOVE callbacks fail. User-defined love.errorhandler overrides are also honored.',
+})
+
+overrides.symbols['love.conf'] = overrides.symbols['love.conf'] or {}
+merge_fields(overrides.symbols['love.conf'], {
+  notes = 'Configuration bootstrap is implemented before main.lua execution, including filesystem identity, window metrics, audio mix-with-system state, and module disabling.',
+})
+
+overrides.symbols['love.quit'] = overrides.symbols['love.quit'] or {}
+merge_fields(overrides.symbols['love.quit'], {
+  notes = 'Runtime quit callback invocation is implemented, including harness-side handling for aborting queued quits when the callback returns true and restarting when the queued quit status is "restart".',
+})
+
+overrides.symbols['love.resize'] = overrides.symbols['love.resize'] or {}
+merge_fields(overrides.symbols['love.resize'], {
+  notes = 'Runtime resize callback dispatch is implemented, including Flame harness viewport-change integration and matching love.event queue entries.',
+})
+
+overrides.symbols['love.lowmemory'] = overrides.symbols['love.lowmemory'] or {}
+merge_fields(overrides.symbols['love.lowmemory'], {
+  notes = 'Runtime low-memory callback dispatch is implemented, including Flame harness forwarding from Flutter memory-pressure notifications.',
+})
+
+overrides.symbols['love.visible'] = overrides.symbols['love.visible'] or {}
+merge_fields(overrides.symbols['love.visible'], {
+  notes = 'Runtime visibility callback dispatch is implemented, including Flame harness forwarding from Flutter app lifecycle visibility changes.',
+})
+
+overrides.symbols['love.directorydropped'] = overrides.symbols['love.directorydropped'] or {}
+merge_fields(overrides.symbols['love.directorydropped'], {
+  notes = 'Runtime callback helpers and LOVE event queue dispatch are implemented. Direct platform drop-event wiring remains integration-specific.',
+})
+
+overrides.symbols['love.displayrotated'] = overrides.symbols['love.displayrotated'] or {}
+merge_fields(overrides.symbols['love.displayrotated'], {
+  notes = 'Runtime callback helpers and LOVE event queue dispatch are implemented. Direct platform orientation-change wiring remains integration-specific.',
+})
+
+overrides.symbols['love.filedropped'] = overrides.symbols['love.filedropped'] or {}
+merge_fields(overrides.symbols['love.filedropped'], {
+  notes = 'Runtime callback helpers and LOVE event queue dispatch are implemented, including DroppedFile wrapping. Direct platform drop-event wiring remains integration-specific.',
+})
+
+overrides.symbols['love.threaderror'] = overrides.symbols['love.threaderror'] or {}
+merge_fields(overrides.symbols['love.threaderror'], {
+  notes = 'Runtime callback helpers and LOVE event queue dispatch are implemented for threaderror payloads.',
+})
+
+apply_symbol_overrides({
+  'Data',
+  'Data:clone',
+  'Data:getPointer',
+  'Data:getSize',
+  'Data:getString',
+  'Object',
+  'Object:release',
+  'Object:type',
+  'Object:typeOf',
+}, {
+  status = 'implemented',
+  conformance = 'smoke-tested',
+})
+
+overrides.symbols['Data:getFFIPointer'] = overrides.symbols['Data:getFFIPointer'] or {}
+merge_fields(overrides.symbols['Data:getFFIPointer'], {
+  status = 'implemented',
+  conformance = 'smoke-tested',
+  notes = 'Exposed as the same compatibility pointer handle as Data:getPointer in the Dart runtime, since LuaJIT FFI cdata pointers are not available here.',
+})
+
+apply_symbol_overrides({
+  'love.filesystem.append',
+  'love.filesystem.areSymlinksEnabled',
+  'love.filesystem.createDirectory',
+  'love.filesystem.getAppdataDirectory',
+  'love.filesystem.getCRequirePath',
+  'love.filesystem.getDirectoryItems',
+  'love.filesystem.getIdentity',
+  'love.filesystem.getInfo',
+  'love.filesystem.getRealDirectory',
+  'love.filesystem.getRequirePath',
+  'love.filesystem.getSaveDirectory',
+  'love.filesystem.getSource',
+  'love.filesystem.getSourceBaseDirectory',
+  'love.filesystem.getUserDirectory',
+  'love.filesystem.getWorkingDirectory',
+  'love.filesystem.init',
+  'love.filesystem.isFused',
+  'love.filesystem.lines',
+  'love.filesystem.load',
+  'love.filesystem.newFile',
+  'love.filesystem.newFileData',
+  'love.filesystem.read',
+  'love.filesystem.remove',
+  'love.filesystem.setCRequirePath',
+  'love.filesystem.setIdentity',
+  'love.filesystem.setRequirePath',
+  'love.filesystem.setSource',
+  'love.filesystem.setSymlinksEnabled',
+  'love.filesystem.unmount',
+  'love.filesystem.write',
+  'File:close',
+  'File:flush',
+  'File:getBuffer',
+  'File:getExtension',
+  'File:getFilename',
+  'File:getMode',
+  'File:getSize',
+  'File:isEOF',
+  'File:isOpen',
+  'File:lines',
+  'File:open',
+  'File:read',
+  'File:seek',
+  'File:setBuffer',
+  'File:tell',
+  'File:write',
+  'FileData:clone',
+  'FileData:getExtension',
+  'FileData:getFilename',
+  'BufferMode',
+  'BufferMode.none',
+  'BufferMode.line',
+  'BufferMode.full',
+  'FileDecoder',
+  'FileDecoder.file',
+  'FileDecoder.base64',
+  'FileMode',
+  'FileMode.r',
+  'FileMode.w',
+  'FileMode.a',
+  'FileMode.c',
+  'FileType',
+  'FileType.file',
+  'FileType.directory',
+  'FileType.symlink',
+  'FileType.other',
+}, {
+  status = 'implemented',
+  conformance = 'smoke-tested',
+})
+
+overrides.symbols['love.filesystem.mount'] = overrides.symbols['love.filesystem.mount'] or {}
+merge_fields(overrides.symbols['love.filesystem.mount'], {
+  status = 'partial',
+  conformance = 'smoke-tested',
+  notes = 'Logical directory mounts, mounted-module loading, and zip plus tar-family archive mounts from direct filesystem paths, logical source/save-relative paths, host-provided DroppedFile wrappers, FileData, and generic Data wrappers are implemented. Broader archive coverage remains partial.',
+})
+
+apply_symbol_overrides({
+  'File',
+  'FileData',
+}, {
+  status = 'implemented',
+  conformance = 'smoke-tested',
+})
+
+overrides.symbols['DroppedFile'] = overrides.symbols['DroppedFile'] or {}
+merge_fields(overrides.symbols['DroppedFile'], {
+  status = 'implemented',
+  conformance = 'smoke-tested',
+  notes = 'Filesystem-side DroppedFile wrapper semantics are implemented, including File subtype behavior, mount support, and acquisition through love.filedropped callback dispatch and queued LOVE events. Direct platform drop-event wiring remains integration-specific.',
+})
+
+overrides.symbols['love.sound.newDecoder'] = overrides.symbols['love.sound.newDecoder'] or {}
+merge_fields(overrides.symbols['love.sound.newDecoder'], {
+  status = 'partial',
+  conformance = 'smoke-tested',
+  notes = 'LOVE-style decoder construction and Decoder methods are implemented. Encoded input support currently targets WAV containers, including PCM and IEEE float variants.',
+})
+
+overrides.symbols['love.sound.newSoundData'] = overrides.symbols['love.sound.newSoundData'] or {}
+merge_fields(overrides.symbols['love.sound.newSoundData'], {
+  status = 'partial',
+  conformance = 'smoke-tested',
+  notes = 'Numeric SoundData construction is implemented, and decoder/file overloads work through the runtime decoder bridge. Encoded input support currently targets WAV containers, including PCM and IEEE float variants.',
+})
+
+apply_symbol_overrides({
+  'love.joystick.getGamepadMappingString',
+  'love.joystick.getJoystickCount',
+  'love.joystick.getJoysticks',
+  'love.joystick.loadGamepadMappings',
+  'love.joystick.saveGamepadMappings',
+  'love.joystick.setGamepadMapping',
+  'Joystick:getAxes',
+  'Joystick:getAxis',
+  'Joystick:getAxisCount',
+  'Joystick:getButtonCount',
+  'Joystick:getDeviceInfo',
+  'Joystick:getGUID',
+  'Joystick:getGamepadAxis',
+  'Joystick:getGamepadMapping',
+  'Joystick:getGamepadMappingString',
+  'Joystick:getHat',
+  'Joystick:getHatCount',
+  'Joystick:getID',
+  'Joystick:getName',
+  'Joystick:getVibration',
+  'Joystick:isConnected',
+  'Joystick:isDown',
+  'Joystick:isGamepad',
+  'Joystick:isGamepadDown',
+  'Joystick:isVibrationSupported',
+  'Joystick:setVibration',
+  'GamepadAxis',
+  'GamepadAxis.leftx',
+  'GamepadAxis.lefty',
+  'GamepadAxis.rightx',
+  'GamepadAxis.righty',
+  'GamepadAxis.triggerleft',
+  'GamepadAxis.triggerright',
+  'GamepadButton',
+  'GamepadButton.a',
+  'GamepadButton.b',
+  'GamepadButton.x',
+  'GamepadButton.y',
+  'GamepadButton.back',
+  'GamepadButton.guide',
+  'GamepadButton.start',
+  'GamepadButton.leftstick',
+  'GamepadButton.rightstick',
+  'GamepadButton.leftshoulder',
+  'GamepadButton.rightshoulder',
+  'GamepadButton.dpup',
+  'GamepadButton.dpdown',
+  'GamepadButton.dpleft',
+  'GamepadButton.dpright',
+  'JoystickHat',
+  'JoystickHat.c',
+  'JoystickHat.d',
+  'JoystickHat.l',
+  'JoystickHat.ld',
+  'JoystickHat.lu',
+  'JoystickHat.r',
+  'JoystickHat.rd',
+  'JoystickHat.ru',
+  'JoystickHat.u',
+  'JoystickInputType',
+  'JoystickInputType.axis',
+  'JoystickInputType.button',
+  'JoystickInputType.hat',
+}, {
+  status = 'implemented',
+  conformance = 'smoke-tested',
+})
+
+apply_symbol_overrides({
+  'love.system.getClipboardText',
+  'love.system.getOS',
+  'love.system.getPowerInfo',
+  'love.system.getProcessorCount',
+  'love.system.hasBackgroundMusic',
+  'love.system.openURL',
+  'love.system.setClipboardText',
+  'love.system.vibrate',
+  'PowerState',
+  'PowerState.unknown',
+  'PowerState.battery',
+  'PowerState.nobattery',
+  'PowerState.charging',
+  'PowerState.charged',
+}, {
+  status = 'implemented',
+  conformance = 'smoke-tested',
+})
+
+apply_symbol_overrides({
+  'love.window.close',
+  'love.window.fromPixels',
+  'love.window.getDPIScale',
+  'love.window.getDesktopDimensions',
+  'love.window.getDisplayCount',
+  'love.window.getDisplayName',
+  'love.window.getDisplayOrientation',
+  'love.window.getFullscreen',
+  'love.window.getFullscreenModes',
+  'love.window.getIcon',
+  'love.window.getMode',
+  'love.window.getPosition',
+  'love.window.getSafeArea',
+  'love.window.getTitle',
+  'love.window.getVSync',
+  'love.window.hasFocus',
+  'love.window.hasMouseFocus',
+  'love.window.isDisplaySleepEnabled',
+  'love.window.isMaximized',
+  'love.window.isMinimized',
+  'love.window.isOpen',
+  'love.window.isVisible',
+  'love.window.maximize',
+  'love.window.minimize',
+  'love.window.requestAttention',
+  'love.window.restore',
+  'love.window.setDisplaySleepEnabled',
+  'love.window.setFullscreen',
+  'love.window.setIcon',
+  'love.window.setMode',
+  'love.window.setPosition',
+  'love.window.setTitle',
+  'love.window.setVSync',
+  'love.window.showMessageBox',
+  'love.window.toPixels',
+  'love.window.updateMode',
+  'DisplayOrientation',
+  'DisplayOrientation.unknown',
+  'DisplayOrientation.landscape',
+  'DisplayOrientation.landscapeflipped',
+  'DisplayOrientation.portrait',
+  'DisplayOrientation.portraitflipped',
+  'FullscreenType',
+  'FullscreenType.desktop',
+  'FullscreenType.exclusive',
+  'FullscreenType.normal',
+  'MessageBoxType',
+  'MessageBoxType.info',
+  'MessageBoxType.warning',
+  'MessageBoxType.error',
+}, {
+  status = 'implemented',
+  conformance = 'smoke-tested',
+})
+
+apply_symbol_overrides({
+  'love.timer',
+  'love.timer.getAverageDelta',
+  'love.timer.getDelta',
+  'love.timer.getFPS',
+  'love.timer.getTime',
+  'love.timer.sleep',
+  'love.timer.step',
+  'love.touch',
+  'love.touch.getPosition',
+  'love.touch.getPressure',
+  'love.touch.getTouches',
+}, {
+  status = 'implemented',
+  conformance = 'smoke-tested',
+})
+
+apply_symbol_overrides({
+  'love.focus',
+  'love.gamepadaxis',
+  'love.gamepadpressed',
+  'love.gamepadreleased',
+  'love.joystickadded',
+  'love.joystickaxis',
+  'love.joystickhat',
+  'love.joystickpressed',
+  'love.joystickreleased',
+  'love.joystickremoved',
+  'love.keypressed',
+  'love.keyreleased',
+  'love.lowmemory',
+  'love.mousefocus',
+  'love.mousemoved',
+  'love.mousepressed',
+  'love.mousereleased',
+  'love.textedited',
+  'love.textinput',
+  'love.touchmoved',
+  'love.touchpressed',
+  'love.touchreleased',
+  'love.visible',
+  'love.wheelmoved',
+}, {
+  status = 'implemented',
+  conformance = 'smoke-tested',
+})
+
+apply_symbol_overrides({
+  'love.thread',
+  'love.thread.getChannel',
+  'love.thread.newChannel',
+  'love.thread.newThread',
+  'Channel',
+  'Channel:clear',
+  'Channel:demand',
+  'Channel:getCount',
+  'Channel:hasRead',
+  'Channel:peek',
+  'Channel:performAtomic',
+  'Channel:pop',
+  'Channel:push',
+  'Channel:supply',
+  'Thread',
+  'Thread:getError',
+  'Thread:isRunning',
+  'Thread:start',
+  'Thread:wait',
+}, {
+  status = 'implemented',
+  conformance = 'smoke-tested',
+})
+
+overrides.symbols['love.thread.newThread'] = overrides.symbols['love.thread.newThread'] or {}
+merge_fields(overrides.symbols['love.thread.newThread'], {
+  notes = 'Thread construction is implemented for LOVE-style code strings and filesystem-backed Lua chunks. Worker runtimes inherit the parent host bridge, share named channels, and currently execute asynchronously within the same Dart isolate.',
+})
+
+overrides.symbols['Thread:start'] = overrides.symbols['Thread:start'] or {}
+merge_fields(overrides.symbols['Thread:start'], {
+  notes = 'Starts an async worker runtime with LOVE-style vararg forwarding. Implemented payload support covers booleans, numbers, strings, Channel, Thread, and flat-table values compatible with the current marshalling layer.',
+})
+
+apply_symbol_overrides({
+  'VideoStream:setSync',
+  'VideoStream:getFilename',
+  'VideoStream:isPlaying',
+  'VideoStream:pause',
+  'VideoStream:play',
+  'VideoStream:rewind',
+  'VideoStream:seek',
+  'VideoStream:tell',
+}, {
+  status = 'implemented',
+  conformance = 'smoke-tested',
+})
+
+apply_symbol_overrides({
+  'love.video',
+  'love.video.newVideoStream',
+  'VideoStream',
+}, {
+  status = 'shimmed',
+  conformance = 'smoke-tested',
+})
+
+overrides.symbols['love.video.newVideoStream'] =
+  overrides.symbols['love.video.newVideoStream'] or {}
+merge_fields(overrides.symbols['love.video.newVideoStream'], {
+  notes = 'Constructs a control-layer VideoStream from LOVE-style filename or File inputs. Playback control semantics are implemented, but actual Theora decode and drawable Video integration are deferred.',
+})
+
+overrides.symbols['VideoStream'] = overrides.symbols['VideoStream'] or {}
+merge_fields(overrides.symbols['VideoStream'], {
+  notes = 'Control-layer VideoStream type with Object-style wrappers and playback timing semantics, including Source-backed and shared-stream sync control.',
+})
+
+return overrides
