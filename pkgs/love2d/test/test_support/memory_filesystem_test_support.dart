@@ -10,10 +10,8 @@ Map<String, List<int>> mountLoveTestFiles(
 }) {
   return Map<String, List<int>>.unmodifiable(
     files.map(
-      (path, bytes) => MapEntry(
-        '$sourceRoot/$path',
-        List<int>.unmodifiable(bytes),
-      ),
+      (path, bytes) =>
+          MapEntry('$sourceRoot/$path', List<int>.unmodifiable(bytes)),
     ),
   );
 }

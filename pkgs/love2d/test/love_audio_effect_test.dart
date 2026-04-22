@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
+import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.audio effect and filter bindings', () {
@@ -15,7 +16,7 @@ void main() {
       'module effect APIs validate settings and round-trip logical state',
       () async {
         expect(
-          await _call(
+          await luaCallList(
             runtime,
             const ['love', 'audio', 'setEffect'],
             const <Object?>[
@@ -31,11 +32,15 @@ void main() {
           isTrue,
         );
         expect(
-          await _call(runtime, const ['love', 'audio', 'getActiveEffects']),
+          await luaCallList(runtime, const [
+            'love',
+            'audio',
+            'getActiveEffects',
+          ]),
           <Object?, Object?>{1: 'scene'},
         );
         expect(
-          await _call(
+          await luaCallList(
             runtime,
             const ['love', 'audio', 'getEffect'],
             const ['scene'],
@@ -48,7 +53,7 @@ void main() {
           },
         );
         expect(
-          await _call(
+          await luaCallList(
             runtime,
             const ['love', 'audio', 'setEffect'],
             const <Object?>['scene', false],
@@ -56,11 +61,15 @@ void main() {
           isTrue,
         );
         expect(
-          await _call(runtime, const ['love', 'audio', 'getActiveEffects']),
+          await luaCallList(runtime, const [
+            'love',
+            'audio',
+            'getActiveEffects',
+          ]),
           isEmpty,
         );
         expect(
-          await _call(
+          await luaCallList(
             runtime,
             const ['love', 'audio', 'getEffect'],
             const ['scene'],
@@ -69,7 +78,7 @@ void main() {
         );
 
         expect(
-          _call(
+          luaCallList(
             runtime,
             const ['love', 'audio', 'setEffect'],
             const <Object?>['scene', true],
@@ -83,7 +92,7 @@ void main() {
           ),
         );
         expect(
-          _call(
+          luaCallList(
             runtime,
             const ['love', 'audio', 'setEffect'],
             const <Object?>[
@@ -100,7 +109,26 @@ void main() {
           ),
         );
         expect(
-          _call(
+          luaCallList(
+            runtime,
+            const ['love', 'audio', 'setEffect'],
+            const <Object?>[
+              'scene',
+              <Object?, Object?>{'type': 'bogus'},
+            ],
+          ),
+          throwsA(
+            isA<LuaError>().having(
+              (error) => error.message,
+              'message',
+              contains(
+                "Invalid effect type 'bogus', expected one of: 'reverb', 'chorus', 'distortion', 'echo', 'flanger', 'ringmodulator', 'compressor', 'equalizer'",
+              ),
+            ),
+          ),
+        );
+        expect(
+          luaCallList(
             runtime,
             const ['love', 'audio', 'setEffect'],
             const <Object?>[
@@ -122,20 +150,20 @@ void main() {
     test(
       'Source effect and filter APIs validate settings and round-trip logical state',
       () async {
-        final soundData = await _call(
+        final soundData = await luaCallList(
           runtime,
           const ['love', 'sound', 'newSoundData'],
           const <Object?>[4, 22050, 16, 1],
         );
-        final source = await _call(
+        final source = await luaCallList(
           runtime,
           const ['love', 'audio', 'newSource'],
           <Object?>[soundData],
         );
 
-        expect(await _callMethod(source, 'setFilter'), isTrue);
+        expect(await luaCallMethodList(source, 'setFilter'), isTrue);
         expect(
-          await _callMethod(source, 'setFilter', const <Object?>[
+          await luaCallMethodList(source, 'setFilter', const <Object?>[
             <Object?, Object?>{
               'type': 'bandpass',
               'volume': 0.4,
@@ -145,7 +173,7 @@ void main() {
           ]),
           isTrue,
         );
-        expect(await _callMethod(source, 'getFilter'), <Object?, Object?>{
+        expect(await luaCallMethodList(source, 'getFilter'), <Object?, Object?>{
           'type': 'bandpass',
           'volume': 0.4,
           'lowgain': 0.25,
@@ -153,15 +181,18 @@ void main() {
         });
 
         expect(
-          await _callMethod(source, 'setEffect', const <Object?>['fx']),
+          await luaCallMethodList(source, 'setEffect', const <Object?>['fx']),
           isTrue,
         );
         expect(
-          await _callMethod(source, 'setEffect', const <Object?>['fx', false]),
+          await luaCallMethodList(source, 'setEffect', const <Object?>[
+            'fx',
+            false,
+          ]),
           isTrue,
         );
         expect(
-          await _callMethod(source, 'setEffect', const <Object?>[
+          await luaCallMethodList(source, 'setEffect', const <Object?>[
             'fx',
             <Object?, Object?>{
               'type': 'lowpass',
@@ -172,7 +203,7 @@ void main() {
           isTrue,
         );
         expect(
-          await _callMethod(source, 'getEffect', const <Object?>['fx']),
+          await luaCallMethodList(source, 'getEffect', const <Object?>['fx']),
           <Object?>[
             true,
             <Object?, Object?>{
@@ -183,12 +214,12 @@ void main() {
           ],
         );
         expect(
-          await _callMethod(source, 'getActiveEffects'),
+          await luaCallMethodList(source, 'getActiveEffects'),
           <Object?, Object?>{1: 'fx'},
         );
 
         expect(
-          _callMethod(source, 'setFilter', const <Object?>[
+          luaCallMethodList(source, 'setFilter', const <Object?>[
             <Object?, Object?>{'volume': 0.25},
           ]),
           throwsA(
@@ -200,7 +231,7 @@ void main() {
           ),
         );
         expect(
-          _callMethod(source, 'setFilter', const <Object?>[
+          luaCallMethodList(source, 'setFilter', const <Object?>[
             <Object?, Object?>{'type': 'lowpass', 'lowgain': 0.25},
           ]),
           throwsA(
@@ -211,73 +242,21 @@ void main() {
             ),
           ),
         );
+        expect(
+          luaCallMethodList(source, 'setFilter', const <Object?>[
+            <Object?, Object?>{'type': 'bogus'},
+          ]),
+          throwsA(
+            isA<LuaError>().having(
+              (error) => error.message,
+              'message',
+              contains(
+                "Invalid filter type 'bogus', expected one of: 'lowpass', 'highpass', 'bandpass'",
+              ),
+            ),
+          ),
+        );
       },
     );
   });
 }
-
-Future<Object?> _call(
-  Interpreter runtime,
-  List<String> path, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(_rawFunction(runtime, path).call(args));
-}
-
-Future<Object?> _callMethod(
-  Object? receiver,
-  String method, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(
-    _rawMethod(receiver, method).call(<Object?>[receiver, ...args]),
-  );
-}
-
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> path) {
-  var current = runtime.getCurrentEnv().get(path.first);
-  for (final segment in path.skip(1)) {
-    final table = current is Value ? current.raw : current;
-    expect(
-      table,
-      isA<Map>(),
-      reason: 'Expected ${path.join('.')} to traverse a Lua table',
-    );
-    current = (table as Map)[segment];
-  }
-
-  expect(current, isA<Value>());
-  final raw = (current! as Value).raw;
-  expect(raw, isA<BuiltinFunction>());
-  return raw as BuiltinFunction;
-}
-
-BuiltinFunction _rawMethod(Object? receiver, String method) {
-  final table = receiver is Value ? receiver.raw : receiver;
-  expect(table, isA<Map>());
-  final entry = (table! as Map)[method];
-  return switch (entry) {
-    final Value wrapped when wrapped.raw is BuiltinFunction =>
-      wrapped.raw as BuiltinFunction,
-    final BuiltinFunction function => function,
-    _ => throw TestFailure('Expected $method to be a callable Lua method'),
-  };
-}
-
-Future<Object?> _resolveCallResult(Object? result) async {
-  final resolved = await _resolveRawCallResult(result);
-  if (resolved is List<Object?>) {
-    return resolved.map(_unwrap).toList(growable: false);
-  }
-  return _unwrap(resolved);
-}
-
-Future<Object?> _resolveRawCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return List<Object?>.from(wrapped.raw as List<Object?>, growable: false);
-  }
-  return resolved;
-}
-
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;

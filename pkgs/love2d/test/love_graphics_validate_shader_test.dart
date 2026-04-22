@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
+import 'package:love2d/src/runtime/flame/love_flame_harness_renderer.dart';
+import 'test_support/lua_api_test_helpers.dart';
 
 const String _unsupportedShaderMessage =
     'love.graphics.validateShader cannot validate arbitrary runtime shader '
@@ -9,7 +11,16 @@ const String _unsupportedShaderMessage =
     'Flutter fragment-asset shaders are currently supported';
 
 const String _registeredFragmentShaderSource = '''
-// LOVE2D_FLUTTER_FRAGMENT_ASSET: packages/love2d/test_assets/shaders/runtime_effect_solid_color.frag
+// LOVE2D_FLUTTER_FRAGMENT_ASSET: test_assets/shaders/runtime_effect_solid_color.frag
+extern vec4 uColor;
+
+vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
+  return uColor;
+}
+''';
+
+const String _missingRegisteredFragmentShaderSource = '''
+// LOVE2D_FLUTTER_FRAGMENT_ASSET: test_assets/shaders/does_not_exist.frag
 extern vec4 uColor;
 
 vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
@@ -18,6 +29,8 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 ''';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('LOVE graphics shader validation parity', () {
     test(
       'validateShader returns true for the supported radial gradient subset',
@@ -25,7 +38,7 @@ void main() {
         final runtime = Interpreter();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
-        final result = await _call(
+        final result = await luaCallList(
           runtime,
           const ['love', 'graphics', 'validateShader'],
           <Object?>[
@@ -56,7 +69,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
         final runtime = Interpreter();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
-        final result = await _call(
+        final result = await luaCallList(
           runtime,
           const ['love', 'graphics', 'validateShader'],
           <Object?>[
@@ -83,7 +96,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
         final runtime = Interpreter();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
-        final result = await _call(
+        final result = await luaCallList(
           runtime,
           const ['love', 'graphics', 'validateShader'],
           <Object?>[
@@ -109,9 +122,9 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
       'validateShader returns true for registered Flutter fragment-asset shaders',
       () async {
         final runtime = Interpreter();
-        installLove2d(runtime: runtime, host: LoveHeadlessHost());
+        installLove2d(runtime: runtime, host: LoveFlameHarnessGame().host);
 
-        final result = await _call(
+        final result = await luaCallList(
           runtime,
           const ['love', 'graphics', 'validateShader'],
           <Object?>[false, _registeredFragmentShaderSource],
@@ -121,12 +134,35 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
       },
     );
 
+    test(
+      'validateShader returns false when the Flutter host cannot load a registered fragment asset',
+      () async {
+        final runtime = Interpreter();
+        installLove2d(runtime: runtime, host: LoveFlameHarnessGame().host);
+
+        final result = await luaCallList(
+          runtime,
+          const ['love', 'graphics', 'validateShader'],
+          <Object?>[false, _missingRegisteredFragmentShaderSource],
+        );
+
+        expect(result, isA<List<Object?>>());
+        expect((result as List<Object?>).first, isFalse);
+        expect(
+          result[1],
+          contains(
+            'Could not load Flutter fragment shader asset "test_assets/shaders/does_not_exist.frag"',
+          ),
+        );
+      },
+    );
+
     test('validateShader preserves missing path-like string errors', () {
       final runtime = Interpreter();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
       expect(
-        () => _rawFunction(runtime, const [
+        () => luaRawFunction(runtime, const [
           'love',
           'graphics',
           'validateShader',
@@ -144,45 +180,3 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
     });
   });
 }
-
-Future<Object?> _call(
-  Interpreter runtime,
-  List<String> path, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(_rawFunction(runtime, path).call(args));
-}
-
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> path) {
-  var current = runtime.getCurrentEnv().get(path.first);
-  for (final segment in path.skip(1)) {
-    final table = current is Value ? current.raw : current;
-    expect(
-      table,
-      isA<Map>(),
-      reason: 'Expected ${path.join('.')} to traverse a Lua table',
-    );
-    current = (table as Map)[segment];
-  }
-
-  expect(current, isA<Value>());
-  final raw = (current! as Value).raw;
-  expect(raw, isA<BuiltinFunction>());
-  return raw as BuiltinFunction;
-}
-
-Future<Object?> _resolveCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-  if (resolved is List<Object?>) {
-    return resolved.map(_unwrap).toList(growable: false);
-  }
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return List<Object?>.from(
-      wrapped.raw as List<Object?>,
-      growable: false,
-    ).map(_unwrap).toList(growable: false);
-  }
-  return _unwrap(resolved);
-}
-
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;

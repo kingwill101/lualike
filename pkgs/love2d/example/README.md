@@ -20,9 +20,15 @@ Additional vendored LOVE demos are available through alternate entrypoints:
 ```bash
 flutter run -d linux -t lib/main_pong.dart
 flutter run -d linux -t lib/main_example_browser.dart
+flutter run -d linux -t lib/main_example_video.dart
 flutter run -d linux -t lib/main_pocket_bomber.dart
 flutter run -d linux -t lib/main_shader_explorer.dart
 ```
+
+`main_example_video.dart` boots the existing vendored
+`assets/love_example_browser/examples/video_test.lua` sample directly, without
+changing the sample itself, so video playback can be validated independently of
+the browser UI.
 
 The example browser sources are cloned from
 `love2d-community/LOVE-Example-Browser` into

@@ -1,248 +1,283 @@
 part of '../love_api_bindings.dart';
 
+/// Returns the wrapped physics joint stored in [value], if any.
 LovePhysicsJoint? _physicsJointIfPresent(Object? value) {
   final table = _physicsWrapperTable(value);
   final joint = table?[_lovePhysicsJointObjectKey];
   return joint is LovePhysicsJoint ? joint : null;
 }
 
+/// Returns the wrapped distance joint stored in [value], if any.
 LovePhysicsDistanceJoint? _physicsDistanceJointIfPresent(Object? value) {
   final joint = _physicsJointIfPresent(value);
   return joint is LovePhysicsDistanceJoint ? joint : null;
 }
 
+/// Returns the wrapped friction joint stored in [value], if any.
 LovePhysicsFrictionJoint? _physicsFrictionJointIfPresent(Object? value) {
   final joint = _physicsJointIfPresent(value);
   return joint is LovePhysicsFrictionJoint ? joint : null;
 }
 
+/// Returns the wrapped rope joint stored in [value], if any.
 LovePhysicsRopeJoint? _physicsRopeJointIfPresent(Object? value) {
   final joint = _physicsJointIfPresent(value);
   return joint is LovePhysicsRopeJoint ? joint : null;
 }
 
+/// Returns the wrapped gear joint stored in [value], if any.
 LovePhysicsGearJoint? _physicsGearJointIfPresent(Object? value) {
   final joint = _physicsJointIfPresent(value);
   return joint is LovePhysicsGearJoint ? joint : null;
 }
 
+/// Returns the wrapped pulley joint stored in [value], if any.
 LovePhysicsPulleyJoint? _physicsPulleyJointIfPresent(Object? value) {
   final joint = _physicsJointIfPresent(value);
   return joint is LovePhysicsPulleyJoint ? joint : null;
 }
 
+/// Returns the wrapped revolute joint stored in [value], if any.
 LovePhysicsRevoluteJoint? _physicsRevoluteJointIfPresent(Object? value) {
   final joint = _physicsJointIfPresent(value);
   return joint is LovePhysicsRevoluteJoint ? joint : null;
 }
 
+/// Returns the wrapped wheel joint stored in [value], if any.
 LovePhysicsWheelJoint? _physicsWheelJointIfPresent(Object? value) {
   final joint = _physicsJointIfPresent(value);
   return joint is LovePhysicsWheelJoint ? joint : null;
 }
 
+/// Returns the wrapped prismatic joint stored in [value], if any.
 LovePhysicsPrismaticJoint? _physicsPrismaticJointIfPresent(Object? value) {
   final joint = _physicsJointIfPresent(value);
   return joint is LovePhysicsPrismaticJoint ? joint : null;
 }
 
+/// Returns the wrapped weld joint stored in [value], if any.
 LovePhysicsWeldJoint? _physicsWeldJointIfPresent(Object? value) {
   final joint = _physicsJointIfPresent(value);
   return joint is LovePhysicsWeldJoint ? joint : null;
 }
 
+/// Returns the wrapped motor joint stored in [value], if any.
 LovePhysicsMotorJoint? _physicsMotorJointIfPresent(Object? value) {
   final joint = _physicsJointIfPresent(value);
   return joint is LovePhysicsMotorJoint ? joint : null;
 }
 
+/// Returns the wrapped mouse joint stored in [value], if any.
 LovePhysicsMouseJoint? _physicsMouseJointIfPresent(Object? value) {
   final joint = _physicsJointIfPresent(value);
   return joint is LovePhysicsMouseJoint ? joint : null;
 }
 
+/// Returns the live joint argument at [index].
 LovePhysicsJoint _requirePhysicsJoint(
   List<Object?> args,
   int index,
   String symbol,
 ) {
-  final joint = _physicsJointIfPresent(_valueAt(args, index));
-  if (joint == null) {
-    throw LuaError('$symbol expected a Joint at argument ${index + 1}');
-  }
-  if (joint.isDestroyed) {
-    throw LuaError('Attempt to use destroyed joint.');
-  }
-  return joint;
+  return _requirePhysicsTypedObject<LovePhysicsJoint>(
+    args: args,
+    index: index,
+    symbol: symbol,
+    typeName: 'Joint',
+    ifPresent: _physicsJointIfPresent,
+    isDestroyed: (joint) => joint.isDestroyed,
+    destroyedMessage: 'Attempt to use destroyed joint.',
+  );
 }
 
+/// Returns the live distance joint argument at [index].
 LovePhysicsDistanceJoint _requirePhysicsDistanceJoint(
   List<Object?> args,
   int index,
   String symbol,
 ) {
-  final joint = _physicsDistanceJointIfPresent(_valueAt(args, index));
-  if (joint == null) {
-    throw LuaError('$symbol expected a DistanceJoint at argument ${index + 1}');
-  }
-  if (joint.isDestroyed) {
-    throw LuaError('Attempt to use destroyed joint.');
-  }
-  return joint;
+  return _requirePhysicsTypedObject<LovePhysicsDistanceJoint>(
+    args: args,
+    index: index,
+    symbol: symbol,
+    typeName: 'DistanceJoint',
+    ifPresent: _physicsDistanceJointIfPresent,
+    isDestroyed: (joint) => joint.isDestroyed,
+    destroyedMessage: 'Attempt to use destroyed joint.',
+  );
 }
 
+/// Returns the live friction joint argument at [index].
 LovePhysicsFrictionJoint _requirePhysicsFrictionJoint(
   List<Object?> args,
   int index,
   String symbol,
 ) {
-  final joint = _physicsFrictionJointIfPresent(_valueAt(args, index));
-  if (joint == null) {
-    throw LuaError('$symbol expected a FrictionJoint at argument ${index + 1}');
-  }
-  if (joint.isDestroyed) {
-    throw LuaError('Attempt to use destroyed joint.');
-  }
-  return joint;
+  return _requirePhysicsTypedObject<LovePhysicsFrictionJoint>(
+    args: args,
+    index: index,
+    symbol: symbol,
+    typeName: 'FrictionJoint',
+    ifPresent: _physicsFrictionJointIfPresent,
+    isDestroyed: (joint) => joint.isDestroyed,
+    destroyedMessage: 'Attempt to use destroyed joint.',
+  );
 }
 
+/// Returns the live rope joint argument at [index].
 LovePhysicsRopeJoint _requirePhysicsRopeJoint(
   List<Object?> args,
   int index,
   String symbol,
 ) {
-  final joint = _physicsRopeJointIfPresent(_valueAt(args, index));
-  if (joint == null) {
-    throw LuaError('$symbol expected a RopeJoint at argument ${index + 1}');
-  }
-  if (joint.isDestroyed) {
-    throw LuaError('Attempt to use destroyed joint.');
-  }
-  return joint;
+  return _requirePhysicsTypedObject<LovePhysicsRopeJoint>(
+    args: args,
+    index: index,
+    symbol: symbol,
+    typeName: 'RopeJoint',
+    ifPresent: _physicsRopeJointIfPresent,
+    isDestroyed: (joint) => joint.isDestroyed,
+    destroyedMessage: 'Attempt to use destroyed joint.',
+  );
 }
 
+/// Returns the live gear joint argument at [index].
 LovePhysicsGearJoint _requirePhysicsGearJoint(
   List<Object?> args,
   int index,
   String symbol,
 ) {
-  final joint = _physicsGearJointIfPresent(_valueAt(args, index));
-  if (joint == null) {
-    throw LuaError('$symbol expected a GearJoint at argument ${index + 1}');
-  }
-  if (joint.isDestroyed) {
-    throw LuaError('Attempt to use destroyed joint.');
-  }
-  return joint;
+  return _requirePhysicsTypedObject<LovePhysicsGearJoint>(
+    args: args,
+    index: index,
+    symbol: symbol,
+    typeName: 'GearJoint',
+    ifPresent: _physicsGearJointIfPresent,
+    isDestroyed: (joint) => joint.isDestroyed,
+    destroyedMessage: 'Attempt to use destroyed joint.',
+  );
 }
 
+/// Returns the live pulley joint argument at [index].
 LovePhysicsPulleyJoint _requirePhysicsPulleyJoint(
   List<Object?> args,
   int index,
   String symbol,
 ) {
-  final joint = _physicsPulleyJointIfPresent(_valueAt(args, index));
-  if (joint == null) {
-    throw LuaError('$symbol expected a PulleyJoint at argument ${index + 1}');
-  }
-  if (joint.isDestroyed) {
-    throw LuaError('Attempt to use destroyed joint.');
-  }
-  return joint;
+  return _requirePhysicsTypedObject<LovePhysicsPulleyJoint>(
+    args: args,
+    index: index,
+    symbol: symbol,
+    typeName: 'PulleyJoint',
+    ifPresent: _physicsPulleyJointIfPresent,
+    isDestroyed: (joint) => joint.isDestroyed,
+    destroyedMessage: 'Attempt to use destroyed joint.',
+  );
 }
 
+/// Returns the live revolute joint argument at [index].
 LovePhysicsRevoluteJoint _requirePhysicsRevoluteJoint(
   List<Object?> args,
   int index,
   String symbol,
 ) {
-  final joint = _physicsRevoluteJointIfPresent(_valueAt(args, index));
-  if (joint == null) {
-    throw LuaError('$symbol expected a RevoluteJoint at argument ${index + 1}');
-  }
-  if (joint.isDestroyed) {
-    throw LuaError('Attempt to use destroyed joint.');
-  }
-  return joint;
+  return _requirePhysicsTypedObject<LovePhysicsRevoluteJoint>(
+    args: args,
+    index: index,
+    symbol: symbol,
+    typeName: 'RevoluteJoint',
+    ifPresent: _physicsRevoluteJointIfPresent,
+    isDestroyed: (joint) => joint.isDestroyed,
+    destroyedMessage: 'Attempt to use destroyed joint.',
+  );
 }
 
+/// Returns the live wheel joint argument at [index].
 LovePhysicsWheelJoint _requirePhysicsWheelJoint(
   List<Object?> args,
   int index,
   String symbol,
 ) {
-  final joint = _physicsWheelJointIfPresent(_valueAt(args, index));
-  if (joint == null) {
-    throw LuaError('$symbol expected a WheelJoint at argument ${index + 1}');
-  }
-  if (joint.isDestroyed) {
-    throw LuaError('Attempt to use destroyed joint.');
-  }
-  return joint;
+  return _requirePhysicsTypedObject<LovePhysicsWheelJoint>(
+    args: args,
+    index: index,
+    symbol: symbol,
+    typeName: 'WheelJoint',
+    ifPresent: _physicsWheelJointIfPresent,
+    isDestroyed: (joint) => joint.isDestroyed,
+    destroyedMessage: 'Attempt to use destroyed joint.',
+  );
 }
 
+/// Returns the live prismatic joint argument at [index].
 LovePhysicsPrismaticJoint _requirePhysicsPrismaticJoint(
   List<Object?> args,
   int index,
   String symbol,
 ) {
-  final joint = _physicsPrismaticJointIfPresent(_valueAt(args, index));
-  if (joint == null) {
-    throw LuaError(
-      '$symbol expected a PrismaticJoint at argument ${index + 1}',
-    );
-  }
-  if (joint.isDestroyed) {
-    throw LuaError('Attempt to use destroyed joint.');
-  }
-  return joint;
+  return _requirePhysicsTypedObject<LovePhysicsPrismaticJoint>(
+    args: args,
+    index: index,
+    symbol: symbol,
+    typeName: 'PrismaticJoint',
+    ifPresent: _physicsPrismaticJointIfPresent,
+    isDestroyed: (joint) => joint.isDestroyed,
+    destroyedMessage: 'Attempt to use destroyed joint.',
+  );
 }
 
+/// Returns the live weld joint argument at [index].
 LovePhysicsWeldJoint _requirePhysicsWeldJoint(
   List<Object?> args,
   int index,
   String symbol,
 ) {
-  final joint = _physicsWeldJointIfPresent(_valueAt(args, index));
-  if (joint == null) {
-    throw LuaError('$symbol expected a WeldJoint at argument ${index + 1}');
-  }
-  if (joint.isDestroyed) {
-    throw LuaError('Attempt to use destroyed joint.');
-  }
-  return joint;
+  return _requirePhysicsTypedObject<LovePhysicsWeldJoint>(
+    args: args,
+    index: index,
+    symbol: symbol,
+    typeName: 'WeldJoint',
+    ifPresent: _physicsWeldJointIfPresent,
+    isDestroyed: (joint) => joint.isDestroyed,
+    destroyedMessage: 'Attempt to use destroyed joint.',
+  );
 }
 
+/// Returns the live motor joint argument at [index].
 LovePhysicsMotorJoint _requirePhysicsMotorJoint(
   List<Object?> args,
   int index,
   String symbol,
 ) {
-  final joint = _physicsMotorJointIfPresent(_valueAt(args, index));
-  if (joint == null) {
-    throw LuaError('$symbol expected a MotorJoint at argument ${index + 1}');
-  }
-  if (joint.isDestroyed) {
-    throw LuaError('Attempt to use destroyed joint.');
-  }
-  return joint;
+  return _requirePhysicsTypedObject<LovePhysicsMotorJoint>(
+    args: args,
+    index: index,
+    symbol: symbol,
+    typeName: 'MotorJoint',
+    ifPresent: _physicsMotorJointIfPresent,
+    isDestroyed: (joint) => joint.isDestroyed,
+    destroyedMessage: 'Attempt to use destroyed joint.',
+  );
 }
 
+/// Returns the live mouse joint argument at [index].
 LovePhysicsMouseJoint _requirePhysicsMouseJoint(
   List<Object?> args,
   int index,
   String symbol,
 ) {
-  final joint = _physicsMouseJointIfPresent(_valueAt(args, index));
-  if (joint == null) {
-    throw LuaError('$symbol expected a MouseJoint at argument ${index + 1}');
-  }
-  if (joint.isDestroyed) {
-    throw LuaError('Attempt to use destroyed joint.');
-  }
-  return joint;
+  return _requirePhysicsTypedObject<LovePhysicsMouseJoint>(
+    args: args,
+    index: index,
+    symbol: symbol,
+    typeName: 'MouseJoint',
+    ifPresent: _physicsMouseJointIfPresent,
+    isDestroyed: (joint) => joint.isDestroyed,
+    destroyedMessage: 'Attempt to use destroyed joint.',
+  );
 }
 
+/// Dispatches [joint] to the matching Lua wrapper constructor.
 Value _wrapPhysicsJoint(LibraryContext context, LovePhysicsJoint joint) {
   switch (joint) {
     case LovePhysicsDistanceJoint():
@@ -272,6 +307,7 @@ Value _wrapPhysicsJoint(LibraryContext context, LovePhysicsJoint joint) {
   throw StateError('Unsupported physics joint wrapper: ${joint.runtimeType}');
 }
 
+/// Builds the base `Joint` methods shared by all wrapped joint types.
 Map<Object?, Object?> _physicsJointEntries(
   LibraryContext context,
   BuiltinFunctionBuilder builder,
@@ -364,27 +400,44 @@ Map<Object?, Object?> _physicsJointEntries(
     ),
     'destroy': Value(
       builder.create((args) {
-        _physicsJointIfPresent(_valueAt(args, 0))?.destroy();
+        final table = _requirePhysicsReceiverTable(
+          args,
+          0,
+          'Joint:destroy',
+          'Joint',
+        );
+        final joint = table[_lovePhysicsJointObjectKey] as LovePhysicsJoint?;
+        joint?.destroy();
         return null;
       }),
       functionName: 'destroy',
     ),
     'isDestroyed': Value(
-      builder.create(
-        (args) =>
-            (_physicsJointIfPresent(_valueAt(args, 0))?.isDestroyed) ?? false,
-      ),
+      builder.create((args) {
+        final table = _requirePhysicsReceiverTable(
+          args,
+          0,
+          'Joint:isDestroyed',
+          'Joint',
+        );
+        final joint = table[_lovePhysicsJointObjectKey] as LovePhysicsJoint?;
+        return joint?.isDestroyed ?? false;
+      }),
       functionName: 'isDestroyed',
     ),
   };
 }
 
+/// Wraps a distance joint in the Lua-facing `DistanceJoint` API table.
+///
+/// Wrapper tables are cached per joint so repeated crossings between Dart and
+/// Lua preserve object identity while this joint remains alive.
 Value _wrapPhysicsDistanceJoint(
   LibraryContext context,
   LovePhysicsDistanceJoint joint,
 ) {
   final cached = _lovePhysicsJointWrapperCache[joint];
-  if (cached != null) {
+  if (cached != null && !_physicsWrapperReleasedAs(cached, 'DistanceJoint')) {
     return cached;
   }
 
@@ -459,6 +512,7 @@ Value _wrapPhysicsDistanceJoint(
     ..._physicsObjectEntries<LovePhysicsDistanceJoint>(
       builder: builder,
       object: joint,
+      objectKey: _lovePhysicsJointObjectKey,
       typeName: 'DistanceJoint',
       hierarchy: const <String>{'DistanceJoint', 'Joint', 'Object'},
       requireObject: (args, symbol) =>
@@ -469,12 +523,13 @@ Value _wrapPhysicsDistanceJoint(
   return table;
 }
 
+/// Wraps a friction joint in the Lua-facing `FrictionJoint` API table.
 Value _wrapPhysicsFrictionJoint(
   LibraryContext context,
   LovePhysicsFrictionJoint joint,
 ) {
   final cached = _lovePhysicsJointWrapperCache[joint];
-  if (cached != null) {
+  if (cached != null && !_physicsWrapperReleasedAs(cached, 'FrictionJoint')) {
     return cached;
   }
 
@@ -526,6 +581,7 @@ Value _wrapPhysicsFrictionJoint(
     ..._physicsObjectEntries<LovePhysicsFrictionJoint>(
       builder: builder,
       object: joint,
+      objectKey: _lovePhysicsJointObjectKey,
       typeName: 'FrictionJoint',
       hierarchy: const <String>{'FrictionJoint', 'Joint', 'Object'},
       requireObject: (args, symbol) =>
@@ -536,12 +592,16 @@ Value _wrapPhysicsFrictionJoint(
   return table;
 }
 
+/// Wraps a gear joint in the Lua-facing `GearJoint` API table.
+///
+/// The resulting wrapper exposes the coupled child joints through
+/// [LovePhysicsGearJoint.joints] by rewrapping them with [_wrapPhysicsJoint].
 Value _wrapPhysicsGearJoint(
   LibraryContext context,
   LovePhysicsGearJoint joint,
 ) {
   final cached = _lovePhysicsJointWrapperCache[joint];
-  if (cached != null) {
+  if (cached != null && !_physicsWrapperReleasedAs(cached, 'GearJoint')) {
     return cached;
   }
 
@@ -582,6 +642,7 @@ Value _wrapPhysicsGearJoint(
     ..._physicsObjectEntries<LovePhysicsGearJoint>(
       builder: builder,
       object: joint,
+      objectKey: _lovePhysicsJointObjectKey,
       typeName: 'GearJoint',
       hierarchy: const <String>{'GearJoint', 'Joint', 'Object'},
       requireObject: (args, symbol) =>
@@ -592,12 +653,16 @@ Value _wrapPhysicsGearJoint(
   return table;
 }
 
+/// Wraps a pulley joint in the Lua-facing `PulleyJoint` API table.
+///
+/// Mutating pulley parameters is routed through [_physicsWithLuaErrors] because
+/// the underlying host API can reject invalid pulley constraints.
 Value _wrapPhysicsPulleyJoint(
   LibraryContext context,
   LovePhysicsPulleyJoint joint,
 ) {
   final cached = _lovePhysicsJointWrapperCache[joint];
-  if (cached != null) {
+  if (cached != null && !_physicsWrapperReleasedAs(cached, 'PulleyJoint')) {
     return cached;
   }
 
@@ -713,6 +778,7 @@ Value _wrapPhysicsPulleyJoint(
     ..._physicsObjectEntries<LovePhysicsPulleyJoint>(
       builder: builder,
       object: joint,
+      objectKey: _lovePhysicsJointObjectKey,
       typeName: 'PulleyJoint',
       hierarchy: const <String>{'PulleyJoint', 'Joint', 'Object'},
       requireObject: (args, symbol) =>
@@ -723,12 +789,16 @@ Value _wrapPhysicsPulleyJoint(
   return table;
 }
 
+/// Wraps a revolute joint in the Lua-facing `RevoluteJoint` API table.
+///
+/// This exposes angular motor controls, angular limits, and the joint's
+/// reference angle through Love-compatible method names.
 Value _wrapPhysicsRevoluteJoint(
   LibraryContext context,
   LovePhysicsRevoluteJoint joint,
 ) {
   final cached = _lovePhysicsJointWrapperCache[joint];
-  if (cached != null) {
+  if (cached != null && !_physicsWrapperReleasedAs(cached, 'RevoluteJoint')) {
     return cached;
   }
 
@@ -945,6 +1015,7 @@ Value _wrapPhysicsRevoluteJoint(
     ..._physicsObjectEntries<LovePhysicsRevoluteJoint>(
       builder: builder,
       object: joint,
+      objectKey: _lovePhysicsJointObjectKey,
       typeName: 'RevoluteJoint',
       hierarchy: const <String>{'RevoluteJoint', 'Joint', 'Object'},
       requireObject: (args, symbol) =>
@@ -955,12 +1026,16 @@ Value _wrapPhysicsRevoluteJoint(
   return table;
 }
 
+/// Wraps a wheel joint in the Lua-facing `WheelJoint` API table.
+///
+/// The wrapper exposes the suspension axis plus the joint's motor and spring
+/// controls using Love's expected naming.
 Value _wrapPhysicsWheelJoint(
   LibraryContext context,
   LovePhysicsWheelJoint joint,
 ) {
   final cached = _lovePhysicsJointWrapperCache[joint];
-  if (cached != null) {
+  if (cached != null && !_physicsWrapperReleasedAs(cached, 'WheelJoint')) {
     return cached;
   }
 
@@ -1124,6 +1199,7 @@ Value _wrapPhysicsWheelJoint(
     ..._physicsObjectEntries<LovePhysicsWheelJoint>(
       builder: builder,
       object: joint,
+      objectKey: _lovePhysicsJointObjectKey,
       typeName: 'WheelJoint',
       hierarchy: const <String>{'WheelJoint', 'Joint', 'Object'},
       requireObject: (args, symbol) =>
@@ -1134,12 +1210,16 @@ Value _wrapPhysicsWheelJoint(
   return table;
 }
 
+/// Wraps a prismatic joint in the Lua-facing `PrismaticJoint` API table.
+///
+/// This wrapper exposes translation, linear motor settings, axis queries, and
+/// linear limit controls along the joint's constrained axis.
 Value _wrapPhysicsPrismaticJoint(
   LibraryContext context,
   LovePhysicsPrismaticJoint joint,
 ) {
   final cached = _lovePhysicsJointWrapperCache[joint];
-  if (cached != null) {
+  if (cached != null && !_physicsWrapperReleasedAs(cached, 'PrismaticJoint')) {
     return cached;
   }
 
@@ -1373,6 +1453,7 @@ Value _wrapPhysicsPrismaticJoint(
     ..._physicsObjectEntries<LovePhysicsPrismaticJoint>(
       builder: builder,
       object: joint,
+      objectKey: _lovePhysicsJointObjectKey,
       typeName: 'PrismaticJoint',
       hierarchy: const <String>{'PrismaticJoint', 'Joint', 'Object'},
       requireObject: (args, symbol) =>
@@ -1383,12 +1464,16 @@ Value _wrapPhysicsPrismaticJoint(
   return table;
 }
 
+/// Wraps a weld joint in the Lua-facing `WeldJoint` API table.
+///
+/// The wrapper exposes the soft-weld spring parameters and the joint's
+/// reference angle through Love-compatible accessors.
 Value _wrapPhysicsWeldJoint(
   LibraryContext context,
   LovePhysicsWeldJoint joint,
 ) {
   final cached = _lovePhysicsJointWrapperCache[joint];
-  if (cached != null) {
+  if (cached != null && !_physicsWrapperReleasedAs(cached, 'WeldJoint')) {
     return cached;
   }
 
@@ -1450,6 +1535,7 @@ Value _wrapPhysicsWeldJoint(
     ..._physicsObjectEntries<LovePhysicsWeldJoint>(
       builder: builder,
       object: joint,
+      objectKey: _lovePhysicsJointObjectKey,
       typeName: 'WeldJoint',
       hierarchy: const <String>{'WeldJoint', 'Joint', 'Object'},
       requireObject: (args, symbol) =>
@@ -1460,12 +1546,16 @@ Value _wrapPhysicsWeldJoint(
   return table;
 }
 
+/// Wraps a motor joint in the Lua-facing `MotorJoint` API table.
+///
+/// Host-side validation for offset and force changes is funneled through
+/// [_physicsWithLuaErrors] so invalid motor parameters surface as Lua errors.
 Value _wrapPhysicsMotorJoint(
   LibraryContext context,
   LovePhysicsMotorJoint joint,
 ) {
   final cached = _lovePhysicsJointWrapperCache[joint];
-  if (cached != null) {
+  if (cached != null && !_physicsWrapperReleasedAs(cached, 'MotorJoint')) {
     return cached;
   }
 
@@ -1598,6 +1688,7 @@ Value _wrapPhysicsMotorJoint(
     ..._physicsObjectEntries<LovePhysicsMotorJoint>(
       builder: builder,
       object: joint,
+      objectKey: _lovePhysicsJointObjectKey,
       typeName: 'MotorJoint',
       hierarchy: const <String>{'MotorJoint', 'Joint', 'Object'},
       requireObject: (args, symbol) =>
@@ -1608,12 +1699,16 @@ Value _wrapPhysicsMotorJoint(
   return table;
 }
 
+/// Wraps a mouse joint in the Lua-facing `MouseJoint` API table.
+///
+/// This wrapper exposes the drag target along with the force and spring tuning
+/// parameters that Love uses to control mouse-driven bodies.
 Value _wrapPhysicsMouseJoint(
   LibraryContext context,
   LovePhysicsMouseJoint joint,
 ) {
   final cached = _lovePhysicsJointWrapperCache[joint];
-  if (cached != null) {
+  if (cached != null && !_physicsWrapperReleasedAs(cached, 'MouseJoint')) {
     return cached;
   }
 
@@ -1709,6 +1804,7 @@ Value _wrapPhysicsMouseJoint(
     ..._physicsObjectEntries<LovePhysicsMouseJoint>(
       builder: builder,
       object: joint,
+      objectKey: _lovePhysicsJointObjectKey,
       typeName: 'MouseJoint',
       hierarchy: const <String>{'MouseJoint', 'Joint', 'Object'},
       requireObject: (args, symbol) =>
@@ -1719,12 +1815,16 @@ Value _wrapPhysicsMouseJoint(
   return table;
 }
 
+/// Wraps a rope joint in the Lua-facing `RopeJoint` API table.
+///
+/// Rope joints only expose their maximum length in addition to the shared base
+/// joint methods.
 Value _wrapPhysicsRopeJoint(
   LibraryContext context,
   LovePhysicsRopeJoint joint,
 ) {
   final cached = _lovePhysicsJointWrapperCache[joint];
-  if (cached != null) {
+  if (cached != null && !_physicsWrapperReleasedAs(cached, 'RopeJoint')) {
     return cached;
   }
 
@@ -1755,6 +1855,7 @@ Value _wrapPhysicsRopeJoint(
     ..._physicsObjectEntries<LovePhysicsRopeJoint>(
       builder: builder,
       object: joint,
+      objectKey: _lovePhysicsJointObjectKey,
       typeName: 'RopeJoint',
       hierarchy: const <String>{'RopeJoint', 'Joint', 'Object'},
       requireObject: (args, symbol) =>

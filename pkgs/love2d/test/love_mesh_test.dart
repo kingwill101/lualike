@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
+import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('Mesh', () {
@@ -10,12 +11,12 @@ void main() {
         final host = LoveHeadlessHost();
         final runtime = _newRuntime(host: host);
         final image = await _newTestImage(runtime);
-        final canvas = await _call(
+        final canvas = await luaCall(
           runtime,
           const ['love', 'graphics', 'newCanvas'],
           <Object?>[16, 16],
         );
-        final mesh = await _call(
+        final mesh = await luaCall(
           runtime,
           const ['love', 'graphics', 'newMesh'],
           <Object?>[
@@ -28,30 +29,33 @@ void main() {
             'dynamic',
           ],
         );
-        final countMesh = await _call(
+        final countMesh = await luaCall(
           runtime,
           const ['love', 'graphics', 'newMesh'],
           <Object?>[2, 'points', 'stream'],
         );
 
-        expect(await _callMethod(mesh!, 'type'), 'Mesh');
-        expect(await _callMethod(mesh, 'typeOf', <Object?>['Mesh']), isTrue);
+        expect(await luaCallMethod(mesh!, 'type'), 'Mesh');
+        expect(await luaCallMethod(mesh, 'typeOf', <Object?>['Mesh']), isTrue);
         expect(
-          await _callMethod(mesh, 'typeOf', <Object?>['Drawable']),
+          await luaCallMethod(mesh, 'typeOf', <Object?>['Drawable']),
           isTrue,
         );
-        expect(await _callMethod(mesh, 'typeOf', <Object?>['Object']), isTrue);
-
-        expect(await _callMethod(countMesh!, 'getVertexCount'), 2);
-        expect(await _callMethod(countMesh, 'getDrawMode'), 'points');
         expect(
-          await _callMethod(countMesh, 'typeOf', <Object?>['Drawable']),
+          await luaCallMethod(mesh, 'typeOf', <Object?>['Object']),
           isTrue,
         );
 
-        expect(await _callMethod(mesh, 'getVertexCount'), 3);
-        expect(await _callMethod(mesh, 'getDrawMode'), 'fan');
-        expect(await _callMethod(mesh, 'getVertex', <Object?>[2]), <Object?>[
+        expect(await luaCallMethod(countMesh!, 'getVertexCount'), 2);
+        expect(await luaCallMethod(countMesh, 'getDrawMode'), 'points');
+        expect(
+          await luaCallMethod(countMesh, 'typeOf', <Object?>['Drawable']),
+          isTrue,
+        );
+
+        expect(await luaCallMethod(mesh, 'getVertexCount'), 3);
+        expect(await luaCallMethod(mesh, 'getDrawMode'), 'fan');
+        expect(await luaCallMethod(mesh, 'getVertex', <Object?>[2]), <Object?>[
           3.0,
           4.0,
           0.5,
@@ -63,7 +67,8 @@ void main() {
         ]);
 
         final vertexFormat =
-            await _callMethod(mesh, 'getVertexFormat') as Map<Object?, Object?>;
+            await luaCallMethod(mesh, 'getVertexFormat')
+                as Map<Object?, Object?>;
         expect(vertexFormat, hasLength(3));
         expect(vertexFormat[1], <Object?, Object?>{
           1: 'VertexPosition',
@@ -81,85 +86,85 @@ void main() {
           3: 4,
         });
 
-        await _callMethod(mesh, 'setDrawMode', <Object?>['strip']);
-        expect(await _callMethod(mesh, 'getDrawMode'), 'strip');
+        await luaCallMethod(mesh, 'setDrawMode', <Object?>['strip']);
+        expect(await luaCallMethod(mesh, 'getDrawMode'), 'strip');
 
-        expect(await _callMethod(mesh, 'getTexture'), isNull);
-        await _callMethod(mesh, 'setTexture', <Object?>[image]);
-        final imageTexture = await _callMethod(mesh, 'getTexture');
-        expect(await _callMethod(imageTexture!, 'getWidth'), 16);
-        expect(await _callMethod(imageTexture, 'getTextureType'), '2d');
-        await _callMethod(mesh, 'setTexture', <Object?>[canvas]);
-        final canvasTexture = await _callMethod(mesh, 'getTexture');
-        expect(await _callMethod(canvasTexture!, 'getWidth'), 16);
-        expect(await _callMethod(canvasTexture, 'getMSAA'), 0);
-        await _callMethod(mesh, 'setTexture');
-        expect(await _callMethod(mesh, 'getTexture'), isNull);
+        expect(await luaCallMethod(mesh, 'getTexture'), isNull);
+        await luaCallMethod(mesh, 'setTexture', <Object?>[image]);
+        final imageTexture = await luaCallMethod(mesh, 'getTexture');
+        expect(await luaCallMethod(imageTexture!, 'getWidth'), 16);
+        expect(await luaCallMethod(imageTexture, 'getTextureType'), '2d');
+        await luaCallMethod(mesh, 'setTexture', <Object?>[canvas]);
+        final canvasTexture = await luaCallMethod(mesh, 'getTexture');
+        expect(await luaCallMethod(canvasTexture!, 'getWidth'), 16);
+        expect(await luaCallMethod(canvasTexture, 'getMSAA'), 0);
+        await luaCallMethod(mesh, 'setTexture');
+        expect(await luaCallMethod(mesh, 'getTexture'), isNull);
 
-        expect(await _callMethod(mesh, 'getDrawRange'), isNull);
-        await _callMethod(mesh, 'setDrawRange', <Object?>[1, 2]);
-        expect(await _callMethod(mesh, 'getDrawRange'), <Object?>[1, 2]);
-        await _callMethod(mesh, 'setDrawRange');
-        expect(await _callMethod(mesh, 'getDrawRange'), isNull);
+        expect(await luaCallMethod(mesh, 'getDrawRange'), isNull);
+        await luaCallMethod(mesh, 'setDrawRange', <Object?>[1, 2]);
+        expect(await luaCallMethod(mesh, 'getDrawRange'), <Object?>[1, 2]);
+        await luaCallMethod(mesh, 'setDrawRange');
+        expect(await luaCallMethod(mesh, 'getDrawRange'), isNull);
 
-        expect(await _callMethod(mesh, 'getVertexMap'), isNull);
-        await _callMethod(mesh, 'setVertexMap', <Object?>[
+        expect(await luaCallMethod(mesh, 'getVertexMap'), isNull);
+        await luaCallMethod(mesh, 'setVertexMap', <Object?>[
           _luaSeq(<Object?>[3, 1, 2]),
         ]);
-        expect(await _callMethod(mesh, 'getVertexMap'), <Object?, Object?>{
+        expect(await luaCallMethod(mesh, 'getVertexMap'), <Object?, Object?>{
           1: 3,
           2: 1,
           3: 2,
         });
 
         expect(
-          await _callMethod(mesh, 'isAttributeEnabled', <Object?>[
+          await luaCallMethod(mesh, 'isAttributeEnabled', <Object?>[
             'VertexColor',
           ]),
           isTrue,
         );
-        await _callMethod(mesh, 'setAttributeEnabled', <Object?>[
+        await luaCallMethod(mesh, 'setAttributeEnabled', <Object?>[
           'VertexColor',
           false,
         ]);
         expect(
-          await _callMethod(mesh, 'isAttributeEnabled', <Object?>[
+          await luaCallMethod(mesh, 'isAttributeEnabled', <Object?>[
             'VertexColor',
           ]),
           isFalse,
         );
-        await _callMethod(mesh, 'attachAttribute', <Object?>[
+        await luaCallMethod(mesh, 'attachAttribute', <Object?>[
           'VertexColor',
           mesh,
         ]);
         expect(
-          await _callMethod(mesh, 'isAttributeEnabled', <Object?>[
+          await luaCallMethod(mesh, 'isAttributeEnabled', <Object?>[
             'VertexColor',
           ]),
           isTrue,
         );
-        await _callMethod(mesh, 'detachAttribute', <Object?>['VertexColor']);
+        await luaCallMethod(mesh, 'detachAttribute', <Object?>['VertexColor']);
         expect(
-          await _callMethod(mesh, 'isAttributeEnabled', <Object?>[
+          await luaCallMethod(mesh, 'isAttributeEnabled', <Object?>[
             'VertexColor',
           ]),
           isFalse,
         );
 
         expect(
-          await _callMethod(mesh, 'getVertexAttribute', <Object?>[1, 1]),
+          await luaCallMethod(mesh, 'getVertexAttribute', <Object?>[1, 1]),
           <Object?>[1.0, 2.0],
         );
         expect(
-          await _callMethod(mesh, 'getVertexAttribute', <Object?>[1, 2]),
+          await luaCallMethod(mesh, 'getVertexAttribute', <Object?>[1, 2]),
           <Object?>[0.0, 0.0],
         );
         expect(
-          await _callMethod(mesh, 'getVertexAttribute', <Object?>[1, 3]),
+          await luaCallMethod(mesh, 'getVertexAttribute', <Object?>[1, 3]),
           <Object?>[1.0, 0.0, 0.0, 1.0],
         );
 
-        await _callMethod(mesh, 'setVertex', <Object?>[
+        await luaCallMethod(mesh, 'setVertex', <Object?>[
           2,
           7.0,
           8.0,
@@ -170,7 +175,7 @@ void main() {
           0.4,
           0.5,
         ]);
-        expect(await _callMethod(mesh, 'getVertex', <Object?>[2]), <Object?>[
+        expect(await luaCallMethod(mesh, 'getVertex', <Object?>[2]), <Object?>[
           7.0,
           8.0,
           0.25,
@@ -181,19 +186,19 @@ void main() {
           0.5,
         ]);
 
-        await _callMethod(mesh, 'setVertexAttribute', <Object?>[
+        await luaCallMethod(mesh, 'setVertexAttribute', <Object?>[
           1,
           1,
           11.0,
           12.0,
         ]);
-        await _callMethod(mesh, 'setVertexAttribute', <Object?>[
+        await luaCallMethod(mesh, 'setVertexAttribute', <Object?>[
           1,
           2,
           0.4,
           0.6,
         ]);
-        await _callMethod(mesh, 'setVertexAttribute', <Object?>[
+        await luaCallMethod(mesh, 'setVertexAttribute', <Object?>[
           1,
           3,
           0.9,
@@ -202,21 +207,21 @@ void main() {
           0.6,
         ]);
         expect(
-          await _callMethod(mesh, 'getVertexAttribute', <Object?>[1, 1]),
+          await luaCallMethod(mesh, 'getVertexAttribute', <Object?>[1, 1]),
           <Object?>[11.0, 12.0],
         );
         expect(
-          await _callMethod(mesh, 'getVertexAttribute', <Object?>[1, 2]),
+          await luaCallMethod(mesh, 'getVertexAttribute', <Object?>[1, 2]),
           <Object?>[0.4, 0.6],
         );
         expect(
-          await _callMethod(mesh, 'getVertexAttribute', <Object?>[1, 3]),
+          await luaCallMethod(mesh, 'getVertexAttribute', <Object?>[1, 3]),
           <Object?>[0.9, 0.8, 0.7, 0.6],
         );
 
-        await _callMethod(mesh, 'setDrawRange', <Object?>[1, 2]);
+        await luaCallMethod(mesh, 'setDrawRange', <Object?>[1, 2]);
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[mesh],
@@ -231,10 +236,10 @@ void main() {
         expect(drawnVertices.last.x, 11.0);
         expect(drawnVertices.last.y, 12.0);
 
-        await _callMethod(mesh, 'setVertexMap');
-        expect(await _callMethod(mesh, 'getVertexMap'), isNull);
+        await luaCallMethod(mesh, 'setVertexMap');
+        expect(await luaCallMethod(mesh, 'getVertexMap'), isNull);
 
-        expect(await _callMethod(mesh, 'flush'), isNull);
+        expect(await luaCallMethod(mesh, 'flush'), isNull);
       },
     );
   });
@@ -247,12 +252,12 @@ Interpreter _newRuntime({LoveHost? host}) {
 }
 
 Future<Object?> _newTestImage(Interpreter runtime) async {
-  final imageData = await _call(
+  final imageData = await luaCall(
     runtime,
     const ['love', 'image', 'newImageData'],
     <Object?>[16, 16],
   );
-  return _call(
+  return luaCall(
     runtime,
     const ['love', 'graphics', 'newImage'],
     <Object?>[imageData],
@@ -265,61 +270,3 @@ Map<Object?, Object?> _luaSeq(List<Object?> values) {
       index + 1: values[index],
   };
 }
-
-Future<Object?> _call(
-  Interpreter runtime,
-  List<String> path, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(_rawFunction(runtime, path).call(args));
-}
-
-Future<Object?> _callMethod(
-  Object object,
-  String method, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  final table = object is Value ? object.raw : object;
-  expect(table, isA<Map>());
-
-  final methodValue = (table as Map)[method];
-  final callable = switch (methodValue) {
-    final Value value => value.raw,
-    final BuiltinFunction function => function,
-    _ => methodValue,
-  };
-  expect(callable, isA<BuiltinFunction>());
-  return _resolveCallResult(
-    (callable as BuiltinFunction).call(<Object?>[object, ...args]),
-  );
-}
-
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> path) {
-  var current = runtime.getCurrentEnv().get(path.first);
-  for (final segment in path.skip(1)) {
-    final table = current is Value ? current.raw : current;
-    expect(
-      table,
-      isA<Map>(),
-      reason: 'Expected ${path.join('.')} to traverse a Lua table',
-    );
-    current = (table as Map)[segment];
-  }
-
-  expect(current, isA<Value>());
-  final raw = (current! as Value).raw;
-  expect(raw, isA<BuiltinFunction>());
-  return raw as BuiltinFunction;
-}
-
-Future<Object?> _resolveCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return (wrapped.raw as List<Object?>).map(_unwrap).toList(growable: false);
-  }
-
-  return _unwrap(resolved);
-}
-
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;

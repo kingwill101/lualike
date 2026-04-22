@@ -1,6 +1,8 @@
 part of '../love_runtime.dart';
 
+/// Describes the screen-space area used for on-screen text input.
 class LoveTextInputArea {
+  /// Creates a text input area rectangle.
   const LoveTextInputArea({
     required this.x,
     required this.y,
@@ -8,13 +10,22 @@ class LoveTextInputArea {
     required this.height,
   });
 
+  /// The left edge of the text input area.
   final double x;
+
+  /// The top edge of the text input area.
   final double y;
+
+  /// The width of the text input area.
   final double width;
+
+  /// The height of the text input area.
   final double height;
 }
 
+/// Represents either a system cursor type or an image-backed cursor.
 class LoveMouseCursor {
+  /// Creates a system cursor with the host-provided [type].
   LoveMouseCursor.system(String type)
     : systemType = type,
       imageData = null,
@@ -22,6 +33,7 @@ class LoveMouseCursor {
       hotspotX = 0,
       hotspotY = 0;
 
+  /// Creates an image cursor with optional pixel data and hotspot metadata.
   LoveMouseCursor.image({
     this.imageData,
     this.source,
@@ -29,34 +41,57 @@ class LoveMouseCursor {
     this.hotspotY = 0,
   }) : systemType = null;
 
+  /// The system cursor type when this cursor is host-defined.
   final String? systemType;
+
+  /// The image data backing this cursor when it is custom.
   final LoveImageData? imageData;
+
+  /// The source path or identifier for the cursor image, when known.
   final String? source;
+
+  /// The hotspot x offset in cursor pixels.
   final int hotspotX;
+
+  /// The hotspot y offset in cursor pixels.
   final int hotspotY;
 
+  /// Whether this cursor references a host system cursor.
   bool get isSystemCursor => systemType != null;
 
+  /// Returns LOVE's cursor type string for this cursor.
   String getType() => systemType ?? 'image';
 }
 
+/// Tracks keyboard state, scancode mappings, and text-input settings.
 class LoveKeyboardState {
+  /// Creates keyboard state with optional repeat and text-input defaults.
   LoveKeyboardState({
     this.keyRepeat = false,
     this.textInputEnabled = true,
     this.screenKeyboardSupported = false,
   });
 
+  /// Whether key repeat is enabled.
   bool keyRepeat;
+
+  /// Whether text input is currently enabled.
   bool textInputEnabled;
+
+  /// Whether the host reports support for an on-screen keyboard.
   bool screenKeyboardSupported;
+
+  /// The active screen-space text input area, when one is provided.
   LoveTextInputArea? textInputArea;
 
+  /// The currently pressed scancodes.
   final Set<String> _pressedScancodes = <String>{};
 
+  /// The pressed scancodes as an unmodifiable view.
   Set<String> get pressedScancodes =>
       UnmodifiableSetView<String>(_pressedScancodes);
 
+  /// Returns whether any key in [keys] is currently pressed.
   bool isDown(Iterable<String> keys) {
     for (final key in keys) {
       if (_pressedScancodes.contains(getScancodeFromKey(key))) {
@@ -67,6 +102,7 @@ class LoveKeyboardState {
     return false;
   }
 
+  /// Returns whether any scancode in [scancodes] is currently pressed.
   bool isScancodeDown(Iterable<String> scancodes) {
     for (final scancode in scancodes) {
       if (_pressedScancodes.contains(scancode)) {
@@ -77,16 +113,19 @@ class LoveKeyboardState {
     return false;
   }
 
+  /// Returns LOVE's key constant for [scancode].
   String getKeyFromScancode(String scancode) {
     return _loveKeyboardScancodeToKeyOverrides[scancode] ??
         (_loveKeyboardKeyConstants.contains(scancode) ? scancode : 'unknown');
   }
 
+  /// Returns LOVE's scancode constant for [key].
   String getScancodeFromKey(String key) {
     return _loveKeyboardKeyToScancodeOverrides[key] ??
         (_loveKeyboardScancodeConstants.contains(key) ? key : 'unknown');
   }
 
+  /// Enables or disables text input and optionally updates the input [area].
   void setTextInput(bool enable, {LoveTextInputArea? area}) {
     textInputEnabled = enable;
     if (area != null) {
@@ -94,6 +133,7 @@ class LoveKeyboardState {
     }
   }
 
+  /// Marks [key] as pressed or released.
   void setKeyDown(String key, {String? scancode, required bool down}) {
     final resolvedScancode = scancode ?? getScancodeFromKey(key);
     if (resolvedScancode == 'unknown') {
@@ -107,6 +147,7 @@ class LoveKeyboardState {
     }
   }
 
+  /// Marks [scancode] as pressed or released.
   void setScancodeDown(String scancode, {required bool down}) {
     if (down) {
       _pressedScancodes.add(scancode);
@@ -116,7 +157,9 @@ class LoveKeyboardState {
   }
 }
 
+/// Tracks mouse position, buttons, cursor state, and relative-mode flags.
 class LoveMouseState {
+  /// Creates mouse state with optional initial position and visibility.
   LoveMouseState({
     double x = 0.0,
     double y = 0.0,
@@ -128,47 +171,75 @@ class LoveMouseState {
        _y = y.floorToDouble(),
        _visible = visible;
 
+  /// The current x position in LOVE coordinates.
   double _x;
+
+  /// The current y position in LOVE coordinates.
   double _y;
+
+  /// Whether the host supports visible cursor customization.
   bool cursorSupported;
+
+  /// Whether the mouse is currently grabbed by the window.
   bool grabbed;
+
+  /// Whether relative mouse mode is currently enabled.
   bool relativeMode;
+
+  /// Whether the cursor is logically visible when relative mode is off.
   bool _visible;
+
+  /// The currently selected cursor, if one is active.
   LoveMouseCursor? _cursor;
+
+  /// Whether the last position update came from programmatic movement.
   bool _programmaticPositionActive = false;
 
+  /// The currently pressed mouse buttons.
   final Set<int> _buttonsDown = <int>{};
+
+  /// Cached host system cursors keyed by LOVE cursor type.
   final Map<String, LoveMouseCursor> _systemCursorCache =
       <String, LoveMouseCursor>{};
 
+  /// The current x position in LOVE coordinates.
   double get x => _x;
 
+  /// The current y position in LOVE coordinates.
   double get y => _y;
 
+  /// Whether the cursor is currently visible to the user.
   bool get visible => _visible && !relativeMode;
 
+  /// The currently active cursor, if any.
   LoveMouseCursor? get cursor => _cursor;
 
+  /// Whether the current position was set programmatically.
   bool get programmaticPositionActive => _programmaticPositionActive;
 
+  /// The currently pressed mouse buttons as an unmodifiable view.
   Set<int> get buttonsDown => UnmodifiableSetView<int>(_buttonsDown);
 
+  /// Updates the x position and tracks whether it came from the system.
   void setX(double x, {bool fromSystemEvent = false}) {
     _x = x.floorToDouble();
     _programmaticPositionActive = !fromSystemEvent;
   }
 
+  /// Updates the y position and tracks whether it came from the system.
   void setY(double y, {bool fromSystemEvent = false}) {
     _y = y.floorToDouble();
     _programmaticPositionActive = !fromSystemEvent;
   }
 
+  /// Updates both mouse coordinates at once.
   void setPosition(double x, double y, {bool fromSystemEvent = false}) {
     _x = x.floorToDouble();
     _y = y.floorToDouble();
     _programmaticPositionActive = !fromSystemEvent;
   }
 
+  /// Returns whether any button in [buttons] is currently pressed.
   bool isDown(Iterable<int> buttons) {
     for (final button in buttons) {
       if (_buttonsDown.contains(button)) {
@@ -179,6 +250,7 @@ class LoveMouseState {
     return false;
   }
 
+  /// Marks [button] as pressed or released.
   void setButtonDown(int button, {required bool down}) {
     if (down) {
       _buttonsDown.add(button);
@@ -187,19 +259,23 @@ class LoveMouseState {
     }
   }
 
+  /// Updates whether the mouse cursor should be visible.
   void setVisible(bool visible) {
     _visible = visible;
   }
 
+  /// Enables or disables relative mouse mode.
   bool setRelativeMode(bool enabled) {
     relativeMode = enabled;
     return true;
   }
 
+  /// Sets the active cursor, or clears it when omitted.
   void setCursor([LoveMouseCursor? cursor]) {
     _cursor = cursor;
   }
 
+  /// Returns a cached system cursor for [type].
   LoveMouseCursor getSystemCursor(String type) {
     return _systemCursorCache.putIfAbsent(
       type,
@@ -207,6 +283,7 @@ class LoveMouseState {
     );
   }
 
+  /// Creates a new custom image cursor.
   LoveMouseCursor newCursor({
     LoveImageData? imageData,
     String? source,
@@ -222,15 +299,19 @@ class LoveMouseState {
   }
 }
 
+/// Returns whether [key] is a recognized LOVE key constant.
 bool loveIsValidKeyConstant(String key) =>
     _loveKeyboardKeyConstants.contains(key);
 
+/// Returns whether [scancode] is a recognized LOVE scancode constant.
 bool loveIsValidScancode(String scancode) =>
     _loveKeyboardScancodeConstants.contains(scancode);
 
+/// Returns whether [cursorType] is a recognized LOVE system cursor type.
 bool loveIsValidCursorType(String cursorType) =>
     _loveMouseSystemCursorTypes.contains(cursorType);
 
+/// Overrides that map LOVE key constants to distinct scancode constants.
 const Map<String, String> _loveKeyboardKeyToScancodeOverrides =
     <String, String>{
       '!': '1',
@@ -260,6 +341,7 @@ const Map<String, String> _loveKeyboardKeyToScancodeOverrides =
       'appbookmarks': 'acbookmarks',
     };
 
+/// Reverse overrides that map distinct scancodes back to LOVE key constants.
 final Map<String, String> _loveKeyboardScancodeToKeyOverrides =
     <String, String>{
       for (final entry in _loveKeyboardKeyToScancodeOverrides.entries)
@@ -267,6 +349,7 @@ final Map<String, String> _loveKeyboardScancodeToKeyOverrides =
           entry.value: entry.key,
     };
 
+/// The system cursor types supported by the LOVE mouse API.
 const Set<String> _loveMouseSystemCursorTypes = <String>{
   'arrow',
   'ibeam',
@@ -282,6 +365,7 @@ const Set<String> _loveMouseSystemCursorTypes = <String>{
   'hand',
 };
 
+/// The normalized LOVE keyboard key constants accepted by this runtime.
 final Set<String> _loveKeyboardKeyConstants = <String>{
   'unknown',
   'return',
@@ -476,6 +560,7 @@ final Set<String> _loveKeyboardKeyConstants = <String>{
   'sleep',
 };
 
+/// The normalized LOVE keyboard scancode constants accepted by this runtime.
 final Set<String> _loveKeyboardScancodeConstants = <String>{
   'unknown',
   'a',

@@ -6,6 +6,7 @@ import 'package:love2d/love2d.dart';
 import 'package:love2d/src/runtime/filesystem/love_filesystem_runtime.dart';
 
 import 'test_support/memory_filesystem_test_support.dart';
+import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.font BMFont File overloads', () {
@@ -31,28 +32,28 @@ void main() {
           isTrue,
         );
 
-        final definitionFile = await _call(
+        final definitionFile = await luaCallList(
           runtime,
           const ['love', 'filesystem', 'newFile'],
           const <Object?>['assets/fonts/bmfont/test.fnt'],
         );
-        final pageFile = await _call(
+        final pageFile = await luaCallList(
           runtime,
           const ['love', 'filesystem', 'newFile'],
           const <Object?>['assets/fonts/bmfont/page.png'],
         );
 
-        final rasterizer = await _call(
+        final rasterizer = await luaCallList(
           runtime,
           const ['love', 'font', 'newBMFontRasterizer'],
           <Object?>[definitionFile, pageFile, 1.0],
         );
 
-        expect(await _callMethod(rasterizer, 'getGlyphCount'), 2);
-        expect(await _callMethod(rasterizer, 'getAdvance'), 4);
-        expect(await _callMethod(rasterizer, 'getHeight'), 6);
-        expect(await _callMethod(rasterizer, 'getAscent'), 5);
-        expect(await _callMethod(rasterizer, 'getDescent'), 1);
+        expect(await luaCallMethodList(rasterizer, 'getGlyphCount'), 2);
+        expect(await luaCallMethodList(rasterizer, 'getAdvance'), 4);
+        expect(await luaCallMethodList(rasterizer, 'getHeight'), 6);
+        expect(await luaCallMethodList(rasterizer, 'getAscent'), 5);
+        expect(await luaCallMethodList(rasterizer, 'getDescent'), 1);
       },
     );
 
@@ -78,31 +79,37 @@ void main() {
           isTrue,
         );
 
-        final definitionFile = await _call(
+        final definitionFile = await luaCallList(
           runtime,
           const ['love', 'filesystem', 'newFile'],
           const <Object?>['assets/fonts/bmfont/test.fnt'],
         );
-        final pageFile = await _call(
+        final pageFile = await luaCallList(
           runtime,
           const ['love', 'filesystem', 'newFile'],
           const <Object?>['assets/fonts/bmfont/page.png'],
         );
 
-        final font = await _call(
+        final font = await luaCallList(
           runtime,
           const ['love', 'graphics', 'newFont'],
           <Object?>[definitionFile, pageFile],
         );
 
-        expect(await _callMethod(font, 'getHeight'), 6.0);
-        expect(await _callMethod(font, 'getAscent'), 5.0);
-        expect(await _callMethod(font, 'getDescent'), 1.0);
+        expect(await luaCallMethodList(font, 'getHeight'), 6.0);
+        expect(await luaCallMethodList(font, 'getAscent'), 5.0);
+        expect(await luaCallMethodList(font, 'getDescent'), 1.0);
         expect(
-          await _callMethod(font, 'getKerning', const <Object?>['A', 'B']),
+          await luaCallMethodList(font, 'getKerning', const <Object?>[
+            'A',
+            'B',
+          ]),
           -1.0,
         );
-        expect(await _callMethod(font, 'getWidth', const <Object?>['AB']), 6.0);
+        expect(
+          await luaCallMethodList(font, 'getWidth', const <Object?>['AB']),
+          6.0,
+        );
       },
     );
 
@@ -128,32 +135,35 @@ void main() {
           isTrue,
         );
 
-        final rasterizerFile = await _call(
+        final rasterizerFile = await luaCallList(
           runtime,
           const ['love', 'filesystem', 'newFile'],
           const <Object?>['assets/fonts/bmfont/test.fnt'],
         );
-        final fontFile = await _call(
+        final fontFile = await luaCallList(
           runtime,
           const ['love', 'filesystem', 'newFile'],
           const <Object?>['assets/fonts/bmfont/test.fnt'],
         );
 
-        final rasterizer = await _call(
+        final rasterizer = await luaCallList(
           runtime,
           const ['love', 'font', 'newRasterizer'],
           <Object?>[rasterizerFile],
         );
-        final font = await _call(
+        final font = await luaCallList(
           runtime,
           const ['love', 'graphics', 'newFont'],
           <Object?>[fontFile],
         );
 
-        expect(await _callMethod(rasterizer, 'getGlyphCount'), 2);
-        expect(await _callMethod(rasterizer, 'getAdvance'), 4);
-        expect(await _callMethod(font, 'getHeight'), 6.0);
-        expect(await _callMethod(font, 'getWidth', const <Object?>['AB']), 6.0);
+        expect(await luaCallMethodList(rasterizer, 'getGlyphCount'), 2);
+        expect(await luaCallMethodList(rasterizer, 'getAdvance'), 4);
+        expect(await luaCallMethodList(font, 'getHeight'), 6.0);
+        expect(
+          await luaCallMethodList(font, 'getWidth', const <Object?>['AB']),
+          6.0,
+        );
       },
     );
   });
@@ -169,69 +179,3 @@ char id=66 x=3 y=0 width=2 height=6 xoffset=0 yoffset=0 xadvance=3 page=0 chnl=1
 kernings count=1
 kerning first=65 second=66 amount=-1
 ''';
-
-Future<Object?> _call(
-  Interpreter runtime,
-  List<String> path, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(_rawFunction(runtime, path).call(args));
-}
-
-Future<Object?> _callMethod(
-  Object? receiver,
-  String method, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(
-    _rawMethod(receiver, method).call(<Object?>[receiver, ...args]),
-  );
-}
-
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> path) {
-  var current = runtime.getCurrentEnv().get(path.first);
-  for (final segment in path.skip(1)) {
-    final table = current is Value ? current.raw : current;
-    expect(
-      table,
-      isA<Map>(),
-      reason: 'Expected ${path.join('.')} to traverse a Lua table',
-    );
-    current = (table as Map)[segment];
-  }
-
-  expect(current, isA<Value>());
-  final raw = (current! as Value).raw;
-  expect(raw, isA<BuiltinFunction>());
-  return raw as BuiltinFunction;
-}
-
-BuiltinFunction _rawMethod(Object? receiver, String method) {
-  final table = receiver is Value ? receiver.raw : receiver;
-  expect(table, isA<Map>());
-  final entry = (table! as Map)[method];
-  return switch (entry) {
-    final Value wrapped when wrapped.raw is BuiltinFunction =>
-      wrapped.raw as BuiltinFunction,
-    final BuiltinFunction function => function,
-    _ => throw TestFailure('Expected $method to be a callable Lua method'),
-  };
-}
-
-Future<Object?> _resolveCallResult(Object? result) async {
-  final resolved = await _resolveRawCallResult(result);
-  if (resolved is List<Object?>) {
-    return resolved.map(_unwrap).toList(growable: false);
-  }
-  return _unwrap(resolved);
-}
-
-Future<Object?> _resolveRawCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return List<Object?>.from(wrapped.raw as List<Object?>, growable: false);
-  }
-  return resolved;
-}
-
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;

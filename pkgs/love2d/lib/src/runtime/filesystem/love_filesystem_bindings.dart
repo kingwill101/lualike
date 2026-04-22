@@ -1,5 +1,9 @@
+// ignore_for_file: implementation_imports
+
+/// LOVE filesystem API bindings and Lua object wrappers.
 library;
 
+import 'dart:async' show FutureOr;
 import 'dart:math' as math;
 
 import 'package:lualike/library_builder.dart';
@@ -28,47 +32,77 @@ part 'love_filesystem_binding_data_helpers.dart';
 part 'love_filesystem_binding_value_helpers.dart';
 part 'love_filesystem_binding_wrappers.dart';
 
+/// Whether the filesystem binding factories have already been registered.
 bool _filesystemBindingsLoaded = false;
 
+/// The table slot used to store wrapped [LoveFilesystemFile] objects.
 const String _loveFilesystemFileObjectKey = '__love2d_filesystem_file__';
+
+/// The table slot used to store wrapped [LoveFilesystemFileData] objects.
 const String _loveFilesystemFileDataObjectKey =
     '__love2d_filesystem_filedata__';
+
+/// The table slot used to store a wrapper's LOVE object type name.
 const String _loveFilesystemObjectTypeKey = '__love2d_filesystem_type__';
+
+/// The table slot used to store a wrapper's LOVE inheritance hierarchy.
 const String _loveFilesystemObjectHierarchyKey =
     '__love2d_filesystem_hierarchy__';
+
+/// The largest integer value that can be represented exactly in Lua doubles.
 const int _loveFilesystemLuaNumberLimit = 0x20000000000000;
+
+/// The floating-point form of [_loveFilesystemLuaNumberLimit].
 const double _loveFilesystemLuaNumberLimitDouble = 9007199254740992.0;
 
+/// Cached Lua wrappers for filesystem file objects.
 final Expando<Value> _loveFilesystemFileWrapperCache = Expando<Value>(
   'love2dFilesystemFileWrapper',
 );
+
+/// Cached Lua wrappers for dropped-file objects.
 final Expando<Value> _loveFilesystemDroppedFileWrapperCache = Expando<Value>(
   'love2dFilesystemDroppedFileWrapper',
 );
+
+/// Cached Lua wrappers for filesystem file-data objects.
 final Expando<Value> _loveFilesystemFileDataWrapperCache = Expando<Value>(
   'love2dFilesystemFileDataWrapper',
 );
+
+/// Cached Lua wrappers for filesystem-backed data pointers.
 final Expando<Value> _loveFilesystemDataPointerCache = Expando<Value>(
   'love2dFilesystemDataPointer',
 );
+
+/// Release flags for wrapper instances that implement LOVE object semantics.
 final Expando<bool> _loveFilesystemReleased = Expando<bool>(
   'love2dFilesystemReleased',
 );
 
+/// The supported container kinds accepted by the filesystem bindings.
 enum _LoveFilesystemContainerType { string, data }
 
+/// In-memory archive data prepared for `love.filesystem.mount`.
 class _LoveFilesystemMountedData {
+  /// Creates mounted archive data from [bytes].
   const _LoveFilesystemMountedData({
     required this.sourceIdentity,
     required this.bytes,
     this.archiveName,
   });
 
+  /// The object identity used to track later `unmountData` calls.
   final Object sourceIdentity;
+
+  /// The archive bytes to mount.
   final List<int> bytes;
+
+  /// The optional archive name supplied alongside [bytes].
   final String? archiveName;
 }
 
+/// Registers the LOVE filesystem API bindings once for the current process.
 void ensureLoveFilesystemRuntimeBindingsLoaded() {
   if (_filesystemBindingsLoaded) {
     return;
@@ -135,13 +169,19 @@ void ensureLoveFilesystemRuntimeBindingsLoaded() {
   });
 }
 
+/// Shared binding context and helpers for the LOVE filesystem module.
 class _LoveFilesystemBindings {
+  /// Creates filesystem bindings for a library registration [context].
   _LoveFilesystemBindings(this.context)
     : _builder = BuiltinFunctionBuilder(context);
 
+  /// The registration context that owns these bindings.
   final LibraryRegistrationContext context;
+
+  /// The builder used to produce wrapped builtin functions.
   final BuiltinFunctionBuilder _builder;
 
+  /// The active Lua runtime for [context].
   LuaRuntime get runtime {
     final interpreter = context.interpreter;
     if (interpreter == null) {
@@ -150,8 +190,10 @@ class _LoveFilesystemBindings {
     return interpreter;
   }
 
+  /// The filesystem runtime state attached to [runtime].
   LoveFilesystemState get state => LoveFilesystemState.attach(runtime);
 
+  /// Binds a filesystem API symbol under [publicName].
   Value bindSymbol(String symbol, String publicName) {
     return bindLoveApiFunction(
       context,

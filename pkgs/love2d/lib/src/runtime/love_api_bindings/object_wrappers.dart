@@ -1,5 +1,6 @@
 part of '../love_api_bindings.dart';
 
+/// Wraps a [LoveFont] as a Lua-facing `Font` object table.
 Value _wrapFont(LibraryRegistrationContext context, LoveFont font) {
   final cached = _loveFontWrapperCache[font];
   if (cached != null) {
@@ -107,7 +108,16 @@ Value _wrapFont(LibraryRegistrationContext context, LoveFont font) {
     ),
     'release': Value(
       builder.create((args) {
-        final font = _requireFont(args, 0, 'Object:release');
+        final receiver = _valueAt(args, 0);
+        final font = _fontIfPresent(receiver);
+        if (font == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:release',
+            index: 0,
+            expected: 'Font',
+            actual: receiver,
+          );
+        }
         if (_loveFontReleased[font] == true) {
           return false;
         }
@@ -157,14 +167,30 @@ Value _wrapFont(LibraryRegistrationContext context, LoveFont font) {
     ),
     'type': Value(
       builder.create((args) {
-        _requireFont(args, 0, 'Object:type');
+        final receiver = _valueAt(args, 0);
+        if (_fontIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:type',
+            index: 0,
+            expected: 'Font',
+            actual: receiver,
+          );
+        }
         return 'Font';
       }),
       functionName: 'type',
     ),
     'typeOf': Value(
       builder.create((args) {
-        _requireFont(args, 0, 'Object:typeOf');
+        final receiver = _valueAt(args, 0);
+        if (_fontIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:typeOf',
+            index: 0,
+            expected: 'Font',
+            actual: receiver,
+          );
+        }
         final queried = _requireString(args, 1, 'Object:typeOf');
         return hierarchy.contains(queried);
       }),
@@ -175,6 +201,7 @@ Value _wrapFont(LibraryRegistrationContext context, LoveFont font) {
   return table;
 }
 
+/// Parses font filter arguments using the `Font:setFilter` calling convention.
 LoveGraphicsDefaultFilter _fontFilterFromArgs(
   List<Object?> args,
   int startIndex,
@@ -195,6 +222,7 @@ LoveGraphicsDefaultFilter _fontFilterFromArgs(
   );
 }
 
+/// Parses a font filter mode string.
 LoveGraphicsFilterMode _fontFilterMode(String value) {
   return switch (value) {
     'linear' => LoveGraphicsFilterMode.linear,
@@ -206,6 +234,7 @@ LoveGraphicsFilterMode _fontFilterMode(String value) {
   };
 }
 
+/// Wraps a [LoveTextDrawable] as a Lua-facing `Text` object table.
 Value _wrapTextDrawable(
   LibraryRegistrationContext context,
   LoveTextDrawable text,
@@ -322,7 +351,16 @@ Value _wrapTextDrawable(
     ),
     'release': Value(
       builder.create((args) {
-        final text = _requireTextDrawable(args, 0, 'Object:release');
+        final receiver = _valueAt(args, 0);
+        final text = _textDrawableIfPresent(receiver);
+        if (text == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:release',
+            index: 0,
+            expected: 'Text',
+            actual: receiver,
+          );
+        }
         if (_loveTextReleased[text] == true) {
           return false;
         }
@@ -334,14 +372,30 @@ Value _wrapTextDrawable(
     ),
     'type': Value(
       builder.create((args) {
-        _requireTextDrawable(args, 0, 'Object:type');
+        final receiver = _valueAt(args, 0);
+        if (_textDrawableIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:type',
+            index: 0,
+            expected: 'Text',
+            actual: receiver,
+          );
+        }
         return 'Text';
       }),
       functionName: 'type',
     ),
     'typeOf': Value(
       builder.create((args) {
-        _requireTextDrawable(args, 0, 'Object:typeOf');
+        final receiver = _valueAt(args, 0);
+        if (_textDrawableIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:typeOf',
+            index: 0,
+            expected: 'Text',
+            actual: receiver,
+          );
+        }
         final queried = _requireString(args, 1, 'Object:typeOf');
         return hierarchy.contains(queried);
       }),
@@ -352,6 +406,7 @@ Value _wrapTextDrawable(
   return table;
 }
 
+/// Returns an optional 1-based text entry index converted to the internal form.
 int _optionalTextEntryIndex(List<Object?> args, int index, String symbol) {
   if (args.length <= index || _valueAt(args, index) == null) {
     return -1;
@@ -360,6 +415,7 @@ int _optionalTextEntryIndex(List<Object?> args, int index, String symbol) {
   return _requireRoundedInt(args, index, symbol) - 1;
 }
 
+/// Returns strict font text content, flattening colored-text tables when needed.
 String _requireStrictFontTextLike(
   List<Object?> args,
   int index,
@@ -414,6 +470,7 @@ String _requireStrictFontTextLike(
   );
 }
 
+/// Returns one font text segment using LÖVE-style string and number coercion.
 String? _strictFontTextSegmentLike(
   Object? value, {
   required String symbol,
@@ -438,6 +495,10 @@ String? _strictFontTextSegmentLike(
   };
 }
 
+/// Wraps an immutable [LoveImage] as a Lua-facing `Image` object table.
+final Expando<bool> _loveImageReleased = Expando<bool>('love2dImageReleased');
+
+/// Wraps an immutable [LoveImage] as a Lua-facing `Image` object table.
 Value _wrapImage(LibraryRegistrationContext context, LoveImage image) {
   final cached = _loveImageWrapperCache[image];
   if (cached != null) {
@@ -445,6 +506,7 @@ Value _wrapImage(LibraryRegistrationContext context, LoveImage image) {
   }
 
   final builder = BuiltinFunctionBuilder(context);
+  const hierarchy = <String>{'Image', 'Texture', 'Drawable', 'Object'};
   final table = ValueClass.table(<Object?, Object?>{
     _loveImageObjectKey: image,
     ..._textureEntries(
@@ -628,13 +690,66 @@ Value _wrapImage(LibraryRegistrationContext context, LoveImage image) {
       }),
       functionName: 'replacePixels',
     ),
+    'release': Value(
+      builder.create((args) {
+        final receiver = _valueAt(args, 0);
+        final image = _imageIfPresent(receiver);
+        if (image == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:release',
+            index: 0,
+            expected: 'Image',
+            actual: receiver,
+          );
+        }
+        if (_loveImageReleased[image] == true) {
+          return false;
+        }
+        _loveImageReleased[image] = true;
+        return true;
+      }),
+      functionName: 'release',
+    ),
+    'type': Value(
+      builder.create((args) {
+        final receiver = _valueAt(args, 0);
+        if (_imageIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:type',
+            index: 0,
+            expected: 'Image',
+            actual: receiver,
+          );
+        }
+        return 'Image';
+      }),
+      functionName: 'type',
+    ),
+    'typeOf': Value(
+      builder.create((args) {
+        final receiver = _valueAt(args, 0);
+        if (_imageIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:typeOf',
+            index: 0,
+            expected: 'Image',
+            actual: receiver,
+          );
+        }
+        final queried = _requireString(args, 1, 'Object:typeOf');
+        return hierarchy.contains(queried);
+      }),
+      functionName: 'typeOf',
+    ),
   });
   _loveImageWrapperCache[image] = table;
   return table;
 }
 
+/// Whether a canvas has already been released through `Object:release`.
 final Expando<bool> _loveCanvasReleased = Expando<bool>('love2dCanvasReleased');
 
+/// Wraps a mutable [LoveCanvas] as a Lua-facing `Canvas` object table.
 Value _wrapCanvas(LibraryRegistrationContext context, LoveCanvas canvas) {
   final cached = _loveCanvasWrapperCache[canvas];
   if (cached != null) {
@@ -858,7 +973,16 @@ Value _wrapCanvas(LibraryRegistrationContext context, LoveCanvas canvas) {
     ),
     'release': Value(
       builder.create((args) {
-        final canvas = _requireCanvas(args, 0, 'Object:release');
+        final receiver = _valueAt(args, 0);
+        final canvas = _canvasIfPresent(receiver);
+        if (canvas == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:release',
+            index: 0,
+            expected: 'Canvas',
+            actual: receiver,
+          );
+        }
         if (_loveCanvasReleased[canvas] == true) {
           return false;
         }
@@ -867,9 +991,32 @@ Value _wrapCanvas(LibraryRegistrationContext context, LoveCanvas canvas) {
       }),
       functionName: 'release',
     ),
-    'type': Value(builder.create((args) => 'Canvas'), functionName: 'type'),
+    'type': Value(
+      builder.create((args) {
+        final receiver = _valueAt(args, 0);
+        if (_canvasIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:type',
+            index: 0,
+            expected: 'Canvas',
+            actual: receiver,
+          );
+        }
+        return 'Canvas';
+      }),
+      functionName: 'type',
+    ),
     'typeOf': Value(
       builder.create((args) {
+        final receiver = _valueAt(args, 0);
+        if (_canvasIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:typeOf',
+            index: 0,
+            expected: 'Canvas',
+            actual: receiver,
+          );
+        }
         final queried = _requireString(args, 1, 'Object:typeOf');
         return queried == 'Canvas' ||
             queried == 'Texture' ||
@@ -883,6 +1030,7 @@ Value _wrapCanvas(LibraryRegistrationContext context, LoveCanvas canvas) {
   return table;
 }
 
+/// Wraps [imageData] as a Lua-facing `ImageData` object table.
 Value _wrapImageData(LibraryContext context, LoveImageData imageData) {
   final cached = _loveImageDataWrapperCache[imageData];
   if (cached != null) {
@@ -1094,7 +1242,16 @@ Value _wrapImageData(LibraryContext context, LoveImageData imageData) {
     ),
     'release': Value(
       builder.create((args) {
-        final imageData = _requireImageData(args, 0, 'Object:release');
+        final receiver = _valueAt(args, 0);
+        final imageData = _imageDataIfPresent(receiver);
+        if (imageData == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:release',
+            index: 0,
+            expected: 'ImageData',
+            actual: receiver,
+          );
+        }
         if (_loveDataReleased[imageData] == true) {
           return false;
         }
@@ -1105,14 +1262,30 @@ Value _wrapImageData(LibraryContext context, LoveImageData imageData) {
     ),
     'type': Value(
       builder.create((args) {
-        _requireImageData(args, 0, 'Object:type');
+        final receiver = _valueAt(args, 0);
+        if (_imageDataIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:type',
+            index: 0,
+            expected: 'ImageData',
+            actual: receiver,
+          );
+        }
         return 'ImageData';
       }),
       functionName: 'type',
     ),
     'typeOf': Value(
       builder.create((args) {
-        _requireImageData(args, 0, 'Object:typeOf');
+        final receiver = _valueAt(args, 0);
+        if (_imageDataIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:typeOf',
+            index: 0,
+            expected: 'ImageData',
+            actual: receiver,
+          );
+        }
         final queried = _requireString(args, 1, 'Object:typeOf');
         return hierarchy.contains(queried);
       }),
@@ -1123,6 +1296,7 @@ Value _wrapImageData(LibraryContext context, LoveImageData imageData) {
   return table;
 }
 
+/// Wraps compatibility file data returned by image encoding and filesystem APIs.
 Value _wrapFilesystemFileDataCompat(
   LibraryContext context,
   LoveFilesystemFileData data,
@@ -1135,72 +1309,69 @@ Value _wrapFilesystemFileDataCompat(
   final builder = BuiltinFunctionBuilder(context);
   const hierarchy = <String>{'FileData', 'Data', 'Object'};
 
+  LoveFilesystemFileData requireFileData(
+    List<Object?> args,
+    int index,
+    String symbol,
+  ) {
+    return _requireLoveDataSubtype(
+      args,
+      index,
+      symbol,
+      expected: 'FileData',
+      resolver: _filesystemFileDataCompatIfPresent,
+    );
+  }
+
   final table = ValueClass.table(<Object?, Object?>{
     _loveFilesystemFileDataObjectKeyCompat: data,
     _loveFilesystemObjectTypeKeyCompat: 'FileData',
     _loveFilesystemObjectHierarchyKeyCompat: hierarchy,
     'clone': Value(
       builder.create((args) {
-        final compat = _filesystemFileDataCompatIfPresent(_valueAt(args, 0));
-        if (compat == null) {
-          throw LuaError('Data:clone expected FileData at argument 1');
-        }
+        final compat = requireFileData(args, 0, 'Data:clone');
         return _wrapFilesystemFileDataCompat(context, compat.clone());
       }),
       functionName: 'clone',
     ),
     'getExtension': Value(
       builder.create((args) {
-        final compat = _filesystemFileDataCompatIfPresent(_valueAt(args, 0));
-        if (compat == null) {
-          throw LuaError(
-            'FileData:getExtension expected FileData at argument 1',
-          );
-        }
+        final compat = requireFileData(args, 0, 'FileData:getExtension');
         return compat.extension;
       }),
       functionName: 'getExtension',
     ),
     'getFilename': Value(
       builder.create((args) {
-        final compat = _filesystemFileDataCompatIfPresent(_valueAt(args, 0));
-        if (compat == null) {
-          throw LuaError(
-            'FileData:getFilename expected FileData at argument 1',
-          );
-        }
+        final compat = requireFileData(args, 0, 'FileData:getFilename');
         return compat.filename;
       }),
       functionName: 'getFilename',
     ),
     'getPointer': Value(
-      builder.create(
-        (args) => _wrapDataPointer(context, identity: data, bytes: data.bytes),
-      ),
+      builder.create((args) {
+        final compat = requireFileData(args, 0, 'Data:getPointer');
+        return _wrapDataPointer(context, identity: compat, bytes: compat.bytes);
+      }),
       functionName: 'getPointer',
     ),
     'getFFIPointer': Value(
-      builder.create(
-        (args) => _wrapDataPointer(context, identity: data, bytes: data.bytes),
-      ),
+      builder.create((args) {
+        final compat = requireFileData(args, 0, 'Data:getPointer');
+        return _wrapDataPointer(context, identity: compat, bytes: compat.bytes);
+      }),
       functionName: 'getFFIPointer',
     ),
     'getSize': Value(
       builder.create((args) {
-        final compat = _filesystemFileDataCompatIfPresent(_valueAt(args, 0));
-        if (compat == null) {
-          throw LuaError('Data:getSize expected FileData at argument 1');
-        }
+        final compat = requireFileData(args, 0, 'Data:getSize');
         return compat.size;
       }),
       functionName: 'getSize',
     ),
     'getString': Value(
       builder.create((args) {
-        final compat = _filesystemFileDataCompatIfPresent(_valueAt(args, 0));
-        if (compat == null) {
-          throw LuaError('Data:getString expected FileData at argument 1');
-        }
+        final compat = requireFileData(args, 0, 'Data:getString');
         final interpreter = context.interpreter;
         if (interpreter == null) {
           throw StateError('No Lua runtime available for Data:getString');
@@ -1211,9 +1382,15 @@ Value _wrapFilesystemFileDataCompat(
     ),
     'release': Value(
       builder.create((args) {
-        final compat = _filesystemFileDataCompatIfPresent(_valueAt(args, 0));
+        final receiver = _valueAt(args, 0);
+        final compat = _filesystemFileDataCompatIfPresent(receiver);
         if (compat == null) {
-          throw LuaError('Object:release expected FileData at argument 1');
+          _throwLuaStyleTypeError(
+            symbol: 'Object:release',
+            index: 0,
+            expected: 'FileData',
+            actual: receiver,
+          );
         }
         if (_loveDataReleased[compat] == true) {
           return false;
@@ -1225,8 +1402,14 @@ Value _wrapFilesystemFileDataCompat(
     ),
     'type': Value(
       builder.create((args) {
-        if (_filesystemFileDataCompatIfPresent(_valueAt(args, 0)) == null) {
-          throw LuaError('Object:type expected FileData at argument 1');
+        final receiver = _valueAt(args, 0);
+        if (_filesystemFileDataCompatIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:type',
+            index: 0,
+            expected: 'FileData',
+            actual: receiver,
+          );
         }
         return 'FileData';
       }),
@@ -1234,8 +1417,14 @@ Value _wrapFilesystemFileDataCompat(
     ),
     'typeOf': Value(
       builder.create((args) {
-        if (_filesystemFileDataCompatIfPresent(_valueAt(args, 0)) == null) {
-          throw LuaError('Object:typeOf expected FileData at argument 1');
+        final receiver = _valueAt(args, 0);
+        if (_filesystemFileDataCompatIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:typeOf',
+            index: 0,
+            expected: 'FileData',
+            actual: receiver,
+          );
         }
         final queried = _requireString(args, 1, 'Object:typeOf');
         return hierarchy.contains(queried);
@@ -1247,6 +1436,7 @@ Value _wrapFilesystemFileDataCompat(
   return table;
 }
 
+/// Validates an encoded image format used by [LoveImageData.encode].
 String _imageEncodeFormat(String value, String symbol) {
   final normalized = value.toLowerCase();
   return switch (normalized) {
@@ -1255,6 +1445,7 @@ String _imageEncodeFormat(String value, String symbol) {
   };
 }
 
+/// Converts a `mapPixel` callback result into a [LoveColor].
 LoveColor _mapPixelColor(Object? value, {required String symbol}) {
   final raw = _rawValue(value);
   if (raw is List) {
@@ -1272,21 +1463,26 @@ LoveColor _mapPixelColor(Object? value, {required String symbol}) {
   throw LuaError('$symbol callback must return color components');
 }
 
+/// Returns the dimension value for a specific mipmap level.
 int _textureDimensionAtMipmap(int dimension, int mipmap) {
   final clampedLevel = mipmap < 1 ? 1 : mipmap;
   final scale = 1 << (clampedLevel - 1);
   return math.max(1, dimension ~/ scale);
 }
 
+/// Returns the logical texture width for [mipmap].
 int _textureWidthAtMipmap(LoveImage texture, int mipmap) =>
     _textureDimensionAtMipmap(texture.width, mipmap);
 
+/// Returns the logical texture height for [mipmap].
 int _textureHeightAtMipmap(LoveImage texture, int mipmap) =>
     _textureDimensionAtMipmap(texture.height, mipmap);
 
+/// Returns the logical texture depth for [mipmap].
 int _textureDepthAtMipmap(LoveImage texture, int mipmap) =>
     _textureDimensionAtMipmap(texture.depth, mipmap);
 
+/// Builds the shared `Texture` method table used by `Image` and `Canvas`.
 Map<Object?, Object?> _textureEntries(
   BuiltinFunctionBuilder builder, {
   required LoveImage Function(List<Object?> args, String symbol) requireTexture,
@@ -1530,6 +1726,7 @@ Map<Object?, Object?> _textureEntries(
   };
 }
 
+/// Wraps a [LoveQuad] as a Lua-facing `Quad` object table.
 Value _wrapQuad(LibraryRegistrationContext context, LoveQuad quad) {
   final cached = _loveQuadWrapperCache[quad];
   if (cached != null) {
@@ -1591,6 +1788,7 @@ Value _wrapQuad(LibraryRegistrationContext context, LoveQuad quad) {
   return table;
 }
 
+/// Wraps a [LoveTransform] as a Lua-facing `Transform` object table.
 Value _wrapTransform(
   LibraryRegistrationContext context,
   LoveTransform transform,

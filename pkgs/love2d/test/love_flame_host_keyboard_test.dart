@@ -36,23 +36,22 @@ void main() {
     },
   );
 
-  testWidgets(
-    'LoveFlameHost preserves explicitly injected keyboard state',
-    (tester) async {
-      final previousPlatform = debugDefaultTargetPlatformOverride;
-      try {
-        debugDefaultTargetPlatformOverride = TargetPlatform.android;
-        final keyboard = LoveKeyboardState(screenKeyboardSupported: false);
-        final host = LoveFlameHost<World>(
-          game: FlameGame<World>(world: World()),
-          keyboard: keyboard,
-        );
+  testWidgets('LoveFlameHost preserves explicitly injected keyboard state', (
+    tester,
+  ) async {
+    final previousPlatform = debugDefaultTargetPlatformOverride;
+    try {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final keyboard = LoveKeyboardState(screenKeyboardSupported: false);
+      final host = LoveFlameHost<World>(
+        game: FlameGame<World>(world: World()),
+        keyboard: keyboard,
+      );
 
-        expect(identical(host.keyboard, keyboard), isTrue);
-        expect(host.keyboard.screenKeyboardSupported, isFalse);
-      } finally {
-        debugDefaultTargetPlatformOverride = previousPlatform;
-      }
-    },
-  );
+      expect(identical(host.keyboard, keyboard), isTrue);
+      expect(host.keyboard.screenKeyboardSupported, isFalse);
+    } finally {
+      debugDefaultTargetPlatformOverride = previousPlatform;
+    }
+  });
 }

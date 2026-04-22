@@ -1,7 +1,9 @@
 part of '../love_runtime.dart';
 
+/// The fallback GUID used when a joystick backend does not provide one.
 const String _loveJoystickDefaultGuid = '00000000000000000000000000000000';
 
+/// The normalized LOVE gamepad axis names.
 const List<String> _loveJoystickGamepadAxisConstants = <String>[
   'leftx',
   'lefty',
@@ -11,6 +13,7 @@ const List<String> _loveJoystickGamepadAxisConstants = <String>[
   'triggerright',
 ];
 
+/// The normalized LOVE gamepad button names.
 const List<String> _loveJoystickGamepadButtonConstants = <String>[
   'a',
   'b',
@@ -29,6 +32,7 @@ const List<String> _loveJoystickGamepadButtonConstants = <String>[
   'dpright',
 ];
 
+/// The normalized LOVE hat-direction constants.
 const List<String> _loveJoystickHatConstants = <String>[
   'c',
   'd',
@@ -41,17 +45,20 @@ const List<String> _loveJoystickHatConstants = <String>[
   'u',
 ];
 
+/// The supported joystick input binding types.
 const List<String> _loveJoystickInputTypeConstants = <String>[
   'axis',
   'button',
   'hat',
 ];
 
+/// The preferred serialization order for gamepad mapping inputs.
 const List<String> _loveJoystickGamepadInputOrder = <String>[
   ..._loveJoystickGamepadAxisConstants,
   ..._loveJoystickGamepadButtonConstants,
 ];
 
+/// Maps LOVE hat-direction constants to SDL hat bitfield values.
 const Map<String, int> _loveJoystickHatToSdlValue = <String, int>{
   'c': 0,
   'u': 1,
@@ -64,26 +71,33 @@ const Map<String, int> _loveJoystickHatToSdlValue = <String, int>{
   'ld': 12,
 };
 
+/// Maps SDL hat bitfield values back to LOVE hat-direction constants.
 final Map<int, String> _loveJoystickHatFromSdlValue = <int, String>{
   for (final entry in _loveJoystickHatToSdlValue.entries)
     entry.value: entry.key,
 };
 
+/// Returns whether [axis] is a valid LOVE gamepad axis constant.
 bool loveIsValidGamepadAxis(String axis) =>
     _loveJoystickGamepadAxisConstants.contains(axis);
 
+/// Returns whether [button] is a valid LOVE gamepad button constant.
 bool loveIsValidGamepadButton(String button) =>
     _loveJoystickGamepadButtonConstants.contains(button);
 
+/// Returns whether [input] is a valid LOVE gamepad input constant.
 bool loveIsValidGamepadInput(String input) =>
     loveIsValidGamepadAxis(input) || loveIsValidGamepadButton(input);
 
+/// Returns whether [direction] is a valid LOVE hat-direction constant.
 bool loveIsValidJoystickHat(String direction) =>
     _loveJoystickHatConstants.contains(direction);
 
+/// Returns whether [inputType] is a valid joystick input binding type.
 bool loveIsValidJoystickInputType(String inputType) =>
     _loveJoystickInputTypeConstants.contains(inputType);
 
+/// Clamps joystick axis values to LOVE's normalized range.
 double _loveClampJoystickAxis(double value) {
   if (!value.isFinite) {
     return value;
@@ -92,6 +106,7 @@ double _loveClampJoystickAxis(double value) {
   return value.clamp(-1.0, 1.0).toDouble();
 }
 
+/// Clamps joystick vibration values to LOVE's normalized range.
 double _loveClampJoystickVibration(double value) {
   if (!value.isFinite) {
     return value;
@@ -100,17 +115,25 @@ double _loveClampJoystickVibration(double value) {
   return value.clamp(0.0, 1.0).toDouble();
 }
 
+/// Describes one SDL-style gamepad mapping target.
 class LoveJoystickInputBinding {
+  /// Creates a joystick input binding for one axis, button, or hat direction.
   const LoveJoystickInputBinding({
     required this.type,
     required this.inputIndex,
     this.hatDirection,
   });
 
+  /// The input type, such as `axis`, `button`, or `hat`.
   final String type;
+
+  /// The 1-based input index.
   final int inputIndex;
+
+  /// The hat direction used when [type] is `hat`.
   final String? hatDirection;
 
+  /// Returns this binding encoded as an SDL mapping token.
   String toSdlToken() {
     final zeroBasedIndex = inputIndex - 1;
     return switch (type) {
@@ -122,6 +145,7 @@ class LoveJoystickInputBinding {
     };
   }
 
+  /// Parses an SDL mapping token into a LOVE input binding.
   static LoveJoystickInputBinding? fromSdlToken(String token) {
     final trimmed = token.trim();
     if (trimmed.isEmpty) {
@@ -177,6 +201,7 @@ class LoveJoystickInputBinding {
     return null;
   }
 
+  /// Returns whether [other] describes the same joystick binding.
   @override
   bool operator ==(Object other) {
     return other is LoveJoystickInputBinding &&
@@ -185,11 +210,14 @@ class LoveJoystickInputBinding {
         other.hatDirection == hatDirection;
   }
 
+  /// The stable hash for this binding.
   @override
   int get hashCode => Object.hash(type, inputIndex, hatDirection);
 }
 
+/// Stores a parsed SDL gamepad mapping in LOVE-friendly form.
 class LoveJoystickGamepadMapping {
+  /// Creates a gamepad mapping with optional raw binding and metadata maps.
   LoveJoystickGamepadMapping({
     required this.guid,
     this.name = 'Controller',
@@ -199,27 +227,41 @@ class LoveJoystickGamepadMapping {
   }) : _rawBindings = <String, String>{...?rawBindings},
        _extras = <String, String>{...?extras};
 
+  /// The 32-character SDL gamepad GUID.
   final String guid;
+
+  /// The human-readable mapping name.
   String name;
+
+  /// The platform name this mapping applies to, when specified.
   String? platform;
+
+  /// The raw SDL binding tokens keyed by LOVE input name.
   final Map<String, String> _rawBindings;
+
+  /// Any nonstandard mapping entries preserved during parsing.
   final Map<String, String> _extras;
 
+  /// The raw bindings as an unmodifiable view.
   Map<String, String> get rawBindings =>
       UnmodifiableMapView<String, String>(_rawBindings);
 
+  /// The nonstandard mapping entries as an unmodifiable view.
   Map<String, String> get extras =>
       UnmodifiableMapView<String, String>(_extras);
 
+  /// Returns the parsed binding for [input], if one exists.
   LoveJoystickInputBinding? getBinding(String input) {
     final token = _rawBindings[input];
     return token == null ? null : LoveJoystickInputBinding.fromSdlToken(token);
   }
 
+  /// Stores [binding] as the raw mapping token for [input].
   void setBinding(String input, LoveJoystickInputBinding binding) {
     _rawBindings[input] = binding.toSdlToken();
   }
 
+  /// Serializes this mapping to an SDL-compatible mapping string.
   String toMappingString({String? defaultPlatform}) {
     final parts = <String>[guid, name];
 
@@ -259,6 +301,7 @@ class LoveJoystickGamepadMapping {
     return '${parts.join(',')},';
   }
 
+  /// Parses one SDL gamepad mapping line.
   static LoveJoystickGamepadMapping? tryParse(String mappingString) {
     final trimmed = mappingString.trim();
     if (trimmed.isEmpty || trimmed.startsWith('#')) {
@@ -310,7 +353,9 @@ class LoveJoystickGamepadMapping {
   }
 }
 
+/// Represents one joystick or gamepad device tracked by the runtime.
 class LoveJoystickDevice {
+  /// Creates a joystick device with optional axes, buttons, hats, and mapping state.
   LoveJoystickDevice({
     required this.id,
     this.name = 'Joystick',
@@ -352,60 +397,110 @@ class LoveJoystickDevice {
        _vibrationLeft = _loveClampJoystickVibration(vibrationLeft),
        _vibrationRight = _loveClampJoystickVibration(vibrationRight);
 
+  /// The stable LOVE joystick id.
   final int id;
+
+  /// The device display name.
   String name;
+
+  /// Whether the device is currently connected.
   bool connected;
+
+  /// Whether the host recognized this device as a gamepad.
   bool gamepad;
+
+  /// The backend-specific instance id, when available.
   int? instanceId;
+
+  /// The SDL-style device GUID.
   String guid;
+
+  /// The USB vendor id, when available.
   int vendorId;
+
+  /// The USB product id, when available.
   int productId;
+
+  /// The hardware product version, when available.
   int productVersion;
+
+  /// Whether the device supports vibration.
   bool vibrationSupported;
+
+  /// The current raw joystick axes.
   final List<double> _axes;
+
+  /// The number of digital buttons the device exposes.
   int _buttonCount;
+
+  /// The currently pressed button indices.
   final Set<int> _buttonsDown;
+
+  /// The current hat directions.
   final List<String> _hats;
+
+  /// The normalized gamepad axis values.
   final Map<String, double> _gamepadAxes;
+
+  /// The currently pressed gamepad buttons.
   final Set<String> _gamepadButtons;
+
+  /// The current left vibration intensity.
   double _vibrationLeft;
+
+  /// The current right vibration intensity.
   double _vibrationRight;
+
+  /// The manager tracking this device, when attached.
   LoveJoystickManager? _manager;
 
+  /// The current joystick axes as an unmodifiable list.
   List<double> get axes =>
       List<double>.unmodifiable(connected ? _axes : const []);
 
+  /// The number of available digital buttons.
   int get buttonCount => connected ? _buttonCount : 0;
 
+  /// The currently pressed buttons as an unmodifiable set.
   Set<int> get buttonsDown => UnmodifiableSetView<int>(_buttonsDown);
 
+  /// The current hat directions as an unmodifiable list.
   List<String> get hats =>
       List<String>.unmodifiable(connected ? _hats : const []);
 
+  /// The current gamepad axes as an unmodifiable map.
   Map<String, double> get gamepadAxes =>
       UnmodifiableMapView<String, double>(connected ? _gamepadAxes : const {});
 
+  /// The currently pressed gamepad buttons as an unmodifiable set.
   Set<String> get gamepadButtons =>
       UnmodifiableSetView<String>(connected ? _gamepadButtons : const {});
 
+  /// The current left vibration intensity.
   double get vibrationLeft => _vibrationLeft;
 
+  /// The current right vibration intensity.
   double get vibrationRight => _vibrationRight;
 
+  /// The active gamepad mapping associated with this device's GUID.
   LoveJoystickGamepadMapping? get gamepadMapping =>
       _manager?.mappingForGuid(guid);
 
+  /// Whether this device should be treated as a gamepad.
   bool get recognizedAsGamepad =>
       gamepad || (_manager?.hasGamepadMapping(guid) ?? false);
 
+  /// Whether this device is currently connected.
   bool get isConnected => connected;
 
+  /// Replaces the full axis list with [axes].
   void setAxes(Iterable<double> axes) {
     _axes
       ..clear()
       ..addAll(axes.map(_loveClampJoystickAxis));
   }
 
+  /// Sets one 1-based joystick axis value.
   void setAxis(int axis, double value) {
     if (axis < 1) {
       return;
@@ -417,6 +512,7 @@ class LoveJoystickDevice {
     _axes[axis - 1] = _loveClampJoystickAxis(value);
   }
 
+  /// Returns the current value of a 1-based joystick axis.
   double getAxis(int axis) {
     if (!connected || axis < 1 || axis > _axes.length) {
       return 0.0;
@@ -425,10 +521,12 @@ class LoveJoystickDevice {
     return _axes[axis - 1];
   }
 
+  /// Sets the number of digital buttons exposed by the device.
   void setButtonCount(int count) {
     _buttonCount = math.max(0, count);
   }
 
+  /// Marks a 1-based joystick button as pressed or released.
   void setButtonDown(int button, {required bool down}) {
     if (button < 1) {
       return;
@@ -442,6 +540,7 @@ class LoveJoystickDevice {
     }
   }
 
+  /// Returns whether any 1-based button in [buttons] is currently pressed.
   bool isDown(Iterable<int> buttons) {
     if (!connected) {
       return false;
@@ -458,6 +557,7 @@ class LoveJoystickDevice {
     return false;
   }
 
+  /// Resizes the hat list to [count], filling new entries with center.
   void setHatCount(int count) {
     final normalizedCount = math.max(0, count);
     if (normalizedCount < _hats.length) {
@@ -470,6 +570,7 @@ class LoveJoystickDevice {
     }
   }
 
+  /// Sets a 1-based hat direction.
   void setHat(int hat, String direction) {
     if (hat < 1 || !loveIsValidJoystickHat(direction)) {
       return;
@@ -479,6 +580,7 @@ class LoveJoystickDevice {
     _hats[hat - 1] = direction;
   }
 
+  /// Returns the direction of a 1-based hat.
   String getHat(int hat) {
     if (!connected || hat < 1 || hat > _hats.length) {
       return '';
@@ -487,6 +589,7 @@ class LoveJoystickDevice {
     return _hats[hat - 1];
   }
 
+  /// Sets the normalized value of a named gamepad axis.
   void setGamepadAxis(String axis, double value) {
     if (!loveIsValidGamepadAxis(axis)) {
       return;
@@ -495,6 +598,7 @@ class LoveJoystickDevice {
     _gamepadAxes[axis] = _loveClampJoystickAxis(value);
   }
 
+  /// Returns the normalized value of a named gamepad axis.
   double getGamepadAxis(String axis) {
     if (!connected || !recognizedAsGamepad || !loveIsValidGamepadAxis(axis)) {
       return 0.0;
@@ -503,6 +607,7 @@ class LoveJoystickDevice {
     return _gamepadAxes[axis] ?? 0.0;
   }
 
+  /// Marks a named gamepad button as pressed or released.
   void setGamepadButton(String button, {required bool down}) {
     if (!loveIsValidGamepadButton(button)) {
       return;
@@ -515,6 +620,7 @@ class LoveJoystickDevice {
     }
   }
 
+  /// Returns whether any named gamepad button in [buttons] is pressed.
   bool isGamepadDown(Iterable<String> buttons) {
     if (!connected || !recognizedAsGamepad) {
       return false;
@@ -523,6 +629,7 @@ class LoveJoystickDevice {
     return buttons.any(_gamepadButtons.contains);
   }
 
+  /// Returns the parsed gamepad mapping binding for [input], if any.
   LoveJoystickInputBinding? getGamepadMapping(String input) {
     if (!recognizedAsGamepad || !loveIsValidGamepadInput(input)) {
       return null;
@@ -531,6 +638,7 @@ class LoveJoystickDevice {
     return gamepadMapping?.getBinding(input);
   }
 
+  /// Returns the serialized gamepad mapping string for this device, if any.
   String? getGamepadMappingString() {
     if (!recognizedAsGamepad) {
       return null;
@@ -539,6 +647,7 @@ class LoveJoystickDevice {
     return _manager?.getGamepadMappingString(guid);
   }
 
+  /// Updates the current vibration intensities.
   bool setVibration({
     double left = 0.0,
     double? right,
@@ -554,10 +663,13 @@ class LoveJoystickDevice {
     return true;
   }
 
+  /// Stops all device vibration.
   bool stopVibration() => setVibration(left: 0.0, right: 0.0);
 }
 
+/// Tracks connected joystick devices and persisted gamepad mappings.
 class LoveJoystickManager {
+  /// Creates a joystick manager with optional devices, mappings, and platform.
   LoveJoystickManager({
     Iterable<LoveJoystickDevice>? devices,
     Iterable<LoveJoystickGamepadMapping>? mappings,
@@ -573,29 +685,43 @@ class LoveJoystickManager {
     setDevices(devices ?? const <LoveJoystickDevice>[]);
   }
 
+  /// The platform name used when reading and writing platform-specific mappings.
   String? _platformName;
+
+  /// The devices currently known to the manager.
   final List<LoveJoystickDevice> _devices;
+
+  /// The loaded gamepad mappings keyed by GUID.
   final Map<String, LoveJoystickGamepadMapping> _gamepadMappings =
       <String, LoveJoystickGamepadMapping>{};
+
+  /// The GUIDs recently loaded or requested for serialization.
   final Set<String> _recentGamepadGuids = <String>{};
 
+  /// The current platform name used for mapping filtering.
   String? get platformName => _platformName;
 
+  /// Updates the current platform name used for mapping filtering.
   set platformName(String? value) {
     _platformName = value == null || value.isEmpty ? null : value;
   }
 
+  /// All tracked devices as an unmodifiable list.
   List<LoveJoystickDevice> get devices =>
       List<LoveJoystickDevice>.unmodifiable(_devices);
 
+  /// The currently connected devices.
   List<LoveJoystickDevice> get connectedDevices =>
       _devices.where((device) => device.connected).toList(growable: false);
 
+  /// The number of currently connected devices.
   int get joystickCount => connectedDevices.length;
 
+  /// The loaded gamepad mappings as an unmodifiable map.
   Map<String, LoveJoystickGamepadMapping> get gamepadMappings =>
       UnmodifiableMapView<String, LoveJoystickGamepadMapping>(_gamepadMappings);
 
+  /// Replaces the tracked device list with [devices].
   void setDevices(Iterable<LoveJoystickDevice> devices) {
     for (final device in _devices) {
       if (device._manager == this) {
@@ -612,11 +738,13 @@ class LoveJoystickManager {
     }
   }
 
+  /// Adds [device] to the tracked device list.
   void addDevice(LoveJoystickDevice device) {
     device._manager = this;
     _devices.add(device);
   }
 
+  /// Removes the device identified by [id].
   bool removeDevice(int id) {
     final before = _devices.length;
     _devices.removeWhere((device) {
@@ -629,11 +757,14 @@ class LoveJoystickManager {
     return _devices.length != before;
   }
 
+  /// Returns whether a mapping exists for [guid].
   bool hasGamepadMapping(String guid) => _gamepadMappings.containsKey(guid);
 
+  /// Returns the loaded mapping for [guid], if any.
   LoveJoystickGamepadMapping? mappingForGuid(String guid) =>
       _gamepadMappings[guid];
 
+  /// Returns the serialized mapping string for [guid], if one exists.
   String? getGamepadMappingString(String guid) {
     final mapping = _gamepadMappings[guid];
     if (mapping == null) {
@@ -644,6 +775,7 @@ class LoveJoystickManager {
     return mapping.toMappingString(defaultPlatform: _platformName);
   }
 
+  /// Adds or updates one gamepad mapping entry.
   bool setGamepadMapping(
     String guid,
     String input,
@@ -682,6 +814,7 @@ class LoveJoystickManager {
     return true;
   }
 
+  /// Loads one or more SDL gamepad mappings from [mappings].
   void loadGamepadMappings(String mappings) {
     var success = false;
 
@@ -713,6 +846,7 @@ class LoveJoystickManager {
     }
   }
 
+  /// Serializes recently used gamepad mappings to SDL mapping lines.
   String saveGamepadMappings() {
     final buffer = StringBuffer();
     for (final guid in _recentGamepadGuids) {
@@ -725,6 +859,7 @@ class LoveJoystickManager {
     return buffer.toString();
   }
 
+  /// Returns the best available device name for [guid].
   String _nameForGuid(String guid) {
     for (final device in _devices) {
       if (device.guid == guid) {

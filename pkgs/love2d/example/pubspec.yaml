@@ -67,6 +67,7 @@ flutter:
     - assets/love_example_browser/list.lua
     - assets/love_example_browser/main.lua
     - assets/love_example_browser/movements.lua
+    - assets/love_example_browser/video_test_runner.lua
     - assets/love_example_browser/viewcode.lua
     - assets/love_example_browser/assets/
     - assets/love_example_browser/examples/

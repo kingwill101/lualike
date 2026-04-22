@@ -4,10 +4,12 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flame/game.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:vector_math/vector_math_64.dart' as vm;
 
 import '../love_runtime.dart';
+import '../video/love_media_kit_video_frame_provider.dart';
 import 'love_flame_host.dart';
 import 'love_registered_fragment_shader_cache.dart';
 import 'love_flame_viewport_geometry.dart';
@@ -20,19 +22,31 @@ final Map<LoveCanvas, ui.Image> _liveCanvasShaderSamplerImages =
 final Set<LoveCanvas> _pendingLiveCanvasShaderSamplerImages = <LoveCanvas>{};
 
 class LoveFlameHarnessGame extends FlameGame {
-  LoveFlameHarnessGame({this.audioBackendFactory, AssetBundle? assetBundle})
-    : _assetBundle = assetBundle;
+  LoveFlameHarnessGame({
+    this.audioBackendFactory,
+    LoveVideoFrameProviderFactory? videoFrameProviderFactory,
+    AssetBundle? assetBundle,
+  }) : _assetBundle = assetBundle,
+       _videoFrameProviderFactory =
+           videoFrameProviderFactory ?? _defaultVideoFrameProviderFactory();
 
   final LoveAudioBackendFactory? audioBackendFactory;
   final AssetBundle? _assetBundle;
+  final LoveVideoFrameProviderFactory? _videoFrameProviderFactory;
 
   late final LoveFlameHost host = LoveFlameHost(
     game: this,
     assetBundle: _assetBundle,
     audioBackendFactory: audioBackendFactory,
+    videoFrameProviderFactory: _videoFrameProviderFactory,
   );
   late LoveGraphicsSurfaceSnapshot _presentedFrame = host.graphics
       .snapshotScreenSurface();
+  late final ValueNotifier<LoveGraphicsSurfaceSnapshot>
+  presentedFrameListenable = ValueNotifier<LoveGraphicsSurfaceSnapshot>(
+    _presentedFrame,
+  );
+  bool _presentationNotifierDisposed = false;
 
   void Function(double dt)? onTick;
 
@@ -40,10 +54,28 @@ class LoveFlameHarnessGame extends FlameGame {
 
   void presentFrame(LoveGraphicsSurfaceSnapshot frame) {
     _presentedFrame = frame;
+    if (_presentationNotifierDisposed) {
+      return;
+    }
+    presentedFrameListenable.value = frame;
+  }
+
+  void disposePresentationNotifier() {
+    if (_presentationNotifierDisposed) {
+      return;
+    }
+    _presentationNotifierDisposed = true;
+    presentedFrameListenable.dispose();
   }
 
   @override
   Color backgroundColor() => const Color(0xFF050816);
+
+  @override
+  void onDispose() {
+    disposePresentationNotifier();
+    super.onDispose();
+  }
 
   @override
   void update(double dt) {
@@ -81,6 +113,34 @@ class LoveFlameHarnessGame extends FlameGame {
     _renderSurfaceSnapshot(canvas, frame, logicalViewportSize);
     canvas.restore();
   }
+}
+
+class LoveSurfaceSnapshotPainter extends CustomPainter {
+  const LoveSurfaceSnapshotPainter({
+    required this.snapshot,
+    required this.viewportSize,
+  });
+
+  final LoveGraphicsSurfaceSnapshot snapshot;
+  final Size viewportSize;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    _renderSurfaceSnapshot(canvas, snapshot, viewportSize);
+  }
+
+  @override
+  bool shouldRepaint(covariant LoveSurfaceSnapshotPainter oldDelegate) {
+    return !identical(oldDelegate.snapshot, snapshot) ||
+        oldDelegate.viewportSize != viewportSize;
+  }
+}
+
+LoveVideoFrameProviderFactory? _defaultVideoFrameProviderFactory() {
+  if (kIsWeb) {
+    return null;
+  }
+  return loveMediaKitVideoFrameProviderFactory();
 }
 
 Rect _rectForScissor(LoveScissorRect scissor) {
@@ -279,6 +339,8 @@ void _renderRecordedCommand(Canvas canvas, LoveDrawCommand command) {
       _renderTextObjectCommand(canvas, text);
     case final LoveImageCommand image:
       _renderImageCommand(canvas, image);
+    case LoveVideoCommand():
+      break;
     case final LoveSpriteBatchCommand spriteBatch:
       _renderSpriteBatchCommand(canvas, spriteBatch);
     case final LoveMeshCommand mesh:
@@ -1825,6 +1887,12 @@ FilterQuality _filterQualityForLove(LoveGraphicsDefaultFilter filter) {
       FilterQuality.none,
     _ => FilterQuality.low,
   };
+}
+
+FilterQuality loveFilterQualityForGraphicsDefaultFilter(
+  LoveGraphicsDefaultFilter filter,
+) {
+  return _filterQualityForLove(filter);
 }
 
 TextAlign _textAlignForLove(String align) {

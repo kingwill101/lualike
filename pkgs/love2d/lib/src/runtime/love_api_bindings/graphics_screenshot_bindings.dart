@@ -1,5 +1,9 @@
 part of '../love_api_bindings.dart';
 
+/// Returns a callable screenshot callback wrapper for [value], if possible.
+///
+/// LOVE accepts plain Lua callables and some host-side callable wrappers here,
+/// so this helper normalizes them into a [Value].
 Value? _captureScreenshotCallbackIfPresent(Object? value) {
   return switch (value) {
     final Value wrapped when wrapped.isCallable() => wrapped,
@@ -9,6 +13,7 @@ Value? _captureScreenshotCallbackIfPresent(Object? value) {
   };
 }
 
+/// Infers the screenshot encode format from [filename].
 String _captureScreenshotFormatFromFilename(String filename, String symbol) {
   final forwardSlash = filename.lastIndexOf('/');
   final backwardSlash = filename.lastIndexOf(r'\');
@@ -20,6 +25,11 @@ String _captureScreenshotFormatFromFilename(String filename, String symbol) {
   return _imageEncodeFormat(extension, symbol);
 }
 
+/// Binds `love.graphics.captureScreenshot`.
+///
+/// LOVE allows screenshots to be delivered to a callback, written to a file, or
+/// pushed into a channel, so this binding dispatches based on the argument
+/// shape and arranges the corresponding async host callback.
 LoveApiImplementation _bindGraphicsCaptureScreenshot(
   LibraryRegistrationContext context,
 ) {

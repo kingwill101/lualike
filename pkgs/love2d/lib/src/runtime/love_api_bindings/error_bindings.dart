@@ -1,5 +1,9 @@
 part of '../love_api_bindings.dart';
 
+/// Binds `love.errorhandler`.
+///
+/// The returned closure implements the stock LÖVE-style error screen loop and
+/// keeps processing quit, escape, and copy-to-clipboard interactions.
 LoveApiImplementation _bindLoveErrorHandler(
   LibraryRegistrationContext context,
 ) {
@@ -70,6 +74,7 @@ LoveApiImplementation _bindLoveErrorHandler(
   };
 }
 
+/// Resets input, audio, and graphics state before showing the error screen.
 Future<void> _prepareLoveErrorHandler(LoveRuntimeContext runtime) async {
   runtime.mouse.setVisible(true);
   runtime.mouse.grabbed = false;
@@ -88,6 +93,7 @@ Future<void> _prepareLoveErrorHandler(LoveRuntimeContext runtime) async {
   await runtime.ensureCurrentGraphicsFont();
 }
 
+/// Formats the text rendered by the fallback error screen.
 String _formatLoveErrorHandlerText(
   String message, {
   required bool canCopyToClipboard,
@@ -101,6 +107,7 @@ String _formatLoveErrorHandlerText(
   return buffer.toString();
 }
 
+/// Draws one frame of the fallback error screen using the active graphics font.
 void _drawLoveErrorHandlerFrame(LoveRuntimeContext runtime, String text) {
   const double padding = 70.0;
   const LoveColor background = LoveColor(89 / 255, 157 / 255, 220 / 255, 1.0);

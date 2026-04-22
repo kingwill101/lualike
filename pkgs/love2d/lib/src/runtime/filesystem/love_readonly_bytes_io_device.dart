@@ -8,26 +8,33 @@ import 'package:lualike/src/io/io_device.dart';
 /// Shared read-only byte-backed device used for bundled assets and mounted
 /// virtual filesystem entries.
 class LoveReadonlyBytesIODevice extends BaseIODevice {
+  /// Creates a read-only device backed by immutable [bytes].
   LoveReadonlyBytesIODevice(List<int> bytes)
     : _bytes = List<int>.unmodifiable(bytes),
       super('r') {
     isClosed = false;
   }
 
+  /// The immutable byte payload exposed through this device.
   final List<int> _bytes;
+
+  /// The current read cursor within [_bytes].
   int _position = 0;
 
   @override
+  /// Closes this device.
   Future<void> close() async {
     isClosed = true;
   }
 
   @override
+  /// Validates that this device is still open.
   Future<void> flush() async {
     checkOpen();
   }
 
   @override
+  /// Reads data using LOVE-compatible [format] semantics.
   Future<ReadResult> read([String format = 'l']) async {
     checkOpen();
     validateReadFormat(format);
@@ -47,18 +54,21 @@ class LoveReadonlyBytesIODevice extends BaseIODevice {
   }
 
   @override
+  /// Rejects string writes because this device is read-only.
   Future<WriteResult> write(String data) async {
     checkOpen();
     return WriteResult(false, 'File not open for writing');
   }
 
   @override
+  /// Rejects byte writes because this device is read-only.
   Future<WriteResult> writeBytes(List<int> bytes) async {
     checkOpen();
     return WriteResult(false, 'File not open for writing');
   }
 
   @override
+  /// Moves the read cursor using LOVE-compatible seek semantics.
   Future<int> seek(SeekWhence whence, int offset) async {
     checkOpen();
 
@@ -75,17 +85,20 @@ class LoveReadonlyBytesIODevice extends BaseIODevice {
   }
 
   @override
+  /// The current read cursor position.
   Future<int> getPosition() async {
     checkOpen();
     return _position;
   }
 
   @override
+  /// Whether the read cursor has reached the end of the byte payload.
   Future<bool> isEOF() async {
     checkOpen();
     return _position >= _bytes.length;
   }
 
+  /// Reads every remaining byte from the current cursor position.
   List<int> _readRemainingBytes() {
     if (_position >= _bytes.length) {
       return const <int>[];
@@ -96,6 +109,7 @@ class LoveReadonlyBytesIODevice extends BaseIODevice {
     return remaining;
   }
 
+  /// Reads a line of bytes, optionally keeping the line terminator.
   List<int>? _readLineBytes({required bool includeLineTerminator}) {
     if (_position >= _bytes.length) {
       return null;
@@ -114,6 +128,7 @@ class LoveReadonlyBytesIODevice extends BaseIODevice {
     return _bytes.sublist(start, resultEnd);
   }
 
+  /// Reads a Lua-style numeric literal from the current cursor position.
   num? _readNumber() {
     final buffer = <int>[];
     var count = 0;
@@ -235,6 +250,7 @@ class LoveReadonlyBytesIODevice extends BaseIODevice {
     }
   }
 
+  /// Reads up to [length] bytes from the current cursor position.
   List<int>? _readFixedBytes(int length) {
     if (_position >= _bytes.length) {
       return null;
@@ -246,6 +262,7 @@ class LoveReadonlyBytesIODevice extends BaseIODevice {
     return result;
   }
 
+  /// Reads a single byte, or `-1` at end of file.
   int _readByte() {
     if (_position >= _bytes.length) {
       return -1;
@@ -254,20 +271,24 @@ class LoveReadonlyBytesIODevice extends BaseIODevice {
     return _bytes[_position++];
   }
 
+  /// Moves the read cursor back by one byte when possible.
   void _unreadByte() {
     if (_position > 0) {
       _position--;
     }
   }
 
+  /// Whether [byte] is ASCII whitespace accepted by Lua number parsing.
   bool _isWhitespace(int byte) {
     return byte == 32 || byte == 9 || byte == 10 || byte == 13;
   }
 
+  /// Whether [byte] is an ASCII decimal digit.
   bool _isDigit(int byte) {
     return byte >= 48 && byte <= 57;
   }
 
+  /// Whether [byte] is an ASCII hexadecimal digit.
   bool _isHexDigit(int byte) {
     return (byte >= 48 && byte <= 57) ||
         (byte >= 65 && byte <= 70) ||

@@ -1,5 +1,10 @@
 part of '../love_api_bindings.dart';
 
+/// Builds the `World:update` binding for Lua physics worlds.
+///
+/// This forwards the step parameters into the wrapped world and selects either
+/// synchronous or queued callback dispatch depending on whether the current
+/// interpreter can safely run callbacks inline.
 Value _buildPhysicsWorldUpdateBinding(
   LibraryContext context,
   BuiltinFunctionBuilder builder,
@@ -41,6 +46,10 @@ Value _buildPhysicsWorldUpdateBinding(
   );
 }
 
+/// Builds the `World:getCallbacks` binding.
+///
+/// The returned tuple preserves Love's callback ordering for begin-contact,
+/// end-contact, pre-solve, and post-solve handlers.
 Value _buildPhysicsWorldGetCallbacksBinding(BuiltinFunctionBuilder builder) {
   return Value(
     builder.create((args) {
@@ -60,6 +69,10 @@ Value _buildPhysicsWorldGetCallbacksBinding(BuiltinFunctionBuilder builder) {
   );
 }
 
+/// Builds the `World:setCallbacks` binding.
+///
+/// Missing Lua arguments are treated as `nil`, which clears the corresponding
+/// callback on the wrapped physics world.
 Value _buildPhysicsWorldSetCallbacksBinding(BuiltinFunctionBuilder builder) {
   return Value(
     builder.create((args) {
@@ -76,6 +89,7 @@ Value _buildPhysicsWorldSetCallbacksBinding(BuiltinFunctionBuilder builder) {
   );
 }
 
+/// Returns the optional callable at [index] or `null` when the Lua value is `nil`.
 Value? _physicsOptionalCallable(List<Object?> args, int index, String symbol) {
   final value = _valueAt(args, index);
   if (_rawValue(value) == null) {
@@ -84,6 +98,10 @@ Value? _physicsOptionalCallable(List<Object?> args, int index, String symbol) {
   return _requireCallable(args, index, symbol);
 }
 
+/// Dispatches a queued world callback through the asynchronous Lua bridge.
+///
+/// Contact callbacks always receive the two fixtures and the wrapped contact.
+/// Post-solve callbacks append impulse pairs after those three base arguments.
 Future<void> _dispatchPhysicsWorldCallbackEvent(
   LibraryContext context,
   LovePhysicsWorldQueuedCallback event,
@@ -112,6 +130,7 @@ Future<void> _dispatchPhysicsWorldCallbackEvent(
   );
 }
 
+/// Dispatches a world callback immediately through the synchronous Lua bridge.
 void _dispatchPhysicsWorldCallbackEventSync(
   LibraryContext context,
   LovePhysicsWorldQueuedCallback event,
@@ -140,6 +159,7 @@ void _dispatchPhysicsWorldCallbackEventSync(
   );
 }
 
+/// Returns the diagnostic symbol used for a queued world callback kind.
 String _physicsWorldCallbackSymbol(LovePhysicsWorldCallbackKind kind) {
   return switch (kind) {
     LovePhysicsWorldCallbackKind.beginContact => 'World:setCallbacks.begin',

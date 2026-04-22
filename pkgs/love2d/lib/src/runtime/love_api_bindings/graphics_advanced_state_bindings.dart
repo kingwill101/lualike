@@ -1,15 +1,11 @@
 part of '../love_api_bindings.dart';
 
-// love.graphics.setDepthMode([comparemode, write])
-//
-// Sets the depth comparison mode and whether writing to the depth buffer is
-// enabled.  Calling with no arguments (or nil) disables depth testing, which
-// is equivalent to setDepthMode('always', false).
-//
-// The depth state is tracked in LoveGraphicsState so that it is preserved
-// by push('all') / pop() and reset() correctly.  The host renderer currently
-// does not perform hardware depth testing; the state is recorded for
-// completeness and forward-compatibility.
+/// Binds `love.graphics.setDepthMode`.
+///
+/// Calling this with no arguments, or with `nil`, disables depth testing,
+/// which is equivalent to `setDepthMode('always', false)`. The depth state is
+/// tracked so it survives `push('all')`, `pop()`, and `reset()` even though
+/// the host renderer does not currently perform hardware depth testing.
 LoveApiImplementation _bindGraphicsSetDepthMode(
   LibraryRegistrationContext context,
 ) {
@@ -34,10 +30,10 @@ LoveApiImplementation _bindGraphicsSetDepthMode(
   };
 }
 
-// love.graphics.getDepthMode
-//
-// Returns the current depth comparison mode and whether depth buffer writes
-// are enabled.  Returns ('always', false) when depth testing is disabled.
+/// Binds `love.graphics.getDepthMode`.
+///
+/// The returned values match LOVE's `(compareMode, write)` tuple and fall back
+/// to `('always', false)` when depth testing is disabled.
 LoveApiImplementation _bindGraphicsGetDepthMode(
   LibraryRegistrationContext context,
 ) {
@@ -48,16 +44,12 @@ LoveApiImplementation _bindGraphicsGetDepthMode(
   ]);
 }
 
-// love.graphics.setStencilTest([comparemode, comparevalue])
-//
-// Configures the per-pixel stencil test used when drawing.  Calling with no
-// arguments (or nil) disables the stencil test, which is equivalent to
-// setStencilTest('always', 0).
-//
-// The stencil state is tracked in LoveGraphicsState.  Hardware stencil
-// testing is not yet performed by the host renderer; the state is stored for
-// forward-compatibility and so that code that queries getStencilTest receives
-// consistent results.
+/// Binds `love.graphics.setStencilTest`.
+///
+/// Calling this with no arguments, or with `nil`, disables the stencil test,
+/// which is equivalent to `setStencilTest('always', 0)`. The stencil state is
+/// stored for compatibility even though the host renderer does not yet perform
+/// hardware stencil testing.
 LoveApiImplementation _bindGraphicsSetStencilTest(
   LibraryRegistrationContext context,
 ) {
@@ -82,10 +74,10 @@ LoveApiImplementation _bindGraphicsSetStencilTest(
   };
 }
 
-// love.graphics.getStencilTest
-//
-// Returns the current stencil comparison mode and reference value.
-// Returns ('always', 0) when stencil testing is disabled.
+/// Binds `love.graphics.getStencilTest`.
+///
+/// The returned values match LOVE's `(compareMode, referenceValue)` tuple and
+/// fall back to `('always', 0)` when stencil testing is disabled.
 LoveApiImplementation _bindGraphicsGetStencilTest(
   LibraryRegistrationContext context,
 ) {
@@ -96,11 +88,10 @@ LoveApiImplementation _bindGraphicsGetStencilTest(
   ]);
 }
 
-// love.graphics.setFrontFaceWinding(winding)
-//
-// Sets which vertex winding direction is considered front-facing for the
-// purpose of face culling with setMeshCullMode.  Accepted values are 'ccw'
-// (counter-clockwise, the LOVE default) and 'cw' (clockwise).
+/// Binds `love.graphics.setFrontFaceWinding`.
+///
+/// This sets which vertex winding is considered front-facing for mesh culling.
+/// Accepted values are `ccw` and `cw`.
 LoveApiImplementation _bindGraphicsSetFrontFaceWinding(
   LibraryRegistrationContext context,
 ) {
@@ -117,9 +108,7 @@ LoveApiImplementation _bindGraphicsSetFrontFaceWinding(
   };
 }
 
-// love.graphics.getFrontFaceWinding
-//
-// Returns the current front-face winding direction ('ccw' or 'cw').
+/// Binds `love.graphics.getFrontFaceWinding`.
 LoveApiImplementation _bindGraphicsGetFrontFaceWinding(
   LibraryRegistrationContext context,
 ) {
@@ -130,11 +119,9 @@ LoveApiImplementation _bindGraphicsGetFrontFaceWinding(
   };
 }
 
-// love.graphics.setMeshCullMode(mode)
-//
-// Sets the face-culling mode used when drawing Meshes.  Accepted values are
-// 'none' (no culling, the default), 'back' (cull back-facing triangles), and
-// 'front' (cull front-facing triangles).
+/// Binds `love.graphics.setMeshCullMode`.
+///
+/// Accepted values are `none`, `back`, and `front`.
 LoveApiImplementation _bindGraphicsSetMeshCullMode(
   LibraryRegistrationContext context,
 ) {
@@ -152,9 +139,7 @@ LoveApiImplementation _bindGraphicsSetMeshCullMode(
   };
 }
 
-// love.graphics.getMeshCullMode
-//
-// Returns the current mesh face-culling mode ('none', 'back', or 'front').
+/// Binds `love.graphics.getMeshCullMode`.
 LoveApiImplementation _bindGraphicsGetMeshCullMode(
   LibraryRegistrationContext context,
 ) {

@@ -1,12 +1,20 @@
 part of 'love_filesystem_runtime.dart';
 
+/// A readable filesystem handle resolved from either a physical or virtual
+/// filesystem node.
 class _LoveReadableHandle {
+  /// Creates a readable handle for [device] and its optional physical [path].
   const _LoveReadableHandle({required this.device, this.path});
 
+  /// The device used to read the resolved file contents.
   final IODevice device;
+
+  /// The physical host path backing [device], when one exists.
   final String? path;
 }
 
+/// Normalizes adapter exceptions to the message format expected by LOVE file
+/// operations.
 String _filesystemAdapterErrorMessage(Object error) {
   return switch (error) {
     StateError(:final message) => message,
@@ -16,6 +24,7 @@ String _filesystemAdapterErrorMessage(Object error) {
   }.trim();
 }
 
+/// Wraps adapter failures for [logicalPath] in a LOVE-style [StateError].
 StateError _openFileStateError(String logicalPath, Object error) {
   final message = _filesystemAdapterErrorMessage(error);
   if (message.isEmpty) {
@@ -30,6 +39,8 @@ StateError _openFileStateError(String logicalPath, Object error) {
   return StateError('Could not open file $logicalPath ($message)');
 }
 
+/// Opens [physicalPath] through [adapter] and converts host errors to
+/// filesystem [StateError]s.
 Future<IODevice> _openFilesystemDeviceOrThrow(
   LoveFilesystemAdapter adapter,
   String physicalPath,
@@ -43,6 +54,9 @@ Future<IODevice> _openFilesystemDeviceOrThrow(
   }
 }
 
+/// Normalizes LOVE buffer sizes for [mode].
+///
+/// Unbuffered mode always uses a size of `0`.
 int _normalizeLoveBufferSize(BufferMode mode, int size) {
   if (size < 0) {
     return size;
@@ -51,28 +65,49 @@ int _normalizeLoveBufferSize(BufferMode mode, int size) {
   return mode == BufferMode.none ? 0 : size;
 }
 
+/// A LOVE filesystem file object backed by the runtime state.
 class LoveFilesystemFile {
+  /// Creates a file object for the logical [filename].
   LoveFilesystemFile({required this.state, required this.filename});
 
+  /// The filesystem runtime that resolves this file's logical path.
   final LoveFilesystemState state;
+
+  /// The logical file path exposed to Lua.
   final String filename;
 
+  /// The active IO device when this file is open.
   IODevice? _device;
+
+  /// The current LOVE file mode, or `'c'` when the file is closed.
   String _mode = 'c';
+
+  /// The configured buffering mode for future opens.
   BufferMode _bufferMode = BufferMode.none;
+
+  /// The configured buffering size for future opens.
   int _bufferSize = 0;
+
+  /// The currently opened host path, when the file is backed by a physical
+  /// file.
   String? _openedPath;
 
+  /// Whether this file currently has an open IO device.
   bool get isOpen => _device != null;
 
+  /// The current LOVE file mode.
   String get mode => _mode;
 
+  /// The physical host path currently opened for this file, if any.
   String? get openedPath => _openedPath;
 
+  /// The buffering mode that will be applied to the underlying device.
   BufferMode get bufferMode => _bufferMode;
 
+  /// The buffering size that will be applied to the underlying device.
   int get bufferSize => _bufferSize;
 
+  /// The filename extension without a leading dot.
   String get extension {
     final dotIndex = filename.lastIndexOf('.');
     if (dotIndex < 0 || dotIndex == filename.length - 1) {
@@ -82,6 +117,10 @@ class LoveFilesystemFile {
     return filename.substring(dotIndex + 1);
   }
 
+  /// Opens this file in LOVE [mode].
+  ///
+  /// Returns `false` when the file is already open. Throws a [StateError] when
+  /// the target path cannot be resolved or opened.
   Future<bool> open(String mode) async {
     if (mode == 'c') {
       return true;
@@ -148,6 +187,7 @@ class LoveFilesystemFile {
     return true;
   }
 
+  /// Closes the open device for this file.
   Future<bool> close() async {
     final device = _device;
     if (device == null) {
@@ -169,6 +209,9 @@ class LoveFilesystemFile {
     return true;
   }
 
+  /// Reads up to [size] bytes from this file.
+  ///
+  /// Opens the file temporarily in read mode when needed.
   Future<List<int>> readBytes([int size = -1]) async {
     final wasOpen = isOpen;
     if (wasOpen && _mode != 'r') {
@@ -199,6 +242,9 @@ class LoveFilesystemFile {
     }
   }
 
+  /// Reads the next line from this file as bytes.
+  ///
+  /// Returns `null` at end of file.
   Future<List<int>?> readLineBytes({bool includeLineTerminator = false}) async {
     final wasOpen = isOpen;
     if (wasOpen && _mode != 'r') {
@@ -231,6 +277,7 @@ class LoveFilesystemFile {
     }
   }
 
+  /// Writes [bytes] to this file.
   Future<bool> writeBytes(List<int> bytes) async {
     final device = _device;
     if (device == null || (_mode != 'w' && _mode != 'a')) {
@@ -248,6 +295,7 @@ class LoveFilesystemFile {
     return true;
   }
 
+  /// Flushes buffered writes to the underlying device.
   Future<bool> flush() async {
     final device = _device;
     if (device == null || (_mode != 'w' && _mode != 'a')) {
@@ -262,6 +310,7 @@ class LoveFilesystemFile {
     }
   }
 
+  /// Whether the underlying device is at end of file.
   Future<bool> isEOF() async {
     final device = _device;
     if (device == null) {
@@ -271,6 +320,7 @@ class LoveFilesystemFile {
     return device.isEOF();
   }
 
+  /// The current read or write position, or `-1` when the file is closed.
   Future<int> tell() async {
     final device = _device;
     if (device == null) {
@@ -280,6 +330,7 @@ class LoveFilesystemFile {
     return device.getPosition();
   }
 
+  /// Seeks to [position] from the start of the file.
   Future<bool> seek(int position) async {
     final device = _device;
     if (device == null || position < 0) {
@@ -290,6 +341,10 @@ class LoveFilesystemFile {
     return true;
   }
 
+  /// Configures buffering for this file.
+  ///
+  /// When the file is already open, the buffering settings are applied
+  /// immediately to the current device.
   Future<bool> setBuffer(BufferMode mode, int size) async {
     if (size < 0) {
       return false;
@@ -312,6 +367,7 @@ class LoveFilesystemFile {
     return true;
   }
 
+  /// Returns the file size in bytes, if it can be resolved.
   Future<int?> getSize() async {
     final wasOpen = isOpen;
     if (!wasOpen) {
@@ -339,13 +395,18 @@ class LoveFilesystemFile {
   }
 }
 
+/// A file object representing a dropped host file outside the mounted runtime
+/// filesystem.
 class LoveFilesystemDroppedFile extends LoveFilesystemFile {
+  /// Creates a dropped-file wrapper for the host [filename].
   LoveFilesystemDroppedFile({required super.state, required String filename})
     : super(filename: path.normalize(filename));
 
+  /// The normalized physical path of the dropped file.
   String get physicalPath => filename;
 
   @override
+  /// Opens this dropped file directly from the host filesystem.
   Future<bool> open(String mode) async {
     if (mode == 'c') {
       return true;
@@ -393,6 +454,7 @@ class LoveFilesystemDroppedFile extends LoveFilesystemFile {
   }
 
   @override
+  /// Configures buffering for the dropped-file device.
   Future<bool> setBuffer(BufferMode mode, int size) async {
     if (size < 0) {
       return false;
@@ -415,6 +477,7 @@ class LoveFilesystemDroppedFile extends LoveFilesystemFile {
   }
 
   @override
+  /// Returns the size of the dropped host file.
   Future<int?> getSize() async {
     final wasOpen = isOpen;
     if (!wasOpen) {

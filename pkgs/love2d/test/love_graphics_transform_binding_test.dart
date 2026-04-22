@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
+import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.graphics transform bindings', () {
@@ -10,18 +11,18 @@ void main() {
         final runtime = Interpreter();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
-        final oracle = await _call(runtime, const [
+        final oracle = await luaCall(runtime, const [
           'love',
           'math',
           'newTransform',
         ]);
 
         expect(
-          await _call(runtime, const ['love', 'graphics', 'scale']),
+          await luaCall(runtime, const ['love', 'graphics', 'scale']),
           isNull,
         );
         _expectPointClose(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'graphics', 'transformPoint'],
             const <Object?>[3, 4],
@@ -29,40 +30,40 @@ void main() {
           const <Object?>[3.0, 4.0],
         );
 
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'scale'],
           const <Object?>[2],
         );
-        await _callMethod(oracle, 'scale', const <Object?>[2]);
+        await luaCallMethod(oracle, 'scale', const <Object?>[2]);
 
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'rotate'],
           const <Object?>[0.25],
         );
-        await _callMethod(oracle, 'rotate', const <Object?>[0.25]);
+        await luaCallMethod(oracle, 'rotate', const <Object?>[0.25]);
 
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'shear'],
           const <Object?>[0.1, -0.2],
         );
-        await _callMethod(oracle, 'shear', const <Object?>[0.1, -0.2]);
+        await luaCallMethod(oracle, 'shear', const <Object?>[0.1, -0.2]);
 
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'translate'],
           const <Object?>[10, 20],
         );
-        await _callMethod(oracle, 'translate', const <Object?>[10, 20]);
+        await luaCallMethod(oracle, 'translate', const <Object?>[10, 20]);
 
-        final graphicsPoint = await _call(
+        final graphicsPoint = await luaCall(
           runtime,
           const ['love', 'graphics', 'transformPoint'],
           const <Object?>[3, 4],
         );
-        final oraclePoint = await _callMethod(
+        final oraclePoint = await luaCallMethod(
           oracle,
           'transformPoint',
           const <Object?>[3, 4],
@@ -70,11 +71,11 @@ void main() {
         _expectPointClose(graphicsPoint, oraclePoint);
 
         expect(
-          await _call(runtime, const ['love', 'graphics', 'origin']),
+          await luaCall(runtime, const ['love', 'graphics', 'origin']),
           isNull,
         );
         _expectPointClose(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'graphics', 'transformPoint'],
             const <Object?>[3, 4],
@@ -90,21 +91,21 @@ void main() {
         final runtime = Interpreter();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
-        final base = await _call(
+        final base = await luaCall(
           runtime,
           const ['love', 'math', 'newTransform'],
           const <Object?>[15, 25, 0.4, 2, 3, 1, 2, 0.1, -0.2],
         );
-        final offset = await _call(
+        final offset = await luaCall(
           runtime,
           const ['love', 'math', 'newTransform'],
           const <Object?>[3, 4],
         );
-        final composed = await _callMethod(base, 'clone');
-        await _callMethod(composed, 'apply', <Object?>[offset]);
+        final composed = await luaCallMethod(base, 'clone');
+        await luaCallMethod(composed, 'apply', <Object?>[offset]);
 
         expect(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'graphics', 'replaceTransform'],
             <Object?>[base],
@@ -113,16 +114,16 @@ void main() {
         );
 
         _expectPointClose(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'graphics', 'transformPoint'],
             const <Object?>[1, 2],
           ),
-          await _callMethod(base, 'transformPoint', const <Object?>[1, 2]),
+          await luaCallMethod(base, 'transformPoint', const <Object?>[1, 2]),
         );
 
         expect(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'graphics', 'applyTransform'],
             <Object?>[offset],
@@ -130,24 +131,24 @@ void main() {
           isNull,
         );
 
-        final graphicsPoint = await _call(
+        final graphicsPoint = await luaCall(
           runtime,
           const ['love', 'graphics', 'transformPoint'],
           const <Object?>[1, 2],
         );
-        final oraclePoint = await _callMethod(
+        final oraclePoint = await luaCallMethod(
           composed,
           'transformPoint',
           const <Object?>[1, 2],
         );
         _expectPointClose(graphicsPoint, oraclePoint);
 
-        final inverseGraphicsPoint = await _call(runtime, const [
+        final inverseGraphicsPoint = await luaCall(runtime, const [
           'love',
           'graphics',
           'inverseTransformPoint',
         ], graphicsPoint as List<Object?>);
-        final inverseOraclePoint = await _callMethod(
+        final inverseOraclePoint = await luaCallMethod(
           composed,
           'inverseTransformPoint',
           oraclePoint as List<Object?>,
@@ -161,39 +162,39 @@ void main() {
       final runtime = Interpreter();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'graphics', 'translate'],
         const <Object?>[10, 20],
       );
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'graphics', 'setColor'],
         const <Object?>[0.2, 0.3, 0.4, 1.0],
       );
 
-      await _call(runtime, const ['love', 'graphics', 'push']);
-      await _call(
+      await luaCall(runtime, const ['love', 'graphics', 'push']);
+      await luaCall(
         runtime,
         const ['love', 'graphics', 'scale'],
         const <Object?>[2, 3],
       );
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'graphics', 'setColor'],
         const <Object?>[0.9, 0.1, 0.2, 1.0],
       );
       expect(
-        await _call(runtime, const ['love', 'graphics', 'getStackDepth']),
+        await luaCall(runtime, const ['love', 'graphics', 'getStackDepth']),
         1,
       );
-      expect(await _call(runtime, const ['love', 'graphics', 'pop']), isNull);
+      expect(await luaCall(runtime, const ['love', 'graphics', 'pop']), isNull);
       expect(
-        await _call(runtime, const ['love', 'graphics', 'getStackDepth']),
+        await luaCall(runtime, const ['love', 'graphics', 'getStackDepth']),
         0,
       );
       _expectPointClose(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'transformPoint'],
           const <Object?>[1, 2],
@@ -201,36 +202,36 @@ void main() {
         const <Object?>[11.0, 22.0],
       );
       expect(
-        await _call(runtime, const ['love', 'graphics', 'getColor']),
+        await luaCall(runtime, const ['love', 'graphics', 'getColor']),
         <Object?>[0.9, 0.1, 0.2, 1.0],
       );
 
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'graphics', 'push'],
         const <Object?>['all'],
       );
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'graphics', 'translate'],
         const <Object?>[5, 6],
       );
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'graphics', 'setColor'],
         const <Object?>[0.4, 0.5, 0.6, 1.0],
       );
       expect(
-        await _call(runtime, const ['love', 'graphics', 'getStackDepth']),
+        await luaCall(runtime, const ['love', 'graphics', 'getStackDepth']),
         1,
       );
-      await _call(runtime, const ['love', 'graphics', 'pop']);
+      await luaCall(runtime, const ['love', 'graphics', 'pop']);
       expect(
-        await _call(runtime, const ['love', 'graphics', 'getStackDepth']),
+        await luaCall(runtime, const ['love', 'graphics', 'getStackDepth']),
         0,
       );
       _expectPointClose(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'transformPoint'],
           const <Object?>[1, 2],
@@ -238,7 +239,7 @@ void main() {
         const <Object?>[11.0, 22.0],
       );
       expect(
-        await _call(runtime, const ['love', 'graphics', 'getColor']),
+        await luaCall(runtime, const ['love', 'graphics', 'getColor']),
         <Object?>[0.9, 0.1, 0.2, 1.0],
       );
     });
@@ -249,50 +250,50 @@ void main() {
         final runtime = Interpreter();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
-        final offset = await _call(
+        final offset = await luaCall(
           runtime,
           const ['love', 'math', 'newTransform'],
           const <Object?>[3, 4],
         );
 
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'translate'],
           const <Object?>[10, 20],
         );
 
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'push'],
           <Object?>['all', offset],
         );
         _expectPointClose(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'graphics', 'transformPoint'],
             const <Object?>[1, 2],
           ),
           const <Object?>[14.0, 26.0],
         );
-        await _call(runtime, const ['love', 'graphics', 'pop']);
+        await luaCall(runtime, const ['love', 'graphics', 'pop']);
 
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'push'],
           const <Object?>['all', 'ignored'],
         );
         _expectPointClose(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'graphics', 'transformPoint'],
             const <Object?>[1, 2],
           ),
           const <Object?>[11.0, 22.0],
         );
-        await _call(runtime, const ['love', 'graphics', 'pop']);
+        await luaCall(runtime, const ['love', 'graphics', 'pop']);
 
         await expectLater(
-          () => _call(
+          () => luaCall(
             runtime,
             const ['love', 'graphics', 'push'],
             const <Object?>['bogus'],
@@ -324,64 +325,3 @@ void _expectPointClose(Object? actual, Object? expected) {
   expect(point, hasLength(2));
   return ((point[0] as num).toDouble(), (point[1] as num).toDouble());
 }
-
-Future<Object?> _call(
-  Interpreter runtime,
-  List<String> path, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(_rawFunction(runtime, path).call(args));
-}
-
-Future<Object?> _callMethod(
-  Object? receiver,
-  String method, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(
-    _rawMethod(receiver, method).call(<Object?>[receiver, ...args]),
-  );
-}
-
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> path) {
-  var current = runtime.getCurrentEnv().get(path.first);
-  for (final segment in path.skip(1)) {
-    final table = current is Value ? current.raw : current;
-    expect(
-      table,
-      isA<Map>(),
-      reason: 'Expected ${path.join('.')} to traverse a Lua table',
-    );
-    current = (table as Map)[segment];
-  }
-
-  expect(current, isA<Value>());
-  final raw = (current! as Value).raw;
-  expect(raw, isA<BuiltinFunction>());
-  return raw as BuiltinFunction;
-}
-
-BuiltinFunction _rawMethod(Object? receiver, String method) {
-  final table = receiver is Value ? receiver.raw : receiver;
-  expect(table, isA<Map>());
-  final entry = (table! as Map)[method];
-  return switch (entry) {
-    final Value wrapped when wrapped.raw is BuiltinFunction =>
-      wrapped.raw as BuiltinFunction,
-    final BuiltinFunction function => function,
-    _ => throw TestFailure('Expected $method to be a callable Lua method'),
-  };
-}
-
-Future<Object?> _resolveCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return List<Object?>.from(
-      wrapped.raw as List<Object?>,
-      growable: false,
-    ).map(_unwrap).toList(growable: false);
-  }
-  return _unwrap(resolved);
-}
-
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;

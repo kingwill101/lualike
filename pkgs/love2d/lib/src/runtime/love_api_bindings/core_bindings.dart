@@ -1,5 +1,6 @@
 part of '../love_api_bindings.dart';
 
+/// Binds `love.getVersion`.
 LoveApiImplementation _bindGetVersion(LibraryRegistrationContext context) {
   _runtimeContext(context);
   return (args) => Value.multi(<Object?>[
@@ -10,6 +11,7 @@ LoveApiImplementation _bindGetVersion(LibraryRegistrationContext context) {
   ]);
 }
 
+/// Binds `love.hasDeprecationOutput`.
 LoveApiImplementation _bindHasDeprecationOutput(
   LibraryRegistrationContext context,
 ) {
@@ -17,6 +19,7 @@ LoveApiImplementation _bindHasDeprecationOutput(
   return (args) => runtime.deprecationOutput;
 }
 
+/// Binds `love.isVersionCompatible`.
 LoveApiImplementation _bindIsVersionCompatible(
   LibraryRegistrationContext context,
 ) {
@@ -47,6 +50,7 @@ LoveApiImplementation _bindIsVersionCompatible(
   };
 }
 
+/// Binds `love.setDeprecationOutput`.
 LoveApiImplementation _bindSetDeprecationOutput(
   LibraryRegistrationContext context,
 ) {

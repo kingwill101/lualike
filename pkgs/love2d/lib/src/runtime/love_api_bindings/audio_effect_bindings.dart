@@ -1,13 +1,17 @@
 part of '../love_api_bindings.dart';
 
+/// The supported Lua value kinds for audio effect and filter settings.
 enum _LoveAudioSettingValueKind { number, boolean, waveform }
 
+/// The schema describing valid setting names for one audio effect/filter type.
 typedef _LoveAudioSettingSchema = Map<String, _LoveAudioSettingValueKind>;
 
+/// Settings shared by all audio effect definitions.
 const _loveAudioEffectBasicSchema = <String, _LoveAudioSettingValueKind>{
   'volume': _LoveAudioSettingValueKind.number,
 };
 
+/// LOVE audio effect schemas keyed by effect type.
 const _loveAudioEffectSchemas = <String, _LoveAudioSettingSchema>{
   'reverb': <String, _LoveAudioSettingValueKind>{
     'gain': _LoveAudioSettingValueKind.number,
@@ -76,10 +80,12 @@ const _loveAudioEffectSchemas = <String, _LoveAudioSettingSchema>{
   },
 };
 
+/// Settings shared by all audio filter definitions.
 const _loveAudioFilterBasicSchema = <String, _LoveAudioSettingValueKind>{
   'volume': _LoveAudioSettingValueKind.number,
 };
 
+/// LOVE audio filter schemas keyed by filter type.
 const _loveAudioFilterSchemas = <String, _LoveAudioSettingSchema>{
   'lowpass': <String, _LoveAudioSettingValueKind>{
     'highgain': _LoveAudioSettingValueKind.number,
@@ -93,6 +99,7 @@ const _loveAudioFilterSchemas = <String, _LoveAudioSettingSchema>{
   },
 };
 
+/// The waveform names accepted by modulation-based audio effects.
 const Set<String> _loveAudioEffectWaveforms = <String>{
   'sine',
   'triangle',
@@ -100,6 +107,7 @@ const Set<String> _loveAudioEffectWaveforms = <String>{
   'square',
 };
 
+/// Binds `love.audio.getEffect`.
 LoveApiImplementation _bindAudioGetEffect(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -114,6 +122,10 @@ LoveApiImplementation _bindAudioGetEffect(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.audio.setEffect`.
+///
+/// Passing `nil` or `false` removes the named effect, matching LOVE's effect
+/// management API.
 LoveApiImplementation _bindAudioSetEffect(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -139,6 +151,11 @@ LoveApiImplementation _bindAudioSetEffect(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `Source:getEffect`.
+///
+/// LOVE returns `false` when an effect is not attached, `true` when it is
+/// attached without a filter override, or `(true, filter)` when a filter table
+/// is present.
 LoveApiImplementation _bindSourceGetEffect(LibraryRegistrationContext context) {
   return (args) {
     const symbol = 'Source:getEffect';
@@ -160,6 +177,7 @@ LoveApiImplementation _bindSourceGetEffect(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `Source:getFilter`.
 LoveApiImplementation _bindSourceGetFilter(LibraryRegistrationContext context) {
   return (args) {
     final source = _requireAudioSource(args, 0, 'Source:getFilter');
@@ -172,6 +190,10 @@ LoveApiImplementation _bindSourceGetFilter(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `Source:setEffect`.
+///
+/// Passing `nil` keeps the effect and clears its filter override, while boolean
+/// arguments mirror LOVE's enable or disable shorthand.
 LoveApiImplementation _bindSourceSetEffect(LibraryRegistrationContext context) {
   return (args) {
     const symbol = 'Source:setEffect';
@@ -199,6 +221,7 @@ LoveApiImplementation _bindSourceSetEffect(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `Source:setFilter`.
 LoveApiImplementation _bindSourceSetFilter(LibraryRegistrationContext context) {
   return (args) {
     const symbol = 'Source:setFilter';
@@ -217,6 +240,10 @@ LoveApiImplementation _bindSourceSetFilter(LibraryRegistrationContext context) {
   };
 }
 
+/// Converts [settings] into a LOVE-visible table.
+///
+/// When [targetArg] is an existing table target, this populates that table in
+/// place to match LOVE's optional destination-table behavior.
 Object _audioSettingsTable(Map<String, Object?> settings, {Object? targetArg}) {
   final target = _tableTargetIfPresent(targetArg);
   if (target != null) {
@@ -231,6 +258,7 @@ Object _audioSettingsTable(Map<String, Object?> settings, {Object? targetArg}) {
   });
 }
 
+/// Builds a LOVE-style array table from [values].
 Value _audioStringListTable(Iterable<String> values) {
   final list = values.toList(growable: false);
   return ValueClass.table(<Object?, Object?>{
@@ -238,6 +266,7 @@ Value _audioStringListTable(Iterable<String> values) {
   });
 }
 
+/// Reads and validates an effect settings table.
 Map<String, Object?> _readAudioEffectSettings(
   Object? value, {
   required String symbol,
@@ -254,6 +283,7 @@ Map<String, Object?> _readAudioEffectSettings(
   );
 }
 
+/// Reads and validates a filter settings table.
 Map<String, Object?> _readAudioFilterSettings(
   Object? value, {
   required String symbol,
@@ -270,6 +300,7 @@ Map<String, Object?> _readAudioFilterSettings(
   );
 }
 
+/// Reads and validates a typed audio settings table against [schemas].
 Map<String, Object?> _readAudioSettingsTable(
   Object? value, {
   required String symbol,
@@ -292,7 +323,11 @@ Map<String, Object?> _readAudioSettingsTable(
   final typeSchema = schemas[typeName];
   if (typeSchema == null) {
     throw LuaError(
-      '$symbol invalid ${typeLabel.toLowerCase()} type "$typeName"',
+      _audioEnumErrorMessage(
+        '${typeLabel.toLowerCase()} type',
+        schemas.keys,
+        typeName,
+      ),
     );
   }
 
@@ -328,6 +363,17 @@ Map<String, Object?> _readAudioSettingsTable(
   return normalized;
 }
 
+/// Formats LOVE-style enum errors with the accepted values list.
+String _audioEnumErrorMessage(
+  String enumName,
+  Iterable<String> values,
+  String value,
+) {
+  final valueString = values.map((entry) => "'$entry'").join(', ');
+  return "Invalid $enumName '$value', expected one of: $valueString";
+}
+
+/// Validates one audio setting value against its expected Lua-visible kind.
 Object _validateAudioSettingValue(
   Object? raw,
   _LoveAudioSettingValueKind expectedKind, {
@@ -360,6 +406,7 @@ Object _validateAudioSettingValue(
   };
 }
 
+/// Returns the LOVE-style type name for [value].
 String _luaTypeName(Object? value) {
   final raw = _rawValue(value);
   return switch (raw) {

@@ -1,5 +1,6 @@
 part of '../love_api_bindings.dart';
 
+/// Binds `love.graphics.applyTransform`.
 LoveApiImplementation _bindGraphicsApplyTransform(
   LibraryRegistrationContext context,
 ) {
@@ -12,6 +13,7 @@ LoveApiImplementation _bindGraphicsApplyTransform(
   };
 }
 
+/// Binds `love.graphics.replaceTransform`.
 LoveApiImplementation _bindGraphicsReplaceTransform(
   LibraryRegistrationContext context,
 ) {
@@ -24,6 +26,7 @@ LoveApiImplementation _bindGraphicsReplaceTransform(
   };
 }
 
+/// Binds `love.graphics.getStackDepth`.
 LoveApiImplementation _bindGraphicsGetStackDepth(
   LibraryRegistrationContext context,
 ) {
@@ -31,6 +34,7 @@ LoveApiImplementation _bindGraphicsGetStackDepth(
   return (args) => runtime.graphics.stackDepth;
 }
 
+/// Binds `love.graphics.origin`.
 LoveApiImplementation _bindGraphicsOrigin(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -39,6 +43,10 @@ LoveApiImplementation _bindGraphicsOrigin(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.graphics.push`.
+///
+/// LOVE optionally accepts a stack type and an immediate transform to apply
+/// after the push, so this binding supports both call shapes.
 LoveApiImplementation _bindGraphicsPush(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -54,6 +62,7 @@ LoveApiImplementation _bindGraphicsPush(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.graphics.pop`.
 LoveApiImplementation _bindGraphicsPop(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -62,6 +71,7 @@ LoveApiImplementation _bindGraphicsPop(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.graphics.translate`.
 LoveApiImplementation _bindGraphicsTranslate(
   LibraryRegistrationContext context,
 ) {
@@ -75,6 +85,7 @@ LoveApiImplementation _bindGraphicsTranslate(
   };
 }
 
+/// Binds `love.graphics.rotate`.
 LoveApiImplementation _bindGraphicsRotate(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -83,6 +94,9 @@ LoveApiImplementation _bindGraphicsRotate(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.graphics.scale`.
+///
+/// When Lua omits the second scale component, LOVE reuses the x scale for y.
 LoveApiImplementation _bindGraphicsScale(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -97,6 +111,7 @@ LoveApiImplementation _bindGraphicsScale(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.graphics.shear`.
 LoveApiImplementation _bindGraphicsShear(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -108,6 +123,9 @@ LoveApiImplementation _bindGraphicsShear(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.graphics.transformPoint`.
+///
+/// The returned values match LOVE's transformed `(x, y)` tuple.
 LoveApiImplementation _bindGraphicsTransformPoint(
   LibraryRegistrationContext context,
 ) {
@@ -121,6 +139,9 @@ LoveApiImplementation _bindGraphicsTransformPoint(
   };
 }
 
+/// Binds `love.graphics.inverseTransformPoint`.
+///
+/// The returned values match LOVE's inverse-transformed `(x, y)` tuple.
 LoveApiImplementation _bindGraphicsInverseTransformPoint(
   LibraryRegistrationContext context,
 ) {

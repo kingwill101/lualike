@@ -1,5 +1,33 @@
 part of '../love_api_bindings.dart';
 
+const String _loveRecordingDeviceReleasedWrapperKey =
+    '__love2d_recording_device_released__';
+
+final Expando<bool> _loveRecordingDeviceReleased = Expando<bool>(
+  'love2dRecordingDeviceReleased',
+);
+
+Map<dynamic, dynamic>? _recordingDeviceWrapperTableIfPresent(Object? value) {
+  final table = _tableIdentityIfPresent(value);
+  if (table == null) {
+    return null;
+  }
+
+  final device = table[_loveRecordingDeviceObjectKey];
+  if (device is LoveRecordingDevice ||
+      table[_loveRecordingDeviceReleasedWrapperKey] == true) {
+    return table;
+  }
+
+  return null;
+}
+
+bool _recordingDeviceWrapperReleased(Object? value) {
+  final table = _recordingDeviceWrapperTableIfPresent(value);
+  return table?[_loveRecordingDeviceReleasedWrapperKey] == true;
+}
+
+/// Returns the wrapped [LoveRecordingDevice] stored in [value], if any.
 LoveRecordingDevice? _recordingDeviceIfPresent(Object? value) {
   final raw = _rawValue(value);
   final table = switch (raw) {
@@ -14,19 +42,31 @@ LoveRecordingDevice? _recordingDeviceIfPresent(Object? value) {
   return device is LoveRecordingDevice ? device : null;
 }
 
+/// Returns the recording device argument at [index] or throws a [LuaError].
 LoveRecordingDevice _requireRecordingDevice(
   List<Object?> args,
   int index,
   String symbol,
 ) {
-  final device = _recordingDeviceIfPresent(_valueAt(args, index));
+  final value = _valueAt(args, index);
+  if (_recordingDeviceWrapperReleased(value)) {
+    _throwReleasedObjectError();
+  }
+
+  final device = _recordingDeviceIfPresent(value);
   if (device != null) {
     return device;
   }
 
-  throw LuaError('$symbol expected a RecordingDevice at argument ${index + 1}');
+  _throwLuaStyleTypeError(
+    symbol: symbol,
+    index: index,
+    expected: 'RecordingDevice',
+    actual: value,
+  );
 }
 
+/// Builds the LOVE array table returned for a recording-device list.
 Map<Object?, Object?> _recordingDeviceTable(
   LibraryRegistrationContext context,
   Iterable<LoveRecordingDevice> devices,
@@ -39,12 +79,13 @@ Map<Object?, Object?> _recordingDeviceTable(
   return table;
 }
 
+/// Wraps [device] in the Lua-facing `RecordingDevice` object table.
 Value _wrapRecordingDevice(
   LibraryRegistrationContext context,
   LoveRecordingDevice device,
 ) {
   final cached = _loveRecordingDeviceWrapperCache[device];
-  if (cached != null) {
+  if (cached != null && _recordingDeviceWrapperTableIfPresent(cached) != null) {
     return cached;
   }
 
@@ -88,13 +129,61 @@ Value _wrapRecordingDevice(
       builder.create(_bindRecordingDeviceStop(context)),
       functionName: 'stop',
     ),
+    'release': Value(
+      builder.create((args) {
+        final receiver = _valueAt(args, 0);
+        final table = _recordingDeviceWrapperTableIfPresent(receiver);
+        if (table == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:release',
+            index: 0,
+            expected: 'RecordingDevice',
+            actual: receiver,
+          );
+        }
+
+        final device = table[_loveRecordingDeviceObjectKey];
+        if (device is! LoveRecordingDevice) {
+          return false;
+        }
+        if (_loveRecordingDeviceReleased[device] == true) {
+          return false;
+        }
+
+        _loveRecordingDeviceReleased[device] = true;
+        table[_loveRecordingDeviceReleasedWrapperKey] = true;
+        table[_loveRecordingDeviceObjectKey] = null;
+        return true;
+      }),
+      functionName: 'release',
+    ),
     'type': Value(
-      builder.create((args) => 'RecordingDevice'),
+      builder.create((args) {
+        final receiver = _valueAt(args, 0);
+        if (_recordingDeviceWrapperTableIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:type',
+            index: 0,
+            expected: 'RecordingDevice',
+            actual: receiver,
+          );
+        }
+        return 'RecordingDevice';
+      }),
       functionName: 'type',
     ),
     'typeOf': Value(
       builder.create((args) {
-        final queried = _requireString(args, 1, 'RecordingDevice:typeOf');
+        final receiver = _valueAt(args, 0);
+        if (_recordingDeviceWrapperTableIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:typeOf',
+            index: 0,
+            expected: 'RecordingDevice',
+            actual: receiver,
+          );
+        }
+        final queried = _requireString(args, 1, 'Object:typeOf');
         return hierarchy.contains(queried);
       }),
       functionName: 'typeOf',
@@ -105,6 +194,7 @@ Value _wrapRecordingDevice(
   return wrapped;
 }
 
+/// Binds `RecordingDevice:getBitDepth`.
 LoveApiImplementation _bindRecordingDeviceGetBitDepth(
   LibraryRegistrationContext context,
 ) {
@@ -112,6 +202,7 @@ LoveApiImplementation _bindRecordingDeviceGetBitDepth(
       _requireRecordingDevice(args, 0, 'RecordingDevice:getBitDepth').bitDepth;
 }
 
+/// Binds `RecordingDevice:getChannelCount`.
 LoveApiImplementation _bindRecordingDeviceGetChannelCount(
   LibraryRegistrationContext context,
 ) {
@@ -122,6 +213,10 @@ LoveApiImplementation _bindRecordingDeviceGetChannelCount(
   ).channelCount;
 }
 
+/// Binds `RecordingDevice:getData`.
+///
+/// This returns pending captured audio as `SoundData`, or `nil` when the device
+/// has no buffered recording data available.
 LoveApiImplementation _bindRecordingDeviceGetData(
   LibraryRegistrationContext context,
 ) {
@@ -135,6 +230,7 @@ LoveApiImplementation _bindRecordingDeviceGetData(
   };
 }
 
+/// Binds `RecordingDevice:getName`.
 LoveApiImplementation _bindRecordingDeviceGetName(
   LibraryRegistrationContext context,
 ) {
@@ -142,6 +238,7 @@ LoveApiImplementation _bindRecordingDeviceGetName(
       _requireRecordingDevice(args, 0, 'RecordingDevice:getName').name;
 }
 
+/// Binds `RecordingDevice:getSampleCount`.
 LoveApiImplementation _bindRecordingDeviceGetSampleCount(
   LibraryRegistrationContext context,
 ) {
@@ -152,6 +249,7 @@ LoveApiImplementation _bindRecordingDeviceGetSampleCount(
   ).sampleCount;
 }
 
+/// Binds `RecordingDevice:getSampleRate`.
 LoveApiImplementation _bindRecordingDeviceGetSampleRate(
   LibraryRegistrationContext context,
 ) {
@@ -162,6 +260,7 @@ LoveApiImplementation _bindRecordingDeviceGetSampleRate(
   ).sampleRate;
 }
 
+/// Binds `RecordingDevice:isRecording`.
 LoveApiImplementation _bindRecordingDeviceIsRecording(
   LibraryRegistrationContext context,
 ) {
@@ -169,6 +268,10 @@ LoveApiImplementation _bindRecordingDeviceIsRecording(
       _requireRecordingDevice(args, 0, 'RecordingDevice:isRecording').recording;
 }
 
+/// Binds `RecordingDevice:start`.
+///
+/// When Lua omits the optional format arguments, this starts capture using the
+/// device defaults or current negotiated settings.
 LoveApiImplementation _bindRecordingDeviceStart(
   LibraryRegistrationContext context,
 ) {
@@ -193,24 +296,30 @@ LoveApiImplementation _bindRecordingDeviceStart(
           : LoveRecordingDevice.defaultChannels;
     }
 
-    return device.start(
-      samples: samples,
-      sampleRate: sampleRate,
-      bitDepth: bitDepth,
-      channels: channels,
-    );
+    try {
+      return device.start(
+        samples: samples,
+        sampleRate: sampleRate,
+        bitDepth: bitDepth,
+        channels: channels,
+      );
+    } on ArgumentError catch (error) {
+      throw LuaError(error.message.toString());
+    }
   };
 }
 
+/// Binds `RecordingDevice:stop`.
+///
+/// LOVE returns the final captured `SoundData` when stopping succeeds, or `nil`
+/// if no data was recorded.
 LoveApiImplementation _bindRecordingDeviceStop(
   LibraryRegistrationContext context,
 ) {
   return (args) {
-    final data = _requireRecordingDevice(
-      args,
-      0,
-      'RecordingDevice:stop',
-    ).stop();
+    final device = _requireRecordingDevice(args, 0, 'RecordingDevice:stop');
+    final data = device.getData();
+    device.stop();
     return data == null ? null : _wrapSoundData(context, data);
   };
 }

@@ -1,15 +1,20 @@
 part of '../love_runtime.dart';
 
+/// Reports a failure while translating LOVE shader code to GLSL.
 final class LoveShaderTranslationException implements Exception {
+  /// Creates a shader translation exception with [message].
   const LoveShaderTranslationException(this.message);
 
+  /// The human-readable translation failure message.
   final String message;
 
   @override
   String toString() => message;
 }
 
+/// The vertex and pixel sources selected from a LOVE shader definition.
 final class LoveShaderStageSelection {
+  /// Creates a selected pair of shader stages.
   const LoveShaderStageSelection({
     this.vertexSource,
     this.pixelSource,
@@ -17,33 +22,54 @@ final class LoveShaderStageSelection {
     this.multiCanvas = false,
   });
 
+  /// The selected vertex-stage source, if one was found.
   final String? vertexSource;
+
+  /// The selected pixel-stage source, if one was found.
   final String? pixelSource;
+
+  /// Whether the pixel stage uses LOVE's custom `void effect()` form.
   final bool customPixel;
+
+  /// Whether the pixel stage references multi-canvas output.
   final bool multiCanvas;
 
+  /// Whether at least one shader stage was identified.
   bool get hasStage => vertexSource != null || pixelSource != null;
 }
 
+/// The translated GLSL source produced for a shader pair.
 final class LoveShaderGlslTranslation {
+  /// Creates a translated shader-code pair.
   const LoveShaderGlslTranslation({this.vertexCode, this.pixelCode});
 
+  /// The translated vertex shader code, if one was generated.
   final String? vertexCode;
+
+  /// The translated pixel shader code, if one was generated.
   final String? pixelCode;
 }
 
+/// The inferred pixel-stage characteristics of one source string.
 final class _LoveShaderPixelSelection {
+  /// Creates a pixel-stage selection result.
   const _LoveShaderPixelSelection({
     required this.isPixel,
     this.customPixel = false,
     this.multiCanvas = false,
   });
 
+  /// Whether the source contains a pixel-stage entry point.
   final bool isPixel;
+
+  /// Whether the source uses the custom `void effect()` entry point.
   final bool customPixel;
+
+  /// Whether the source refers to multi-canvas outputs.
   final bool multiCanvas;
 }
 
+/// The GLSL version directives used for LOVE shader targets.
 const Map<String, Map<bool, String>> _loveShaderVersionDirectives =
     <String, Map<bool, String>>{
       'glsl1': <bool, String>{false: '#version 120', true: '#version 100'},
@@ -53,6 +79,7 @@ const Map<String, Map<bool, String>> _loveShaderVersionDirectives =
       },
     };
 
+/// Shared syntax aliases and extension enables inserted into every shader.
 const String _loveShaderSyntaxPreamble = '''
 #if !defined(GL_ES) && __VERSION__ < 140
 	#define lowp
@@ -90,6 +117,7 @@ const String _loveShaderSyntaxPreamble = '''
 #endif
 ''';
 
+/// Shared built-in uniforms and compatibility aliases for both stages.
 const String _loveShaderSharedUniforms = '''
 // According to the GLSL ES 1.0 spec, uniform precision must match between stages,
 // but we can't guarantee that highp is always supported in fragment shaders...
@@ -107,6 +135,7 @@ uniform LOVE_HIGHP_OR_MEDIUMP vec4 love_ScreenSize;
 #define NormalMatrix ViewNormalFromLocal
 ''';
 
+/// Shared helper functions inserted into both translated shader stages.
 const String _loveShaderSharedFunctions = '''
 #ifdef GL_ES
 	#if __VERSION__ >= 300 || defined(LOVE_EXT_TEXTURE_ARRAY_ENABLED)
@@ -214,6 +243,7 @@ mediump vec4 linearToGammaFast(mediump vec4 c) { return vec4(linearToGammaFast(c
 #endif
 ''';
 
+/// The fixed header prepended to translated vertex shaders.
 const String _loveShaderVertexHeader = '''
 #define love_Position gl_Position
 
@@ -231,6 +261,7 @@ const String _loveShaderVertexHeader = '''
 #endif
 ''';
 
+/// Vertex-stage helper functions inserted before user code.
 const String _loveShaderVertexFunctions = '''
 void setPointSize() {
 #ifdef GL_ES
@@ -239,6 +270,7 @@ void setPointSize() {
 }
 ''';
 
+/// The default vertex-stage main wrapper used by translated shaders.
 const String _loveShaderVertexMain = '''
 attribute vec4 VertexPosition;
 attribute vec4 VertexTexCoord;
@@ -258,6 +290,7 @@ void main() {
 }
 ''';
 
+/// The fixed header prepended to translated pixel shaders.
 const String _loveShaderPixelHeader = '''
 #ifdef GL_ES
 	precision mediump float;
@@ -288,6 +321,7 @@ const String _loveShaderPixelHeader = '''
 #define love_PixelCoord (vec2(gl_FragCoord.x, (gl_FragCoord.y * love_ScreenSize.z) + love_ScreenSize.w))
 ''';
 
+/// Pixel-stage helper functions inserted before user code.
 const String _loveShaderPixelFunctions = '''
 uniform sampler2D love_VideoYChannel;
 uniform sampler2D love_VideoCbChannel;
@@ -310,6 +344,7 @@ vec4 VideoTexel(vec2 texcoords) {
 }
 ''';
 
+/// The default pixel-stage main wrapper for `vec4 effect(...)` shaders.
 const String _loveShaderPixelMain = '''
 uniform sampler2D MainTex;
 varying LOVE_HIGHP_OR_MEDIUMP vec4 VaryingTexCoord;
@@ -322,6 +357,7 @@ void main() {
 }
 ''';
 
+/// The pixel-stage main wrapper for custom `void effect()` shaders.
 const String _loveShaderPixelMainCustom = '''
 varying LOVE_HIGHP_OR_MEDIUMP vec4 VaryingTexCoord;
 varying mediump vec4 VaryingColor;
@@ -333,6 +369,9 @@ void main() {
 }
 ''';
 
+/// Returns the requested shader language target declared in [code].
+///
+/// When no pragma is present, this defaults to `glsl1`.
 String? loveShaderLanguageTarget(String? code) {
   if (code == null) {
     return null;
@@ -342,10 +381,12 @@ String? loveShaderLanguageTarget(String? code) {
   return match?.group(1) ?? 'glsl1';
 }
 
+/// Returns whether [code] looks like LOVE vertex shader source.
 bool loveShaderSourceIsVertexCode(String code) {
   return RegExp(r'vec4\s+position\s*\(').hasMatch(code);
 }
 
+/// Selects vertex and pixel stages from up to two LOVE shader sources.
 LoveShaderStageSelection loveSelectShaderStageSources(
   String? firstSource,
   String? secondSource,
@@ -380,6 +421,10 @@ LoveShaderStageSelection loveSelectShaderStageSources(
   );
 }
 
+/// Resolves shader stages and validates that they can be translated.
+///
+/// This throws [LoveShaderTranslationException] when the stage pair is invalid
+/// or unsupported for the requested target environment.
 LoveShaderStageSelection loveResolveShaderStageSources({
   required String? firstSource,
   required String? secondSource,
@@ -421,6 +466,10 @@ LoveShaderStageSelection loveResolveShaderStageSources({
   return selection;
 }
 
+/// Translates LOVE shader source into GLSL stage code.
+///
+/// The returned translation may contain only a vertex stage, only a pixel
+/// stage, or both, depending on the supplied source strings.
 LoveShaderGlslTranslation loveShaderCodeToGlsl({
   required bool gles,
   required String? firstSource,
@@ -488,6 +537,7 @@ LoveShaderGlslTranslation loveShaderCodeToGlsl({
   );
 }
 
+/// Classifies [code] as a regular or custom LOVE pixel shader.
 _LoveShaderPixelSelection _loveShaderPixelSelection(String code) {
   if (RegExp(r'vec4\s+effect\s*\(').hasMatch(code)) {
     return const _LoveShaderPixelSelection(isPixel: true);
@@ -504,6 +554,7 @@ _LoveShaderPixelSelection _loveShaderPixelSelection(String code) {
   return const _LoveShaderPixelSelection(isPixel: false);
 }
 
+/// Builds the complete GLSL source for one translated shader [stage].
 String _loveCreateShaderStageCode(
   String stage,
   String code, {

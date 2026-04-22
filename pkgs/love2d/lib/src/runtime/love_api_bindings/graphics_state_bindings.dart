@@ -1,5 +1,6 @@
 part of '../love_api_bindings.dart';
 
+/// Binds `love.graphics.reset`.
 LoveApiImplementation _bindGraphicsReset(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -8,6 +9,7 @@ LoveApiImplementation _bindGraphicsReset(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.graphics.setLineWidth`.
 LoveApiImplementation _bindGraphicsSetLineWidth(
   LibraryRegistrationContext context,
 ) {
@@ -22,6 +24,7 @@ LoveApiImplementation _bindGraphicsSetLineWidth(
   };
 }
 
+/// Binds `love.graphics.getLineWidth`.
 LoveApiImplementation _bindGraphicsGetLineWidth(
   LibraryRegistrationContext context,
 ) {
@@ -29,6 +32,7 @@ LoveApiImplementation _bindGraphicsGetLineWidth(
   return (args) => runtime.graphics.lineWidth;
 }
 
+/// Binds `love.graphics.setPointSize`.
 LoveApiImplementation _bindGraphicsSetPointSize(
   LibraryRegistrationContext context,
 ) {
@@ -43,6 +47,7 @@ LoveApiImplementation _bindGraphicsSetPointSize(
   };
 }
 
+/// Binds `love.graphics.getPointSize`.
 LoveApiImplementation _bindGraphicsGetPointSize(
   LibraryRegistrationContext context,
 ) {
@@ -50,6 +55,9 @@ LoveApiImplementation _bindGraphicsGetPointSize(
   return (args) => runtime.graphics.pointSize;
 }
 
+/// Binds `love.graphics.setScissor`.
+///
+/// Calling this with no arguments clears the active scissor rectangle.
 LoveApiImplementation _bindGraphicsSetScissor(
   LibraryRegistrationContext context,
 ) {
@@ -67,6 +75,7 @@ LoveApiImplementation _bindGraphicsSetScissor(
   };
 }
 
+/// Binds `love.graphics.intersectScissor`.
 LoveApiImplementation _bindGraphicsIntersectScissor(
   LibraryRegistrationContext context,
 ) {
@@ -79,6 +88,10 @@ LoveApiImplementation _bindGraphicsIntersectScissor(
   };
 }
 
+/// Binds `love.graphics.getScissor`.
+///
+/// The returned values match LOVE's `(x, y, width, height)` tuple, or `nil`
+/// when no scissor rectangle is active.
 LoveApiImplementation _bindGraphicsGetScissor(
   LibraryRegistrationContext context,
 ) {
@@ -98,6 +111,7 @@ LoveApiImplementation _bindGraphicsGetScissor(
   };
 }
 
+/// Binds `love.graphics.setLineStyle`.
 LoveApiImplementation _bindGraphicsSetLineStyle(
   LibraryRegistrationContext context,
 ) {
@@ -111,6 +125,7 @@ LoveApiImplementation _bindGraphicsSetLineStyle(
   };
 }
 
+/// Binds `love.graphics.setLineJoin`.
 LoveApiImplementation _bindGraphicsSetLineJoin(
   LibraryRegistrationContext context,
 ) {
@@ -124,6 +139,10 @@ LoveApiImplementation _bindGraphicsSetLineJoin(
   };
 }
 
+/// Binds `love.graphics.setBlendMode`.
+///
+/// LOVE restricts some blend modes to premultiplied alpha, so this binding
+/// enforces those combinations before mutating the runtime state.
 LoveApiImplementation _bindGraphicsSetBlendMode(
   LibraryRegistrationContext context,
 ) {
@@ -159,6 +178,9 @@ LoveApiImplementation _bindGraphicsSetBlendMode(
   };
 }
 
+/// Binds `love.graphics.getBlendMode`.
+///
+/// The returned values match LOVE's `(mode, alphaMode)` tuple.
 LoveApiImplementation _bindGraphicsGetBlendMode(
   LibraryRegistrationContext context,
 ) {
@@ -182,6 +204,10 @@ LoveApiImplementation _bindGraphicsGetBlendMode(
   ]);
 }
 
+/// Binds `love.graphics.setColorMask`.
+///
+/// Calling this with no arguments, or with `nil`, restores the all-channels
+/// color mask.
 LoveApiImplementation _bindGraphicsSetColorMask(
   LibraryRegistrationContext context,
 ) {
@@ -202,6 +228,9 @@ LoveApiImplementation _bindGraphicsSetColorMask(
   };
 }
 
+/// Binds `love.graphics.getColorMask`.
+///
+/// The returned values match LOVE's `(red, green, blue, alpha)` tuple.
 LoveApiImplementation _bindGraphicsGetColorMask(
   LibraryRegistrationContext context,
 ) {
@@ -214,6 +243,7 @@ LoveApiImplementation _bindGraphicsGetColorMask(
   ]);
 }
 
+/// Binds `love.graphics.setWireframe`.
 LoveApiImplementation _bindGraphicsSetWireframe(
   LibraryRegistrationContext context,
 ) {
@@ -228,6 +258,7 @@ LoveApiImplementation _bindGraphicsSetWireframe(
   };
 }
 
+/// Binds `love.graphics.isWireframe`.
 LoveApiImplementation _bindGraphicsIsWireframe(
   LibraryRegistrationContext context,
 ) {
@@ -235,6 +266,7 @@ LoveApiImplementation _bindGraphicsIsWireframe(
   return (args) => runtime.graphics.wireframe;
 }
 
+/// Binds `love.graphics.getLineStyle`.
 LoveApiImplementation _bindGraphicsGetLineStyle(
   LibraryRegistrationContext context,
 ) {
@@ -245,6 +277,7 @@ LoveApiImplementation _bindGraphicsGetLineStyle(
   };
 }
 
+/// Binds `love.graphics.getLineJoin`.
 LoveApiImplementation _bindGraphicsGetLineJoin(
   LibraryRegistrationContext context,
 ) {
@@ -256,6 +289,7 @@ LoveApiImplementation _bindGraphicsGetLineJoin(
   };
 }
 
+/// Binds `love.graphics.setColor`.
 LoveApiImplementation _bindGraphicsSetColor(
   LibraryRegistrationContext context,
 ) {
@@ -266,6 +300,7 @@ LoveApiImplementation _bindGraphicsSetColor(
   };
 }
 
+/// Binds `love.graphics.getColor`.
 LoveApiImplementation _bindGraphicsGetColor(
   LibraryRegistrationContext context,
 ) {
@@ -273,6 +308,7 @@ LoveApiImplementation _bindGraphicsGetColor(
   return (args) => _colorResult(runtime.graphics.color);
 }
 
+/// Binds `love.graphics.setBackgroundColor`.
 LoveApiImplementation _bindGraphicsSetBackgroundColor(
   LibraryRegistrationContext context,
 ) {
@@ -287,6 +323,7 @@ LoveApiImplementation _bindGraphicsSetBackgroundColor(
   };
 }
 
+/// Binds `love.graphics.getBackgroundColor`.
 LoveApiImplementation _bindGraphicsGetBackgroundColor(
   LibraryRegistrationContext context,
 ) {
@@ -294,6 +331,10 @@ LoveApiImplementation _bindGraphicsGetBackgroundColor(
   return (args) => _colorResult(runtime.graphics.backgroundColor);
 }
 
+/// Binds `love.graphics.clear`.
+///
+/// LOVE accepts no arguments to clear using the current background color, a
+/// boolean to conditionally clear, or an explicit color tuple.
 LoveApiImplementation _bindGraphicsClear(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {

@@ -1,17 +1,41 @@
 part of '../love_runtime.dart';
 
-enum LoveParticleInsertMode { top, bottom, random }
+/// Controls where newly emitted particles are inserted in draw order.
+enum LoveParticleInsertMode {
+  /// Inserts new particles at the front of the particle list.
+  top,
 
+  /// Appends new particles at the end of the particle list.
+  bottom,
+
+  /// Inserts new particles at a random list position.
+  random,
+}
+
+/// Shapes and distributions used for particle emission areas.
 enum LoveParticleAreaSpreadDistribution {
+  /// Samples positions uniformly inside a rectangle.
   uniform,
+
+  /// Samples positions from a normal distribution around the emitter.
   normal,
+
+  /// Samples positions uniformly inside an ellipse.
   ellipse,
+
+  /// Samples positions along the border of an ellipse.
   borderEllipse,
+
+  /// Samples positions along the border of a rectangle.
   borderRectangle,
+
+  /// Emits particles directly from the emitter position.
   none,
 }
 
+/// One draw-ready particle entry produced from a live particle.
 class LoveParticleDrawEntry {
+  /// Creates a draw entry with [transform], [color], and an optional [quad].
   LoveParticleDrawEntry({
     required Matrix4 transform,
     required this.color,
@@ -19,10 +43,16 @@ class LoveParticleDrawEntry {
   }) : transform = Matrix4.copy(transform),
        quad = quad?.copy();
 
+  /// The transform used to draw this particle sprite.
   final Matrix4 transform;
+
+  /// The interpolated tint color for this particle.
   final LoveColor color;
+
+  /// The optional quad used to select a particle frame.
   final LoveQuad? quad;
 
+  /// Returns a copy of this draw entry.
   LoveParticleDrawEntry copy() {
     return LoveParticleDrawEntry(
       transform: transform,
@@ -32,7 +62,9 @@ class LoveParticleDrawEntry {
   }
 }
 
+/// A draw snapshot of a particle system and its live particles.
 class LoveParticleSystemSnapshot {
+  /// Creates a snapshot using [texture] and draw-ready [particles].
   LoveParticleSystemSnapshot({
     required this.texture,
     required Iterable<LoveParticleDrawEntry> particles,
@@ -40,15 +72,21 @@ class LoveParticleSystemSnapshot {
          particles.map((particle) => particle.copy()),
        );
 
+  /// The texture that should be used to draw the snapshot.
   final LoveImage texture;
+
+  /// The draw-ready particles in their current draw order.
   final List<LoveParticleDrawEntry> particles;
 
+  /// Returns a copy of this snapshot.
   LoveParticleSystemSnapshot copy() {
     return LoveParticleSystemSnapshot(texture: texture, particles: particles);
   }
 }
 
+/// Internal simulation state for one live particle.
 class _LoveParticle {
+  /// Creates one live particle with sampled spawn and motion parameters.
   _LoveParticle({
     required this.originX,
     required this.originY,
@@ -67,23 +105,55 @@ class _LoveParticle {
     required this.lifetime,
   });
 
+  /// The emitter-space horizontal origin of this particle.
   final double originX;
+
+  /// The emitter-space vertical origin of this particle.
   final double originY;
+
+  /// The current horizontal position.
   double x;
+
+  /// The current vertical position.
   double y;
+
+  /// The current horizontal velocity.
   double velocityX;
+
+  /// The current vertical velocity.
   double velocityY;
+
+  /// The linear horizontal acceleration.
   final double linearAccelerationX;
+
+  /// The linear vertical acceleration.
   final double linearAccelerationY;
+
+  /// The radial acceleration away from the emitter origin.
   final double radialAcceleration;
+
+  /// The tangential acceleration around the emitter origin.
   final double tangentialAcceleration;
+
+  /// The damping factor applied to linear velocity.
   final double linearDamping;
+
+  /// The current rotation angle in radians.
   double rotation;
+
+  /// The angular velocity in radians per second.
   final double spin;
+
+  /// The sampled per-particle size multiplier.
   final double sizeScale;
+
+  /// The elapsed particle lifetime in seconds.
   double age = 0.0;
+
+  /// The total lifetime in seconds.
   final double lifetime;
 
+  /// The normalized lifetime progress in the range `0.0..1.0`.
   double get progress {
     if (lifetime <= 0) {
       return 1.0;
@@ -93,11 +163,14 @@ class _LoveParticle {
   }
 }
 
+/// Simulates and snapshots LOVE particle systems for drawing.
 class LoveParticleSystem {
+  /// Creates a particle system that draws from [texture].
   LoveParticleSystem({required LoveImage texture, int bufferSize = 1000})
     : _texture = texture,
       _bufferSize = math.max(1, bufferSize);
 
+  /// Creates a cloned particle system configuration.
   LoveParticleSystem._clone({
     required LoveImage texture,
     required int bufferSize,
@@ -240,21 +313,29 @@ class LoveParticleSystem {
   double _emissionCarry = 0.0;
   final List<_LoveParticle> _particles = <_LoveParticle>[];
 
+  /// The texture currently used for particle rendering.
   LoveImage get texture => _texture;
 
+  /// The maximum number of live particles retained at once.
   int get bufferSize => _bufferSize;
 
+  /// The insertion mode used for newly emitted particles.
   LoveParticleInsertMode get insertMode => _insertMode;
 
+  /// The emission rate in particles per second.
   double get emissionRate => _emissionRate;
 
+  /// The emitter lifetime in seconds, or a negative value for infinite life.
   double get emitterLifetime => _emitterLifetime;
 
+  /// The minimum and maximum particle lifetime in seconds.
   ({double min, double max}) get particleLifetime =>
       (min: _particleLifetimeMin, max: _particleLifetimeMax);
 
+  /// The current emitter position.
   ({double x, double y}) get position => (x: _positionX, y: _positionY);
 
+  /// The configured emission-area parameters.
   ({
     LoveParticleAreaSpreadDistribution distribution,
     double dx,
@@ -270,12 +351,16 @@ class LoveParticleSystem {
     directionRelativeToCenter: _emissionAreaDirectionRelativeToCenter,
   );
 
+  /// The base particle direction in radians.
   double get direction => _direction;
 
+  /// The angular spread in radians.
   double get spread => _spread;
 
+  /// The minimum and maximum particle speed.
   ({double min, double max}) get speed => (min: _speedMin, max: _speedMax);
 
+  /// The configured linear acceleration range.
   ({double minX, double minY, double maxX, double maxY})
   get linearAcceleration => (
     minX: _linearAccelerationMinX,
@@ -284,43 +369,60 @@ class LoveParticleSystem {
     maxY: _linearAccelerationMaxY,
   );
 
+  /// The configured radial acceleration range.
   ({double min, double max}) get radialAcceleration =>
       (min: _radialAccelerationMin, max: _radialAccelerationMax);
 
+  /// The configured tangential acceleration range.
   ({double min, double max}) get tangentialAcceleration =>
       (min: _tangentialAccelerationMin, max: _tangentialAccelerationMax);
 
+  /// The configured linear damping range.
   ({double min, double max}) get linearDamping =>
       (min: _linearDampingMin, max: _linearDampingMax);
 
+  /// The size keyframes used over particle lifetime.
   List<double> get sizes => List<double>.unmodifiable(_sizes);
 
+  /// The random size variation factor applied per particle.
   double get sizeVariation => _sizeVariation;
 
+  /// The configured rotation range in radians.
   ({double min, double max}) get rotation =>
       (min: _rotationMin, max: _rotationMax);
 
+  /// The configured spin range in radians per second.
   ({double min, double max}) get spin => (min: _spinMin, max: _spinMax);
 
+  /// The random spin variation factor applied per particle.
   double get spinVariation => _spinVariation;
 
+  /// The custom draw offset, when one has been configured.
   ({double x, double y}) get offset => (x: _offsetX, y: _offsetY);
 
+  /// The color keyframes used over particle lifetime.
   List<LoveColor> get colors => List<LoveColor>.unmodifiable(_colors);
 
+  /// The quad keyframes used over particle lifetime.
   List<LoveQuad> get quads =>
       List<LoveQuad>.unmodifiable(_quads.map((quad) => quad.copy()));
 
+  /// Whether particle rotation follows travel direction.
   bool get relativeRotation => _relativeRotation;
 
+  /// Whether the emitter is currently active.
   bool get isActive => _active;
 
+  /// Whether the emitter is currently paused.
   bool get isPaused => _paused;
 
+  /// Whether the emitter is currently stopped.
   bool get isStopped => _stopped;
 
+  /// The number of currently live particles.
   int get count => _particles.length;
 
+  /// Returns a copy of this particle system configuration.
   LoveParticleSystem clone() {
     return LoveParticleSystem._clone(
       texture: _texture,
@@ -368,10 +470,12 @@ class LoveParticleSystem {
     );
   }
 
+  /// Replaces the particle texture with [texture].
   void setTexture(LoveImage texture) {
     _texture = texture;
   }
 
+  /// Sets the maximum live particle count to [bufferSize].
   void setBufferSize(int bufferSize) {
     _bufferSize = math.max(1, bufferSize);
     if (_particles.length <= _bufferSize) {
@@ -381,23 +485,28 @@ class LoveParticleSystem {
     _particles.removeRange(_bufferSize, _particles.length);
   }
 
+  /// Sets how new particles are inserted into draw order.
   void setInsertMode(LoveParticleInsertMode mode) {
     _insertMode = mode;
   }
 
+  /// Sets the continuous emission rate in particles per second.
   void setEmissionRate(double value) {
     _emissionRate = value;
   }
 
+  /// Sets the emitter lifetime in seconds.
   void setEmitterLifetime(double value) {
     _emitterLifetime = value;
   }
 
+  /// Sets the minimum and maximum particle lifetime in seconds.
   void setParticleLifetime(double min, [double? max]) {
     _particleLifetimeMin = min;
     _particleLifetimeMax = max ?? min;
   }
 
+  /// Sets the emitter position and resets interpolation history.
   void setPosition(double x, double y) {
     _positionX = x;
     _positionY = y;
@@ -405,11 +514,13 @@ class LoveParticleSystem {
     _previousPositionY = y;
   }
 
+  /// Moves the emitter position without resetting interpolation history.
   void moveTo(double x, double y) {
     _positionX = x;
     _positionY = y;
   }
 
+  /// Configures the emission area shape and dimensions.
   void setEmissionArea(
     LoveParticleAreaSpreadDistribution distribution,
     double dx,
@@ -424,19 +535,23 @@ class LoveParticleSystem {
     _emissionAreaDirectionRelativeToCenter = directionRelativeToCenter;
   }
 
+  /// Sets the base emission direction in radians.
   void setDirection(double value) {
     _direction = value;
   }
 
+  /// Sets the angular spread in radians.
   void setSpread(double value) {
     _spread = value;
   }
 
+  /// Sets the minimum and maximum particle speed.
   void setSpeed(double min, [double? max]) {
     _speedMin = min;
     _speedMax = max ?? min;
   }
 
+  /// Sets the linear acceleration range.
   void setLinearAcceleration(
     double minX,
     double minY, [
@@ -449,69 +564,83 @@ class LoveParticleSystem {
     _linearAccelerationMaxY = maxY ?? minY;
   }
 
+  /// Sets the radial acceleration range.
   void setRadialAcceleration(double min, [double? max]) {
     _radialAccelerationMin = min;
     _radialAccelerationMax = max ?? min;
   }
 
+  /// Sets the tangential acceleration range.
   void setTangentialAcceleration(double min, [double? max]) {
     _tangentialAccelerationMin = min;
     _tangentialAccelerationMax = max ?? min;
   }
 
+  /// Sets the linear damping range.
   void setLinearDamping(double min, [double? max]) {
     _linearDampingMin = min;
     _linearDampingMax = max ?? min;
   }
 
+  /// Replaces the particle size keyframes with [sizes].
   void setSizes(List<double> sizes) {
     _sizes = List<double>.unmodifiable(sizes);
   }
 
+  /// Sets the random size variation factor.
   void setSizeVariation(double value) {
     _sizeVariation = value;
   }
 
+  /// Sets the initial rotation range in radians.
   void setRotation(double min, [double? max]) {
     _rotationMin = min;
     _rotationMax = max ?? min;
   }
 
+  /// Sets the spin range in radians per second.
   void setSpin(double min, [double? max]) {
     _spinMin = min;
     _spinMax = max ?? min;
   }
 
+  /// Sets the random spin variation factor.
   void setSpinVariation(double value) {
     _spinVariation = value;
   }
 
+  /// Sets a custom sprite origin offset.
   void setOffset(double x, double y) {
     _offsetX = x;
     _offsetY = y;
     _hasCustomOffset = true;
   }
 
+  /// Replaces the color keyframes used over particle lifetime.
   void setColors(List<LoveColor> colors) {
     _colors = List<LoveColor>.unmodifiable(
       colors.map((color) => color.clamped()),
     );
   }
 
+  /// Replaces the quad keyframes used over particle lifetime.
   void setQuads(List<LoveQuad> quads) {
     _quads = List<LoveQuad>.unmodifiable(quads.map((quad) => quad.copy()));
   }
 
+  /// Sets whether particle rotation follows travel direction.
   void setRelativeRotation(bool enable) {
     _relativeRotation = enable;
   }
 
+  /// Starts or resumes continuous emission.
   void start() {
     _active = true;
     _paused = false;
     _stopped = false;
   }
 
+  /// Stops emission and resets emitter timing state.
   void stop() {
     _active = false;
     _paused = false;
@@ -520,18 +649,21 @@ class LoveParticleSystem {
     _emissionCarry = 0.0;
   }
 
+  /// Pauses continuous emission without clearing live particles.
   void pause() {
     _active = false;
     _paused = true;
     _stopped = false;
   }
 
+  /// Clears live particles and resets emitter timing state.
   void reset() {
     _particles.clear();
     _emitterAge = 0.0;
     _emissionCarry = 0.0;
   }
 
+  /// Emits [count] particles immediately using [random].
   void emit(int count, LoveRandomGenerator random) {
     if (count <= 0 || _particleLifetimeMax <= 0) {
       return;
@@ -546,6 +678,7 @@ class LoveParticleSystem {
     }
   }
 
+  /// Advances the particle simulation by [dt] seconds.
   void update(double dt, LoveRandomGenerator random) {
     if (dt <= 0) {
       _previousPositionX = _positionX;
@@ -565,6 +698,7 @@ class LoveParticleSystem {
     _previousPositionY = _positionY;
   }
 
+  /// Returns a draw snapshot of the current live particles.
   LoveParticleSystemSnapshot snapshotForDraw() {
     final texture = switch (_texture) {
       final LoveCanvas canvas => canvas.snapshot(),
@@ -578,6 +712,7 @@ class LoveParticleSystem {
     );
   }
 
+  /// Advances and prunes the currently live particles.
   void _updateLiveParticles(double dt) {
     for (var index = _particles.length - 1; index >= 0; index--) {
       final particle = _particles[index];
@@ -588,6 +723,7 @@ class LoveParticleSystem {
     }
   }
 
+  /// Emits any particles that should be spawned during this update step.
   void _emitDuringUpdate(double dt, LoveRandomGenerator random) {
     if (!_active || _emissionRate <= 0 || _particleLifetimeMax <= 0) {
       if (_emitterLifetime >= 0 && _active) {
@@ -636,6 +772,7 @@ class LoveParticleSystem {
     }
   }
 
+  /// Samples and initializes one particle for emission.
   _LoveParticle _spawnParticle(
     LoveRandomGenerator random, {
     required double progressFraction,
@@ -723,6 +860,7 @@ class LoveParticleSystem {
     return particle;
   }
 
+  /// Advances [particle] through the simulation by [dt] seconds.
   void _advanceParticle(_LoveParticle particle, double dt) {
     if (particle.age >= particle.lifetime) {
       return;
@@ -762,6 +900,7 @@ class LoveParticleSystem {
     particle.age = math.min(particle.lifetime, particle.age + dt);
   }
 
+  /// Inserts [particle] using the configured insertion mode and buffer limit.
   void _insertParticle(_LoveParticle particle, LoveRandomGenerator random) {
     switch (_insertMode) {
       case LoveParticleInsertMode.top:
@@ -790,6 +929,7 @@ class LoveParticleSystem {
     }
   }
 
+  /// Builds the draw entry used to render [particle].
   LoveParticleDrawEntry _drawEntryForParticle(
     LoveImage texture,
     _LoveParticle particle,
@@ -823,6 +963,7 @@ class LoveParticleSystem {
     );
   }
 
+  /// Resolves the particle quad at normalized lifetime [progress].
   LoveQuad? _quadForProgress(double progress) {
     if (_quads.isEmpty) {
       return null;
@@ -835,6 +976,7 @@ class LoveParticleSystem {
     return _quads[index];
   }
 
+  /// Resolves the sprite origin used when drawing a particle.
   ({double x, double y}) _resolvedOffset(LoveImage texture, LoveQuad? quad) {
     if (_hasCustomOffset) {
       return (x: _offsetX, y: _offsetY);
@@ -847,6 +989,7 @@ class LoveParticleSystem {
     return (x: texture.width / 2.0, y: texture.height / 2.0);
   }
 
+  /// Interpolates the particle color at normalized lifetime [progress].
   LoveColor _colorForProgress(double progress) {
     if (_colors.length == 1) {
       return _colors.single;
@@ -866,6 +1009,7 @@ class LoveParticleSystem {
     ).clamped();
   }
 
+  /// Interpolates the particle size at normalized lifetime [progress].
   double _sizeForProgress(double progress) {
     if (_sizes.length == 1) {
       return _sizes.single;
@@ -878,6 +1022,7 @@ class LoveParticleSystem {
     return _particleLerp(_sizes[index], _sizes[nextIndex], localT);
   }
 
+  /// Samples a local emission offset from the configured emission area.
   ({double x, double y}) _spawnEmissionAreaOffset(LoveRandomGenerator random) {
     switch (_emissionAreaDistribution) {
       case LoveParticleAreaSpreadDistribution.none:
@@ -941,6 +1086,7 @@ class LoveParticleSystem {
     }
   }
 
+  /// Samples a random angular offset inside the configured spread.
   double _randomSpread(LoveRandomGenerator random) {
     if (_spread == 0) {
       return 0.0;
@@ -950,6 +1096,7 @@ class LoveParticleSystem {
   }
 }
 
+/// Returns a uniformly sampled value between [min] and [max].
 double _randomBetween(LoveRandomGenerator random, double min, double max) {
   if (min == max) {
     return min;
@@ -960,14 +1107,17 @@ double _randomBetween(LoveRandomGenerator random, double min, double max) {
   return low + (_randomUnit(random) * (high - low));
 }
 
+/// Returns a uniformly sampled unit value in the range `0.0..1.0`.
 double _randomUnit(LoveRandomGenerator random) {
   return random.nextUnitDouble();
 }
 
+/// Linearly interpolates from [a] to [b] using [t].
 double _particleLerp(double a, double b, double t) {
   return a + ((b - a) * t);
 }
 
+/// Rotates the point `[x, y]` by [angle] radians.
 ({double x, double y}) _rotatePoint(double x, double y, double angle) {
   if (angle == 0) {
     return (x: x, y: y);

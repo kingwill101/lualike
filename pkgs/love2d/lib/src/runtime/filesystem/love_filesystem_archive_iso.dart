@@ -1,5 +1,6 @@
 part of 'love_filesystem_runtime.dart';
 
+/// Decodes [bytes] as an ISO-9660 archive when the header looks valid.
 Archive? _decodeIsoArchive(List<int> bytes) {
   if (!_looksLikeIsoArchive(bytes)) {
     return null;
@@ -75,6 +76,7 @@ Archive? _decodeIsoArchive(List<int> bytes) {
   return archive;
 }
 
+/// Recursively decodes an ISO directory extent into [archive].
 void _decodeIsoDirectory(
   List<int> bytes,
   Archive archive, {
@@ -175,6 +177,10 @@ void _decodeIsoDirectory(
   }
 }
 
+/// Decodes a single ISO directory entry name from [rawName].
+///
+/// Special `.` and `..` directory entries return `null` so callers can skip
+/// them during archive expansion.
 String? _decodeIsoEntryName(
   List<int> rawName, {
   required bool isDirectory,
@@ -216,6 +222,7 @@ String? _decodeIsoEntryName(
   return name;
 }
 
+/// Whether the descriptor at [descriptorOffset] advertises Joliet extensions.
 bool _looksLikeJolietVolumeDescriptor(List<int> bytes, int descriptorOffset) {
   if (descriptorOffset + 121 > bytes.length) {
     return false;
@@ -230,6 +237,10 @@ bool _looksLikeJolietVolumeDescriptor(List<int> bytes, int descriptorOffset) {
           bytes[descriptorOffset + 90] == 0x45);
 }
 
+/// Converts a 7-byte ISO directory-record timestamp into DOS time.
+///
+/// Returns `null` when the timestamp fields are out of range or cannot be
+/// represented safely.
 int? _tryIsoRecordTimestamp(List<int> bytes, int offset) {
   if (offset < 0 || offset + 7 > bytes.length) {
     throw const FormatException('Unexpected end of ISO timestamp.');

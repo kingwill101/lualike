@@ -1,5 +1,6 @@
 part of '../love_api_bindings.dart';
 
+/// Binds `love.system.getClipboardText`.
 LoveApiImplementation _bindSystemGetClipboardText(
   LibraryRegistrationContext context,
 ) {
@@ -7,11 +8,15 @@ LoveApiImplementation _bindSystemGetClipboardText(
   return (args) async => runtime.system.getClipboardText();
 }
 
+/// Binds `love.system.getOS`.
 LoveApiImplementation _bindSystemGetOs(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) => runtime.system.os;
 }
 
+/// Binds `love.system.getPowerInfo`.
+///
+/// The returned values match LOVE's `(state, percent, seconds)` tuple shape.
 LoveApiImplementation _bindSystemGetPowerInfo(
   LibraryRegistrationContext context,
 ) {
@@ -26,6 +31,10 @@ LoveApiImplementation _bindSystemGetPowerInfo(
   };
 }
 
+/// Binds `love.system.getProcessorCount`.
+///
+/// LOVE expects this call to report at least one processor even when the host
+/// cannot determine the count.
 LoveApiImplementation _bindSystemGetProcessorCount(
   LibraryRegistrationContext context,
 ) {
@@ -33,6 +42,7 @@ LoveApiImplementation _bindSystemGetProcessorCount(
   return (args) => math.max(runtime.system.processorCount, 1);
 }
 
+/// Binds `love.system.hasBackgroundMusic`.
 LoveApiImplementation _bindSystemHasBackgroundMusic(
   LibraryRegistrationContext context,
 ) {
@@ -40,6 +50,7 @@ LoveApiImplementation _bindSystemHasBackgroundMusic(
   return (args) => runtime.system.backgroundMusic;
 }
 
+/// Binds `love.system.openURL`.
 LoveApiImplementation _bindSystemOpenUrl(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) async {
@@ -48,6 +59,7 @@ LoveApiImplementation _bindSystemOpenUrl(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.system.setClipboardText`.
 LoveApiImplementation _bindSystemSetClipboardText(
   LibraryRegistrationContext context,
 ) {
@@ -59,6 +71,10 @@ LoveApiImplementation _bindSystemSetClipboardText(
   };
 }
 
+/// Binds `love.system.vibrate`.
+///
+/// When Lua omits the duration, LOVE defaults the vibration request to
+/// half a second.
 LoveApiImplementation _bindSystemVibrate(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) async {

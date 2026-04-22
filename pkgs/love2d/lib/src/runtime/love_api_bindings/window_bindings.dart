@@ -1,10 +1,16 @@
 part of '../love_api_bindings.dart';
 
+/// Binds `love.window.hasFocus`.
+///
+/// This reports whether the host window is currently focused.
 LoveApiImplementation _bindWindowHasFocus(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) => runtime.host.windowHasFocus;
 }
 
+/// Binds `love.window.hasMouseFocus`.
+///
+/// This reports whether the pointer is currently over the host window.
 LoveApiImplementation _bindWindowHasMouseFocus(
   LibraryRegistrationContext context,
 ) {
@@ -12,6 +18,10 @@ LoveApiImplementation _bindWindowHasMouseFocus(
   return (args) => runtime.host.windowHasMouseFocus;
 }
 
+/// Binds `love.window.close`.
+///
+/// LOVE models closing as updating the tracked window metrics rather than
+/// destroying the host process immediately.
 LoveApiImplementation _bindWindowClose(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -23,6 +33,11 @@ LoveApiImplementation _bindWindowClose(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.window.getDesktopDimensions`.
+///
+/// When fullscreen mode metadata is available for the chosen display, this
+/// binding prefers that size over the fallback desktop metrics stored on the
+/// current window state.
 LoveApiImplementation _bindWindowGetDesktopDimensions(
   LibraryRegistrationContext context,
 ) {
@@ -42,6 +57,9 @@ LoveApiImplementation _bindWindowGetDesktopDimensions(
   };
 }
 
+/// Binds `love.window.getDisplayCount`.
+///
+/// This returns the number of displays reported by the host backend.
 LoveApiImplementation _bindWindowGetDisplayCount(
   LibraryRegistrationContext context,
 ) {
@@ -49,6 +67,9 @@ LoveApiImplementation _bindWindowGetDisplayCount(
   return (args) => runtime.host.windowDisplays.length;
 }
 
+/// Binds `love.window.getDisplayName`.
+///
+/// This resolves the requested display index and returns that display's name.
 LoveApiImplementation _bindWindowGetDisplayName(
   LibraryRegistrationContext context,
 ) {
@@ -62,6 +83,10 @@ LoveApiImplementation _bindWindowGetDisplayName(
   };
 }
 
+/// Binds `love.window.getDisplayOrientation`.
+///
+/// Missing display arguments fall back to the current window display, matching
+/// LOVE's optional-argument behavior.
 LoveApiImplementation _bindWindowGetDisplayOrientation(
   LibraryRegistrationContext context,
 ) {
@@ -78,6 +103,9 @@ LoveApiImplementation _bindWindowGetDisplayOrientation(
   };
 }
 
+/// Binds `love.window.getFullscreen`.
+///
+/// The returned values match LOVE's `(fullscreen, type)` tuple.
 LoveApiImplementation _bindWindowGetFullscreen(
   LibraryRegistrationContext context,
 ) {
@@ -88,6 +116,9 @@ LoveApiImplementation _bindWindowGetFullscreen(
   };
 }
 
+/// Binds `love.window.getIcon`.
+///
+/// When no icon has been installed, this returns `nil`.
 LoveApiImplementation _bindWindowGetIcon(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -96,6 +127,10 @@ LoveApiImplementation _bindWindowGetIcon(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.window.getFullscreenModes`.
+///
+/// This returns LOVE's array-of-tables shape where each entry contains a
+/// fullscreen mode's width and height.
 LoveApiImplementation _bindWindowGetFullscreenModes(
   LibraryRegistrationContext context,
 ) {
@@ -111,6 +146,10 @@ LoveApiImplementation _bindWindowGetFullscreenModes(
   };
 }
 
+/// Binds `love.window.getMode`.
+///
+/// LOVE can populate a caller-provided flags table, so this binding preserves
+/// that behavior when the optional table target is passed in.
 LoveApiImplementation _bindWindowGetMode(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -122,6 +161,9 @@ LoveApiImplementation _bindWindowGetMode(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.window.getPosition`.
+///
+/// The returned values match LOVE's `(x, y, display)` tuple.
 LoveApiImplementation _bindWindowGetPosition(
   LibraryRegistrationContext context,
 ) {
@@ -132,6 +174,10 @@ LoveApiImplementation _bindWindowGetPosition(
   };
 }
 
+/// Binds `love.window.getSafeArea`.
+///
+/// When the host does not report an explicit safe area, this binding falls back
+/// to the full window bounds.
 LoveApiImplementation _bindWindowGetSafeArea(
   LibraryRegistrationContext context,
 ) {
@@ -150,16 +196,26 @@ LoveApiImplementation _bindWindowGetSafeArea(
   };
 }
 
+/// Binds `love.window.getTitle`.
+///
+/// This returns the current title tracked in window metrics.
 LoveApiImplementation _bindWindowGetTitle(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) => runtime.windowMetrics.title;
 }
 
+/// Binds `love.window.getVSync`.
+///
+/// LOVE exposes VSync as an integer mode rather than a boolean flag.
 LoveApiImplementation _bindWindowGetVsync(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) => runtime.windowMetrics.vsync;
 }
 
+/// Binds `love.window.isMaximized`.
+///
+/// Fullscreen and minimized windows do not count as maximized, even if the
+/// host metrics still carry the maximize flag.
 LoveApiImplementation _bindWindowIsMaximized(
   LibraryRegistrationContext context,
 ) {
@@ -170,6 +226,9 @@ LoveApiImplementation _bindWindowIsMaximized(
   };
 }
 
+/// Binds `love.window.isMinimized`.
+///
+/// This reports the tracked minimized state directly.
 LoveApiImplementation _bindWindowIsMinimized(
   LibraryRegistrationContext context,
 ) {
@@ -177,6 +236,9 @@ LoveApiImplementation _bindWindowIsMinimized(
   return (args) => runtime.windowMetrics.minimized;
 }
 
+/// Binds `love.window.isDisplaySleepEnabled`.
+///
+/// This reflects whether the runtime currently allows the display to sleep.
 LoveApiImplementation _bindWindowIsDisplaySleepEnabled(
   LibraryRegistrationContext context,
 ) {
@@ -184,6 +246,9 @@ LoveApiImplementation _bindWindowIsDisplaySleepEnabled(
   return (args) => runtime.windowMetrics.displaySleepEnabled;
 }
 
+/// Binds `love.window.setTitle`.
+///
+/// This updates the tracked title in host window metrics.
 LoveApiImplementation _bindWindowSetTitle(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -193,6 +258,10 @@ LoveApiImplementation _bindWindowSetTitle(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.window.getDPIScale`.
+///
+/// This returns the current scale factor between LOVE units and physical
+/// pixels.
 LoveApiImplementation _bindWindowGetDpiScale(
   LibraryRegistrationContext context,
 ) {
@@ -200,6 +269,10 @@ LoveApiImplementation _bindWindowGetDpiScale(
   return (args) => runtime.windowMetrics.dpiScale;
 }
 
+/// Binds `love.window.maximize`.
+///
+/// LOVE only allows maximizing resizable, non-fullscreen windows, so this
+/// binding silently does nothing when those preconditions are not met.
 LoveApiImplementation _bindWindowMaximize(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -216,6 +289,10 @@ LoveApiImplementation _bindWindowMaximize(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.window.minimize`.
+///
+/// This clears the maximized flag when minimizing, matching LOVE's effective
+/// state transitions.
 LoveApiImplementation _bindWindowMinimize(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -227,6 +304,10 @@ LoveApiImplementation _bindWindowMinimize(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.window.requestAttention`.
+///
+/// LOVE optionally accepts a boolean that requests continuous attention until
+/// the window regains focus.
 LoveApiImplementation _bindWindowRequestAttention(
   LibraryRegistrationContext context,
 ) {
@@ -243,6 +324,9 @@ LoveApiImplementation _bindWindowRequestAttention(
   };
 }
 
+/// Binds `love.window.restore`.
+///
+/// This clears minimized and maximized state without changing fullscreen mode.
 LoveApiImplementation _bindWindowRestore(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -254,6 +338,11 @@ LoveApiImplementation _bindWindowRestore(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.window.showMessageBox`.
+///
+/// LOVE returns either a success boolean or the pressed button index depending
+/// on whether the caller provided a custom button list, so this binding mirrors
+/// that split return shape.
 LoveApiImplementation _bindWindowShowMessageBox(
   LibraryRegistrationContext context,
 ) {
@@ -299,6 +388,9 @@ LoveApiImplementation _bindWindowShowMessageBox(
   };
 }
 
+/// Binds `love.window.fromPixels`.
+///
+/// This converts physical pixels into LOVE's DPI-independent window units.
 LoveApiImplementation _bindWindowFromPixels(
   LibraryRegistrationContext context,
 ) {
@@ -309,6 +401,9 @@ LoveApiImplementation _bindWindowFromPixels(
   };
 }
 
+/// Binds `love.window.toPixels`.
+///
+/// This converts LOVE's DPI-independent window units into physical pixels.
 LoveApiImplementation _bindWindowToPixels(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -317,6 +412,11 @@ LoveApiImplementation _bindWindowToPixels(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.window.setMode`.
+///
+/// Unlike [_bindWindowUpdateMode], this rebuilds the mode flags from the
+/// provided arguments instead of merging unspecified flags from the current
+/// window state.
 LoveApiImplementation _bindWindowSetMode(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -331,6 +431,10 @@ LoveApiImplementation _bindWindowSetMode(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.window.setFullscreen`.
+///
+/// This toggles fullscreen state and optionally updates the fullscreen type in
+/// the same call.
 LoveApiImplementation _bindWindowSetFullscreen(
   LibraryRegistrationContext context,
 ) {
@@ -349,6 +453,9 @@ LoveApiImplementation _bindWindowSetFullscreen(
   };
 }
 
+/// Binds `love.window.setDisplaySleepEnabled`.
+///
+/// This updates whether the host should prevent the display from sleeping.
 LoveApiImplementation _bindWindowSetDisplaySleepEnabled(
   LibraryRegistrationContext context,
 ) {
@@ -366,6 +473,10 @@ LoveApiImplementation _bindWindowSetDisplaySleepEnabled(
   };
 }
 
+/// Binds `love.window.setIcon`.
+///
+/// LOVE expects `ImageData` here, so this stores a decoded icon image in the
+/// tracked window metrics.
 LoveApiImplementation _bindWindowSetIcon(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -375,6 +486,10 @@ LoveApiImplementation _bindWindowSetIcon(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.window.updateMode`.
+///
+/// Unlike [_bindWindowSetMode], this preserves existing mode flags when the
+/// caller omits them from the update table.
 LoveApiImplementation _bindWindowUpdateMode(
   LibraryRegistrationContext context,
 ) {
@@ -391,6 +506,10 @@ LoveApiImplementation _bindWindowUpdateMode(
   };
 }
 
+/// Binds `love.window.setPosition`.
+///
+/// The optional display argument switches the target display alongside the new
+/// window position.
 LoveApiImplementation _bindWindowSetPosition(
   LibraryRegistrationContext context,
 ) {
@@ -408,6 +527,9 @@ LoveApiImplementation _bindWindowSetPosition(
   };
 }
 
+/// Binds `love.window.setVSync`.
+///
+/// LOVE uses integer VSync modes, so this stores the rounded numeric value.
 LoveApiImplementation _bindWindowSetVsync(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -417,11 +539,18 @@ LoveApiImplementation _bindWindowSetVsync(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.window.isOpen`.
+///
+/// This reports whether the tracked window state is still considered open.
 LoveApiImplementation _bindWindowIsOpen(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) => runtime.windowMetrics.open;
 }
 
+/// Binds `love.window.isVisible`.
+///
+/// LOVE treats minimized windows as not visible even when their visibility flag
+/// is still set.
 LoveApiImplementation _bindWindowIsVisible(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -430,6 +559,7 @@ LoveApiImplementation _bindWindowIsVisible(LibraryRegistrationContext context) {
   };
 }
 
+/// Returns the optional 1-based display index from the first argument.
 int? _optionalDisplayIndex(List<Object?> args, String symbol) {
   if (args.isEmpty || _valueAt(args, 0) == null) {
     return null;
@@ -442,6 +572,7 @@ int? _optionalDisplayIndex(List<Object?> args, String symbol) {
   return display;
 }
 
+/// Returns the optional 1-based display index from [index].
 int? _optionalDisplayIndexAt(List<Object?> args, int index, String symbol) {
   if (args.length <= index || _valueAt(args, index) == null) {
     return null;
@@ -454,6 +585,10 @@ int? _optionalDisplayIndexAt(List<Object?> args, int index, String symbol) {
   return display;
 }
 
+/// Resolves the target display for a window binding call.
+///
+/// When [argumentOptional] is `true`, missing display arguments fall back to
+/// the current window display tracked in [runtime.windowMetrics].
 LoveWindowDisplay _resolveWindowDisplay(
   LoveRuntimeContext runtime,
   List<Object?> args, {
@@ -477,6 +612,7 @@ LoveWindowDisplay _resolveWindowDisplay(
   return displays[requestedIndex - 1];
 }
 
+/// Returns the optional validated message-box type at [index].
 String? _optionalWindowMessageBoxTypeAt(
   List<Object?> args,
   int index,
@@ -492,6 +628,10 @@ String? _optionalWindowMessageBoxTypeAt(
   };
 }
 
+/// Extracts message-box button labels from a LOVE array table.
+///
+/// Non-array metadata keys such as `enterbutton` and `escapebutton` are
+/// ignored here and read separately by the caller.
 List<String> _messageBoxButtons(Map<dynamic, dynamic> table, String symbol) {
   final buttons = <String>[];
   for (var index = 1; ; index++) {
@@ -514,6 +654,10 @@ List<String> _messageBoxButtons(Map<dynamic, dynamic> table, String symbol) {
   return List<String>.unmodifiable(buttons);
 }
 
+/// Returns the validated LOVE fullscreen type at [index].
+///
+/// LOVE accepts only the constants exposed by
+/// [loveWindowFullscreenTypeConstants].
 String _requireWindowFullscreenType(
   List<Object?> args,
   int index,
@@ -525,6 +669,9 @@ String _requireWindowFullscreenType(
   };
 }
 
+/// Builds the LOVE table returned by `love.window.getFullscreenModes`.
+///
+/// Each entry is a 1-based table containing `width` and `height` fields.
 Map<Object?, Object?> _fullscreenModesTable(
   List<LoveWindowFullscreenMode> modes,
 ) {

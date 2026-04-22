@@ -2,6 +2,7 @@ import 'package:flutter/painting.dart';
 
 import '../love_runtime.dart';
 
+/// Returns the logical LOVE viewport size for the current window state.
 Size loveLogicalViewportSize({
   required LoveWindowMetrics windowMetrics,
   required Size viewportSize,
@@ -18,6 +19,7 @@ Size loveLogicalViewportSize({
   );
 }
 
+/// Returns the centered destination rectangle used to present the viewport.
 Rect loveViewportDestinationRect({
   required LoveWindowMetrics windowMetrics,
   required Size viewportSize,
@@ -41,6 +43,7 @@ Rect loveViewportDestinationRect({
   );
 }
 
+/// Converts a viewport-space point into LOVE logical coordinates.
 Offset loveViewportToLogicalPoint({
   required Offset viewportPoint,
   required LoveWindowMetrics windowMetrics,
@@ -66,6 +69,7 @@ Offset loveViewportToLogicalPoint({
   );
 }
 
+/// Converts a viewport-space delta into LOVE logical coordinates.
 Offset loveViewportDeltaToLogicalDelta({
   required Offset viewportDelta,
   required LoveWindowMetrics windowMetrics,
@@ -89,6 +93,7 @@ Offset loveViewportDeltaToLogicalDelta({
   );
 }
 
+/// Converts a LOVE logical point into viewport-space coordinates.
 Offset loveLogicalToViewportPoint({
   required Offset logicalPoint,
   required LoveWindowMetrics windowMetrics,

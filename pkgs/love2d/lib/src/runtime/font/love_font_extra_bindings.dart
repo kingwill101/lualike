@@ -4,12 +4,15 @@ import 'package:lualike/lualike.dart' show LuaRuntime, Value;
 
 import '../../generated/love_api_reference.g.dart' show loveApiEnums;
 
+/// Tracks which runtimes already have font extra bindings installed.
 final Expando<bool> _loveFontExtrasInstalled = Expando<bool>(
   'love2dFontExtrasInstalled',
 );
 
+/// The generated hinting-mode enum table exposed through the LOVE font module.
 final Map<String, Object?> _loveHintingModeEnumMap = _buildHintingModeEnumMap();
 
+/// Builds the Lua-facing `HintingMode` enum table for `love.font`.
 Map<String, Object?> _buildHintingModeEnumMap() {
   for (final enumDoc in loveApiEnums) {
     if (enumDoc.symbol != 'HintingMode') {
@@ -29,6 +32,7 @@ Map<String, Object?> _buildHintingModeEnumMap() {
   };
 }
 
+/// Installs font-specific extra bindings into [runtime].
 void installLoveFontExtraBindings(LuaRuntime runtime) {
   if (_loveFontExtrasInstalled[runtime] == true) {
     return;
@@ -46,6 +50,7 @@ void installLoveFontExtraBindings(LuaRuntime runtime) {
   fontTable['HintingMode'] = enumValue;
 }
 
+/// The `love.font` module table from [runtime], if one is available.
 Map<dynamic, dynamic>? _fontModuleTable(LuaRuntime runtime) {
   final love = runtime.globals.get('love');
   final loveTable = love is Value ? love.raw : love;

@@ -1,5 +1,9 @@
 part of '../love_api_bindings.dart';
 
+/// Returns the 1-based sequential values from [table].
+///
+/// Throws a [LuaError] when the sequence is empty so callers can surface
+/// LOVE-style argument failures.
 List<Object?> _tableSequence(
   Map<dynamic, dynamic> table,
   String symbol, {
@@ -21,6 +25,10 @@ List<Object?> _tableSequence(
   return values;
 }
 
+/// Returns a copy of [settings] with mipmaps disabled.
+///
+/// This is used while loading per-slice sources for manual mipmap assembly so
+/// the runtime does not generate additional mip levels automatically.
 Map<dynamic, dynamic>? _settingsWithoutMipmaps(
   Map<dynamic, dynamic>? settings,
 ) {
@@ -33,6 +41,7 @@ Map<dynamic, dynamic>? _settingsWithoutMipmaps(
   return copy;
 }
 
+/// Returns [value] when it is a non-empty 1-based source sequence table.
 Map<dynamic, dynamic>? _indexedSourceSequenceTable(Object? value) {
   final table = _tableIfPresent(value);
   if (table == null || _tableIndexedEntry(table, 1) == null) {
@@ -42,6 +51,10 @@ Map<dynamic, dynamic>? _indexedSourceSequenceTable(Object? value) {
   return table;
 }
 
+/// Resolves one layered-texture leaf source into a [LoveImage].
+///
+/// Leaf sources may be `ImageData`, compressed image data, filenames, or
+/// file-backed objects accepted by the shared resource-loading helpers.
 Future<LoveImage> _resolveLayeredTextureLeafImage(
   LibraryRegistrationContext context,
   Object? sourceValue, {
@@ -123,6 +136,10 @@ Future<LoveImage> _resolveLayeredTextureLeafImage(
   }
 }
 
+/// Resolves one layered-texture leaf source into readable [LoveImageData].
+///
+/// This is used by packed cubemap and packed volume extraction paths that need
+/// direct pixel access before constructing final images.
 Future<LoveImageData> _resolveLayeredTextureLeafImageData(
   LibraryRegistrationContext context,
   Object? sourceValue, {
@@ -172,6 +189,10 @@ Future<LoveImageData> _resolveLayeredTextureLeafImageData(
   }
 }
 
+/// Extracts six cubemap faces from a packed cubemap atlas image.
+///
+/// Several common LOVE cubemap layouts are supported, including vertical and
+/// horizontal strips and cross layouts.
 List<LoveImageData> _extractPackedCubemapFaceImageData(
   LoveImageData source, {
   required String symbol,
@@ -235,6 +256,7 @@ List<LoveImageData> _extractPackedCubemapFaceImageData(
   throw LuaError('$symbol unknown cubemap image dimensions');
 }
 
+/// Resolves a packed cubemap source into six face images.
 Future<List<LoveImage>> _resolvePackedCubemapFaces(
   LibraryRegistrationContext context,
   Object? sourceValue, {
@@ -266,6 +288,8 @@ Future<List<LoveImage>> _resolvePackedCubemapFaces(
   ]);
 }
 
+/// Returns whether [sources] represent packed cubemap images for manual
+/// mipmaps.
 Future<bool> _isPackedCubemapMipmapTable(
   LibraryRegistrationContext context,
   List<Object?> sources, {
@@ -297,6 +321,8 @@ Future<bool> _isPackedCubemapMipmapTable(
   }
 }
 
+/// Resolves manual packed cubemap mipmaps into six cubemap-face images with
+/// assembled mip chains.
 Future<List<LoveImage>> _resolvePackedCubemapMipmappedFaces(
   LibraryRegistrationContext context,
   List<Object?> sources, {
@@ -346,6 +372,7 @@ Future<List<LoveImage>> _resolvePackedCubemapMipmappedFaces(
   );
 }
 
+/// Returns whether [sourceValue] is a valid leaf layered-texture source.
 Future<bool> _isLayeredTextureLeafSourceValue(
   LibraryRegistrationContext context,
   Object? sourceValue, {
@@ -361,6 +388,7 @@ Future<bool> _isLayeredTextureLeafSourceValue(
   return await _resourceFileDataIfPresent(context, sourceValue, symbol) != null;
 }
 
+/// Extracts square volume layers from a packed strip image.
 List<LoveImageData> _extractPackedVolumeLayerImageData(
   LoveImageData source, {
   required String symbol,
@@ -397,6 +425,7 @@ List<LoveImageData> _extractPackedVolumeLayerImageData(
   throw LuaError('$symbol cannot extract volume layers from source ImageData');
 }
 
+/// Resolves a packed volume source into one image per volume layer.
 Future<List<LoveImage>> _resolvePackedVolumeLayers(
   LibraryRegistrationContext context,
   Object? sourceValue, {
@@ -428,6 +457,7 @@ Future<List<LoveImage>> _resolvePackedVolumeLayers(
   ]);
 }
 
+/// Builds one image that exposes [mipmaps] as manual mip levels.
 LoveImage _buildManualMipmapImage({
   required List<LoveImage> mipmaps,
   required String symbol,
@@ -472,6 +502,10 @@ LoveImage _buildManualMipmapImage({
   );
 }
 
+/// Resolves one array/cube/volume slice source.
+///
+/// A slice can be a single leaf source or a table of manual mipmap sources for
+/// that slice.
 Future<LoveImage> _resolveLayeredTextureSliceImage(
   LibraryRegistrationContext context,
   Object? sourceValue, {
@@ -523,6 +557,7 @@ Future<LoveImage> _resolveLayeredTextureSliceImage(
   );
 }
 
+/// Validates that layered texture [slices] are dimensionally compatible.
 void _validateLayeredTextureSlices(
   List<LoveImage> slices, {
   required String symbol,
@@ -581,6 +616,7 @@ void _validateLayeredTextureSlices(
   }
 }
 
+/// Builds the final layered [LoveImage] wrapper state from validated [slices].
 LoveImage _buildLayeredTextureImage({
   required String source,
   required String textureType,
@@ -613,6 +649,10 @@ LoveImage _buildLayeredTextureImage({
   );
 }
 
+/// Resolves the source table passed to `love.graphics.newVolumeImage`.
+///
+/// LOVE supports either a flat layer list or a table-of-layer-tables for
+/// manual mipmaps.
 Future<List<LoveImage>> _resolveVolumeTextureLayers(
   LibraryRegistrationContext context,
   Map<dynamic, dynamic> outerTable, {
@@ -713,6 +753,8 @@ Future<List<LoveImage>> _resolveVolumeTextureLayers(
   );
 }
 
+/// Returns copies of [image]'s slice images with selected sampler state
+/// overrides applied.
 List<LoveImage>? _copyImageSliceImages(
   LoveImage image, {
   LoveGraphicsDefaultFilter? filter,
@@ -749,6 +791,10 @@ List<LoveImage>? _copyImageSliceImages(
   );
 }
 
+/// Returns the layer index that should be drawn directly for [image].
+///
+/// Only array textures are currently drawable in the runtime's direct draw
+/// path.
 int? _directTextureDrawLayer(LoveImage image, LoveQuad? quad, String symbol) {
   switch (image.textureType) {
     case '2d':
@@ -770,6 +816,7 @@ int? _directTextureDrawLayer(LoveImage image, LoveQuad? quad, String symbol) {
   }
 }
 
+/// Validates that [image] can be drawn through `love.graphics.drawLayer`.
 void _validateLayeredTextureDraw(
   LoveImage image,
   int layerIndex,
@@ -806,7 +853,10 @@ void _validateLayeredTextureDraw(
   }
 }
 
-// love.graphics.drawLayer(texture, layerindex [, drawparams...])
+/// Binds `love.graphics.drawLayer`.
+///
+/// This currently supports array textures by selecting one slice to draw
+/// through the standard image command path.
 LoveApiImplementation _bindGraphicsDrawLayer(
   LibraryRegistrationContext context,
 ) {
@@ -851,7 +901,10 @@ LoveApiImplementation _bindGraphicsDrawLayer(
   };
 }
 
-// love.graphics.newArrayImage(slices [, settings])
+/// Binds `love.graphics.newArrayImage`.
+///
+/// The first argument is a table of slice sources, where each slice may itself
+/// be a single source or a manual mipmap table.
 LoveApiImplementation _bindGraphicsNewArrayImage(
   LibraryRegistrationContext context,
 ) {
@@ -902,7 +955,10 @@ LoveApiImplementation _bindGraphicsNewArrayImage(
   };
 }
 
-// love.graphics.newVolumeImage(layers [, settings])
+/// Binds `love.graphics.newVolumeImage`.
+///
+/// LOVE accepts either a packed source image or a table of per-layer sources,
+/// with optional manual mipmap tables for each layer.
 LoveApiImplementation _bindGraphicsNewVolumeImage(
   LibraryRegistrationContext context,
 ) {
@@ -984,7 +1040,10 @@ LoveApiImplementation _bindGraphicsNewVolumeImage(
   };
 }
 
-// love.graphics.newCubeImage(filename | slices [, settings])
+/// Binds `love.graphics.newCubeImage`.
+///
+/// LOVE accepts a packed cubemap source image or a table of six face sources.
+/// The table form also supports packed cubemap mipmap atlases.
 LoveApiImplementation _bindGraphicsNewCubeImage(
   LibraryRegistrationContext context,
 ) {

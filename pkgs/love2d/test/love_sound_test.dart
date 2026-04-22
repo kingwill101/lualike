@@ -6,6 +6,7 @@ import 'package:love2d/love2d.dart';
 import 'package:love2d/src/runtime/filesystem/love_filesystem_runtime.dart';
 
 import 'test_support/memory_filesystem_test_support.dart';
+import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.sound bindings', () {
@@ -19,50 +20,77 @@ void main() {
     test(
       'newSoundData numeric constructor and sample access match LÖVE',
       () async {
-        final soundData = await _call(
+        final soundData = await luaCallList(
           runtime,
           const ['love', 'sound', 'newSoundData'],
           const <Object?>[3, 22050, 16, 2],
         );
 
-        expect(await _callMethod(soundData, 'type'), 'SoundData');
+        expect(await luaCallMethodList(soundData, 'type'), 'SoundData');
         expect(
-          await _callMethod(soundData, 'typeOf', const <Object?>['Data']),
+          await luaCallMethodList(soundData, 'typeOf', const <Object?>['Data']),
           isTrue,
         );
-        expect(await _callMethod(soundData, 'getSampleCount'), 3);
-        expect(await _callMethod(soundData, 'getSampleRate'), 22050);
-        expect(await _callMethod(soundData, 'getBitDepth'), 16);
-        expect(await _callMethod(soundData, 'getChannelCount'), 2);
+        expect(await luaCallMethodList(soundData, 'getSampleCount'), 3);
+        expect(await luaCallMethodList(soundData, 'getSampleRate'), 22050);
+        expect(await luaCallMethodList(soundData, 'getBitDepth'), 16);
+        expect(await luaCallMethodList(soundData, 'getChannelCount'), 2);
         expect(
-          await _callMethod(soundData, 'getSample', const <Object?>[0]),
+          await luaCallMethodList(soundData, 'getSample', const <Object?>[0]),
           0,
         );
 
-        await _callMethod(soundData, 'setSample', const <Object?>[1, 2, -0.5]);
+        await luaCallMethodList(soundData, 'setSample', const <Object?>[
+          1,
+          2,
+          -0.5,
+        ]);
         expect(
-          await _callMethod(soundData, 'getSample', const <Object?>[1, 2]),
+          await luaCallMethodList(soundData, 'getSample', const <Object?>[
+            1,
+            2,
+          ]),
           closeTo(-0.5, 0.0001),
         );
 
-        final cloned = await _callMethod(soundData, 'clone');
-        expect(await _callMethod(cloned, 'type'), 'SoundData');
+        final cloned = await luaCallMethodList(soundData, 'clone');
+        expect(await luaCallMethodList(cloned, 'type'), 'SoundData');
         expect(
-          await _callMethod(cloned, 'getSample', const <Object?>[1, 2]),
+          await luaCallMethodList(cloned, 'getSample', const <Object?>[1, 2]),
           closeTo(-0.5, 0.0001),
         );
       },
     );
 
+    test(
+      'newSoundData numeric constructor surfaces raw validation errors',
+      () async {
+        await expectLater(
+          () => luaCallList(
+            runtime,
+            const ['love', 'sound', 'newSoundData'],
+            const <Object?>[0],
+          ),
+          throwsA(
+            isA<LuaError>().having(
+              (error) => error.message,
+              'message',
+              'Invalid sample count: 0',
+            ),
+          ),
+        );
+      },
+    );
+
     test('8-bit SoundData uses unsigned byte sample conversion', () async {
-      final soundData = await _call(
+      final soundData = await luaCallList(
         runtime,
         const ['love', 'sound', 'newSoundData'],
         const <Object?>[2, 11025, 8, 1],
       );
 
       expect(
-        await _call(
+        await luaCallList(
           runtime,
           const ['love', 'data', 'encode'],
           <Object?>['string', 'hex', soundData],
@@ -70,19 +98,19 @@ void main() {
         '8080',
       );
 
-      await _callMethod(soundData, 'setSample', const <Object?>[0, -1.0]);
-      await _callMethod(soundData, 'setSample', const <Object?>[1, 1.0]);
+      await luaCallMethodList(soundData, 'setSample', const <Object?>[0, -1.0]);
+      await luaCallMethodList(soundData, 'setSample', const <Object?>[1, 1.0]);
 
       expect(
-        await _callMethod(soundData, 'getSample', const <Object?>[0]),
+        await luaCallMethodList(soundData, 'getSample', const <Object?>[0]),
         closeTo(-1.0, 0.01),
       );
       expect(
-        await _callMethod(soundData, 'getSample', const <Object?>[1]),
+        await luaCallMethodList(soundData, 'getSample', const <Object?>[1]),
         closeTo(1.0, 0.01),
       );
       expect(
-        await _call(
+        await luaCallList(
           runtime,
           const ['love', 'data', 'encode'],
           <Object?>['string', 'hex', soundData],
@@ -94,7 +122,7 @@ void main() {
     test(
       'newDecoder decodes chunked WAV PCM audio and supports clone/seek',
       () async {
-        final fileData = await _call(
+        final fileData = await luaCallList(
           runtime,
           const ['love', 'filesystem', 'newFileData'],
           <Object?>[
@@ -110,34 +138,37 @@ void main() {
           ],
         );
 
-        final decoder = await _call(
+        final decoder = await luaCallList(
           runtime,
           const ['love', 'sound', 'newDecoder'],
           <Object?>[fileData, 8],
         );
 
-        expect(await _callMethod(decoder, 'type'), 'Decoder');
+        expect(await luaCallMethodList(decoder, 'type'), 'Decoder');
         expect(
-          await _callMethod(decoder, 'typeOf', const <Object?>['Object']),
+          await luaCallMethodList(decoder, 'typeOf', const <Object?>['Object']),
           isTrue,
         );
-        expect(await _callMethod(decoder, 'getSampleRate'), 4);
-        expect(await _callMethod(decoder, 'getBitDepth'), 16);
-        expect(await _callMethod(decoder, 'getChannelCount'), 2);
+        expect(await luaCallMethodList(decoder, 'getSampleRate'), 4);
+        expect(await luaCallMethodList(decoder, 'getBitDepth'), 16);
+        expect(await luaCallMethodList(decoder, 'getChannelCount'), 2);
         expect(
-          await _callMethod(decoder, 'getDuration'),
+          await luaCallMethodList(decoder, 'getDuration'),
           closeTo(0.75, 0.0001),
         );
 
-        final firstChunk = await _callMethod(decoder, 'decode');
-        expect(await _callMethod(firstChunk, 'type'), 'SoundData');
-        expect(await _callMethod(firstChunk, 'getSampleCount'), 2);
+        final firstChunk = await luaCallMethodList(decoder, 'decode');
+        expect(await luaCallMethodList(firstChunk, 'type'), 'SoundData');
+        expect(await luaCallMethodList(firstChunk, 'getSampleCount'), 2);
         expect(
-          await _callMethod(firstChunk, 'getSample', const <Object?>[0, 2]),
+          await luaCallMethodList(firstChunk, 'getSample', const <Object?>[
+            0,
+            2,
+          ]),
           closeTo(1.0, 0.0001),
         );
         expect(
-          await _call(
+          await luaCallList(
             runtime,
             const ['love', 'data', 'encode'],
             <Object?>['string', 'hex', firstChunk],
@@ -145,10 +176,10 @@ void main() {
           '0000ff7f00c00040',
         );
 
-        final clone = await _callMethod(decoder, 'clone');
-        final clonedChunk = await _callMethod(clone, 'decode');
+        final clone = await luaCallMethodList(decoder, 'clone');
+        final clonedChunk = await luaCallMethodList(clone, 'decode');
         expect(
-          await _call(
+          await luaCallList(
             runtime,
             const ['love', 'data', 'encode'],
             <Object?>['string', 'hex', clonedChunk],
@@ -156,21 +187,21 @@ void main() {
           '0000ff7f00c00040',
         );
 
-        await _callMethod(decoder, 'seek', const <Object?>[0.5]);
-        final tail = await _callMethod(decoder, 'decode');
-        expect(await _callMethod(tail, 'getSampleCount'), 1);
+        await luaCallMethodList(decoder, 'seek', const <Object?>[0.5]);
+        final tail = await luaCallMethodList(decoder, 'decode');
+        expect(await luaCallMethodList(tail, 'getSampleCount'), 1);
         expect(
-          await _callMethod(tail, 'getSample', const <Object?>[0, 1]),
+          await luaCallMethodList(tail, 'getSample', const <Object?>[0, 1]),
           closeTo(8192 / 32767.0, 0.0001),
         );
-        expect(await _callMethod(decoder, 'decode'), isNull);
+        expect(await luaCallMethodList(decoder, 'decode'), isNull);
       },
     );
 
     test(
       'newSoundData can drain decoders and resulting SoundData works as Data',
       () async {
-        final fileData = await _call(
+        final fileData = await luaCallList(
           runtime,
           const ['love', 'filesystem', 'newFileData'],
           <Object?>[
@@ -186,22 +217,22 @@ void main() {
           ],
         );
 
-        final decoder = await _call(
+        final decoder = await luaCallList(
           runtime,
           const ['love', 'sound', 'newDecoder'],
           <Object?>[fileData, 8],
         );
-        await _callMethod(decoder, 'seek', const <Object?>[0.25]);
+        await luaCallMethodList(decoder, 'seek', const <Object?>[0.25]);
 
-        final soundData = await _call(
+        final soundData = await luaCallList(
           runtime,
           const ['love', 'sound', 'newSoundData'],
           <Object?>[decoder],
         );
 
-        expect(await _callMethod(soundData, 'getSampleCount'), 2);
+        expect(await luaCallMethodList(soundData, 'getSampleCount'), 2);
         expect(
-          await _call(
+          await luaCallList(
             runtime,
             const ['love', 'data', 'encode'],
             <Object?>['string', 'hex', soundData],
@@ -209,7 +240,10 @@ void main() {
           '00c00040002000e0',
         );
         expect(
-          await _callMethod(soundData, 'getSample', const <Object?>[0, 1]),
+          await luaCallMethodList(soundData, 'getSample', const <Object?>[
+            0,
+            1,
+          ]),
           closeTo(-16384 / 32767.0, 0.0001),
         );
       },
@@ -238,27 +272,27 @@ void main() {
         final filesystem = LoveFilesystemState.of(runtime);
         expect(filesystem.setSource(loveTestMountedSourceRoot), isTrue);
 
-        final decoder = await _call(
+        final decoder = await luaCallList(
           runtime,
           const ['love', 'sound', 'newDecoder'],
           const <Object?>['sounds/theme.wav', 8],
         );
-        expect(await _callMethod(decoder, 'getSampleRate'), 4);
+        expect(await luaCallMethodList(decoder, 'getSampleRate'), 4);
         expect(
-          await _callMethod(decoder, 'getDuration'),
+          await luaCallMethodList(decoder, 'getDuration'),
           closeTo(0.75, 0.0001),
         );
 
-        final soundData = await _call(
+        final soundData = await luaCallList(
           runtime,
           const ['love', 'sound', 'newSoundData'],
           const <Object?>['sounds/theme.wav'],
         );
-        expect(await _callMethod(soundData, 'getSampleCount'), 3);
-        expect(await _callMethod(soundData, 'getSampleRate'), 4);
+        expect(await luaCallMethodList(soundData, 'getSampleCount'), 3);
+        expect(await luaCallMethodList(soundData, 'getSampleRate'), 4);
 
         await expectLater(
-          () => _call(
+          () => luaCallList(
             runtime,
             const ['love', 'sound', 'newDecoder'],
             const <Object?>['sounds/missing.wav'],
@@ -274,7 +308,7 @@ void main() {
           ),
         );
         await expectLater(
-          () => _call(
+          () => luaCallList(
             runtime,
             const ['love', 'sound', 'newSoundData'],
             const <Object?>['sounds/missing.wav'],
@@ -295,7 +329,7 @@ void main() {
     test(
       'newDecoder converts IEEE float WAV audio into 16-bit SoundData',
       () async {
-        final fileData = await _call(
+        final fileData = await luaCallList(
           runtime,
           const ['love', 'filesystem', 'newFileData'],
           <Object?>[
@@ -310,29 +344,32 @@ void main() {
           ],
         );
 
-        final decoder = await _call(
+        final decoder = await luaCallList(
           runtime,
           const ['love', 'sound', 'newDecoder'],
           <Object?>[fileData, 16],
         );
 
-        expect(await _callMethod(decoder, 'getSampleRate'), 4);
-        expect(await _callMethod(decoder, 'getBitDepth'), 16);
-        expect(await _callMethod(decoder, 'getChannelCount'), 2);
-        expect(await _callMethod(decoder, 'getDuration'), closeTo(0.5, 0.0001));
-
-        final chunk = await _callMethod(decoder, 'decode');
-        expect(await _callMethod(chunk, 'getSampleCount'), 2);
+        expect(await luaCallMethodList(decoder, 'getSampleRate'), 4);
+        expect(await luaCallMethodList(decoder, 'getBitDepth'), 16);
+        expect(await luaCallMethodList(decoder, 'getChannelCount'), 2);
         expect(
-          await _callMethod(chunk, 'getSample', const <Object?>[0, 2]),
+          await luaCallMethodList(decoder, 'getDuration'),
+          closeTo(0.5, 0.0001),
+        );
+
+        final chunk = await luaCallMethodList(decoder, 'decode');
+        expect(await luaCallMethodList(chunk, 'getSampleCount'), 2);
+        expect(
+          await luaCallMethodList(chunk, 'getSample', const <Object?>[0, 2]),
           closeTo(1.0, 0.0001),
         );
         expect(
-          await _callMethod(chunk, 'getSample', const <Object?>[1, 1]),
+          await luaCallMethodList(chunk, 'getSample', const <Object?>[1, 1]),
           closeTo(-0.5, 0.001),
         );
         expect(
-          await _callMethod(chunk, 'getSample', const <Object?>[1, 2]),
+          await luaCallMethodList(chunk, 'getSample', const <Object?>[1, 2]),
           closeTo(0.25, 0.001),
         );
       },
@@ -341,7 +378,7 @@ void main() {
     test(
       'newDecoder converts extensible 24-bit PCM WAV audio into 16-bit SoundData',
       () async {
-        final fileData = await _call(
+        final fileData = await luaCallList(
           runtime,
           const ['love', 'filesystem', 'newFileData'],
           <Object?>[
@@ -353,29 +390,32 @@ void main() {
           ],
         );
 
-        final decoder = await _call(
+        final decoder = await luaCallList(
           runtime,
           const ['love', 'sound', 'newDecoder'],
           <Object?>[fileData, 12],
         );
 
-        expect(await _callMethod(decoder, 'getSampleRate'), 6);
-        expect(await _callMethod(decoder, 'getBitDepth'), 16);
-        expect(await _callMethod(decoder, 'getChannelCount'), 1);
-        expect(await _callMethod(decoder, 'getDuration'), closeTo(0.5, 0.0001));
-
-        final chunk = await _callMethod(decoder, 'decode');
-        expect(await _callMethod(chunk, 'getSampleCount'), 3);
+        expect(await luaCallMethodList(decoder, 'getSampleRate'), 6);
+        expect(await luaCallMethodList(decoder, 'getBitDepth'), 16);
+        expect(await luaCallMethodList(decoder, 'getChannelCount'), 1);
         expect(
-          await _callMethod(chunk, 'getSample', const <Object?>[0]),
+          await luaCallMethodList(decoder, 'getDuration'),
+          closeTo(0.5, 0.0001),
+        );
+
+        final chunk = await luaCallMethodList(decoder, 'decode');
+        expect(await luaCallMethodList(chunk, 'getSampleCount'), 3);
+        expect(
+          await luaCallMethodList(chunk, 'getSample', const <Object?>[0]),
           closeTo(0.0, 0.0001),
         );
         expect(
-          await _callMethod(chunk, 'getSample', const <Object?>[1]),
+          await luaCallMethodList(chunk, 'getSample', const <Object?>[1]),
           closeTo(1.0, 0.0001),
         );
         expect(
-          await _callMethod(chunk, 'getSample', const <Object?>[2]),
+          await luaCallMethodList(chunk, 'getSample', const <Object?>[2]),
           closeTo(-0.5, 0.001),
         );
       },
@@ -384,14 +424,14 @@ void main() {
     test(
       'unsupported sound containers report partial codec support clearly',
       () async {
-        final fileData = await _call(
+        final fileData = await luaCallList(
           runtime,
           const ['love', 'filesystem', 'newFileData'],
           const <Object?>['not real audio', 'fixture.ogg'],
         );
 
         expect(
-          _call(
+          luaCallList(
             runtime,
             const ['love', 'sound', 'newDecoder'],
             <Object?>[fileData],
@@ -401,6 +441,142 @@ void main() {
               (error) => error.message,
               'message',
               contains('Extension "ogg" not supported.'),
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'decoder failures surface raw LOVE decode errors without binding prefixes',
+      () async {
+        final fileData = await luaCallList(
+          runtime,
+          const ['love', 'filesystem', 'newFileData'],
+          const <Object?>['not a valid wave stream', 'broken.wav'],
+        );
+
+        await expectLater(
+          () => luaCallList(
+            runtime,
+            const ['love', 'sound', 'newDecoder'],
+            <Object?>[fileData],
+          ),
+          throwsA(
+            isA<LuaError>().having(
+              (error) => error.message,
+              'message',
+              'Invalid WAV file.',
+            ),
+          ),
+        );
+
+        await expectLater(
+          () => luaCallList(
+            runtime,
+            const ['love', 'sound', 'newSoundData'],
+            <Object?>[fileData],
+          ),
+          throwsA(
+            isA<LuaError>().having(
+              (error) => error.message,
+              'message',
+              'Invalid WAV file.',
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'newDecoder and numeric newSoundData use Lua bad-argument text for numeric options',
+      () async {
+        final fileData = await luaCallList(
+          runtime,
+          const ['love', 'filesystem', 'newFileData'],
+          <Object?>[
+            _pcm16StereoWave(
+              sampleRate: 4,
+              frames: const <List<int>>[
+                <int>[0, 32767],
+                <int>[-16384, 16384],
+              ],
+            ),
+            'fixture.wav',
+          ],
+        );
+
+        await expectLater(
+          () => luaCallList(
+            runtime,
+            const ['love', 'sound', 'newDecoder'],
+            <Object?>[fileData, false],
+          ),
+          throwsA(
+            isA<LuaError>().having(
+              (error) => error.message,
+              'message',
+              "bad argument #2 to 'newDecoder' (number expected, got boolean)",
+            ),
+          ),
+        );
+
+        await expectLater(
+          () => luaCallList(
+            runtime,
+            const ['love', 'sound', 'newSoundData'],
+            const <Object?>[4, false],
+          ),
+          throwsA(
+            isA<LuaError>().having(
+              (error) => error.message,
+              'message',
+              "bad argument #2 to 'newSoundData' (number expected, got boolean)",
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'newDecoder and newSoundData use Lua bad-argument text for invalid arg 1',
+      () async {
+        await expectLater(
+          () => luaCallList(runtime, const ['love', 'sound', 'newDecoder']),
+          throwsA(
+            isA<LuaError>().having(
+              (error) => error.message,
+              'message',
+              "bad argument #1 to 'newDecoder' "
+                  '(filename, File, or FileData expected)',
+            ),
+          ),
+        );
+
+        await expectLater(
+          () => luaCallList(runtime, const ['love', 'sound', 'newSoundData']),
+          throwsA(
+            isA<LuaError>().having(
+              (error) => error.message,
+              'message',
+              "bad argument #1 to 'newSoundData' "
+                  '(filename, File, or FileData expected)',
+            ),
+          ),
+        );
+
+        await expectLater(
+          () => luaCallList(
+            runtime,
+            const ['love', 'sound', 'newSoundData'],
+            const <Object?>[false],
+          ),
+          throwsA(
+            isA<LuaError>().having(
+              (error) => error.message,
+              'message',
+              "bad argument #1 to 'newSoundData' "
+                  '(filename, File, or FileData expected)',
             ),
           ),
         );
@@ -535,69 +711,3 @@ Uint8List _extensiblePcm24MonoWave({
     ..add(pcmBytes);
   return buffer.toBytes();
 }
-
-Future<Object?> _call(
-  Interpreter runtime,
-  List<String> path, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(_rawFunction(runtime, path).call(args));
-}
-
-Future<Object?> _callMethod(
-  Object? receiver,
-  String method, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(
-    _rawMethod(receiver, method).call(<Object?>[receiver, ...args]),
-  );
-}
-
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> path) {
-  var current = runtime.getCurrentEnv().get(path.first);
-  for (final segment in path.skip(1)) {
-    final table = current is Value ? current.raw : current;
-    expect(
-      table,
-      isA<Map>(),
-      reason: 'Expected ${path.join('.')} to traverse a Lua table',
-    );
-    current = (table as Map)[segment];
-  }
-
-  expect(current, isA<Value>());
-  final raw = (current! as Value).raw;
-  expect(raw, isA<BuiltinFunction>());
-  return raw as BuiltinFunction;
-}
-
-BuiltinFunction _rawMethod(Object? receiver, String method) {
-  final table = receiver is Value ? receiver.raw : receiver;
-  expect(table, isA<Map>());
-  final entry = (table! as Map)[method];
-  return switch (entry) {
-    final Value wrapped when wrapped.raw is BuiltinFunction =>
-      wrapped.raw as BuiltinFunction,
-    final BuiltinFunction function => function,
-    _ => throw TestFailure('Expected $method to be a callable Lua method'),
-  };
-}
-
-Future<Object?> _resolveCallResult(Object? result) async {
-  final resolved = await _resolveRawCallResult(result);
-  if (resolved is List<Object?>) {
-    return resolved.map(_unwrap).toList(growable: false);
-  }
-  return _unwrap(resolved);
-}
-
-Future<Object?> _resolveRawCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return List<Object?>.from(wrapped.raw as List<Object?>, growable: false);
-  }
-  return resolved;
-}
-
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;

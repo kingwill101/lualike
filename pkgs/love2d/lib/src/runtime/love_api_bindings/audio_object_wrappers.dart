@@ -1,33 +1,76 @@
 part of '../love_api_bindings.dart';
 
-LoveAudioSource? _audioSourceIfPresent(Object? value) {
-  final raw = _rawValue(value);
-  final table = switch (raw) {
-    final Map<dynamic, dynamic> map => map,
-    _ => null,
-  };
+/// Marker stored in released `Source` wrapper tables.
+const String _loveAudioSourceReleasedWrapperKey =
+    '__love2d_audio_source_wrapper_released__';
 
+/// Returns the Lua wrapper table for a `Source`, including released wrappers.
+Map<dynamic, dynamic>? _audioSourceWrapperTableIfPresent(Object? value) {
+  final table = _tableIdentityIfPresent(value);
   if (table == null) {
     return null;
   }
 
   final source = table[_loveAudioSourceObjectKey];
-  return source is LoveAudioSource ? source : null;
+  if (source is LoveAudioSource ||
+      table[_loveAudioSourceReleasedWrapperKey] == true) {
+    return table;
+  }
+
+  return null;
 }
 
+/// Returns wrapped [LoveAudioSource] when [value] is a Source table.
+LoveAudioSource? _audioSourceIfPresent(Object? value) {
+  final table = _audioSourceWrapperTableIfPresent(value);
+  if (table == null) {
+    return null;
+  }
+
+  final source = table[_loveAudioSourceObjectKey];
+  if (source is! LoveAudioSource || _loveAudioSourceReleased[source] == true) {
+    return null;
+  }
+
+  return source;
+}
+
+/// Returns whether [value] is a released `Source` wrapper.
+bool _audioSourceWrapperReleased(Object? value) {
+  final table = _audioSourceWrapperTableIfPresent(value);
+  return table?[_loveAudioSourceReleasedWrapperKey] == true;
+}
+
+/// Whether an audio source has already been released through `Object:release`.
+final Expando<bool> _loveAudioSourceReleased = Expando<bool>(
+  'love2dAudioSourceReleased',
+);
+
+/// Returns a required `Source` receiver.
 LoveAudioSource _requireAudioSource(
   List<Object?> args,
   int index,
   String symbol,
 ) {
-  final source = _audioSourceIfPresent(_valueAt(args, index));
+  final value = _valueAt(args, index);
+  if (_audioSourceWrapperReleased(value)) {
+    _throwReleasedObjectError();
+  }
+
+  final source = _audioSourceIfPresent(value);
   if (source != null) {
     return source;
   }
 
-  throw LuaError('$symbol expected a Source at argument ${index + 1}');
+  _throwLuaStyleTypeError(
+    symbol: symbol,
+    index: index,
+    expected: 'Source',
+    actual: value,
+  );
 }
 
+/// Converts a source collection to the Lua table shape used by audio APIs.
 Map<Object?, Object?> _audioSourceTable(
   LibraryRegistrationContext context,
   Iterable<LoveAudioSource> sources,
@@ -40,12 +83,13 @@ Map<Object?, Object?> _audioSourceTable(
   return table;
 }
 
+/// Wraps [source] as a Lua-facing `Source` object table.
 Value _wrapAudioSource(
   LibraryRegistrationContext context,
   LoveAudioSource source,
 ) {
   final cached = _loveAudioSourceWrapperCache[source];
-  if (cached != null) {
+  if (cached != null && _audioSourceIfPresent(cached) != null) {
     return cached;
   }
 
@@ -216,7 +260,7 @@ Value _wrapAudioSource(
     ),
     'isPlaying': Value(
       builder.create(
-        (args) => _requireAudioSource(args, 0, 'Source:isPlaying').playing,
+        (args) => _requireAudioSource(args, 0, 'Source:isPlaying').isPlayingNow,
       ),
       functionName: 'isPlaying',
     ),
@@ -243,14 +287,46 @@ Value _wrapAudioSource(
       builder.create((args) => _queueSourceInput(args, 'Source:queue')),
       functionName: 'queue',
     ),
+    'release': Value(
+      builder.create((args) async {
+        final receiver = _valueAt(args, 0);
+        final table = _audioSourceWrapperTableIfPresent(receiver);
+        if (table == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:release',
+            index: 0,
+            expected: 'Source',
+            actual: receiver,
+          );
+        }
+
+        final source = table[_loveAudioSourceObjectKey];
+        if (source is! LoveAudioSource) {
+          return false;
+        }
+        if (_loveAudioSourceReleased[source] == true) {
+          return false;
+        }
+
+        _loveAudioSourceReleased[source] = true;
+        table[_loveAudioSourceReleasedWrapperKey] = true;
+        table[_loveAudioSourceObjectKey] = null;
+        await source.dispose();
+        return true;
+      }),
+      functionName: 'release',
+    ),
     'seek': Value(
-      builder.create((args) {
+      builder.create((args) async {
         final source = _requireAudioSource(args, 0, 'Source:seek');
         final offset = _requireNumber(args, 1, 'Source:seek');
         if (offset < 0.0) {
           throw LuaError("can't seek to a negative position");
         }
-        source.seek(offset, unit: _audioTimeUnitAt(args, 2, 'Source:seek'));
+        await source.seek(
+          offset,
+          unit: _audioTimeUnitAt(args, 2, 'Source:seek'),
+        );
         return null;
       }),
       functionName: 'seek',
@@ -347,11 +423,14 @@ Value _wrapAudioSource(
     ),
     'setPitch': Value(
       builder.create((args) {
-        _requireAudioSource(args, 0, 'Source:setPitch').pitch = _requireNumber(
-          args,
-          1,
-          'Source:setPitch',
-        );
+        final pitch = _requireNumber(args, 1, 'Source:setPitch');
+        if (pitch.isNaN) {
+          throw LuaError('Pitch cannot be NaN.');
+        }
+        if (!pitch.isFinite || pitch <= 0.0) {
+          throw LuaError('Pitch has to be non-zero, positive, finite number.');
+        }
+        _requireAudioSource(args, 0, 'Source:setPitch').pitch = pitch;
         return null;
       }),
       functionName: 'setPitch',
@@ -402,9 +481,12 @@ Value _wrapAudioSource(
       functionName: 'setVelocity',
     ),
     'setVolume': Value(
-      builder.create((args) {
-        _requireAudioSource(args, 0, 'Source:setVolume').volume =
-            _requireNumber(args, 1, 'Source:setVolume');
+      builder.create((args) async {
+        await _requireAudioSource(
+          args,
+          0,
+          'Source:setVolume',
+        ).setVolume(_requireNumber(args, 1, 'Source:setVolume'));
         return null;
       }),
       functionName: 'setVolume',
@@ -439,9 +521,32 @@ Value _wrapAudioSource(
       }),
       functionName: 'tell',
     ),
-    'type': Value(builder.create((args) => 'Source'), functionName: 'type'),
+    'type': Value(
+      builder.create((args) {
+        final receiver = _valueAt(args, 0);
+        if (_audioSourceWrapperTableIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:type',
+            index: 0,
+            expected: 'Source',
+            actual: receiver,
+          );
+        }
+        return 'Source';
+      }),
+      functionName: 'type',
+    ),
     'typeOf': Value(
       builder.create((args) {
+        final receiver = _valueAt(args, 0);
+        if (_audioSourceWrapperTableIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:typeOf',
+            index: 0,
+            expected: 'Source',
+            actual: receiver,
+          );
+        }
         final queried = _requireString(args, 1, 'Object:typeOf');
         return hierarchy.contains(queried);
       }),

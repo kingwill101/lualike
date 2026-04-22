@@ -1,6 +1,8 @@
 part of 'love_filesystem_bindings.dart';
 
+/// Builds the module-level `love.filesystem.*` binding implementations.
 extension _LoveFilesystemModuleBindingMethods on _LoveFilesystemBindings {
+  /// Implements `love.filesystem.append`.
   LoveApiImplementation append() {
     return (args) async {
       final filename = _requireString(args, 0, 'love.filesystem.append');
@@ -26,10 +28,12 @@ extension _LoveFilesystemModuleBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `love.filesystem.areSymlinksEnabled`.
   LoveApiImplementation areSymlinksEnabled() {
     return (args) => state.symlinksEnabled;
   }
 
+  /// Implements `love.filesystem.createDirectory`.
   LoveApiImplementation createDirectory() {
     return (args) async {
       final path = _requireString(args, 0, 'love.filesystem.createDirectory');
@@ -37,14 +41,17 @@ extension _LoveFilesystemModuleBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `love.filesystem.getAppdataDirectory`.
   LoveApiImplementation getAppdataDirectory() {
     return (args) => state.getAppdataDirectory();
   }
 
+  /// Implements `love.filesystem.getCRequirePath`.
   LoveApiImplementation getCRequirePath() {
     return (args) => state.getCRequirePathString();
   }
 
+  /// Implements `love.filesystem.getDirectoryItems`.
   LoveApiImplementation getDirectoryItems() {
     return (args) async {
       final directory = _requireString(
@@ -57,10 +64,12 @@ extension _LoveFilesystemModuleBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `love.filesystem.getIdentity`.
   LoveApiImplementation getIdentity() {
     return (args) => state.identity;
   }
 
+  /// Implements `love.filesystem.getInfo`.
   LoveApiImplementation getInfo() {
     return (args) async {
       final targetPath = _requireString(args, 0, 'love.filesystem.getInfo');
@@ -111,6 +120,7 @@ extension _LoveFilesystemModuleBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `love.filesystem.getRealDirectory`.
   LoveApiImplementation getRealDirectory() {
     return (args) async {
       final targetPath = _requireString(
@@ -126,30 +136,37 @@ extension _LoveFilesystemModuleBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `love.filesystem.getRequirePath`.
   LoveApiImplementation getRequirePath() {
     return (args) => state.getRequirePathString();
   }
 
+  /// Implements `love.filesystem.getSaveDirectory`.
   LoveApiImplementation getSaveDirectory() {
     return (args) => state.getSaveDirectory();
   }
 
+  /// Implements `love.filesystem.getSource`.
   LoveApiImplementation getSource() {
     return (args) => state.source;
   }
 
+  /// Implements `love.filesystem.getSourceBaseDirectory`.
   LoveApiImplementation getSourceBaseDirectory() {
     return (args) => state.getSourceBaseDirectory();
   }
 
+  /// Implements `love.filesystem.getUserDirectory`.
   LoveApiImplementation getUserDirectory() {
     return (args) => state.getUserDirectory();
   }
 
+  /// Implements `love.filesystem.getWorkingDirectory`.
   LoveApiImplementation getWorkingDirectory() {
     return (args) => state.getWorkingDirectory();
   }
 
+  /// Implements `love.filesystem.init`.
   LoveApiImplementation init() {
     return (args) {
       final arg0 = _requireString(args, 0, 'love.filesystem.init');
@@ -158,10 +175,12 @@ extension _LoveFilesystemModuleBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `love.filesystem.isFused`.
   LoveApiImplementation isFused() {
     return (args) => state.fused;
   }
 
+  /// Implements `love.filesystem.lines`.
   LoveApiImplementation lines() {
     return (args) async {
       final filename = _luaStringLike(_valueAt(args, 0));
@@ -176,6 +195,7 @@ extension _LoveFilesystemModuleBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `love.filesystem.load`.
   LoveApiImplementation load() {
     return (args) async {
       final filename = _requireString(args, 0, 'love.filesystem.load');
@@ -201,6 +221,7 @@ extension _LoveFilesystemModuleBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `love.filesystem.mount`.
   LoveApiImplementation mount() {
     return (args) async {
       final droppedFile = _droppedFileIfPresent(_valueAt(args, 0));
@@ -256,6 +277,7 @@ extension _LoveFilesystemModuleBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `love.filesystem.newFile`.
   LoveApiImplementation newFile() {
     return (args) async {
       final filename = _requireString(args, 0, 'love.filesystem.newFile');
@@ -278,6 +300,7 @@ extension _LoveFilesystemModuleBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `love.filesystem.newFileData`.
   LoveApiImplementation newFileData() {
     return (args) async {
       if (args.length == 1) {
@@ -323,6 +346,7 @@ extension _LoveFilesystemModuleBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `love.filesystem.read`.
   LoveApiImplementation read() {
     return (args) async {
       var startIndex = 0;
@@ -356,6 +380,7 @@ extension _LoveFilesystemModuleBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `love.filesystem.remove`.
   LoveApiImplementation remove() {
     return (args) async {
       final targetPath = _requireString(args, 0, 'love.filesystem.remove');
@@ -363,6 +388,7 @@ extension _LoveFilesystemModuleBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `love.filesystem.setCRequirePath`.
   LoveApiImplementation setCRequirePath() {
     return (args) {
       final value = _requireString(args, 0, 'love.filesystem.setCRequirePath');
@@ -372,6 +398,7 @@ extension _LoveFilesystemModuleBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `love.filesystem.setIdentity`.
   LoveApiImplementation setIdentity() {
     return (args) {
       final identity = _requireString(args, 0, 'love.filesystem.setIdentity');
@@ -383,6 +410,7 @@ extension _LoveFilesystemModuleBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `love.filesystem.setRequirePath`.
   LoveApiImplementation setRequirePath() {
     return (args) {
       final value = _requireString(args, 0, 'love.filesystem.setRequirePath');
@@ -392,6 +420,7 @@ extension _LoveFilesystemModuleBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `love.filesystem.setSource`.
   LoveApiImplementation setSource() {
     return (args) async {
       final source = _requireString(args, 0, 'love.filesystem.setSource');
@@ -402,6 +431,7 @@ extension _LoveFilesystemModuleBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `love.filesystem.setSymlinksEnabled`.
   LoveApiImplementation setSymlinksEnabled() {
     return (args) {
       state.setSymlinksEnabled(
@@ -411,6 +441,7 @@ extension _LoveFilesystemModuleBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `love.filesystem.unmount`.
   LoveApiImplementation unmount() {
     return (args) async {
       final sourceIdentity = await _mountedDataIdentityIfPresent(
@@ -426,6 +457,7 @@ extension _LoveFilesystemModuleBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `love.filesystem.write`.
   LoveApiImplementation write() {
     return (args) async {
       final filename = _requireString(args, 0, 'love.filesystem.write');
@@ -451,6 +483,7 @@ extension _LoveFilesystemModuleBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Creates a `lines` iterator for [filename].
   Future<Value> _createLinesIterator(
     String filename, {
     int startOffset = 0,
@@ -463,6 +496,7 @@ extension _LoveFilesystemModuleBindingMethods on _LoveFilesystemBindings {
     }
   }
 
+  /// Wraps [bytes] in a Lua `lines` iterator.
   Value _linesIterator(List<int> bytes, {int startOffset = 0}) {
     final cursor = _LoveFilesystemLineCursor(bytes, startOffset: startOffset);
     return Value(

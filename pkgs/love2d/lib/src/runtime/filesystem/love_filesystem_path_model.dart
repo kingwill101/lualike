@@ -1,22 +1,36 @@
 part of 'love_filesystem_runtime.dart';
 
+/// The node type returned by [LoveFilesystemInfo].
 enum LoveFilesystemNodeType { file, directory, symlink, other }
 
+/// Metadata about a path resolved through the LOVE filesystem.
 class LoveFilesystemInfo {
+  /// Creates path metadata.
   const LoveFilesystemInfo({required this.type, this.size, this.modtime});
 
+  /// The resolved node type.
   final LoveFilesystemNodeType type;
+
+  /// The file size in bytes, when the node is a file.
   final int? size;
+
+  /// The modification time in seconds since the Unix epoch, if known.
   final int? modtime;
 }
 
+/// In-memory file data read through the LOVE filesystem.
 class LoveFilesystemFileData {
+  /// Creates file data for [filename].
   LoveFilesystemFileData({required List<int> bytes, required this.filename})
     : bytes = List<int>.unmodifiable(bytes);
 
+  /// The immutable file contents.
   final List<int> bytes;
+
+  /// The logical filename associated with [bytes].
   final String filename;
 
+  /// The filename extension without a leading dot.
   String get extension {
     final dotIndex = filename.lastIndexOf('.');
     if (dotIndex < 0 || dotIndex == filename.length - 1) {
@@ -26,30 +40,43 @@ class LoveFilesystemFileData {
     return filename.substring(dotIndex + 1);
   }
 
+  /// The number of bytes stored in this file data object.
   int get size => bytes.length;
 
+  /// Returns a defensive copy of this file data object.
   LoveFilesystemFileData clone() {
     return LoveFilesystemFileData(bytes: bytes, filename: filename);
   }
 }
 
+/// A virtual file or directory stored inside an in-memory mounted archive.
 class _LoveFilesystemVirtualNode {
+  /// Creates a virtual file node backed by immutable [bytes].
   _LoveFilesystemVirtualNode.file({required List<int> bytes, this.modtime})
     : type = LoveFilesystemNodeType.file,
       bytes = List<int>.unmodifiable(bytes);
 
+  /// Creates a virtual directory node.
   const _LoveFilesystemVirtualNode.directory({this.modtime})
     : type = LoveFilesystemNodeType.directory,
       bytes = null;
 
+  /// The type of filesystem node represented by this entry.
   final LoveFilesystemNodeType type;
+
+  /// The file contents, when [type] is [LoveFilesystemNodeType.file].
   final List<int>? bytes;
+
+  /// The archived modification time, if one was recorded.
   final DateTime? modtime;
 
+  /// The file size in bytes, when this node represents a file.
   int? get size => bytes?.length;
 }
 
+/// A mounted root that contributes logical paths to the runtime.
 class _LoveFilesystemRoot {
+  /// Creates a root backed by a physical host directory.
   _LoveFilesystemRoot.physical({
     required this.key,
     required this.physicalRoot,
@@ -57,6 +84,7 @@ class _LoveFilesystemRoot {
     required this.realDirectory,
   }) : virtualNodes = null;
 
+  /// Creates a root backed by in-memory virtual nodes.
   _LoveFilesystemRoot.virtual({
     required this.key,
     required this.mountpoint,
@@ -67,14 +95,25 @@ class _LoveFilesystemRoot {
          virtualNodes,
        );
 
+  /// The stable identifier used to track this root in runtime state.
   final String key;
+
+  /// The physical host directory for this root, when it is file-backed.
   final String? physicalRoot;
+
+  /// The logical mountpoint where this root appears inside the runtime.
   final String mountpoint;
+
+  /// The host directory that should be reported for visible paths in this root.
   final String? realDirectory;
+
+  /// The virtual nodes exposed by this root, when it is archive-backed.
   final Map<String, _LoveFilesystemVirtualNode>? virtualNodes;
 
+  /// Whether this root is backed by [virtualNodes] instead of [physicalRoot].
   bool get isVirtual => virtualNodes != null;
 
+  /// Returns whether [logicalPath] resolves inside this mounted root.
   bool appliesTo(String logicalPath) {
     if (mountpoint.isEmpty) {
       return true;
@@ -83,6 +122,7 @@ class _LoveFilesystemRoot {
     return logicalPath == mountpoint || logicalPath.startsWith('$mountpoint/');
   }
 
+  /// Returns the path inside this root that corresponds to [logicalPath].
   String relativePathFor(String logicalPath) {
     if (mountpoint.isEmpty) {
       return logicalPath;
@@ -95,6 +135,7 @@ class _LoveFilesystemRoot {
     return logicalPath.substring(mountpoint.length + 1);
   }
 
+  /// Resolves [relativePath] to a host path when this root is physical.
   String? physicalPathFor(String relativePath) {
     final root = physicalRoot;
     if (root == null) {
@@ -104,10 +145,12 @@ class _LoveFilesystemRoot {
     return _joinPhysicalPath(root, relativePath);
   }
 
+  /// Returns the virtual node stored at [relativePath], if any.
   _LoveFilesystemVirtualNode? virtualNodeFor(String relativePath) {
     return virtualNodes?[relativePath];
   }
 
+  /// Lists the direct child names visible under the virtual [relativePath].
   List<String> listVirtualDirectory(String relativePath) {
     final nodes = virtualNodes;
     if (nodes == null) {
@@ -134,7 +177,9 @@ class _LoveFilesystemRoot {
   }
 }
 
+/// A logical path resolved against a specific mounted root.
 class _LoveResolvedPath {
+  /// Creates a resolved path view for a root-relative path.
   const _LoveResolvedPath({
     required this.root,
     required this.relativePath,
@@ -142,11 +187,19 @@ class _LoveResolvedPath {
     this.physicalPath,
   });
 
+  /// The root that produced this resolution.
   final _LoveFilesystemRoot root;
+
+  /// The root-relative logical path.
   final String relativePath;
+
+  /// The host directory that should be reported for this path, if any.
   final String? realDirectory;
+
+  /// The resolved host path, when the root is physical.
   final String? physicalPath;
 
+  /// Returns whether this resolved path currently exists.
   Future<bool> exists(LoveFilesystemAdapter adapter) async {
     if (root.isVirtual) {
       return root.virtualNodeFor(relativePath) != null;
@@ -161,6 +214,7 @@ class _LoveResolvedPath {
         await adapter.directoryExists(candidatePath);
   }
 
+  /// Returns filesystem metadata for this resolved path, if it exists.
   Future<LoveFilesystemInfo?> getInfo(LoveFilesystemAdapter adapter) async {
     if (root.isVirtual) {
       final node = root.virtualNodeFor(relativePath);
@@ -198,6 +252,7 @@ class _LoveResolvedPath {
     return null;
   }
 
+  /// Lists the direct entries for this resolved path when it is a directory.
   Future<List<String>?> listDirectory(LoveFilesystemAdapter adapter) async {
     if (root.isVirtual) {
       final node = root.virtualNodeFor(relativePath);
@@ -218,6 +273,7 @@ class _LoveResolvedPath {
     return entries.map(path.basename).toList(growable: false);
   }
 
+  /// Reads file bytes from this resolved path when it is a file.
   Future<List<int>?> readFileBytes(LoveFilesystemAdapter adapter) async {
     if (root.isVirtual) {
       final node = root.virtualNodeFor(relativePath);
@@ -236,6 +292,7 @@ class _LoveResolvedPath {
     return adapter.readFileBytes(candidatePath);
   }
 
+  /// Resolves this path to an existing physical host path.
   Future<String?> resolveExistingPhysicalPath(
     LoveFilesystemAdapter adapter,
   ) async {
@@ -252,6 +309,7 @@ class _LoveResolvedPath {
     return null;
   }
 
+  /// Opens this path for reading when it resolves to a file.
   Future<_LoveReadableHandle?> openReadable(
     LoveFilesystemAdapter adapter,
   ) async {
@@ -283,6 +341,8 @@ class _LoveResolvedPath {
   }
 }
 
+/// Converts a normalized logical path to the current platform's separator
+/// convention.
 String _logicalToPlatformPath(String logicalPath) {
   if (logicalPath.isEmpty) {
     return '';
@@ -291,6 +351,8 @@ String _logicalToPlatformPath(String logicalPath) {
   return path.joinAll(logicalPath.split('/'));
 }
 
+/// Normalizes a user-facing logical path to LOVE's canonical slash-separated
+/// form.
 String _normalizeLogicalPath(String input) {
   final normalized = path.posix.normalize(input.replaceAll('\\', '/'));
   if (normalized == '.' || normalized == '/') {
@@ -300,6 +362,7 @@ String _normalizeLogicalPath(String input) {
   return normalized.replaceFirst(RegExp(r'^/+'), '');
 }
 
+/// Joins [basePath] with [relativePath] and normalizes the result.
 String _joinPhysicalPath(String basePath, String relativePath) {
   if (relativePath.isEmpty) {
     return path.normalize(basePath);
@@ -310,6 +373,7 @@ String _joinPhysicalPath(String basePath, String relativePath) {
   );
 }
 
+/// Splits a semicolon-delimited package path template string.
 List<String> _splitPathTemplates(String rawPath) {
   if (rawPath.isEmpty) {
     return <String>[];
@@ -322,6 +386,7 @@ List<String> _splitPathTemplates(String rawPath) {
   return entries;
 }
 
+/// Converts an IO device read result to raw bytes.
 List<int> _bytesFromIODeviceValue(Object? value) {
   return switch (value) {
     null => const <int>[],
@@ -332,6 +397,7 @@ List<int> _bytesFromIODeviceValue(Object? value) {
   };
 }
 
+/// Converts [value] to whole seconds since the Unix epoch.
 int? _secondsSinceEpoch(DateTime? value) {
   if (value == null) {
     return null;

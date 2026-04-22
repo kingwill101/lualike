@@ -1,16 +1,20 @@
+/// Extra LOVE physics bindings derived from the generated API reference.
 library;
 
 import 'package:lualike/lualike.dart' show LuaRuntime, Value;
 
 import '../../generated/love_api_reference.g.dart' show loveApiEnums;
 
+/// Tracks which runtimes already have the physics extra bindings installed.
 final Expando<bool> _lovePhysicsExtrasInstalled = Expando<bool>(
   'love2dPhysicsExtrasInstalled',
 );
 
+/// The generated enum tables exposed through `love.physics`.
 final Map<String, Map<String, Object?>> _lovePhysicsEnumMaps =
     _buildLovePhysicsEnumMaps();
 
+/// Builds the runtime enum tables for `love.physics`.
 Map<String, Map<String, Object?>> _buildLovePhysicsEnumMaps() {
   final result = <String, Map<String, Object?>>{};
   for (final enumDoc in loveApiEnums) {
@@ -25,6 +29,7 @@ Map<String, Map<String, Object?>> _buildLovePhysicsEnumMaps() {
   return result;
 }
 
+/// Installs generated enum tables into `love.physics` for [runtime].
 void installLovePhysicsExtraBindings(LuaRuntime runtime) {
   if (_lovePhysicsExtrasInstalled[runtime] == true) {
     return;
@@ -44,6 +49,7 @@ void installLovePhysicsExtraBindings(LuaRuntime runtime) {
   _lovePhysicsExtrasInstalled[runtime] = true;
 }
 
+/// Returns the `love.physics` module table from [runtime], if it exists.
 Map<dynamic, dynamic>? _physicsModuleTable(LuaRuntime runtime) {
   final love = runtime.globals.get('love');
   final loveTable = love is Value ? love.raw : love;

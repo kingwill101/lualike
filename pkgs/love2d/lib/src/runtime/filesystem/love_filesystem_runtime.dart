@@ -1,3 +1,6 @@
+// ignore_for_file: implementation_imports
+
+/// LOVE filesystem runtime support and host adapter integration.
 library;
 
 import 'dart:collection';
@@ -31,15 +34,22 @@ part 'love_filesystem_mount_resolution.dart';
 part 'love_filesystem_mount_state.dart';
 part 'love_filesystem_path_model.dart';
 
+/// The default Lua module search path used by `require`.
 const String loveFilesystemDefaultRequirePath = '?.lua;?/init.lua';
+
+/// The default native module search path used by `require`.
 const String loveFilesystemDefaultCRequirePath = '??';
 
+/// Formats a syntax error reported while loading a Lua chunk from the LOVE
+/// filesystem.
 String formatLoveFilesystemLoadSyntaxError(String? errorMessage) {
   final normalized = errorMessage ?? 'unknown';
   return 'Syntax error: ${normalized.endsWith('\n') ? normalized : '$normalized\n'}';
 }
 
+/// Per-runtime LOVE filesystem state.
 class LoveFilesystemState {
+  /// Creates filesystem state backed by [adapter].
   LoveFilesystemState({LoveFilesystemAdapter? adapter})
     : _adapter = adapter ?? LoveLualikeFilesystemAdapter();
 
@@ -77,6 +87,7 @@ class LoveFilesystemState {
   Future<void>? _sourceRootRebindFuture;
   Future<void>? _stringMountRootRebindFuture;
 
+  /// Attaches filesystem state to [runtime].
   static LoveFilesystemState attach(
     LuaRuntime runtime, {
     LoveFilesystemAdapter? adapter,
@@ -94,34 +105,46 @@ class LoveFilesystemState {
     return state;
   }
 
+  /// Returns the filesystem state attached to [runtime].
   static LoveFilesystemState of(LuaRuntime runtime) {
     return _states[runtime] ?? attach(runtime);
   }
 
+  /// The host adapter used for physical filesystem access.
   LoveFilesystemAdapter get adapter => _adapter;
 
+  /// Whether initialization has completed.
   bool get initialized => _initialized;
 
+  /// Whether symlink support is enabled.
   bool get symlinksEnabled => _symlinksEnabled;
 
+  /// Whether Android external save storage is enabled.
   bool get androidSaveExternal => _androidSaveExternal;
 
+  /// Whether the runtime is currently running from a fused game archive.
   bool get fused => _fused;
 
+  /// The active LOVE save identity.
   String get identity => _identity;
 
+  /// The mounted LOVE source path.
   String get source => _source;
 
+  /// The current Lua `package.path` template list for LOVE modules.
   List<String> get requirePath => List<String>.unmodifiable(_requirePath);
 
+  /// The current Lua `package.cpath` template list for LOVE modules.
   List<String> get cRequirePath => List<String>.unmodifiable(_cRequirePath);
 
+  /// Reads the file at [logicalPath] as bytes.
   Future<List<int>?> readAllBytes(String logicalPath, {int size = -1}) {
     return LoveFilesystemRuntimeReadWrite(
       this,
     ).readAllBytes(logicalPath, size: size);
   }
 
+  /// Writes [bytes] to [logicalPath].
   Future<bool> writeBytes(
     String logicalPath,
     List<int> bytes, {
@@ -132,6 +155,7 @@ class LoveFilesystemState {
     ).writeBytes(logicalPath, bytes, append: append);
   }
 
+  /// Writes [bytes] to [logicalPath] and throws on failure.
   Future<void> writeBytesOrThrow(
     String logicalPath,
     List<int> bytes, {
@@ -142,6 +166,7 @@ class LoveFilesystemState {
     ).writeBytesOrThrow(logicalPath, bytes, append: append);
   }
 
+  /// Reads [logicalPath] as [LoveFilesystemFileData].
   Future<LoveFilesystemFileData?> readFileData(
     String logicalPath, {
     int size = -1,
@@ -152,6 +177,7 @@ class LoveFilesystemState {
     ).readFileData(logicalPath, size: size, filename: filename);
   }
 
+  /// Reads [logicalPath] as [LoveFilesystemFileData] when it exists.
   Future<LoveFilesystemFileData?> readFileDataIfExistsOrThrow(
     String logicalPath, {
     int size = -1,
@@ -162,6 +188,7 @@ class LoveFilesystemState {
     ).readFileDataIfExistsOrThrow(logicalPath, size: size, filename: filename);
   }
 
+  /// Reads [logicalPath] as [LoveFilesystemFileData] and throws on failure.
   Future<LoveFilesystemFileData> readFileDataOrThrow(
     String logicalPath, {
     int size = -1,
@@ -172,12 +199,14 @@ class LoveFilesystemState {
     ).readFileDataOrThrow(logicalPath, size: size, filename: filename);
   }
 
+  /// Resolves [logicalPath] to a readable host path, if one exists.
   Future<String?> resolveReadablePhysicalPath(String logicalPath) {
     return LoveFilesystemRuntimeReadWrite(
       this,
     ).resolveReadablePhysicalPath(logicalPath);
   }
 
+  /// Resolves [logicalPath] to a writable host path.
   Future<String?> resolveWritablePhysicalPath(String logicalPath) {
     return LoveFilesystemRuntimeReadWrite(
       this,
@@ -199,6 +228,7 @@ class LoveFilesystemState {
     ).readAllBytesOrThrow(logicalPath, size: size);
   }
 
+  /// Loads the Lua chunk at [logicalPath] through the LOVE filesystem.
   Future<Value?> loadChunk(LuaRuntime runtime, String logicalPath) {
     return LoveFilesystemRuntimeReadWrite(this).loadChunk(runtime, logicalPath);
   }

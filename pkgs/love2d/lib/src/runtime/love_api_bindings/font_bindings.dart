@@ -1,5 +1,9 @@
 part of '../love_api_bindings.dart';
 
+/// Binds `love.font.newBMFontRasterizer`.
+///
+/// LOVE uses this constructor for AngelCode BMFont definitions plus optional
+/// page image overrides.
 LoveApiImplementation _bindFontNewBmFontRasterizer(
   LibraryRegistrationContext context,
 ) {
@@ -14,6 +18,9 @@ LoveApiImplementation _bindFontNewBmFontRasterizer(
   };
 }
 
+/// Binds `love.font.newGlyphData`.
+///
+/// This extracts a single glyph bitmap from an existing [LoveRasterizer].
 LoveApiImplementation _bindFontNewGlyphData(
   LibraryRegistrationContext context,
 ) {
@@ -30,6 +37,10 @@ LoveApiImplementation _bindFontNewGlyphData(
   };
 }
 
+/// Binds `love.font.newImageRasterizer`.
+///
+/// LOVE uses image rasterizers for glyph atlases where each code point is
+/// mapped from a source image rather than a font file.
 LoveApiImplementation _bindFontNewImageRasterizer(
   LibraryRegistrationContext context,
 ) {
@@ -45,6 +56,10 @@ LoveApiImplementation _bindFontNewImageRasterizer(
   };
 }
 
+/// Binds `love.font.newRasterizer`.
+///
+/// This dispatches to the TrueType, BMFont, or auto-detected file variants
+/// based on the argument shapes that LOVE accepts.
 LoveApiImplementation _bindFontNewRasterizer(
   LibraryRegistrationContext context,
 ) {
@@ -79,6 +94,10 @@ LoveApiImplementation _bindFontNewRasterizer(
   };
 }
 
+/// Binds `love.font.newTrueTypeRasterizer`.
+///
+/// This keeps the explicit TrueType overload separate from the broader
+/// `newRasterizer` dispatcher.
 LoveApiImplementation _bindFontNewTrueTypeRasterizer(
   LibraryRegistrationContext context,
 ) {
@@ -93,6 +112,11 @@ LoveApiImplementation _bindFontNewTrueTypeRasterizer(
   };
 }
 
+/// Builds a TrueType rasterizer from LOVE-style arguments.
+///
+/// A numeric first argument, or no arguments at all, selects the runtime's
+/// default bundled font. Otherwise the first argument is treated as a
+/// file-backed TrueType source.
 Future<LoveRasterizer> _trueTypeRasterizerFromArgs(
   LibraryRegistrationContext context,
   List<Object?> args, {
@@ -148,6 +172,10 @@ Future<LoveRasterizer> _trueTypeRasterizerFromArgs(
   );
 }
 
+/// Builds a rasterizer by sniffing the first file-backed argument.
+///
+/// LOVE accepts either BMFont definition files or TrueType data for this
+/// overload and chooses the matching rasterizer type automatically.
 Future<LoveRasterizer> _autoRasterizerFromArgs(
   LibraryRegistrationContext context,
   List<Object?> args, {
@@ -182,6 +210,7 @@ Future<LoveRasterizer> _autoRasterizerFromArgs(
   );
 }
 
+/// Builds a BMFont rasterizer from a definition file and optional page images.
 Future<LoveRasterizer> _bmFontRasterizerFromArgs(
   LibraryRegistrationContext context,
   List<Object?> args, {
@@ -211,6 +240,8 @@ Future<LoveRasterizer> _bmFontRasterizerFromArgs(
   );
 }
 
+/// Parses a BMFont definition, resolves any missing page images, and returns a
+/// validated BMFont rasterizer.
 Future<LoveRasterizer> _bmFontRasterizerFromFileData(
   LibraryRegistrationContext context,
   LoveFilesystemFileData fileData, {
@@ -251,6 +282,7 @@ Future<LoveRasterizer> _bmFontRasterizerFromFileData(
   );
 }
 
+/// Parses a BMFont definition file and surfaces parse failures as [LuaError].
 LoveBmFontDefinition _parseBmFontDefinition(
   LoveFilesystemFileData fileData, {
   required String symbol,
@@ -265,6 +297,11 @@ LoveBmFontDefinition _parseBmFontDefinition(
   }
 }
 
+/// Resolves the optional BMFont page-image argument into page-indexed image
+/// data.
+///
+/// LOVE accepts a single image-like value for page `0` or a Lua table of page
+/// images indexed in order.
 Future<Map<int, LoveImageData>> _resolveBmFontPageImages(
   LibraryRegistrationContext context,
   Object? value, {
@@ -312,6 +349,7 @@ Future<Map<int, LoveImageData>> _resolveBmFontPageImages(
   return <int, LoveImageData>{0: resolved.$1};
 }
 
+/// Resolves a BMFont page source relative to the definition file when needed.
 String? _resolveBmFontPageSource(LoveBmFontDefinition definition, int pageId) {
   final rawSource = definition.pageSources[pageId];
   if (rawSource == null || rawSource.isEmpty) {
@@ -335,6 +373,8 @@ String? _resolveBmFontPageSource(LoveBmFontDefinition definition, int pageId) {
       '$normalizedPageSource';
 }
 
+/// Validates that BMFont glyph rectangles refer to loaded pages and fit within
+/// their image bounds.
 void _validateBmFontDefinition(
   LoveBmFontDefinition definition,
   Map<int, LoveImageData> pageImages,
@@ -372,6 +412,10 @@ void _validateBmFontDefinition(
   }
 }
 
+/// Builds an image-based rasterizer from an image source plus glyph ordering.
+///
+/// Some LOVE call sites pass only glyphs and DPI after the source image, while
+/// others also include explicit extra spacing.
 Future<LoveRasterizer> _imageRasterizerFromArgs(
   LibraryRegistrationContext context,
   List<Object?> args, {
@@ -412,6 +456,8 @@ Future<LoveRasterizer> _imageRasterizerFromArgs(
   );
 }
 
+/// Returns an optional extra glyph-spacing argument using LOVE's numeric
+/// truncation rules.
 int _optionalFontExtraSpacingArg(
   List<Object?> args,
   int index,
@@ -425,6 +471,11 @@ int _optionalFontExtraSpacingArg(
   return _truncateLoveFontNumericValue(_requireNumber(args, index, symbol));
 }
 
+/// Resolves an image-font source into decoded image data plus an optional
+/// source path.
+///
+/// LOVE accepts `ImageData` directly, a filename-like source string, or a
+/// file-backed object that can be decoded as encoded image bytes.
 Future<(LoveImageData, String?)> _resolveFontImageSource(
   LibraryRegistrationContext context,
   Object? value, {
@@ -458,6 +509,7 @@ Future<(LoveImageData, String?)> _resolveFontImageSource(
   );
 }
 
+/// Validates that an image-font source uses LOVE's supported RGBA8 format.
 void _validateImageFontImageData(
   LoveImageData imageData, {
   required String symbol,
@@ -467,12 +519,14 @@ void _validateImageFontImageData(
   }
 }
 
+/// Validates that a BMFont page image uses LOVE's supported RGBA8 format.
 void _validateBmFontPageImageData(LoveImageData imageData) {
   if (imageData.format.toLowerCase() != 'rgba8') {
     throw LuaError('Only 32-bit RGBA images are supported in BMFonts.');
   }
 }
 
+/// Parses a required font DPI scale argument.
 double _fontDpiScale(List<Object?> args, int index, String symbol) {
   return _requireNumber(args, index, symbol);
 }

@@ -1,11 +1,20 @@
 part of '../love_runtime.dart';
 
+/// The default decode chunk size, in bytes, for [LoveSoundDecoder].
 const int loveSoundDefaultBufferSize = 16384;
+
+/// The default sample rate used for synthesized sound data.
 const int loveSoundDefaultSampleRate = 44100;
+
+/// The default channel count used for synthesized sound data.
 const int loveSoundDefaultChannels = 2;
+
+/// The default bit depth used for synthesized sound data.
 const int loveSoundDefaultBitDepth = 16;
 
+/// Stores PCM sound data and its playback metadata.
 final class LoveSoundData extends LoveDataObject {
+  /// Creates sound data from normalized PCM bytes and metadata.
   LoveSoundData._(
     super.bytes, {
     required this.sampleRate,
@@ -13,6 +22,7 @@ final class LoveSoundData extends LoveDataObject {
     required this.channels,
   }) : super._();
 
+  /// Creates silent PCM sound data with the requested frame count.
   factory LoveSoundData.silence({
     required int samples,
     int sampleRate = loveSoundDefaultSampleRate,
@@ -43,6 +53,7 @@ final class LoveSoundData extends LoveDataObject {
     );
   }
 
+  /// Creates sound data from raw PCM bytes.
   factory LoveSoundData.fromPcmBytes({
     required List<int> bytes,
     required int sampleRate,
@@ -72,21 +83,32 @@ final class LoveSoundData extends LoveDataObject {
     );
   }
 
+  /// The sample rate in frames per second.
   final int sampleRate;
+
+  /// The PCM bit depth per channel sample.
   final int bitDepth;
+
+  /// The number of channels in each sample frame.
   final int channels;
 
+  /// The number of sample frames stored in [bytes].
   int get sampleCount => bytes.length ~/ frameByteSize;
 
+  /// The number of individual channel samples stored in [bytes].
   int get rawSampleCount => sampleCount * channels;
 
+  /// The number of bytes in one interleaved sample frame.
   int get frameByteSize =>
       _soundFrameByteSize(bitDepth: bitDepth, channels: channels);
 
+  /// The playback duration in seconds.
   double get duration => bytes.isEmpty ? 0.0 : bytes.length / frameRateBytes;
 
+  /// The number of PCM bytes played per second.
   double get frameRateBytes => channels * sampleRate * (bitDepth / 8);
 
+  /// Returns a copy of this sound data.
   @override
   LoveSoundData clone() => LoveSoundData.fromPcmBytes(
     bytes: bytes,
@@ -95,6 +117,7 @@ final class LoveSoundData extends LoveDataObject {
     channels: channels,
   );
 
+  /// Returns a normalized sample value from `-1.0` to `1.0`.
   double getSample(int index, {int? channel}) {
     final rawIndex = _resolveRawSampleIndex(
       index,
@@ -111,6 +134,7 @@ final class LoveSoundData extends LoveDataObject {
     return (bytes[rawIndex] - 128.0) / 127.0;
   }
 
+  /// Writes a normalized sample value at [index].
   void setSample(int index, double sample, {int? channel}) {
     final rawIndex = _resolveRawSampleIndex(
       index,
@@ -128,6 +152,7 @@ final class LoveSoundData extends LoveDataObject {
     bytes[rawIndex] = raw;
   }
 
+  /// Returns a copy of the frame range starting at [frameOffset].
   LoveSoundData copyFrames(int frameOffset, int frameCount) {
     final clampedStart = frameOffset.clamp(0, sampleCount);
     final available = sampleCount - clampedStart;
@@ -142,6 +167,7 @@ final class LoveSoundData extends LoveDataObject {
     );
   }
 
+  /// Resolves a frame and optional [channel] to a raw sample index.
   int _resolveRawSampleIndex(
     int index, {
     required int? channel,
@@ -164,6 +190,7 @@ final class LoveSoundData extends LoveDataObject {
     return _validateRawSampleIndex(index, forSet: forSet);
   }
 
+  /// Validates that [rawIndex] refers to an existing channel sample.
   int _validateRawSampleIndex(int rawIndex, {required bool forSet}) {
     if (rawIndex < 0 || rawIndex >= rawSampleCount) {
       throw ArgumentError(
@@ -176,31 +203,44 @@ final class LoveSoundData extends LoveDataObject {
   }
 }
 
+/// Decodes sound data into sequential PCM chunks.
 final class LoveSoundDecoder {
+  /// Creates a decoder that reads from a cloned copy of [data].
   LoveSoundDecoder(
     LoveSoundData data, {
     int bufferSize = loveSoundDefaultBufferSize,
   }) : _data = data.clone(),
        bufferSize = _validateDecoderBufferSize(bufferSize);
 
+  /// The source sound data being decoded.
   final LoveSoundData _data;
+
+  /// The target chunk size in bytes.
   final int bufferSize;
   int _frameCursor = 0;
 
+  /// The bit depth of the decoded PCM output.
   int get bitDepth => _data.bitDepth;
 
+  /// The channel count of the decoded PCM output.
   int get channels => _data.channels;
 
+  /// The sample rate of the decoded PCM output.
   int get sampleRate => _data.sampleRate;
 
+  /// The full source duration in seconds.
   double get duration => _data.duration;
 
+  /// The total number of frames in the source data.
   int get sampleCount => _data.sampleCount;
 
+  /// Whether all sample frames have been decoded.
   bool get isFinished => _frameCursor >= sampleCount;
 
+  /// Returns a decoder starting from the beginning of the same sound data.
   LoveSoundDecoder clone() => LoveSoundDecoder(_data, bufferSize: bufferSize);
 
+  /// Decodes the next PCM chunk, or `null` when exhausted.
   LoveSoundData? decode() {
     if (isFinished) {
       return null;
@@ -214,6 +254,7 @@ final class LoveSoundDecoder {
     return chunk;
   }
 
+  /// Decodes and returns all remaining sample frames.
   LoveSoundData decodeAllRemaining() {
     final remaining = sampleCount - _frameCursor;
     final chunk = _data.copyFrames(_frameCursor, remaining);
@@ -221,10 +262,12 @@ final class LoveSoundDecoder {
     return chunk;
   }
 
+  /// Seeks back to the beginning of the source data.
   void rewind() {
     _frameCursor = 0;
   }
 
+  /// Seeks to approximately [seconds] within the source data.
   void seek(double seconds) {
     if (seconds <= 0) {
       rewind();
@@ -234,6 +277,7 @@ final class LoveSoundDecoder {
     _frameCursor = (seconds * sampleRate).floor().clamp(0, sampleCount);
   }
 
+  /// Returns the number of frames emitted per decode chunk.
   int _chunkFrameCount() {
     final frameByteSize = _data.frameByteSize;
     final alignedBytes = bufferSize < frameByteSize
@@ -243,6 +287,7 @@ final class LoveSoundDecoder {
   }
 }
 
+/// Creates a sound decoder by decoding the audio bytes in [bytes].
 LoveSoundDecoder loveNewSoundDecoderFromBytes(
   List<int> bytes, {
   required String source,
@@ -254,6 +299,7 @@ LoveSoundDecoder loveNewSoundDecoderFromBytes(
   );
 }
 
+/// Encodes [data] as a PCM WAV byte stream.
 Uint8List loveEncodeSoundDataAsWaveBytes(LoveSoundData data) {
   final dataSize = data.bytes.length;
   final result = Uint8List(44 + dataSize);
@@ -279,19 +325,27 @@ Uint8List loveEncodeSoundDataAsWaveBytes(LoveSoundData data) {
   return result;
 }
 
+/// Decodes a supported sound file into [LoveSoundData].
 LoveSoundData loveDecodeSoundFile({
   required List<int> bytes,
   required String source,
 }) {
   final extension = _soundExtension(source);
   final looksLikeWave = _looksLikeWave(bytes);
-  if (!looksLikeWave && extension != 'wav' && extension != 'wave') {
-    throw UnsupportedError('Extension "$extension" not supported.');
+  if (looksLikeWave || extension == 'wav' || extension == 'wave') {
+    return _decodeWaveSoundData(bytes, source: source);
   }
 
-  return _decodeWaveSoundData(bytes, source: source);
+  final hostWaveBytes = love_sound_host_decode
+      .decodeCompressedSoundFileToWaveBytesViaHost(bytes, source: source);
+  if (hostWaveBytes != null) {
+    return _decodeWaveSoundData(hostWaveBytes, source: source);
+  }
+
+  throw UnsupportedError('Extension "$extension" not supported.');
 }
 
+/// Decodes WAV data from [bytes].
 LoveSoundData _decodeWaveSoundData(List<int> bytes, {required String source}) {
   final data = Uint8List.fromList(bytes);
   if (!_looksLikeWave(data)) {
@@ -374,10 +428,16 @@ LoveSoundData _decodeWaveSoundData(List<int> bytes, {required String source}) {
   };
 }
 
+/// The WAV format tag for PCM integer samples.
 const int _waveFormatPcm = 0x0001;
+
+/// The WAV format tag for IEEE floating-point samples.
 const int _waveFormatIeeeFloat = 0x0003;
+
+/// The WAV format tag for extensible format chunks.
 const int _waveFormatExtensible = 0xFFFE;
 
+/// Decodes integer PCM WAV payloads into [LoveSoundData].
 LoveSoundData _decodeWavePcmSoundData(
   Uint8List pcmData, {
   required int sampleRate,
@@ -426,6 +486,7 @@ LoveSoundData _decodeWavePcmSoundData(
   }
 }
 
+/// Decodes floating-point WAV payloads into 16-bit [LoveSoundData].
 LoveSoundData _decodeWaveFloatSoundData(
   Uint8List pcmData, {
   required int sampleRate,
@@ -458,6 +519,7 @@ LoveSoundData _decodeWaveFloatSoundData(
   };
 }
 
+/// Converts arbitrary WAV samples to 16-bit PCM sound data.
 LoveSoundData _convertWaveSamplesTo16Bit(
   Uint8List pcmData, {
   required int sampleRate,
@@ -492,6 +554,7 @@ LoveSoundData _convertWaveSamplesTo16Bit(
   );
 }
 
+/// Validates constructor arguments for synthesized sound data.
 void _validateSoundConstruction({
   required int samples,
   required int sampleRate,
@@ -509,6 +572,7 @@ void _validateSoundConstruction({
   );
 }
 
+/// Validates shared PCM metadata values.
 void _validateSoundMetadata({
   required int sampleRate,
   required int bitDepth,
@@ -525,6 +589,7 @@ void _validateSoundMetadata({
   }
 }
 
+/// Validates the configured decode buffer size.
 int _validateDecoderBufferSize(int bufferSize) {
   if (bufferSize <= 0) {
     throw ArgumentError('Invalid decoder buffer size: $bufferSize');
@@ -532,6 +597,7 @@ int _validateDecoderBufferSize(int bufferSize) {
   return bufferSize;
 }
 
+/// Returns the byte size of one PCM frame.
 int _soundFrameByteSize({required int bitDepth, required int channels}) {
   _validateSoundMetadata(
     sampleRate: loveSoundDefaultSampleRate,
@@ -541,6 +607,7 @@ int _soundFrameByteSize({required int bitDepth, required int channels}) {
   return (bitDepth ~/ 8) * channels;
 }
 
+/// Returns the lowercase extension from [source].
 String _soundExtension(String source) {
   final dot = source.lastIndexOf('.');
   if (dot < 0 || dot == source.length - 1) {
@@ -549,12 +616,14 @@ String _soundExtension(String source) {
   return source.substring(dot + 1).toLowerCase();
 }
 
+/// Returns whether [bytes] begins with a WAV RIFF header.
 bool _looksLikeWave(List<int> bytes) {
   return bytes.length >= 12 &&
       _matchesAscii(bytes, 0, 'RIFF') &&
       _matchesAscii(bytes, 8, 'WAVE');
 }
 
+/// Returns whether [bytes] matches [value] at [offset].
 bool _matchesAscii(List<int> bytes, int offset, String value) {
   if (offset + value.length > bytes.length) {
     return false;
@@ -568,10 +637,12 @@ bool _matchesAscii(List<int> bytes, int offset, String value) {
   return true;
 }
 
+/// Reads an unsigned 16-bit little-endian integer from [bytes].
 int _readUint16Le(List<int> bytes, int offset) {
   return bytes[offset] | (bytes[offset + 1] << 8);
 }
 
+/// Reads an unsigned 32-bit little-endian integer from [bytes].
 int _readUint32Le(List<int> bytes, int offset) {
   return bytes[offset] |
       (bytes[offset + 1] << 8) |
@@ -579,6 +650,7 @@ int _readUint32Le(List<int> bytes, int offset) {
       (bytes[offset + 3] << 24);
 }
 
+/// Reads a signed 24-bit little-endian integer from [bytes].
 int _readInt24Le(List<int> bytes, int offset) {
   var value =
       bytes[offset] | (bytes[offset + 1] << 8) | (bytes[offset + 2] << 16);
@@ -588,6 +660,7 @@ int _readInt24Le(List<int> bytes, int offset) {
   return value;
 }
 
+/// Converts a normalized floating-point sample to signed 16-bit PCM.
 int _normalizedSampleToInt16(double sample) {
   final normalized = sample.clamp(-1.0, 1.0);
   return (normalized * 32767.0).round().clamp(-32768, 32767);

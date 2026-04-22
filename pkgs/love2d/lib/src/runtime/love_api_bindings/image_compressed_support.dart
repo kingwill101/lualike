@@ -1,5 +1,10 @@
 part of '../love_api_bindings.dart';
 
+/// Decodes a supported compressed texture container into [LoveCompressedImageData].
+///
+/// This normalizes [bytes] to [Uint8List], detects the container signature, and
+/// dispatches to the matching decoder. Throws an [ArgumentError] when the
+/// payload is not a supported DDS, KTX, PKM, ASTC, or PVR texture.
 LoveCompressedImageData _decodeCompressedImageData({
   required List<int> bytes,
   required String source,
@@ -27,6 +32,10 @@ LoveCompressedImageData _decodeCompressedImageData({
   throw ArgumentError('Could not parse compressed data: Unknown format.');
 }
 
+/// Decodes a DDS container and records each compressed mip level.
+///
+/// Only FOURCC-based compressed DDS payloads are accepted. Legacy and DX10
+/// headers are both supported when they map cleanly to a Love texture format.
 LoveCompressedImageData _decodeCompressedDds(
   Uint8List bytes, {
   required String source,
@@ -95,6 +104,10 @@ LoveCompressedImageData _decodeCompressedDds(
   );
 }
 
+/// Decodes a KTX container and records its mip level offsets.
+///
+/// This implementation accepts only 2D, non-array, single-face textures and
+/// uses the file's declared endianness when reading header and mip fields.
 LoveCompressedImageData _decodeCompressedKtx(
   Uint8List bytes, {
   required String source,
@@ -169,6 +182,7 @@ LoveCompressedImageData _decodeCompressedKtx(
   );
 }
 
+/// Decodes a PKM container into a single-mipmap compressed texture.
 LoveCompressedImageData _decodeCompressedPkm(
   Uint8List bytes, {
   required String source,
@@ -206,6 +220,10 @@ LoveCompressedImageData _decodeCompressedPkm(
   );
 }
 
+/// Decodes an ASTC container into a single-mipmap compressed texture.
+///
+/// Only 2D ASTC payloads are accepted because Love does not expose 3D
+/// compressed textures through this binding layer.
 LoveCompressedImageData _decodeCompressedAstc(
   Uint8List bytes, {
   required String source,
@@ -242,6 +260,10 @@ LoveCompressedImageData _decodeCompressedAstc(
   );
 }
 
+/// Decodes a PVR container and records each compressed mip level.
+///
+/// Both PVR v2 and v3 headers are normalized into [_PvrHeader] before the
+/// pixel format is mapped into a Love texture format.
 LoveCompressedImageData _decodeCompressedPvr(
   Uint8List bytes, {
   required String source,
@@ -309,6 +331,10 @@ LoveCompressedImageData _decodeCompressedPvr(
   );
 }
 
+/// Maps a legacy DDS FOURCC code to a Love compressed texture format.
+///
+/// Returns `null` when the code refers to an unsupported or uncompressed DDS
+/// payload.
 ({String format, bool srgb})? _ddsLegacyFormat(int fourCc) {
   return switch (fourCc) {
     final value when value == _fourCc('DXT1') => (format: 'DXT1', srgb: false),
@@ -326,6 +352,7 @@ LoveCompressedImageData _decodeCompressedPvr(
   };
 }
 
+/// Maps a DDS DX10 `DXGI_FORMAT` value to a Love compressed texture format.
 ({String format, bool srgb})? _ddsDx10Format(int dxgiFormat) {
   return switch (dxgiFormat) {
     70 => (format: 'DXT1', srgb: false),
@@ -353,6 +380,9 @@ LoveCompressedImageData _decodeCompressedPvr(
   };
 }
 
+/// Returns the byte size of one DDS mip level for [format].
+///
+/// DDS block-compressed formats use either 8 or 16 bytes per 4x4 block.
 int _ddsMipSize(String format, {required int width, required int height}) {
   final blockBytes = switch (format) {
     'DXT1' || 'BC4' || 'BC4s' => 8,
@@ -363,6 +393,7 @@ int _ddsMipSize(String format, {required int width, required int height}) {
   return blocksWide * blocksHigh * blockBytes;
 }
 
+/// Maps a KTX internal format enum to a Love compressed texture format.
 ({String format, bool srgb})? _ktxFormat(int internalFormat) {
   return switch (internalFormat) {
     0x8D64 => (format: 'ETC1', srgb: false),
@@ -426,6 +457,7 @@ int _ddsMipSize(String format, {required int width, required int height}) {
   };
 }
 
+/// Reads a 32-bit KTX field using the container's declared endianness.
 int _readUint32Ktx(List<int> bytes, int offset, {required bool reverseEndian}) {
   if (!reverseEndian) {
     return _readUint32Le(bytes, offset);
@@ -437,6 +469,7 @@ int _readUint32Ktx(List<int> bytes, int offset, {required bool reverseEndian}) {
       bytes[offset + 3];
 }
 
+/// Maps a PKM format code to a Love compressed texture format.
 String? _pkmFormat(int format) {
   return switch (format) {
     0 => 'ETC1',
@@ -451,6 +484,7 @@ String? _pkmFormat(int format) {
   };
 }
 
+/// Maps ASTC block dimensions to the corresponding Love texture format.
 String? _astcFormat(int blockX, int blockY, int blockZ) {
   if (blockZ != 1) {
     return null;
@@ -475,7 +509,9 @@ String? _astcFormat(int blockX, int blockY, int blockZ) {
   };
 }
 
+/// Parsed PVR header fields used by the PVR decoder.
 class _PvrHeader {
+  /// Creates a normalized parsed PVR header.
   const _PvrHeader({
     required this.pixelFormat,
     required this.colorSpace,
@@ -487,16 +523,32 @@ class _PvrHeader {
     required this.metaDataSize,
   });
 
+  /// The encoded PVR pixel-format identifier.
   final int pixelFormat;
+
+  /// The PVR color-space code for this texture.
   final int colorSpace;
+
+  /// The PVR channel-type code describing component storage.
   final int channelType;
+
+  /// The texture width in pixels.
   final int width;
+
+  /// The texture height in pixels.
   final int height;
+
+  /// The texture depth for volume textures, or zero when not used.
   final int depth;
+
+  /// The number of mip levels described by the header.
   final int mipmaps;
+
+  /// The size in bytes of the PVR metadata block following the header.
   final int metaDataSize;
 }
 
+/// Parses a PVR v3 header into the normalized [_PvrHeader] shape.
 _PvrHeader _parsePvrV3Header(Uint8List bytes) {
   final reversed = _readUint32Le(bytes, 0) == 0x50565203;
   return _PvrHeader(
@@ -511,6 +563,7 @@ _PvrHeader _parsePvrV3Header(Uint8List bytes) {
   );
 }
 
+/// Converts a legacy PVR v2 header into the normalized [_PvrHeader] shape.
 _PvrHeader _convertPvrV2Header(Uint8List bytes) {
   final reversed = _readUint32Le(bytes, 44) == 0x50565221;
   final height = _readUint32Endian(bytes, 4, reversed);
@@ -540,6 +593,7 @@ _PvrHeader _convertPvrV2Header(Uint8List bytes) {
   );
 }
 
+/// Maps a normalized PVR pixel format to a Love compressed texture format.
 ({String format, bool srgb})? _pvrFormat(
   int pixelFormat, {
   required int channelType,
@@ -585,6 +639,10 @@ _PvrHeader _convertPvrV2Header(Uint8List bytes) {
   };
 }
 
+/// Returns the byte size of one PVR mip level for [pixelFormat].
+///
+/// Block-compressed ASTC formats are sized per block, while earlier PVR
+/// families use a fixed bits-per-pixel rate after minimum-dimension padding.
 int _pvrMipSize(int pixelFormat, {required int width, required int height}) {
   final minDimensions = _pvrMinDimensions(pixelFormat);
   final paddedWidth =
@@ -601,6 +659,7 @@ int _pvrMipSize(int pixelFormat, {required int width, required int height}) {
   return bitsPerPixel * paddedWidth * paddedHeight ~/ 8;
 }
 
+/// The minimum padded dimensions used when sizing a PVR mip level.
 (int, int) _pvrMinDimensions(int pixelFormat) {
   return switch (pixelFormat) {
     0 || 1 => (16, 8),
@@ -625,6 +684,7 @@ int _pvrMipSize(int pixelFormat, {required int width, required int height}) {
   };
 }
 
+/// The effective bits per pixel for fixed-rate PVR compressed formats.
 int _pvrBitsPerPixel(int pixelFormat) {
   return switch (pixelFormat) {
     0 || 1 || 4 => 2,
@@ -634,14 +694,17 @@ int _pvrBitsPerPixel(int pixelFormat) {
   };
 }
 
+/// Reads a big-endian unsigned 16-bit integer from [bytes] at [offset].
 int _readUint16Be(List<int> bytes, int offset) {
   return (bytes[offset] << 8) | bytes[offset + 1];
 }
 
+/// Reads a little-endian unsigned 24-bit integer from [bytes] at [offset].
 int _readUint24Le(List<int> bytes, int offset) {
   return bytes[offset] | (bytes[offset + 1] << 8) | (bytes[offset + 2] << 16);
 }
 
+/// Reads an unsigned 32-bit integer using the requested header byte order.
 int _readUint32Endian(List<int> bytes, int offset, bool reverseEndian) {
   if (!reverseEndian) {
     return _readUint32Le(bytes, offset);
@@ -653,6 +716,7 @@ int _readUint32Endian(List<int> bytes, int offset, bool reverseEndian) {
       bytes[offset + 3];
 }
 
+/// Reads an unsigned 64-bit integer using the requested header byte order.
 int _readUint64Le(List<int> bytes, int offset, {required bool reverseEndian}) {
   if (!reverseEndian) {
     final low = _readUint32Le(bytes, offset);

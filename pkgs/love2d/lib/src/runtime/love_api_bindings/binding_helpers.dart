@@ -1,6 +1,7 @@
 part of '../love_api_bindings.dart';
 
-LoveRuntimeContext _runtimeContext(LibraryRegistrationContext context) {
+/// Returns the [LoveRuntimeContext] attached to this binding context.
+LoveRuntimeContext _runtimeContext(LibraryContext context) {
   final runtime = context.interpreter;
   if (runtime == null) {
     throw StateError('No Lua runtime available for LOVE bindings');
@@ -9,6 +10,7 @@ LoveRuntimeContext _runtimeContext(LibraryRegistrationContext context) {
   return LoveRuntimeContext.attach(runtime);
 }
 
+/// Resolves window mode arguments into updated [LoveWindowMetrics].
 LoveWindowMetrics _windowMetricsFromArgs(
   LoveWindowMetrics current,
   List<Object?> args, {
@@ -72,10 +74,12 @@ LoveWindowMetrics _windowMetricsFromArgs(
   return next;
 }
 
+/// Wraps a [LoveColor] as the standard multi-return Lua result.
 Value _colorResult(LoveColor color) {
   return Value.multi(<Object?>[color.r, color.g, color.b, color.a]);
 }
 
+/// Parses a color from scalar arguments or from a Lua color table.
 LoveColor _requireColor(List<Object?> args, int index, String symbol) {
   final value = _valueAt(args, index);
   final table = switch (value) {
@@ -102,6 +106,7 @@ LoveColor _requireColor(List<Object?> args, int index, String symbol) {
   );
 }
 
+/// Parses a drawing mode accepted by shape rendering functions.
 LoveGraphicsDrawMode _requireDrawMode(
   List<Object?> args,
   int index,
@@ -114,6 +119,7 @@ LoveGraphicsDrawMode _requireDrawMode(
   };
 }
 
+/// Parses the graphics stack type used by push and pop operations.
 LoveGraphicsStackType _graphicsStackType(Object? value, String symbol) {
   final raw = _rawValue(value);
   if (raw == null) {
@@ -135,6 +141,7 @@ LoveGraphicsStackType _graphicsStackType(Object? value, String symbol) {
   };
 }
 
+/// Parses an arc mode string.
 LoveGraphicsArcMode _requireArcMode(String value, String symbol) {
   return switch (value) {
     'open' => LoveGraphicsArcMode.open,
@@ -144,6 +151,7 @@ LoveGraphicsArcMode _requireArcMode(String value, String symbol) {
   };
 }
 
+/// Parses a line style string.
 LoveGraphicsLineStyle _lineStyle(String value, String symbol) {
   return switch (value) {
     'smooth' => LoveGraphicsLineStyle.smooth,
@@ -152,6 +160,7 @@ LoveGraphicsLineStyle _lineStyle(String value, String symbol) {
   };
 }
 
+/// Parses a line join string.
 LoveGraphicsLineJoin _lineJoin(String value, String symbol) {
   return switch (value) {
     'none' => LoveGraphicsLineJoin.none,
@@ -161,6 +170,7 @@ LoveGraphicsLineJoin _lineJoin(String value, String symbol) {
   };
 }
 
+/// Parses a blend mode string.
 LoveGraphicsBlendMode _blendMode(String value, String symbol) {
   return switch (value) {
     'alpha' => LoveGraphicsBlendMode.alpha,
@@ -176,6 +186,7 @@ LoveGraphicsBlendMode _blendMode(String value, String symbol) {
   };
 }
 
+/// Parses a blend alpha mode string.
 LoveGraphicsBlendAlphaMode _blendAlphaMode(String value, String symbol) {
   return switch (value) {
     'alphamultiply' => LoveGraphicsBlendAlphaMode.alphaMultiply,
@@ -184,6 +195,7 @@ LoveGraphicsBlendAlphaMode _blendAlphaMode(String value, String symbol) {
   };
 }
 
+/// Parses a filter mode string.
 LoveGraphicsFilterMode _filterMode(String value, String symbol) {
   return switch (value) {
     'linear' => LoveGraphicsFilterMode.linear,
@@ -192,6 +204,7 @@ LoveGraphicsFilterMode _filterMode(String value, String symbol) {
   };
 }
 
+/// Parses a wrap mode string.
 LoveGraphicsWrapMode _wrapMode(String value, String symbol) {
   return switch (value) {
     'clamp' => LoveGraphicsWrapMode.clamp,
@@ -202,6 +215,7 @@ LoveGraphicsWrapMode _wrapMode(String value, String symbol) {
   };
 }
 
+/// Parses a canvas mipmap mode string.
 LoveCanvasMipmapMode _canvasMipmapMode(String value, String symbol) {
   return switch (value) {
     'none' => LoveCanvasMipmapMode.none,
@@ -211,6 +225,7 @@ LoveCanvasMipmapMode _canvasMipmapMode(String value, String symbol) {
   };
 }
 
+/// Parses a depth comparison mode string.
 LoveGraphicsCompareMode _compareMode(String value, String symbol) {
   return switch (value) {
     'equal' => LoveGraphicsCompareMode.equal,
@@ -225,6 +240,7 @@ LoveGraphicsCompareMode _compareMode(String value, String symbol) {
   };
 }
 
+/// Returns the Love string name for [mode].
 String _filterModeName(LoveGraphicsFilterMode mode) {
   return switch (mode) {
     LoveGraphicsFilterMode.linear => 'linear',
@@ -232,6 +248,7 @@ String _filterModeName(LoveGraphicsFilterMode mode) {
   };
 }
 
+/// Returns the Love string name for [mode].
 String _wrapModeName(LoveGraphicsWrapMode mode) {
   return switch (mode) {
     LoveGraphicsWrapMode.clamp => 'clamp',
@@ -241,6 +258,7 @@ String _wrapModeName(LoveGraphicsWrapMode mode) {
   };
 }
 
+/// Returns the Love string name for [mode].
 String _canvasMipmapModeName(LoveCanvasMipmapMode mode) {
   return switch (mode) {
     LoveCanvasMipmapMode.none => 'none',
@@ -249,6 +267,7 @@ String _canvasMipmapModeName(LoveCanvasMipmapMode mode) {
   };
 }
 
+/// Returns the Love string name for [mode].
 String _compareModeName(LoveGraphicsCompareMode mode) {
   return switch (mode) {
     LoveGraphicsCompareMode.equal => 'equal',
@@ -262,6 +281,7 @@ String _compareModeName(LoveGraphicsCompareMode mode) {
   };
 }
 
+/// Whether [format] names a depth-only or depth-stencil canvas format.
 bool _isDepthStencilFormat(String format) => switch (format) {
   'stencil8' ||
   'depth16' ||
@@ -272,6 +292,7 @@ bool _isDepthStencilFormat(String format) => switch (format) {
   _ => false,
 };
 
+/// Wraps filter settings as the standard multi-return Lua result.
 Value _filterResult(LoveGraphicsDefaultFilter filter) {
   return Value.multi(<Object?>[
     _filterModeName(filter.min),
@@ -280,6 +301,7 @@ Value _filterResult(LoveGraphicsDefaultFilter filter) {
   ]);
 }
 
+/// Wraps wrap settings as the standard multi-return Lua result.
 Value _wrapResult(LoveGraphicsWrap wrap) {
   return Value.multi(<Object?>[
     _wrapModeName(wrap.horizontal),
@@ -288,6 +310,7 @@ Value _wrapResult(LoveGraphicsWrap wrap) {
   ]);
 }
 
+/// Parses filter arguments into a [LoveGraphicsDefaultFilter].
 LoveGraphicsDefaultFilter _filterFromArgs(
   List<Object?> args,
   int startIndex,
@@ -308,6 +331,7 @@ LoveGraphicsDefaultFilter _filterFromArgs(
   );
 }
 
+/// Parses wrap arguments into a [LoveGraphicsWrap].
 LoveGraphicsWrap _wrapFromArgs(
   List<Object?> args,
   int startIndex,
@@ -331,6 +355,7 @@ LoveGraphicsWrap _wrapFromArgs(
   );
 }
 
+/// Validates a text alignment string.
 String _textAlign(String value, {String enumName = 'alignment'}) {
   return switch (value) {
     'left' || 'center' || 'right' || 'justify' => value,
@@ -341,6 +366,7 @@ String _textAlign(String value, {String enumName = 'alignment'}) {
   };
 }
 
+/// Returns the index where text payload arguments begin in draw text calls.
 int _graphicsTextArgumentStartIndex(List<Object?> args) {
   if (args.length < 2) {
     return 1;
@@ -349,6 +375,7 @@ int _graphicsTextArgumentStartIndex(List<Object?> args) {
   return _fontIfPresent(args[1]) != null ? 2 : 1;
 }
 
+/// Returns a table target or throws when [value] is not a Lua table.
 (Value, Map<dynamic, dynamic>)? _optionalTableTarget(Object? value) {
   final tableTarget = _tableTargetIfPresent(value);
   if (tableTarget != null) {
@@ -362,6 +389,7 @@ int _graphicsTextArgumentStartIndex(List<Object?> args) {
   throw LuaError('expected table argument');
 }
 
+/// Returns the wrapped and raw representations of a Lua table when present.
 (Value, Map<dynamic, dynamic>)? _tableTargetIfPresent(Object? value) {
   if (value == null) {
     return null;
@@ -378,10 +406,12 @@ int _graphicsTextArgumentStartIndex(List<Object?> args) {
   return null;
 }
 
+/// Returns the argument at [index] or `null` when it is missing.
 Object? _valueAt(List<Object?> args, int index) {
   return index < args.length ? args[index] : null;
 }
 
+/// Unwraps common Lua wrapper values to their raw Dart representation.
 Object? _rawValue(Object? value) {
   if (value is Value) {
     return value.unwrap();
@@ -392,6 +422,7 @@ Object? _rawValue(Object? value) {
   return value;
 }
 
+/// Returns a numeric argument or [defaultValue] when the argument is absent.
 double _optionalNumber(
   List<Object?> args,
   int index,
@@ -410,6 +441,7 @@ double _optionalNumber(
   throw LuaError('$symbol expected a number at argument ${index + 1}');
 }
 
+/// Returns a required numeric argument.
 double _requireNumber(List<Object?> args, int index, String symbol) {
   final raw = _rawValue(_valueAt(args, index));
   if (raw is num) {
@@ -419,10 +451,56 @@ double _requireNumber(List<Object?> args, int index, String symbol) {
   throw LuaError('$symbol expected a number at argument ${index + 1}');
 }
 
+String _callableNameFromSymbol(String symbol) {
+  final separatorIndex = math.max(
+    symbol.lastIndexOf('.'),
+    symbol.lastIndexOf(':'),
+  );
+  return separatorIndex >= 0 ? symbol.substring(separatorIndex + 1) : symbol;
+}
+
+/// Throws Lua's standard bad-argument text for an unexpected type.
+Never _throwLuaStyleTypeError({
+  required String symbol,
+  required int index,
+  required String expected,
+  required Object? actual,
+}) {
+  throw LuaError(
+    "bad argument #${index + 1} to '${_callableNameFromSymbol(symbol)}' "
+    "($expected expected, got ${_luaTypeName(actual)})",
+  );
+}
+
+/// Throws LOVE's released-object error.
+Never _throwReleasedObjectError() {
+  throw LuaError('Cannot use object after it has been released.');
+}
+
+/// Returns a required numeric argument using Lua's standard bad-argument text.
+double _requireLuaStyleNumber(List<Object?> args, int index, String symbol) {
+  final raw = _rawValue(_valueAt(args, index));
+  if (raw is num) {
+    return raw.toDouble();
+  }
+
+  throw LuaError(
+    "bad argument #${index + 1} to '${_callableNameFromSymbol(symbol)}' "
+    "(number expected, got ${NumberUtils.typeName(raw)})",
+  );
+}
+
+/// Returns a required numeric argument rounded to the nearest integer.
 int _requireRoundedInt(List<Object?> args, int index, String symbol) {
   return _requireNumber(args, index, symbol).round();
 }
 
+/// Returns a required rounded integer using Lua's standard bad-argument text.
+int _requireLuaStyleRoundedInt(List<Object?> args, int index, String symbol) {
+  return _requireLuaStyleNumber(args, index, symbol).round();
+}
+
+/// Returns a required string-like argument.
 String _requireString(List<Object?> args, int index, String symbol) {
   final stringValue = _stringLike(_valueAt(args, index));
   if (stringValue != null) {
@@ -432,6 +510,7 @@ String _requireString(List<Object?> args, int index, String symbol) {
   throw LuaError('$symbol expected a string at argument ${index + 1}');
 }
 
+/// Returns a required string or colored-text sequence as text spans.
 List<LoveTextSpan> _requireColoredTextSpans(
   List<Object?> args,
   int index,
@@ -451,6 +530,7 @@ List<LoveTextSpan> _requireColoredTextSpans(
   );
 }
 
+/// Returns a required boolean argument.
 bool _requireBoolean(List<Object?> args, int index, String symbol) {
   final raw = _rawValue(_valueAt(args, index));
   if (raw is bool) {
@@ -460,6 +540,7 @@ bool _requireBoolean(List<Object?> args, int index, String symbol) {
   throw LuaError('$symbol expected a boolean at argument ${index + 1}');
 }
 
+/// Returns a required callable argument.
 Value _requireCallable(List<Object?> args, int index, String symbol) {
   final raw = _valueAt(args, index);
   return switch (raw) {
@@ -470,6 +551,7 @@ Value _requireCallable(List<Object?> args, int index, String symbol) {
   };
 }
 
+/// Returns a wrapped [LoveFont] when [value] is a Font userdata table.
 LoveFont? _fontIfPresent(Object? value) {
   final raw = _rawValue(value);
   final table = switch (raw) {
@@ -485,6 +567,7 @@ LoveFont? _fontIfPresent(Object? value) {
   return font is LoveFont ? font : null;
 }
 
+/// Returns a wrapped [LoveTextDrawable] when [value] is a Text userdata table.
 LoveTextDrawable? _textDrawableIfPresent(Object? value) {
   final raw = _rawValue(value);
   final table = switch (raw) {
@@ -500,6 +583,7 @@ LoveTextDrawable? _textDrawableIfPresent(Object? value) {
   return text is LoveTextDrawable ? text : null;
 }
 
+/// Returns a wrapped [LoveImage] when [value] is an Image userdata table.
 LoveImage? _imageIfPresent(Object? value) {
   final raw = _rawValue(value);
   final table = switch (raw) {
@@ -515,11 +599,13 @@ LoveImage? _imageIfPresent(Object? value) {
   return image is LoveImage ? image : null;
 }
 
+/// Returns a wrapped [LoveCanvas] when [value] is a Canvas userdata table.
 LoveCanvas? _canvasIfPresent(Object? value) {
   final image = _imageIfPresent(value);
   return image is LoveCanvas ? image : null;
 }
 
+/// Returns wrapped [LoveImageData] when [value] is an ImageData userdata table.
 LoveImageData? _imageDataIfPresent(Object? value) {
   final raw = _rawValue(value);
   final table = switch (raw) {
@@ -535,6 +621,7 @@ LoveImageData? _imageDataIfPresent(Object? value) {
   return imageData is LoveImageData ? imageData : null;
 }
 
+/// Returns wrapped compressed image data when [value] uses that userdata table.
 LoveCompressedImageData? _compressedImageDataIfPresent(Object? value) {
   final raw = _rawValue(value);
   final table = switch (raw) {
@@ -550,6 +637,7 @@ LoveCompressedImageData? _compressedImageDataIfPresent(Object? value) {
   return imageData is LoveCompressedImageData ? imageData : null;
 }
 
+/// Returns a wrapped [LoveQuad] when [value] is a Quad userdata table.
 LoveQuad? _quadIfPresent(Object? value) {
   final raw = _rawValue(value);
   final table = switch (raw) {
@@ -565,6 +653,7 @@ LoveQuad? _quadIfPresent(Object? value) {
   return quad is LoveQuad ? quad : null;
 }
 
+/// Returns a wrapped [LoveTransform] when [value] is a Transform userdata table.
 LoveTransform? _transformIfPresent(Object? value) {
   final raw = _rawValue(value);
   final table = switch (raw) {
@@ -580,70 +669,129 @@ LoveTransform? _transformIfPresent(Object? value) {
   return transform is LoveTransform ? transform : null;
 }
 
+/// Returns a required Font receiver.
 LoveFont _requireFont(List<Object?> args, int index, String symbol) {
-  final font = _fontIfPresent(_valueAt(args, index));
+  final value = _valueAt(args, index);
+  final font = _fontIfPresent(value);
   if (font != null) {
+    if (_loveFontReleased[font] == true) {
+      _throwReleasedObjectError();
+    }
     return font;
   }
 
-  throw LuaError('$symbol expected a Font at argument ${index + 1}');
+  _throwLuaStyleTypeError(
+    symbol: symbol,
+    index: index,
+    expected: 'Font',
+    actual: value,
+  );
 }
 
+/// Returns a required Text receiver.
 LoveTextDrawable _requireTextDrawable(
   List<Object?> args,
   int index,
   String symbol,
 ) {
-  final text = _textDrawableIfPresent(_valueAt(args, index));
+  final value = _valueAt(args, index);
+  final text = _textDrawableIfPresent(value);
   if (text != null) {
+    if (_loveTextReleased[text] == true) {
+      _throwReleasedObjectError();
+    }
     return text;
   }
 
-  throw LuaError('$symbol expected a Text at argument ${index + 1}');
+  _throwLuaStyleTypeError(
+    symbol: symbol,
+    index: index,
+    expected: 'Text',
+    actual: value,
+  );
 }
 
+/// Returns a required Image receiver.
 LoveImage _requireImage(List<Object?> args, int index, String symbol) {
-  final image = _imageIfPresent(_valueAt(args, index));
+  final value = _valueAt(args, index);
+  final image = _imageIfPresent(value);
   if (image != null) {
+    if (_loveImageReleased[image] == true) {
+      _throwReleasedObjectError();
+    }
     return image;
   }
 
-  throw LuaError('$symbol expected an Image at argument ${index + 1}');
+  _throwLuaStyleTypeError(
+    symbol: symbol,
+    index: index,
+    expected: 'Image',
+    actual: value,
+  );
 }
 
+/// Returns a required Canvas receiver.
 LoveCanvas _requireCanvas(List<Object?> args, int index, String symbol) {
-  final canvas = _canvasIfPresent(_valueAt(args, index));
+  final value = _valueAt(args, index);
+  final canvas = _canvasIfPresent(value);
   if (canvas != null) {
+    if (_loveCanvasReleased[canvas] == true) {
+      _throwReleasedObjectError();
+    }
     return canvas;
   }
 
-  throw LuaError('$symbol expected a Canvas at argument ${index + 1}');
+  _throwLuaStyleTypeError(
+    symbol: symbol,
+    index: index,
+    expected: 'Canvas',
+    actual: value,
+  );
 }
 
+/// Returns required ImageData receiver.
 LoveImageData _requireImageData(List<Object?> args, int index, String symbol) {
-  final imageData = _imageDataIfPresent(_valueAt(args, index));
+  final value = _valueAt(args, index);
+  final imageData = _imageDataIfPresent(value);
   if (imageData != null) {
+    if (_loveDataReleased[imageData] == true) {
+      _throwReleasedObjectError();
+    }
     return imageData;
   }
 
-  throw LuaError('$symbol expected an ImageData at argument ${index + 1}');
+  _throwLuaStyleTypeError(
+    symbol: symbol,
+    index: index,
+    expected: 'ImageData',
+    actual: value,
+  );
 }
 
+/// Returns required CompressedImageData receiver.
 LoveCompressedImageData _requireCompressedImageData(
   List<Object?> args,
   int index,
   String symbol,
 ) {
-  final imageData = _compressedImageDataIfPresent(_valueAt(args, index));
+  final value = _valueAt(args, index);
+  final imageData = _compressedImageDataIfPresent(value);
   if (imageData != null) {
+    if (_loveDataReleased[imageData] == true) {
+      _throwReleasedObjectError();
+    }
     return imageData;
   }
 
-  throw LuaError(
-    '$symbol expected a CompressedImageData at argument ${index + 1}',
+  _throwLuaStyleTypeError(
+    symbol: symbol,
+    index: index,
+    expected: 'CompressedImageData',
+    actual: value,
   );
 }
 
+/// Returns a required Quad receiver.
 LoveQuad _requireQuad(List<Object?> args, int index, String symbol) {
   final quad = _quadIfPresent(_valueAt(args, index));
   if (quad != null) {
@@ -653,6 +801,7 @@ LoveQuad _requireQuad(List<Object?> args, int index, String symbol) {
   throw LuaError('$symbol expected a Quad at argument ${index + 1}');
 }
 
+/// Returns a required Transform receiver.
 LoveTransform _requireTransform(List<Object?> args, int index, String symbol) {
   final transform = _transformIfPresent(_valueAt(args, index));
   if (transform != null) {
@@ -662,6 +811,7 @@ LoveTransform _requireTransform(List<Object?> args, int index, String symbol) {
   throw LuaError('$symbol expected a Transform at argument ${index + 1}');
 }
 
+/// Returns a transform matrix from a receiver or from standard transform args.
 Matrix4 _matrixFromTransformArgumentOrStandardTransform(
   List<Object?> args,
   int index,
@@ -681,6 +831,7 @@ Matrix4 _matrixFromTransformArgumentOrStandardTransform(
   );
 }
 
+/// Resolves font constructor arguments to either a font or a loading future.
 Object _fontFromArgsOrFuture(
   LibraryRegistrationContext context,
   List<Object?> args,
@@ -835,6 +986,7 @@ Object _fontFromArgsOrFuture(
   }();
 }
 
+/// Resolves font constructor arguments to a [Future] of [LoveFont].
 Future<LoveFont> _loadFontFromArgs(
   LibraryRegistrationContext context,
   List<Object?> args,
@@ -852,6 +1004,7 @@ Future<LoveFont> _loadFontFromArgs(
       : Future<LoveFont>.value(fontOrFuture as LoveFont);
 }
 
+/// Validates that a requested TrueType size produces at least one pixel.
 void _validateTrueTypeFontSize(double size, double dpiScale) {
   final pixelSize = (size * dpiScale + 0.5).floor();
   if (pixelSize <= 0) {
@@ -859,6 +1012,7 @@ void _validateTrueTypeFontSize(double size, double dpiScale) {
   }
 }
 
+/// Parses an optional font hinting argument.
 String _optionalFontHintingArg(
   List<Object?> args,
   int index,
@@ -872,6 +1026,7 @@ String _optionalFontHintingArg(
   return _fontHinting(_requireString(args, index, symbol), symbol);
 }
 
+/// Parses an optional font size argument.
 double _optionalFontSizeArg(
   List<Object?> args,
   int index,
@@ -885,6 +1040,7 @@ double _optionalFontSizeArg(
   return _requireNumber(args, index, symbol);
 }
 
+/// Validates a TrueType hinting mode string.
 String _fontHinting(String value, String symbol) {
   return switch (value) {
     'normal' || 'light' || 'mono' || 'none' => value,
@@ -895,6 +1051,7 @@ String _fontHinting(String value, String symbol) {
   };
 }
 
+/// Parses an optional font DPI scale argument.
 double _optionalFontDpiScaleArg(
   List<Object?> args,
   int index,
@@ -908,11 +1065,13 @@ double _optionalFontDpiScaleArg(
   return _fontDpiScale(args, index, symbol);
 }
 
+/// Returns a numeric value when [value] is number-like.
 double? _numberIfPresent(Object? value) {
   final raw = _rawValue(value);
   return raw is num ? raw.toDouble() : null;
 }
 
+/// Parses an optional texture mipmap level.
 int _textureMipmapLevel(
   List<Object?> args,
   int index,
@@ -927,6 +1086,7 @@ int _textureMipmapLevel(
   return mipmap;
 }
 
+/// Parses a scissor rectangle from four numeric arguments.
 LoveScissorRect _scissorRectFromArgs(List<Object?> args, String symbol) {
   final x = _requireNumber(args, 0, symbol);
   final y = _requireNumber(args, 1, symbol);
@@ -939,6 +1099,7 @@ LoveScissorRect _scissorRectFromArgs(List<Object?> args, String symbol) {
   return LoveScissorRect(x: x, y: y, width: width, height: height);
 }
 
+/// Parses a matrix layout string and returns whether it is column-major.
 bool _matrixLayout(String value, String symbol) {
   return switch (value) {
     'row' => false,
@@ -947,6 +1108,7 @@ bool _matrixLayout(String value, String symbol) {
   };
 }
 
+/// Extracts 16 matrix elements from a flat or nested Lua table.
 List<double> _matrixElementsFromTable(
   Map<dynamic, dynamic> table, {
   required bool columnMajor,
@@ -1017,6 +1179,7 @@ List<double> _matrixElementsFromTable(
   return elements;
 }
 
+/// Builds a standard LÖVE transform matrix from positional arguments.
 Matrix4 _standardTransform(
   List<Object?> args,
   int index,
@@ -1080,11 +1243,13 @@ Matrix4 _standardTransform(
   return Matrix4(a, b, 0, 0, c, d, 0, 0, 0, 0, 1, 0, tx, ty, 0, 1);
 }
 
+/// Returns whether [value] is truthy using Lua semantics.
 bool _luaTruthy(Object? value) {
   final raw = _rawValue(value);
   return raw != null && raw != false;
 }
 
+/// Returns a boolean-like field from a Lua table.
 bool? _tableBool(Map<dynamic, dynamic> table, String key) {
   final entry = _tableEntry(table, key);
   if (entry == null) {
@@ -1094,6 +1259,7 @@ bool? _tableBool(Map<dynamic, dynamic> table, String key) {
   return _luaTruthy(entry);
 }
 
+/// Returns a rounded integer field from a Lua table.
 int? _tableRoundedInt(Map<dynamic, dynamic> table, String key) {
   final entry = _tableEntry(table, key);
   if (entry == null) {
@@ -1104,16 +1270,19 @@ int? _tableRoundedInt(Map<dynamic, dynamic> table, String key) {
   return raw is num ? raw.round() : null;
 }
 
+/// Returns a string-like field from a Lua table.
 String? _tableString(Map<dynamic, dynamic> table, String key) {
   return _stringLike(_tableEntry(table, key));
 }
 
+/// Returns whether a Lua table looks like a color tuple.
 bool _looksLikeColorTable(Map<dynamic, dynamic> table) {
   return _tableIndexedEntry(table, 1) != null &&
       _tableIndexedEntry(table, 2) != null &&
       _tableIndexedEntry(table, 3) != null;
 }
 
+/// Returns a numeric indexed field from a Lua table.
 double _tableIndexedNumber(
   Map<dynamic, dynamic> table,
   int index,
@@ -1136,6 +1305,7 @@ double _tableIndexedNumber(
   throw LuaError('$symbol expected a numeric color component at index $index');
 }
 
+/// Returns a named field from a Lua table using Lua-style string coercion.
 Object? _tableEntry(Map<dynamic, dynamic> table, String key) {
   if (table.containsKey(key)) {
     return table[key];
@@ -1150,6 +1320,7 @@ Object? _tableEntry(Map<dynamic, dynamic> table, String key) {
   return null;
 }
 
+/// Returns an indexed field from a Lua table using Lua numeric coercion rules.
 Object? _tableIndexedEntry(Map<dynamic, dynamic> table, int index) {
   if (table.containsKey(index)) {
     return table[index];
@@ -1170,6 +1341,7 @@ Object? _tableIndexedEntry(Map<dynamic, dynamic> table, int index) {
   return null;
 }
 
+/// Returns a string when [value] is string-like in Lua terms.
 String? _stringLike(Object? value) {
   return switch (_rawValue(value)) {
     final String stringValue => stringValue,
@@ -1178,6 +1350,7 @@ String? _stringLike(Object? value) {
   };
 }
 
+/// Parses a string or colored-text table into [LoveTextSpan] values.
 List<LoveTextSpan>? _coloredTextSpansIfPresent(
   Object? value, {
   required String symbol,
@@ -1233,6 +1406,7 @@ List<LoveTextSpan>? _coloredTextSpansIfPresent(
   return spans;
 }
 
+/// Parses coordinate pairs from positional arguments or from a Lua table.
 List<({double x, double y})> _coordinateSequence(
   List<Object?> args,
   String symbol,
@@ -1301,6 +1475,7 @@ List<({double x, double y})> _coordinateSequence(
   );
 }
 
+/// Parses points with optional per-point colors.
 List<({double x, double y, LoveColor? color})> _pointSequence(
   List<Object?> args,
   String symbol, {
@@ -1350,6 +1525,7 @@ List<({double x, double y, LoveColor? color})> _pointSequence(
       .toList(growable: false);
 }
 
+/// Returns the raw backing map when [value] is a Lua table.
 Map<dynamic, dynamic>? _tableIfPresent(Object? value) {
   final raw = _rawValue(value);
   return switch (raw) {
@@ -1358,10 +1534,17 @@ Map<dynamic, dynamic>? _tableIfPresent(Object? value) {
   };
 }
 
+/// Returns the original table identity when [value] is a Lua table wrapper.
 Map<dynamic, dynamic>? _tableIdentityIfPresent(Object? value) {
+  if (value case final Value wrapped) {
+    final raw = wrapped.raw;
+    return switch (raw) {
+      final Map<dynamic, dynamic> map => map,
+      _ => null,
+    };
+  }
+
   return switch (value) {
-    final Value wrapped when wrapped.raw is Map<dynamic, dynamic> =>
-      wrapped.raw as Map<dynamic, dynamic>,
     final Map<dynamic, dynamic> map => map,
     _ => null,
   };

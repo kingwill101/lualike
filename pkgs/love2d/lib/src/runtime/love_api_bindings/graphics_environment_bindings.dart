@@ -1,5 +1,6 @@
 part of '../love_api_bindings.dart';
 
+/// The LOVE graphics feature flags reported by `love.graphics.getSupported`.
 const Map<String, bool> _loveGraphicsSupportedFeatures = <String, bool>{
   // Mirrors the documented GraphicsFeature constants surfaced by
   // LOVE's wrap_Graphics.cpp w_getSupported helper.
@@ -13,6 +14,7 @@ const Map<String, bool> _loveGraphicsSupportedFeatures = <String, bool>{
   'shaderderivatives': true,
 };
 
+/// The LOVE graphics system limits reported by `love.graphics.getSystemLimits`.
 const Map<String, num> _loveGraphicsSystemLimits = <String, num>{
   // Mirrors the documented GraphicsLimit constants returned by
   // LOVE's wrap_Graphics.cpp w_getSystemLimits helper.
@@ -26,6 +28,7 @@ const Map<String, num> _loveGraphicsSystemLimits = <String, num>{
   'volumetexturesize': 256,
 };
 
+/// Binds `love.graphics.getDPIScale`.
 LoveApiImplementation _bindGraphicsGetDpiScale(
   LibraryRegistrationContext context,
 ) {
@@ -33,6 +36,7 @@ LoveApiImplementation _bindGraphicsGetDpiScale(
   return (args) => runtime.windowMetrics.dpiScale;
 }
 
+/// Binds `love.graphics.getPixelWidth`.
 LoveApiImplementation _bindGraphicsGetPixelWidth(
   LibraryRegistrationContext context,
 ) {
@@ -41,6 +45,7 @@ LoveApiImplementation _bindGraphicsGetPixelWidth(
       (runtime.windowMetrics.width * runtime.windowMetrics.dpiScale).round();
 }
 
+/// Binds `love.graphics.getPixelHeight`.
 LoveApiImplementation _bindGraphicsGetPixelHeight(
   LibraryRegistrationContext context,
 ) {
@@ -49,6 +54,9 @@ LoveApiImplementation _bindGraphicsGetPixelHeight(
       (runtime.windowMetrics.height * runtime.windowMetrics.dpiScale).round();
 }
 
+/// Binds `love.graphics.getPixelDimensions`.
+///
+/// The returned values match LOVE's `(pixelWidth, pixelHeight)` tuple.
 LoveApiImplementation _bindGraphicsGetPixelDimensions(
   LibraryRegistrationContext context,
 ) {
@@ -62,6 +70,9 @@ LoveApiImplementation _bindGraphicsGetPixelDimensions(
   };
 }
 
+/// Binds `love.graphics.getRendererInfo`.
+///
+/// The returned values match LOVE's `(name, version, vendor, device)` tuple.
 LoveApiImplementation _bindGraphicsGetRendererInfo(
   LibraryRegistrationContext context,
 ) {
@@ -74,6 +85,10 @@ LoveApiImplementation _bindGraphicsGetRendererInfo(
   ]);
 }
 
+/// Binds `love.graphics.getImageFormats`.
+///
+/// LOVE optionally accepts a destination table to populate, so this binding
+/// preserves that in-place fill behavior.
 LoveApiImplementation _bindGraphicsGetImageFormats(
   LibraryRegistrationContext context,
 ) {
@@ -87,6 +102,10 @@ LoveApiImplementation _bindGraphicsGetImageFormats(
   };
 }
 
+/// Binds `love.graphics.getSupported`.
+///
+/// LOVE optionally accepts a destination table to populate, so this binding
+/// preserves that in-place fill behavior.
 LoveApiImplementation _bindGraphicsGetSupported(
   LibraryRegistrationContext context,
 ) {
@@ -100,6 +119,10 @@ LoveApiImplementation _bindGraphicsGetSupported(
   };
 }
 
+/// Binds `love.graphics.getSystemLimits`.
+///
+/// LOVE optionally accepts a destination table to populate, so this binding
+/// preserves that in-place fill behavior.
 LoveApiImplementation _bindGraphicsGetSystemLimits(
   LibraryRegistrationContext context,
 ) {
@@ -113,6 +136,10 @@ LoveApiImplementation _bindGraphicsGetSystemLimits(
   };
 }
 
+/// Binds `love.graphics.getStats`.
+///
+/// LOVE optionally accepts a destination table to populate, so this binding
+/// forwards that table to the runtime stats collector when present.
 LoveApiImplementation _bindGraphicsGetStats(
   LibraryRegistrationContext context,
 ) {
@@ -124,6 +151,10 @@ LoveApiImplementation _bindGraphicsGetStats(
   };
 }
 
+/// Copies key-value pairs from [source] into a LOVE info table.
+///
+/// When [target] is provided, this mutates it in place to match LOVE's optional
+/// destination-table convention.
 Map<dynamic, dynamic> _fillGraphicsInfoTable<T extends Object>({
   required Map<String, T> source,
   Map<dynamic, dynamic>? target,

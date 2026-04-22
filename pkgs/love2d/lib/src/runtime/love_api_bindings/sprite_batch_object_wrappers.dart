@@ -1,15 +1,47 @@
 part of '../love_api_bindings.dart';
 
+const String _loveSpriteBatchReleasedWrapperKey =
+    '__love2d_sprite_batch_released__';
+
+final Expando<bool> _loveSpriteBatchReleased = Expando<bool>(
+  'love2dSpriteBatchReleased',
+);
+
+Map<dynamic, dynamic>? _spriteBatchWrapperTableIfPresent(Object? value) {
+  final table = _tableIdentityIfPresent(value);
+  if (table == null) {
+    return null;
+  }
+
+  final spriteBatch = table[_loveSpriteBatchObjectKey];
+  if (spriteBatch is LoveSpriteBatch ||
+      table[_loveSpriteBatchReleasedWrapperKey] == true) {
+    return table;
+  }
+
+  return null;
+}
+
+bool _spriteBatchWrapperReleased(Object? value) {
+  final table = _spriteBatchWrapperTableIfPresent(value);
+  return table?[_loveSpriteBatchReleasedWrapperKey] == true;
+}
+
+/// Wraps [spriteBatch] in the Lua-facing `SpriteBatch` object table.
+///
+/// The returned table exposes LOVE 11.5 batch mutation and inspection methods
+/// while preserving wrapper identity through the shared sprite-batch cache.
 Value _wrapSpriteBatch(
   LibraryRegistrationContext context,
   LoveSpriteBatch spriteBatch,
 ) {
   final cached = _loveSpriteBatchWrapperCache[spriteBatch];
-  if (cached != null) {
+  if (cached != null && _spriteBatchWrapperTableIfPresent(cached) != null) {
     return cached;
   }
 
   final builder = BuiltinFunctionBuilder(context);
+  const hierarchy = <String>{'SpriteBatch', 'Drawable', 'Object'};
 
   final table = ValueClass.table(<Object?, Object?>{
     _loveSpriteBatchObjectKey: spriteBatch,
@@ -132,7 +164,34 @@ Value _wrapSpriteBatch(
       }),
       functionName: 'getTexture',
     ),
-    'release': Value(builder.create((args) => null), functionName: 'release'),
+    'release': Value(
+      builder.create((args) {
+        final receiver = _valueAt(args, 0);
+        final table = _spriteBatchWrapperTableIfPresent(receiver);
+        if (table == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:release',
+            index: 0,
+            expected: 'SpriteBatch',
+            actual: receiver,
+          );
+        }
+
+        final spriteBatch = table[_loveSpriteBatchObjectKey];
+        if (spriteBatch is! LoveSpriteBatch) {
+          return false;
+        }
+        if (_loveSpriteBatchReleased[spriteBatch] == true) {
+          return false;
+        }
+
+        _loveSpriteBatchReleased[spriteBatch] = true;
+        table[_loveSpriteBatchReleasedWrapperKey] = true;
+        table[_loveSpriteBatchObjectKey] = null;
+        return true;
+      }),
+      functionName: 'release',
+    ),
     'set': Value(
       builder.create((args) {
         final spriteBatch = _requireSpriteBatch(args, 0, 'SpriteBatch:set');
@@ -232,13 +291,33 @@ Value _wrapSpriteBatch(
       functionName: 'setTexture',
     ),
     'type': Value(
-      builder.create((args) => 'SpriteBatch'),
+      builder.create((args) {
+        final receiver = _valueAt(args, 0);
+        if (_spriteBatchWrapperTableIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:type',
+            index: 0,
+            expected: 'SpriteBatch',
+            actual: receiver,
+          );
+        }
+        return 'SpriteBatch';
+      }),
       functionName: 'type',
     ),
     'typeOf': Value(
       builder.create((args) {
-        final name = _requireString(args, 1, 'SpriteBatch:typeOf');
-        return name == 'SpriteBatch' || name == 'Drawable' || name == 'Object';
+        final receiver = _valueAt(args, 0);
+        if (_spriteBatchWrapperTableIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:typeOf',
+            index: 0,
+            expected: 'SpriteBatch',
+            actual: receiver,
+          );
+        }
+        final name = _requireString(args, 1, 'Object:typeOf');
+        return hierarchy.contains(name);
       }),
       functionName: 'typeOf',
     ),

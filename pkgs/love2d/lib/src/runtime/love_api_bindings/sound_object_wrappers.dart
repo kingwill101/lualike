@@ -1,5 +1,30 @@
 part of '../love_api_bindings.dart';
 
+const String _loveDecoderReleasedWrapperKey = '__love2d_decoder_released__';
+
+/// Returns the Lua wrapper table for a `Decoder`, including released wrappers.
+Map<dynamic, dynamic>? _decoderWrapperTableIfPresent(Object? value) {
+  final table = _tableIdentityIfPresent(value);
+  if (table == null) {
+    return null;
+  }
+
+  final decoder = table[_loveDecoderObjectKey];
+  if (decoder is LoveSoundDecoder ||
+      table[_loveDecoderReleasedWrapperKey] == true) {
+    return table;
+  }
+
+  return null;
+}
+
+/// Returns whether [value] is a released `Decoder` wrapper.
+bool _decoderWrapperReleased(Object? value) {
+  final table = _decoderWrapperTableIfPresent(value);
+  return table?[_loveDecoderReleasedWrapperKey] == true;
+}
+
+/// Returns wrapped [LoveSoundData] when [value] is a SoundData table.
 LoveSoundData? _soundDataIfPresent(Object? value) {
   final table = _tableIfPresent(value);
   if (table == null) {
@@ -10,6 +35,7 @@ LoveSoundData? _soundDataIfPresent(Object? value) {
   return data is LoveSoundData ? data : null;
 }
 
+/// Returns wrapped [LoveSoundDecoder] when [value] is a Decoder table.
 LoveSoundDecoder? _decoderIfPresent(Object? value) {
   final table = _tableIfPresent(value);
   if (table == null) {
@@ -20,24 +46,46 @@ LoveSoundDecoder? _decoderIfPresent(Object? value) {
   return decoder is LoveSoundDecoder ? decoder : null;
 }
 
+/// Returns a required `SoundData` receiver.
 LoveSoundData _requireSoundData(List<Object?> args, int index, String symbol) {
-  final data = _soundDataIfPresent(_valueAt(args, index));
+  final value = _valueAt(args, index);
+  final data = _soundDataIfPresent(value);
   if (data != null) {
+    if (_loveDataReleased[data] == true) {
+      _throwReleasedObjectError();
+    }
     return data;
   }
 
-  throw LuaError('$symbol expected a SoundData at argument ${index + 1}');
+  _throwLuaStyleTypeError(
+    symbol: symbol,
+    index: index,
+    expected: 'SoundData',
+    actual: value,
+  );
 }
 
+/// Returns a required `Decoder` receiver.
 LoveSoundDecoder _requireDecoder(List<Object?> args, int index, String symbol) {
-  final decoder = _decoderIfPresent(_valueAt(args, index));
+  final value = _valueAt(args, index);
+  if (_decoderWrapperReleased(value)) {
+    _throwReleasedObjectError();
+  }
+
+  final decoder = _decoderIfPresent(value);
   if (decoder != null) {
     return decoder;
   }
 
-  throw LuaError('$symbol expected a Decoder at argument ${index + 1}');
+  _throwLuaStyleTypeError(
+    symbol: symbol,
+    index: index,
+    expected: 'Decoder',
+    actual: value,
+  );
 }
 
+/// Wraps [data] as a Lua-facing `SoundData` object table.
 Value _wrapSoundData(LibraryRegistrationContext context, LoveSoundData data) {
   final cached = _loveSoundDataWrapperCache[data];
   if (cached != null) {
@@ -149,12 +197,13 @@ Value _wrapSoundData(LibraryRegistrationContext context, LoveSoundData data) {
   return table;
 }
 
+/// Wraps [decoder] as a Lua-facing `Decoder` object table.
 Value _wrapDecoder(
   LibraryRegistrationContext context,
   LoveSoundDecoder decoder,
 ) {
   final cached = _loveDecoderWrapperCache[decoder];
-  if (cached != null) {
+  if (cached != null && _decoderIfPresent(cached) != null) {
     return cached;
   }
 
@@ -214,12 +263,28 @@ Value _wrapDecoder(
     ),
     'release': Value(
       builder.create((args) {
-        final decoder = _requireDecoder(args, 0, 'Object:release');
+        final receiver = _valueAt(args, 0);
+        final table = _decoderWrapperTableIfPresent(receiver);
+        if (table == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:release',
+            index: 0,
+            expected: 'Decoder',
+            actual: receiver,
+          );
+        }
+
+        final decoder = table[_loveDecoderObjectKey];
+        if (decoder is! LoveSoundDecoder) {
+          return false;
+        }
         if (_loveDecoderReleased[decoder] == true) {
           return false;
         }
 
         _loveDecoderReleased[decoder] = true;
+        table[_loveDecoderReleasedWrapperKey] = true;
+        table[_loveDecoderObjectKey] = null;
         return true;
       }),
       functionName: 'release',
@@ -240,9 +305,32 @@ Value _wrapDecoder(
       }),
       functionName: 'seek',
     ),
-    'type': Value(builder.create((args) => 'Decoder'), functionName: 'type'),
+    'type': Value(
+      builder.create((args) {
+        final receiver = _valueAt(args, 0);
+        if (_decoderWrapperTableIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:type',
+            index: 0,
+            expected: 'Decoder',
+            actual: receiver,
+          );
+        }
+        return 'Decoder';
+      }),
+      functionName: 'type',
+    ),
     'typeOf': Value(
       builder.create((args) {
+        final receiver = _valueAt(args, 0);
+        if (_decoderWrapperTableIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:typeOf',
+            index: 0,
+            expected: 'Decoder',
+            actual: receiver,
+          );
+        }
         final queried = _requireString(args, 1, 'Object:typeOf');
         return hierarchy.contains(queried);
       }),
@@ -253,10 +341,12 @@ Value _wrapDecoder(
   return table;
 }
 
+/// Converts a Lua sample index argument to the integer form used internally.
 int _soundSampleIndex(List<Object?> args, int index, String symbol) {
   return _requireNumber(args, index, symbol).floor();
 }
 
+/// Rewraps sound-domain [ArgumentError] failures as [LuaError].
 T _soundGuard<T>(T Function() callback) {
   try {
     return callback();

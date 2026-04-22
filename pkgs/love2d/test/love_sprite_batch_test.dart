@@ -1,43 +1,44 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
+import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('SpriteBatch', () {
     test('add/set/getters follow LOVE-like SpriteBatch behavior', () async {
       final runtime = _newRuntime();
       final image = await _newTestImage(runtime);
-      final quad = await _call(
+      final quad = await luaCall(
         runtime,
         const ['love', 'graphics', 'newQuad'],
         <Object?>[0.0, 0.0, 8.0, 8.0, image],
       );
-      final spriteBatch = await _call(
+      final spriteBatch = await luaCall(
         runtime,
         const ['love', 'graphics', 'newSpriteBatch'],
         <Object?>[image, 2],
       );
 
-      expect(await _callMethod(spriteBatch!, 'getBufferSize'), 2);
-      expect(await _callMethod(spriteBatch, 'getCount'), 0);
-      expect(await _callMethod(spriteBatch, 'getColor'), isNull);
+      expect(await luaCallMethod(spriteBatch!, 'getBufferSize'), 2);
+      expect(await luaCallMethod(spriteBatch, 'getCount'), 0);
+      expect(await luaCallMethod(spriteBatch, 'getColor'), isNull);
 
-      await _callMethod(spriteBatch, 'setColor', <Object?>[
+      await luaCallMethod(spriteBatch, 'setColor', <Object?>[
         1.0,
         0.5,
         0.25,
         0.75,
       ]);
-      expect(await _callMethod(spriteBatch, 'getColor'), <Object?>[
+      expect(await luaCallMethod(spriteBatch, 'getColor'), <Object?>[
         1.0,
         0.5,
         0.25,
         0.75,
       ]);
 
-      expect(await _callMethod(spriteBatch, 'add', <Object?>[4.0, 6.0]), 1);
+      expect(await luaCallMethod(spriteBatch, 'add', <Object?>[4.0, 6.0]), 1);
       expect(
-        await _callMethod(spriteBatch, 'add', <Object?>[
+        await luaCallMethod(spriteBatch, 'add', <Object?>[
           quad,
           10.0,
           12.0,
@@ -52,19 +53,19 @@ void main() {
         2,
       );
 
-      await _callMethod(spriteBatch, 'setColor');
-      expect(await _callMethod(spriteBatch, 'add', <Object?>[18.0, 20.0]), 3);
-      expect(await _callMethod(spriteBatch, 'getColor'), isNull);
-      expect(await _callMethod(spriteBatch, 'getCount'), 3);
-      expect(await _callMethod(spriteBatch, 'getBufferSize'), 4);
+      await luaCallMethod(spriteBatch, 'setColor');
+      expect(await luaCallMethod(spriteBatch, 'add', <Object?>[18.0, 20.0]), 3);
+      expect(await luaCallMethod(spriteBatch, 'getColor'), isNull);
+      expect(await luaCallMethod(spriteBatch, 'getCount'), 3);
+      expect(await luaCallMethod(spriteBatch, 'getBufferSize'), 4);
 
-      await _callMethod(spriteBatch, 'setDrawRange', <Object?>[2, 2]);
-      expect(await _callMethod(spriteBatch, 'getDrawRange'), <Object?>[2, 2]);
+      await luaCallMethod(spriteBatch, 'setDrawRange', <Object?>[2, 2]);
+      expect(await luaCallMethod(spriteBatch, 'getDrawRange'), <Object?>[2, 2]);
 
-      await _callMethod(spriteBatch, 'set', <Object?>[1, 2.0, 4.0]);
-      expect(await _callMethod(spriteBatch, 'type'), 'SpriteBatch');
+      await luaCallMethod(spriteBatch, 'set', <Object?>[1, 2.0, 4.0]);
+      expect(await luaCallMethod(spriteBatch, 'type'), 'SpriteBatch');
       expect(
-        await _callMethod(spriteBatch, 'typeOf', <Object?>['Drawable']),
+        await luaCallMethod(spriteBatch, 'typeOf', <Object?>['Drawable']),
         isTrue,
       );
     });
@@ -75,31 +76,31 @@ void main() {
         final host = LoveHeadlessHost();
         final runtime = _newRuntime(host: host);
         final image = await _newTestImage(runtime);
-        final quad = await _call(
+        final quad = await luaCall(
           runtime,
           const ['love', 'graphics', 'newQuad'],
           <Object?>[0.0, 0.0, 8.0, 8.0, image],
         );
-        final spriteBatch = await _call(
+        final spriteBatch = await luaCall(
           runtime,
           const ['love', 'graphics', 'newSpriteBatch'],
           <Object?>[image, 2],
         );
 
-        await _callMethod(spriteBatch!, 'setColor', <Object?>[
+        await luaCallMethod(spriteBatch!, 'setColor', <Object?>[
           0.2,
           0.8,
           1.0,
           0.5,
         ]);
-        await _callMethod(spriteBatch, 'add', <Object?>[4.0, 6.0]);
-        await _callMethod(spriteBatch, 'add', <Object?>[quad, 10.0, 12.0]);
-        await _callMethod(spriteBatch, 'setColor');
-        await _callMethod(spriteBatch, 'add', <Object?>[18.0, 20.0]);
-        await _callMethod(spriteBatch, 'setDrawRange', <Object?>[2, 2]);
+        await luaCallMethod(spriteBatch, 'add', <Object?>[4.0, 6.0]);
+        await luaCallMethod(spriteBatch, 'add', <Object?>[quad, 10.0, 12.0]);
+        await luaCallMethod(spriteBatch, 'setColor');
+        await luaCallMethod(spriteBatch, 'add', <Object?>[18.0, 20.0]);
+        await luaCallMethod(spriteBatch, 'setDrawRange', <Object?>[2, 2]);
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[spriteBatch, 30.0, 40.0],
@@ -122,24 +123,24 @@ void main() {
         final host = LoveHeadlessHost();
         final runtime = _newRuntime(host: host);
         final image = await _newTestImage(runtime);
-        final canvas = await _call(
+        final canvas = await luaCall(
           runtime,
           const ['love', 'graphics', 'newCanvas'],
           <Object?>[16, 16],
         );
-        final spriteBatch = await _call(
+        final spriteBatch = await luaCall(
           runtime,
           const ['love', 'graphics', 'newSpriteBatch'],
           <Object?>[image, 1],
         );
 
-        await _callMethod(spriteBatch!, 'setTexture', <Object?>[canvas]);
-        final texture = await _callMethod(spriteBatch, 'getTexture');
-        expect(await _callMethod(texture!, 'getWidth'), 16);
+        await luaCallMethod(spriteBatch!, 'setTexture', <Object?>[canvas]);
+        final texture = await luaCallMethod(spriteBatch, 'getTexture');
+        expect(await luaCallMethod(texture!, 'getWidth'), 16);
 
-        await _callMethod(spriteBatch, 'add', <Object?>[0.0, 0.0]);
+        await luaCallMethod(spriteBatch, 'add', <Object?>[0.0, 0.0]);
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[spriteBatch],
@@ -159,72 +160,14 @@ Interpreter _newRuntime({LoveHost? host}) {
 }
 
 Future<Object?> _newTestImage(Interpreter runtime) async {
-  final imageData = await _call(
+  final imageData = await luaCall(
     runtime,
     const ['love', 'image', 'newImageData'],
     <Object?>[16, 16],
   );
-  return _call(
+  return luaCall(
     runtime,
     const ['love', 'graphics', 'newImage'],
     <Object?>[imageData],
   );
 }
-
-Future<Object?> _call(
-  Interpreter runtime,
-  List<String> path, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(_rawFunction(runtime, path).call(args));
-}
-
-Future<Object?> _callMethod(
-  Object object,
-  String method, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  final table = object is Value ? object.raw : object;
-  expect(table, isA<Map>());
-
-  final methodValue = (table as Map)[method];
-  final callable = switch (methodValue) {
-    final Value value => value.raw,
-    final BuiltinFunction function => function,
-    _ => methodValue,
-  };
-  expect(callable, isA<BuiltinFunction>());
-  return _resolveCallResult(
-    (callable as BuiltinFunction).call(<Object?>[object, ...args]),
-  );
-}
-
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> path) {
-  var current = runtime.getCurrentEnv().get(path.first);
-  for (final segment in path.skip(1)) {
-    final table = current is Value ? current.raw : current;
-    expect(
-      table,
-      isA<Map>(),
-      reason: 'Expected ${path.join('.')} to traverse a Lua table',
-    );
-    current = (table as Map)[segment];
-  }
-
-  expect(current, isA<Value>());
-  final raw = (current! as Value).raw;
-  expect(raw, isA<BuiltinFunction>());
-  return raw as BuiltinFunction;
-}
-
-Future<Object?> _resolveCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return (wrapped.raw as List<Object?>).map(_unwrap).toList(growable: false);
-  }
-
-  return _unwrap(resolved);
-}
-
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;

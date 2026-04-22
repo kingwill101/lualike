@@ -1,11 +1,14 @@
 part of 'love_filesystem_runtime.dart';
 
+/// Rebinds adapter-dependent mount roots after filesystem configuration changes.
 extension _LoveFilesystemMountRebinding on LoveFilesystemState {
+  /// Ensures adapter-dependent source and string-mount roots are up to date.
   Future<void> _ensureAdapterBoundRoots() async {
     await _ensureSourceRootForCurrentAdapter();
     await _ensureStringMountRootsForCurrentAdapter();
   }
 
+  /// Ensures the current source root has been rebound for the active adapter.
   Future<void> _ensureSourceRootForCurrentAdapter() async {
     final inFlight = _sourceRootRebindFuture;
     if (inFlight != null) {
@@ -28,6 +31,7 @@ extension _LoveFilesystemMountRebinding on LoveFilesystemState {
     }
   }
 
+  /// Rebuilds the mounted `__source__` root for the active adapter.
   Future<void> _rebindSourceRootForCurrentAdapter() async {
     _sourceRootDirty = false;
 
@@ -50,6 +54,7 @@ extension _LoveFilesystemMountRebinding on LoveFilesystemState {
     _replaceRoot(root, append: true);
   }
 
+  /// Resolves the correct `__source__` root for the active adapter.
   Future<_LoveFilesystemRoot?> _sourceRootForCurrentAdapter(
     String normalizedSource,
   ) async {
@@ -71,6 +76,7 @@ extension _LoveFilesystemMountRebinding on LoveFilesystemState {
     );
   }
 
+  /// Ensures recorded string mounts have been rebound for the active adapter.
   Future<void> _ensureStringMountRootsForCurrentAdapter() async {
     final inFlight = _stringMountRootRebindFuture;
     if (inFlight != null) {
@@ -93,6 +99,7 @@ extension _LoveFilesystemMountRebinding on LoveFilesystemState {
     }
   }
 
+  /// Rebuilds every recorded string mount for the active adapter.
   Future<void> _rebindStringMountRootsForCurrentAdapter() async {
     _stringMountRootsDirty = false;
 
@@ -133,6 +140,7 @@ extension _LoveFilesystemMountRebinding on LoveFilesystemState {
     }
   }
 
+  /// Rebuilds the mounted root described by [spec] for the active adapter.
   Future<_LoveFilesystemRoot?> _stringMountRootForCurrentAdapter(
     _LoveFilesystemStringMountSpec spec,
   ) async {
@@ -178,6 +186,7 @@ extension _LoveFilesystemMountRebinding on LoveFilesystemState {
     );
   }
 
+  /// The insertion index used when replaying a recorded string mount.
   int _stringMountRestoreIndex(_LoveFilesystemStringMountSpec spec) {
     final index = spec.lastKnownIndex;
     if (index == null) {

@@ -1,5 +1,6 @@
 part of '../love_api_bindings.dart';
 
+/// Returns the filesystem state used to resolve mounted resource paths.
 LoveFilesystemState _filesystemStateForResource(
   LibraryContext context,
   String symbol,
@@ -12,10 +13,12 @@ LoveFilesystemState _filesystemStateForResource(
   return LoveFilesystemState.of(interpreter);
 }
 
+/// Returns the standard LÖVE error for a missing resource file.
 LuaError _missingResourceFileError(String filename) {
   return LuaError('Could not open file $filename. Does not exist.');
 }
 
+/// Writes [bytes] to [filename] or rethrows filesystem errors as [LuaError].
 Future<void> _writeResourceBytesOrThrow(
   LibraryContext context,
   String filename,
@@ -32,6 +35,7 @@ Future<void> _writeResourceBytesOrThrow(
   }
 }
 
+/// Reads mounted file data for [source] when it exists.
 Future<LoveFilesystemFileData?> _readMountedResourceFileData(
   LibraryRegistrationContext context,
   String source, {
@@ -47,6 +51,7 @@ Future<LoveFilesystemFileData?> _readMountedResourceFileData(
   }
 }
 
+/// Tries to coerce [source] through `love.filesystem.newFileData`.
 Future<LoveFilesystemFileData?> _coerceResourceFileDataViaFilesystem(
   LibraryRegistrationContext context,
   Object? source,
@@ -105,6 +110,7 @@ Future<LoveFilesystemFileData?> _coerceResourceFileDataViaFilesystem(
   return null;
 }
 
+/// Returns resource file data for [source] or throws a Lua-facing type error.
 Future<LoveFilesystemFileData> _requireResourceFileData(
   LibraryRegistrationContext context,
   Object? source,
@@ -120,6 +126,7 @@ Future<LoveFilesystemFileData> _requireResourceFileData(
   throw LuaError('$symbol expected $expectedKinds at argument $argumentIndex');
 }
 
+/// Returns resource file data for [source] when it can be resolved.
 Future<LoveFilesystemFileData?> _resourceFileDataIfPresent(
   LibraryRegistrationContext context,
   Object? source,
@@ -147,6 +154,7 @@ Future<LoveFilesystemFileData?> _resourceFileDataIfPresent(
   return _coerceResourceFileDataViaFilesystem(context, source, symbol);
 }
 
+/// Resolves a source object to its mounted or synthesized resource path.
 Future<String?> _resolveResourceSourcePath(
   LibraryRegistrationContext context,
   Object? source, {

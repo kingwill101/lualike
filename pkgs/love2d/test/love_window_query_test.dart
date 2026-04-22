@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
+import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.window query bindings', () {
@@ -44,11 +45,11 @@ void main() {
       installLove2d(runtime: runtime, host: host);
 
       expect(
-        await _call(runtime, const ['love', 'window', 'getDisplayCount']),
+        await luaCall(runtime, const ['love', 'window', 'getDisplayCount']),
         2,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'window', 'getDisplayName'],
           const <Object?>[2],
@@ -56,11 +57,15 @@ void main() {
         'External Monitor',
       );
       expect(
-        await _call(runtime, const ['love', 'window', 'getDisplayOrientation']),
+        await luaCall(runtime, const [
+          'love',
+          'window',
+          'getDisplayOrientation',
+        ]),
         'landscape',
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'window', 'getDisplayOrientation'],
           const <Object?>[1],
@@ -68,11 +73,15 @@ void main() {
         'portrait',
       );
       expect(
-        await _call(runtime, const ['love', 'window', 'getDesktopDimensions']),
+        await luaCall(runtime, const [
+          'love',
+          'window',
+          'getDesktopDimensions',
+        ]),
         <Object?>[1920, 1080],
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'window', 'getDesktopDimensions'],
           const <Object?>[1],
@@ -80,7 +89,7 @@ void main() {
         <Object?>[1080, 1920],
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'window', 'getDesktopDimensions'],
           const <Object?>[2],
@@ -88,32 +97,39 @@ void main() {
         <Object?>[1920, 1080],
       );
       expect(
-        await _call(runtime, const ['love', 'window', 'getFullscreen']),
+        await luaCall(runtime, const ['love', 'window', 'getFullscreen']),
         <Object?>[true, 'exclusive'],
       );
       expect(
-        await _call(runtime, const ['love', 'window', 'getFullscreenModes']),
+        await luaCall(runtime, const ['love', 'window', 'getFullscreenModes']),
         <Object?, Object?>{
           1: <Object?, Object?>{'width': 1920, 'height': 1080},
           2: <Object?, Object?>{'width': 1280, 'height': 720},
         },
       );
       expect(
-        await _call(runtime, const ['love', 'window', 'getPosition']),
+        await luaCall(runtime, const ['love', 'window', 'getPosition']),
         <Object?>[144, 288, 2],
       );
       expect(
-        await _call(runtime, const ['love', 'window', 'getSafeArea']),
+        await luaCall(runtime, const ['love', 'window', 'getSafeArea']),
         <Object?>[10.0, 20.0, 640.0, 360.0],
       );
-      expect(await _call(runtime, const ['love', 'window', 'getVSync']), 0);
+      expect(await luaCall(runtime, const ['love', 'window', 'getVSync']), 0);
       expect(
-        await _call(runtime, const ['love', 'window', 'isDisplaySleepEnabled']),
+        await luaCall(runtime, const [
+          'love',
+          'window',
+          'isDisplaySleepEnabled',
+        ]),
         isTrue,
       );
-      expect(await _call(runtime, const ['love', 'window', 'isOpen']), isTrue);
       expect(
-        await _call(runtime, const ['love', 'window', 'isVisible']),
+        await luaCall(runtime, const ['love', 'window', 'isOpen']),
+        isTrue,
+      );
+      expect(
+        await luaCall(runtime, const ['love', 'window', 'isVisible']),
         isFalse,
       );
     });
@@ -132,7 +148,7 @@ void main() {
         installLove2d(runtime: runtime, host: host);
 
         expect(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'window', 'setFullscreen'],
             const <Object?>[true, 'normal'],
@@ -142,12 +158,12 @@ void main() {
         expect(host.windowMetrics.fullscreen, isTrue);
         expect(host.windowMetrics.fullscreenType, 'normal');
         expect(
-          await _call(runtime, const ['love', 'window', 'getFullscreen']),
+          await luaCall(runtime, const ['love', 'window', 'getFullscreen']),
           <Object?>[true, 'normal'],
         );
 
         expect(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'window', 'setFullscreen'],
             const <Object?>[false],
@@ -168,7 +184,7 @@ void main() {
       installLove2d(runtime: runtime, host: host);
 
       expect(
-        await _call(runtime, const ['love', 'window', 'getSafeArea']),
+        await luaCall(runtime, const ['love', 'window', 'getSafeArea']),
         <Object?>[0.0, 0.0, 320.0, 240.0],
       );
     });
@@ -200,7 +216,7 @@ void main() {
         installLove2d(runtime: runtime, host: host);
 
         expect(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'window', 'getDisplayOrientation'],
             const <Object?>[1],
@@ -208,7 +224,7 @@ void main() {
           'portraitflipped',
         );
         expect(
-          await _call(runtime, const [
+          await luaCall(runtime, const [
             'love',
             'window',
             'getDisplayOrientation',
@@ -227,11 +243,11 @@ void main() {
       installLove2d(runtime: runtime, host: host);
 
       expect(
-        await _call(runtime, const ['love', 'window', 'getDPIScale']),
+        await luaCall(runtime, const ['love', 'window', 'getDPIScale']),
         2.0,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'window', 'toPixels'],
           const <Object?>[12.5],
@@ -239,7 +255,7 @@ void main() {
         25.0,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'window', 'fromPixels'],
           const <Object?>[25.0],
@@ -254,17 +270,23 @@ void main() {
 
       installLove2d(runtime: runtime, host: host);
 
-      expect(await _call(runtime, const ['love', 'window', 'isOpen']), isTrue);
       expect(
-        await _call(runtime, const ['love', 'window', 'isVisible']),
+        await luaCall(runtime, const ['love', 'window', 'isOpen']),
+        isTrue,
+      );
+      expect(
+        await luaCall(runtime, const ['love', 'window', 'isVisible']),
         isTrue,
       );
 
-      await _call(runtime, const ['love', 'window', 'close']);
+      await luaCall(runtime, const ['love', 'window', 'close']);
 
-      expect(await _call(runtime, const ['love', 'window', 'isOpen']), isFalse);
       expect(
-        await _call(runtime, const ['love', 'window', 'isVisible']),
+        await luaCall(runtime, const ['love', 'window', 'isOpen']),
+        isFalse,
+      );
+      expect(
+        await luaCall(runtime, const ['love', 'window', 'isVisible']),
         isFalse,
       );
     });
@@ -284,7 +306,7 @@ void main() {
 
         installLove2d(runtime: runtime, host: host);
 
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'window', 'setPosition'],
           const <Object?>[90, 120, 2],
@@ -293,18 +315,18 @@ void main() {
         expect(host.windowMetrics.y, 120);
         expect(host.windowMetrics.display, 2);
         expect(
-          await _call(runtime, const ['love', 'window', 'getPosition']),
+          await luaCall(runtime, const ['love', 'window', 'getPosition']),
           <Object?>[90, 120, 2],
         );
 
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'window', 'setDisplaySleepEnabled'],
           const <Object?>[false],
         );
         expect(host.windowMetrics.displaySleepEnabled, isFalse);
         expect(
-          await _call(runtime, const [
+          await luaCall(runtime, const [
             'love',
             'window',
             'isDisplaySleepEnabled',
@@ -312,13 +334,13 @@ void main() {
           isFalse,
         );
 
-        final icon = await _call(
+        final icon = await luaCall(
           runtime,
           const ['love', 'image', 'newImageData'],
           const <Object?>[8, 6],
         );
         expect(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'window', 'setIcon'],
             <Object?>[icon],
@@ -327,14 +349,14 @@ void main() {
         );
         expect(host.windowMetrics.icon, isA<LoveImageData>());
 
-        final currentIcon = await _call(runtime, const [
+        final currentIcon = await luaCall(runtime, const [
           'love',
           'window',
           'getIcon',
         ]);
         expect(currentIcon, isNotNull);
-        expect(await _callMethod(currentIcon!, 'getWidth'), 8);
-        expect(await _callMethod(currentIcon, 'getHeight'), 6);
+        expect(await luaCallMethod(currentIcon!, 'getWidth'), 8);
+        expect(await luaCallMethod(currentIcon, 'getHeight'), 6);
       },
     );
 
@@ -358,11 +380,11 @@ void main() {
       installLove2d(runtime: runtime, host: host);
 
       expect(
-        await _call(runtime, const ['love', 'window', 'getTitle']),
+        await luaCall(runtime, const ['love', 'window', 'getTitle']),
         'Initial Title',
       );
       expect(
-        await _call(runtime, const ['love', 'window', 'getMode']),
+        await luaCall(runtime, const ['love', 'window', 'getMode']),
         <Object?>[
           800,
           600,
@@ -384,7 +406,7 @@ void main() {
       );
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'window', 'setTitle'],
           const <Object?>['Updated Title'],
@@ -393,12 +415,12 @@ void main() {
       );
       expect(host.windowMetrics.title, 'Updated Title');
       expect(
-        await _call(runtime, const ['love', 'window', 'getTitle']),
+        await luaCall(runtime, const ['love', 'window', 'getTitle']),
         'Updated Title',
       );
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'window', 'setMode'],
           <Object?>[
@@ -427,7 +449,7 @@ void main() {
       expect(host.windowMetrics.refreshRate, 120);
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'window', 'updateMode'],
           <Object?>[
@@ -445,7 +467,7 @@ void main() {
       expect(host.windowMetrics.vsync, -1);
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'window', 'setVSync'],
           const <Object?>[0],
@@ -453,7 +475,7 @@ void main() {
         isTrue,
       );
       expect(host.windowMetrics.vsync, 0);
-      expect(await _call(runtime, const ['love', 'window', 'getVSync']), 0);
+      expect(await luaCall(runtime, const ['love', 'window', 'getVSync']), 0);
     });
 
     test(
@@ -470,38 +492,38 @@ void main() {
         installLove2d(runtime: runtime, host: host);
 
         expect(
-          await _call(runtime, const ['love', 'window', 'isMaximized']),
+          await luaCall(runtime, const ['love', 'window', 'isMaximized']),
           isFalse,
         );
         expect(
-          await _call(runtime, const ['love', 'window', 'isMinimized']),
+          await luaCall(runtime, const ['love', 'window', 'isMinimized']),
           isFalse,
         );
         expect(
-          await _call(runtime, const ['love', 'window', 'isVisible']),
+          await luaCall(runtime, const ['love', 'window', 'isVisible']),
           isTrue,
         );
 
         expect(
-          await _call(runtime, const ['love', 'window', 'maximize']),
+          await luaCall(runtime, const ['love', 'window', 'maximize']),
           isNull,
         );
         expect(host.windowMetrics.maximized, isTrue);
         expect(host.windowMetrics.minimized, isFalse);
         expect(
-          await _call(runtime, const ['love', 'window', 'isMaximized']),
+          await luaCall(runtime, const ['love', 'window', 'isMaximized']),
           isTrue,
         );
 
         expect(
-          await _call(runtime, const ['love', 'window', 'requestAttention']),
+          await luaCall(runtime, const ['love', 'window', 'requestAttention']),
           isNull,
         );
         expect(host.windowMetrics.attentionRequested, isTrue);
         expect(host.windowMetrics.attentionRequestContinuous, isFalse);
 
         expect(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'window', 'requestAttention'],
             const <Object?>[true],
@@ -512,36 +534,36 @@ void main() {
         expect(host.windowMetrics.attentionRequestContinuous, isTrue);
 
         expect(
-          await _call(runtime, const ['love', 'window', 'minimize']),
+          await luaCall(runtime, const ['love', 'window', 'minimize']),
           isNull,
         );
         expect(host.windowMetrics.maximized, isFalse);
         expect(host.windowMetrics.minimized, isTrue);
         expect(
-          await _call(runtime, const ['love', 'window', 'isMaximized']),
+          await luaCall(runtime, const ['love', 'window', 'isMaximized']),
           isFalse,
         );
         expect(
-          await _call(runtime, const ['love', 'window', 'isMinimized']),
+          await luaCall(runtime, const ['love', 'window', 'isMinimized']),
           isTrue,
         );
         expect(
-          await _call(runtime, const ['love', 'window', 'isVisible']),
+          await luaCall(runtime, const ['love', 'window', 'isVisible']),
           isFalse,
         );
 
         expect(
-          await _call(runtime, const ['love', 'window', 'restore']),
+          await luaCall(runtime, const ['love', 'window', 'restore']),
           isNull,
         );
         expect(host.windowMetrics.maximized, isFalse);
         expect(host.windowMetrics.minimized, isFalse);
         expect(
-          await _call(runtime, const ['love', 'window', 'isMinimized']),
+          await luaCall(runtime, const ['love', 'window', 'isMinimized']),
           isFalse,
         );
         expect(
-          await _call(runtime, const ['love', 'window', 'isVisible']),
+          await luaCall(runtime, const ['love', 'window', 'isVisible']),
           isTrue,
         );
       },
@@ -560,20 +582,20 @@ void main() {
 
         installLove2d(runtime: runtime, host: host);
 
-        await _call(runtime, const ['love', 'window', 'maximize']);
+        await luaCall(runtime, const ['love', 'window', 'maximize']);
         expect(host.windowMetrics.maximized, isFalse);
 
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'window', 'setFullscreen'],
           const <Object?>[true],
         );
         expect(host.windowMetrics.fullscreen, isTrue);
 
-        await _call(runtime, const ['love', 'window', 'maximize']);
+        await luaCall(runtime, const ['love', 'window', 'maximize']);
         expect(host.windowMetrics.maximized, isFalse);
         expect(
-          await _call(runtime, const ['love', 'window', 'isMaximized']),
+          await luaCall(runtime, const ['love', 'window', 'isMaximized']),
           isFalse,
         );
       },
@@ -599,7 +621,7 @@ void main() {
       installLove2d(runtime: runtime, host: host);
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'window', 'showMessageBox'],
           const <Object?>['Warning', 'Something happened', 'warning', false],
@@ -616,7 +638,7 @@ void main() {
       expect(lastMessageBox!.escapeButtonIndex, 1);
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'window', 'showMessageBox'],
           <Object?>[
@@ -645,61 +667,3 @@ void main() {
     });
   });
 }
-
-Future<Object?> _call(
-  Interpreter runtime,
-  List<String> path, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(_rawFunction(runtime, path).call(args));
-}
-
-Future<Object?> _callMethod(
-  Object object,
-  String method, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  final table = object is Value ? object.raw : object;
-  expect(table, isA<Map>());
-
-  final methodValue = (table as Map)[method];
-  final callable = switch (methodValue) {
-    final Value value => value.raw,
-    final BuiltinFunction function => function,
-    _ => methodValue,
-  };
-  expect(callable, isA<BuiltinFunction>());
-  return _resolveCallResult(
-    (callable as BuiltinFunction).call(<Object?>[object, ...args]),
-  );
-}
-
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> path) {
-  var current = runtime.getCurrentEnv().get(path.first);
-  for (final segment in path.skip(1)) {
-    final table = current is Value ? current.raw : current;
-    expect(
-      table,
-      isA<Map>(),
-      reason: 'Expected ${path.join('.')} to traverse a Lua table',
-    );
-    current = (table as Map)[segment];
-  }
-
-  expect(current, isA<Value>());
-  final raw = (current! as Value).raw;
-  expect(raw, isA<BuiltinFunction>());
-  return raw as BuiltinFunction;
-}
-
-Future<Object?> _resolveCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return (wrapped.raw as List<Object?>).map(_unwrap).toList(growable: false);
-  }
-
-  return _unwrap(resolved);
-}
-
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;

@@ -1,5 +1,9 @@
 part of '../love_api_bindings.dart';
 
+/// Binds `love.event.clear`.
+///
+/// The returned closure drops all queued LOVE events from the runtime event
+/// queue.
 LoveApiImplementation _bindEventClear(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -8,6 +12,10 @@ LoveApiImplementation _bindEventClear(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.event.poll`.
+///
+/// The polling iterator is cached in the module table so repeated calls reuse
+/// the same Lua-visible function object.
 LoveApiImplementation _bindEventPoll(LibraryRegistrationContext context) {
   return (args) {
     final eventTable = _eventModuleTableForContext(context);
@@ -31,6 +39,10 @@ LoveApiImplementation _bindEventPoll(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.event.pump`.
+///
+/// Pumping lets the platform adapter collect pending host events before Lua
+/// code reads them from the LOVE queue.
 LoveApiImplementation _bindEventPump(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -39,6 +51,10 @@ LoveApiImplementation _bindEventPump(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.event.push`.
+///
+/// Extra arguments are converted to raw Lua values and enqueued as the event
+/// payload.
 LoveApiImplementation _bindEventPush(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -48,6 +64,11 @@ LoveApiImplementation _bindEventPush(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.event.quit`.
+///
+/// LOVE models quit requests as a queued `quit` event carrying an optional exit
+/// code, so this binding mirrors that behavior instead of terminating
+/// immediately.
 LoveApiImplementation _bindEventQuit(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -57,6 +78,10 @@ LoveApiImplementation _bindEventQuit(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.event.wait`.
+///
+/// The returned closure resolves asynchronously once a new queued event becomes
+/// available.
 LoveApiImplementation _bindEventWait(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) async {
@@ -65,6 +90,7 @@ LoveApiImplementation _bindEventWait(LibraryRegistrationContext context) {
   };
 }
 
+/// Returns the `love.event` module table from [context], if it exists.
 Map<dynamic, dynamic>? _eventModuleTableForContext(
   LibraryRegistrationContext context,
 ) {

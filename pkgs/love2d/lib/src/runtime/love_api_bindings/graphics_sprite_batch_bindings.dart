@@ -1,5 +1,6 @@
 part of '../love_api_bindings.dart';
 
+/// Returns the wrapped [LoveSpriteBatch] stored in [value], if any.
 LoveSpriteBatch? _spriteBatchIfPresent(Object? value) {
   final raw = _rawValue(value);
   final table = switch (raw) {
@@ -15,19 +16,31 @@ LoveSpriteBatch? _spriteBatchIfPresent(Object? value) {
   return spriteBatch is LoveSpriteBatch ? spriteBatch : null;
 }
 
+/// Returns the sprite batch argument at [index] or throws a [LuaError].
 LoveSpriteBatch _requireSpriteBatch(
   List<Object?> args,
   int index,
   String symbol,
 ) {
-  final spriteBatch = _spriteBatchIfPresent(_valueAt(args, index));
+  final value = _valueAt(args, index);
+  if (_spriteBatchWrapperReleased(value)) {
+    _throwReleasedObjectError();
+  }
+
+  final spriteBatch = _spriteBatchIfPresent(value);
   if (spriteBatch != null) {
     return spriteBatch;
   }
 
-  throw LuaError('$symbol expected a SpriteBatch at argument ${index + 1}');
+  _throwLuaStyleTypeError(
+    symbol: symbol,
+    index: index,
+    expected: 'SpriteBatch',
+    actual: value,
+  );
 }
 
+/// Binds `love.graphics.newSpriteBatch`.
 LoveApiImplementation _bindGraphicsNewSpriteBatch(
   LibraryRegistrationContext context,
 ) {
@@ -49,6 +62,9 @@ LoveApiImplementation _bindGraphicsNewSpriteBatch(
   };
 }
 
+/// Returns the validated sprite-batch usage hint for [value].
+///
+/// Missing values default to LOVE's `dynamic` usage.
 LoveSpriteBatchUsage _spriteBatchUsage(Object? value, String symbol) {
   final raw = _stringLike(value);
   if (raw == null) {

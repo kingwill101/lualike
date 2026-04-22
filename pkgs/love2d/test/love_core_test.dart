@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
+import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love core bindings', () {
@@ -12,14 +13,14 @@ void main() {
     });
 
     test('getVersion and isVersionCompatible follow LOVE 11.5', () async {
-      expect(await _call(runtime, const ['love', 'getVersion']), <Object?>[
+      expect(await luaCall(runtime, const ['love', 'getVersion']), <Object?>[
         11,
         5,
         0,
         'Mysterious Mysteries',
       ]);
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'isVersionCompatible'],
           const <Object?>['11.5'],
@@ -27,7 +28,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'isVersionCompatible'],
           const <Object?>['11.4'],
@@ -35,7 +36,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'isVersionCompatible'],
           const <Object?>['11'],
@@ -43,7 +44,7 @@ void main() {
         isFalse,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'isVersionCompatible'],
           const <Object?>[11, 2, 0],
@@ -51,7 +52,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'isVersionCompatible'],
           const <Object?>[12, 0, 0],
@@ -62,27 +63,27 @@ void main() {
 
     test('deprecation output state can be queried and changed', () async {
       expect(
-        await _call(runtime, const ['love', 'hasDeprecationOutput']),
+        await luaCall(runtime, const ['love', 'hasDeprecationOutput']),
         isTrue,
       );
 
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'setDeprecationOutput'],
         const <Object?>[false],
       );
       expect(
-        await _call(runtime, const ['love', 'hasDeprecationOutput']),
+        await luaCall(runtime, const ['love', 'hasDeprecationOutput']),
         isFalse,
       );
 
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'setDeprecationOutput'],
         const <Object?>[true],
       );
       expect(
-        await _call(runtime, const ['love', 'hasDeprecationOutput']),
+        await luaCall(runtime, const ['love', 'hasDeprecationOutput']),
         isTrue,
       );
     });
@@ -114,41 +115,3 @@ testbed.after = love.hasDeprecationOutput()
     );
   });
 }
-
-Future<Object?> _call(
-  Interpreter runtime,
-  List<String> path, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(_rawFunction(runtime, path).call(args));
-}
-
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> path) {
-  var current = runtime.getCurrentEnv().get(path.first);
-  for (final segment in path.skip(1)) {
-    final table = current is Value ? current.raw : current;
-    expect(
-      table,
-      isA<Map>(),
-      reason: 'Expected ${path.join('.')} to traverse a Lua table',
-    );
-    current = (table as Map)[segment];
-  }
-
-  expect(current, isA<Value>());
-  final raw = (current! as Value).raw;
-  expect(raw, isA<BuiltinFunction>());
-  return raw as BuiltinFunction;
-}
-
-Future<Object?> _resolveCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return (wrapped.raw as List<Object?>).map(_unwrap).toList(growable: false);
-  }
-
-  return _unwrap(resolved);
-}
-
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;

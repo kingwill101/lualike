@@ -1,5 +1,6 @@
 part of '../love_api_bindings.dart';
 
+/// Binds `love.graphics.getWidth`.
 LoveApiImplementation _bindGraphicsGetWidth(
   LibraryRegistrationContext context,
 ) {
@@ -7,6 +8,7 @@ LoveApiImplementation _bindGraphicsGetWidth(
   return (args) => runtime.windowMetrics.width;
 }
 
+/// Binds `love.graphics.getHeight`.
 LoveApiImplementation _bindGraphicsGetHeight(
   LibraryRegistrationContext context,
 ) {
@@ -14,6 +16,9 @@ LoveApiImplementation _bindGraphicsGetHeight(
   return (args) => runtime.windowMetrics.height;
 }
 
+/// Binds `love.graphics.getDimensions`.
+///
+/// The returned values match LOVE's `(width, height)` tuple.
 LoveApiImplementation _bindGraphicsGetDimensions(
   LibraryRegistrationContext context,
 ) {
@@ -24,6 +29,7 @@ LoveApiImplementation _bindGraphicsGetDimensions(
   ]);
 }
 
+/// Binds `love.graphics.getFont`.
 LoveApiImplementation _bindGraphicsGetFont(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -36,6 +42,10 @@ LoveApiImplementation _bindGraphicsGetFont(LibraryRegistrationContext context) {
   };
 }
 
+/// Resolves `love.graphics.newImage` settings from [settings].
+///
+/// This normalizes DPI scale inference and the optional `linear` and `mipmaps`
+/// flags used when creating runtime images.
 ({double dpiScale, bool linear, bool mipmaps}) _newImageSettings(
   Map<dynamic, dynamic>? settings, {
   required String symbol,
@@ -61,6 +71,7 @@ LoveApiImplementation _bindGraphicsGetFont(LibraryRegistrationContext context) {
   );
 }
 
+/// Infers the image DPI scale from a LOVE-style `@2x` source suffix.
 double? _sourceImageDpiScale(String? source) {
   if (source == null || source.isEmpty) {
     return null;
@@ -77,6 +88,7 @@ double? _sourceImageDpiScale(String? source) {
   return double.tryParse(match.group(1)!);
 }
 
+/// Converts a pixel dimension into LOVE's logical dimension space.
 int _logicalTextureDimension(int pixels, double dpiScale) {
   if (dpiScale <= 0) {
     return pixels;
@@ -84,6 +96,7 @@ int _logicalTextureDimension(int pixels, double dpiScale) {
   return math.max(1, (pixels / dpiScale).round());
 }
 
+/// Returns the mipmap level count for the given base dimensions.
 int _imageMipmapCountForDimensions(int width, int height) {
   var levels = 1;
   var currentWidth = math.max(1, width);
@@ -98,16 +111,19 @@ int _imageMipmapCountForDimensions(int width, int height) {
   return levels;
 }
 
+/// Returns the default mipmap filter for an image with [mipmapCount] levels.
 LoveGraphicsFilterMode? _defaultImageMipmapFilter(
   int mipmapCount, {
   required LoveGraphicsFilterMode? filter,
 }) => mipmapCount > 1 ? filter : null;
 
+/// Returns the default mipmap sharpness for an image with [mipmapCount] levels.
 double _defaultImageMipmapSharpness(
   int mipmapCount, {
   required double sharpness,
 }) => mipmapCount > 1 ? sharpness : 0.0;
 
+/// Builds a runtime image from decoded [imageData].
 LoveImage _resolveImageFromImageData({
   required LoveImageData imageData,
   required String source,
@@ -157,6 +173,7 @@ LoveImage _resolveImageFromImageData({
   );
 }
 
+/// Builds a runtime image from [LoveCompressedImageData].
 LoveImage _resolveImageFromCompressedImageData({
   required LoveCompressedImageData imageData,
   required String symbol,
@@ -199,6 +216,7 @@ LoveImage _resolveImageFromCompressedImageData({
   );
 }
 
+/// Applies new-image settings to an already resolved runtime [image].
 LoveImage _resolveImageSettings(
   LoveImage image, {
   required Map<dynamic, dynamic>? settings,
@@ -281,6 +299,10 @@ LoveImage _resolveImageSettings(
   );
 }
 
+/// Loads an image from a resource [source].
+///
+/// This prefers the host image loader when available and falls back to the
+/// pure Dart image decoder when host loading fails.
 Future<LoveImage> _loadImageFromSource(
   LibraryRegistrationContext context,
   String source, {
@@ -322,6 +344,10 @@ Future<LoveImage> _loadImageFromSource(
   }
 }
 
+/// Loads [LoveImageData] from a resource [source].
+///
+/// This prefers host-decoded image data when it is available and falls back to
+/// the pure Dart decoder otherwise.
 Future<LoveImageData> _loadImageDataFromSource(
   LibraryRegistrationContext context,
   String source, {
@@ -347,6 +373,10 @@ Future<LoveImageData> _loadImageDataFromSource(
   );
 }
 
+/// Binds `love.graphics.newImage`.
+///
+/// LOVE accepts `ImageData`, `CompressedImageData`, a filename, or file-backed
+/// data objects here, along with an optional settings table.
 LoveApiImplementation _bindGraphicsNewImage(
   LibraryRegistrationContext context,
 ) {
@@ -443,6 +473,7 @@ LoveApiImplementation _bindGraphicsNewImage(
   };
 }
 
+/// Binds `love.graphics.newQuad`.
 LoveApiImplementation _bindGraphicsNewQuad(LibraryRegistrationContext context) {
   return (args) {
     final x = _requireNumber(args, 0, 'love.graphics.newQuad');
@@ -487,6 +518,7 @@ LoveApiImplementation _bindGraphicsNewQuad(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.graphics.newFont`.
 LoveApiImplementation _bindGraphicsNewFont(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -508,6 +540,7 @@ LoveApiImplementation _bindGraphicsNewFont(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.graphics.newImageFont`.
 LoveApiImplementation _bindGraphicsNewImageFont(
   LibraryRegistrationContext context,
 ) {
@@ -564,6 +597,7 @@ LoveApiImplementation _bindGraphicsNewImageFont(
   };
 }
 
+/// Binds `love.graphics.newText`.
 LoveApiImplementation _bindGraphicsNewText(LibraryRegistrationContext context) {
   return (args) {
     const symbol = 'love.graphics.newText';
@@ -576,6 +610,7 @@ LoveApiImplementation _bindGraphicsNewText(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.graphics.setFont`.
 LoveApiImplementation _bindGraphicsSetFont(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -586,6 +621,7 @@ LoveApiImplementation _bindGraphicsSetFont(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.graphics.setNewFont`.
 LoveApiImplementation _bindGraphicsSetNewFont(
   LibraryRegistrationContext context,
 ) {
@@ -611,6 +647,7 @@ LoveApiImplementation _bindGraphicsSetNewFont(
   };
 }
 
+/// Builds an image font from [imageData].
 LoveFont _imageFontFromImageData(
   LoveImageData imageData, {
   required String symbol,
@@ -630,6 +667,7 @@ LoveFont _imageFontFromImageData(
   ).toLoveFont(defaultFilter: defaultFilter);
 }
 
+/// Binds `love.graphics.setDefaultFilter`.
 LoveApiImplementation _bindGraphicsSetDefaultFilter(
   LibraryRegistrationContext context,
 ) {
@@ -657,6 +695,7 @@ LoveApiImplementation _bindGraphicsSetDefaultFilter(
   };
 }
 
+/// Binds `love.graphics.getDefaultFilter`.
 LoveApiImplementation _bindGraphicsGetDefaultFilter(
   LibraryRegistrationContext context,
 ) {
@@ -664,6 +703,7 @@ LoveApiImplementation _bindGraphicsGetDefaultFilter(
   return (args) => _filterResult(runtime.graphics.defaultFilter);
 }
 
+/// Binds `love.graphics.setDefaultMipmapFilter`.
 LoveApiImplementation _bindGraphicsSetDefaultMipmapFilter(
   LibraryRegistrationContext context,
 ) {
@@ -683,6 +723,9 @@ LoveApiImplementation _bindGraphicsSetDefaultMipmapFilter(
   };
 }
 
+/// Binds `love.graphics.getDefaultMipmapFilter`.
+///
+/// The returned values match LOVE's `(filter, sharpness)` tuple.
 LoveApiImplementation _bindGraphicsGetDefaultMipmapFilter(
   LibraryRegistrationContext context,
 ) {

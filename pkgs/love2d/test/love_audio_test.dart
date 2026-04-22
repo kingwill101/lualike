@@ -6,6 +6,7 @@ import 'package:love2d/love2d.dart';
 import 'package:love2d/src/runtime/filesystem/love_filesystem_runtime.dart';
 
 import 'test_support/memory_filesystem_test_support.dart';
+import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.audio bindings', () {
@@ -18,217 +19,376 @@ void main() {
 
     test('listener state and module queries follow LÖVE defaults', () async {
       expect(
-        await _call(runtime, const ['love', 'audio', 'getPosition']),
+        await luaCallList(runtime, const ['love', 'audio', 'getPosition']),
         <Object?>[0.0, 0.0, 0.0],
       );
       expect(
-        await _call(runtime, const ['love', 'audio', 'getVelocity']),
+        await luaCallList(runtime, const ['love', 'audio', 'getVelocity']),
         <Object?>[0.0, 0.0, 0.0],
       );
       expect(
-        await _call(runtime, const ['love', 'audio', 'getOrientation']),
+        await luaCallList(runtime, const ['love', 'audio', 'getOrientation']),
         <Object?>[0.0, 0.0, -1.0, 0.0, 1.0, 0.0],
       );
       expect(
-        await _call(runtime, const ['love', 'audio', 'getDistanceModel']),
+        await luaCallList(runtime, const ['love', 'audio', 'getDistanceModel']),
         'inverseclamped',
       );
       expect(
-        await _call(runtime, const ['love', 'audio', 'getDopplerScale']),
+        await luaCallList(runtime, const ['love', 'audio', 'getDopplerScale']),
         1.0,
       );
-      expect(await _call(runtime, const ['love', 'audio', 'getVolume']), 1.0);
       expect(
-        await _call(runtime, const ['love', 'audio', 'getActiveSourceCount']),
+        await luaCallList(runtime, const ['love', 'audio', 'getVolume']),
+        1.0,
+      );
+      expect(
+        await luaCallList(runtime, const [
+          'love',
+          'audio',
+          'getActiveSourceCount',
+        ]),
         0,
       );
       expect(
-        await _call(runtime, const ['love', 'audio', 'getActiveEffects']),
+        await luaCallList(runtime, const ['love', 'audio', 'getActiveEffects']),
         isEmpty,
       );
       expect(
-        await _call(runtime, const ['love', 'audio', 'getRecordingDevices']),
+        await luaCallList(runtime, const [
+          'love',
+          'audio',
+          'getRecordingDevices',
+        ]),
         isEmpty,
       );
       expect(
-        await _call(runtime, const ['love', 'audio', 'getMaxSceneEffects']),
+        await luaCallList(runtime, const [
+          'love',
+          'audio',
+          'getMaxSceneEffects',
+        ]),
         64,
       );
       expect(
-        await _call(runtime, const ['love', 'audio', 'getMaxSourceEffects']),
+        await luaCallList(runtime, const [
+          'love',
+          'audio',
+          'getMaxSourceEffects',
+        ]),
         64,
       );
       expect(
-        await _call(runtime, const ['love', 'audio', 'isEffectsSupported']),
+        await luaCallList(runtime, const [
+          'love',
+          'audio',
+          'isEffectsSupported',
+        ]),
         isTrue,
       );
 
-      await _call(
+      await luaCallList(
         runtime,
         const ['love', 'audio', 'setPosition'],
         const <Object?>[4.0, 5.0],
       );
-      await _call(
+      await luaCallList(
         runtime,
         const ['love', 'audio', 'setVelocity'],
         const <Object?>[6.0, 7.0, 8.0],
       );
-      await _call(
+      await luaCallList(
         runtime,
         const ['love', 'audio', 'setOrientation'],
         const <Object?>[1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
       );
-      await _call(
+      await luaCallList(
         runtime,
         const ['love', 'audio', 'setDopplerScale'],
         const <Object?>[2.5],
       );
-      await _call(
+      await luaCallList(
         runtime,
         const ['love', 'audio', 'setDistanceModel'],
         const <Object?>['linear'],
       );
-      await _call(
-        runtime,
-        const ['love', 'audio', 'setMixWithSystem'],
-        const <Object?>[true],
+      expect(
+        await luaCallList(
+          runtime,
+          const ['love', 'audio', 'setMixWithSystem'],
+          const <Object?>[true],
+        ),
+        isTrue,
       );
-      await _call(
+      await luaCallList(
         runtime,
         const ['love', 'audio', 'setVolume'],
         const <Object?>[0.4],
       );
 
       expect(
-        await _call(runtime, const ['love', 'audio', 'getPosition']),
+        await luaCallList(runtime, const ['love', 'audio', 'getPosition']),
         <Object?>[4.0, 5.0, 0.0],
       );
       expect(
-        await _call(runtime, const ['love', 'audio', 'getVelocity']),
+        await luaCallList(runtime, const ['love', 'audio', 'getVelocity']),
         <Object?>[6.0, 7.0, 8.0],
       );
       expect(
-        await _call(runtime, const ['love', 'audio', 'getOrientation']),
+        await luaCallList(runtime, const ['love', 'audio', 'getOrientation']),
         <Object?>[1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
       );
       expect(
-        await _call(runtime, const ['love', 'audio', 'getDopplerScale']),
+        await luaCallList(runtime, const ['love', 'audio', 'getDopplerScale']),
         2.5,
       );
+      await luaCallList(
+        runtime,
+        const ['love', 'audio', 'setDopplerScale'],
+        const <Object?>[-1.0],
+      );
       expect(
-        await _call(runtime, const ['love', 'audio', 'getDistanceModel']),
+        await luaCallList(runtime, const ['love', 'audio', 'getDopplerScale']),
+        2.5,
+      );
+      await luaCallList(
+        runtime,
+        const ['love', 'audio', 'setDopplerScale'],
+        const <Object?>[0.0],
+      );
+      expect(
+        await luaCallList(runtime, const ['love', 'audio', 'getDopplerScale']),
+        0.0,
+      );
+      expect(
+        await luaCallList(runtime, const ['love', 'audio', 'getDistanceModel']),
         'linear',
       );
-      expect(await _call(runtime, const ['love', 'audio', 'getVolume']), 0.4);
+      expect(
+        await luaCallList(runtime, const ['love', 'audio', 'getVolume']),
+        0.4,
+      );
     });
 
-    test('Source state, clone, and time units mirror LÖVE behavior', () async {
-      final soundData = await _call(
+    test('setMixWithSystem returns the host result', () async {
+      final runtime = Interpreter();
+      installLove2d(
+        runtime: runtime,
+        host: LoveHeadlessHost(
+          audioMixWithSystemHandler: (mix) async => mix == false,
+        ),
+      );
+
+      expect(
+        await luaCallList(
+          runtime,
+          const ['love', 'audio', 'setMixWithSystem'],
+          const <Object?>[true],
+        ),
+        isFalse,
+      );
+      expect(LoveRuntimeContext.of(runtime).audio.mixWithSystem, isTrue);
+
+      expect(
+        await luaCallList(
+          runtime,
+          const ['love', 'audio', 'setMixWithSystem'],
+          const <Object?>[false],
+        ),
+        isTrue,
+      );
+      expect(LoveRuntimeContext.of(runtime).audio.mixWithSystem, isFalse);
+    });
+
+    test('audio enum validation uses LOVE enum error text', () async {
+      final soundData = await luaCallList(
         runtime,
         const ['love', 'sound', 'newSoundData'],
         const <Object?>[8, 22050, 16, 2],
       );
-
-      final source = await _call(
+      final source = await luaCallList(
         runtime,
         const ['love', 'audio', 'newSource'],
         <Object?>[soundData, 'stream'],
       );
 
-      expect(await _callMethod(source, 'type'), 'Source');
-      expect(await _callMethod(source, 'getType'), 'static');
       expect(
-        await _callMethod(source, 'getDuration'),
+        luaCallList(
+          runtime,
+          const ['love', 'audio', 'newSource'],
+          <Object?>[soundData, 'bogus'],
+        ),
+        throwsA(
+          isA<LuaError>().having(
+            (error) => error.message,
+            'message',
+            contains(
+              "Invalid source type 'bogus', expected one of: 'static', 'stream', 'queue'",
+            ),
+          ),
+        ),
+      );
+
+      expect(
+        luaCallMethodList(source, 'tell', const <Object?>['bogus']),
+        throwsA(
+          isA<LuaError>().having(
+            (error) => error.message,
+            'message',
+            contains(
+              "Invalid time unit 'bogus', expected one of: 'seconds', 'samples'",
+            ),
+          ),
+        ),
+      );
+
+      expect(
+        luaCallList(
+          runtime,
+          const ['love', 'audio', 'setDistanceModel'],
+          const <Object?>['bogus'],
+        ),
+        throwsA(
+          isA<LuaError>().having(
+            (error) => error.message,
+            'message',
+            contains(
+              "Invalid distance model 'bogus', expected one of: 'none', 'inverse', 'inverseclamped', 'linear', 'linearclamped', 'exponent', 'exponentclamped'",
+            ),
+          ),
+        ),
+      );
+    });
+
+    test('Source state, clone, and time units mirror LÖVE behavior', () async {
+      final soundData = await luaCallList(
+        runtime,
+        const ['love', 'sound', 'newSoundData'],
+        const <Object?>[8, 22050, 16, 2],
+      );
+
+      final source = await luaCallList(
+        runtime,
+        const ['love', 'audio', 'newSource'],
+        <Object?>[soundData, 'stream'],
+      );
+
+      expect(await luaCallMethodList(source, 'type'), 'Source');
+      expect(await luaCallMethodList(source, 'getType'), 'static');
+      expect(
+        await luaCallMethodList(source, 'getDuration'),
         closeTo(8 / 22050, 1e-12),
       );
       expect(
-        await _callMethod(source, 'getDuration', const <Object?>['samples']),
+        await luaCallMethodList(source, 'getDuration', const <Object?>[
+          'samples',
+        ]),
         closeTo(8.0, 1e-12),
       );
-      expect(await _callMethod(source, 'getChannelCount'), 2);
-      expect(await _callMethod(source, 'getFreeBufferCount'), 0);
-      expect(await _callMethod(source, 'getActiveEffects'), isEmpty);
+      expect(await luaCallMethodList(source, 'getChannelCount'), 2);
+      expect(await luaCallMethodList(source, 'getFreeBufferCount'), 0);
+      expect(await luaCallMethodList(source, 'getActiveEffects'), isEmpty);
 
-      await _callMethod(source, 'setDirection', const <Object?>[1.0, 2.0]);
-      await _callMethod(source, 'setPosition', const <Object?>[3.0, 4.0]);
-      await _callMethod(source, 'setVelocity', const <Object?>[5.0, 6.0, 7.0]);
-      await _callMethod(source, 'setCone', const <Object?>[
-        0.25,
-        0.5,
-        0.75,
-        0.9,
-      ]);
-      await _callMethod(source, 'setAttenuationDistances', const <Object?>[
-        2.0,
-        20.0,
-      ]);
-      await _callMethod(source, 'setVolumeLimits', const <Object?>[0.2, 0.9]);
-      await _callMethod(source, 'setAirAbsorption', const <Object?>[0.1]);
-      await _callMethod(source, 'setRolloff', const <Object?>[0.5]);
-      await _callMethod(source, 'setPitch', const <Object?>[1.25]);
-      await _callMethod(source, 'seek', const <Object?>[4.0, 'samples']);
-
-      expect(await _callMethod(source, 'getDirection'), <Object?>[
+      await luaCallMethodList(source, 'setDirection', const <Object?>[
         1.0,
         2.0,
-        0.0,
       ]);
-      expect(await _callMethod(source, 'getPosition'), <Object?>[
-        3.0,
-        4.0,
-        0.0,
-      ]);
-      expect(await _callMethod(source, 'getVelocity'), <Object?>[
+      await luaCallMethodList(source, 'setPosition', const <Object?>[3.0, 4.0]);
+      await luaCallMethodList(source, 'setVelocity', const <Object?>[
         5.0,
         6.0,
         7.0,
       ]);
-      expect(await _callMethod(source, 'getCone'), <Object?>[
+      await luaCallMethodList(source, 'setCone', const <Object?>[
         0.25,
         0.5,
         0.75,
         0.9,
       ]);
-      expect(await _callMethod(source, 'getAttenuationDistances'), <Object?>[
-        2.0,
-        20.0,
+      await luaCallMethodList(
+        source,
+        'setAttenuationDistances',
+        const <Object?>[2.0, 20.0],
+      );
+      await luaCallMethodList(source, 'setVolumeLimits', const <Object?>[
+        0.2,
+        0.9,
       ]);
-      expect(await _callMethod(source, 'getVolumeLimits'), <Object?>[0.2, 0.9]);
-      expect(await _callMethod(source, 'getAirAbsorption'), 0.1);
-      expect(await _callMethod(source, 'getRolloff'), 0.5);
-      expect(await _callMethod(source, 'getPitch'), 1.25);
-      expect(
-        await _callMethod(source, 'tell', const <Object?>['samples']),
-        closeTo(4.0, 1e-12),
-      );
-      expect(await _callMethod(source, 'tell'), closeTo(4 / 22050, 1e-12));
+      await luaCallMethodList(source, 'setAirAbsorption', const <Object?>[0.1]);
+      await luaCallMethodList(source, 'setRolloff', const <Object?>[0.5]);
+      await luaCallMethodList(source, 'setPitch', const <Object?>[1.25]);
+      await luaCallMethodList(source, 'seek', const <Object?>[4.0, 'samples']);
 
-      final clone = await _callMethod(source, 'clone');
-      expect(await _callMethod(clone, 'getType'), 'static');
-      expect(await _callMethod(clone, 'isPlaying'), isFalse);
-      expect(
-        await _callMethod(clone, 'tell', const <Object?>['samples']),
-        closeTo(0.0, 1e-12),
-      );
-      expect(await _callMethod(clone, 'getDirection'), <Object?>[
+      expect(await luaCallMethodList(source, 'getDirection'), <Object?>[
         1.0,
         2.0,
         0.0,
       ]);
-      expect(await _callMethod(clone, 'getCone'), <Object?>[
+      expect(await luaCallMethodList(source, 'getPosition'), <Object?>[
+        3.0,
+        4.0,
+        0.0,
+      ]);
+      expect(await luaCallMethodList(source, 'getVelocity'), <Object?>[
+        5.0,
+        6.0,
+        7.0,
+      ]);
+      expect(await luaCallMethodList(source, 'getCone'), <Object?>[
         0.25,
         0.5,
         0.75,
         0.9,
       ]);
-      expect(await _callMethod(clone, 'getAttenuationDistances'), <Object?>[
-        2.0,
-        20.0,
+      expect(
+        await luaCallMethodList(source, 'getAttenuationDistances'),
+        <Object?>[2.0, 20.0],
+      );
+      expect(await luaCallMethodList(source, 'getVolumeLimits'), <Object?>[
+        0.2,
+        0.9,
       ]);
-      expect(await _callMethod(clone, 'getVolumeLimits'), <Object?>[0.2, 0.9]);
+      expect(await luaCallMethodList(source, 'getAirAbsorption'), 0.1);
+      expect(await luaCallMethodList(source, 'getRolloff'), 0.5);
+      expect(await luaCallMethodList(source, 'getPitch'), 1.25);
+      expect(
+        await luaCallMethodList(source, 'tell', const <Object?>['samples']),
+        closeTo(4.0, 1e-12),
+      );
+      expect(
+        await luaCallMethodList(source, 'tell'),
+        closeTo(4 / 22050, 1e-12),
+      );
+
+      final clone = await luaCallMethodList(source, 'clone');
+      expect(await luaCallMethodList(clone, 'getType'), 'static');
+      expect(await luaCallMethodList(clone, 'isPlaying'), isFalse);
+      expect(
+        await luaCallMethodList(clone, 'tell', const <Object?>['samples']),
+        closeTo(0.0, 1e-12),
+      );
+      expect(await luaCallMethodList(clone, 'getDirection'), <Object?>[
+        1.0,
+        2.0,
+        0.0,
+      ]);
+      expect(await luaCallMethodList(clone, 'getCone'), <Object?>[
+        0.25,
+        0.5,
+        0.75,
+        0.9,
+      ]);
+      expect(
+        await luaCallMethodList(clone, 'getAttenuationDistances'),
+        <Object?>[2.0, 20.0],
+      );
+      expect(await luaCallMethodList(clone, 'getVolumeLimits'), <Object?>[
+        0.2,
+        0.9,
+      ]);
 
       expect(
-        _callMethod(source, 'seek', const <Object?>[-1.0]),
+        luaCallMethodList(source, 'seek', const <Object?>[-1.0]),
         throwsA(
           isA<LuaError>().having(
             (error) => error.message,
@@ -237,17 +397,80 @@ void main() {
           ),
         ),
       );
+      expect(
+        luaCallMethodList(source, 'setPitch', <Object?>[double.nan]),
+        throwsA(
+          isA<LuaError>().having(
+            (error) => error.message,
+            'message',
+            contains('Pitch cannot be NaN.'),
+          ),
+        ),
+      );
+      expect(
+        luaCallMethodList(source, 'setPitch', <Object?>[0.0]),
+        throwsA(
+          isA<LuaError>().having(
+            (error) => error.message,
+            'message',
+            contains('Pitch has to be non-zero, positive, finite number.'),
+          ),
+        ),
+      );
+      expect(
+        luaCallMethodList(source, 'setPitch', <Object?>[double.infinity]),
+        throwsA(
+          isA<LuaError>().having(
+            (error) => error.message,
+            'message',
+            contains('Pitch has to be non-zero, positive, finite number.'),
+          ),
+        ),
+      );
     });
+
+    test(
+      'newSource uses the upstream bad-argument path for invalid argument 1 values',
+      () async {
+        expect(
+          luaCallList(runtime, const ['love', 'audio', 'newSource']),
+          throwsA(
+            isA<LuaError>().having(
+              (error) => error.message,
+              'message',
+              "bad argument #1 to 'newSource' "
+                  "(Decoder or SoundData expected, got nil)",
+            ),
+          ),
+        );
+
+        expect(
+          luaCallList(
+            runtime,
+            const ['love', 'audio', 'newSource'],
+            const <Object?>[123],
+          ),
+          throwsA(
+            isA<LuaError>().having(
+              (error) => error.message,
+              'message',
+              "bad argument #1 to 'newSource' "
+                  "(Decoder or SoundData expected, got number)",
+            ),
+          ),
+        );
+      },
+    );
 
     test(
       'newSource accepts Decoder and file inputs and transport works',
       () async {
-        final soundData = await _call(
+        final soundData = await luaCallList(
           runtime,
           const ['love', 'sound', 'newSoundData'],
-          const <Object?>[4, 22050, 16, 1],
+          const <Object?>[1024, 22050, 16, 1],
         );
-        final fileData = await _call(
+        final fileData = await luaCallList(
           runtime,
           const ['love', 'filesystem', 'newFileData'],
           <Object?>[
@@ -262,39 +485,39 @@ void main() {
             'fixture.wav',
           ],
         );
-        final decoder = await _call(
+        final decoder = await luaCallList(
           runtime,
           const ['love', 'sound', 'newDecoder'],
           <Object?>[fileData, 8],
         );
 
-        final sourceFromData = await _call(
+        final sourceFromData = await luaCallList(
           runtime,
           const ['love', 'audio', 'newSource'],
           <Object?>[soundData, 'stream'],
         );
-        final sourceFromDecoder = await _call(
+        final sourceFromDecoder = await luaCallList(
           runtime,
           const ['love', 'audio', 'newSource'],
           <Object?>[decoder],
         );
-        final sourceFromFile = await _call(
+        final sourceFromFile = await luaCallList(
           runtime,
           const ['love', 'audio', 'newSource'],
           <Object?>[fileData, 'stream'],
         );
 
-        expect(await _callMethod(sourceFromData, 'getType'), 'static');
-        expect(await _callMethod(sourceFromDecoder, 'getType'), 'stream');
-        expect(await _callMethod(sourceFromFile, 'getType'), 'stream');
+        expect(await luaCallMethodList(sourceFromData, 'getType'), 'static');
+        expect(await luaCallMethodList(sourceFromDecoder, 'getType'), 'stream');
+        expect(await luaCallMethodList(sourceFromFile, 'getType'), 'stream');
         expect(
-          await _callMethod(sourceFromDecoder, 'getDuration'),
+          await luaCallMethodList(sourceFromDecoder, 'getDuration'),
           closeTo(0.75, 1e-12),
         );
-        expect(await _callMethod(sourceFromFile, 'getDuration'), -1.0);
+        expect(await luaCallMethodList(sourceFromFile, 'getDuration'), -1.0);
 
         expect(
-          await _call(
+          await luaCallList(
             runtime,
             const ['love', 'audio', 'play'],
             <Object?>[sourceFromData, sourceFromDecoder],
@@ -302,19 +525,31 @@ void main() {
           isTrue,
         );
         expect(
-          await _call(runtime, const ['love', 'audio', 'getActiveSourceCount']),
+          await luaCallList(runtime, const [
+            'love',
+            'audio',
+            'getActiveSourceCount',
+          ]),
           2,
         );
 
-        final paused = await _call(runtime, const ['love', 'audio', 'pause']);
+        final paused = await luaCallList(runtime, const [
+          'love',
+          'audio',
+          'pause',
+        ]);
         expect(paused, isA<Map>().having((table) => table.length, 'length', 2));
         expect(
-          await _call(runtime, const ['love', 'audio', 'getActiveSourceCount']),
+          await luaCallList(runtime, const [
+            'love',
+            'audio',
+            'getActiveSourceCount',
+          ]),
           0,
         );
 
         expect(
-          _call(
+          luaCallList(
             runtime,
             const ['love', 'audio', 'newSource'],
             <Object?>[fileData, 'queue'],
@@ -323,7 +558,8 @@ void main() {
             isA<LuaError>().having(
               (error) => error.message,
               'message',
-              contains('newQueueableSource'),
+              'Cannot create queueable sources using newSource. '
+                  'Use newQueueableSource instead.',
             ),
           ),
         );
@@ -353,20 +589,24 @@ void main() {
         final filesystem = LoveFilesystemState.of(runtime);
         expect(filesystem.setSource(loveTestMountedSourceRoot), isTrue);
 
-        final source = await _call(
+        final source = await luaCallList(
           runtime,
           const ['love', 'audio', 'newSource'],
           const <Object?>['sounds/theme.wav', 'stream'],
         );
-        expect(await _callMethod(source, 'getType'), 'stream');
-        expect(await _callMethod(source, 'play'), isTrue);
+        expect(await luaCallMethodList(source, 'getType'), 'stream');
+        expect(await luaCallMethodList(source, 'play'), isTrue);
         expect(
-          await _call(runtime, const ['love', 'audio', 'getActiveSourceCount']),
+          await luaCallList(runtime, const [
+            'love',
+            'audio',
+            'getActiveSourceCount',
+          ]),
           1,
         );
 
         await expectLater(
-          () => _call(
+          () => luaCallList(
             runtime,
             const ['love', 'audio', 'newSource'],
             const <Object?>['sounds/missing.wav'],
@@ -387,58 +627,76 @@ void main() {
     test(
       'newQueueableSource tracks queued buffers and validates format',
       () async {
-        final queue = await _call(
+        final queue = await luaCallList(
           runtime,
           const ['love', 'audio', 'newQueueableSource'],
           const <Object?>[22050, 16, 2],
         );
-        final matching = await _call(
+        final matching = await luaCallList(
           runtime,
           const ['love', 'sound', 'newSoundData'],
           const <Object?>[4, 22050, 16, 2],
         );
-        final mismatch = await _call(
+        final mismatch = await luaCallList(
           runtime,
           const ['love', 'sound', 'newSoundData'],
           const <Object?>[4, 44100, 16, 2],
         );
 
-        expect(await _callMethod(queue, 'getType'), 'queue');
-        expect(await _callMethod(queue, 'getFreeBufferCount'), 8);
-        expect(await _callMethod(queue, 'getDuration'), 0.0);
+        expect(await luaCallMethodList(queue, 'getType'), 'queue');
+        expect(await luaCallMethodList(queue, 'getFreeBufferCount'), 8);
+        expect(await luaCallMethodList(queue, 'getDuration'), 0.0);
         expect(
-          await _callMethod(queue, 'getDuration', const <Object?>['samples']),
+          await luaCallMethodList(queue, 'getDuration', const <Object?>[
+            'samples',
+          ]),
           0.0,
         );
-
-        expect(await _callMethod(queue, 'queue', <Object?>[matching]), isTrue);
-        expect(await _callMethod(queue, 'getFreeBufferCount'), 7);
+        expect(await luaCallMethodList(queue, 'play'), isFalse);
         expect(
-          await _callMethod(queue, 'getDuration', const <Object?>['samples']),
+          await luaCallList(
+            runtime,
+            const ['love', 'audio', 'play'],
+            <Object?>[queue],
+          ),
+          isFalse,
+        );
+
+        expect(
+          await luaCallMethodList(queue, 'queue', <Object?>[matching]),
+          isTrue,
+        );
+        expect(await luaCallMethodList(queue, 'getFreeBufferCount'), 7);
+        expect(
+          await luaCallMethodList(queue, 'getDuration', const <Object?>[
+            'samples',
+          ]),
           4.0,
         );
         expect(
-          await _callMethod(queue, 'getDuration'),
+          await luaCallMethodList(queue, 'getDuration'),
           closeTo(4 / 22050, 1e-12),
         );
 
         expect(
-          await _callMethod(queue, 'queue', <Object?>[matching, 8]),
+          await luaCallMethodList(queue, 'queue', <Object?>[matching, 8]),
           isTrue,
         );
-        expect(await _callMethod(queue, 'getFreeBufferCount'), 6);
+        expect(await luaCallMethodList(queue, 'getFreeBufferCount'), 6);
         expect(
-          await _callMethod(queue, 'getDuration', const <Object?>['samples']),
+          await luaCallMethodList(queue, 'getDuration', const <Object?>[
+            'samples',
+          ]),
           6.0,
         );
 
-        final clone = await _callMethod(queue, 'clone');
-        expect(await _callMethod(clone, 'getType'), 'queue');
-        expect(await _callMethod(clone, 'getFreeBufferCount'), 8);
-        expect(await _callMethod(clone, 'getDuration'), 0.0);
+        final clone = await luaCallMethodList(queue, 'clone');
+        expect(await luaCallMethodList(clone, 'getType'), 'queue');
+        expect(await luaCallMethodList(clone, 'getFreeBufferCount'), 8);
+        expect(await luaCallMethodList(clone, 'getDuration'), 0.0);
 
         expect(
-          _callMethod(queue, 'setLooping', const <Object?>[true]),
+          luaCallMethodList(queue, 'setLooping', const <Object?>[true]),
           throwsA(
             isA<LuaError>().having(
               (error) => error.message,
@@ -448,7 +706,7 @@ void main() {
           ),
         );
         expect(
-          _callMethod(queue, 'queue', <Object?>[mismatch]),
+          luaCallMethodList(queue, 'queue', <Object?>[mismatch]),
           throwsA(
             isA<LuaError>().having(
               (error) => error.message,
@@ -460,7 +718,7 @@ void main() {
           ),
         );
         expect(
-          _callMethod(queue, 'queue', <Object?>[matching, 3]),
+          luaCallMethodList(queue, 'queue', <Object?>[matching, 3]),
           throwsA(
             isA<LuaError>().having(
               (error) => error.message,
@@ -470,9 +728,56 @@ void main() {
           ),
         );
 
-        await _callMethod(queue, 'stop');
-        expect(await _callMethod(queue, 'getFreeBufferCount'), 8);
-        expect(await _callMethod(queue, 'getDuration'), 0.0);
+        await luaCallMethodList(queue, 'stop');
+        expect(await luaCallMethodList(queue, 'getFreeBufferCount'), 8);
+        expect(await luaCallMethodList(queue, 'getDuration'), 0.0);
+      },
+    );
+
+    test(
+      'newQueueableSource matches LOVE constructor acceptance and format errors',
+      () async {
+        final zeroRateQueue = await luaCallList(
+          runtime,
+          const ['love', 'audio', 'newQueueableSource'],
+          const <Object?>[0, 16, 1],
+        );
+        expect(await luaCallMethodList(zeroRateQueue, 'getType'), 'queue');
+        expect(await luaCallMethodList(zeroRateQueue, 'getFreeBufferCount'), 8);
+
+        await expectLater(
+          () => luaCallList(
+            runtime,
+            const ['love', 'audio', 'newQueueableSource'],
+            const <Object?>[22050, 24, 1],
+          ),
+          throwsA(
+            isA<LuaError>().having(
+              (error) => error.message,
+              'message',
+              contains(
+                '1-channel Sources with 24 bits per sample are not supported.',
+              ),
+            ),
+          ),
+        );
+
+        await expectLater(
+          () => luaCallList(
+            runtime,
+            const ['love', 'audio', 'newQueueableSource'],
+            const <Object?>[22050, 16, 3],
+          ),
+          throwsA(
+            isA<LuaError>().having(
+              (error) => error.message,
+              'message',
+              contains(
+                '3-channel Sources with 16 bits per sample are not supported.',
+              ),
+            ),
+          ),
+        );
       },
     );
   });
@@ -514,69 +819,3 @@ Uint8List _pcm16StereoWave({
   buffer.add(pcmBytes);
   return buffer.toBytes();
 }
-
-Future<Object?> _call(
-  Interpreter runtime,
-  List<String> path, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(_rawFunction(runtime, path).call(args));
-}
-
-Future<Object?> _callMethod(
-  Object? receiver,
-  String method, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(
-    _rawMethod(receiver, method).call(<Object?>[receiver, ...args]),
-  );
-}
-
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> path) {
-  var current = runtime.getCurrentEnv().get(path.first);
-  for (final segment in path.skip(1)) {
-    final table = current is Value ? current.raw : current;
-    expect(
-      table,
-      isA<Map>(),
-      reason: 'Expected ${path.join('.')} to traverse a Lua table',
-    );
-    current = (table as Map)[segment];
-  }
-
-  expect(current, isA<Value>());
-  final raw = (current! as Value).raw;
-  expect(raw, isA<BuiltinFunction>());
-  return raw as BuiltinFunction;
-}
-
-BuiltinFunction _rawMethod(Object? receiver, String method) {
-  final table = receiver is Value ? receiver.raw : receiver;
-  expect(table, isA<Map>());
-  final entry = (table! as Map)[method];
-  return switch (entry) {
-    final Value wrapped when wrapped.raw is BuiltinFunction =>
-      wrapped.raw as BuiltinFunction,
-    final BuiltinFunction function => function,
-    _ => throw TestFailure('Expected $method to be a callable Lua method'),
-  };
-}
-
-Future<Object?> _resolveCallResult(Object? result) async {
-  final resolved = await _resolveRawCallResult(result);
-  if (resolved is List<Object?>) {
-    return resolved.map(_unwrap).toList(growable: false);
-  }
-  return _unwrap(resolved);
-}
-
-Future<Object?> _resolveRawCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return List<Object?>.from(wrapped.raw as List<Object?>, growable: false);
-  }
-  return resolved;
-}
-
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;

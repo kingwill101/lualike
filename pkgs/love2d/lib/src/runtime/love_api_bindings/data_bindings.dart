@@ -1,5 +1,8 @@
 part of '../love_api_bindings.dart';
 
+/// Binds `Data:clone`.
+///
+/// This clones any LOVE data object supported by the runtime wrapper layer.
 LoveApiImplementation _bindDataClone(LibraryRegistrationContext context) {
   return (args) {
     const symbol = 'Data:clone';
@@ -27,6 +30,7 @@ LoveApiImplementation _bindDataClone(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.data.compress`.
 LoveApiImplementation _bindDataCompress(LibraryRegistrationContext context) {
   return (args) {
     final symbol = 'love.data.compress';
@@ -51,6 +55,7 @@ LoveApiImplementation _bindDataCompress(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.data.decode`.
 LoveApiImplementation _bindDataDecode(LibraryRegistrationContext context) {
   return (args) {
     final symbol = 'love.data.decode';
@@ -70,6 +75,10 @@ LoveApiImplementation _bindDataDecode(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.data.decompress`.
+///
+/// LOVE accepts either `CompressedData` directly or an explicit compression
+/// format plus raw bytes.
 LoveApiImplementation _bindDataDecompress(LibraryRegistrationContext context) {
   return (args) {
     final symbol = 'love.data.decompress';
@@ -101,6 +110,7 @@ LoveApiImplementation _bindDataDecompress(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.data.encode`.
 LoveApiImplementation _bindDataEncode(LibraryRegistrationContext context) {
   return (args) {
     final symbol = 'love.data.encode';
@@ -119,6 +129,7 @@ LoveApiImplementation _bindDataEncode(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.data.getPackedSize`.
 LoveApiImplementation _bindDataGetPackedSize(
   LibraryRegistrationContext context,
 ) {
@@ -129,6 +140,7 @@ LoveApiImplementation _bindDataGetPackedSize(
   };
 }
 
+/// Binds `love.data.hash`.
 LoveApiImplementation _bindDataHash(LibraryRegistrationContext context) {
   return (args) {
     final symbol = 'love.data.hash';
@@ -143,6 +155,10 @@ LoveApiImplementation _bindDataHash(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.data.newByteData`.
+///
+/// LOVE overloads this call to accept an existing `Data` object plus offset and
+/// size, a byte count, or a string-like byte source.
 LoveApiImplementation _bindDataNewByteData(LibraryRegistrationContext context) {
   return (args) {
     final symbol = 'love.data.newByteData';
@@ -196,6 +212,7 @@ LoveApiImplementation _bindDataNewByteData(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.data.newDataView`.
 LoveApiImplementation _bindDataNewDataView(LibraryRegistrationContext context) {
   return (args) {
     final symbol = 'love.data.newDataView';
@@ -223,6 +240,7 @@ LoveApiImplementation _bindDataNewDataView(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.data.pack`.
 LoveApiImplementation _bindDataPack(LibraryRegistrationContext context) {
   return (args) async {
     final symbol = 'love.data.pack';
@@ -237,6 +255,7 @@ LoveApiImplementation _bindDataPack(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.data.unpack`.
 LoveApiImplementation _bindDataUnpack(LibraryRegistrationContext context) {
   return (args) async {
     final symbol = 'love.data.unpack';
@@ -253,8 +272,10 @@ LoveApiImplementation _bindDataUnpack(LibraryRegistrationContext context) {
   };
 }
 
+/// The output container types supported by LOVE's data codec helpers.
 enum _LoveDataContainerType { data, string }
 
+/// Returns the validated data container type at [index].
 _LoveDataContainerType _requireDataContainerType(
   List<Object?> args,
   int index,
@@ -267,6 +288,7 @@ _LoveDataContainerType _requireDataContainerType(
   };
 }
 
+/// Returns the validated data encode format at [index].
 LoveDataEncodeFormat _requireDataEncodeFormat(
   List<Object?> args,
   int index,
@@ -279,6 +301,7 @@ LoveDataEncodeFormat _requireDataEncodeFormat(
   };
 }
 
+/// Returns the validated compressed-data format at [index].
 LoveCompressedDataFormat _requireCompressedDataFormat(
   List<Object?> args,
   int index,
@@ -295,6 +318,7 @@ LoveCompressedDataFormat _requireCompressedDataFormat(
   };
 }
 
+/// Returns the validated data hash function at [index].
 LoveDataHashFunction _requireDataHashFunction(
   List<Object?> args,
   int index,
@@ -311,6 +335,7 @@ LoveDataHashFunction _requireDataHashFunction(
   };
 }
 
+/// Returns LOVE's string name for a compressed data [format].
 String _compressedDataFormatName(LoveCompressedDataFormat format) {
   return switch (format) {
     LoveCompressedDataFormat.lz4 => 'lz4',
@@ -320,6 +345,10 @@ String _compressedDataFormatName(LoveCompressedDataFormat format) {
   };
 }
 
+/// Wraps [bytes] in the LOVE container requested by [container].
+///
+/// When [compressedData] is provided and the caller requested `data`, this
+/// returns wrapped `CompressedData` instead of plain `ByteData`.
 Object? _dataContainerResult(
   LibraryRegistrationContext context,
   _LoveDataContainerType container,
@@ -342,6 +371,7 @@ Object? _dataContainerResult(
   };
 }
 
+/// Returns byte values for a Lua string-like [value], if possible.
 List<int>? _stringBytesIfPresent(Object? value) {
   return switch (_valueAt(<Object?>[value], 0)) {
     final Value wrapped when wrapped.raw is LuaString => List<int>.from(
@@ -355,6 +385,7 @@ List<int>? _stringBytesIfPresent(Object? value) {
   };
 }
 
+/// Returns byte values from a LOVE `Data`-like [value], if possible.
 List<int>? _dataBytesIfPresent(Object? value) {
   final data = _loveDataObjectIfPresent(value);
   if (data != null) {
@@ -369,6 +400,7 @@ List<int>? _dataBytesIfPresent(Object? value) {
   return null;
 }
 
+/// Returns the required `Data` bytes at [index] or throws a [LuaError].
 List<int> _requireDataBytes(List<Object?> args, int index, String symbol) {
   final bytes = _dataBytesIfPresent(_valueAt(args, index));
   if (bytes != null) {
@@ -378,6 +410,7 @@ List<int> _requireDataBytes(List<Object?> args, int index, String symbol) {
   throw LuaError('$symbol expected a Data at argument ${index + 1}');
 }
 
+/// Returns required binary bytes from either a string or `Data` argument.
 List<int> _requireBinaryBytes(List<Object?> args, int index, String symbol) {
   final dataBytes = _dataBytesIfPresent(_valueAt(args, index));
   if (dataBytes != null) {
@@ -392,6 +425,7 @@ List<int> _requireBinaryBytes(List<Object?> args, int index, String symbol) {
   throw LuaError('$symbol expected a string or Data at argument ${index + 1}');
 }
 
+/// Returns required binary bytes from a string- or data-like result value.
 List<int> _requireBinaryBytesFromValue(Object? value, String symbol) {
   final dataBytes = _dataBytesIfPresent(value);
   if (dataBytes != null) {
@@ -406,6 +440,10 @@ List<int> _requireBinaryBytesFromValue(Object? value, String symbol) {
   throw LuaError('$symbol expected a string result');
 }
 
+/// Calls `string.[name]` inside the Lua runtime.
+///
+/// This is used to preserve LOVE's pack and unpack semantics by delegating to
+/// Lua's own string library implementation.
 Future<Object?> _callStringLibrary(
   LibraryRegistrationContext context,
   String name,
@@ -439,6 +477,7 @@ Future<Object?> _callStringLibrary(
   );
 }
 
+/// Converts [value] into the form expected by the Lua string library.
 Value _luaStringLibraryArgument(LuaRuntime interpreter, Object? value) {
   return switch (value) {
     final Value wrapped => wrapped,

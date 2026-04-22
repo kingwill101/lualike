@@ -1,5 +1,7 @@
 part of 'love_filesystem_runtime.dart';
 
+/// Decodes [bytes] into mounted virtual filesystem nodes, if a supported
+/// archive format can be identified.
 Map<String, _LoveFilesystemVirtualNode>? _decodeArchiveNodes(
   List<int> bytes, {
   String? archiveName,
@@ -20,6 +22,7 @@ Map<String, _LoveFilesystemVirtualNode>? _decodeArchiveNodes(
   return null;
 }
 
+/// Converts an [archive] to the virtual node map used by mounted archives.
 Map<String, _LoveFilesystemVirtualNode> _archiveNodesFromArchive(
   Archive archive,
 ) {
@@ -57,6 +60,8 @@ Map<String, _LoveFilesystemVirtualNode> _archiveNodesFromArchive(
   return nodes;
 }
 
+/// Yields candidate archive decoders for [bytes], preferring formats suggested
+/// by [archiveName] before falling back to signature-based detection.
 Iterable<Archive? Function(List<int> bytes)> _archiveDecodersFor(
   List<int> bytes, {
   String? archiveName,
@@ -177,6 +182,7 @@ Iterable<Archive? Function(List<int> bytes)> _archiveDecodersFor(
   }
 }
 
+/// Decodes a ZIP archive.
 Archive? _decodeZipArchive(List<int> bytes) {
   if (!_looksLikeZipArchive(bytes)) {
     return null;
@@ -185,6 +191,7 @@ Archive? _decodeZipArchive(List<int> bytes) {
   return ZipDecoder().decodeBytes(bytes);
 }
 
+/// Decodes a ZIP archive embedded after a prefix blob.
 Archive? _decodePrefixedZipArchive(List<int> bytes) {
   for (final offset in _prefixedZipArchiveOffsets(bytes)) {
     try {
@@ -200,6 +207,7 @@ Archive? _decodePrefixedZipArchive(List<int> bytes) {
   return null;
 }
 
+/// Decodes a strict tar archive.
 Archive? _decodeTarArchive(List<int> bytes) {
   if (!_looksLikeTarArchive(bytes)) {
     return null;
@@ -208,6 +216,7 @@ Archive? _decodeTarArchive(List<int> bytes) {
   return TarDecoder().decodeBytes(bytes);
 }
 
+/// Decodes a tar archive using only a minimum-size sanity check.
 Archive? _decodeTarArchiveLenient(List<int> bytes) {
   if (bytes.length < 512) {
     return null;
@@ -216,6 +225,7 @@ Archive? _decodeTarArchiveLenient(List<int> bytes) {
   return TarDecoder().decodeBytes(bytes);
 }
 
+/// Decodes a gzip-compressed tar archive.
 Archive? _decodeGzipTarArchive(List<int> bytes) {
   if (!_looksLikeGzipArchive(bytes)) {
     return null;
@@ -224,6 +234,7 @@ Archive? _decodeGzipTarArchive(List<int> bytes) {
   return TarDecoder().decodeBytes(GZipDecoder().decodeBytes(bytes));
 }
 
+/// Decodes a bzip2-compressed tar archive.
 Archive? _decodeBzipTarArchive(List<int> bytes) {
   if (!_looksLikeBzipArchive(bytes)) {
     return null;
@@ -232,6 +243,7 @@ Archive? _decodeBzipTarArchive(List<int> bytes) {
   return TarDecoder().decodeBytes(BZip2Decoder().decodeBytes(bytes));
 }
 
+/// Decodes an xz-compressed tar archive.
 Archive? _decodeXzTarArchive(List<int> bytes) {
   if (!_looksLikeXzArchive(bytes)) {
     return null;
@@ -240,6 +252,7 @@ Archive? _decodeXzTarArchive(List<int> bytes) {
   return TarDecoder().decodeBytes(XZDecoder().decodeBytes(bytes));
 }
 
+/// Decodes a 7z archive through the pure-Dart or host decoder backends.
 Archive? _decode7zArchive(List<int> bytes) {
   if (!_looksLike7zArchive(bytes)) {
     return null;
@@ -249,6 +262,7 @@ Archive? _decode7zArchive(List<int> bytes) {
       love_filesystem_archive_7z_host.decode7zArchive(bytes);
 }
 
+/// Decodes a Ken Silverman GRP archive.
 Archive? _decodeGrpArchive(List<int> bytes) {
   if (!_looksLikeGrpArchive(bytes)) {
     return null;
@@ -287,6 +301,7 @@ Archive? _decodeGrpArchive(List<int> bytes) {
   return archive;
 }
 
+/// Decodes a Quake PAK archive.
 Archive? _decodePakArchive(List<int> bytes) {
   if (!_looksLikePakArchive(bytes)) {
     return null;
@@ -324,6 +339,7 @@ Archive? _decodePakArchive(List<int> bytes) {
   return archive;
 }
 
+/// Decodes a Doom WAD archive.
 Archive? _decodeWadArchive(List<int> bytes) {
   if (!_looksLikeWadArchive(bytes)) {
     return null;
@@ -359,6 +375,7 @@ Archive? _decodeWadArchive(List<int> bytes) {
   return archive;
 }
 
+/// Decodes a SLB archive.
 Archive? _decodeSlbArchive(List<int> bytes) {
   if (!_looksLikeSlbArchive(bytes)) {
     return null;
@@ -399,6 +416,7 @@ Archive? _decodeSlbArchive(List<int> bytes) {
   return archive;
 }
 
+/// Decodes a VDF archive.
 Archive? _decodeVdfArchive(List<int> bytes) {
   if (!_looksLikeVdfArchive(bytes)) {
     return null;
@@ -445,6 +463,7 @@ Archive? _decodeVdfArchive(List<int> bytes) {
   return archive;
 }
 
+/// Decodes a Descent MVL archive.
 Archive? _decodeMvlArchive(List<int> bytes) {
   if (!_looksLikeMvlArchive(bytes)) {
     return null;
@@ -483,6 +502,7 @@ Archive? _decodeMvlArchive(List<int> bytes) {
   return archive;
 }
 
+/// Decodes the detected HOG archive variant.
 Archive? _decodeHogArchive(List<int> bytes) {
   if (_looksLikeHog1Archive(bytes)) {
     return _decodeHog1Archive(bytes);
@@ -493,6 +513,7 @@ Archive? _decodeHogArchive(List<int> bytes) {
   return null;
 }
 
+/// Decodes a HOG1 archive.
 Archive _decodeHog1Archive(List<int> bytes) {
   var offset = 3;
   final archive = Archive();
@@ -517,6 +538,7 @@ Archive _decodeHog1Archive(List<int> bytes) {
   return archive;
 }
 
+/// Decodes a HOG2 archive.
 Archive _decodeHog2Archive(List<int> bytes) {
   if (bytes.length < 68) {
     throw const FormatException('Invalid HOG2 header.');

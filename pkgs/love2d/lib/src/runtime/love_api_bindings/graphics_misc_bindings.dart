@@ -1,62 +1,65 @@
 part of '../love_api_bindings.dart';
 
-// love.graphics.present
-// Frame submission is managed by the Flame/Flutter harness, so this is a
-// deliberate no-op shim that lets Lua code call it without error.
+/// Binds `love.graphics.present`.
+///
+/// Frame submission is managed by the Flame and Flutter harness, so this is a
+/// deliberate no-op shim that lets Lua code call it without error.
 LoveApiImplementation _bindGraphicsPresent(LibraryRegistrationContext context) {
   return (args) => null;
 }
 
-// love.graphics.flushBatch
-// Automatic draw-call batching is handled internally; there is no explicit
-// batch to flush in this runtime, so this is a no-op shim.
+/// Binds `love.graphics.flushBatch`.
+///
+/// Automatic draw-call batching is handled internally, so there is no explicit
+/// batch to flush in this runtime.
 LoveApiImplementation _bindGraphicsFlushBatch(
   LibraryRegistrationContext context,
 ) {
   return (args) => null;
 }
 
-// love.graphics.discard([discardcolor, discardstencil])
-// This is a GPU-driver performance hint with no observable effect on output.
-// Shimmed as a no-op so games that call it don't error.
+/// Binds `love.graphics.discard`.
+///
+/// This is a GPU-driver performance hint with no observable effect on output,
+/// so it is shimmed as a no-op.
 LoveApiImplementation _bindGraphicsDiscard(LibraryRegistrationContext context) {
   return (args) => null;
 }
 
-// love.graphics.isActive
-// Returns whether the graphics module is currently active (i.e. the window
-// is open and the render context is live).  We always return true since the
-// runtime cannot be partially initialised.
+/// Binds `love.graphics.isActive`.
+///
+/// The runtime cannot be partially initialized, so this always reports `true`.
 LoveApiImplementation _bindGraphicsIsActive(
   LibraryRegistrationContext context,
 ) {
   return (args) => true;
 }
 
-// love.graphics.isCreated
-// Upstream exposes this lightweight initialization-state query even though the
-// vendored love-api inventory omits it. The runtime always has a graphics
-// context once installed, so this reports true.
+/// Binds `love.graphics.isCreated`.
+///
+/// Upstream exposes this lightweight initialization-state query even though the
+/// vendored LOVE API inventory omits it. Once the runtime is installed, the
+/// graphics context always exists, so this reports `true`.
 LoveApiImplementation _bindGraphicsIsCreated(
   LibraryRegistrationContext context,
 ) {
   return (args) => true;
 }
 
-// love.graphics.isGammaCorrect
-// Returns whether gamma-correct rendering is enabled.  The Flutter/Flame
-// backend does not currently enable automatic gamma correction, so this
-// returns false.
+/// Binds `love.graphics.isGammaCorrect`.
+///
+/// The Flutter and Flame backend does not currently enable automatic gamma
+/// correction, so this returns `false`.
 LoveApiImplementation _bindGraphicsIsGammaCorrect(
   LibraryRegistrationContext context,
 ) {
   return (args) => false;
 }
 
-// love.graphics.getTextureTypes
-// Returns a table of supported texture types.  Only 2D textures are fully
-// supported in the current runtime; array / cube / volume textures are
-// tracked in state but cannot be rasterised yet.
+/// Supported texture-type flags returned by `love.graphics.getTextureTypes`.
+///
+/// Only 2D textures are fully supported in the current runtime. Array, cube,
+/// and volume textures may be tracked in state but are not fully rasterized.
 const Map<String, bool> _loveGraphicsTextureTypeSupport = <String, bool>{
   '2d': true,
   'array': true,
@@ -64,6 +67,10 @@ const Map<String, bool> _loveGraphicsTextureTypeSupport = <String, bool>{
   'volume': false,
 };
 
+/// Binds `love.graphics.getTextureTypes`.
+///
+/// LOVE optionally accepts a destination table to populate, so this binding
+/// preserves that in-place fill behavior.
 LoveApiImplementation _bindGraphicsGetTextureTypes(
   LibraryRegistrationContext context,
 ) {
@@ -77,14 +84,13 @@ LoveApiImplementation _bindGraphicsGetTextureTypes(
   };
 }
 
-// love.graphics.validateShader(gles, code)
-// love.graphics.validateShader(gles, pixelcode, vertexcode)
-//
-// Validates shader source through the same input-resolution path as newShader.
-// The Flutter backend does not have a general-purpose GLSL compiler, so we
-// report success only for the compatibility-emulated shader subset that the
-// runtime can actually execute and return (false, message) for unsupported
-// runtime shader source.
+/// Binds `love.graphics.validateShader`.
+///
+/// Validation goes through the same source-resolution path as `newShader`.
+/// Since the Flutter backend does not expose a general-purpose GLSL compiler,
+/// this reports success only for the compatibility-emulated shader subset that
+/// the runtime can execute and returns `(false, message)` for unsupported
+/// runtime shader source.
 LoveApiImplementation _bindGraphicsValidateShader(
   LibraryRegistrationContext context,
 ) {
@@ -115,16 +121,24 @@ LoveApiImplementation _bindGraphicsValidateShader(
       return Value.multi(<Object?>[false, unsupportedMessage]);
     }
 
+    final validationError = await _registeredFragmentShaderValidationError(
+      context,
+      shader,
+    );
+    if (validationError != null) {
+      return Value.multi(<Object?>[false, validationError]);
+    }
+
     // Mirrors upstream by returning a single true value on success.
     return true;
   };
 }
 
-// love.graphics.drawInstanced(mesh, count [, drawparams...])
-//
-// Hardware geometry instancing is emulated by replaying the queued Mesh command
-// multiple times during rasterization while preserving a single queued draw
-// command and drawcall stat. Per-instance attributes are not yet rasterized.
+/// Binds `love.graphics.drawInstanced`.
+///
+/// Hardware geometry instancing is emulated by replaying the queued mesh draw
+/// command multiple times during rasterization while preserving a single queued
+/// draw command and draw-call statistic.
 LoveApiImplementation _bindGraphicsDrawInstanced(
   LibraryRegistrationContext context,
 ) {
@@ -145,8 +159,7 @@ LoveApiImplementation _bindGraphicsDrawInstanced(
   };
 }
 
-// love.graphics.stencil(stencilfunction [, action [, value [, keepvals]]])
-//
+/// Returns the validated stencil action for [value].
 LoveGraphicsStencilAction _stencilAction(String value, String symbol) {
   return switch (value) {
     'replace' => LoveGraphicsStencilAction.replace,
@@ -159,10 +172,12 @@ LoveGraphicsStencilAction _stencilAction(String value, String symbol) {
   };
 }
 
-// Records stencil-writing draw commands by replaying the supplied callback with
-// temporary stencil-write state enabled. CPU readback paths such as
-// Canvas:newImageData and captureScreenshot then replay the commands against a
-// software stencil buffer.
+/// Binds `love.graphics.stencil`.
+///
+/// This records stencil-writing draw commands by replaying the supplied
+/// callback with temporary stencil-write state enabled. CPU readback paths such
+/// as `Canvas:newImageData` and `captureScreenshot` then replay the commands
+/// against a software stencil buffer.
 LoveApiImplementation _bindGraphicsStencil(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   final interpreter = context.interpreter;

@@ -4,13 +4,16 @@ import 'package:lualike/lualike.dart' show LuaRuntime, Value;
 
 import '../../generated/love_api_reference.g.dart' show loveApiEnums;
 
+/// Whether the extra data bindings have already been installed for a runtime.
 final Expando<bool> _loveDataExtrasInstalled = Expando<bool>(
   'love2dDataExtrasInstalled',
 );
 
+/// Cached LOVE data enum tables keyed by exported symbol name.
 final Map<String, Map<String, Object?>> _loveDataEnumMaps =
     _buildLoveDataEnumMaps();
 
+/// Builds Lua-ready enum tables for the `love.data` module.
 Map<String, Map<String, Object?>> _buildLoveDataEnumMaps() {
   final result = <String, Map<String, Object?>>{};
   for (final enumDoc in loveApiEnums) {
@@ -25,6 +28,7 @@ Map<String, Map<String, Object?>> _buildLoveDataEnumMaps() {
   return result;
 }
 
+/// Installs generated enum tables into `love.data`.
 void installLoveDataExtraBindings(LuaRuntime runtime) {
   if (_loveDataExtrasInstalled[runtime] == true) {
     return;
@@ -44,6 +48,7 @@ void installLoveDataExtraBindings(LuaRuntime runtime) {
   _loveDataExtrasInstalled[runtime] = true;
 }
 
+/// Returns the current `love.data` module table when it is available.
 Map<dynamic, dynamic>? _dataModuleTable(LuaRuntime runtime) {
   final love = runtime.globals.get('love');
   final loveTable = love is Value ? love.raw : love;

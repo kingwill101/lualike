@@ -1,11 +1,18 @@
 part of '../love_api_bindings.dart';
 
+/// An exception thrown when strict LOVE UTF-8 decoding fails.
 final class _LoveUtf8DecodeError implements Exception {
   const _LoveUtf8DecodeError(this.message);
 
+  /// The human-readable reason the decode failed.
   final String message;
 }
 
+/// Decodes the UTF-8 code point beginning at [index].
+///
+/// Throws [_LoveUtf8DecodeError] when the byte sequence is truncated, invalid,
+/// overlong, or resolves to a code point rejected by
+/// [_isValidGlyphStringCodepoint].
 ({int codePoint, int nextIndex}) _decodeLoveUtf8CodePointAt(
   List<int> bytes,
   int index,
@@ -52,6 +59,7 @@ final class _LoveUtf8DecodeError implements Exception {
   return (codePoint: codePoint, nextIndex: index + sequenceLength);
 }
 
+/// Decodes [bytes] as a strictly validated LOVE UTF-8 string.
 String _decodeLoveUtf8Strict(List<int> bytes) {
   final buffer = StringBuffer();
   var index = 0;
@@ -65,6 +73,9 @@ String _decodeLoveUtf8Strict(List<int> bytes) {
   return buffer.toString();
 }
 
+/// Decodes only the first UTF-8 code point in [bytes].
+///
+/// Returns an empty string when [bytes] is empty.
 String _decodeLoveUtf8FirstCodepoint(List<int> bytes) {
   if (bytes.isEmpty) {
     return '';

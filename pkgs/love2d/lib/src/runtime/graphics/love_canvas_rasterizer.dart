@@ -1,27 +1,13 @@
 part of '../love_runtime.dart';
 
-// ============================================================================
-// LoveCanvasRasterizer
-//
-// CPU-based 2D software rasterizer.  Converts the LoveDrawCommand list stored
-// in a LoveGraphicsSurfaceSnapshot into pixel data in a LoveImageData so that
-// Canvas:newImageData can return meaningful results.
-//
-// Limitations compared to the GPU pipeline:
-//   • Only the compatibility-emulated desaturation tint shader subset, plus
-//     the paint-shader radial gradient subset used by the Flutter renderer,
-//     are rasterized; all other shaders are ignored.
-//   • Text is drawn as a solid-colour bounding-box approximation (requires
-//     full font-metric/glyph rasterisation to do properly).
-//   • MSAA is not applied.
-//   • Rounded-rectangle corners are approximated by the straight polygon when
-//     the transform is non-axis-aligned.
-//   • Only the 'alpha', 'replace', 'add', 'subtract', 'multiply', 'screen',
-//     'lighten', and 'darken' blend modes are implemented; anything else falls
-//     back to 'alpha'.
-// ============================================================================
-
+/// A CPU-based rasterizer that replays LOVE draw commands into image data.
+///
+/// This is used for software readback paths such as `Canvas:newImageData`.
+/// Compared to the GPU pipeline, shader support is limited, text rendering is
+/// approximate, MSAA is not applied, some rounded-rectangle cases fall back to
+/// polygon approximations, and unsupported blend modes degrade to `alpha`.
 class LoveCanvasRasterizer {
+  /// Creates a software rasterizer seeded with the target surface clear state.
   LoveCanvasRasterizer({
     required this.pixelWidth,
     required this.pixelHeight,
@@ -40,14 +26,25 @@ class LoveCanvasRasterizer {
     _applyStencilClear(clearStencil, clearScissor);
   }
 
+  /// The output width in pixels.
   final int pixelWidth;
+
+  /// The output height in pixels.
   final int pixelHeight;
+
+  /// The LOVE pixel format used for the destination image.
   final String format;
+
+  /// The image data receiving rasterized draw output.
   final LoveImageData _data;
+
+  /// The software stencil buffer tracked alongside [_data].
   final Uint8List _stencil;
 
   /// Per-snapshot rasterisation cache for canvas-in-canvas scenarios.
   final Map<Object, LoveImageData> _snapshotCache = {};
+
+  /// The cache of decoded compressed images used during rasterization.
   final Map<LoveCompressedImageData, LoveImageData?> _compressedImageCache =
       HashMap<LoveCompressedImageData, LoveImageData?>.identity();
 
@@ -85,6 +82,7 @@ class LoveCanvasRasterizer {
     }
   }
 
+  /// Applies the surface clear color to the raster output.
   void _applyClear(
     LoveColor clearColor,
     LoveGraphicsColorMask clearMask,
@@ -124,6 +122,7 @@ class LoveCanvasRasterizer {
   // Command dispatch
   // --------------------------------------------------------------------------
 
+  /// Dispatches [cmd] to the matching software rasterization path.
   void _dispatch(LoveDrawCommand cmd) {
     switch (cmd) {
       case final LoveColorClearCommand c:
@@ -146,6 +145,8 @@ class LoveCanvasRasterizer {
         _renderPoints(c);
       case final LoveImageCommand c:
         _renderImage(c);
+      case LoveVideoCommand():
+        break;
       case final LoveSpriteBatchCommand c:
         _renderSpriteBatch(c);
       case final LoveParticleSystemCommand c:
@@ -1471,8 +1472,6 @@ class LoveCanvasRasterizer {
         math.min(dst.b, s.b),
         math.min(dst.a, s.a),
       ),
-      // All other modes fall back to standard alpha compositing.
-      _ => _alphaOver(s, dst),
     };
   }
 

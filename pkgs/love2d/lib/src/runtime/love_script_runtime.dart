@@ -1,3 +1,4 @@
+/// Runtime helpers for executing LOVE scripts inside LuaLike.
 library;
 
 import 'dart:collection';
@@ -14,11 +15,13 @@ import 'love_runtime.dart';
 
 part 'input/love_joystick_callback_support.dart';
 
+/// Whether runtime tracing is enabled for touch-leak debugging.
 const bool _loveTraceRuntimeLeak = bool.fromEnvironment(
   'LOVE2D_TRACE_TOUCH_LEAK',
   defaultValue: true,
 );
 
+/// Emits a runtime trace message for [stage] when tracing is enabled.
 void _loveTraceRuntime(
   String stage, {
   Map<String, Object?> details = const {},
@@ -30,9 +33,14 @@ void _loveTraceRuntime(
   final message = details.entries
       .map((entry) => '${entry.key}=${entry.value}')
       .join(' ');
-  // print('[love2d-runtime] $stage${message.isEmpty ? '' : ' $message'}');
+  if (message.isEmpty) {
+    // print('[love2d-runtime] $stage');
+    return;
+  }
+  // print('[love2d-runtime] $stage $message');
 }
 
+/// Returns whether callback signal [name] should be included in tracing.
 bool _loveShouldTraceRuntimeSignal(String name) {
   return switch (name) {
     'touchpressed' || 'touchreleased' || 'touchmoved' || 'update' => true,
@@ -40,6 +48,7 @@ bool _loveShouldTraceRuntimeSignal(String name) {
   };
 }
 
+/// Returns a trace-friendly description of callback [args].
 String _loveDescribeRuntimeArgs(List<Object?> args) {
   if (args.isEmpty) {
     return '[]';
@@ -48,6 +57,7 @@ String _loveDescribeRuntimeArgs(List<Object?> args) {
   return '[${args.map(_loveDescribeRuntimeValue).join(', ')}]';
 }
 
+/// Returns a trace-friendly description of one runtime [value].
 String _loveDescribeRuntimeValue(Object? value) {
   final raw = value is Value ? value.raw : value;
   return '${value.runtimeType}(${raw.runtimeType}:$raw)';
@@ -62,6 +72,7 @@ String _loveDescribeRuntimeValue(Object? value) {
 class LoveScriptRuntime {
   static const String _bootstrapConfGlobalName = '__love_bootstrap_conf';
 
+  /// Creates a LOVE script runtime and installs the LOVE API surface.
   LoveScriptRuntime({
     LuaRuntime? runtime,
     LoveHost? host,
@@ -75,17 +86,24 @@ class LoveScriptRuntime {
     );
   }
 
+  /// The underlying Lua runtime.
   final LuaRuntime runtime;
   late final LuaLike _lua;
 
+  /// The LuaLike facade used to execute source text.
   LuaLike get lua => _lua;
 
+  /// The attached LOVE runtime context for [runtime].
   LoveRuntimeContext get context => LoveRuntimeContext.of(runtime);
 
+  /// Executes [code] inside this runtime.
   Future<Object?> execute(String code, {String? scriptPath}) {
     return _lua.execute(code, scriptPath: scriptPath);
   }
 
+  /// Loads and applies `conf.lua` if it is present in the mounted source.
+  ///
+  /// Returns `true` when a configuration file was found and applied.
   Future<bool> loadConfIfPresent({String confPath = 'conf.lua'}) async {
     final filesystem = LoveFilesystemState.of(runtime);
     final confData = await filesystem.readFileData(
@@ -118,10 +136,15 @@ end
     return true;
   }
 
+  /// Returns the user-defined LOVE callback named [name], if one exists.
   Value? userLoveCallback(String name) {
     return loveCallback(name);
   }
 
+  /// Returns the LOVE callback named [name].
+  ///
+  /// When [includeBuiltin] is `false`, generated builtin stubs are filtered out
+  /// so only user-provided callbacks are returned.
   Value? loveCallback(String name, {bool includeBuiltin = false}) {
     final callback = _loveField(name);
     if (callback == null) {
@@ -135,6 +158,7 @@ end
     return callback;
   }
 
+  /// Calls the LOVE callback named [name] if the user defined it.
   Future<Object?> callLoveCallbackIfDefined(
     String name, [
     List<Object?> args = const <Object?>[],
@@ -198,6 +222,7 @@ end
     }
   }
 
+  /// Creates the loop returned by `love.errorhandler`, if one is available.
   Future<Value?> createErrorHandlerLoop(String message) async {
     final callback =
         loveCallback('errorhandler', includeBuiltin: true) ??
@@ -218,6 +243,7 @@ end
     return wrapped != null && wrapped.isCallable() ? wrapped : null;
   }
 
+  /// Calls a previously created `love.errorhandler` main loop.
   Future<Object?> callErrorHandlerLoop(Value loop) {
     return runtime.callFunction(
       loop,
@@ -227,8 +253,13 @@ end
     );
   }
 
+  /// Calls `love.load` if the script defined it.
   Future<Object?> callLoadIfDefined() => callLoveCallbackIfDefined('load');
 
+  /// Drains queued LOVE events until the event queue becomes empty.
+  ///
+  /// Returns a non-`null` exit status when a quit event should terminate the
+  /// current main loop.
   Future<Object?> processMainLoopEvents() async {
     context.events.pump();
     while (true) {
@@ -273,12 +304,17 @@ end
     }
   }
 
+  /// Calls `love.update` with [dt] if it was defined.
   Future<Object?> callUpdateIfDefined(double dt) {
     return callLoveCallbackIfDefined('update', <Object?>[dt]);
   }
 
+  /// Calls `love.draw` if it was defined.
   Future<Object?> callDrawIfDefined() => callLoveCallbackIfDefined('draw');
 
+  /// Calls `love.quit` if it was defined.
+  ///
+  /// Returns whether the callback aborted shutdown.
   Future<bool> callQuitIfDefined() async {
     final callback = userLoveCallback('quit');
     if (callback == null) {
@@ -1121,15 +1157,19 @@ end
   Object? _unwrapValue(Object? value) => value is Value ? value.raw : value;
 }
 
+/// A Lua table wrapper used to stage `conf.lua` bootstrap values.
 class _LoveConfTable extends MapBase<dynamic, dynamic>
     implements VirtualLuaTable {
+  /// Creates a bootstrap configuration table from raw [values].
   _LoveConfTable(Map<Object?, Object?> values)
     : _values = <dynamic, dynamic>{
         for (final entry in values.entries) entry.key: _wrap(entry.value),
       };
 
+  /// The wrapped Lua-visible values stored in this table.
   final Map<dynamic, dynamic> _values;
 
+  /// Wraps nested values so Lua sees tables and primitives consistently.
   static dynamic _wrap(Object? value) {
     return switch (value) {
       final Value wrapped => wrapped,

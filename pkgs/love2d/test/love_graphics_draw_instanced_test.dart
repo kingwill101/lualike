@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 import 'package:vector_math/vector_math_64.dart' as vm;
+import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.graphics.drawInstanced', () {
@@ -12,7 +13,7 @@ void main() {
         final runtime = Interpreter();
         installLove2d(runtime: runtime, host: host);
 
-        final mesh = await _call(
+        final mesh = await luaCall(
           runtime,
           const ['love', 'graphics', 'newMesh'],
           <Object?>[
@@ -27,7 +28,7 @@ void main() {
         );
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'drawInstanced'],
           <Object?>[mesh, 3, 10.0, 20.0, 0.0, 2.0, 3.0, 1.0, 2.0],
@@ -43,7 +44,7 @@ void main() {
         expect(localOrigin.y, closeTo(20.0, 1e-9));
 
         final stats =
-            await _call(runtime, const ['love', 'graphics', 'getStats'])
+            await luaCall(runtime, const ['love', 'graphics', 'getStats'])
                 as Map<Object?, Object?>;
         expect(stats['drawcalls'], 1);
       },
@@ -54,7 +55,7 @@ void main() {
       final runtime = Interpreter();
       installLove2d(runtime: runtime, host: host);
 
-      final mesh = await _call(
+      final mesh = await luaCall(
         runtime,
         const ['love', 'graphics', 'newMesh'],
         <Object?>[
@@ -67,7 +68,7 @@ void main() {
       );
 
       LoveRuntimeContext.of(runtime).beginDrawFrame();
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'graphics', 'drawInstanced'],
         <Object?>[mesh, 0, 5.0, 6.0],
@@ -89,41 +90,3 @@ Map<Object?, Object?> _luaSeq(List<Object?> values) {
   final point = matrix.transformed3(vm.Vector3(x, y, 0));
   return (x: point.x, y: point.y);
 }
-
-Future<Object?> _call(
-  Interpreter runtime,
-  List<String> path, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(_rawFunction(runtime, path).call(args));
-}
-
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> path) {
-  var current = runtime.getCurrentEnv().get(path.first);
-  for (final segment in path.skip(1)) {
-    final table = current is Value ? current.raw : current;
-    expect(
-      table,
-      isA<Map>(),
-      reason: 'Expected ${path.join('.')} to traverse a Lua table',
-    );
-    current = (table as Map)[segment];
-  }
-
-  expect(current, isA<Value>());
-  final raw = (current! as Value).raw;
-  expect(raw, isA<BuiltinFunction>());
-  return raw as BuiltinFunction;
-}
-
-Future<Object?> _resolveCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return (wrapped.raw as List<Object?>).map(_unwrap).toList(growable: false);
-  }
-
-  return _unwrap(resolved);
-}
-
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;

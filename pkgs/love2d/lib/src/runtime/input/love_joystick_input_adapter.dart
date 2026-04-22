@@ -11,6 +11,7 @@ import '../love_script_runtime.dart';
 /// Integrations can feed it device add/remove notifications plus joystick or
 /// gamepad state changes from any platform backend.
 class LoveJoystickInputAdapter {
+  /// Creates a joystick and gamepad input adapter for a LOVE host.
   LoveJoystickInputAdapter({
     required LoveHost host,
     required LoveScriptRuntime? Function() runtimeProvider,
@@ -24,6 +25,7 @@ class LoveJoystickInputAdapter {
 
   Future<void> _dispatchQueue = Future<void>.value();
 
+  /// The managed joystick registry exposed by the host.
   LoveJoystickManager get joysticks => _host.joysticks;
 
   /// Waits for all queued state transitions and callback dispatches to finish.

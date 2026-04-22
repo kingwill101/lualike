@@ -1,8 +1,10 @@
 part of '../love_runtime.dart';
 
+/// Error message for snapshots that include Flutter fragment-asset shaders.
 const String _loveSoftwareReadbackFlutterFragmentShaderUnsupportedMessage =
     'does not yet support software readback of Flutter fragment-asset shaders';
 
+/// Returns the first reason [snapshot] cannot be read back in software, if any.
 String? loveSoftwareReadbackUnsupportedReasonForSnapshot(
   LoveGraphicsSurfaceSnapshot snapshot,
 ) {
@@ -13,6 +15,7 @@ String? loveSoftwareReadbackUnsupportedReasonForSnapshot(
   );
 }
 
+/// Recursively checks [snapshot] and nested drawables for readback blockers.
 String? _loveSoftwareReadbackUnsupportedReasonForSnapshot(
   LoveGraphicsSurfaceSnapshot snapshot, {
   required Set<LoveGraphicsSurfaceSnapshot> visitedSurfaces,
@@ -63,6 +66,7 @@ String? _loveSoftwareReadbackUnsupportedReasonForSnapshot(
   return null;
 }
 
+/// Returns the first readback blocker reachable from [spriteBatch], if any.
 String? _loveSoftwareReadbackUnsupportedReasonForSpriteBatch(
   LoveSpriteBatch spriteBatch, {
   required Set<LoveGraphicsSurfaceSnapshot> visitedSurfaces,
@@ -82,6 +86,7 @@ String? _loveSoftwareReadbackUnsupportedReasonForSpriteBatch(
   return null;
 }
 
+/// Returns the first readback blocker reachable from [image], if any.
 String? _loveSoftwareReadbackUnsupportedReasonForImage(
   LoveImage? image, {
   required Set<LoveGraphicsSurfaceSnapshot> visitedSurfaces,
@@ -115,6 +120,7 @@ String? _loveSoftwareReadbackUnsupportedReasonForImage(
   return null;
 }
 
+/// Returns the texture image currently referenced by [mesh], if one exists.
 LoveImage? _loveSoftwareReadbackMeshTextureImage(LoveMesh mesh) {
   return switch (mesh.textureObject) {
     final LoveCanvas canvas => canvas.snapshot(),

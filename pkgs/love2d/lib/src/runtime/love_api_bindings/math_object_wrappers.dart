@@ -1,15 +1,80 @@
 part of '../love_api_bindings.dart';
 
+/// Table entry key that stores the backing [LoveBezierCurve] instance.
 const String _loveBezierCurveObjectKey = '__love2d_bezier_curve__';
-const String _loveRandomGeneratorObjectKey = '__love2d_random_generator__';
 
+/// Table entry key that stores the backing [LoveRandomGenerator] instance.
+const String _loveRandomGeneratorObjectKey = '__love2d_random_generator__';
+const String _loveBezierCurveReleasedWrapperKey =
+    '__love2d_bezier_curve_released__';
+const String _loveRandomGeneratorReleasedWrapperKey =
+    '__love2d_random_generator_released__';
+
+/// Reuses Lua wrapper tables so the same curve keeps a stable identity.
 final Expando<Value> _loveBezierCurveWrapperCache = Expando<Value>(
   'love2dBezierCurveWrapper',
 );
+
+/// Reuses Lua wrapper tables so the same generator keeps a stable identity.
 final Expando<Value> _loveRandomGeneratorWrapperCache = Expando<Value>(
   'love2dRandomGeneratorWrapper',
 );
 
+/// Whether a BezierCurve has already been released through `Object:release`.
+final Expando<bool> _loveBezierCurveReleased = Expando<bool>(
+  'love2dBezierCurveReleased',
+);
+
+/// Whether a RandomGenerator has already been released through `Object:release`.
+final Expando<bool> _loveRandomGeneratorReleased = Expando<bool>(
+  'love2dRandomGeneratorReleased',
+);
+
+/// Returns the Lua wrapper table for a `BezierCurve`, including released wrappers.
+Map<dynamic, dynamic>? _bezierCurveWrapperTableIfPresent(Object? value) {
+  final table = _tableIdentityIfPresent(value);
+  if (table == null) {
+    return null;
+  }
+
+  final curve = table[_loveBezierCurveObjectKey];
+  if (curve is LoveBezierCurve ||
+      table[_loveBezierCurveReleasedWrapperKey] == true) {
+    return table;
+  }
+
+  return null;
+}
+
+/// Returns the Lua wrapper table for a `RandomGenerator`, including released wrappers.
+Map<dynamic, dynamic>? _randomGeneratorWrapperTableIfPresent(Object? value) {
+  final table = _tableIdentityIfPresent(value);
+  if (table == null) {
+    return null;
+  }
+
+  final generator = table[_loveRandomGeneratorObjectKey];
+  if (generator is LoveRandomGenerator ||
+      table[_loveRandomGeneratorReleasedWrapperKey] == true) {
+    return table;
+  }
+
+  return null;
+}
+
+/// Returns whether [value] is a released `BezierCurve` wrapper.
+bool _bezierCurveWrapperReleased(Object? value) {
+  final table = _bezierCurveWrapperTableIfPresent(value);
+  return table?[_loveBezierCurveReleasedWrapperKey] == true;
+}
+
+/// Returns whether [value] is a released `RandomGenerator` wrapper.
+bool _randomGeneratorWrapperReleased(Object? value) {
+  final table = _randomGeneratorWrapperTableIfPresent(value);
+  return table?[_loveRandomGeneratorReleasedWrapperKey] == true;
+}
+
+/// Returns wrapped [LoveBezierCurve] data when [value] is a BezierCurve table.
 LoveBezierCurve? _bezierCurveIfPresent(Object? value) {
   final raw = _rawValue(value);
   final table = switch (raw) {
@@ -25,6 +90,7 @@ LoveBezierCurve? _bezierCurveIfPresent(Object? value) {
   return curve is LoveBezierCurve ? curve : null;
 }
 
+/// Returns wrapped [LoveRandomGenerator] when [value] is a generator table.
 LoveRandomGenerator? _randomGeneratorIfPresent(Object? value) {
   final raw = _rawValue(value);
   final table = switch (raw) {
@@ -40,42 +106,66 @@ LoveRandomGenerator? _randomGeneratorIfPresent(Object? value) {
   return generator is LoveRandomGenerator ? generator : null;
 }
 
+/// Returns a required `BezierCurve` receiver.
 LoveBezierCurve _requireBezierCurve(
   List<Object?> args,
   int index,
   String symbol,
 ) {
-  final curve = _bezierCurveIfPresent(_valueAt(args, index));
+  final value = _valueAt(args, index);
+  if (_bezierCurveWrapperReleased(value)) {
+    _throwReleasedObjectError();
+  }
+
+  final curve = _bezierCurveIfPresent(value);
   if (curve != null) {
     return curve;
   }
 
-  throw LuaError('$symbol expected a BezierCurve at argument ${index + 1}');
+  _throwLuaStyleTypeError(
+    symbol: symbol,
+    index: index,
+    expected: 'BezierCurve',
+    actual: value,
+  );
 }
 
+/// Returns a required `RandomGenerator` receiver.
 LoveRandomGenerator _requireRandomGenerator(
   List<Object?> args,
   int index,
   String symbol,
 ) {
-  final generator = _randomGeneratorIfPresent(_valueAt(args, index));
+  final value = _valueAt(args, index);
+  if (_randomGeneratorWrapperReleased(value)) {
+    _throwReleasedObjectError();
+  }
+
+  final generator = _randomGeneratorIfPresent(value);
   if (generator != null) {
     return generator;
   }
 
-  throw LuaError('$symbol expected a RandomGenerator at argument ${index + 1}');
+  _throwLuaStyleTypeError(
+    symbol: symbol,
+    index: index,
+    expected: 'RandomGenerator',
+    actual: value,
+  );
 }
 
+/// Wraps a [LoveBezierCurve] as a Lua-facing `BezierCurve` object table.
 Value _wrapBezierCurve(
   LibraryRegistrationContext context,
   LoveBezierCurve curve,
 ) {
   final cached = _loveBezierCurveWrapperCache[curve];
-  if (cached != null) {
+  if (cached != null && _bezierCurveIfPresent(cached) != null) {
     return cached;
   }
 
   final builder = BuiltinFunctionBuilder(context);
+  const hierarchy = <String>{'BezierCurve', 'Object'};
   final table = ValueClass.table(<Object?, Object?>{
     _loveBezierCurveObjectKey: curve,
     'evaluate': Value(
@@ -290,21 +380,82 @@ Value _wrapBezierCurve(
       }),
       functionName: 'translate',
     ),
+    'release': Value(
+      builder.create((args) {
+        final receiver = _valueAt(args, 0);
+        final table = _bezierCurveWrapperTableIfPresent(receiver);
+        if (table == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:release',
+            index: 0,
+            expected: 'BezierCurve',
+            actual: receiver,
+          );
+        }
+
+        final curve = table[_loveBezierCurveObjectKey];
+        if (curve is! LoveBezierCurve) {
+          return false;
+        }
+        if (_loveBezierCurveReleased[curve] == true) {
+          return false;
+        }
+
+        _loveBezierCurveReleased[curve] = true;
+        table[_loveBezierCurveReleasedWrapperKey] = true;
+        table[_loveBezierCurveObjectKey] = null;
+        return true;
+      }),
+      functionName: 'release',
+    ),
+    'type': Value(
+      builder.create((args) {
+        final receiver = _valueAt(args, 0);
+        if (_bezierCurveWrapperTableIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:type',
+            index: 0,
+            expected: 'BezierCurve',
+            actual: receiver,
+          );
+        }
+        return 'BezierCurve';
+      }),
+      functionName: 'type',
+    ),
+    'typeOf': Value(
+      builder.create((args) {
+        final receiver = _valueAt(args, 0);
+        if (_bezierCurveWrapperTableIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:typeOf',
+            index: 0,
+            expected: 'BezierCurve',
+            actual: receiver,
+          );
+        }
+        final queried = _requireString(args, 1, 'Object:typeOf');
+        return hierarchy.contains(queried);
+      }),
+      functionName: 'typeOf',
+    ),
   });
   _loveBezierCurveWrapperCache[curve] = table;
   return table;
 }
 
+/// Wraps a [LoveRandomGenerator] as a Lua-facing `RandomGenerator` object table.
 Value _wrapRandomGenerator(
   LibraryRegistrationContext unusedContext,
   LoveRandomGenerator generator,
 ) {
   final cached = _loveRandomGeneratorWrapperCache[generator];
-  if (cached != null) {
+  if (cached != null && _randomGeneratorIfPresent(cached) != null) {
     return cached;
   }
 
   final builder = BuiltinFunctionBuilder(unusedContext);
+  const hierarchy = <String>{'RandomGenerator', 'Object'};
   final table = ValueClass.table(<Object?, Object?>{
     _loveRandomGeneratorObjectKey: generator,
     'getSeed': Value(
@@ -398,16 +549,77 @@ Value _wrapRandomGenerator(
       }),
       functionName: 'setState',
     ),
+    'release': Value(
+      builder.create((args) {
+        final receiver = _valueAt(args, 0);
+        final table = _randomGeneratorWrapperTableIfPresent(receiver);
+        if (table == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:release',
+            index: 0,
+            expected: 'RandomGenerator',
+            actual: receiver,
+          );
+        }
+
+        final generator = table[_loveRandomGeneratorObjectKey];
+        if (generator is! LoveRandomGenerator) {
+          return false;
+        }
+        if (_loveRandomGeneratorReleased[generator] == true) {
+          return false;
+        }
+
+        _loveRandomGeneratorReleased[generator] = true;
+        table[_loveRandomGeneratorReleasedWrapperKey] = true;
+        table[_loveRandomGeneratorObjectKey] = null;
+        return true;
+      }),
+      functionName: 'release',
+    ),
+    'type': Value(
+      builder.create((args) {
+        final receiver = _valueAt(args, 0);
+        if (_randomGeneratorWrapperTableIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:type',
+            index: 0,
+            expected: 'RandomGenerator',
+            actual: receiver,
+          );
+        }
+        return 'RandomGenerator';
+      }),
+      functionName: 'type',
+    ),
+    'typeOf': Value(
+      builder.create((args) {
+        final receiver = _valueAt(args, 0);
+        if (_randomGeneratorWrapperTableIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:typeOf',
+            index: 0,
+            expected: 'RandomGenerator',
+            actual: receiver,
+          );
+        }
+        final queried = _requireString(args, 1, 'Object:typeOf');
+        return hierarchy.contains(queried);
+      }),
+      functionName: 'typeOf',
+    ),
   });
   _loveRandomGeneratorWrapperCache[generator] = table;
   return table;
 }
 
+/// Converts a 1-based Lua control point index to the internal representation.
 int _bezierControlPointIndex(List<Object?> args, int index, String symbol) {
   final value = _requireRoundedInt(args, index, symbol);
   return value > 0 ? value - 1 : value;
 }
 
+/// Flattens point pairs into the coordinate table shape used by Lua math APIs.
 Map<Object?, Object?> _pointListToCoordinateTable(List<LoveMathPoint> points) {
   final table = <Object?, Object?>{};
   for (var i = 0; i < points.length; i++) {

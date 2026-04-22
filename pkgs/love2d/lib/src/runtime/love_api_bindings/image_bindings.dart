@@ -1,5 +1,9 @@
 part of '../love_api_bindings.dart';
 
+/// Binds `love.image.isCompressed`.
+///
+/// LOVE accepts any file-backed input here and reports whether its container
+/// matches one of the supported compressed-image headers.
 LoveApiImplementation _bindImageIsCompressed(
   LibraryRegistrationContext context,
 ) {
@@ -16,6 +20,10 @@ LoveApiImplementation _bindImageIsCompressed(
   };
 }
 
+/// Binds `love.image.newImageData`.
+///
+/// LOVE overloads this call to decode an encoded image source or to construct
+/// blank or raw-backed image data from width and height arguments.
 LoveApiImplementation _bindImageNewImageData(
   LibraryRegistrationContext context,
 ) {
@@ -97,6 +105,7 @@ LoveApiImplementation _bindImageNewImageData(
   };
 }
 
+/// Binds `love.image.newCompressedData`.
 LoveApiImplementation _bindImageNewCompressedData(
   LibraryRegistrationContext context,
 ) {
@@ -124,6 +133,7 @@ LoveApiImplementation _bindImageNewCompressedData(
   };
 }
 
+/// Returns raw byte data from [value], if it can be interpreted as bytes.
 Uint8List? _rawBytesIfPresent(Object? value) {
   final fileData = _filesystemFileDataCompatIfPresent(value);
   if (fileData != null) {
@@ -140,7 +150,10 @@ Uint8List? _rawBytesIfPresent(Object? value) {
   };
 }
 
-// Matches LOVE's compressed image format handlers without fully decoding them.
+/// Returns whether [bytes] look like a supported compressed-image container.
+///
+/// This mirrors LOVE's compressed container sniffing without fully decoding the
+/// image payload.
 bool _isCompressedImageContainer(List<int> bytes) {
   return _isCompressedDds(bytes) ||
       _isCompressedKtx(bytes) ||
@@ -149,6 +162,7 @@ bool _isCompressedImageContainer(List<int> bytes) {
       _isCompressedPvr(bytes);
 }
 
+/// Returns whether [bytes] look like a DDS compressed-image container.
 bool _isCompressedDds(List<int> bytes) {
   if (bytes.length < 128) {
     return false;
@@ -180,6 +194,7 @@ bool _isCompressedDds(List<int> bytes) {
   return _compressedLegacyDdsFourCcs.contains(fourCc);
 }
 
+/// Returns whether [format] is one of the compressed DXGI format identifiers.
 bool _isCompressedDxgiFormat(int format) {
   return switch (format) {
     70 ||
@@ -207,6 +222,7 @@ bool _isCompressedDxgiFormat(int format) {
   };
 }
 
+/// Returns whether [bytes] look like a KTX compressed-image container.
 bool _isCompressedKtx(List<int> bytes) {
   if (bytes.length < 64) {
     return false;
@@ -234,6 +250,7 @@ bool _isCompressedKtx(List<int> bytes) {
   return endianness == 0x04030201 || endianness == 0x01020304;
 }
 
+/// Returns whether [bytes] look like a PKM compressed-image container.
 bool _isCompressedPkm(List<int> bytes) {
   if (bytes.length <= 16) {
     return false;
@@ -248,6 +265,7 @@ bool _isCompressedPkm(List<int> bytes) {
   return (major == 0x31 || major == 0x32) && minor == 0x30;
 }
 
+/// Returns whether [bytes] look like an ASTC compressed-image container.
 bool _isCompressedAstc(List<int> bytes) {
   if (bytes.length <= 16) {
     return false;
@@ -261,6 +279,7 @@ bool _isCompressedAstc(List<int> bytes) {
   return blockZ == 1;
 }
 
+/// Returns whether [bytes] look like a PVR compressed-image container.
 bool _isCompressedPvr(List<int> bytes) {
   if (bytes.length < 52) {
     return false;
@@ -273,6 +292,7 @@ bool _isCompressedPvr(List<int> bytes) {
       version == 0x50565221;
 }
 
+/// Returns whether [pattern] matches [bytes] at [offset].
 bool _matchesBytes(List<int> bytes, int offset, List<int> pattern) {
   if (offset < 0 || offset + pattern.length > bytes.length) {
     return false;
@@ -287,6 +307,7 @@ bool _matchesBytes(List<int> bytes, int offset, List<int> pattern) {
   return true;
 }
 
+/// Reads a 32-bit little-endian integer from [bytes] at [offset].
 int _readUint32Le(List<int> bytes, int offset) {
   return bytes[offset] |
       (bytes[offset + 1] << 8) |
@@ -294,6 +315,7 @@ int _readUint32Le(List<int> bytes, int offset) {
       (bytes[offset + 3] << 24);
 }
 
+/// Returns the integer FOURCC value for the four-character [value].
 int _fourCc(String value) {
   return value.codeUnitAt(0) |
       (value.codeUnitAt(1) << 8) |
@@ -301,6 +323,7 @@ int _fourCc(String value) {
       (value.codeUnitAt(3) << 24);
 }
 
+/// The legacy DDS FOURCC values accepted as compressed texture formats.
 final Set<int> _compressedLegacyDdsFourCcs = <int>{
   _fourCc('DXT1'),
   _fourCc('DXT2'),

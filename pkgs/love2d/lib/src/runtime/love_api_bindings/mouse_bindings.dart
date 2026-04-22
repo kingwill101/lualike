@@ -1,5 +1,6 @@
 part of '../love_api_bindings.dart';
 
+/// Binds `love.mouse.getCursor`.
 LoveApiImplementation _bindMouseGetCursor(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -8,6 +9,7 @@ LoveApiImplementation _bindMouseGetCursor(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.mouse.getPosition`.
 LoveApiImplementation _bindMouseGetPosition(
   LibraryRegistrationContext context,
 ) {
@@ -15,6 +17,7 @@ LoveApiImplementation _bindMouseGetPosition(
   return (args) => Value.multi(<Object?>[runtime.mouse.x, runtime.mouse.y]);
 }
 
+/// Binds `love.mouse.getRelativeMode`.
 LoveApiImplementation _bindMouseGetRelativeMode(
   LibraryRegistrationContext context,
 ) {
@@ -22,6 +25,7 @@ LoveApiImplementation _bindMouseGetRelativeMode(
   return (args) => runtime.mouse.relativeMode;
 }
 
+/// Binds `love.mouse.getSystemCursor`.
 LoveApiImplementation _bindMouseGetSystemCursor(
   LibraryRegistrationContext context,
 ) {
@@ -36,16 +40,19 @@ LoveApiImplementation _bindMouseGetSystemCursor(
   };
 }
 
+/// Binds `love.mouse.getX`.
 LoveApiImplementation _bindMouseGetX(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) => runtime.mouse.x;
 }
 
+/// Binds `love.mouse.getY`.
 LoveApiImplementation _bindMouseGetY(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) => runtime.mouse.y;
 }
 
+/// Binds `love.mouse.isCursorSupported`.
 LoveApiImplementation _bindMouseIsCursorSupported(
   LibraryRegistrationContext context,
 ) {
@@ -53,21 +60,29 @@ LoveApiImplementation _bindMouseIsCursorSupported(
   return (args) => runtime.mouse.cursorSupported;
 }
 
+/// Binds `love.mouse.isDown`.
 LoveApiImplementation _bindMouseIsDown(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) => runtime.mouse.isDown(_mouseButtonSequence(args));
 }
 
+/// Binds `love.mouse.isGrabbed`.
 LoveApiImplementation _bindMouseIsGrabbed(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) => runtime.mouse.grabbed;
 }
 
+/// Binds `love.mouse.isVisible`.
 LoveApiImplementation _bindMouseIsVisible(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) => runtime.mouse.visible;
 }
 
+/// Binds `love.mouse.newCursor`.
+///
+/// LOVE accepts either [LoveImageData] or a resource-backed image source, so
+/// this binding resolves file inputs into decoded image data before constructing
+/// the runtime cursor.
 LoveApiImplementation _bindMouseNewCursor(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) async {
@@ -103,6 +118,7 @@ LoveApiImplementation _bindMouseNewCursor(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.mouse.setCursor`.
 LoveApiImplementation _bindMouseSetCursor(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -116,6 +132,7 @@ LoveApiImplementation _bindMouseSetCursor(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.mouse.setGrabbed`.
 LoveApiImplementation _bindMouseSetGrabbed(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -124,6 +141,7 @@ LoveApiImplementation _bindMouseSetGrabbed(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.mouse.setPosition`.
 LoveApiImplementation _bindMouseSetPosition(
   LibraryRegistrationContext context,
 ) {
@@ -137,6 +155,7 @@ LoveApiImplementation _bindMouseSetPosition(
   };
 }
 
+/// Binds `love.mouse.setRelativeMode`.
 LoveApiImplementation _bindMouseSetRelativeMode(
   LibraryRegistrationContext context,
 ) {
@@ -146,6 +165,7 @@ LoveApiImplementation _bindMouseSetRelativeMode(
   );
 }
 
+/// Binds `love.mouse.setVisible`.
 LoveApiImplementation _bindMouseSetVisible(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -154,6 +174,7 @@ LoveApiImplementation _bindMouseSetVisible(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.mouse.setX`.
 LoveApiImplementation _bindMouseSetX(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -162,6 +183,7 @@ LoveApiImplementation _bindMouseSetX(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.mouse.setY`.
 LoveApiImplementation _bindMouseSetY(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -170,12 +192,14 @@ LoveApiImplementation _bindMouseSetY(LibraryRegistrationContext context) {
   };
 }
 
+/// Throws when cursor APIs are unavailable on the current mouse backend.
 void _requireCursorSupport(LoveMouseState mouse, String symbol) {
   if (!mouse.cursorSupported) {
     throw LuaError('$symbol cursors are not supported');
   }
 }
 
+/// Returns the validated LOVE system cursor type at [index].
 String _requireMouseCursorType(List<Object?> args, int index, String symbol) {
   final cursorType = _requireString(args, index, symbol);
   if (!loveIsValidCursorType(cursorType)) {
@@ -185,6 +209,10 @@ String _requireMouseCursorType(List<Object?> args, int index, String symbol) {
   return cursorType;
 }
 
+/// Normalizes `love.mouse.isDown` arguments into button indices.
+///
+/// LOVE accepts either positional button arguments or a single array table of
+/// buttons, and this helper supports both shapes.
 List<int> _mouseButtonSequence(List<Object?> args) {
   const symbol = 'love.mouse.isDown';
   if (args.isEmpty) {

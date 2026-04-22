@@ -7,7 +7,9 @@ import 'package:path/path.dart' as p;
 import 'love_readonly_bytes_io_device.dart';
 import 'love_filesystem_runtime.dart';
 
+/// A filesystem adapter that serves files from a Flutter [AssetBundle].
 class LoveAssetBundleFilesystemAdapter implements LoveFilesystemAdapter {
+  /// Creates an asset bundle filesystem adapter.
   LoveAssetBundleFilesystemAdapter({
     required AssetBundle bundle,
     required Iterable<String> assetKeys,
@@ -23,6 +25,7 @@ class LoveAssetBundleFilesystemAdapter implements LoveFilesystemAdapter {
     }
   }
 
+  /// Loads an adapter backed by the asset manifest from [bundle].
   static Future<LoveAssetBundleFilesystemAdapter> load({
     AssetBundle? bundle,
     LoveFilesystemAdapter? fallback,
@@ -36,16 +39,27 @@ class LoveAssetBundleFilesystemAdapter implements LoveFilesystemAdapter {
     );
   }
 
+  /// The Flutter asset bundle used to load packaged files.
   final AssetBundle _bundle;
+
+  /// The adapter that serves absolute-path requests outside the bundle.
   final LoveFilesystemAdapter _fallback;
+
+  /// The normalized asset keys that can be opened from the bundle.
   final Set<String> _assetKeys;
+
+  /// The normalized virtual directories inferred from [_assetKeys].
   final Set<String> _directories = <String>{''};
+
+  /// Directory entries synthesized from [_assetKeys] for listing operations.
   final Map<String, Set<String>> _directoryEntries = <String, Set<String>>{
     '': <String>{},
   };
 
+  /// Whether this adapter delegates unresolved paths to another adapter.
   bool get hasExplicitFallback => _fallback is! _LoveNoopFilesystemAdapter;
 
+  /// Returns a copy of this adapter that delegates misses to [fallback].
   LoveAssetBundleFilesystemAdapter withFallback(
     LoveFilesystemAdapter fallback,
   ) {
@@ -189,6 +203,7 @@ class LoveAssetBundleFilesystemAdapter implements LoveFilesystemAdapter {
     return _fallback.deletePath(path, recursive: recursive);
   }
 
+  /// Indexes [assetKey] into the synthesized directory listing tables.
   void _indexAsset(String assetKey) {
     final segments = p.posix.split(assetKey);
     if (segments.isEmpty) {
@@ -210,6 +225,7 @@ class LoveAssetBundleFilesystemAdapter implements LoveFilesystemAdapter {
     }
   }
 
+  /// Loads bundled bytes for [assetKey], returning `null` when unavailable.
   Future<List<int>?> _loadAssetBytes(String assetKey) async {
     if (!_assetKeys.contains(assetKey)) {
       return null;
@@ -223,15 +239,21 @@ class LoveAssetBundleFilesystemAdapter implements LoveFilesystemAdapter {
     }
   }
 
+  /// Normalizes an asset path into the adapter's virtual POSIX namespace.
   static String _normalizeAssetPath(String value) {
     final normalized = p.posix.normalize(value.replaceAll('\\', '/'));
     return normalized == '.' ? '' : normalized;
   }
 
+  /// Whether [mode] requests write access that asset bundles cannot provide.
   static bool _isWriteMode(String mode) {
     return mode.contains('w') || mode.contains('a') || mode.contains('+');
   }
 
+  /// Whether [path] should fall through to the configured fallback adapter.
+  ///
+  /// Bundled paths stay inside the asset namespace, while absolute filesystem
+  /// paths are delegated so hosts can still expose real files when needed.
   static bool _shouldUseFallback(String path) {
     final normalized = _normalizeAssetPath(path);
     return p.posix.isAbsolute(normalized) ||
@@ -239,7 +261,9 @@ class LoveAssetBundleFilesystemAdapter implements LoveFilesystemAdapter {
   }
 }
 
+/// A fallback adapter that reports an empty filesystem and rejects file opens.
 class _LoveNoopFilesystemAdapter implements LoveFilesystemAdapter {
+  /// Creates a noop adapter for asset-only bundle filesystems.
   const _LoveNoopFilesystemAdapter();
 
   @override
@@ -286,6 +310,7 @@ class _LoveNoopFilesystemAdapter implements LoveFilesystemAdapter {
   Future<DateTime?> modified(String path) async => null;
 
   @override
+  /// Rejects opening [path] because no fallback filesystem is configured.
   Future<IODevice> openFile(String path, String mode) async {
     throw UnsupportedError(
       'No fallback filesystem is configured for "$path" (mode "$mode").',

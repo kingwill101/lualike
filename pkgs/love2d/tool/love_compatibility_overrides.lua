@@ -59,7 +59,7 @@ local overrides = {
     ['love.sound'] = {
       status = 'implemented',
       conformance = 'smoke-tested',
-      notes = 'Backed by pure-Dart SoundData and Decoder wrappers with LOVE-style sample access, cloning, chunked decode, decoder-drain construction, WAV encoding, and filesystem/Data overloads. Decoder coverage currently targets WAV containers, including PCM and IEEE float variants normalized into LOVE-compatible sample data.',
+      notes = 'Backed by pure-Dart SoundData and Decoder wrappers with LOVE-style sample access, cloning, chunked decode, decoder-drain construction, WAV encoding, and filesystem/Data overloads. Pure-Dart decoder coverage targets WAV containers, including PCM and IEEE float variants normalized into LOVE-compatible sample data, and recognized Ogg, MP3, and FLAC payloads now additionally decode through a host `ffmpeg` fallback on IO platforms when available.',
     },
     ['love.system'] = {
       status = 'implemented',
@@ -84,7 +84,7 @@ local overrides = {
     ['love.video'] = {
       status = 'shimmed',
       conformance = 'smoke-tested',
-      notes = 'Backed by a control-layer VideoStream wrapper with filename/File construction, playback-state timing, seek/rewind/tell semantics, and sync sharing with Source objects or other streams. Graphics-side Video wrappers now expose constructor, filter, and Source-sync APIs, but actual Theora frame decoding and drawable video rendering are not implemented in this layer yet.',
+      notes = 'Backed by a control-layer VideoStream wrapper with filename/File construction, playback-state timing, seek/rewind/tell semantics, and sync sharing with Source objects or other streams. Graphics-side Video wrappers now expose constructor, filter, Source-sync APIs, sampled frame extraction, and live playback control through Flutter-backed media_kit integration. The renderer targets Flutter-compatible video playback rather than upstream LOVE\'s YCbCr shader path, and now prefers a persistent native video texture overlay for supported draw states including standard alpha, premultiplied alpha, and opaque replace/none blending plus quad/scissor/tint transforms while falling back to sampled frame images for unsupported states such as shader-bound or destination-aware blend/write-mask cases.',
     },
     ['love.window'] = {
       status = 'implemented',
@@ -220,7 +220,7 @@ merge_fields(overrides.symbols['Rasterizer:getGlyphCount'], {
 })
 
 merge_fields(overrides.modules['love.graphics'], {
-  notes = 'Partial compatibility surface with tested environment and advanced-state queries, transform stack, primitive draw commands, image/canvas/quad/texture objects, font and text objects, mesh, shader, particle-system, sprite-batch, deferred screenshot capture, array-image construction plus drawLayer rendering, layered array-canvas render targets, manual layered mipmap-table construction, control-layer cube and volume image constructors, packed cubemap and volume layout extraction, layered CompressedImageData constructor parity, DXT1/DXT3/DXT5/ETC1/ETC2rgb/ETC2rgba1/ETC2rgba/EACr/EACrs/EACrg/EACrgs/BC4/BC4s/BC5/BC5s compressed-image software rasterization for screenshot and canvas-readback paths, software-backed stencil replay for canvas readback, screenshot capture, and live Flame presentation, control-layer Video wrappers, basic canvas-backed rendering, and Lua-facing graphics enum tables. Registered Flutter fragment-asset shaders are supported on the live Flame renderer, but Canvas:newImageData and captureScreenshot now raise explicit unsupported errors for those surfaces because the software rasterizer cannot reproduce arbitrary fragment programs. Remaining gaps are shader-only volume/cubemap draw paths, broader compressed-texture rasterization outside DXT1/DXT3/DXT5/ETC1/ETC2rgb/ETC2rgba1/ETC2rgba/EACr/EACrs/EACrg/EACrgs/BC4/BC4s/BC5/BC5s in the software renderer, and exact glyph fidelity when stencil-active surfaces fall back to the software rasterizer. Video objects currently expose control/filter/source APIs but still raise an explicit unsupported error when drawn because decoded frame rendering is not implemented.',
+  notes = 'Partial compatibility surface with tested environment and advanced-state queries, transform stack, primitive draw commands, image/canvas/quad/texture objects, font and text objects, mesh, shader, particle-system, sprite-batch, deferred screenshot capture, array-image construction plus drawLayer rendering, layered array-canvas render targets, manual layered mipmap-table construction, control-layer cube and volume image constructors, packed cubemap and volume layout extraction, layered CompressedImageData constructor parity, DXT1/DXT3/DXT5/ETC1/ETC2rgb/ETC2rgba1/ETC2rgba/EACr/EACrs/EACrg/EACrgs/BC4/BC4s/BC5/BC5s compressed-image software rasterization for screenshot and canvas-readback paths, software-backed stencil replay for canvas readback, screenshot capture, and live Flame presentation, control-layer Video wrappers, basic canvas-backed rendering, and Lua-facing graphics enum tables. Registered Flutter fragment-asset shaders are supported on the live Flame renderer, but Canvas:newImageData and captureScreenshot now raise explicit unsupported errors for those surfaces because the software rasterizer cannot reproduce arbitrary fragment programs. Remaining gaps are shader-only volume/cubemap draw paths, broader compressed-texture rasterization outside DXT1/DXT3/DXT5/ETC1/ETC2rgb/ETC2rgba1/ETC2rgba/EACr/EACrs/EACrg/EACrgs/BC4/BC4s/BC5/BC5s in the software renderer, and exact glyph fidelity when stencil-active surfaces fall back to the software rasterizer. Video objects now prefer a Flutter-compatible persistent media_kit texture path for supported draw states including plain, quad-cropped, scissored, tinted, standard alpha, premultiplied alpha, and opaque replace/none rendering, while unsupported states still fall back to sampled frame images instead of the upstream LOVE shader-based video path.',
 })
 
 apply_symbol_overrides({
@@ -575,7 +575,7 @@ overrides.symbols['love.graphics.newShader'] = overrides.symbols['love.graphics.
 merge_fields(overrides.symbols['love.graphics.newShader'], {
   status = 'partial',
   conformance = 'smoke-tested',
-  notes = 'Accepts literal source strings, LOVE filesystem paths, FileData, and File wrappers, runs them through the same LOVE-style stage scan used by `_shaderCodeToGLSL`, and preserves missing `position`/`effect` parse errors plus shader-language mismatch errors before backend rejection. The Flutter backend currently executes the compatibility-emulated radial gradient and desaturation-tint shader subsets plus registered Flutter fragment-asset shaders, while other runtime shader source still fails with an explicit unsupported-backend error instead of attempting to execute upstream-style GLSL.',
+  notes = 'Accepts literal source strings, LOVE filesystem paths, FileData, and File wrappers, runs them through the same LOVE-style stage scan used by `_shaderCodeToGLSL`, and preserves missing `position`/`effect` parse errors plus shader-language mismatch errors before backend rejection. Mounted Flutter runtime-effect files loaded through the LOVE filesystem can infer registered fragment-asset keys relative to the mounted source root, and Flutter hosts now eagerly validate those registered assets so missing shader bundle entries fail at construction time instead of first draw. The Flutter backend currently executes the compatibility-emulated radial gradient and desaturation-tint shader subsets plus registered Flutter fragment-asset shaders, while other runtime shader source still fails with an explicit unsupported-backend error instead of attempting to execute upstream-style GLSL.',
 })
 
 overrides.symbols['love.graphics.getShader'] = overrides.symbols['love.graphics.getShader'] or {}
@@ -721,9 +721,14 @@ merge_fields(overrides.symbols['Shader:getWarnings'], {
   notes = 'Always returns an empty string because the runtime has no GLSL compiler or warning pipeline, while preserving the upstream string return type.',
 })
 
+overrides.symbols['Shader:hasUniform'] = overrides.symbols['Shader:hasUniform'] or {}
+merge_fields(overrides.symbols['Shader:hasUniform'], {
+  notes = 'Checks parsed shader-uniform declarations plus a heuristic source scan for declared `extern` or `uniform` names, and also reports true for uniforms that have already been sent through the compatibility wrapper.',
+})
+
 overrides.symbols['Shader:send'] = overrides.symbols['Shader:send'] or {}
 merge_fields(overrides.symbols['Shader:send'], {
-  notes = 'Stores sent uniform values on the compatibility shader wrapper and snapshots them into subsequent draw commands. Calls require at least one payload value, the named uniform must exist in the parsed shader source, parsed float, integer, unsigned integer, boolean, vector, and square matrix uniforms validate payload shapes before storage, square matrix uniforms accept LOVE-style `row` and `column` layout strings with canonical column-major storage for the supported compatibility subset, sampler-like uniforms fail with an explicit unsupported-backend error, and LOVE `Data` upload overloads currently fail with an explicit unsupported-backend error instead of silently storing opaque objects.',
+  notes = 'Stores sent uniform values on the compatibility shader wrapper and snapshots them into subsequent draw commands. Calls require at least one payload value, the named uniform must exist in the parsed shader source, parsed float, integer, unsigned integer, boolean, vector, and square matrix uniforms validate payload shapes before storage, square matrix uniforms accept LOVE-style `row` and `column` layout strings with canonical column-major storage for the supported compatibility subset, sampler uniforms currently accept Image or Canvas uploads only for registered Flutter fragment-asset shaders and otherwise fail with an explicit unsupported-backend error, and LOVE `Data` upload overloads currently fail with an explicit unsupported-backend error instead of silently storing opaque objects.',
 })
 
 overrides.symbols['Shader:sendColor'] = overrides.symbols['Shader:sendColor'] or {}
@@ -811,7 +816,7 @@ merge_fields(overrides.symbols['love.graphics.drawInstanced'], {
 
 overrides.symbols['love.graphics.draw'] = overrides.symbols['love.graphics.draw'] or {}
 merge_fields(overrides.symbols['love.graphics.draw'], {
-  notes = 'Draws Image, Canvas, Mesh, Text, SpriteBatch, and ParticleSystem wrappers. Array textures and array canvases follow upstream LOVE\'s Quad-layer behavior, so direct draws use the Quad\'s configured layer (defaulting to the first slice) and drawLayer continues to provide the explicit layer override path. Video wrappers are recognized but currently raise an explicit unsupported error because decoded frame rendering is not implemented yet.',
+  notes = 'Draws Image, Canvas, Mesh, Text, SpriteBatch, and ParticleSystem wrappers. Array textures and array canvases follow upstream LOVE\'s Quad-layer behavior, so direct draws use the Quad\'s configured layer (defaulting to the first slice) and drawLayer continues to provide the explicit layer override path. Video wrappers now prefer the Flutter-compatible persistent media_kit texture path for supported draw states including plain, quad-cropped, scissored, tinted, standard alpha, premultiplied alpha, and opaque replace/none rendering. Shader-bound or otherwise destination-aware states still fall back to sampled frame images instead of upstream LOVE\'s shader-driven YCbCr path.',
 })
 
 overrides.symbols['Drawable'] = overrides.symbols['Drawable'] or {}
@@ -821,7 +826,7 @@ merge_fields(overrides.symbols['Drawable'], {
 
 overrides.symbols['love.graphics.newVideo'] = overrides.symbols['love.graphics.newVideo'] or {}
 merge_fields(overrides.symbols['love.graphics.newVideo'], {
-  notes = 'Constructs a compatibility Video wrapper from LOVE-style filename/File or VideoStream inputs. Dimensions come from parsing the Theora identification header when available, filter and Source-sync APIs are implemented, and constructor options support dpiscale plus boolean/table audio loading flags. Drawing decoded video frames is still not implemented.',
+  notes = 'Constructs a compatibility Video wrapper from LOVE-style filename/File or VideoStream inputs. Constructors now reject non-Theora payloads up front, filename/File inputs that cannot be opened report the upstream wrapper error `File is not open and cannot be opened`, dimensions come from parsing the Ogg Theora identification header, and the second argument mirrors the upstream Lua wrapper: it must be nil or a settings table. `settings.audio = false` detaches the stream back to independent timing, literal `settings.audio = true` raises `Video had no audio track` when no audio track is present and `love.audio was not loaded` when the audio module is absent, and other truthy values only attempt audio without forcing failure, matching the vendored wrapper\'s `~= false` versus `== true` behavior. Array-style settings tables such as `{true}` therefore do not act like `audio = true`. Default construction only auto-attaches a Source when the container advertises a Vorbis audio track and `love.audio` is loaded. Following the vendored wrapper path, `settings.dpiscale` defaults through the low-level `_newVideo` helper to `1.0` when omitted or nil, non-numeric `dpiscale` values surface the low-level `_newVideo` numeric error, and logical width/height follow the upstream C++ integer-truncation divide by `dpiscale`. Filter and Source-sync APIs are implemented, and drawing now routes through a Flutter-compatible media_kit bridge that prefers a persistent native texture for supported draw states, including alpha/premultiplied alpha and opaque replace/none cases, and falls back to sampled frame images for unsupported states instead of upstream LOVE\'s shader-driven YCbCr path.',
 })
 
 overrides.symbols['love.graphics.captureScreenshot'] = overrides.symbols['love.graphics.captureScreenshot'] or {}
@@ -831,7 +836,7 @@ merge_fields(overrides.symbols['love.graphics.captureScreenshot'], {
 
 overrides.symbols['Video'] = overrides.symbols['Video'] or {}
 merge_fields(overrides.symbols['Video'], {
-  notes = 'Compatibility Drawable/Object wrapper around a VideoStream plus optional Source synchronization. Exposes LOVE-style control, filter, and dimension queries, but actual decoded frame rendering is not implemented yet.',
+  notes = 'Compatibility Drawable/Object wrapper around a VideoStream plus optional Source synchronization. Exposes LOVE-style control, filter, and dimension queries, now stops an attached Source when the Video is released to mirror the upstream destructor, and renders through the Flutter-compatible media_kit bridge used by `love.graphics.draw`. Supported draw states use a persistent native video texture with playback commands mirrored into the host player, including alpha/premultiplied alpha and opaque replace/none blending plus quad/scissor/tint transforms, while unsupported draw states fall back to cached sampled frame snapshots and decoded Flutter images. The implementation still targets Flutter-compatible playback rather than upstream LOVE\'s dedicated YCbCr shader path.',
 })
 
 overrides.symbols['love.graphics.flushBatch'] = overrides.symbols['love.graphics.flushBatch'] or {}
@@ -858,7 +863,7 @@ overrides.symbols['love.graphics.validateShader'] = overrides.symbols['love.grap
 merge_fields(overrides.symbols['love.graphics.validateShader'], {
   status = 'partial',
   conformance = 'smoke-tested',
-  notes = 'Validates source and filename inputs through the same LOVE-style resolution path and shader stage scan as `love.graphics.newShader`, preserving missing `position`/`effect` parse errors and shader-language mismatch errors before backend fallback. The Flutter backend reports success for the compatibility-emulated radial gradient and desaturation-tint shader subsets plus registered Flutter fragment-asset shaders; other runtime shader source returns `false` plus an explicit unsupported-backend message because no general GLSL compiler is available.',
+  notes = 'Validates source and filename inputs through the same LOVE-style resolution path and shader stage scan as `love.graphics.newShader`, preserving missing `position`/`effect` parse errors and shader-language mismatch errors before backend fallback. Mounted Flutter runtime-effect files loaded through the LOVE filesystem can infer registered fragment-asset keys relative to the mounted source root, and Flutter hosts now return `false` plus the host load error when those registered assets cannot be opened. The Flutter backend reports success for the compatibility-emulated radial gradient and desaturation-tint shader subsets plus registered Flutter fragment-asset shaders; other runtime shader source returns `false` plus an explicit unsupported-backend message because no general GLSL compiler is available.',
 })
 
 apply_symbol_overrides({
@@ -1409,6 +1414,19 @@ add_extra_symbol(
 
 add_extra_symbol(
   'love.graphics',
+  'Video:_setSource',
+  'method',
+  'Video',
+  {
+    phase = 'foundation',
+    status = 'implemented',
+    conformance = 'smoke-tested',
+    notes = 'Source-backed low-level Video helper omitted by the vendored `third_party/love-api` inventory even though the vendored LOVE C++ wrapper exposes it and `wrap_Video.lua` builds the public `Video:setSource` behavior on top of it. It updates only the stored Source reference and intentionally does not modify the VideoStream sync target.',
+  }
+)
+
+add_extra_symbol(
+  'love.graphics',
   'love.graphics.isCreated',
   'function',
   nil,
@@ -1825,6 +1843,11 @@ apply_symbol_overrides({
   conformance = 'smoke-tested',
 })
 
+overrides.symbols['Object:release'] = overrides.symbols['Object:release'] or {}
+merge_fields(overrides.symbols['Object:release'], {
+  notes = 'Shared base-object release contract used by the implemented wrapper types. Release is idempotent and returns `true` the first time and `false` on later calls. The released Lua wrapper is invalidated so later method calls stop treating it as a live object, and wrappers with owned runtime resources such as `Source`, `Video`, and `VideoStream` also dispose or detach their backing runtime state during the first release.',
+})
+
 overrides.symbols['Data:getFFIPointer'] = overrides.symbols['Data:getFFIPointer'] or {}
 merge_fields(overrides.symbols['Data:getFFIPointer'], {
   status = 'implemented',
@@ -1930,14 +1953,14 @@ overrides.symbols['love.sound.newDecoder'] = overrides.symbols['love.sound.newDe
 merge_fields(overrides.symbols['love.sound.newDecoder'], {
   status = 'partial',
   conformance = 'smoke-tested',
-  notes = 'LOVE-style decoder construction and Decoder methods are implemented. Encoded input support currently targets WAV containers, including PCM and IEEE float variants.',
+  notes = 'LOVE-style decoder construction and Decoder methods are implemented. Encoded input support covers WAV containers in pure Dart, including PCM and IEEE float variants, and additionally decodes recognized Ogg, MP3, and FLAC payloads through a host `ffmpeg` fallback on IO platforms when available.',
 })
 
 overrides.symbols['love.sound.newSoundData'] = overrides.symbols['love.sound.newSoundData'] or {}
 merge_fields(overrides.symbols['love.sound.newSoundData'], {
   status = 'partial',
   conformance = 'smoke-tested',
-  notes = 'Numeric SoundData construction is implemented, and decoder/file overloads work through the runtime decoder bridge. Encoded input support currently targets WAV containers, including PCM and IEEE float variants.',
+  notes = 'Numeric SoundData construction is implemented, and decoder/file overloads work through the runtime decoder bridge. Encoded input support covers WAV containers in pure Dart, including PCM and IEEE float variants, and additionally decodes recognized Ogg, MP3, and FLAC payloads through a host `ffmpeg` fallback on IO platforms when available.',
 })
 
 add_extra_symbol(
@@ -1988,7 +2011,7 @@ add_extra_symbol(
     phase = 'foundation',
     status = 'implemented',
     conformance = 'smoke-tested',
-    notes = 'Source-backed low-level graphics video constructor omitted by the vendored `third_party/love-api` inventory even though the vendored LOVE wrapper exposes it and `love.graphics.newVideo` is built on top of it in `wrap_Graphics.lua`. The runtime forwards it into the compatibility `newVideo` path with upstream-style low-level semantics: no audio wiring and a numeric `dpiscale` argument defaulting to `1.0`.',
+    notes = 'Source-backed low-level graphics video constructor omitted by the vendored `third_party/love-api` inventory even though the vendored LOVE wrapper exposes it and `love.graphics.newVideo` is built on top of it in `wrap_Graphics.lua`. The runtime forwards it into the compatibility `newVideo` path with upstream-style low-level semantics: no audio wiring and a numeric `dpiscale` argument defaulting to `1.0` when omitted or nil.',
   }
 )
 
@@ -2479,12 +2502,12 @@ apply_symbol_overrides({
 overrides.symbols['love.video.newVideoStream'] =
   overrides.symbols['love.video.newVideoStream'] or {}
 merge_fields(overrides.symbols['love.video.newVideoStream'], {
-  notes = 'Constructs a control-layer VideoStream from LOVE-style filename or File inputs. Playback control semantics are implemented, and Theora identification headers are parsed for metadata used by compatibility Video wrappers, but actual frame decode and drawable rendering are deferred.',
+  notes = 'Constructs a control-layer VideoStream from LOVE-style filename or File inputs, reports `File is not open and cannot be opened` when those sources cannot be opened, and rejects non-Theora payloads up front. Playback control semantics are implemented, and Ogg Theora identification headers are parsed for metadata used by compatibility Video wrappers, including pixel dimensions, audio-track presence, and frame-rate hints used by the Flutter-backed video draw bridge.',
 })
 
 overrides.symbols['VideoStream'] = overrides.symbols['VideoStream'] or {}
 merge_fields(overrides.symbols['VideoStream'], {
-  notes = 'Control-layer VideoStream type with Object-style wrappers and playback timing semantics, including Source-backed and shared-stream sync control.',
+  notes = 'Control-layer VideoStream type with LOVE-style base-type hierarchy, including `typeOf("Stream")`, plus playback timing semantics and Source-backed or shared-stream sync control.',
 })
 
 return overrides

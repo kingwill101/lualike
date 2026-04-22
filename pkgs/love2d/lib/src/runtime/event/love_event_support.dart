@@ -52,33 +52,50 @@ const Set<String> loveEventNames = <String>{
 /// helper exists for validation and documentation purposes only.
 bool loveIsValidEventName(String name) => loveEventNames.contains(name);
 
+/// One queued LOVE event plus its positional arguments.
 class LoveEventMessage {
+  /// Creates an event message with [name] and immutable [arguments].
   LoveEventMessage({required this.name, List<Object?> arguments = const []})
     : arguments = List<Object?>.unmodifiable(arguments);
 
+  /// The LOVE event name.
   final String name;
+
+  /// The positional Lua arguments carried by this event.
   final List<Object?> arguments;
 
+  /// The Lua return tuple for this message.
   List<Object?> toValues() {
     return <Object?>[name, ...arguments];
   }
 }
 
+/// FIFO event queue and waiter registry for `love.event`.
 class LoveEventState {
   final ListQueue<LoveEventMessage> _queue = ListQueue<LoveEventMessage>();
   final ListQueue<Completer<LoveEventMessage>> _waiters =
       ListQueue<Completer<LoveEventMessage>>();
 
+  /// Whether no queued event messages are currently available.
   bool get isEmpty => _queue.isEmpty;
 
+  /// The number of queued event messages waiting to be polled.
   int get length => _queue.length;
 
+  /// Removes all queued event messages.
   void clear() {
     _queue.clear();
   }
 
+  /// Pumps backend events into the queue.
+  ///
+  /// This runtime keeps event production elsewhere, so this is a no-op.
   void pump() {}
 
+  /// Enqueues a message named [name] with optional [arguments].
+  ///
+  /// If a waiter is already blocked in [wait], this completes that waiter
+  /// immediately instead of adding to the queue.
   bool pushMessage(String name, [List<Object?> arguments = const []]) {
     final message = LoveEventMessage(name: name, arguments: arguments);
     final waiter = _waiters.isEmpty ? null : _waiters.removeFirst();
@@ -91,6 +108,7 @@ class LoveEventState {
     return true;
   }
 
+  /// Removes and returns the next queued message, if one is available.
   LoveEventMessage? poll() {
     if (_queue.isEmpty) {
       return null;
@@ -99,6 +117,7 @@ class LoveEventState {
     return _queue.removeFirst();
   }
 
+  /// Returns the next event message, waiting asynchronously when needed.
   Future<LoveEventMessage> wait() {
     final message = poll();
     if (message != null) {

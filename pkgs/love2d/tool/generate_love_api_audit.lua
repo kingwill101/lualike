@@ -625,6 +625,9 @@ local ok, err = xpcall(function()
       return 'Constructor function.'
     end
     if kind == 'method' then
+      if fullname(parent) == 'Object' and item.name == 'release' then
+        return 'Shared base-object release contract used by the implemented wrapper types. Release is idempotent and returns `true` the first time and `false` on later calls. The released Lua wrapper is invalidated so later method calls stop treating it as a live object, and wrappers with owned runtime resources such as `Source`, `Video`, and `VideoStream` also dispose or detach their backing runtime state during the first release.'
+      end
       return 'Instance method on `' .. fullname(parent) .. '`.'
     end
     if kind == 'type' then

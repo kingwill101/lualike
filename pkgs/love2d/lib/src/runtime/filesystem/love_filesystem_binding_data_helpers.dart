@@ -1,5 +1,7 @@
 part of 'love_filesystem_bindings.dart';
 
+/// Returns mounted archive data extracted from [value], if it represents LOVE
+/// data that can be mounted.
 Future<_LoveFilesystemMountedData?> _mountedDataIfPresent(
   Object? value, {
   required String symbol,
@@ -31,6 +33,8 @@ Future<_LoveFilesystemMountedData?> _mountedDataIfPresent(
   );
 }
 
+/// Returns the identity used to unmount mounted archive data represented by
+/// [value], if any.
 Future<Object?> _mountedDataIdentityIfPresent(
   Object? value, {
   required _LoveFilesystemBindings bindings,
@@ -48,6 +52,7 @@ Future<Object?> _mountedDataIdentityIfPresent(
   return table;
 }
 
+/// Returns whether [value] behaves like a LOVE `Data` wrapper.
 Future<bool> _isLoveDataWrapper(
   Object? value, {
   required _LoveFilesystemBindings bindings,
@@ -76,6 +81,10 @@ Future<bool> _isLoveDataWrapper(
   return _rawValue(result) == true;
 }
 
+/// Converts [value] to raw bytes accepted by filesystem bindings.
+///
+/// Throws a [LuaError] when [value] is not compatible with the expected data
+/// input for [symbol].
 Future<List<int>> _dataBytes(
   Object? value,
   String symbol, {
@@ -126,6 +135,7 @@ Future<List<int>> _dataBytes(
   );
 }
 
+/// Wraps invokable Lua values and Dart callables in a [Value].
 Value? _callableValue(Object? value) {
   return switch (value) {
     final Value wrapped => wrapped,
@@ -135,6 +145,7 @@ Value? _callableValue(Object? value) {
   };
 }
 
+/// Returns the encoded bytes for string-like Lua values.
 List<int>? _stringBytes(Object? value) {
   final raw = value is Value ? value.raw : value;
   return switch (raw) {
@@ -146,6 +157,7 @@ List<int>? _stringBytes(Object? value) {
   };
 }
 
+/// Returns at most [size] bytes from [bytes].
 List<int> _sliceBytes(List<int> bytes, int? size) {
   if (size == null || size < 0 || size >= bytes.length) {
     return bytes;
@@ -153,6 +165,7 @@ List<int> _sliceBytes(List<int> bytes, int? size) {
   return bytes.sublist(0, math.max(0, size));
 }
 
+/// Creates a Lua array table from [values].
 Value _arrayTable(List<String> values) {
   return Value(<Object?, Object?>{
     for (var index = 0; index < values.length; index++)
@@ -160,6 +173,7 @@ Value _arrayTable(List<String> values) {
   });
 }
 
+/// Returns a standard LOVE-style `(nil, error)` result.
 Value _ioError(String message) {
   return Value.multi(<Object?>[null, message]);
 }

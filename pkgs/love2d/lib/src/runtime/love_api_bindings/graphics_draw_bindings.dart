@@ -1,5 +1,9 @@
 part of '../love_api_bindings.dart';
 
+/// Queues a mesh draw command using the current graphics state snapshot.
+///
+/// Zero-vertex meshes and non-positive instance counts are ignored so the
+/// runtime matches LOVE's effectively no-op behavior for empty draws.
 void _queueMeshDrawCommand(
   LoveRuntimeContext runtime, {
   required LoveMesh mesh,
@@ -39,6 +43,10 @@ void _queueMeshDrawCommand(
   );
 }
 
+/// Binds `love.graphics.rectangle`.
+///
+/// This records a rectangle draw command with LOVE's optional rounded-corner
+/// radius arguments.
 LoveApiImplementation _bindGraphicsRectangle(
   LibraryRegistrationContext context,
 ) {
@@ -82,6 +90,9 @@ LoveApiImplementation _bindGraphicsRectangle(
   };
 }
 
+/// Binds `love.graphics.circle`.
+///
+/// This records a circle draw command using the current graphics state.
 LoveApiImplementation _bindGraphicsCircle(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -113,6 +124,10 @@ LoveApiImplementation _bindGraphicsCircle(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.graphics.line`.
+///
+/// LOVE accepts either flat coordinate lists or point tables, both of which
+/// are normalized through [_coordinateSequence].
 LoveApiImplementation _bindGraphicsLine(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -141,6 +156,10 @@ LoveApiImplementation _bindGraphicsLine(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.graphics.polygon`.
+///
+/// The first argument selects fill or line mode and the remaining arguments are
+/// parsed as a polygon vertex sequence.
 LoveApiImplementation _bindGraphicsPolygon(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -174,6 +193,10 @@ LoveApiImplementation _bindGraphicsPolygon(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.graphics.points`.
+///
+/// This preserves LOVE's mixed point-input forms, including per-point color
+/// data when the source arguments encode it.
 LoveApiImplementation _bindGraphicsPoints(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -203,6 +226,10 @@ LoveApiImplementation _bindGraphicsPoints(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.graphics.ellipse`.
+///
+/// LOVE accepts a second radius override, otherwise this uses the x radius for
+/// both axes.
 LoveApiImplementation _bindGraphicsEllipse(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -238,6 +265,10 @@ LoveApiImplementation _bindGraphicsEllipse(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.graphics.arc`.
+///
+/// This supports the optional arc-mode argument before the standard geometry
+/// parameters.
 LoveApiImplementation _bindGraphicsArc(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -282,6 +313,12 @@ LoveApiImplementation _bindGraphicsArc(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.graphics.draw`.
+///
+/// This is the central drawable dispatcher for images, canvases, meshes,
+/// sprite batches, particle systems, and text drawables. Unsupported drawable
+/// combinations surface LOVE-style argument errors before any command is
+/// queued.
 LoveApiImplementation _bindGraphicsDraw(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -380,10 +417,66 @@ LoveApiImplementation _bindGraphicsDraw(LibraryRegistrationContext context) {
       return null;
     }
 
-    if (_videoIfPresent(_valueAt(args, 0)) != null) {
-      throw LuaError(
-        'love.graphics.draw does not yet support drawing Video objects in the current runtime',
-      );
+    if (_videoIfPresent(_valueAt(args, 0)) case final LoveVideo video) {
+      final quad = _quadIfPresent(_valueAt(args, 1));
+      final startIndex = quad == null ? 1 : 2;
+      if (_canUseLiveVideoCommand(runtime, video, quad: quad)) {
+        runtime.graphics.addCommand(
+          LoveVideoCommand(
+            color: runtime.graphics.color,
+            lineWidth: runtime.graphics.lineWidth,
+            lineStyle: runtime.graphics.lineStyle,
+            lineJoin: runtime.graphics.lineJoin,
+            blendMode: runtime.graphics.blendMode,
+            blendAlphaMode: runtime.graphics.blendAlphaMode,
+            colorMask: runtime.graphics.colorMask,
+            wireframe: runtime.graphics.wireframe,
+            scissor: runtime.graphics.scissor,
+            shader: runtime.graphics.shader,
+            transform: runtime.graphics.copyTransform(),
+            drawTransform: _videoDrawTransform(
+              video,
+              args,
+              transformIndex: startIndex,
+              symbol: 'love.graphics.draw',
+            ),
+            video: video,
+            quad: quad,
+          ),
+        );
+        return null;
+      }
+
+      return _snapshotDrawableImageForVideo(runtime, video).then((resolvedImage) {
+        if (resolvedImage == null) {
+          return null;
+        }
+
+        runtime.graphics.addCommand(
+          LoveImageCommand(
+            color: runtime.graphics.color,
+            lineWidth: runtime.graphics.lineWidth,
+            lineStyle: runtime.graphics.lineStyle,
+            lineJoin: runtime.graphics.lineJoin,
+            blendMode: runtime.graphics.blendMode,
+            blendAlphaMode: runtime.graphics.blendAlphaMode,
+            colorMask: runtime.graphics.colorMask,
+            wireframe: runtime.graphics.wireframe,
+            scissor: runtime.graphics.scissor,
+            shader: runtime.graphics.shader,
+            transform: runtime.graphics.copyTransform(),
+            drawTransform: _videoDrawTransform(
+              video,
+              args,
+              transformIndex: startIndex,
+              symbol: 'love.graphics.draw',
+            ),
+            image: resolvedImage,
+            quad: quad,
+          ),
+        );
+        return null;
+      });
     }
 
     final image = _requireImage(args, 0, 'love.graphics.draw');
@@ -426,6 +519,10 @@ LoveApiImplementation _bindGraphicsDraw(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.graphics.print`.
+///
+/// This queues unwrapped text using either an explicit font argument or the
+/// current graphics font, while preserving LOVE's transform-object overload.
 LoveApiImplementation _bindGraphicsPrint(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -493,6 +590,10 @@ LoveApiImplementation _bindGraphicsPrint(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.graphics.printf`.
+///
+/// This mirrors [love.graphics.print] but also records wrap width and text
+/// alignment for formatted layout.
 LoveApiImplementation _bindGraphicsPrintf(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {

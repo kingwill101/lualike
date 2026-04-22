@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
+import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.graphics layered compressed images', () {
@@ -24,7 +25,7 @@ void main() {
           _ktxBytes(width: 16, height: 8),
         );
 
-        final array = await _call(
+        final array = await luaCallList(
           runtime,
           const ['love', 'graphics', 'newArrayImage'],
           <Object?>[
@@ -33,19 +34,22 @@ void main() {
           ],
         );
 
-        expect(await _callMethod(array!, 'isCompressed'), isTrue);
-        expect(await _callMethod(array, 'isReadable'), isFalse);
-        expect(await _callMethod(array, 'getTextureType'), 'array');
-        expect(await _callMethod(array, 'getLayerCount'), 2);
-        expect(await _callMethod(array, 'getMipmapCount'), 2);
-        expect(await _callMethod(array, 'getDimensions'), <Object?>[8, 4]);
-        expect(await _callMethod(array, 'getPixelDimensions'), <Object?>[
+        expect(await luaCallMethodList(array!, 'isCompressed'), isTrue);
+        expect(await luaCallMethodList(array, 'isReadable'), isFalse);
+        expect(await luaCallMethodList(array, 'getTextureType'), 'array');
+        expect(await luaCallMethodList(array, 'getLayerCount'), 2);
+        expect(await luaCallMethodList(array, 'getMipmapCount'), 2);
+        expect(await luaCallMethodList(array, 'getDimensions'), <Object?>[
+          8,
+          4,
+        ]);
+        expect(await luaCallMethodList(array, 'getPixelDimensions'), <Object?>[
           16,
           8,
         ]);
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await _call(
+        await luaCallList(
           runtime,
           const ['love', 'graphics', 'drawLayer'],
           <Object?>[array, 2, 0, 0],
@@ -96,7 +100,7 @@ void main() {
           _ktxBytes(width: 16, height: 16),
         );
 
-        final volume = await _call(
+        final volume = await luaCallList(
           runtime,
           const ['love', 'graphics', 'newVolumeImage'],
           <Object?>[
@@ -104,7 +108,7 @@ void main() {
             <Object?, Object?>{'dpiscale': 2.0},
           ],
         );
-        final cube = await _call(
+        final cube = await luaCallList(
           runtime,
           const ['love', 'graphics', 'newCubeImage'],
           <Object?>[
@@ -119,21 +123,27 @@ void main() {
           ],
         );
 
-        expect(await _callMethod(volume!, 'isCompressed'), isTrue);
-        expect(await _callMethod(volume, 'isReadable'), isFalse);
-        expect(await _callMethod(volume, 'getTextureType'), 'volume');
-        expect(await _callMethod(volume, 'getLayerCount'), 1);
-        expect(await _callMethod(volume, 'getDepth'), 3);
-        expect(await _callMethod(volume, 'getMipmapCount'), 2);
-        expect(await _callMethod(volume, 'getDimensions'), <Object?>[8, 4]);
+        expect(await luaCallMethodList(volume!, 'isCompressed'), isTrue);
+        expect(await luaCallMethodList(volume, 'isReadable'), isFalse);
+        expect(await luaCallMethodList(volume, 'getTextureType'), 'volume');
+        expect(await luaCallMethodList(volume, 'getLayerCount'), 1);
+        expect(await luaCallMethodList(volume, 'getDepth'), 3);
+        expect(await luaCallMethodList(volume, 'getMipmapCount'), 2);
+        expect(await luaCallMethodList(volume, 'getDimensions'), <Object?>[
+          8,
+          4,
+        ]);
 
-        expect(await _callMethod(cube!, 'isCompressed'), isTrue);
-        expect(await _callMethod(cube, 'isReadable'), isFalse);
-        expect(await _callMethod(cube, 'getTextureType'), 'cube');
-        expect(await _callMethod(cube, 'getLayerCount'), 6);
-        expect(await _callMethod(cube, 'getDepth'), 1);
-        expect(await _callMethod(cube, 'getMipmapCount'), 2);
-        expect(await _callMethod(cube, 'getDimensions'), <Object?>[16, 16]);
+        expect(await luaCallMethodList(cube!, 'isCompressed'), isTrue);
+        expect(await luaCallMethodList(cube, 'isReadable'), isFalse);
+        expect(await luaCallMethodList(cube, 'getTextureType'), 'cube');
+        expect(await luaCallMethodList(cube, 'getLayerCount'), 6);
+        expect(await luaCallMethodList(cube, 'getDepth'), 1);
+        expect(await luaCallMethodList(cube, 'getMipmapCount'), 2);
+        expect(await luaCallMethodList(cube, 'getDimensions'), <Object?>[
+          16,
+          16,
+        ]);
 
         final wrappedVolume = arrayLikeImage(volume);
         final wrappedCube = arrayLikeImage(cube);
@@ -160,12 +170,12 @@ Future<Object?> _newCompressedData(
   String filename,
   Uint8List bytes,
 ) async {
-  final fileData = await _call(
+  final fileData = await luaCallList(
     runtime,
     const ['love', 'filesystem', 'newFileData'],
     <Object?>[bytes, filename],
   );
-  return _call(
+  return luaCallList(
     runtime,
     const ['love', 'image', 'newCompressedData'],
     <Object?>[fileData],
@@ -249,67 +259,3 @@ Map<Object?, Object?> _luaSeq(List<Object?> values) {
       index + 1: values[index],
   };
 }
-
-Future<Object?> _call(
-  Interpreter runtime,
-  List<String> path, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(_rawFunction(runtime, path).call(args));
-}
-
-Future<Object?> _callMethod(
-  Object? receiver,
-  String method, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(
-    _rawMethod(receiver, method).call(<Object?>[receiver, ...args]),
-  );
-}
-
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> path) {
-  var current = runtime.getCurrentEnv().get(path.first);
-  for (final segment in path.skip(1)) {
-    final table = current is Value ? current.raw : current;
-    expect(
-      table,
-      isA<Map>(),
-      reason: 'Expected ${path.join('.')} to traverse a Lua table',
-    );
-    current = (table as Map)[segment];
-  }
-
-  expect(current, isA<Value>());
-  final raw = (current! as Value).raw;
-  expect(raw, isA<BuiltinFunction>());
-  return raw as BuiltinFunction;
-}
-
-BuiltinFunction _rawMethod(Object? receiver, String method) {
-  final table = receiver is Value ? receiver.raw : receiver;
-  expect(table, isA<Map>());
-  final entry = (table! as Map)[method];
-  return switch (entry) {
-    final Value wrapped when wrapped.raw is BuiltinFunction =>
-      wrapped.raw as BuiltinFunction,
-    final BuiltinFunction function => function,
-    _ => throw TestFailure('Expected $method to be a callable Lua method'),
-  };
-}
-
-Future<Object?> _resolveCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-  if (resolved is List<Object?>) {
-    return resolved.map(_unwrap).toList(growable: false);
-  }
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return List<Object?>.from(
-      wrapped.raw as List<Object?>,
-      growable: false,
-    ).map(_unwrap).toList(growable: false);
-  }
-  return _unwrap(resolved);
-}
-
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;

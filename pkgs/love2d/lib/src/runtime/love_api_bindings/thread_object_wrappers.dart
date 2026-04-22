@@ -1,5 +1,52 @@
 part of '../love_api_bindings.dart';
 
+const String _loveChannelReleasedWrapperKey = '__love2d_channel_released__';
+const String _loveThreadReleasedWrapperKey = '__love2d_thread_released__';
+
+/// Returns the Lua wrapper table for a `Channel`, including released wrappers.
+Map<dynamic, dynamic>? _channelWrapperTableIfPresent(Object? value) {
+  final table = _tableIdentityIfPresent(value);
+  if (table == null) {
+    return null;
+  }
+
+  final channel = table[_loveChannelObjectKey];
+  if (channel is LoveThreadChannel ||
+      table[_loveChannelReleasedWrapperKey] == true) {
+    return table;
+  }
+
+  return null;
+}
+
+/// Returns the Lua wrapper table for a `Thread`, including released wrappers.
+Map<dynamic, dynamic>? _threadWrapperTableIfPresent(Object? value) {
+  final table = _tableIdentityIfPresent(value);
+  if (table == null) {
+    return null;
+  }
+
+  final thread = table[_loveThreadObjectKey];
+  if (thread is LoveLuaThread || table[_loveThreadReleasedWrapperKey] == true) {
+    return table;
+  }
+
+  return null;
+}
+
+/// Returns whether [value] is a released `Channel` wrapper.
+bool _channelWrapperReleased(Object? value) {
+  final table = _channelWrapperTableIfPresent(value);
+  return table?[_loveChannelReleasedWrapperKey] == true;
+}
+
+/// Returns whether [value] is a released `Thread` wrapper.
+bool _threadWrapperReleased(Object? value) {
+  final table = _threadWrapperTableIfPresent(value);
+  return table?[_loveThreadReleasedWrapperKey] == true;
+}
+
+/// Returns wrapped [LoveThreadChannel] when [value] is a Channel table.
 LoveThreadChannel? _channelIfPresent(Object? value) {
   final table = _tableIfPresent(value);
   if (table == null) {
@@ -10,6 +57,7 @@ LoveThreadChannel? _channelIfPresent(Object? value) {
   return channel is LoveThreadChannel ? channel : null;
 }
 
+/// Returns wrapped [LoveLuaThread] when [value] is a Thread table.
 LoveLuaThread? _threadIfPresent(Object? value) {
   final table = _tableIfPresent(value);
   if (table == null) {
@@ -20,36 +68,66 @@ LoveLuaThread? _threadIfPresent(Object? value) {
   return thread is LoveLuaThread ? thread : null;
 }
 
+/// Returns a required `Channel` receiver.
 LoveThreadChannel _requireChannel(
   List<Object?> args,
   int index,
-  String symbol,
-) {
-  final channel = _channelIfPresent(_valueAt(args, index));
+  String symbol, {
+  bool allowReleased = false,
+}) {
+  final value = _valueAt(args, index);
+  if (!allowReleased && _channelWrapperReleased(value)) {
+    _throwReleasedObjectError();
+  }
+
+  final channel = _channelIfPresent(value);
   if (channel != null) {
     return channel;
   }
 
-  throw LuaError('$symbol expected a Channel at argument ${index + 1}');
+  _throwLuaStyleTypeError(
+    symbol: symbol,
+    index: index,
+    expected: 'Channel',
+    actual: value,
+  );
 }
 
-LoveLuaThread _requireThread(List<Object?> args, int index, String symbol) {
-  final thread = _threadIfPresent(_valueAt(args, index));
+/// Returns a required `Thread` receiver.
+LoveLuaThread _requireThread(
+  List<Object?> args,
+  int index,
+  String symbol, {
+  bool allowReleased = false,
+}) {
+  final value = _valueAt(args, index);
+  if (!allowReleased && _threadWrapperReleased(value)) {
+    _throwReleasedObjectError();
+  }
+
+  final thread = _threadIfPresent(value);
   if (thread != null) {
     return thread;
   }
 
-  throw LuaError('$symbol expected a Thread at argument ${index + 1}');
+  _throwLuaStyleTypeError(
+    symbol: symbol,
+    index: index,
+    expected: 'Thread',
+    actual: value,
+  );
 }
 
+/// Returns the cache key used for interpreter-scoped thread wrappers.
 Object _threadWrapperCacheKey(LibraryContext context) {
   return context.interpreter ?? context.environment;
 }
 
+/// Wraps [channel] as a Lua-facing `Channel` object table.
 Value _wrapChannel(LibraryContext context, LoveThreadChannel channel) {
   final cacheKey = _threadWrapperCacheKey(context);
   final cached = _loveChannelWrapperCache[channel]?[cacheKey];
-  if (cached != null) {
+  if (cached != null && _channelIfPresent(cached) != null) {
     return cached;
   }
 
@@ -161,25 +239,59 @@ Value _wrapChannel(LibraryContext context, LoveThreadChannel channel) {
     ),
     'release': Value(
       builder.create((args) {
-        final channel = _requireChannel(args, 0, 'Object:release');
+        final receiver = _valueAt(args, 0);
+        final table = _channelWrapperTableIfPresent(receiver);
+        if (table == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:release',
+            index: 0,
+            expected: 'Channel',
+            actual: receiver,
+          );
+        }
+
+        final channel = table[_loveChannelObjectKey];
+        if (channel is! LoveThreadChannel) {
+          return false;
+        }
+
         if (_loveChannelReleased[channel] == true) {
           return false;
         }
+
         _loveChannelReleased[channel] = true;
+        table[_loveChannelReleasedWrapperKey] = true;
+        table[_loveChannelObjectKey] = null;
         return true;
       }),
       functionName: 'release',
     ),
     'type': Value(
       builder.create((args) {
-        _requireChannel(args, 0, 'Object:type');
+        final receiver = _valueAt(args, 0);
+        if (_channelWrapperTableIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:type',
+            index: 0,
+            expected: 'Channel',
+            actual: receiver,
+          );
+        }
         return 'Channel';
       }),
       functionName: 'type',
     ),
     'typeOf': Value(
       builder.create((args) {
-        _requireChannel(args, 0, 'Object:typeOf');
+        final receiver = _valueAt(args, 0);
+        if (_channelWrapperTableIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:typeOf',
+            index: 0,
+            expected: 'Channel',
+            actual: receiver,
+          );
+        }
         final queried = _requireString(args, 1, 'Object:typeOf');
         return hierarchy.contains(queried);
       }),
@@ -190,10 +302,11 @@ Value _wrapChannel(LibraryContext context, LoveThreadChannel channel) {
   return table;
 }
 
+/// Wraps [thread] as a Lua-facing `Thread` object table.
 Value _wrapThread(LibraryContext context, LoveLuaThread thread) {
   final cacheKey = _threadWrapperCacheKey(context);
   final cached = _loveThreadWrapperCache[thread]?[cacheKey];
-  if (cached != null) {
+  if (cached != null && _threadIfPresent(cached) != null) {
     return cached;
   }
 
@@ -243,25 +356,59 @@ Value _wrapThread(LibraryContext context, LoveLuaThread thread) {
     ),
     'release': Value(
       builder.create((args) {
-        final thread = _requireThread(args, 0, 'Object:release');
+        final receiver = _valueAt(args, 0);
+        final table = _threadWrapperTableIfPresent(receiver);
+        if (table == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:release',
+            index: 0,
+            expected: 'Thread',
+            actual: receiver,
+          );
+        }
+
+        final thread = table[_loveThreadObjectKey];
+        if (thread is! LoveLuaThread) {
+          return false;
+        }
+
         if (_loveThreadReleased[thread] == true) {
           return false;
         }
+
         _loveThreadReleased[thread] = true;
+        table[_loveThreadReleasedWrapperKey] = true;
+        table[_loveThreadObjectKey] = null;
         return true;
       }),
       functionName: 'release',
     ),
     'type': Value(
       builder.create((args) {
-        _requireThread(args, 0, 'Object:type');
+        final receiver = _valueAt(args, 0);
+        if (_threadWrapperTableIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:type',
+            index: 0,
+            expected: 'Thread',
+            actual: receiver,
+          );
+        }
         return 'Thread';
       }),
       functionName: 'type',
     ),
     'typeOf': Value(
       builder.create((args) {
-        _requireThread(args, 0, 'Object:typeOf');
+        final receiver = _valueAt(args, 0);
+        if (_threadWrapperTableIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:typeOf',
+            index: 0,
+            expected: 'Thread',
+            actual: receiver,
+          );
+        }
         final queried = _requireString(args, 1, 'Object:typeOf');
         return hierarchy.contains(queried);
       }),

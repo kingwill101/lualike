@@ -1,9 +1,40 @@
 part of '../love_api_bindings.dart';
 
+/// Reuses transient pointer wrappers for the same backing data identity.
 final Expando<Value> _loveDataPointerCache = Expando<Value>(
   'love2dDataPointer',
 );
 
+T _requireLoveDataSubtype<T extends Object>(
+  List<Object?> args,
+  int index,
+  String symbol, {
+  required String expected,
+  required T? Function(Object? value) resolver,
+}) {
+  final value = _valueAt(args, index);
+  final data = resolver(value);
+  if (data != null) {
+    if (_loveDataReleased[data] == true) {
+      _throwReleasedObjectError();
+    }
+    return data;
+  }
+
+  _throwLuaStyleTypeError(
+    symbol: symbol,
+    index: index,
+    expected: expected,
+    actual: value,
+  );
+}
+
+Object? _dataWrapperObjectByKey(Object? value, String objectKey) {
+  final table = _tableIdentityIfPresent(value);
+  return table?[objectKey];
+}
+
+/// Wraps [data] as a Lua-facing `ByteData` object table.
 Value _wrapByteData(LibraryRegistrationContext context, LoveByteData data) {
   final cached = _loveByteDataWrapperCache[data];
   if (cached != null) {
@@ -23,6 +54,7 @@ Value _wrapByteData(LibraryRegistrationContext context, LoveByteData data) {
   return table;
 }
 
+/// Wraps [data] as a Lua-facing `DataView` object table.
 Value _wrapDataView(LibraryRegistrationContext context, LoveDataView data) {
   final cached = _loveDataViewWrapperCache[data];
   if (cached != null) {
@@ -42,6 +74,7 @@ Value _wrapDataView(LibraryRegistrationContext context, LoveDataView data) {
   return table;
 }
 
+/// Wraps [data] as a Lua-facing `CompressedData` object table.
 Value _wrapCompressedData(
   LibraryRegistrationContext context,
   LoveCompressedData data,
@@ -77,6 +110,7 @@ Value _wrapCompressedData(
   return table;
 }
 
+/// Builds the common Lua object table used by LÖVE `Data` subtypes.
 Value _wrapLoveDataObject(
   LibraryRegistrationContext context, {
   required Object rawObject,
@@ -120,10 +154,16 @@ Value _wrapLoveDataObject(
     ),
     'release': Value(
       builder.create((args) {
-        final object = _loveDataObjectIdentity(
-          _valueAt(args, 0),
-          symbol: 'Object:release',
-        );
+        final receiver = _valueAt(args, 0);
+        final object = _dataWrapperObjectByKey(receiver, objectKey);
+        if (object == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:release',
+            index: 0,
+            expected: typeName,
+            actual: receiver,
+          );
+        }
         if (_loveDataReleased[object] == true) {
           return false;
         }
@@ -133,9 +173,32 @@ Value _wrapLoveDataObject(
       }),
       functionName: 'release',
     ),
-    'type': Value(builder.create((args) => typeName), functionName: 'type'),
+    'type': Value(
+      builder.create((args) {
+        final receiver = _valueAt(args, 0);
+        if (_dataWrapperObjectByKey(receiver, objectKey) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:type',
+            index: 0,
+            expected: typeName,
+            actual: receiver,
+          );
+        }
+        return typeName;
+      }),
+      functionName: 'type',
+    ),
     'typeOf': Value(
       builder.create((args) {
+        final receiver = _valueAt(args, 0);
+        if (_dataWrapperObjectByKey(receiver, objectKey) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:typeOf',
+            index: 0,
+            expected: typeName,
+            actual: receiver,
+          );
+        }
         final queried = _requireString(args, 1, 'Object:typeOf');
         return hierarchy.contains(queried);
       }),
@@ -145,6 +208,7 @@ Value _wrapLoveDataObject(
   });
 }
 
+/// Wraps a transient pointer view for a `Data` object.
 Value _wrapDataPointer(
   LibraryContext context, {
   required Object identity,
@@ -166,6 +230,7 @@ Value _wrapDataPointer(
   return pointer;
 }
 
+/// Returns a transient [LoveDataPointer] when [value] wraps one.
 LoveDataPointer? _dataPointerIfPresent(Object? value) {
   final raw = _rawValue(value);
   if (raw is Box<dynamic> && raw.value is LoveDataPointer) {
@@ -175,8 +240,9 @@ LoveDataPointer? _dataPointerIfPresent(Object? value) {
   return null;
 }
 
+/// Returns wrapped [LoveByteData] when [value] is a ByteData table.
 LoveByteData? _byteDataIfPresent(Object? value) {
-  final table = _tableIfPresent(value);
+  final table = _tableIdentityIfPresent(value);
   if (table == null) {
     return null;
   }
@@ -185,8 +251,9 @@ LoveByteData? _byteDataIfPresent(Object? value) {
   return data is LoveByteData ? data : null;
 }
 
+/// Returns wrapped [LoveDataView] when [value] is a DataView table.
 LoveDataView? _dataViewIfPresent(Object? value) {
-  final table = _tableIfPresent(value);
+  final table = _tableIdentityIfPresent(value);
   if (table == null) {
     return null;
   }
@@ -195,8 +262,9 @@ LoveDataView? _dataViewIfPresent(Object? value) {
   return data is LoveDataView ? data : null;
 }
 
+/// Returns wrapped [LoveCompressedData] when [value] is a CompressedData table.
 LoveCompressedData? _compressedDataIfPresent(Object? value) {
-  final table = _tableIfPresent(value);
+  final table = _tableIdentityIfPresent(value);
   if (table == null) {
     return null;
   }
@@ -205,6 +273,7 @@ LoveCompressedData? _compressedDataIfPresent(Object? value) {
   return data is LoveCompressedData ? data : null;
 }
 
+/// Returns compatibility `FileData` produced by filesystem bridge wrappers.
 LoveFilesystemFileData? _filesystemFileDataCompatIfPresent(Object? value) {
   final table = _tableIfPresent(value);
   if (table == null) {
@@ -215,6 +284,7 @@ LoveFilesystemFileData? _filesystemFileDataCompatIfPresent(Object? value) {
   return data is LoveFilesystemFileData ? data : null;
 }
 
+/// Returns any wrapped LÖVE `Data` subtype stored in [value].
 LoveDataObject? _loveDataObjectIfPresent(Object? value) {
   return _byteDataIfPresent(value) ??
       _dataViewIfPresent(value) ??
@@ -223,60 +293,54 @@ LoveDataObject? _loveDataObjectIfPresent(Object? value) {
       _compressedDataIfPresent(value);
 }
 
-Object _loveDataObjectIdentity(Object? value, {required String symbol}) {
-  final data = _loveDataObjectIfPresent(value);
-  if (data != null) {
-    return data;
-  }
-
-  final compat = _filesystemFileDataCompatIfPresent(value);
-  if (compat != null) {
-    return compat;
-  }
-
-  throw LuaError('$symbol expected a LOVE Object at argument 1');
-}
-
+/// Returns a required `Data` receiver.
 LoveDataObject _requireLoveDataObject(
   List<Object?> args,
   int index,
   String symbol,
 ) {
-  final data = _loveDataObjectIfPresent(_valueAt(args, index));
-  if (data != null) {
-    return data;
-  }
-
-  throw LuaError('$symbol expected a Data at argument ${index + 1}');
+  return _requireLoveDataSubtype(
+    args,
+    index,
+    symbol,
+    expected: 'Data',
+    resolver: _loveDataObjectIfPresent,
+  );
 }
 
+/// Returns a required `ByteData` receiver.
 LoveByteData _requireByteData(List<Object?> args, int index, String symbol) {
-  final data = _byteDataIfPresent(_valueAt(args, index));
-  if (data != null) {
-    return data;
-  }
-
-  throw LuaError('$symbol expected a ByteData at argument ${index + 1}');
+  return _requireLoveDataSubtype(
+    args,
+    index,
+    symbol,
+    expected: 'ByteData',
+    resolver: _byteDataIfPresent,
+  );
 }
 
+/// Returns a required `DataView` receiver.
 LoveDataView _requireDataView(List<Object?> args, int index, String symbol) {
-  final data = _dataViewIfPresent(_valueAt(args, index));
-  if (data != null) {
-    return data;
-  }
-
-  throw LuaError('$symbol expected a DataView at argument ${index + 1}');
+  return _requireLoveDataSubtype(
+    args,
+    index,
+    symbol,
+    expected: 'DataView',
+    resolver: _dataViewIfPresent,
+  );
 }
 
+/// Returns a required `CompressedData` receiver.
 LoveCompressedData _requireCompressedData(
   List<Object?> args,
   int index,
   String symbol,
 ) {
-  final data = _compressedDataIfPresent(_valueAt(args, index));
-  if (data != null) {
-    return data;
-  }
-
-  throw LuaError('$symbol expected a CompressedData at argument ${index + 1}');
+  return _requireLoveDataSubtype(
+    args,
+    index,
+    symbol,
+    expected: 'CompressedData',
+    resolver: _compressedDataIfPresent,
+  );
 }

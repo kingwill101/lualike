@@ -7,6 +7,7 @@ import 'package:path_provider_platform_interface/path_provider_platform_interfac
 
 import 'love_filesystem_runtime.dart';
 
+/// The timeout used when querying Flutter app directories from platform APIs.
 const Duration _loveFlutterDirectoryLookupTimeout = Duration(seconds: 1);
 
 /// Flutter-specific filesystem adapter that delegates actual file IO to an
@@ -16,6 +17,7 @@ const Duration _loveFlutterDirectoryLookupTimeout = Duration(seconds: 1);
 /// This keeps LOVE's writable save path off of implicit host environment
 /// lookups and makes the storage policy explicit in Flutter apps.
 class LoveFlutterFilesystemAdapter implements LoveFilesystemAdapter {
+  /// Creates a filesystem adapter that exposes Flutter app directories.
   LoveFlutterFilesystemAdapter({
     LoveFilesystemAdapter? delegate,
     String? workingDirectory,
@@ -28,6 +30,7 @@ class LoveFlutterFilesystemAdapter implements LoveFilesystemAdapter {
        _appdataDirectory = appdataDirectory,
        _executablePath = executablePath;
 
+  /// Loads directory information from Flutter platform services.
   static Future<LoveFlutterFilesystemAdapter> load({
     LoveFilesystemAdapter? delegate,
     String? workingDirectory,
@@ -52,10 +55,19 @@ class LoveFlutterFilesystemAdapter implements LoveFilesystemAdapter {
     );
   }
 
+  /// The adapter that performs the actual host file operations.
   final LoveFilesystemAdapter _delegate;
+
+  /// The working directory exposed to LOVE, if one was resolved.
   final String? _workingDirectory;
+
+  /// The user directory exposed to LOVE, if one was resolved.
   final String? _userDirectory;
+
+  /// The app data directory exposed to LOVE, if one was resolved.
   final String? _appdataDirectory;
+
+  /// The executable path exposed to LOVE, if one was provided.
   final String? _executablePath;
 
   @override
@@ -114,6 +126,7 @@ class LoveFlutterFilesystemAdapter implements LoveFilesystemAdapter {
     return _delegate.deletePath(path, recursive: recursive);
   }
 
+  /// Resolves app-scoped directories from Flutter platform services.
   static Future<_LoveFlutterResolvedDirectories> _resolveDirectories({
     PathProviderPlatform? pathProviderPlatform,
   }) async {
@@ -134,6 +147,7 @@ class LoveFlutterFilesystemAdapter implements LoveFilesystemAdapter {
     );
   }
 
+  /// Safely loads a directory path, returning `null` on timeout or failure.
   static Future<String?> _safeDirectoryPath(
     Future<String?> Function() loader,
   ) async {
@@ -146,14 +160,21 @@ class LoveFlutterFilesystemAdapter implements LoveFilesystemAdapter {
   }
 }
 
+/// The resolved Flutter app directories exposed through this filesystem adapter.
 class _LoveFlutterResolvedDirectories {
+  /// Creates a resolved Flutter directory bundle.
   const _LoveFlutterResolvedDirectories({
     this.workingDirectory,
     this.userDirectory,
     this.appdataDirectory,
   });
 
+  /// The working directory that LOVE should use for relative host lookups.
   final String? workingDirectory;
+
+  /// The user directory that LOVE should treat as the home path.
   final String? userDirectory;
+
+  /// The app data directory that LOVE should treat as the save root parent.
   final String? appdataDirectory;
 }

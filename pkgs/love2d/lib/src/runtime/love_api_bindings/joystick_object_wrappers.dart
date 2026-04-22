@@ -1,9 +1,35 @@
 part of '../love_api_bindings.dart';
 
+const String _loveJoystickReleasedWrapperKey = '__love2d_joystick_released__';
+
+/// Whether a joystick has already been released through `Object:release`.
 final Expando<bool> _loveJoystickReleased = Expando<bool>(
   'love2dJoystickReleased',
 );
 
+/// Returns the Lua wrapper table for a `Joystick`, including released wrappers.
+Map<dynamic, dynamic>? _joystickWrapperTableIfPresent(Object? value) {
+  final table = _tableIdentityIfPresent(value);
+  if (table == null) {
+    return null;
+  }
+
+  final joystick = table[_loveJoystickObjectKey];
+  if (joystick is LoveJoystickDevice ||
+      table[_loveJoystickReleasedWrapperKey] == true) {
+    return table;
+  }
+
+  return null;
+}
+
+/// Returns whether [value] is a released `Joystick` wrapper.
+bool _joystickWrapperReleased(Object? value) {
+  final table = _joystickWrapperTableIfPresent(value);
+  return table?[_loveJoystickReleasedWrapperKey] == true;
+}
+
+/// Returns wrapped [LoveJoystickDevice] when [value] is a Joystick table.
 LoveJoystickDevice? _joystickIfPresent(Object? value) {
   final table = _tableIfPresent(value);
   if (table == null) {
@@ -14,17 +40,28 @@ LoveJoystickDevice? _joystickIfPresent(Object? value) {
   return joystick is LoveJoystickDevice ? joystick : null;
 }
 
+/// Returns a required `Joystick` receiver.
 LoveJoystickDevice _requireJoystick(
   List<Object?> args,
   int index,
   String symbol,
 ) {
-  final joystick = _joystickIfPresent(_valueAt(args, index));
+  final value = _valueAt(args, index);
+  if (_joystickWrapperReleased(value)) {
+    _throwReleasedObjectError();
+  }
+
+  final joystick = _joystickIfPresent(value);
   if (joystick != null) {
     return joystick;
   }
 
-  throw LuaError('$symbol expected a Joystick at argument ${index + 1}');
+  _throwLuaStyleTypeError(
+    symbol: symbol,
+    index: index,
+    expected: 'Joystick',
+    actual: value,
+  );
 }
 
 /// Wraps a joystick object for direct use in runtime-dispatched callbacks.
@@ -42,9 +79,10 @@ Value wrapLoveJoystickForRuntime(
   return _wrapJoystick(context, joystick);
 }
 
+/// Wraps [joystick] as a Lua-facing `Joystick` object table.
 Value _wrapJoystick(LibraryContext context, LoveJoystickDevice joystick) {
   final cached = _loveJoystickWrapperCache[joystick];
-  if (cached != null) {
+  if (cached != null && _joystickIfPresent(cached) != null) {
     return cached;
   }
 
@@ -134,25 +172,59 @@ Value _wrapJoystick(LibraryContext context, LoveJoystickDevice joystick) {
     ),
     'release': Value(
       builder.create((args) {
-        final joystick = _requireJoystick(args, 0, 'Object:release');
+        final receiver = _valueAt(args, 0);
+        final table = _joystickWrapperTableIfPresent(receiver);
+        if (table == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:release',
+            index: 0,
+            expected: 'Joystick',
+            actual: receiver,
+          );
+        }
+
+        final joystick = table[_loveJoystickObjectKey];
+        if (joystick is! LoveJoystickDevice) {
+          return false;
+        }
+
         if (_loveJoystickReleased[joystick] == true) {
           return false;
         }
+
         _loveJoystickReleased[joystick] = true;
+        table[_loveJoystickReleasedWrapperKey] = true;
+        table[_loveJoystickObjectKey] = null;
         return true;
       }),
       functionName: 'release',
     ),
     'type': Value(
       builder.create((args) {
-        _requireJoystick(args, 0, 'Object:type');
+        final receiver = _valueAt(args, 0);
+        if (_joystickWrapperTableIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:type',
+            index: 0,
+            expected: 'Joystick',
+            actual: receiver,
+          );
+        }
         return 'Joystick';
       }),
       functionName: 'type',
     ),
     'typeOf': Value(
       builder.create((args) {
-        _requireJoystick(args, 0, 'Object:typeOf');
+        final receiver = _valueAt(args, 0);
+        if (_joystickWrapperTableIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:typeOf',
+            index: 0,
+            expected: 'Joystick',
+            actual: receiver,
+          );
+        }
         final queried = _requireString(args, 1, 'Object:typeOf');
         return hierarchy.contains(queried);
       }),

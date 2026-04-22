@@ -1,16 +1,25 @@
 part of '../love_runtime.dart';
 
+/// Cached default graphics fonts keyed by runtime context.
 final Map<LoveRuntimeContext, LoveFont> _loveDefaultGraphicsFontCache =
     HashMap<LoveRuntimeContext, LoveFont>.identity();
+
+/// In-flight loaders for the default graphics font keyed by runtime context.
 final Map<LoveRuntimeContext, Future<LoveFont>>
 _loveDefaultGraphicsFontLoaders =
     HashMap<LoveRuntimeContext, Future<LoveFont>>.identity();
+
+/// Cached default TrueType-derived fonts keyed by runtime context and font
+/// configuration.
 final Map<LoveRuntimeContext, Map<_LoveDefaultTrueTypeFontCacheKey, LoveFont>>
 _loveDefaultTrueTypeFontCache =
     HashMap<
       LoveRuntimeContext,
       Map<_LoveDefaultTrueTypeFontCacheKey, LoveFont>
     >.identity();
+
+/// In-flight loaders for default TrueType-derived fonts keyed by runtime
+/// context and font configuration.
 final Map<
   LoveRuntimeContext,
   Map<_LoveDefaultTrueTypeFontCacheKey, Future<LoveFont>>
@@ -21,7 +30,9 @@ _loveDefaultTrueTypeFontLoaders =
       Map<_LoveDefaultTrueTypeFontCacheKey, Future<LoveFont>>
     >.identity();
 
+/// Cache key for default TrueType fonts derived from runtime settings.
 final class _LoveDefaultTrueTypeFontCacheKey {
+  /// Creates a cache key for a default TrueType font configuration.
   const _LoveDefaultTrueTypeFontCacheKey({
     required this.size,
     required this.hinting,
@@ -29,9 +40,16 @@ final class _LoveDefaultTrueTypeFontCacheKey {
     required this.defaultFilter,
   });
 
+  /// The requested font size in LOVE units.
   final double size;
+
+  /// The hinting mode used to build the font.
   final String hinting;
+
+  /// The DPI scale used to build the font.
   final double dpiScale;
+
+  /// The default graphics filter applied to the font textures.
   final LoveGraphicsDefaultFilter defaultFilter;
 
   @override
@@ -47,6 +65,7 @@ final class _LoveDefaultTrueTypeFontCacheKey {
   int get hashCode => Object.hash(size, hinting, dpiScale, defaultFilter);
 }
 
+/// Clears all cached default-font state for [runtime].
 void _clearLoveDefaultGraphicsFontState(LoveRuntimeContext runtime) {
   _loveDefaultGraphicsFontCache.remove(runtime);
   _loveDefaultGraphicsFontLoaders.remove(runtime);
@@ -54,11 +73,14 @@ void _clearLoveDefaultGraphicsFontState(LoveRuntimeContext runtime) {
   _loveDefaultTrueTypeFontLoaders.remove(runtime);
 }
 
+/// Adds default-font caching and loading helpers to runtime contexts.
 extension LoveRuntimeContextDefaultFontSupport on LoveRuntimeContext {
+  /// The cached default TrueType fonts for this runtime.
   Map<_LoveDefaultTrueTypeFontCacheKey, LoveFont>
   _defaultTrueTypeFontsForRuntime() => _loveDefaultTrueTypeFontCache
       .putIfAbsent(this, () => <_LoveDefaultTrueTypeFontCacheKey, LoveFont>{});
 
+  /// The in-flight default TrueType font loaders for this runtime.
   Map<_LoveDefaultTrueTypeFontCacheKey, Future<LoveFont>>
   _defaultTrueTypeFontLoadersForRuntime() =>
       _loveDefaultTrueTypeFontLoaders.putIfAbsent(
@@ -66,6 +88,7 @@ extension LoveRuntimeContextDefaultFontSupport on LoveRuntimeContext {
         () => <_LoveDefaultTrueTypeFontCacheKey, Future<LoveFont>>{},
       );
 
+  /// Builds the cache key for a default TrueType font request.
   _LoveDefaultTrueTypeFontCacheKey _defaultTrueTypeFontCacheKey({
     required double size,
     required String hinting,
@@ -78,6 +101,8 @@ extension LoveRuntimeContextDefaultFontSupport on LoveRuntimeContext {
     defaultFilter: defaultFilter,
   );
 
+  /// Loads a default TrueType font prototype or synthesizes a fallback font
+  /// from bundled metadata.
   Future<LoveFont> _loadDefaultTrueTypeOrFallbackFontPrototype({
     required double size,
     required String hinting,
@@ -132,6 +157,8 @@ extension LoveRuntimeContextDefaultFontSupport on LoveRuntimeContext {
     );
   }
 
+  /// Returns either a cached default TrueType font copy or an in-flight loader
+  /// for one.
   Object createDefaultTrueTypeOrFallbackFontOrFuture({
     required double size,
     required String hinting,
@@ -172,6 +199,7 @@ extension LoveRuntimeContextDefaultFontSupport on LoveRuntimeContext {
         });
   }
 
+  /// Loads the default TrueType-or-fallback font for this runtime.
   Future<LoveFont> createDefaultTrueTypeOrFallbackFont({
     required double size,
     required String hinting,
@@ -189,6 +217,10 @@ extension LoveRuntimeContextDefaultFontSupport on LoveRuntimeContext {
         : Future<LoveFont>.value(fontOrFuture as LoveFont);
   }
 
+  /// Ensures that the current graphics font is a realized default font.
+  ///
+  /// Returns either the current font immediately or a future that resolves once
+  /// the default font has been loaded and installed.
   Object ensureCurrentGraphicsFontOrFuture() {
     final current = graphics.font;
     if (!current.isImplicitDefaultGraphicsFont) {
@@ -235,6 +267,7 @@ extension LoveRuntimeContextDefaultFontSupport on LoveRuntimeContext {
         });
   }
 
+  /// Ensures that the current graphics font is loaded and installed.
   Future<LoveFont> ensureCurrentGraphicsFont() {
     final fontOrFuture = ensureCurrentGraphicsFontOrFuture();
     return fontOrFuture is Future<LoveFont>

@@ -1,5 +1,9 @@
 part of '../love_runtime.dart';
 
+/// Returns the scalar uniform named [name] from [shader].
+///
+/// This accepts either a numeric uniform value or a single-element numeric
+/// list and normalizes the result to `double`.
 double? loveShaderNumberUniform(LoveShader shader, String name) {
   final value = shader.uniform(name);
   return switch (value) {
@@ -10,6 +14,10 @@ double? loveShaderNumberUniform(LoveShader shader, String name) {
   };
 }
 
+/// Returns the first [length] numeric components of the uniform named [name].
+///
+/// This returns `null` when the uniform is missing, is not a list, or does not
+/// contain at least [length] numeric entries.
 List<double>? loveShaderVectorUniform(
   LoveShader shader,
   String name,
@@ -31,6 +39,10 @@ List<double>? loveShaderVectorUniform(
   return result;
 }
 
+/// Returns the color uniform named [name] from [shader].
+///
+/// This accepts either a stored [LoveColor] or a numeric list containing at
+/// least red, green, and blue components. Missing alpha defaults to `1.0`.
 LoveColor? loveShaderColorUniform(LoveShader shader, String name) {
   final value = shader.uniform(name);
   if (value is LoveColor) {
@@ -55,6 +67,10 @@ LoveColor? loveShaderColorUniform(LoveShader shader, String name) {
   return LoveColor(components[0], components[1], components[2], components[3]);
 }
 
+/// Applies the desaturation tint subset effect to [color].
+///
+/// This reads `tint` and `strength` uniforms from [shader] and returns the
+/// tinted result, or `null` when either uniform is unavailable.
 LoveColor? loveShaderDesaturationTintColor(LoveShader shader, LoveColor color) {
   final tint = loveShaderColorUniform(shader, 'tint');
   final strength = loveShaderNumberUniform(shader, 'strength');
@@ -76,6 +92,12 @@ LoveColor? loveShaderDesaturationTintColor(LoveShader shader, LoveColor color) {
   ).clamped();
 }
 
+/// Samples the radial-gradient subset effect at the point `[x, y]`.
+///
+/// This reads `center`, `innerRadius`, `outerRadius`, `colorInner`, and
+/// `colorOuter` uniforms from [shader]. Missing colors fall back to
+/// [fallbackColor]. The function returns `null` when the gradient center or
+/// outer radius cannot be resolved.
 LoveColor? loveShaderRadialGradientColorAt(
   LoveShader shader, {
   required LoveColor fallbackColor,
@@ -113,6 +135,7 @@ LoveColor? loveShaderRadialGradientColorAt(
   return _loveLerpColor(colorInner, colorOuter, t);
 }
 
+/// Linearly interpolates from [a] to [b] using [t].
 LoveColor _loveLerpColor(LoveColor a, LoveColor b, double t) {
   return LoveColor(
     a.r + ((b.r - a.r) * t),

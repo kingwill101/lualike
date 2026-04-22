@@ -10,13 +10,19 @@ import 'package:flutter/widgets.dart';
 import 'dart:ui' as ui;
 
 import 'love_flame_audio.dart';
+import 'love_flame_media_kit_audio.dart';
 import '../love_runtime.dart';
 
+/// The bundled TrueType font asset used for LOVE's default font fallback.
 const String _loveDefaultTrueTypeFontAssetPath =
     'packages/love2d/third_party/love/extra/resources/Vera.ttf';
+
+/// The cache key used for the bundled default TrueType font instance.
 const String _loveDefaultTrueTypeFontCacheKey = '__love2d_default_vera__';
 
+/// A [LoveHost] implementation that maps LOVE services onto Flame and Flutter.
 class LoveFlameHost<W extends World> implements LoveHost {
+  /// Creates a Flame-backed LOVE host.
   LoveFlameHost({
     required this.game,
     AssetBundle? assetBundle,
@@ -34,6 +40,7 @@ class LoveFlameHost<W extends World> implements LoveHost {
     bool windowHasMouseFocus = false,
     LoveWindowMessageBoxHandler? windowMessageBoxHandler,
     LoveAudioBackendFactory? audioBackendFactory,
+    LoveVideoFrameProviderFactory? videoFrameProviderFactory,
   }) : _clock = clock ?? SystemLoveClock(),
        _random = random ?? LoveRandomGenerator(),
        _keyboard = keyboard ?? _defaultKeyboardState(),
@@ -48,8 +55,10 @@ class LoveFlameHost<W extends World> implements LoveHost {
        _windowHasMouseFocus = windowHasMouseFocus,
        _windowMessageBoxHandler = windowMessageBoxHandler,
        _assetBundle = assetBundle ?? rootBundle,
-       _audioBackendFactory = audioBackendFactory;
+       _audioBackendFactory = audioBackendFactory,
+       _videoFrameProviderFactory = videoFrameProviderFactory;
 
+  /// The owning Flame game.
   final FlameGame<W> game;
   final LoveClock _clock;
   final LoveRandomGenerator _random;
@@ -68,6 +77,7 @@ class LoveFlameHost<W extends World> implements LoveHost {
   final LoveWindowMessageBoxHandler? _windowMessageBoxHandler;
   final AssetBundle _assetBundle;
   final LoveAudioBackendFactory? _audioBackendFactory;
+  final LoveVideoFrameProviderFactory? _videoFrameProviderFactory;
 
   @override
   LoveClock get clock => _clock;
@@ -121,11 +131,36 @@ class LoveFlameHost<W extends World> implements LoveHost {
       throw UnsupportedError('No audio asset loader configured for "$source"');
     }
 
+    if (!kIsWeb && sourceType == 'stream') {
+      return LoveFlameMediaKitAudioSourceBackend.open(
+        source: source,
+        bytes: resolvedBytes,
+        mimeType: mimeType,
+      );
+    }
+
     return LoveFlutterAudioSourceBackend(
       bytes: resolvedBytes,
       mimeType: mimeType,
     );
   }
+
+  @override
+  Future<LoveVideoFrameProvider?> createVideoFrameProvider(
+    String source, {
+    Uint8List? bytes,
+    LoveVideoMetadata? metadata,
+  }) async {
+    final factory = _videoFrameProviderFactory;
+    if (factory == null) {
+      return null;
+    }
+
+    return factory(source, bytes: bytes, metadata: metadata);
+  }
+
+  @override
+  Future<bool> setAudioMixWithSystem(bool mix) async => true;
 
   @override
   Future<LoveImage> loadImage(
@@ -218,6 +253,16 @@ class LoveFlameHost<W extends World> implements LoveHost {
       return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
     } catch (_) {
       return null;
+    }
+  }
+
+  @override
+  Future<String?> validateRegisteredFragmentShaderAsset(String assetKey) async {
+    try {
+      await ui.FragmentProgram.fromAsset(assetKey);
+      return null;
+    } catch (error) {
+      return 'Could not load Flutter fragment shader asset "$assetKey": $error';
     }
   }
 
@@ -656,8 +701,9 @@ class LoveFlameHost<W extends World> implements LoveHost {
 
     return switch (defaultTargetPlatform) {
       TargetPlatform.android || TargetPlatform.iOS => false,
-      TargetPlatform.macOS || TargetPlatform.windows || TargetPlatform.linux =>
-        true,
+      TargetPlatform.macOS ||
+      TargetPlatform.windows ||
+      TargetPlatform.linux => true,
       _ => true,
     };
   }
