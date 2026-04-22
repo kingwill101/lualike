@@ -187,7 +187,7 @@ void _writePrototype(
     );
   }
 
-  buffer.writeln('${prefix}}');
+  buffer.writeln('$prefix}');
 }
 
 String _formatConstant(LualikeIrConstant constant) => switch (constant) {

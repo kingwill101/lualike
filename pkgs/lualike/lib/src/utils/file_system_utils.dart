@@ -25,6 +25,10 @@ Future<DateTime?> getLastModified(String path) => fs_impl.getLastModified(path);
 /// Platform-safe way to get current working directory
 String? getCurrentDirectory() => fs_impl.getCurrentDirectory();
 
+/// Platform-safe way to create a directory.
+Future<bool> createDirectory(String path, {bool recursive = true}) =>
+    fs_impl.createDirectory(path, recursive: recursive);
+
 /// Platform-safe way to write a file
 Future<void> writeFile(String path, String content) =>
     fs_impl.writeFile(path, content);
@@ -32,8 +36,15 @@ Future<void> writeFile(String path, String content) =>
 /// Platform-safe way to list directory contents
 Future<List<String>> listDirectory(String path) => fs_impl.listDirectory(path);
 
+/// Platform-safe way to get a file's size in bytes.
+Future<int?> fileSize(String path) => fs_impl.fileSize(path);
+
 /// Platform-safe way to delete a file
 Future<void> deleteFile(String path) => fs_impl.deleteFile(path);
+
+/// Platform-safe way to delete either a file or a directory.
+Future<bool> deletePath(String path, {bool recursive = true}) =>
+    fs_impl.deletePath(path, recursive: recursive);
 
 /// Platform-safe way to rename/move a file
 Future<void> renameFile(String oldPath, String newPath) =>
