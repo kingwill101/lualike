@@ -1584,7 +1584,7 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
 
   LuaString _sharedLiteralLuaString(List<int> bytes) {
     final interpreter = this as Interpreter;
-    final key = bytes.join(',');
+    final key = luaStringCacheKey(bytes);
     return interpreter.literalStringInternPool.putIfAbsent(
       key,
       () => LuaString.fromBytes(bytes),
@@ -2959,6 +2959,17 @@ mixin InterpreterFunctionMixin on AstVisitor<Object?> {
           continue;
         }
       }
+    } on LuaError catch (error) {
+      if (error.luaStackTrace == null) {
+        final currentCoroutine = interpreter.getCurrentCoroutine();
+        final baseDepth =
+            currentCoroutine?.callStackBaseDepth ?? callStackBaseDepth;
+        currentCoroutine?.captureCurrentCallStack();
+        error.luaStackTrace = currentCoroutine != null
+            ? callStack.toLuaStackTraceFromDepth(baseDepth)
+            : callStack.toLuaStackTrace();
+      }
+      rethrow;
     } on YieldException catch (ye) {
       // Handle coroutine yield
       if (Logger.enabled) {

@@ -10,6 +10,11 @@ import 'package:lualike/src/stdlib/library.dart';
 import 'package:lualike/src/stack.dart';
 import 'package:lualike/src/value.dart';
 
+/// Produces a stable cache key for Lua strings based on their raw byte
+/// sequence. This avoids collisions between textual keys such as the string
+/// `"100"` and a one-byte string whose byte value is `100` (`"d"`).
+String luaStringCacheKey(List<int> bytes) => 'b:${bytes.join(",")}';
+
 /// Result of loading a chunk through the active runtime engine.
 class LuaChunkLoadResult {
   const LuaChunkLoadResult.success(this.chunk) : errorMessage = null;
