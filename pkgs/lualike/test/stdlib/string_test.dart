@@ -527,6 +527,47 @@ void main() {
       expect(t.length, equals(4));
     });
 
+    test('string.gfind aliases string.gmatch', () async {
+      final bridge = LuaLike();
+      await bridge.execute('''
+        words = {}
+        i = 1
+        for w in ("hello world"):gfind("%w+") do
+          words[i] = w
+          i = i + 1
+        end
+
+        newlines = 0
+        for _ in string.gfind("a\\nb\\n", "\\n") do
+          newlines = newlines + 1
+        end
+      ''');
+
+      final words = (bridge.getGlobal('words') as Value).raw as Map;
+      expect((words[1] as Value).raw, equals("hello"));
+      expect((words[2] as Value).raw, equals("world"));
+      expect((bridge.getGlobal('newlines') as Value).raw, equals(2));
+    });
+
+    test('string.match handles lexer backreference pattern', () async {
+      final bridge = LuaLike();
+      await bridge.execute(r'''
+        sample = [["abc"]]
+        quote = string.match(sample, [[^(['"]).-[^\](\*)%2%1]])
+        start_pos, end_pos, found_quote, escapes =
+          string.find(sample, [[^(['"]).-[^\](\*)%2%1]])
+      ''');
+
+      expect((bridge.getGlobal('quote') as Value).raw.toString(), equals('"'));
+      expect((bridge.getGlobal('start_pos') as Value).raw, equals(1));
+      expect((bridge.getGlobal('end_pos') as Value).raw, equals(5));
+      expect(
+        (bridge.getGlobal('found_quote') as Value).raw.toString(),
+        equals('"'),
+      );
+      expect((bridge.getGlobal('escapes') as Value).raw.toString(), equals(''));
+    });
+
     // Binary Pack/Unpack Operations
     group('string.pack/unpack', () {
       test('basic integer types roundtrip', () async {

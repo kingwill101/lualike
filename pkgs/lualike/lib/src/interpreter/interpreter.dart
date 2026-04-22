@@ -121,7 +121,7 @@ class Interpreter extends AstVisitor<Object?>
 
   @override
   Value constantStringValue(List<int> bytes) {
-    final key = String.fromCharCodes(bytes);
+    final key = luaStringCacheKey(bytes);
     final cached = literalValueCache[key];
     if (cached != null) {
       cached.interpreter ??= this;

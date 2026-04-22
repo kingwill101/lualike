@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:lualike/lualike.dart';
 
 import 'package:lualike/src/runtime/runtime_hints.dart';
@@ -329,7 +331,7 @@ class _TableConcat extends BuiltinFunction {
     final table = args[0] is Value ? args[0] as Value : Value(args[0]);
     checktab(table, TablePermission.read);
 
-    final sep = args.length > 1 ? (args[1] as Value).raw.toString() : "";
+    final separatorValue = args.length > 1 ? (args[1] as Value).raw : "";
     final start = args.length > 2 ? (args[2] as Value).raw as int : 1;
     final end = args.length > 3
         ? (args[3] as Value).raw as int
@@ -337,15 +339,14 @@ class _TableConcat extends BuiltinFunction {
 
     // If start > end, return empty string (Lua behavior)
     if (start > end) {
-      return Value("");
+      return separatorValue is LuaString
+          ? Value(LuaString.fromBytes(const <int>[]))
+          : Value("");
     }
 
-    final buffer = StringBuffer();
+    final parts = <Object?>[];
     var i = start;
     while (NumberUtils.compare(i, end) <= 0) {
-      if (NumberUtils.compare(i, start) > 0) {
-        buffer.write(sep);
-      }
       final value = await _tableSequenceReadAsync(table, i);
       if (value.raw == null) {
         // Lua throws an error when encountering nil values in the range
@@ -355,8 +356,7 @@ class _TableConcat extends BuiltinFunction {
       // Validate that the value is a string or number
       final rawValue = value.raw;
       NumberUtils.validateStringOrNumber(rawValue, 'concat', i);
-
-      buffer.write(rawValue.toString());
+      parts.add(rawValue);
 
       // Prevent integer overflow when i == max integer
       if (i == NumberLimits.maxInteger) break;
@@ -365,7 +365,40 @@ class _TableConcat extends BuiltinFunction {
       i = NumberUtils.add(i, 1);
     }
 
-    return Value(buffer.toString());
+    final preserveByteStrings =
+        separatorValue is LuaString || parts.any((part) => part is LuaString);
+    if (!preserveByteStrings) {
+      final buffer = StringBuffer();
+      for (var index = 0; index < parts.length; index++) {
+        if (index > 0) {
+          buffer.write(separatorValue.toString());
+        }
+        buffer.write(parts[index].toString());
+      }
+      return Value(buffer.toString());
+    }
+
+    List<int> toBytes(Object? value) => switch (value) {
+      final LuaString stringValue => stringValue.bytes,
+      final String stringValue => LuaString.fromDartString(stringValue).bytes,
+      final num numberValue => LuaString.fromDartString(
+        numberValue.toString(),
+      ).bytes,
+      final BigInt integerValue => LuaString.fromDartString(
+        integerValue.toString(),
+      ).bytes,
+      _ => Uint8List(0),
+    };
+
+    final builder = BytesBuilder(copy: false);
+    final separatorBytes = toBytes(separatorValue);
+    for (var index = 0; index < parts.length; index++) {
+      if (index > 0 && separatorBytes.isNotEmpty) {
+        builder.add(separatorBytes);
+      }
+      builder.add(toBytes(parts[index]));
+    }
+    return Value(LuaString.fromBytes(builder.takeBytes()));
   }
 }
 
