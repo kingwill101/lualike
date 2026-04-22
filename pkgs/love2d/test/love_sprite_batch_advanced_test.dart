@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
+import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('SpriteBatch advanced helpers', () {
@@ -10,12 +11,12 @@ void main() {
         final host = LoveHeadlessHost();
         final runtime = _newRuntime(host: host);
         final image = await _newTestImage(runtime);
-        final quad = await _call(
+        final quad = await luaCall(
           runtime,
           const ['love', 'graphics', 'newQuad'],
           <Object?>[0.0, 0.0, 8.0, 8.0, image],
         );
-        final mesh = await _call(
+        final mesh = await luaCall(
           runtime,
           const ['love', 'graphics', 'newMesh'],
           <Object?>[
@@ -53,15 +54,18 @@ void main() {
             },
           ],
         );
-        final spriteBatch = await _call(
+        final spriteBatch = await luaCall(
           runtime,
           const ['love', 'graphics', 'newSpriteBatch'],
           <Object?>[image, 2],
         );
 
-        expect(await _callMethod(spriteBatch!, 'add', <Object?>[1.0, 2.0]), 1);
         expect(
-          await _callMethod(spriteBatch, 'addLayer', <Object?>[
+          await luaCallMethod(spriteBatch!, 'add', <Object?>[1.0, 2.0]),
+          1,
+        );
+        expect(
+          await luaCallMethod(spriteBatch, 'addLayer', <Object?>[
             3,
             quad,
             4.0,
@@ -69,15 +73,20 @@ void main() {
           ]),
           2,
         );
-        await _callMethod(spriteBatch, 'attachAttribute', <Object?>[
+        await luaCallMethod(spriteBatch, 'attachAttribute', <Object?>[
           'instanceColor',
           mesh,
         ]);
-        expect(await _callMethod(spriteBatch, 'flush'), isNull);
-        await _callMethod(spriteBatch, 'setLayer', <Object?>[1, 5, 8.0, 10.0]);
+        expect(await luaCallMethod(spriteBatch, 'flush'), isNull);
+        await luaCallMethod(spriteBatch, 'setLayer', <Object?>[
+          1,
+          5,
+          8.0,
+          10.0,
+        ]);
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[spriteBatch],
@@ -97,10 +106,10 @@ void main() {
           3,
         );
 
-        await _callMethod(spriteBatch, 'clear');
-        expect(await _callMethod(spriteBatch, 'getCount'), 0);
+        await luaCallMethod(spriteBatch, 'clear');
+        expect(await luaCallMethod(spriteBatch, 'getCount'), 0);
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[spriteBatch],
@@ -119,72 +128,14 @@ Interpreter _newRuntime({LoveHost? host}) {
 }
 
 Future<Object?> _newTestImage(Interpreter runtime) async {
-  final imageData = await _call(
+  final imageData = await luaCall(
     runtime,
     const ['love', 'image', 'newImageData'],
     <Object?>[16, 16],
   );
-  return _call(
+  return luaCall(
     runtime,
     const ['love', 'graphics', 'newImage'],
     <Object?>[imageData],
   );
 }
-
-Future<Object?> _call(
-  Interpreter runtime,
-  List<String> path, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(_rawFunction(runtime, path).call(args));
-}
-
-Future<Object?> _callMethod(
-  Object object,
-  String method, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  final table = object is Value ? object.raw : object;
-  expect(table, isA<Map>());
-
-  final methodValue = (table as Map)[method];
-  final callable = switch (methodValue) {
-    final Value value => value.raw,
-    final BuiltinFunction function => function,
-    _ => methodValue,
-  };
-  expect(callable, isA<BuiltinFunction>());
-  return _resolveCallResult(
-    (callable as BuiltinFunction).call(<Object?>[object, ...args]),
-  );
-}
-
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> path) {
-  var current = runtime.getCurrentEnv().get(path.first);
-  for (final segment in path.skip(1)) {
-    final table = current is Value ? current.raw : current;
-    expect(
-      table,
-      isA<Map>(),
-      reason: 'Expected ${path.join('.')} to traverse a Lua table',
-    );
-    current = (table as Map)[segment];
-  }
-
-  expect(current, isA<Value>());
-  final raw = (current! as Value).raw;
-  expect(raw, isA<BuiltinFunction>());
-  return raw as BuiltinFunction;
-}
-
-Future<Object?> _resolveCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return (wrapped.raw as List<Object?>).map(_unwrap).toList(growable: false);
-  }
-
-  return _unwrap(resolved);
-}
-
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;

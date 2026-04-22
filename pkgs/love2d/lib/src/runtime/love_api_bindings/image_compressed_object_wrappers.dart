@@ -1,5 +1,6 @@
 part of '../love_api_bindings.dart';
 
+/// Wraps [imageData] as a Lua-facing `CompressedImageData` object table.
 Value _wrapCompressedImageData(
   LibraryRegistrationContext context,
   LoveCompressedImageData imageData,
@@ -93,11 +94,16 @@ Value _wrapCompressedImageData(
     ),
     'release': Value(
       builder.create((args) {
-        final imageData = _requireCompressedImageData(
-          args,
-          0,
-          'Object:release',
-        );
+        final receiver = _valueAt(args, 0);
+        final imageData = _compressedImageDataIfPresent(receiver);
+        if (imageData == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:release',
+            index: 0,
+            expected: 'CompressedImageData',
+            actual: receiver,
+          );
+        }
         if (_loveDataReleased[imageData] == true) {
           return false;
         }
@@ -109,14 +115,30 @@ Value _wrapCompressedImageData(
     ),
     'type': Value(
       builder.create((args) {
-        _requireCompressedImageData(args, 0, 'Object:type');
+        final receiver = _valueAt(args, 0);
+        if (_compressedImageDataIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:type',
+            index: 0,
+            expected: 'CompressedImageData',
+            actual: receiver,
+          );
+        }
         return 'CompressedImageData';
       }),
       functionName: 'type',
     ),
     'typeOf': Value(
       builder.create((args) {
-        _requireCompressedImageData(args, 0, 'Object:typeOf');
+        final receiver = _valueAt(args, 0);
+        if (_compressedImageDataIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:typeOf',
+            index: 0,
+            expected: 'CompressedImageData',
+            actual: receiver,
+          );
+        }
         final queried = _requireString(args, 1, 'Object:typeOf');
         return hierarchy.contains(queried);
       }),

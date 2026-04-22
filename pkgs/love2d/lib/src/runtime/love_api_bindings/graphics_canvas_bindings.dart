@@ -1,15 +1,18 @@
 part of '../love_api_bindings.dart';
 
+/// The pixel-format names surfaced by LOVE's `PixelFormat` enum docs.
 final List<String> _canvasFormatNames = <String>[
   for (final enumDoc in loveApiEnums)
     if (enumDoc.symbol == 'PixelFormat')
       for (final constant in enumDoc.constants) constant.name,
 ];
 
-// ---------------------------------------------------------------------------
-// love.graphics.newCanvas
-// ---------------------------------------------------------------------------
-
+/// Binds `love.graphics.newCanvas`.
+///
+/// LOVE accepts either plain width and height arguments or a settings table as
+/// the third argument. This binding supports the legacy numeric layer shorthand
+/// as well as the table-based `layers`, `type`, `format`, `msaa`, and mipmap
+/// configuration.
 LoveApiImplementation _bindGraphicsNewCanvas(
   LibraryRegistrationContext context,
 ) {
@@ -163,6 +166,7 @@ LoveApiImplementation _bindGraphicsNewCanvas(
   };
 }
 
+/// Returns the validated canvas texture type for [raw].
 String _validateCanvasTextureType(String raw, String symbol) {
   return switch (raw) {
     '2d' || 'array' || 'volume' || 'cube' => raw,
@@ -173,6 +177,7 @@ String _validateCanvasTextureType(String raw, String symbol) {
   };
 }
 
+/// Returns the render-target slice field name for [canvas], if any.
 String? _canvasSliceFieldName(LoveCanvas canvas) {
   return switch (canvas.textureType) {
     'array' || 'volume' => 'layer',
@@ -181,6 +186,7 @@ String? _canvasSliceFieldName(LoveCanvas canvas) {
   };
 }
 
+/// Returns the validated render-target slice for [canvas].
 int _validateCanvasTargetSlice(
   LoveCanvas canvas,
   int slice,
@@ -195,6 +201,9 @@ int _validateCanvasTargetSlice(
   return slice;
 }
 
+/// Returns the validated render-target mipmap level for [canvas].
+///
+/// Rendering to mipmap levels other than `1` is not yet implemented.
 int _validateCanvasTargetMipmap(LoveCanvas canvas, int mipmap, String symbol) {
   if (mipmap != 1) {
     throw LuaError(
@@ -204,6 +213,7 @@ int _validateCanvasTargetMipmap(LoveCanvas canvas, int mipmap, String symbol) {
   return mipmap;
 }
 
+/// Builds a render target from LOVE's table-based canvas setup shape.
 LoveCanvasRenderTarget _renderTargetFromSetupTable(
   Map<dynamic, dynamic> table,
   String symbol,
@@ -234,6 +244,7 @@ LoveCanvasRenderTarget _renderTargetFromSetupTable(
   return LoveCanvasRenderTarget(canvas: canvas, slice: slice, mipmap: mipmap);
 }
 
+/// Wraps [target] in the Lua-facing render-target table shape.
 Value _wrapCanvasRenderTargetTable(
   LibraryRegistrationContext context,
   LoveCanvasRenderTarget target,
@@ -248,10 +259,12 @@ Value _wrapCanvasRenderTargetTable(
   return ValueClass.table(renderTarget);
 }
 
-// ---------------------------------------------------------------------------
-// love.graphics.setCanvas
-// ---------------------------------------------------------------------------
-
+/// Binds `love.graphics.setCanvas`.
+///
+/// LOVE accepts several call shapes here: `nil` to reset the active canvas, a
+/// direct `Canvas`, a direct canvas plus slice or mipmap metadata, or the
+/// table-based render-target variants used for array, cube, and volume
+/// canvases.
 LoveApiImplementation _bindGraphicsSetCanvas(
   LibraryRegistrationContext context,
 ) {
@@ -345,10 +358,10 @@ LoveApiImplementation _bindGraphicsSetCanvas(
   };
 }
 
-// ---------------------------------------------------------------------------
-// love.graphics.getCanvas
-// ---------------------------------------------------------------------------
-
+/// Binds `love.graphics.getCanvas`.
+///
+/// This returns either the active `Canvas` directly or the LOVE table-of-target
+/// shape when slice or mipmap metadata is needed.
 LoveApiImplementation _bindGraphicsGetCanvas(
   LibraryRegistrationContext context,
 ) {
@@ -367,10 +380,7 @@ LoveApiImplementation _bindGraphicsGetCanvas(
   };
 }
 
-// ---------------------------------------------------------------------------
-// love.graphics.getCanvasFormats
-// ---------------------------------------------------------------------------
-
+/// Binds `love.graphics.getCanvasFormats`.
 LoveApiImplementation _bindGraphicsGetCanvasFormats(
   LibraryRegistrationContext context,
 ) {

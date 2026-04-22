@@ -1,7 +1,9 @@
 part of '../love_api_bindings.dart';
 
+/// The maximum polygon vertex count accepted by LOVE polygon shapes.
 const int _lovePhysicsMaxPolygonVertices = 8;
 
+/// Returns the shared physics state attached to the active Lua runtime.
 LovePhysicsState _physicsState(LibraryRegistrationContext context) {
   final runtime = context.interpreter;
   if (runtime == null) {
@@ -11,6 +13,10 @@ LovePhysicsState _physicsState(LibraryRegistrationContext context) {
   return LovePhysicsState.attach(runtime);
 }
 
+/// Binds `love.physics.getMeter`.
+///
+/// This preserves LOVE's habit of returning an integer-looking value as an
+/// integer when the current meter has no fractional part.
 LoveApiImplementation _bindPhysicsGetMeter(LibraryRegistrationContext context) {
   return (args) {
     final meter = _physicsState(context).meter;
@@ -18,6 +24,9 @@ LoveApiImplementation _bindPhysicsGetMeter(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.physics.setMeter`.
+///
+/// LOVE requires the meter to be at least `1`.
 LoveApiImplementation _bindPhysicsSetMeter(LibraryRegistrationContext context) {
   return (args) {
     const symbol = 'love.physics.setMeter';
@@ -30,6 +39,10 @@ LoveApiImplementation _bindPhysicsSetMeter(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.physics.newWorld`.
+///
+/// Missing gravity arguments default to zero and the sleep flag defaults to
+/// `true`, matching LOVE's constructor overload.
 LoveApiImplementation _bindPhysicsNewWorld(LibraryRegistrationContext context) {
   return (args) {
     final state = _physicsState(context);
@@ -55,6 +68,10 @@ LoveApiImplementation _bindPhysicsNewWorld(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.physics.newBody`.
+///
+/// The body type defaults to `static` and the position defaults to `(0, 0)`
+/// when omitted.
 LoveApiImplementation _bindPhysicsNewBody(LibraryRegistrationContext context) {
   return (args) => _physicsWithLuaErrors(() {
     const symbol = 'love.physics.newBody';
@@ -68,6 +85,9 @@ LoveApiImplementation _bindPhysicsNewBody(LibraryRegistrationContext context) {
   });
 }
 
+/// Binds `love.physics.newFixture`.
+///
+/// Fixture density defaults to `1.0` when the caller omits it.
 LoveApiImplementation _bindPhysicsNewFixture(
   LibraryRegistrationContext context,
 ) {
@@ -80,6 +100,10 @@ LoveApiImplementation _bindPhysicsNewFixture(
   });
 }
 
+/// Binds `love.physics.newCircleShape`.
+///
+/// LOVE accepts either a radius-only overload centered at `(0, 0)` or an
+/// explicit `(x, y, radius)` overload.
 LoveApiImplementation _bindPhysicsNewCircleShape(
   LibraryRegistrationContext context,
 ) {
@@ -107,6 +131,10 @@ LoveApiImplementation _bindPhysicsNewCircleShape(
   });
 }
 
+/// Binds `love.physics.newRectangleShape`.
+///
+/// LOVE accepts either `(width, height)` for a centered box or
+/// `(x, y, width, height[, angle])` for an offset rectangle.
 LoveApiImplementation _bindPhysicsNewRectangleShape(
   LibraryRegistrationContext context,
 ) {
@@ -144,6 +172,9 @@ LoveApiImplementation _bindPhysicsNewRectangleShape(
   });
 }
 
+/// Binds `love.physics.newEdgeShape`.
+///
+/// This creates a single edge segment from two endpoints.
 LoveApiImplementation _bindPhysicsNewEdgeShape(
   LibraryRegistrationContext context,
 ) {
@@ -162,6 +193,10 @@ LoveApiImplementation _bindPhysicsNewEdgeShape(
   });
 }
 
+/// Binds `love.physics.newPolygonShape`.
+///
+/// LOVE requires between `3` and [_lovePhysicsMaxPolygonVertices] vertices for
+/// polygon shapes.
 LoveApiImplementation _bindPhysicsNewPolygonShape(
   LibraryRegistrationContext context,
 ) {
@@ -183,13 +218,20 @@ LoveApiImplementation _bindPhysicsNewPolygonShape(
   });
 }
 
+/// Binds `love.physics.newChainShape`.
+///
+/// The first argument selects whether the chain is looped and the remaining
+/// arguments are interpreted as a coordinate sequence.
 LoveApiImplementation _bindPhysicsNewChainShape(
   LibraryRegistrationContext context,
 ) {
   return (args) => _physicsWithLuaErrors(() {
     const symbol = 'love.physics.newChainShape';
     final loop = _requireBoolean(args, 0, symbol);
-    final points = _coordinateSequence(args.skip(1).toList(growable: false), symbol);
+    final points = _coordinateSequence(
+      args.skip(1).toList(growable: false),
+      symbol,
+    );
     final shape = lovePhysicsChainShape(
       state: _physicsState(context),
       loop: loop,
@@ -200,6 +242,9 @@ LoveApiImplementation _bindPhysicsNewChainShape(
   });
 }
 
+/// Binds `love.physics.getDistance`.
+///
+/// The returned values match LOVE's `(distance, x1, y1, x2, y2)` tuple.
 LoveApiImplementation _bindPhysicsGetDistance(
   LibraryRegistrationContext context,
 ) {
@@ -207,7 +252,11 @@ LoveApiImplementation _bindPhysicsGetDistance(
     const symbol = 'love.physics.getDistance';
     final fixtureA = _requirePhysicsFixture(args, 0, symbol);
     final fixtureB = _requirePhysicsFixture(args, 1, symbol);
-    final result = lovePhysicsDistance(_physicsState(context), fixtureA, fixtureB);
+    final result = lovePhysicsDistance(
+      _physicsState(context),
+      fixtureA,
+      fixtureB,
+    );
     return Value.multi(<Object?>[
       result.distance,
       result.pointAx,

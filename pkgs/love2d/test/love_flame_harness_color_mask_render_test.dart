@@ -23,26 +23,21 @@ void main() {
   );
 }
 
-Future<({int r, int g, int b, int a})> _renderCenterPixel(
-) async {
+Future<({int r, int g, int b, int a})> _renderCenterPixel() async {
   final game = LoveFlameHarnessGame();
   final graphics = game.host.graphics;
   game.host.windowMetrics = const LoveWindowMetrics(width: 4, height: 4);
 
   graphics.beginFrame();
   graphics.colorMask = LoveGraphicsColorMask.all;
-  graphics.addCommand(
-    _rectangleCommand(color: const LoveColor(0, 1, 0, 1)),
-  );
+  graphics.addCommand(_rectangleCommand(color: const LoveColor(0, 1, 0, 1)));
   graphics.colorMask = const LoveGraphicsColorMask(
     red: true,
     green: false,
     blue: false,
     alpha: false,
   );
-  graphics.addCommand(
-    _rectangleCommand(color: const LoveColor(1, 0, 0, 1)),
-  );
+  graphics.addCommand(_rectangleCommand(color: const LoveColor(1, 0, 0, 1)));
   game.presentFrame(graphics.snapshotScreenSurface());
 
   game.onGameResize(Vector2(4, 4));
@@ -60,9 +55,7 @@ Future<({int r, int g, int b, int a})> _renderCenterPixel(
   return _pixelAt(pixels, 4, 2, 2);
 }
 
-LoveRectangleCommand _rectangleCommand({
-  required LoveColor color,
-}) {
+LoveRectangleCommand _rectangleCommand({required LoveColor color}) {
   return LoveRectangleCommand(
     color: color,
     lineWidth: 1,

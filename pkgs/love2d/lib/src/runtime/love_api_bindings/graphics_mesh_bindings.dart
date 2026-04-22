@@ -1,7 +1,9 @@
 part of '../love_api_bindings.dart';
 
+/// Tracks whether a mesh wrapper has been released for LOVE compatibility.
 final Expando<bool> _loveMeshReleased = Expando<bool>('love2dMeshReleased');
 
+/// Returns the wrapped [LoveMesh] when [value] is a mesh object table.
 LoveMesh? _meshIfPresent(Object? value) {
   final table = _tableIfPresent(value);
   if (table == null) {
@@ -12,15 +14,30 @@ LoveMesh? _meshIfPresent(Object? value) {
   return mesh is LoveMesh ? mesh : null;
 }
 
+/// Returns the mesh at [index] or throws a LOVE-style argument error.
 LoveMesh _requireMesh(List<Object?> args, int index, String symbol) {
-  final mesh = _meshIfPresent(_valueAt(args, index));
+  final value = _valueAt(args, index);
+  final mesh = _meshIfPresent(value);
   if (mesh != null) {
+    if (_loveMeshReleased[mesh] == true) {
+      _throwReleasedObjectError();
+    }
     return mesh;
   }
 
-  throw LuaError('$symbol expected a Mesh at argument ${index + 1}');
+  _throwLuaStyleTypeError(
+    symbol: symbol,
+    index: index,
+    expected: 'Mesh',
+    actual: value,
+  );
 }
 
+/// Wraps [mesh] in the LOVE `Mesh` object table and caches the wrapper.
+///
+/// The wrapper exposes the mesh mutation and query methods implemented by this
+/// runtime, including vertex updates, draw-mode control, texture assignment,
+/// draw ranges, vertex maps, and attribute toggles.
 Value _wrapMesh(LibraryRegistrationContext context, LoveMesh mesh) {
   final cached = _loveMeshWrapperCache[mesh];
   if (cached != null) {
@@ -32,7 +49,16 @@ Value _wrapMesh(LibraryRegistrationContext context, LoveMesh mesh) {
     _loveMeshObjectKey: mesh,
     'release': Value(
       builder.create((args) {
-        final mesh = _requireMesh(args, 0, 'Object:release');
+        final receiver = _valueAt(args, 0);
+        final mesh = _meshIfPresent(receiver);
+        if (mesh == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:release',
+            index: 0,
+            expected: 'Mesh',
+            actual: receiver,
+          );
+        }
         if (_loveMeshReleased[mesh] == true) {
           return false;
         }
@@ -151,9 +177,32 @@ Value _wrapMesh(LibraryRegistrationContext context, LoveMesh mesh) {
       }),
       functionName: 'setDrawMode',
     ),
-    'type': Value(builder.create((args) => 'Mesh'), functionName: 'type'),
+    'type': Value(
+      builder.create((args) {
+        final receiver = _valueAt(args, 0);
+        if (_meshIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:type',
+            index: 0,
+            expected: 'Mesh',
+            actual: receiver,
+          );
+        }
+        return 'Mesh';
+      }),
+      functionName: 'type',
+    ),
     'typeOf': Value(
       builder.create((args) {
+        final receiver = _valueAt(args, 0);
+        if (_meshIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:typeOf',
+            index: 0,
+            expected: 'Mesh',
+            actual: receiver,
+          );
+        }
         final queried = _requireString(args, 1, 'Object:typeOf');
         return queried == 'Mesh' ||
             queried == 'Drawable' ||
@@ -443,6 +492,11 @@ Value _wrapMesh(LibraryRegistrationContext context, LoveMesh mesh) {
 // love.graphics.newMesh
 // ---------------------------------------------------------------------------
 
+/// Binds `love.graphics.newMesh`.
+///
+/// LOVE accepts vertex data tables, explicit vertex counts, and optional
+/// custom vertex-format tables. Missing draw-mode and usage arguments fall
+/// back to the runtime defaults handled by [_meshDrawMode] and [_meshUsage].
 LoveApiImplementation _bindGraphicsNewMesh(LibraryRegistrationContext context) {
   return (args) {
     const symbol = 'love.graphics.newMesh';
@@ -539,6 +593,10 @@ LoveApiImplementation _bindGraphicsNewMesh(LibraryRegistrationContext context) {
 // Mesh:setVertices helper (kept for backward compat with wrapper above)
 // ---------------------------------------------------------------------------
 
+/// Binds `Mesh:setVertices`.
+///
+/// This top-level binder mirrors the wrapper method and is kept for generated
+/// binding compatibility.
 LoveApiImplementation _bindMeshSetVertices(LibraryRegistrationContext context) {
   return (args) {
     final mesh = _requireMesh(args, 0, 'Mesh:setVertices');
@@ -563,6 +621,7 @@ LoveApiImplementation _bindMeshSetVertices(LibraryRegistrationContext context) {
 // Draw-mode / usage helpers
 // ---------------------------------------------------------------------------
 
+/// Returns the validated mesh draw mode or the LOVE default when omitted.
 LoveMeshDrawMode _meshDrawMode(Object? value, String symbol) {
   final raw = _stringLike(value);
   if (raw == null) {
@@ -578,6 +637,7 @@ LoveMeshDrawMode _meshDrawMode(Object? value, String symbol) {
   };
 }
 
+/// Returns the validated mesh usage hint or the LOVE default when omitted.
 LoveMeshUsage _meshUsage(Object? value, String symbol) {
   final raw = _stringLike(value);
   if (raw == null) {
@@ -710,7 +770,6 @@ List<LoveMeshVertex> _meshVerticesFromTableWithFormat(
   int? texOffset;
   int? colorOffset;
   int colorComponents = 0;
-  String colorDataType = 'float';
 
   var componentIndex = 0;
   for (var i = 0; i < format.length; i++) {
@@ -730,7 +789,6 @@ List<LoveMeshVertex> _meshVerticesFromTableWithFormat(
         attr.components >= 3) {
       colorOffset = componentIndex;
       colorComponents = attr.components;
-      colorDataType = attr.dataType;
     }
 
     componentIndex += attr.components;
@@ -807,6 +865,7 @@ LoveMeshVertex _meshVertexFromComponents(
   return result.isEmpty ? const LoveMeshVertex(x: 0, y: 0) : result.first;
 }
 
+/// Returns the Lua table at [index] or throws a LOVE-style argument error.
 Map<dynamic, dynamic> _requireLuaTable(
   List<Object?> args,
   int index,

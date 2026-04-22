@@ -1,5 +1,9 @@
 part of '../love_api_bindings.dart';
 
+/// Binds `love.physics.newDistanceJoint`.
+///
+/// This creates a distance joint between two world-space anchor points and
+/// defaults `collideConnected` to `false`.
 LoveApiImplementation _bindPhysicsNewDistanceJoint(
   LibraryRegistrationContext context,
 ) {
@@ -24,6 +28,10 @@ LoveApiImplementation _bindPhysicsNewDistanceJoint(
   });
 }
 
+/// Binds `love.physics.newFrictionJoint`.
+///
+/// LOVE accepts either one shared anchor point for both bodies or explicit
+/// anchor positions for body A and body B.
 LoveApiImplementation _bindPhysicsNewFrictionJoint(
   LibraryRegistrationContext context,
 ) {
@@ -66,6 +74,10 @@ LoveApiImplementation _bindPhysicsNewFrictionJoint(
   });
 }
 
+/// Binds `love.physics.newRopeJoint`.
+///
+/// This limits the maximum distance between two anchors and defaults
+/// `collideConnected` to `false`.
 LoveApiImplementation _bindPhysicsNewRopeJoint(
   LibraryRegistrationContext context,
 ) {
@@ -91,6 +103,10 @@ LoveApiImplementation _bindPhysicsNewRopeJoint(
   });
 }
 
+/// Binds `love.physics.newWeldJoint`.
+///
+/// LOVE accepts either one shared anchor point or separate anchors, followed
+/// by optional `collideConnected` and `referenceAngle` arguments.
 LoveApiImplementation _bindPhysicsNewWeldJoint(
   LibraryRegistrationContext context,
 ) {
@@ -143,6 +159,9 @@ LoveApiImplementation _bindPhysicsNewWeldJoint(
   });
 }
 
+/// Binds `love.physics.newMouseJoint`.
+///
+/// This attaches a body to a target point that can be moved externally.
 LoveApiImplementation _bindPhysicsNewMouseJoint(
   LibraryRegistrationContext context,
 ) {
@@ -160,6 +179,10 @@ LoveApiImplementation _bindPhysicsNewMouseJoint(
   });
 }
 
+/// Binds `love.physics.newGearJoint`.
+///
+/// The joint ratio defaults to `1.0` and `collideConnected` defaults to
+/// `false`.
 LoveApiImplementation _bindPhysicsNewGearJoint(
   LibraryRegistrationContext context,
 ) {
@@ -184,6 +207,10 @@ LoveApiImplementation _bindPhysicsNewGearJoint(
   });
 }
 
+/// Binds `love.physics.newPulleyJoint`.
+///
+/// The pulley ratio defaults to `1.0`, while `collideConnected` defaults to
+/// `true` for this constructor.
 LoveApiImplementation _bindPhysicsNewPulleyJoint(
   LibraryRegistrationContext context,
 ) {
@@ -214,6 +241,10 @@ LoveApiImplementation _bindPhysicsNewPulleyJoint(
   });
 }
 
+/// Binds `love.physics.newMotorJoint`.
+///
+/// Missing arguments default to a correction factor of `0.3` and
+/// `collideConnected = false`.
 LoveApiImplementation _bindPhysicsNewMotorJoint(
   LibraryRegistrationContext context,
 ) {
@@ -241,6 +272,10 @@ LoveApiImplementation _bindPhysicsNewMotorJoint(
   });
 }
 
+/// Binds `love.physics.newRevoluteJoint`.
+///
+/// LOVE accepts either one shared anchor point or explicit anchors for both
+/// bodies, followed by optional `collideConnected` and `referenceAngle`.
 LoveApiImplementation _bindPhysicsNewRevoluteJoint(
   LibraryRegistrationContext context,
 ) {
@@ -293,6 +328,10 @@ LoveApiImplementation _bindPhysicsNewRevoluteJoint(
   });
 }
 
+/// Binds `love.physics.newWheelJoint`.
+///
+/// LOVE accepts either one shared anchor point or explicit anchors for both
+/// bodies, plus a suspension axis and optional `collideConnected`.
 LoveApiImplementation _bindPhysicsNewWheelJoint(
   LibraryRegistrationContext context,
 ) {
@@ -343,6 +382,11 @@ LoveApiImplementation _bindPhysicsNewWheelJoint(
   });
 }
 
+/// Binds `love.physics.newPrismaticJoint`.
+///
+/// LOVE accepts either one shared anchor point or explicit anchors for both
+/// bodies, followed by an axis and optional `collideConnected` and
+/// `referenceAngle`.
 LoveApiImplementation _bindPhysicsNewPrismaticJoint(
   LibraryRegistrationContext context,
 ) {

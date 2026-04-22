@@ -6,6 +6,7 @@ import 'package:love2d/love2d.dart';
 import 'package:love2d/src/runtime/filesystem/love_filesystem_runtime.dart';
 
 import 'test_support/memory_filesystem_test_support.dart';
+import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.graphics Video pixel dimensions', () {
@@ -25,12 +26,15 @@ void main() {
         final filesystem = LoveFilesystemState.of(runtime);
         expect(filesystem.setSource(loveTestMountedSourceRoot), isTrue);
 
-        final video = await _call(
+        final video = await luaCallList(
           runtime,
           const ['love', 'graphics', 'newVideo'],
-          const <Object?>['videos/demo.ogv', false],
+          const <Object?>[
+            'videos/demo.ogv',
+            <Object?, Object?>{'audio': false},
+          ],
         );
-        final scaledVideo = await _call(
+        final scaledVideo = await luaCallList(
           runtime,
           const ['love', 'graphics', 'newVideo'],
           const <Object?>[
@@ -39,24 +43,223 @@ void main() {
           ],
         );
 
-        expect(await _callMethod(video, 'getDimensions'), <Object?>[320, 180]);
-        expect(await _callMethod(video, 'getPixelDimensions'), <Object?>[
+        expect(await luaCallMethodList(video, 'getDimensions'), <Object?>[
           320,
           180,
         ]);
-        expect(await _callMethod(video, 'getPixelWidth'), 320);
-        expect(await _callMethod(video, 'getPixelHeight'), 180);
+        expect(await luaCallMethodList(video, 'getPixelDimensions'), <Object?>[
+          320,
+          180,
+        ]);
+        expect(await luaCallMethodList(video, 'getPixelWidth'), 320);
+        expect(await luaCallMethodList(video, 'getPixelHeight'), 180);
 
-        expect(await _callMethod(scaledVideo, 'getDimensions'), <Object?>[
+        expect(await luaCallMethodList(scaledVideo, 'getDimensions'), <Object?>[
           160,
           90,
         ]);
-        expect(await _callMethod(scaledVideo, 'getPixelDimensions'), <Object?>[
+        expect(
+          await luaCallMethodList(scaledVideo, 'getPixelDimensions'),
+          <Object?>[320, 180],
+        );
+        expect(await luaCallMethodList(scaledVideo, 'getPixelWidth'), 320);
+        expect(await luaCallMethodList(scaledVideo, 'getPixelHeight'), 180);
+      },
+    );
+
+    test(
+      'newVideo defaults dpiscale to 1.0 like the vendored wrapper path',
+      () async {
+        final runtime = Interpreter();
+        installLove2d(
+          runtime: runtime,
+          host: LoveHeadlessHost(
+            windowMetrics: const LoveWindowMetrics(dpiScale: 2.0),
+          ),
+          filesystemAdapter: MemoryLoveFilesystemAdapter(
+            files: mountLoveTestFiles(<String, List<int>>{
+              'videos/demo.ogv': _fakeTheoraOggBytes(width: 320, height: 180),
+            }),
+          ),
+        );
+        final filesystem = LoveFilesystemState.of(runtime);
+        expect(filesystem.setSource(loveTestMountedSourceRoot), isTrue);
+
+        final defaultVideo = await luaCallList(
+          runtime,
+          const ['love', 'graphics', 'newVideo'],
+          const <Object?>['videos/demo.ogv'],
+        );
+        final emptySettingsVideo = await luaCallList(
+          runtime,
+          const ['love', 'graphics', 'newVideo'],
+          const <Object?>['videos/demo.ogv', <Object?, Object?>{}],
+        );
+        final scaledVideo = await luaCallList(
+          runtime,
+          const ['love', 'graphics', 'newVideo'],
+          const <Object?>[
+            'videos/demo.ogv',
+            <Object?, Object?>{'dpiscale': 2.0},
+          ],
+        );
+
+        expect(
+          await luaCallMethodList(defaultVideo, 'getDimensions'),
+          <Object?>[320, 180],
+        );
+        expect(
+          await luaCallMethodList(emptySettingsVideo, 'getDimensions'),
+          <Object?>[320, 180],
+        );
+        expect(await luaCallMethodList(scaledVideo, 'getDimensions'), <Object?>[
+          160,
+          90,
+        ]);
+      },
+    );
+
+    test(
+      'newVideo logical dimensions truncate after dpiscale like Video.cpp',
+      () async {
+        final runtime = Interpreter();
+        installLove2d(
+          runtime: runtime,
+          host: LoveHeadlessHost(),
+          filesystemAdapter: MemoryLoveFilesystemAdapter(
+            files: mountLoveTestFiles(<String, List<int>>{
+              'videos/odd.ogv': _fakeTheoraOggBytes(width: 3, height: 5),
+            }),
+          ),
+        );
+        final filesystem = LoveFilesystemState.of(runtime);
+        expect(filesystem.setSource(loveTestMountedSourceRoot), isTrue);
+
+        final scaledVideo = await luaCallList(
+          runtime,
+          const ['love', 'graphics', 'newVideo'],
+          const <Object?>[
+            'videos/odd.ogv',
+            <Object?, Object?>{'dpiscale': 2.0},
+          ],
+        );
+
+        expect(await luaCallMethodList(scaledVideo, 'getDimensions'), <Object?>[
+          1,
+          2,
+        ]);
+        expect(
+          await luaCallMethodList(scaledVideo, 'getPixelDimensions'),
+          <Object?>[3, 5],
+        );
+      },
+    );
+
+    test(
+      'newVideo rejects non-numeric dpiscale values like the low-level wrapper path',
+      () async {
+        final runtime = Interpreter();
+        installLove2d(
+          runtime: runtime,
+          host: LoveHeadlessHost(),
+          filesystemAdapter: MemoryLoveFilesystemAdapter(
+            files: mountLoveTestFiles(<String, List<int>>{
+              'videos/demo.ogv': _fakeTheoraOggBytes(width: 320, height: 180),
+            }),
+          ),
+        );
+        final filesystem = LoveFilesystemState.of(runtime);
+        expect(filesystem.setSource(loveTestMountedSourceRoot), isTrue);
+
+        await expectLater(
+          () => luaCallList(
+            runtime,
+            const ['love', 'graphics', 'newVideo'],
+            const <Object?>[
+              'videos/demo.ogv',
+              <Object?, Object?>{'dpiscale': false},
+            ],
+          ),
+          throwsA(
+            isA<LuaError>().having(
+              (error) => error.message,
+              'message',
+              "bad argument #2 to '_newVideo' (number expected, got boolean)",
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'newVideo accepts zero dpiscale and preserves pixel dimensions',
+      () async {
+        final runtime = Interpreter();
+        installLove2d(
+          runtime: runtime,
+          host: LoveHeadlessHost(),
+          filesystemAdapter: MemoryLoveFilesystemAdapter(
+            files: mountLoveTestFiles(<String, List<int>>{
+              'videos/demo.ogv': _fakeTheoraOggBytes(width: 320, height: 180),
+            }),
+          ),
+        );
+        final filesystem = LoveFilesystemState.of(runtime);
+        expect(filesystem.setSource(loveTestMountedSourceRoot), isTrue);
+
+        final video = await luaCallList(
+          runtime,
+          const ['love', 'graphics', 'newVideo'],
+          const <Object?>[
+            'videos/demo.ogv',
+            <Object?, Object?>{'audio': false, 'dpiscale': 0.0},
+          ],
+        );
+
+        expect(await luaCallMethodList(video, 'getDimensions'), <Object?>[
           320,
           180,
         ]);
-        expect(await _callMethod(scaledVideo, 'getPixelWidth'), 320);
-        expect(await _callMethod(scaledVideo, 'getPixelHeight'), 180);
+        expect(await luaCallMethodList(video, 'getPixelDimensions'), <Object?>[
+          320,
+          180,
+        ]);
+      },
+    );
+
+    test(
+      'newVideo accepts negative dpiscale and preserves pixel dimensions',
+      () async {
+        final runtime = Interpreter();
+        installLove2d(
+          runtime: runtime,
+          host: LoveHeadlessHost(),
+          filesystemAdapter: MemoryLoveFilesystemAdapter(
+            files: mountLoveTestFiles(<String, List<int>>{
+              'videos/demo.ogv': _fakeTheoraOggBytes(width: 320, height: 180),
+            }),
+          ),
+        );
+        final filesystem = LoveFilesystemState.of(runtime);
+        expect(filesystem.setSource(loveTestMountedSourceRoot), isTrue);
+
+        final video = await luaCallList(
+          runtime,
+          const ['love', 'graphics', 'newVideo'],
+          const <Object?>[
+            'videos/demo.ogv',
+            <Object?, Object?>{'audio': false, 'dpiscale': -2.0},
+          ],
+        );
+
+        expect(await luaCallMethodList(video, 'getDimensions'), <Object?>[
+          320,
+          180,
+        ]);
+        expect(await luaCallMethodList(video, 'getPixelDimensions'), <Object?>[
+          320,
+          180,
+        ]);
       },
     );
   });
@@ -109,67 +312,3 @@ List<int> _fakeTheoraOggBytes({required int width, required int height}) {
     ...packet,
   ];
 }
-
-Future<Object?> _call(
-  Interpreter runtime,
-  List<String> path, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(_rawFunction(runtime, path).call(args));
-}
-
-Future<Object?> _callMethod(
-  Object? receiver,
-  String method, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(
-    _rawMethod(receiver, method).call(<Object?>[receiver, ...args]),
-  );
-}
-
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> path) {
-  var current = runtime.getCurrentEnv().get(path.first);
-  for (final segment in path.skip(1)) {
-    final table = current is Value ? current.raw : current;
-    expect(
-      table,
-      isA<Map>(),
-      reason: 'Expected ${path.join('.')} to traverse a Lua table',
-    );
-    current = (table as Map)[segment];
-  }
-
-  expect(current, isA<Value>());
-  final raw = (current! as Value).raw;
-  expect(raw, isA<BuiltinFunction>());
-  return raw as BuiltinFunction;
-}
-
-BuiltinFunction _rawMethod(Object? receiver, String method) {
-  final table = receiver is Value ? receiver.raw : receiver;
-  expect(table, isA<Map>());
-  final entry = (table! as Map)[method];
-  return switch (entry) {
-    final Value wrapped when wrapped.raw is BuiltinFunction =>
-      wrapped.raw as BuiltinFunction,
-    final BuiltinFunction function => function,
-    _ => throw TestFailure('Expected $method to be a callable Lua method'),
-  };
-}
-
-Future<Object?> _resolveCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-  if (resolved is List<Object?>) {
-    return resolved.map(_unwrap).toList(growable: false);
-  }
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return List<Object?>.from(
-      wrapped.raw as List<Object?>,
-      growable: false,
-    ).map(_unwrap).toList(growable: false);
-  }
-  return _unwrap(resolved);
-}
-
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;

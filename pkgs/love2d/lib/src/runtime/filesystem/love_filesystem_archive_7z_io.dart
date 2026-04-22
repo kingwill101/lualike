@@ -4,9 +4,13 @@ import 'dart:io';
 import 'package:archive/archive.dart';
 import 'package:path/path.dart' as path;
 
+/// The cached command name for the first working 7-Zip executable.
 String? _cachedSevenZipExecutable;
+
+/// Whether the 7-Zip executable lookup has already been attempted.
 bool _resolvedSevenZipExecutable = false;
 
+/// Decodes a 7-Zip archive by shelling out to a host 7-Zip executable.
 Archive? decode7zArchive(List<int> bytes) {
   final executable = _sevenZipExecutable();
   if (executable == null) {
@@ -76,6 +80,7 @@ Archive? decode7zArchive(List<int> bytes) {
   }
 }
 
+/// Returns the first available 7-Zip executable on the host system.
 String? _sevenZipExecutable() {
   if (_resolvedSevenZipExecutable) {
     return _cachedSevenZipExecutable;
@@ -102,6 +107,7 @@ String? _sevenZipExecutable() {
   return null;
 }
 
+/// Parses `7z l -slt` output into archive entry metadata.
 List<_SevenZipListedEntry> _parseListedEntries(String output) {
   final entries = <_SevenZipListedEntry>[];
   Map<String, String> current = <String, String>{};
@@ -154,6 +160,7 @@ List<_SevenZipListedEntry> _parseListedEntries(String output) {
   return entries;
 }
 
+/// Parses the `Modified` field from 7-Zip listing output.
 DateTime? _parseModifiedDateTime(String? rawValue) {
   if (rawValue == null || rawValue.isEmpty) {
     return null;
@@ -168,6 +175,7 @@ DateTime? _parseModifiedDateTime(String? rawValue) {
   }
 }
 
+/// Converts [value] to a DOS timestamp for [ArchiveFile.lastModTime].
 int _dateTimeToDosTimestamp(DateTime value) {
   return ((value.year - 1980) << 25) |
       (value.month << 21) |
@@ -177,14 +185,21 @@ int _dateTimeToDosTimestamp(DateTime value) {
       (value.second ~/ 2);
 }
 
+/// One parsed entry from `7z l -slt` output.
 class _SevenZipListedEntry {
+  /// Creates one listed archive entry.
   const _SevenZipListedEntry({
     required this.path,
     required this.isDirectory,
     this.modified,
   });
 
+  /// The archived path reported by 7-Zip.
   final String path;
+
+  /// Whether this entry represents a directory.
   final bool isDirectory;
+
+  /// The recorded modification time, if one was listed.
   final DateTime? modified;
 }

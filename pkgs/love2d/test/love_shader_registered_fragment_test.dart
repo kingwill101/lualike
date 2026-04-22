@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 
 const String _registeredTextureShaderSource = '''
@@ -68,6 +69,31 @@ end
 
         final canvasUniform = commands.last.shader!.uniform('uTexture');
         expect(canvasUniform, isA<LoveCanvas>());
+      },
+    );
+
+    test(
+      'registered fragment sampler uploads still type-check non-texture payloads',
+      () async {
+        final runtime = LoveScriptRuntime(host: LoveHeadlessHost());
+
+        await expectLater(
+          runtime.execute('''
+local shader = love.graphics.newShader([[
+$_registeredTextureShaderSource
+]])
+shader:send("uTexture", 1)
+'''),
+          throwsA(
+            isA<LuaError>().having(
+              (error) => error.message,
+              'message',
+              contains(
+                'Shader:send expected an Image or Canvas for sampler uniform values',
+              ),
+            ),
+          ),
+        );
       },
     );
   });

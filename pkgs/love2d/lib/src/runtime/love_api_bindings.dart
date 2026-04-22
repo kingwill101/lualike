@@ -1,9 +1,17 @@
+/// Generated and handwritten Lua binding installers for the LÖVE runtime.
+///
+/// This library gathers the binding factories that expose Dart runtime objects
+/// through the Lua-facing `love` modules and object methods. Call
+/// [ensureLoveApiRuntimeBindingsLoaded] once during startup before installing
+/// generated API references into a [LuaRuntime].
 library;
 // ignore_for_file: implementation_imports
 
+import 'dart:async' show Completer;
 import 'dart:convert' show utf8;
 import 'dart:math' as math;
 import 'dart:typed_data' show Uint8List;
+import 'dart:ui' as ui;
 
 import 'package:lualike/library_builder.dart';
 import 'package:lualike/lualike.dart'
@@ -35,6 +43,7 @@ import 'event/love_event_extra_bindings.dart'
     show installLoveEventExtraBindings;
 import 'filesystem/love_filesystem_runtime.dart'
     show
+        LoveFilesystemFile,
         LoveFilesystemFileData,
         LoveFilesystemNodeType,
         LoveFilesystemRuntimeConfig,
@@ -92,6 +101,7 @@ part 'love_api_bindings/graphics_sprite_batch_bindings.dart';
 part 'love_api_bindings/graphics_state_bindings.dart';
 part 'love_api_bindings/graphics_misc_bindings.dart';
 part 'love_api_bindings/graphics_transform_bindings.dart';
+part 'love_api_bindings/graphics_video_draw_support.dart';
 part 'love_api_bindings/graphics_video_bindings.dart';
 part 'love_api_bindings/image_compressed_object_wrappers.dart';
 part 'love_api_bindings/image_compressed_support.dart';
@@ -128,6 +138,7 @@ part 'love_api_bindings/video_bindings.dart';
 part 'love_api_bindings/video_object_wrappers.dart';
 part 'love_api_bindings/window_bindings.dart';
 
+/// Whether the handwritten binding factories have been registered.
 bool _bindingsLoaded = false;
 
 const String _loveFontObjectKey = '__love2d_font__';
@@ -161,6 +172,7 @@ const String _lovePhysicsFixtureObjectKey = '__love2d_physics_fixture__';
 const String _lovePhysicsShapeObjectKey = '__love2d_physics_shape__';
 const String _lovePhysicsJointObjectKey = '__love2d_physics_joint__';
 const String _lovePhysicsContactObjectKey = '__love2d_physics_contact__';
+const String _loveFilesystemFileObjectKeyCompat = '__love2d_filesystem_file__';
 const String _loveFilesystemFileDataObjectKeyCompat =
     '__love2d_filesystem_filedata__';
 const String _loveFilesystemObjectTypeKeyCompat = '__love2d_filesystem_type__';
@@ -268,14 +280,14 @@ final Expando<bool> _loveChannelReleased = Expando<bool>(
   'love2dChannelReleased',
 );
 final Expando<bool> _loveThreadReleased = Expando<bool>('love2dThreadReleased');
-final Expando<bool> _loveVideoReleased = Expando<bool>('love2dVideoReleased');
-final Expando<bool> _loveVideoStreamReleased = Expando<bool>(
-  'love2dVideoStreamReleased',
-);
 final Expando<bool> _lovePhysicsObjectReleased = Expando<bool>(
   'love2dPhysicsReleased',
 );
 
+/// Registers the handwritten binding factories into [loveApiBindingFactories].
+///
+/// This operation is idempotent so callers can invoke it during package
+/// initialization without coordinating global state.
 void ensureLoveApiRuntimeBindingsLoaded() {
   if (_bindingsLoaded) {
     return;

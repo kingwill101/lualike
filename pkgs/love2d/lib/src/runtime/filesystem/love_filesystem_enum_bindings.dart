@@ -4,13 +4,16 @@ import 'package:lualike/lualike.dart' show LuaRuntime, Value;
 
 import '../../generated/love_api_reference.g.dart' show loveApiEnums;
 
+/// Tracks which runtimes already have filesystem enum bindings installed.
 final Expando<bool> _loveFilesystemEnumsInstalled = Expando<bool>(
   'love2dFilesystemEnumsInstalled',
 );
 
+/// The generated filesystem enum tables exposed through the LOVE globals.
 final Map<String, Map<String, Object?>> _loveFilesystemEnumMaps =
     _buildLoveFilesystemEnumMaps();
 
+/// Builds Lua-facing enum tables for the `love.filesystem` module.
 Map<String, Map<String, Object?>> _buildLoveFilesystemEnumMaps() {
   final result = <String, Map<String, Object?>>{};
   for (final enumDoc in loveApiEnums) {
@@ -25,6 +28,7 @@ Map<String, Map<String, Object?>> _buildLoveFilesystemEnumMaps() {
   return result;
 }
 
+/// Installs generated filesystem enum tables into [runtime].
 void installLoveFilesystemEnumBindings(LuaRuntime runtime) {
   if (_loveFilesystemEnumsInstalled[runtime] == true) {
     return;
@@ -44,6 +48,7 @@ void installLoveFilesystemEnumBindings(LuaRuntime runtime) {
   _loveFilesystemEnumsInstalled[runtime] = true;
 }
 
+/// The `love.filesystem` module table from [runtime], if one is available.
 Map<dynamic, dynamic>? _filesystemModuleTable(LuaRuntime runtime) {
   final love = runtime.globals.get('love');
   final loveTable = love is Value ? love.raw : love;

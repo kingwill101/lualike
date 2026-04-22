@@ -1,10 +1,13 @@
 part of 'love_filesystem_bindings.dart';
 
+/// Builds the wrapper-object binding implementations for filesystem values.
 extension _LoveFilesystemObjectBindingMethods on _LoveFilesystemBindings {
+  /// Implements `File:close`.
   LoveApiImplementation fileClose() {
     return (args) => _requireFile(args, 0, 'File:close').close();
   }
 
+  /// Implements `File:flush`.
   LoveApiImplementation fileFlush() {
     return (args) async {
       try {
@@ -15,6 +18,7 @@ extension _LoveFilesystemObjectBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `File:getBuffer`.
   LoveApiImplementation fileGetBuffer() {
     return (args) {
       final file = _requireFile(args, 0, 'File:getBuffer');
@@ -25,18 +29,22 @@ extension _LoveFilesystemObjectBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `File:getFilename`.
   LoveApiImplementation fileGetFilename() {
     return (args) => _requireFile(args, 0, 'File:getFilename').filename;
   }
 
+  /// Implements `File:getExtension`.
   LoveApiImplementation fileGetExtension() {
     return (args) => _requireFile(args, 0, 'File:getExtension').extension;
   }
 
+  /// Implements `File:getMode`.
   LoveApiImplementation fileGetMode() {
     return (args) => _requireFile(args, 0, 'File:getMode').mode;
   }
 
+  /// Implements `File:getSize`.
   LoveApiImplementation fileGetSize() {
     return (args) async {
       final file = _requireFile(args, 0, 'File:getSize');
@@ -57,14 +65,17 @@ extension _LoveFilesystemObjectBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `File:isEOF`.
   LoveApiImplementation fileIsEOF() {
     return (args) => _requireFile(args, 0, 'File:isEOF').isEOF();
   }
 
+  /// Implements `File:isOpen`.
   LoveApiImplementation fileIsOpen() {
     return (args) => _requireFile(args, 0, 'File:isOpen').isOpen;
   }
 
+  /// Implements `File:lines`.
   LoveApiImplementation fileLines() {
     return (args) async {
       final file = _requireFile(args, 0, 'File:lines');
@@ -96,6 +107,7 @@ extension _LoveFilesystemObjectBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `File:open`.
   LoveApiImplementation fileOpen() {
     return (args) async {
       final file = _requireFile(args, 0, 'File:open');
@@ -108,6 +120,7 @@ extension _LoveFilesystemObjectBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `File:read`.
   LoveApiImplementation fileRead() {
     return (args) async {
       final file = _requireFile(args, 0, 'File:read');
@@ -143,6 +156,7 @@ extension _LoveFilesystemObjectBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `File:seek`.
   LoveApiImplementation fileSeek() {
     return (args) {
       final file = _requireFile(args, 0, 'File:seek');
@@ -154,6 +168,7 @@ extension _LoveFilesystemObjectBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `File:setBuffer`.
   LoveApiImplementation fileSetBuffer() {
     return (args) async {
       final file = _requireFile(args, 0, 'File:setBuffer');
@@ -170,6 +185,7 @@ extension _LoveFilesystemObjectBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `File:tell`.
   LoveApiImplementation fileTell() {
     return (args) async {
       final file = _requireFile(args, 0, 'File:tell');
@@ -184,6 +200,7 @@ extension _LoveFilesystemObjectBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `File:write`.
   LoveApiImplementation fileWrite() {
     return (args) async {
       final file = _requireFile(args, 0, 'File:write');
@@ -209,15 +226,18 @@ extension _LoveFilesystemObjectBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `FileData:getExtension`.
   LoveApiImplementation fileDataGetExtension() {
     return (args) =>
         _requireFileData(args, 0, 'FileData:getExtension').extension;
   }
 
+  /// Implements `FileData:getFilename`.
   LoveApiImplementation fileDataGetFilename() {
     return (args) => _requireFileData(args, 0, 'FileData:getFilename').filename;
   }
 
+  /// Implements `FileData:clone`.
   LoveApiImplementation fileDataClone() {
     return (args) {
       final data = _requireFileData(args, 0, 'FileData:clone');
@@ -225,10 +245,12 @@ extension _LoveFilesystemObjectBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `Data:getSize`.
   LoveApiImplementation dataGetSize() {
     return (args) => _requireFileData(args, 0, 'Data:getSize').size;
   }
 
+  /// Implements `Data:getString`.
   LoveApiImplementation dataGetString() {
     return (args) {
       final data = _requireFileData(args, 0, 'Data:getString');
@@ -236,6 +258,7 @@ extension _LoveFilesystemObjectBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `Object:release`.
   LoveApiImplementation objectRelease() {
     return (args) async {
       final rawObject = _wrapperObject(args, 0, 'Object:release');
@@ -251,10 +274,12 @@ extension _LoveFilesystemObjectBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Implements `Object:type`.
   LoveApiImplementation objectType() {
     return (args) => _wrapperTypeName(args, 0, 'Object:type');
   }
 
+  /// Implements `Object:typeOf`.
   LoveApiImplementation objectTypeOf() {
     return (args) {
       final hierarchy = _wrapperHierarchy(args, 0, 'Object:typeOf');
@@ -263,6 +288,7 @@ extension _LoveFilesystemObjectBindingMethods on _LoveFilesystemBindings {
     };
   }
 
+  /// Creates a `lines` iterator for an opened [file].
   Value _fileLinesIterator(
     LoveFilesystemFile file, {
     required bool restoreUserPosition,

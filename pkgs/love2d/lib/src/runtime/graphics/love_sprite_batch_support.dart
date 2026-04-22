@@ -2,9 +2,12 @@ part of '../love_runtime.dart';
 
 // ignore_for_file: unused_import
 
+/// The update pattern hint supplied when constructing a sprite batch.
 enum LoveSpriteBatchUsage { dynamicUsage, staticUsage, stream }
 
+/// A single sprite entry stored inside a [LoveSpriteBatch].
 class LoveSpriteBatchSprite {
+  /// Creates a sprite batch entry from [transform] and optional draw state.
   LoveSpriteBatchSprite({
     required Matrix4 transform,
     LoveQuad? quad,
@@ -13,11 +16,19 @@ class LoveSpriteBatchSprite {
   }) : transform = Matrix4.copy(transform),
        quad = quad?.copy();
 
+  /// The transform applied when this sprite is drawn.
   final Matrix4 transform;
+
+  /// The optional quad used to crop the batch texture for this sprite.
   final LoveQuad? quad;
+
+  /// The color captured for this sprite at insertion time.
   final LoveColor? color;
+
+  /// The texture layer selected for array and volume textures.
   final int layer;
 
+  /// Returns a deep copy of this sprite batch entry.
   LoveSpriteBatchSprite copy() {
     return LoveSpriteBatchSprite(
       transform: transform,
@@ -28,7 +39,9 @@ class LoveSpriteBatchSprite {
   }
 }
 
+/// Stores many textured sprites for repeated batch drawing.
 class LoveSpriteBatch {
+  /// Creates an empty sprite batch that draws from [texture].
   LoveSpriteBatch({
     required LoveImage texture,
     int bufferSize = 1000,
@@ -37,6 +50,7 @@ class LoveSpriteBatch {
        _bufferSize = math.max(1, bufferSize),
        _sprites = <LoveSpriteBatchSprite>[];
 
+  /// Creates a drawable snapshot copy of an existing sprite batch.
   LoveSpriteBatch._copy({
     required LoveImage texture,
     required int bufferSize,
@@ -57,23 +71,43 @@ class LoveSpriteBatch {
     );
   }
 
+  /// The source texture used by sprites in this batch.
   LoveImage _texture;
+
+  /// The current storage capacity before the batch grows automatically.
   int _bufferSize;
+
+  /// The usage hint supplied when this batch was created.
   final LoveSpriteBatchUsage usage;
+
+  /// The sprites currently stored in insertion order.
   final List<LoveSpriteBatchSprite> _sprites;
+
+  /// The custom vertex attribute meshes attached for shader access.
   final Map<String, LoveMesh> _attachedAttributes = <String, LoveMesh>{};
+
+  /// The color applied to newly inserted or updated sprites.
   LoveColor? _color;
+
+  /// The inclusive start of the optional draw range.
   int _drawRangeStart = -1;
+
+  /// The number of sprites included in the optional draw range.
   int _drawRangeCount = -1;
 
+  /// The texture currently used by this sprite batch.
   LoveImage get texture => _texture;
 
+  /// The current sprite capacity before automatic growth.
   int get bufferSize => _bufferSize;
 
+  /// The number of sprites stored in this batch.
   int get count => _sprites.length;
 
+  /// The color captured by future `add` and `set` operations.
   LoveColor? get color => _color;
 
+  /// The active draw range, or `null` when all sprites are drawn.
   ({int start, int count})? get drawRange {
     if (_drawRangeStart < 0 || _drawRangeCount <= 0) {
       return null;
@@ -82,23 +116,32 @@ class LoveSpriteBatch {
     return (start: _drawRangeStart, count: _drawRangeCount);
   }
 
+  /// The sprites currently stored in this batch.
   List<LoveSpriteBatchSprite> get sprites =>
       List<LoveSpriteBatchSprite>.unmodifiable(_sprites);
 
+  /// Removes every sprite from this batch.
   void clear() {
     _sprites.clear();
   }
 
+  /// Flushes pending sprite updates.
+  ///
+  /// This software implementation applies updates immediately, so this is a
+  /// no-op kept for LOVE API compatibility.
   void flush() {}
 
+  /// Replaces the texture used by this sprite batch.
   void setTexture(LoveImage texture) {
     _texture = texture;
   }
 
+  /// Sets the color captured by subsequent `add` and `set` calls.
   void setColor([LoveColor? color]) {
     _color = color?.clamped();
   }
 
+  /// The texture layer that should be stored for a new sprite.
   int _resolvedLayer({LoveQuad? quad, int? explicitLayer}) {
     if (explicitLayer != null) {
       return explicitLayer;
@@ -111,6 +154,9 @@ class LoveSpriteBatch {
     return 0;
   }
 
+  /// Adds a sprite with [transform] and optional [quad] or [layer].
+  ///
+  /// Returns the zero-based index of the inserted sprite.
   int add(Matrix4 transform, {LoveQuad? quad, int? layer}) {
     _ensureCapacityForAdd();
     _sprites.add(
@@ -130,6 +176,7 @@ class LoveSpriteBatch {
     return add(transform, quad: quad, layer: layer);
   }
 
+  /// Replaces the sprite stored at [index].
   void set(int index, Matrix4 transform, {LoveQuad? quad, int? layer}) {
     if (index < 0 || index >= _sprites.length) {
       throw RangeError.range(index + 1, 1, _sprites.length, 'spriteindex');
@@ -158,6 +205,10 @@ class LoveSpriteBatch {
   Map<String, LoveMesh> get attachedAttributes =>
       Map<String, LoveMesh>.unmodifiable(_attachedAttributes);
 
+  /// Restricts drawing to a contiguous sprite range.
+  ///
+  /// Passing `null` for either argument clears the draw range so every sprite
+  /// is eligible for drawing.
   void setDrawRange([int? start, int? count]) {
     if (start == null || count == null) {
       _drawRangeStart = -1;
@@ -173,6 +224,7 @@ class LoveSpriteBatch {
     _drawRangeCount = count;
   }
 
+  /// The sprites currently selected for drawing.
   List<LoveSpriteBatchSprite> spritesToDraw() {
     final range = drawRange;
     if (range == null) {
@@ -189,6 +241,10 @@ class LoveSpriteBatch {
     );
   }
 
+  /// Returns a draw-safe snapshot of this sprite batch.
+  ///
+  /// Canvas textures are snapshotted immediately so later render-to-canvas work
+  /// does not affect already queued sprite batch draws.
   LoveSpriteBatch copyForDraw() {
     // Snapshot Canvas textures at draw time so later render-to-canvas commands
     // don't retroactively change already queued SpriteBatch draws.
@@ -208,6 +264,7 @@ class LoveSpriteBatch {
     );
   }
 
+  /// Grows the internal batch capacity when another sprite is about to be added.
   void _ensureCapacityForAdd() {
     if (_sprites.length < _bufferSize) {
       return;

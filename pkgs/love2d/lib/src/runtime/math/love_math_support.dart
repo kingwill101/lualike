@@ -1,20 +1,28 @@
 part of '../love_runtime.dart';
 
+/// A 2D point used by the LOVE math helpers.
 typedef LoveMathPoint = ({double x, double y});
+
+/// A triangle described by three 2D vertices.
 typedef LoveMathTriangle = ({
   LoveMathPoint a,
   LoveMathPoint b,
   LoveMathPoint c,
 });
 
+/// A mutable Bezier curve built from 2D control points.
 class LoveBezierCurve {
+  /// Creates a curve from [controlPoints].
   LoveBezierCurve(Iterable<LoveMathPoint> controlPoints)
     : _controlPoints = List<LoveMathPoint>.from(controlPoints, growable: true);
 
+  /// The mutable control points that define this curve.
   final List<LoveMathPoint> _controlPoints;
 
+  /// Returns the polynomial degree of this curve.
   int getDegree() => _controlPoints.length - 1;
 
+  /// Returns the derivative curve of this curve.
   LoveBezierCurve getDerivative() {
     if (getDegree() < 1) {
       throw StateError('Cannot derive a curve of degree < 1.');
@@ -32,6 +40,7 @@ class LoveBezierCurve {
     return LoveBezierCurve(derivative);
   }
 
+  /// Returns the control point at [index], wrapping negative indices.
   LoveMathPoint getControlPoint(int index) {
     if (_controlPoints.isEmpty) {
       throw StateError('Curve contains no control points.');
@@ -40,8 +49,10 @@ class LoveBezierCurve {
     return _controlPoints[_wrappedControlPointIndex(index)];
   }
 
+  /// Returns the current number of control points.
   int getControlPointCount() => _controlPoints.length;
 
+  /// Inserts [point] at [position], wrapping negative indices.
   void insertControlPoint(LoveMathPoint point, [int position = -1]) {
     if (_controlPoints.isEmpty) {
       position = 0;
@@ -58,6 +69,7 @@ class LoveBezierCurve {
     _controlPoints.insert(position, point);
   }
 
+  /// Removes the control point at [index], wrapping negative indices.
   void removeControlPoint(int index) {
     if (_controlPoints.isEmpty) {
       throw StateError('No control points to remove.');
@@ -66,6 +78,7 @@ class LoveBezierCurve {
     _controlPoints.removeAt(_wrappedControlPointIndex(index));
   }
 
+  /// Renders this curve to vertices using [accuracy] recursive subdivisions.
   List<LoveMathPoint> render([int accuracy = 4]) {
     if (_controlPoints.length < 2) {
       throw StateError('Invalid Bezier curve: Not enough control points.');
@@ -76,6 +89,7 @@ class LoveBezierCurve {
     return List<LoveMathPoint>.unmodifiable(vertices);
   }
 
+  /// Renders the segment from [start] to [end] using [accuracy].
   List<LoveMathPoint> renderSegment(
     double start,
     double end, [
@@ -103,6 +117,7 @@ class LoveBezierCurve {
     return List<LoveMathPoint>.unmodifiable(vertices);
   }
 
+  /// Rotates this curve around the optional origin.
   void rotate(double angle, {double originX = 0.0, double originY = 0.0}) {
     final cosine = math.cos(angle);
     final sine = math.sin(angle);
@@ -118,6 +133,7 @@ class LoveBezierCurve {
     }
   }
 
+  /// Scales this curve around the optional origin.
   void scale(double factor, {double originX = 0.0, double originY = 0.0}) {
     for (var i = 0; i < _controlPoints.length; i++) {
       final point = _controlPoints[i];
@@ -128,6 +144,7 @@ class LoveBezierCurve {
     }
   }
 
+  /// Returns the sub-curve between [t1] and [t2].
   LoveBezierCurve getSegment(double t1, double t2) {
     if (t1 < 0.0 || t2 > 1.0) {
       throw StateError('Invalid segment parameters: must be between 0 and 1');
@@ -169,6 +186,7 @@ class LoveBezierCurve {
     return LoveBezierCurve(right.reversed);
   }
 
+  /// Replaces the control point at [index].
   void setControlPoint(int index, LoveMathPoint point) {
     if (_controlPoints.isEmpty) {
       throw StateError('Curve contains no control points.');
@@ -177,6 +195,7 @@ class LoveBezierCurve {
     _controlPoints[_wrappedControlPointIndex(index)] = point;
   }
 
+  /// Translates every control point by [dx] and [dy].
   void translate(double dx, double dy) {
     for (var i = 0; i < _controlPoints.length; i++) {
       final point = _controlPoints[i];
@@ -184,6 +203,7 @@ class LoveBezierCurve {
     }
   }
 
+  /// Evaluates the curve at parameter [t].
   LoveMathPoint evaluate(double t) {
     if (t < 0.0 || t > 1.0) {
       throw StateError('Invalid evaluation parameter: must be between 0 and 1');
@@ -206,6 +226,7 @@ class LoveBezierCurve {
     return points.first;
   }
 
+  /// Returns a wrapped control-point index for LOVE-style indexing.
   int _wrappedControlPointIndex(int index) {
     while (index < 0) {
       index += _controlPoints.length;
@@ -219,8 +240,10 @@ class LoveBezierCurve {
   }
 }
 
+/// Clamps [value] to the inclusive range `0.0..1.0`.
 double loveClamp01(double value) => value.clamp(0.0, 1.0);
 
+/// Converts a gamma-encoded component to linear space.
 double loveGammaToLinear(double value) {
   if (value <= 0.04045) {
     return value / 12.92;
@@ -229,6 +252,7 @@ double loveGammaToLinear(double value) {
   return math.pow((value + 0.055) / 1.055, 2.4).toDouble();
 }
 
+/// Returns whether [polygon] is strictly convex.
 bool loveIsConvex(List<LoveMathPoint> polygon) {
   if (polygon.length < 3) {
     return false;
@@ -262,6 +286,7 @@ bool loveIsConvex(List<LoveMathPoint> polygon) {
   return true;
 }
 
+/// Converts a linear color component to gamma space.
 double loveLinearToGamma(double value) {
   if (value <= 0.0031308) {
     return value * 12.92;
@@ -270,6 +295,7 @@ double loveLinearToGamma(double value) {
   return 1.055 * math.pow(value, 1.0 / 2.4).toDouble() - 0.055;
 }
 
+/// Returns normalized procedural noise for one to four coordinates.
 double loveNoise(List<double> coordinates) {
   if (coordinates.isEmpty) {
     throw ArgumentError('love.math.noise expects at least one coordinate');
@@ -292,6 +318,7 @@ double loveNoise(List<double> coordinates) {
   };
 }
 
+/// Triangulates a simple polygon using an ear-clipping algorithm.
 List<LoveMathTriangle> loveTriangulate(List<LoveMathPoint> polygon) {
   if (polygon.length < 3) {
     throw StateError('Not a polygon');
@@ -381,16 +408,20 @@ List<LoveMathTriangle> loveTriangulate(List<LoveMathPoint> polygon) {
   return List<LoveMathTriangle>.unmodifiable(triangles);
 }
 
+/// Returns the 2D cross product of the vectors `(ax, ay)` and `(bx, by)`.
 double _cross(double ax, double ay, double bx, double by) => ax * by - ay * bx;
 
+/// Returns Ken Perlin's smoothing curve for [value].
 double _fade(double value) {
   return value * value * value * (value * (value * 6.0 - 15.0) + 10.0);
 }
 
+/// Returns a fast floor for [value].
 int _fastFloor(double value) {
   return value > 0.0 ? value.toInt() : value.toInt() - 1;
 }
 
+/// Returns the 1D gradient contribution for [hash].
 double _grad1(int hash, double x) {
   final h = hash & 15;
   var gradient = 1.0 + (h & 7);
@@ -400,6 +431,7 @@ double _grad1(int hash, double x) {
   return gradient * x;
 }
 
+/// Returns the 2D gradient contribution for [hash].
 double _grad2(int hash, double x, double y) {
   final h = hash & 7;
   final u = h < 4 ? x : y;
@@ -407,6 +439,7 @@ double _grad2(int hash, double x, double y) {
   return ((h & 1) != 0 ? -u : u) + ((h & 2) != 0 ? -2.0 * v : 2.0 * v);
 }
 
+/// Returns the 3D gradient contribution for [hash].
 double _grad3(int hash, double x, double y, double z) {
   final h = hash & 15;
   final u = h < 8 ? x : y;
@@ -414,6 +447,7 @@ double _grad3(int hash, double x, double y, double z) {
   return ((h & 1) != 0 ? -u : u) + ((h & 2) != 0 ? -v : v);
 }
 
+/// Returns the 4D gradient contribution for [hash].
 double _grad4(int hash, double x, double y, double z, double w) {
   final h = hash & 31;
   final u = h < 24 ? x : y;
@@ -424,10 +458,12 @@ double _grad4(int hash, double x, double y, double z, double w) {
       ((h & 4) != 0 ? -t : t);
 }
 
+/// Returns the midpoint between [a] and [b].
 LoveMathPoint _midpoint(LoveMathPoint a, LoveMathPoint b) {
   return (x: (a.x + b.x) * 0.5, y: (a.y + b.y) * 0.5);
 }
 
+/// Returns whether triangle `abc` is an ear of [polygon].
 bool _isEar(
   LoveMathPoint a,
   LoveMathPoint b,
@@ -439,12 +475,15 @@ bool _isEar(
       !_anyPointInTriangle(polygon, concaveIndices, a, b, c);
 }
 
+/// Returns whether points `a`, `b`, and `c` are oriented counterclockwise.
 bool _isOrientedCcw(LoveMathPoint a, LoveMathPoint b, LoveMathPoint c) {
   return _cross(b.x - a.x, b.y - a.y, c.x - a.x, c.y - a.y) >= 0.0;
 }
 
+/// Linearly interpolates between [a] and [b] by [t].
 double _lerp(double t, double a, double b) => a + t * (b - a);
 
+/// Returns whether any indexed polygon point lies inside triangle `abc`.
 bool _anyPointInTriangle(
   List<LoveMathPoint> polygon,
   Set<int> indices,
@@ -465,6 +504,7 @@ bool _anyPointInTriangle(
   return false;
 }
 
+/// Returns whether points [a] and [b] lie on the same side of edge `cd`.
 bool _onSameSide(
   LoveMathPoint a,
   LoveMathPoint b,
@@ -478,6 +518,7 @@ bool _onSameSide(
   return left * right >= 0.0;
 }
 
+/// Returns 3D improved Perlin noise for `[x, y, z]`.
 double _perlinNoise3(double x, double y, double z) {
   var ix0 = _fastFloor(x);
   var iy0 = _fastFloor(y);
@@ -560,6 +601,7 @@ double _perlinNoise3(double x, double y, double z) {
   return 0.936 * _lerp(s, n0, n1);
 }
 
+/// Returns 4D improved Perlin noise for `[x, y, z, w]`.
 double _perlinNoise4(double x, double y, double z, double w) {
   var ix0 = _fastFloor(x);
   var iy0 = _fastFloor(y);
@@ -740,6 +782,7 @@ double _perlinNoise4(double x, double y, double z, double w) {
   return 0.87 * _lerp(s, n0, n1);
 }
 
+/// Returns whether point [p] lies inside triangle `abc`.
 bool _pointInTriangle(
   LoveMathPoint p,
   LoveMathPoint a,
@@ -751,6 +794,7 @@ bool _pointInTriangle(
       _onSameSide(p, c, a, b);
 }
 
+/// Returns 1D simplex noise for [x].
 double _simplexNoise1(double x) {
   final i0 = _fastFloor(x);
   final i1 = i0 + 1;
@@ -768,6 +812,7 @@ double _simplexNoise1(double x) {
   return 0.395 * (n0 + n1);
 }
 
+/// Returns 2D simplex noise for `[x, y]`.
 double _simplexNoise2(double x, double y) {
   const f2 = 0.366025403;
   const g2 = 0.211324865;
@@ -825,6 +870,7 @@ double _simplexNoise2(double x, double y) {
   return 45.23 * (n0 + n1 + n2);
 }
 
+/// Recursively subdivides Bezier control points in place.
 void _subdivideBezier(List<LoveMathPoint> points, int depth) {
   if (depth <= 0) {
     return;
@@ -853,6 +899,7 @@ void _subdivideBezier(List<LoveMathPoint> points, int depth) {
     ..addAll(right.reversed.skip(1));
 }
 
+/// The canonical permutation table used by LOVE's noise helpers.
 const List<int> _loveNoisePermBase = <int>[
   151,
   160,
@@ -1112,6 +1159,7 @@ const List<int> _loveNoisePermBase = <int>[
   180,
 ];
 
+/// The duplicated permutation table used for wrapped noise lookups.
 const List<int> _loveNoisePerm = <int>[
   ..._loveNoisePermBase,
   ..._loveNoisePermBase,

@@ -1,5 +1,8 @@
 part of '../love_api_bindings.dart';
 
+/// Binds `love.joystick.getGamepadMappingString`.
+///
+/// This returns the registered SDL-style mapping string for a joystick GUID.
 LoveApiImplementation _bindJoystickGetGamepadMappingString(
   LibraryRegistrationContext context,
 ) {
@@ -9,6 +12,9 @@ LoveApiImplementation _bindJoystickGetGamepadMappingString(
   );
 }
 
+/// Binds `love.joystick.getJoystickCount`.
+///
+/// This reports the number of currently connected joystick devices.
 LoveApiImplementation _bindJoystickGetJoystickCount(
   LibraryRegistrationContext context,
 ) {
@@ -16,6 +22,10 @@ LoveApiImplementation _bindJoystickGetJoystickCount(
   return (args) => runtime.joysticks.joystickCount;
 }
 
+/// Binds `love.joystick.getJoysticks`.
+///
+/// LOVE returns connected devices as a 1-based Lua array of `Joystick`
+/// objects.
 LoveApiImplementation _bindJoystickGetJoysticks(
   LibraryRegistrationContext context,
 ) {
@@ -30,6 +40,10 @@ LoveApiImplementation _bindJoystickGetJoysticks(
   };
 }
 
+/// Binds `love.joystick.loadGamepadMappings`.
+///
+/// LOVE accepts either raw mapping text or a filename whose contents should be
+/// parsed as mapping entries.
 LoveApiImplementation _bindJoystickLoadGamepadMappings(
   LibraryRegistrationContext context,
 ) {
@@ -73,6 +87,10 @@ LoveApiImplementation _bindJoystickLoadGamepadMappings(
   };
 }
 
+/// Binds `love.joystick.saveGamepadMappings`.
+///
+/// This returns the current mapping database as text and optionally writes it
+/// to a file when a filename is provided.
 LoveApiImplementation _bindJoystickSaveGamepadMappings(
   LibraryRegistrationContext context,
 ) {
@@ -95,6 +113,10 @@ LoveApiImplementation _bindJoystickSaveGamepadMappings(
   };
 }
 
+/// Binds `love.joystick.setGamepadMapping`.
+///
+/// This updates one gamepad input mapping for a GUID and supports LOVE's extra
+/// hat-direction argument for hat inputs.
 LoveApiImplementation _bindJoystickSetGamepadMapping(
   LibraryRegistrationContext context,
 ) {
@@ -131,6 +153,9 @@ LoveApiImplementation _bindJoystickSetGamepadMapping(
   };
 }
 
+/// Binds `Joystick:getAxes`.
+///
+/// LOVE returns each axis value as a separate result rather than a table.
 LoveApiImplementation _bindJoystickGetAxes(LibraryContext context) {
   return (args) {
     final axes = _requireJoystick(args, 0, 'Joystick:getAxes').axes;
@@ -138,6 +163,7 @@ LoveApiImplementation _bindJoystickGetAxes(LibraryContext context) {
   };
 }
 
+/// Binds `Joystick:getAxis`.
 LoveApiImplementation _bindJoystickGetAxis(LibraryContext context) {
   return (args) => _requireJoystick(
     args,
@@ -146,16 +172,21 @@ LoveApiImplementation _bindJoystickGetAxis(LibraryContext context) {
   ).getAxis(_requireRoundedInt(args, 1, 'Joystick:getAxis'));
 }
 
+/// Binds `Joystick:getAxisCount`.
 LoveApiImplementation _bindJoystickGetAxisCount(LibraryContext context) {
   return (args) =>
       _requireJoystick(args, 0, 'Joystick:getAxisCount').axes.length;
 }
 
+/// Binds `Joystick:getButtonCount`.
 LoveApiImplementation _bindJoystickGetButtonCount(LibraryContext context) {
   return (args) =>
       _requireJoystick(args, 0, 'Joystick:getButtonCount').buttonCount;
 }
 
+/// Binds `Joystick:getDeviceInfo`.
+///
+/// This returns vendor id, product id, and product version as multiple values.
 LoveApiImplementation _bindJoystickGetDeviceInfo(LibraryContext context) {
   return (args) {
     final joystick = _requireJoystick(args, 0, 'Joystick:getDeviceInfo');
@@ -167,10 +198,12 @@ LoveApiImplementation _bindJoystickGetDeviceInfo(LibraryContext context) {
   };
 }
 
+/// Binds `Joystick:getGUID`.
 LoveApiImplementation _bindJoystickGetGuid(LibraryContext context) {
   return (args) => _requireJoystick(args, 0, 'Joystick:getGUID').guid;
 }
 
+/// Binds `Joystick:getGamepadAxis`.
 LoveApiImplementation _bindJoystickGetGamepadAxis(LibraryContext context) {
   return (args) {
     final joystick = _requireJoystick(args, 0, 'Joystick:getGamepadAxis');
@@ -180,6 +213,10 @@ LoveApiImplementation _bindJoystickGetGamepadAxis(LibraryContext context) {
   };
 }
 
+/// Binds `Joystick:getGamepadMapping`.
+///
+/// LOVE returns mapping type and input index, plus hat direction when the
+/// mapping targets a hat input.
 LoveApiImplementation _bindJoystickGetGamepadMapping(LibraryContext context) {
   return (args) {
     final joystick = _requireJoystick(args, 0, 'Joystick:getGamepadMapping');
@@ -198,6 +235,7 @@ LoveApiImplementation _bindJoystickGetGamepadMapping(LibraryContext context) {
   };
 }
 
+/// Binds `Joystick:getGamepadMappingString`.
 LoveApiImplementation _bindJoystickGetGamepadMappingStringMethod(
   LibraryContext context,
 ) {
@@ -208,6 +246,7 @@ LoveApiImplementation _bindJoystickGetGamepadMappingStringMethod(
   ).getGamepadMappingString();
 }
 
+/// Binds `Joystick:getHat`.
 LoveApiImplementation _bindJoystickGetHat(LibraryContext context) {
   return (args) => _requireJoystick(
     args,
@@ -216,11 +255,16 @@ LoveApiImplementation _bindJoystickGetHat(LibraryContext context) {
   ).getHat(_requireRoundedInt(args, 1, 'Joystick:getHat'));
 }
 
+/// Binds `Joystick:getHatCount`.
 LoveApiImplementation _bindJoystickGetHatCount(LibraryContext context) {
   return (args) =>
       _requireJoystick(args, 0, 'Joystick:getHatCount').hats.length;
 }
 
+/// Binds `Joystick:getID`.
+///
+/// This returns the stable LOVE id and, when connected, the transient instance
+/// id as a second result.
 LoveApiImplementation _bindJoystickGetId(LibraryContext context) {
   return (args) {
     final joystick = _requireJoystick(args, 0, 'Joystick:getID');
@@ -231,10 +275,14 @@ LoveApiImplementation _bindJoystickGetId(LibraryContext context) {
   };
 }
 
+/// Binds `Joystick:getName`.
 LoveApiImplementation _bindJoystickGetName(LibraryContext context) {
   return (args) => _requireJoystick(args, 0, 'Joystick:getName').name;
 }
 
+/// Binds `Joystick:getVibration`.
+///
+/// This returns left and right motor strengths as multiple values.
 LoveApiImplementation _bindJoystickGetVibration(LibraryContext context) {
   return (args) {
     final joystick = _requireJoystick(args, 0, 'Joystick:getVibration');
@@ -245,10 +293,14 @@ LoveApiImplementation _bindJoystickGetVibration(LibraryContext context) {
   };
 }
 
+/// Binds `Joystick:isConnected`.
 LoveApiImplementation _bindJoystickIsConnected(LibraryContext context) {
   return (args) => _requireJoystick(args, 0, 'Joystick:isConnected').connected;
 }
 
+/// Binds `Joystick:isDown`.
+///
+/// LOVE accepts either multiple button indices or a single table of indices.
 LoveApiImplementation _bindJoystickIsDown(LibraryContext context) {
   return (args) {
     final joystick = _requireJoystick(args, 0, 'Joystick:isDown');
@@ -258,11 +310,16 @@ LoveApiImplementation _bindJoystickIsDown(LibraryContext context) {
   };
 }
 
+/// Binds `Joystick:isGamepad`.
 LoveApiImplementation _bindJoystickIsGamepad(LibraryContext context) {
   return (args) =>
       _requireJoystick(args, 0, 'Joystick:isGamepad').recognizedAsGamepad;
 }
 
+/// Binds `Joystick:isGamepadDown`.
+///
+/// LOVE accepts either multiple button names or a single table of button
+/// names.
 LoveApiImplementation _bindJoystickIsGamepadDown(LibraryContext context) {
   return (args) {
     final joystick = _requireJoystick(args, 0, 'Joystick:isGamepadDown');
@@ -272,6 +329,7 @@ LoveApiImplementation _bindJoystickIsGamepadDown(LibraryContext context) {
   };
 }
 
+/// Binds `Joystick:isVibrationSupported`.
 LoveApiImplementation _bindJoystickIsVibrationSupported(
   LibraryContext context,
 ) {
@@ -282,6 +340,10 @@ LoveApiImplementation _bindJoystickIsVibrationSupported(
   ).vibrationSupported;
 }
 
+/// Binds `Joystick:setVibration`.
+///
+/// Omitting the first motor strength stops vibration. Otherwise this accepts
+/// left strength, optional right strength, and optional duration.
 LoveApiImplementation _bindJoystickSetVibration(LibraryContext context) {
   return (args) {
     const symbol = 'Joystick:setVibration';
@@ -301,6 +363,7 @@ LoveApiImplementation _bindJoystickSetVibration(LibraryContext context) {
   };
 }
 
+/// Returns a validated gamepad axis name.
 String _requireJoystickGamepadAxis(
   List<Object?> args,
   int index,
@@ -314,6 +377,7 @@ String _requireJoystickGamepadAxis(
   return axis;
 }
 
+/// Returns a validated gamepad button name.
 String _requireJoystickGamepadButton(
   List<Object?> args,
   int index,
@@ -327,6 +391,9 @@ String _requireJoystickGamepadButton(
   return button;
 }
 
+/// Returns a validated gamepad input name.
+///
+/// This accepts either an axis or button identifier for mapping operations.
 String _requireJoystickGamepadInput(
   List<Object?> args,
   int index,
@@ -340,6 +407,7 @@ String _requireJoystickGamepadInput(
   return input;
 }
 
+/// Returns a validated joystick hat direction.
 String _requireJoystickHat(List<Object?> args, int index, String symbol) {
   final direction = _requireString(args, index, symbol);
   if (!loveIsValidJoystickHat(direction)) {
@@ -349,6 +417,7 @@ String _requireJoystickHat(List<Object?> args, int index, String symbol) {
   return direction;
 }
 
+/// Returns a validated joystick mapping input type.
 String _requireJoystickInputType(List<Object?> args, int index, String symbol) {
   final inputType = _requireString(args, index, symbol);
   if (!loveIsValidJoystickInputType(inputType)) {
@@ -358,6 +427,7 @@ String _requireJoystickInputType(List<Object?> args, int index, String symbol) {
   return inputType;
 }
 
+/// Normalizes joystick button indices from varargs or a single Lua table.
 List<int> _joystickButtonIndicesFromArgs(
   List<Object?> args,
   int startIndex,
@@ -397,6 +467,7 @@ List<int> _joystickButtonIndicesFromArgs(
   );
 }
 
+/// Normalizes gamepad button names from varargs or a single Lua table.
 List<String> _joystickGamepadButtonsFromArgs(
   List<Object?> args,
   int startIndex,

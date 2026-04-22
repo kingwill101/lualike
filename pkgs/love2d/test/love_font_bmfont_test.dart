@@ -4,6 +4,7 @@ import 'package:love2d/love2d.dart';
 import 'package:love2d/src/runtime/filesystem/love_filesystem_runtime.dart';
 
 import 'test_support/memory_filesystem_test_support.dart';
+import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.font BMFont bindings', () {
@@ -13,50 +14,63 @@ void main() {
         final runtime = Interpreter();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
-        final fileData = await _call(
+        final fileData = await luaCallList(
           runtime,
           const ['love', 'filesystem', 'newFileData'],
           <Object?>[_bmFontDefinition, 'assets/fonts/bmfont/test.fnt'],
         );
-        final imageData = await _call(
+        final imageData = await luaCallList(
           runtime,
           const ['love', 'image', 'newImageData'],
           const <Object?>[8, 6],
         );
 
-        final rasterizer = await _call(
+        final rasterizer = await luaCallList(
           runtime,
           const ['love', 'font', 'newBMFontRasterizer'],
           <Object?>[fileData, imageData, 1.0],
         );
 
-        expect(await _callMethod(rasterizer, 'type'), 'Rasterizer');
-        expect(await _callMethod(rasterizer, 'getGlyphCount'), 2);
-        expect(await _callMethod(rasterizer, 'getAdvance'), 4);
-        expect(await _callMethod(rasterizer, 'getHeight'), 6);
-        expect(await _callMethod(rasterizer, 'getAscent'), 5);
-        expect(await _callMethod(rasterizer, 'getDescent'), 1);
-        expect(await _callMethod(rasterizer, 'getLineHeight'), 6);
+        expect(await luaCallMethodList(rasterizer, 'type'), 'Rasterizer');
+        expect(await luaCallMethodList(rasterizer, 'getGlyphCount'), 2);
+        expect(await luaCallMethodList(rasterizer, 'getAdvance'), 4);
+        expect(await luaCallMethodList(rasterizer, 'getHeight'), 6);
+        expect(await luaCallMethodList(rasterizer, 'getAscent'), 5);
+        expect(await luaCallMethodList(rasterizer, 'getDescent'), 1);
+        expect(await luaCallMethodList(rasterizer, 'getLineHeight'), 6);
         expect(
-          await _callMethod(rasterizer, 'hasGlyphs', const <Object?>['AB']),
+          await luaCallMethodList(rasterizer, 'hasGlyphs', const <Object?>[
+            'AB',
+          ]),
           isTrue,
         );
 
-        final glyphData = await _callMethod(rasterizer, 'getGlyphData', ['B']);
-        expect(await _callMethod(glyphData, 'getGlyphString'), 'B');
-        expect(await _callMethod(glyphData, 'getDimensions'), <Object?>[2, 6]);
-        expect(await _callMethod(glyphData, 'getAdvance'), 3);
+        final glyphData = await luaCallMethodList(rasterizer, 'getGlyphData', [
+          'B',
+        ]);
+        expect(await luaCallMethodList(glyphData, 'getGlyphString'), 'B');
+        expect(await luaCallMethodList(glyphData, 'getDimensions'), <Object?>[
+          2,
+          6,
+        ]);
+        expect(await luaCallMethodList(glyphData, 'getAdvance'), 3);
 
-        final font = await _call(
+        final font = await luaCallList(
           runtime,
           const ['love', 'graphics', 'newFont'],
           <Object?>[rasterizer],
         );
         expect(
-          await _callMethod(font, 'getKerning', const <Object?>['A', 'B']),
+          await luaCallMethodList(font, 'getKerning', const <Object?>[
+            'A',
+            'B',
+          ]),
           -1.0,
         );
-        expect(await _callMethod(font, 'getWidth', const <Object?>['AB']), 6.0);
+        expect(
+          await luaCallMethodList(font, 'getWidth', const <Object?>['AB']),
+          6.0,
+        );
       },
     );
 
@@ -79,26 +93,29 @@ void main() {
         final filesystem = LoveFilesystemState.of(runtime);
         expect(filesystem.setSource(loveTestMountedSourceRoot), isTrue);
 
-        final fileData = await _call(
+        final fileData = await luaCallList(
           runtime,
           const ['love', 'filesystem', 'newFileData'],
           <Object?>[_bmFontDefinition, 'assets/fonts/bmfont/test.fnt'],
         );
 
-        final rasterizer = await _call(
+        final rasterizer = await luaCallList(
           runtime,
           const ['love', 'font', 'newRasterizer'],
           <Object?>[fileData],
         );
-        expect(await _callMethod(rasterizer, 'getGlyphCount'), 2);
-        expect(await _callMethod(rasterizer, 'getAdvance'), 4);
+        expect(await luaCallMethodList(rasterizer, 'getGlyphCount'), 2);
+        expect(await luaCallMethodList(rasterizer, 'getAdvance'), 4);
 
-        final font = await _call(
+        final font = await luaCallList(
           runtime,
           const ['love', 'graphics', 'newFont'],
           <Object?>[rasterizer],
         );
-        expect(await _callMethod(font, 'getWidth', const <Object?>['AB']), 6.0);
+        expect(
+          await luaCallMethodList(font, 'getWidth', const <Object?>['AB']),
+          6.0,
+        );
       },
     );
 
@@ -106,76 +123,91 @@ void main() {
       final runtime = Interpreter();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
-      final fileData = await _call(
+      final fileData = await luaCallList(
         runtime,
         const ['love', 'filesystem', 'newFileData'],
         <Object?>[_bmFontDefinition, 'assets/fonts/bmfont/test.fnt'],
       );
-      final imageData = await _call(
+      final imageData = await luaCallList(
         runtime,
         const ['love', 'image', 'newImageData'],
         const <Object?>[8, 6],
       );
 
-      final font = await _call(
+      final font = await luaCallList(
         runtime,
         const ['love', 'graphics', 'newFont'],
         <Object?>[fileData, imageData],
       );
 
-      expect(await _callMethod(font, 'getHeight'), 6.0);
-      expect(await _callMethod(font, 'getAscent'), 5.0);
-      expect(await _callMethod(font, 'getDescent'), 1.0);
+      expect(await luaCallMethodList(font, 'getHeight'), 6.0);
+      expect(await luaCallMethodList(font, 'getAscent'), 5.0);
+      expect(await luaCallMethodList(font, 'getDescent'), 1.0);
       expect(
-        await _callMethod(font, 'getKerning', const <Object?>['A', 'B']),
+        await luaCallMethodList(font, 'getKerning', const <Object?>['A', 'B']),
         -1.0,
       );
-      expect(await _callMethod(font, 'getWidth', const <Object?>['AB']), 6.0);
+      expect(
+        await luaCallMethodList(font, 'getWidth', const <Object?>['AB']),
+        6.0,
+      );
     });
 
-    test('bmfont fallbacks contribute missing glyph widths and kerning', () async {
-      final runtime = Interpreter();
-      installLove2d(runtime: runtime, host: LoveHeadlessHost());
+    test(
+      'bmfont fallbacks contribute missing glyph widths and kerning',
+      () async {
+        final runtime = Interpreter();
+        installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
-      final primaryDefinition = await _call(
-        runtime,
-        const ['love', 'filesystem', 'newFileData'],
-        <Object?>[_bmFontPrimaryOnlyDefinition, 'assets/fonts/bmfont/primary.fnt'],
-      );
-      final fallbackDefinition = await _call(
-        runtime,
-        const ['love', 'filesystem', 'newFileData'],
-        <Object?>[_bmFontDefinition, 'assets/fonts/bmfont/test.fnt'],
-      );
-      final imageData = await _call(
-        runtime,
-        const ['love', 'image', 'newImageData'],
-        const <Object?>[8, 6],
-      );
+        final primaryDefinition = await luaCallList(
+          runtime,
+          const ['love', 'filesystem', 'newFileData'],
+          <Object?>[
+            _bmFontPrimaryOnlyDefinition,
+            'assets/fonts/bmfont/primary.fnt',
+          ],
+        );
+        final fallbackDefinition = await luaCallList(
+          runtime,
+          const ['love', 'filesystem', 'newFileData'],
+          <Object?>[_bmFontDefinition, 'assets/fonts/bmfont/test.fnt'],
+        );
+        final imageData = await luaCallList(
+          runtime,
+          const ['love', 'image', 'newImageData'],
+          const <Object?>[8, 6],
+        );
 
-      final primary = await _call(
-        runtime,
-        const ['love', 'graphics', 'newFont'],
-        <Object?>[primaryDefinition, imageData],
-      );
-      final fallback = await _call(
-        runtime,
-        const ['love', 'graphics', 'newFont'],
-        <Object?>[fallbackDefinition, imageData],
-      );
+        final primary = await luaCallList(
+          runtime,
+          const ['love', 'graphics', 'newFont'],
+          <Object?>[primaryDefinition, imageData],
+        );
+        final fallback = await luaCallList(
+          runtime,
+          const ['love', 'graphics', 'newFont'],
+          <Object?>[fallbackDefinition, imageData],
+        );
 
-      await _callMethod(primary, 'setFallbacks', <Object?>[fallback]);
+        await luaCallMethodList(primary, 'setFallbacks', <Object?>[fallback]);
 
-      expect(
-        await _callMethod(primary, 'getKerning', const <Object?>['A', 'B']),
-        -1.0,
-      );
-      expect(await _callMethod(primary, 'getWidth', const <Object?>['AB']), 6.0);
-      expect(
-        await _callMethod(primary, 'hasGlyphs', const <Object?>['AB']),
-        isTrue,
-      );
-    });
+        expect(
+          await luaCallMethodList(primary, 'getKerning', const <Object?>[
+            'A',
+            'B',
+          ]),
+          -1.0,
+        );
+        expect(
+          await luaCallMethodList(primary, 'getWidth', const <Object?>['AB']),
+          6.0,
+        );
+        expect(
+          await luaCallMethodList(primary, 'hasGlyphs', const <Object?>['AB']),
+          isTrue,
+        );
+      },
+    );
   });
 }
 
@@ -197,69 +229,3 @@ char id=66 x=3 y=0 width=2 height=6 xoffset=0 yoffset=0 xadvance=3 page=0 chnl=1
 kernings count=1
 kerning first=65 second=66 amount=-1
 ''';
-
-Future<Object?> _call(
-  Interpreter runtime,
-  List<String> path, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(_rawFunction(runtime, path).call(args));
-}
-
-Future<Object?> _callMethod(
-  Object? receiver,
-  String method, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(
-    _rawMethod(receiver, method).call(<Object?>[receiver, ...args]),
-  );
-}
-
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> path) {
-  var current = runtime.getCurrentEnv().get(path.first);
-  for (final segment in path.skip(1)) {
-    final table = current is Value ? current.raw : current;
-    expect(
-      table,
-      isA<Map>(),
-      reason: 'Expected ${path.join('.')} to traverse a Lua table',
-    );
-    current = (table as Map)[segment];
-  }
-
-  expect(current, isA<Value>());
-  final raw = (current! as Value).raw;
-  expect(raw, isA<BuiltinFunction>());
-  return raw as BuiltinFunction;
-}
-
-BuiltinFunction _rawMethod(Object? receiver, String method) {
-  final table = receiver is Value ? receiver.raw : receiver;
-  expect(table, isA<Map>());
-  final entry = (table! as Map)[method];
-  return switch (entry) {
-    final Value wrapped when wrapped.raw is BuiltinFunction =>
-      wrapped.raw as BuiltinFunction,
-    final BuiltinFunction function => function,
-    _ => throw TestFailure('Expected $method to be a callable Lua method'),
-  };
-}
-
-Future<Object?> _resolveCallResult(Object? result) async {
-  final resolved = await _resolveRawCallResult(result);
-  if (resolved is List<Object?>) {
-    return resolved.map(_unwrap).toList(growable: false);
-  }
-  return _unwrap(resolved);
-}
-
-Future<Object?> _resolveRawCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return List<Object?>.from(wrapped.raw as List<Object?>, growable: false);
-  }
-  return resolved;
-}
-
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;

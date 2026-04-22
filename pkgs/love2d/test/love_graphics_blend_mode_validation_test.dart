@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lualike/lualike.dart' show BuiltinFunction, Interpreter, LuaError, Value;
+import 'package:lualike/lualike.dart'
+    show BuiltinFunction, Interpreter, LuaError, Value;
 import 'package:love2d/love2d.dart';
 
 void main() {

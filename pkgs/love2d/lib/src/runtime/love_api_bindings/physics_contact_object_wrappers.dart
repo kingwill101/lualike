@@ -1,29 +1,39 @@
 part of '../love_api_bindings.dart';
 
+/// Returns the wrapped physics contact stored in [value], if any.
 LovePhysicsContact? _physicsContactIfPresent(Object? value) {
   final table = _physicsWrapperTable(value);
   final contact = table?[_lovePhysicsContactObjectKey];
   return contact is LovePhysicsContact ? contact : null;
 }
 
+/// Returns the live physics contact at [index].
+///
+/// Throws a [LuaError] when the argument is not a contact wrapper or when the
+/// wrapped contact has already been destroyed.
 LovePhysicsContact _requirePhysicsContact(
   List<Object?> args,
   int index,
   String symbol,
 ) {
-  final contact = _physicsContactIfPresent(_valueAt(args, index));
-  if (contact == null) {
-    throw LuaError('$symbol expected a Contact at argument ${index + 1}');
-  }
-  if (contact.isDestroyed) {
-    throw LuaError('Attempt to use destroyed contact.');
-  }
-  return contact;
+  return _requirePhysicsTypedObject<LovePhysicsContact>(
+    args: args,
+    index: index,
+    symbol: symbol,
+    typeName: 'Contact',
+    ifPresent: _physicsContactIfPresent,
+    isDestroyed: (contact) => contact.isDestroyed,
+    destroyedMessage: 'Attempt to use destroyed contact.',
+  );
 }
 
+/// Wraps a physics contact in the Lua-facing contact API table.
+///
+/// Wrapper tables are cached per contact so repeated crossings between Dart and
+/// Lua preserve object identity while the contact remains alive.
 Value _wrapPhysicsContact(LibraryContext context, LovePhysicsContact contact) {
   final cached = _lovePhysicsContactWrapperCache[contact];
-  if (cached != null) {
+  if (cached != null && !_physicsWrapperReleasedAs(cached, 'Contact')) {
     return cached;
   }
 
@@ -189,15 +199,23 @@ Value _wrapPhysicsContact(LibraryContext context, LovePhysicsContact contact) {
       functionName: 'setTangentSpeed',
     ),
     'isDestroyed': Value(
-      builder.create(
-        (args) =>
-            (_physicsContactIfPresent(_valueAt(args, 0))?.isDestroyed) ?? false,
-      ),
+      builder.create((args) {
+        final table = _requirePhysicsReceiverTable(
+          args,
+          0,
+          'Contact:isDestroyed',
+          'Contact',
+        );
+        final contact =
+            table[_lovePhysicsContactObjectKey] as LovePhysicsContact?;
+        return contact?.isDestroyed ?? false;
+      }),
       functionName: 'isDestroyed',
     ),
     ..._physicsObjectEntries<LovePhysicsContact>(
       builder: builder,
       object: contact,
+      objectKey: _lovePhysicsContactObjectKey,
       typeName: 'Contact',
       hierarchy: const <String>{'Contact', 'Object'},
       requireObject: (args, symbol) => _requirePhysicsContact(args, 0, symbol),

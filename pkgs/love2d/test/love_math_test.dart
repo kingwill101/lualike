@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
+import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.math module', () {
@@ -15,7 +16,7 @@ void main() {
 
     test('color helpers accept variadic and table inputs', () async {
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'math', 'colorToBytes'],
           const <Object?>[0.0, 0.5, 1.0, 1.2],
@@ -24,7 +25,7 @@ void main() {
       );
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'math', 'colorFromBytes'],
           <Object?>[
@@ -36,7 +37,7 @@ void main() {
     });
 
     test('gamma helpers convert rgb components', () async {
-      final linear = await _call(
+      final linear = await luaCall(
         runtime,
         const ['love', 'math', 'gammaToLinear'],
         <Object?>[
@@ -51,7 +52,7 @@ void main() {
       expect(linearValues[2] as double, closeTo(0.5225215539683921, 1e-12));
       expect(linearValues[3], 0.5);
 
-      final gamma = await _call(runtime, const [
+      final gamma = await luaCall(runtime, const [
         'love',
         'math',
         'linearToGamma',
@@ -67,7 +68,7 @@ void main() {
 
     test('noise matches upstream reference values', () async {
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'math', 'noise'],
           const <Object?>[0.125],
@@ -75,7 +76,7 @@ void main() {
         closeTo(0.684921085834503, 1e-7),
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'math', 'noise'],
           const <Object?>[0.25, 0.75],
@@ -83,7 +84,7 @@ void main() {
         closeTo(0.372749149799347, 1e-7),
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'math', 'noise'],
           const <Object?>[0.5, 1.25, -0.75],
@@ -91,7 +92,7 @@ void main() {
         closeTo(0.592740535736084, 1e-7),
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'math', 'noise'],
           const <Object?>[0.5, 1.25, -0.75, 2.0],
@@ -102,45 +103,45 @@ void main() {
 
     test('random seed and state roundtrip through module api', () async {
       final seed = int.parse('0123456789ABCDEF', radix: 16);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'math', 'setRandomSeed'],
         <Object?>[seed],
       );
 
       expect(
-        await _call(runtime, const ['love', 'math', 'getRandomSeed']),
+        await luaCall(runtime, const ['love', 'math', 'getRandomSeed']),
         <Object?>[0x89ABCDEF, 0x01234567],
       );
 
       final savedState =
-          await _call(runtime, const ['love', 'math', 'getRandomState'])
+          await luaCall(runtime, const ['love', 'math', 'getRandomState'])
               as String;
       expect(savedState, matches(RegExp(r'^0x[0-9a-f]{16}$')));
 
-      final firstRandom = await _call(runtime, const [
+      final firstRandom = await luaCall(runtime, const [
         'love',
         'math',
         'random',
       ]);
-      final firstNormal = await _call(
+      final firstNormal = await luaCall(
         runtime,
         const ['love', 'math', 'randomNormal'],
         const <Object?>[2.0, 10.0],
       );
 
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'math', 'setRandomState'],
         <Object?>[savedState],
       );
 
       expect(
-        await _call(runtime, const ['love', 'math', 'random']),
+        await luaCall(runtime, const ['love', 'math', 'random']),
         firstRandom,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'math', 'randomNormal'],
           const <Object?>[2.0, 10.0],
@@ -151,7 +152,7 @@ void main() {
 
     test('random uses LOVE integer helper semantics', () async {
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'math', 'random'],
           const <Object?>[0],
@@ -159,7 +160,7 @@ void main() {
         1.0,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'math', 'random'],
           const <Object?>[5],
@@ -167,7 +168,7 @@ void main() {
         inInclusiveRange(1.0, 5.0),
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'math', 'random'],
           const <Object?>[10, 20],
@@ -201,7 +202,7 @@ void main() {
       });
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'math', 'isConvex'],
           <Object?>[square],
@@ -209,7 +210,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'math', 'isConvex'],
           <Object?>[concave],
@@ -217,7 +218,7 @@ void main() {
         isFalse,
       );
 
-      final triangulated = await _call(
+      final triangulated = await luaCall(
         runtime,
         const ['love', 'math', 'triangulate'],
         <Object?>[square],
@@ -235,7 +236,7 @@ void main() {
       expect(areas[0] + areas[1], closeTo(100.0, 1e-9));
 
       expect(
-        _call(
+        luaCall(
           runtime,
           const ['love', 'math', 'triangulate'],
           <Object?>[
@@ -263,43 +264,46 @@ void main() {
 
     test('newRandomGenerator exposes seeded object api', () async {
       final seed = int.parse('0123456789ABCDEF', radix: 16);
-      final generator = await _call(
+      final generator = await luaCall(
         runtime,
         const ['love', 'math', 'newRandomGenerator'],
         <Object?>[seed],
       );
 
-      expect(await _callMethod(generator!, 'getSeed'), <Object?>[
+      expect(await luaCallMethod(generator!, 'getSeed'), <Object?>[
         0x89ABCDEF,
         0x01234567,
       ]);
 
-      final savedState = await _callMethod(generator, 'getState') as String;
-      final firstRandom = await _callMethod(generator, 'random');
-      final firstNormal = await _callMethod(
+      final savedState = await luaCallMethod(generator, 'getState') as String;
+      final firstRandom = await luaCallMethod(generator, 'random');
+      final firstNormal = await luaCallMethod(
         generator,
         'randomNormal',
         const <Object?>[1.5, 2.0],
       );
 
       expect(
-        await _callMethod(generator, 'random', const <Object?>[5]),
+        await luaCallMethod(generator, 'random', const <Object?>[5]),
         inInclusiveRange(1.0, 5.0),
       );
       expect(
-        await _callMethod(generator, 'random', const <Object?>[5, 10]),
+        await luaCallMethod(generator, 'random', const <Object?>[5, 10]),
         inInclusiveRange(5.0, 10.0),
       );
 
-      await _callMethod(generator, 'setState', <Object?>[savedState]);
-      expect(await _callMethod(generator, 'random'), firstRandom);
+      await luaCallMethod(generator, 'setState', <Object?>[savedState]);
+      expect(await luaCallMethod(generator, 'random'), firstRandom);
       expect(
-        await _callMethod(generator, 'randomNormal', const <Object?>[1.5, 2.0]),
+        await luaCallMethod(generator, 'randomNormal', const <Object?>[
+          1.5,
+          2.0,
+        ]),
         firstNormal,
       );
 
-      await _callMethod(generator, 'setSeed', const <Object?>[9, 10]);
-      expect(await _callMethod(generator, 'getSeed'), <Object?>[9, 10]);
+      await luaCallMethod(generator, 'setSeed', const <Object?>[9, 10]);
+      expect(await luaCallMethod(generator, 'getSeed'), <Object?>[9, 10]);
     });
   });
 
@@ -312,43 +316,43 @@ void main() {
     });
 
     test('newBezierCurve exposes evaluation and derivative APIs', () async {
-      final curve = await _call(
+      final curve = await luaCall(
         runtime,
         const ['love', 'math', 'newBezierCurve'],
         const <Object?>[0, 0, 10, 0, 10, 10],
       );
 
-      expect(await _callMethod(curve!, 'getControlPointCount'), 3);
-      expect(await _callMethod(curve, 'getDegree'), 2);
-      expect(await _callMethod(curve, 'getControlPoint', const <Object?>[1]), [
-        0.0,
-        0.0,
-      ]);
-      expect(await _callMethod(curve, 'getControlPoint', const <Object?>[-1]), [
-        10.0,
-        10.0,
-      ]);
-      expect(await _callMethod(curve, 'evaluate', const <Object?>[0.5]), [
+      expect(await luaCallMethod(curve!, 'getControlPointCount'), 3);
+      expect(await luaCallMethod(curve, 'getDegree'), 2);
+      expect(
+        await luaCallMethod(curve, 'getControlPoint', const <Object?>[1]),
+        [0.0, 0.0],
+      );
+      expect(
+        await luaCallMethod(curve, 'getControlPoint', const <Object?>[-1]),
+        [10.0, 10.0],
+      );
+      expect(await luaCallMethod(curve, 'evaluate', const <Object?>[0.5]), [
         7.5,
         2.5,
       ]);
 
-      final derivative = await _callMethod(curve, 'getDerivative');
+      final derivative = await luaCallMethod(curve, 'getDerivative');
       expect(
-        await _callMethod(derivative!, 'evaluate', const <Object?>[0.5]),
+        await luaCallMethod(derivative!, 'evaluate', const <Object?>[0.5]),
         <Object?>[10.0, 10.0],
       );
 
-      final segment = await _callMethod(curve, 'getSegment', const <Object?>[
+      final segment = await luaCallMethod(curve, 'getSegment', const <Object?>[
         0.25,
         0.75,
       ]);
       expect(
-        await _callMethod(segment!, 'evaluate', const <Object?>[0.5]),
+        await luaCallMethod(segment!, 'evaluate', const <Object?>[0.5]),
         <Object?>[7.5, 2.5],
       );
 
-      final rendered = await _callMethod(curve, 'render', const <Object?>[1]);
+      final rendered = await luaCallMethod(curve, 'render', const <Object?>[1]);
       expect(rendered, isA<Map>());
       expect(_indexedNumericValues(rendered! as Map), <double>[
         0.0,
@@ -367,52 +371,52 @@ void main() {
     test(
       'BezierCurve mutation and transform APIs follow LOVE indexing',
       () async {
-        final curve = await _call(
+        final curve = await luaCall(
           runtime,
           const ['love', 'math', 'newBezierCurve'],
           const <Object?>[1, 0, 2, 0],
         );
 
-        await _callMethod(curve!, 'insertControlPoint', const <Object?>[
+        await luaCallMethod(curve!, 'insertControlPoint', const <Object?>[
           1.5,
           0.5,
           2,
         ]);
-        expect(await _callMethod(curve, 'getControlPointCount'), 3);
+        expect(await luaCallMethod(curve, 'getControlPointCount'), 3);
         expect(
-          await _callMethod(curve, 'getControlPoint', const <Object?>[2]),
+          await luaCallMethod(curve, 'getControlPoint', const <Object?>[2]),
           [1.5, 0.5],
         );
 
-        await _callMethod(curve, 'setControlPoint', const <Object?>[2, 3, 4]);
+        await luaCallMethod(curve, 'setControlPoint', const <Object?>[2, 3, 4]);
         expect(
-          await _callMethod(curve, 'getControlPoint', const <Object?>[2]),
+          await luaCallMethod(curve, 'getControlPoint', const <Object?>[2]),
           [3.0, 4.0],
         );
 
-        await _callMethod(curve, 'removeControlPoint', const <Object?>[2]);
-        expect(await _callMethod(curve, 'getControlPointCount'), 2);
+        await luaCallMethod(curve, 'removeControlPoint', const <Object?>[2]);
+        expect(await luaCallMethod(curve, 'getControlPointCount'), 2);
 
-        await _callMethod(curve, 'rotate', <Object?>[math.pi / 2]);
+        await luaCallMethod(curve, 'rotate', <Object?>[math.pi / 2]);
         expect(
-          await _callMethod(curve, 'getControlPoint', const <Object?>[1]),
+          await luaCallMethod(curve, 'getControlPoint', const <Object?>[1]),
           <Object?>[closeTo(0.0, 1e-12), closeTo(1.0, 1e-12)],
         );
 
-        await _callMethod(curve, 'scale', const <Object?>[2.0]);
+        await luaCallMethod(curve, 'scale', const <Object?>[2.0]);
         expect(
-          await _callMethod(curve, 'getControlPoint', const <Object?>[1]),
+          await luaCallMethod(curve, 'getControlPoint', const <Object?>[1]),
           <Object?>[closeTo(0.0, 1e-12), closeTo(2.0, 1e-12)],
         );
 
-        await _callMethod(curve, 'translate', const <Object?>[1.0, -1.0]);
+        await luaCallMethod(curve, 'translate', const <Object?>[1.0, -1.0]);
         expect(
-          await _callMethod(curve, 'getControlPoint', const <Object?>[1]),
+          await luaCallMethod(curve, 'getControlPoint', const <Object?>[1]),
           <Object?>[closeTo(1.0, 1e-12), closeTo(1.0, 1e-12)],
         );
 
         expect(
-          await _callMethod(curve, 'renderSegment', const <Object?>[
+          await luaCallMethod(curve, 'renderSegment', const <Object?>[
             0.5,
             0.5,
             1,
@@ -424,79 +428,27 @@ void main() {
   });
 }
 
-Future<Object?> _call(
-  Interpreter runtime,
-  List<String> path, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(_rawFunction(runtime, path).call(args));
-}
-
-Future<Object?> _callMethod(
-  Object object,
-  String method, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  final table = object is Value ? object.raw : object;
-  expect(table, isA<Map>());
-
-  final methodValue = (table as Map)[method];
-  final callable = switch (methodValue) {
-    final Value value => value.raw,
-    final BuiltinFunction function => function,
-    _ => methodValue,
-  };
-  expect(callable, isA<BuiltinFunction>());
-  return _resolveCallResult(
-    (callable as BuiltinFunction).call(<Object?>[object, ...args]),
-  );
-}
-
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> path) {
-  var current = runtime.getCurrentEnv().get(path.first);
-  for (final segment in path.skip(1)) {
-    final table = current is Value ? current.raw : current;
-    expect(
-      table,
-      isA<Map>(),
-      reason: 'Expected ${path.join('.')} to traverse a Lua table',
-    );
-    current = (table as Map)[segment];
-  }
-
-  expect(current, isA<Value>());
-  final raw = (current! as Value).raw;
-  expect(raw, isA<BuiltinFunction>());
-  return raw as BuiltinFunction;
-}
-
-Future<Object?> _resolveCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return (wrapped.raw as List<Object?>).map(_unwrap).toList(growable: false);
-  }
-
-  return _unwrap(resolved);
-}
-
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;
-
-List<double> _indexedNumericValues(Map table) {
-  final keys = table.keys.whereType<num>().map((key) => key.toInt()).toList()
-    ..sort();
-  return keys
-      .map((key) => (table[key] as num).toDouble())
+List<double> _indexedNumericValues(Map<Object?, Object?> table) {
+  final entries = table.entries.toList(growable: false)
+    ..sort((a, b) {
+      final left = (a.key as num).toInt();
+      final right = (b.key as num).toInt();
+      return left.compareTo(right);
+    });
+  return entries
+      .map((entry) => (entry.value as num).toDouble())
       .toList(growable: false);
 }
 
 double _triangleArea(List<double> coordinates) {
-  final x1 = coordinates[0];
-  final y1 = coordinates[1];
-  final x2 = coordinates[2];
-  final y2 = coordinates[3];
-  final x3 = coordinates[4];
-  final y3 = coordinates[5];
-
-  return ((x1 * (y2 - y3)) + (x2 * (y3 - y1)) + (x3 * (y1 - y2))).abs() / 2.0;
+  var twiceArea = 0.0;
+  for (var index = 0; index < coordinates.length; index += 2) {
+    final nextIndex = (index + 2) % coordinates.length;
+    final x1 = coordinates[index];
+    final y1 = coordinates[index + 1];
+    final x2 = coordinates[nextIndex];
+    final y2 = coordinates[nextIndex + 1];
+    twiceArea += (x1 * y2) - (x2 * y1);
+  }
+  return twiceArea.abs() / 2.0;
 }

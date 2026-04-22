@@ -1,21 +1,48 @@
 part of '../love_runtime.dart';
 
 /// The shader handling path selected for a LOVE shader on the Flutter backend.
-enum LoveShaderKind { generic, radialGradient, desaturationTint }
+enum LoveShaderKind {
+  /// Uses the generic shader path with no special compatibility handling.
+  generic,
+
+  /// Matches LOVE's radial-gradient compatibility shader pattern.
+  radialGradient,
+
+  /// Matches LOVE's desaturation-tint compatibility shader pattern.
+  desaturationTint,
+}
 
 /// The binding category inferred from a parsed shader uniform declaration.
 enum LoveShaderUniformValueKind {
+  /// Uses the fallback path for unrecognized declarations.
   unknown,
+
+  /// Binds floating-point scalars and vectors.
   float,
+
+  /// Binds square matrix values.
   matrix,
+
+  /// Binds signed integer scalars and vectors.
   int,
+
+  /// Binds unsigned integer scalars and vectors.
   uint,
+
+  /// Binds boolean scalars and vectors.
   bool_,
+
+  /// Binds sampled images and samplers.
   sampler,
 }
 
+/// Matches block comments so shader-source analysis can strip them.
 final RegExp _loveShaderBlockCommentPattern = RegExp(r'/\*[\s\S]*?\*/');
+
+/// Matches single-line comments so shader-source analysis can strip them.
 final RegExp _loveShaderLineCommentPattern = RegExp(r'//.*$', multiLine: true);
+
+/// Matches uniform declarations in author shader source and fragment metadata.
 final RegExp _loveShaderUniformDeclarationPattern = RegExp(
   r'\b(?:extern|uniform)\s+([A-Za-z_]\w*)\s+([A-Za-z_]\w*)(?:\s*\[\s*(\d+)\s*\])?\s*;',
 );
@@ -155,7 +182,11 @@ class LoveShader {
 
   /// The registered Flutter fragment asset used to instantiate this shader.
   final String? flutterFragmentAssetKey;
+
+  /// The mutable uniform values stored for this shader instance.
   final Map<String, Object?> _uniforms;
+
+  /// The parsed uniform declarations available for binding validation.
   final Map<String, LoveShaderUniformDescriptor> _uniformDeclarations;
 
   /// The current uniform values stored on this shader.
@@ -196,6 +227,7 @@ class LoveShader {
   }
 }
 
+/// Infers the compatibility shader kind used by [pixelCode] and [vertexCode].
 LoveShaderKind _detectLoveShaderKind(String pixelCode, {String? vertexCode}) {
   final source = _normalizedLoveShaderDetectionSource(
     pixelCode,
@@ -210,6 +242,7 @@ LoveShaderKind _detectLoveShaderKind(String pixelCode, {String? vertexCode}) {
   return LoveShaderKind.generic;
 }
 
+/// Normalizes shader source for compatibility-pattern matching.
 String _normalizedLoveShaderDetectionSource(
   String pixelCode, {
   String? vertexCode,
@@ -222,6 +255,7 @@ String _normalizedLoveShaderDetectionSource(
       .trim();
 }
 
+/// Returns whether [source] matches LOVE's radial-gradient compatibility shader.
 bool _isLoveRadialGradientShaderSource(String source) {
   return source.contains('extern number innerradius') &&
       source.contains('extern number outerradius') &&
@@ -233,6 +267,7 @@ bool _isLoveRadialGradientShaderSource(String source) {
       source.contains('mix(colorinner, colorouter, t)');
 }
 
+/// Returns whether [source] matches LOVE's desaturation-tint shader pattern.
 bool _isLoveDesaturationTintShaderSource(String source) {
   return RegExp(r'extern\s+vec4\s+tint\s*;').hasMatch(source) &&
       RegExp(r'extern\s+(?:number|float)\s+strength\s*;').hasMatch(source) &&
@@ -244,6 +279,7 @@ bool _isLoveDesaturationTintShaderSource(String source) {
       ).hasMatch(source);
 }
 
+/// Deeply clones a stored shader uniform value into immutable containers.
 Object? _cloneLoveShaderUniform(Object? value) {
   return switch (value) {
     final List<Object?> list => List<Object?>.unmodifiable(

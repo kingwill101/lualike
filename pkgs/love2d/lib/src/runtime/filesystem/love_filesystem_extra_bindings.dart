@@ -6,12 +6,15 @@ import 'package:lualike/lualike.dart'
 
 import 'love_filesystem_runtime.dart';
 
+/// The largest integer that can be represented exactly in a Lua number.
 const int _loveFilesystemLuaNumberLimit = 0x20000000000000;
 
+/// Tracks which runtimes already have filesystem extra bindings installed.
 final Expando<bool> _loveFilesystemExtrasInstalled = Expando<bool>(
   'love2dFilesystemExtrasInstalled',
 );
 
+/// Installs compatibility helpers and extra queries into `love.filesystem`.
 void installLoveFilesystemExtraBindings(LuaRuntime runtime) {
   if (_loveFilesystemExtrasInstalled[runtime] == true) {
     return;
@@ -126,6 +129,7 @@ void installLoveFilesystemExtraBindings(LuaRuntime runtime) {
   _loveFilesystemExtrasInstalled[runtime] = true;
 }
 
+/// The `love.filesystem` module table from the current runtime environment.
 Map<dynamic, dynamic>? _filesystemTable(LuaRuntime runtime) {
   final love = runtime.getCurrentEnv().get('love');
   final loveTable = love is Value ? love.raw : love;
@@ -142,6 +146,7 @@ Map<dynamic, dynamic>? _filesystemTable(LuaRuntime runtime) {
   return filesystemTable;
 }
 
+/// Requires a string-like argument at [index] for [symbol].
 String _requireString(List<Object?> args, int index, String symbol) {
   final value = _stringLike(index < args.length ? args[index] : null);
   if (value != null) {
@@ -151,6 +156,7 @@ String _requireString(List<Object?> args, int index, String symbol) {
   throw LuaError('$symbol expected a string at argument ${index + 1}');
 }
 
+/// Converts [value] to a filesystem string when LOVE would accept it.
 String? _stringLike(Object? value) {
   final raw = value is Value ? value.raw : value;
   return switch (raw) {
@@ -161,6 +167,7 @@ String? _stringLike(Object? value) {
   };
 }
 
+/// Returns an optional boolean argument or [defaultValue] when absent.
 bool _optionalBool(
   List<Object?> args,
   int index, {
@@ -177,6 +184,7 @@ bool _optionalBool(
   return defaultValue;
 }
 
+/// Converts a Lua argument to LOVE's boolean truthiness rules.
 bool _toBoolean(List<Object?> args, int index) {
   final raw = index < args.length ? args[index] : null;
   final unwrapped = raw is Value ? raw.unwrap() : raw;
@@ -189,8 +197,10 @@ bool _toBoolean(List<Object?> args, int index) {
   return true;
 }
 
+/// Returns a LOVE-style `(nil, message)` IO error tuple.
 Value _ioError(String message) {
   return Value.multi(<Object?>[null, message]);
 }
 
+/// Whether [value] is a non-negative filesystem number.
 bool _hasKnownFilesystemNumber(int? value) => value != null && value >= 0;

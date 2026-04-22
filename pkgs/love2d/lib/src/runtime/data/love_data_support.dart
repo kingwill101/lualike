@@ -1,54 +1,74 @@
 part of '../love_runtime.dart';
 
+/// Compression formats supported by LOVE data helpers.
 enum LoveCompressedDataFormat { lz4, zlib, gzip, deflate }
 
+/// Encodings supported by LOVE data helpers.
 enum LoveDataEncodeFormat { base64, hex }
 
+/// Hash algorithms supported by LOVE data helpers.
 enum LoveDataHashFunction { md5, sha1, sha224, sha256, sha384, sha512 }
 
+/// Base type for LOVE data objects that wrap immutable byte storage.
 abstract base class LoveDataObject {
+  /// Creates a data object backed by [bytes].
   LoveDataObject._(this.bytes);
 
+  /// The underlying bytes for this data object.
   final Uint8List bytes;
 
+  /// The number of bytes stored in this object.
   int get size => bytes.length;
 
+  /// A copy of this data object.
   LoveDataObject clone();
 }
 
+/// LOVE `ByteData` implementation backed by a byte buffer.
 final class LoveByteData extends LoveDataObject {
+  /// Creates `ByteData` backed directly by [bytes].
   LoveByteData._(super.bytes) : super._();
 
+  /// Creates `ByteData` from a copied byte list.
   factory LoveByteData.fromBytes(List<int> bytes) {
     return LoveByteData._(_loveDataBytes(bytes));
   }
 
+  /// Creates zero-initialized `ByteData` with [size] bytes.
   factory LoveByteData.withSize(int size) {
     return LoveByteData._(Uint8List(size));
   }
 
   @override
+  /// A copy of this `ByteData`.
   LoveByteData clone() => LoveByteData.fromBytes(bytes);
 }
 
+/// LOVE `DataView` implementation backed by a byte buffer.
 final class LoveDataView extends LoveDataObject {
+  /// Creates `DataView` backed directly by [bytes].
   LoveDataView._(super.bytes) : super._();
 
+  /// Creates `DataView` from a copied byte list.
   factory LoveDataView.fromBytes(List<int> bytes) {
     return LoveDataView._(_loveDataBytes(bytes));
   }
 
   @override
+  /// A copy of this `DataView`.
   LoveDataView clone() => LoveDataView.fromBytes(bytes);
 }
 
+/// LOVE `CompressedData` implementation plus its compression metadata.
 final class LoveCompressedData extends LoveDataObject {
+  /// Creates compressed data backed by [bytes] and metadata.
   LoveCompressedData._(
     super.bytes, {
     required this.format,
     required this.decompressedSize,
   }) : super._();
 
+  /// Creates compressed data from copied bytes and explicit metadata.
   factory LoveCompressedData.fromBytes({
     required List<int> bytes,
     required LoveCompressedDataFormat format,
@@ -61,10 +81,14 @@ final class LoveCompressedData extends LoveDataObject {
     );
   }
 
+  /// The compression format used for [bytes].
   final LoveCompressedDataFormat format;
+
+  /// The expected decompressed byte size.
   final int decompressedSize;
 
   @override
+  /// A copy of this `CompressedData`.
   LoveCompressedData clone() => LoveCompressedData.fromBytes(
     bytes: bytes,
     format: format,
@@ -72,11 +96,13 @@ final class LoveCompressedData extends LoveDataObject {
   );
 }
 
+/// Returns a zero-copy slice view of [bytes] from [offset] with [size] bytes.
 Uint8List loveDataSlice(List<int> bytes, int offset, int size) {
   final source = _loveDataBytes(bytes);
   return Uint8List.sublistView(source, offset, offset + size);
 }
 
+/// Compresses [bytes] using [format] and returns LOVE compressed data.
 LoveCompressedData loveCompressData(
   LoveCompressedDataFormat format,
   List<int> bytes, {
@@ -92,9 +118,7 @@ LoveCompressedData loveCompressData(
 
   final rawBytes = _loveDataBytes(bytes);
   final compressed = switch (format) {
-    LoveCompressedDataFormat.lz4 => _loveCompressLz4Data(
-      rawBytes,
-    ),
+    LoveCompressedDataFormat.lz4 => _loveCompressLz4Data(rawBytes),
     LoveCompressedDataFormat.zlib => ZLibEncoder().encodeBytes(
       rawBytes,
       level: normalizedLevel,
@@ -116,6 +140,7 @@ LoveCompressedData loveCompressData(
   );
 }
 
+/// Decompresses [bytes] encoded with [format].
 Uint8List loveDecompressData(LoveCompressedDataFormat format, List<int> bytes) {
   final compressedBytes = _loveDataBytes(bytes);
   return switch (format) {
@@ -126,9 +151,13 @@ Uint8List loveDecompressData(LoveCompressedDataFormat format, List<int> bytes) {
   };
 }
 
+/// The byte size of the custom uncompressed-length header used for LZ4 data.
 const int _loveLz4HeaderSize = 4;
+
+/// The largest input size accepted by the literal-only LZ4 encoder.
 const int _loveLz4MaxInputSize = 0x7E000000;
 
+/// Compresses [bytes] into LOVE's simple LZ4 framing.
 Uint8List _loveCompressLz4Data(Uint8List bytes) {
   if (bytes.length > _loveLz4MaxInputSize) {
     throw ArgumentError('Data is too large for LZ4 compressor.');
@@ -144,6 +173,7 @@ Uint8List _loveCompressLz4Data(Uint8List bytes) {
   return builder.toBytes();
 }
 
+/// Encodes [bytes] as a single literal-only LZ4 block.
 Uint8List _loveEncodeLz4LiteralOnlyBlock(Uint8List bytes) {
   if (bytes.isEmpty) {
     return Uint8List(0);
@@ -159,6 +189,7 @@ Uint8List _loveEncodeLz4LiteralOnlyBlock(Uint8List bytes) {
   return builder.toBytes();
 }
 
+/// Writes one LZ4 sequence header and any required length extensions.
 void _loveWriteLz4SequenceHeader(
   BytesBuilder builder, {
   required int literalLength,
@@ -174,6 +205,7 @@ void _loveWriteLz4SequenceHeader(
   }
 }
 
+/// Writes the continuation bytes for an LZ4 literal or match length.
 void _loveWriteLz4LengthExtension(BytesBuilder builder, int remainingLength) {
   var next = remainingLength;
   while (next > 0) {
@@ -183,6 +215,7 @@ void _loveWriteLz4LengthExtension(BytesBuilder builder, int remainingLength) {
   }
 }
 
+/// Decompresses LOVE's LZ4 framing into raw bytes.
 Uint8List _loveDecompressLz4Data(Uint8List bytes) {
   if (bytes.length < _loveLz4HeaderSize) {
     throw const FormatException('Invalid LZ4-compressed data size.');
@@ -198,6 +231,7 @@ Uint8List _loveDecompressLz4Data(Uint8List bytes) {
       : Uint8List.sublistView(output, 0, actualSize);
 }
 
+/// Decodes one LZ4 block payload into [output] and returns the bytes written.
 int _loveDecodeLz4Block(Uint8List input, Uint8List output) {
   var inputOffset = 0;
   var outputOffset = 0;
@@ -210,7 +244,9 @@ int _loveDecodeLz4Block(Uint8List input, Uint8List output) {
     var resolvedLength = length;
     while (true) {
       if (inputOffset >= input.length) {
-        throw const FormatException('Could not decompress LZ4-compressed data.');
+        throw const FormatException(
+          'Could not decompress LZ4-compressed data.',
+        );
       }
 
       final chunk = input[inputOffset++];
@@ -266,6 +302,7 @@ int _loveDecodeLz4Block(Uint8List input, Uint8List output) {
   return outputOffset;
 }
 
+/// Encodes [bytes] using the requested textual [format].
 Uint8List loveEncodeData(
   LoveDataEncodeFormat format,
   List<int> bytes, {
@@ -285,6 +322,7 @@ Uint8List loveEncodeData(
   };
 }
 
+/// Decodes [bytes] from the requested textual [format].
 Uint8List loveDecodeData(LoveDataEncodeFormat format, List<int> bytes) {
   final encodedBytes = _loveDataBytes(bytes);
   return switch (format) {
@@ -301,6 +339,7 @@ Uint8List loveDecodeData(LoveDataEncodeFormat format, List<int> bytes) {
   };
 }
 
+/// Hashes [bytes] with the selected digest [function].
 Uint8List loveHashData(LoveDataHashFunction function, List<int> bytes) {
   final input = _loveDataBytes(bytes);
   final digest = switch (function) {
@@ -314,9 +353,11 @@ Uint8List loveHashData(LoveDataHashFunction function, List<int> bytes) {
   return Uint8List.fromList(digest.bytes);
 }
 
+/// Returns [bytes] as a [Uint8List], copying only when necessary.
 Uint8List _loveDataBytes(List<int> bytes) =>
     bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
 
+/// Inserts newline breaks into base64 [input] every [lineLength] characters.
 String _insertBase64LineBreaks(String input, {required int lineLength}) {
   if (lineLength <= 0 || input.length <= lineLength) {
     return input;
@@ -334,6 +375,7 @@ String _insertBase64LineBreaks(String input, {required int lineLength}) {
   return buffer.toString();
 }
 
+/// Encodes [bytes] as a lowercase hexadecimal string.
 String _encodeHex(List<int> bytes) {
   final buffer = StringBuffer();
   for (final byte in bytes) {
@@ -342,6 +384,7 @@ String _encodeHex(List<int> bytes) {
   return buffer.toString();
 }
 
+/// Decodes a hexadecimal [input] string into bytes.
 List<int> _decodeHex(String input) {
   final normalized = input.trim();
   if (normalized.length.isOdd) {
@@ -360,6 +403,7 @@ List<int> _decodeHex(String input) {
   return bytes;
 }
 
+/// Returns whether [byte] is one of the ASCII whitespace characters.
 bool _isAsciiWhitespace(int byte) {
   return byte == 0x09 ||
       byte == 0x0A ||

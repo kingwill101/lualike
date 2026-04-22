@@ -1,5 +1,6 @@
 part of 'love_flame_input.dart';
 
+/// Debug-name overrides that map Flutter logical keys to LOVE key constants.
 const Map<String, String> _logicalDebugNameToLoveKey = <String, String>{
   'enter': 'return',
   'escape': 'escape',
@@ -39,6 +40,7 @@ const Map<String, String> _logicalDebugNameToLoveKey = <String, String>{
   'browser favorites': 'appbookmarks',
 };
 
+/// Debug-name overrides that map Flutter physical keys to LOVE scancodes.
 const Map<String, String> _physicalDebugNameToLoveScancode = <String, String>{
   'enter': 'return',
   'escape': 'escape',
@@ -105,6 +107,10 @@ const Map<String, String> _physicalDebugNameToLoveScancode = <String, String>{
   'browser favorites': 'acbookmarks',
 };
 
+/// Returns the LOVE key constant corresponding to a Flutter [event].
+///
+/// This prefers printable labels and characters, then falls back to debug-name
+/// mappings and finally to the provided [scancode] when available.
 String loveKeyFromFlutterKeyEvent(KeyEvent event, {String? scancode}) {
   final logicalLabel = event.logicalKey.keyLabel;
   if (logicalLabel.length == 1) {
@@ -161,6 +167,7 @@ String loveKeyFromFlutterKeyEvent(KeyEvent event, {String? scancode}) {
   return 'unknown';
 }
 
+/// Returns the LOVE scancode corresponding to [physicalKey].
 String loveScancodeFromFlutterPhysicalKey(PhysicalKeyboardKey physicalKey) {
   final debugName = physicalKey.debugName?.toLowerCase();
   if (debugName == null || debugName.isEmpty) {

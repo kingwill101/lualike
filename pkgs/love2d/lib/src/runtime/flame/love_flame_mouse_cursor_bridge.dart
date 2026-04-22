@@ -2,20 +2,27 @@ import 'package:flutter/services.dart';
 
 import '../love_runtime.dart';
 
+/// Maps LOVE mouse cursor state onto Flutter [MouseCursor] values.
 class LoveFlameMouseCursorBridge {
+  /// Creates a cursor bridge backed by [mouse].
   LoveFlameMouseCursorBridge({required LoveMouseState mouse}) : _mouse = mouse;
 
+  /// The LOVE mouse state being observed.
   final LoveMouseState _mouse;
 
+  /// The last cursor value resolved for Flutter.
   MouseCursor _currentCursor = SystemMouseCursors.basic;
 
+  /// The current Flutter cursor value.
   MouseCursor get currentCursor => _currentCursor;
 
+  /// Recomputes and returns the current Flutter cursor.
   MouseCursor sync() {
     _currentCursor = _resolveCursor();
     return _currentCursor;
   }
 
+  /// Resolves the Flutter cursor implied by the current LOVE mouse state.
   MouseCursor _resolveCursor() {
     if (!_mouse.visible || _mouse.programmaticPositionActive) {
       return SystemMouseCursors.none;

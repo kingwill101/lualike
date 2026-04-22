@@ -687,6 +687,7 @@ class _FakeAudioBackend implements LoveAudioSourceBackend {
   String? loadedMimeType;
   bool looping = false;
   int playCalls = 0;
+  double volume = 1.0;
 
   @override
   Future<void> dispose() async {}
@@ -700,8 +701,16 @@ class _FakeAudioBackend implements LoveAudioSourceBackend {
   }
 
   @override
+  Future<void> seek(Duration position) async {}
+
+  @override
   Future<void> setLooping(bool looping) async {
     this.looping = looping;
+  }
+
+  @override
+  Future<void> setVolume(double volume) async {
+    this.volume = volume;
   }
 
   @override
@@ -752,7 +761,13 @@ class _CountingAudioBackend implements LoveAudioSourceBackend {
   }
 
   @override
+  Future<void> seek(Duration position) async {}
+
+  @override
   Future<void> setLooping(bool looping) async {}
+
+  @override
+  Future<void> setVolume(double volume) async {}
 
   @override
   Future<void> stop() async {}

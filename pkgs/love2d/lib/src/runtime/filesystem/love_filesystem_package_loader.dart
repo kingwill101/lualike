@@ -1,24 +1,23 @@
+/// Synchronizes Lua `package` searchers with the LOVE filesystem runtime.
 library;
 
 import 'package:lualike/lualike.dart'
-    show
-        LuaError,
-        LuaRuntime,
-        LuaString,
-        Value,
-        isLinux,
-        isMacOS,
-        isWindows;
+    show LuaError, LuaRuntime, LuaString, Value, isLinux, isMacOS, isWindows;
 
 import 'love_filesystem_runtime.dart';
 
+/// Cached Lua source searchers installed for each runtime.
 final Expando<Value> _loveFilesystemLuaSearcherCache = Expando<Value>(
   'love2dFilesystemLuaSearcher',
 );
+
+/// Cached native-module searchers installed for each runtime.
 final Expando<Value> _loveFilesystemExtSearcherCache = Expando<Value>(
   'love2dFilesystemExtSearcher',
 );
 
+/// Updates `package.path`, `package.cpath`, and filesystem-backed searchers for
+/// [runtime].
 void syncLoveFilesystemPackageInterop(LuaRuntime runtime) {
   final packageValue = runtime.globals.get('package');
   if (packageValue is! Value || packageValue.raw is! Map) {
@@ -49,6 +48,7 @@ void syncLoveFilesystemPackageInterop(LuaRuntime runtime) {
   packageTable['loaders'] = searchersValue;
 }
 
+/// Creates the Lua-source package searcher for [runtime].
 Value _createLoveFilesystemSearcher(LuaRuntime runtime) {
   return Value((List<Object?> args) async {
     final moduleName = _stringLike(_valueAt(args, 0));
@@ -101,6 +101,7 @@ Value _createLoveFilesystemSearcher(LuaRuntime runtime) {
   });
 }
 
+/// Creates the native-extension package searcher for [runtime].
 Value _createLoveFilesystemExtSearcher(LuaRuntime runtime) {
   return Value((List<Object?> args) async {
     final moduleName = _stringLike(_valueAt(args, 0));
@@ -134,11 +135,16 @@ Value _createLoveFilesystemExtSearcher(LuaRuntime runtime) {
   });
 }
 
+/// Returns the argument at [index], if it was provided.
 Object? _valueAt(List<Object?> args, int index) {
   return index < args.length ? args[index] : null;
 }
 
-Iterable<String> _expandCLibraryCandidates(String template, String modulePath) sync* {
+/// Expands [template] into candidate native-library paths for [modulePath].
+Iterable<String> _expandCLibraryCandidates(
+  String template,
+  String modulePath,
+) sync* {
   if (template.contains('??')) {
     for (final extension in _nativeLibraryExtensions()) {
       yield template
@@ -151,6 +157,7 @@ Iterable<String> _expandCLibraryCandidates(String template, String modulePath) s
   yield template.replaceAll('?', modulePath);
 }
 
+/// The host-native library extensions searched for C modules.
 List<String> _nativeLibraryExtensions() {
   if (isWindows) {
     return const <String>['.dll'];
@@ -164,6 +171,7 @@ List<String> _nativeLibraryExtensions() {
   return const <String>['.so'];
 }
 
+/// Inserts or repositions [searcher] in [searchers] at [targetIndex].
 void _syncSearcher(
   List<dynamic> searchers,
   Value searcher, {
@@ -188,6 +196,7 @@ void _syncSearcher(
   searchers.insert(adjustedIndex, existing);
 }
 
+/// Converts Lua values commonly used for path arguments to strings.
 String? _stringLike(Object? value) {
   final raw = value is Value ? value.raw : value;
   return switch (raw) {

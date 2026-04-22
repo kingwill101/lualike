@@ -51,7 +51,9 @@ void main() {
     'LoveFlameHost wrapText follows LOVE trailing-space and carriage-return rules',
     (tester) async {
       final font = await tester.runAsync(() async {
-        final host = LoveFlameHost<World>(game: FlameGame<World>(world: World()));
+        final host = LoveFlameHost<World>(
+          game: FlameGame<World>(world: World()),
+        );
         return host.loadDefaultTrueTypeFont(
           size: 16.0,
           hinting: 'normal',
@@ -73,10 +75,7 @@ void main() {
 
       final carriageReturn = font.wrapText('A\rB', 1000.0);
       expect(carriageReturn.lines, <String>['AB']);
-      expect(
-        carriageReturn.width,
-        closeTo(font.measureWidth('AB'), 1e-9),
-      );
+      expect(carriageReturn.width, closeTo(font.measureWidth('AB'), 1e-9));
     },
   );
 

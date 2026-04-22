@@ -6,6 +6,22 @@ final RegExp _registeredFlutterFragmentAssetSourcePattern = RegExp(
   r'(?:^|\n)\s*//\s*LOVE2D_FLUTTER_FRAGMENT_ASSET\s*:\s*(\S+)\s*(?:$|\n)',
 );
 
+/// Resolved shader source text plus the filename it came from, when any.
+class _ResolvedShaderSourceArgument {
+  /// Creates resolved shader source text with optional filename context.
+  const _ResolvedShaderSourceArgument({
+    required this.source,
+    this.resolvedFilename,
+  });
+
+  /// The decoded shader source text.
+  final String source;
+
+  /// The resolved filename used to load [source], if it came from the
+  /// filesystem.
+  final String? resolvedFilename;
+}
+
 /// Builds a [LoveShader] from `love.graphics.newShader`-style arguments.
 ///
 /// When the resolved source contains a registered Flutter fragment asset
@@ -35,11 +51,12 @@ Future<LoveShader> _createShaderFromSourceArguments(
         );
 
   final registeredFragmentAssetKey = second == null
-      ? _registeredFlutterFragmentAssetKeyFromSource(first)
+      ? _registeredFlutterFragmentAssetKeyFromResolvedSource(context, first) ??
+            _registeredFlutterFragmentAssetKeyFromSource(first.source)
       : null;
   if (registeredFragmentAssetKey != null) {
     final shader = LoveShader(
-      pixelCode: first,
+      pixelCode: first.source,
       kind: LoveShaderKind.generic,
       flutterFragmentAssetKey: registeredFragmentAssetKey,
     );
@@ -47,8 +64,8 @@ Future<LoveShader> _createShaderFromSourceArguments(
   }
 
   final selection = _resolveShaderStageSourcesForBackend(
-    firstSource: first,
-    secondSource: second,
+    firstSource: first.source,
+    secondSource: second?.source,
     gles: gles,
   );
   return LoveShader.fromSource(
@@ -77,6 +94,26 @@ String? _unsupportedShaderSourceMessage(
   };
 }
 
+/// Returns a validation error for a registered Flutter fragment shader asset,
+/// if one is reported by the host backend.
+Future<String?> _registeredFragmentShaderValidationError(
+  LibraryContext context,
+  LoveShader shader,
+) async {
+  final assetKey = shader.flutterFragmentAssetKey;
+  if (assetKey == null) {
+    return null;
+  }
+
+  final runtime = _runtimeContext(context);
+  return await runtime.host.validateRegisteredFragmentShaderAsset(assetKey);
+}
+
+/// Binds `love.graphics.newShader`.
+///
+/// This resolves LOVE's one-source or two-source shader arguments, rejects
+/// runtime GLSL that the Flutter backend cannot compile yet, validates any
+/// registered fragment asset reference, and returns a wrapped `Shader`.
 LoveApiImplementation _bindGraphicsNewShader(
   LibraryRegistrationContext context,
 ) {
@@ -97,12 +134,20 @@ LoveApiImplementation _bindGraphicsNewShader(
     if (unsupportedMessage != null) {
       throw LuaError(unsupportedMessage);
     }
+
+    final validationError = await _registeredFragmentShaderValidationError(
+      context,
+      shader,
+    );
+    if (validationError != null) {
+      throw LuaError(validationError);
+    }
     return _wrapShader(context, shader);
   };
 }
 
 /// Resolves one shader source argument into source text.
-Future<String> _resolveShaderSourceArgument(
+Future<_ResolvedShaderSourceArgument> _resolveShaderSourceArgument(
   LibraryRegistrationContext context,
   Object? value, {
   required String symbol,
@@ -110,13 +155,16 @@ Future<String> _resolveShaderSourceArgument(
 }) async {
   final fileData = _filesystemFileDataCompatIfPresent(value);
   if (fileData != null) {
-    return utf8.decode(fileData.bytes);
+    return _ResolvedShaderSourceArgument(
+      source: utf8.decode(fileData.bytes),
+      resolvedFilename: fileData.filename,
+    );
   }
 
   final source = _stringLike(value);
   if (source != null) {
     if (_looksLikeInlineShaderSourceText(source)) {
-      return source;
+      return _ResolvedShaderSourceArgument(source: source);
     }
 
     final mounted = await _readMountedResourceFileData(
@@ -125,14 +173,17 @@ Future<String> _resolveShaderSourceArgument(
       symbol: symbol,
     );
     if (mounted != null) {
-      return utf8.decode(mounted.bytes);
+      return _ResolvedShaderSourceArgument(
+        source: utf8.decode(mounted.bytes),
+        resolvedFilename: mounted.filename,
+      );
     }
 
     if (_looksLikeShaderFilePath(source)) {
       throw LuaError('Could not open file $source. Does not exist.');
     }
 
-    return source;
+    return _ResolvedShaderSourceArgument(source: source);
   }
 
   final coerced = await _coerceResourceFileDataViaFilesystem(
@@ -141,7 +192,10 @@ Future<String> _resolveShaderSourceArgument(
     symbol,
   );
   if (coerced != null) {
-    return utf8.decode(coerced.bytes);
+    return _ResolvedShaderSourceArgument(
+      source: utf8.decode(coerced.bytes),
+      resolvedFilename: coerced.filename,
+    );
   }
 
   throw LuaError(
@@ -149,6 +203,8 @@ Future<String> _resolveShaderSourceArgument(
   );
 }
 
+/// Resolves the backend pixel and vertex shader sources for the current
+/// renderer capabilities.
 LoveShaderStageSelection _resolveShaderStageSourcesForBackend({
   required String? firstSource,
   required String? secondSource,
@@ -167,6 +223,8 @@ LoveShaderStageSelection _resolveShaderStageSourcesForBackend({
   }
 }
 
+/// Returns whether [source] looks more like a shader filename than inline
+/// shader text.
 bool _looksLikeShaderFilePath(String source) {
   if (source.isEmpty || source.length >= 64) {
     return false;
@@ -189,6 +247,130 @@ bool _looksLikeShaderFilePath(String source) {
 String? _registeredFlutterFragmentAssetKeyFromSource(String source) {
   final match = _registeredFlutterFragmentAssetSourcePattern.firstMatch(source);
   return match?.group(1);
+}
+
+/// Infers a Flutter fragment asset key from a resolved shader file source.
+///
+/// This accepts explicit asset-style filenames directly and can also infer an
+/// asset key relative to the mounted LOVE source directory when the loaded file
+/// already looks like Flutter runtime-effect source.
+String? _registeredFlutterFragmentAssetKeyFromResolvedSource(
+  LibraryRegistrationContext context,
+  _ResolvedShaderSourceArgument source,
+) {
+  final filename = source.resolvedFilename;
+  if (filename == null ||
+      !_looksLikeFlutterShaderAssetFilename(filename) ||
+      !_looksLikeFlutterFragmentShaderSource(source.source)) {
+    return null;
+  }
+
+  final normalizedFilename = _normalizeForwardSlashPath(filename);
+  if (_looksLikeExplicitFlutterAssetKey(normalizedFilename)) {
+    return normalizedFilename;
+  }
+
+  final interpreter = context.interpreter;
+  if (interpreter == null) {
+    return null;
+  }
+
+  final mountedSource = LoveFilesystemState.of(interpreter).source;
+  if (mountedSource.isEmpty) {
+    return null;
+  }
+
+  final mountedDirectory = _mountedSourceDirectory(mountedSource);
+  if (mountedDirectory.isEmpty) {
+    return null;
+  }
+
+  final inferredAssetKey = _normalizeForwardSlashPath(
+    '$mountedDirectory/$normalizedFilename',
+  );
+  return _looksLikeInferredFlutterAssetKey(inferredAssetKey)
+      ? inferredAssetKey
+      : null;
+}
+
+/// Returns whether [filename] uses a common fragment-shader asset extension.
+bool _looksLikeFlutterShaderAssetFilename(String filename) {
+  final lower = filename.toLowerCase();
+  return lower.endsWith('.frag') ||
+      lower.endsWith('.glsl') ||
+      lower.endsWith('.fsh') ||
+      lower.endsWith('.fs');
+}
+
+/// Returns whether [source] looks like Flutter fragment-shader source instead
+/// of LOVE effect code.
+bool _looksLikeFlutterFragmentShaderSource(String source) {
+  final trimmed = source.trimLeft();
+  if (trimmed.startsWith('// LOVE2D_FLUTTER_FRAGMENT_ASSET:') ||
+      trimmed.startsWith('/* LOVE2D_FLUTTER_FRAGMENT_ASSET:')) {
+    return true;
+  }
+
+  if (trimmed.contains('vec4 effect(') || trimmed.contains('void effect(')) {
+    return false;
+  }
+
+  return trimmed.contains('#include <flutter/runtime_effect.glsl>') ||
+      trimmed.contains('FlutterFragCoord(') ||
+      (trimmed.contains('out vec4 fragColor') &&
+          trimmed.contains('void main('));
+}
+
+/// Returns whether [path] is already an explicit Flutter asset key.
+bool _looksLikeExplicitFlutterAssetKey(String path) {
+  return path.startsWith('assets/') ||
+      path.startsWith('packages/') ||
+      path.startsWith('test_assets/');
+}
+
+/// Returns whether [path] looks like a valid inferred Flutter asset key.
+bool _looksLikeInferredFlutterAssetKey(String path) {
+  return path.isNotEmpty &&
+      path.contains('/') &&
+      !path.startsWith('/') &&
+      !path.startsWith(r'\') &&
+      !path.contains('://');
+}
+
+/// Returns the directory portion of a mounted LOVE source path.
+String _mountedSourceDirectory(String source) {
+  final normalized = _normalizeForwardSlashPath(source);
+  if (normalized.isEmpty) {
+    return '';
+  }
+
+  final lastSlash = normalized.lastIndexOf('/');
+  if (lastSlash < 0) {
+    return normalized.contains('.') ? '' : normalized;
+  }
+
+  final lastSegment = normalized.substring(lastSlash + 1);
+  return lastSegment.contains('.')
+      ? normalized.substring(0, lastSlash)
+      : normalized;
+}
+
+/// Normalizes [path] to a forward-slash relative path without `.` segments.
+String _normalizeForwardSlashPath(String path) {
+  final segments = <String>[];
+  for (final segment in path.replaceAll('\\', '/').split('/')) {
+    if (segment.isEmpty || segment == '.') {
+      continue;
+    }
+    if (segment == '..') {
+      if (segments.isNotEmpty) {
+        segments.removeLast();
+      }
+      continue;
+    }
+    segments.add(segment);
+  }
+  return segments.join('/');
 }
 
 /// Whether [source] already looks like inline shader source text.

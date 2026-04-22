@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
+import 'package:love2d/src/runtime/flame/love_flame_harness_renderer.dart';
 
 const String _rawRegisteredFragmentShaderSource = '''
 // LOVE2D_FLUTTER_FRAGMENT_ASSET: packages/love2d/test_assets/shaders/runtime_effect_solid_color.frag
@@ -20,7 +22,39 @@ void main() {
 }
 ''';
 
+const String _flutterValidatedRegisteredFragmentShaderSource = '''
+// LOVE2D_FLUTTER_FRAGMENT_ASSET: test_assets/shaders/runtime_effect_solid_color.frag
+#version 460 core
+precision highp float;
+
+#include <flutter/runtime_effect.glsl>
+
+uniform float iTime;
+out vec4 fragColor;
+
 void main() {
+  fragColor = vec4(iTime / 10.0, 0.0, 0.0, 1.0);
+}
+''';
+
+const String _missingFlutterValidatedRegisteredFragmentShaderSource = '''
+// LOVE2D_FLUTTER_FRAGMENT_ASSET: test_assets/shaders/does_not_exist.frag
+#version 460 core
+precision highp float;
+
+#include <flutter/runtime_effect.glsl>
+
+uniform float iTime;
+out vec4 fragColor;
+
+void main() {
+  fragColor = vec4(iTime / 10.0, 0.0, 0.0, 1.0);
+}
+''';
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test(
     'newShader accepts raw Flutter fragment source with registered asset metadata',
     () async {
@@ -57,6 +91,49 @@ end
       expect(shader.uniformDeclaration('iResolution')?.typeName, 'vec2');
       expect(shader.uniformDeclaration('iChannel0')?.typeName, 'sampler2d');
       expect(shader.uniform('iTime'), 2.5);
+    },
+    timeout: const Timeout(Duration(seconds: 5)),
+  );
+
+  test(
+    'newShader eagerly validates registered fragment assets on Flutter hosts',
+    () async {
+      final runtime = LoveScriptRuntime(host: LoveFlameHarnessGame().host);
+
+      await runtime.execute('''
+local shader = love.graphics.newShader([[
+$_flutterValidatedRegisteredFragmentShaderSource
+]])
+shader:send("iTime", 2.5)
+shader_ok = shader ~= nil
+''');
+
+      expect(runtime.unwrapGlobal('shader_ok'), isTrue);
+    },
+    timeout: const Timeout(Duration(seconds: 5)),
+  );
+
+  test(
+    'newShader rejects missing registered fragment assets on Flutter hosts',
+    () async {
+      final runtime = LoveScriptRuntime(host: LoveFlameHarnessGame().host);
+
+      await expectLater(
+        runtime.execute('''
+local shader = love.graphics.newShader([[
+$_missingFlutterValidatedRegisteredFragmentShaderSource
+]])
+'''),
+        throwsA(
+          isA<LuaError>().having(
+            (error) => error.message,
+            'message',
+            contains(
+              'Could not load Flutter fragment shader asset "test_assets/shaders/does_not_exist.frag"',
+            ),
+          ),
+        ),
+      );
     },
     timeout: const Timeout(Duration(seconds: 5)),
   );

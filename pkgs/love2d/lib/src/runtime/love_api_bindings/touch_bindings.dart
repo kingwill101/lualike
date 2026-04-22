@@ -1,10 +1,14 @@
 part of '../love_api_bindings.dart';
 
+/// Binds `love.touch.getTouches`.
+///
+/// The returned Lua table uses LOVE's 1-based indexing for active touch IDs.
 LoveApiImplementation _bindTouchGetTouches(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) => Value(_touchIdTable(runtime.touch.getTouches()));
 }
 
+/// Binds `love.touch.getPosition`.
 LoveApiImplementation _bindTouchGetPosition(
   LibraryRegistrationContext context,
 ) {
@@ -16,6 +20,7 @@ LoveApiImplementation _bindTouchGetPosition(
   };
 }
 
+/// Binds `love.touch.getPressure`.
 LoveApiImplementation _bindTouchGetPressure(
   LibraryRegistrationContext context,
 ) {
@@ -26,6 +31,10 @@ LoveApiImplementation _bindTouchGetPressure(
   };
 }
 
+/// Coerces the touch identifier at [index] into a LOVE touch ID.
+///
+/// Numeric values are rounded to match the general numeric coercion used by the
+/// rest of the binding layer.
 int _requireTouchId(List<Object?> args, int index, String symbol) {
   final raw = _rawValue(_valueAt(args, index));
   if (raw is int) {
@@ -38,6 +47,7 @@ int _requireTouchId(List<Object?> args, int index, String symbol) {
   throw LuaError('$symbol expected a touch id at argument ${index + 1}');
 }
 
+/// Returns the active touch with [id] or throws a [LuaError].
 LoveTouchInfo _requireActiveTouch(LoveTouchState state, int id) {
   final touch = state.activeTouch(id);
   if (touch != null) {
@@ -47,6 +57,7 @@ LoveTouchInfo _requireActiveTouch(LoveTouchState state, int id) {
   throw LuaError('Invalid active touch ID: $id');
 }
 
+/// Builds a LOVE-style array table for active touch [ids].
 Map<Object?, Object?> _touchIdTable(List<int> ids) {
   final table = <Object?, Object?>{};
   for (var i = 0; i < ids.length; i++) {

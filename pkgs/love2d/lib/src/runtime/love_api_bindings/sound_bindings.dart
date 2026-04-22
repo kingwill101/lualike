@@ -1,19 +1,70 @@
 part of '../love_api_bindings.dart';
 
+LoveFilesystemFile? _soundFilesystemFileIfPresent(Object? value) {
+  final table = _tableIfPresent(value);
+  if (table == null) {
+    return null;
+  }
+
+  final file = table[_loveFilesystemFileObjectKeyCompat];
+  return file is LoveFilesystemFile ? file : null;
+}
+
+Future<LoveFilesystemFileData> _requireSoundFileData(
+  LibraryRegistrationContext context,
+  Object? source,
+  String functionName,
+) async {
+  final compat = _filesystemFileDataCompatIfPresent(source);
+  if (compat != null) {
+    return compat;
+  }
+
+  final filename = _stringLike(source);
+  if (filename != null) {
+    final mounted = await _readMountedResourceFileData(
+      context,
+      filename,
+      symbol: 'love.sound.$functionName',
+    );
+    if (mounted != null) {
+      return mounted;
+    }
+
+    throw _missingResourceFileError(filename);
+  }
+
+  if (_soundFilesystemFileIfPresent(source) != null) {
+    final coerced = await _coerceResourceFileDataViaFilesystem(
+      context,
+      source,
+      'love.sound.$functionName',
+    );
+    if (coerced != null) {
+      return coerced;
+    }
+  }
+
+  throw LuaError(
+    "bad argument #1 to '$functionName' "
+    '(filename, File, or FileData expected)',
+  );
+}
+
+/// Binds `love.sound.newDecoder`.
+///
+/// LOVE accepts any resource-backed audio input here and turns it into a
+/// streaming decoder with an optional buffer size override.
 LoveApiImplementation _bindSoundNewDecoder(LibraryRegistrationContext context) {
   return (args) async {
     const symbol = 'love.sound.newDecoder';
-    if (args.isEmpty) {
-      throw LuaError('$symbol expects at least 1 argument');
-    }
-
-    final fileData = await _requireResourceFileData(
+    final fileData = await _requireSoundFileData(
       context,
       _valueAt(args, 0),
-      symbol,
+      'newDecoder',
     );
     final bufferSize = args.length >= 2
-        ? _requireRoundedInt(args, 1, symbol)
+        ? _requireLuaStyleRoundedInt(args, 1, symbol)
         : loveSoundDefaultBufferSize;
 
     try {
@@ -27,41 +78,40 @@ LoveApiImplementation _bindSoundNewDecoder(LibraryRegistrationContext context) {
       );
     } on UnsupportedError catch (error) {
       final message = error.message ?? error.toString();
-      if (message.startsWith('Extension ')) {
-        throw LuaError('$symbol $message');
-      }
-      throw LuaError(
-        '$symbol failed to decode "${fileData.filename}": $message',
-      );
+      throw LuaError(message);
     } on ArgumentError catch (error) {
+      final message = error.message;
       throw LuaError(
-        '$symbol failed to decode "${fileData.filename}": ${error.message}',
+        message is String && message.isNotEmpty
+            ? message
+            : '$symbol failed to decode audio data.',
       );
     }
   };
 }
 
+/// Binds `love.sound.newSoundData`.
+///
+/// LOVE overloads this call to create silent sound data from numeric
+/// parameters, decode all remaining samples from a `Decoder`, or decode a file
+/// directly from bytes.
 LoveApiImplementation _bindSoundNewSoundData(
   LibraryRegistrationContext context,
 ) {
   return (args) async {
     const symbol = 'love.sound.newSoundData';
-    if (args.isEmpty) {
-      throw LuaError('$symbol expects at least 1 argument');
-    }
-
     final first = _valueAt(args, 0);
     final rawFirst = _rawValue(first);
     if (rawFirst is num) {
       final samples = rawFirst.round();
       final sampleRate = args.length >= 2
-          ? _requireRoundedInt(args, 1, symbol)
+          ? _requireLuaStyleRoundedInt(args, 1, symbol)
           : loveSoundDefaultSampleRate;
       final bitDepth = args.length >= 3
-          ? _requireRoundedInt(args, 2, symbol)
+          ? _requireLuaStyleRoundedInt(args, 2, symbol)
           : loveSoundDefaultBitDepth;
       final channels = args.length >= 4
-          ? _requireRoundedInt(args, 3, symbol)
+          ? _requireLuaStyleRoundedInt(args, 3, symbol)
           : loveSoundDefaultChannels;
 
       try {
@@ -75,7 +125,12 @@ LoveApiImplementation _bindSoundNewSoundData(
           ),
         );
       } on ArgumentError catch (error) {
-        throw LuaError('$symbol ${error.message}');
+        final message = error.message;
+        throw LuaError(
+          message is String && message.isNotEmpty
+              ? message
+              : '$symbol failed to construct SoundData.',
+        );
       }
     }
 
@@ -84,7 +139,11 @@ LoveApiImplementation _bindSoundNewSoundData(
       return _wrapSoundData(context, decoder.decodeAllRemaining());
     }
 
-    final fileData = await _requireResourceFileData(context, first, symbol);
+    final fileData = await _requireSoundFileData(
+      context,
+      first,
+      'newSoundData',
+    );
     try {
       return _wrapSoundData(
         context,
@@ -92,15 +151,13 @@ LoveApiImplementation _bindSoundNewSoundData(
       );
     } on UnsupportedError catch (error) {
       final message = error.message ?? error.toString();
-      if (message.startsWith('Extension ')) {
-        throw LuaError('$symbol $message');
-      }
-      throw LuaError(
-        '$symbol failed to decode "${fileData.filename}": $message',
-      );
+      throw LuaError(message);
     } on ArgumentError catch (error) {
+      final message = error.message;
       throw LuaError(
-        '$symbol failed to decode "${fileData.filename}": ${error.message}',
+        message is String && message.isNotEmpty
+            ? message
+            : '$symbol failed to decode audio data.',
       );
     }
   };

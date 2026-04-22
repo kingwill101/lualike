@@ -1,16 +1,49 @@
 part of '../love_api_bindings.dart';
 
+const String _loveParticleSystemReleasedWrapperKey =
+    '__love2d_particle_system_released__';
+
+final Expando<bool> _loveParticleSystemReleased = Expando<bool>(
+  'love2dParticleSystemReleased',
+);
+
+Map<dynamic, dynamic>? _particleSystemWrapperTableIfPresent(Object? value) {
+  final table = _tableIdentityIfPresent(value);
+  if (table == null) {
+    return null;
+  }
+
+  final particleSystem = table[_loveParticleSystemObjectKey];
+  if (particleSystem is LoveParticleSystem ||
+      table[_loveParticleSystemReleasedWrapperKey] == true) {
+    return table;
+  }
+
+  return null;
+}
+
+bool _particleSystemWrapperReleased(Object? value) {
+  final table = _particleSystemWrapperTableIfPresent(value);
+  return table?[_loveParticleSystemReleasedWrapperKey] == true;
+}
+
+/// Wraps [particleSystem] in the Lua-facing `ParticleSystem` object table.
+///
+/// The wrapper forwards LOVE 11.5 particle configuration, cloning, and update
+/// calls to the runtime model while reusing cached wrapper tables for stable
+/// object identity.
 Value _wrapParticleSystem(
   LibraryRegistrationContext context,
   LoveParticleSystem particleSystem,
 ) {
   final cached = _loveParticleSystemWrapperCache[particleSystem];
-  if (cached != null) {
+  if (cached != null && _particleSystemWrapperTableIfPresent(cached) != null) {
     return cached;
   }
 
   final builder = BuiltinFunctionBuilder(context);
   final runtime = _runtimeContext(context);
+  const hierarchy = <String>{'ParticleSystem', 'Drawable', 'Object'};
   final table = ValueClass.table(<Object?, Object?>{
     _loveParticleSystemObjectKey: particleSystem,
     'clone': Value(
@@ -382,7 +415,34 @@ Value _wrapParticleSystem(
       }),
       functionName: 'pause',
     ),
-    'release': Value(builder.create((args) => null), functionName: 'release'),
+    'release': Value(
+      builder.create((args) {
+        final receiver = _valueAt(args, 0);
+        final table = _particleSystemWrapperTableIfPresent(receiver);
+        if (table == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:release',
+            index: 0,
+            expected: 'ParticleSystem',
+            actual: receiver,
+          );
+        }
+
+        final particleSystem = table[_loveParticleSystemObjectKey];
+        if (particleSystem is! LoveParticleSystem) {
+          return false;
+        }
+        if (_loveParticleSystemReleased[particleSystem] == true) {
+          return false;
+        }
+
+        _loveParticleSystemReleased[particleSystem] = true;
+        table[_loveParticleSystemReleasedWrapperKey] = true;
+        table[_loveParticleSystemObjectKey] = null;
+        return true;
+      }),
+      functionName: 'release',
+    ),
     'reset': Value(
       builder.create((args) {
         _requireParticleSystem(args, 0, 'ParticleSystem:reset').reset();
@@ -822,15 +882,33 @@ Value _wrapParticleSystem(
       functionName: 'stop',
     ),
     'type': Value(
-      builder.create((args) => 'ParticleSystem'),
+      builder.create((args) {
+        final receiver = _valueAt(args, 0);
+        if (_particleSystemWrapperTableIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:type',
+            index: 0,
+            expected: 'ParticleSystem',
+            actual: receiver,
+          );
+        }
+        return 'ParticleSystem';
+      }),
       functionName: 'type',
     ),
     'typeOf': Value(
       builder.create((args) {
-        final name = _requireString(args, 1, 'ParticleSystem:typeOf');
-        return name == 'ParticleSystem' ||
-            name == 'Drawable' ||
-            name == 'Object';
+        final receiver = _valueAt(args, 0);
+        if (_particleSystemWrapperTableIfPresent(receiver) == null) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:typeOf',
+            index: 0,
+            expected: 'ParticleSystem',
+            actual: receiver,
+          );
+        }
+        final name = _requireString(args, 1, 'Object:typeOf');
+        return hierarchy.contains(name);
       }),
       functionName: 'typeOf',
     ),
@@ -849,6 +927,10 @@ Value _wrapParticleSystem(
   return table;
 }
 
+/// Converts a LOVE insert-mode name into its runtime enum value.
+///
+/// Throws a [LuaError] when [value] is not one of the insert modes accepted by
+/// [LoveParticleSystem.setInsertMode].
 LoveParticleInsertMode _particleInsertMode(String value, String symbol) {
   return switch (value) {
     'top' => LoveParticleInsertMode.top,
@@ -858,6 +940,7 @@ LoveParticleInsertMode _particleInsertMode(String value, String symbol) {
   };
 }
 
+/// Returns the LOVE string name for a particle insert [mode].
 String _particleInsertModeName(LoveParticleInsertMode mode) {
   return switch (mode) {
     LoveParticleInsertMode.top => 'top',
@@ -866,6 +949,10 @@ String _particleInsertModeName(LoveParticleInsertMode mode) {
   };
 }
 
+/// Converts a LOVE emission-area distribution name into its runtime enum.
+///
+/// Missing values default to `none` to match LOVE's optional distribution
+/// argument behavior.
 LoveParticleAreaSpreadDistribution _particleDistribution(
   String? value,
   String symbol,
@@ -883,6 +970,7 @@ LoveParticleAreaSpreadDistribution _particleDistribution(
   };
 }
 
+/// Returns the LOVE string name for an emission-area distribution [value].
 String _particleDistributionName(LoveParticleAreaSpreadDistribution value) {
   return switch (value) {
     LoveParticleAreaSpreadDistribution.uniform => 'uniform',
@@ -894,6 +982,11 @@ String _particleDistributionName(LoveParticleAreaSpreadDistribution value) {
   };
 }
 
+/// Parses `ParticleSystem:setColors` arguments into clamped runtime colors.
+///
+/// LOVE accepts either a sequence of color tables or packed channel values, so
+/// this helper normalizes both call shapes before passing them to the runtime
+/// particle system.
 List<LoveColor> _particleColorsFromArgs(List<Object?> args, String symbol) {
   final firstTable = _tableIfPresent(_valueAt(args, 1));
   if (firstTable != null && _looksLikeColorTable(firstTable)) {
@@ -941,6 +1034,10 @@ List<LoveColor> _particleColorsFromArgs(List<Object?> args, String symbol) {
   );
 }
 
+/// Parses `ParticleSystem:setQuads` arguments into runtime quads.
+///
+/// The binding accepts either a Lua array table of quads or individual quad
+/// arguments and normalizes both forms into the list expected by the runtime.
 List<LoveQuad> _particleQuadsFromArgs(List<Object?> args, String symbol) {
   final first = _valueAt(args, 1);
   final table = _tableIfPresent(first);

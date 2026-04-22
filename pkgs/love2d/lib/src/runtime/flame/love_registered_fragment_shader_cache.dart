@@ -341,11 +341,13 @@ class LoveRegisteredFragmentShaderCache<TProgram, TShader>
   }
 }
 
+/// The default scheduler used for asynchronous fragment-program warmup work.
 LoveRegisteredFragmentShaderTaskScheduler
 _defaultRegisteredFragmentScheduleTask = (callback) {
   Timer.run(callback);
 };
 
+/// Reports registered fragment shader load failures through Flutter errors.
 void _defaultRegisteredFragmentShaderErrorReporter(
   String assetKey,
   Object error,
@@ -363,6 +365,7 @@ void _defaultRegisteredFragmentShaderErrorReporter(
   );
 }
 
+/// Whether [assetKey] looks like a fragment shader source asset path.
 bool _looksLikeRegisteredShaderAssetKey(String assetKey) {
   final lower = assetKey.toLowerCase();
   return lower.endsWith('.frag') ||

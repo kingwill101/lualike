@@ -20,6 +20,10 @@ import 'runtime/physics/love_physics_extra_bindings.dart';
 import 'runtime/system/love_system_extra_bindings.dart';
 import 'runtime/window/love_window_extra_bindings.dart';
 
+/// Attaches a [LoveHost] and filesystem state to an existing [runtime].
+///
+/// This is useful when the generated LOVE bindings are already installed and a
+/// host needs to be replaced or configured separately.
 void attachLoveHost({
   required LuaRuntime runtime,
   required LoveHost host,
@@ -29,6 +33,11 @@ void attachLoveHost({
   LoveFilesystemState.attach(runtime, adapter: filesystemAdapter);
 }
 
+/// Installs the LOVE API surface into [runtime].
+///
+/// This wires up the generated API tables, runtime-specific compatibility
+/// bindings, host integration, and filesystem state expected by the LOVE 11.5
+/// compatibility layer.
 void installLove2d({
   required LuaRuntime runtime,
   LoveHost? host,

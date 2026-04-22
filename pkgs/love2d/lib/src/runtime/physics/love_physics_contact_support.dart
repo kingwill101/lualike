@@ -1,11 +1,13 @@
 part of '../love_runtime.dart';
 
+/// Per-world cache of wrapped forge2d contacts.
 final Expando<Map<forge2d.Contact, LovePhysicsContact>>
 _lovePhysicsContactObjectCache =
     Expando<Map<forge2d.Contact, LovePhysicsContact>>(
       'love2dPhysicsContactObjects',
     );
 
+/// Marks all cached contacts for [world] as destroyed and clears the cache.
 void _disposeLovePhysicsContacts(LovePhysicsWorld world) {
   final cache = _lovePhysicsContactObjectCache[world];
   if (cache == null) {
@@ -18,6 +20,7 @@ void _disposeLovePhysicsContacts(LovePhysicsWorld world) {
   cache.clear();
 }
 
+/// Removes cached contacts that are no longer active in [world].
 void _pruneLovePhysicsContacts(LovePhysicsWorld world) {
   final cache = _lovePhysicsContactObjectCache[world];
   if (cache == null || cache.isEmpty) {
@@ -34,6 +37,7 @@ void _pruneLovePhysicsContacts(LovePhysicsWorld world) {
   }
 }
 
+/// Returns the wrapped LOVE contact for a forge2d [contact] in [world].
 LovePhysicsContact _physicsContactForWorldContact(
   LovePhysicsWorld world,
   forge2d.Contact contact,
@@ -46,7 +50,9 @@ LovePhysicsContact _physicsContactForWorldContact(
   );
 }
 
+/// Adds contact accessors to physics worlds.
 extension LovePhysicsWorldContactAccess on LovePhysicsWorld {
+  /// The active contacts currently owned by this world.
   List<LovePhysicsContact> get contacts {
     _checkActive('world');
     _pruneLovePhysicsContacts(this);
@@ -57,6 +63,7 @@ extension LovePhysicsWorldContactAccess on LovePhysicsWorld {
     );
   }
 
+  /// Returns the LOVE fixture wrapper for forge2d [fixture].
   LovePhysicsFixture fixtureForContact(forge2d.Fixture fixture) {
     for (final body in bodies) {
       for (final candidate in body.fixtures) {
@@ -70,7 +77,9 @@ extension LovePhysicsWorldContactAccess on LovePhysicsWorld {
   }
 }
 
+/// Adds contact accessors to physics bodies.
 extension LovePhysicsBodyContactAccess on LovePhysicsBody {
+  /// The active contacts currently touching this body.
   List<LovePhysicsContact> get contacts {
     final body = _activeBody;
     _pruneLovePhysicsContacts(world);
@@ -82,21 +91,37 @@ extension LovePhysicsBodyContactAccess on LovePhysicsBody {
   }
 }
 
+/// A wrapped physics contact exposed through LOVE's contact API.
 final class LovePhysicsContact {
+  /// Creates a wrapped contact for [world].
   LovePhysicsContact._({required this.world, required forge2d.Contact contact})
     : _contact = contact;
 
+  /// The world that owns this contact.
   final LovePhysicsWorld world;
+
+  /// The underlying forge2d contact.
   final forge2d.Contact _contact;
+
+  /// Whether this wrapper has been permanently destroyed.
   bool _destroyed = false;
+
+  /// The number of outstanding transient retains on this contact.
   int _transientRetainCount = 0;
   // Forge2D exposes contact friction/restitution as read-only values, so these
   // preserve LOVE-visible overrides even though the engine doesn't let us
   // mutate the underlying contact core directly.
+
+  /// The LOVE-visible friction override, if one has been set.
   double? _frictionOverride;
+
+  /// The LOVE-visible restitution override, if one has been set.
   double? _restitutionOverride;
+
+  /// The pending enabled state to replay during the next pre-solve callback.
   bool? _pendingEnabled;
 
+  /// Whether this contact has been destroyed or is no longer active.
   bool get isDestroyed {
     if (_destroyed || world.isDestroyed) {
       return true;
@@ -112,6 +137,7 @@ final class LovePhysicsContact {
     return _destroyed;
   }
 
+  /// The active forge2d contact, or throws when the contact has been destroyed.
   forge2d.Contact get _activeContact {
     if (isDestroyed) {
       throw StateError('Attempt to use destroyed contact.');
@@ -119,11 +145,13 @@ final class LovePhysicsContact {
     return _contact;
   }
 
+  /// The 1-based child indices for the colliding shapes.
   ({int indexA, int indexB}) get children {
     final contact = _activeContact;
     return (indexA: contact.indexA + 1, indexB: contact.indexB + 1);
   }
 
+  /// The fixture wrappers participating in this contact.
   ({LovePhysicsFixture fixtureA, LovePhysicsFixture fixtureB}) get fixtures {
     final contact = _activeContact;
     return (
@@ -132,14 +160,17 @@ final class LovePhysicsContact {
     );
   }
 
+  /// The current contact friction.
   double get friction => _frictionOverride ?? _activeContact.friction;
 
+  /// The world-space contact normal.
   ({double x, double y}) get normal {
     final manifold = forge2d.WorldManifold();
     _activeContact.getWorldManifold(manifold);
     return (x: manifold.normal.x, y: manifold.normal.y);
   }
 
+  /// The world-space contact positions.
   List<({double x, double y})> get positions {
     final contact = _activeContact;
     final manifold = forge2d.WorldManifold();
@@ -155,51 +186,63 @@ final class LovePhysicsContact {
     return List<({double x, double y})>.unmodifiable(positions);
   }
 
+  /// The current contact restitution.
   double get restitution => _restitutionOverride ?? _activeContact.restitution;
 
+  /// The current tangent speed for this contact.
   double get tangentSpeed => _activeContact.tangentSpeed;
 
+  /// Whether this contact is enabled for collision resolution.
   bool get isEnabled => _activeContact.isEnabled;
 
+  /// Whether the fixtures are currently touching.
   bool get isTouching => _activeContact.isTouching();
 
+  /// Resets friction to the engine-computed default.
   void resetFriction() {
     _activeContact.resetFriction();
     _frictionOverride = null;
   }
 
+  /// Resets restitution to the engine-computed default.
   void resetRestitution() {
     _activeContact.resetRestitution();
     _restitutionOverride = null;
   }
 
+  /// Enables or disables this contact.
   void setEnabled(bool enabled) {
     _activeContact.isEnabled = enabled;
     _pendingEnabled = enabled;
   }
 
+  /// Overrides the friction used for this contact.
   void setFriction(double friction) {
     _frictionOverride = friction;
     _applyPersistentFrictionOverride(friction);
     _activeContact.velocityConstraint.friction = friction;
   }
 
+  /// Overrides the restitution used for this contact.
   void setRestitution(double restitution) {
     _restitutionOverride = restitution;
     _applyPersistentRestitutionOverride(restitution);
     _activeContact.velocityConstraint.restitution = restitution;
   }
 
+  /// Sets the tangent speed used for this contact.
   void setTangentSpeed(double speed) {
     final contact = _activeContact;
     contact.tangentSpeed = speed;
     contact.velocityConstraint.tangentSpeed = speed;
   }
 
+  /// Marks this wrapper as permanently destroyed.
   void _markDestroyed() {
     _destroyed = true;
   }
 
+  /// Retains this contact while transient callback wrappers are in flight.
   void _retainTransient() {
     if (_destroyed || world.isDestroyed) {
       return;
@@ -207,6 +250,7 @@ final class LovePhysicsContact {
     _transientRetainCount++;
   }
 
+  /// Releases one transient retain on this contact.
   void _releaseTransient() {
     if (_transientRetainCount <= 0) {
       return;
@@ -218,6 +262,7 @@ final class LovePhysicsContact {
     }
   }
 
+  /// Replays any pending pre-solve state back into the underlying contact.
   void _replayPendingPreSolveState() {
     if (_destroyed || world.isDestroyed) {
       return;
@@ -230,6 +275,8 @@ final class LovePhysicsContact {
     }
   }
 
+  /// Applies a persistent friction override by temporarily patching fixtures
+  /// and recalculating the contact.
   void _applyPersistentFrictionOverride(double friction) {
     final fixtureA = _contact.fixtureA;
     final fixtureB = _contact.fixtureB;
@@ -245,6 +292,8 @@ final class LovePhysicsContact {
     }
   }
 
+  /// Applies a persistent restitution override by temporarily patching
+  /// fixtures and recalculating the contact.
   void _applyPersistentRestitutionOverride(double restitution) {
     final fixtureA = _contact.fixtureA;
     final fixtureB = _contact.fixtureB;

@@ -1,19 +1,31 @@
 part of '../love_api_bindings.dart';
 
+/// Table key used to mark released shader wrapper tables.
 const String _loveShaderReleasedWrapperKey = '__love2d_shader_released__';
+
+/// Backend error message for unsupported `love.graphics.newShader` source.
 const String _loveGraphicsNewShaderUnsupportedMessage =
     'love.graphics.newShader cannot compile arbitrary runtime shader source '
     'on the Flutter backend yet; only the compatibility-emulated radial '
     'gradient and desaturation tint shader subsets plus registered Flutter '
     'fragment-asset shaders are currently supported';
+
+/// Backend error message for unsupported `love.graphics.validateShader` source.
 const String _loveGraphicsValidateShaderUnsupportedMessage =
     'love.graphics.validateShader cannot validate arbitrary runtime shader '
     'source on the Flutter backend yet; only the compatibility-emulated '
     'radial gradient and desaturation tint shader subsets plus registered '
     'Flutter fragment-asset shaders are currently supported';
+
+/// Backend error suffix for unsupported sampler uniform uploads.
+const String _loveShaderSamplerUploadUnsupportedMessage =
+    'does not support sampler uniform uploads on the Flutter backend yet';
+
+/// Backend error suffix for unsupported `Data` uniform uploads.
 const String _loveShaderDataUploadUnsupportedMessage =
     'does not support Data object uploads on the Flutter backend yet';
 
+/// Returns the raw wrapper table when [value] is a shader object table.
 Map<dynamic, dynamic>? _shaderTableIfPresent(Object? value) {
   final table = _tableIdentityIfPresent(value);
   if (table == null) {
@@ -24,11 +36,16 @@ Map<dynamic, dynamic>? _shaderTableIfPresent(Object? value) {
   return shader is LoveShader ? table : null;
 }
 
+/// Returns whether [value] is a released shader wrapper table.
 bool _shaderWrapperReleased(Object? value) {
   final table = _tableIdentityIfPresent(value);
   return table?[_loveShaderReleasedWrapperKey] == true;
 }
 
+/// Returns a live [LoveShader] when [value] is a valid shader wrapper.
+///
+/// Released wrappers mirror LOVE's object-lifetime errors and cannot be used
+/// again.
 LoveShader? _shaderIfPresent(Object? value) {
   final table = _shaderTableIfPresent(value);
   if (table == null) {
@@ -36,21 +53,37 @@ LoveShader? _shaderIfPresent(Object? value) {
   }
 
   if (_shaderWrapperReleased(table)) {
-    throw LuaError('Cannot use object after it has been released.');
+    _throwReleasedObjectError();
   }
 
   return table[_loveShaderObjectKey] as LoveShader;
 }
 
+/// Returns the shader at [index] or throws a LOVE-style argument error.
 LoveShader _requireShader(List<Object?> args, int index, String symbol) {
-  final shader = _shaderIfPresent(_valueAt(args, index));
+  final value = _valueAt(args, index);
+  if (_shaderWrapperReleased(value)) {
+    _throwReleasedObjectError();
+  }
+
+  final shader = _shaderIfPresent(value);
   if (shader != null) {
     return shader;
   }
 
-  throw LuaError('$symbol expected a Shader at argument ${index + 1}');
+  _throwLuaStyleTypeError(
+    symbol: symbol,
+    index: index,
+    expected: 'Shader',
+    actual: value,
+  );
 }
 
+/// Returns the declared uniform descriptor for [name], if it can be resolved.
+///
+/// When static declaration data is unavailable, this falls back to a heuristic
+/// source scan and returns an `unknown` descriptor for names that appear to be
+/// declared in shader source.
 LoveShaderUniformDescriptor? _shaderUniformIfPresent(
   LoveShader shader,
   String name,
@@ -68,6 +101,7 @@ LoveShaderUniformDescriptor? _shaderUniformIfPresent(
   return null;
 }
 
+/// Returns the uniform descriptor for [name] or throws if it is missing.
 LoveShaderUniformDescriptor _requireShaderUniform(
   LoveShader shader,
   String name,
@@ -83,6 +117,11 @@ LoveShaderUniformDescriptor _requireShaderUniform(
   );
 }
 
+/// Wraps [shader] in the LOVE `Shader` object table and caches the wrapper.
+///
+/// The wrapper exposes `release`, `send`, `sendColor`, `hasUniform`,
+/// `getWarnings`, `type`, and `typeOf`, while preserving LOVE's released
+/// object semantics.
 Value _wrapShader(LibraryContext context, LoveShader shader) {
   final cached = _loveShaderWrapperCache[shader];
   if (cached != null && !_shaderWrapperReleased(cached)) {
@@ -94,9 +133,15 @@ Value _wrapShader(LibraryContext context, LoveShader shader) {
     _loveShaderObjectKey: shader,
     'release': Value(
       builder.create((args) {
-        final table = _shaderTableIfPresent(_valueAt(args, 0));
+        final receiver = _valueAt(args, 0);
+        final table = _shaderTableIfPresent(receiver);
         if (table == null) {
-          throw LuaError('Object:release expected a Shader at argument 1');
+          _throwLuaStyleTypeError(
+            symbol: 'Object:release',
+            index: 0,
+            expected: 'Shader',
+            actual: receiver,
+          );
         }
         if (_shaderWrapperReleased(table)) {
           return false;
@@ -116,7 +161,10 @@ Value _wrapShader(LibraryContext context, LoveShader shader) {
           args,
           symbol,
         ).toList(growable: false);
-        shader.send(name, _shaderSentValueForUniform(values, uniform, symbol));
+        shader.send(
+          name,
+          _shaderSentValueForUniform(shader, values, uniform, symbol),
+        );
         return null;
       }),
       functionName: 'send',
@@ -159,19 +207,40 @@ Value _wrapShader(LibraryContext context, LoveShader shader) {
     'getWarnings': Value(
       // Mirrors upstream by always returning a string. No GLSL compiler is
       // available in this runtime so there are no warnings to report.
-      builder.create((args) => ''),
+      builder.create((args) {
+        _requireShader(args, 0, 'Shader:getWarnings');
+        return '';
+      }),
       functionName: 'getWarnings',
     ),
     'type': Value(
       builder.create((args) {
-        _requireShader(args, 0, 'Object:type');
+        final receiver = _valueAt(args, 0);
+        if (_shaderTableIfPresent(receiver) == null &&
+            !_shaderWrapperReleased(receiver)) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:type',
+            index: 0,
+            expected: 'Shader',
+            actual: receiver,
+          );
+        }
         return 'Shader';
       }),
       functionName: 'type',
     ),
     'typeOf': Value(
       builder.create((args) {
-        _requireShader(args, 0, 'Object:typeOf');
+        final receiver = _valueAt(args, 0);
+        if (_shaderTableIfPresent(receiver) == null &&
+            !_shaderWrapperReleased(receiver)) {
+          _throwLuaStyleTypeError(
+            symbol: 'Object:typeOf',
+            index: 0,
+            expected: 'Shader',
+            actual: receiver,
+          );
+        }
         final queried = _requireString(args, 1, 'Object:typeOf');
         return queried == 'Shader' || queried == 'Object';
       }),
@@ -196,6 +265,7 @@ bool _shaderSourceContainsUniform(LoveShader shader, String name) {
       _sourceContainsUniformName(shader.vertexCode ?? '', name);
 }
 
+/// Returns whether [source] appears to declare a uniform named [name].
 bool _sourceContainsUniformName(String source, String name) {
   // Match "extern <type> <name>" or "uniform <type> <name>" with word
   // boundaries.  We use a simple RegExp that handles optional whitespace and
@@ -206,6 +276,9 @@ bool _sourceContainsUniformName(String source, String name) {
   return pattern.hasMatch(source);
 }
 
+/// Binds `love.graphics.setShader`.
+///
+/// Passing `nil`, or omitting the argument, clears the current shader.
 LoveApiImplementation _bindGraphicsSetShader(
   LibraryRegistrationContext context,
 ) {
@@ -219,6 +292,7 @@ LoveApiImplementation _bindGraphicsSetShader(
   };
 }
 
+/// Binds `love.graphics.getShader`.
 LoveApiImplementation _bindGraphicsGetShader(
   LibraryRegistrationContext context,
 ) {
@@ -229,6 +303,10 @@ LoveApiImplementation _bindGraphicsGetShader(
   };
 }
 
+/// Binds `Shader:send`.
+///
+/// This method form mirrors the wrapper-installed `send` closure and validates
+/// uniform existence before converting the payload into the backend format.
 LoveApiImplementation _bindShaderSend(LibraryRegistrationContext context) {
   return (args) {
     const symbol = 'Shader:send';
@@ -239,11 +317,15 @@ LoveApiImplementation _bindShaderSend(LibraryRegistrationContext context) {
       args,
       symbol,
     ).toList(growable: false);
-    shader.send(name, _shaderSentValueForUniform(values, uniform, symbol));
+    shader.send(
+      name,
+      _shaderSentValueForUniform(shader, values, uniform, symbol),
+    );
     return null;
   };
 }
 
+/// Returns the raw send payload values after the shader object and uniform name.
 Iterable<Object?> _shaderRequireSendArguments(
   List<Object?> args,
   String symbol,
@@ -255,7 +337,10 @@ Iterable<Object?> _shaderRequireSendArguments(
   return args.skip(2);
 }
 
+/// Converts the Lua-facing send payload into the backend value expected by
+/// [uniform].
 Object? _shaderSentValueForUniform(
+  LoveShader shader,
   List<Object?> rawValues,
   LoveShaderUniformDescriptor uniform,
   String symbol,
@@ -297,6 +382,7 @@ Object? _shaderSentValueForUniform(
       scalarParser: _shaderBoolUniformComponent,
     ),
     LoveShaderUniformValueKind.sampler => _shaderSentSamplerUniformValue(
+      shader,
       rawValues,
       uniform: uniform,
       symbol: symbol,
@@ -306,6 +392,7 @@ Object? _shaderSentValueForUniform(
   };
 }
 
+/// Rejects unsupported `Data`-style uploads for runtime shader uniforms.
 void _shaderRejectUnsupportedDataUploads(
   Iterable<Object?> rawValues,
   String symbol,
@@ -318,6 +405,7 @@ void _shaderRejectUnsupportedDataUploads(
   }
 }
 
+/// Converts scalar or vector payloads for typed non-matrix uniforms.
 Object? _shaderSentTypedUniformValue(
   List<Object?> rawValues, {
   required LoveShaderUniformDescriptor uniform,
@@ -344,12 +432,20 @@ Object? _shaderSentTypedUniformValue(
   return uniform.arrayLength == null ? values.first : values;
 }
 
+/// Converts sampler payloads into image-backed uniforms.
+///
+/// Sampler uploads are only supported for registered Flutter fragment asset
+/// shaders on the current backend.
 Object? _shaderSentSamplerUniformValue(
+  LoveShader shader,
   List<Object?> rawValues, {
   required LoveShaderUniformDescriptor uniform,
   required String symbol,
 }) {
   _shaderRejectUnsupportedDataUploads(rawValues, symbol);
+  if (!loveShaderUsesFlutterFragmentAsset(shader)) {
+    throw LuaError('$symbol $_loveShaderSamplerUploadUnsupportedMessage');
+  }
   final values =
       _shaderUniformPayloadValues(rawValues, arrayLength: uniform.arrayLength)
           .map((value) => _shaderRequireSamplerImage(value, symbol))
@@ -357,6 +453,8 @@ Object? _shaderSentSamplerUniformValue(
   return uniform.arrayLength == null ? values.first : values;
 }
 
+/// Converts `sendColor` payloads while clamping color channels into LOVE's
+/// normal `0..1` range.
 Object? _shaderSentColorValue(
   List<Object?> rawValues,
   LoveShaderUniformDescriptor uniform,
@@ -403,11 +501,17 @@ Object? _shaderSentColorValue(
   return values;
 }
 
+/// Converts an untyped uniform payload using the generic Lua-to-Dart value
+/// conversion path.
 Object? _shaderSentUnknownUniformValue(List<Object?> rawValues) {
   final values = rawValues.map(_shaderSendValue).toList(growable: false);
   return values.length == 1 ? values.first : values;
 }
 
+/// Returns the payload values that should be consumed for a uniform upload.
+///
+/// Array uniforms read at most [arrayLength] values, while scalar uniforms read
+/// exactly one payload value.
 List<Object?> _shaderUniformPayloadValues(
   List<Object?> rawValues, {
   required int? arrayLength,
@@ -418,6 +522,7 @@ List<Object?> _shaderUniformPayloadValues(
   return rawValues.take(count).toList(growable: false);
 }
 
+/// Validates one scalar or vector uniform payload value.
 Object? _shaderValidatedUniformPayload(
   Object? value, {
   required int components,
@@ -442,6 +547,7 @@ Object? _shaderValidatedUniformPayload(
   );
 }
 
+/// Validates one `sendColor` payload as either a component list or a table.
 Object? _shaderValidatedColorPayload(
   List<Object?> rawValues, {
   required int components,
@@ -471,6 +577,8 @@ Object? _shaderValidatedColorPayload(
   );
 }
 
+/// Reads [components] numeric values from [table] and clamps them into LOVE's
+/// color range.
 List<Object?> _shaderClampedNumericComponents(
   Map<dynamic, dynamic> table, {
   required int components,
@@ -490,6 +598,7 @@ List<Object?> _shaderClampedNumericComponents(
   );
 }
 
+/// Parses one floating-point uniform component.
 double _shaderFloatUniformComponent(Object? value, String symbol) {
   final raw = _rawValue(value);
   if (raw is num) {
@@ -499,6 +608,7 @@ double _shaderFloatUniformComponent(Object? value, String symbol) {
   throw LuaError('$symbol expected a number for shader uniform values');
 }
 
+/// Parses one integer uniform component.
 int _shaderIntUniformComponent(Object? value, String symbol) {
   final raw = _rawValue(value);
   if (raw is! num) {
@@ -514,6 +624,7 @@ int _shaderIntUniformComponent(Object? value, String symbol) {
   return rounded.toInt();
 }
 
+/// Parses one unsigned integer uniform component.
 int _shaderUintUniformComponent(Object? value, String symbol) {
   final parsed = _shaderIntUniformComponent(value, symbol);
   if (parsed < 0) {
@@ -525,6 +636,7 @@ int _shaderUintUniformComponent(Object? value, String symbol) {
   return parsed;
 }
 
+/// Parses one boolean uniform component.
 bool _shaderBoolUniformComponent(Object? value, String symbol) {
   final raw = _rawValue(value);
   if (raw is bool) {
@@ -534,6 +646,7 @@ bool _shaderBoolUniformComponent(Object? value, String symbol) {
   throw LuaError('$symbol expected a boolean for shader uniform values');
 }
 
+/// Returns the sampler image value for [value] or throws.
 LoveImage _shaderRequireSamplerImage(Object? value, String symbol) {
   final image = _imageIfPresent(value);
   if (image != null) {
@@ -550,6 +663,10 @@ LoveImage _shaderRequireSamplerImage(Object? value, String symbol) {
   );
 }
 
+/// Converts a matrix payload into column-major matrix data.
+///
+/// LOVE accepts an optional layout string, transform objects for `mat4`, and
+/// nested-table or flat-table matrix payloads.
 Object? _shaderSentMatrixValue(
   List<Object?> rawValues, {
   required int dimension,
@@ -609,6 +726,8 @@ Object? _shaderSentMatrixValue(
   return arrayLength == null ? matrices.first : matrices;
 }
 
+/// Recursively converts a Lua-facing value into a backend-friendly uniform
+/// payload.
 Object? _shaderSendValue(Object? value) {
   final table = _tableIfPresent(value);
   if (table == null) {
@@ -632,6 +751,7 @@ Object? _shaderSendValue(Object? value) {
   );
 }
 
+/// Reads a square matrix payload from a nested or flat Lua table.
 List<double> _shaderSquareMatrixElementsFromTable(
   Map<dynamic, dynamic> table, {
   required int dimension,
@@ -697,6 +817,7 @@ List<double> _shaderSquareMatrixElementsFromTable(
   );
 }
 
+/// Converts a flat matrix payload into column-major order.
 List<double> _columnMajorSquareMatrixElementsFromFlat(
   List<double> elements, {
   required int dimension,
@@ -722,6 +843,7 @@ List<double> _columnMajorSquareMatrixElementsFromFlat(
   return columnMajor;
 }
 
+/// Clamps numeric color payload values into LOVE's `0..1` range recursively.
 Object? _clampShaderColorValue(Object? value) {
   return switch (value) {
     final num number => number.toDouble().clamp(0.0, 1.0),
@@ -737,6 +859,7 @@ Object? _clampShaderColorValue(Object? value) {
   };
 }
 
+/// Returns the length of the contiguous 1-based sequential portion of [table].
 int _luaSequentialLength(Map<dynamic, dynamic> table) {
   var length = 0;
   while (_tableIndexedEntry(table, length + 1) != null) {
@@ -745,6 +868,7 @@ int _luaSequentialLength(Map<dynamic, dynamic> table) {
   return length;
 }
 
+/// Returns whether [table] contains only 1-based sequential numeric keys.
 bool _luaHasOnlySequentialKeys(Map<dynamic, dynamic> table, int length) {
   for (final entry in table.entries) {
     final rawKey = _rawValue(entry.key);

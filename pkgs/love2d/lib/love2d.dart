@@ -1,4 +1,8 @@
-/// LOVE 11.5 compatibility planning and generated stub surface for LuaLike.
+/// LOVE 11.5 runtime bindings and Flutter integration for LuaLike.
+///
+/// Import this library to install the generated LOVE API surface into a
+/// [LuaRuntime], drive scripts with [LoveScriptRuntime], or embed a LOVE entry
+/// point in Flutter with [LoveFlameHarness].
 library;
 
 export 'src/generated/love_api_reference.g.dart' hide installLove2d;
@@ -25,3 +29,9 @@ export 'src/runtime/filesystem/love_filesystem_runtime.dart'
 export 'src/runtime/love_script_runtime.dart'
     show LoveScriptRuntime, LoveScriptRuntimeJoystickCallbacks;
 export 'src/runtime/love_runtime.dart';
+export 'src/runtime/video/love_media_kit_video_frame_provider.dart'
+    show
+        LoveMediaKitInitializer,
+        LoveMediaKitVideoFrameProvider,
+        ensureLoveMediaKitInitialized,
+        loveMediaKitVideoFrameProviderFactory;

@@ -1,5 +1,6 @@
 part of '../love_runtime.dart';
 
+/// Rasterizes [imageData] into image pixels for the requested [mipmap].
 LoveImageData? rasterizeCompressedImageData(
   LoveCompressedImageData imageData, {
   int mipmap = 1,
@@ -36,6 +37,7 @@ LoveImageData? rasterizeCompressedImageData(
   };
 }
 
+/// Decodes one DXT1 mipmap level into uncompressed pixels.
 LoveImageData _decodeDxt1Mipmap(
   LoveCompressedImageData imageData, {
   required int mipmap,
@@ -66,6 +68,7 @@ LoveImageData _decodeDxt1Mipmap(
   return result;
 }
 
+/// Decodes one DXT3 mipmap level into uncompressed pixels.
 LoveImageData _decodeDxt3Mipmap(
   LoveCompressedImageData imageData, {
   required int mipmap,
@@ -103,6 +106,7 @@ LoveImageData _decodeDxt3Mipmap(
   return result;
 }
 
+/// Decodes one DXT5 mipmap level into uncompressed pixels.
 LoveImageData _decodeDxt5Mipmap(
   LoveCompressedImageData imageData, {
   required int mipmap,
@@ -144,6 +148,7 @@ LoveImageData _decodeDxt5Mipmap(
   return result;
 }
 
+/// Decodes one ETC1 mipmap level into uncompressed pixels.
 LoveImageData _decodeEtc1Mipmap(
   LoveCompressedImageData imageData, {
   required int mipmap,
@@ -172,6 +177,7 @@ LoveImageData _decodeEtc1Mipmap(
   return result;
 }
 
+/// Decodes one ETC2 RGB or punch-through-alpha mipmap level.
 LoveImageData _decodeEtc2RgbMipmap(
   LoveCompressedImageData imageData, {
   required int mipmap,
@@ -202,6 +208,7 @@ LoveImageData _decodeEtc2RgbMipmap(
   return result;
 }
 
+/// Decodes one ETC2 RGBA mipmap level into uncompressed pixels.
 LoveImageData _decodeEtc2RgbaMipmap(
   LoveCompressedImageData imageData, {
   required int mipmap,
@@ -236,6 +243,7 @@ LoveImageData _decodeEtc2RgbaMipmap(
   return result;
 }
 
+/// Decodes one BC4 mipmap level into a single-channel image.
 LoveImageData _decodeBc4Mipmap(
   LoveCompressedImageData imageData, {
   required int mipmap,
@@ -272,6 +280,7 @@ LoveImageData _decodeBc4Mipmap(
   return result;
 }
 
+/// Decodes one EAC R11 mipmap level into a single-channel image.
 LoveImageData _decodeEacR11Mipmap(
   LoveCompressedImageData imageData, {
   required int mipmap,
@@ -308,6 +317,7 @@ LoveImageData _decodeEacR11Mipmap(
   return result;
 }
 
+/// Decodes one EAC RG11 mipmap level into a two-channel image.
 LoveImageData _decodeEacRg11Mipmap(
   LoveCompressedImageData imageData, {
   required int mipmap,
@@ -349,6 +359,7 @@ LoveImageData _decodeEacRg11Mipmap(
   return result;
 }
 
+/// Decodes one BC5 mipmap level into a two-channel image.
 LoveImageData _decodeBc5Mipmap(
   LoveCompressedImageData imageData, {
   required int mipmap,
@@ -390,6 +401,7 @@ LoveImageData _decodeBc5Mipmap(
   return result;
 }
 
+/// Decodes a DXT-style color block and writes it into [target].
 void _decodeColorBlockInto(
   LoveImageData target,
   Uint8List bytes, {
@@ -411,6 +423,7 @@ void _decodeColorBlockInto(
   );
 }
 
+/// Decodes one DXT-style color block into 16 colors.
 List<LoveColor> _decodeColorBlock(
   Uint8List bytes, {
   required int blockOffset,
@@ -430,6 +443,7 @@ List<LoveColor> _decodeColorBlock(
   }, growable: false);
 }
 
+/// Decodes one BC4 or BC5 channel block into 16 normalized values.
 List<double> _decodeBcChannelBlock(
   Uint8List bytes, {
   required int blockOffset,
@@ -448,6 +462,7 @@ List<double> _decodeBcChannelBlock(
   }, growable: false);
 }
 
+/// Decodes one EAC channel block into 16 normalized values.
 List<double> _decodeEacChannelBlock(
   Uint8List bytes, {
   required int blockOffset,
@@ -484,6 +499,7 @@ List<double> _decodeEacChannelBlock(
   }, growable: false);
 }
 
+/// Decodes one ETC2 alpha block into 16 normalized alpha values.
 List<double> _decodeEtc2AlphaBlock(
   Uint8List bytes, {
   required int blockOffset,
@@ -503,6 +519,7 @@ List<double> _decodeEtc2AlphaBlock(
   }, growable: false);
 }
 
+/// Decodes an ETC2 color block and writes it into [target].
 void _decodeEtc2ColorBlockInto(
   LoveImageData target,
   Uint8List bytes, {
@@ -527,6 +544,7 @@ void _decodeEtc2ColorBlockInto(
   );
 }
 
+/// Decodes one ETC2 color block into 16 colors.
 List<LoveColor> _decodeEtc2ColorBlock(
   Uint8List bytes, {
   required int blockOffset,
@@ -612,6 +630,7 @@ List<LoveColor> _decodeEtc2ColorBlock(
   );
 }
 
+/// Decodes ETC subblock colors for individual or differential ETC modes.
 List<LoveColor> _decodeEtcSubblockColors({
   required int low,
   required bool flipped,
@@ -651,6 +670,7 @@ List<LoveColor> _decodeEtcSubblockColors({
   }, growable: false);
 }
 
+/// Decodes an ETC2 T-mode color block.
 List<LoveColor> _decodeEtc2TModeColors(
   Uint8List bytes, {
   required int blockOffset,
@@ -695,6 +715,7 @@ List<LoveColor> _decodeEtc2TModeColors(
   );
 }
 
+/// Decodes an ETC2 H-mode color block.
 List<LoveColor> _decodeEtc2HModeColors(
   Uint8List bytes, {
   required int blockOffset,
@@ -763,6 +784,7 @@ List<LoveColor> _decodeEtc2HModeColors(
   );
 }
 
+/// Decodes an ETC2 planar-mode color block.
 List<LoveColor> _decodeEtc2PlanarModeColors(
   Uint8List bytes, {
   required int blockOffset,
@@ -834,6 +856,7 @@ List<LoveColor> _decodeEtc2PlanarModeColors(
   }, growable: false);
 }
 
+/// Applies ETC paint-color selectors to build a 4x4 color block.
 List<LoveColor> _decodeEtcPaintColors(
   List<LoveColor> paintColors, {
   required int low,
@@ -857,11 +880,13 @@ List<LoveColor> _decodeEtcPaintColors(
   }, growable: false);
 }
 
+/// Decodes one ETC selector value at `[localX, localY]`.
 int _decodeEtcSelector(int low, int localX, int localY) {
   final selectorBit = localY + (localX * 4);
   return ((low >> selectorBit) & 0x1) | ((low >> (selectorBit + 15)) & 0x2);
 }
 
+/// Decodes one ETC1 block and writes it into [target].
 void _decodeEtc1BlockInto(
   LoveImageData target,
   Uint8List bytes, {
@@ -928,6 +953,7 @@ void _decodeEtc1BlockInto(
   );
 }
 
+/// Decodes one ETC1 subblock and writes it into [target].
 void _decodeEtc1SubblockInto(
   LoveImageData target, {
   required int blockX,
@@ -969,6 +995,7 @@ void _decodeEtc1SubblockInto(
   }
 }
 
+/// Writes a 4x4 decoded block into [target].
 void _writeDecodedBlock(
   LoveImageData target,
   List<LoveColor> colors, {
@@ -999,6 +1026,7 @@ void _writeDecodedBlock(
   }
 }
 
+/// Builds the DXT color palette for two RGB565 endpoints.
 List<LoveColor> _dxtColorPalette(
   int color0,
   int color1, {
@@ -1023,6 +1051,7 @@ List<LoveColor> _dxtColorPalette(
   ];
 }
 
+/// Decodes one RGB565 color value into normalized RGBA components.
 LoveColor _decodeRgb565(int value) {
   return LoveColor(
     ((value >> 11) & 0x1f) / 31.0,
@@ -1032,6 +1061,7 @@ LoveColor _decodeRgb565(int value) {
   );
 }
 
+/// Blends [first] and [second] using integer weights.
 LoveColor _blendColors(
   LoveColor first,
   LoveColor second,
@@ -1047,6 +1077,7 @@ LoveColor _blendColors(
   );
 }
 
+/// Builds the DXT5 alpha palette for two alpha endpoints.
 List<double> _dxt5AlphaPalette(int alpha0, int alpha1) {
   final first = alpha0 / 255.0;
   final second = alpha1 / 255.0;
@@ -1075,6 +1106,7 @@ List<double> _dxt5AlphaPalette(int alpha0, int alpha1) {
   ];
 }
 
+/// Builds the signed BC4 interpolation palette for two endpoints.
 List<double> _bc4SignedPalette(int endpoint0, int endpoint1) {
   final first = _signedNormalizedByte(endpoint0);
   final second = _signedNormalizedByte(endpoint1);
@@ -1103,6 +1135,7 @@ List<double> _bc4SignedPalette(int endpoint0, int endpoint1) {
   ];
 }
 
+/// Converts a signed byte endpoint into the normalized BC4 range.
 double _signedNormalizedByte(int value) {
   if (value <= -127) {
     return -1.0;
@@ -1110,6 +1143,7 @@ double _signedNormalizedByte(int value) {
   return value / 127.0;
 }
 
+/// Decodes one unsigned EAC 11-bit sample value.
 int _decodeUnsignedEac11(
   int baseCodeword, {
   required int modifier,
@@ -1122,6 +1156,7 @@ int _decodeUnsignedEac11(
   return _clampUnsignedEac11(value);
 }
 
+/// Decodes one signed EAC 11-bit sample value.
 int _decodeSignedEac11(
   int baseCodeword, {
   required int modifier,
@@ -1133,6 +1168,7 @@ int _decodeSignedEac11(
   return _clampSignedEac11(value);
 }
 
+/// Clamps an unsigned EAC 11-bit value to its legal range.
 int _clampUnsignedEac11(int value) {
   if (value <= 0) {
     return 0;
@@ -1143,6 +1179,7 @@ int _clampUnsignedEac11(int value) {
   return value;
 }
 
+/// Clamps a signed EAC 11-bit value to its legal range.
 int _clampSignedEac11(int value) {
   if (value <= -1023) {
     return -1023;
@@ -1153,10 +1190,12 @@ int _clampSignedEac11(int value) {
   return value;
 }
 
+/// Reads a little-endian 16-bit value from compressed bytes.
 int _readCompressedUint16Le(Uint8List bytes, int offset) {
   return bytes[offset] | (bytes[offset + 1] << 8);
 }
 
+/// Reads a little-endian 32-bit value from compressed bytes.
 int _readCompressedUint32Le(Uint8List bytes, int offset) {
   return bytes[offset] |
       (bytes[offset + 1] << 8) |
@@ -1164,6 +1203,7 @@ int _readCompressedUint32Le(Uint8List bytes, int offset) {
       (bytes[offset + 3] << 24);
 }
 
+/// Reads a big-endian 32-bit value from compressed bytes.
 int _readCompressedUint32Be(Uint8List bytes, int offset) {
   return (bytes[offset] << 24) |
       (bytes[offset + 1] << 16) |
@@ -1171,11 +1211,13 @@ int _readCompressedUint32Be(Uint8List bytes, int offset) {
       bytes[offset + 3];
 }
 
+/// Reads a little-endian 64-bit value from compressed bytes.
 int _readCompressedUint64Le(Uint8List bytes, int offset) {
   return _readCompressedUint32Le(bytes, offset) |
       (_readCompressedUint32Le(bytes, offset + 4) << 32);
 }
 
+/// Reads a little-endian 48-bit value from compressed bytes.
 int _readCompressed48Le(Uint8List bytes, int offset) {
   var value = 0;
   for (var index = 0; index < 6; index++) {
@@ -1184,6 +1226,7 @@ int _readCompressed48Le(Uint8List bytes, int offset) {
   return value;
 }
 
+/// Reads a big-endian 48-bit value from compressed bytes.
 int _readCompressed48Be(Uint8List bytes, int offset) {
   var value = 0;
   for (var index = 0; index < 6; index++) {
@@ -1192,11 +1235,13 @@ int _readCompressed48Be(Uint8List bytes, int offset) {
   return value;
 }
 
+/// Reads one signed byte from compressed bytes.
 int _readCompressedInt8(Uint8List bytes, int offset) {
   final value = bytes[offset];
   return value >= 0x80 ? value - 0x100 : value;
 }
 
+/// The ETC1 modifier table used by individual and differential modes.
 const List<int> _etc1ModifierTable = <int>[
   2,
   8,
@@ -1232,8 +1277,10 @@ const List<int> _etc1ModifierTable = <int>[
   -183,
 ];
 
+/// The signed 3-bit differential lookup used by ETC blocks.
 const List<int> _etc1DiffLookup = <int>[0, 1, 2, 3, -4, -3, -2, -1];
 
+/// The ETC modifier tables used for opaque blocks.
 const List<List<int>> _etcOpaqueModifierTables = <List<int>>[
   <int>[2, 8, -2, -8],
   <int>[5, 17, -5, -17],
@@ -1245,6 +1292,7 @@ const List<List<int>> _etcOpaqueModifierTables = <List<int>>[
   <int>[47, 183, -47, -183],
 ];
 
+/// The ETC modifier tables used for punch-through-alpha blocks.
 const List<List<int>> _etcNonOpaquePunchThroughModifierTables = <List<int>>[
   <int>[0, 8, 0, -8],
   <int>[0, 17, 0, -17],
@@ -1256,8 +1304,10 @@ const List<List<int>> _etcNonOpaquePunchThroughModifierTables = <List<int>>[
   <int>[0, 183, 0, -183],
 ];
 
+/// The ETC2 T/H-mode distance lookup table.
 const List<int> _etc2DistanceTable = <int>[3, 6, 11, 16, 23, 32, 41, 64];
 
+/// The EAC modifier tables used by alpha and R11/RG11 blocks.
 const List<List<int>> _eacModifierTable = <List<int>>[
   <int>[-3, -6, -9, -15, 2, 5, 8, 14],
   <int>[-3, -7, -10, -13, 2, 6, 9, 12],
@@ -1277,6 +1327,7 @@ const List<List<int>> _eacModifierTable = <List<int>>[
   <int>[-3, -5, -7, -9, 2, 4, 6, 8],
 ];
 
+/// Clamps an 8-bit channel value into the legal byte range.
 int _clampCompressedByte(int value) {
   if (value <= 0) {
     return 0;
@@ -1287,26 +1338,31 @@ int _clampCompressedByte(int value) {
   return value;
 }
 
+/// Expands a 4-bit ETC channel value to 8 bits.
 int _convertEtc4To8(int value) {
   final nibble = value & 0xf;
   return (nibble << 4) | nibble;
 }
 
+/// Expands a 5-bit ETC channel value to 8 bits.
 int _convertEtc5To8(int value) {
   final bits = value & 0x1f;
   return (bits << 3) | (bits >> 2);
 }
 
+/// Expands a 6-bit ETC channel value to 8 bits.
 int _convertEtc6To8(int value) {
   final bits = value & 0x3f;
   return (bits << 2) | (bits >> 4);
 }
 
+/// Expands a 7-bit ETC channel value to 8 bits.
 int _convertEtc7To8(int value) {
   final bits = value & 0x7f;
   return (bits << 1) | (bits >> 6);
 }
 
+/// Applies an ETC differential delta to a 5-bit base value and expands it.
 int _convertEtcDiff(int base, int diff) {
   return _convertEtc5To8((base & 0x1f) + _etc1DiffLookup[diff & 0x7]);
 }

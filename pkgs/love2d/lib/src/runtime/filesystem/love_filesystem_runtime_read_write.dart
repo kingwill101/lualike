@@ -1,10 +1,19 @@
 part of 'love_filesystem_runtime.dart';
 
+/// Implements read, write, and chunk-loading operations on the filesystem
+/// runtime.
 extension LoveFilesystemRuntimeReadWrite on LoveFilesystemState {
+  /// Reads up to [size] bytes from [logicalPath].
+  ///
+  /// Returns `null` when the path does not resolve to a readable file.
   Future<List<int>?> readAllBytes(String logicalPath, {int size = -1}) async {
     return readAllBytesIfExistsOrThrow(logicalPath, size: size);
   }
 
+  /// Writes [bytes] to [logicalPath].
+  ///
+  /// Returns `false` when the save directory cannot be prepared or the target
+  /// file cannot be opened for writing.
   Future<bool> writeBytes(
     String logicalPath,
     List<int> bytes, {
@@ -18,6 +27,7 @@ extension LoveFilesystemRuntimeReadWrite on LoveFilesystemState {
     }
   }
 
+  /// Writes [bytes] to [logicalPath] and throws a [StateError] on failure.
   Future<void> writeBytesOrThrow(
     String logicalPath,
     List<int> bytes, {
@@ -56,6 +66,9 @@ extension LoveFilesystemRuntimeReadWrite on LoveFilesystemState {
     }
   }
 
+  /// Reads [logicalPath] into a [LoveFilesystemFileData] object.
+  ///
+  /// Returns `null` when the file does not exist.
   Future<LoveFilesystemFileData?> readFileData(
     String logicalPath, {
     int size = -1,
@@ -72,6 +85,8 @@ extension LoveFilesystemRuntimeReadWrite on LoveFilesystemState {
     );
   }
 
+  /// Reads [logicalPath] into a [LoveFilesystemFileData] object when it
+  /// exists.
   Future<LoveFilesystemFileData?> readFileDataIfExistsOrThrow(
     String logicalPath, {
     int size = -1,
@@ -88,6 +103,9 @@ extension LoveFilesystemRuntimeReadWrite on LoveFilesystemState {
     );
   }
 
+  /// Reads [logicalPath] into a [LoveFilesystemFileData] object.
+  ///
+  /// Throws a [StateError] when the file cannot be opened.
   Future<LoveFilesystemFileData> readFileDataOrThrow(
     String logicalPath, {
     int size = -1,
@@ -100,6 +118,10 @@ extension LoveFilesystemRuntimeReadWrite on LoveFilesystemState {
     );
   }
 
+  /// Resolves [logicalPath] to the first readable physical host path.
+  ///
+  /// Returns `null` for paths backed only by virtual archive mounts or for
+  /// logical paths that are not currently visible.
   Future<String?> resolveReadablePhysicalPath(String logicalPath) async {
     await _ensureAdapterBoundRoots();
     final normalized = _normalizeLogicalPath(logicalPath);
@@ -115,6 +137,7 @@ extension LoveFilesystemRuntimeReadWrite on LoveFilesystemState {
     return null;
   }
 
+  /// Opens the first readable handle that matches [logicalPath].
   Future<_LoveReadableHandle?> _openReadable(String logicalPath) async {
     final normalized = _normalizeLogicalPath(logicalPath);
     for (final candidate in await _readCandidates(normalized)) {
@@ -127,6 +150,10 @@ extension LoveFilesystemRuntimeReadWrite on LoveFilesystemState {
     return null;
   }
 
+  /// Resolves [logicalPath] to a writable path under the save directory.
+  ///
+  /// Returns `null` when no save directory is configured or the normalized path
+  /// would escape the writable root.
   Future<String?> resolveWritablePhysicalPath(String logicalPath) async {
     final saveDirectory = getSaveDirectory();
     if (saveDirectory.isEmpty) {
@@ -148,6 +175,7 @@ extension LoveFilesystemRuntimeReadWrite on LoveFilesystemState {
     return resolved;
   }
 
+  /// Ensures that the writable save directory exists.
   Future<bool> _ensureSaveDirectoryExists() async {
     final saveDirectory = getSaveDirectory();
     if (saveDirectory.isEmpty) {
@@ -157,6 +185,8 @@ extension LoveFilesystemRuntimeReadWrite on LoveFilesystemState {
     return adapter.createDirectory(saveDirectory, recursive: true);
   }
 
+  /// Returns whether any ancestor of [targetPath] inside the save directory is
+  /// already a file.
   Future<bool> _hasFileAncestorInSaveDirectory(String targetPath) async {
     final saveDirectory = path.normalize(getSaveDirectory());
     var current = path.normalize(path.dirname(targetPath));
@@ -179,6 +209,8 @@ extension LoveFilesystemRuntimeReadWrite on LoveFilesystemState {
     return false;
   }
 
+  /// Returns the first readable file candidate for [logicalPath], if one
+  /// exists.
   Future<_LoveResolvedPath?> _readableFileCandidate(String logicalPath) async {
     final normalized = _normalizeLogicalPath(logicalPath);
     for (final candidate in await _readCandidates(normalized)) {
@@ -199,6 +231,8 @@ extension LoveFilesystemRuntimeReadWrite on LoveFilesystemState {
     return null;
   }
 
+  /// Reads bytes from [candidate] and throws LOVE-style errors when the read
+  /// fails.
   Future<List<int>> _readCandidateBytesOrThrow(
     _LoveResolvedPath candidate, {
     required String logicalPath,
@@ -253,6 +287,8 @@ extension LoveFilesystemRuntimeReadWrite on LoveFilesystemState {
     }
   }
 
+  /// Reads all bytes from [physicalPath] when the host path exists and is
+  /// readable.
   Future<List<int>?> _readPhysicalBytesIfPresent(String physicalPath) async {
     try {
       final bytes = await adapter.readFileBytes(physicalPath);
@@ -287,6 +323,9 @@ extension LoveFilesystemRuntimeReadWrite on LoveFilesystemState {
     }
   }
 
+  /// Reads up to [size] bytes from [logicalPath] when it exists.
+  ///
+  /// Throws a [StateError] when the file exists but cannot be opened or read.
   Future<List<int>?> readAllBytesIfExistsOrThrow(
     String logicalPath, {
     int size = -1,
@@ -303,6 +342,9 @@ extension LoveFilesystemRuntimeReadWrite on LoveFilesystemState {
     );
   }
 
+  /// Reads up to [size] bytes from [logicalPath].
+  ///
+  /// Throws a [StateError] when the file does not exist or cannot be read.
   Future<List<int>> readAllBytesOrThrow(
     String logicalPath, {
     int size = -1,
@@ -315,6 +357,9 @@ extension LoveFilesystemRuntimeReadWrite on LoveFilesystemState {
     return bytes;
   }
 
+  /// Loads the Lua chunk stored at [logicalPath] into [runtime].
+  ///
+  /// Throws a [LuaError] when the source cannot be parsed.
   Future<Value?> loadChunk(LuaRuntime runtime, String logicalPath) async {
     final bytes = await readAllBytesOrThrow(logicalPath);
 

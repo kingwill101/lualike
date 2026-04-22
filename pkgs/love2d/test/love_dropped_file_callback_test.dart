@@ -4,6 +4,7 @@ import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 
 import 'test_support/memory_filesystem_test_support.dart';
+import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   test(
@@ -57,7 +58,7 @@ end
       expect(snapshot['queued_mount'], 'true');
       expect(snapshot['queued_info_type'], 'file');
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['queuedmods/readme.txt'],
@@ -65,7 +66,7 @@ end
         <Object?>['from callback drop', 18],
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['queuedmods/readme.txt'],
@@ -83,42 +84,3 @@ List<int> _encodeZip(Map<String, String> files) {
   }
   return ZipEncoder().encodeBytes(archive);
 }
-
-Future<Object?> _call(
-  Interpreter runtime,
-  List<String> path, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(_rawFunction(runtime, path).call(args));
-}
-
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> path) {
-  var current = runtime.getCurrentEnv().get(path.first);
-  for (final segment in path.skip(1)) {
-    final table = current is Value ? current.raw : current;
-    expect(
-      table,
-      isA<Map>(),
-      reason: 'Expected ${path.join('.')} to traverse a Lua table',
-    );
-    current = (table as Map)[segment];
-  }
-
-  expect(current, isA<Value>());
-  final raw = (current! as Value).raw;
-  expect(raw, isA<BuiltinFunction>());
-  return raw as BuiltinFunction;
-}
-
-Future<Object?> _resolveCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return List<Object?>.from(
-      (wrapped.raw as List<Object?>).map(_unwrap),
-      growable: false,
-    );
-  }
-  return _unwrap(resolved);
-}
-
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
+import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.graphics compressed rasterization', () {
@@ -20,7 +21,7 @@ void main() {
           'solid_red.dds',
           _ddsBytes(_dxt1SolidBlock(paletteIndex: 0)),
         );
-        final image = await _call(
+        final image = await luaCallList(
           runtime,
           const ['love', 'graphics', 'newImage'],
           <Object?>[compressed],
@@ -32,7 +33,7 @@ void main() {
         });
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await _call(
+        await luaCallList(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[image, 0, 0],
@@ -68,7 +69,7 @@ void main() {
             fourCc: 'DXT3',
           ),
         );
-        final image = await _call(
+        final image = await luaCallList(
           runtime,
           const ['love', 'graphics', 'newImage'],
           <Object?>[compressed],
@@ -80,12 +81,12 @@ void main() {
         });
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await _call(
+        await luaCallList(
           runtime,
           const ['love', 'graphics', 'setBlendMode'],
           const <Object?>['replace'],
         );
-        await _call(
+        await luaCallList(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[image, 0, 0],
@@ -123,7 +124,7 @@ void main() {
           'green.ktx',
           _ktxBytes(_dxt1SolidBlock(paletteIndex: 1)),
         );
-        final image = await _call(
+        final image = await luaCallList(
           runtime,
           const ['love', 'graphics', 'newArrayImage'],
           <Object?>[
@@ -137,7 +138,7 @@ void main() {
         });
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await _call(
+        await luaCallList(
           runtime,
           const ['love', 'graphics', 'drawLayer'],
           <Object?>[image, 2, 0, 0],
@@ -191,7 +192,7 @@ void main() {
             internalFormat: 0x83F3,
           ),
         );
-        final image = await _call(
+        final image = await luaCallList(
           runtime,
           const ['love', 'graphics', 'newArrayImage'],
           <Object?>[
@@ -205,12 +206,12 @@ void main() {
         });
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await _call(
+        await luaCallList(
           runtime,
           const ['love', 'graphics', 'setBlendMode'],
           const <Object?>['replace'],
         );
-        await _call(
+        await luaCallList(
           runtime,
           const ['love', 'graphics', 'drawLayer'],
           <Object?>[image, 2, 0, 0],
@@ -241,7 +242,7 @@ void main() {
         'solid_etc1.pkm',
         _pkmBytes(_etc1SolidBlock(redNibble: 1, greenNibble: 2, blueNibble: 3)),
       );
-      final image = await _call(
+      final image = await luaCallList(
         runtime,
         const ['love', 'graphics', 'newImage'],
         <Object?>[compressed],
@@ -253,7 +254,7 @@ void main() {
       });
 
       LoveRuntimeContext.of(runtime).beginDrawFrame();
-      await _call(
+      await luaCallList(
         runtime,
         const ['love', 'graphics', 'draw'],
         <Object?>[image, 0, 0],
@@ -298,7 +299,7 @@ void main() {
             format: 1,
           ),
         );
-        final image = await _call(
+        final image = await luaCallList(
           runtime,
           const ['love', 'graphics', 'newImage'],
           <Object?>[compressed],
@@ -310,7 +311,7 @@ void main() {
         });
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await _call(
+        await luaCallList(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[image, 0, 0],
@@ -357,7 +358,7 @@ void main() {
           'solid_etc2rgba.ktx',
           _ktxBytes(block, internalFormat: 0x9278),
         );
-        final image = await _call(
+        final image = await luaCallList(
           runtime,
           const ['love', 'graphics', 'newImage'],
           <Object?>[compressed],
@@ -369,12 +370,12 @@ void main() {
         });
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await _call(
+        await luaCallList(
           runtime,
           const ['love', 'graphics', 'setBlendMode'],
           const <Object?>['replace'],
         );
-        await _call(
+        await luaCallList(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[image, 0, 0],
@@ -415,7 +416,7 @@ void main() {
             format: 5,
           ),
         );
-        final image = await _call(
+        final image = await luaCallList(
           runtime,
           const ['love', 'graphics', 'newImage'],
           <Object?>[compressed],
@@ -427,7 +428,7 @@ void main() {
         });
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await _call(
+        await luaCallList(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[image, 0, 0],
@@ -463,7 +464,7 @@ void main() {
             fourCc: 'BC4U',
           ),
         );
-        final image = await _call(
+        final image = await luaCallList(
           runtime,
           const ['love', 'graphics', 'newImage'],
           <Object?>[compressed],
@@ -475,7 +476,7 @@ void main() {
         });
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await _call(
+        await luaCallList(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[image, 0, 0],
@@ -518,7 +519,7 @@ void main() {
             internalFormat: 0x8D64,
           ),
         );
-        final image = await _call(
+        final image = await luaCallList(
           runtime,
           const ['love', 'graphics', 'newArrayImage'],
           <Object?>[
@@ -532,7 +533,7 @@ void main() {
         });
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await _call(
+        await luaCallList(
           runtime,
           const ['love', 'graphics', 'drawLayer'],
           <Object?>[image, 2, 0, 0],
@@ -578,7 +579,7 @@ void main() {
             internalFormat: 0x9276,
           ),
         );
-        final image = await _call(
+        final image = await luaCallList(
           runtime,
           const ['love', 'graphics', 'newImage'],
           <Object?>[compressed],
@@ -590,12 +591,12 @@ void main() {
         });
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await _call(
+        await luaCallList(
           runtime,
           const ['love', 'graphics', 'setBlendMode'],
           const <Object?>['replace'],
         );
-        await _call(
+        await luaCallList(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[image, 0, 0],
@@ -657,7 +658,7 @@ void main() {
             internalFormat: 0x9272,
           ),
         );
-        final image = await _call(
+        final image = await luaCallList(
           runtime,
           const ['love', 'graphics', 'newArrayImage'],
           <Object?>[
@@ -671,7 +672,7 @@ void main() {
         });
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await _call(
+        await luaCallList(
           runtime,
           const ['love', 'graphics', 'drawLayer'],
           <Object?>[image, 2, 0, 0],
@@ -729,7 +730,7 @@ void main() {
             internalFormat: 0x8DBD,
           ),
         );
-        final image = await _call(
+        final image = await luaCallList(
           runtime,
           const ['love', 'graphics', 'newArrayImage'],
           <Object?>[
@@ -743,7 +744,7 @@ void main() {
         });
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await _call(
+        await luaCallList(
           runtime,
           const ['love', 'graphics', 'drawLayer'],
           <Object?>[image, 2, 0, 0],
@@ -788,7 +789,7 @@ void main() {
             internalFormat: 0x9273,
           ),
         );
-        final image = await _call(
+        final image = await luaCallList(
           runtime,
           const ['love', 'graphics', 'newImage'],
           <Object?>[compressed],
@@ -800,12 +801,12 @@ void main() {
         });
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await _call(
+        await luaCallList(
           runtime,
           const ['love', 'graphics', 'setBlendMode'],
           const <Object?>['replace'],
         );
-        await _call(
+        await luaCallList(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[image, 0, 0],
@@ -848,7 +849,7 @@ void main() {
             internalFormat: 0x8DBE,
           ),
         );
-        final image = await _call(
+        final image = await luaCallList(
           runtime,
           const ['love', 'graphics', 'newImage'],
           <Object?>[compressed],
@@ -860,12 +861,12 @@ void main() {
         });
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await _call(
+        await luaCallList(
           runtime,
           const ['love', 'graphics', 'setBlendMode'],
           const <Object?>['replace'],
         );
-        await _call(
+        await luaCallList(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[image, 0, 0],
@@ -891,12 +892,12 @@ Future<Object?> _newCompressedData(
   String filename,
   Uint8List bytes,
 ) async {
-  final fileData = await _call(
+  final fileData = await luaCallList(
     runtime,
     const ['love', 'filesystem', 'newFileData'],
     <Object?>[bytes, filename],
   );
-  return _call(
+  return luaCallList(
     runtime,
     const ['love', 'image', 'newCompressedData'],
     <Object?>[fileData],
@@ -1232,45 +1233,3 @@ Map<Object?, Object?> _luaSeq(List<Object?> values) {
       index + 1: values[index],
   };
 }
-
-Future<Object?> _call(
-  Interpreter runtime,
-  List<String> path, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(_rawFunction(runtime, path).call(args));
-}
-
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> path) {
-  var current = runtime.getCurrentEnv().get(path.first);
-  for (final segment in path.skip(1)) {
-    final table = current is Value ? current.raw : current;
-    expect(
-      table,
-      isA<Map>(),
-      reason: 'Expected ${path.join('.')} to traverse a Lua table',
-    );
-    current = (table as Map)[segment];
-  }
-
-  expect(current, isA<Value>());
-  final raw = (current! as Value).raw;
-  expect(raw, isA<BuiltinFunction>());
-  return raw as BuiltinFunction;
-}
-
-Future<Object?> _resolveCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-  if (resolved is List<Object?>) {
-    return resolved.map(_unwrap).toList(growable: false);
-  }
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return List<Object?>.from(
-      wrapped.raw as List<Object?>,
-      growable: false,
-    ).map(_unwrap).toList(growable: false);
-  }
-  return _unwrap(resolved);
-}
-
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;

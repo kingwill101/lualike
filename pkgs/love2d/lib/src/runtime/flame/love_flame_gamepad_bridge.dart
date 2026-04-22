@@ -1,9 +1,15 @@
 part of 'love_flame_input.dart';
 
+/// The joystick identifier reserved for the synthesized Flutter gamepad.
 const int _loveFlameVirtualGamepadId = -1;
+
+/// The GUID reported for the synthesized Flutter gamepad.
 const String _loveFlameVirtualGamepadGuid = 'ffffffffffffffffffffffffffffffff';
+
+/// The device name reported for the synthesized Flutter gamepad.
 const String _loveFlameVirtualGamepadName = 'Flutter Virtual Gamepad';
 
+/// Whether [deviceType] should be routed through gamepad input handling.
 bool _loveIsGamepadLikeDeviceType(ui.KeyEventDeviceType deviceType) =>
     switch (deviceType) {
       ui.KeyEventDeviceType.gamepad ||
@@ -12,6 +18,7 @@ bool _loveIsGamepadLikeDeviceType(ui.KeyEventDeviceType deviceType) =>
       _ => false,
     };
 
+/// The LOVE gamepad button constant mapped from [key], if one exists.
 String? _loveGamepadButtonFromFlutterLogicalKey(LogicalKeyboardKey key) =>
     switch (key) {
       LogicalKeyboardKey.arrowUp => 'dpup',
@@ -32,6 +39,7 @@ String? _loveGamepadButtonFromFlutterLogicalKey(LogicalKeyboardKey key) =>
       _ => null,
     };
 
+/// The LOVE gamepad axis constant mapped from [key], if one exists.
 String? _loveGamepadAxisFromFlutterLogicalKey(LogicalKeyboardKey key) =>
     switch (key) {
       LogicalKeyboardKey.gameButtonLeft2 => 'triggerleft',
@@ -39,6 +47,7 @@ String? _loveGamepadAxisFromFlutterLogicalKey(LogicalKeyboardKey key) =>
       _ => null,
     };
 
+/// The LOVE joystick button number mapped from [key], if one exists.
 int? _loveJoystickButtonFromFlutterLogicalKey(LogicalKeyboardKey key) =>
     switch (key) {
       LogicalKeyboardKey.gameButton1 => 1,

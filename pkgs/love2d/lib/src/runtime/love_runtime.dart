@@ -1,3 +1,8 @@
+/// Core runtime models and host contracts for the LÖVE compatibility layer.
+///
+/// This library defines the data types shared across subsystem
+/// implementations, the host abstraction used by the Flame harness and
+/// headless tests, and the [LoveRuntimeContext] attached to each [LuaRuntime].
 library;
 
 import 'dart:async';
@@ -7,12 +12,14 @@ import 'dart:math' as math;
 import 'dart:typed_data' show ByteData, BytesBuilder, Endian, Uint8List;
 
 import 'package:archive/archive.dart';
-import 'package:image/image.dart' as package_image;
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:flame_forge2d/flame_forge2d.dart' as forge2d;
+import 'package:image/image.dart' as package_image;
 import 'package:lualike/lualike.dart' show LuaRuntime, NumberUtils, Value;
-import 'package:lualike/src/number_limits.dart' show NumberLimits;
 import 'package:vector_math/vector_math_64.dart' show Matrix4, Vector3;
+import 'sound/love_sound_host_decode_stub.dart'
+    if (dart.library.io) 'sound/love_sound_host_decode_io.dart'
+    as love_sound_host_decode;
 
 part 'data/love_data_support.dart';
 part 'data/love_data_pointer_support.dart';
@@ -48,14 +55,26 @@ part 'physics/love_physics_support.dart';
 part 'sound/love_sound_support.dart';
 part 'system/love_system_support.dart';
 part 'thread/love_thread_support.dart';
+part 'video/love_video_frame_support.dart';
 part 'video/love_video_support.dart';
 part 'window/love_window_support.dart';
 
+/// The major version reported by the emulated LÖVE runtime.
 const int loveVersionMajor = 11;
+
+/// The minor version reported by the emulated LÖVE runtime.
 const int loveVersionMinor = 5;
+
+/// The revision version reported by the emulated LÖVE runtime.
 const int loveVersionRevision = 0;
+
+/// The release codename reported by the emulated LÖVE runtime.
 const String loveVersionCodename = 'Mysterious Mysteries';
+
+/// The short `major.minor` version string reported by the runtime.
 const String loveVersionString = '11.5';
+
+/// The canonical compatibility strings accepted by version checks.
 const List<String> loveCompatibleVersions = <String>[
   '11.5.0',
   '11.0.0',
@@ -65,16 +84,22 @@ const List<String> loveCompatibleVersions = <String>[
   '11.4.0',
 ];
 
+/// Fill or outline mode used by shape drawing APIs.
 enum LoveGraphicsDrawMode { fill, line }
 
+/// Graphics stack scopes accepted by state push and pop operations.
 enum LoveGraphicsStackType { transform, all }
 
+/// Arc closure modes used by arc drawing commands.
 enum LoveGraphicsArcMode { open, closed, pie }
 
+/// Stroke rasterization styles for line primitives.
 enum LoveGraphicsLineStyle { smooth, rough }
 
+/// Join styles applied where two stroked segments meet.
 enum LoveGraphicsLineJoin { none, miter, bevel }
 
+/// Blend equations supported by the graphics state.
 enum LoveGraphicsBlendMode {
   alpha,
   add,
@@ -87,18 +112,25 @@ enum LoveGraphicsBlendMode {
   none,
 }
 
+/// Alpha handling modes paired with a [LoveGraphicsBlendMode].
 enum LoveGraphicsBlendAlphaMode { alphaMultiply, premultiplied }
 
+/// Texture sampling filters used when images are scaled.
 enum LoveGraphicsFilterMode { linear, nearest }
 
+/// Texture coordinate wrap modes used outside the 0..1 range.
 enum LoveGraphicsWrapMode { clamp, repeat, mirroredRepeat, clampZero }
 
+/// Canvas mipmap generation strategies.
 enum LoveCanvasMipmapMode { none, auto, manual }
 
+/// Triangle winding directions used by mesh and culling state.
 enum LoveGraphicsVertexWinding { ccw, cw }
 
+/// Face culling modes used by the graphics pipeline.
 enum LoveGraphicsCullMode { none, front, back }
 
+/// Comparison operators used by depth and stencil reads.
 enum LoveGraphicsCompareMode {
   equal,
   notequal,
@@ -110,6 +142,7 @@ enum LoveGraphicsCompareMode {
   always,
 }
 
+/// Stencil buffer write actions.
 enum LoveGraphicsStencilAction {
   replace,
   increment,
@@ -119,6 +152,7 @@ enum LoveGraphicsStencilAction {
   invert,
 }
 
+/// Texture filtering parameters shared by images, fonts, and canvases.
 class LoveGraphicsDefaultFilter {
   const LoveGraphicsDefaultFilter({
     this.min = LoveGraphicsFilterMode.linear,
@@ -126,12 +160,14 @@ class LoveGraphicsDefaultFilter {
     this.anisotropy = 1.0,
   });
 
+  /// The default bilinear filter configuration.
   static const LoveGraphicsDefaultFilter standard = LoveGraphicsDefaultFilter();
 
   final LoveGraphicsFilterMode min;
   final LoveGraphicsFilterMode mag;
   final double anisotropy;
 
+  /// Returns a copy with the provided overrides applied.
   LoveGraphicsDefaultFilter copyWith({
     LoveGraphicsFilterMode? min,
     LoveGraphicsFilterMode? mag,
@@ -156,6 +192,7 @@ class LoveGraphicsDefaultFilter {
   int get hashCode => Object.hash(min, mag, anisotropy);
 }
 
+/// Texture wrap parameters for the horizontal, vertical, and depth axes.
 class LoveGraphicsWrap {
   const LoveGraphicsWrap({
     this.horizontal = LoveGraphicsWrapMode.clamp,
@@ -163,12 +200,14 @@ class LoveGraphicsWrap {
     this.depth = LoveGraphicsWrapMode.clamp,
   });
 
+  /// The default clamp-on-all-axes wrap configuration.
   static const LoveGraphicsWrap clamp = LoveGraphicsWrap();
 
   final LoveGraphicsWrapMode horizontal;
   final LoveGraphicsWrapMode vertical;
   final LoveGraphicsWrapMode depth;
 
+  /// Returns a copy with the provided overrides applied.
   LoveGraphicsWrap copyWith({
     LoveGraphicsWrapMode? horizontal,
     LoveGraphicsWrapMode? vertical,
@@ -193,6 +232,7 @@ class LoveGraphicsWrap {
   int get hashCode => Object.hash(horizontal, vertical, depth);
 }
 
+/// Per-channel write enable flags for render target color output.
 class LoveGraphicsColorMask {
   const LoveGraphicsColorMask({
     this.red = true,
@@ -201,7 +241,10 @@ class LoveGraphicsColorMask {
     this.alpha = true,
   });
 
+  /// A mask that writes every color channel.
   static const LoveGraphicsColorMask all = LoveGraphicsColorMask();
+
+  /// A mask that disables all color writes.
   static const LoveGraphicsColorMask none = LoveGraphicsColorMask(
     red: false,
     green: false,
@@ -214,7 +257,10 @@ class LoveGraphicsColorMask {
   final bool blue;
   final bool alpha;
 
+  /// Whether every color channel is enabled.
   bool get allEnabled => red && green && blue && alpha;
+
+  /// Whether all color channels are disabled.
   bool get noneEnabled => !red && !green && !blue && !alpha;
 
   @override
@@ -230,6 +276,7 @@ class LoveGraphicsColorMask {
   int get hashCode => Object.hash(red, green, blue, alpha);
 }
 
+/// A scissor rectangle expressed in pixel coordinates.
 class LoveScissorRect {
   const LoveScissorRect({
     required this.x,
@@ -243,6 +290,7 @@ class LoveScissorRect {
   final double width;
   final double height;
 
+  /// Returns the overlapping region between this rectangle and [other].
   LoveScissorRect intersect(LoveScissorRect other) {
     final left = x > other.x ? x : other.x;
     final top = y > other.y ? y : other.y;
@@ -274,6 +322,7 @@ class LoveScissorRect {
   int get hashCode => Object.hash(x, y, width, height);
 }
 
+/// Immutable image metadata plus optional decoded pixel backing data.
 class LoveImage {
   LoveImage({
     required this.source,
@@ -343,12 +392,15 @@ class LoveImage {
   final bool preferImageDataRendering;
   final Object? nativeImage;
 
+  /// Returns the pixel width for the requested mipmap level.
   int pixelWidthAtMipmap([int mipmap = 1]) =>
       _mipmapDimension(pixelWidth, mipmap);
 
+  /// Returns the pixel height for the requested mipmap level.
   int pixelHeightAtMipmap([int mipmap = 1]) =>
       _mipmapDimension(pixelHeight, mipmap);
 
+  /// Returns decoded image data for the requested mipmap level, if available.
   LoveImageData? imageDataAtMipmap([int mipmap = 1]) {
     final mipmaps = imageDataMipmaps;
     if (mipmaps == null || mipmap < 1 || mipmap > mipmaps.length) {
@@ -357,6 +409,7 @@ class LoveImage {
     return mipmaps[mipmap - 1];
   }
 
+  /// Returns the slice image at [index] for array or volume textures.
   LoveImage? sliceImageAt(int index) {
     final slices = sliceImages;
     if (slices == null || index < 0 || index >= slices.length) {
@@ -365,6 +418,7 @@ class LoveImage {
     return slices[index];
   }
 
+  /// Returns a copy with the provided overrides applied.
   LoveImage copyWith({
     String? source,
     int? width,
@@ -429,6 +483,7 @@ class LoveImage {
   }
 }
 
+/// A frozen snapshot of a render surface's clear state and draw commands.
 class LoveGraphicsSurfaceSnapshot {
   const LoveGraphicsSurfaceSnapshot({
     required this.clearColor,
@@ -445,6 +500,7 @@ class LoveGraphicsSurfaceSnapshot {
   final List<LoveDrawCommand> commands;
 }
 
+/// A mutable command buffer representing one canvas render target surface.
 class LoveGraphicsSurface {
   LoveGraphicsSurface({
     LoveColor? clearColor,
@@ -468,17 +524,23 @@ class LoveGraphicsSurface {
   LoveGraphicsColorMask _lastClearColorMask;
   LoveScissorRect? _lastClearScissor;
 
+  /// The most recently applied clear color for this surface.
   LoveColor get clearColor => _lastClearColor;
 
+  /// The most recently applied clear color mask for this surface.
   LoveGraphicsColorMask get clearColorMask => _lastClearColorMask;
 
+  /// The current clear stencil value for this surface.
   int get clearStencil => _clearStencil;
 
+  /// The most recently applied clear scissor rectangle.
   LoveScissorRect? get clearScissor => _lastClearScissor;
 
+  /// The recorded draw commands for this surface.
   List<LoveDrawCommand> get commands =>
       List<LoveDrawCommand>.unmodifiable(_commands);
 
+  /// Starts a new frame for this surface and resets the command list.
   void begin({
     required LoveColor clearColor,
     required LoveGraphicsColorMask clearColorMask,
@@ -495,6 +557,7 @@ class LoveGraphicsSurface {
     _lastClearScissor = clearScissor;
   }
 
+  /// Records a clear operation for this surface.
   void clear({
     required LoveColor clearColor,
     required LoveGraphicsColorMask clearColorMask,
@@ -525,10 +588,12 @@ class LoveGraphicsSurface {
     );
   }
 
+  /// Appends [command] to the recorded draw command list.
   void addCommand(LoveDrawCommand command) {
     _commands.add(command);
   }
 
+  /// Returns an immutable snapshot of the current surface contents.
   LoveGraphicsSurfaceSnapshot snapshot() {
     return LoveGraphicsSurfaceSnapshot(
       clearColor: _clearColor,
@@ -542,6 +607,7 @@ class LoveGraphicsSurface {
   }
 }
 
+/// A renderable image that can also be used as a graphics target.
 class LoveCanvas extends LoveImage {
   LoveCanvas({
     required super.source,
@@ -624,10 +690,13 @@ class LoveCanvas extends LoveImage {
   @override
   LoveGraphicsCompareMode? get depthSampleMode => _depthSampleMode;
 
+  /// The number of addressable render target slices exposed by this canvas.
   int get renderTargetSliceCount => _surfaces.length;
 
+  /// The primary surface used by 2D canvases.
   LoveGraphicsSurface get surface => _surfaces.first;
 
+  /// Returns the render target surface for the 1-based [slice] index.
   LoveGraphicsSurface surfaceForSlice(int slice) {
     if (slice < 1 || slice > _surfaces.length) {
       throw RangeError.range(slice, 1, _surfaces.length, 'slice');
@@ -635,27 +704,33 @@ class LoveCanvas extends LoveImage {
     return _surfaces[slice - 1];
   }
 
+  /// Updates the canvas texture filter state.
   void setFilterValue(LoveGraphicsDefaultFilter value) {
     _filter = value;
   }
 
+  /// Updates the canvas wrap state.
   void setWrapValue(LoveGraphicsWrap value) {
     _wrap = value;
   }
 
+  /// Updates the canvas mipmap filter and sharpness values.
   void setMipmapFilterValue(LoveGraphicsFilterMode? mode, double sharpness) {
     _mipmapFilter = mode;
     _mipmapSharpness = sharpness;
   }
 
+  /// Updates the depth comparison mode used when sampling this canvas.
   void setDepthSampleModeValue(LoveGraphicsCompareMode? value) {
     _depthSampleMode = value;
   }
 
+  /// Marks the canvas as having generated its mipmap chain.
   void generateMipmaps() {
     mipmapGenerations++;
   }
 
+  /// Reads back rasterized pixel data from this canvas.
   LoveImageData readbackImageData({
     int slice = 1,
     int mipmap = 1,
@@ -683,6 +758,7 @@ class LoveCanvas extends LoveImage {
     );
   }
 
+  /// Returns a snapshot of this canvas or of a specific render target slice.
   LoveCanvasSnapshot snapshot({int? slice}) {
     if (textureType == '2d') {
       return _snapshotForSlice(1);
@@ -753,6 +829,7 @@ class LoveCanvas extends LoveImage {
   }
 }
 
+/// An immutable canvas snapshot with a frozen render surface payload.
 class LoveCanvasSnapshot extends LoveImage {
   LoveCanvasSnapshot({
     required super.source,
@@ -785,6 +862,7 @@ class LoveCanvasSnapshot extends LoveImage {
   final int msaa;
   final LoveCanvasMipmapMode mipmapMode;
 
+  /// Rasterizes the stored draw commands into image data for [mipmap].
   LoveImageData rasterizedImageData([int mipmap = 1]) {
     if (mipmap < 1) {
       throw RangeError.range(mipmap, 1, null, 'mipmap');
@@ -832,6 +910,7 @@ List<LoveGraphicsSurface> _resolveCanvasSurfaces({
   return List<LoveGraphicsSurface>.unmodifiable(resolved);
 }
 
+/// CPU-side RGBA image data used by image, canvas, and window APIs.
 class LoveImageData {
   LoveImageData({
     required this.width,
@@ -844,6 +923,7 @@ class LoveImageData {
          growable: false,
        );
 
+  /// Creates image data from raw RGBA bytes.
   factory LoveImageData.fromRgbaBytes({
     required int width,
     required int height,
@@ -876,6 +956,7 @@ class LoveImageData {
     return imageData;
   }
 
+  /// Creates image data from a `package:image` bitmap.
   factory LoveImageData.fromPackageImage(
     package_image.Image image, {
     String format = 'rgba8',
@@ -901,6 +982,7 @@ class LoveImageData {
     return imageData;
   }
 
+  /// Decodes an encoded image payload such as PNG, JPG, BMP, or TGA bytes.
   factory LoveImageData.decodeEncodedBytes({
     required List<int> bytes,
     String? source,
@@ -924,20 +1006,25 @@ class LoveImageData {
   final String format;
   final List<LoveColor> _pixels;
 
+  /// The total number of stored pixels.
   int get length => _pixels.length;
 
+  /// Returns the color stored at pixel coordinate `[x, y]`.
   LoveColor getPixel(int x, int y) {
     _validateCoordinates(x, y);
     return _pixels[(y * width) + x];
   }
 
+  /// Writes [color] to pixel coordinate `[x, y]`.
   void setPixel(int x, int y, LoveColor color) {
     _validateCoordinates(x, y);
     _pixels[(y * width) + x] = color.clamped();
   }
 
+  /// Returns a full copy of this image data.
   LoveImageData clone() => copyRegion(x: 0, y: 0, width: width, height: height);
 
+  /// Converts this image data into a `package:image` bitmap.
   package_image.Image toPackageImage() {
     final image = package_image.Image(
       width: width,
@@ -962,6 +1049,7 @@ class LoveImageData {
     return image;
   }
 
+  /// Encodes this image data to [format].
   Uint8List encode(String format) {
     final normalizedFormat = format.toLowerCase();
     final image = toPackageImage();
@@ -979,6 +1067,7 @@ class LoveImageData {
     };
   }
 
+  /// Generates a full mipmap chain starting from this image data.
   List<LoveImageData> generateMipmaps() {
     final levels = <LoveImageData>[clone()];
     if (width == 1 && height == 1) {
@@ -1001,6 +1090,7 @@ class LoveImageData {
     return List<LoveImageData>.unmodifiable(levels);
   }
 
+  /// Copies a rectangular region into a new [LoveImageData] instance.
   LoveImageData copyRegion({
     required int x,
     required int y,
@@ -1361,15 +1451,23 @@ class LoveTransform {
   }
 }
 
+/// The width and wrapped lines produced by [LoveFont.wrapText].
 typedef LoveFontWrapResult = ({double width, List<String> lines});
+
+/// Measures the width of a text run for a font implementation.
 typedef LoveFontMeasureWidth = double Function(String text);
+
+/// Wraps text to a pixel limit for a font implementation.
 typedef LoveFontWrapText =
     LoveFontWrapResult Function(String text, double wrapLimit);
+
+/// Reports whether a font implementation supports a Unicode codepoint.
 typedef LoveFontSupportsCodepoint = bool Function(int codepoint);
 
 const int _loveTabCodepoint = 0x09;
 const int _loveSpacesPerTab = 4;
 
+/// Font metrics and layout helpers used by `love.graphics` text APIs.
 class LoveFont {
   LoveFont({
     required this.size,
@@ -1414,10 +1512,16 @@ class LoveFont {
            ? <LoveFont>[]
            : List<LoveFont>.from(fallbacks);
 
+  /// The canonical font type used for TrueType-backed fonts.
   static const String trueTypeFontType = 'truetype';
+
+  /// The canonical font type used for image-backed fonts.
   static const String imageFontType = 'image';
+
+  /// The canonical font data type used for BMFont metadata.
   static const String bmFontDataType = 'bmfont';
 
+  /// Returns the best-effort font type for [source].
   static String fontTypeForSource(String? source) {
     if (source == null || source.isEmpty) {
       return trueTypeFontType;
@@ -1434,6 +1538,7 @@ class LoveFont {
     };
   }
 
+  /// Returns the best-effort font data type for [source].
   static String fontDataTypeForSource(String? source) {
     if (source == null || source.isEmpty) {
       return trueTypeFontType;
@@ -1451,7 +1556,10 @@ class LoveFont {
     };
   }
 
+  /// The fallback point size used by the implicit default graphics font.
   static const double defaultSize = 12.0;
+
+  /// Creates the implicit default graphics font used by the runtime.
   static LoveFont fallback() =>
       LoveFont(size: defaultSize, isImplicitDefaultGraphicsFont: true);
 
@@ -1482,13 +1590,17 @@ class LoveFont {
   final Map<int, double> _cachedGlyphAdvances = <int, double>{};
   final Map<int, double> _cachedGlyphKernings = <int, double>{};
 
+  /// The computed line height in pixels for this font.
   double get height => heightOverride ?? size;
 
+  /// The computed ascent in pixels for this font.
   double get ascent => ascentOverride ?? (size * 0.8).roundToDouble();
 
+  /// The computed descent in pixels for this font.
   double get descent =>
       descentOverride ?? math.max(0, size - ascent).roundToDouble();
 
+  /// The baseline position in pixels from the top of a line box.
   double get baseline {
     if (ascent != 0) {
       return ascent;
@@ -1501,6 +1613,7 @@ class LoveFont {
     return 0.0;
   }
 
+  /// The configured fallback fonts in resolution order.
   List<LoveFont> get fallbacks => List<LoveFont>.unmodifiable(_fallbacks);
 
   bool get _hasSyntheticTabAdvance =>
@@ -1517,6 +1630,7 @@ class LoveFont {
       _hasLocalGlyphLayoutData ||
       (_supportsCodepointCallback != null && _fallbacks.isNotEmpty);
 
+  /// Measures the maximum line width of [text] in pixels.
   double measureWidth(String text) {
     if (text.isEmpty) {
       return 0.0;
@@ -1548,6 +1662,7 @@ class LoveFont {
     return maxWidth;
   }
 
+  /// Returns the kerning adjustment between two glyph values.
   double getKerning(Object? left, Object? right) {
     final leftGlyph = _glyphCodepoint(left);
     final rightGlyph = _glyphCodepoint(right);
@@ -1558,6 +1673,7 @@ class LoveFont {
     return _glyphKerning(leftGlyph, rightGlyph);
   }
 
+  /// Wraps [text] to [wrapLimit] pixels and returns the wrapped lines.
   LoveFontWrapResult wrapText(String text, double wrapLimit) {
     final wrapTextCallback = _wrapTextCallback;
     if (wrapTextCallback != null && !_requiresFallbackAwareLayout) {
@@ -1654,6 +1770,7 @@ class LoveFont {
     return (width: maxWidth, lines: lines);
   }
 
+  /// Whether every provided value can be represented by this font.
   bool hasGlyphValues(Iterable<Object?> values) {
     if (values.isEmpty) {
       return false;
@@ -1698,6 +1815,7 @@ class LoveFont {
     return false;
   }
 
+  /// Replaces the configured fallback font list.
   void setFallbacks(List<LoveFont> fallbacks) {
     for (final fallback in fallbacks) {
       if (fallback.dataType != dataType) {
@@ -1714,6 +1832,7 @@ class LoveFont {
       ..addAll(fallbacks);
   }
 
+  /// Returns a deep copy of this font configuration.
   LoveFont copy() {
     return LoveFont(
       size: size,
@@ -1743,6 +1862,7 @@ class LoveFont {
     );
   }
 
+  /// Returns a copy with the provided overrides applied.
   LoveFont copyWith({
     double? size,
     String? family,
@@ -2066,6 +2186,7 @@ class LoveTextEntry {
   }
 }
 
+/// A batched text object matching the behavior of LÖVE's `Text` type.
 class LoveTextDrawable {
   LoveTextDrawable({required this.font, List<LoveTextEntry>? entries})
     : _entries = entries == null
@@ -2075,15 +2196,19 @@ class LoveTextDrawable {
   // Mirrors the high-level LOVE Text object flow from wrap_Text.cpp/Text.cpp:
   // set* replaces the batch, add* appends, and width/height default to the
   // most recently added entry.
+  /// The font used to measure and draw this text batch.
   LoveFont font;
   final List<LoveTextEntry> _entries;
 
+  /// The stored text entries in draw order.
   List<LoveTextEntry> get entries => List<LoveTextEntry>.unmodifiable(_entries);
 
+  /// Removes every stored text entry.
   void clear() {
     _entries.clear();
   }
 
+  /// Replaces the batch with an unwrapped entry built from [spans].
   void set(List<LoveTextSpan> spans) {
     if (_shouldClearOnSet(spans)) {
       clear();
@@ -2095,6 +2220,7 @@ class LoveTextDrawable {
       ..add(LoveTextEntry(spans: spans));
   }
 
+  /// Replaces the batch with a wrapped entry built from [spans].
   void setf(List<LoveTextSpan> spans, double wrapLimit, String align) {
     if (_shouldClearOnSet(spans)) {
       clear();
@@ -2106,11 +2232,13 @@ class LoveTextDrawable {
       ..add(LoveTextEntry(spans: spans, wrapLimit: wrapLimit, align: align));
   }
 
+  /// Appends an unwrapped entry and returns its index.
   int add(List<LoveTextSpan> spans, Matrix4 transform) {
     _entries.add(LoveTextEntry(spans: spans, transform: transform));
     return _entries.length - 1;
   }
 
+  /// Appends a wrapped entry and returns its index.
   int addf(
     List<LoveTextSpan> spans,
     double wrapLimit,
@@ -2128,20 +2256,24 @@ class LoveTextDrawable {
     return _entries.length - 1;
   }
 
+  /// Returns the measured width of the entry at [index].
   double getWidth([int index = -1]) {
     final entry = _entryAt(index);
     return entry?.widthForFont(font) ?? 0.0;
   }
 
+  /// Returns the measured height of the entry at [index].
   double getHeight([int index = -1]) {
     final entry = _entryAt(index);
     return entry?.heightForFont(font) ?? 0.0;
   }
 
+  /// Returns both width and height for the entry at [index].
   ({double width, double height}) getDimensions([int index = -1]) {
     return (width: getWidth(index), height: getHeight(index));
   }
 
+  /// Returns a copy of this text batch and its entries.
   LoveTextDrawable copy() {
     return LoveTextDrawable(font: font.copy(), entries: _entries);
   }
@@ -2164,10 +2296,14 @@ class LoveTextDrawable {
   }
 }
 
+/// A normalized RGBA color used throughout the runtime.
 class LoveColor {
   const LoveColor(this.r, this.g, this.b, [this.a = 1.0]);
 
+  /// Fully opaque white.
   static const LoveColor white = LoveColor(1, 1, 1, 1);
+
+  /// Fully opaque black.
   static const LoveColor black = LoveColor(0, 0, 0, 1);
 
   final double r;
@@ -2175,6 +2311,7 @@ class LoveColor {
   final double b;
   final double a;
 
+  /// Returns a copy with each component clamped to the 0..1 range.
   LoveColor clamped() {
     return LoveColor(
       _clampColor(r),
@@ -2184,6 +2321,7 @@ class LoveColor {
     );
   }
 
+  /// Returns this color multiplied component-wise by [other].
   LoveColor modulate(LoveColor other) {
     return LoveColor(
       r * other.r,
@@ -2221,13 +2359,12 @@ sealed class LoveDrawCommand {
     required Matrix4 transform,
     LoveGraphicsCompareMode? stencilCompare,
     int? stencilValue,
-    LoveGraphicsStencilAction? stencilAction,
+    this.stencilAction,
     int? stencilWriteValue,
   }) : shader = shader?.snapshot(),
        transform = Matrix4.copy(transform),
        stencilCompare = stencilCompare ?? LoveGraphicsCompareMode.always,
        stencilValue = stencilValue ?? 0,
-       stencilAction = stencilAction,
        stencilWriteValue = stencilWriteValue ?? 1;
 
   final LoveColor color;
@@ -2360,6 +2497,30 @@ class LoveImageCommand extends LoveDrawCommand {
   final LoveImage image;
   final LoveQuad? quad;
   final int? layer;
+  final Matrix4 drawTransform;
+}
+
+class LoveVideoCommand extends LoveDrawCommand {
+  LoveVideoCommand({
+    required super.color,
+    required super.lineWidth,
+    required super.lineStyle,
+    required super.lineJoin,
+    required super.blendMode,
+    required super.blendAlphaMode,
+    required super.colorMask,
+    required super.wireframe,
+    required super.scissor,
+    super.shader,
+    required super.transform,
+    required Matrix4 drawTransform,
+    required this.video,
+    LoveQuad? quad,
+  }) : quad = quad?.copy(),
+       drawTransform = Matrix4.copy(drawTransform);
+
+  final LoveVideo video;
+  final LoveQuad? quad;
   final Matrix4 drawTransform;
 }
 
@@ -2601,16 +2762,14 @@ class LoveStencilClearCommand extends LoveDrawCommand {
 class LoveColorClearCommand extends LoveDrawCommand {
   LoveColorClearCommand({
     required super.scissor,
-    required LoveColor color,
-    required LoveGraphicsColorMask colorMask,
+    required super.color,
+    required super.colorMask,
   }) : super(
-         color: color,
          lineWidth: 1.0,
          lineStyle: LoveGraphicsLineStyle.smooth,
          lineJoin: LoveGraphicsLineJoin.miter,
          blendMode: LoveGraphicsBlendMode.replace,
          blendAlphaMode: LoveGraphicsBlendAlphaMode.alphaMultiply,
-         colorMask: colorMask,
          wireframe: false,
          transform: Matrix4.identity(),
        );
@@ -2642,7 +2801,7 @@ class LoveGraphicsState {
     LoveGraphicsDefaultFilter? defaultFilter,
     LoveGraphicsFilterMode? defaultMipmapFilter,
     double? defaultMipmapSharpness,
-    LoveShader? shader,
+    this.shader,
     bool? wireframe,
     Matrix4? transform,
     LoveGraphicsCompareMode? depthMode,
@@ -2666,7 +2825,6 @@ class LoveGraphicsState {
        defaultMipmapFilter =
            defaultMipmapFilter ?? LoveGraphicsFilterMode.linear,
        defaultMipmapSharpness = defaultMipmapSharpness ?? 0.0,
-       shader = shader,
        wireframe = wireframe ?? false,
        transform = transform ?? Matrix4.identity(),
        depthMode = depthMode ?? LoveGraphicsCompareMode.always,
@@ -2768,6 +2926,7 @@ class LoveGraphicsFrame {
   final LoveGraphicsSurface _screenSurface;
   final LoveGraphicsScreenshotQueue _pendingScreenshots =
       LoveGraphicsScreenshotQueue();
+  final List<void Function()> _pendingBeginFrameCleanups = <void Function()>[];
   LoveGraphicsState _state;
   LoveCanvasRenderTarget? _activeCanvasTarget;
   int _canvasSwitches = 0;
@@ -2957,7 +3116,19 @@ class LoveGraphicsFrame {
   LoveGraphicsSurface get _activeSurface =>
       _activeCanvasTarget?.surface ?? _screenSurface;
 
+  /// Schedules [cleanup] to run at the start of the next frame.
+  void scheduleBeginFrameCleanup(void Function() cleanup) {
+    _pendingBeginFrameCleanups.add(cleanup);
+  }
+
   void beginFrame() {
+    if (_pendingBeginFrameCleanups.isNotEmpty) {
+      final cleanups = List<void Function()>.from(_pendingBeginFrameCleanups);
+      _pendingBeginFrameCleanups.clear();
+      for (final cleanup in cleanups) {
+        cleanup();
+      }
+    }
     _screenSurface.begin(
       clearColor: _state.backgroundColor,
       clearColorMask: _state.colorMask,
@@ -3179,12 +3350,16 @@ Matrix4 _matrixFromTransformation({
   return Matrix4(a, b, 0, 0, c, d, 0, 0, 0, 0, 1, 0, tx, ty, 0, 1);
 }
 
+/// A time source used by the runtime timer subsystem.
 abstract interface class LoveClock {
+  /// Returns the current monotonic time in seconds.
   double nowSeconds();
 
+  /// Suspends for approximately [seconds].
   Future<void> sleepSeconds(double seconds);
 }
 
+/// A [LoveClock] backed by a local [Stopwatch].
 class SystemLoveClock implements LoveClock {
   SystemLoveClock() : _stopwatch = Stopwatch()..start();
 
@@ -3205,6 +3380,7 @@ class SystemLoveClock implements LoveClock {
   }
 }
 
+/// Deterministic random number generator matching LÖVE seed semantics.
 class LoveRandomGenerator {
   LoveRandomGenerator({int low = defaultSeedLow, int high = defaultSeedHigh}) {
     setSeed(low: low, high: high);
@@ -3214,13 +3390,11 @@ class LoveRandomGenerator {
   static const int defaultSeedHigh = 0x0139408D;
   static const int _seedBits = 32;
   static const int _mask32 = 0xFFFFFFFF;
-  static const int _doubleMantissaBits =
-      NumberLimits.doubleStoredSignificandBits + 1;
-  static const int _mantissaShift =
-      NumberLimits.sizeInBits - _doubleMantissaBits;
+  static const int _doubleMantissaBits = 53;
+  static const int _uint64Bits = 64;
+  static const int _mantissaShift = _uint64Bits - _doubleMantissaBits;
   static const int _doubleMantissaMask = (1 << _doubleMantissaBits) - 1;
-  static final BigInt _mask64 =
-      (BigInt.one << NumberLimits.sizeInBits) - BigInt.one;
+  static final BigInt _mask64 = (BigInt.one << _uint64Bits) - BigInt.one;
   static final BigInt _nonZeroFallbackState = BigInt.parse(
     '9E3779B97F4A7C15',
     radix: 16,
@@ -3234,12 +3408,16 @@ class LoveRandomGenerator {
   int _seedHigh = defaultSeedHigh;
   BigInt _state = _nonZeroFallbackState;
 
+  /// The low 32 bits of the currently configured seed.
   int get seedLow => _seedLow;
+
+  /// The high 32 bits of the currently configured seed.
   int get seedHigh => _seedHigh;
 
   static BigInt _normalizeUint64(dynamic value) =>
       NumberUtils.toBigInt(value) & _mask64;
 
+  /// Replaces the current 64-bit seed state.
   void setSeed({required int low, required int high}) {
     _seedLow = low & _mask32;
     _seedHigh = high & _mask32;
@@ -3247,6 +3425,7 @@ class LoveRandomGenerator {
     _resetLoveRandomNormalCache(this);
   }
 
+  /// Returns the next random value in the half-open range `[0, 1)`.
   double nextUnitDouble() {
     final mantissa =
         ((_nextUint64() >> _mantissaShift) & BigInt.from(_doubleMantissaMask))
@@ -3254,6 +3433,7 @@ class LoveRandomGenerator {
     return mantissa / (1 << _doubleMantissaBits);
   }
 
+  /// Returns a uniformly distributed integer in the inclusive range.
   int nextIntInclusive({required int min, required int max}) {
     if (max < min) {
       throw RangeError.range(max, min, null, 'max');
@@ -3276,6 +3456,7 @@ class LoveRandomGenerator {
   }
 }
 
+/// Mutable window configuration mirrored by the window subsystem.
 class LoveWindowMetrics {
   const LoveWindowMetrics({
     this.width = 800,
@@ -3339,6 +3520,7 @@ class LoveWindowMetrics {
   final LoveWindowSafeArea? safeArea;
   final LoveImageData? icon;
 
+  /// Returns a copy with the provided overrides applied.
   LoveWindowMetrics copyWith({
     int? width,
     int? height,
@@ -3404,6 +3586,7 @@ class LoveWindowMetrics {
     );
   }
 
+  /// Writes the current mode flags into [target] or a new map.
   Map<dynamic, dynamic> toModeFlags({Map<dynamic, dynamic>? target}) {
     final map = target ?? <dynamic, dynamic>{};
     map['fullscreen'] = fullscreen;
@@ -3422,6 +3605,7 @@ class LoveWindowMetrics {
   }
 }
 
+/// A safe drawable region within the window.
 class LoveWindowSafeArea {
   const LoveWindowSafeArea({
     required this.x,
@@ -3436,6 +3620,7 @@ class LoveWindowSafeArea {
   final double height;
 }
 
+/// A fullscreen mode advertised by a display.
 class LoveWindowFullscreenMode {
   const LoveWindowFullscreenMode({required this.width, required this.height});
 
@@ -3443,6 +3628,7 @@ class LoveWindowFullscreenMode {
   final int height;
 }
 
+/// Metadata for a display exposed to the window subsystem.
 class LoveWindowDisplay {
   const LoveWindowDisplay({
     required this.name,
@@ -3455,6 +3641,7 @@ class LoveWindowDisplay {
   final List<LoveWindowFullscreenMode> fullscreenModes;
 }
 
+/// Host services required to back a running LÖVE runtime instance.
 abstract interface class LoveHost {
   LoveClock get clock;
 
@@ -3483,6 +3670,14 @@ abstract interface class LoveHost {
     String? mimeType,
   });
 
+  Future<LoveVideoFrameProvider?> createVideoFrameProvider(
+    String source, {
+    Uint8List? bytes,
+    LoveVideoMetadata? metadata,
+  });
+
+  Future<bool> setAudioMixWithSystem(bool mix);
+
   Future<LoveImage> loadImage(
     String source, {
     Uint8List? bytes,
@@ -3506,6 +3701,8 @@ abstract interface class LoveHost {
   });
 
   Future<Uint8List?> loadDefaultTrueTypeFontBytes();
+
+  Future<String?> validateRegisteredFragmentShaderAsset(String assetKey);
 
   int get imageCount;
 
@@ -3538,6 +3735,7 @@ abstract interface class LoveHost {
   );
 }
 
+/// Default in-memory [LoveHost] used by tests and headless execution.
 class LoveHeadlessHost implements LoveHost {
   LoveHeadlessHost({
     LoveClock? clock,
@@ -3572,7 +3770,11 @@ class LoveHeadlessHost implements LoveHost {
     })?
     defaultTrueTypeFontLoader,
     Future<Uint8List?> Function()? defaultTrueTypeFontDataLoader,
+    Future<String?> Function(String assetKey)?
+    registeredFragmentShaderAssetValidator,
     LoveAudioBackendFactory? audioBackendFactory,
+    LoveVideoFrameProviderFactory? videoFrameProviderFactory,
+    FutureOr<bool> Function(bool mix)? audioMixWithSystemHandler,
     LoveWindowMetrics? windowMetrics,
     List<LoveWindowDisplay>? windowDisplays,
     bool windowHasFocus = false,
@@ -3593,7 +3795,11 @@ class LoveHeadlessHost implements LoveHost {
        _trueTypeFontLoader = trueTypeFontLoader,
        _defaultTrueTypeFontLoader = defaultTrueTypeFontLoader,
        _defaultTrueTypeFontDataLoader = defaultTrueTypeFontDataLoader,
+       _registeredFragmentShaderAssetValidator =
+           registeredFragmentShaderAssetValidator,
        _audioBackendFactory = audioBackendFactory,
+       _videoFrameProviderFactory = videoFrameProviderFactory,
+       _audioMixWithSystemHandler = audioMixWithSystemHandler,
        _windowMetrics = windowMetrics ?? const LoveWindowMetrics(),
        _windowDisplaysOverride = windowDisplays,
        _windowHasFocus = windowHasFocus,
@@ -3632,7 +3838,11 @@ class LoveHeadlessHost implements LoveHost {
   })?
   _defaultTrueTypeFontLoader;
   final Future<Uint8List?> Function()? _defaultTrueTypeFontDataLoader;
+  final Future<String?> Function(String assetKey)?
+  _registeredFragmentShaderAssetValidator;
   final LoveAudioBackendFactory? _audioBackendFactory;
+  final LoveVideoFrameProviderFactory? _videoFrameProviderFactory;
+  final FutureOr<bool> Function(bool mix)? _audioMixWithSystemHandler;
   LoveWindowMetrics _windowMetrics;
   List<LoveWindowDisplay>? _windowDisplaysOverride;
   bool _windowHasFocus;
@@ -3687,6 +3897,30 @@ class LoveHeadlessHost implements LoveHost {
     }
 
     return const LoveNoopAudioSourceBackend();
+  }
+
+  @override
+  Future<LoveVideoFrameProvider?> createVideoFrameProvider(
+    String source, {
+    Uint8List? bytes,
+    LoveVideoMetadata? metadata,
+  }) async {
+    final factory = _videoFrameProviderFactory;
+    if (factory == null) {
+      return null;
+    }
+
+    return factory(source, bytes: bytes, metadata: metadata);
+  }
+
+  @override
+  Future<bool> setAudioMixWithSystem(bool mix) async {
+    final handler = _audioMixWithSystemHandler;
+    if (handler != null) {
+      return await handler(mix);
+    }
+
+    return true;
   }
 
   @override
@@ -3782,6 +4016,20 @@ class LoveHeadlessHost implements LoveHost {
   }
 
   @override
+  Future<String?> validateRegisteredFragmentShaderAsset(String assetKey) async {
+    final validator = _registeredFragmentShaderAssetValidator;
+    if (validator == null) {
+      return null;
+    }
+
+    try {
+      return await validator(assetKey);
+    } catch (error) {
+      return 'Could not load Flutter fragment shader asset "$assetKey": $error';
+    }
+  }
+
+  @override
   int get imageCount => _images.length;
 
   @override
@@ -3846,6 +4094,7 @@ class LoveHeadlessHost implements LoveHost {
   }
 }
 
+/// Builds default display metadata from the current [LoveWindowMetrics].
 List<LoveWindowDisplay> loveDefaultWindowDisplaysForMetrics(
   LoveWindowMetrics metrics,
 ) {
@@ -3872,6 +4121,7 @@ List<LoveWindowDisplay> loveDefaultWindowDisplaysForMetrics(
   );
 }
 
+/// Runtime state attached to a [LuaRuntime] while a game is executing.
 class LoveRuntimeContext {
   LoveRuntimeContext({LoveHost? host}) : _host = host ?? LoveHeadlessHost() {
     _defaultGraphicsFont = _host.graphics.font;
@@ -3883,6 +4133,8 @@ class LoveRuntimeContext {
 
   LoveHost _host;
   LoveFont? _defaultGraphicsFont;
+
+  /// Whether deprecation warnings should be surfaced to Lua code.
   bool deprecationOutput = true;
 
   late double _currentTime;
@@ -3898,36 +4150,52 @@ class LoveRuntimeContext {
   final LoveAudioState _audio = LoveAudioState();
   int _nextCanvasId = 0;
 
+  /// The current host implementation backing this runtime.
   LoveHost get host => _host;
 
+  /// The current window metrics reported by the host.
   LoveWindowMetrics get windowMetrics => _host.windowMetrics;
 
+  /// The runtime random number generator.
   LoveRandomGenerator get random => _host.random;
 
+  /// The keyboard input state for the attached host.
   LoveKeyboardState get keyboard => _host.keyboard;
 
+  /// The mouse input state for the attached host.
   LoveMouseState get mouse => _host.mouse;
 
+  /// The touch input state for the attached host.
   LoveTouchState get touch => _host.touch;
 
+  /// The joystick manager for the attached host.
   LoveJoystickManager get joysticks => _host.joysticks;
 
+  /// The queued LÖVE events for this runtime.
   LoveEventState get events => _events;
 
+  /// The audio state for this runtime.
   LoveAudioState get audio => _audio;
 
+  /// The system state reported by the host.
   LoveSystemState get system => _host.system;
 
+  /// The graphics frame state used by `love.graphics`.
   LoveGraphicsFrame get graphics => _host.graphics;
 
+  /// The current time in seconds according to the host clock.
   double get time => _host.clock.nowSeconds();
 
+  /// The most recent frame delta in seconds.
   double get delta => _delta;
 
+  /// The rolling average delta used by `love.timer.getAverageDelta`.
   double get averageDelta => _averageDelta;
 
+  /// The last computed frames-per-second estimate.
   int get fps => _fps;
 
+  /// Attaches a runtime context to [runtime], replacing the host if provided.
   static LoveRuntimeContext attach(LuaRuntime runtime, {LoveHost? host}) {
     final existing = _contexts[runtime];
     if (existing != null) {
@@ -3942,10 +4210,12 @@ class LoveRuntimeContext {
     return context;
   }
 
+  /// Returns the context attached to [runtime], creating one if needed.
   static LoveRuntimeContext of(LuaRuntime runtime) {
     return _contexts[runtime] ?? attach(runtime);
   }
 
+  /// Replaces the active host and resets dependent cached state.
   void replaceHost(LoveHost host) {
     _host = host;
     _clearLoveDefaultGraphicsFontState(this);
@@ -3953,12 +4223,15 @@ class LoveRuntimeContext {
     _resetTimerState();
   }
 
+  /// Sleeps using the currently attached host clock.
   Future<void> sleep(double seconds) => _host.clock.sleepSeconds(seconds);
 
+  /// Starts a new graphics frame on the attached host.
   void beginDrawFrame() {
     graphics.beginFrame();
   }
 
+  /// Advances timer state using the attached host clock.
   double step() {
     _frames++;
     _prevTime = _currentTime;
@@ -3976,6 +4249,7 @@ class LoveRuntimeContext {
     return _delta;
   }
 
+  /// Advances timer state using an externally provided delta time.
   double stepExternal(double dt) {
     final nextDelta = dt.isFinite && dt >= 0 ? dt : 0.0;
     _frames++;
@@ -3994,12 +4268,14 @@ class LoveRuntimeContext {
     return _delta;
   }
 
+  /// Whether [version] is compatible with the emulated runtime.
   bool isVersionCompatibleString(String version) {
     return loveCompatibleVersions.contains(
       _canonicalizeCompatibilityVersion(version),
     );
   }
 
+  /// Whether the provided version tuple is compatible with the runtime.
   bool isVersionCompatible({
     required int major,
     required int minor,
@@ -4018,10 +4294,12 @@ class LoveRuntimeContext {
     _frames = 0;
   }
 
+  /// Replaces the implicit default graphics font.
   void setDefaultGraphicsFont(LoveFont font) {
     _defaultGraphicsFont = font;
   }
 
+  /// Tracks a font for graphics statistics reporting.
   void registerFont(LoveFont font) {
     if (identical(font, _defaultGraphicsFont)) {
       return;
@@ -4029,12 +4307,15 @@ class LoveRuntimeContext {
     _fonts.add(font);
   }
 
+  /// Tracks a canvas for graphics statistics reporting.
   void registerCanvas(LoveCanvas canvas) {
     _canvases.add(canvas);
   }
 
+  /// Returns a synthetic source name for a newly created canvas.
   String nextCanvasSource() => '__love_canvas_${++_nextCanvasId}__';
 
+  /// Returns graphics statistics in the format expected by LÖVE.
   Map<dynamic, dynamic> graphicsStats({Map<dynamic, dynamic>? target}) {
     final map = target ?? <dynamic, dynamic>{};
     map['drawcalls'] = graphics.commands.length;

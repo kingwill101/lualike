@@ -1,5 +1,9 @@
 part of '../love_api_bindings.dart';
 
+/// Binds `love.math.colorFromBytes`.
+///
+/// LOVE accepts either positional components or a table of up to four channel
+/// values and converts them into normalized color components.
 LoveApiImplementation _bindMathColorFromBytes(
   LibraryRegistrationContext context,
 ) {
@@ -16,6 +20,10 @@ LoveApiImplementation _bindMathColorFromBytes(
   };
 }
 
+/// Binds `love.math.colorToBytes`.
+///
+/// LOVE accepts either positional components or a table of up to four channel
+/// values and converts them into byte-range color components.
 LoveApiImplementation _bindMathColorToBytes(
   LibraryRegistrationContext context,
 ) {
@@ -29,6 +37,10 @@ LoveApiImplementation _bindMathColorToBytes(
   };
 }
 
+/// Binds `love.math.gammaToLinear`.
+///
+/// This converts the first three components from gamma to linear space while
+/// preserving an optional alpha component unchanged.
 LoveApiImplementation _bindMathGammaToLinear(
   LibraryRegistrationContext context,
 ) {
@@ -43,6 +55,9 @@ LoveApiImplementation _bindMathGammaToLinear(
   };
 }
 
+/// Binds `love.math.getRandomSeed`.
+///
+/// The returned values match LOVE's `(low, high)` seed tuple.
 LoveApiImplementation _bindMathGetRandomSeed(
   LibraryRegistrationContext context,
 ) {
@@ -51,6 +66,10 @@ LoveApiImplementation _bindMathGetRandomSeed(
       Value.multi(<Object?>[runtime.random.seedLow, runtime.random.seedHigh]);
 }
 
+/// Binds `love.math.getRandomState`.
+///
+/// This returns the full serialized RNG state string used by LOVE's random
+/// generator implementation.
 LoveApiImplementation _bindMathGetRandomState(
   LibraryRegistrationContext context,
 ) {
@@ -58,11 +77,19 @@ LoveApiImplementation _bindMathGetRandomState(
   return (args) => runtime.random.getState();
 }
 
+/// Binds `love.math.isConvex`.
+///
+/// The input coordinates are interpreted as a polygon vertex list and checked
+/// for convexity.
 LoveApiImplementation _bindMathIsConvex(LibraryRegistrationContext context) {
   return (args) =>
       loveIsConvex(_coordinateSequence(args, 'love.math.isConvex'));
 }
 
+/// Binds `love.math.linearToGamma`.
+///
+/// This converts the first three components from linear to gamma space while
+/// preserving an optional alpha component unchanged.
 LoveApiImplementation _bindMathLinearToGamma(
   LibraryRegistrationContext context,
 ) {
@@ -77,6 +104,10 @@ LoveApiImplementation _bindMathLinearToGamma(
   };
 }
 
+/// Binds `love.math.newBezierCurve`.
+///
+/// LOVE accepts a flat coordinate sequence here and turns it into a
+/// [LoveBezierCurve] wrapper.
 LoveApiImplementation _bindMathNewBezierCurve(
   LibraryRegistrationContext context,
 ) {
@@ -86,6 +117,11 @@ LoveApiImplementation _bindMathNewBezierCurve(
   };
 }
 
+/// Binds `love.math.newRandomGenerator`.
+///
+/// When seed arguments are provided, this initializes the generator with the
+/// same single-seed or `(low, high)` forms accepted by
+/// [love.math.setRandomSeed].
 LoveApiImplementation _bindMathNewRandomGenerator(
   LibraryRegistrationContext context,
 ) {
@@ -99,6 +135,10 @@ LoveApiImplementation _bindMathNewRandomGenerator(
   };
 }
 
+/// Binds `love.math.newTransform`.
+///
+/// Calling this with no arguments returns the identity transform. Otherwise it
+/// accepts the standard LOVE transformation argument sequence.
 LoveApiImplementation _bindMathNewTransform(
   LibraryRegistrationContext context,
 ) {
@@ -169,6 +209,10 @@ LoveApiImplementation _bindMathNewTransform(
   };
 }
 
+/// Binds `love.math.noise`.
+///
+/// LOVE supports one to four coordinates here, so this binding clamps the
+/// positional coordinate count to that range.
 LoveApiImplementation _bindMathNoise(LibraryRegistrationContext context) {
   return (args) {
     final coordinateCount = args.length.clamp(1, 4);
@@ -181,6 +225,10 @@ LoveApiImplementation _bindMathNoise(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.math.random`.
+///
+/// This mirrors LOVE's overloads for zero arguments, an upper bound, or an
+/// explicit `(min, max)` range.
 LoveApiImplementation _bindMathRandom(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -199,6 +247,10 @@ LoveApiImplementation _bindMathRandom(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.math.randomNormal`.
+///
+/// Missing arguments default to a standard deviation of `1.0` and a mean of
+/// `0.0`.
 LoveApiImplementation _bindMathRandomNormal(
   LibraryRegistrationContext context,
 ) {
@@ -214,6 +266,10 @@ LoveApiImplementation _bindMathRandomNormal(
   };
 }
 
+/// Binds `love.math.setRandomSeed`.
+///
+/// LOVE accepts either a single integer-like seed or separate low and high
+/// 32-bit seed parts.
 LoveApiImplementation _bindMathSetRandomSeed(
   LibraryRegistrationContext context,
 ) {
@@ -229,6 +285,10 @@ LoveApiImplementation _bindMathSetRandomSeed(
   };
 }
 
+/// Binds `love.math.setRandomState`.
+///
+/// This restores the RNG from a state string previously returned by
+/// [love.math.getRandomState].
 LoveApiImplementation _bindMathSetRandomState(
   LibraryRegistrationContext context,
 ) {
@@ -243,6 +303,10 @@ LoveApiImplementation _bindMathSetRandomState(
   };
 }
 
+/// Binds `love.math.triangulate`.
+///
+/// The return value is LOVE's 1-based array of triangle tables, where each
+/// triangle stores six positional coordinates.
 LoveApiImplementation _bindMathTriangulate(LibraryRegistrationContext context) {
   return (args) {
     final vertices = _coordinateSequence(args, 'love.math.triangulate');
@@ -267,6 +331,10 @@ LoveApiImplementation _bindMathTriangulate(LibraryRegistrationContext context) {
   };
 }
 
+/// Returns validated color components for LOVE math color helpers.
+///
+/// This accepts either positional arguments or a color table and requires three
+/// or four finite components.
 List<double> _mathColorComponents(List<Object?> args, String symbol) {
   final table = args.isNotEmpty ? _tableIfPresent(args.first) : null;
   final components = <double>[];
@@ -292,6 +360,10 @@ List<double> _mathColorComponents(List<Object?> args, String symbol) {
   return components;
 }
 
+/// Returns validated components for LOVE math gamma helpers.
+///
+/// This accepts either positional arguments or a color table and requires at
+/// least one finite component.
 List<double> _mathGammaComponents(List<Object?> args, String symbol) {
   final table = args.isNotEmpty ? _tableIfPresent(args.first) : null;
   final components = <double>[];
@@ -317,6 +389,7 @@ List<double> _mathGammaComponents(List<Object?> args, String symbol) {
   return components;
 }
 
+/// Re-throws math backend errors as [LuaError].
 T _mathGuard<T>(T Function() operation) {
   try {
     return operation();
@@ -327,6 +400,7 @@ T _mathGuard<T>(T Function() operation) {
   }
 }
 
+/// Returns [value] as a finite [double] or throws a [LuaError].
 double _mathFiniteNumber(Object? value, String symbol) {
   final raw = _rawValue(value);
   if (raw is num) {
@@ -339,6 +413,9 @@ double _mathFiniteNumber(Object? value, String symbol) {
   throw LuaError('$symbol expected a finite number');
 }
 
+/// Splits LOVE random-seed inputs into low and high 32-bit parts.
+///
+/// LOVE accepts either one integer-like seed or an explicit `(low, high)` pair.
 ({int low, int high}) _randomSeedParts(
   List<Object?> args,
   int startIndex,
@@ -365,6 +442,7 @@ double _mathFiniteNumber(Object? value, String symbol) {
   );
 }
 
+/// Returns [value] as an integer-like random seed or throws a [LuaError].
 int _randomSeedInteger(Object? value, String symbol) {
   final raw = _rawValue(value);
   if (raw is int) {
@@ -381,6 +459,10 @@ int _randomSeedInteger(Object? value, String symbol) {
   throw LuaError('$symbol invalid random seed');
 }
 
+/// Returns a single value or a LOVE multi-return wrapper for [values].
+///
+/// This keeps the gamma helpers aligned with LOVE's behavior of returning a
+/// bare scalar for one component and multiple values otherwise.
 Object? _singleOrMulti(List<Object?> values) {
   if (values.length == 1) {
     return values.single;

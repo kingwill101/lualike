@@ -1,6 +1,8 @@
 part of 'love_filesystem_runtime.dart';
 
+/// Resolves logical paths across mounted filesystem roots.
 extension _LoveFilesystemMountResolution on LoveFilesystemState {
+  /// Resolves [archive] to a physical mountable archive path without rebinding.
   Future<String?> _resolveMountArchivePathWithoutRebind(String archive) async {
     final normalizedArchive = path.normalize(archive);
 
@@ -34,6 +36,7 @@ extension _LoveFilesystemMountResolution on LoveFilesystemState {
     return null;
   }
 
+  /// The real directory that currently provides [logicalPath], if any.
   Future<String?> _getRealDirectoryResolved(String logicalPath) async {
     for (final candidate in _readCandidatesResolved(logicalPath)) {
       if (await candidate.exists(adapter)) {
@@ -45,6 +48,7 @@ extension _LoveFilesystemMountResolution on LoveFilesystemState {
     return projectedRoot?.realDirectory;
   }
 
+  /// Whether [physicalPath] lives inside the current physical source root.
   bool _isInPhysicalSourceRoot(String physicalPath) {
     final sourceRoot = _currentPhysicalSourceRoot();
     if (sourceRoot == null || sourceRoot.isEmpty) {
@@ -57,6 +61,7 @@ extension _LoveFilesystemMountResolution on LoveFilesystemState {
         path.isWithin(normalizedSourceRoot, normalizedPhysicalPath);
   }
 
+  /// The current physical source root, when the source is file-backed.
   String? _currentPhysicalSourceRoot() {
     for (final root in _roots) {
       if (root.key == '__source__' && root.physicalRoot != null) {
@@ -67,11 +72,13 @@ extension _LoveFilesystemMountResolution on LoveFilesystemState {
     return null;
   }
 
+  /// Returns the currently applicable resolved read candidates for [logicalPath].
   Future<List<_LoveResolvedPath>> _readCandidates(String logicalPath) async {
     await _ensureAdapterBoundRoots();
     return _readCandidatesResolved(logicalPath);
   }
 
+  /// Returns resolved read candidates for [logicalPath] using current roots.
   List<_LoveResolvedPath> _readCandidatesResolved(String logicalPath) {
     final candidates = <_LoveResolvedPath>[];
 
@@ -95,6 +102,7 @@ extension _LoveFilesystemMountResolution on LoveFilesystemState {
     return candidates;
   }
 
+  /// Whether [logicalPath] should be treated as a projected directory.
   bool _isProjectedDirectory(String logicalPath) {
     if (logicalPath.isEmpty) {
       return _roots.any((root) => root.mountpoint.isNotEmpty);
@@ -107,6 +115,7 @@ extension _LoveFilesystemMountResolution on LoveFilesystemState {
     );
   }
 
+  /// The projected child entries that appear under [logicalPath].
   Set<String> _projectedEntries(String logicalPath) {
     final entries = <String>{};
 
@@ -136,6 +145,7 @@ extension _LoveFilesystemMountResolution on LoveFilesystemState {
     return entries;
   }
 
+  /// The first root that projects [logicalPath] or one of its descendants.
   _LoveFilesystemRoot? _projectedRoot(String logicalPath) {
     for (final root in _roots) {
       if (root.mountpoint == logicalPath ||

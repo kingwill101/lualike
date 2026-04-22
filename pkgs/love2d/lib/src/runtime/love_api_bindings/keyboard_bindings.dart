@@ -1,10 +1,12 @@
 part of '../love_api_bindings.dart';
 
+/// Whether verbose keyboard trace logging is enabled for debugging.
 const bool _loveTraceKeyboardLeak = bool.fromEnvironment(
   'LOVE2D_TRACE_TOUCH_LEAK',
   defaultValue: true,
 );
 
+/// Emits a structured keyboard-binding trace when tracing is enabled.
 void _loveTraceKeyboard(
   String stage, {
   Map<String, Object?> details = const {},
@@ -16,9 +18,13 @@ void _loveTraceKeyboard(
   final message = details.entries
       .map((entry) => '${entry.key}=${entry.value}')
       .join(' ');
+  if (stage.isEmpty && message.isEmpty) {
+    return;
+  }
   // print('[love2d-keyboard] $stage${message.isEmpty ? '' : ' $message'}');
 }
 
+/// Returns a printable representation of keyboard binding [args].
 String _loveDescribeKeyboardArgs(List<Object?> args) {
   if (args.isEmpty) {
     return '[]';
@@ -27,11 +33,13 @@ String _loveDescribeKeyboardArgs(List<Object?> args) {
   return '[${args.map(_loveDescribeKeyboardValue).join(', ')}]';
 }
 
+/// Returns a printable representation of a single keyboard binding argument.
 String _loveDescribeKeyboardValue(Object? value) {
   final raw = _rawValue(value);
   return '${value.runtimeType}(${raw.runtimeType}:$raw)';
 }
 
+/// Binds `love.keyboard.getKeyFromScancode`.
 LoveApiImplementation _bindKeyboardGetKeyFromScancode(
   LibraryRegistrationContext context,
 ) {
@@ -41,6 +49,7 @@ LoveApiImplementation _bindKeyboardGetKeyFromScancode(
   );
 }
 
+/// Binds `love.keyboard.getScancodeFromKey`.
 LoveApiImplementation _bindKeyboardGetScancodeFromKey(
   LibraryRegistrationContext context,
 ) {
@@ -50,6 +59,7 @@ LoveApiImplementation _bindKeyboardGetScancodeFromKey(
   );
 }
 
+/// Binds `love.keyboard.hasKeyRepeat`.
 LoveApiImplementation _bindKeyboardHasKeyRepeat(
   LibraryRegistrationContext context,
 ) {
@@ -57,6 +67,7 @@ LoveApiImplementation _bindKeyboardHasKeyRepeat(
   return (args) => runtime.keyboard.keyRepeat;
 }
 
+/// Binds `love.keyboard.hasScreenKeyboard`.
 LoveApiImplementation _bindKeyboardHasScreenKeyboard(
   LibraryRegistrationContext context,
 ) {
@@ -64,6 +75,7 @@ LoveApiImplementation _bindKeyboardHasScreenKeyboard(
   return (args) => runtime.keyboard.screenKeyboardSupported;
 }
 
+/// Binds `love.keyboard.hasTextInput`.
 LoveApiImplementation _bindKeyboardHasTextInput(
   LibraryRegistrationContext context,
 ) {
@@ -71,6 +83,10 @@ LoveApiImplementation _bindKeyboardHasTextInput(
   return (args) => runtime.keyboard.textInputEnabled;
 }
 
+/// Binds `love.keyboard.isDown`.
+///
+/// This binding accepts LOVE's flexible argument shapes and filters leaked
+/// touch IDs before delegating to the runtime keyboard state.
 LoveApiImplementation _bindKeyboardIsDown(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   return (args) {
@@ -112,6 +128,7 @@ LoveApiImplementation _bindKeyboardIsDown(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `love.keyboard.isScancodeDown`.
 LoveApiImplementation _bindKeyboardIsScancodeDown(
   LibraryRegistrationContext context,
 ) {
@@ -121,6 +138,7 @@ LoveApiImplementation _bindKeyboardIsScancodeDown(
   );
 }
 
+/// Binds `love.keyboard.setKeyRepeat`.
 LoveApiImplementation _bindKeyboardSetKeyRepeat(
   LibraryRegistrationContext context,
 ) {
@@ -135,6 +153,11 @@ LoveApiImplementation _bindKeyboardSetKeyRepeat(
   };
 }
 
+/// Binds `love.keyboard.setTextInput`.
+///
+/// LOVE optionally accepts a text-input rectangle describing the soft-keyboard
+/// editing region, so this binding only constructs the area object when the
+/// extra coordinates are present.
 LoveApiImplementation _bindKeyboardSetTextInput(
   LibraryRegistrationContext context,
 ) {
@@ -154,6 +177,7 @@ LoveApiImplementation _bindKeyboardSetTextInput(
   };
 }
 
+/// Returns the validated LOVE key constant at [index].
 String _requireKeyboardKeyConstant(
   List<Object?> args,
   int index,
@@ -167,6 +191,7 @@ String _requireKeyboardKeyConstant(
   return key;
 }
 
+/// Returns the validated LOVE scancode at [index].
 String _requireKeyboardScancode(List<Object?> args, int index, String symbol) {
   final scancode = _requireString(args, index, symbol);
   if (!loveIsValidScancode(scancode)) {
@@ -176,6 +201,7 @@ String _requireKeyboardScancode(List<Object?> args, int index, String symbol) {
   return scancode;
 }
 
+/// Normalizes keyboard key arguments into validated LOVE key constants.
 List<String> _keyboardKeySequence(
   List<Object?> args,
   String symbol, {
@@ -184,6 +210,7 @@ List<String> _keyboardKeySequence(
   return _keyboardKeySequenceWithTouchState(args, symbol, touch: touch);
 }
 
+/// Normalizes scancode arguments into validated LOVE scancode strings.
 List<String> _keyboardScancodeSequence(List<Object?> args, String symbol) {
   final values = _stringSequence(args, symbol: symbol, coerceNumbers: true);
   return values
@@ -196,6 +223,11 @@ List<String> _keyboardScancodeSequence(List<Object?> args, String symbol) {
       .toList(growable: false);
 }
 
+/// Normalizes keyboard key arguments while filtering leaked active touch IDs.
+///
+/// Some input paths may accidentally surface touch identifiers as string-like
+/// keyboard arguments, so this helper drops those values instead of treating
+/// them as invalid keys.
 List<String> _keyboardKeySequenceWithTouchState(
   List<Object?> args,
   String symbol, {
@@ -246,6 +278,7 @@ List<String> _keyboardKeySequenceWithTouchState(
   return keys;
 }
 
+/// Returns whether [value] names an active touch that leaked into key args.
 bool _isLeakedActiveTouchId(String value, {LoveTouchState? touch}) {
   if (touch == null) {
     return false;
@@ -259,6 +292,7 @@ bool _isLeakedActiveTouchId(String value, {LoveTouchState? touch}) {
   return touch.activeTouch(touchId) != null;
 }
 
+/// Converts positional or table-based string arguments into a sequence.
 List<String> _stringSequence(
   List<Object?> args, {
   required String symbol,
@@ -300,6 +334,10 @@ List<String> _stringSequence(
   }, growable: false);
 }
 
+/// Returns a string-like representation of [value] when allowed.
+///
+/// Numeric coercion is optional so callers can match the specific LOVE API they
+/// are validating.
 String? _sequenceStringLike(Object? value, {required bool coerceNumbers}) {
   final stringValue = _stringLike(value);
   if (stringValue != null) {

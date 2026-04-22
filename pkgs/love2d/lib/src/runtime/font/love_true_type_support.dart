@@ -1,6 +1,8 @@
 part of '../love_runtime.dart';
 
+/// Caches parsed TrueType tables in forms used by LOVE font rasterization.
 final class LoveTrueTypeFontMetadata {
+  /// Creates an immutable metadata snapshot parsed from SFNT tables.
   LoveTrueTypeFontMetadata._({
     required this.glyphCount,
     required this.unitsPerEm,
@@ -31,19 +33,40 @@ final class LoveTrueTypeFontMetadata {
                Map<int, _LoveTrueTypeGlyphMetrics>.from(codepointGlyphMetrics),
              );
 
+  /// The total glyph count reported by the font, if available.
   final int? glyphCount;
+
+  /// The units-per-em scaling base from the `head` table.
   final int? unitsPerEm;
+
+  /// The maximum advance width reported by the horizontal header.
   final int? maxAdvanceWidth;
+
+  /// The ascender metric in font units.
   final int? ascender;
+
+  /// The descender metric in font units.
   final int? descender;
+
+  /// The line gap metric in font units.
   final int? lineGap;
+
+  /// The cmap-derived codepoint-to-glyph index table.
   final Map<int, int>? _codepointToGlyphIndex;
+
+  /// The advance widths keyed by Unicode codepoint.
   final Map<int, int>? _codepointAdvanceWidths;
+
+  /// The kerning adjustments keyed by packed glyph pairs.
   final Map<int, int>? _codepointKerning;
+
+  /// The glyph metrics keyed by Unicode codepoint.
   final Map<int, _LoveTrueTypeGlyphMetrics>? _codepointGlyphMetrics;
 
+  /// Whether [glyphCount] contains a usable glyph count.
   bool get supportsGlyphCount => glyphCount != null && glyphCount! > 0;
 
+  /// A callback that reports supported codepoints when cmap data exists.
   LoveFontSupportsCodepoint? get supportsCodepointCallback {
     if (_codepointToGlyphIndex == null) {
       return null;
@@ -51,6 +74,7 @@ final class LoveTrueTypeFontMetadata {
     return containsCodepoint;
   }
 
+  /// Returns whether the parsed cmap maps [codepoint] to a glyph.
   bool containsCodepoint(int codepoint) {
     if (!_isValidUnicodeScalar(codepoint)) {
       return false;
@@ -58,6 +82,7 @@ final class LoveTrueTypeFontMetadata {
     return _codepointToGlyphIndex?.containsKey(codepoint) ?? false;
   }
 
+  /// Returns logical glyph advances for the requested font size.
   Map<int, double>? logicalGlyphAdvances(double size, {double dpiScale = 1.0}) {
     final advances = _codepointAdvanceWidths;
     final localUnitsPerEm = unitsPerEm;
@@ -79,6 +104,7 @@ final class LoveTrueTypeFontMetadata {
     });
   }
 
+  /// Returns logical kerning adjustments for the requested font size.
   Map<int, double>? logicalKerning(double size, {double dpiScale = 1.0}) {
     final kerning = _codepointKerning;
     final pixelHeight = math.max(1, (size * dpiScale).round());
@@ -96,6 +122,7 @@ final class LoveTrueTypeFontMetadata {
     });
   }
 
+  /// Returns glyph metrics scaled to [pixelHeight].
   _LoveScaledTrueTypeGlyphMetrics? _scaledGlyphMetrics(
     int codepoint,
     int pixelHeight,
@@ -108,6 +135,7 @@ final class LoveTrueTypeFontMetadata {
     return metrics.scale(scale);
   }
 
+  /// Returns the logical maximum advance for the requested font size.
   double? logicalMaxAdvance(double size, {double dpiScale = 1.0}) {
     final advanceWidth = maxAdvanceWidth;
     final localUnitsPerEm = unitsPerEm;
@@ -126,6 +154,7 @@ final class LoveTrueTypeFontMetadata {
     );
   }
 
+  /// Returns the maximum advance in pixels for [pixelHeight].
   int? pixelMaxAdvance(int pixelHeight) {
     final scale = _pixelScaleForHeight(pixelHeight);
     final advanceWidth = maxAdvanceWidth;
@@ -135,6 +164,7 @@ final class LoveTrueTypeFontMetadata {
     return math.max(1, (advanceWidth * scale).round());
   }
 
+  /// Returns the glyph advance in pixels for [codepoint].
   int? pixelGlyphAdvance(int codepoint, int pixelHeight) {
     final scale = _pixelScaleForHeight(pixelHeight);
     final advanceWidth = _codepointAdvanceWidths?[codepoint];
@@ -144,6 +174,7 @@ final class LoveTrueTypeFontMetadata {
     return math.max(0, (advanceWidth * scale).round());
   }
 
+  /// Returns the logical line height for the requested font size.
   double? logicalHeight(double size) {
     final scale = _logicalScaleForSize(size);
     final heightUnits = _heightUnits;
@@ -153,6 +184,7 @@ final class LoveTrueTypeFontMetadata {
     return math.max(1, (heightUnits * scale).round()).toDouble();
   }
 
+  /// Returns the logical ascent for the requested font size.
   double? logicalAscent(double size) {
     final scale = _logicalScaleForSize(size);
     final value = ascender;
@@ -162,6 +194,7 @@ final class LoveTrueTypeFontMetadata {
     return math.max(0, (value * scale).round()).toDouble();
   }
 
+  /// Returns the logical descent for the requested font size.
   double? logicalDescent(double size) {
     final scale = _logicalScaleForSize(size);
     final value = descender;
@@ -171,6 +204,7 @@ final class LoveTrueTypeFontMetadata {
     return math.max(0, (value.abs() * scale).round()).toDouble();
   }
 
+  /// Returns the line height in pixels for [pixelHeight].
   int? pixelHeightMetric(int pixelHeight) {
     final scale = _pixelScaleForHeight(pixelHeight);
     final heightUnits = _heightUnits;
@@ -180,6 +214,7 @@ final class LoveTrueTypeFontMetadata {
     return math.max(1, (heightUnits * scale).round());
   }
 
+  /// Returns the ascent in pixels for [pixelHeight].
   int? pixelAscent(int pixelHeight) {
     final scale = _pixelScaleForHeight(pixelHeight);
     final value = ascender;
@@ -189,6 +224,7 @@ final class LoveTrueTypeFontMetadata {
     return math.max(0, (value * scale).round());
   }
 
+  /// Returns the descent in pixels for [pixelHeight].
   int? pixelDescent(int pixelHeight) {
     final scale = _pixelScaleForHeight(pixelHeight);
     final value = descender;
@@ -198,6 +234,7 @@ final class LoveTrueTypeFontMetadata {
     return math.max(0, (value.abs() * scale).round());
   }
 
+  /// The total line height in font units.
   int? get _heightUnits {
     final ascent = ascender;
     final descent = descender;
@@ -209,6 +246,7 @@ final class LoveTrueTypeFontMetadata {
     return total > 0 ? total : null;
   }
 
+  /// Returns the logical scale that maps font units to [size].
   double? _logicalScaleForSize(double size) {
     final localUnitsPerEm = unitsPerEm;
     if (localUnitsPerEm == null || localUnitsPerEm <= 0 || size <= 0) {
@@ -217,6 +255,7 @@ final class LoveTrueTypeFontMetadata {
     return size / localUnitsPerEm;
   }
 
+  /// Returns the pixel scale that maps font units to [pixelHeight].
   double? _pixelScaleForHeight(int pixelHeight) {
     final localUnitsPerEm = unitsPerEm;
     if (localUnitsPerEm == null || localUnitsPerEm <= 0 || pixelHeight <= 0) {
@@ -225,6 +264,7 @@ final class LoveTrueTypeFontMetadata {
     return pixelHeight / localUnitsPerEm;
   }
 
+  /// Converts a scaled pixel metric back to a snapped logical metric.
   double _logicalSnappedMetric(
     double scaledPixels, {
     required double dpiScale,
@@ -233,7 +273,9 @@ final class LoveTrueTypeFontMetadata {
   }
 }
 
+/// Stores the subset of `hhea` metrics used by font rasterization.
 final class _LoveTrueTypeHorizontalHeaderMetadata {
+  /// Creates horizontal header metadata from the `hhea` table.
   const _LoveTrueTypeHorizontalHeaderMetadata({
     required this.ascent,
     required this.descent,
@@ -242,14 +284,25 @@ final class _LoveTrueTypeHorizontalHeaderMetadata {
     required this.numberOfHMetrics,
   });
 
+  /// The ascent in font units.
   final int ascent;
+
+  /// The descent in font units.
   final int descent;
+
+  /// The line gap in font units.
   final int lineGap;
+
+  /// The maximum advance width in font units.
   final int? maxAdvanceWidth;
+
+  /// The number of horizontal metric records in `hmtx`.
   final int? numberOfHMetrics;
 }
 
+/// Stores unscaled glyph metrics extracted from TrueType tables.
 final class _LoveTrueTypeGlyphMetrics {
+  /// Creates full glyph metrics with bounding box data.
   const _LoveTrueTypeGlyphMetrics({
     required this.advanceWidth,
     required this.leftSideBearing,
@@ -259,6 +312,7 @@ final class _LoveTrueTypeGlyphMetrics {
     this.yMax,
   });
 
+  /// Creates glyph metrics for an empty glyph without bounds.
   const _LoveTrueTypeGlyphMetrics.empty({
     required this.advanceWidth,
     required this.leftSideBearing,
@@ -267,16 +321,29 @@ final class _LoveTrueTypeGlyphMetrics {
        xMax = null,
        yMax = null;
 
+  /// The advance width in font units.
   final int advanceWidth;
+
+  /// The left-side bearing in font units.
   final int leftSideBearing;
+
+  /// The minimum x bound in font units.
   final int? xMin;
+
+  /// The minimum y bound in font units.
   final int? yMin;
+
+  /// The maximum x bound in font units.
   final int? xMax;
+
+  /// The maximum y bound in font units.
   final int? yMax;
 
+  /// Whether this glyph includes a usable bounding box.
   bool get hasBounds =>
       xMin != null && yMin != null && xMax != null && yMax != null;
 
+  /// Returns this glyph's metrics scaled to a target pixel size.
   _LoveScaledTrueTypeGlyphMetrics scale(double scale) {
     final advance = math.max(0, (advanceWidth * scale).round());
     if (!hasBounds) {
@@ -303,7 +370,9 @@ final class _LoveTrueTypeGlyphMetrics {
   }
 }
 
+/// Stores glyph metrics scaled to a target pixel height.
 final class _LoveScaledTrueTypeGlyphMetrics {
+  /// Creates scaled glyph metrics.
   const _LoveScaledTrueTypeGlyphMetrics({
     required this.width,
     required this.height,
@@ -312,25 +381,42 @@ final class _LoveScaledTrueTypeGlyphMetrics {
     required this.bearingY,
   });
 
+  /// The glyph width in pixels.
   final int width;
+
+  /// The glyph height in pixels.
   final int height;
+
+  /// The glyph advance in pixels.
   final int advance;
+
+  /// The horizontal bearing in pixels.
   final int bearingX;
+
+  /// The vertical bearing in pixels.
   final int bearingY;
 }
 
+/// Describes a candidate cmap subtable and its selection priority.
 final class _LoveTrueTypeCmapRecord {
+  /// Creates a cmap record descriptor.
   const _LoveTrueTypeCmapRecord({
     required this.absoluteOffset,
     required this.format,
     required this.priority,
   });
 
+  /// The absolute offset of the cmap subtable in the font bytes.
   final int absoluteOffset;
+
+  /// The cmap subtable format.
   final int format;
+
+  /// The selection priority for this subtable.
   final int priority;
 }
 
+/// Parses reusable metadata from TrueType-family font bytes.
 LoveTrueTypeFontMetadata? parseLoveTrueTypeFontMetadata(List<int>? bytes) {
   if (bytes == null || bytes.isEmpty) {
     return null;
@@ -408,6 +494,7 @@ LoveTrueTypeFontMetadata? parseLoveTrueTypeFontMetadata(List<int>? bytes) {
   );
 }
 
+/// Reads the glyph count from the `maxp` table.
 int? _readTrueTypeGlyphCount(List<int> bytes, int sfntOffset) {
   final maxpOffset = _findSfntTableOffset(bytes, sfntOffset, 'maxp');
   if (maxpOffset == null || maxpOffset + 6 > bytes.length) {
@@ -418,6 +505,7 @@ int? _readTrueTypeGlyphCount(List<int> bytes, int sfntOffset) {
   return glyphCount > 0 ? glyphCount : null;
 }
 
+/// Reads the units-per-em value from the `head` table.
 int? _readTrueTypeUnitsPerEm(List<int> bytes, int sfntOffset) {
   final headOffset = _findSfntTableOffset(bytes, sfntOffset, 'head');
   if (headOffset == null || headOffset + 20 > bytes.length) {
@@ -428,6 +516,7 @@ int? _readTrueTypeUnitsPerEm(List<int> bytes, int sfntOffset) {
   return unitsPerEm > 0 ? unitsPerEm : null;
 }
 
+/// Reads horizontal layout metrics from the `hhea` table.
 _LoveTrueTypeHorizontalHeaderMetadata? _readTrueTypeHorizontalHeaderMetadata(
   List<int> bytes,
   int sfntOffset,
@@ -459,6 +548,7 @@ _LoveTrueTypeHorizontalHeaderMetadata? _readTrueTypeHorizontalHeaderMetadata(
   );
 }
 
+/// Builds a cmap-derived codepoint-to-glyph index table.
 Map<int, int>? _tryParseTrueTypeCodepointGlyphIndices(
   List<int> bytes,
   int sfntOffset,
@@ -531,6 +621,7 @@ Map<int, int>? _tryParseTrueTypeCodepointGlyphIndices(
   return codepointToGlyphIndex.isEmpty ? null : codepointToGlyphIndex;
 }
 
+/// Ranks cmap records so the best Unicode mapping wins.
 int _trueTypeCmapRecordPriority(int platformId, int encodingId, int format) {
   if (platformId == 3 && encodingId == 10 && format == 12) {
     return 0;
@@ -550,11 +641,13 @@ int _trueTypeCmapRecordPriority(int platformId, int encodingId, int format) {
   return 5;
 }
 
+/// Returns whether a cmap record describes Unicode codepoints.
 bool _isUnicodeCmapRecord(int platformId, int encodingId) {
   return platformId == 0 ||
       (platformId == 3 && (encodingId == 1 || encodingId == 10));
 }
 
+/// Parses a format 4 cmap subtable into codepoint mappings.
 Map<int, int>? _parseTrueTypeFormat4GlyphIndices(List<int> bytes, int offset) {
   if (offset < 0 || offset + 16 > bytes.length) {
     return null;
@@ -621,6 +714,7 @@ Map<int, int>? _parseTrueTypeFormat4GlyphIndices(List<int> bytes, int offset) {
   return codepointToGlyphIndex.isEmpty ? null : codepointToGlyphIndex;
 }
 
+/// Resolves a single codepoint from a format 4 cmap segment.
 int? _trueTypeFormat4GlyphIndex(
   List<int> bytes, {
   required int codepoint,
@@ -654,6 +748,7 @@ int? _trueTypeFormat4GlyphIndex(
   return adjustedGlyphIndex == 0 ? null : adjustedGlyphIndex;
 }
 
+/// Parses a format 12 cmap subtable into codepoint mappings.
 Map<int, int>? _parseTrueTypeFormat12GlyphIndices(List<int> bytes, int offset) {
   if (offset < 0 || offset + 16 > bytes.length) {
     return null;
@@ -695,6 +790,7 @@ Map<int, int>? _parseTrueTypeFormat12GlyphIndices(List<int> bytes, int offset) {
   return codepointToGlyphIndex.isEmpty ? null : codepointToGlyphIndex;
 }
 
+/// Builds codepoint advance widths from the `hmtx` table.
 Map<int, int>? _buildTrueTypeCodepointAdvanceWidths(
   List<int> bytes,
   int sfntOffset, {
@@ -735,6 +831,7 @@ Map<int, int>? _buildTrueTypeCodepointAdvanceWidths(
   return codepointAdvanceWidths.isEmpty ? null : codepointAdvanceWidths;
 }
 
+/// Builds codepoint kerning pairs from compatible `kern` subtables.
 Map<int, int>? _buildTrueTypeCodepointKerning(
   List<int> bytes,
   int sfntOffset, {
@@ -791,6 +888,7 @@ Map<int, int>? _buildTrueTypeCodepointKerning(
   return kerning.isEmpty ? null : kerning;
 }
 
+/// Builds codepoint glyph bounds and bearings from `glyf`, `loca`, and `hmtx`.
 Map<int, _LoveTrueTypeGlyphMetrics>? _buildTrueTypeCodepointGlyphMetrics(
   List<int> bytes,
   int sfntOffset, {
@@ -875,16 +973,22 @@ Map<int, _LoveTrueTypeGlyphMetrics>? _buildTrueTypeCodepointGlyphMetrics(
   return codepointGlyphMetrics.isEmpty ? null : codepointGlyphMetrics;
 }
 
+/// Stores one resolved horizontal metric from the `hmtx` table.
 final class _LoveTrueTypeHorizontalMetric {
+  /// Creates a horizontal metric record.
   const _LoveTrueTypeHorizontalMetric({
     required this.advanceWidth,
     required this.leftSideBearing,
   });
 
+  /// The advance width in font units.
   final int advanceWidth;
+
+  /// The left-side bearing in font units.
   final int leftSideBearing;
 }
 
+/// Reads the horizontal metric record for [glyphIndex].
 _LoveTrueTypeHorizontalMetric? _readTrueTypeHorizontalMetric(
   List<int> bytes,
   int hmtxOffset, {
@@ -914,6 +1018,7 @@ _LoveTrueTypeHorizontalMetric? _readTrueTypeHorizontalMetric(
   );
 }
 
+/// Reads the `[start, end)` offsets for a glyph from the `loca` table.
 (int, int)? _readTrueTypeGlyphOffsets(
   List<int> bytes,
   int locaOffset, {
@@ -946,7 +1051,9 @@ _LoveTrueTypeHorizontalMetric? _readTrueTypeHorizontalMetric(
   );
 }
 
+/// Carries the TrueType table offsets needed for recursive glyph decoding.
 final class _LoveTrueTypeGlyphTableContext {
+  /// Creates a glyph table context for outline lookups.
   const _LoveTrueTypeGlyphTableContext({
     required this.bytes,
     required this.glyfOffset,
@@ -955,47 +1062,88 @@ final class _LoveTrueTypeGlyphTableContext {
     required this.indexToLocFormat,
   });
 
+  /// The full font bytes.
   final List<int> bytes;
+
+  /// The start offset of the `glyf` table.
   final int glyfOffset;
+
+  /// The start offset of the `loca` table.
   final int locaOffset;
+
+  /// The number of glyphs in the font.
   final int glyphCount;
+
+  /// The `loca` entry format from the `head` table.
   final int indexToLocFormat;
 }
 
+/// Represents one point in a glyph outline before rasterization.
 final class _LoveTrueTypeOutlinePoint {
+  /// Creates an outline point.
   const _LoveTrueTypeOutlinePoint({
     required this.x,
     required this.y,
     required this.onCurve,
   });
 
+  /// The x coordinate in font units.
   final double x;
+
+  /// The y coordinate in font units.
   final double y;
+
+  /// Whether the point lies directly on the contour.
   final bool onCurve;
 }
 
+/// Represents one point in pixel space during glyph rasterization.
 final class _LoveTrueTypeRasterPoint {
+  /// Creates a raster-space contour point.
   const _LoveTrueTypeRasterPoint({
     required this.x,
     required this.y,
     required this.onCurve,
   });
 
+  /// The x coordinate in pixels.
   final double x;
+
+  /// The y coordinate in pixels.
   final double y;
+
+  /// Whether the point lies directly on the contour.
   final bool onCurve;
 }
 
+/// Indicates that composite glyph arguments use 16-bit values.
 const int _loveTrueTypeArg1And2AreWordsFlag = 0x0001;
+
+/// Indicates that composite glyph arguments encode x/y translation.
 const int _loveTrueTypeArgsAreXyValuesFlag = 0x0002;
+
+/// Indicates that a composite component uses one uniform scale value.
 const int _loveTrueTypeWeHaveAScaleFlag = 0x0008;
+
+/// Indicates that more composite components follow.
 const int _loveTrueTypeMoreComponentsFlag = 0x0020;
+
+/// Indicates that a composite component uses separate x/y scale values.
 const int _loveTrueTypeWeHaveAnXAndYScaleFlag = 0x0040;
+
+/// Indicates that a composite component uses a full 2x2 transform.
 const int _loveTrueTypeWeHaveATwoByTwoFlag = 0x0080;
+
+/// Indicates that composite instructions follow the component list.
 const int _loveTrueTypeWeHaveInstructionsFlag = 0x0100;
+
+/// Indicates that component offsets should be transformed by the scale matrix.
 const int _loveTrueTypeScaledComponentOffsetFlag = 0x0800;
+
+/// The maximum recursion depth allowed for composite glyph expansion.
 const int _loveTrueTypeMaxCompositeDepth = 16;
 
+/// Rasterizes one TrueType glyph into LA8 pixel data.
 Uint8List? _rasterizeTrueTypeGlyphLa8(
   List<int>? bytes,
   LoveTrueTypeFontMetadata? metadata, {
@@ -1066,6 +1214,7 @@ Uint8List? _rasterizeTrueTypeGlyphLa8(
   );
 }
 
+/// Reads outline contours for [glyphIndex] from the font's `glyf` table.
 List<List<_LoveTrueTypeOutlinePoint>>? _readTrueTypeGlyphOutline(
   List<int> bytes,
   int glyphIndex, {
@@ -1104,6 +1253,7 @@ List<List<_LoveTrueTypeOutlinePoint>>? _readTrueTypeGlyphOutline(
   );
 }
 
+/// Reads outline contours for [glyphIndex] using a cached table context.
 List<List<_LoveTrueTypeOutlinePoint>>? _readTrueTypeGlyphOutlineFromContext(
   _LoveTrueTypeGlyphTableContext context,
   int glyphIndex, {
@@ -1158,6 +1308,7 @@ List<List<_LoveTrueTypeOutlinePoint>>? _readTrueTypeGlyphOutlineFromContext(
   );
 }
 
+/// Reads contours for a simple glyph description.
 List<List<_LoveTrueTypeOutlinePoint>>? _readTrueTypeSimpleGlyphContours(
   List<int> bytes,
   int glyphOffset,
@@ -1286,6 +1437,7 @@ List<List<_LoveTrueTypeOutlinePoint>>? _readTrueTypeSimpleGlyphContours(
   return contours;
 }
 
+/// Reads contours for a composite glyph by expanding its components.
 List<List<_LoveTrueTypeOutlinePoint>>? _readTrueTypeCompositeGlyphContours(
   _LoveTrueTypeGlyphTableContext context,
   int glyphOffset,
@@ -1411,6 +1563,7 @@ List<List<_LoveTrueTypeOutlinePoint>>? _readTrueTypeCompositeGlyphContours(
   return contours;
 }
 
+/// Applies an affine transform to all points in [contours].
 List<List<_LoveTrueTypeOutlinePoint>> _transformTrueTypeContours(
   List<List<_LoveTrueTypeOutlinePoint>> contours, {
   required double xx,
@@ -1433,6 +1586,7 @@ List<List<_LoveTrueTypeOutlinePoint>> _transformTrueTypeContours(
   ];
 }
 
+/// Rasterizes transformed contours into LA8 glyph pixel data.
 Uint8List _rasterizeTrueTypeContoursLa8(
   List<List<_LoveTrueTypeRasterPoint>> contours, {
   required int width,
@@ -1486,6 +1640,7 @@ Uint8List _rasterizeTrueTypeContoursLa8(
   return bytes;
 }
 
+/// Flattens a quadratic contour into line segments for scan conversion.
 List<_LoveTrueTypeRasterPoint> _flattenTrueTypeContour(
   List<_LoveTrueTypeRasterPoint> contour,
 ) {
@@ -1530,6 +1685,7 @@ List<_LoveTrueTypeRasterPoint> _flattenTrueTypeContour(
   return flattened;
 }
 
+/// Returns the implied on-curve midpoint between two off-curve points.
 _LoveTrueTypeRasterPoint _midpointTrueTypeRasterPoint(
   _LoveTrueTypeRasterPoint left,
   _LoveTrueTypeRasterPoint right,
@@ -1541,6 +1697,7 @@ _LoveTrueTypeRasterPoint _midpointTrueTypeRasterPoint(
   );
 }
 
+/// Appends [end] when it extends the current flattened contour.
 void _appendTrueTypeRasterLine(
   List<_LoveTrueTypeRasterPoint> points,
   _LoveTrueTypeRasterPoint end,
@@ -1552,6 +1709,7 @@ void _appendTrueTypeRasterLine(
   points.add(end);
 }
 
+/// Subdivides a quadratic segment into raster-space line points.
 void _appendTrueTypeRasterQuadratic(
   List<_LoveTrueTypeRasterPoint> points,
   _LoveTrueTypeRasterPoint start,
@@ -1579,6 +1737,7 @@ void _appendTrueTypeRasterQuadratic(
   }
 }
 
+/// Returns the subdivision count used for a quadratic segment.
 int _trueTypeQuadraticSubdivisionSteps(
   _LoveTrueTypeRasterPoint start,
   _LoveTrueTypeRasterPoint control,
@@ -1590,6 +1749,7 @@ int _trueTypeQuadraticSubdivisionSteps(
   return math.max(4, approximateLength.ceil());
 }
 
+/// Returns the Euclidean distance between two raster points.
 double _trueTypeRasterDistance(
   _LoveTrueTypeRasterPoint left,
   _LoveTrueTypeRasterPoint right,
@@ -1599,6 +1759,7 @@ double _trueTypeRasterDistance(
   return math.sqrt((dx * dx) + (dy * dy));
 }
 
+/// Returns whether two raster points are effectively equal.
 bool _sameTrueTypeRasterPoint(
   _LoveTrueTypeRasterPoint left,
   _LoveTrueTypeRasterPoint right,
@@ -1608,6 +1769,7 @@ bool _sameTrueTypeRasterPoint(
       (left.y - right.y).abs() < epsilon;
 }
 
+/// Returns whether [x], [y] lies inside the contour set using winding rules.
 bool _trueTypeContoursContainPoint(
   List<List<_LoveTrueTypeRasterPoint>> contours,
   double x,
@@ -1631,6 +1793,7 @@ bool _trueTypeContoursContainPoint(
   return winding != 0;
 }
 
+/// Returns the signed area test for the directed edge from [start] to [end].
 double _trueTypeRasterIsLeft(
   _LoveTrueTypeRasterPoint start,
   _LoveTrueTypeRasterPoint end,
@@ -1641,6 +1804,7 @@ double _trueTypeRasterIsLeft(
       ((x - start.x) * (end.y - start.y));
 }
 
+/// Reads kerning pairs from a format 0 `kern` subtable.
 void _readTrueTypeFormat0KerningSubtable(
   List<int> bytes,
   int offset, {
@@ -1681,16 +1845,19 @@ void _readTrueTypeFormat0KerningSubtable(
   }
 }
 
+/// Reads a signed 16-bit big-endian integer from [bytes].
 int _readInt16Be(List<int> bytes, int offset) {
   final value = _readUint16Be(bytes, offset);
   return value >= 0x8000 ? value - 0x10000 : value;
 }
 
+/// Reads a signed 8-bit integer from [bytes].
 int _readInt8(List<int> bytes, int offset) {
   final value = bytes[offset];
   return value >= 0x80 ? value - 0x100 : value;
 }
 
+/// Reads a signed F2.14 fixed-point value from [bytes].
 double _readTrueTypeF2Dot14(List<int> bytes, int offset) {
   return _readInt16Be(bytes, offset) / 16384.0;
 }

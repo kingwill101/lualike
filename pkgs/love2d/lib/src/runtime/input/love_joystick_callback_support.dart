@@ -1,6 +1,8 @@
 part of '../love_script_runtime.dart';
 
+/// Joystick and gamepad callback helpers for [LoveScriptRuntime].
 extension LoveScriptRuntimeJoystickCallbacks on LoveScriptRuntime {
+  /// Calls `love.joystickpressed` when it is defined.
   Future<Object?> callJoystickPressedIfDefined(
     LoveJoystickDevice joystick,
     int button,
@@ -11,6 +13,7 @@ extension LoveScriptRuntimeJoystickCallbacks on LoveScriptRuntime {
     );
   }
 
+  /// Calls `love.joystickreleased` when it is defined.
   Future<Object?> callJoystickReleasedIfDefined(
     LoveJoystickDevice joystick,
     int button,
@@ -21,6 +24,7 @@ extension LoveScriptRuntimeJoystickCallbacks on LoveScriptRuntime {
     );
   }
 
+  /// Calls `love.joystickaxis` when it is defined.
   Future<Object?> callJoystickAxisIfDefined(
     LoveJoystickDevice joystick,
     int axis,
@@ -32,6 +36,7 @@ extension LoveScriptRuntimeJoystickCallbacks on LoveScriptRuntime {
     );
   }
 
+  /// Calls `love.joystickhat` when it is defined.
   Future<Object?> callJoystickHatIfDefined(
     LoveJoystickDevice joystick,
     int hat,
@@ -43,6 +48,7 @@ extension LoveScriptRuntimeJoystickCallbacks on LoveScriptRuntime {
     );
   }
 
+  /// Calls `love.gamepadpressed` when it is defined.
   Future<Object?> callGamepadPressedIfDefined(
     LoveJoystickDevice joystick,
     String button,
@@ -53,6 +59,7 @@ extension LoveScriptRuntimeJoystickCallbacks on LoveScriptRuntime {
     );
   }
 
+  /// Calls `love.gamepadreleased` when it is defined.
   Future<Object?> callGamepadReleasedIfDefined(
     LoveJoystickDevice joystick,
     String button,
@@ -63,6 +70,7 @@ extension LoveScriptRuntimeJoystickCallbacks on LoveScriptRuntime {
     );
   }
 
+  /// Calls `love.gamepadaxis` when it is defined.
   Future<Object?> callGamepadAxisIfDefined(
     LoveJoystickDevice joystick,
     String axis,
@@ -74,6 +82,7 @@ extension LoveScriptRuntimeJoystickCallbacks on LoveScriptRuntime {
     );
   }
 
+  /// Calls `love.joystickadded` when it is defined.
   Future<Object?> callJoystickAddedIfDefined(LoveJoystickDevice joystick) {
     return callLoveCallbackIfDefined(
       'joystickadded',
@@ -81,6 +90,7 @@ extension LoveScriptRuntimeJoystickCallbacks on LoveScriptRuntime {
     );
   }
 
+  /// Calls `love.joystickremoved` when it is defined.
   Future<Object?> callJoystickRemovedIfDefined(LoveJoystickDevice joystick) {
     return callLoveCallbackIfDefined(
       'joystickremoved',
@@ -88,6 +98,7 @@ extension LoveScriptRuntimeJoystickCallbacks on LoveScriptRuntime {
     );
   }
 
+  /// Dispatches `joystickpressed` to the event queue and callback hook.
   Future<Object?> dispatchJoystickPressed(
     LoveJoystickDevice joystick,
     int button,
@@ -98,6 +109,7 @@ extension LoveScriptRuntimeJoystickCallbacks on LoveScriptRuntime {
     );
   }
 
+  /// Queues a `joystickpressed` event without calling the callback immediately.
   Future<Object?> queueJoystickPressed(
     LoveJoystickDevice joystick,
     int button,
@@ -108,6 +120,7 @@ extension LoveScriptRuntimeJoystickCallbacks on LoveScriptRuntime {
     );
   }
 
+  /// Dispatches `joystickreleased` to the event queue and callback hook.
   Future<Object?> dispatchJoystickReleased(
     LoveJoystickDevice joystick,
     int button,
@@ -118,6 +131,7 @@ extension LoveScriptRuntimeJoystickCallbacks on LoveScriptRuntime {
     );
   }
 
+  /// Queues a `joystickreleased` event without calling the callback immediately.
   Future<Object?> queueJoystickReleased(
     LoveJoystickDevice joystick,
     int button,
@@ -128,6 +142,7 @@ extension LoveScriptRuntimeJoystickCallbacks on LoveScriptRuntime {
     );
   }
 
+  /// Dispatches `joystickaxis` to the event queue and callback hook.
   Future<Object?> dispatchJoystickAxis(
     LoveJoystickDevice joystick,
     int axis,
@@ -139,6 +154,7 @@ extension LoveScriptRuntimeJoystickCallbacks on LoveScriptRuntime {
     );
   }
 
+  /// Queues a `joystickaxis` event without calling the callback immediately.
   Future<Object?> queueJoystickAxis(
     LoveJoystickDevice joystick,
     int axis,
@@ -150,6 +166,7 @@ extension LoveScriptRuntimeJoystickCallbacks on LoveScriptRuntime {
     );
   }
 
+  /// Dispatches `joystickhat` to the event queue and callback hook.
   Future<Object?> dispatchJoystickHat(
     LoveJoystickDevice joystick,
     int hat,
@@ -161,6 +178,7 @@ extension LoveScriptRuntimeJoystickCallbacks on LoveScriptRuntime {
     );
   }
 
+  /// Queues a `joystickhat` event without calling the callback immediately.
   Future<Object?> queueJoystickHat(
     LoveJoystickDevice joystick,
     int hat,
@@ -172,6 +190,7 @@ extension LoveScriptRuntimeJoystickCallbacks on LoveScriptRuntime {
     );
   }
 
+  /// Dispatches `gamepadpressed` to the event queue and callback hook.
   Future<Object?> dispatchGamepadPressed(
     LoveJoystickDevice joystick,
     String button,
@@ -182,6 +201,7 @@ extension LoveScriptRuntimeJoystickCallbacks on LoveScriptRuntime {
     );
   }
 
+  /// Queues a `gamepadpressed` event without calling the callback immediately.
   Future<Object?> queueGamepadPressed(
     LoveJoystickDevice joystick,
     String button,
@@ -192,6 +212,7 @@ extension LoveScriptRuntimeJoystickCallbacks on LoveScriptRuntime {
     );
   }
 
+  /// Dispatches `gamepadreleased` to the event queue and callback hook.
   Future<Object?> dispatchGamepadReleased(
     LoveJoystickDevice joystick,
     String button,
@@ -202,6 +223,7 @@ extension LoveScriptRuntimeJoystickCallbacks on LoveScriptRuntime {
     );
   }
 
+  /// Queues a `gamepadreleased` event without calling the callback immediately.
   Future<Object?> queueGamepadReleased(
     LoveJoystickDevice joystick,
     String button,
@@ -212,6 +234,7 @@ extension LoveScriptRuntimeJoystickCallbacks on LoveScriptRuntime {
     );
   }
 
+  /// Dispatches `gamepadaxis` to the event queue and callback hook.
   Future<Object?> dispatchGamepadAxis(
     LoveJoystickDevice joystick,
     String axis,
@@ -223,6 +246,7 @@ extension LoveScriptRuntimeJoystickCallbacks on LoveScriptRuntime {
     );
   }
 
+  /// Queues a `gamepadaxis` event without calling the callback immediately.
   Future<Object?> queueGamepadAxis(
     LoveJoystickDevice joystick,
     String axis,
@@ -234,6 +258,7 @@ extension LoveScriptRuntimeJoystickCallbacks on LoveScriptRuntime {
     );
   }
 
+  /// Dispatches `joystickadded` to the event queue and callback hook.
   Future<Object?> dispatchJoystickAdded(LoveJoystickDevice joystick) {
     return _dispatchLoveEventAndCallbackIfDefined(
       'joystickadded',
@@ -241,10 +266,12 @@ extension LoveScriptRuntimeJoystickCallbacks on LoveScriptRuntime {
     );
   }
 
+  /// Queues a `joystickadded` event without calling the callback immediately.
   Future<Object?> queueJoystickAdded(LoveJoystickDevice joystick) {
     return _queueLoveEvent('joystickadded', _joystickCallbackArgs(joystick));
   }
 
+  /// Dispatches `joystickremoved` to the event queue and callback hook.
   Future<Object?> dispatchJoystickRemoved(LoveJoystickDevice joystick) {
     return _dispatchLoveEventAndCallbackIfDefined(
       'joystickremoved',
@@ -252,10 +279,12 @@ extension LoveScriptRuntimeJoystickCallbacks on LoveScriptRuntime {
     );
   }
 
+  /// Queues a `joystickremoved` event without calling the callback immediately.
   Future<Object?> queueJoystickRemoved(LoveJoystickDevice joystick) {
     return _queueLoveEvent('joystickremoved', _joystickCallbackArgs(joystick));
   }
 
+  /// Returns the callback argument list for joystick and gamepad events.
   List<Object?> _joystickCallbackArgs(
     LoveJoystickDevice joystick, [
     List<Object?> tail = const <Object?>[],

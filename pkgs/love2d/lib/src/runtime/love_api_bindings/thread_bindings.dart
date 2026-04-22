@@ -1,5 +1,6 @@
 part of '../love_api_bindings.dart';
 
+/// Returns the shared thread state attached to the active Lua runtime.
 LoveThreadState _threadState(LibraryRegistrationContext context) {
   final runtime = context.interpreter;
   if (runtime == null) {
@@ -9,12 +10,18 @@ LoveThreadState _threadState(LibraryRegistrationContext context) {
   return LoveThreadState.attach(runtime);
 }
 
+/// Binds `love.thread.newChannel`.
+///
+/// This creates an unnamed channel backed by the shared thread state.
 LoveApiImplementation _bindThreadNewChannel(
   LibraryRegistrationContext context,
 ) {
   return (args) => _wrapChannel(context, _threadState(context).newChannel());
 }
 
+/// Binds `love.thread.getChannel`.
+///
+/// LOVE channels are global by name within a runtime's shared thread state.
 LoveApiImplementation _bindThreadGetChannel(
   LibraryRegistrationContext context,
 ) {
@@ -25,6 +32,12 @@ LoveApiImplementation _bindThreadGetChannel(
   };
 }
 
+/// Binds `love.thread.newThread`.
+///
+/// LOVE accepts either a Lua code string or a filesystem-backed source file.
+/// This binding creates a child interpreter, installs the LOVE runtime into
+/// it, mirrors the parent's filesystem state, and then loads the provided
+/// chunk for later execution.
 LoveApiImplementation _bindThreadNewThread(LibraryRegistrationContext context) {
   return (args) async {
     const symbol = 'love.thread.newThread';
@@ -134,6 +147,7 @@ LoveApiImplementation _bindThreadNewThread(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `Channel:clear`.
 LoveApiImplementation _bindChannelClear(LibraryRegistrationContext context) {
   return (args) {
     _requireChannel(args, 0, 'Channel:clear').clear();
@@ -141,6 +155,10 @@ LoveApiImplementation _bindChannelClear(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `Channel:demand`.
+///
+/// This optionally waits up to a timeout and decodes the transferred value back
+/// into the caller's runtime wrappers.
 LoveApiImplementation _bindChannelDemand(LibraryRegistrationContext context) {
   final libraryContext = LibraryContext(
     environment: context.environment,
@@ -155,10 +173,12 @@ LoveApiImplementation _bindChannelDemand(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `Channel:getCount`.
 LoveApiImplementation _bindChannelGetCount(LibraryRegistrationContext context) {
   return (args) => _requireChannel(args, 0, 'Channel:getCount').getCount();
 }
 
+/// Binds `Channel:hasRead`.
 LoveApiImplementation _bindChannelHasRead(LibraryRegistrationContext context) {
   return (args) => _requireChannel(
     args,
@@ -167,6 +187,9 @@ LoveApiImplementation _bindChannelHasRead(LibraryRegistrationContext context) {
   ).hasRead(_requireRoundedInt(args, 1, 'Channel:hasRead'));
 }
 
+/// Binds `Channel:peek`.
+///
+/// This inspects the next queued value without removing it from the channel.
 LoveApiImplementation _bindChannelPeek(LibraryRegistrationContext context) {
   final libraryContext = LibraryContext(
     environment: context.environment,
@@ -178,6 +201,10 @@ LoveApiImplementation _bindChannelPeek(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `Channel:performAtomic`.
+///
+/// LOVE runs the callback while holding the channel's internal lock so callers
+/// can perform compound operations safely.
 LoveApiImplementation _bindChannelPerformAtomic(
   LibraryRegistrationContext context,
 ) {
@@ -199,6 +226,10 @@ LoveApiImplementation _bindChannelPerformAtomic(
   };
 }
 
+/// Binds `Channel:pop`.
+///
+/// This removes the next queued value immediately and decodes it for the
+/// caller's runtime.
 LoveApiImplementation _bindChannelPop(LibraryRegistrationContext context) {
   final libraryContext = LibraryContext(
     environment: context.environment,
@@ -210,6 +241,10 @@ LoveApiImplementation _bindChannelPop(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `Channel:push`.
+///
+/// Values are encoded into the small transferable subset that LOVE threads
+/// support before they are queued.
 LoveApiImplementation _bindChannelPush(LibraryRegistrationContext context) {
   return (args) {
     const symbol = 'Channel:push';
@@ -225,6 +260,10 @@ LoveApiImplementation _bindChannelPush(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `Channel:supply`.
+///
+/// This is the blocking counterpart to [Channel:push], with an optional
+/// timeout.
 LoveApiImplementation _bindChannelSupply(LibraryRegistrationContext context) {
   return (args) async {
     const symbol = 'Channel:supply';
@@ -241,14 +280,20 @@ LoveApiImplementation _bindChannelSupply(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `Thread:getError`.
 LoveApiImplementation _bindThreadGetError(LibraryRegistrationContext context) {
   return (args) => _requireThread(args, 0, 'Thread:getError').error;
 }
 
+/// Binds `Thread:isRunning`.
 LoveApiImplementation _bindThreadIsRunning(LibraryRegistrationContext context) {
   return (args) => _requireThread(args, 0, 'Thread:isRunning').isRunning;
 }
 
+/// Binds `Thread:start`.
+///
+/// LOVE thread startup arguments must be transferable across runtimes, so this
+/// encoding step rejects unsupported values and nested tables.
 LoveApiImplementation _bindThreadStart(LibraryRegistrationContext context) {
   return (args) {
     const symbol = 'Thread:start';
@@ -270,6 +315,7 @@ LoveApiImplementation _bindThreadStart(LibraryRegistrationContext context) {
   };
 }
 
+/// Binds `Thread:wait`.
 LoveApiImplementation _bindThreadWait(LibraryRegistrationContext context) {
   return (args) async {
     await _requireThread(args, 0, 'Thread:wait').wait();
@@ -277,10 +323,16 @@ LoveApiImplementation _bindThreadWait(LibraryRegistrationContext context) {
   };
 }
 
+/// Returns whether [value] should be treated as inline thread source code.
+///
+/// LOVE does not have an explicit discriminator here, so long or multiline
+/// strings are treated as code while other strings are treated as filenames.
 bool _looksLikeLoveThreadCodeString(String value) {
   return value.length >= 1024 || value.contains('\n');
 }
 
+/// Copies filesystem configuration from a parent runtime into a child thread
+/// runtime.
 void _copyThreadFilesystemState(
   LoveFilesystemState source,
   LoveFilesystemState target,
@@ -301,6 +353,10 @@ void _copyThreadFilesystemState(
   }
 }
 
+/// Installs legacy globals that LOVE thread code may expect.
+///
+/// In particular this restores the Lua 5.1-style global `unpack` alias when
+/// only `table.unpack` is present.
 void _installLoveThreadCompatibilityAliases(LuaRuntime runtime) {
   final env = runtime.getCurrentEnv();
   if (env.get('unpack') != null) {
@@ -322,6 +378,11 @@ void _installLoveThreadCompatibilityAliases(LuaRuntime runtime) {
   }
 }
 
+/// Encodes a Lua-facing value into the transferable LOVE thread subset.
+///
+/// Scalars, channels, threads, and acyclic tables are supported. When
+/// [requireFlatTable] is `true`, nested tables are rejected to match LOVE's
+/// `Thread:start` argument rules.
 Object? _encodeThreadValue(
   Object? value, {
   required String symbol,
@@ -390,6 +451,7 @@ Object? _encodeThreadValue(
   throw LuaError('$symbol $tableMessage');
 }
 
+/// Decodes a transferred thread value into this runtime's wrapper objects.
 Object? _decodeThreadValue(LibraryContext context, Object? value) {
   return switch (value) {
     final Map<dynamic, dynamic> table => Value(

@@ -1,6 +1,8 @@
 part of 'love_filesystem_runtime.dart';
 
+/// Configures adapter, source, save-root, and require-path state.
 extension LoveFilesystemRuntimeConfig on LoveFilesystemState {
+  /// Replaces the active host filesystem [adapter] and marks derived roots dirty.
   void replaceAdapter(LoveFilesystemAdapter adapter) {
     _adapter = adapter;
     _rebindSaveRootForCurrentAdapter();
@@ -8,11 +10,15 @@ extension LoveFilesystemRuntimeConfig on LoveFilesystemState {
     _stringMountRootsDirty = _stringMountSpecs.isNotEmpty;
   }
 
+  /// Initializes filesystem runtime defaults.
   void init([String? arg0]) {
     _initialized = true;
     _symlinksEnabled = true;
   }
 
+  /// Sets whether the game should be treated as fused.
+  ///
+  /// LOVE only honors the first fused assignment, so later calls are ignored.
   void setFused(bool fused) {
     if (_fusedSet) {
       return;
@@ -21,14 +27,17 @@ extension LoveFilesystemRuntimeConfig on LoveFilesystemState {
     _fusedSet = true;
   }
 
+  /// Sets whether Android save data should use external storage.
   void setAndroidSaveExternal(bool useExternal) {
     _androidSaveExternal = useExternal;
   }
 
+  /// Sets whether symlink handling is enabled.
   void setSymlinksEnabled(bool enabled) {
     _symlinksEnabled = enabled;
   }
 
+  /// Allows mounting a specific physical [physicalPath] directly.
   void allowMountingForPath(String physicalPath) {
     final normalized = path.normalize(physicalPath);
     if (normalized.isEmpty || normalized == '.') {
@@ -38,6 +47,7 @@ extension LoveFilesystemRuntimeConfig on LoveFilesystemState {
     _allowedMountPaths.add(normalized);
   }
 
+  /// Sets the save identity to [value] and binds the save root.
   bool setIdentity(String value, {bool appendToPath = false}) {
     final saveDirectory = _saveDirectoryForIdentity(value);
     if (saveDirectory.isEmpty) {
@@ -59,6 +69,7 @@ extension LoveFilesystemRuntimeConfig on LoveFilesystemState {
     return true;
   }
 
+  /// Sets the source path to [value] without probing the host filesystem.
   bool setSource(String value) {
     if (_source.isNotEmpty) {
       return false;
@@ -94,6 +105,7 @@ extension LoveFilesystemRuntimeConfig on LoveFilesystemState {
     return true;
   }
 
+  /// Sets the source path to [value] after probing the host filesystem.
   Future<bool> setSourceFromFilesystem(String value) async {
     if (_source.isNotEmpty) {
       return false;
@@ -116,26 +128,35 @@ extension LoveFilesystemRuntimeConfig on LoveFilesystemState {
     return true;
   }
 
+  /// Sets the semicolon-delimited Lua require path template list.
   void setRequirePath(String value) {
     _requirePath = _splitPathTemplates(value);
   }
 
+  /// Sets the semicolon-delimited C require path template list.
   void setCRequirePath(String value) {
     _cRequirePath = _splitPathTemplates(value);
   }
 
+  /// The current Lua require path list encoded as a semicolon-delimited string.
   String getRequirePathString() => _requirePath.join(';');
 
+  /// The current C require path list encoded as a semicolon-delimited string.
   String getCRequirePathString() => _cRequirePath.join(';');
 
+  /// The current working directory exposed by the host adapter.
   String getWorkingDirectory() => adapter.workingDirectory ?? '';
 
+  /// The current user directory exposed by the host adapter.
   String getUserDirectory() => adapter.userDirectory ?? '';
 
+  /// The app data directory exposed by the host adapter.
   String getAppdataDirectory() => adapter.appdataDirectory ?? '';
 
+  /// The executable path exposed by the host adapter.
   String getExecutablePath() => adapter.executablePath ?? '';
 
+  /// The resolved save directory for the current identity, if one exists.
   String getSaveDirectory() {
     if (!_identitySet) {
       return '';
@@ -144,6 +165,7 @@ extension LoveFilesystemRuntimeConfig on LoveFilesystemState {
     return _saveDirectoryForIdentity(_identity);
   }
 
+  /// Resolves the physical save directory used for [identity].
   String _saveDirectoryForIdentity(String identity) {
     final baseDirectory = getAppdataDirectory();
     if (baseDirectory.isEmpty) {
@@ -158,6 +180,7 @@ extension LoveFilesystemRuntimeConfig on LoveFilesystemState {
     return path.normalize(path.join(baseDirectory, folder, identity));
   }
 
+  /// The base directory portion of the configured source path.
   String getSourceBaseDirectory() {
     if (_source.isEmpty) {
       return '';
@@ -179,6 +202,7 @@ extension LoveFilesystemRuntimeConfig on LoveFilesystemState {
     return trimmedSource.substring(0, lastSeparator);
   }
 
+  /// Builds a source root from a filesystem path when it exists.
   Future<_LoveFilesystemRoot?> _sourceRootFromFilesystem(
     String normalizedSource,
   ) async {

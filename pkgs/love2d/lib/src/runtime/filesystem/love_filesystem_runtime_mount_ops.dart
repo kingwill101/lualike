@@ -1,6 +1,11 @@
 part of 'love_filesystem_runtime.dart';
 
+/// Implements mount, query, and write operations on the filesystem runtime.
 extension LoveFilesystemRuntimeMountOperations on LoveFilesystemState {
+  /// Mounts [archive] at [mountpoint].
+  ///
+  /// Returns `false` when the archive path is unsafe, cannot be resolved, or
+  /// cannot be decoded as a supported mount source.
   Future<bool> mount(
     String archive, {
     required String mountpoint,
@@ -79,6 +84,7 @@ extension LoveFilesystemRuntimeMountOperations on LoveFilesystemState {
     return true;
   }
 
+  /// Mounts archive [bytes] from an in-memory source at [mountpoint].
   Future<bool> mountArchiveBytes(
     List<int> bytes, {
     required Object sourceIdentity,
@@ -126,6 +132,7 @@ extension LoveFilesystemRuntimeMountOperations on LoveFilesystemState {
     return true;
   }
 
+  /// Unmounts a previously mounted [archive].
   Future<bool> unmount(String archive) async {
     await _ensureAdapterBoundRoots();
     if (_isUnsafeMountArchivePath(archive)) {
@@ -159,6 +166,7 @@ extension LoveFilesystemRuntimeMountOperations on LoveFilesystemState {
     return false;
   }
 
+  /// Unmounts the first in-memory archive associated with [sourceIdentity].
   bool unmountData(Object sourceIdentity) {
     final keys = _dataMountKeys[sourceIdentity];
     if (keys == null || keys.isEmpty) {
@@ -169,11 +177,13 @@ extension LoveFilesystemRuntimeMountOperations on LoveFilesystemState {
     return _removeDataMountByKey(key);
   }
 
+  /// The real directory currently providing [logicalPath], if any.
   Future<String?> getRealDirectory(String logicalPath) async {
     await _ensureAdapterBoundRoots();
     return _getRealDirectoryResolved(_normalizeLogicalPath(logicalPath));
   }
 
+  /// Returns filesystem information for [logicalPath], if it exists.
   Future<LoveFilesystemInfo?> getInfo(
     String logicalPath, {
     LoveFilesystemNodeType? filterType,
@@ -203,6 +213,7 @@ extension LoveFilesystemRuntimeMountOperations on LoveFilesystemState {
     return null;
   }
 
+  /// Lists the direct entries visible under [logicalPath].
   Future<List<String>> getDirectoryItems(String logicalPath) async {
     await _ensureAdapterBoundRoots();
     final normalized = _normalizeLogicalPath(logicalPath);
@@ -222,6 +233,7 @@ extension LoveFilesystemRuntimeMountOperations on LoveFilesystemState {
     return sorted;
   }
 
+  /// Creates a directory at [logicalPath] inside the writable save root.
   Future<bool> createDirectory(String logicalPath) async {
     final targetPath = await resolveWritablePhysicalPath(logicalPath);
     if (targetPath == null) {
@@ -237,6 +249,7 @@ extension LoveFilesystemRuntimeMountOperations on LoveFilesystemState {
     return adapter.createDirectory(targetPath, recursive: true);
   }
 
+  /// Removes a writable file or directory at [logicalPath].
   Future<bool> remove(String logicalPath) async {
     final targetPath = await resolveWritablePhysicalPath(logicalPath);
     if (targetPath == null) {

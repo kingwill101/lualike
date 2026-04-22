@@ -15,12 +15,16 @@ import '../love_runtime.dart'
         LoveShaderTranslationException,
         loveShaderCodeToGlsl;
 
+/// Tracks whether graphics enum bindings have been installed for a runtime.
 final Expando<bool> _loveGraphicsEnumsInstalled = Expando<bool>(
   'love2dGraphicsEnumsInstalled',
 );
 
+/// The generated LOVE graphics enum tables keyed by symbol name.
 final Map<String, Map<String, Object?>> _loveGraphicsEnumMaps =
     _buildLoveGraphicsEnumMaps();
+
+/// Extra graphics-module symbols exposed alongside generated enum tables.
 final Map<String, Value Function(LuaRuntime runtime)>
 _loveGraphicsExtraSymbols = <String, Value Function(LuaRuntime runtime)>{
   '_newVideo': _bindGraphicsInternalNewVideo,
@@ -32,6 +36,7 @@ _loveGraphicsExtraSymbols = <String, Value Function(LuaRuntime runtime)>{
   'setDefaultMipmapFilter': _bindGraphicsSetDefaultMipmapFilter,
 };
 
+/// The shader languages required by LOVE's default-shader validation helper.
 const Set<String> _graphicsDefaultShaderLanguages = <String>{
   'glsl1',
   'essl1',
@@ -39,6 +44,7 @@ const Set<String> _graphicsDefaultShaderLanguages = <String>{
   'essl3',
 };
 
+/// The shader stages required by LOVE's default-shader validation helper.
 const Set<String> _graphicsDefaultShaderStages = <String>{
   'vertex',
   'pixel',
@@ -46,6 +52,7 @@ const Set<String> _graphicsDefaultShaderStages = <String>{
   'arraypixel',
 };
 
+/// Builds the generated enum tables for the `love.graphics` module.
 Map<String, Map<String, Object?>> _buildLoveGraphicsEnumMaps() {
   final result = <String, Map<String, Object?>>{};
   for (final enumDoc in loveApiEnums) {
@@ -60,6 +67,7 @@ Map<String, Map<String, Object?>> _buildLoveGraphicsEnumMaps() {
   return result;
 }
 
+/// Installs the `love.graphics` enum tables and helper bindings into [runtime].
 void installLoveGraphicsEnumBindings(LuaRuntime runtime) {
   if (_loveGraphicsEnumsInstalled[runtime] == true) {
     return;
@@ -83,6 +91,7 @@ void installLoveGraphicsEnumBindings(LuaRuntime runtime) {
   _loveGraphicsEnumsInstalled[runtime] = true;
 }
 
+/// Binds `love.graphics.isCreated`.
 Value _bindGraphicsIsCreated(LuaRuntime runtime) {
   final builder = BuiltinFunctionBuilder(
     LibraryContext(environment: runtime.getCurrentEnv(), interpreter: runtime),
@@ -90,6 +99,7 @@ Value _bindGraphicsIsCreated(LuaRuntime runtime) {
   return Value(builder.create((args) => true), functionName: 'isCreated');
 }
 
+/// Binds `love.graphics.getDefaultMipmapFilter`.
 Value _bindGraphicsGetDefaultMipmapFilter(LuaRuntime runtime) {
   final builder = BuiltinFunctionBuilder(
     LibraryContext(environment: runtime.getCurrentEnv(), interpreter: runtime),
@@ -111,6 +121,7 @@ Value _bindGraphicsGetDefaultMipmapFilter(LuaRuntime runtime) {
   );
 }
 
+/// Binds the internal `love.graphics._newVideo` helper.
 Value _bindGraphicsInternalNewVideo(LuaRuntime runtime) {
   final builder = BuiltinFunctionBuilder(
     LibraryContext(environment: runtime.getCurrentEnv(), interpreter: runtime),
@@ -126,18 +137,24 @@ Value _bindGraphicsInternalNewVideo(LuaRuntime runtime) {
       };
 
       final source = args.isNotEmpty ? args.first : null;
-      final dpiScale = args.length >= 2
-          ? _graphicsNumber(args[1], symbol: 'love.graphics._newVideo')
-          : 1.0;
+      final rawDpiScale = args.length >= 2 ? _graphicsRawValue(args[1]) : null;
+      final dpiScale = rawDpiScale == null
+          ? 1.0
+          : _graphicsNumber(args[1], symbol: 'love.graphics._newVideo');
       return newVideo.call(<Object?>[
         source,
-        <Object?, Object?>{'audio': false, 'dpiscale': dpiScale},
+        <Object?, Object?>{
+          'audio': false,
+          'dpiscale': dpiScale,
+          '__love2dPreserveStreamSync': true,
+        },
       ]);
     }),
     functionName: '_newVideo',
   );
 }
 
+/// Binds the internal `love.graphics._setDefaultShaderCode` helper.
 Value _bindGraphicsSetDefaultShaderCode(LuaRuntime runtime) {
   final builder = BuiltinFunctionBuilder(
     LibraryContext(environment: runtime.getCurrentEnv(), interpreter: runtime),
@@ -184,6 +201,7 @@ Value _bindGraphicsSetDefaultShaderCode(LuaRuntime runtime) {
   );
 }
 
+/// Binds the internal `love.graphics._shaderCodeToGLSL` helper.
 Value _bindGraphicsShaderCodeToGlsl(LuaRuntime runtime) {
   final builder = BuiltinFunctionBuilder(
     LibraryContext(environment: runtime.getCurrentEnv(), interpreter: runtime),
@@ -227,6 +245,7 @@ Value _bindGraphicsShaderCodeToGlsl(LuaRuntime runtime) {
   );
 }
 
+/// Binds the internal `love.graphics._transformGLSLErrorMessages` helper.
 Value _bindGraphicsTransformGLSLErrorMessages(LuaRuntime runtime) {
   final builder = BuiltinFunctionBuilder(
     LibraryContext(environment: runtime.getCurrentEnv(), interpreter: runtime),
@@ -245,6 +264,7 @@ Value _bindGraphicsTransformGLSLErrorMessages(LuaRuntime runtime) {
   );
 }
 
+/// Binds `love.graphics.setDefaultMipmapFilter`.
 Value _bindGraphicsSetDefaultMipmapFilter(LuaRuntime runtime) {
   final builder = BuiltinFunctionBuilder(
     LibraryContext(environment: runtime.getCurrentEnv(), interpreter: runtime),
@@ -274,6 +294,7 @@ Value _bindGraphicsSetDefaultMipmapFilter(LuaRuntime runtime) {
   );
 }
 
+/// Parses a graphics filter-mode string into [LoveGraphicsFilterMode].
 LoveGraphicsFilterMode _graphicsFilterMode(String value) {
   return switch (value) {
     'linear' => LoveGraphicsFilterMode.linear,
@@ -284,6 +305,7 @@ LoveGraphicsFilterMode _graphicsFilterMode(String value) {
   };
 }
 
+/// Returns the LOVE string name for a graphics filter mode.
 String _graphicsFilterModeName(LoveGraphicsFilterMode value) {
   return switch (value) {
     LoveGraphicsFilterMode.linear => 'linear',
@@ -291,8 +313,10 @@ String _graphicsFilterModeName(LoveGraphicsFilterMode value) {
   };
 }
 
+/// Unwraps [value] when it is stored inside a [Value].
 Object? _graphicsRawValue(Object? value) => value is Value ? value.raw : value;
 
+/// Reads a numeric argument for a graphics binding helper.
 double _graphicsNumber(Object? value, {required String symbol}) {
   final raw = value is Value ? value.unwrap() : value;
   if (raw is num) {
@@ -301,6 +325,7 @@ double _graphicsNumber(Object? value, {required String symbol}) {
   throw LuaError('$symbol expected a number');
 }
 
+/// Requires that [value] unwraps to a Lua table.
 Map<dynamic, dynamic> _graphicsRequireTable(
   Object? value, {
   required String symbol,
@@ -313,6 +338,7 @@ Map<dynamic, dynamic> _graphicsRequireTable(
   throw LuaError('$symbol $context');
 }
 
+/// Requires that [value] unwraps to a string.
 String _graphicsRequireString(
   Object? value, {
   required String symbol,
@@ -325,6 +351,7 @@ String _graphicsRequireString(
   throw LuaError('$symbol $context');
 }
 
+/// Reads an optional string argument, allowing `nil`.
 String? _graphicsOptionalString(
   Object? value, {
   required String symbol,
@@ -340,6 +367,7 @@ String? _graphicsOptionalString(
   throw LuaError('$symbol expected a string or nil at argument $argumentIndex');
 }
 
+/// Normalizes backend GLSL compiler messages into LOVE-style output.
 String _graphicsTransformGlslErrorMessages(String message) {
   final compileMatch = RegExp(
     r'Cannot compile ([A-Za-z]+) shader code',
@@ -353,7 +381,7 @@ String _graphicsTransformGlslErrorMessages(String message) {
   }
 
   final prefix = compileMatch != null ? 'Cannot compile ' : 'Error validating ';
-  final lines = <String>['${prefix}${shaderType} shader code:'];
+  final lines = <String>['$prefix$shaderType shader code:'];
 
   for (final line in const LineSplitter().convert(message)) {
     final nvidiaMatch = RegExp(
@@ -398,6 +426,7 @@ String _graphicsTransformGlslErrorMessages(String message) {
   return lines.join('\n');
 }
 
+/// Returns the `love.graphics` module table from [runtime], if one exists.
 Map<dynamic, dynamic>? _graphicsModuleTable(LuaRuntime runtime) {
   final love = runtime.globals.get('love');
   final loveTable = love is Value ? love.raw : love;

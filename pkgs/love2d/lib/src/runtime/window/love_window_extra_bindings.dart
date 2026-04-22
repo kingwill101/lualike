@@ -4,13 +4,16 @@ import 'package:lualike/lualike.dart' show LuaRuntime, Value;
 
 import '../../generated/love_api_reference.g.dart' show loveApiEnums;
 
+/// Tracks which runtimes already have window extra bindings installed.
 final Expando<bool> _loveWindowExtrasInstalled = Expando<bool>(
   'love2dWindowExtrasInstalled',
 );
 
+/// The generated enum tables exposed through the LOVE window module.
 final Map<String, Map<String, Object?>> _loveWindowEnumMaps =
     _buildLoveWindowEnumMaps();
 
+/// Builds Lua-facing enum tables for the `love.window` module.
 Map<String, Map<String, Object?>> _buildLoveWindowEnumMaps() {
   final result = <String, Map<String, Object?>>{};
   for (final enumDoc in loveApiEnums) {
@@ -25,6 +28,7 @@ Map<String, Map<String, Object?>> _buildLoveWindowEnumMaps() {
   return result;
 }
 
+/// Installs generated window enum tables and aliases into [runtime].
 void installLoveWindowExtraBindings(LuaRuntime runtime) {
   if (_loveWindowExtrasInstalled[runtime] == true) {
     return;
@@ -49,6 +53,7 @@ void installLoveWindowExtraBindings(LuaRuntime runtime) {
   _loveWindowExtrasInstalled[runtime] = true;
 }
 
+/// The `love.window` module table from [runtime], if one is available.
 Map<dynamic, dynamic>? _windowModuleTable(LuaRuntime runtime) {
   final love = runtime.globals.get('love');
   final loveTable = love is Value ? love.raw : love;

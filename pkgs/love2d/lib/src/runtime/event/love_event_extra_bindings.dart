@@ -1,15 +1,16 @@
 library;
 
 import 'package:lualike/library_builder.dart';
-import 'package:lualike/lualike.dart' show LuaRuntime, Value;
 
 import '../../generated/love_api_reference.g.dart' show loveApiEnums;
 import '../love_runtime.dart';
 
+/// Whether the extra event bindings have already been installed for a runtime.
 final Expando<bool> _loveEventExtrasInstalled = Expando<bool>(
   'love2dEventExtrasInstalled',
 );
 
+/// Builds the canonical LOVE `Event` enum table from the generated API data.
 Map<String, Object?> _buildEventEnumMap() {
   final result = <String, Object?>{};
   for (final enumDoc in loveApiEnums) {
@@ -72,6 +73,7 @@ void installLoveEventExtraBindings(LuaRuntime runtime) {
   runtime.globals.define('Event', enumValue);
 }
 
+/// Returns the current `love.event` module table when it is available.
 Map<dynamic, dynamic>? _eventModuleTable(LuaRuntime runtime) {
   final love = runtime.getCurrentEnv().get('love');
   final loveTable = love is Value ? love.raw : love;

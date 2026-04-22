@@ -1,11 +1,13 @@
 part of '../love_api_bindings.dart';
 
+/// Internal return sentinel used to unwind synchronous Lua callback execution.
 final class _LovePhysicsSyncReturnSignal implements Exception {
   const _LovePhysicsSyncReturnSignal(this.value);
 
   final Object? value;
 }
 
+/// Internal exception used when a synchronous physics callback uses unsupported features.
 final class _LovePhysicsSyncUnsupported implements Exception {
   const _LovePhysicsSyncUnsupported(this.message);
 
@@ -15,6 +17,10 @@ final class _LovePhysicsSyncUnsupported implements Exception {
   String toString() => message;
 }
 
+/// Packs Lua varargs into the table-style representation used by this runtime.
+///
+/// Each entry is wrapped as a [Value] and pinned to [runtime] so later table
+/// access behaves like ordinary interpreter-created varargs.
 Value _physicsPackVarargsTable(List<Object?> values, LuaRuntime runtime) {
   final table = <Object?, Object?>{'n': values.length};
   for (var index = 0; index < values.length; index++) {
@@ -29,6 +35,10 @@ Value _physicsPackVarargsTable(List<Object?> values, LuaRuntime runtime) {
   return Value(table)..interpreter = runtime;
 }
 
+/// Whether [callback] can be invoked through the synchronous physics bridge.
+///
+/// Synchronous dispatch requires an [Interpreter] runtime and a callback shape
+/// that this file knows how to execute inline.
 bool _physicsCanInvokeLuaCallbackSync(LibraryContext context, Value callback) {
   return context.interpreter is Interpreter &&
       (callback.functionBody != null ||
@@ -36,6 +46,9 @@ bool _physicsCanInvokeLuaCallbackSync(LibraryContext context, Value callback) {
           callback.raw is Function);
 }
 
+/// Invokes [callback] synchronously and returns its first Lua result.
+///
+/// Throws a [LuaError] when the current runtime is not an [Interpreter].
 Object? _physicsInvokeLuaCallbackSync(
   LibraryContext context,
   Value callback,
@@ -52,12 +65,19 @@ Object? _physicsInvokeLuaCallbackSync(
   return _physicsFirstResult(result);
 }
 
+/// Restricted interpreter for synchronous `love.physics` callbacks.
+///
+/// This executes only the subset of Lua syntax that physics callbacks need
+/// when they must run inline with the Box2D step.
 final class _LovePhysicsSyncLuaInvoker {
   const _LovePhysicsSyncLuaInvoker(this.context, this.symbol);
 
   final LibraryContext context;
   final String symbol;
 
+  /// The active runtime for this invocation.
+  ///
+  /// Throws a [LuaError] when no interpreter runtime is available.
   LuaRuntime get runtime {
     final runtime = context.interpreter;
     if (runtime == null) {
@@ -66,6 +86,7 @@ final class _LovePhysicsSyncLuaInvoker {
     return runtime;
   }
 
+  /// Invokes [callback] through either its parsed function body or raw callable.
   Object? invoke(Value callback, List<Object?> args) {
     final body = callback.functionBody;
     final closureEnv = callback.closureEnvironment;
@@ -81,6 +102,10 @@ final class _LovePhysicsSyncLuaInvoker {
     return _invokeCallable(callback, args);
   }
 
+  /// Executes a parsed Lua callback body in a fresh call environment.
+  ///
+  /// Positional arguments and varargs are bound before execution begins, and
+  /// the previous current environment is restored before returning.
   Object? _executeFunctionBody({
     required Value callback,
     required FunctionBody functionBody,
@@ -135,6 +160,7 @@ final class _LovePhysicsSyncLuaInvoker {
     }
   }
 
+  /// Executes each statement in [statements] in order.
   void _executeBlock(
     List<AstNode> statements,
     Environment environment,
@@ -145,6 +171,9 @@ final class _LovePhysicsSyncLuaInvoker {
     }
   }
 
+  /// Executes one statement from the supported synchronous callback subset.
+  ///
+  /// Unsupported statements throw [_LovePhysicsSyncUnsupported].
   void _executeStatement(
     AstNode statement,
     Environment environment,
@@ -195,6 +224,7 @@ final class _LovePhysicsSyncLuaInvoker {
     }
   }
 
+  /// Executes an assignment across identifiers and supported table targets.
   void _executeAssignment(
     Assignment assignment,
     Environment environment,
@@ -243,6 +273,7 @@ final class _LovePhysicsSyncLuaInvoker {
     }
   }
 
+  /// Executes a local declaration, filling omitted values with `nil`.
   void _executeLocalDeclaration(
     LocalDeclaration declaration,
     Environment environment,
@@ -259,6 +290,7 @@ final class _LovePhysicsSyncLuaInvoker {
     }
   }
 
+  /// Executes an `if` statement using child environments for each taken branch.
   void _executeIf(
     IfStatement statement,
     Environment environment,
@@ -307,6 +339,9 @@ final class _LovePhysicsSyncLuaInvoker {
     _executeBlock(statement.elseBlock, elseEnv, upvalues);
   }
 
+  /// Evaluates one expression from the supported synchronous callback subset.
+  ///
+  /// Unsupported expressions throw [_LovePhysicsSyncUnsupported].
   Object? _evaluateExpression(
     AstNode expression,
     Environment environment,
@@ -376,6 +411,7 @@ final class _LovePhysicsSyncLuaInvoker {
     }
   }
 
+  /// Evaluates a unary expression using Lua callback semantics.
   Object? _evaluateUnary(
     UnaryExpression expression,
     Environment environment,
@@ -414,6 +450,10 @@ final class _LovePhysicsSyncLuaInvoker {
     }
   }
 
+  /// Evaluates a binary expression using Lua callback semantics.
+  ///
+  /// Short-circuit operators preserve Lua's value-returning behavior for `and`
+  /// and `or` instead of coercing the result to `bool`.
   Object? _evaluateBinary(
     BinaryExpression expression,
     Environment environment,
@@ -488,6 +528,7 @@ final class _LovePhysicsSyncLuaInvoker {
     }
   }
 
+  /// Evaluates a table constructor into a runtime-backed Lua table value.
   Object? _evaluateTableConstructor(
     TableConstructor constructor,
     Environment environment,
@@ -532,6 +573,7 @@ final class _LovePhysicsSyncLuaInvoker {
     return table;
   }
 
+  /// Evaluates and invokes a plain function call expression.
   Object? _evaluateFunctionCall(
     FunctionCall call,
     Environment environment,
@@ -544,6 +586,10 @@ final class _LovePhysicsSyncLuaInvoker {
     return _invokeCallable(callee, args);
   }
 
+  /// Evaluates and invokes a method call expression.
+  ///
+  /// The receiver is always inserted as the first argument so the wrapped
+  /// Love-style methods see the same calling convention as ordinary Lua code.
   Object? _evaluateMethodCall(
     MethodCall call,
     Environment environment,
@@ -573,6 +619,7 @@ final class _LovePhysicsSyncLuaInvoker {
     return _invokeCallable(method, args);
   }
 
+  /// Evaluates call arguments, expanding only the final expression's results.
   List<Object?> _evaluateCallArguments(
     List<AstNode> arguments,
     Environment environment,
@@ -594,6 +641,10 @@ final class _LovePhysicsSyncLuaInvoker {
     return results;
   }
 
+  /// Invokes a callable value through the synchronous callback bridge.
+  ///
+  /// This accepts parsed Lua functions, synchronous builtins, raw Dart
+  /// callables, and `__call` metamethods.
   Object? _invokeCallable(Object? callable, List<Object?> args) {
     final value = callable is Value ? callable : _wrapValue(callable);
     final body = value.functionBody;
@@ -640,6 +691,7 @@ final class _LovePhysicsSyncLuaInvoker {
     throw LuaError.typeError('attempt to call a non-function value');
   }
 
+  /// Normalizes a synchronous callable result into this runtime's value shape.
   Object? _normalizeCallResult(Object? result) {
     if (result is Value) {
       return result;
@@ -651,6 +703,7 @@ final class _LovePhysicsSyncLuaInvoker {
     return _wrapValue(result);
   }
 
+  /// Packs a return expression list into either a single value or `Value.multi`.
   Object? _packExpressionResults(
     List<AstNode> expressions,
     Environment environment,
@@ -667,6 +720,7 @@ final class _LovePhysicsSyncLuaInvoker {
     return Value.multi(values);
   }
 
+  /// Expands an expression list using Lua's final-expression result rules.
   List<Object?> _expandExpressionList(
     List<AstNode> expressions,
     Environment environment,
@@ -688,6 +742,7 @@ final class _LovePhysicsSyncLuaInvoker {
     return values;
   }
 
+  /// Expands a multi-result value into a flat result list.
   List<Object?> _expandResults(Object? value) {
     return switch (value) {
       Value(isMulti: true, raw: final List<Object?> values) => values,
@@ -696,6 +751,7 @@ final class _LovePhysicsSyncLuaInvoker {
     };
   }
 
+  /// Returns the first result from [value], defaulting to wrapped `nil`.
   Object? _firstResult(Object? value) {
     return switch (value) {
       Value(isMulti: true, raw: final List<Object?> values) =>
@@ -706,6 +762,10 @@ final class _LovePhysicsSyncLuaInvoker {
     };
   }
 
+  /// Resolves [name] against locals and captured upvalues.
+  ///
+  /// Missing identifiers evaluate to wrapped `nil`, matching Lua lookup
+  /// semantics inside this restricted callback interpreter.
   Object? _resolveIdentifier(
     String name,
     Environment environment,
@@ -722,6 +782,7 @@ final class _LovePhysicsSyncLuaInvoker {
     return _wrapValue(null);
   }
 
+  /// Assigns [value] to an existing local or upvalue, or defines it in [environment].
   void _assignIdentifier(
     String name,
     Object? value,
@@ -742,6 +803,7 @@ final class _LovePhysicsSyncLuaInvoker {
     environment.define(name, wrapped);
   }
 
+  /// Wraps [value] as a runtime-bound [Value].
   Value _wrapValue(Object? value) {
     if (value is Value) {
       value.interpreter ??= runtime;
@@ -750,6 +812,7 @@ final class _LovePhysicsSyncLuaInvoker {
     return Value(value)..interpreter = runtime;
   }
 
+  /// Returns the underlying Lua table map stored in [value], if any.
   Map<dynamic, dynamic>? _mapFromTableValue(Object? value) {
     return switch (_shallowRawValue(value)) {
       final Map<dynamic, dynamic> table => table,
@@ -757,6 +820,7 @@ final class _LovePhysicsSyncLuaInvoker {
     };
   }
 
+  /// Reads [key] from [table] using Lua table access rules.
   Object? _getTableValue(Object? table, Object? key) {
     final tableMap = _mapFromTableValue(table);
     if (tableMap == null) {
@@ -766,6 +830,10 @@ final class _LovePhysicsSyncLuaInvoker {
     return tableMap[normalizedKey] ?? _wrapValue(null);
   }
 
+  /// Writes [value] into [table] using Lua table assignment rules.
+  ///
+  /// Assigning `nil` removes the entry, and successful writes mark the table as
+  /// modified for the surrounding runtime.
   void _setTableValue(Object? table, Object? key, Object? value) {
     final tableValue = table is Value ? table : _wrapValue(table);
     final tableMap = _mapFromTableValue(tableValue);
@@ -783,6 +851,10 @@ final class _LovePhysicsSyncLuaInvoker {
     tableValue.markTableModified();
   }
 
+  /// Normalizes a Lua table key and rejects invalid key values.
+  ///
+  /// Numeric keys are canonicalized to integers when possible so reads and
+  /// writes follow ordinary Lua sequence behavior.
   Object? _normalizeTableKey(Object? key) {
     final raw = _shallowRawValue(key);
     if (raw == null) {
@@ -798,11 +870,15 @@ final class _LovePhysicsSyncLuaInvoker {
     return raw;
   }
 
+  /// Whether [value] is truthy under Lua rules.
   bool _isTruthy(Object? value) {
     final raw = _shallowRawValue(value);
     return raw != null && raw != false;
   }
 
+  /// Returns [value] as a numeric operand.
+  ///
+  /// Throws a [LuaError] when [value] is not a number.
   num _requireNum(Object? value) {
     if (value is num) {
       return value;
@@ -812,6 +888,7 @@ final class _LovePhysicsSyncLuaInvoker {
     );
   }
 
+  /// Applies [operation] to numeric operands and wraps the result.
   Value _wrapNumericResult(
     Object? left,
     Object? right,
@@ -820,6 +897,7 @@ final class _LovePhysicsSyncLuaInvoker {
     return _wrapValue(operation(_requireNum(left), _requireNum(right)));
   }
 
+  /// Compares numeric or string-like values and applies [predicate] to the result.
   bool _compareValues(
     Object? left,
     Object? right,
@@ -838,6 +916,10 @@ final class _LovePhysicsSyncLuaInvoker {
     throw LuaError.typeError('attempt to compare incompatible values');
   }
 
+  /// Implements Lua equality for the synchronous callback bridge.
+  ///
+  /// Tables and callable objects compare by identity, while plain scalar values
+  /// use normal Dart equality on their shallow raw values.
   bool _luaEquals(Object? left, Object? right) {
     final leftRaw = _shallowRawValue(left);
     final rightRaw = _shallowRawValue(right);
@@ -853,6 +935,7 @@ final class _LovePhysicsSyncLuaInvoker {
     return leftRaw == rightRaw;
   }
 
+  /// Returns the string form used by Lua concatenation.
   String _stringValue(Object? value) {
     value = _shallowRawValue(value);
     if (value is LuaString) {
@@ -861,6 +944,7 @@ final class _LovePhysicsSyncLuaInvoker {
     return '$value';
   }
 
+  /// Returns the contiguous sequence length of [table] starting at index `1`.
   int _sequenceLength(Map<dynamic, dynamic> table) {
     var index = 1;
     while (true) {
@@ -872,6 +956,7 @@ final class _LovePhysicsSyncLuaInvoker {
     }
   }
 
+  /// Unwraps one [Value] layer and returns its raw payload.
   Object? _shallowRawValue(Object? value) {
     if (value is Value) {
       return value.raw;
@@ -879,6 +964,7 @@ final class _LovePhysicsSyncLuaInvoker {
     return value;
   }
 
+  /// Returns a Dart string for string-like Lua values.
   String? _stringLikeValue(Object? value) {
     final raw = _shallowRawValue(value);
     return switch (raw) {

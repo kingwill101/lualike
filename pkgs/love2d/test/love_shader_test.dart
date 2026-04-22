@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
+import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('Shader', () {
@@ -10,10 +11,10 @@ void main() {
         final host = LoveHeadlessHost();
         final runtime = _newRuntime(host: host);
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getShader']),
+          await luaCall(runtime, const ['love', 'graphics', 'getShader']),
           isNull,
         );
-        final shader = await _call(
+        final shader = await luaCall(
           runtime,
           const ['love', 'graphics', 'newShader'],
           <Object?>[
@@ -33,70 +34,75 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
           ],
         );
 
-        expect(await _callMethod(shader!, 'type'), 'Shader');
+        expect(await luaCallMethod(shader!, 'type'), 'Shader');
         expect(
-          await _callMethod(shader, 'typeOf', <Object?>['Shader']),
+          await luaCallMethod(shader, 'typeOf', <Object?>['Shader']),
           isTrue,
         );
         expect(
-          await _callMethod(shader, 'typeOf', <Object?>['Object']),
+          await luaCallMethod(shader, 'typeOf', <Object?>['Object']),
           isTrue,
         );
         expect(
-          await _callMethod(shader, 'hasUniform', <Object?>['innerRadius']),
+          await luaCallMethod(shader, 'hasUniform', <Object?>['innerRadius']),
           isTrue,
         );
         expect(
-          await _callMethod(shader, 'hasUniform', <Object?>['outerRadius']),
+          await luaCallMethod(shader, 'hasUniform', <Object?>['outerRadius']),
           isTrue,
         );
         expect(
-          await _callMethod(shader, 'hasUniform', <Object?>['missingUniform']),
+          await luaCallMethod(shader, 'hasUniform', <Object?>[
+            'missingUniform',
+          ]),
           isFalse,
         );
 
-        await _callMethod(shader, 'send', <Object?>['innerRadius', 0.75]);
-        await _callMethod(shader, 'send', <Object?>[
+        await luaCallMethod(shader, 'send', <Object?>['innerRadius', 0.75]);
+        await luaCallMethod(shader, 'send', <Object?>[
           'center',
           _luaSeq(<Object?>[4.0, 6.0]),
         ]);
-        await _callMethod(shader, 'sendColor', <Object?>[
+        await luaCallMethod(shader, 'sendColor', <Object?>[
           'colorInner',
           -0.25,
           0.5,
           1.25,
           2.0,
         ]);
-        expect(await _callMethod(shader, 'getWarnings'), '');
+        expect(await luaCallMethod(shader, 'getWarnings'), '');
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'setShader'],
           <Object?>[shader],
         );
-        final activeShader = await _call(runtime, const [
+        final activeShader = await luaCall(runtime, const [
           'love',
           'graphics',
           'getShader',
         ]);
         expect(activeShader, isNotNull);
         expect(
-          await _callMethod(activeShader!, 'typeOf', <Object?>['Shader']),
+          await luaCallMethod(activeShader!, 'typeOf', <Object?>['Shader']),
           isTrue,
         );
-        await _callMethod(activeShader, 'send', <Object?>['innerRadius', 0.5]);
-        await _call(
+        await luaCallMethod(activeShader, 'send', <Object?>[
+          'innerRadius',
+          0.5,
+        ]);
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'rectangle'],
           <Object?>['fill', 0.0, 0.0, 8.0, 10.0],
         );
-        await _call(runtime, const ['love', 'graphics', 'setShader']);
+        await luaCall(runtime, const ['love', 'graphics', 'setShader']);
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getShader']),
+          await luaCall(runtime, const ['love', 'graphics', 'getShader']),
           isNull,
         );
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'rectangle'],
           <Object?>['fill', 1.0, 2.0, 3.0, 4.0],
@@ -127,7 +133,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
         final runtime = _newRuntime();
 
         await expectLater(
-          () => _call(
+          () => luaCall(
             runtime,
             const ['love', 'graphics', 'newShader'],
             <Object?>[
@@ -155,7 +161,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 
     test('send and sendColor reject calls without values', () async {
       final runtime = _newRuntime();
-      final shader = await _call(
+      final shader = await luaCall(
         runtime,
         const ['love', 'graphics', 'newShader'],
         <Object?>[
@@ -176,7 +182,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
       );
 
       expect(
-        () => _callMethod(shader!, 'send', <Object?>['innerRadius']),
+        () => luaCallMethod(shader!, 'send', <Object?>['innerRadius']),
         throwsA(
           isA<LuaError>().having(
             (error) => error.message,
@@ -186,7 +192,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
         ),
       );
       expect(
-        () => _callMethod(shader!, 'sendColor', <Object?>['colorInner']),
+        () => luaCallMethod(shader!, 'sendColor', <Object?>['colorInner']),
         throwsA(
           isA<LuaError>().having(
             (error) => error.message,
@@ -201,7 +207,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
       'send rejects unknown uniforms and sendColor rejects non-color uniforms',
       () async {
         final runtime = _newRuntime();
-        final shader = await _call(
+        final shader = await luaCall(
           runtime,
           const ['love', 'graphics', 'newShader'],
           <Object?>[
@@ -222,7 +228,8 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
         );
 
         expect(
-          () => _callMethod(shader!, 'send', <Object?>['missingUniform', 1.0]),
+          () =>
+              luaCallMethod(shader!, 'send', <Object?>['missingUniform', 1.0]),
           throwsA(
             isA<LuaError>().having(
               (error) => error.message,
@@ -232,8 +239,10 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
           ),
         );
         expect(
-          () =>
-              _callMethod(shader!, 'sendColor', <Object?>['innerRadius', 0.5]),
+          () => luaCallMethod(shader!, 'sendColor', <Object?>[
+            'innerRadius',
+            0.5,
+          ]),
           throwsA(
             isA<LuaError>().having(
               (error) => error.message,
@@ -248,7 +257,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
     test('send normalizes matrix uniforms using LOVE matrix layouts', () async {
       final host = LoveHeadlessHost();
       final runtime = _newRuntime(host: host);
-      final shader = await _call(
+      final shader = await luaCall(
         runtime,
         const ['love', 'graphics', 'newShader'],
         <Object?>[
@@ -270,29 +279,29 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
       );
 
       LoveRuntimeContext.of(runtime).beginDrawFrame();
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'graphics', 'setShader'],
         <Object?>[shader],
       );
-      await _callMethod(shader!, 'send', <Object?>[
+      await luaCallMethod(shader!, 'send', <Object?>[
         'basis',
         _luaSeq(<Object?>[
           _luaSeq(<Object?>[1.0, 2.0]),
           _luaSeq(<Object?>[3.0, 4.0]),
         ]),
       ]);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'graphics', 'rectangle'],
         <Object?>['fill', 0.0, 0.0, 4.0, 4.0],
       );
-      await _callMethod(shader, 'send', <Object?>[
+      await luaCallMethod(shader, 'send', <Object?>[
         'basis',
         'column',
         _luaSeq(<Object?>[1.0, 3.0, 2.0, 4.0]),
       ]);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'graphics', 'rectangle'],
         <Object?>['fill', 4.0, 0.0, 4.0, 4.0],
@@ -308,7 +317,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
     test('send accepts Transform payloads for mat4 uniforms', () async {
       final host = LoveHeadlessHost();
       final runtime = _newRuntime(host: host);
-      final shader = await _call(
+      final shader = await luaCall(
         runtime,
         const ['love', 'graphics', 'newShader'],
         <Object?>[
@@ -328,20 +337,20 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 ''',
         ],
       );
-      final transform = await _call(
+      final transform = await luaCall(
         runtime,
         const ['love', 'math', 'newTransform'],
         <Object?>[2.0, 3.0],
       );
 
       LoveRuntimeContext.of(runtime).beginDrawFrame();
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'graphics', 'setShader'],
         <Object?>[shader],
       );
-      await _callMethod(shader!, 'send', <Object?>['model', transform]);
-      await _call(
+      await luaCallMethod(shader!, 'send', <Object?>['model', transform]);
+      await luaCall(
         runtime,
         const ['love', 'graphics', 'rectangle'],
         <Object?>['fill', 0.0, 0.0, 4.0, 4.0],
@@ -373,7 +382,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
       'send and sendColor reject unsupported Data object upload overloads',
       () async {
         final runtime = _newRuntime();
-        final shader = await _call(
+        final shader = await luaCall(
           runtime,
           const ['love', 'graphics', 'newShader'],
           <Object?>[
@@ -393,7 +402,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 ''',
           ],
         );
-        final data = await _call(
+        final data = await luaCall(
           runtime,
           const ['love', 'data', 'newByteData'],
           <Object?>[16],
@@ -401,8 +410,10 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
         final shaderObject = shader!;
 
         expect(
-          () =>
-              _callMethod(shaderObject, 'send', <Object?>['innerRadius', data]),
+          () => luaCallMethod(shaderObject, 'send', <Object?>[
+            'innerRadius',
+            data,
+          ]),
           throwsA(
             isA<LuaError>().having(
               (error) => error.message,
@@ -414,7 +425,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
           ),
         );
         expect(
-          () => _callMethod(shaderObject, 'send', <Object?>[
+          () => luaCallMethod(shaderObject, 'send', <Object?>[
             'basis',
             'column',
             data,
@@ -430,7 +441,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
           ),
         );
         expect(
-          () => _callMethod(shaderObject, 'sendColor', <Object?>[
+          () => luaCallMethod(shaderObject, 'sendColor', <Object?>[
             'colorInner',
             data,
           ]),
@@ -452,7 +463,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
       () async {
         final host = LoveHeadlessHost();
         final runtime = _newRuntime(host: host);
-        final shader = await _call(
+        final shader = await luaCall(
           runtime,
           const ['love', 'graphics', 'newShader'],
           <Object?>[
@@ -472,16 +483,16 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
           ],
         );
 
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'setShader'],
           <Object?>[shader],
         );
 
-        expect(await _callMethod(shader!, 'release'), isTrue);
-        expect(await _callMethod(shader, 'release'), isFalse);
+        expect(await luaCallMethod(shader!, 'release'), isTrue);
+        expect(await luaCallMethod(shader, 'release'), isFalse);
         expect(
-          () => _callMethod(shader, 'send', <Object?>['innerRadius', 1.5]),
+          () => luaCallMethod(shader, 'send', <Object?>['innerRadius', 1.5]),
           throwsA(
             isA<LuaError>().having(
               (error) => error.message,
@@ -491,7 +502,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
           ),
         );
 
-        final activeShader = await _call(runtime, const [
+        final activeShader = await luaCall(runtime, const [
           'love',
           'graphics',
           'getShader',
@@ -500,8 +511,11 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
         expect(activeShader, isNot(same(shader)));
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await _callMethod(activeShader!, 'send', <Object?>['innerRadius', 1.5]);
-        await _call(
+        await luaCallMethod(activeShader!, 'send', <Object?>[
+          'innerRadius',
+          1.5,
+        ]);
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'rectangle'],
           <Object?>['fill', 0.0, 0.0, 4.0, 4.0],
@@ -513,9 +527,9 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
       },
     );
 
-    test('type and typeOf require a live Shader receiver', () async {
+    test('type and typeOf use Shader proxy metadata after release', () async {
       final runtime = _newRuntime();
-      final shader = await _call(
+      final shader = await luaCall(
         runtime,
         const ['love', 'graphics', 'newShader'],
         <Object?>[
@@ -535,65 +549,120 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
         ],
       );
 
-      final typeMethod = _rawMethod(shader!, 'type');
-      final typeOfMethod = _rawMethod(shader, 'typeOf');
+      final typeMethod = luaRawMethod(shader!, 'type');
+      final typeOfMethod = luaRawMethod(shader, 'typeOf');
 
       expect(
-        await _resolveCallResult(typeMethod.call(<Object?>[shader])),
+        await luaResolveCallResult(typeMethod.call(<Object?>[shader])),
         'Shader',
       );
       expect(
-        await _resolveCallResult(
+        await luaResolveCallResult(
           typeOfMethod.call(<Object?>[shader, 'Shader']),
         ),
         isTrue,
       );
 
       await expectLater(
-        () => _resolveCallResult(typeMethod.call(const <Object?>[])),
+        () => luaResolveCallResult(typeMethod.call(const <Object?>[])),
         throwsA(
           isA<LuaError>().having(
             (error) => error.message,
             'message',
-            contains('Object:type expected a Shader at argument 1'),
+            "bad argument #1 to 'type' (Shader expected, got nil)",
           ),
         ),
       );
       await expectLater(
-        () => _resolveCallResult(typeMethod.call(const <Object?>['oops'])),
+        () => luaResolveCallResult(typeMethod.call(const <Object?>['oops'])),
         throwsA(
           isA<LuaError>().having(
             (error) => error.message,
             'message',
-            contains('Object:type expected a Shader at argument 1'),
+            "bad argument #1 to 'type' (Shader expected, got string)",
           ),
         ),
       );
       await expectLater(
-        () => _resolveCallResult(
+        () => luaResolveCallResult(
           typeOfMethod.call(const <Object?>['oops', 'Shader']),
         ),
         throwsA(
           isA<LuaError>().having(
             (error) => error.message,
             'message',
-            contains('Object:typeOf expected a Shader at argument 1'),
+            "bad argument #1 to 'typeOf' (Shader expected, got string)",
           ),
         ),
       );
 
-      expect(await _callMethod(shader, 'release'), isTrue);
-      await expectLater(
-        () => _resolveCallResult(typeMethod.call(<Object?>[shader])),
-        throwsA(
-          isA<LuaError>().having(
-            (error) => error.message,
-            'message',
-            contains('Cannot use object after it has been released.'),
-          ),
+      expect(await luaCallMethod(shader, 'release'), isTrue);
+      expect(
+        await luaResolveCallResult(typeMethod.call(<Object?>[shader])),
+        'Shader',
+      );
+      expect(
+        await luaResolveCallResult(
+          typeOfMethod.call(<Object?>[shader, 'Object']),
         ),
+        isTrue,
       );
     });
+
+    test(
+      'getWarnings validates receiver lifetime like other Shader methods',
+      () async {
+        final runtime = _newRuntime();
+        final shader = await luaCall(
+          runtime,
+          const ['love', 'graphics', 'newShader'],
+          <Object?>[
+            '''
+extern number innerRadius;
+extern number outerRadius;
+extern vec2 center;
+extern vec4 colorInner;
+extern vec4 colorOuter;
+
+vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
+  number dist = distance(screen_coords, center);
+  number t = smoothstep(innerRadius, outerRadius, dist);
+  return mix(colorInner, colorOuter, t) * Texel(texture, texture_coords);
+}
+''',
+          ],
+        );
+
+        final getWarnings = luaRawMethod(shader!, 'getWarnings');
+        expect(
+          await luaResolveCallResult(getWarnings.call(<Object?>[shader])),
+          '',
+        );
+
+        await expectLater(
+          () => luaResolveCallResult(getWarnings.call(const <Object?>[])),
+          throwsA(
+            isA<LuaError>().having(
+              (error) => error.message,
+              'message',
+              "bad argument #1 to 'getWarnings' (Shader expected, got nil)",
+            ),
+          ),
+        );
+
+        expect(await luaCallMethod(shader, 'release'), isTrue);
+        await expectLater(
+          () => luaResolveCallResult(getWarnings.call(<Object?>[shader])),
+          throwsA(
+            isA<LuaError>().having(
+              (error) => error.message,
+              'message',
+              'Cannot use object after it has been released.',
+            ),
+          ),
+        );
+      },
+    );
   });
 }
 
@@ -609,75 +678,3 @@ Map<Object?, Object?> _luaSeq(List<Object?> values) {
       index + 1: values[index],
   };
 }
-
-Future<Object?> _call(
-  Interpreter runtime,
-  List<String> path, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(_rawFunction(runtime, path).call(args));
-}
-
-Future<Object?> _callMethod(
-  Object object,
-  String method, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  final table = object is Value ? object.raw : object;
-  expect(table, isA<Map>());
-
-  final methodValue = (table as Map)[method];
-  final callable = switch (methodValue) {
-    final Value value => value.raw,
-    final BuiltinFunction function => function,
-    _ => methodValue,
-  };
-  expect(callable, isA<BuiltinFunction>());
-  return _resolveCallResult(
-    (callable as BuiltinFunction).call(<Object?>[object, ...args]),
-  );
-}
-
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> path) {
-  var current = runtime.getCurrentEnv().get(path.first);
-  for (final segment in path.skip(1)) {
-    final table = current is Value ? current.raw : current;
-    expect(
-      table,
-      isA<Map>(),
-      reason: 'Expected ${path.join('.')} to traverse a Lua table',
-    );
-    current = (table as Map)[segment];
-  }
-
-  expect(current, isA<Value>());
-  final raw = (current! as Value).raw;
-  expect(raw, isA<BuiltinFunction>());
-  return raw as BuiltinFunction;
-}
-
-BuiltinFunction _rawMethod(Object receiver, String method) {
-  final table = receiver is Value ? receiver.raw : receiver;
-  expect(table, isA<Map>());
-
-  final methodValue = (table as Map)[method];
-  final callable = switch (methodValue) {
-    final Value value => value.raw,
-    final BuiltinFunction function => function,
-    _ => methodValue,
-  };
-  expect(callable, isA<BuiltinFunction>());
-  return callable as BuiltinFunction;
-}
-
-Future<Object?> _resolveCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return (wrapped.raw as List<Object?>).map(_unwrap).toList(growable: false);
-  }
-
-  return _unwrap(resolved);
-}
-
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;

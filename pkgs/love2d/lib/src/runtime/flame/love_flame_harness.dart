@@ -16,6 +16,7 @@ import '../love_runtime.dart';
 import '../love_script_runtime.dart';
 import 'love_flame_harness_renderer.dart';
 import 'love_flame_input.dart';
+import 'love_flame_live_video_overlay.dart';
 import 'love_flame_mouse_cursor_bridge.dart';
 import 'love_registered_fragment_shader_cache.dart';
 import 'love_flame_text_input_bridge.dart';
@@ -55,7 +56,9 @@ Future<LoveFilesystemAdapter> resolveLoveFlameHarnessFilesystemAdapter({
   };
 }
 
+/// A Flutter widget that boots and presents a LOVE entry point through Flame.
 class LoveFlameHarness extends StatefulWidget {
+  /// Creates a Flame-backed LOVE harness widget.
   const LoveFlameHarness({
     super.key,
     required this.entryAsset,
@@ -63,20 +66,37 @@ class LoveFlameHarness extends StatefulWidget {
     this.bundle,
     this.filesystemAdapter,
     this.audioBackendFactory,
+    this.videoFrameProviderFactory,
     this.onInputAdaptersReady,
     this.onQuitRequested,
   });
 
+  /// The mounted LOVE entry asset, typically `main.lua`.
   final String entryAsset;
+
+  /// The overlay title shown above the rendered viewport.
   final String? title;
+
+  /// The asset bundle used to load the LOVE source tree.
   final AssetBundle? bundle;
+
+  /// The filesystem adapter exposed to the runtime.
   final LoveFilesystemAdapter? filesystemAdapter;
+
+  /// A factory used to create audio backends for runtime sources.
   final LoveAudioBackendFactory? audioBackendFactory;
+
+  /// A factory used to snapshot video frames for `love.graphics.newVideo`.
+  final LoveVideoFrameProviderFactory? videoFrameProviderFactory;
+
+  /// Called after the keyboard/mouse and joystick adapters are ready.
   final FutureOr<void> Function(
     LoveFlameInputAdapter input,
     LoveJoystickInputAdapter joystickInput,
   )?
   onInputAdaptersReady;
+
+  /// Called when the LOVE runtime requests shutdown.
   final Future<void> Function()? onQuitRequested;
 
   @override
@@ -90,6 +110,7 @@ class _LoveFlameHarnessState extends State<LoveFlameHarness>
   late final LoveFlameHarnessGame _game = LoveFlameHarnessGame(
     assetBundle: _bundle,
     audioBackendFactory: widget.audioBackendFactory,
+    videoFrameProviderFactory: widget.videoFrameProviderFactory,
   );
   late final _LoveFlameHarnessController _controller =
       _LoveFlameHarnessController(
@@ -141,6 +162,7 @@ class _LoveFlameHarnessState extends State<LoveFlameHarness>
     WidgetsBinding.instance.removeObserver(this);
     _game.onTick = null;
     _controller.dispose();
+    _game.disposePresentationNotifier();
     super.dispose();
   }
 
@@ -154,10 +176,8 @@ class _LoveFlameHarnessState extends State<LoveFlameHarness>
     return AnimatedBuilder(
       animation: listenable,
       builder: (context, _) {
-        final activeShaderDiagnostic =
-            loveFlameRegisteredFragmentShaderCache.diagnosticForSurface(
-              _game.presentedFrame,
-            );
+        final activeShaderDiagnostic = loveFlameRegisteredFragmentShaderCache
+            .diagnosticForSurface(_game.presentedFrame);
         return ColoredBox(
           color: const Color(0xFF050816),
           child: DefaultTextStyle(
@@ -340,6 +360,11 @@ class _LoveFlameHarnessController extends ChangeNotifier {
 
     LoveScriptRuntime? runtimeForError;
     try {
+      unawaited(
+        loveFlameRegisteredFragmentShaderCache.prewarmShaderAssetsInBundle(
+          bundle,
+        ),
+      );
       final adapter = await resolveLoveFlameHarnessFilesystemAdapter(
         bundle: bundle,
         filesystemAdapter: filesystemAdapter,
@@ -806,8 +831,7 @@ String _registeredShaderDiagnosticLabel<TProgram, TShader>(
 ) {
   final label = status.shortLabel;
   return switch (status.state) {
-    LoveRegisteredFragmentShaderLoadState.pending =>
-      'Compiling shader: $label',
+    LoveRegisteredFragmentShaderLoadState.pending => 'Compiling shader: $label',
     LoveRegisteredFragmentShaderLoadState.error =>
       'Shader failed: $label\n${status.error}',
     _ => label,
@@ -933,6 +957,14 @@ class _LoveHarnessViewportState extends State<_LoveHarnessViewport>
               child: Stack(
                 children: [
                   Positioned.fill(child: GameWidget(game: widget.game)),
+                  Positioned.fill(
+                    child: LoveFlameLiveVideoOverlay(
+                      presentedFrameListenable:
+                          widget.game.presentedFrameListenable,
+                      windowMetricsProvider:
+                          () => widget.controller.game.host.windowMetrics,
+                    ),
+                  ),
                   if (_imageCursor case final imageCursor?)
                     Positioned(
                       key: const Key('love-image-cursor'),

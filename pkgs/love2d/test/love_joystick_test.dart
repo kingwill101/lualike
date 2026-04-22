@@ -310,23 +310,21 @@ testbed.hat = hat_type .. ":" .. hat_index .. ":" .. hat_dir
       expect(fileSnapshot['hat'], 'hat:1:u');
     });
 
-    test(
-      'loadGamepadMappings only treats existing files as files',
-      () async {
-        final tempDir = await Directory.systemTemp.createTemp(
-          'love2d_joystick_test_',
-        );
-        addTearDown(() async {
-          if (await tempDir.exists()) {
-            await tempDir.delete(recursive: true);
-          }
-        });
+    test('loadGamepadMappings only treats existing files as files', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'love2d_joystick_test_',
+      );
+      addTearDown(() async {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
 
-        final runtime = LoveScriptRuntime(
-          filesystemAdapter: _TempFilesystemAdapter(tempDir.path),
-        );
+      final runtime = LoveScriptRuntime(
+        filesystemAdapter: _TempFilesystemAdapter(tempDir.path),
+      );
 
-        await runtime.execute('''
+      await runtime.execute('''
 testbed = {}
 
 love.filesystem.setIdentity("gamepad-tests")
@@ -345,18 +343,14 @@ testbed.ok_directory = ok_directory
 testbed.err_directory = tostring(err_directory)
 ''');
 
-        final snapshot = runtime.unwrapGlobalTable('testbed')!;
-        expect(snapshot['ok_missing'], isFalse);
-        expect(snapshot['err_missing'], contains('Invalid gamepad mappings.'));
-        expect(snapshot['err_missing'], isNot(contains('Could not open file')));
-        expect(snapshot['ok_directory'], isFalse);
-        expect(snapshot['err_directory'], contains('Invalid gamepad mappings.'));
-        expect(
-          snapshot['err_directory'],
-          isNot(contains('Could not open file')),
-        );
-      },
-    );
+      final snapshot = runtime.unwrapGlobalTable('testbed')!;
+      expect(snapshot['ok_missing'], isFalse);
+      expect(snapshot['err_missing'], contains('Invalid gamepad mappings.'));
+      expect(snapshot['err_missing'], isNot(contains('Could not open file')));
+      expect(snapshot['ok_directory'], isFalse);
+      expect(snapshot['err_directory'], contains('Invalid gamepad mappings.'));
+      expect(snapshot['err_directory'], isNot(contains('Could not open file')));
+    });
 
     test(
       'saveGamepadMappings reports filesystem write errors with LOVE write semantics',

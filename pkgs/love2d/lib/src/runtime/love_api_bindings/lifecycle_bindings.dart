@@ -1,5 +1,9 @@
 part of '../love_api_bindings.dart';
 
+/// Binds `love.run`.
+///
+/// The returned closure mirrors the default LÖVE main loop by dispatching
+/// events, stepping timers, invoking `love.update`, and issuing a draw pass.
 LoveApiImplementation _bindLoveRun(LibraryRegistrationContext context) {
   final runtime = _runtimeContext(context);
   final interpreter = context.interpreter;
@@ -47,6 +51,7 @@ LoveApiImplementation _bindLoveRun(LibraryRegistrationContext context) {
   };
 }
 
+/// Invokes `love.load` with parsed and raw command line arguments when present.
 Future<void> _invokeLoveRunLoadIfDefined(LuaRuntime runtime) async {
   final rawArg = _rawValue(runtime.globals.get('arg'));
   final loadArgs = <Object?>[];
@@ -60,6 +65,7 @@ Future<void> _invokeLoveRunLoadIfDefined(LuaRuntime runtime) async {
   await _callLoveCallbackIfDefined(runtime, 'load', loadArgs);
 }
 
+/// Parses game arguments via `love.arg.parseGameArguments` when available.
 Future<Object?> _parseLoveRunArguments(
   LuaRuntime runtime,
   Object? rawArg,
@@ -79,6 +85,9 @@ Future<Object?> _parseLoveRunArguments(
   return _rawValue(parsed);
 }
 
+/// Pumps queued events and dispatches them to their corresponding callbacks.
+///
+/// Returns a quit code when the event loop requests termination.
 Future<Object?> _runLoveMainLoopEvents(
   LuaRuntime runtime,
   LoveRuntimeContext context,
@@ -113,6 +122,7 @@ Future<Object?> _runLoveMainLoopEvents(
   }
 }
 
+/// Maps event queue names to the callback names used on the `love` table.
 String? _loveRunCallbackName(String name) {
   return switch (name) {
     'focus' => 'focus',
@@ -148,6 +158,7 @@ String? _loveRunCallbackName(String name) {
   };
 }
 
+/// Calls `love.[name]` if the user defined that callback.
 Future<Object?> _callLoveCallbackIfDefined(
   LuaRuntime runtime,
   String name, [
@@ -166,6 +177,7 @@ Future<Object?> _callLoveCallbackIfDefined(
   );
 }
 
+/// Invokes the global `collectgarbage` function when available.
 Future<void> _invokeCollectGarbage(LuaRuntime runtime) async {
   final collectGarbage = _functionValue(runtime.globals.get('collectgarbage'));
   if (collectGarbage == null) {
@@ -180,10 +192,12 @@ Future<void> _invokeCollectGarbage(LuaRuntime runtime) async {
   );
 }
 
+/// Returns the raw `love` table from [runtime], if available.
 Map<dynamic, dynamic>? _loveTable(LuaRuntime runtime) {
   return _tableRaw(runtime.globals.get('love'));
 }
 
+/// Returns the raw field named [name] from the `love` table, if present.
 Object? _loveTableField(LuaRuntime runtime, String name) {
   final love = _loveTable(runtime);
   if (love == null || !love.containsKey(name)) {
@@ -193,6 +207,7 @@ Object? _loveTableField(LuaRuntime runtime, String name) {
   return love[name];
 }
 
+/// Returns a user-defined `love.[name]` callback, excluding builtins.
 Value? _userLoveCallback(LuaRuntime runtime, String name) {
   final callback = _functionValue(_loveTableField(runtime, name));
   if (callback == null || callback.raw is BuiltinFunction) {
@@ -202,6 +217,7 @@ Value? _userLoveCallback(LuaRuntime runtime, String name) {
   return callback;
 }
 
+/// Normalizes a Lua value to a callable [Value].
 Value? _functionValue(Object? value) {
   if (value == null) {
     return null;
@@ -210,6 +226,7 @@ Value? _functionValue(Object? value) {
   return value is Value ? value : Value(value);
 }
 
+/// Returns the raw backing map when [value] is a Lua table.
 Map<dynamic, dynamic>? _tableRaw(Object? value) {
   final raw = value is Value ? value.raw : value;
   if (raw is! Map<dynamic, dynamic>) {

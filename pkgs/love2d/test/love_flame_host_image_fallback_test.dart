@@ -37,18 +37,21 @@ loaded_dimensions = string.format("%dx%d", image:getWidth(), image:getHeight())
     },
   );
 
-  test('LoveFlameHost uses its injected asset bundle for direct image loads', () async {
-    final host = LoveFlameHost(
-      game: _TestGame(),
-      assetBundle: _MapAssetBundle(<String, List<int>>{
-        'custom/sprite.png': _encodeTestPng(),
-      }),
-    );
+  test(
+    'LoveFlameHost uses its injected asset bundle for direct image loads',
+    () async {
+      final host = LoveFlameHost(
+        game: _TestGame(),
+        assetBundle: _MapAssetBundle(<String, List<int>>{
+          'custom/sprite.png': _encodeTestPng(),
+        }),
+      );
 
-    final image = await host.loadImage('custom/sprite.png');
-    expect(image.width, 2);
-    expect(image.height, 2);
-  });
+      final image = await host.loadImage('custom/sprite.png');
+      expect(image.width, 2);
+      expect(image.height, 2);
+    },
+  );
 
   test(
     'LoveFlameHost reports LOVE filesystem missing-file errors for relative newImage and newImageData string sources',

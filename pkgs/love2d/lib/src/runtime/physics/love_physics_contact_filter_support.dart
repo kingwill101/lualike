@@ -1,28 +1,44 @@
 part of '../love_runtime.dart';
 
+/// Contact-filter state for a physics world.
 final class LovePhysicsWorldContactFilterState {
+  /// Creates contact-filter state for [world].
   LovePhysicsWorldContactFilterState(this.world)
     : filter = _LovePhysicsContactFilter._(world);
 
+  /// The world that owns this contact filter.
   final LovePhysicsWorld world;
+
+  /// The forge2d contact filter installed on [world].
   final forge2d.ContactFilter filter;
+
+  /// Cached pair decisions prepared before stepping.
   final Map<(LovePhysicsFixture, LovePhysicsFixture), bool> _pairDecisions =
       <(LovePhysicsFixture, LovePhysicsFixture), bool>{};
 
+  /// The Lua contact-filter callback, if one is registered.
   Value? _callback;
+
+  /// The number of nested filter-dispatch operations in progress.
   int _dispatchDepth = 0;
+
+  /// An optional synchronous contact-filter evaluator used during stepping.
   bool Function(LovePhysicsFixture fixtureA, LovePhysicsFixture fixtureB)?
   _syncEvaluator;
 
+  /// The registered Lua contact-filter callback.
   Value? get callback => _callback;
 
+  /// Whether a contact filter callback is currently being dispatched.
   bool get isDispatching => _dispatchDepth > 0;
 
+  /// Replaces the registered Lua contact-filter [callback].
   void setCallback(Value? callback) {
     _callback = callback;
     _pairDecisions.clear();
   }
 
+  /// Sets the synchronous contact-filter [evaluator].
   void setSyncEvaluator(
     bool Function(LovePhysicsFixture fixtureA, LovePhysicsFixture fixtureB)?
     evaluator,
@@ -30,6 +46,8 @@ final class LovePhysicsWorldContactFilterState {
     _syncEvaluator = evaluator;
   }
 
+  /// Precomputes contact-filter decisions for fixture pairs that may overlap
+  /// during the next step of length [dt].
   Future<void> prepareDecisions(
     double dt,
     Future<bool> Function(
@@ -88,6 +106,9 @@ final class LovePhysicsWorldContactFilterState {
     }
   }
 
+  /// Evaluates the contact filter synchronously for forge2d fixtures.
+  ///
+  /// Returns `null` when no synchronous evaluator is installed.
   bool? evaluateSync(forge2d.Fixture fixtureA, forge2d.Fixture fixtureB) {
     final evaluator = _syncEvaluator;
     if (evaluator == null || _callback == null) {
@@ -105,6 +126,7 @@ final class LovePhysicsWorldContactFilterState {
     }
   }
 
+  /// Returns the prepared decision for a fixture pair, if one exists.
   bool? decisionFor(forge2d.Fixture fixtureA, forge2d.Fixture fixtureB) {
     if (_callback == null) {
       return null;
@@ -115,6 +137,7 @@ final class LovePhysicsWorldContactFilterState {
     return _pairDecisions[(loveFixtureA, loveFixtureB)];
   }
 
+  /// Requests refiltering for every fixture in the world.
   void refilterAllFixtures() {
     for (final body in world.bodies) {
       for (final fixture in body.fixtures) {
@@ -123,6 +146,7 @@ final class LovePhysicsWorldContactFilterState {
     }
   }
 
+  /// Disposes filter state and clears cached decisions.
   void dispose() {
     _pairDecisions.clear();
     _callback = null;
@@ -131,12 +155,16 @@ final class LovePhysicsWorldContactFilterState {
   }
 }
 
+/// A forge2d contact filter that consults LOVE's world contact-filter state.
 final class _LovePhysicsContactFilter extends forge2d.ContactFilter {
+  /// Creates a contact filter for [world].
   _LovePhysicsContactFilter._(this.world);
 
+  /// The world whose filter state drives collision decisions.
   final LovePhysicsWorld world;
 
   @override
+  /// Returns whether [fixtureA] and [fixtureB] should collide.
   bool shouldCollide(forge2d.Fixture fixtureA, forge2d.Fixture fixtureB) {
     final defaultDecision = super.shouldCollide(fixtureA, fixtureB);
     if (!defaultDecision) {
@@ -155,6 +183,7 @@ final class _LovePhysicsContactFilter extends forge2d.ContactFilter {
   }
 }
 
+/// Returns the default forge2d-style collision decision for a fixture pair.
 bool _physicsDefaultShouldCollide(
   forge2d.Fixture fixtureA,
   forge2d.Fixture fixtureB,
@@ -170,6 +199,8 @@ bool _physicsDefaultShouldCollide(
       ((filterA.categoryBits & filterB.maskBits) != 0);
 }
 
+/// Returns whether [fixtureA] and [fixtureB] may overlap during the next step
+/// of length [dt].
 bool _physicsFixturesMayOverlapDuringStep(
   LovePhysicsFixture fixtureA,
   LovePhysicsFixture fixtureB,
@@ -205,6 +236,7 @@ bool _physicsFixturesMayOverlapDuringStep(
   return false;
 }
 
+/// Sample fractions used to approximate swept fixture overlap during one step.
 const List<double> _physicsStepOverlapSampleFractions = <double>[
   0.0,
   0.25,
@@ -213,6 +245,8 @@ const List<double> _physicsStepOverlapSampleFractions = <double>[
   1.0,
 ];
 
+/// Returns an approximate swept AABB for [fixture] child [childIndex] over a
+/// time step of [dt].
 ({double minX, double minY, double maxX, double maxY}) _physicsFixtureStepAabb(
   LovePhysicsFixture fixture,
   int childIndex,
@@ -266,6 +300,7 @@ const List<double> _physicsStepOverlapSampleFractions = <double>[
   return (minX: minX!, minY: minY!, maxX: maxX!, maxY: maxY!);
 }
 
+/// Predicts the body transform after advancing [body] by [dt] seconds.
 forge2d.Transform _physicsPredictBodyTransform(forge2d.Body body, double dt) {
   final worldCenter = body.worldCenter.clone();
   final linearVelocity = body.linearVelocity.clone();
