@@ -3,7 +3,6 @@ library;
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/ir/runtime.dart';
-import 'package:lualike/src/value.dart';
 import 'package:test/test.dart';
 
 Future<void> _executeSuiteFile(String path) async {

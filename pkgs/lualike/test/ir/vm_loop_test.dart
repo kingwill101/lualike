@@ -80,32 +80,26 @@ Value _testPairs() {
 void main() {
   group('IR repeat-until loops', () {
     test('executes body before checking condition', () async {
-      final result = await executeCode(
-        '''
+      final result = await executeCode('''
         local count = 0
         repeat
           count = count + 1
         until count >= 3
         return count
-      ''',
-        mode: EngineMode.ir,
-      );
+      ''', mode: EngineMode.ir);
 
       expect(_unwrap(result), equals(3));
     });
 
     test('condition can reference locals declared in the body', () async {
-      final result = await executeCode(
-        '''
+      final result = await executeCode('''
         local result = 0
         repeat
           local nextValue = result + 2
           result = nextValue
         until nextValue >= 4
         return result
-      ''',
-        mode: EngineMode.ir,
-      );
+      ''', mode: EngineMode.ir);
 
       expect(_unwrap(result), equals(4));
     });
@@ -113,33 +107,27 @@ void main() {
 
   group('IR break statements', () {
     test('exits while loops', () async {
-      final result = await executeCode(
-        '''
+      final result = await executeCode('''
         local count = 0
         while true do
           count = count + 1
           break
         end
         return count
-      ''',
-        mode: EngineMode.ir,
-      );
+      ''', mode: EngineMode.ir);
 
       expect(_unwrap(result), equals(1));
     });
 
     test('exits repeat-until loops', () async {
-      final result = await executeCode(
-        '''
+      final result = await executeCode('''
         local count = 0
         repeat
           count = count + 1
           break
         until false
         return count
-      ''',
-        mode: EngineMode.ir,
-      );
+      ''', mode: EngineMode.ir);
 
       expect(_unwrap(result), equals(1));
     });
@@ -296,7 +284,7 @@ void main() {
         onRuntimeSetup: (runtime) {
           final open = Value((List<Object?> _) {
             var remaining = 3;
-            final iterator = Value((List<Object?> __) {
+            final iterator = Value((List<Object?> _) {
               if (remaining <= 0) {
                 return Value.multi(const []);
               }

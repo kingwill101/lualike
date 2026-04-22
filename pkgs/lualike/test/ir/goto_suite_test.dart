@@ -5,7 +5,6 @@ import 'dart:io';
 
 import 'package:lualike/lualike.dart';
 import 'package:lualike/src/ir/runtime.dart';
-import 'package:lualike/src/value.dart';
 import 'package:test/test.dart';
 
 Future<void> _executeGotoSource(String source) async {
@@ -19,9 +18,7 @@ Future<void> _executeGotoSource(String source) async {
 }
 
 String _gotoPrefix(int lineCount) {
-  final lines = File(
-    'pkgs/lualike/luascripts/test/goto.lua',
-  ).readAsLinesSync();
+  final lines = File('pkgs/lualike/luascripts/test/goto.lua').readAsLinesSync();
   return lines.take(lineCount).join('\n');
 }
 
@@ -30,13 +27,19 @@ String _gotoPrefixWithSyntheticEnd(int lineCount) {
 }
 
 void main() {
-  test('executes first 162 lines of goto.lua through lowered IR runtime', () async {
-    await _executeGotoSource(_gotoPrefix(162));
-  });
+  test(
+    'executes first 162 lines of goto.lua through lowered IR runtime',
+    () async {
+      await _executeGotoSource(_gotoPrefix(162));
+    },
+  );
 
-  test('executes first 260 lines of goto.lua through lowered IR runtime', () async {
-    await _executeGotoSource(_gotoPrefix(260));
-  });
+  test(
+    'executes first 260 lines of goto.lua through lowered IR runtime',
+    () async {
+      await _executeGotoSource(_gotoPrefix(260));
+    },
+  );
 
   test(
     'executes first 289 lines of goto.lua through lowered IR runtime',
@@ -115,13 +118,19 @@ void main() {
     },
   );
 
-  test('executes first 385 lines of goto.lua through lowered IR runtime', () async {
-    await _executeGotoSource(_gotoPrefix(385));
-  });
+  test(
+    'executes first 385 lines of goto.lua through lowered IR runtime',
+    () async {
+      await _executeGotoSource(_gotoPrefix(385));
+    },
+  );
 
-  test('executes first 460 lines of goto.lua through lowered IR runtime', () async {
-    await _executeGotoSource(_gotoPrefix(460));
-  });
+  test(
+    'executes first 460 lines of goto.lua through lowered IR runtime',
+    () async {
+      await _executeGotoSource(_gotoPrefix(460));
+    },
+  );
 
   test('executes goto.lua through lowered IR runtime', () async {
     await _executeGotoSource(
