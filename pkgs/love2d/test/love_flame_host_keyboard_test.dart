@@ -15,18 +15,21 @@ void main() {
           game: FlameGame<World>(world: World()),
         );
         expect(androidHost.keyboard.screenKeyboardSupported, isTrue);
+        expect(androidHost.keyboard.textInputEnabled, isFalse);
 
         debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
         final iosHost = LoveFlameHost<World>(
           game: FlameGame<World>(world: World()),
         );
         expect(iosHost.keyboard.screenKeyboardSupported, isTrue);
+        expect(iosHost.keyboard.textInputEnabled, isFalse);
 
         debugDefaultTargetPlatformOverride = TargetPlatform.linux;
         final linuxHost = LoveFlameHost<World>(
           game: FlameGame<World>(world: World()),
         );
         expect(linuxHost.keyboard.screenKeyboardSupported, isFalse);
+        expect(linuxHost.keyboard.textInputEnabled, isTrue);
       } finally {
         debugDefaultTargetPlatformOverride = previousPlatform;
       }

@@ -29,9 +29,7 @@ void main() {
           isA<LuaError>().having(
             (error) => error.message,
             'message',
-            contains(
-              'love.font.newTrueTypeRasterizer invalid font file "fake.ttf"',
-            ),
+            'Invalid font file: fake.ttf',
           ),
         ),
       );
@@ -63,13 +61,69 @@ void main() {
           isA<LuaError>().having(
             (error) => error.message,
             'message',
-            contains(
-              'love.font.newTrueTypeRasterizer invalid font file "assets/fonts/not_a_font.ttf"',
-            ),
+            'Invalid font file: assets/fonts/not_a_font.ttf',
           ),
         ),
       );
     });
+
+    test(
+      'newRasterizer rejects invalid loaded font data with LOVE text',
+      () async {
+        final runtime = Interpreter();
+        installLove2d(runtime: runtime, host: LoveHeadlessHost());
+
+        final fileData = await _call(
+          runtime,
+          const ['love', 'filesystem', 'newFileData'],
+          <Object?>[_notAFontBytes, 'fake.ttf'],
+        );
+
+        await expectLater(
+          () => _call(
+            runtime,
+            const ['love', 'font', 'newRasterizer'],
+            <Object?>[fileData],
+          ),
+          throwsA(
+            isA<LuaError>().having(
+              (error) => error.message,
+              'message',
+              'Invalid font file: fake.ttf',
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'graphics.newFont rejects invalid loaded font data with LOVE text',
+      () async {
+        final runtime = Interpreter();
+        installLove2d(runtime: runtime, host: LoveHeadlessHost());
+
+        final fileData = await _call(
+          runtime,
+          const ['love', 'filesystem', 'newFileData'],
+          <Object?>[_notAFontBytes, 'fake.ttf'],
+        );
+
+        await expectLater(
+          () => _call(
+            runtime,
+            const ['love', 'graphics', 'newFont'],
+            <Object?>[fileData, 16],
+          ),
+          throwsA(
+            isA<LuaError>().having(
+              (error) => error.message,
+              'message',
+              'Invalid font file: fake.ttf',
+            ),
+          ),
+        );
+      },
+    );
   });
 }
 

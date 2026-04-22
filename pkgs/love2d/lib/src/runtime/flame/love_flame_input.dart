@@ -10,20 +10,42 @@ import 'package:flutter/widgets.dart';
 import '../input/love_joystick_input_adapter.dart';
 import '../love_runtime.dart';
 import '../love_script_runtime.dart';
+import 'love_flame_viewport_geometry.dart';
 import 'love_flame_text_input_state.dart';
 
 part 'love_flame_gamepad_bridge.dart';
 part 'love_flame_key_mapping.dart';
 
+const bool _loveTraceTouchLeak = bool.fromEnvironment(
+  'LOVE2D_TRACE_TOUCH_LEAK',
+  defaultValue: true,
+);
+
+void _loveTraceTouchInput(
+  String stage, {
+  Map<String, Object?> details = const {},
+}) {
+  if (!_loveTraceTouchLeak) {
+    return;
+  }
+
+  final message = details.entries
+      .map((entry) => '${entry.key}=${entry.value}')
+      .join(' ');
+  // print('[love2d-touch] $stage${message.isEmpty ? '' : ' $message'}');
+}
+
 class LoveFlameInputAdapter {
   LoveFlameInputAdapter({
     required LoveHost host,
     required LoveScriptRuntime? Function() runtimeProvider,
+    Size? Function()? viewportSizeProvider,
     LoveJoystickInputAdapter? joystickInput,
     this.onError,
     this.consumeKeyboardEvents = true,
   }) : _host = host,
        _runtimeProvider = runtimeProvider,
+       _viewportSizeProvider = viewportSizeProvider,
        _joystickInput =
            joystickInput ??
            LoveJoystickInputAdapter(
@@ -34,6 +56,7 @@ class LoveFlameInputAdapter {
 
   final LoveHost _host;
   final LoveScriptRuntime? Function() _runtimeProvider;
+  final Size? Function()? _viewportSizeProvider;
   final LoveJoystickInputAdapter _joystickInput;
   final void Function(Object error, StackTrace stackTrace)? onError;
   final bool consumeKeyboardEvents;
@@ -95,18 +118,15 @@ class LoveFlameInputAdapter {
       case KeyDownEvent():
         keyboard.setKeyDown(key, scancode: scancode, down: true);
         _dispatch(
-          (runtime) => runtime.dispatchKeyPressed(
-            key,
-            scancode: scancode,
-            isRepeat: false,
-          ),
+          (runtime) =>
+              runtime.queueKeyPressed(key, scancode: scancode, isRepeat: false),
         );
         _dispatchTextInput(event);
       case KeyRepeatEvent():
         keyboard.setKeyDown(key, scancode: scancode, down: true);
         if (keyboard.keyRepeat) {
           _dispatch(
-            (runtime) => runtime.dispatchKeyPressed(
+            (runtime) => runtime.queueKeyPressed(
               key,
               scancode: scancode,
               isRepeat: true,
@@ -117,7 +137,7 @@ class LoveFlameInputAdapter {
       case KeyUpEvent():
         keyboard.setKeyDown(key, scancode: scancode, down: false);
         _dispatch(
-          (runtime) => runtime.dispatchKeyReleased(key, scancode: scancode),
+          (runtime) => runtime.queueKeyReleased(key, scancode: scancode),
         );
     }
 
@@ -161,24 +181,38 @@ class LoveFlameInputAdapter {
 
   void handlePointerHover(PointerHoverEvent event) {
     _updateMousePosition(event.localPosition);
+    final logicalDelta = _logicalDelta(event.localDelta);
     final x = mouse.x;
     final y = mouse.y;
-    final dx = event.localDelta.dx;
-    final dy = event.localDelta.dy;
+    final dx = logicalDelta.dx;
+    final dy = logicalDelta.dy;
     final isTouch = _isTouch(event);
     _dispatch(
-      (runtime) => runtime.dispatchMouseMoved(x, y, dx, dy, isTouch: isTouch),
+      (runtime) => runtime.queueMouseMoved(x, y, dx, dy, isTouch: isTouch),
     );
   }
 
   void handlePointerMove(PointerMoveEvent event) {
+    final logicalPosition = _logicalPoint(event.localPosition);
+    final logicalDelta = _logicalDelta(event.localDelta);
     _updateMousePosition(event.localPosition);
     final isTouch = _isTouch(event);
     if (isTouch) {
-      final x = event.localPosition.dx;
-      final y = event.localPosition.dy;
-      final dx = event.localDelta.dx;
-      final dy = event.localDelta.dy;
+      _loveTraceTouchInput(
+        'pointer.move',
+        details: <String, Object?>{
+          'pointer': event.pointer,
+          'x': logicalPosition.dx,
+          'y': logicalPosition.dy,
+          'dx': logicalDelta.dx,
+          'dy': logicalDelta.dy,
+          'activeTouchesBefore': touch.getTouches(),
+        },
+      );
+      final x = logicalPosition.dx;
+      final y = logicalPosition.dy;
+      final dx = logicalDelta.dx;
+      final dy = logicalDelta.dy;
       touch.moveTouch(
         id: event.pointer,
         x: x,
@@ -188,7 +222,7 @@ class LoveFlameInputAdapter {
         pressure: event.pressure,
       );
       _dispatch(
-        (runtime) => runtime.dispatchTouchMoved(
+        (runtime) => runtime.queueTouchMoved(
           event.pointer,
           x,
           y,
@@ -197,26 +231,44 @@ class LoveFlameInputAdapter {
           event.pressure,
         ),
       );
+      _loveTraceTouchInput(
+        'pointer.move.applied',
+        details: <String, Object?>{
+          'pointer': event.pointer,
+          'activeTouchesAfter': touch.getTouches(),
+        },
+      );
     }
 
     final x = mouse.x;
     final y = mouse.y;
-    final dx = event.localDelta.dx;
-    final dy = event.localDelta.dy;
+    final dx = logicalDelta.dx;
+    final dy = logicalDelta.dy;
     _dispatch(
-      (runtime) => runtime.dispatchMouseMoved(x, y, dx, dy, isTouch: isTouch),
+      (runtime) => runtime.queueMouseMoved(x, y, dx, dy, isTouch: isTouch),
     );
   }
 
   void handlePointerDown(PointerDownEvent event) {
+    final logicalPosition = _logicalPoint(event.localPosition);
     _updateMousePosition(event.localPosition);
     final isTouch = _isTouch(event);
     if (isTouch) {
-      final x = event.localPosition.dx;
-      final y = event.localPosition.dy;
+      _loveTraceTouchInput(
+        'pointer.down',
+        details: <String, Object?>{
+          'pointer': event.pointer,
+          'x': logicalPosition.dx,
+          'y': logicalPosition.dy,
+          'pressure': event.pressure,
+          'activeTouchesBefore': touch.getTouches(),
+        },
+      );
+      final x = logicalPosition.dx;
+      final y = logicalPosition.dy;
       touch.beginTouch(id: event.pointer, x: x, y: y, pressure: event.pressure);
       _dispatch(
-        (runtime) => runtime.dispatchTouchPressed(
+        (runtime) => runtime.queueTouchPressed(
           event.pointer,
           x,
           y,
@@ -224,6 +276,13 @@ class LoveFlameInputAdapter {
           0.0,
           event.pressure,
         ),
+      );
+      _loveTraceTouchInput(
+        'pointer.down.applied',
+        details: <String, Object?>{
+          'pointer': event.pointer,
+          'activeTouchesAfter': touch.getTouches(),
+        },
       );
     }
 
@@ -237,26 +296,47 @@ class LoveFlameInputAdapter {
     final x = mouse.x;
     final y = mouse.y;
     _dispatch(
-      (runtime) => runtime.dispatchMousePressed(x, y, button, isTouch: isTouch),
+      (runtime) => runtime.queueMousePressed(x, y, button, isTouch: isTouch),
     );
   }
 
   void handlePointerUp(PointerUpEvent event) {
+    final logicalPosition = _logicalPoint(event.localPosition);
+    final logicalDelta = _logicalDelta(event.localDelta);
     _updateMousePosition(event.localPosition);
     final isTouch = _isTouch(event);
     if (isTouch) {
-      final x = event.localPosition.dx;
-      final y = event.localPosition.dy;
+      _loveTraceTouchInput(
+        'pointer.up',
+        details: <String, Object?>{
+          'pointer': event.pointer,
+          'x': logicalPosition.dx,
+          'y': logicalPosition.dy,
+          'dx': logicalDelta.dx,
+          'dy': logicalDelta.dy,
+          'pressure': event.pressure,
+          'activeTouchesBefore': touch.getTouches(),
+        },
+      );
+      final x = logicalPosition.dx;
+      final y = logicalPosition.dy;
       touch.endTouch(event.pointer);
       _dispatch(
-        (runtime) => runtime.dispatchTouchReleased(
+        (runtime) => runtime.queueTouchReleased(
           event.pointer,
           x,
           y,
-          event.localDelta.dx,
-          event.localDelta.dy,
+          logicalDelta.dx,
+          logicalDelta.dy,
           event.pressure,
         ),
+      );
+      _loveTraceTouchInput(
+        'pointer.up.applied',
+        details: <String, Object?>{
+          'pointer': event.pointer,
+          'activeTouchesAfter': touch.getTouches(),
+        },
       );
     }
 
@@ -271,14 +351,27 @@ class LoveFlameInputAdapter {
     final x = mouse.x;
     final y = mouse.y;
     _dispatch(
-      (runtime) =>
-          runtime.dispatchMouseReleased(x, y, button, isTouch: isTouch),
+      (runtime) => runtime.queueMouseReleased(x, y, button, isTouch: isTouch),
     );
   }
 
   void handlePointerCancel(PointerCancelEvent event) {
     if (_isTouch(event)) {
+      _loveTraceTouchInput(
+        'pointer.cancel',
+        details: <String, Object?>{
+          'pointer': event.pointer,
+          'activeTouchesBefore': touch.getTouches(),
+        },
+      );
       touch.endTouch(event.pointer);
+      _loveTraceTouchInput(
+        'pointer.cancel.applied',
+        details: <String, Object?>{
+          'pointer': event.pointer,
+          'activeTouchesAfter': touch.getTouches(),
+        },
+      );
     }
 
     final button = _pointerButtons.remove(event.pointer);
@@ -300,7 +393,7 @@ class LoveFlameInputAdapter {
 
     _dispatch(
       (runtime) =>
-          runtime.dispatchWheelMoved(wheelX.toDouble(), wheelY.toDouble()),
+          runtime.queueWheelMoved(wheelX.toDouble(), wheelY.toDouble()),
     );
   }
 
@@ -317,14 +410,41 @@ class LoveFlameInputAdapter {
       return;
     }
 
-    _dispatch((runtime) => runtime.dispatchTextInput(character));
+    _dispatch((runtime) => runtime.queueTextInput(character));
   }
 
   void _updateMousePosition(Offset localPosition) {
+    final logicalPosition = _logicalPoint(localPosition);
     mouse.setPosition(
-      localPosition.dx,
-      localPosition.dy,
+      logicalPosition.dx,
+      logicalPosition.dy,
       fromSystemEvent: true,
+    );
+  }
+
+  Offset _logicalPoint(Offset localPosition) {
+    final viewportSize = _viewportSizeProvider?.call();
+    if (viewportSize == null) {
+      return localPosition;
+    }
+
+    return loveViewportToLogicalPoint(
+      viewportPoint: localPosition,
+      windowMetrics: _host.windowMetrics,
+      viewportSize: viewportSize,
+    );
+  }
+
+  Offset _logicalDelta(Offset localDelta) {
+    final viewportSize = _viewportSizeProvider?.call();
+    if (viewportSize == null) {
+      return localDelta;
+    }
+
+    return loveViewportDeltaToLogicalDelta(
+      viewportDelta: localDelta,
+      windowMetrics: _host.windowMetrics,
+      viewportSize: viewportSize,
     );
   }
 
@@ -474,7 +594,7 @@ class LoveFlameInputAdapter {
 
     _focused = focused;
     _host.windowHasFocus = focused;
-    _dispatch((runtime) => runtime.dispatchFocus(focused));
+    _dispatch((runtime) => runtime.queueFocus(focused));
   }
 
   void _setMouseFocusState(bool focused) {
@@ -484,7 +604,7 @@ class LoveFlameInputAdapter {
 
     _mouseFocused = focused;
     _host.windowHasMouseFocus = focused;
-    _dispatch((runtime) => runtime.dispatchMouseFocus(focused));
+    _dispatch((runtime) => runtime.queueMouseFocus(focused));
   }
 
   void _dispatch(Future<Object?> Function(LoveScriptRuntime runtime) callback) {

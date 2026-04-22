@@ -78,8 +78,19 @@ LoveApiImplementation _bindThreadNewThread(LibraryRegistrationContext context) {
         LoveThreadState.attach(childRuntime, sharedState: sharedThreads);
 
         love_api_generated.installLove2d(runtime: childRuntime);
+        installLoveAudioExtraBindings(childRuntime);
+        installLoveDataExtraBindings(childRuntime);
+        installLoveEventExtraBindings(childRuntime);
         installLoveFilesystemEnumBindings(childRuntime);
         installLoveFilesystemExtraBindings(childRuntime);
+        installLoveFontExtraBindings(childRuntime);
+        installLoveGraphicsEnumBindings(childRuntime);
+        installLoveGraphicsExtraBindings(childRuntime);
+        installLoveImageExtraBindings(childRuntime);
+        installLoveJoystickExtraBindings(childRuntime);
+        installLovePhysicsExtraBindings(childRuntime);
+        installLoveSystemExtraBindings(childRuntime);
+        installLoveWindowExtraBindings(childRuntime);
         syncLoveFilesystemPackageInterop(childRuntime);
         _installLoveThreadCompatibilityAliases(childRuntime);
         _copyThreadFilesystemState(
@@ -389,6 +400,7 @@ Object? _decodeThreadValue(LibraryContext context, Object? value) {
         ),
       ),
     ),
+    final LoveImageData imageData => _wrapImageData(context, imageData),
     final LoveThreadChannel channel => _wrapChannel(context, channel),
     final LoveLuaThread thread => _wrapThread(context, thread),
     _ => value,

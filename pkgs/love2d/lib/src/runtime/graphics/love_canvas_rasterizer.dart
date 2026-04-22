@@ -8,7 +8,9 @@ part of '../love_runtime.dart';
 // Canvas:newImageData can return meaningful results.
 //
 // Limitations compared to the GPU pipeline:
-//   • Shaders are ignored.
+//   • Only the compatibility-emulated desaturation tint shader subset, plus
+//     the paint-shader radial gradient subset used by the Flutter renderer,
+//     are rasterized; all other shaders are ignored.
 //   • Text is drawn as a solid-colour bounding-box approximation (requires
 //     full font-metric/glyph rasterisation to do properly).
 //   • MSAA is not applied.
@@ -26,22 +28,28 @@ class LoveCanvasRasterizer {
     required this.format,
     required LoveColor clearColor,
     LoveGraphicsColorMask clearColorMask = LoveGraphicsColorMask.all,
+    int clearStencil = 0,
     LoveScissorRect? clearScissor,
   }) : _data = LoveImageData(
          width: pixelWidth,
          height: pixelHeight,
          format: format,
-       ) {
+       ),
+       _stencil = Uint8List(pixelWidth * pixelHeight) {
     _applyClear(clearColor.clamped(), clearColorMask, clearScissor);
+    _applyStencilClear(clearStencil, clearScissor);
   }
 
   final int pixelWidth;
   final int pixelHeight;
   final String format;
   final LoveImageData _data;
+  final Uint8List _stencil;
 
   /// Per-snapshot rasterisation cache for canvas-in-canvas scenarios.
   final Map<Object, LoveImageData> _snapshotCache = {};
+  final Map<LoveCompressedImageData, LoveImageData?> _compressedImageCache =
+      HashMap<LoveCompressedImageData, LoveImageData?>.identity();
 
   /// The completed [LoveImageData] – call after [rasterize].
   LoveImageData get result => _data;
@@ -59,6 +67,7 @@ class LoveCanvasRasterizer {
       format: format,
       clearColor: snapshot.clearColor,
       clearColorMask: snapshot.clearColorMask,
+      clearStencil: snapshot.clearStencil,
       clearScissor: snapshot.clearScissor,
     );
     rasterizer.rasterize(snapshot);
@@ -117,6 +126,10 @@ class LoveCanvasRasterizer {
 
   void _dispatch(LoveDrawCommand cmd) {
     switch (cmd) {
+      case final LoveColorClearCommand c:
+        _applyClear(c.color, c.colorMask, c.scissor);
+      case final LoveStencilClearCommand c:
+        _applyStencilClear(c.value, c.scissor);
       case final LoveRectangleCommand c:
         _renderRectangle(c);
       case final LoveCircleCommand c:
@@ -268,14 +281,12 @@ class LoveCanvasRasterizer {
   void _renderImage(LoveImageCommand cmd) {
     final combined = Matrix4.copy(cmd.transform)..multiply(cmd.drawTransform);
     _blitImage(
+      cmd: cmd,
       fullTransform: combined,
       image: cmd.image,
       quad: cmd.quad,
+      layer: cmd.layer,
       tint: cmd.color,
-      scissor: cmd.scissor,
-      blendMode: cmd.blendMode,
-      alphaMode: cmd.blendAlphaMode,
-      colorMask: cmd.colorMask,
     );
   }
 
@@ -292,14 +303,12 @@ class LoveCanvasRasterizer {
             );
       final fullTx = Matrix4.copy(batchBase)..multiply(sprite.transform);
       _blitImage(
+        cmd: cmd,
         fullTransform: fullTx,
         image: cmd.spriteBatch.texture,
         quad: sprite.quad,
+        layer: sprite.layer,
         tint: spriteTint,
-        scissor: cmd.scissor,
-        blendMode: cmd.blendMode,
-        alphaMode: cmd.blendAlphaMode,
-        colorMask: cmd.colorMask,
       );
     }
   }
@@ -315,55 +324,92 @@ class LoveCanvasRasterizer {
       );
       final fullTx = Matrix4.copy(base)..multiply(particle.transform);
       _blitImage(
+        cmd: cmd,
         fullTransform: fullTx,
         image: cmd.particleSystem.texture,
         quad: particle.quad,
         tint: tint,
-        scissor: cmd.scissor,
-        blendMode: cmd.blendMode,
-        alphaMode: cmd.blendAlphaMode,
-        colorMask: cmd.colorMask,
       );
     }
   }
 
   void _renderMesh(LoveMeshCommand cmd) {
     final verts = cmd.mesh.verticesForDraw();
-    if (verts.isEmpty) return;
+    if (verts.isEmpty || cmd.instanceCount <= 0) return;
 
     final fullTx = Matrix4.copy(cmd.transform)..multiply(cmd.drawTransform);
+    final textureImage = _resolvedMeshTextureImage(cmd.mesh);
 
-    switch (cmd.mesh.drawMode) {
-      case LoveMeshDrawMode.triangles:
-        for (var i = 0; i + 2 < verts.length; i += 3) {
-          _rasterTriangle(cmd, fullTx, verts[i], verts[i + 1], verts[i + 2]);
+    if (cmd.wireframe && cmd.mesh.drawMode != LoveMeshDrawMode.points) {
+      for (var instance = 0; instance < cmd.instanceCount; instance++) {
+        switch (cmd.mesh.drawMode) {
+          case LoveMeshDrawMode.triangles:
+            for (var i = 0; i + 2 < verts.length; i += 3) {
+              _rasterWireframeTriangle(
+                cmd,
+                fullTx,
+                textureImage,
+                verts[i],
+                verts[i + 1],
+                verts[i + 2],
+              );
+            }
+          case LoveMeshDrawMode.fan:
+            for (var i = 1; i + 1 < verts.length; i++) {
+              _rasterWireframeTriangle(
+                cmd,
+                fullTx,
+                textureImage,
+                verts[0],
+                verts[i],
+                verts[i + 1],
+              );
+            }
+          case LoveMeshDrawMode.strip:
+            for (var i = 0; i + 2 < verts.length; i++) {
+              final even = i.isEven;
+              _rasterWireframeTriangle(
+                cmd,
+                fullTx,
+                textureImage,
+                even ? verts[i] : verts[i + 1],
+                even ? verts[i + 1] : verts[i],
+                verts[i + 2],
+              );
+            }
+          case LoveMeshDrawMode.points:
+            break;
         }
-      case LoveMeshDrawMode.fan:
-        for (var i = 1; i + 1 < verts.length; i++) {
-          _rasterTriangle(cmd, fullTx, verts[0], verts[i], verts[i + 1]);
-        }
-      case LoveMeshDrawMode.strip:
-        for (var i = 0; i + 2 < verts.length; i++) {
-          final even = i.isEven;
-          _rasterTriangle(
-            cmd,
-            fullTx,
-            even ? verts[i] : verts[i + 1],
-            even ? verts[i + 1] : verts[i],
-            verts[i + 2],
-          );
-        }
-      case LoveMeshDrawMode.points:
-        for (final v in verts) {
-          final p = _mapPt(fullTx, v.x, v.y);
-          final c = LoveColor(
-            cmd.color.r * v.color.r,
-            cmd.color.g * v.color.g,
-            cmd.color.b * v.color.b,
-            cmd.color.a * v.color.a,
-          );
-          _putPixel(cmd, p.x.round(), p.y.round(), c);
-        }
+      }
+      return;
+    }
+
+    for (var instance = 0; instance < cmd.instanceCount; instance++) {
+      switch (cmd.mesh.drawMode) {
+        case LoveMeshDrawMode.triangles:
+          for (var i = 0; i + 2 < verts.length; i += 3) {
+            _rasterTriangle(cmd, fullTx, verts[i], verts[i + 1], verts[i + 2]);
+          }
+        case LoveMeshDrawMode.fan:
+          for (var i = 1; i + 1 < verts.length; i++) {
+            _rasterTriangle(cmd, fullTx, verts[0], verts[i], verts[i + 1]);
+          }
+        case LoveMeshDrawMode.strip:
+          for (var i = 0; i + 2 < verts.length; i++) {
+            final even = i.isEven;
+            _rasterTriangle(
+              cmd,
+              fullTx,
+              even ? verts[i] : verts[i + 1],
+              even ? verts[i + 1] : verts[i],
+              verts[i + 2],
+            );
+          }
+        case LoveMeshDrawMode.points:
+          for (final v in verts) {
+            _rasterMeshPoint(cmd, fullTx, textureImage, v);
+          }
+      }
     }
   }
 
@@ -422,19 +468,22 @@ class LoveCanvasRasterizer {
   // --------------------------------------------------------------------------
 
   void _blitImage({
+    required LoveDrawCommand cmd,
     required Matrix4 fullTransform,
     required LoveImage image,
     required LoveQuad? quad,
+    int? layer,
     required LoveColor tint,
-    required LoveScissorRect? scissor,
-    required LoveGraphicsBlendMode blendMode,
-    required LoveGraphicsBlendAlphaMode alphaMode,
-    required LoveGraphicsColorMask colorMask,
   }) {
+    final resolvedImage = resolveDrawableImageForLayer(image, layer: layer);
+    if (resolvedImage == null) {
+      return;
+    }
+
     final srcX = quad?.x ?? 0.0;
     final srcY = quad?.y ?? 0.0;
-    final srcW = quad?.width ?? image.width.toDouble();
-    final srcH = quad?.height ?? image.height.toDouble();
+    final srcW = quad?.width ?? resolvedImage.width.toDouble();
+    final srcH = quad?.height ?? resolvedImage.height.toDouble();
 
     if (srcW <= 0 || srcH <= 0) return;
 
@@ -471,11 +520,11 @@ class LoveCanvasRasterizer {
     for (var py = iy0; py <= iy1; py++) {
       for (var px = ix0; px <= ix1; px++) {
         // Scissor test.
-        if (scissor != null &&
-            (px < scissor.x ||
-                px >= scissor.x + scissor.width ||
-                py < scissor.y ||
-                py >= scissor.y + scissor.height)) {
+        if (cmd.scissor != null &&
+            (px < cmd.scissor!.x ||
+                px >= cmd.scissor!.x + cmd.scissor!.width ||
+                py < cmd.scissor!.y ||
+                py >= cmd.scissor!.y + cmd.scissor!.height)) {
           continue;
         }
 
@@ -488,7 +537,11 @@ class LoveCanvasRasterizer {
         }
 
         // Sample source image.
-        final sampled = _sampleImage(image, srcX + local.x, srcY + local.y);
+        final sampled = _sampleImage(
+          resolvedImage,
+          srcX + local.x,
+          srcY + local.y,
+        );
         if (sampled == null) continue;
 
         final tinted = LoveColor(
@@ -498,7 +551,7 @@ class LoveCanvasRasterizer {
           sampled.a * tint.a,
         );
 
-        _rawWrite(px, py, tinted, blendMode, alphaMode, colorMask, null);
+        _writeFragment(cmd, px, py, tinted);
       }
     }
   }
@@ -509,11 +562,26 @@ class LoveCanvasRasterizer {
     if (image is LoveCanvasSnapshot) {
       return _sampleCanvasSnapshot(image, x, y);
     }
-    final data = image.imageData;
+    final data = image.imageData ?? _sampleableCompressedImageData(image);
     if (data == null) return null;
     final ix = x.floor().clamp(0, data.width - 1);
     final iy = y.floor().clamp(0, data.height - 1);
     return data.getPixel(ix, iy);
+  }
+
+  LoveImageData? _sampleableCompressedImageData(LoveImage image) {
+    final compressed = image.compressedImageData;
+    if (compressed == null) {
+      return null;
+    }
+
+    if (_compressedImageCache.containsKey(compressed)) {
+      return _compressedImageCache[compressed];
+    }
+
+    final rasterized = rasterizeCompressedImageData(compressed);
+    _compressedImageCache[compressed] = rasterized;
+    return rasterized;
   }
 
   /// On-demand rasterises a [LoveCanvasSnapshot] and caches the result.
@@ -543,6 +611,7 @@ class LoveCanvasRasterizer {
     LoveMeshVertex b,
     LoveMeshVertex c,
   ) {
+    final textureImage = _resolvedMeshTextureImage(cmd.mesh);
     final pa = _mapPt(fullTx, a.x, a.y);
     final pb = _mapPt(fullTx, b.x, b.y);
     final pc = _mapPt(fullTx, c.x, c.y);
@@ -575,15 +644,35 @@ class LoveCanvasRasterizer {
         );
         if (bary == null) continue;
         final (u, v, w) = bary;
-        final color = LoveColor(
+        var color = LoveColor(
           cmd.color.r * (u * a.color.r + v * b.color.r + w * c.color.r),
           cmd.color.g * (u * a.color.g + v * b.color.g + w * c.color.g),
           cmd.color.b * (u * a.color.b + v * b.color.b + w * c.color.b),
           cmd.color.a * (u * a.color.a + v * b.color.a + w * c.color.a),
         );
+        if (textureImage != null) {
+          final textureU = (u * a.u) + (v * b.u) + (w * c.u);
+          final textureV = (u * a.v) + (v * b.v) + (w * c.v);
+          final sampled = _sampleImage(
+            textureImage,
+            textureU * textureImage.width,
+            textureV * textureImage.height,
+          );
+          if (sampled != null) {
+            color = color.modulate(sampled);
+          }
+        }
         _putPixel(cmd, px, py, color);
       }
     }
+  }
+
+  LoveImage? _resolvedMeshTextureImage(LoveMesh mesh) {
+    return switch (mesh.textureObject) {
+      final LoveCanvas canvas => canvas.snapshot(),
+      final LoveImage image => image,
+      _ => null,
+    };
   }
 
   bool _meshTriangleIsCulled(
@@ -687,6 +776,146 @@ class LoveCanvasRasterizer {
       }
     }
   }
+
+  void _rasterWireframeTriangle(
+    LoveMeshCommand cmd,
+    Matrix4 fullTx,
+    LoveImage? textureImage,
+    LoveMeshVertex a,
+    LoveMeshVertex b,
+    LoveMeshVertex c,
+  ) {
+    final pa = _mapPt(fullTx, a.x, a.y);
+    final pb = _mapPt(fullTx, b.x, b.y);
+    final pc = _mapPt(fullTx, c.x, c.y);
+    if (_meshTriangleIsCulled(cmd, pa, pb, pc)) {
+      return;
+    }
+
+    _rasterMeshEdge(cmd, textureImage, pa, pb, a, b);
+    _rasterMeshEdge(cmd, textureImage, pb, pc, b, c);
+    _rasterMeshEdge(cmd, textureImage, pc, pa, c, a);
+  }
+
+  void _rasterMeshEdge(
+    LoveMeshCommand cmd,
+    LoveImage? textureImage,
+    ({double x, double y}) p0,
+    ({double x, double y}) p1,
+    LoveMeshVertex a,
+    LoveMeshVertex b,
+  ) {
+    final dx = p1.x - p0.x;
+    final dy = p1.y - p0.y;
+    final lengthSquared = (dx * dx) + (dy * dy);
+    if (lengthSquared < 1e-10) {
+      var color = _modulateVertexColorForMesh(cmd, a);
+      if (textureImage != null) {
+        final sampled = _sampleImage(
+          textureImage,
+          a.u * textureImage.width,
+          a.v * textureImage.height,
+        );
+        if (sampled != null) {
+          color = color.modulate(sampled);
+        }
+      }
+      _putPixel(cmd, p0.x.round(), p0.y.round(), color);
+      return;
+    }
+
+    final halfWidth = math.max(0.5, cmd.lineWidth * 0.5);
+    final minX = math.max(0, (math.min(p0.x, p1.x) - halfWidth).floor());
+    final maxX = math.min(
+      pixelWidth - 1,
+      (math.max(p0.x, p1.x) + halfWidth).ceil(),
+    );
+    final minY = math.max(0, (math.min(p0.y, p1.y) - halfWidth).floor());
+    final maxY = math.min(
+      pixelHeight - 1,
+      (math.max(p0.y, p1.y) + halfWidth).ceil(),
+    );
+
+    for (var py = minY; py <= maxY; py++) {
+      final centerY = py + 0.5;
+      for (var px = minX; px <= maxX; px++) {
+        final centerX = px + 0.5;
+        final projection =
+            (((centerX - p0.x) * dx) + ((centerY - p0.y) * dy)) / lengthSquared;
+        final t = projection.clamp(0.0, 1.0);
+        final closestX = p0.x + (dx * t);
+        final closestY = p0.y + (dy * t);
+        final distX = centerX - closestX;
+        final distY = centerY - closestY;
+        if ((distX * distX) + (distY * distY) > (halfWidth * halfWidth)) {
+          continue;
+        }
+
+        var color = LoveColor(
+          cmd.color.r * _lerpDouble(a.color.r, b.color.r, t),
+          cmd.color.g * _lerpDouble(a.color.g, b.color.g, t),
+          cmd.color.b * _lerpDouble(a.color.b, b.color.b, t),
+          cmd.color.a * _lerpDouble(a.color.a, b.color.a, t),
+        );
+        if (textureImage != null) {
+          final sampled = _sampleImage(
+            textureImage,
+            _lerpDouble(a.u, b.u, t) * textureImage.width,
+            _lerpDouble(a.v, b.v, t) * textureImage.height,
+          );
+          if (sampled != null) {
+            color = color.modulate(sampled);
+          }
+        }
+        _putPixel(cmd, px, py, color);
+      }
+    }
+  }
+
+  void _rasterMeshPoint(
+    LoveMeshCommand cmd,
+    Matrix4 fullTx,
+    LoveImage? textureImage,
+    LoveMeshVertex vertex,
+  ) {
+    final point = _mapPt(fullTx, vertex.x, vertex.y);
+    var color = _modulateVertexColorForMesh(cmd, vertex);
+    if (textureImage != null) {
+      final sampled = _sampleImage(
+        textureImage,
+        vertex.u * textureImage.width,
+        vertex.v * textureImage.height,
+      );
+      if (sampled != null) {
+        color = color.modulate(sampled);
+      }
+    }
+
+    final half = cmd.pointSize * 0.5;
+    final x0 = (point.x - half).floor();
+    final y0 = (point.y - half).floor();
+    final x1 = (point.x + half).ceil() - 1;
+    final y1 = (point.y + half).ceil() - 1;
+    for (var py = y0; py <= y1; py++) {
+      for (var px = x0; px <= x1; px++) {
+        _writeFragment(cmd, px, py, color);
+      }
+    }
+  }
+
+  LoveColor _modulateVertexColorForMesh(
+    LoveMeshCommand cmd,
+    LoveMeshVertex vertex,
+  ) {
+    return LoveColor(
+      cmd.color.r * vertex.color.r,
+      cmd.color.g * vertex.color.g,
+      cmd.color.b * vertex.color.b,
+      cmd.color.a * vertex.color.a,
+    );
+  }
+
+  double _lerpDouble(double a, double b, double t) => a + ((b - a) * t);
 
   void _fillAARect(
     LoveDrawCommand cmd,
@@ -978,15 +1207,176 @@ class LoveCanvasRasterizer {
   // --------------------------------------------------------------------------
 
   void _putPixel(LoveDrawCommand cmd, int px, int py, LoveColor color) {
-    _rawWrite(
-      px,
-      py,
-      color,
-      cmd.blendMode,
-      cmd.blendAlphaMode,
-      cmd.colorMask,
-      cmd.scissor,
+    _writeFragment(cmd, px, py, color);
+  }
+
+  void _writeFragment(LoveDrawCommand cmd, int px, int py, LoveColor src) {
+    if (!_passesStencilTest(cmd, px, py)) {
+      return;
+    }
+
+    if (cmd.stencilAction case final action?) {
+      _applyStencilAction(px, py, action, cmd.stencilWriteValue);
+    }
+
+    if (!cmd.colorMask.noneEnabled) {
+      final shaded = _applyShaderToFragment(cmd, px, py, src);
+      _rawWrite(
+        px,
+        py,
+        shaded,
+        cmd.blendMode,
+        cmd.blendAlphaMode,
+        cmd.colorMask,
+        cmd.scissor,
+      );
+    }
+  }
+
+  bool _passesStencilTest(LoveDrawCommand cmd, int px, int py) {
+    if (px < 0 || px >= pixelWidth || py < 0 || py >= pixelHeight) {
+      return false;
+    }
+
+    final stencilValue = _stencil[(py * pixelWidth) + px];
+    final compareValue = cmd.stencilValue;
+    return switch (cmd.stencilCompare) {
+      LoveGraphicsCompareMode.equal => stencilValue == compareValue,
+      LoveGraphicsCompareMode.notequal => stencilValue != compareValue,
+      LoveGraphicsCompareMode.less => stencilValue < compareValue,
+      LoveGraphicsCompareMode.lequal => stencilValue <= compareValue,
+      LoveGraphicsCompareMode.gequal => stencilValue >= compareValue,
+      LoveGraphicsCompareMode.greater => stencilValue > compareValue,
+      LoveGraphicsCompareMode.never => false,
+      LoveGraphicsCompareMode.always => true,
+    };
+  }
+
+  void _applyStencilAction(
+    int px,
+    int py,
+    LoveGraphicsStencilAction action,
+    int value,
+  ) {
+    if (px < 0 || px >= pixelWidth || py < 0 || py >= pixelHeight) {
+      return;
+    }
+
+    final index = (py * pixelWidth) + px;
+    final current = _stencil[index];
+    _stencil[index] = switch (action) {
+      LoveGraphicsStencilAction.replace => _clampStencilValue(value),
+      LoveGraphicsStencilAction.increment => math.min(255, current + 1),
+      LoveGraphicsStencilAction.decrement => math.max(0, current - 1),
+      LoveGraphicsStencilAction.incrementWrap => (current + 1) & 0xff,
+      LoveGraphicsStencilAction.decrementWrap => (current - 1) & 0xff,
+      LoveGraphicsStencilAction.invert => current ^ 0xff,
+    };
+  }
+
+  int _clampStencilValue(int value) => value.clamp(0, 255);
+
+  LoveColor _applyShaderToFragment(
+    LoveDrawCommand cmd,
+    int px,
+    int py,
+    LoveColor src,
+  ) {
+    final shader = cmd.shader;
+    if (shader == null) {
+      return src;
+    }
+
+    return switch (shader.kind) {
+      LoveShaderKind.desaturationTint =>
+        loveShaderDesaturationTintColor(shader, src) ?? src,
+      LoveShaderKind.radialGradient => _applyRadialGradientToFragment(
+        cmd,
+        shader,
+        px,
+        py,
+        src,
+      ),
+      _ => src,
+    };
+  }
+
+  LoveColor _applyRadialGradientToFragment(
+    LoveDrawCommand cmd,
+    LoveShader shader,
+    int px,
+    int py,
+    LoveColor src,
+  ) {
+    final gradientColor = loveShaderRadialGradientColorAt(
+      shader,
+      fallbackColor: cmd.color,
+      x: px + 0.5,
+      y: py + 0.5,
     );
+    if (gradientColor == null) {
+      return src;
+    }
+
+    if (_usesImageRadialGradientPath(cmd)) {
+      return src.modulate(gradientColor);
+    }
+    if (_usesRasterizedRadialGradientPath(cmd)) {
+      return gradientColor;
+    }
+    return src;
+  }
+
+  bool _usesRasterizedRadialGradientPath(LoveDrawCommand cmd) {
+    return switch (cmd) {
+      LoveRectangleCommand() ||
+      LoveCircleCommand() ||
+      LovePolygonCommand() ||
+      LoveEllipseCommand() ||
+      LoveArcCommand() ||
+      LoveLineCommand() ||
+      LovePointsCommand() ||
+      LoveTextCommand() ||
+      LoveTextObjectCommand() => true,
+      final LoveMeshCommand mesh => !_meshUsesImageRadialGradientPath(mesh),
+      _ => false,
+    };
+  }
+
+  bool _usesImageRadialGradientPath(LoveDrawCommand cmd) {
+    return switch (cmd) {
+      LoveImageCommand() ||
+      LoveSpriteBatchCommand() ||
+      LoveParticleSystemCommand() => true,
+      final LoveMeshCommand mesh => _meshUsesImageRadialGradientPath(mesh),
+      _ => false,
+    };
+  }
+
+  bool _meshUsesImageRadialGradientPath(LoveMeshCommand mesh) {
+    return _resolvedMeshTextureImage(mesh.mesh) != null;
+  }
+
+  void _applyStencilClear(int value, LoveScissorRect? clearScissor) {
+    final left = clearScissor == null ? 0 : math.max(0, clearScissor.x.floor());
+    final top = clearScissor == null ? 0 : math.max(0, clearScissor.y.floor());
+    final right = clearScissor == null
+        ? pixelWidth
+        : math.min(pixelWidth, (clearScissor.x + clearScissor.width).ceil());
+    final bottom = clearScissor == null
+        ? pixelHeight
+        : math.min(pixelHeight, (clearScissor.y + clearScissor.height).ceil());
+
+    if (left >= right || top >= bottom) {
+      return;
+    }
+
+    final clampedValue = _clampStencilValue(value);
+    for (var py = top; py < bottom; py++) {
+      for (var px = left; px < right; px++) {
+        _stencil[(py * pixelWidth) + px] = clampedValue;
+      }
+    }
   }
 
   void _rawWrite(
@@ -1043,12 +1433,13 @@ class LoveCanvasRasterizer {
 
     return switch (mode) {
       LoveGraphicsBlendMode.alpha => _alphaOver(s, dst),
-      LoveGraphicsBlendMode.replace => src,
+      LoveGraphicsBlendMode.replace => s,
+      LoveGraphicsBlendMode.none => src,
       LoveGraphicsBlendMode.add => LoveColor(
         dst.r + s.r,
         dst.g + s.g,
         dst.b + s.b,
-        dst.a + s.a,
+        dst.a,
       ),
       LoveGraphicsBlendMode.subtract => LoveColor(
         dst.r - s.r,
@@ -1063,10 +1454,10 @@ class LoveCanvasRasterizer {
         dst.a * src.a,
       ),
       LoveGraphicsBlendMode.screen => LoveColor(
-        1 - (1 - dst.r) * (1 - s.r),
-        1 - (1 - dst.g) * (1 - s.g),
-        1 - (1 - dst.b) * (1 - s.b),
-        1 - (1 - dst.a) * (1 - s.a),
+        dst.r * (1 - src.r) + s.r,
+        dst.g * (1 - src.g) + s.g,
+        dst.b * (1 - src.b) + s.b,
+        dst.a * (1 - src.a) + src.a,
       ),
       LoveGraphicsBlendMode.lighten => LoveColor(
         math.max(dst.r, s.r),

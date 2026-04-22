@@ -21,16 +21,8 @@ void main() {
 
       const script = '''
 function love.resize(width, height)
-  local poll = love.event.poll()
-  while true do
-    local name, queuedWidth, queuedHeight = poll()
-    if name == nil then
-      return
-    end
-    if name == "resize" and queuedWidth == width and queuedHeight == height then
-      love.event.quit()
-      return
-    end
+  if width == 640 and height == 360 then
+    love.event.quit()
   end
 end
 ''';
@@ -54,21 +46,66 @@ end
   );
 
   testWidgets(
+    'LoveFlameHarness maps pointer input through the fitted LOVE window viewport',
+    (tester) async {
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      addTearDown(() async {
+        await binding.setSurfaceSize(null);
+      });
+      await binding.setSurfaceSize(const Size(640, 480));
+
+      const confScript = '''
+function love.conf(t)
+  t.window.width = 960
+  t.window.height = 540
+end
+''';
+      const mainScript = '''
+function love.mousepressed(x, y)
+  if math.abs(x - 480) < 0.01 and math.abs(y - 270) < 0.01 then
+    love.event.quit()
+    return
+  end
+
+  error(string.format("mousepressed:%0.3f:%0.3f", x, y))
+end
+''';
+      final adapter = LoveAssetBundleFilesystemAdapter(
+        bundle: _MapAssetBundle(<String, List<int>>{
+          'assets/game/conf.lua': confScript.codeUnits,
+          'assets/game/main.lua': mainScript.codeUnits,
+        }),
+        assetKeys: const <String>[
+          'assets/game/conf.lua',
+          'assets/game/main.lua',
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: LoveFlameHarness(
+            entryAsset: 'assets/game/main.lua',
+            filesystemAdapter: adapter,
+            onQuitRequested: () async {},
+          ),
+        ),
+      );
+      await _pumpUntilStatus(tester, 'Running');
+
+      await tester.tapAt(tester.getCenter(find.byType(LoveFlameHarness)));
+      await tester.pump();
+      await _pumpUntilStatus(tester, 'Quit');
+    },
+  );
+
+  testWidgets(
     'LoveFlameHarness dispatches love.visible on app visibility changes without a synthetic startup callback',
     (tester) async {
       binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       const script = '''
 function love.visible(visible)
-  local poll = love.event.poll()
-  while true do
-    local name, queuedVisible = poll()
-    if name == nil then
-      return
-    end
-    if name == "visible" and queuedVisible == visible and not love.window.isVisible() then
-      love.event.quit()
-      return
-    end
+  if not visible and not love.window.isVisible() then
+    love.event.quit()
   end
 end
 ''';
@@ -96,17 +133,7 @@ end
       binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       const script = '''
 function love.lowmemory()
-  local poll = love.event.poll()
-  while true do
-    local name = poll()
-    if name == nil then
-      return
-    end
-    if name == "lowmemory" then
-      love.event.quit()
-      return
-    end
-  end
+  love.event.quit()
 end
 ''';
       final adapter = _scriptAdapter(script);

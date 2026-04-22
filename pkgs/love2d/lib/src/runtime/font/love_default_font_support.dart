@@ -5,14 +5,80 @@ final Map<LoveRuntimeContext, LoveFont> _loveDefaultGraphicsFontCache =
 final Map<LoveRuntimeContext, Future<LoveFont>>
 _loveDefaultGraphicsFontLoaders =
     HashMap<LoveRuntimeContext, Future<LoveFont>>.identity();
+final Map<LoveRuntimeContext, Map<_LoveDefaultTrueTypeFontCacheKey, LoveFont>>
+_loveDefaultTrueTypeFontCache =
+    HashMap<
+      LoveRuntimeContext,
+      Map<_LoveDefaultTrueTypeFontCacheKey, LoveFont>
+    >.identity();
+final Map<
+  LoveRuntimeContext,
+  Map<_LoveDefaultTrueTypeFontCacheKey, Future<LoveFont>>
+>
+_loveDefaultTrueTypeFontLoaders =
+    HashMap<
+      LoveRuntimeContext,
+      Map<_LoveDefaultTrueTypeFontCacheKey, Future<LoveFont>>
+    >.identity();
+
+final class _LoveDefaultTrueTypeFontCacheKey {
+  const _LoveDefaultTrueTypeFontCacheKey({
+    required this.size,
+    required this.hinting,
+    required this.dpiScale,
+    required this.defaultFilter,
+  });
+
+  final double size;
+  final String hinting;
+  final double dpiScale;
+  final LoveGraphicsDefaultFilter defaultFilter;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is _LoveDefaultTrueTypeFontCacheKey &&
+          size == other.size &&
+          hinting == other.hinting &&
+          dpiScale == other.dpiScale &&
+          defaultFilter == other.defaultFilter;
+
+  @override
+  int get hashCode => Object.hash(size, hinting, dpiScale, defaultFilter);
+}
 
 void _clearLoveDefaultGraphicsFontState(LoveRuntimeContext runtime) {
   _loveDefaultGraphicsFontCache.remove(runtime);
   _loveDefaultGraphicsFontLoaders.remove(runtime);
+  _loveDefaultTrueTypeFontCache.remove(runtime);
+  _loveDefaultTrueTypeFontLoaders.remove(runtime);
 }
 
 extension LoveRuntimeContextDefaultFontSupport on LoveRuntimeContext {
-  Future<LoveFont> createDefaultTrueTypeOrFallbackFont({
+  Map<_LoveDefaultTrueTypeFontCacheKey, LoveFont>
+  _defaultTrueTypeFontsForRuntime() => _loveDefaultTrueTypeFontCache
+      .putIfAbsent(this, () => <_LoveDefaultTrueTypeFontCacheKey, LoveFont>{});
+
+  Map<_LoveDefaultTrueTypeFontCacheKey, Future<LoveFont>>
+  _defaultTrueTypeFontLoadersForRuntime() =>
+      _loveDefaultTrueTypeFontLoaders.putIfAbsent(
+        this,
+        () => <_LoveDefaultTrueTypeFontCacheKey, Future<LoveFont>>{},
+      );
+
+  _LoveDefaultTrueTypeFontCacheKey _defaultTrueTypeFontCacheKey({
+    required double size,
+    required String hinting,
+    required double dpiScale,
+    required LoveGraphicsDefaultFilter defaultFilter,
+  }) => _LoveDefaultTrueTypeFontCacheKey(
+    size: size,
+    hinting: hinting,
+    dpiScale: dpiScale,
+    defaultFilter: defaultFilter,
+  );
+
+  Future<LoveFont> _loadDefaultTrueTypeOrFallbackFontPrototype({
     required double size,
     required String hinting,
     required double dpiScale,
@@ -66,7 +132,64 @@ extension LoveRuntimeContextDefaultFontSupport on LoveRuntimeContext {
     );
   }
 
-  Future<LoveFont> ensureCurrentGraphicsFont() async {
+  Object createDefaultTrueTypeOrFallbackFontOrFuture({
+    required double size,
+    required String hinting,
+    required double dpiScale,
+    required LoveGraphicsDefaultFilter defaultFilter,
+  }) {
+    final cacheKey = _defaultTrueTypeFontCacheKey(
+      size: size,
+      hinting: hinting,
+      dpiScale: dpiScale,
+      defaultFilter: defaultFilter,
+    );
+    final cached = _defaultTrueTypeFontsForRuntime()[cacheKey];
+    if (cached != null) {
+      return cached.copy();
+    }
+
+    final inFlight = _defaultTrueTypeFontLoadersForRuntime()[cacheKey];
+    if (inFlight != null) {
+      return inFlight.then((font) => font.copy());
+    }
+
+    final loader = _loadDefaultTrueTypeOrFallbackFontPrototype(
+      size: size,
+      hinting: hinting,
+      dpiScale: dpiScale,
+      defaultFilter: defaultFilter,
+    );
+    _defaultTrueTypeFontLoadersForRuntime()[cacheKey] = loader;
+
+    return loader
+        .then((font) {
+          _defaultTrueTypeFontsForRuntime()[cacheKey] = font;
+          return font.copy();
+        })
+        .whenComplete(() {
+          _defaultTrueTypeFontLoadersForRuntime().remove(cacheKey);
+        });
+  }
+
+  Future<LoveFont> createDefaultTrueTypeOrFallbackFont({
+    required double size,
+    required String hinting,
+    required double dpiScale,
+    required LoveGraphicsDefaultFilter defaultFilter,
+  }) {
+    final fontOrFuture = createDefaultTrueTypeOrFallbackFontOrFuture(
+      size: size,
+      hinting: hinting,
+      dpiScale: dpiScale,
+      defaultFilter: defaultFilter,
+    );
+    return fontOrFuture is Future<LoveFont>
+        ? fontOrFuture
+        : Future<LoveFont>.value(fontOrFuture as LoveFont);
+  }
+
+  Object ensureCurrentGraphicsFontOrFuture() {
     final current = graphics.font;
     if (!current.isImplicitDefaultGraphicsFont) {
       registerFont(current);
@@ -82,28 +205,40 @@ extension LoveRuntimeContextDefaultFontSupport on LoveRuntimeContext {
 
     final inFlight = _loveDefaultGraphicsFontLoaders[this];
     if (inFlight != null) {
-      final font = await inFlight;
-      graphics.font = font;
-      setDefaultGraphicsFont(font);
-      return font;
+      return inFlight.then((font) {
+        graphics.font = font;
+        setDefaultGraphicsFont(font);
+        return font;
+      });
     }
 
-    final loader = createDefaultTrueTypeOrFallbackFont(
+    final fontOrFuture = createDefaultTrueTypeOrFallbackFontOrFuture(
       size: LoveFont.defaultSize,
       hinting: 'normal',
       dpiScale: windowMetrics.dpiScale,
       defaultFilter: graphics.defaultFilter,
     );
+    final loader = fontOrFuture is Future<LoveFont>
+        ? fontOrFuture
+        : Future<LoveFont>.value(fontOrFuture as LoveFont);
     _loveDefaultGraphicsFontLoaders[this] = loader;
 
-    try {
-      final font = await loader;
-      _loveDefaultGraphicsFontCache[this] = font;
-      graphics.font = font;
-      setDefaultGraphicsFont(font);
-      return font;
-    } finally {
-      _loveDefaultGraphicsFontLoaders.remove(this);
-    }
+    return loader
+        .then((font) {
+          _loveDefaultGraphicsFontCache[this] = font;
+          graphics.font = font;
+          setDefaultGraphicsFont(font);
+          return font;
+        })
+        .whenComplete(() {
+          _loveDefaultGraphicsFontLoaders.remove(this);
+        });
+  }
+
+  Future<LoveFont> ensureCurrentGraphicsFont() {
+    final fontOrFuture = ensureCurrentGraphicsFontOrFuture();
+    return fontOrFuture is Future<LoveFont>
+        ? fontOrFuture
+        : Future<LoveFont>.value(fontOrFuture as LoveFont);
   }
 }

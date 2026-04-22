@@ -61,6 +61,106 @@ void main() {
       },
     );
 
+    test(
+      'repeated numeric newFont calls use the cached default font path synchronously',
+      () async {
+        var loadCount = 0;
+        final runtime = Interpreter();
+        installLove2d(
+          runtime: runtime,
+          host: LoveHeadlessHost(
+            defaultTrueTypeFontLoader:
+                ({
+                  required double size,
+                  required String hinting,
+                  required double dpiScale,
+                  required LoveGraphicsDefaultFilter defaultFilter,
+                }) async {
+                  loadCount++;
+                  return LoveFont(
+                    size: size,
+                    family: 'CachedDefaultFont',
+                    fontType: LoveFont.trueTypeFontType,
+                    hinting: hinting,
+                    dpiScale: dpiScale,
+                    heightOverride: size + 4,
+                    filter: defaultFilter,
+                    measureWidthCallback: (text) => text.runes.length * 7.0,
+                  );
+                },
+          ),
+        );
+
+        final rawNewFont = _rawFunction(runtime, const [
+          'love',
+          'graphics',
+          'newFont',
+        ]);
+
+        final firstResult = rawNewFont.call(const <Object?>[18.0]);
+        expect(firstResult, isA<Future<Object?>>());
+        final firstFont = await _resolveCallResult(firstResult);
+
+        final secondResult = rawNewFont.call(const <Object?>[18.0]);
+        expect(secondResult, isNot(isA<Future>()));
+        final secondFont = _unwrap(secondResult);
+
+        expect(loadCount, 1);
+        expect(
+          await _callMethod(firstFont, 'getHeight'),
+          await _callMethod(secondFont, 'getHeight'),
+        );
+      },
+    );
+
+    test(
+      'print uses the current explicit font without yielding once it is loaded',
+      () async {
+        var loadCount = 0;
+        final host = LoveHeadlessHost(
+          defaultTrueTypeFontLoader:
+              ({
+                required double size,
+                required String hinting,
+                required double dpiScale,
+                required LoveGraphicsDefaultFilter defaultFilter,
+              }) async {
+                loadCount++;
+                return LoveFont(
+                  size: size,
+                  family: 'PrintFont',
+                  fontType: LoveFont.trueTypeFontType,
+                  hinting: hinting,
+                  dpiScale: dpiScale,
+                  heightOverride: size + 2,
+                  filter: defaultFilter,
+                  measureWidthCallback: (text) => text.runes.length * 6.0,
+                );
+              },
+        );
+        final runtime = Interpreter();
+        installLove2d(runtime: runtime, host: host);
+
+        await _call(
+          runtime,
+          const ['love', 'graphics', 'setNewFont'],
+          const <Object?>[18.0],
+        );
+
+        host.graphics.beginFrame();
+        final rawPrint = _rawFunction(runtime, const [
+          'love',
+          'graphics',
+          'print',
+        ]);
+        final printResult = rawPrint.call(const <Object?>['LuaLike', 4.0, 8.0]);
+
+        expect(printResult, isNot(isA<Future>()));
+        expect(loadCount, 1);
+        expect(host.graphics.commands, hasLength(1));
+      },
+    );
+
     test('print and printf lazily use the cached default font', () async {
       final host = LoveHeadlessHost(
         defaultTrueTypeFontDataLoader: _loadVeraBytes,

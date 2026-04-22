@@ -50,6 +50,33 @@ void main() {
         expect(await _callCallable(loop), 1);
       },
     );
+
+    test(
+      'LoveScriptRuntime falls back to love.errhand when errorhandler is nil',
+      () async {
+        final runtime = LoveScriptRuntime(host: LoveHeadlessHost());
+
+        await runtime.execute('''
+testbed = {}
+love.errorhandler = nil
+
+function love.errhand(msg)
+  testbed.msg = msg
+  return function()
+    return 7
+  end
+end
+''');
+
+        final loop = await runtime.createErrorHandlerLoop('boom');
+        expect(loop, isNotNull);
+        expect(runtime.unwrapGlobalTable('testbed')!['msg'], 'boom');
+        expect(
+          await _resolveCallResult(runtime.callErrorHandlerLoop(loop!)),
+          7,
+        );
+      },
+    );
   });
 }
 

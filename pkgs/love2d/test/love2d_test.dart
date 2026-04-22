@@ -3127,7 +3127,7 @@ end
           await _call(runtime, const ['love', 'graphics', 'getTextureTypes']),
           <Object?, Object?>{
             '2d': true,
-            'array': false,
+            'array': true,
             'cube': false,
             'volume': false,
           },
@@ -3136,12 +3136,23 @@ end
           await _call(
             runtime,
             const ['love', 'graphics', 'validateShader'],
-            const <Object?>[
+            <Object?>[
               false,
-              'vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) { return color; }',
+              '''
+extern number innerRadius;
+extern number outerRadius;
+extern vec2 center;
+extern vec4 colorInner;
+extern vec4 colorOuter;
+vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
+  number dist = distance(screen_coords, center);
+  number t = smoothstep(innerRadius, outerRadius, dist);
+  return mix(colorInner, colorOuter, t) * Texel(texture, texture_coords);
+}
+''',
             ],
           ),
-          <Object?>[true, null],
+          isTrue,
         );
 
         expect(
@@ -3154,7 +3165,7 @@ end
             isA<LuaError>().having(
               (error) => error.message,
               'message',
-              contains('love.graphics.captureScreenshot'),
+              contains('function, string, or Channel'),
             ),
           ),
         );
@@ -3168,7 +3179,7 @@ end
             isA<LuaError>().having(
               (error) => error.message,
               'message',
-              contains('love.graphics.drawInstanced'),
+              contains('expected a Mesh'),
             ),
           ),
         );
@@ -3182,7 +3193,7 @@ end
             isA<LuaError>().having(
               (error) => error.message,
               'message',
-              contains('love.graphics.stencil'),
+              contains('expected a callable at argument 1'),
             ),
           ),
         );

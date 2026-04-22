@@ -172,6 +172,84 @@ void main() {
         );
       },
     );
+
+    test(
+      'lua-side variadic isDown preserves single-character key constants',
+      () async {
+        host.keyboard.setKeyDown('d', down: true);
+        final lua = LuaLike(runtime: runtime);
+
+        await lua.execute('''
+pressed = love.keyboard.isDown("right", "d")
+''');
+
+        expect((runtime.globals.get('pressed') as Value).unwrap(), isTrue);
+      },
+    );
+
+    test(
+      'isDown ignores leaked active touch ids after valid key constants',
+      () async {
+        host.keyboard.setKeyDown('d', down: true);
+        host.touch.beginTouch(id: 100, x: 0, y: 0);
+
+        expect(
+          await _call(
+            runtime,
+            const ['love', 'keyboard', 'isDown'],
+            const <Object?>['right', 'd', 100],
+          ),
+          isTrue,
+        );
+      },
+    );
+
+    test(
+      'isDown ignores leaked active touch ids before valid key constants',
+      () async {
+        host.keyboard.setKeyDown('d', down: true);
+        host.touch.beginTouch(id: 100, x: 0, y: 0);
+
+        expect(
+          await _call(
+            runtime,
+            const ['love', 'keyboard', 'isDown'],
+            const <Object?>[100, 'd'],
+          ),
+          isTrue,
+        );
+      },
+    );
+
+    test(
+      'isDown returns false when every argument is a leaked active touch id',
+      () async {
+        host.touch.beginTouch(id: 100, x: 0, y: 0);
+
+        expect(
+          await _call(
+            runtime,
+            const ['love', 'keyboard', 'isDown'],
+            const <Object?>[100],
+          ),
+          isFalse,
+        );
+      },
+    );
+
+    test(
+      'isDown still rejects standalone numeric-like values that are not touches',
+      () async {
+        await expectLater(
+          _call(
+            runtime,
+            const ['love', 'keyboard', 'isDown'],
+            const <Object?>[100],
+          ),
+          throwsA(isA<LuaError>()),
+        );
+      },
+    );
   });
 
   group('love.mouse module', () {

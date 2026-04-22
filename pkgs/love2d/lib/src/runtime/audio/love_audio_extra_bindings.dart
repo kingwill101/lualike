@@ -41,6 +41,11 @@ void installLoveAudioExtraBindings(LuaRuntime runtime) {
     runtime.globals.define(entry.key, enumValue);
   }
 
+  final activeSourceCount = audioTable['getActiveSourceCount'];
+  if (activeSourceCount != null) {
+    audioTable['getSourceCount'] = activeSourceCount;
+  }
+
   _loveAudioExtrasInstalled[runtime] = true;
 }
 

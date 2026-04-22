@@ -20,9 +20,7 @@ void main() {
 testbed = {}
 
 function love.textedited(text, start, length)
-  local poll = love.event.poll()
-  local name, queuedText, queuedStart, queuedLength = poll()
-  local formatted = string.format("%s|%s|%d|%d|%s|%d|%d", name, queuedText, queuedStart, queuedLength, text, start, length)
+  local formatted = string.format("%s|%d|%d", text, start, length)
   testbed.editedCount = (testbed.editedCount or 0) + 1
   if testbed.firstEdited == nil then
     testbed.firstEdited = formatted
@@ -31,10 +29,8 @@ function love.textedited(text, start, length)
 end
 
 function love.textinput(text)
-  local poll = love.event.poll()
-  local name, queuedText = poll()
   testbed.inputCount = (testbed.inputCount or 0) + 1
-  testbed.lastInput = string.format("%s|%s|%s", name, queuedText, text)
+  testbed.lastInput = text
 end
 ''');
     });
@@ -51,12 +47,9 @@ end
             composing: TextRange(start: 0, end: 2),
           ),
         );
-        await adapter.flush();
+        await _flushQueuedTextInput(adapter, runtime);
 
-        expect(
-          runtime.unwrapGlobalTable('testbed')!['firstEdited'],
-          'textedited|he|1|1|he|1|1',
-        );
+        expect(runtime.unwrapGlobalTable('testbed')!['firstEdited'], 'he|1|1');
         expect(runtime.unwrapGlobalTable('testbed')!['editedCount'], 1.0);
         expect(runtime.unwrapGlobalTable('testbed')!['inputCount'], isNull);
 
@@ -66,18 +59,12 @@ end
             selection: TextSelection.collapsed(offset: 2),
           ),
         );
-        await adapter.flush();
+        await _flushQueuedTextInput(adapter, runtime);
 
         expect(runtime.unwrapGlobalTable('testbed')!['editedCount'], 2.0);
-        expect(
-          runtime.unwrapGlobalTable('testbed')!['lastEdited'],
-          'textedited||0|0||0|0',
-        );
+        expect(runtime.unwrapGlobalTable('testbed')!['lastEdited'], '|0|0');
         expect(runtime.unwrapGlobalTable('testbed')!['inputCount'], 1.0);
-        expect(
-          runtime.unwrapGlobalTable('testbed')!['lastInput'],
-          'textinput|he|he',
-        );
+        expect(runtime.unwrapGlobalTable('testbed')!['lastInput'], 'he');
       },
     );
 
@@ -91,21 +78,26 @@ end
           composing: TextRange(start: 0, end: 7),
         ),
       );
-      await adapter.flush();
+      await _flushQueuedTextInput(adapter, runtime);
 
       adapter.endPlatformTextInputSession();
-      await adapter.flush();
+      await _flushQueuedTextInput(adapter, runtime);
 
       expect(runtime.unwrapGlobalTable('testbed')!['editedCount'], 2.0);
       expect(
         runtime.unwrapGlobalTable('testbed')!['firstEdited'],
-        'textedited|compose|3|0|compose|3|0',
+        'compose|3|0',
       );
-      expect(
-        runtime.unwrapGlobalTable('testbed')!['lastEdited'],
-        'textedited||0|0||0|0',
-      );
+      expect(runtime.unwrapGlobalTable('testbed')!['lastEdited'], '|0|0');
       expect(runtime.unwrapGlobalTable('testbed')!['inputCount'], isNull);
     });
   });
+}
+
+Future<void> _flushQueuedTextInput(
+  LoveFlameInputAdapter adapter,
+  LoveScriptRuntime runtime,
+) async {
+  await adapter.flush();
+  await runtime.processMainLoopEvents();
 }

@@ -35,3 +35,6 @@ dev_dependencies:
 flutter:
   assets:
     - third_party/love/extra/resources/Vera.ttf
+  shaders:
+    - test_assets/shaders/runtime_effect_solid_color.frag
+    - test_assets/shaders/runtime_effect_uniform_texture.frag

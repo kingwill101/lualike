@@ -42,6 +42,7 @@ class LoveSpriteBatch {
     required int bufferSize,
     required this.usage,
     required List<LoveSpriteBatchSprite> sprites,
+    required Map<String, LoveMesh> attachedAttributes,
     required LoveColor? color,
     required int drawRangeStart,
     required int drawRangeCount,
@@ -50,7 +51,11 @@ class LoveSpriteBatch {
        _sprites = sprites.map((sprite) => sprite.copy()).toList(growable: true),
        _color = color,
        _drawRangeStart = drawRangeStart,
-       _drawRangeCount = drawRangeCount;
+       _drawRangeCount = drawRangeCount {
+    _attachedAttributes.addAll(
+      attachedAttributes.map((name, mesh) => MapEntry(name, mesh.copy())),
+    );
+  }
 
   LoveImage _texture;
   int _bufferSize;
@@ -94,14 +99,26 @@ class LoveSpriteBatch {
     _color = color?.clamped();
   }
 
-  int add(Matrix4 transform, {LoveQuad? quad, int layer = 0}) {
+  int _resolvedLayer({LoveQuad? quad, int? explicitLayer}) {
+    if (explicitLayer != null) {
+      return explicitLayer;
+    }
+
+    if (_texture.textureType == 'array') {
+      return quad?.layer ?? 0;
+    }
+
+    return 0;
+  }
+
+  int add(Matrix4 transform, {LoveQuad? quad, int? layer}) {
     _ensureCapacityForAdd();
     _sprites.add(
       LoveSpriteBatchSprite(
         transform: transform,
         quad: quad,
         color: _color,
-        layer: layer,
+        layer: _resolvedLayer(quad: quad, explicitLayer: layer),
       ),
     );
     return _sprites.length - 1;
@@ -122,7 +139,7 @@ class LoveSpriteBatch {
       transform: transform,
       quad: quad,
       color: _color,
-      layer: layer ?? _sprites[index].layer,
+      layer: _resolvedLayer(quad: quad, explicitLayer: layer),
     );
   }
 
@@ -184,6 +201,7 @@ class LoveSpriteBatch {
       bufferSize: _bufferSize,
       usage: usage,
       sprites: _sprites,
+      attachedAttributes: _attachedAttributes,
       color: _color,
       drawRangeStart: _drawRangeStart,
       drawRangeCount: _drawRangeCount,

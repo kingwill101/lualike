@@ -12,6 +12,7 @@ import 'runtime/filesystem/love_filesystem_enum_bindings.dart';
 import 'runtime/filesystem/love_filesystem_extra_bindings.dart';
 import 'runtime/filesystem/love_filesystem_package_loader.dart';
 import 'runtime/filesystem/love_filesystem_runtime.dart';
+import 'runtime/graphics/love_graphics_enum_bindings.dart';
 import 'runtime/input/love_joystick_extra_bindings.dart';
 import 'runtime/love_api_bindings.dart';
 import 'runtime/love_runtime.dart';
@@ -44,6 +45,9 @@ void installLove2d({
   installLoveFontExtraBindings(runtime);
   installLoveFilesystemEnumBindings(runtime);
   installLoveFilesystemExtraBindings(runtime);
+  installLoveGraphicsEnumBindings(runtime);
+  installLoveGraphicsExtraBindings(runtime);
+  installLoveImageExtraBindings(runtime);
   installLoveJoystickExtraBindings(runtime);
   installLovePhysicsExtraBindings(runtime);
   installLoveSystemExtraBindings(runtime);
@@ -54,21 +58,29 @@ void installLove2d({
 
 void _installLoveCompatibilityAliases(LuaRuntime runtime) {
   final env = runtime.getCurrentEnv();
-  if (env.get('unpack') != null) {
-    return;
-  }
-
   final tableValue = env.get('table');
   final tableRaw = switch (tableValue) {
     final Value value => value.raw,
     _ => tableValue,
   };
-  if (tableRaw is! Map<dynamic, dynamic>) {
+  if (env.get('unpack') == null && tableRaw is Map<dynamic, dynamic>) {
+    final unpack = tableRaw['unpack'];
+    if (unpack != null) {
+      env.define('unpack', unpack);
+    }
+  }
+
+  final loveValue = env.get('love');
+  final loveRaw = switch (loveValue) {
+    final Value value => value.raw,
+    _ => loveValue,
+  };
+  if (loveRaw is! Map<dynamic, dynamic>) {
     return;
   }
 
-  final unpack = tableRaw['unpack'];
-  if (unpack != null) {
-    env.define('unpack', unpack);
+  loveRaw['errhand'] ??= loveRaw['errorhandler'];
+  if (loveRaw['errorhandler'] == null && loveRaw['errhand'] != null) {
+    loveRaw['errorhandler'] = loveRaw['errhand'];
   }
 }

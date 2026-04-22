@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lualike/library_builder.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 

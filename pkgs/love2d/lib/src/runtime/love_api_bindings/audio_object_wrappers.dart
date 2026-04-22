@@ -98,6 +98,13 @@ Value _wrapAudioSource(
       ),
       functionName: 'getChannelCount',
     ),
+    'getChannels': Value(
+      builder.create(
+        (args) =>
+            _requireAudioSource(args, 0, 'Source:getChannels').channelCount,
+      ),
+      functionName: 'getChannels',
+    ),
     'getCone': Value(
       builder.create((args) {
         final source = _requireAudioSource(args, 0, 'Source:getCone');

@@ -98,6 +98,21 @@ Value _wrapParticleSystem(
       }),
       functionName: 'getEmissionArea',
     ),
+    'getAreaSpread': Value(
+      builder.create((args) {
+        final area = _requireParticleSystem(
+          args,
+          0,
+          'ParticleSystem:getAreaSpread',
+        ).emissionArea;
+        return Value.multi(<Object?>[
+          _particleDistributionName(area.distribution),
+          area.dx,
+          area.dy,
+        ]);
+      }),
+      functionName: 'getAreaSpread',
+    ),
     'getEmissionRate': Value(
       builder.create(
         (args) => _requireParticleSystem(
@@ -457,6 +472,35 @@ Value _wrapParticleSystem(
         return null;
       }),
       functionName: 'setEmissionArea',
+    ),
+    'setAreaSpread': Value(
+      builder.create((args) {
+        final distribution = _particleDistribution(
+          _stringLike(_valueAt(args, 1)),
+          'ParticleSystem:setAreaSpread',
+        );
+        if (distribution == LoveParticleAreaSpreadDistribution.none) {
+          _requireParticleSystem(
+            args,
+            0,
+            'ParticleSystem:setAreaSpread',
+          ).setEmissionArea(distribution, 0.0, 0.0);
+          return null;
+        }
+
+        final dx = _requireNumber(args, 2, 'ParticleSystem:setAreaSpread');
+        final dy = _requireNumber(args, 3, 'ParticleSystem:setAreaSpread');
+        if (dx < 0 || dy < 0) {
+          throw LuaError('Invalid area spread parameters (must be >= 0)');
+        }
+        _requireParticleSystem(
+          args,
+          0,
+          'ParticleSystem:setAreaSpread',
+        ).setEmissionArea(distribution, dx, dy, 0.0, false);
+        return null;
+      }),
+      functionName: 'setAreaSpread',
     ),
     'setEmissionRate': Value(
       builder.create((args) {

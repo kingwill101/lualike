@@ -64,16 +64,13 @@ end
       expect(_currentMouseCursor(tester), SystemMouseCursors.click);
 
       await tester.tapAt(tester.getCenter(find.byType(LoveFlameHarness)));
-      await tester.pump();
-      expect(_currentMouseCursor(tester), SystemMouseCursors.none);
+      await _pumpUntilCursor(tester, SystemMouseCursors.none);
 
       await tester.tapAt(tester.getCenter(find.byType(LoveFlameHarness)));
-      await tester.pump();
-      expect(_currentMouseCursor(tester), SystemMouseCursors.precise);
+      await _pumpUntilCursor(tester, SystemMouseCursors.precise);
 
       await tester.tapAt(tester.getCenter(find.byType(LoveFlameHarness)));
-      await tester.pump();
-      expect(_currentMouseCursor(tester), SystemMouseCursors.none);
+      await _pumpUntilCursor(tester, SystemMouseCursors.none);
 
       await tester.tapAt(tester.getCenter(find.byType(LoveFlameHarness)));
       await _pumpUntilStatus(tester, 'Quit');
@@ -199,6 +196,24 @@ MouseCursor _currentMouseCursor(WidgetTester tester) {
     matching: find.byType(MouseRegion),
   );
   return tester.widget<MouseRegion>(finder.first).cursor;
+}
+
+Future<void> _pumpUntilCursor(
+  WidgetTester tester,
+  MouseCursor cursor, {
+  Duration step = const Duration(milliseconds: 16),
+  int maxPumps = 80,
+}) async {
+  for (var index = 0; index < maxPumps; index++) {
+    await tester.pump(step);
+    if (_currentMouseCursor(tester) == cursor) {
+      return;
+    }
+  }
+
+  fail(
+    'Expected cursor "$cursor". Current cursor: ${_currentMouseCursor(tester)}',
+  );
 }
 
 Future<void> _pumpUntilStatus(

@@ -120,7 +120,7 @@ Value _wrapFont(LibraryRegistrationContext context, LoveFont font) {
     'setFilter': Value(
       builder.create((args) {
         final font = _requireFont(args, 0, 'Font:setFilter');
-        font.filter = _filterFromArgs(
+        font.filter = _fontFilterFromArgs(
           args,
           1,
           'Font:setFilter',
@@ -175,6 +175,37 @@ Value _wrapFont(LibraryRegistrationContext context, LoveFont font) {
   return table;
 }
 
+LoveGraphicsDefaultFilter _fontFilterFromArgs(
+  List<Object?> args,
+  int startIndex,
+  String symbol, {
+  LoveGraphicsDefaultFilter? currentFilter,
+}) {
+  final min = _fontFilterMode(_requireString(args, startIndex, symbol));
+  final mag = args.length >= startIndex + 2
+      ? _fontFilterMode(_requireString(args, startIndex + 1, symbol))
+      : min;
+  final anisotropy = args.length >= startIndex + 3
+      ? _requireNumber(args, startIndex + 2, symbol)
+      : 1.0;
+  return (currentFilter ?? LoveGraphicsDefaultFilter.standard).copyWith(
+    min: min,
+    mag: mag,
+    anisotropy: anisotropy,
+  );
+}
+
+LoveGraphicsFilterMode _fontFilterMode(String value) {
+  return switch (value) {
+    'linear' => LoveGraphicsFilterMode.linear,
+    'nearest' => LoveGraphicsFilterMode.nearest,
+    _ => throw LuaError(
+      "Invalid filter mode '$value', expected one of: "
+      "'linear', 'nearest'",
+    ),
+  };
+}
+
 Value _wrapTextDrawable(
   LibraryRegistrationContext context,
   LoveTextDrawable text,
@@ -205,7 +236,10 @@ Value _wrapTextDrawable(
         final index = drawable.addf(
           _requireColoredTextSpans(args, 1, 'Text:addf'),
           _requireNumber(args, 2, 'Text:addf'),
-          _textAlign(_requireString(args, 3, 'Text:addf'), 'Text:addf'),
+          _textAlign(
+            _requireString(args, 3, 'Text:addf'),
+            enumName: 'align mode',
+          ),
           _matrixFromTransformArgumentOrStandardTransform(args, 4, 'Text:addf'),
         );
         return index + 1;
@@ -269,7 +303,10 @@ Value _wrapTextDrawable(
         _requireTextDrawable(args, 0, 'Text:setf').setf(
           _requireColoredTextSpans(args, 1, 'Text:setf'),
           _requireNumber(args, 2, 'Text:setf'),
-          _textAlign(_requireString(args, 3, 'Text:setf'), 'Text:setf'),
+          _textAlign(
+            _requireString(args, 3, 'Text:setf'),
+            enumName: 'align mode',
+          ),
         );
         return null;
       }),
@@ -419,7 +456,10 @@ Value _wrapImage(LibraryRegistrationContext context, LoveImage image) {
         if (table == null) {
           throw LuaError('Texture:setFilter expected an Image receiver');
         }
-        table[_loveImageObjectKey] = image.copyWith(filter: filter);
+        table[_loveImageObjectKey] = image.copyWith(
+          filter: filter,
+          sliceImages: _copyImageSliceImages(image, filter: filter),
+        );
       },
       updateMipmapFilter: (args, filter, sharpness) {
         final image = _requireImage(args, 0, 'Texture:setMipmapFilter');
@@ -431,6 +471,12 @@ Value _wrapImage(LibraryRegistrationContext context, LoveImage image) {
           clearMipmapFilter: filter == null,
           mipmapFilter: filter,
           mipmapSharpness: sharpness,
+          sliceImages: _copyImageSliceImages(
+            image,
+            clearMipmapFilter: filter == null,
+            mipmapFilter: filter,
+            mipmapSharpness: sharpness,
+          ),
         );
       },
       updateWrap: (args, wrap) {
@@ -439,7 +485,10 @@ Value _wrapImage(LibraryRegistrationContext context, LoveImage image) {
         if (table == null) {
           throw LuaError('Texture:setWrap expected an Image receiver');
         }
-        table[_loveImageObjectKey] = image.copyWith(wrap: wrap);
+        table[_loveImageObjectKey] = image.copyWith(
+          wrap: wrap,
+          sliceImages: _copyImageSliceImages(image, wrap: wrap),
+        );
         return true;
       },
       updateDepthSampleMode: (args, compareMode) {
@@ -453,6 +502,11 @@ Value _wrapImage(LibraryRegistrationContext context, LoveImage image) {
         table[_loveImageObjectKey] = image.copyWith(
           clearDepthSampleMode: compareMode == null,
           depthSampleMode: compareMode,
+          sliceImages: _copyImageSliceImages(
+            image,
+            clearDepthSampleMode: compareMode == null,
+            depthSampleMode: compareMode,
+          ),
         );
       },
     ),
@@ -460,19 +514,38 @@ Value _wrapImage(LibraryRegistrationContext context, LoveImage image) {
       builder.create((args) {
         final image = _requireImage(args, 0, 'Image:replacePixels');
         final replacement = _requireImageData(args, 1, 'Image:replacePixels');
-        final slice = args.length >= 3
-            ? _requireRoundedInt(args, 2, 'Image:replacePixels')
+        final isLayeredImage = image.textureType != '2d';
+        final sliceImages = image.sliceImages;
+        final slice = isLayeredImage
+            ? (args.length >= 3
+                  ? _requireRoundedInt(args, 2, 'Image:replacePixels')
+                  : (throw LuaError(
+                      'Image:replacePixels non-2D images require an explicit slice argument',
+                    )))
             : 1;
-        if (slice != 1) {
+        final sliceIndex = slice - 1;
+        final targetImage = switch (sliceImages) {
+          final List<LoveImage> slices
+              when sliceIndex >= 0 && sliceIndex < slices.length =>
+            slices[sliceIndex],
+          null when !isLayeredImage => image,
+          final List<LoveImage> _ => throw LuaError(
+            'Image:replacePixels invalid image slice index $slice',
+          ),
+          _ => throw LuaError(
+            'Image:replacePixels invalid image slice index $slice',
+          ),
+        };
+        if (isLayeredImage && sliceImages == null) {
           throw LuaError(
-            'Image:replacePixels only supports 2D image slice 1 in the current runtime',
+            'Image:replacePixels invalid image slice index $slice',
           );
         }
 
         final mipmap = args.length >= 4
             ? _textureMipmapLevel(args, 3, 'Image:replacePixels')
             : 1;
-        if (mipmap > image.mipmapCount) {
+        if (mipmap > targetImage.mipmapCount) {
           throw LuaError(
             'Image:replacePixels invalid image mipmap index $mipmap',
           );
@@ -485,7 +558,7 @@ Value _wrapImage(LibraryRegistrationContext context, LoveImage image) {
             ? _requireRoundedInt(args, 5, 'Image:replacePixels')
             : 0;
 
-        final targetData = image.imageDataAtMipmap(mipmap);
+        final targetData = targetImage.imageDataAtMipmap(mipmap);
         if (targetData == null) {
           throw LuaError('Image:replacePixels image does not store ImageData');
         }
@@ -493,8 +566,8 @@ Value _wrapImage(LibraryRegistrationContext context, LoveImage image) {
           throw LuaError('Image:replacePixels pixel formats must match');
         }
 
-        final mipWidth = image.pixelWidthAtMipmap(mipmap);
-        final mipHeight = image.pixelHeightAtMipmap(mipmap);
+        final mipWidth = targetImage.pixelWidthAtMipmap(mipmap);
+        final mipHeight = targetImage.pixelHeightAtMipmap(mipmap);
         if (x < 0 ||
             y < 0 ||
             replacement.width <= 0 ||
@@ -516,7 +589,7 @@ Value _wrapImage(LibraryRegistrationContext context, LoveImage image) {
           }
         }
 
-        final existingMipmaps = image.imageDataMipmaps;
+        final existingMipmaps = targetImage.imageDataMipmaps;
         final reloadMipmaps = args.length >= 7
             ? _requireBoolean(args, 6, 'Image:replacePixels')
             : mipmap == 1 && (existingMipmaps?.length ?? 0) > 1;
@@ -531,11 +604,25 @@ Value _wrapImage(LibraryRegistrationContext context, LoveImage image) {
 
         final table = _tableIdentityIfPresent(args.first);
         if (table != null) {
-          table[_loveImageObjectKey] = image.copyWith(
+          final updatedTargetImage = targetImage.copyWith(
             imageData: resolvedMipmaps.first,
             imageDataMipmaps: resolvedMipmaps,
             preferImageDataRendering: true,
           );
+
+          if (sliceImages == null) {
+            table[_loveImageObjectKey] = image.copyWith(
+              imageData: resolvedMipmaps.first,
+              imageDataMipmaps: resolvedMipmaps,
+              preferImageDataRendering: true,
+            );
+          } else {
+            final updatedSlices = List<LoveImage>.from(sliceImages);
+            updatedSlices[sliceIndex] = updatedTargetImage;
+            table[_loveImageObjectKey] = image.copyWith(
+              sliceImages: List<LoveImage>.unmodifiable(updatedSlices),
+            );
+          }
         }
         return null;
       }),
@@ -628,22 +715,55 @@ Value _wrapCanvas(LibraryRegistrationContext context, LoveCanvas canvas) {
           );
         }
 
-        final mipmap = args.length >= 2
-            ? _textureMipmapLevel(args, 1, 'Canvas:newImageData')
+        final isLayeredCanvas = canvas.textureType != '2d';
+        final slice = isLayeredCanvas
+            ? _validateCanvasTargetSlice(
+                canvas,
+                args.length >= 2
+                    ? _textureMipmapLevel(args, 1, 'Canvas:newImageData')
+                    : (throw LuaError(
+                        'Canvas:newImageData non-2D canvases require an explicit slice argument',
+                      )),
+                'Canvas:newImageData',
+              )
             : 1;
+        final mipmap = isLayeredCanvas
+            ? (args.length >= 3
+                  ? _textureMipmapLevel(args, 2, 'Canvas:newImageData')
+                  : 1)
+            : (args.length >= 2
+                  ? _textureMipmapLevel(args, 1, 'Canvas:newImageData')
+                  : 1);
         final pixelWidth = canvas.pixelWidthAtMipmap(mipmap);
         final pixelHeight = canvas.pixelHeightAtMipmap(mipmap);
-        final x = args.length >= 3
-            ? _requireRoundedInt(args, 2, 'Canvas:newImageData')
+        final rectangleStartIndex = isLayeredCanvas ? 3 : 2;
+        final x = args.length >= rectangleStartIndex + 1
+            ? _requireRoundedInt(
+                args,
+                rectangleStartIndex,
+                'Canvas:newImageData',
+              )
             : 0;
-        final y = args.length >= 4
-            ? _requireRoundedInt(args, 3, 'Canvas:newImageData')
+        final y = args.length >= rectangleStartIndex + 2
+            ? _requireRoundedInt(
+                args,
+                rectangleStartIndex + 1,
+                'Canvas:newImageData',
+              )
             : 0;
-        final width = args.length >= 5
-            ? _requireRoundedInt(args, 4, 'Canvas:newImageData')
+        final width = args.length >= rectangleStartIndex + 3
+            ? _requireRoundedInt(
+                args,
+                rectangleStartIndex + 2,
+                'Canvas:newImageData',
+              )
             : pixelWidth;
-        final height = args.length >= 6
-            ? _requireRoundedInt(args, 5, 'Canvas:newImageData')
+        final height = args.length >= rectangleStartIndex + 4
+            ? _requireRoundedInt(
+                args,
+                rectangleStartIndex + 3,
+                'Canvas:newImageData',
+              )
             : pixelHeight;
 
         if (x < 0 ||
@@ -655,9 +775,21 @@ Value _wrapCanvas(LibraryRegistrationContext context, LoveCanvas canvas) {
           throw LuaError('Canvas:newImageData invalid rectangle dimensions');
         }
 
+        final readbackSnapshot = canvas.snapshot(
+          slice: canvas.textureType == '2d' ? 1 : slice,
+        );
+        final unsupportedReason =
+            loveSoftwareReadbackUnsupportedReasonForSnapshot(
+              readbackSnapshot.surface,
+            );
+        if (unsupportedReason != null) {
+          throw LuaError('Canvas:newImageData $unsupportedReason');
+        }
+
         return _wrapImageData(
           context,
           canvas.readbackImageData(
+            slice: slice,
             mipmap: mipmap,
             x: x,
             y: y,
@@ -671,8 +803,24 @@ Value _wrapCanvas(LibraryRegistrationContext context, LoveCanvas canvas) {
     'renderTo': Value(
       builder.create((args) async {
         final canvas = _requireCanvas(args, 0, 'Canvas:renderTo');
+        final previousTarget = runtime.graphics.activeCanvasTarget;
+        var targetSlice = 1;
         var callbackIndex = 1;
-        if (args.length >= 2 && _numberIfPresent(_valueAt(args, 1)) != null) {
+
+        if (canvas.textureType != '2d') {
+          if (args.length < 2 || _numberIfPresent(_valueAt(args, 1)) == null) {
+            throw LuaError(
+              'Canvas:renderTo non-2D canvases require an explicit slice argument',
+            );
+          }
+          targetSlice = _validateCanvasTargetSlice(
+            canvas,
+            _textureMipmapLevel(args, 1, 'Canvas:renderTo'),
+            'Canvas:renderTo',
+          );
+          callbackIndex = 2;
+        } else if (args.length >= 2 &&
+            _numberIfPresent(_valueAt(args, 1)) != null) {
           final slice = _textureMipmapLevel(args, 1, 'Canvas:renderTo');
           if (slice != 1) {
             throw LuaError(
@@ -687,8 +835,7 @@ Value _wrapCanvas(LibraryRegistrationContext context, LoveCanvas canvas) {
           callbackIndex,
           'Canvas:renderTo',
         );
-        final previousCanvas = runtime.graphics.activeCanvas;
-        runtime.graphics.setCanvas(canvas);
+        runtime.graphics.setCanvas(canvas, slice: targetSlice);
         try {
           await interpreter.callFunction(
             callback,
@@ -696,7 +843,15 @@ Value _wrapCanvas(LibraryRegistrationContext context, LoveCanvas canvas) {
           );
           return null;
         } finally {
-          runtime.graphics.setCanvas(previousCanvas);
+          if (previousTarget == null) {
+            runtime.graphics.setCanvas(null);
+          } else {
+            runtime.graphics.setCanvas(
+              previousTarget.canvas,
+              slice: previousTarget.slice,
+              mipmap: previousTarget.mipmap,
+            );
+          }
         }
       }),
       functionName: 'renderTo',
@@ -728,10 +883,7 @@ Value _wrapCanvas(LibraryRegistrationContext context, LoveCanvas canvas) {
   return table;
 }
 
-Value _wrapImageData(
-  LibraryRegistrationContext context,
-  LoveImageData imageData,
-) {
+Value _wrapImageData(LibraryContext context, LoveImageData imageData) {
   final cached = _loveImageDataWrapperCache[imageData];
   if (cached != null) {
     return cached;
@@ -742,8 +894,18 @@ Value _wrapImageData(
   if (interpreter == null) {
     throw StateError('No interpreter available for ImageData bindings');
   }
+  const hierarchy = <String>{'ImageData', 'Data', 'Object'};
   final table = ValueClass.table(<Object?, Object?>{
     _loveImageDataObjectKey: imageData,
+    'clone': Value(
+      builder.create((args) {
+        return _wrapImageData(
+          context,
+          _requireImageData(args, 0, 'ImageData:clone').clone(),
+        );
+      }),
+      functionName: 'clone',
+    ),
     'encode': Value(
       builder.create((args) async {
         // Mirrors LOVE's wrap_ImageData.cpp: the first argument is the
@@ -930,13 +1092,39 @@ Value _wrapImageData(
       }),
       functionName: 'mapPixel',
     ),
+    'release': Value(
+      builder.create((args) {
+        final imageData = _requireImageData(args, 0, 'Object:release');
+        if (_loveDataReleased[imageData] == true) {
+          return false;
+        }
+        _loveDataReleased[imageData] = true;
+        return true;
+      }),
+      functionName: 'release',
+    ),
+    'type': Value(
+      builder.create((args) {
+        _requireImageData(args, 0, 'Object:type');
+        return 'ImageData';
+      }),
+      functionName: 'type',
+    ),
+    'typeOf': Value(
+      builder.create((args) {
+        _requireImageData(args, 0, 'Object:typeOf');
+        final queried = _requireString(args, 1, 'Object:typeOf');
+        return hierarchy.contains(queried);
+      }),
+      functionName: 'typeOf',
+    ),
   });
   _loveImageDataWrapperCache[imageData] = table;
   return table;
 }
 
 Value _wrapFilesystemFileDataCompat(
-  LibraryRegistrationContext context,
+  LibraryContext context,
   LoveFilesystemFileData data,
 ) {
   final cached = _loveFilesystemFileDataWrapperCache[data];
@@ -944,28 +1132,47 @@ Value _wrapFilesystemFileDataCompat(
     return cached;
   }
 
-  Value bindSymbol(String symbol, String publicName) {
-    return bindLoveApiFunction(
-      context,
-      symbol: symbol,
-      publicName: publicName,
-      implementations: const <String, LoveApiImplementation>{},
-    );
-  }
-
   final builder = BuiltinFunctionBuilder(context);
+  const hierarchy = <String>{'FileData', 'Data', 'Object'};
 
   final table = ValueClass.table(<Object?, Object?>{
     _loveFilesystemFileDataObjectKeyCompat: data,
     _loveFilesystemObjectTypeKeyCompat: 'FileData',
-    _loveFilesystemObjectHierarchyKeyCompat: const <String>{
-      'FileData',
-      'Data',
-      'Object',
-    },
-    'clone': bindSymbol('Data:clone', 'clone'),
-    'getExtension': bindSymbol('FileData:getExtension', 'getExtension'),
-    'getFilename': bindSymbol('FileData:getFilename', 'getFilename'),
+    _loveFilesystemObjectHierarchyKeyCompat: hierarchy,
+    'clone': Value(
+      builder.create((args) {
+        final compat = _filesystemFileDataCompatIfPresent(_valueAt(args, 0));
+        if (compat == null) {
+          throw LuaError('Data:clone expected FileData at argument 1');
+        }
+        return _wrapFilesystemFileDataCompat(context, compat.clone());
+      }),
+      functionName: 'clone',
+    ),
+    'getExtension': Value(
+      builder.create((args) {
+        final compat = _filesystemFileDataCompatIfPresent(_valueAt(args, 0));
+        if (compat == null) {
+          throw LuaError(
+            'FileData:getExtension expected FileData at argument 1',
+          );
+        }
+        return compat.extension;
+      }),
+      functionName: 'getExtension',
+    ),
+    'getFilename': Value(
+      builder.create((args) {
+        final compat = _filesystemFileDataCompatIfPresent(_valueAt(args, 0));
+        if (compat == null) {
+          throw LuaError(
+            'FileData:getFilename expected FileData at argument 1',
+          );
+        }
+        return compat.filename;
+      }),
+      functionName: 'getFilename',
+    ),
     'getPointer': Value(
       builder.create(
         (args) => _wrapDataPointer(context, identity: data, bytes: data.bytes),
@@ -978,11 +1185,63 @@ Value _wrapFilesystemFileDataCompat(
       ),
       functionName: 'getFFIPointer',
     ),
-    'getSize': bindSymbol('Data:getSize', 'getSize'),
-    'getString': bindSymbol('Data:getString', 'getString'),
-    'release': bindSymbol('Object:release', 'release'),
-    'type': bindSymbol('Object:type', 'type'),
-    'typeOf': bindSymbol('Object:typeOf', 'typeOf'),
+    'getSize': Value(
+      builder.create((args) {
+        final compat = _filesystemFileDataCompatIfPresent(_valueAt(args, 0));
+        if (compat == null) {
+          throw LuaError('Data:getSize expected FileData at argument 1');
+        }
+        return compat.size;
+      }),
+      functionName: 'getSize',
+    ),
+    'getString': Value(
+      builder.create((args) {
+        final compat = _filesystemFileDataCompatIfPresent(_valueAt(args, 0));
+        if (compat == null) {
+          throw LuaError('Data:getString expected FileData at argument 1');
+        }
+        final interpreter = context.interpreter;
+        if (interpreter == null) {
+          throw StateError('No Lua runtime available for Data:getString');
+        }
+        return interpreter.constantStringValue(compat.bytes);
+      }),
+      functionName: 'getString',
+    ),
+    'release': Value(
+      builder.create((args) {
+        final compat = _filesystemFileDataCompatIfPresent(_valueAt(args, 0));
+        if (compat == null) {
+          throw LuaError('Object:release expected FileData at argument 1');
+        }
+        if (_loveDataReleased[compat] == true) {
+          return false;
+        }
+        _loveDataReleased[compat] = true;
+        return true;
+      }),
+      functionName: 'release',
+    ),
+    'type': Value(
+      builder.create((args) {
+        if (_filesystemFileDataCompatIfPresent(_valueAt(args, 0)) == null) {
+          throw LuaError('Object:type expected FileData at argument 1');
+        }
+        return 'FileData';
+      }),
+      functionName: 'type',
+    ),
+    'typeOf': Value(
+      builder.create((args) {
+        if (_filesystemFileDataCompatIfPresent(_valueAt(args, 0)) == null) {
+          throw LuaError('Object:typeOf expected FileData at argument 1');
+        }
+        final queried = _requireString(args, 1, 'Object:typeOf');
+        return hierarchy.contains(queried);
+      }),
+      functionName: 'typeOf',
+    ),
   });
   _loveFilesystemFileDataWrapperCache[data] = table;
   return table;
@@ -1013,6 +1272,21 @@ LoveColor _mapPixelColor(Object? value, {required String symbol}) {
   throw LuaError('$symbol callback must return color components');
 }
 
+int _textureDimensionAtMipmap(int dimension, int mipmap) {
+  final clampedLevel = mipmap < 1 ? 1 : mipmap;
+  final scale = 1 << (clampedLevel - 1);
+  return math.max(1, dimension ~/ scale);
+}
+
+int _textureWidthAtMipmap(LoveImage texture, int mipmap) =>
+    _textureDimensionAtMipmap(texture.width, mipmap);
+
+int _textureHeightAtMipmap(LoveImage texture, int mipmap) =>
+    _textureDimensionAtMipmap(texture.height, mipmap);
+
+int _textureDepthAtMipmap(LoveImage texture, int mipmap) =>
+    _textureDimensionAtMipmap(texture.depth, mipmap);
+
 Map<Object?, Object?> _textureEntries(
   BuiltinFunctionBuilder builder, {
   required LoveImage Function(List<Object?> args, String symbol) requireTexture,
@@ -1035,12 +1309,20 @@ Map<Object?, Object?> _textureEntries(
     'getDimensions': Value(
       builder.create((args) {
         final texture = requireTexture(args, 'Texture:getDimensions');
-        return Value.multi(<Object?>[texture.width, texture.height]);
+        final mipmap = _textureMipmapLevel(args, 1, 'Texture:getDimensions');
+        return Value.multi(<Object?>[
+          _textureWidthAtMipmap(texture, mipmap),
+          _textureHeightAtMipmap(texture, mipmap),
+        ]);
       }),
       functionName: 'getDimensions',
     ),
     'getDepth': Value(
-      builder.create((args) => requireTexture(args, 'Texture:getDepth').depth),
+      builder.create((args) {
+        final texture = requireTexture(args, 'Texture:getDepth');
+        final mipmap = _textureMipmapLevel(args, 1, 'Texture:getDepth');
+        return _textureDepthAtMipmap(texture, mipmap);
+      }),
       functionName: 'getDepth',
     ),
     'getDPIScale': Value(
@@ -1063,9 +1345,11 @@ Map<Object?, Object?> _textureEntries(
       functionName: 'getFormat',
     ),
     'getHeight': Value(
-      builder.create(
-        (args) => requireTexture(args, 'Texture:getHeight').height,
-      ),
+      builder.create((args) {
+        final texture = requireTexture(args, 'Texture:getHeight');
+        final mipmap = _textureMipmapLevel(args, 1, 'Texture:getHeight');
+        return _textureHeightAtMipmap(texture, mipmap);
+      }),
       functionName: 'getHeight',
     ),
     'getLayerCount': Value(
@@ -1123,7 +1407,11 @@ Map<Object?, Object?> _textureEntries(
       functionName: 'getPixelWidth',
     ),
     'getWidth': Value(
-      builder.create((args) => requireTexture(args, 'Texture:getWidth').width),
+      builder.create((args) {
+        final texture = requireTexture(args, 'Texture:getWidth');
+        final mipmap = _textureMipmapLevel(args, 1, 'Texture:getWidth');
+        return _textureWidthAtMipmap(texture, mipmap);
+      }),
       functionName: 'getWidth',
     ),
     'getTextureType': Value(
@@ -1258,6 +1546,12 @@ Value _wrapQuad(LibraryRegistrationContext context, LoveQuad quad) {
       }),
       functionName: 'getTextureDimensions',
     ),
+    'getLayer': Value(
+      builder.create(
+        (args) => _requireQuad(args, 0, 'Quad:getLayer').layer + 1,
+      ),
+      functionName: 'getLayer',
+    ),
     'getViewport': Value(
       builder.create((args) {
         final quad = _requireQuad(args, 0, 'Quad:getViewport');
@@ -1273,10 +1567,24 @@ Value _wrapQuad(LibraryRegistrationContext context, LoveQuad quad) {
           _requireNumber(args, 2, 'Quad:setViewport'),
           _requireNumber(args, 3, 'Quad:setViewport'),
           _requireNumber(args, 4, 'Quad:setViewport'),
+          textureWidth: _valueAt(args, 5) == null
+              ? null
+              : _requireNumber(args, 5, 'Quad:setViewport'),
+          textureHeight: _valueAt(args, 5) == null
+              ? null
+              : _requireNumber(args, 6, 'Quad:setViewport'),
         );
         return null;
       }),
       functionName: 'setViewport',
+    ),
+    'setLayer': Value(
+      builder.create((args) {
+        _requireQuad(args, 0, 'Quad:setLayer').layer =
+            _requireRoundedInt(args, 1, 'Quad:setLayer') - 1;
+        return null;
+      }),
+      functionName: 'setLayer',
     ),
   });
   _loveQuadWrapperCache[quad] = table;

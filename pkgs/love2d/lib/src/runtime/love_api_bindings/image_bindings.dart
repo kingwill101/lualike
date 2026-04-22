@@ -41,7 +41,7 @@ LoveApiImplementation _bindImageNewImageData(
     }
 
     final source = _stringLike(first);
-    if (source != null && !(_rawValue(first) is num)) {
+    if (source != null && _rawValue(first) is! num) {
       return _loadImageDataFromSource(context, source, symbol: symbol)
           .then((imageData) => _wrapImageData(context, imageData))
           .then((image) {

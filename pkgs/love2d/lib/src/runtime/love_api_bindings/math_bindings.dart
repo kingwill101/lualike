@@ -171,7 +171,7 @@ LoveApiImplementation _bindMathNewTransform(
 
 LoveApiImplementation _bindMathNoise(LibraryRegistrationContext context) {
   return (args) {
-    final coordinateCount = args.length.clamp(1, 4) as int;
+    final coordinateCount = args.length.clamp(1, 4);
     final coordinates = List<double>.generate(
       coordinateCount,
       (index) => _requireNumber(args, index, 'love.math.noise'),

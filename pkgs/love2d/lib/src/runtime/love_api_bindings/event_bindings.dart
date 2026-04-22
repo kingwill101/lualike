@@ -9,18 +9,26 @@ LoveApiImplementation _bindEventClear(LibraryRegistrationContext context) {
 }
 
 LoveApiImplementation _bindEventPoll(LibraryRegistrationContext context) {
-  final runtime = _runtimeContext(context);
-  final builder = BuiltinFunctionBuilder(context);
-  final iterator = builder.create((args) {
-    final message = runtime.events.poll();
-    if (message == null) {
-      return null;
+  return (args) {
+    final eventTable = _eventModuleTableForContext(context);
+    final pollIterator = eventTable?['poll_i'];
+    if (pollIterator != null) {
+      return pollIterator;
     }
 
-    return Value.multi(message.toValues());
-  });
+    final runtime = _runtimeContext(context);
+    final builder = BuiltinFunctionBuilder(context);
+    final iterator = builder.create((args) {
+      final message = runtime.events.poll();
+      if (message == null) {
+        return null;
+      }
 
-  return (args) => Value(iterator, functionName: 'poll_i');
+      return Value.multi(message.toValues());
+    });
+
+    return Value(iterator, functionName: 'poll_i');
+  };
 }
 
 LoveApiImplementation _bindEventPump(LibraryRegistrationContext context) {
@@ -55,4 +63,15 @@ LoveApiImplementation _bindEventWait(LibraryRegistrationContext context) {
     final message = await runtime.events.wait();
     return Value.multi(message.toValues());
   };
+}
+
+Map<dynamic, dynamic>? _eventModuleTableForContext(
+  LibraryRegistrationContext context,
+) {
+  final loveTable = _tableIfPresent(context.environment.get('love'));
+  if (loveTable == null) {
+    return null;
+  }
+
+  return _tableIfPresent(loveTable['event']);
 }
