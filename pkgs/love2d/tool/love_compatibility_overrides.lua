@@ -128,7 +128,7 @@ local overrides = {
     },
     ['love.audio.newSource'] = {
       phase = 'high',
-      notes = 'Primary audio object constructor and likely the anchor for the audio bridge surface.',
+      notes = 'Primary audio object constructor for the audio bridge surface. The runtime accepts filename, File, FileData, Decoder, and SoundData inputs; SoundData inputs always force a static Source, filename/File/FileData inputs preserve the original encoded bytes and MIME type for host playback backends while probing best-effort duration and PCM metadata through the sound decoder bridge when the format is decodable, and Decoder inputs normalize to in-memory WAV bytes with known duration metadata before source creation.',
     },
   },
 }

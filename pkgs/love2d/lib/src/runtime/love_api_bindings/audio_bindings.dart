@@ -51,6 +51,23 @@ class _LoveAudioSourceInput {
   final int channelCount;
 }
 
+/// Best-effort decoded metadata extracted from file-backed audio input.
+class _LoveDecodedAudioMetadata {
+  const _LoveDecodedAudioMetadata({
+    required this.durationSeconds,
+    required this.durationSamples,
+    required this.sampleRate,
+    required this.bitDepth,
+    required this.channelCount,
+  });
+
+  final double durationSeconds;
+  final int durationSamples;
+  final int sampleRate;
+  final int bitDepth;
+  final int channelCount;
+}
+
 /// Binds `love.audio.getActiveEffects`.
 LoveApiImplementation _bindAudioGetActiveEffects(
   LibraryRegistrationContext context,
@@ -296,11 +313,7 @@ LoveApiImplementation _bindAudioSetDopplerScale(
 ) {
   final runtime = _runtimeContext(context);
   return (args) {
-    final scale = _requireNumber(
-      args,
-      0,
-      'love.audio.setDopplerScale',
-    );
+    final scale = _requireNumber(args, 0, 'love.audio.setDopplerScale');
     if (scale >= 0.0) {
       runtime.audio.dopplerScale = scale;
     }
@@ -314,11 +327,7 @@ LoveApiImplementation _bindAudioSetMixWithSystem(
 ) {
   final runtime = _runtimeContext(context);
   return (args) async {
-    final mix = _requireBoolean(
-      args,
-      0,
-      'love.audio.setMixWithSystem',
-    );
+    final mix = _requireBoolean(args, 0, 'love.audio.setMixWithSystem');
     runtime.audio.mixWithSystem = mix;
     return await runtime.host.setAudioMixWithSystem(mix);
   };
@@ -442,11 +451,7 @@ String _requireAudioDistanceModel(
   final value = _requireString(args, index, symbol);
   if (!loveAudioDistanceModels.contains(value)) {
     throw LuaError(
-      _audioEnumErrorMessage(
-        'distance model',
-        loveAudioDistanceModels,
-        value,
-      ),
+      _audioEnumErrorMessage('distance model', loveAudioDistanceModels, value),
     );
   }
   return value;
@@ -533,6 +538,13 @@ Future<_LoveAudioSourceInput> _requireAudioSourceInput(
 
     final filename = _stringLike(sourceValue);
     if (filename == null) {
+      if (_soundFilesystemFileIfPresent(sourceValue) != null) {
+        return _coerceResourceFileDataViaFilesystem(
+          context,
+          sourceValue,
+          symbol,
+        );
+      }
       return null;
     }
 
@@ -550,9 +562,14 @@ Future<_LoveAudioSourceInput> _requireAudioSourceInput(
   if (fileData == null) {
     throw LuaError(
       "bad argument #1 to 'newSource' "
-      "(Decoder or SoundData expected, got ${_luaTypeName(sourceValue)})",
+      "(filename, File, FileData, Decoder, or SoundData expected, got ${_luaTypeName(sourceValue)})",
     );
   }
+
+  final decodedMetadata = _tryDecodeAudioMetadata(
+    bytes: fileData.bytes,
+    source: fileData.filename,
+  );
 
   return _LoveAudioSourceInput(
     source: fileData.filename,
@@ -560,7 +577,33 @@ Future<_LoveAudioSourceInput> _requireAudioSourceInput(
     defaultSourceType: 'stream',
     bytes: Uint8List.fromList(fileData.bytes),
     mimeType: loveAudioMimeTypeFromFilename(fileData.filename),
+    durationSeconds: decodedMetadata?.durationSeconds ?? -1.0,
+    durationSamples: decodedMetadata?.durationSamples ?? -1,
+    sampleRate: decodedMetadata?.sampleRate ?? 0,
+    bitDepth: decodedMetadata?.bitDepth ?? 0,
+    channelCount: decodedMetadata?.channelCount ?? 2,
   );
+}
+
+/// Returns decoded source metadata when the runtime can inspect [bytes].
+_LoveDecodedAudioMetadata? _tryDecodeAudioMetadata({
+  required List<int> bytes,
+  required String source,
+}) {
+  try {
+    final decoded = loveDecodeSoundFile(bytes: bytes, source: source);
+    return _LoveDecodedAudioMetadata(
+      durationSeconds: decoded.duration,
+      durationSamples: decoded.sampleCount,
+      sampleRate: decoded.sampleRate,
+      bitDepth: decoded.bitDepth,
+      channelCount: decoded.channels,
+    );
+  } on UnsupportedError {
+    return null;
+  } on ArgumentError {
+    return null;
+  }
 }
 
 /// Normalizes positional or table-based source arguments into a source list.
