@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/widgets.dart' show KeyEventResult;
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
+import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('LoveFlameInputAdapter gamepad bridge', () {
@@ -295,15 +296,15 @@ end
       );
       await adapter.flush();
 
-      final poll = await _call(runtime, const ['love', 'event', 'poll']);
+      final poll = await luaCall(runtime, const ['love', 'event', 'poll']);
       expect(poll, isA<BuiltinFunction>());
       final iterator = poll! as BuiltinFunction;
 
-      final added = await _callCallable(iterator);
+      final added = await luaCallCallable(iterator);
       expect(added, isA<List<Object?>>());
       expect((added! as List<Object?>)[0], 'joystickadded');
 
-      final pressed = await _callCallable(iterator);
+      final pressed = await luaCallCallable(iterator);
       expect(pressed, isA<List<Object?>>());
       final pressedArgs = pressed! as List<Object?>;
       expect(pressedArgs[0], 'gamepadpressed');
@@ -314,7 +315,7 @@ end
       );
       expect(pressedArgs[2], 'start');
 
-      final released = await _callCallable(iterator);
+      final released = await luaCallCallable(iterator);
       expect(released, isA<List<Object?>>());
       final releasedArgs = released! as List<Object?>;
       expect(releasedArgs[0], 'gamepadreleased');
@@ -325,7 +326,7 @@ end
       );
       expect(releasedArgs[2], 'start');
 
-      expect(await _callCallable(iterator), isNull);
+      expect(await luaCallCallable(iterator), isNull);
     },
   );
 
@@ -357,15 +358,15 @@ end
       );
       await adapter.flush();
 
-      final poll = await _call(runtime, const ['love', 'event', 'poll']);
+      final poll = await luaCall(runtime, const ['love', 'event', 'poll']);
       expect(poll, isA<BuiltinFunction>());
       final iterator = poll! as BuiltinFunction;
 
-      final added = await _callCallable(iterator);
+      final added = await luaCallCallable(iterator);
       expect(added, isA<List<Object?>>());
       expect((added! as List<Object?>)[0], 'joystickadded');
 
-      final pressed = await _callCallable(iterator);
+      final pressed = await luaCallCallable(iterator);
       expect(pressed, isA<List<Object?>>());
       final pressedArgs = pressed! as List<Object?>;
       expect(pressedArgs[0], 'joystickpressed');
@@ -376,7 +377,7 @@ end
       );
       expect(pressedArgs[2], 5);
 
-      final released = await _callCallable(iterator);
+      final released = await luaCallCallable(iterator);
       expect(released, isA<List<Object?>>());
       final releasedArgs = released! as List<Object?>;
       expect(releasedArgs[0], 'joystickreleased');
@@ -387,7 +388,7 @@ end
       );
       expect(releasedArgs[2], 5);
 
-      expect(await _callCallable(iterator), isNull);
+      expect(await luaCallCallable(iterator), isNull);
     },
   );
 
@@ -442,57 +443,12 @@ end
       expect(joystick.isDown(const <int>[4]), isFalse);
       expect(runtime.unwrapGlobalTable('testbed')!['gamepadreleased'], isNull);
 
-      final poll = await _call(runtime, const ['love', 'event', 'poll']);
+      final poll = await luaCall(runtime, const ['love', 'event', 'poll']);
       final iterator = poll! as BuiltinFunction;
-      expect(await _callCallable(iterator), isNull);
+      expect(await luaCallCallable(iterator), isNull);
     },
   );
 }
-
-Future<Object?> _call(
-  LoveScriptRuntime runtime,
-  List<String> path, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(_rawFunction(runtime, path).call(args));
-}
-
-Future<Object?> _callCallable(
-  BuiltinFunction function, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(function.call(args));
-}
-
-BuiltinFunction _rawFunction(LoveScriptRuntime runtime, List<String> path) {
-  var current = runtime.runtime.getCurrentEnv().get(path.first);
-  for (final segment in path.skip(1)) {
-    final table = current is Value ? current.raw : current;
-    expect(
-      table,
-      isA<Map>(),
-      reason: 'Expected ${path.join('.')} to traverse a Lua table',
-    );
-    current = (table as Map)[segment];
-  }
-
-  expect(current, isA<Value>());
-  final raw = (current! as Value).raw;
-  expect(raw, isA<BuiltinFunction>());
-  return raw as BuiltinFunction;
-}
-
-Future<Object?> _resolveCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return (wrapped.raw as List<Object?>).map(_unwrap).toList(growable: false);
-  }
-
-  return _unwrap(resolved);
-}
-
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;
 
 Future<void> _flushQueuedGamepadInput(
   LoveFlameInputAdapter adapter,

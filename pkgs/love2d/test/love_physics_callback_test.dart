@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
+import 'test_support/lua_api_test_helpers.dart';
+import 'test_support/physics_test_support.dart';
 
 void main() {
   group('love.physics world callbacks', () {
@@ -139,10 +141,10 @@ return events
 ''');
 
         expect(result, isA<Map>());
-        final events = _indexedValues(result! as Map);
+        final events = indexedValues(result! as Map);
         expect(events, hasLength(6));
 
-        final begin = _indexedValues(events[0] as Map);
+        final begin = indexedValues(events[0] as Map);
         expect(begin, <Object?>[
           'begin',
           'circle',
@@ -152,10 +154,10 @@ return events
           true,
         ]);
 
-        final pre = _indexedValues(events[1] as Map);
+        final pre = indexedValues(events[1] as Map);
         expect(pre, <Object?>['pre', 'circle', 'circle', true, true]);
 
-        final post = _indexedValues(events[2] as Map);
+        final post = indexedValues(events[2] as Map);
         expect(post[0], 'post');
         expect(post[1], 'circle');
         expect(post[2], 'circle');
@@ -166,10 +168,10 @@ return events
         expect((post[5] as num).toDouble(), closeTo(0, 1e-5));
         expect(post[6], true);
 
-        final secondPre = _indexedValues(events[3] as Map);
+        final secondPre = indexedValues(events[3] as Map);
         expect(secondPre, <Object?>['pre', 'circle', 'circle', true, true]);
 
-        final secondPost = _indexedValues(events[4] as Map);
+        final secondPost = indexedValues(events[4] as Map);
         expect(secondPost[0], 'post');
         expect(secondPost[1], 'circle');
         expect(secondPost[2], 'circle');
@@ -180,7 +182,7 @@ return events
         expect((secondPost[5] as num).toDouble(), closeTo(0, 1e-5));
         expect(secondPost[6], true);
 
-        final end = _indexedValues(events[5] as Map);
+        final end = indexedValues(events[5] as Map);
         expect(end, <Object?>[
           'end',
           'circle',
@@ -608,27 +610,5 @@ return controlDy, overrideDy, resetDy
 }
 
 Future<Object?> _execute(LuaLike lua, String code, {String? scriptPath}) async {
-  return _resolveCallResult(lua.execute(code, scriptPath: scriptPath));
-}
-
-Future<Object?> _resolveCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-  if (resolved is List<Object?>) {
-    return resolved.map(_unwrap).toList(growable: false);
-  }
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return List<Object?>.from(
-      wrapped.raw as List<Object?>,
-      growable: false,
-    ).map(_unwrap).toList(growable: false);
-  }
-  return _unwrap(resolved);
-}
-
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;
-
-List<Object?> _indexedValues(Map table) {
-  final keys = table.keys.whereType<num>().map((key) => key.toInt()).toList()
-    ..sort();
-  return keys.map((key) => table[key]).toList(growable: false);
+  return luaResolveCallResultList(lua.execute(code, scriptPath: scriptPath));
 }

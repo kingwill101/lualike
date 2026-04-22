@@ -14,6 +14,7 @@ import 'package:vector_math/vector_math_64.dart' as vm;
 
 import 'test_support/font_test_support.dart';
 import 'test_support/memory_filesystem_test_support.dart';
+import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('Generated surface', () {
@@ -92,7 +93,7 @@ void main() {
       installLove2d(runtime: runtime);
 
       expect(
-        () => _rawFunction(runtime, const [
+        () => luaRawFunction(runtime, const [
           'love',
           'graphics',
           'validateShader',
@@ -188,14 +189,14 @@ end
 
         installLove2d(runtime: runtime);
 
-        expect(await _call(runtime, const ['love', 'getVersion']), <Object?>[
+        expect(await luaCall(runtime, const ['love', 'getVersion']), <Object?>[
           11,
           5,
           0,
           'Mysterious Mysteries',
         ]);
         expect(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'isVersionCompatible'],
             const <Object?>['11.5'],
@@ -203,7 +204,7 @@ end
           isTrue,
         );
         expect(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'isVersionCompatible'],
             const <Object?>['11.4'],
@@ -211,7 +212,7 @@ end
           isTrue,
         );
         expect(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'isVersionCompatible'],
             const <Object?>['11'],
@@ -219,7 +220,7 @@ end
           isFalse,
         );
         expect(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'isVersionCompatible'],
             const <Object?>[11, 2, 0],
@@ -227,7 +228,7 @@ end
           isTrue,
         );
         expect(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'isVersionCompatible'],
             const <Object?>[12, 0, 0],
@@ -243,18 +244,18 @@ end
       installLove2d(runtime: runtime);
 
       expect(
-        await _call(runtime, const ['love', 'hasDeprecationOutput']),
+        await luaCall(runtime, const ['love', 'hasDeprecationOutput']),
         isTrue,
       );
 
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'setDeprecationOutput'],
         const <Object?>[false],
       );
 
       expect(
-        await _call(runtime, const ['love', 'hasDeprecationOutput']),
+        await luaCall(runtime, const ['love', 'hasDeprecationOutput']),
         isFalse,
       );
     });
@@ -274,25 +275,28 @@ end
 
       installLove2d(runtime: runtime, host: host);
 
-      expect(await _call(runtime, const ['love', 'graphics', 'getWidth']), 320);
       expect(
-        await _call(runtime, const ['love', 'graphics', 'getDimensions']),
+        await luaCall(runtime, const ['love', 'graphics', 'getWidth']),
+        320,
+      );
+      expect(
+        await luaCall(runtime, const ['love', 'graphics', 'getDimensions']),
         <Object?>[320, 180],
       );
       expect(
-        await _call(runtime, const ['love', 'window', 'getMode']),
+        await luaCall(runtime, const ['love', 'window', 'getMode']),
         <Object?>[320, 180, containsPair('vsync', 1)],
       );
       expect(
-        await _call(runtime, const ['love', 'window', 'getTitle']),
+        await luaCall(runtime, const ['love', 'window', 'getTitle']),
         'Before',
       );
       expect(
-        await _call(runtime, const ['love', 'window', 'getDPIScale']),
+        await luaCall(runtime, const ['love', 'window', 'getDPIScale']),
         2.0,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'window', 'toPixels'],
           const <Object?>[10],
@@ -300,7 +304,7 @@ end
         20.0,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'window', 'fromPixels'],
           const <Object?>[20],
@@ -309,7 +313,7 @@ end
       );
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'window', 'setMode'],
           <Object?>[
@@ -326,22 +330,25 @@ end
         isTrue,
       );
       expect(
-        await _call(runtime, const ['love', 'window', 'getMode']),
+        await luaCall(runtime, const ['love', 'window', 'getMode']),
         <Object?>[640, 360, containsPair('vsync', 0)],
       );
 
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'window', 'setTitle'],
         const <Object?>['After'],
       );
       expect(
-        await _call(runtime, const ['love', 'window', 'getTitle']),
+        await luaCall(runtime, const ['love', 'window', 'getTitle']),
         'After',
       );
-      expect(await _call(runtime, const ['love', 'graphics', 'getWidth']), 640);
       expect(
-        await _call(runtime, const ['love', 'graphics', 'getDimensions']),
+        await luaCall(runtime, const ['love', 'graphics', 'getWidth']),
+        640,
+      );
+      expect(
+        await luaCall(runtime, const ['love', 'graphics', 'getDimensions']),
         <Object?>[640, 360],
       );
       expect(host.windowMetrics.title, 'After');
@@ -378,26 +385,26 @@ end
         expect(filesystem.setSource(loveTestMountedSourceRoot), isTrue);
 
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getDPIScale']),
+          await luaCall(runtime, const ['love', 'graphics', 'getDPIScale']),
           2.0,
         );
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getPixelWidth']),
+          await luaCall(runtime, const ['love', 'graphics', 'getPixelWidth']),
           640,
         );
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getPixelHeight']),
+          await luaCall(runtime, const ['love', 'graphics', 'getPixelHeight']),
           360,
         );
         expect(
-          await _call(runtime, const [
+          await luaCall(runtime, const [
             'love',
             'graphics',
             'getPixelDimensions',
           ]),
           <Object?>[640, 360],
         );
-        final imageFormats = await _call(runtime, const [
+        final imageFormats = await luaCall(runtime, const [
           'love',
           'graphics',
           'getImageFormats',
@@ -407,26 +414,34 @@ end
         expect(imageFormats, containsPair('DXT1', true));
 
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getDefaultFilter']),
+          await luaCall(runtime, const [
+            'love',
+            'graphics',
+            'getDefaultFilter',
+          ]),
           <Object?>['linear', 'linear', 1.0],
         );
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'setDefaultFilter'],
           const <Object?>['nearest', 'linear', 2],
         );
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getDefaultFilter']),
+          await luaCall(runtime, const [
+            'love',
+            'graphics',
+            'getDefaultFilter',
+          ]),
           <Object?>['nearest', 'linear', 2.0],
         );
 
-        final font = await _call(
+        final font = await luaCall(
           runtime,
           const ['love', 'graphics', 'setNewFont'],
           const <Object?>[18],
         );
         expect(font, isNotNull);
-        expect(await _callMethod(font!, 'getHeight'), 18.0);
+        expect(await luaCallMethod(font!, 'getHeight'), 18.0);
         expect(host.graphics.font.size, 18);
         expect(
           host.graphics.font.filter,
@@ -438,11 +453,11 @@ end
         );
 
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getRendererInfo']),
+          await luaCall(runtime, const ['love', 'graphics', 'getRendererInfo']),
           <Object?>['LuaLike Headless', '11.5', 'LuaLike', 'HeadlessHost'],
         );
 
-        final supported = await _call(runtime, const [
+        final supported = await luaCall(runtime, const [
           'love',
           'graphics',
           'getSupported',
@@ -458,7 +473,7 @@ end
         );
         final supportedTarget = Value(<String, Object?>{'sentinel': 'ok'});
         expect(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'graphics', 'getSupported'],
             <Object?>[supportedTarget],
@@ -469,7 +484,7 @@ end
           ),
         );
 
-        final canvasFormats = await _call(runtime, const [
+        final canvasFormats = await luaCall(runtime, const [
           'love',
           'graphics',
           'getCanvasFormats',
@@ -484,7 +499,7 @@ end
           ),
         );
 
-        final limits = await _call(runtime, const [
+        final limits = await luaCall(runtime, const [
           'love',
           'graphics',
           'getSystemLimits',
@@ -500,23 +515,23 @@ end
         );
 
         host.graphics.beginFrame();
-        final image = await _call(
+        final image = await luaCall(
           runtime,
           const ['love', 'graphics', 'newImage'],
           const <Object?>['assets/images/test_sheet.png'],
         );
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[image!, 8, 12],
         );
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'print'],
           const <Object?>['stats', 24, 32],
         );
 
-        final stats = await _call(
+        final stats = await luaCall(
           runtime,
           const ['love', 'graphics', 'getStats'],
           <Object?>[
@@ -565,15 +580,15 @@ end
       );
 
       expect(
-        await _call(runtimeA, const ['love', 'math', 'getRandomSeed']),
+        await luaCall(runtimeA, const ['love', 'math', 'getRandomSeed']),
         <Object?>[0x11111111, 0x22222222],
       );
       expect(
-        await _call(runtimeA, const ['love', 'math', 'random']),
-        await _call(runtimeB, const ['love', 'math', 'random']),
+        await luaCall(runtimeA, const ['love', 'math', 'random']),
+        await luaCall(runtimeB, const ['love', 'math', 'random']),
       );
       expect(
-        await _call(
+        await luaCall(
           runtimeA,
           const ['love', 'math', 'random'],
           const <Object?>[5],
@@ -581,7 +596,7 @@ end
         inInclusiveRange(1, 5),
       );
       expect(
-        await _call(
+        await luaCall(
           runtimeA,
           const ['love', 'math', 'random'],
           const <Object?>[10, 20],
@@ -589,13 +604,13 @@ end
         inInclusiveRange(10, 20),
       );
 
-      await _call(
+      await luaCall(
         runtimeA,
         const ['love', 'math', 'setRandomSeed'],
         const <Object?>[5, 6],
       );
       expect(
-        await _call(runtimeA, const ['love', 'math', 'getRandomSeed']),
+        await luaCall(runtimeA, const ['love', 'math', 'getRandomSeed']),
         <Object?>[5, 6],
       );
     });
@@ -609,7 +624,7 @@ end
         installLove2d(runtime: runtime, host: host);
 
         expect(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'isVersionCompatible'],
             <Object?>[LuaString.fromDartString('11.4')],
@@ -617,17 +632,17 @@ end
           isTrue,
         );
 
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'window', 'setTitle'],
           <Object?>[LuaString.fromDartString('LuaString Title')],
         );
         expect(
-          await _call(runtime, const ['love', 'window', 'getTitle']),
+          await luaCall(runtime, const ['love', 'window', 'getTitle']),
           'LuaString Title',
         );
 
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'window', 'setMode'],
           <Object?>[
@@ -661,10 +676,10 @@ end
         final filesystem = LoveFilesystemState.of(runtime.runtime);
         expect(filesystem.setSource(loveTestMountedSourceRoot), isTrue);
         final interpreter = runtime.runtime as Interpreter;
-        final imageFontData = await _call(
+        final imageFontData = await luaCall(
           interpreter,
           const ['love', 'image', 'newImageData'],
-          <Object?>[9, 6, 'rgba8', _imageFontStripBytes()],
+          <Object?>[9, 6, 'rgba8', imageFontStripBytes()],
         );
         runtime.runtime.globals.define(
           '__image_font_data',
@@ -1474,17 +1489,17 @@ end
       final filesystem = LoveFilesystemState.of(runtime);
       expect(filesystem.setSource(loveTestMountedSourceRoot), isTrue);
 
-      final image = await _call(
+      final image = await luaCall(
         runtime,
         const ['love', 'graphics', 'newImage'],
         const <Object?>['assets/images/test_sheet.png'],
       );
-      expect(await _callMethod(image!, 'getMipmapFilter'), <Object?>[
+      expect(await luaCallMethod(image!, 'getMipmapFilter'), <Object?>[
         null,
         0.0,
       ]);
       await expectLater(
-        _callMethod(image, 'setMipmapFilter', const <Object?>['nearest']),
+        luaCallMethod(image, 'setMipmapFilter', const <Object?>['nearest']),
         throwsA(
           isA<LuaError>().having(
             (error) => error.message,
@@ -1494,7 +1509,7 @@ end
         ),
       );
       await expectLater(
-        _callMethod(image, 'setDepthSampleMode', const <Object?>['lequal']),
+        luaCallMethod(image, 'setDepthSampleMode', const <Object?>['lequal']),
         throwsA(
           isA<LuaError>().having(
             (error) => error.message,
@@ -1504,7 +1519,7 @@ end
         ),
       );
 
-      final canvas = await _call(
+      final canvas = await luaCall(
         runtime,
         const ['love', 'graphics', 'newCanvas'],
         <Object?>[
@@ -1513,20 +1528,20 @@ end
           Value(<Object?, Object?>{'mipmaps': 'manual'}),
         ],
       );
-      expect(await _callMethod(canvas!, 'getMipmapFilter'), <Object?>[
+      expect(await luaCallMethod(canvas!, 'getMipmapFilter'), <Object?>[
         'linear',
         0.0,
       ]);
-      await _callMethod(canvas, 'setMipmapFilter', const <Object?>[
+      await luaCallMethod(canvas, 'setMipmapFilter', const <Object?>[
         'nearest',
         0.25,
       ]);
-      expect(await _callMethod(canvas, 'getMipmapFilter'), <Object?>[
+      expect(await luaCallMethod(canvas, 'getMipmapFilter'), <Object?>[
         'nearest',
         0.25,
       ]);
 
-      final depthCanvas = await _call(
+      final depthCanvas = await luaCall(
         runtime,
         const ['love', 'graphics', 'newCanvas'],
         <Object?>[
@@ -1535,11 +1550,11 @@ end
           Value(<Object?, Object?>{'format': 'depth24', 'readable': true}),
         ],
       );
-      expect(await _callMethod(depthCanvas!, 'getDepthSampleMode'), isNull);
-      await _callMethod(depthCanvas, 'setDepthSampleMode', const <Object?>[
+      expect(await luaCallMethod(depthCanvas!, 'getDepthSampleMode'), isNull);
+      await luaCallMethod(depthCanvas, 'setDepthSampleMode', const <Object?>[
         'lequal',
       ]);
-      expect(await _callMethod(depthCanvas, 'getDepthSampleMode'), 'lequal');
+      expect(await luaCallMethod(depthCanvas, 'getDepthSampleMode'), 'lequal');
     });
 
     test(
@@ -1618,20 +1633,20 @@ end
         final filesystem = LoveFilesystemState.of(runtime);
         expect(filesystem.setSource(loveTestMountedSourceRoot), isTrue);
 
-        final fromFilename = await _call(
+        final fromFilename = await luaCall(
           runtime,
           const ['love', 'image', 'newImageData'],
           <Object?>[LuaString.fromDartString('assets/images/checker.png')],
         );
-        expect(await _callMethod(fromFilename!, 'getDimensions'), <Object?>[
+        expect(await luaCallMethod(fromFilename!, 'getDimensions'), <Object?>[
           2,
           2,
         ]);
         expect(
-          await _callMethod(fromFilename, 'getPixel', const <Object?>[0, 0]),
+          await luaCallMethod(fromFilename, 'getPixel', const <Object?>[0, 0]),
           <Object?>[1.0, 0.0, 64 / 255, 1.0],
         );
-        await _callMethod(fromFilename, 'setPixel', const <Object?>[
+        await luaCallMethod(fromFilename, 'setPixel', const <Object?>[
           0,
           0,
           0.0,
@@ -1640,35 +1655,35 @@ end
           1.0,
         ]);
 
-        final fromFilenameAgain = await _call(
+        final fromFilenameAgain = await luaCall(
           runtime,
           const ['love', 'image', 'newImageData'],
           const <Object?>['assets/images/checker.png'],
         );
         expect(
-          await _callMethod(fromFilenameAgain!, 'getPixel', const <Object?>[
+          await luaCallMethod(fromFilenameAgain!, 'getPixel', const <Object?>[
             0,
             0,
           ]),
           <Object?>[1.0, 0.0, 64 / 255, 1.0],
         );
 
-        final fileData = await _call(
+        final fileData = await luaCall(
           runtime,
           const ['love', 'filesystem', 'newFileData'],
           <Object?>[LuaString.fromBytes(encodedPng), 'checker.png'],
         );
-        final fromFileData = await _call(
+        final fromFileData = await luaCall(
           runtime,
           const ['love', 'image', 'newImageData'],
           <Object?>[fileData],
         );
         expect(
-          await _callMethod(fromFileData!, 'getPixel', const <Object?>[1, 0]),
+          await luaCallMethod(fromFileData!, 'getPixel', const <Object?>[1, 0]),
           <Object?>[0.0, 0.0, 1.0, 1.0],
         );
 
-        final rawPixelData = await _call(
+        final rawPixelData = await luaCall(
           runtime,
           const ['love', 'filesystem', 'newFileData'],
           <Object?>[
@@ -1676,13 +1691,13 @@ end
             'pixel.rgba',
           ],
         );
-        final fromRawBytes = await _call(
+        final fromRawBytes = await luaCall(
           runtime,
           const ['love', 'image', 'newImageData'],
           <Object?>[1, 1, 'rgba8', rawPixelData],
         );
         expect(
-          await _callMethod(fromRawBytes!, 'getPixel', const <Object?>[0, 0]),
+          await luaCallMethod(fromRawBytes!, 'getPixel', const <Object?>[0, 0]),
           <Object?>[1.0, 128 / 255, 64 / 255, 1.0],
         );
       },
@@ -1730,25 +1745,25 @@ imagedata_error = tostring(err_imagedata)
 
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
-      final fileData = await _call(
+      final fileData = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFileData'],
         <Object?>[Uint8List.fromList(encodedPng), 'checker.png'],
       );
 
-      final image = await _call(
+      final image = await luaCall(
         runtime,
         const ['love', 'graphics', 'newImage'],
         <Object?>[fileData],
       );
 
-      expect(await _callMethod(image!, 'getDimensions'), <Object?>[2, 2]);
-      expect(await _callMethod(image, 'getFilter'), <Object?>[
+      expect(await luaCallMethod(image!, 'getDimensions'), <Object?>[2, 2]);
+      expect(await luaCallMethod(image, 'getFilter'), <Object?>[
         'linear',
         'linear',
         1.0,
       ]);
-      expect(await _callMethod(image, 'isCompressed'), isFalse);
+      expect(await luaCallMethod(image, 'isCompressed'), isFalse);
     });
 
     test(
@@ -1774,7 +1789,7 @@ imagedata_error = tostring(err_imagedata)
         ).writeAsBytes(_encodeTestPng());
 
         expect(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'image', 'isCompressed'],
             [LuaString.fromDartString('sample.ktx')],
@@ -1782,7 +1797,7 @@ imagedata_error = tostring(err_imagedata)
           isTrue,
         );
         expect(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'image', 'isCompressed'],
             [LuaString.fromDartString('sample.png')],
@@ -1799,14 +1814,14 @@ imagedata_error = tostring(err_imagedata)
         };
 
         for (final entry in compressedFixtures.entries) {
-          final fileData = await _call(
+          final fileData = await luaCall(
             runtime,
             const ['love', 'filesystem', 'newFileData'],
             <Object?>[entry.value, entry.key],
           );
 
           expect(
-            await _call(
+            await luaCall(
               runtime,
               const ['love', 'image', 'isCompressed'],
               [fileData],
@@ -1816,13 +1831,13 @@ imagedata_error = tostring(err_imagedata)
           );
         }
 
-        final pngFileData = await _call(
+        final pngFileData = await luaCall(
           runtime,
           const ['love', 'filesystem', 'newFileData'],
           <Object?>[_encodeTestPng(), 'sample.png'],
         );
         expect(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'image', 'isCompressed'],
             [pngFileData],
@@ -1839,12 +1854,12 @@ imagedata_error = tostring(err_imagedata)
 
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
-        final fileData = await _call(
+        final fileData = await luaCall(
           runtime,
           const ['love', 'filesystem', 'newFileData'],
           <Object?>[_encodeSizedTestPng(width: 8, height: 4), 'sprite@2x.png'],
         );
-        final image = await _call(
+        final image = await luaCall(
           runtime,
           const ['love', 'graphics', 'newImage'],
           <Object?>[
@@ -1853,31 +1868,34 @@ imagedata_error = tostring(err_imagedata)
           ],
         );
 
-        expect(await _callMethod(image!, 'getWidth'), 4);
-        expect(await _callMethod(image, 'getHeight'), 2);
-        expect(await _callMethod(image, 'getPixelWidth'), 8);
-        expect(await _callMethod(image, 'getPixelHeight'), 4);
-        expect(await _callMethod(image, 'getDimensions'), <Object?>[4, 2]);
-        expect(await _callMethod(image, 'getPixelDimensions'), <Object?>[8, 4]);
-        expect(await _callMethod(image, 'getDPIScale'), 2.0);
-        expect(await _callMethod(image, 'getMipmapCount'), 4);
-        expect(await _callMethod(image, 'isFormatLinear'), isTrue);
+        expect(await luaCallMethod(image!, 'getWidth'), 4);
+        expect(await luaCallMethod(image, 'getHeight'), 2);
+        expect(await luaCallMethod(image, 'getPixelWidth'), 8);
+        expect(await luaCallMethod(image, 'getPixelHeight'), 4);
+        expect(await luaCallMethod(image, 'getDimensions'), <Object?>[4, 2]);
+        expect(await luaCallMethod(image, 'getPixelDimensions'), <Object?>[
+          8,
+          4,
+        ]);
+        expect(await luaCallMethod(image, 'getDPIScale'), 2.0);
+        expect(await luaCallMethod(image, 'getMipmapCount'), 4);
+        expect(await luaCallMethod(image, 'isFormatLinear'), isTrue);
 
-        await _callMethod(image, 'setMipmapFilter', const <Object?>[
+        await luaCallMethod(image, 'setMipmapFilter', const <Object?>[
           'linear',
           0.25,
         ]);
-        expect(await _callMethod(image, 'getMipmapFilter'), <Object?>[
+        expect(await luaCallMethod(image, 'getMipmapFilter'), <Object?>[
           'linear',
           0.25,
         ]);
 
-        final patch = await _call(
+        final patch = await luaCall(
           runtime,
           const ['love', 'image', 'newImageData'],
           const <Object?>[1, 1],
         );
-        await _callMethod(patch!, 'setPixel', const <Object?>[
+        await luaCallMethod(patch!, 'setPixel', const <Object?>[
           0,
           0,
           1.0,
@@ -1885,7 +1903,7 @@ imagedata_error = tostring(err_imagedata)
           0.25,
           1.0,
         ]);
-        await _callMethod(image, 'replacePixels', <Object?>[
+        await luaCallMethod(image, 'replacePixels', <Object?>[
           patch,
           1,
           2,
@@ -1921,29 +1939,29 @@ imagedata_error = tostring(err_imagedata)
         };
 
         for (final entry in fixtures.entries) {
-          final fileData = await _call(
+          final fileData = await luaCall(
             runtime,
             const ['love', 'filesystem', 'newFileData'],
             <Object?>[entry.value.bytes, entry.key],
           );
-          final compressed = await _call(
+          final compressed = await luaCall(
             runtime,
             const ['love', 'image', 'newCompressedData'],
             <Object?>[fileData],
           );
 
           expect(
-            await _callMethod(compressed!, 'getFormat'),
+            await luaCallMethod(compressed!, 'getFormat'),
             entry.value.format,
           );
-          expect(await _callMethod(compressed, 'getWidth'), 16);
-          expect(await _callMethod(compressed, 'getHeight'), 8);
-          expect(await _callMethod(compressed, 'getDimensions'), <Object?>[
+          expect(await luaCallMethod(compressed, 'getWidth'), 16);
+          expect(await luaCallMethod(compressed, 'getHeight'), 8);
+          expect(await luaCallMethod(compressed, 'getDimensions'), <Object?>[
             16,
             8,
           ]);
           expect(
-            await _callMethod(compressed, 'getMipmapCount'),
+            await luaCallMethod(compressed, 'getMipmapCount'),
             entry.key == 'sample.pkm' || entry.key == 'sample.astc' ? 1 : 2,
           );
         }
@@ -1955,37 +1973,45 @@ imagedata_error = tostring(err_imagedata)
           isA<File>(),
         );
 
-        final compressedFromFilename = await _call(
+        final compressedFromFilename = await luaCall(
           runtime,
           const ['love', 'image', 'newCompressedData'],
           <Object?>[LuaString.fromDartString('sample.ktx')],
         );
-        expect(await _callMethod(compressedFromFilename!, 'getFormat'), 'DXT1');
-        expect(await _callMethod(compressedFromFilename, 'getMipmapCount'), 2);
         expect(
-          await _callMethod(compressedFromFilename, 'getWidth', <Object?>[2]),
+          await luaCallMethod(compressedFromFilename!, 'getFormat'),
+          'DXT1',
+        );
+        expect(
+          await luaCallMethod(compressedFromFilename, 'getMipmapCount'),
+          2,
+        );
+        expect(
+          await luaCallMethod(compressedFromFilename, 'getWidth', <Object?>[2]),
           8,
         );
         expect(
-          await _callMethod(compressedFromFilename, 'getDimensions', <Object?>[
-            2,
-          ]),
+          await luaCallMethod(
+            compressedFromFilename,
+            'getDimensions',
+            <Object?>[2],
+          ),
           <Object?>[8, 4],
         );
 
-        final image = await _call(
+        final image = await luaCall(
           runtime,
           const ['love', 'graphics', 'newImage'],
           <Object?>[compressedFromFilename],
         );
-        expect(await _callMethod(image!, 'isCompressed'), isTrue);
-        expect(await _callMethod(image, 'getFormat'), 'DXT1');
-        expect(await _callMethod(image, 'getMipmapCount'), 2);
-        expect(await _callMethod(image, 'isReadable'), isFalse);
-        expect(await _callMethod(image, 'isFormatLinear'), isTrue);
+        expect(await luaCallMethod(image!, 'isCompressed'), isTrue);
+        expect(await luaCallMethod(image, 'getFormat'), 'DXT1');
+        expect(await luaCallMethod(image, 'getMipmapCount'), 2);
+        expect(await luaCallMethod(image, 'isReadable'), isFalse);
+        expect(await luaCallMethod(image, 'isFormatLinear'), isTrue);
 
         LoveRuntimeContext.of(runtime).beginDrawFrame();
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[image, 24, 36],
@@ -2207,13 +2233,13 @@ testbed.err = tostring(err)
 
         installLove2d(runtime: runtime, host: host);
 
-        final transform = await _call(
+        final transform = await luaCall(
           runtime,
           const ['love', 'math', 'newTransform'],
           const <Object?>[10, 20, 0.25, 2, 3, 4, 5, 0.1, -0.2],
         );
 
-        final matrix = await _callMethod(transform!, 'getMatrix');
+        final matrix = await luaCallMethod(transform!, 'getMatrix');
         expect(
           matrix,
           _matrixRowMajor(
@@ -2230,40 +2256,47 @@ testbed.err = tostring(err)
         );
 
         expect(
-          await _callMethod(transform, 'transformPoint', const <Object?>[4, 5]),
+          await luaCallMethod(transform, 'transformPoint', const <Object?>[
+            4,
+            5,
+          ]),
           <Object?>[10.0, 20.0],
         );
         expect(
-          await _callMethod(transform, 'inverseTransformPoint', const <Object?>[
-            10,
-            20,
-          ]),
+          await luaCallMethod(
+            transform,
+            'inverseTransformPoint',
+            const <Object?>[10, 20],
+          ),
           <Object?>[4.0, 5.0],
         );
-        expect(await _callMethod(transform, 'isAffine2DTransform'), isTrue);
+        expect(await luaCallMethod(transform, 'isAffine2DTransform'), isTrue);
 
-        final clone = await _callMethod(transform, 'clone');
-        await _callMethod(clone!, 'reset');
-        await _callMethod(clone, 'translate', const <Object?>[7, 8]);
+        final clone = await luaCallMethod(transform, 'clone');
+        await luaCallMethod(clone!, 'reset');
+        await luaCallMethod(clone, 'translate', const <Object?>[7, 8]);
         expect(
-          await _callMethod(clone, 'transformPoint', const <Object?>[4, 5]),
+          await luaCallMethod(clone, 'transformPoint', const <Object?>[4, 5]),
           <Object?>[11.0, 13.0],
         );
         expect(
-          await _callMethod(transform, 'transformPoint', const <Object?>[4, 5]),
+          await luaCallMethod(transform, 'transformPoint', const <Object?>[
+            4,
+            5,
+          ]),
           <Object?>[10.0, 20.0],
         );
 
-        final inverse = await _callMethod(transform, 'inverse');
+        final inverse = await luaCallMethod(transform, 'inverse');
         expect(
-          await _callMethod(inverse!, 'transformPoint', const <Object?>[
+          await luaCallMethod(inverse!, 'transformPoint', const <Object?>[
             10,
             20,
           ]),
           <Object?>[4.0, 5.0],
         );
 
-        await _callMethod(transform, 'setMatrix', const <Object?>[
+        await luaCallMethod(transform, 'setMatrix', const <Object?>[
           1,
           0,
           0,
@@ -2282,11 +2315,14 @@ testbed.err = tostring(err)
           1,
         ]);
         expect(
-          await _callMethod(transform, 'transformPoint', const <Object?>[5, 6]),
+          await luaCallMethod(transform, 'transformPoint', const <Object?>[
+            5,
+            6,
+          ]),
           <Object?>[35.0, 46.0],
         );
 
-        await _callMethod(transform, 'setMatrix', <Object?>[
+        await luaCallMethod(transform, 'setMatrix', <Object?>[
           'column',
           Value(<Object?, Object?>{
             1: 1,
@@ -2308,11 +2344,14 @@ testbed.err = tostring(err)
           }),
         ]);
         expect(
-          await _callMethod(transform, 'transformPoint', const <Object?>[5, 6]),
+          await luaCallMethod(transform, 'transformPoint', const <Object?>[
+            5,
+            6,
+          ]),
           <Object?>[17.0, 24.0],
         );
 
-        await _callMethod(transform, 'setMatrix', <Object?>[
+        await luaCallMethod(transform, 'setMatrix', <Object?>[
           Value(<Object?, Object?>{
             1: Value(<Object?, Object?>{1: 1, 2: 0, 3: 0, 4: 3}),
             2: Value(<Object?, Object?>{1: 0, 2: 1, 3: 0, 4: 4}),
@@ -2321,11 +2360,14 @@ testbed.err = tostring(err)
           }),
         ]);
         expect(
-          await _callMethod(transform, 'transformPoint', const <Object?>[5, 6]),
+          await luaCallMethod(transform, 'transformPoint', const <Object?>[
+            5,
+            6,
+          ]),
           <Object?>[8.0, 10.0],
         );
 
-        await _callMethod(transform, 'setMatrix', const <Object?>[
+        await luaCallMethod(transform, 'setMatrix', const <Object?>[
           1,
           0,
           1,
@@ -2343,10 +2385,10 @@ testbed.err = tostring(err)
           0,
           1,
         ]);
-        expect(await _callMethod(transform, 'isAffine2DTransform'), isFalse);
+        expect(await luaCallMethod(transform, 'isAffine2DTransform'), isFalse);
 
-        await _callMethod(transform, 'reset');
-        await _callMethod(transform, 'setTransformation', const <Object?>[
+        await luaCallMethod(transform, 'reset');
+        await luaCallMethod(transform, 'setTransformation', const <Object?>[
           15,
           25,
           0.0,
@@ -2356,17 +2398,20 @@ testbed.err = tostring(err)
           1,
         ]);
         expect(
-          await _callMethod(transform, 'transformPoint', const <Object?>[1, 1]),
+          await luaCallMethod(transform, 'transformPoint', const <Object?>[
+            1,
+            1,
+          ]),
           <Object?>[15.0, 25.0],
         );
 
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'replaceTransform'],
           <Object?>[transform],
         );
         expect(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'graphics', 'transformPoint'],
             const <Object?>[1, 1],
@@ -2374,18 +2419,18 @@ testbed.err = tostring(err)
           <Object?>[15.0, 25.0],
         );
 
-        final offset = await _call(
+        final offset = await luaCall(
           runtime,
           const ['love', 'math', 'newTransform'],
           const <Object?>[3, 4],
         );
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'applyTransform'],
           <Object?>[offset],
         );
         expect(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'graphics', 'transformPoint'],
             const <Object?>[1, 1],
@@ -2393,22 +2438,22 @@ testbed.err = tostring(err)
           <Object?>[21.0, 33.0],
         );
 
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'push'],
           <Object?>['all', offset],
         );
         expect(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'graphics', 'transformPoint'],
             const <Object?>[1, 1],
           ),
           <Object?>[27.0, 41.0],
         );
-        await _call(runtime, const ['love', 'graphics', 'pop']);
+        await luaCall(runtime, const ['love', 'graphics', 'pop']);
         expect(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'graphics', 'transformPoint'],
             const <Object?>[1, 1],
@@ -2439,54 +2484,54 @@ testbed.err = tostring(err)
         final filesystem = LoveFilesystemState.of(runtime);
         expect(filesystem.setSource(loveTestMountedSourceRoot), isTrue);
 
-        final sprite = await _call(
+        final sprite = await luaCall(
           runtime,
           const ['love', 'graphics', 'newImage'],
           const <Object?>['assets/images/test_sheet.png'],
         );
-        final quad = await _call(
+        final quad = await luaCall(
           runtime,
           const ['love', 'graphics', 'newQuad'],
           <Object?>[8, 0, 8, 8, sprite],
         );
-        final drawTransform = await _call(
+        final drawTransform = await luaCall(
           runtime,
           const ['love', 'math', 'newTransform'],
           const <Object?>[30, 40, 0.25, 2, 3, 4, 5, 0.1, -0.2],
         );
-        final quadTransform = await _call(
+        final quadTransform = await luaCall(
           runtime,
           const ['love', 'math', 'newTransform'],
           const <Object?>[70, 80, -0.5, 1.5, 1.25, 2, 3, -0.15, 0.05],
         );
-        final printTransform = await _call(
+        final printTransform = await luaCall(
           runtime,
           const ['love', 'math', 'newTransform'],
           const <Object?>[110, 120, 0.1, 1, 1, 6, 7],
         );
-        final printfTransform = await _call(
+        final printfTransform = await luaCall(
           runtime,
           const ['love', 'math', 'newTransform'],
           const <Object?>[150, 160, -0.2, 1.1, 0.9, 3, 4, 0.12, -0.06],
         );
 
         host.graphics.beginFrame();
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[sprite, drawTransform],
         );
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'draw'],
           <Object?>[sprite, quad, quadTransform],
         );
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'print'],
           <Object?>['hello', printTransform],
         );
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'printf'],
           <Object?>['world', printfTransform, 96, 'center'],
@@ -2544,54 +2589,54 @@ testbed.err = tostring(err)
         installLove2d(runtime: runtime, host: host);
 
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getScissor']),
+          await luaCall(runtime, const ['love', 'graphics', 'getScissor']),
           isNull,
         );
 
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'setScissor'],
           const <Object?>[10, 20, 30, 40],
         );
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getScissor']),
+          await luaCall(runtime, const ['love', 'graphics', 'getScissor']),
           <Object?>[10.0, 20.0, 30.0, 40.0],
         );
 
-        await _call(runtime, const ['love', 'graphics', 'push']);
-        await _call(
+        await luaCall(runtime, const ['love', 'graphics', 'push']);
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'setScissor'],
           const <Object?>[1, 2, 3, 4],
         );
-        await _call(runtime, const ['love', 'graphics', 'pop']);
+        await luaCall(runtime, const ['love', 'graphics', 'pop']);
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getScissor']),
+          await luaCall(runtime, const ['love', 'graphics', 'getScissor']),
           <Object?>[1.0, 2.0, 3.0, 4.0],
         );
 
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'push'],
           const <Object?>['all'],
         );
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'intersectScissor'],
           const <Object?>[2, 3, 5, 6],
         );
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getScissor']),
+          await luaCall(runtime, const ['love', 'graphics', 'getScissor']),
           <Object?>[2.0, 3.0, 2.0, 3.0],
         );
-        await _call(runtime, const ['love', 'graphics', 'pop']);
+        await luaCall(runtime, const ['love', 'graphics', 'pop']);
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getScissor']),
+          await luaCall(runtime, const ['love', 'graphics', 'getScissor']),
           <Object?>[1.0, 2.0, 3.0, 4.0],
         );
 
         host.graphics.beginFrame();
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'rectangle'],
           const <Object?>['fill', 5, 6, 7, 8],
@@ -2602,7 +2647,7 @@ testbed.err = tostring(err)
           const LoveScissorRect(x: 1, y: 2, width: 3, height: 4),
         );
 
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'clear'],
           const <Object?>[0.2, 0.3, 0.4, 1.0],
@@ -2613,19 +2658,19 @@ testbed.err = tostring(err)
           const LoveScissorRect(x: 1, y: 2, width: 3, height: 4),
         );
 
-        await _call(runtime, const ['love', 'graphics', 'setScissor']);
+        await luaCall(runtime, const ['love', 'graphics', 'setScissor']);
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getScissor']),
+          await luaCall(runtime, const ['love', 'graphics', 'getScissor']),
           isNull,
         );
 
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'intersectScissor'],
           const <Object?>[12, 14, 16, 18],
         );
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getScissor']),
+          await luaCall(runtime, const ['love', 'graphics', 'getScissor']),
           <Object?>[12.0, 14.0, 16.0, 18.0],
         );
       },
@@ -2638,73 +2683,77 @@ testbed.err = tostring(err)
       installLove2d(runtime: runtime, host: host);
       LoveRuntimeContext.of(runtime).beginDrawFrame();
 
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'graphics', 'setColor'],
         const <Object?>[0.25, 0.5, 0.75, 0.5],
       );
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'graphics', 'setBackgroundColor'],
         const <Object?>[0.1, 0.2, 0.3, 1.0],
       );
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'graphics', 'setLineWidth'],
         const <Object?>[2.5],
       );
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'graphics', 'setLineStyle'],
         const <Object?>['rough'],
       );
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'graphics', 'setLineJoin'],
         const <Object?>['bevel'],
       );
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'graphics', 'setPointSize'],
         const <Object?>[3.5],
       );
 
       expect(
-        await _call(runtime, const ['love', 'graphics', 'getColor']),
+        await luaCall(runtime, const ['love', 'graphics', 'getColor']),
         <Object?>[0.25, 0.5, 0.75, 0.5],
       );
       expect(
-        await _call(runtime, const ['love', 'graphics', 'getBackgroundColor']),
+        await luaCall(runtime, const [
+          'love',
+          'graphics',
+          'getBackgroundColor',
+        ]),
         <Object?>[0.1, 0.2, 0.3, 1.0],
       );
       expect(
-        await _call(runtime, const ['love', 'graphics', 'getLineWidth']),
+        await luaCall(runtime, const ['love', 'graphics', 'getLineWidth']),
         2.5,
       );
       expect(
-        await _call(runtime, const ['love', 'graphics', 'getLineStyle']),
+        await luaCall(runtime, const ['love', 'graphics', 'getLineStyle']),
         'rough',
       );
       expect(
-        await _call(runtime, const ['love', 'graphics', 'getLineJoin']),
+        await luaCall(runtime, const ['love', 'graphics', 'getLineJoin']),
         'bevel',
       );
       expect(
-        await _call(runtime, const ['love', 'graphics', 'getPointSize']),
+        await luaCall(runtime, const ['love', 'graphics', 'getPointSize']),
         3.5,
       );
 
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'graphics', 'rectangle'],
         const <Object?>['line', 10, 20, 30, 40, 4, 5],
       );
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'graphics', 'print'],
         const <Object?>['hello', 50, 60, 0.5, 1.5, 0.75, 4, 5, 0.2, -0.1],
       );
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'graphics', 'printf'],
         const <Object?>[
@@ -2722,27 +2771,27 @@ testbed.err = tostring(err)
           0.4,
         ],
       );
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'graphics', 'line'],
         const <Object?>[0, 0, 4, 5, 8, 9],
       );
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'graphics', 'ellipse'],
         const <Object?>['fill', 25, 35, 12, 6],
       );
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'graphics', 'arc'],
         const <Object?>['line', 'open', 40, 50, 20, 0, 1.5],
       );
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'graphics', 'polygon'],
         const <Object?>['line', 0, 0, 10, 0, 8, 6],
       );
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'graphics', 'points'],
         const <Object?>[2, 3, 6, 7],
@@ -2813,7 +2862,7 @@ testbed.err = tostring(err)
       expect(points.points, hasLength(2));
       expect(points.points.first, (x: 2.0, y: 3.0, color: null));
 
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'graphics', 'clear'],
         const <Object?>[0.9, 0.1, 0.2, 1.0],
@@ -2832,88 +2881,88 @@ testbed.err = tostring(err)
         LoveRuntimeContext.of(runtime).beginDrawFrame();
 
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getBlendMode']),
+          await luaCall(runtime, const ['love', 'graphics', 'getBlendMode']),
           <Object?>['alpha', 'alphamultiply'],
         );
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getColorMask']),
+          await luaCall(runtime, const ['love', 'graphics', 'getColorMask']),
           <Object?>[true, true, true, true],
         );
         expect(
-          await _call(runtime, const ['love', 'graphics', 'isWireframe']),
+          await luaCall(runtime, const ['love', 'graphics', 'isWireframe']),
           isFalse,
         );
 
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'setColor'],
           const <Object?>[0.3, 0.4, 0.5, 0.6],
         );
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'setBackgroundColor'],
           const <Object?>[0.05, 0.06, 0.07, 0.8],
         );
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'setLineWidth'],
           const <Object?>[5],
         );
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'setPointSize'],
           const <Object?>[6],
         );
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'setLineStyle'],
           const <Object?>['rough'],
         );
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'setLineJoin'],
           const <Object?>['bevel'],
         );
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'setScissor'],
           const <Object?>[9, 10, 11, 12],
         );
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'translate'],
           const <Object?>[13, 14],
         );
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'setBlendMode'],
           const <Object?>['screen', 'premultiplied'],
         );
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'setColorMask'],
           const <Object?>[false, true, false, true],
         );
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'setWireframe'],
           const <Object?>[true],
         );
 
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getBlendMode']),
+          await luaCall(runtime, const ['love', 'graphics', 'getBlendMode']),
           <Object?>['screen', 'premultiplied'],
         );
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getColorMask']),
+          await luaCall(runtime, const ['love', 'graphics', 'getColorMask']),
           <Object?>[false, true, false, true],
         );
         expect(
-          await _call(runtime, const ['love', 'graphics', 'isWireframe']),
+          await luaCall(runtime, const ['love', 'graphics', 'isWireframe']),
           isTrue,
         );
 
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'rectangle'],
           const <Object?>['fill', 1, 2, 3, 4],
@@ -2936,7 +2985,7 @@ testbed.err = tostring(err)
         );
         expect(rectangle.wireframe, isTrue);
 
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'clear'],
           const <Object?>[0.7, 0.2, 0.1, 0.9],
@@ -2952,13 +3001,13 @@ testbed.err = tostring(err)
           ),
         );
 
-        await _call(runtime, const ['love', 'graphics', 'reset']);
+        await luaCall(runtime, const ['love', 'graphics', 'reset']);
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getColor']),
+          await luaCall(runtime, const ['love', 'graphics', 'getColor']),
           <Object?>[1.0, 1.0, 1.0, 1.0],
         );
         expect(
-          await _call(runtime, const [
+          await luaCall(runtime, const [
             'love',
             'graphics',
             'getBackgroundColor',
@@ -2966,39 +3015,39 @@ testbed.err = tostring(err)
           <Object?>[0.0, 0.0, 0.0, 1.0],
         );
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getLineWidth']),
+          await luaCall(runtime, const ['love', 'graphics', 'getLineWidth']),
           1.0,
         );
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getPointSize']),
+          await luaCall(runtime, const ['love', 'graphics', 'getPointSize']),
           1.0,
         );
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getLineStyle']),
+          await luaCall(runtime, const ['love', 'graphics', 'getLineStyle']),
           'smooth',
         );
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getLineJoin']),
+          await luaCall(runtime, const ['love', 'graphics', 'getLineJoin']),
           'miter',
         );
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getBlendMode']),
+          await luaCall(runtime, const ['love', 'graphics', 'getBlendMode']),
           <Object?>['alpha', 'alphamultiply'],
         );
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getColorMask']),
+          await luaCall(runtime, const ['love', 'graphics', 'getColorMask']),
           <Object?>[true, true, true, true],
         );
         expect(
-          await _call(runtime, const ['love', 'graphics', 'isWireframe']),
+          await luaCall(runtime, const ['love', 'graphics', 'isWireframe']),
           isFalse,
         );
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getScissor']),
+          await luaCall(runtime, const ['love', 'graphics', 'getScissor']),
           isNull,
         );
         expect(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'graphics', 'transformPoint'],
             const <Object?>[1, 2],
@@ -3100,15 +3149,15 @@ end
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
         expect(
-          await _call(runtime, const ['love', 'graphics', 'present']),
+          await luaCall(runtime, const ['love', 'graphics', 'present']),
           isNull,
         );
         expect(
-          await _call(runtime, const ['love', 'graphics', 'flushBatch']),
+          await luaCall(runtime, const ['love', 'graphics', 'flushBatch']),
           isNull,
         );
         expect(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'graphics', 'discard'],
             const <Object?>[true, true],
@@ -3116,15 +3165,15 @@ end
           isNull,
         );
         expect(
-          await _call(runtime, const ['love', 'graphics', 'isActive']),
+          await luaCall(runtime, const ['love', 'graphics', 'isActive']),
           isTrue,
         );
         expect(
-          await _call(runtime, const ['love', 'graphics', 'isGammaCorrect']),
+          await luaCall(runtime, const ['love', 'graphics', 'isGammaCorrect']),
           isFalse,
         );
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getTextureTypes']),
+          await luaCall(runtime, const ['love', 'graphics', 'getTextureTypes']),
           <Object?, Object?>{
             '2d': true,
             'array': true,
@@ -3133,7 +3182,7 @@ end
           },
         );
         expect(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'graphics', 'validateShader'],
             <Object?>[
@@ -3156,7 +3205,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
         );
 
         expect(
-          () => _rawFunction(runtime, const [
+          () => luaRawFunction(runtime, const [
             'love',
             'graphics',
             'captureScreenshot',
@@ -3170,7 +3219,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
           ),
         );
         expect(
-          () => _rawFunction(runtime, const [
+          () => luaRawFunction(runtime, const [
             'love',
             'graphics',
             'drawInstanced',
@@ -3184,7 +3233,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
           ),
         );
         expect(
-          () => _rawFunction(runtime, const [
+          () => luaRawFunction(runtime, const [
             'love',
             'graphics',
             'stencil',
@@ -3209,17 +3258,17 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
         installLove2d(runtime: runtime, host: host);
 
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getStackDepth']),
+          await luaCall(runtime, const ['love', 'graphics', 'getStackDepth']),
           0,
         );
 
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'translate'],
           const <Object?>[10, 20],
         );
         expect(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'graphics', 'transformPoint'],
             const <Object?>[1, 2],
@@ -3227,7 +3276,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
           <Object?>[11.0, 22.0],
         );
         expect(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'graphics', 'inverseTransformPoint'],
             const <Object?>[11, 22],
@@ -3235,38 +3284,38 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
           <Object?>[1.0, 2.0],
         );
 
-        await _call(runtime, const ['love', 'graphics', 'push']);
-        await _call(
+        await luaCall(runtime, const ['love', 'graphics', 'push']);
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'scale'],
           const <Object?>[2, 3],
         );
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'setColor'],
           const <Object?>[0.2, 0.3, 0.4, 1.0],
         );
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'setLineWidth'],
           const <Object?>[4],
         );
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'setLineStyle'],
           const <Object?>['smooth'],
         );
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'setLineJoin'],
           const <Object?>['miter'],
         );
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getStackDepth']),
+          await luaCall(runtime, const ['love', 'graphics', 'getStackDepth']),
           1,
         );
         expect(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'graphics', 'transformPoint'],
             const <Object?>[1, 2],
@@ -3274,13 +3323,13 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
           <Object?>[12.0, 26.0],
         );
 
-        await _call(runtime, const ['love', 'graphics', 'pop']);
+        await luaCall(runtime, const ['love', 'graphics', 'pop']);
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getStackDepth']),
+          await luaCall(runtime, const ['love', 'graphics', 'getStackDepth']),
           0,
         );
         expect(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'graphics', 'transformPoint'],
             const <Object?>[1, 2],
@@ -3288,55 +3337,55 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
           <Object?>[11.0, 22.0],
         );
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getColor']),
+          await luaCall(runtime, const ['love', 'graphics', 'getColor']),
           <Object?>[0.2, 0.3, 0.4, 1.0],
         );
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getLineWidth']),
+          await luaCall(runtime, const ['love', 'graphics', 'getLineWidth']),
           4.0,
         );
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getLineStyle']),
+          await luaCall(runtime, const ['love', 'graphics', 'getLineStyle']),
           'smooth',
         );
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getLineJoin']),
+          await luaCall(runtime, const ['love', 'graphics', 'getLineJoin']),
           'miter',
         );
 
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'push'],
           const <Object?>['all'],
         );
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'translate'],
           const <Object?>[5, 6],
         );
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'setColor'],
           const <Object?>[0.9, 0.1, 0.2, 1.0],
         );
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'setLineWidth'],
           const <Object?>[7],
         );
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'setLineStyle'],
           const <Object?>['rough'],
         );
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'setLineJoin'],
           const <Object?>['bevel'],
         );
-        await _call(runtime, const ['love', 'graphics', 'pop']);
+        await luaCall(runtime, const ['love', 'graphics', 'pop']);
         expect(
-          await _call(
+          await luaCall(
             runtime,
             const ['love', 'graphics', 'transformPoint'],
             const <Object?>[1, 2],
@@ -3344,24 +3393,24 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
           <Object?>[11.0, 22.0],
         );
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getColor']),
+          await luaCall(runtime, const ['love', 'graphics', 'getColor']),
           <Object?>[0.2, 0.3, 0.4, 1.0],
         );
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getLineWidth']),
+          await luaCall(runtime, const ['love', 'graphics', 'getLineWidth']),
           4.0,
         );
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getLineStyle']),
+          await luaCall(runtime, const ['love', 'graphics', 'getLineStyle']),
           'smooth',
         );
         expect(
-          await _call(runtime, const ['love', 'graphics', 'getLineJoin']),
+          await luaCall(runtime, const ['love', 'graphics', 'getLineJoin']),
           'miter',
         );
 
         host.graphics.beginFrame();
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'circle'],
           const <Object?>['line', 4, 5, 6],
@@ -3369,7 +3418,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
         expect(host.graphics.commands.single, isA<LoveCircleCommand>());
 
         host.graphics.beginFrame();
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'line'],
           <Object?>[
@@ -3380,7 +3429,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
         expect(tableLine.points, [(x: 1.0, y: 2.0), (x: 3.0, y: 4.0)]);
 
         host.graphics.beginFrame();
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'polygon'],
           <Object?>[
@@ -3398,7 +3447,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
         ]);
 
         host.graphics.beginFrame();
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'points'],
           <Object?>[
@@ -3412,7 +3461,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
         ]);
 
         host.graphics.beginFrame();
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'points'],
           <Object?>[
@@ -3443,7 +3492,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
         );
 
         host.graphics.beginFrame();
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'graphics', 'print'],
           const <Object?>['stacked', 30, 40],
@@ -3474,13 +3523,16 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
         host: LoveFlameHost(game: game),
       );
 
-      expect(await _call(runtime, const ['love', 'graphics', 'getWidth']), 512);
       expect(
-        await _call(runtime, const ['love', 'graphics', 'getHeight']),
+        await luaCall(runtime, const ['love', 'graphics', 'getWidth']),
+        512,
+      );
+      expect(
+        await luaCall(runtime, const ['love', 'graphics', 'getHeight']),
         288,
       );
       expect(
-        await _call(runtime, const ['love', 'window', 'getMode']),
+        await luaCall(runtime, const ['love', 'window', 'getMode']),
         <Object?>[512, 288, containsPair('vsync', 1)],
       );
     },
@@ -3641,85 +3693,6 @@ int _fourCc(String value) {
       (value.codeUnitAt(1) << 8) |
       (value.codeUnitAt(2) << 16) |
       (value.codeUnitAt(3) << 24);
-}
-
-Future<Object?> _call(
-  Interpreter runtime,
-  List<String> path, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(_rawFunction(runtime, path).call(args));
-}
-
-Future<Object?> _callMethod(
-  Object object,
-  String method, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  final table = object is Value ? object.raw : object;
-  expect(table, isA<Map>());
-
-  final methodValue = (table as Map)[method];
-  final callable = switch (methodValue) {
-    final Value value => value.raw,
-    final BuiltinFunction function => function,
-    _ => methodValue,
-  };
-  expect(callable, isA<BuiltinFunction>());
-  return _resolveCallResult(
-    (callable as BuiltinFunction).call(<Object?>[object, ...args]),
-  );
-}
-
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> path) {
-  var current = runtime.getCurrentEnv().get(path.first);
-  for (final segment in path.skip(1)) {
-    final table = current is Value ? current.raw : current;
-    expect(
-      table,
-      isA<Map>(),
-      reason: 'Expected ${path.join('.')} to traverse a Lua table',
-    );
-    current = (table as Map)[segment];
-  }
-
-  expect(current, isA<Value>());
-  final raw = (current! as Value).raw;
-  expect(raw, isA<BuiltinFunction>());
-  return raw as BuiltinFunction;
-}
-
-Future<Object?> _resolveCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return (wrapped.raw as List<Object?>).map(_unwrap).toList(growable: false);
-  }
-
-  return _unwrap(resolved);
-}
-
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;
-
-Uint8List _imageFontStripBytes() {
-  final bytes = Uint8List(9 * 6 * 4);
-
-  void fillColumns(int start, int end, List<int> rgba) {
-    for (var row = 0; row < 6; row++) {
-      for (var column = start; column < end; column++) {
-        final offset = ((row * 9) + column) * 4;
-        bytes[offset] = rgba[0];
-        bytes[offset + 1] = rgba[1];
-        bytes[offset + 2] = rgba[2];
-        bytes[offset + 3] = rgba[3];
-      }
-    }
-  }
-
-  fillColumns(1, 3, const <int>[255, 255, 255, 255]);
-  fillColumns(4, 5, const <int>[255, 96, 96, 255]);
-  fillColumns(6, 9, const <int>[96, 255, 96, 255]);
-  return bytes;
 }
 
 ({double x, double y}) _transformPoint(vm.Matrix4 matrix, double x, double y) {

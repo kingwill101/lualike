@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
+import 'test_support/font_test_support.dart';
+import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.font limitations', () {
@@ -10,7 +12,7 @@ void main() {
         final runtime = Interpreter();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
-        final rasterizer = await _call(
+        final rasterizer = await luaCallList(
           runtime,
           const ['love', 'font', 'newTrueTypeRasterizer'],
           const <Object?>[12],
@@ -20,7 +22,7 @@ void main() {
             'true type rasterizer glyph count is not supported yet without source font data';
 
         await expectLater(
-          () => _callMethod(rasterizer, 'getGlyphCount'),
+          () => luaCallMethodList(rasterizer, 'getGlyphCount'),
           throwsA(
             isA<LuaError>().having(
               (error) => error.message,
@@ -32,48 +34,51 @@ void main() {
       },
     );
 
-    test('font fallbacks reject different underlying font data types', () async {
-      final runtime = Interpreter();
-      installLove2d(runtime: runtime, host: LoveHeadlessHost());
+    test(
+      'font fallbacks reject different underlying font data types',
+      () async {
+        final runtime = Interpreter();
+        installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
-      final bmFontDefinition = await _call(
-        runtime,
-        const ['love', 'filesystem', 'newFileData'],
-        <Object?>[_bmFontDefinition, 'assets/fonts/bmfont/test.fnt'],
-      );
-      final bmFontPage = await _call(
-        runtime,
-        const ['love', 'image', 'newImageData'],
-        const <Object?>[8, 6],
-      );
-      final bmFont = await _call(
-        runtime,
-        const ['love', 'graphics', 'newFont'],
-        <Object?>[bmFontDefinition, bmFontPage],
-      );
+        final bmFontDefinition = await luaCallList(
+          runtime,
+          const ['love', 'filesystem', 'newFileData'],
+          <Object?>[_bmFontDefinition, 'assets/fonts/bmfont/test.fnt'],
+        );
+        final bmFontPage = await luaCallList(
+          runtime,
+          const ['love', 'image', 'newImageData'],
+          const <Object?>[8, 6],
+        );
+        final bmFont = await luaCallList(
+          runtime,
+          const ['love', 'graphics', 'newFont'],
+          <Object?>[bmFontDefinition, bmFontPage],
+        );
 
-      final imageFontStrip = await _call(
-        runtime,
-        const ['love', 'image', 'newImageData'],
-        <Object?>[9, 6, 'rgba8', _imageFontStripBytes()],
-      );
-      final imageFont = await _call(
-        runtime,
-        const ['love', 'graphics', 'newImageFont'],
-        <Object?>[imageFontStrip, 'ABC', 1],
-      );
+        final imageFontStrip = await luaCallList(
+          runtime,
+          const ['love', 'image', 'newImageData'],
+          <Object?>[9, 6, 'rgba8', imageFontStripBytes()],
+        );
+        final imageFont = await luaCallList(
+          runtime,
+          const ['love', 'graphics', 'newImageFont'],
+          <Object?>[imageFontStrip, 'ABC', 1],
+        );
 
-      await expectLater(
-        () => _callMethod(bmFont, 'setFallbacks', <Object?>[imageFont]),
-        throwsA(
-          isA<LuaError>().having(
-            (error) => error.message,
-            'message',
-            contains('same font type'),
+        await expectLater(
+          () => luaCallMethodList(bmFont, 'setFallbacks', <Object?>[imageFont]),
+          throwsA(
+            isA<LuaError>().having(
+              (error) => error.message,
+              'message',
+              contains('same font type'),
+            ),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
   });
 }
 
@@ -87,83 +92,3 @@ char id=66 x=3 y=0 width=2 height=6 xoffset=0 yoffset=0 xadvance=3 page=0 chnl=1
 kernings count=1
 kerning first=65 second=66 amount=-1
 ''';
-
-Future<Object?> _call(
-  Interpreter runtime,
-  List<String> path, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(_rawFunction(runtime, path).call(args));
-}
-
-Future<Object?> _callMethod(
-  Object? receiver,
-  String method, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(
-    _rawMethod(receiver, method).call(<Object?>[receiver, ...args]),
-  );
-}
-
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> path) {
-  var current = runtime.getCurrentEnv().get(path.first);
-  for (final segment in path.skip(1)) {
-    final table = current is Value ? current.raw : current;
-    expect(
-      table,
-      isA<Map>(),
-      reason: 'Expected ${path.join('.')} to traverse a Lua table',
-    );
-    current = (table as Map)[segment];
-  }
-
-  expect(current, isA<Value>());
-  final raw = (current! as Value).raw;
-  expect(raw, isA<BuiltinFunction>());
-  return raw as BuiltinFunction;
-}
-
-BuiltinFunction _rawMethod(Object? receiver, String method) {
-  final table = receiver is Value ? receiver.raw : receiver;
-  expect(table, isA<Map>());
-  final entry = (table! as Map)[method];
-  return switch (entry) {
-    final Value wrapped when wrapped.raw is BuiltinFunction =>
-      wrapped.raw as BuiltinFunction,
-    final BuiltinFunction function => function,
-    _ => throw TestFailure('Expected $method to be a callable Lua method'),
-  };
-}
-
-Future<Object?> _resolveCallResult(Object? result) async {
-  final resolved = await _resolveRawCallResult(result);
-  if (resolved is List<Object?>) {
-    return resolved.map(_unwrap).toList(growable: false);
-  }
-  return _unwrap(resolved);
-}
-
-Future<Object?> _resolveRawCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return List<Object?>.from(wrapped.raw as List<Object?>, growable: false);
-  }
-  return resolved;
-}
-
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;
-
-List<int> _imageFontStripBytes() {
-  final bytes = <int>[];
-  for (var y = 0; y < 6; y++) {
-    for (var x = 0; x < 9; x++) {
-      final alpha = switch (x) {
-        0 || 2 || 5 || 8 => 0,
-        _ => 255,
-      };
-      bytes.addAll(<int>[255, 255, 255, alpha]);
-    }
-  }
-  return bytes;
-}

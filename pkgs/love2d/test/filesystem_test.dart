@@ -10,6 +10,7 @@ import 'package:love2d/love2d.dart';
 import 'package:love2d/src/runtime/filesystem/love_filesystem_bindings.dart';
 import 'package:love2d/src/runtime/filesystem/love_filesystem_runtime.dart';
 import 'package:path/path.dart' as p;
+import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   test('filesystem adapter uses upstream Linux appdata fallbacks', () {
@@ -49,7 +50,7 @@ void main() {
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'setIdentity'],
           const <Object?>['game'],
@@ -57,7 +58,11 @@ void main() {
         isNull,
       );
       expect(
-        await _call(runtime, const ['love', 'filesystem', 'getSaveDirectory']),
+        await luaCall(runtime, const [
+          'love',
+          'filesystem',
+          'getSaveDirectory',
+        ]),
         '/appdata/LOVE/game',
       );
     },
@@ -72,7 +77,7 @@ void main() {
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'setIdentity'],
           const <Object?>[''],
@@ -80,15 +85,19 @@ void main() {
         isNull,
       );
       expect(
-        await _call(runtime, const ['love', 'filesystem', 'getIdentity']),
+        await luaCall(runtime, const ['love', 'filesystem', 'getIdentity']),
         '',
       );
       expect(
-        await _call(runtime, const ['love', 'filesystem', 'getSaveDirectory']),
+        await luaCall(runtime, const [
+          'love',
+          'filesystem',
+          'getSaveDirectory',
+        ]),
         '/appdata/love',
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'write'],
           const <Object?>['empty-identity.txt', 'alpha'],
@@ -113,7 +122,7 @@ void main() {
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
 
       await expectLater(
-        () => _call(
+        () => luaCall(
           runtime,
           const ['love', 'filesystem', 'setIdentity'],
           const <Object?>['game'],
@@ -128,11 +137,15 @@ void main() {
       );
 
       expect(
-        await _call(runtime, const ['love', 'filesystem', 'getIdentity']),
+        await luaCall(runtime, const ['love', 'filesystem', 'getIdentity']),
         '',
       );
       expect(
-        await _call(runtime, const ['love', 'filesystem', 'getSaveDirectory']),
+        await luaCall(runtime, const [
+          'love',
+          'filesystem',
+          'getSaveDirectory',
+        ]),
         '',
       );
     },
@@ -146,39 +159,39 @@ void main() {
     final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
 
     final interpreter = runtime.runtime as Interpreter;
-    await _call(
+    await luaCall(
       interpreter,
       const ['love', 'filesystem', 'setIdentity'],
       const <Object?>['game'],
     );
-    await _call(
+    await luaCall(
       interpreter,
       const ['love', 'filesystem', 'setSource'],
       const <Object?>['/source'],
     );
     _allowStringMount(interpreter, '/mods/extra');
-    await _call(
+    await luaCall(
       interpreter,
       const ['love', 'filesystem', 'mount'],
       const <Object?>['/mods/extra', 'mods', true],
     );
 
-    final sourceRead = await _call(
+    final sourceRead = await luaCall(
       interpreter,
       const ['love', 'filesystem', 'read'],
       const <Object?>['scripts/loaded.lua'],
     );
-    final modInfo = await _call(
+    final modInfo = await luaCall(
       interpreter,
       const ['love', 'filesystem', 'getInfo'],
       const <Object?>['mods'],
     );
-    final modItems = await _call(
+    final modItems = await luaCall(
       interpreter,
       const ['love', 'filesystem', 'getDirectoryItems'],
       const <Object?>['mods'],
     );
-    final rootItems = await _call(
+    final rootItems = await luaCall(
       interpreter,
       const ['love', 'filesystem', 'getDirectoryItems'],
       const <Object?>[''],
@@ -195,7 +208,7 @@ void main() {
 
     expect(sourceRead, <Object?>['return 123', 10]);
     expect(
-      await _call(interpreter, const [
+      await luaCall(interpreter, const [
         'love',
         'filesystem',
         'getSourceBaseDirectory',
@@ -203,7 +216,7 @@ void main() {
       '/',
     );
     expect(
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'getRealDirectory'],
         const <Object?>['scripts/loaded.lua'],
@@ -211,7 +224,7 @@ void main() {
       '/source',
     );
     expect(
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'getRealDirectory'],
         const <Object?>['mods/bonus.lua'],
@@ -222,9 +235,9 @@ void main() {
     expect((modInfo! as Map)['type'], 'directory');
     expect((modItems as Map)[1], 'bonus.lua');
     expect((rootItems as Map).containsValue('mods'), isTrue);
-    expect(_unwrap(loadedValue), 123);
+    expect(luaUnwrapValue(loadedValue), 123);
 
-    final saveDir = await _call(runtime.runtime as Interpreter, const [
+    final saveDir = await luaCall(runtime.runtime as Interpreter, const [
       'love',
       'filesystem',
       'getSaveDirectory',
@@ -242,18 +255,18 @@ void main() {
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
       final interpreter = runtime.runtime as Interpreter;
 
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['game'],
       );
 
       expect(
-        await _call(interpreter, const ['love', 'filesystem', 'getSource']),
+        await luaCall(interpreter, const ['love', 'filesystem', 'getSource']),
         'game',
       );
       expect(
-        await _call(interpreter, const [
+        await luaCall(interpreter, const [
           'love',
           'filesystem',
           'getSourceBaseDirectory',
@@ -261,7 +274,7 @@ void main() {
         '',
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['main.lua'],
@@ -287,18 +300,18 @@ void main() {
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
       final interpreter = runtime.runtime as Interpreter;
 
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source/game.love'],
       );
 
-      final sourceRead = await _call(
+      final sourceRead = await luaCall(
         interpreter,
         const ['love', 'filesystem', 'read'],
         const <Object?>['main.lua'],
       );
-      final rootItems = await _call(
+      final rootItems = await luaCall(
         interpreter,
         const ['love', 'filesystem', 'getDirectoryItems'],
         const <Object?>[''],
@@ -313,11 +326,11 @@ void main() {
       final tool = (toolResult.first as Value).unwrap() as Map;
 
       expect(
-        await _call(interpreter, const ['love', 'filesystem', 'getSource']),
+        await luaCall(interpreter, const ['love', 'filesystem', 'getSource']),
         '/source/game.love',
       );
       expect(
-        await _call(interpreter, const [
+        await luaCall(interpreter, const [
           'love',
           'filesystem',
           'getSourceBaseDirectory',
@@ -328,9 +341,9 @@ void main() {
       expect(rootItems, <Object?, Object?>{1: 'lib', 2: 'main.lua'});
       expect(tool['answer'], 99);
       expect(tool['label'], 'archive');
-      expect(_unwrap(toolResult[1]), 'lib/tool.lua');
+      expect(luaUnwrapValue(toolResult[1]), 'lib/tool.lua');
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['main.lua'],
@@ -355,18 +368,18 @@ void main() {
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
       final interpreter = runtime.runtime as Interpreter;
 
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/bin/lualike-test'],
       );
 
       expect(
-        await _call(interpreter, const ['love', 'filesystem', 'getSource']),
+        await luaCall(interpreter, const ['love', 'filesystem', 'getSource']),
         '/bin/lualike-test',
       );
       expect(
-        await _call(interpreter, const [
+        await luaCall(interpreter, const [
           'love',
           'filesystem',
           'getSourceBaseDirectory',
@@ -374,7 +387,7 @@ void main() {
         '/bin',
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['main.lua'],
@@ -391,7 +404,7 @@ void main() {
       );
       final tool = (toolResult.first as Value).unwrap() as Map;
       expect(tool['answer'], 123);
-      expect(_unwrap(toolResult[1]), 'lib/tool.lua');
+      expect(luaUnwrapValue(toolResult[1]), 'lib/tool.lua');
     },
   );
 
@@ -411,20 +424,20 @@ void main() {
       final interpreter = runtime.runtime as Interpreter;
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'setFused'],
           const <Object?>[true],
         ),
         isNull,
       );
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/bin/lualike-test'],
       );
 
-      final sourceBase = await _call(interpreter, const [
+      final sourceBase = await luaCall(interpreter, const [
         'love',
         'filesystem',
         'getSourceBaseDirectory',
@@ -432,7 +445,7 @@ void main() {
 
       expect(sourceBase, '/bin');
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           <Object?>[sourceBase, 'fusedbase', true],
@@ -440,7 +453,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['fusedbase/sidecar.lua'],
@@ -448,7 +461,7 @@ void main() {
         <Object?>['return "sidecar"', 16],
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['fusedbase/sidecar.lua'],
@@ -456,7 +469,7 @@ void main() {
         '/bin',
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'unmount'],
           <Object?>[sourceBase],
@@ -464,7 +477,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getInfo'],
           const <Object?>['fusedbase/sidecar.lua'],
@@ -490,7 +503,7 @@ void main() {
       final firstRuntime = LoveScriptRuntime(filesystemAdapter: adapter);
       final firstInterpreter = firstRuntime.runtime as Interpreter;
 
-      await _call(
+      await luaCall(
         firstInterpreter,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source/game.love'],
@@ -554,7 +567,7 @@ void main() {
       final interpreter = runtime.runtime as Interpreter;
 
       await expectLater(
-        () => _call(
+        () => luaCall(
           interpreter,
           const ['love', 'filesystem', 'setSource'],
           const <Object?>['/source/game.love'],
@@ -569,7 +582,7 @@ void main() {
       );
 
       expect(
-        await _call(interpreter, const ['love', 'filesystem', 'getSource']),
+        await luaCall(interpreter, const ['love', 'filesystem', 'getSource']),
         '',
       );
     },
@@ -583,7 +596,7 @@ void main() {
     final interpreter = runtime.runtime as Interpreter;
 
     await expectLater(
-      () => _call(
+      () => luaCall(
         interpreter,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source/game.7z'],
@@ -598,7 +611,7 @@ void main() {
     );
 
     expect(
-      await _call(interpreter, const ['love', 'filesystem', 'getSource']),
+      await luaCall(interpreter, const ['love', 'filesystem', 'getSource']),
       '',
     );
   });
@@ -619,7 +632,7 @@ void main() {
       final interpreter = runtime.runtime as Interpreter;
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'setSource'],
           const <Object?>['/source/game.7z'],
@@ -627,18 +640,18 @@ void main() {
         isNull,
       );
       expect(
-        await _call(interpreter, const ['love', 'filesystem', 'getSource']),
+        await luaCall(interpreter, const ['love', 'filesystem', 'getSource']),
         '/source/game.7z',
       );
 
-      final sourceRead = await _call(
+      final sourceRead = await luaCall(
         interpreter,
         const ['love', 'filesystem', 'read'],
         const <Object?>['main.lua'],
       );
       expect(sourceRead, <Object?>['return "archive-7z"', 19]);
 
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setRequirePath'],
         const <Object?>['?.lua;?/init.lua'],
@@ -650,7 +663,7 @@ void main() {
           <Object?>[Value('lib.tool')],
         ),
       );
-      expect(_unwrap(toolResult[1]), 'lib/tool.lua');
+      expect(luaUnwrapValue(toolResult[1]), 'lib/tool.lua');
       final tool = (toolResult.first as Value).unwrap() as Map;
       expect(tool['answer'], 77);
       expect(tool['label'], 'archive-7z');
@@ -667,7 +680,7 @@ void main() {
       final interpreter = runtime.runtime as Interpreter;
 
       await expectLater(
-        () => _call(
+        () => luaCall(
           interpreter,
           const ['love', 'filesystem', 'setSource'],
           const <Object?>['/source/missing.love'],
@@ -682,7 +695,7 @@ void main() {
       );
 
       expect(
-        await _call(interpreter, const ['love', 'filesystem', 'getSource']),
+        await luaCall(interpreter, const ['love', 'filesystem', 'getSource']),
         '',
       );
     },
@@ -698,7 +711,7 @@ void main() {
       final interpreter = runtime.runtime as Interpreter;
 
       await expectLater(
-        () => _call(
+        () => luaCall(
           interpreter,
           const ['love', 'filesystem', 'setSource'],
           const <Object?>['/source/main.lua'],
@@ -713,11 +726,11 @@ void main() {
       );
 
       expect(
-        await _call(interpreter, const ['love', 'filesystem', 'getSource']),
+        await luaCall(interpreter, const ['love', 'filesystem', 'getSource']),
         '',
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['main.lua'],
@@ -742,7 +755,7 @@ void main() {
       expect(await filesystem.getRealDirectory('loose.txt'), isNull);
 
       final readResult = _rawResults(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'read'],
           const <Object?>['loose.txt'],
@@ -750,19 +763,22 @@ void main() {
       );
       expect(readResult[0], isNull);
       expect(
-        _unwrap(readResult[1]),
+        luaUnwrapValue(readResult[1]),
         'Could not open file loose.txt. Does not exist.',
       );
 
       final realDirectoryResult = _rawResults(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['loose.txt'],
         ),
       );
       expect(realDirectoryResult[0], isNull);
-      expect(_unwrap(realDirectoryResult[1]), 'File does not exist on disk.');
+      expect(
+        luaUnwrapValue(realDirectoryResult[1]),
+        'File does not exist on disk.',
+      );
     },
   );
 
@@ -782,7 +798,7 @@ void main() {
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
       final interpreter = runtime.runtime as Interpreter;
 
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source'],
@@ -796,12 +812,12 @@ void main() {
         ),
       );
       _allowStringMount(interpreter, '/mods/extra');
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'mount'],
         const <Object?>['/mods/extra', 'mods', true],
       );
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setRequirePath'],
         const <Object?>['mods/?.lua;mods/?/init.lua;?.lua;?/init.lua'],
@@ -825,7 +841,7 @@ void main() {
       final custom = (customResult.first as Value).unwrap() as Map;
 
       expect(
-        await _call(interpreter, const [
+        await luaCall(interpreter, const [
           'love',
           'filesystem',
           'getRequirePath',
@@ -834,11 +850,11 @@ void main() {
       );
       expect(tool['answer'], 42);
       expect(tool['label'], 'source');
-      expect(_unwrap(toolResult[1]), 'lib/tool.lua');
+      expect(luaUnwrapValue(toolResult[1]), 'lib/tool.lua');
       expect(identical(toolResult.first, toolAgainResult.first), isTrue);
       expect(custom['answer'], 7);
       expect(custom['label'], 'mounted');
-      expect(_unwrap(customResult[1]), 'mods/custom/init.lua');
+      expect(luaUnwrapValue(customResult[1]), 'mods/custom/init.lua');
     },
   );
 
@@ -851,7 +867,7 @@ void main() {
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
       final interpreter = runtime.runtime as Interpreter;
 
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source'],
@@ -865,8 +881,8 @@ void main() {
         ),
       );
 
-      expect(_unwrap(requireResult.first), 'numeric-module');
-      expect(_unwrap(requireResult[1]), '123.lua');
+      expect(luaUnwrapValue(requireResult.first), 'numeric-module');
+      expect(luaUnwrapValue(requireResult[1]), '123.lua');
     },
   );
 
@@ -880,7 +896,7 @@ void main() {
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
       final interpreter = runtime.runtime as Interpreter;
 
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source'],
@@ -927,7 +943,7 @@ void main() {
           const <Object?>['broken'],
         ),
       );
-      expect(_unwrap(luaSearcherResult[1]), 'broken.lua');
+      expect(luaUnwrapValue(luaSearcherResult[1]), 'broken.lua');
 
       await expectLater(
         () => _callHostFunction(
@@ -957,7 +973,7 @@ void main() {
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
       final interpreter = runtime.runtime as Interpreter;
 
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source'],
@@ -969,7 +985,7 @@ void main() {
           const <Object?>['broken'],
         ),
       );
-      expect(_unwrap(luaSearcherResult[1]), 'broken.lua');
+      expect(luaUnwrapValue(luaSearcherResult[1]), 'broken.lua');
 
       await expectLater(
         () => _callHostFunction(
@@ -998,12 +1014,12 @@ void main() {
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
       final interpreter = runtime.runtime as Interpreter;
 
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source'],
       );
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setCRequirePath'],
         const <Object?>['native/??;mods/?'],
@@ -1013,8 +1029,8 @@ void main() {
       final searchers = _packageSearchers(interpreter);
       final loadersValue = packageTable['loaders'];
 
-      expect(_unwrap(packageTable['path']), '?.lua;?/init.lua');
-      expect(_unwrap(packageTable['cpath']), 'native/??;mods/?');
+      expect(luaUnwrapValue(packageTable['path']), '?.lua;?/init.lua');
+      expect(luaUnwrapValue(packageTable['cpath']), 'native/??;mods/?');
       expect(loadersValue, same(packageTable['searchers']));
       expect(searchers.length, greaterThanOrEqualTo(4));
 
@@ -1028,11 +1044,11 @@ void main() {
       );
 
       expect(
-        _unwrap(luaSearcherResult),
+        luaUnwrapValue(luaSearcherResult),
         "\n\tno 'missing/module' in LOVE game directories.",
       );
       expect(
-        _unwrap(extSearcherResult),
+        luaUnwrapValue(extSearcherResult),
         "\n\tno file 'missing/module' in LOVE paths.",
       );
     },
@@ -1050,20 +1066,20 @@ void main() {
       final interpreter = runtime.runtime as Interpreter;
       final seen = <Object?>[];
 
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source'],
       );
 
-      final items = await _call(
+      final items = await luaCall(
         interpreter,
         const ['love', 'filesystem', 'getDirectoryItems'],
         <Object?>[
           '',
           Value(
             _TestBuiltinFunction((args) {
-              seen.add(_unwrap(args.isNotEmpty ? args.first : null));
+              seen.add(luaUnwrapValue(args.isNotEmpty ? args.first : null));
               return null;
             }),
             functionName: 'directoryItemsCallback',
@@ -1083,7 +1099,7 @@ void main() {
       );
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getDirectoryItems'],
           const <Object?>['', 123],
@@ -1102,7 +1118,7 @@ void main() {
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
       final interpreter = runtime.runtime as Interpreter;
 
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source'],
@@ -1115,7 +1131,7 @@ void main() {
         ]),
       );
 
-      expect(_unwrap(extSearcherResult[1]), 'native/mod.so');
+      expect(luaUnwrapValue(extSearcherResult[1]), 'native/mod.so');
       await expectLater(
         () => _callHostFunction(
           extSearcherResult.first! as Value,
@@ -1139,84 +1155,84 @@ void main() {
       final runtime = Interpreter();
 
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setIdentity'],
         const <Object?>['game'],
       );
 
-      final file = await _call(
+      final file = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFile'],
         const <Object?>['notes.txt'],
       );
       expect(file, isA<Map>());
 
-      final closedFile = await _call(
+      final closedFile = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFile'],
         const <Object?>['notes-closed.txt', false],
       );
       expect(closedFile, isA<Map>());
       expect(
-        await _callMethod(closedFile!, 'isOpen'),
+        await luaCallMethod(closedFile!, 'isOpen'),
         isFalse,
         reason: 'LOVE ignores non-string optional mode arguments here',
       );
 
-      expect(await _callMethod(file!, 'type'), 'File');
+      expect(await luaCallMethod(file!, 'type'), 'File');
       expect(
-        await _callMethod(file, 'typeOf', const <Object?>['Object']),
+        await luaCallMethod(file, 'typeOf', const <Object?>['Object']),
         isTrue,
       );
-      expect(await _callMethod(file, 'getExtension'), 'txt');
-      expect(await _callMethod(file, 'open', const <Object?>['w']), isTrue);
+      expect(await luaCallMethod(file, 'getExtension'), 'txt');
+      expect(await luaCallMethod(file, 'open', const <Object?>['w']), isTrue);
       expect(
-        await _callMethod(file, 'setBuffer', const <Object?>['full', 64]),
+        await luaCallMethod(file, 'setBuffer', const <Object?>['full', 64]),
         isTrue,
       );
-      expect(await _callMethod(file, 'getBuffer'), <Object?>['full', 64]);
+      expect(await luaCallMethod(file, 'getBuffer'), <Object?>['full', 64]);
       expect(
-        await _callMethod(file, 'write', const <Object?>['alpha\nbeta\n']),
+        await luaCallMethod(file, 'write', const <Object?>['alpha\nbeta\n']),
         isTrue,
       );
-      expect(await _callMethod(file, 'tell'), 11);
-      expect(await _callMethod(file, 'close'), isTrue);
+      expect(await luaCallMethod(file, 'tell'), 11);
+      expect(await luaCallMethod(file, 'close'), isTrue);
 
-      expect(await _callMethod(file, 'open', const <Object?>['r']), isTrue);
-      expect(await _callMethod(file, 'getMode'), 'r');
-      expect(await _callMethod(file, 'getSize'), 11);
-      expect(await _callMethod(file, 'read'), <Object?>['alpha\nbeta\n', 11]);
-      expect(await _callMethod(file, 'seek', const <Object?>[0]), isTrue);
+      expect(await luaCallMethod(file, 'open', const <Object?>['r']), isTrue);
+      expect(await luaCallMethod(file, 'getMode'), 'r');
+      expect(await luaCallMethod(file, 'getSize'), 11);
+      expect(await luaCallMethod(file, 'read'), <Object?>['alpha\nbeta\n', 11]);
+      expect(await luaCallMethod(file, 'seek', const <Object?>[0]), isTrue);
 
-      final iterator = await _callMethod(file, 'lines');
+      final iterator = await luaCallMethod(file, 'lines');
       expect(await _callBuiltin(iterator!), 'alpha');
-      expect(await _callMethod(file, 'tell'), 0);
+      expect(await luaCallMethod(file, 'tell'), 0);
       expect(await _callBuiltin(iterator), 'beta');
-      expect(await _callMethod(file, 'tell'), 0);
+      expect(await luaCallMethod(file, 'tell'), 0);
       expect(await _callBuiltin(iterator), isNull);
-      expect(await _callMethod(file, 'isOpen'), isFalse);
+      expect(await luaCallMethod(file, 'isOpen'), isFalse);
 
-      final fileData = await _call(
+      final fileData = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFileData'],
         const <Object?>['notes.txt'],
       );
       expect(fileData, isA<Map>());
-      expect(await _callMethod(fileData!, 'type'), 'FileData');
+      expect(await luaCallMethod(fileData!, 'type'), 'FileData');
       expect(
-        await _callMethod(fileData, 'typeOf', const <Object?>['Data']),
+        await luaCallMethod(fileData, 'typeOf', const <Object?>['Data']),
         isTrue,
       );
-      expect(await _callMethod(fileData, 'getFilename'), 'notes.txt');
-      expect(await _callMethod(fileData, 'getSize'), 11);
-      expect(await _callMethod(fileData, 'getString'), 'alpha\nbeta\n');
+      expect(await luaCallMethod(fileData, 'getFilename'), 'notes.txt');
+      expect(await luaCallMethod(fileData, 'getSize'), 11);
+      expect(await luaCallMethod(fileData, 'getString'), 'alpha\nbeta\n');
 
-      final clone = await _callMethod(fileData, 'clone');
-      expect(await _callMethod(clone!, 'getString'), 'alpha\nbeta\n');
+      final clone = await luaCallMethod(fileData, 'clone');
+      expect(await luaCallMethod(clone!, 'getString'), 'alpha\nbeta\n');
 
-      expect(await _callMethod(file, 'release'), isTrue);
-      expect(await _callMethod(file, 'release'), isFalse);
+      expect(await luaCallMethod(file, 'release'), isTrue);
+      expect(await luaCallMethod(file, 'release'), isFalse);
     },
   );
 
@@ -1227,14 +1243,14 @@ void main() {
       final runtime = Interpreter();
 
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setIdentity'],
         const <Object?>['game'],
       );
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'write'],
           const <Object?>[123, 'alpha'],
@@ -1242,7 +1258,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'read'],
           const <Object?>[123, 2],
@@ -1252,7 +1268,7 @@ void main() {
             'love.filesystem.read only treats exact strings as container-type overloads',
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'getInfo'],
           const <Object?>[123],
@@ -1260,7 +1276,7 @@ void main() {
         isA<Map>(),
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'setRequirePath'],
           const <Object?>[456],
@@ -1268,11 +1284,11 @@ void main() {
         isNull,
       );
       expect(
-        await _call(runtime, const ['love', 'filesystem', 'getRequirePath']),
+        await luaCall(runtime, const ['love', 'filesystem', 'getRequirePath']),
         '456',
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'append'],
           const <Object?>[123, 45],
@@ -1280,24 +1296,24 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'read'],
           const <Object?>[123],
         ),
         <Object?>['alpha45', 7],
       );
-      final numericFileData = await _call(
+      final numericFileData = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFileData'],
         const <Object?>[67, 'digits.txt'],
       );
       expect(numericFileData, isA<Map>());
-      expect(await _callMethod(numericFileData!, 'getString'), '67');
-      expect(await _callMethod(numericFileData, 'getFilename'), 'digits.txt');
+      expect(await luaCallMethod(numericFileData!, 'getString'), '67');
+      expect(await luaCallMethod(numericFileData, 'getFilename'), 'digits.txt');
 
       await expectLater(
-        () => _call(
+        () => luaCall(
           runtime,
           const ['love', 'filesystem', 'newFile'],
           const <Object?>['notes.txt', 789],
@@ -1320,14 +1336,14 @@ void main() {
       final runtime = Interpreter();
 
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setIdentity'],
         const <Object?>['game'],
       );
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'createDirectory'],
           const <Object?>['saves/slot1'],
@@ -1335,7 +1351,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'write'],
           const <Object?>['saves/slot1/note.txt', 'alpha\r\n'],
@@ -1343,7 +1359,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'append'],
           const <Object?>['saves/slot1/note.txt', 'beta'],
@@ -1352,7 +1368,7 @@ void main() {
       );
 
       final reusedInfoTable = <Object?, Object?>{'stale': true};
-      final info = await _call(
+      final info = await luaCall(
         runtime,
         const ['love', 'filesystem', 'getInfo'],
         <Object?>['saves/slot1/note.txt', 'file', reusedInfoTable],
@@ -1367,7 +1383,7 @@ void main() {
         'size': 123,
         'modtime': 456,
       };
-      final directoryInfo = await _call(
+      final directoryInfo = await luaCall(
         runtime,
         const ['love', 'filesystem', 'getInfo'],
         <Object?>['saves', reusedDirectoryInfoTable],
@@ -1382,7 +1398,7 @@ void main() {
       expect(reusedDirectoryInfoTable['modtime'], 0);
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'getInfo'],
           const <Object?>['saves/slot1/note.txt', 'directory'],
@@ -1390,7 +1406,7 @@ void main() {
         isNull,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'getInfo'],
           <Object?>['saves/slot1/note.txt', null, reusedInfoTable],
@@ -1401,7 +1417,7 @@ void main() {
       );
       expect(reusedInfoTable['stale'], isTrue);
       await expectLater(
-        () => _call(
+        () => luaCall(
           runtime,
           const ['love', 'filesystem', 'getInfo'],
           <Object?>['saves/slot1/note.txt', 123, reusedInfoTable],
@@ -1416,7 +1432,7 @@ void main() {
       );
       final ignoredThirdTable = <Object?, Object?>{'ignored': true};
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'getInfo'],
           <Object?>['saves/slot1/note.txt', reusedInfoTable, ignoredThirdTable],
@@ -1426,7 +1442,7 @@ void main() {
             'LOVE only treats argument 3 as the table when argument 2 is a filter string',
       );
 
-      final readData = await _call(
+      final readData = await luaCall(
         runtime,
         const ['love', 'filesystem', 'read'],
         const <Object?>['data', 'saves/slot1/note.txt'],
@@ -1435,11 +1451,11 @@ void main() {
       final readTuple = readData! as List<Object?>;
       expect(readTuple[0], isA<Map>());
       expect(readTuple[1], 11);
-      expect(await _callMethod(readTuple[0]!, 'getString'), 'alpha\r\nbeta');
-      expect(await _callMethod(readTuple[0]!, 'getExtension'), 'txt');
+      expect(await luaCallMethod(readTuple[0]!, 'getString'), 'alpha\r\nbeta');
+      expect(await luaCallMethod(readTuple[0]!, 'getExtension'), 'txt');
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'remove'],
           const <Object?>['saves/slot1/note.txt'],
@@ -1447,7 +1463,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'getInfo'],
           const <Object?>['saves/slot1/note.txt'],
@@ -1464,14 +1480,14 @@ void main() {
       final runtime = Interpreter();
 
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setIdentity'],
         const <Object?>['game'],
       );
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'createDirectory'],
           const <Object?>['kept/nested'],
@@ -1479,7 +1495,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'write'],
           const <Object?>['kept/nested/file.txt', 'payload'],
@@ -1487,7 +1503,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'createDirectory'],
           const <Object?>['emptydir'],
@@ -1496,7 +1512,7 @@ void main() {
       );
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'remove'],
           const <Object?>['kept'],
@@ -1504,7 +1520,7 @@ void main() {
         isFalse,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'getInfo'],
           const <Object?>['kept'],
@@ -1512,7 +1528,7 @@ void main() {
         isA<Map>(),
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'read'],
           const <Object?>['kept/nested/file.txt'],
@@ -1521,7 +1537,7 @@ void main() {
       );
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'remove'],
           const <Object?>['emptydir'],
@@ -1529,7 +1545,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'getInfo'],
           const <Object?>['emptydir'],
@@ -1538,7 +1554,7 @@ void main() {
       );
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'remove'],
           const <Object?>['kept/nested/file.txt'],
@@ -1546,7 +1562,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'remove'],
           const <Object?>['kept/nested'],
@@ -1554,7 +1570,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'remove'],
           const <Object?>['kept'],
@@ -1562,7 +1578,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'getInfo'],
           const <Object?>['kept'],
@@ -1579,13 +1595,13 @@ void main() {
       final runtime = Interpreter();
 
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setIdentity'],
         const <Object?>['game'],
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'write'],
           const <Object?>['busy.txt', 'payload'],
@@ -1593,16 +1609,16 @@ void main() {
         isTrue,
       );
 
-      final file = await _call(
+      final file = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFile'],
         const <Object?>['busy.txt'],
       );
       expect(file, isA<Map>());
-      expect(await _callMethod(file!, 'open', const <Object?>['r']), isTrue);
+      expect(await luaCallMethod(file!, 'open', const <Object?>['r']), isTrue);
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'remove'],
           const <Object?>['busy.txt'],
@@ -1610,7 +1626,7 @@ void main() {
         isFalse,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'getInfo'],
           const <Object?>['busy.txt'],
@@ -1618,9 +1634,9 @@ void main() {
         isA<Map>(),
       );
 
-      expect(await _callMethod(file, 'close'), isTrue);
+      expect(await luaCallMethod(file, 'close'), isTrue);
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'remove'],
           const <Object?>['busy.txt'],
@@ -1628,7 +1644,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'getInfo'],
           const <Object?>['busy.txt'],
@@ -1645,14 +1661,14 @@ void main() {
       final runtime = Interpreter();
 
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setIdentity'],
         const <Object?>['dir-tests'],
       );
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'createDirectory'],
           const <Object?>['nested'],
@@ -1660,7 +1676,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'createDirectory'],
           const <Object?>['nested'],
@@ -1669,7 +1685,7 @@ void main() {
       );
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'write'],
           const <Object?>['file.txt', 'payload'],
@@ -1677,7 +1693,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'createDirectory'],
           const <Object?>['file.txt'],
@@ -1686,7 +1702,7 @@ void main() {
       );
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'createDirectory'],
           const <Object?>['file.txt/nested'],
@@ -1704,13 +1720,13 @@ void main() {
 
       final runtime = Interpreter();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source'],
       );
 
-      final moduleIterator = await _call(
+      final moduleIterator = await luaCall(
         runtime,
         const ['love', 'filesystem', 'lines'],
         const <Object?>['lines.txt'],
@@ -1720,64 +1736,73 @@ void main() {
       expect(await _callBuiltin(moduleIterator), 'gamma');
       expect(await _callBuiltin(moduleIterator), isNull);
 
-      final closedFile = await _call(
+      final closedFile = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFile'],
         const <Object?>['lines.txt'],
       );
-      final closedFileIterator = await _callMethod(closedFile!, 'lines');
+      final closedFileIterator = await luaCallMethod(closedFile!, 'lines');
       expect(await _callBuiltin(closedFileIterator!), 'alpha');
-      expect(await _callMethod(closedFile, 'tell'), 7);
+      expect(await luaCallMethod(closedFile, 'tell'), 7);
       expect(await _callBuiltin(closedFileIterator), 'beta');
-      expect(await _callMethod(closedFile, 'tell'), 13);
+      expect(await luaCallMethod(closedFile, 'tell'), 13);
       expect(await _callBuiltin(closedFileIterator), 'gamma');
-      expect(await _callMethod(closedFile, 'tell'), 20);
+      expect(await luaCallMethod(closedFile, 'tell'), 20);
       expect(await _callBuiltin(closedFileIterator), isNull);
-      expect(await _callMethod(closedFile, 'isOpen'), isFalse);
+      expect(await luaCallMethod(closedFile, 'isOpen'), isFalse);
 
-      final file = await _call(
+      final file = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFile'],
         const <Object?>['lines.txt'],
       );
-      expect(await _callMethod(file!, 'open', const <Object?>['r']), isTrue);
-      expect(await _callMethod(file, 'seek', const <Object?>[7]), isTrue);
+      expect(await luaCallMethod(file!, 'open', const <Object?>['r']), isTrue);
+      expect(await luaCallMethod(file, 'seek', const <Object?>[7]), isTrue);
 
-      final fileIterator = await _callMethod(file, 'lines');
+      final fileIterator = await luaCallMethod(file, 'lines');
       expect(await _callBuiltin(fileIterator!), 'alpha');
-      expect(await _callMethod(file, 'tell'), 7);
+      expect(await luaCallMethod(file, 'tell'), 7);
       expect(await _callBuiltin(fileIterator), 'beta');
-      expect(await _callMethod(file, 'tell'), 7);
+      expect(await luaCallMethod(file, 'tell'), 7);
       expect(await _callBuiltin(fileIterator), 'gamma');
-      expect(await _callMethod(file, 'tell'), 7);
+      expect(await luaCallMethod(file, 'tell'), 7);
       expect(await _callBuiltin(fileIterator), isNull);
-      expect(await _callMethod(file, 'isOpen'), isFalse);
+      expect(await luaCallMethod(file, 'isOpen'), isFalse);
 
-      final movedFile = await _call(
+      final movedFile = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFile'],
         const <Object?>['lines.txt'],
       );
       expect(
-        await _callMethod(movedFile!, 'open', const <Object?>['r']),
+        await luaCallMethod(movedFile!, 'open', const <Object?>['r']),
         isTrue,
       );
-      expect(await _callMethod(movedFile, 'seek', const <Object?>[7]), isTrue);
+      expect(
+        await luaCallMethod(movedFile, 'seek', const <Object?>[7]),
+        isTrue,
+      );
 
-      final movedIterator = await _callMethod(movedFile, 'lines');
+      final movedIterator = await luaCallMethod(movedFile, 'lines');
       expect(await _callBuiltin(movedIterator!), 'alpha');
-      expect(await _callMethod(movedFile, 'tell'), 7);
+      expect(await luaCallMethod(movedFile, 'tell'), 7);
 
-      expect(await _callMethod(movedFile, 'seek', const <Object?>[2]), isTrue);
+      expect(
+        await luaCallMethod(movedFile, 'seek', const <Object?>[2]),
+        isTrue,
+      );
       expect(await _callBuiltin(movedIterator), 'beta');
-      expect(await _callMethod(movedFile, 'tell'), 2);
+      expect(await luaCallMethod(movedFile, 'tell'), 2);
 
-      expect(await _callMethod(movedFile, 'seek', const <Object?>[4]), isTrue);
+      expect(
+        await luaCallMethod(movedFile, 'seek', const <Object?>[4]),
+        isTrue,
+      );
       expect(await _callBuiltin(movedIterator), 'gamma');
-      expect(await _callMethod(movedFile, 'tell'), 4);
+      expect(await luaCallMethod(movedFile, 'tell'), 4);
 
       expect(await _callBuiltin(movedIterator), isNull);
-      expect(await _callMethod(movedFile, 'isOpen'), isFalse);
+      expect(await luaCallMethod(movedFile, 'isOpen'), isFalse);
     },
   );
 
@@ -1788,7 +1813,7 @@ void main() {
       adapter.addFile('/source/main.lua', 'return true');
       final runtime = Interpreter();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source'],
@@ -1803,7 +1828,7 @@ void main() {
       );
       expect(readResult[0], isNull);
       expect(
-        _unwrap(readResult[1]),
+        luaUnwrapValue(readResult[1]),
         'Could not open file missing.txt. Does not exist.',
       );
 
@@ -1816,7 +1841,7 @@ void main() {
       );
       expect(loadResult[0], isNull);
       expect(
-        _unwrap(loadResult[1]),
+        luaUnwrapValue(loadResult[1]),
         'Could not open file missing.lua. Does not exist.',
       );
 
@@ -1829,7 +1854,7 @@ void main() {
       );
       expect(fileDataResult[0], isNull);
       expect(
-        _unwrap(fileDataResult[1]),
+        luaUnwrapValue(fileDataResult[1]),
         'Could not open file missing.bin. Does not exist.',
       );
 
@@ -1842,11 +1867,11 @@ void main() {
       );
       expect(openedFileResult[0], isNull);
       expect(
-        _unwrap(openedFileResult[1]),
+        luaUnwrapValue(openedFileResult[1]),
         'Could not open file missing.open.txt. Does not exist.',
       );
 
-      final file = await _call(
+      final file = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFile'],
         const <Object?>['missing.file.txt'],
@@ -1854,18 +1879,18 @@ void main() {
       expect(file, isA<Map>());
 
       final fileOpenResult = _rawResults(
-        await _callMethod(file!, 'open', const <Object?>['r']),
+        await luaCallMethod(file!, 'open', const <Object?>['r']),
       );
       expect(fileOpenResult[0], isNull);
       expect(
-        _unwrap(fileOpenResult[1]),
+        luaUnwrapValue(fileOpenResult[1]),
         'Could not open file missing.file.txt. Does not exist.',
       );
 
-      final fileReadResult = _rawResults(await _callMethod(file, 'read'));
+      final fileReadResult = _rawResults(await luaCallMethod(file, 'read'));
       expect(fileReadResult[0], isNull);
       expect(
-        _unwrap(fileReadResult[1]),
+        luaUnwrapValue(fileReadResult[1]),
         'Could not open file missing.file.txt. Does not exist.',
       );
     },
@@ -1879,55 +1904,55 @@ void main() {
 
       final runtime = Interpreter();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source'],
       );
 
-      final closedFile = await _call(
+      final closedFile = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFile'],
         const <Object?>['cursor.txt'],
       );
       expect(closedFile, isA<Map>());
-      expect(await _callMethod(closedFile!, 'isOpen'), isFalse);
+      expect(await luaCallMethod(closedFile!, 'isOpen'), isFalse);
 
-      final closedFileData = await _call(
+      final closedFileData = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFileData'],
         <Object?>[closedFile],
       );
       expect(closedFileData, isA<Map>());
-      expect(await _callMethod(closedFileData!, 'getString'), 'abcdef');
-      expect(await _callMethod(closedFile, 'isOpen'), isFalse);
+      expect(await luaCallMethod(closedFileData!, 'getString'), 'abcdef');
+      expect(await luaCallMethod(closedFile, 'isOpen'), isFalse);
 
-      final openFile = await _call(
+      final openFile = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFile'],
         const <Object?>['cursor.txt'],
       );
       expect(openFile, isA<Map>());
       expect(
-        await _callMethod(openFile!, 'open', const <Object?>['r']),
+        await luaCallMethod(openFile!, 'open', const <Object?>['r']),
         isTrue,
       );
-      expect(await _callMethod(openFile, 'read', const <Object?>[2]), <Object?>[
-        'ab',
-        2,
-      ]);
-      expect(await _callMethod(openFile, 'tell'), 2);
+      expect(
+        await luaCallMethod(openFile, 'read', const <Object?>[2]),
+        <Object?>['ab', 2],
+      );
+      expect(await luaCallMethod(openFile, 'tell'), 2);
 
-      final openFileData = await _call(
+      final openFileData = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFileData'],
         <Object?>[openFile],
       );
       expect(openFileData, isA<Map>());
-      expect(await _callMethod(openFileData!, 'getString'), 'cdef');
-      expect(await _callMethod(openFile, 'isOpen'), isTrue);
-      expect(await _callMethod(openFile, 'getMode'), 'r');
-      expect(await _callMethod(openFile, 'tell'), 6);
+      expect(await luaCallMethod(openFileData!, 'getString'), 'cdef');
+      expect(await luaCallMethod(openFile, 'isOpen'), isTrue);
+      expect(await luaCallMethod(openFile, 'getMode'), 'r');
+      expect(await luaCallMethod(openFile, 'tell'), 6);
     },
   );
 
@@ -1940,7 +1965,7 @@ void main() {
 
       final runtime = Interpreter();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source'],
@@ -1990,7 +2015,7 @@ void main() {
 
       final runtime = Interpreter();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source'],
@@ -2019,7 +2044,7 @@ void main() {
 
     final runtime = Interpreter();
     installLove2d(runtime: runtime, filesystemAdapter: adapter);
-    await _call(
+    await luaCall(
       runtime,
       const ['love', 'filesystem', 'setSource'],
       const <Object?>['/source'],
@@ -2052,7 +2077,7 @@ void main() {
 
       final runtime = Interpreter();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source'],
@@ -2118,7 +2143,7 @@ void main() {
         ),
       );
       expect(writeResult[0], isNull);
-      expect(_unwrap(writeResult[1]), 'Could not set write directory.');
+      expect(luaUnwrapValue(writeResult[1]), 'Could not set write directory.');
 
       final appendResult = _rawResults(
         await _callRawPath(
@@ -2128,7 +2153,7 @@ void main() {
         ),
       );
       expect(appendResult[0], isNull);
-      expect(_unwrap(appendResult[1]), 'Could not set write directory.');
+      expect(luaUnwrapValue(appendResult[1]), 'Could not set write directory.');
     },
   );
 
@@ -2139,21 +2164,21 @@ void main() {
         ..failWritesWithoutError = true;
       final runtime = Interpreter();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setIdentity'],
         const <Object?>['write-tests'],
       );
 
-      final file = await _call(
+      final file = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFile'],
         const <Object?>['state.txt'],
       );
       expect(file, isA<Map>());
-      expect(await _callMethod(file!, 'open', const <Object?>['w']), isTrue);
+      expect(await luaCallMethod(file!, 'open', const <Object?>['w']), isTrue);
       expect(
-        await _callMethod(file, 'write', const <Object?>['payload']),
+        await luaCallMethod(file, 'write', const <Object?>['payload']),
         isFalse,
       );
 
@@ -2165,7 +2190,7 @@ void main() {
         ),
       );
       expect(writeResult[0], isNull);
-      expect(_unwrap(writeResult[1]), 'Data could not be written.');
+      expect(luaUnwrapValue(writeResult[1]), 'Data could not be written.');
     },
   );
 
@@ -2176,46 +2201,55 @@ void main() {
       final runtime = Interpreter();
 
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setIdentity'],
         const <Object?>['write-subdirs'],
       );
 
       final moduleWrite = _rawResults(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'write'],
           const <Object?>['nested/state.txt', 'payload'],
         ),
       );
       expect(moduleWrite[0], isNull);
-      expect(_unwrap(moduleWrite[1]), 'Could not open file nested/state.txt.');
+      expect(
+        luaUnwrapValue(moduleWrite[1]),
+        'Could not open file nested/state.txt.',
+      );
 
       final moduleAppend = _rawResults(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'append'],
           const <Object?>['nested/state.txt', 'payload'],
         ),
       );
       expect(moduleAppend[0], isNull);
-      expect(_unwrap(moduleAppend[1]), 'Could not open file nested/state.txt.');
+      expect(
+        luaUnwrapValue(moduleAppend[1]),
+        'Could not open file nested/state.txt.',
+      );
 
-      final file = await _call(
+      final file = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFile'],
         const <Object?>['nested/state.txt'],
       );
       expect(file, isA<Map>());
       final openResult = _rawResults(
-        await _callMethod(file!, 'open', const <Object?>['w']),
+        await luaCallMethod(file!, 'open', const <Object?>['w']),
       );
       expect(openResult[0], isNull);
-      expect(_unwrap(openResult[1]), 'Could not open file nested/state.txt.');
+      expect(
+        luaUnwrapValue(openResult[1]),
+        'Could not open file nested/state.txt.',
+      );
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'createDirectory'],
           const <Object?>['nested'],
@@ -2223,7 +2257,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'write'],
           const <Object?>['nested/state.txt', 'payload'],
@@ -2231,7 +2265,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'read'],
           const <Object?>['nested/state.txt'],
@@ -2247,7 +2281,7 @@ void main() {
       final runtime = Interpreter();
       installLove2d(runtime: runtime);
 
-      final file = await _call(
+      final file = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFile'],
         const <Object?>['state.txt'],
@@ -2255,10 +2289,10 @@ void main() {
       expect(file, isA<Map>());
 
       final openResult = _rawResults(
-        await _callMethod(file!, 'open', const <Object?>['w']),
+        await luaCallMethod(file!, 'open', const <Object?>['w']),
       );
       expect(openResult[0], isNull);
-      expect(_unwrap(openResult[1]), 'Could not set write directory.');
+      expect(luaUnwrapValue(openResult[1]), 'Could not set write directory.');
     },
   );
 
@@ -2269,23 +2303,23 @@ void main() {
       final runtime = Interpreter();
 
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setIdentity'],
         const <Object?>['read-mode-test'],
       );
 
-      final file = await _call(
+      final file = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFile'],
         const <Object?>['state.txt'],
       );
       expect(file, isA<Map>());
-      expect(await _callMethod(file!, 'open', const <Object?>['w']), isTrue);
+      expect(await luaCallMethod(file!, 'open', const <Object?>['w']), isTrue);
 
-      final readResult = _rawResults(await _callMethod(file, 'read'));
+      final readResult = _rawResults(await luaCallMethod(file, 'read'));
       expect(readResult[0], isNull);
-      expect(_unwrap(readResult[1]), 'File is not opened for reading.');
+      expect(luaUnwrapValue(readResult[1]), 'File is not opened for reading.');
     },
   );
 
@@ -2296,32 +2330,32 @@ void main() {
       final runtime = Interpreter();
 
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setIdentity'],
         const <Object?>['newfiledata-file-test'],
       );
 
-      final file = await _call(
+      final file = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFile'],
         const <Object?>['state.txt'],
       );
       expect(file, isA<Map>());
-      expect(await _callMethod(file!, 'open', const <Object?>['w']), isTrue);
+      expect(await luaCallMethod(file!, 'open', const <Object?>['w']), isTrue);
 
       final fileResult = _rawResults(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'newFileData'],
           <Object?>[file],
         ),
       );
       expect(fileResult[0], isNull);
-      expect(_unwrap(fileResult[1]), 'File is not opened for reading.');
+      expect(luaUnwrapValue(fileResult[1]), 'File is not opened for reading.');
 
       await expectLater(
-        () => _call(
+        () => luaCall(
           runtime,
           const ['love', 'filesystem', 'newFileData'],
           const <Object?>[true],
@@ -2336,7 +2370,7 @@ void main() {
       );
 
       await expectLater(
-        () => _call(
+        () => luaCall(
           runtime,
           const ['love', 'filesystem', 'newFileData'],
           const <Object?>[true, 'payload.bin'],
@@ -2360,17 +2394,17 @@ void main() {
 
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
 
-      final file = await _call(
+      final file = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFile'],
         const <Object?>['missing.txt'],
       );
       expect(file, isA<Map>());
 
-      final getSizeResult = _rawResults(await _callMethod(file!, 'getSize'));
+      final getSizeResult = _rawResults(await luaCallMethod(file!, 'getSize'));
       expect(getSizeResult[0], isNull);
       expect(
-        _unwrap(getSizeResult[1]),
+        luaUnwrapValue(getSizeResult[1]),
         'Could not open file missing.txt. Does not exist.',
       );
     },
@@ -2383,14 +2417,14 @@ void main() {
 
     final runtime = Interpreter();
     installLove2d(runtime: runtime, filesystemAdapter: adapter);
-    await _call(
+    await luaCall(
       runtime,
       const ['love', 'filesystem', 'setSource'],
       const <Object?>['/source'],
     );
 
     final readResult = _rawResults(
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'read'],
         const <Object?>['locked.txt'],
@@ -2398,12 +2432,12 @@ void main() {
     );
     expect(readResult[0], isNull);
     expect(
-      _unwrap(readResult[1]),
+      luaUnwrapValue(readResult[1]),
       'Could not open file locked.txt (permission denied)',
     );
 
     final fileDataResult = _rawResults(
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFileData'],
         const <Object?>['locked.txt'],
@@ -2411,21 +2445,21 @@ void main() {
     );
     expect(fileDataResult[0], isNull);
     expect(
-      _unwrap(fileDataResult[1]),
+      luaUnwrapValue(fileDataResult[1]),
       'Could not open file locked.txt (permission denied)',
     );
 
-    final file = await _call(
+    final file = await luaCall(
       runtime,
       const ['love', 'filesystem', 'newFile'],
       const <Object?>['locked.txt'],
     );
     final openResult = _rawResults(
-      await _callMethod(file!, 'open', const <Object?>['r']),
+      await luaCallMethod(file!, 'open', const <Object?>['r']),
     );
     expect(openResult[0], isNull);
     expect(
-      _unwrap(openResult[1]),
+      luaUnwrapValue(openResult[1]),
       'Could not open file locked.txt (permission denied)',
     );
   });
@@ -2437,21 +2471,21 @@ void main() {
       adapter.addFile('/source/main.lua', 'return true');
       final runtime = Interpreter();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source'],
       );
 
       final result = _rawResults(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['missing.txt'],
         ),
       );
       expect(result[0], isNull);
-      expect(_unwrap(result[1]), 'File does not exist on disk.');
+      expect(luaUnwrapValue(result[1]), 'File does not exist on disk.');
     },
   );
 
@@ -2466,44 +2500,44 @@ void main() {
 
       final runtime = Interpreter();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source'],
       );
 
       final missingSize = _rawResults(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'getSize'],
           const <Object?>['missing.txt'],
         ),
       );
       expect(missingSize[0], isNull);
-      expect(_unwrap(missingSize[1]), 'File does not exist');
+      expect(luaUnwrapValue(missingSize[1]), 'File does not exist');
 
       final unknownSize = _rawResults(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'getSize'],
           const <Object?>['unknown-size.txt'],
         ),
       );
       expect(unknownSize[0], isNull);
-      expect(_unwrap(unknownSize[1]), 'Could not determine file size.');
+      expect(luaUnwrapValue(unknownSize[1]), 'Could not determine file size.');
 
       final missingModtime = _rawResults(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'getLastModified'],
           const <Object?>['missing.txt'],
         ),
       );
       expect(missingModtime[0], isNull);
-      expect(_unwrap(missingModtime[1]), 'File does not exist');
+      expect(luaUnwrapValue(missingModtime[1]), 'File does not exist');
 
       final unknownModtime = _rawResults(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'getLastModified'],
           const <Object?>['unknown-modtime.txt'],
@@ -2511,7 +2545,7 @@ void main() {
       );
       expect(unknownModtime[0], isNull);
       expect(
-        _unwrap(unknownModtime[1]),
+        luaUnwrapValue(unknownModtime[1]),
         'Could not determine file modification date.',
       );
     },
@@ -2530,13 +2564,13 @@ void main() {
 
       final runtime = Interpreter();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source'],
       );
 
-      final info = await _call(
+      final info = await luaCall(
         runtime,
         const ['love', 'filesystem', 'getInfo'],
         const <Object?>['sentinel-info.txt'],
@@ -2548,7 +2582,7 @@ void main() {
       expect(infoTable.containsKey('modtime'), isFalse);
 
       final reusedInfoTable = <Object?, Object?>{'size': 123, 'modtime': 456};
-      final reusedInfo = await _call(
+      final reusedInfo = await luaCall(
         runtime,
         const ['love', 'filesystem', 'getInfo'],
         <Object?>['sentinel-info.txt', reusedInfoTable],
@@ -2568,17 +2602,20 @@ void main() {
       );
 
       final deprecatedSize = _rawResults(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'getSize'],
           const <Object?>['sentinel-info.txt'],
         ),
       );
       expect(deprecatedSize[0], isNull);
-      expect(_unwrap(deprecatedSize[1]), 'Could not determine file size.');
+      expect(
+        luaUnwrapValue(deprecatedSize[1]),
+        'Could not determine file size.',
+      );
 
       final deprecatedModtime = _rawResults(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'getLastModified'],
           const <Object?>['sentinel-info.txt'],
@@ -2586,20 +2623,20 @@ void main() {
       );
       expect(deprecatedModtime[0], isNull);
       expect(
-        _unwrap(deprecatedModtime[1]),
+        luaUnwrapValue(deprecatedModtime[1]),
         'Could not determine file modification date.',
       );
 
-      final file = await _call(
+      final file = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFile'],
         const <Object?>['sentinel-info.txt'],
       );
       expect(file, isA<Map>());
 
-      final fileSize = _rawResults(await _callMethod(file!, 'getSize'));
+      final fileSize = _rawResults(await luaCallMethod(file!, 'getSize'));
       expect(fileSize[0], isNull);
-      expect(_unwrap(fileSize[1]), 'Could not determine file size.');
+      expect(luaUnwrapValue(fileSize[1]), 'Could not determine file size.');
     },
   );
 
@@ -2613,13 +2650,13 @@ void main() {
 
       final runtime = Interpreter();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source'],
       );
 
-      final info = await _call(
+      final info = await luaCall(
         runtime,
         const ['love', 'filesystem', 'getInfo'],
         const <Object?>['oversized.txt'],
@@ -2628,7 +2665,7 @@ void main() {
       expect((info! as Map)['size'], 0x20000000000000);
 
       final deprecatedSize = _rawResults(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'getSize'],
           const <Object?>['oversized.txt'],
@@ -2636,24 +2673,24 @@ void main() {
       );
       expect(deprecatedSize[0], isNull);
       expect(
-        _unwrap(deprecatedSize[1]),
+        luaUnwrapValue(deprecatedSize[1]),
         'Size too large to fit into a Lua number!',
       );
 
-      final file = await _call(
+      final file = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFile'],
         const <Object?>['oversized.txt'],
       );
-      expect(await _callMethod(file!, 'open', const <Object?>['r']), isTrue);
+      expect(await luaCallMethod(file!, 'open', const <Object?>['r']), isTrue);
 
-      final fileSize = _rawResults(await _callMethod(file, 'getSize'));
+      final fileSize = _rawResults(await luaCallMethod(file, 'getSize'));
       expect(fileSize[0], isNull);
-      expect(_unwrap(fileSize[1]), 'Size is too large.');
+      expect(luaUnwrapValue(fileSize[1]), 'Size is too large.');
 
-      final tell = _rawResults(await _callMethod(file, 'tell'));
+      final tell = _rawResults(await luaCallMethod(file, 'tell'));
       expect(tell[0], isNull);
-      expect(_unwrap(tell[1]), 'Number is too large.');
+      expect(luaUnwrapValue(tell[1]), 'Number is too large.');
     },
   );
 
@@ -2665,22 +2702,22 @@ void main() {
 
       final runtime = Interpreter();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source'],
       );
 
-      final file = await _call(
+      final file = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFile'],
         const <Object?>['seek.txt'],
       );
-      expect(await _callMethod(file!, 'open', const <Object?>['r']), isTrue);
-      expect(await _callMethod(file, 'seek', const <Object?>[1.9]), isTrue);
-      expect(await _callMethod(file, 'tell'), 1);
+      expect(await luaCallMethod(file!, 'open', const <Object?>['r']), isTrue);
+      expect(await luaCallMethod(file, 'seek', const <Object?>[1.9]), isTrue);
+      expect(await luaCallMethod(file, 'tell'), 1);
       expect(
-        await _callMethod(file, 'seek', const <Object?>[9007199254740992.0]),
+        await luaCallMethod(file, 'seek', const <Object?>[9007199254740992.0]),
         isFalse,
       );
     },
@@ -2694,14 +2731,14 @@ void main() {
 
       final runtime = Interpreter();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source'],
       );
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'read'],
           const <Object?>['fractional.txt', 1.9],
@@ -2709,43 +2746,43 @@ void main() {
         <Object?>['a', 1],
       );
 
-      final file = await _call(
+      final file = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFile'],
         const <Object?>['fractional.txt'],
       );
-      expect(await _callMethod(file!, 'open', const <Object?>['r']), isTrue);
+      expect(await luaCallMethod(file!, 'open', const <Object?>['r']), isTrue);
       expect(adapter.lastOpenedDevice, isNotNull);
       expect(adapter.lastOpenedDevice!.bufferMode, BufferMode.none);
       expect(adapter.lastOpenedDevice!.bufferSize, 0);
-      expect(await _callMethod(file, 'read', const <Object?>[2.9]), <Object?>[
+      expect(await luaCallMethod(file, 'read', const <Object?>[2.9]), <Object?>[
         'ab',
         2,
       ]);
       expect(
-        await _callMethod(file, 'setBuffer', const <Object?>['full', 3.9]),
+        await luaCallMethod(file, 'setBuffer', const <Object?>['full', 3.9]),
         isTrue,
       );
-      expect(await _callMethod(file, 'getBuffer'), <Object?>['full', 3]);
+      expect(await luaCallMethod(file, 'getBuffer'), <Object?>['full', 3]);
       expect(adapter.lastOpenedDevice!.bufferMode, BufferMode.full);
       expect(adapter.lastOpenedDevice!.bufferSize, 3);
 
       expect(
-        await _callMethod(file, 'setBuffer', const <Object?>['none', 7.9]),
+        await luaCallMethod(file, 'setBuffer', const <Object?>['none', 7.9]),
         isTrue,
       );
-      expect(await _callMethod(file, 'getBuffer'), <Object?>['none', 0]);
+      expect(await luaCallMethod(file, 'getBuffer'), <Object?>['none', 0]);
       expect(adapter.lastOpenedDevice!.bufferMode, BufferMode.none);
       expect(adapter.lastOpenedDevice!.bufferSize, 0);
 
-      expect(await _callMethod(file, 'close'), isTrue);
+      expect(await luaCallMethod(file, 'close'), isTrue);
       expect(
-        await _callMethod(file, 'setBuffer', const <Object?>['none', 9.9]),
+        await luaCallMethod(file, 'setBuffer', const <Object?>['none', 9.9]),
         isTrue,
       );
-      expect(await _callMethod(file, 'getBuffer'), <Object?>['none', 9]);
-      expect(await _callMethod(file, 'open', const <Object?>['r']), isTrue);
-      expect(await _callMethod(file, 'getBuffer'), <Object?>['none', 0]);
+      expect(await luaCallMethod(file, 'getBuffer'), <Object?>['none', 9]);
+      expect(await luaCallMethod(file, 'open', const <Object?>['r']), isTrue);
+      expect(await luaCallMethod(file, 'getBuffer'), <Object?>['none', 0]);
       expect(adapter.lastOpenedDevice!.bufferMode, BufferMode.none);
       expect(adapter.lastOpenedDevice!.bufferSize, 0);
     },
@@ -2759,13 +2796,13 @@ void main() {
 
       final runtime = Interpreter();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source'],
       );
 
-      final file = await _call(
+      final file = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFile'],
         const <Object?>['fractional.txt'],
@@ -2773,20 +2810,20 @@ void main() {
       expect(file, isA<Map>());
 
       expect(
-        await _callMethod(file!, 'setBuffer', const <Object?>['full', 12]),
+        await luaCallMethod(file!, 'setBuffer', const <Object?>['full', 12]),
         isTrue,
       );
-      expect(await _callMethod(file, 'getBuffer'), <Object?>['full', 12]);
+      expect(await luaCallMethod(file, 'getBuffer'), <Object?>['full', 12]);
 
       adapter.setBufferingFailureError = 'buffer apply failed';
-      expect(await _callMethod(file, 'open', const <Object?>['r']), isTrue);
-      expect(await _callMethod(file, 'getBuffer'), <Object?>['none', 0]);
+      expect(await luaCallMethod(file, 'open', const <Object?>['r']), isTrue);
+      expect(await luaCallMethod(file, 'getBuffer'), <Object?>['none', 0]);
 
       expect(
-        await _callMethod(file, 'setBuffer', const <Object?>['line', 7]),
+        await luaCallMethod(file, 'setBuffer', const <Object?>['line', 7]),
         isFalse,
       );
-      expect(await _callMethod(file, 'getBuffer'), <Object?>['none', 0]);
+      expect(await luaCallMethod(file, 'getBuffer'), <Object?>['none', 0]);
     },
   );
 
@@ -2797,29 +2834,29 @@ void main() {
       final runtime = Interpreter();
 
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setIdentity'],
         const <Object?>['close-failure-test'],
       );
 
-      final file = await _call(
+      final file = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFile'],
         const <Object?>['state.txt'],
       );
       expect(file, isA<Map>());
-      expect(await _callMethod(file!, 'open', const <Object?>['w']), isTrue);
+      expect(await luaCallMethod(file!, 'open', const <Object?>['w']), isTrue);
 
       adapter.flushFailureError = 'flush failed';
-      expect(await _callMethod(file, 'flush'), isFalse);
-      expect(await _callMethod(file, 'isOpen'), isTrue);
-      expect(await _callMethod(file, 'getMode'), 'w');
+      expect(await luaCallMethod(file, 'flush'), isFalse);
+      expect(await luaCallMethod(file, 'isOpen'), isTrue);
+      expect(await luaCallMethod(file, 'getMode'), 'w');
 
       adapter.closeFailureError = 'close failed';
-      expect(await _callMethod(file, 'close'), isFalse);
-      expect(await _callMethod(file, 'isOpen'), isTrue);
-      expect(await _callMethod(file, 'getMode'), 'w');
+      expect(await luaCallMethod(file, 'close'), isFalse);
+      expect(await luaCallMethod(file, 'isOpen'), isTrue);
+      expect(await luaCallMethod(file, 'getMode'), 'w');
     },
   );
 
@@ -2831,34 +2868,34 @@ void main() {
 
       final runtime = Interpreter();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source'],
       );
 
       final moduleRead = _rawResults(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'read'],
           const <Object?>['fractional.txt', -1],
         ),
       );
       expect(moduleRead[0], isNull);
-      expect(_unwrap(moduleRead[1]), 'Invalid read size.');
+      expect(luaUnwrapValue(moduleRead[1]), 'Invalid read size.');
 
-      final file = await _call(
+      final file = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFile'],
         const <Object?>['fractional.txt'],
       );
-      expect(await _callMethod(file!, 'open', const <Object?>['r']), isTrue);
+      expect(await luaCallMethod(file!, 'open', const <Object?>['r']), isTrue);
 
       final fileRead = _rawResults(
-        await _callMethod(file, 'read', const <Object?>[-2]),
+        await luaCallMethod(file, 'read', const <Object?>[-2]),
       );
       expect(fileRead[0], isNull);
-      expect(_unwrap(fileRead[1]), 'Invalid read size.');
+      expect(luaUnwrapValue(fileRead[1]), 'Invalid read size.');
     },
   );
 
@@ -2870,24 +2907,27 @@ void main() {
 
       final runtime = Interpreter();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source'],
       );
 
-      final file = await _call(
+      final file = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFile'],
         const <Object?>['fractional.txt'],
       );
-      expect(await _callMethod(file!, 'open', const <Object?>['r']), isTrue);
+      expect(await luaCallMethod(file!, 'open', const <Object?>['r']), isTrue);
 
       final fileRead = _rawResults(
-        await _callMethod(file, 'read', const <Object?>['3.9']),
+        await luaCallMethod(file, 'read', const <Object?>['3.9']),
       );
       expect(fileRead[0], isNull);
-      expect(_unwrap(fileRead[1]), 'File:read invalid container type "3.9"');
+      expect(
+        luaUnwrapValue(fileRead[1]),
+        'File:read invalid container type "3.9"',
+      );
     },
   );
 
@@ -2899,21 +2939,21 @@ void main() {
 
       final runtime = Interpreter();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source'],
       );
 
-      final file = await _call(
+      final file = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFile'],
         const <Object?>['fractional.txt'],
       );
-      expect(await _callMethod(file!, 'open', const <Object?>['r']), isTrue);
-      expect(await _callMethod(file, 'seek', const <Object?>[6]), isTrue);
+      expect(await luaCallMethod(file!, 'open', const <Object?>['r']), isTrue);
+      expect(await luaCallMethod(file, 'seek', const <Object?>[6]), isTrue);
 
-      expect(await _callMethod(file, 'read', const <Object?>[0]), <Object?>[
+      expect(await luaCallMethod(file, 'read', const <Object?>[0]), <Object?>[
         '',
         0,
       ]);
@@ -2927,45 +2967,45 @@ void main() {
       final runtime = Interpreter();
 
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setIdentity'],
         const <Object?>['write-size-test'],
       );
 
       final moduleWrite = _rawResults(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'write'],
           const <Object?>['state.txt', 'payload', -1],
         ),
       );
       expect(moduleWrite[0], isNull);
-      expect(_unwrap(moduleWrite[1]), 'Invalid write size.');
+      expect(luaUnwrapValue(moduleWrite[1]), 'Invalid write size.');
 
       final moduleAppend = _rawResults(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'append'],
           const <Object?>['state.txt', 'payload', -2],
         ),
       );
       expect(moduleAppend[0], isNull);
-      expect(_unwrap(moduleAppend[1]), 'Invalid write size.');
+      expect(luaUnwrapValue(moduleAppend[1]), 'Invalid write size.');
 
-      final file = await _call(
+      final file = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFile'],
         const <Object?>['state.txt'],
       );
       expect(file, isA<Map>());
-      expect(await _callMethod(file!, 'open', const <Object?>['w']), isTrue);
+      expect(await luaCallMethod(file!, 'open', const <Object?>['w']), isTrue);
 
       final fileWrite = _rawResults(
-        await _callMethod(file, 'write', const <Object?>['payload', -3]),
+        await luaCallMethod(file, 'write', const <Object?>['payload', -3]),
       );
       expect(fileWrite[0], isNull);
-      expect(_unwrap(fileWrite[1]), 'Invalid write size.');
+      expect(luaUnwrapValue(fileWrite[1]), 'Invalid write size.');
     },
   );
 
@@ -2976,22 +3016,22 @@ void main() {
       final runtime = Interpreter();
 
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setIdentity'],
         const <Object?>['write-type-test'],
       );
 
-      final file = await _call(
+      final file = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFile'],
         const <Object?>['state.txt'],
       );
       expect(file, isA<Map>());
-      expect(await _callMethod(file!, 'open', const <Object?>['w']), isTrue);
+      expect(await luaCallMethod(file!, 'open', const <Object?>['w']), isTrue);
 
       await expectLater(
-        () => _callMethod(file, 'write', const <Object?>[true]),
+        () => luaCallMethod(file, 'write', const <Object?>[true]),
         throwsA(
           isA<LuaError>().having(
             (error) => error.message,
@@ -3010,14 +3050,14 @@ void main() {
       final runtime = Interpreter();
 
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setIdentity'],
         const <Object?>['write-module-type-test'],
       );
 
       await expectLater(
-        () => _call(
+        () => luaCall(
           runtime,
           const ['love', 'filesystem', 'write'],
           const <Object?>['state.txt', true],
@@ -3032,7 +3072,7 @@ void main() {
       );
 
       await expectLater(
-        () => _call(
+        () => luaCall(
           runtime,
           const ['love', 'filesystem', 'append'],
           const <Object?>['state.txt', true],
@@ -3056,51 +3096,51 @@ void main() {
 
       final runtime = Interpreter();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source'],
       );
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setIdentity'],
         const <Object?>['game'],
       );
 
-      final readData = await _call(
+      final readData = await luaCall(
         runtime,
         const ['love', 'filesystem', 'read'],
         const <Object?>['data', 'numeric-strings.txt', '2.9'],
       );
       expect(readData, isA<List<Object?>>());
       final readTuple = readData! as List<Object?>;
-      expect(await _callMethod(readTuple[0]!, 'getString'), 'ab');
+      expect(await luaCallMethod(readTuple[0]!, 'getString'), 'ab');
       expect(readTuple[1], 2);
 
-      final file = await _call(
+      final file = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFile'],
         const <Object?>['numeric-strings.txt'],
       );
-      expect(await _callMethod(file!, 'open', const <Object?>['r']), isTrue);
-      final fileRead = await _callMethod(file, 'read', const <Object?>[
+      expect(await luaCallMethod(file!, 'open', const <Object?>['r']), isTrue);
+      final fileRead = await luaCallMethod(file, 'read', const <Object?>[
         'data',
         '3.9',
       ]);
       expect(fileRead, isA<List<Object?>>());
       final fileReadTuple = fileRead! as List<Object?>;
-      expect(await _callMethod(fileReadTuple[0]!, 'getString'), 'abc');
+      expect(await luaCallMethod(fileReadTuple[0]!, 'getString'), 'abc');
       expect(fileReadTuple[1], 3);
       expect(
-        await _callMethod(file, 'setBuffer', const <Object?>['full', '4.9']),
+        await luaCallMethod(file, 'setBuffer', const <Object?>['full', '4.9']),
         isTrue,
       );
-      expect(await _callMethod(file, 'getBuffer'), <Object?>['full', 4]);
-      expect(await _callMethod(file, 'seek', const <Object?>['1.9']), isTrue);
-      expect(await _callMethod(file, 'tell'), 1);
+      expect(await luaCallMethod(file, 'getBuffer'), <Object?>['full', 4]);
+      expect(await luaCallMethod(file, 'seek', const <Object?>['1.9']), isTrue);
+      expect(await luaCallMethod(file, 'tell'), 1);
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'write'],
           const <Object?>['numeric-write.txt', 'abcdef', '2.9'],
@@ -3108,7 +3148,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'append'],
           const <Object?>['numeric-write.txt', 'XYZ', '1.9'],
@@ -3116,7 +3156,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'read'],
           const <Object?>['numeric-write.txt'],
@@ -3133,14 +3173,14 @@ void main() {
 
       final runtime = Interpreter();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setIdentity'],
         const <Object?>['game'],
       );
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'write'],
           const <Object?>['fractional-write.txt', 'abcdef', 2.9],
@@ -3148,7 +3188,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'append'],
           const <Object?>['fractional-write.txt', 'XYZ', 1.9],
@@ -3156,20 +3196,20 @@ void main() {
         isTrue,
       );
 
-      final file = await _call(
+      final file = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFile'],
         const <Object?>['fractional-write.txt'],
       );
-      expect(await _callMethod(file!, 'open', const <Object?>['a']), isTrue);
+      expect(await luaCallMethod(file!, 'open', const <Object?>['a']), isTrue);
       expect(
-        await _callMethod(file, 'write', const <Object?>['1234', 2.9]),
+        await luaCallMethod(file, 'write', const <Object?>['1234', 2.9]),
         isTrue,
       );
-      expect(await _callMethod(file, 'close'), isTrue);
+      expect(await luaCallMethod(file, 'close'), isTrue);
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'read'],
           const <Object?>['fractional-write.txt'],
@@ -3184,12 +3224,12 @@ void main() {
 
     final runtime = Interpreter();
     installLove2d(runtime: runtime, filesystemAdapter: adapter);
-    await _call(
+    await luaCall(
       runtime,
       const ['love', 'filesystem', 'setIdentity'],
       const <Object?>['game'],
     );
-    final saveDirectory = await _call(runtime, const [
+    final saveDirectory = await luaCall(runtime, const [
       'love',
       'filesystem',
       'getSaveDirectory',
@@ -3200,7 +3240,7 @@ void main() {
     );
 
     final writeResult = _rawResults(
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'write'],
         const <Object?>['blocked.txt', 'payload'],
@@ -3208,21 +3248,21 @@ void main() {
     );
     expect(writeResult[0], isNull);
     expect(
-      _unwrap(writeResult[1]),
+      luaUnwrapValue(writeResult[1]),
       'Could not open file blocked.txt (device busy)',
     );
 
-    final file = await _call(
+    final file = await luaCall(
       runtime,
       const ['love', 'filesystem', 'newFile'],
       const <Object?>['blocked.txt'],
     );
     final openResult = _rawResults(
-      await _callMethod(file!, 'open', const <Object?>['w']),
+      await luaCallMethod(file!, 'open', const <Object?>['w']),
     );
     expect(openResult[0], isNull);
     expect(
-      _unwrap(openResult[1]),
+      luaUnwrapValue(openResult[1]),
       'Could not open file blocked.txt (device busy)',
     );
   });
@@ -3234,7 +3274,7 @@ void main() {
       installLove2d(runtime: runtime);
 
       await expectLater(
-        () => _call(runtime, const ['love', 'filesystem', 'init']),
+        () => luaCall(runtime, const ['love', 'filesystem', 'init']),
         throwsA(
           isA<LuaError>().having(
             (error) => error.message,
@@ -3245,7 +3285,7 @@ void main() {
       );
 
       await expectLater(
-        () => _call(
+        () => luaCall(
           runtime,
           const ['love', 'filesystem', 'setSymlinksEnabled'],
           const <Object?>['yes'],
@@ -3271,7 +3311,7 @@ void main() {
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
 
       expect(
-        await _call(runtime, const [
+        await luaCall(runtime, const [
           'love',
           'filesystem',
           'getWorkingDirectory',
@@ -3279,11 +3319,15 @@ void main() {
         '/work',
       );
       expect(
-        await _call(runtime, const ['love', 'filesystem', 'getUserDirectory']),
+        await luaCall(runtime, const [
+          'love',
+          'filesystem',
+          'getUserDirectory',
+        ]),
         '/users/tester',
       );
       expect(
-        await _call(runtime, const [
+        await luaCall(runtime, const [
           'love',
           'filesystem',
           'getAppdataDirectory',
@@ -3291,15 +3335,15 @@ void main() {
         '/appdata',
       );
       expect(
-        await _call(runtime, const ['love', 'filesystem', 'getIdentity']),
+        await luaCall(runtime, const ['love', 'filesystem', 'getIdentity']),
         '',
       );
       expect(
-        await _call(runtime, const ['love', 'filesystem', 'getSource']),
+        await luaCall(runtime, const ['love', 'filesystem', 'getSource']),
         '',
       );
       expect(
-        await _call(runtime, const [
+        await luaCall(runtime, const [
           'love',
           'filesystem',
           'areSymlinksEnabled',
@@ -3307,12 +3351,12 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(runtime, const ['love', 'filesystem', 'isFused']),
+        await luaCall(runtime, const ['love', 'filesystem', 'isFused']),
         isFalse,
       );
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'setSymlinksEnabled'],
           const <Object?>[false],
@@ -3320,7 +3364,7 @@ void main() {
         isNull,
       );
       expect(
-        await _call(runtime, const [
+        await luaCall(runtime, const [
           'love',
           'filesystem',
           'areSymlinksEnabled',
@@ -3329,7 +3373,7 @@ void main() {
       );
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'init'],
           const <Object?>['lualike'],
@@ -3337,7 +3381,7 @@ void main() {
         isNull,
       );
       expect(
-        await _call(runtime, const [
+        await luaCall(runtime, const [
           'love',
           'filesystem',
           'areSymlinksEnabled',
@@ -3346,7 +3390,7 @@ void main() {
       );
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'setIdentity'],
           const <Object?>['game'],
@@ -3354,12 +3398,12 @@ void main() {
         isNull,
       );
       expect(
-        await _call(runtime, const ['love', 'filesystem', 'getIdentity']),
+        await luaCall(runtime, const ['love', 'filesystem', 'getIdentity']),
         'game',
       );
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'setSource'],
           const <Object?>['/source'],
@@ -3367,7 +3411,7 @@ void main() {
         isNull,
       );
       expect(
-        await _call(runtime, const ['love', 'filesystem', 'getSource']),
+        await luaCall(runtime, const ['love', 'filesystem', 'getSource']),
         '/source',
       );
     },
@@ -3380,7 +3424,7 @@ void main() {
       installLove2d(runtime: runtime);
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'setRequirePath'],
           const <Object?>[' ;?.lua;;?/init.lua; '],
@@ -3388,12 +3432,12 @@ void main() {
         isNull,
       );
       expect(
-        await _call(runtime, const ['love', 'filesystem', 'getRequirePath']),
+        await luaCall(runtime, const ['love', 'filesystem', 'getRequirePath']),
         ' ;?.lua;;?/init.lua; ',
       );
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'setRequirePath'],
           const <Object?>['mods/?.lua;mods/?/init.lua;'],
@@ -3401,12 +3445,12 @@ void main() {
         isNull,
       );
       expect(
-        await _call(runtime, const ['love', 'filesystem', 'getRequirePath']),
+        await luaCall(runtime, const ['love', 'filesystem', 'getRequirePath']),
         'mods/?.lua;mods/?/init.lua',
       );
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'setCRequirePath'],
           const <Object?>[';;lib/??; ? '],
@@ -3414,12 +3458,12 @@ void main() {
         isNull,
       );
       expect(
-        await _call(runtime, const ['love', 'filesystem', 'getCRequirePath']),
+        await luaCall(runtime, const ['love', 'filesystem', 'getCRequirePath']),
         ';;lib/??; ? ',
       );
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'setCRequirePath'],
           const <Object?>[';;lib/??;;'],
@@ -3427,7 +3471,7 @@ void main() {
         isNull,
       );
       expect(
-        await _call(runtime, const ['love', 'filesystem', 'getCRequirePath']),
+        await luaCall(runtime, const ['love', 'filesystem', 'getCRequirePath']),
         ';;lib/??;',
       );
     },
@@ -3441,18 +3485,18 @@ void main() {
 
       final runtime = Interpreter();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source'],
       );
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setIdentity'],
         const <Object?>['game', 'yes'],
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'write'],
           const <Object?>['main.lua', 'save'],
@@ -3460,7 +3504,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'read'],
           const <Object?>['main.lua'],
@@ -3481,18 +3525,22 @@ void main() {
       final runtime = Interpreter();
 
       installLove2d(runtime: runtime, filesystemAdapter: initialAdapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setIdentity'],
         const <Object?>['game'],
       );
 
       expect(
-        await _call(runtime, const ['love', 'filesystem', 'getSaveDirectory']),
+        await luaCall(runtime, const [
+          'love',
+          'filesystem',
+          'getSaveDirectory',
+        ]),
         '/appdata-initial/love/game',
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'write'],
           const <Object?>['state.txt', 'initial'],
@@ -3506,11 +3554,15 @@ void main() {
       LoveFilesystemState.attach(runtime, adapter: replacementAdapter);
 
       expect(
-        await _call(runtime, const ['love', 'filesystem', 'getSaveDirectory']),
+        await luaCall(runtime, const [
+          'love',
+          'filesystem',
+          'getSaveDirectory',
+        ]),
         '/appdata-replacement/love/game',
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'write'],
           const <Object?>['state.txt', 'replacement'],
@@ -3518,7 +3570,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'read'],
           const <Object?>['state.txt'],
@@ -3554,14 +3606,14 @@ void main() {
       final runtime = Interpreter();
 
       installLove2d(runtime: runtime, filesystemAdapter: initialAdapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source/game.love'],
       );
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'read'],
           const <Object?>['main.lua'],
@@ -3577,7 +3629,7 @@ void main() {
       LoveFilesystemState.attach(runtime, adapter: replacementAdapter);
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'read'],
           const <Object?>['main.lua'],
@@ -3600,13 +3652,13 @@ void main() {
       final runtime = Interpreter();
 
       installLove2d(runtime: runtime, filesystemAdapter: initialAdapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setIdentity'],
         const <Object?>['game'],
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'mount'],
           const <Object?>['mods.zip', 'mods'],
@@ -3614,7 +3666,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'read'],
           const <Object?>['mods/main.lua'],
@@ -3632,7 +3684,7 @@ void main() {
       LoveFilesystemState.attach(runtime, adapter: replacementAdapter);
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'read'],
           const <Object?>['mods/main.lua'],
@@ -3640,7 +3692,7 @@ void main() {
         <Object?>['return 2', 8],
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'unmount'],
           const <Object?>['mods.zip'],
@@ -3648,7 +3700,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'getInfo'],
           const <Object?>['mods/main.lua'],
@@ -3671,13 +3723,13 @@ void main() {
       final runtime = Interpreter();
 
       installLove2d(runtime: runtime, filesystemAdapter: initialAdapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setIdentity'],
         const <Object?>['game'],
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'mount'],
           const <Object?>['mods', 'mountedmods'],
@@ -3685,7 +3737,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'read'],
           const <Object?>['mountedmods/main.lua'],
@@ -3693,7 +3745,7 @@ void main() {
         <Object?>['return "initial"', 16],
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['mountedmods/main.lua'],
@@ -3711,7 +3763,7 @@ void main() {
       LoveFilesystemState.attach(runtime, adapter: replacementAdapter);
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'read'],
           const <Object?>['mountedmods/main.lua'],
@@ -3719,7 +3771,7 @@ void main() {
         <Object?>['return "replacement"', 20],
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['mountedmods/main.lua'],
@@ -3746,13 +3798,13 @@ void main() {
       final runtime = Interpreter();
 
       installLove2d(runtime: runtime, filesystemAdapter: initialAdapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setIdentity'],
         const <Object?>['game'],
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'mount'],
           const <Object?>['primary', 'overlay', false],
@@ -3760,7 +3812,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'mount'],
           const <Object?>['secondary', 'overlay', true],
@@ -3768,7 +3820,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'read'],
           const <Object?>['overlay/main.lua'],
@@ -3790,7 +3842,7 @@ void main() {
       LoveFilesystemState.attach(runtime, adapter: replacementAdapter);
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'read'],
           const <Object?>['overlay/main.lua'],
@@ -3813,13 +3865,13 @@ void main() {
       final runtime = Interpreter();
 
       installLove2d(runtime: runtime, filesystemAdapter: initialAdapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setIdentity'],
         const <Object?>['game'],
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'mount'],
           const <Object?>['mods.zip', 'mods'],
@@ -3827,7 +3879,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'read'],
           const <Object?>['mods/main.lua'],
@@ -3841,7 +3893,7 @@ void main() {
       );
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'unmount'],
           const <Object?>['mods.zip'],
@@ -3859,7 +3911,7 @@ void main() {
       LoveFilesystemState.attach(runtime, adapter: restoredAdapter);
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'getInfo'],
           const <Object?>['mods/main.lua'],
@@ -3878,14 +3930,14 @@ void main() {
       final runtime = Interpreter();
 
       installLove2d(runtime: runtime, filesystemAdapter: initialAdapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setIdentity'],
         const <Object?>['game'],
       );
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'write'],
           const <Object?>['state.txt', 'initial'],
@@ -3899,7 +3951,11 @@ void main() {
       );
 
       expect(
-        await _call(runtime, const ['love', 'filesystem', 'getSaveDirectory']),
+        await luaCall(runtime, const [
+          'love',
+          'filesystem',
+          'getSaveDirectory',
+        ]),
         '',
       );
       final unwritableWrite = _rawResults(
@@ -3910,7 +3966,10 @@ void main() {
         ),
       );
       expect(unwritableWrite[0], isNull);
-      expect(_unwrap(unwritableWrite[1]), 'Could not set write directory.');
+      expect(
+        luaUnwrapValue(unwritableWrite[1]),
+        'Could not set write directory.',
+      );
 
       final restoredAdapter = _TestLoveFilesystemAdapter(
         appdataDirectory: '/appdata-restored',
@@ -3918,11 +3977,15 @@ void main() {
       LoveFilesystemState.attach(runtime, adapter: restoredAdapter);
 
       expect(
-        await _call(runtime, const ['love', 'filesystem', 'getSaveDirectory']),
+        await luaCall(runtime, const [
+          'love',
+          'filesystem',
+          'getSaveDirectory',
+        ]),
         '/appdata-restored/love/game',
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'write'],
           const <Object?>['state.txt', 'restored'],
@@ -3930,7 +3993,7 @@ void main() {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'read'],
           const <Object?>['state.txt'],
@@ -3953,14 +4016,14 @@ void main() {
       adapter.addFile('/source/main.lua', 'return true');
       final runtime = Interpreter();
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
-      await _call(
+      await luaCall(
         runtime,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source'],
       );
 
       await expectLater(
-        () => _call(
+        () => luaCall(
           runtime,
           const ['love', 'filesystem', 'lines'],
           const <Object?>['missing-lines.txt'],
@@ -3974,7 +4037,7 @@ void main() {
         ),
       );
 
-      final file = await _call(
+      final file = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFile'],
         const <Object?>['missing-lines.txt'],
@@ -3983,7 +4046,7 @@ void main() {
       final missingFile = file!;
 
       await expectLater(
-        () => _callMethod(missingFile, 'lines'),
+        () => luaCallMethod(missingFile, 'lines'),
         throwsA(
           isA<LuaError>().having(
             (error) => error.message,
@@ -3993,12 +4056,12 @@ void main() {
         ),
       );
 
-      final tellResult = _rawResults(await _callMethod(missingFile, 'tell'));
+      final tellResult = _rawResults(await luaCallMethod(missingFile, 'tell'));
       expect(tellResult[0], isNull);
-      expect(_unwrap(tellResult[1]), 'Invalid position.');
+      expect(luaUnwrapValue(tellResult[1]), 'Invalid position.');
 
       expect(
-        await _callMethod(missingFile, 'seek', const <Object?>[-1]),
+        await luaCallMethod(missingFile, 'seek', const <Object?>[-1]),
         isFalse,
       );
     },
@@ -4014,7 +4077,7 @@ void main() {
       );
 
       await expectLater(
-        () => _call(
+        () => luaCall(
           runtime,
           const ['love', 'filesystem', 'lines'],
           const <Object?>[true],
@@ -4037,14 +4100,14 @@ void main() {
 
     final runtime = Interpreter();
     installLove2d(runtime: runtime, filesystemAdapter: adapter);
-    await _call(
+    await luaCall(
       runtime,
       const ['love', 'filesystem', 'setSource'],
       const <Object?>['/source'],
     );
 
     await expectLater(
-      () => _call(
+      () => luaCall(
         runtime,
         const ['love', 'filesystem', 'lines'],
         const <Object?>['locked-lines.txt'],
@@ -4058,7 +4121,7 @@ void main() {
       ),
     );
 
-    final file = await _call(
+    final file = await luaCall(
       runtime,
       const ['love', 'filesystem', 'newFile'],
       const <Object?>['locked-lines.txt'],
@@ -4066,7 +4129,7 @@ void main() {
     expect(file, isA<Map>());
 
     await expectLater(
-      () => _callMethod(file!, 'lines'),
+      () => luaCallMethod(file!, 'lines'),
       throwsA(
         isA<LuaError>().having(
           (error) => error.message,
@@ -4084,7 +4147,7 @@ void main() {
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
       final interpreter = runtime.runtime as Interpreter;
 
-      final archiveData = await _call(
+      final archiveData = await luaCall(
         interpreter,
         const ['love', 'filesystem', 'newFileData'],
         <Object?>[
@@ -4098,7 +4161,7 @@ void main() {
       expect(archiveData, isA<Map>());
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           <Object?>[archiveData, 'packed', true],
@@ -4107,7 +4170,7 @@ void main() {
       );
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['packed/boot.lua'],
@@ -4115,7 +4178,7 @@ void main() {
         <Object?>['return 99', 9],
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['packed/boot.lua'],
@@ -4123,7 +4186,7 @@ void main() {
         <Object?>[null, 'File does not exist on disk.'],
       );
 
-      final packedInfo = await _call(
+      final packedInfo = await luaCall(
         interpreter,
         const ['love', 'filesystem', 'getInfo'],
         const <Object?>['packed/pkg'],
@@ -4131,7 +4194,7 @@ void main() {
       expect(packedInfo, isA<Map>());
       expect((packedInfo! as Map)['type'], 'directory');
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getDirectoryItems'],
           const <Object?>['packed'],
@@ -4139,18 +4202,18 @@ void main() {
         <Object?, Object?>{1: 'boot.lua', 2: 'pkg'},
       );
 
-      final file = await _call(
+      final file = await luaCall(
         interpreter,
         const ['love', 'filesystem', 'newFile'],
         const <Object?>['packed/boot.lua'],
       );
-      expect(await _callMethod(file!, 'open', const <Object?>['r']), isTrue);
-      expect(await _callMethod(file, 'getSize'), 9);
-      expect(await _callMethod(file, 'read'), <Object?>['return 99', 9]);
-      expect(await _callMethod(file, 'seek', const <Object?>[0]), isTrue);
-      expect(await _callMethod(file, 'tell'), 0);
+      expect(await luaCallMethod(file!, 'open', const <Object?>['r']), isTrue);
+      expect(await luaCallMethod(file, 'getSize'), 9);
+      expect(await luaCallMethod(file, 'read'), <Object?>['return 99', 9]);
+      expect(await luaCallMethod(file, 'seek', const <Object?>[0]), isTrue);
+      expect(await luaCallMethod(file, 'tell'), 0);
 
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setRequirePath'],
         const <Object?>['packed/?.lua;packed/?/init.lua'],
@@ -4168,7 +4231,7 @@ testbed = {
       expect(snapshot['path'], 'packed/pkg/init.lua');
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'unmount'],
           <Object?>[archiveData],
@@ -4176,7 +4239,7 @@ testbed = {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getInfo'],
           const <Object?>['packed/boot.lua'],
@@ -4185,7 +4248,7 @@ testbed = {
       );
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           <Object?>[archiveData, 'custom-name.zip', 'alias', false],
@@ -4193,7 +4256,7 @@ testbed = {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['alias/boot.lua'],
@@ -4210,7 +4273,7 @@ testbed = {
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
       final interpreter = runtime.runtime as Interpreter;
 
-      final archiveData = await _call(
+      final archiveData = await luaCall(
         interpreter,
         const ['love', 'filesystem', 'newFileData'],
         <Object?>[
@@ -4224,7 +4287,7 @@ testbed = {
       expect(archiveData, isA<Map>());
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           <Object?>[archiveData, 'packed7z', true],
@@ -4233,7 +4296,7 @@ testbed = {
       );
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['packed7z/boot.lua'],
@@ -4241,7 +4304,7 @@ testbed = {
         <Object?>['return 71', 9],
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['packed7z/boot.lua'],
@@ -4249,7 +4312,7 @@ testbed = {
         <Object?>[null, 'File does not exist on disk.'],
       );
 
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setRequirePath'],
         const <Object?>['packed7z/?.lua;packed7z/?/init.lua'],
@@ -4264,10 +4327,10 @@ testbed = {
       final pkg = (pkgResult.first as Value).unwrap() as Map;
       expect(pkg['answer'], 17);
       expect(pkg['label'], '7z-filedata');
-      expect(_unwrap(pkgResult[1]), 'packed7z/pkg/init.lua');
+      expect(luaUnwrapValue(pkgResult[1]), 'packed7z/pkg/init.lua');
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'unmount'],
           <Object?>[archiveData],
@@ -4275,7 +4338,7 @@ testbed = {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getInfo'],
           const <Object?>['packed7z/boot.lua'],
@@ -4303,14 +4366,14 @@ testbed = {
       _allowStringMount(interpreter, '/mods/extra.zip');
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           const <Object?>['/mods/extra.zip', 'zipmods', true],
         ),
         isTrue,
       );
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setRequirePath'],
         const <Object?>['zipmods/?.lua;zipmods/?/init.lua'],
@@ -4323,7 +4386,7 @@ testbed = {
           <Object?>[Value('nested')],
         ),
       );
-      final modRead = await _call(
+      final modRead = await luaCall(
         interpreter,
         const ['love', 'filesystem', 'read'],
         const <Object?>['zipmods/mod.lua'],
@@ -4332,9 +4395,9 @@ testbed = {
 
       expect(modRead, <Object?>['return 77', 9]);
       expect(nested['label'], 'zip');
-      expect(_unwrap(nestedResult[1]), 'zipmods/nested/init.lua');
+      expect(luaUnwrapValue(nestedResult[1]), 'zipmods/nested/init.lua');
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['zipmods/mod.lua'],
@@ -4358,7 +4421,7 @@ testbed = {
       _allowStringMount(interpreter, '/mods/extra.zip');
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           const <Object?>['/mods/extra.zip', 'zipmods', true],
@@ -4366,7 +4429,7 @@ testbed = {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           const <Object?>['/mods/extra.zip', 'zipmods_alias', false],
@@ -4375,7 +4438,7 @@ testbed = {
       );
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['zipmods/mod.lua'],
@@ -4383,7 +4446,7 @@ testbed = {
         <Object?>['return 77', 9],
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getInfo'],
           const <Object?>['zipmods_alias/mod.lua'],
@@ -4391,7 +4454,7 @@ testbed = {
         isNull,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'unmount'],
           const <Object?>['/mods/extra.zip'],
@@ -4399,7 +4462,7 @@ testbed = {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getInfo'],
           const <Object?>['zipmods/mod.lua'],
@@ -4426,7 +4489,7 @@ testbed = {
       _allowStringMount(interpreter, '/mods/selfextracting.bin');
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           const <Object?>['/mods/selfextracting.bin', 'sxmods', true],
@@ -4434,13 +4497,13 @@ testbed = {
         isTrue,
       );
 
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setRequirePath'],
         const <Object?>['sxmods/?.lua;sxmods/?/init.lua'],
       );
 
-      final modValue = await _call(
+      final modValue = await luaCall(
         interpreter,
         const ['love', 'filesystem', 'read'],
         const <Object?>['sxmods/mod.lua'],
@@ -4456,9 +4519,9 @@ testbed = {
 
       expect(modValue, <Object?>['return 91', 9]);
       expect(nested['label'], 'prefixed');
-      expect(_unwrap(nestedResult[1]), 'sxmods/nested/init.lua');
+      expect(luaUnwrapValue(nestedResult[1]), 'sxmods/nested/init.lua');
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['sxmods/mod.lua'],
@@ -4485,14 +4548,14 @@ testbed = {
       _allowStringMount(interpreter, '/mods/extra.tar');
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           const <Object?>['/mods/extra.tar', 'tarmods', true],
         ),
         isTrue,
       );
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setRequirePath'],
         const <Object?>['tarmods/?.lua;tarmods/?/init.lua'],
@@ -4505,7 +4568,7 @@ testbed = {
           <Object?>[Value('nested')],
         ),
       );
-      final modRead = await _call(
+      final modRead = await luaCall(
         interpreter,
         const ['love', 'filesystem', 'read'],
         const <Object?>['tarmods/mod.lua'],
@@ -4514,9 +4577,9 @@ testbed = {
 
       expect(modRead, <Object?>['return 88', 9]);
       expect(nested['label'], 'tar');
-      expect(_unwrap(nestedResult[1]), 'tarmods/nested/init.lua');
+      expect(luaUnwrapValue(nestedResult[1]), 'tarmods/nested/init.lua');
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['tarmods/mod.lua'],
@@ -4543,14 +4606,14 @@ testbed = {
       _allowStringMount(interpreter, '/mods/extra.tbz2');
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           const <Object?>['/mods/extra.tbz2', 'tbzmods', true],
         ),
         isTrue,
       );
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setRequirePath'],
         const <Object?>['tbzmods/?.lua;tbzmods/?/init.lua'],
@@ -4563,7 +4626,7 @@ testbed = {
           <Object?>[Value('nested')],
         ),
       );
-      final modRead = await _call(
+      final modRead = await luaCall(
         interpreter,
         const ['love', 'filesystem', 'read'],
         const <Object?>['tbzmods/mod.lua'],
@@ -4572,9 +4635,9 @@ testbed = {
 
       expect(modRead, <Object?>['return 89', 9]);
       expect(nested['label'], 'tbz2');
-      expect(_unwrap(nestedResult[1]), 'tbzmods/nested/init.lua');
+      expect(luaUnwrapValue(nestedResult[1]), 'tbzmods/nested/init.lua');
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['tbzmods/mod.lua'],
@@ -4591,7 +4654,7 @@ testbed = {
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
       final interpreter = runtime.runtime as Interpreter;
 
-      final archiveData = await _call(
+      final archiveData = await luaCall(
         interpreter,
         const ['love', 'filesystem', 'newFileData'],
         <Object?>[
@@ -4605,14 +4668,14 @@ testbed = {
       expect(archiveData, isA<Map>());
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           <Object?>[archiveData, 'tgzmods', true],
         ),
         isTrue,
       );
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setRequirePath'],
         const <Object?>['tgzmods/?.lua;tgzmods/?/init.lua'],
@@ -4625,12 +4688,12 @@ testbed = {
           <Object?>[Value('pkg')],
         ),
       );
-      final module = _unwrap(moduleResult.first) as Map;
+      final module = luaUnwrapValue(moduleResult.first) as Map;
 
       expect(module['value'], 42);
-      expect(_unwrap(moduleResult[1]), 'tgzmods/pkg/init.lua');
+      expect(luaUnwrapValue(moduleResult[1]), 'tgzmods/pkg/init.lua');
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['tgzmods/notes.txt'],
@@ -4638,7 +4701,7 @@ testbed = {
         <Object?>['hello from tgz', 14],
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['tgzmods/notes.txt'],
@@ -4646,7 +4709,7 @@ testbed = {
         <Object?>[null, 'File does not exist on disk.'],
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'unmount'],
           <Object?>[archiveData],
@@ -4663,7 +4726,7 @@ testbed = {
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
       final interpreter = runtime.runtime as Interpreter;
 
-      final archiveData = await _call(
+      final archiveData = await luaCall(
         interpreter,
         const ['love', 'filesystem', 'newFileData'],
         <Object?>[
@@ -4677,14 +4740,14 @@ testbed = {
       expect(archiveData, isA<Map>());
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           <Object?>[archiveData, 'txzmods', true],
         ),
         isTrue,
       );
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setRequirePath'],
         const <Object?>['txzmods/?.lua;txzmods/?/init.lua'],
@@ -4697,12 +4760,12 @@ testbed = {
           <Object?>[Value('pkg')],
         ),
       );
-      final module = _unwrap(moduleResult.first) as Map;
+      final module = luaUnwrapValue(moduleResult.first) as Map;
 
       expect(module['value'], 43);
-      expect(_unwrap(moduleResult[1]), 'txzmods/pkg/init.lua');
+      expect(luaUnwrapValue(moduleResult[1]), 'txzmods/pkg/init.lua');
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['txzmods/notes.txt'],
@@ -4710,7 +4773,7 @@ testbed = {
         <Object?>['hello from txz', 14],
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['txzmods/notes.txt'],
@@ -4737,14 +4800,14 @@ testbed = {
       _allowStringMount(interpreter, '/mods/extra.wad');
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           const <Object?>['/mods/extra.wad', 'wadmods', true],
         ),
         isTrue,
       );
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setRequirePath'],
         const <Object?>['wadmods/?.lua'],
@@ -4758,10 +4821,10 @@ testbed = {
         ),
       );
 
-      expect(_unwrap(moduleResult.first), 93);
-      expect(_unwrap(moduleResult[1]), 'wadmods/mod.lua');
+      expect(luaUnwrapValue(moduleResult.first), 93);
+      expect(luaUnwrapValue(moduleResult[1]), 'wadmods/mod.lua');
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['wadmods/readme'],
@@ -4769,7 +4832,7 @@ testbed = {
         <Object?>['hello wad', 9],
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getDirectoryItems'],
           const <Object?>['wadmods'],
@@ -4777,7 +4840,7 @@ testbed = {
         <Object?, Object?>{1: 'mod.lua', 2: 'readme'},
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['wadmods/mod.lua'],
@@ -4794,7 +4857,7 @@ testbed = {
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
       final interpreter = runtime.runtime as Interpreter;
 
-      final archiveData = await _call(
+      final archiveData = await luaCall(
         interpreter,
         const ['love', 'filesystem', 'newFileData'],
         <Object?>[
@@ -4808,14 +4871,14 @@ testbed = {
       expect(archiveData, isA<Map>());
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           <Object?>[archiveData, 'mvlmods', true],
         ),
         isTrue,
       );
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setRequirePath'],
         const <Object?>['mvlmods/?.lua'],
@@ -4829,10 +4892,10 @@ testbed = {
         ),
       );
 
-      expect(_unwrap(moduleResult.first), 94);
-      expect(_unwrap(moduleResult[1]), 'mvlmods/mod.lua');
+      expect(luaUnwrapValue(moduleResult.first), 94);
+      expect(luaUnwrapValue(moduleResult[1]), 'mvlmods/mod.lua');
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['mvlmods/note.txt'],
@@ -4840,7 +4903,7 @@ testbed = {
         <Object?>['hello mvl', 9],
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['mvlmods/note.txt'],
@@ -4867,14 +4930,14 @@ testbed = {
       _allowStringMount(interpreter, '/mods/extra.hog');
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           const <Object?>['/mods/extra.hog', 'hogmods', true],
         ),
         isTrue,
       );
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setRequirePath'],
         const <Object?>['hogmods/?.lua'],
@@ -4888,10 +4951,10 @@ testbed = {
         ),
       );
 
-      expect(_unwrap(moduleResult.first), 95);
-      expect(_unwrap(moduleResult[1]), 'hogmods/mod.lua');
+      expect(luaUnwrapValue(moduleResult.first), 95);
+      expect(luaUnwrapValue(moduleResult[1]), 'hogmods/mod.lua');
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['hogmods/note.txt'],
@@ -4899,7 +4962,7 @@ testbed = {
         <Object?>['hello hog', 9],
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['hogmods/mod.lua'],
@@ -4926,14 +4989,14 @@ testbed = {
       _allowStringMount(interpreter, '/mods/extra.grp');
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           const <Object?>['/mods/extra.grp', 'grpmods', true],
         ),
         isTrue,
       );
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setRequirePath'],
         const <Object?>['grpmods/?.lua'],
@@ -4947,10 +5010,10 @@ testbed = {
         ),
       );
 
-      expect(_unwrap(moduleResult.first), 96);
-      expect(_unwrap(moduleResult[1]), 'grpmods/mod.lua');
+      expect(luaUnwrapValue(moduleResult.first), 96);
+      expect(luaUnwrapValue(moduleResult[1]), 'grpmods/mod.lua');
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['grpmods/readme.txt'],
@@ -4958,7 +5021,7 @@ testbed = {
         <Object?>['hello grp', 9],
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['grpmods/mod.lua'],
@@ -4985,14 +5048,14 @@ testbed = {
       _allowStringMount(interpreter, '/mods/extra.pak');
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           const <Object?>['/mods/extra.pak', 'pakmods', true],
         ),
         isTrue,
       );
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setRequirePath'],
         const <Object?>['pakmods/?.lua;pakmods/?/init.lua'],
@@ -5012,14 +5075,14 @@ testbed = {
           <Object?>[Value('nested')],
         ),
       );
-      final nested = _unwrap(nestedResult.first) as Map;
+      final nested = luaUnwrapValue(nestedResult.first) as Map;
 
-      expect(_unwrap(moduleResult.first), 97);
-      expect(_unwrap(moduleResult[1]), 'pakmods/mod.lua');
+      expect(luaUnwrapValue(moduleResult.first), 97);
+      expect(luaUnwrapValue(moduleResult[1]), 'pakmods/mod.lua');
       expect(nested['label'], 'pak');
-      expect(_unwrap(nestedResult[1]), 'pakmods/nested/init.lua');
+      expect(luaUnwrapValue(nestedResult[1]), 'pakmods/nested/init.lua');
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['pakmods/mod.lua'],
@@ -5046,14 +5109,14 @@ testbed = {
       _allowStringMount(interpreter, '/mods/extra.slb');
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           const <Object?>['/mods/extra.slb', 'slbmods', true],
         ),
         isTrue,
       );
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setRequirePath'],
         const <Object?>['slbmods/?.lua;slbmods/?/init.lua'],
@@ -5073,14 +5136,14 @@ testbed = {
           <Object?>[Value('nested')],
         ),
       );
-      final nested = _unwrap(nestedResult.first) as Map;
+      final nested = luaUnwrapValue(nestedResult.first) as Map;
 
-      expect(_unwrap(moduleResult.first), 98);
-      expect(_unwrap(moduleResult[1]), 'slbmods/mod.lua');
+      expect(luaUnwrapValue(moduleResult.first), 98);
+      expect(luaUnwrapValue(moduleResult[1]), 'slbmods/mod.lua');
       expect(nested['label'], 'slb');
-      expect(_unwrap(nestedResult[1]), 'slbmods/nested/init.lua');
+      expect(luaUnwrapValue(nestedResult[1]), 'slbmods/nested/init.lua');
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['slbmods/mod.lua'],
@@ -5097,7 +5160,7 @@ testbed = {
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
       final interpreter = runtime.runtime as Interpreter;
 
-      final archiveData = await _call(
+      final archiveData = await luaCall(
         interpreter,
         const ['love', 'filesystem', 'newFileData'],
         <Object?>[
@@ -5114,14 +5177,14 @@ testbed = {
       expect(archiveData, isA<Map>());
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           <Object?>[archiveData, 'vdfmods', true],
         ),
         isTrue,
       );
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setRequirePath'],
         const <Object?>['vdfmods/?.lua;vdfmods/?/init.lua'],
@@ -5141,14 +5204,14 @@ testbed = {
           <Object?>[Value('nested')],
         ),
       );
-      final nested = _unwrap(nestedResult.first) as Map;
+      final nested = luaUnwrapValue(nestedResult.first) as Map;
 
-      expect(_unwrap(moduleResult.first), 99);
-      expect(_unwrap(moduleResult[1]), 'vdfmods/mod.lua');
+      expect(luaUnwrapValue(moduleResult.first), 99);
+      expect(luaUnwrapValue(moduleResult[1]), 'vdfmods/mod.lua');
       expect(nested['label'], 'vdf');
-      expect(_unwrap(nestedResult[1]), 'vdfmods/nested/init.lua');
+      expect(luaUnwrapValue(nestedResult[1]), 'vdfmods/nested/init.lua');
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['vdfmods/nested/init.lua'],
@@ -5156,7 +5219,7 @@ testbed = {
         <Object?>['return { label = "vdf" }', 24],
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['vdfmods/mod.lua'],
@@ -5183,14 +5246,14 @@ testbed = {
       _allowStringMount(interpreter, '/mods/extra.iso');
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           const <Object?>['/mods/extra.iso', 'isomods', true],
         ),
         isTrue,
       );
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setRequirePath'],
         const <Object?>['isomods/?.lua;isomods/?/init.lua'],
@@ -5210,14 +5273,14 @@ testbed = {
           <Object?>[Value('nested')],
         ),
       );
-      final nested = _unwrap(nestedResult.first) as Map;
+      final nested = luaUnwrapValue(nestedResult.first) as Map;
 
-      expect(_unwrap(moduleResult.first), 100);
-      expect(_unwrap(moduleResult[1]), 'isomods/mod.lua');
+      expect(luaUnwrapValue(moduleResult.first), 100);
+      expect(luaUnwrapValue(moduleResult[1]), 'isomods/mod.lua');
       expect(nested['label'], 'iso');
-      expect(_unwrap(nestedResult[1]), 'isomods/nested/init.lua');
+      expect(luaUnwrapValue(nestedResult[1]), 'isomods/nested/init.lua');
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['isomods/mod.lua'],
@@ -5236,7 +5299,7 @@ testbed = {
     _allowStringMount(interpreter, '/mods/extra.7z');
 
     expect(
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'mount'],
         const <Object?>['/mods/extra.7z', 'sevenmods', true],
@@ -5244,7 +5307,7 @@ testbed = {
       isFalse,
     );
     expect(
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'read'],
         const <Object?>['sevenmods/mod.lua'],
@@ -5270,21 +5333,21 @@ testbed = {
       _allowStringMount(interpreter, '/mods/extra.7z');
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           const <Object?>['/mods/extra.7z', 'sevenmods', true],
         ),
         isTrue,
       );
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setRequirePath'],
         const <Object?>['sevenmods/?.lua;sevenmods/?/init.lua'],
       );
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['sevenmods/mod.lua'],
@@ -5301,9 +5364,9 @@ testbed = {
       );
       final nested = (nestedResult.first as Value).unwrap() as Map;
       expect(nested['label'], '7z');
-      expect(_unwrap(nestedResult[1]), 'sevenmods/nested/init.lua');
+      expect(luaUnwrapValue(nestedResult[1]), 'sevenmods/nested/init.lua');
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['sevenmods/mod.lua'],
@@ -5331,7 +5394,7 @@ testbed = {
       _allowStringMount(interpreter, '/mods/literal.7z');
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           const <Object?>['/mods/literal.7z', 'literalmods', true],
@@ -5339,7 +5402,7 @@ testbed = {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['literalmods/-leading.lua'],
@@ -5347,7 +5410,7 @@ testbed = {
         <Object?>['return "leading"', 16],
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['literalmods/[notes].txt'],
@@ -5355,7 +5418,7 @@ testbed = {
         <Object?>['literal brackets', 16],
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['literalmods/-leading.lua'],
@@ -5384,14 +5447,14 @@ testbed = {
       _allowStringMount(interpreter, '/mods/fallback.zip');
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           const <Object?>['/mods/fallback.zip', 'fallbackmods', true],
         ),
         isTrue,
       );
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setRequirePath'],
         const <Object?>['fallbackmods/?.lua;fallbackmods/?/init.lua'],
@@ -5404,7 +5467,7 @@ testbed = {
           <Object?>[Value('nested')],
         ),
       );
-      final modRead = await _call(
+      final modRead = await luaCall(
         interpreter,
         const ['love', 'filesystem', 'read'],
         const <Object?>['fallbackmods/mod.lua'],
@@ -5413,9 +5476,9 @@ testbed = {
 
       expect(modRead, <Object?>['return 91', 9]);
       expect(nested['label'], 'fallback');
-      expect(_unwrap(nestedResult[1]), 'fallbackmods/nested/init.lua');
+      expect(luaUnwrapValue(nestedResult[1]), 'fallbackmods/nested/init.lua');
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['fallbackmods/mod.lua'],
@@ -5447,18 +5510,18 @@ testbed = {
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
       final interpreter = runtime.runtime as Interpreter;
 
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setIdentity'],
         const <Object?>['game'],
       );
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source'],
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           const <Object?>['packs/source_mod.zip', 'srczip', true],
@@ -5466,14 +5529,14 @@ testbed = {
         isFalse,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           const <Object?>['packs/save_mod.zip', 'savezip', true],
         ),
         isTrue,
       );
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setRequirePath'],
         const <Object?>['savezip/?.lua;?.lua'],
@@ -5486,10 +5549,10 @@ testbed = {
           <Object?>[Value('feature')],
         ),
       );
-      final feature = _unwrap(featureResult.first) as Map;
+      final feature = luaUnwrapValue(featureResult.first) as Map;
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getInfo'],
           const <Object?>['srczip/notes.txt'],
@@ -5497,7 +5560,7 @@ testbed = {
         isNull,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['savezip/notes.txt'],
@@ -5505,9 +5568,9 @@ testbed = {
         <Object?>['hello from save zip', 19],
       );
       expect(feature['enabled'], isTrue);
-      expect(_unwrap(featureResult[1]), 'savezip/feature.lua');
+      expect(luaUnwrapValue(featureResult[1]), 'savezip/feature.lua');
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['savezip/notes.txt'],
@@ -5515,7 +5578,7 @@ testbed = {
         '/appdata/love/game/packs/save_mod.zip',
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'unmount'],
           const <Object?>['packs/save_mod.zip'],
@@ -5523,7 +5586,7 @@ testbed = {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getInfo'],
           const <Object?>['savezip/notes.txt'],
@@ -5547,14 +5610,14 @@ testbed = {
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
       final interpreter = runtime.runtime as Interpreter;
 
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source'],
       );
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           const <Object?>['packs/../packs/source_mod.zip', 'unsafe', true],
@@ -5562,7 +5625,7 @@ testbed = {
         isFalse,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           const <Object?>['/', 'unsafe', true],
@@ -5571,7 +5634,7 @@ testbed = {
       );
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           const <Object?>['/source/packs/source_mod.zip', 'safe', true],
@@ -5581,7 +5644,7 @@ testbed = {
 
       _allowStringMount(interpreter, '/source/packs/source_mod.zip');
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           const <Object?>['/source/packs/source_mod.zip', 'safe', true],
@@ -5589,7 +5652,7 @@ testbed = {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['safe/feature.lua'],
@@ -5598,7 +5661,7 @@ testbed = {
       );
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'unmount'],
           const <Object?>['packs/../packs/source_mod.zip'],
@@ -5606,7 +5669,7 @@ testbed = {
         isFalse,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'unmount'],
           const <Object?>['/'],
@@ -5614,7 +5677,7 @@ testbed = {
         isFalse,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['safe/feature.lua'],
@@ -5639,19 +5702,19 @@ testbed = {
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
       final interpreter = runtime.runtime as Interpreter;
 
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setIdentity'],
         const <Object?>['game'],
       );
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source'],
       );
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           const <Object?>['packs/source..mod.zip', 'unsafe', true],
@@ -5659,7 +5722,7 @@ testbed = {
         isFalse,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'unmount'],
           const <Object?>['packs/source..mod.zip'],
@@ -5683,7 +5746,7 @@ testbed = {
       _allowStringMount(interpreter, '/outside/base');
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           const <Object?>['/outside/base', 'modsbase', true],
@@ -5691,7 +5754,7 @@ testbed = {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           const <Object?>['modsbase/inner.zip', 'nestedmods', true],
@@ -5699,7 +5762,7 @@ testbed = {
         isFalse,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getInfo'],
           const <Object?>['nestedmods/module.lua'],
@@ -5720,7 +5783,7 @@ testbed = {
       );
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           <Object?>[archiveData, 'generic.zip', 'generic', true],
@@ -5729,7 +5792,7 @@ testbed = {
       );
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['generic/pkg/init.lua'],
@@ -5737,7 +5800,7 @@ testbed = {
         <Object?>['return { value = 314 }', 22],
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['generic/pkg/init.lua'],
@@ -5746,7 +5809,7 @@ testbed = {
       );
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'unmount'],
           <Object?>[archiveData],
@@ -5754,7 +5817,7 @@ testbed = {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getInfo'],
           const <Object?>['generic/pkg/init.lua'],
@@ -5777,7 +5840,7 @@ testbed = {
       );
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           <Object?>[archiveData, 'generic.7z', 'generic7z', true],
@@ -5786,7 +5849,7 @@ testbed = {
       );
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['generic7z/pkg/init.lua'],
@@ -5794,7 +5857,7 @@ testbed = {
         <Object?>['return { value = 717, kind = "7z" }', 35],
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['generic7z/pkg/init.lua'],
@@ -5803,7 +5866,7 @@ testbed = {
       );
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'unmount'],
           <Object?>[archiveData],
@@ -5811,7 +5874,7 @@ testbed = {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getInfo'],
           const <Object?>['generic7z/pkg/init.lua'],
@@ -5829,7 +5892,7 @@ testbed = {
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
       final interpreter = runtime.runtime as Interpreter;
 
-      final fileData = await _call(
+      final fileData = await luaCall(
         interpreter,
         const ['love', 'filesystem', 'newFileData'],
         <Object?>[
@@ -5840,7 +5903,7 @@ testbed = {
       expect(fileData, isA<Map>());
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           <Object?>[fileData, 123, true],
@@ -5850,7 +5913,7 @@ testbed = {
             'FileData + non-string arg3 should use the implicit filename overload like upstream Lua wrappers',
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['123/pkg/init.lua'],
@@ -5858,7 +5921,7 @@ testbed = {
         <Object?>['return { value = 12 }', 21],
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'unmount'],
           <Object?>[fileData],
@@ -5867,7 +5930,7 @@ testbed = {
       );
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           <Object?>[fileData, 456, 789, true],
@@ -5877,7 +5940,7 @@ testbed = {
             'FileData + string-like arg3 should use the explicit archive-name overload like upstream Lua wrappers',
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['789/pkg/init.lua'],
@@ -5885,7 +5948,7 @@ testbed = {
         <Object?>['return { value = 12 }', 21],
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'unmount'],
           const <Object?>[456],
@@ -5897,7 +5960,7 @@ testbed = {
         _encodeZip(<String, String>{'pkg/init.lua': 'return { value = 34 }'}),
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           <Object?>[archiveData, 987, 654, true],
@@ -5905,7 +5968,7 @@ testbed = {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['654/pkg/init.lua'],
@@ -5913,7 +5976,7 @@ testbed = {
         <Object?>['return { value = 34 }', 21],
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'unmount'],
           const <Object?>[987],
@@ -5930,7 +5993,7 @@ testbed = {
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
       final interpreter = runtime.runtime as Interpreter;
 
-      final archiveData = await _call(
+      final archiveData = await luaCall(
         interpreter,
         const ['love', 'filesystem', 'newFileData'],
         <Object?>[
@@ -5944,7 +6007,7 @@ testbed = {
       expect(archiveData, isA<Map>());
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           <Object?>[archiveData, 'firstmods', true],
@@ -5952,7 +6015,7 @@ testbed = {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           <Object?>[archiveData, 'alias.zip', 'secondmods', true],
@@ -5961,7 +6024,7 @@ testbed = {
       );
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['firstmods/readme.txt'],
@@ -5969,7 +6032,7 @@ testbed = {
         <Object?>['shared archive', 14],
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['secondmods/readme.txt'],
@@ -5978,7 +6041,7 @@ testbed = {
       );
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'unmount'],
           const <Object?>['mods.zip'],
@@ -5986,7 +6049,7 @@ testbed = {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getInfo'],
           const <Object?>['firstmods/readme.txt'],
@@ -5994,7 +6057,7 @@ testbed = {
         isNull,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['secondmods/readme.txt'],
@@ -6003,7 +6066,7 @@ testbed = {
       );
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'unmount'],
           <Object?>[archiveData],
@@ -6011,7 +6074,7 @@ testbed = {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getInfo'],
           const <Object?>['secondmods/readme.txt'],
@@ -6019,7 +6082,7 @@ testbed = {
         isNull,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'unmount'],
           const <Object?>['alias.zip'],
@@ -6044,7 +6107,7 @@ testbed = {
       );
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           <Object?>[firstArchive, 'shared.zip', 'mods1', true],
@@ -6052,7 +6115,7 @@ testbed = {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           <Object?>[secondArchive, 'shared.zip', 'mods2', true],
@@ -6061,7 +6124,7 @@ testbed = {
       );
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['mods1/pkg/init.lua'],
@@ -6069,7 +6132,7 @@ testbed = {
         <Object?>['return { value = 1 }', 20],
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getInfo'],
           const <Object?>['mods2/pkg/init.lua'],
@@ -6077,7 +6140,7 @@ testbed = {
         isNull,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'unmount'],
           <Object?>[firstArchive],
@@ -6085,7 +6148,7 @@ testbed = {
         isFalse,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'unmount'],
           <Object?>[secondArchive],
@@ -6093,7 +6156,7 @@ testbed = {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getInfo'],
           const <Object?>['mods1/pkg/init.lua'],
@@ -6125,30 +6188,33 @@ testbed = {
         ),
       );
 
-      expect(await _callMethod(dropped, 'type'), 'DroppedFile');
+      expect(await luaCallMethod(dropped, 'type'), 'DroppedFile');
       expect(
-        await _callMethod(dropped, 'typeOf', const <Object?>['DroppedFile']),
+        await luaCallMethod(dropped, 'typeOf', const <Object?>['DroppedFile']),
         isTrue,
       );
       expect(
-        await _callMethod(dropped, 'typeOf', const <Object?>['File']),
+        await luaCallMethod(dropped, 'typeOf', const <Object?>['File']),
         isTrue,
       );
-      expect(await _callMethod(dropped, 'getExtension'), 'zip');
-      expect(await _callMethod(dropped, 'getFilename'), '/drop/mod.zip');
-      expect(await _callMethod(dropped, 'open', const <Object?>['r']), isTrue);
-      expect(await _callMethod(dropped, 'getSize'), greaterThan(0));
-      expect(await _callMethod(dropped, 'close'), isTrue);
+      expect(await luaCallMethod(dropped, 'getExtension'), 'zip');
+      expect(await luaCallMethod(dropped, 'getFilename'), '/drop/mod.zip');
+      expect(
+        await luaCallMethod(dropped, 'open', const <Object?>['r']),
+        isTrue,
+      );
+      expect(await luaCallMethod(dropped, 'getSize'), greaterThan(0));
+      expect(await luaCallMethod(dropped, 'close'), isTrue);
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           <Object?>[dropped, 'droppedmods', true],
         ),
         isTrue,
       );
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setRequirePath'],
         const <Object?>['droppedmods/?.lua;?.lua'],
@@ -6161,12 +6227,12 @@ testbed = {
           <Object?>[Value('dropped')],
         ),
       );
-      final module = _unwrap(droppedResult.first) as Map;
+      final module = luaUnwrapValue(droppedResult.first) as Map;
 
       expect(module['dropped'], isTrue);
-      expect(_unwrap(droppedResult[1]), 'droppedmods/dropped.lua');
+      expect(luaUnwrapValue(droppedResult[1]), 'droppedmods/dropped.lua');
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['droppedmods/readme.txt'],
@@ -6174,7 +6240,7 @@ testbed = {
         <Object?>['from dropped zip', 16],
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['droppedmods/readme.txt'],
@@ -6206,22 +6272,25 @@ testbed = {
         ),
       );
 
-      expect(await _callMethod(dropped, 'type'), 'DroppedFile');
-      expect(await _callMethod(dropped, 'getExtension'), '7z');
-      expect(await _callMethod(dropped, 'getFilename'), '/drop/mod.7z');
-      expect(await _callMethod(dropped, 'open', const <Object?>['r']), isTrue);
-      expect(await _callMethod(dropped, 'getSize'), greaterThan(0));
-      expect(await _callMethod(dropped, 'close'), isTrue);
+      expect(await luaCallMethod(dropped, 'type'), 'DroppedFile');
+      expect(await luaCallMethod(dropped, 'getExtension'), '7z');
+      expect(await luaCallMethod(dropped, 'getFilename'), '/drop/mod.7z');
+      expect(
+        await luaCallMethod(dropped, 'open', const <Object?>['r']),
+        isTrue,
+      );
+      expect(await luaCallMethod(dropped, 'getSize'), greaterThan(0));
+      expect(await luaCallMethod(dropped, 'close'), isTrue);
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           <Object?>[dropped, 'dropped7zmods', true],
         ),
         isTrue,
       );
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setRequirePath'],
         const <Object?>['dropped7zmods/?.lua;?.lua'],
@@ -6234,12 +6303,12 @@ testbed = {
           <Object?>[Value('dropped')],
         ),
       );
-      final module = _unwrap(droppedResult.first) as Map;
+      final module = luaUnwrapValue(droppedResult.first) as Map;
 
       expect(module['dropped'], '7z');
-      expect(_unwrap(droppedResult[1]), 'dropped7zmods/dropped.lua');
+      expect(luaUnwrapValue(droppedResult[1]), 'dropped7zmods/dropped.lua');
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['dropped7zmods/readme.txt'],
@@ -6247,7 +6316,7 @@ testbed = {
         <Object?>['from dropped 7z', 15],
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getRealDirectory'],
           const <Object?>['dropped7zmods/readme.txt'],
@@ -6282,7 +6351,7 @@ testbed = {
       );
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           const <Object?>['/drop/mod.zip', 'namedmods', true],
@@ -6290,7 +6359,7 @@ testbed = {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['namedmods/readme.txt'],
@@ -6298,7 +6367,7 @@ testbed = {
         <Object?>['from dropped zip', 16],
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'unmount'],
           const <Object?>['/drop/mod.zip'],
@@ -6306,7 +6375,7 @@ testbed = {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getInfo'],
           const <Object?>['namedmods/readme.txt'],
@@ -6340,7 +6409,7 @@ testbed = {
       );
 
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'mount'],
           const <Object?>['/drop/mod.7z', 'named7zmods', true],
@@ -6348,7 +6417,7 @@ testbed = {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'read'],
           const <Object?>['named7zmods/readme.txt'],
@@ -6356,7 +6425,7 @@ testbed = {
         <Object?>['from dropped 7z', 15],
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'unmount'],
           const <Object?>['/drop/mod.7z'],
@@ -6364,7 +6433,7 @@ testbed = {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           interpreter,
           const ['love', 'filesystem', 'getInfo'],
           const <Object?>['named7zmods/readme.txt'],
@@ -6391,13 +6460,13 @@ testbed = {
         ),
       );
 
-      final iterator = await _callMethod(dropped, 'lines');
+      final iterator = await luaCallMethod(dropped, 'lines');
       expect(await _callBuiltin(iterator!), 'alpha');
-      expect(await _callMethod(dropped, 'tell'), 6);
+      expect(await luaCallMethod(dropped, 'tell'), 6);
       expect(await _callBuiltin(iterator), 'beta');
-      expect(await _callMethod(dropped, 'tell'), 11);
+      expect(await luaCallMethod(dropped, 'tell'), 11);
       expect(await _callBuiltin(iterator), isNull);
-      expect(await _callMethod(dropped, 'isOpen'), isFalse);
+      expect(await luaCallMethod(dropped, 'isOpen'), isFalse);
     },
   );
 
@@ -6418,16 +6487,19 @@ testbed = {
       );
 
       expect(
-        await _callMethod(dropped, 'setBuffer', const <Object?>['none', 9.9]),
+        await luaCallMethod(dropped, 'setBuffer', const <Object?>['none', 9.9]),
         isTrue,
       );
-      expect(await _callMethod(dropped, 'getBuffer'), <Object?>['none', 0]);
+      expect(await luaCallMethod(dropped, 'getBuffer'), <Object?>['none', 0]);
 
-      expect(await _callMethod(dropped, 'open', const <Object?>['r']), isTrue);
+      expect(
+        await luaCallMethod(dropped, 'open', const <Object?>['r']),
+        isTrue,
+      );
       expect(adapter.lastOpenedDevice, isNotNull);
       expect(adapter.lastOpenedDevice!.bufferMode, BufferMode.none);
       expect(adapter.lastOpenedDevice!.bufferSize, 0);
-      expect(await _callMethod(dropped, 'getBuffer'), <Object?>['none', 0]);
+      expect(await luaCallMethod(dropped, 'getBuffer'), <Object?>['none', 0]);
     },
   );
 
@@ -6448,20 +6520,23 @@ testbed = {
       );
 
       expect(
-        await _callMethod(dropped, 'setBuffer', const <Object?>['full', 12]),
+        await luaCallMethod(dropped, 'setBuffer', const <Object?>['full', 12]),
         isTrue,
       );
-      expect(await _callMethod(dropped, 'getBuffer'), <Object?>['full', 12]);
+      expect(await luaCallMethod(dropped, 'getBuffer'), <Object?>['full', 12]);
 
       adapter.setBufferingFailureError = 'buffer apply failed';
-      expect(await _callMethod(dropped, 'open', const <Object?>['r']), isTrue);
-      expect(await _callMethod(dropped, 'getBuffer'), <Object?>['none', 0]);
+      expect(
+        await luaCallMethod(dropped, 'open', const <Object?>['r']),
+        isTrue,
+      );
+      expect(await luaCallMethod(dropped, 'getBuffer'), <Object?>['none', 0]);
 
       expect(
-        await _callMethod(dropped, 'setBuffer', const <Object?>['line', 7]),
+        await luaCallMethod(dropped, 'setBuffer', const <Object?>['line', 7]),
         isFalse,
       );
-      expect(await _callMethod(dropped, 'getBuffer'), <Object?>['none', 0]);
+      expect(await luaCallMethod(dropped, 'getBuffer'), <Object?>['none', 0]);
     },
   );
 
@@ -6483,21 +6558,21 @@ testbed = {
       );
 
       final readResult = _rawResults(
-        await _callMethod(dropped, 'open', const <Object?>['r']),
+        await luaCallMethod(dropped, 'open', const <Object?>['r']),
       );
       expect(readResult[0], isNull);
       expect(
-        _unwrap(readResult[1]),
+        luaUnwrapValue(readResult[1]),
         'Could not open file /drop/blocked.txt. Does not exist.',
       );
-      expect(await _callMethod(dropped, 'getMode'), 'c');
+      expect(await luaCallMethod(dropped, 'getMode'), 'c');
 
       final writeResult = _rawResults(
-        await _callMethod(dropped, 'open', const <Object?>['w']),
+        await luaCallMethod(dropped, 'open', const <Object?>['w']),
       );
       expect(writeResult, <Object?>[false]);
-      expect(await _callMethod(dropped, 'isOpen'), isFalse);
-      expect(await _callMethod(dropped, 'getMode'), 'w');
+      expect(await luaCallMethod(dropped, 'isOpen'), isFalse);
+      expect(await luaCallMethod(dropped, 'getMode'), 'w');
     },
   );
 
@@ -6511,7 +6586,7 @@ testbed = {
       installLove2d(runtime: runtime, filesystemAdapter: adapter);
 
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'setFused'],
           const <Object?>[true],
@@ -6519,7 +6594,7 @@ testbed = {
         isNull,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', '_setAndroidSaveExternal'],
           const <Object?>[true],
@@ -6527,7 +6602,7 @@ testbed = {
         isNull,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'setIdentity'],
           const <Object?>['game'],
@@ -6535,7 +6610,7 @@ testbed = {
         isNull,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'setSource'],
           const <Object?>['/source'],
@@ -6543,7 +6618,7 @@ testbed = {
         isNull,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'createDirectory'],
           const <Object?>['saves'],
@@ -6552,15 +6627,23 @@ testbed = {
       );
 
       expect(
-        await _call(runtime, const ['love', 'filesystem', 'getExecutablePath']),
+        await luaCall(runtime, const [
+          'love',
+          'filesystem',
+          'getExecutablePath',
+        ]),
         '/bin/lualike-test',
       );
       expect(
-        await _call(runtime, const ['love', 'filesystem', 'getSaveDirectory']),
+        await luaCall(runtime, const [
+          'love',
+          'filesystem',
+          'getSaveDirectory',
+        ]),
         '/appdata/game',
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'exists'],
           const <Object?>['main.lua'],
@@ -6568,7 +6651,7 @@ testbed = {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'isFile'],
           const <Object?>['main.lua'],
@@ -6576,7 +6659,7 @@ testbed = {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'isDirectory'],
           const <Object?>['saves'],
@@ -6584,7 +6667,7 @@ testbed = {
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'isSymlink'],
           const <Object?>['main.lua'],
@@ -6592,7 +6675,7 @@ testbed = {
         isFalse,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'getLastModified'],
           const <Object?>['main.lua'],
@@ -6600,7 +6683,7 @@ testbed = {
         0,
       );
       expect(
-        await _call(
+        await luaCall(
           runtime,
           const ['love', 'filesystem', 'getSize'],
           const <Object?>['main.lua'],
@@ -6618,52 +6701,52 @@ testbed = {
       final runtime = LoveScriptRuntime(filesystemAdapter: adapter);
       final interpreter = runtime.runtime as Interpreter;
 
-      await _call(
+      await luaCall(
         interpreter,
         const ['love', 'filesystem', 'setSource'],
         const <Object?>['/source'],
       );
 
-      final file = await _call(
+      final file = await luaCall(
         interpreter,
         const ['love', 'filesystem', 'newFile'],
         const <Object?>['objects.txt'],
       );
-      expect(await _callMethod(file!, 'type'), 'File');
+      expect(await luaCallMethod(file!, 'type'), 'File');
       expect(
-        await _callMethod(file, 'typeOf', const <Object?>['File']),
+        await luaCallMethod(file, 'typeOf', const <Object?>['File']),
         isTrue,
       );
       expect(
-        await _callMethod(file, 'typeOf', const <Object?>['Object']),
+        await luaCallMethod(file, 'typeOf', const <Object?>['Object']),
         isTrue,
       );
-      expect(await _callMethod(file, 'open', const <Object?>['r']), isTrue);
-      expect(await _callMethod(file, 'release'), isTrue);
-      expect(await _callMethod(file, 'isOpen'), isFalse);
-      expect(await _callMethod(file, 'release'), isFalse);
+      expect(await luaCallMethod(file, 'open', const <Object?>['r']), isTrue);
+      expect(await luaCallMethod(file, 'release'), isTrue);
+      expect(await luaCallMethod(file, 'isOpen'), isFalse);
+      expect(await luaCallMethod(file, 'release'), isFalse);
 
-      final fileData = await _call(
+      final fileData = await luaCall(
         interpreter,
         const ['love', 'filesystem', 'newFileData'],
         const <Object?>['payload', 'payload.bin'],
       );
-      expect(await _callMethod(fileData!, 'type'), 'FileData');
+      expect(await luaCallMethod(fileData!, 'type'), 'FileData');
       expect(
-        await _callMethod(fileData, 'typeOf', const <Object?>['FileData']),
+        await luaCallMethod(fileData, 'typeOf', const <Object?>['FileData']),
         isTrue,
       );
       expect(
-        await _callMethod(fileData, 'typeOf', const <Object?>['Data']),
+        await luaCallMethod(fileData, 'typeOf', const <Object?>['Data']),
         isTrue,
       );
       expect(
-        await _callMethod(fileData, 'typeOf', const <Object?>['Object']),
+        await luaCallMethod(fileData, 'typeOf', const <Object?>['Object']),
         isTrue,
       );
-      expect(await _callMethod(fileData, 'getSize'), 7);
-      expect(await _callMethod(fileData, 'release'), isTrue);
-      expect(await _callMethod(fileData, 'release'), isFalse);
+      expect(await luaCallMethod(fileData, 'getSize'), 7);
+      expect(await luaCallMethod(fileData, 'release'), isTrue);
+      expect(await luaCallMethod(fileData, 'release'), isFalse);
     },
   );
 
@@ -6677,11 +6760,11 @@ testbed = {
       );
 
       expect(
-        await _call(firstRuntime, const ['love', 'filesystem', 'isFused']),
+        await luaCall(firstRuntime, const ['love', 'filesystem', 'isFused']),
         isFalse,
       );
       expect(
-        await _call(
+        await luaCall(
           firstRuntime,
           const ['love', 'filesystem', 'setFused'],
           const <Object?>[false],
@@ -6689,11 +6772,11 @@ testbed = {
         isNull,
       );
       expect(
-        await _call(firstRuntime, const ['love', 'filesystem', 'isFused']),
+        await luaCall(firstRuntime, const ['love', 'filesystem', 'isFused']),
         isFalse,
       );
       expect(
-        await _call(
+        await luaCall(
           firstRuntime,
           const ['love', 'filesystem', 'setFused'],
           const <Object?>[true],
@@ -6701,7 +6784,7 @@ testbed = {
         isNull,
       );
       expect(
-        await _call(firstRuntime, const ['love', 'filesystem', 'isFused']),
+        await luaCall(firstRuntime, const ['love', 'filesystem', 'isFused']),
         isFalse,
       );
 
@@ -6712,7 +6795,7 @@ testbed = {
       );
 
       expect(
-        await _call(
+        await luaCall(
           secondRuntime,
           const ['love', 'filesystem', 'setFused'],
           const <Object?>[true],
@@ -6720,11 +6803,11 @@ testbed = {
         isNull,
       );
       expect(
-        await _call(secondRuntime, const ['love', 'filesystem', 'isFused']),
+        await luaCall(secondRuntime, const ['love', 'filesystem', 'isFused']),
         isTrue,
       );
       expect(
-        await _call(
+        await luaCall(
           secondRuntime,
           const ['love', 'filesystem', 'setFused'],
           const <Object?>[false],
@@ -6732,7 +6815,7 @@ testbed = {
         isNull,
       );
       expect(
-        await _call(secondRuntime, const ['love', 'filesystem', 'isFused']),
+        await luaCall(secondRuntime, const ['love', 'filesystem', 'isFused']),
         isTrue,
       );
     },
@@ -7346,14 +7429,6 @@ final class _IsoFileEntry {
   int extent = 0;
 }
 
-Future<Object?> _call(
-  Interpreter runtime,
-  List<String> path, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(_rawFunction(runtime, path).call(args));
-}
-
 void _allowStringMount(LuaRuntime runtime, String archivePath) {
   LoveFilesystemState.attach(runtime).allowMountingForPath(archivePath);
 }
@@ -7363,31 +7438,11 @@ Future<Object?> _callRawPath(
   List<String> path, [
   List<Object?> args = const <Object?>[],
 ]) async {
-  final result = _rawFunction(
+  final result = luaRawFunction(
     runtime,
     path,
   ).call(args.map((arg) => arg is Value ? arg : Value(arg)).toList());
   return result is Future<Object?> ? await result : result;
-}
-
-Future<Object?> _callMethod(
-  Object object,
-  String method, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  final table = object is Value ? object.raw : object;
-  expect(table, isA<Map>());
-
-  final methodValue = (table as Map)[method];
-  final callable = switch (methodValue) {
-    final Value value => value.raw,
-    final BuiltinFunction function => function,
-    _ => methodValue,
-  };
-  expect(callable, isA<BuiltinFunction>());
-  return _resolveCallResult(
-    (callable as BuiltinFunction).call(<Object?>[object, ...args]),
-  );
 }
 
 Future<Object?> _callBuiltin(
@@ -7400,7 +7455,7 @@ Future<Object?> _callBuiltin(
     _ => object,
   };
   expect(callable, isA<BuiltinFunction>());
-  return _resolveCallResult((callable as BuiltinFunction).call(args));
+  return luaResolveCallResult((callable as BuiltinFunction).call(args));
 }
 
 Map<dynamic, dynamic> _packageTable(Interpreter runtime) {
@@ -7430,24 +7485,6 @@ Future<Object?> _callHostFunction(
   return result;
 }
 
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> path) {
-  var current = runtime.getCurrentEnv().get(path.first);
-  for (final segment in path.skip(1)) {
-    final table = current is Value ? current.raw : current;
-    expect(
-      table,
-      isA<Map>(),
-      reason: 'Expected ${path.join('.')} to traverse a Lua table',
-    );
-    current = (table as Map)[segment];
-  }
-
-  expect(current, isA<Value>());
-  final raw = (current! as Value).raw;
-  expect(raw, isA<BuiltinFunction>());
-  return raw as BuiltinFunction;
-}
-
 List<Object?> _rawResults(Object? result) {
   if (result case final Value value when value.isMulti) {
     return List<Object?>.from(value.raw as List<Object?>, growable: false);
@@ -7457,18 +7494,6 @@ List<Object?> _rawResults(Object? result) {
   }
   return <Object?>[result];
 }
-
-Future<Object?> _resolveCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return (wrapped.raw as List<Object?>).map(_unwrap).toList(growable: false);
-  }
-
-  return _unwrap(resolved);
-}
-
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;
 
 Map<Object?, Object?> _genericDataWrapper(List<int> bytes) {
   Object? unwrapArg(Object? value) => value is Value ? value.unwrap() : value;

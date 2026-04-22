@@ -1,11 +1,10 @@
-import 'dart:typed_data';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lualike/lualike.dart';
 import 'package:love2d/love2d.dart';
 import 'package:love2d/src/runtime/filesystem/love_filesystem_runtime.dart';
 
 import 'test_support/font_test_support.dart';
+import 'test_support/lua_api_test_helpers.dart';
 
 void main() {
   group('love.font optional arguments', () {
@@ -13,51 +12,54 @@ void main() {
       final runtime = Interpreter();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
-      final rasterizer = await _call(
+      final rasterizer = await luaCall(
         runtime,
         const ['love', 'font', 'newTrueTypeRasterizer'],
         <Object?>[12, null, 2.0],
       );
-      expect(await _callMethod(rasterizer, 'getHeight'), 24);
+      expect(await luaCallMethod(rasterizer, 'getHeight'), 24);
 
-      final font = await _call(
+      final font = await luaCall(
         runtime,
         const ['love', 'graphics', 'newFont'],
         <Object?>[12, null, 2.0],
       );
-      expect(await _callMethod(font, 'getDPIScale'), 2.0);
+      expect(await luaCallMethod(font, 'getDPIScale'), 2.0);
 
       final veraBytes = await (await love2dVeraFontFile()).readAsBytes();
-      final fileData = await _call(
+      final fileData = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFileData'],
         <Object?>[veraBytes, 'Vera.ttf'],
       );
-      final sourceRasterizer = await _call(
+      final sourceRasterizer = await luaCall(
         runtime,
         const ['love', 'font', 'newTrueTypeRasterizer'],
         <Object?>[fileData, 12, null, 2.0],
       );
-      expect(await _callMethod(sourceRasterizer, 'getGlyphCount'), 268);
-      expect(await _callMethod(sourceRasterizer, 'getHeight'), greaterThan(24));
+      expect(await luaCallMethod(sourceRasterizer, 'getGlyphCount'), 268);
+      expect(
+        await luaCallMethod(sourceRasterizer, 'getHeight'),
+        greaterThan(24),
+      );
 
-      final nilSizeRasterizer = await _call(
+      final nilSizeRasterizer = await luaCall(
         runtime,
         const ['love', 'font', 'newTrueTypeRasterizer'],
         <Object?>[fileData, null, 'mono', 2.0],
       );
-      final defaultSizeRasterizer = await _call(
+      final defaultSizeRasterizer = await luaCall(
         runtime,
         const ['love', 'font', 'newTrueTypeRasterizer'],
         <Object?>[fileData, 12, 'mono', 2.0],
       );
       expect(
-        await _callMethod(nilSizeRasterizer, 'getHeight'),
-        await _callMethod(defaultSizeRasterizer, 'getHeight'),
+        await luaCallMethod(nilSizeRasterizer, 'getHeight'),
+        await luaCallMethod(defaultSizeRasterizer, 'getHeight'),
       );
       expect(
-        await _callMethod(nilSizeRasterizer, 'getGlyphCount'),
-        await _callMethod(defaultSizeRasterizer, 'getGlyphCount'),
+        await luaCallMethod(nilSizeRasterizer, 'getGlyphCount'),
+        await luaCallMethod(defaultSizeRasterizer, 'getGlyphCount'),
       );
     });
 
@@ -67,37 +69,39 @@ void main() {
         final runtime = Interpreter();
         installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
-        final imageData = await _call(
+        final imageData = await luaCall(
           runtime,
           const ['love', 'image', 'newImageData'],
-          <Object?>[9, 6, 'rgba8', _imageFontStripBytes()],
+          <Object?>[9, 6, 'rgba8', imageFontStripBytes()],
         );
 
-        final rasterizer = await _call(
+        final rasterizer = await luaCall(
           runtime,
           const ['love', 'font', 'newImageRasterizer'],
           <Object?>[imageData, 'ABC', null, 2.0],
         );
-        expect(await _callMethod(rasterizer, 'getAdvance'), 3);
+        expect(await luaCallMethod(rasterizer, 'getAdvance'), 3);
 
-        final rasterizerFont = await _call(
+        final rasterizerFont = await luaCall(
           runtime,
           const ['love', 'graphics', 'newFont'],
           <Object?>[rasterizer],
         );
-        expect(await _callMethod(rasterizerFont, 'getDPIScale'), 2.0);
+        expect(await luaCallMethod(rasterizerFont, 'getDPIScale'), 2.0);
         expect(
-          await _callMethod(rasterizerFont, 'getWidth', const <Object?>['ABC']),
+          await luaCallMethod(rasterizerFont, 'getWidth', const <Object?>[
+            'ABC',
+          ]),
           3.0,
         );
 
-        final imageFont = await _call(
+        final imageFont = await luaCall(
           runtime,
           const ['love', 'graphics', 'newImageFont'],
           <Object?>[imageData, 'ABC', null],
         );
         expect(
-          await _callMethod(imageFont, 'getWidth', const <Object?>['ABC']),
+          await luaCallMethod(imageFont, 'getWidth', const <Object?>['ABC']),
           6.0,
         );
       },
@@ -107,31 +111,31 @@ void main() {
       final runtime = Interpreter();
       installLove2d(runtime: runtime, host: LoveHeadlessHost());
 
-      final definition = await _call(
+      final definition = await luaCall(
         runtime,
         const ['love', 'filesystem', 'newFileData'],
         <Object?>[_bmFontDefinition, 'assets/fonts/bmfont/test.fnt'],
       );
-      final imageData = await _call(
+      final imageData = await luaCall(
         runtime,
         const ['love', 'image', 'newImageData'],
         const <Object?>[8, 6],
       );
 
-      final rasterizer = await _call(
+      final rasterizer = await luaCall(
         runtime,
         const ['love', 'font', 'newBMFontRasterizer'],
         <Object?>[definition, imageData, null],
       );
-      expect(await _callMethod(rasterizer, 'getGlyphCount'), 2);
+      expect(await luaCallMethod(rasterizer, 'getGlyphCount'), 2);
 
-      final font = await _call(
+      final font = await luaCall(
         runtime,
         const ['love', 'graphics', 'newFont'],
         <Object?>[definition, imageData, null],
       );
-      expect(await _callMethod(font, 'getDPIScale'), 1.0);
-      expect(await _callMethod(font, 'getHeight'), 6.0);
+      expect(await luaCallMethod(font, 'getDPIScale'), 1.0);
+      expect(await luaCallMethod(font, 'getHeight'), 6.0);
     });
 
     test(
@@ -146,28 +150,28 @@ void main() {
           isTrue,
         );
 
-        final autoFont = await _call(
+        final autoFont = await luaCall(
           runtime,
           const ['love', 'graphics', 'newFont'],
           const <Object?>['Vera.ttf'],
         );
-        final nilSizeFont = await _call(
+        final nilSizeFont = await luaCall(
           runtime,
           const ['love', 'graphics', 'newFont'],
           <Object?>['Vera.ttf', null, 2.0],
         );
 
         expect(
-          await _callMethod(nilSizeFont, 'getHeight'),
-          await _callMethod(autoFont, 'getHeight'),
+          await luaCallMethod(nilSizeFont, 'getHeight'),
+          await luaCallMethod(autoFont, 'getHeight'),
         );
         expect(
-          await _callMethod(nilSizeFont, 'getDPIScale'),
-          await _callMethod(autoFont, 'getDPIScale'),
+          await luaCallMethod(nilSizeFont, 'getDPIScale'),
+          await luaCallMethod(autoFont, 'getDPIScale'),
         );
         expect(
-          await _callMethod(nilSizeFont, 'getWidth', const <Object?>['AV']),
-          await _callMethod(autoFont, 'getWidth', const <Object?>['AV']),
+          await luaCallMethod(nilSizeFont, 'getWidth', const <Object?>['AV']),
+          await luaCallMethod(autoFont, 'getWidth', const <Object?>['AV']),
         );
       },
     );
@@ -184,45 +188,45 @@ void main() {
           isTrue,
         );
 
-        final autoFont = await _call(
+        final autoFont = await luaCall(
           runtime,
           const ['love', 'graphics', 'newFont'],
           const <Object?>['Vera.ttf'],
         );
-        final nilSizeFont = await _call(
+        final nilSizeFont = await luaCall(
           runtime,
           const ['love', 'graphics', 'setNewFont'],
           <Object?>['Vera.ttf', null, 'mono', 2.0],
         );
-        final currentFont = await _call(runtime, const [
+        final currentFont = await luaCall(runtime, const [
           'love',
           'graphics',
           'getFont',
         ]);
 
         expect(
-          await _callMethod(nilSizeFont, 'getHeight'),
-          await _callMethod(autoFont, 'getHeight'),
+          await luaCallMethod(nilSizeFont, 'getHeight'),
+          await luaCallMethod(autoFont, 'getHeight'),
         );
         expect(
-          await _callMethod(nilSizeFont, 'getDPIScale'),
-          await _callMethod(autoFont, 'getDPIScale'),
+          await luaCallMethod(nilSizeFont, 'getDPIScale'),
+          await luaCallMethod(autoFont, 'getDPIScale'),
         );
         expect(
-          await _callMethod(nilSizeFont, 'getWidth', const <Object?>['AV']),
-          await _callMethod(autoFont, 'getWidth', const <Object?>['AV']),
+          await luaCallMethod(nilSizeFont, 'getWidth', const <Object?>['AV']),
+          await luaCallMethod(autoFont, 'getWidth', const <Object?>['AV']),
         );
         expect(
-          await _callMethod(currentFont, 'getHeight'),
-          await _callMethod(autoFont, 'getHeight'),
+          await luaCallMethod(currentFont, 'getHeight'),
+          await luaCallMethod(autoFont, 'getHeight'),
         );
         expect(
-          await _callMethod(currentFont, 'getDPIScale'),
-          await _callMethod(autoFont, 'getDPIScale'),
+          await luaCallMethod(currentFont, 'getDPIScale'),
+          await luaCallMethod(autoFont, 'getDPIScale'),
         );
         expect(
-          await _callMethod(currentFont, 'getWidth', const <Object?>['AV']),
-          await _callMethod(autoFont, 'getWidth', const <Object?>['AV']),
+          await luaCallMethod(currentFont, 'getWidth', const <Object?>['AV']),
+          await luaCallMethod(autoFont, 'getWidth', const <Object?>['AV']),
         );
       },
     );
@@ -239,85 +243,3 @@ char id=66 x=3 y=0 width=2 height=6 xoffset=0 yoffset=0 xadvance=3 page=0 chnl=1
 kernings count=1
 kerning first=65 second=66 amount=-1
 ''';
-
-Future<Object?> _call(
-  Interpreter runtime,
-  List<String> path, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(_rawFunction(runtime, path).call(args));
-}
-
-Future<Object?> _callMethod(
-  Object? receiver,
-  String method, [
-  List<Object?> args = const <Object?>[],
-]) async {
-  return _resolveCallResult(
-    _rawMethod(receiver, method).call(<Object?>[receiver, ...args]),
-  );
-}
-
-BuiltinFunction _rawFunction(Interpreter runtime, List<String> path) {
-  var current = runtime.getCurrentEnv().get(path.first);
-  for (final segment in path.skip(1)) {
-    final table = current is Value ? current.raw : current;
-    expect(
-      table,
-      isA<Map>(),
-      reason: 'Expected ${path.join('.')} to traverse a Lua table',
-    );
-    current = (table as Map)[segment];
-  }
-
-  expect(current, isA<Value>());
-  final raw = (current! as Value).raw;
-  expect(raw, isA<BuiltinFunction>());
-  return raw as BuiltinFunction;
-}
-
-BuiltinFunction _rawMethod(Object? receiver, String method) {
-  final table = receiver is Value ? receiver.raw : receiver;
-  expect(table, isA<Map>());
-  final entry = (table! as Map)[method];
-  return switch (entry) {
-    final Value wrapped when wrapped.raw is BuiltinFunction =>
-      wrapped.raw as BuiltinFunction,
-    final BuiltinFunction function => function,
-    _ => throw TestFailure('Expected $method to be a callable Lua method'),
-  };
-}
-
-Future<Object?> _resolveCallResult(Object? result) async {
-  final resolved = result is Future<Object?> ? await result : result;
-  if (resolved case final Value wrapped when wrapped.isMulti) {
-    return List<Object?>.from(
-      wrapped.raw as List<Object?>,
-      growable: false,
-    ).map(_unwrap).toList(growable: false);
-  }
-  return _unwrap(resolved);
-}
-
-Object? _unwrap(Object? value) => value is Value ? value.unwrap() : value;
-
-Uint8List _imageFontStripBytes() {
-  final bytes = Uint8List(9 * 6 * 4);
-
-  void fillColumns(int start, int end, List<int> rgba) {
-    for (var row = 0; row < 6; row++) {
-      for (var column = start; column < end; column++) {
-        final offset = ((row * 9) + column) * 4;
-        bytes[offset] = rgba[0];
-        bytes[offset + 1] = rgba[1];
-        bytes[offset + 2] = rgba[2];
-        bytes[offset + 3] = rgba[3];
-      }
-    }
-  }
-
-  fillColumns(1, 3, const <int>[255, 255, 255, 255]);
-  fillColumns(4, 5, const <int>[255, 96, 96, 255]);
-  fillColumns(6, 9, const <int>[96, 255, 96, 255]);
-  return bytes;
-}
